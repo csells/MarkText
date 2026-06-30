@@ -2,6 +2,7 @@ import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
 import type { ICommentMetadata } from './types';
 import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
+import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
 import { parseCommentMetadataDefinition } from './syntax';
 
 export interface IAddCommentInput {
@@ -15,6 +16,7 @@ export interface IAddCommentInput {
 interface IWrapCommentRangeInput {
     states: TState[];
     path: TBlockPath;
+    endPath?: TBlockPath;
     startOffset: number;
     endOffset: number;
     id: string;
@@ -103,29 +105,66 @@ export function nextCommentId(existingIds: Iterable<string>): string {
 export function wrapCommentRange({
     states,
     path,
+    endPath = path,
     startOffset,
     endOffset,
     id,
     metadata,
 }: IWrapCommentRangeInput): TState[] | null {
-    const text = readPath(states, path);
-    if (typeof text !== 'string')
+    const indexes = buildTextPathIndexes(states);
+    const range = orderTextRange(indexes, path, startOffset, endPath, endOffset);
+    if (!range)
         return null;
-    if (startOffset < 0 || endOffset > text.length || startOffset >= endOffset)
+
+    const startText = readPath(states, range.startPath);
+    const endText = readPath(states, range.endPath);
+    if (typeof startText !== 'string' || typeof endText !== 'string')
         return null;
+    if (
+        range.startOffset < 0
+        || range.startOffset > startText.length
+        || range.endOffset < 0
+        || range.endOffset > endText.length
+    ) {
+        return null;
+    }
 
     const openMarker = `<!--MC:${id}-->`;
     const closeMarker = `<!--MC:~${id}-->`;
-    const nextText = [
-        text.slice(0, startOffset),
-        openMarker,
-        text.slice(startOffset, endOffset),
-        closeMarker,
-        text.slice(endOffset),
-    ].join('');
+    if (commentPathKey(range.startPath) === commentPathKey(range.endPath)) {
+        if (range.startOffset >= range.endOffset)
+            return null;
 
-    if (!writePath(states, path, nextText))
-        return null;
+        const nextText = [
+            startText.slice(0, range.startOffset),
+            openMarker,
+            startText.slice(range.startOffset, range.endOffset),
+            closeMarker,
+            startText.slice(range.endOffset),
+        ].join('');
+
+        if (!writePath(states, range.startPath, nextText))
+            return null;
+    }
+    else {
+        const nextStartText = [
+            startText.slice(0, range.startOffset),
+            openMarker,
+            startText.slice(range.startOffset),
+        ].join('');
+        const nextEndText = [
+            endText.slice(0, range.endOffset),
+            closeMarker,
+            endText.slice(range.endOffset),
+        ].join('');
+
+        if (
+            !writePath(states, range.startPath, nextStartText)
+            || !writePath(states, range.endPath, nextEndText)
+        ) {
+            return null;
+        }
+    }
 
     states.push({
         name: 'paragraph',

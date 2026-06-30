@@ -138,6 +138,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
       },
       {
         label: t('menu.edit.addComment'),
+        id: COMMANDS.EDIT_ADD_COMMENT,
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_ADD_COMMENT) ?? undefined,
         click(_menuItem, browserWindow) {
           actions.editorAddComment(browserWindow as BrowserWindow | undefined)

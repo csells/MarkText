@@ -1,12 +1,13 @@
 import type Format from '../block/base/format';
 import type ParagraphContent from '../block/content/paragraphContent';
 import type { TBlockPath } from '../block/types';
-import type { ICommentRange, IParsedMarkdownComments } from '../comments/types';
+import type { IParsedMarkdownComments } from '../comments/types';
 import type { Muya } from '../muya';
 import type { IRenderCursor } from '../selection/types';
 import type { IParagraphState, TContainerState, TState } from '../state/types';
 import type { IHighlight, Labels } from './types';
 import { parseMarkdownComments } from '../comments/parse';
+import { buildTextPathIndexes, selectionIntersectsCommentRange } from '../comments/range';
 import { isCommentMetadataReference } from '../comments/syntax';
 import logger from '../utils/logger';
 import { tokenizer } from './lexer';
@@ -18,8 +19,8 @@ const debug = logger('inlineRenderer:');
 interface IRenderSelectionRange {
     anchorPath: TBlockPath;
     focusPath: TBlockPath;
-    begin: number;
-    end: number;
+    anchorOffset: number;
+    focusOffset: number;
 }
 
 class InlineRenderer {
@@ -89,17 +90,19 @@ class InlineRenderer {
     }
 
     private _commentHighlights(block: Format, cursor?: IRenderCursor): IHighlight[] {
-        const comments = parseMarkdownComments(this.muya.editor.jsonState.getState());
+        const states = this.muya.editor.jsonState.getState();
+        const comments = parseMarkdownComments(states);
         if (!comments.ranges.length)
             return [];
 
         const blockIndexes = this._contentBlockIndexes();
+        const textPathIndexes = buildTextPathIndexes(states);
         const blockKey = this._pathKey(block.path);
         const blockIndex = blockIndexes.get(blockKey);
         if (blockIndex === undefined)
             return [];
 
-        const activeIds = this._activeCommentIds(comments, cursor);
+        const activeIds = this._activeCommentIds(comments, cursor, textPathIndexes);
         const highlights: IHighlight[] = [];
 
         for (const range of comments.ranges) {
@@ -144,19 +147,24 @@ class InlineRenderer {
         return indexes;
     }
 
-    private _activeCommentIds(comments: IParsedMarkdownComments, cursor?: IRenderCursor) {
+    private _activeCommentIds(
+        comments: IParsedMarkdownComments,
+        cursor: IRenderCursor | undefined,
+        textPathIndexes: Map<string, number>,
+    ) {
         const activeIds = new Set<string>();
         const selection = this._renderSelectionRange(cursor);
         if (!selection)
             return activeIds;
 
         for (const range of comments.ranges) {
-            if (this._selectionIntersectsRange(
+            if (selectionIntersectsCommentRange(
                 range,
                 selection.anchorPath,
+                selection.anchorOffset,
                 selection.focusPath,
-                selection.begin,
-                selection.end,
+                selection.focusOffset,
+                textPathIndexes,
             )) {
                 activeIds.add(range.id);
             }
@@ -170,8 +178,8 @@ class InlineRenderer {
             return {
                 anchorPath: cursor.block.path,
                 focusPath: cursor.block.path,
-                begin: Math.min(cursor.anchor.offset, cursor.focus.offset),
-                end: Math.max(cursor.anchor.offset, cursor.focus.offset),
+                anchorOffset: cursor.anchor.offset,
+                focusOffset: cursor.focus.offset,
             };
         }
 
@@ -182,28 +190,9 @@ class InlineRenderer {
         return {
             anchorPath: selection.anchor.path,
             focusPath: selection.focus.path,
-            begin: Math.min(selection.anchor.offset, selection.focus.offset),
-            end: Math.max(selection.anchor.offset, selection.focus.offset),
+            anchorOffset: selection.anchor.offset,
+            focusOffset: selection.focus.offset,
         };
-    }
-
-    private _selectionIntersectsRange(
-        range: ICommentRange,
-        anchorPath: TBlockPath,
-        focusPath: TBlockPath,
-        begin: number,
-        end: number,
-    ) {
-        if (!this._samePath(anchorPath, focusPath) || !this._samePath(anchorPath, range.startPath))
-            return false;
-        if (!this._samePath(range.startPath, range.endPath))
-            return false;
-
-        return begin <= range.endOffset && end >= range.startOffset;
-    }
-
-    private _samePath(a: TBlockPath, b: TBlockPath) {
-        return a.length === b.length && a.every((part, index) => part === b[index]);
     }
 
     private _pathKey(path: TBlockPath) {

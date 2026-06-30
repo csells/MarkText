@@ -43,6 +43,9 @@ function bootMuya(markdown: string): Muya {
     return muya;
 }
 
+const COMMENT_METADATA
+    = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+
 describe('muya.getCursorOffset() (Phase G — G7)', () => {
     it('maps a collapsed caret in a paragraph to its {line, ch}', () => {
         const muya = bootMuya('first para\n\nsecond para\n\nthird para here\n');
@@ -79,6 +82,43 @@ describe('muya.getCursorOffset() (Phase G — G7)', () => {
         expect(cursor).not.toBeNull();
         expect(cursor!.anchor).toEqual(target);
         expect(cursor!.focus).toEqual(target);
+    });
+
+    it('maps a caret through hidden comment marker bytes', () => {
+        const markdown = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${COMMENT_METADATA}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya(markdown);
+        const block = muya.editor.scrollPage!.firstContentInDescendant()!;
+        const offset = 'A <!--MC:a-->reviewed'.length;
+        block.setCursor(offset, offset, true);
+
+        const cursor = muya.getCursorOffset();
+
+        expect(cursor?.anchor).toEqual({ line: 0, ch: offset });
+        expect(cursor?.focus).toEqual({ line: 0, ch: offset });
+        expect(muya.getMarkdown()).toBe(markdown);
+    });
+
+    it('maps a caret inside a hidden comment metadata definition', () => {
+        const markdown = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${COMMENT_METADATA}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya(markdown);
+        const metadataBlock = muya.editor.scrollPage!.lastContentInDescendant()!;
+        metadataBlock.setCursor(7, 7, true);
+
+        const cursor = muya.getCursorOffset();
+
+        expect(cursor?.anchor).toEqual({ line: 2, ch: 7 });
+        expect(cursor?.focus).toEqual({ line: 2, ch: 7 });
+        expect(muya.getMarkdown()).toBe(markdown);
     });
 
     it('resolves a non-collapsed selection within a block to anchor/focus offsets', () => {

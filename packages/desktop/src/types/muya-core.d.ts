@@ -94,6 +94,11 @@ declare module '@muyajs/core' {
     diagnostics: ICommentDiagnostic[]
   }
 
+  export interface IParsedCommentMetadataDefinition {
+    id: string
+    dataUri: string
+  }
+
   export interface IAddCommentInput {
     id?: string
     author?: string
@@ -103,6 +108,17 @@ declare module '@muyajs/core' {
   }
 
   export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>
+
+  export const COMMENT_MARKER_PATTERN: string
+
+  export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata
+  export function decodeCommentMetadata(dataUri: string): ICommentMetadata
+  export function encodeCommentMetadata(metadata: ICommentMetadata): string
+  export function nextCommentId(existingIds: Iterable<string>): string
+  export function parseCommentMetadataDefinition(
+    text: string
+  ): IParsedCommentMetadataDefinition | null
+  export function parseMarkdownComments(markdownOrStates: string | unknown[]): IParsedMarkdownComments
 
   // The editor instance surface is kept permissive (`any`) — every member
   // that crosses the editor boundary was already `any` in editor.vue.

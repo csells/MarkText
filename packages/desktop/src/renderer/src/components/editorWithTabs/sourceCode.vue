@@ -8,11 +8,20 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useEditorStore } from '@/store/editor'
+import { useLayoutStore } from '@/store/layout'
 import { usePreferencesStore } from '@/store/preferences'
 import { findMarkdownHeadingLine, scrollSourceEditorToLine } from '@/util/sourceModeToc'
 import { storeToRefs } from 'pinia'
 import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMirror'
-import { wordCount as getWordCount } from '@muyajs/core'
+import {
+  COMMENT_MARKER_PATTERN,
+  createCommentMetadata,
+  encodeCommentMetadata,
+  nextCommentId,
+  parseCommentMetadataDefinition,
+  parseMarkdownComments,
+  wordCount as getWordCount
+} from '@muyajs/core'
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
 import { oneDarkThemes, railscastsThemes } from '@/config'
@@ -21,6 +30,16 @@ import { oneDarkThemes, railscastsThemes } from '@/config'
 // codeMirror/index.ts also keeps the surface intentionally loose.
 type CMInstance = any
 type CMCursor = any
+
+interface CMPosition {
+  line: number
+  ch: number
+}
+
+interface SourceCommentRange {
+  start: CMPosition
+  end: CMPosition
+}
 
 interface MuyaIndexCursorLike {
   anchor: CMCursor
@@ -34,6 +53,7 @@ const props = defineProps<{
 }>()
 
 const editorStore = useEditorStore()
+const layoutStore = useLayoutStore()
 const preferencesStore = usePreferencesStore()
 
 const sourceCodeContainer = ref<HTMLDivElement | null>(null)
@@ -225,6 +245,88 @@ const handleRedo = () => {
   }
 }
 
+const getSourceCommentRange = (cm: CMInstance): SourceCommentRange | null => {
+  const anchor = cm.getCursor('anchor') as CMPosition
+  const focus = cm.getCursor('head') as CMPosition
+  const anchorIndex = cm.indexFromPos(anchor)
+  const focusIndex = cm.indexFromPos(focus)
+  if (anchorIndex === focusIndex) return null
+
+  return anchorIndex < focusIndex
+    ? { start: anchor, end: focus }
+    : { start: focus, end: anchor }
+}
+
+const collectCommentIds = (markdown: string): string[] => {
+  const ids = new Set<string>()
+  const comments = parseMarkdownComments(markdown)
+  for (const thread of comments.threads) ids.add(thread.id)
+  for (const range of comments.ranges) ids.add(range.id)
+
+  const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'g')
+  let markerMatch: RegExpExecArray | null
+  while ((markerMatch = markerRegExp.exec(markdown))) {
+    const id = markerMatch[2]
+    if (id) ids.add(id)
+  }
+
+  for (const line of markdown.split(/\r\n|\n|\r/u)) {
+    const metadata = parseCommentMetadataDefinition(line)
+    if (metadata) ids.add(metadata.id)
+  }
+
+  return [...ids]
+}
+
+const sourceLineEnding = (markdown: string): string => {
+  if (markdown.includes('\r\n')) return '\r\n'
+  if (markdown.includes('\r')) return '\r'
+  return '\n'
+}
+
+const commentMetadataAppendix = (markdown: string, id: string): string => {
+  const lineEnding = sourceLineEnding(markdown)
+  const separator = markdown.endsWith('\n') || markdown.endsWith('\r')
+    ? lineEnding
+    : `${lineEnding}${lineEnding}`
+  const metadata = encodeCommentMetadata(createCommentMetadata({}))
+  return `${separator}[MC:${id}]: ${metadata}${lineEnding}`
+}
+
+const showCommentsSidebar = (): void => {
+  layoutStore.SET_LAYOUT({
+    rightColumn: 'comments',
+    showSideBar: true
+  })
+}
+
+const handleAddComment = (): void => {
+  if (!sourceCode.value || !editor.value) return
+
+  const cm = editor.value
+  const range = getSourceCommentRange(cm)
+  if (!range) return
+
+  const id = nextCommentId(collectCommentIds(cm.getValue()))
+  const openMarker = `<!--MC:${id}-->`
+  const closeMarker = `<!--MC:~${id}-->`
+
+  cm.operation(() => {
+    cm.replaceRange(closeMarker, range.end)
+    cm.replaceRange(openMarker, range.start)
+
+    const markedMarkdown = cm.getValue()
+    const lastLine = cm.lastLine()
+    const end = { line: lastLine, ch: cm.getLine(lastLine).length }
+    cm.replaceRange(commentMetadataAppendix(markedMarkdown, id), end)
+  })
+
+  saveContent(cm)
+  editorStore.UPDATE_COMMENTS(parseMarkdownComments(cm.getValue()))
+  editorStore.UPDATE_ACTIVE_COMMENTS([])
+  showCommentsSidebar()
+}
+
 interface ImageActionPayload {
   id: string
   result: string
@@ -362,6 +464,7 @@ onMounted(() => {
   bus.on('selectAll', handleSelectAll)
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
+  bus.on('addComment', handleAddComment)
   bus.on('image-action', handleImageAction)
   bus.on('scroll-to-header', handleScrollToHeader)
 
@@ -369,10 +472,8 @@ onMounted(() => {
   // See https://github.com/codemirror/codemirror5/issues/6886 - hence, we need to use a local variable first.
   const codeMirrorInstance = codeMirror(container, codeMirrorConfig)
 
-  // `markdown-math` wraps the standard Markdown mode and delegates `$...$` and
-  // `$$...$$` spans to stex so subscript underscores in math do not flip the
-  // outer mode into emphasis. See src/renderer/src/codeMirror/markdownMathMode.js.
-  codeMirrorInstance.setOption('mode', 'markdown-math')
+  // `markdown-comments` adds MC syntax decoration over the math-aware Markdown mode.
+  codeMirrorInstance.setOption('mode', 'markdown-comments')
 
   codeMirrorInstance.on('contextmenu', (_cm: CMInstance, event: Event) => {
     event.preventDefault()
@@ -402,6 +503,7 @@ onBeforeUnmount(() => {
   bus.off('selectAll', handleSelectAll)
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
+  bus.off('addComment', handleAddComment)
   bus.off('image-action', handleImageAction)
   bus.off('scroll-to-header', handleScrollToHeader)
 

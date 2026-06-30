@@ -1631,7 +1631,6 @@ const notifyCommentUnavailable = (message: string): void => {
 
 const handleAddComment = () => {
   if (sourceCode.value) {
-    notifyCommentUnavailable(t('sideBar.comments.sourceModeUnavailable'))
     return
   }
   if (!editor.value) return

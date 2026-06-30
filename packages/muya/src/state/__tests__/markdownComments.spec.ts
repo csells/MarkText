@@ -172,6 +172,24 @@ describe('markdown comments - state round-trip', () => {
             'orphan-metadata',
         ]);
     });
+
+    it('reports a duplicate marker id when a second complete range reuses it', () => {
+        const markdown = [
+            '<!--MC:a-->first<!--MC:~a--> and <!--MC:a-->second<!--MC:~a-->',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n');
+
+        const result = parseMarkdownComments(markdown);
+
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                code: 'duplicate-open-marker',
+                id: 'a',
+            }),
+        ]);
+    });
 });
 
 describe('markdown comments - metadata codec', () => {

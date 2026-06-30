@@ -26,6 +26,13 @@ const DOC = [
   ''
 ].join('\n')
 
+const MALFORMED_DOC = [
+  'A <!--MC:broken-->dangling span.',
+  '',
+  `[MC:orphan]: ${META_OPEN}`,
+  ''
+].join('\n')
+
 const sourceValue = async(page: Page): Promise<string> =>
   page.evaluate(() => {
     const cm = document.querySelector('.source-code .CodeMirror') as
@@ -36,6 +43,28 @@ const sourceValue = async(page: Page): Promise<string> =>
 
 const isDirty = (page: Page): Promise<boolean> =>
   page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))
+
+type SourceCodeMirrorElement = Element & {
+  CodeMirror?: {
+    focus(): void
+    setSelection(anchor: { line: number; ch: number }, focus: { line: number; ch: number }): void
+  }
+}
+
+const setSourceSelection = async(
+  page: Page,
+  anchor: { line: number; ch: number },
+  focus: { line: number; ch: number }
+): Promise<void> => {
+  await page.evaluate(
+    ({ anchor, focus }) => {
+      const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
+      cm?.CodeMirror?.focus()
+      cm?.CodeMirror?.setSelection(anchor, focus)
+    },
+    { anchor, focus }
+  )
+}
 
 const save = async(app: ElectronApplication): Promise<void> => {
   await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -82,6 +111,43 @@ test.describe('Portable markdown comments', () => {
     }
   })
 
+  test('source mode decorates comment syntax without changing the raw value', async() => {
+    const { app, page } = await launchWithMarkdown(DOC)
+    try {
+      await enterSourceMode(page, app)
+      expect(await sourceValue(page)).toBe(DOC)
+
+      await expect(page.locator('.source-code .cm-mt-comment-marker')).toHaveCount(2)
+      await expect(page.locator('.source-code .cm-mt-comment-metadata')).toHaveCount(1)
+      expect(await sourceValue(page)).toBe(DOC)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('source mode add-comment menu wraps the CodeMirror selection', async() => {
+    const { app, page } = await launchWithMarkdown('A reviewed span.\n')
+    try {
+      await enterSourceMode(page, app)
+      await setSourceSelection(page, { line: 0, ch: 2 }, { line: 0, ch: 10 })
+      await clickMenuById(app, 'edit.add-comment')
+
+      await expect.poll(() => sourceValue(page), { timeout: 5000 }).toContain(
+        'A <!--MC:cmt_1-->reviewed<!--MC:~cmt_1--> span.'
+      )
+      const markdown = await sourceValue(page)
+      expect(markdown).toContain('[MC:cmt_1]: data:application/json;base64,')
+      await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
+
+      await exitSourceMode(page, app)
+      expect(await getMarkdownContent(page, app)).toContain(
+        'A <!--MC:cmt_1-->reviewed<!--MC:~cmt_1--> span.'
+      )
+    } finally {
+      await app.close()
+    }
+  })
+
   test('source edits outside markers and inside metadata survive the handoff', async() => {
     const { app, page } = await launchWithMarkdown(DOC)
     try {
@@ -97,6 +163,21 @@ test.describe('Portable markdown comments', () => {
           timeout: 10000
         })
         .toBe('reviewed')
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('shows diagnostics for malformed comments without blocking open or source handoff', async() => {
+    const { app, page } = await launchWithMarkdown(MALFORMED_DOC)
+    try {
+      await openCommentsSidebar(page, app)
+
+      await expect(page.locator('.side-bar-comments .diagnostic-code')).toContainText([
+        'unclosed-open-marker',
+        'orphan-metadata'
+      ])
+      expect(await getMarkdownContent(page, app)).toBe(MALFORMED_DOC)
     } finally {
       await app.close()
     }

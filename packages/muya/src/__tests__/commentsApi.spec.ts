@@ -155,6 +155,50 @@ describe('muya.addComment()', () => {
         leaf.setCursor(2, 10, true);
         expect(muya.addComment({ id: 'existing' })).toBe(false);
     });
+
+    it('wraps a cross-leaf selection with one range and one metadata definition', () => {
+        const muya = boot('Alpha line.\n\nBeta line.\n');
+        const first = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        const second = muya.editor.scrollPage!.lastContentInDescendant() as Content;
+        const firstPath = [...first.path];
+        const secondPath = [...second.path];
+        muya.editor.selection.setSelection(
+            { offset: 6, block: first, path: firstPath },
+            { offset: 4, block: second, path: secondPath },
+        );
+
+        expect(muya.addComment({
+            id: 'cross_leaf',
+            author: 'Ada',
+            body: 'Review both lines.',
+            createdAt: '2026-06-30T12:00:00.000Z',
+        })).toBe(true);
+
+        expect(muya.getMarkdown()).toContain([
+            'Alpha <!--MC:cross_leaf-->line.',
+            '',
+            'Beta<!--MC:~cross_leaf--> line.',
+        ].join('\n'));
+        expect(muya.getComments()).toMatchObject({
+            diagnostics: [],
+            ranges: [
+                {
+                    id: 'cross_leaf',
+                    startPath: firstPath,
+                    endPath: secondPath,
+                },
+            ],
+            threads: [
+                {
+                    id: 'cross_leaf',
+                    authors: ['Ada'],
+                },
+            ],
+        });
+
+        muya.undo();
+        expect(muya.getMarkdown()).toBe('Alpha line.\n\nBeta line.\n');
+    });
 });
 
 describe('muya comment metadata mutations', () => {
@@ -284,6 +328,43 @@ describe('muya active comment navigation', () => {
         expect(selection?.focus.offset).toBe(21);
         expect(muya.getActiveComments()).toEqual(['a']);
         expect(muya.focusComment('missing')).toBe(false);
+    });
+
+    it('derives active comments for cross-leaf selections and focused cross-leaf ranges', () => {
+        const muya = boot([
+            'Alpha <!--MC:a-->line.',
+            '',
+            'Beta<!--MC:~a--> line.',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n'));
+        const first = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        const second = first.nextContentInContext() as Content;
+
+        muya.editor.selection.setSelection(
+            { offset: 11, block: first, path: first.path },
+            { offset: 2, block: second, path: second.path },
+        );
+        expect(muya.getActiveComments()).toEqual(['a']);
+
+        expect(muya.focusComment('a')).toBe(true);
+        expect(muya.getActiveComments()).toEqual(['a']);
+    });
+
+    it('derives every active comment when ranges overlap at the cursor', () => {
+        const muya = boot([
+            'A <!--MC:a-->alpha <!--MC:b-->beta<!--MC:~a--> gamma<!--MC:~b-->.',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            `[MC:b]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n'));
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.setCursor(31, 31, true);
+
+        expect(muya.getActiveComments()).toEqual(['a', 'b']);
     });
 });
 

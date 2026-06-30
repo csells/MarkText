@@ -76,12 +76,22 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
     const diagnostics: ICommentDiagnostic[] = [];
     const ranges: ICommentRange[] = [];
     const openMarkers = new Map<string, IOpenMarker>();
+    const ignoredDuplicateOpenMarkers = new Map<string, number>();
     const rangeIds = new Set<string>();
     const metadataById = new Map<string, ICommentMetadata>();
 
     const recordClose = (close: ICloseMarker) => {
         const open = openMarkers.get(close.id);
         if (!open) {
+            const ignoredCount = ignoredDuplicateOpenMarkers.get(close.id) ?? 0;
+            if (ignoredCount > 0) {
+                if (ignoredCount === 1)
+                    ignoredDuplicateOpenMarkers.delete(close.id);
+                else
+                    ignoredDuplicateOpenMarkers.set(close.id, ignoredCount - 1);
+                return;
+            }
+
             diagnostics.push(diagnostic(
                 'orphan-close-marker',
                 close.id,
@@ -128,12 +138,16 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
 
         for (const token of commentMarkerTokens(text)) {
             if (token.markerKind === 'open') {
-                if (openMarkers.has(token.markerId)) {
+                if (openMarkers.has(token.markerId) || rangeIds.has(token.markerId)) {
                     diagnostics.push(diagnostic(
                         'duplicate-open-marker',
                         token.markerId,
                         `Found duplicate opening marker for comment "${token.markerId}".`,
                     ));
+                    ignoredDuplicateOpenMarkers.set(
+                        token.markerId,
+                        (ignoredDuplicateOpenMarkers.get(token.markerId) ?? 0) + 1,
+                    );
                     continue;
                 }
 

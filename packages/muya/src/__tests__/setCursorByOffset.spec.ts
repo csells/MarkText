@@ -39,6 +39,9 @@ function bootMuya(markdown: string): Muya {
     return muya;
 }
 
+const COMMENT_METADATA
+    = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+
 describe('muya.setCursorByOffset() (PG2)', () => {
     it('PG2: maps a source-mode {line, ch} cursor onto the matching paragraph block', async () => {
         const muya = bootMuya('first para\n\nsecond para\n\nthird para here\n');
@@ -74,6 +77,51 @@ describe('muya.setCursorByOffset() (PG2)', () => {
             expect(sel!.anchor.block.text).toBe('# Title');
             expect(sel!.anchor.offset).toBe(4);
         });
+    });
+
+    it('PG2: maps a source cursor through hidden comment marker bytes', async () => {
+        const markdown = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${COMMENT_METADATA}`,
+            '',
+        ].join('\n');
+        const offset = 'A <!--MC:a-->reviewed'.length;
+        const muya = bootMuya(markdown);
+
+        expect(muya.setCursorByOffset({
+            anchor: { line: 0, ch: offset },
+            focus: { line: 0, ch: offset },
+        })).toBe(true);
+
+        await vi.waitFor(() => {
+            const sel = muya.editor.selection.getSelection();
+            expect(sel!.anchor.block.text).toBe('A <!--MC:a-->reviewed<!--MC:~a--> span.');
+            expect(sel!.anchor.offset).toBe(offset);
+        });
+        expect(muya.getMarkdown()).toBe(markdown);
+    });
+
+    it('PG2: maps a source cursor inside hidden comment metadata', async () => {
+        const markdown = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${COMMENT_METADATA}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya(markdown);
+
+        expect(muya.setCursorByOffset({
+            anchor: { line: 2, ch: 7 },
+            focus: { line: 2, ch: 7 },
+        })).toBe(true);
+
+        await vi.waitFor(() => {
+            const sel = muya.editor.selection.getSelection();
+            expect(sel!.anchor.block.text).toBe(`[MC:a]: ${COMMENT_METADATA}`);
+            expect(sel!.anchor.offset).toBe(7);
+        });
+        expect(muya.getMarkdown()).toBe(markdown);
     });
 
     it('PG2: resolves a non-collapsed selection within a block to the right offsets', () => {

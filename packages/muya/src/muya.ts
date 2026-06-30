@@ -4,7 +4,6 @@ import type { TBlockPath } from './block/types';
 import type {
     IAddCommentInput,
     ICommentMetadata,
-    ICommentRange,
     ICommentReplyInput,
     IParsedMarkdownComments,
     TUpdateCommentThreadPatch,
@@ -20,10 +19,12 @@ import Format from './block/base/format';
 import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replaceBlockByLabel } from './block/blockTransforms';
 import { ScrollPage } from './block/scrollPage';
 import {
+    buildTextPathIndexes,
     createCommentMetadata,
     mergeCommentMetadataPatch,
     nextCommentId,
     parseMarkdownComments,
+    selectionIntersectsCommentRange,
     updateCommentMetadataDefinition,
     wrapCommentRange,
 } from './comments';
@@ -275,17 +276,19 @@ export class Muya {
         if (!selection)
             return [];
 
-        const begin = Math.min(selection.anchor.offset, selection.focus.offset);
-        const end = Math.max(selection.anchor.offset, selection.focus.offset);
+        const states = this.editor.jsonState.getState();
+        const comments = parseMarkdownComments(states);
+        const textPathIndexes = buildTextPathIndexes(states);
         const activeIds: string[] = [];
 
-        for (const range of this.getComments().ranges) {
-            if (this._selectionIntersectsCommentRange(
+        for (const range of comments.ranges) {
+            if (selectionIntersectsCommentRange(
                 range,
                 selection.anchor.path,
+                selection.anchor.offset,
                 selection.focus.path,
-                begin,
-                end,
+                selection.focus.offset,
+                textPathIndexes,
             )) {
                 activeIds.push(range.id);
             }
@@ -296,7 +299,7 @@ export class Muya {
 
     addComment(input: IAddCommentInput = {}): boolean {
         const selection = this.editor.selection.getSelection();
-        if (!selection || selection.isCollapsed || !selection.isSelectionInSameBlock)
+        if (!selection || selection.isCollapsed)
             return false;
 
         const comments = this.getComments();
@@ -308,14 +311,13 @@ export class Muya {
         if (existingIds.includes(id))
             return false;
 
-        const startOffset = Math.min(selection.anchor.offset, selection.focus.offset);
-        const endOffset = Math.max(selection.anchor.offset, selection.focus.offset);
         const states = this.editor.jsonState.getState();
         const nextStates = wrapCommentRange({
             states,
             path: selection.anchor.path,
-            startOffset,
-            endOffset,
+            endPath: selection.focus.path,
+            startOffset: selection.anchor.offset,
+            endOffset: selection.focus.offset,
             id,
             metadata: createCommentMetadata(input),
         });
@@ -374,25 +376,6 @@ export class Muya {
         });
 
         return true;
-    }
-
-    private _selectionIntersectsCommentRange(
-        range: ICommentRange,
-        anchorPath: TBlockPath,
-        focusPath: TBlockPath,
-        begin: number,
-        end: number,
-    ): boolean {
-        if (!this._samePath(anchorPath, focusPath) || !this._samePath(anchorPath, range.startPath))
-            return false;
-        if (!this._samePath(range.startPath, range.endPath))
-            return false;
-
-        return begin <= range.endOffset && end >= range.startOffset;
-    }
-
-    private _samePath(a: TBlockPath, b: TBlockPath): boolean {
-        return a.length === b.length && a.every((part, index) => part === b[index]);
     }
 
     private _replaceCommentMetadata(

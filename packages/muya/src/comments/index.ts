@@ -16,6 +16,13 @@ export {
 } from './metadata';
 export { parseMarkdownComments } from './parse';
 export {
+    buildTextPathIndexes,
+    commentPathKey,
+    compareTextPathEndpoints,
+    orderTextRange,
+    selectionIntersectsCommentRange,
+} from './range';
+export {
     COMMENT_MARKER_PATTERN,
     COMMENT_MARKER_REGEXP,
     COMMENT_MARKER_SEARCH_REGEXP,

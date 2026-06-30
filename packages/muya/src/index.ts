@@ -1,6 +1,10 @@
 export {
+    COMMENT_MARKER_PATTERN,
+    createCommentMetadata,
     decodeCommentMetadata,
     encodeCommentMetadata,
+    nextCommentId,
+    parseCommentMetadataDefinition,
     parseMarkdownComments,
 } from './comments';
 export type {
