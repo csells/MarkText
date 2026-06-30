@@ -47,6 +47,7 @@
       "findNext": "Find Next",
       "findPrevious": "Find Previous",
       "findInFolder": "Find in Folder",
+      "addComment": "Add Comment",
       "screenshot": "Screenshot",
       "lineEnding": "Line Ending",
       "lineEndingCrlf": "CRLF(Windows)",
@@ -186,6 +187,7 @@
     "pasteAsPlainText": "Paste as Plain Text",
     "insertParagraphBefore": "Insert Paragraph Before",
     "insertParagraphAfter": "Insert Paragraph After",
+    "addComment": "Add Comment",
     "spelling": "Spelling...",
     "changeLanguage": "Change Language...",
     "addToDictionary": "Add to Dictionary",
@@ -243,10 +245,32 @@
     "toc": {
       "title": "Table Of Contents"
     },
+    "comments": {
+      "title": "Comments",
+      "summary": "{open} open / {count} total",
+      "add": "Add",
+      "empty": "No comments",
+      "diagnostics": "Diagnostics",
+      "open": "Open",
+      "resolved": "Resolved",
+      "jump": "Jump to comment",
+      "edit": "Edit",
+      "resolve": "Resolve",
+      "reopen": "Reopen",
+      "reply": "Reply",
+      "saveEdit": "Save",
+      "cancelEdit": "Cancel",
+      "editPlaceholder": "Edit the first note...",
+      "replyPlaceholder": "Write a reply...",
+      "defaultAuthor": "Reviewer",
+      "selectTextHint": "Select text in WYSIWYG mode before adding a comment.",
+      "sourceModeUnavailable": "Comment actions are disabled in source mode."
+    },
     "icons": {
       "files": "Files",
       "search": "Search",
       "toc": "Table of Contents",
+      "comments": "Comments",
       "settings": "Settings"
     }
   },
@@ -779,6 +803,7 @@
       "findPrevious": "Find Previous",
       "replace": "Replace",
       "findInFolder": "Find in Folder",
+      "addComment": "Add Comment",
       "screenshot": "Screenshot"
     },
     "paragraph": {

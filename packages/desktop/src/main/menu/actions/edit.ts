@@ -89,6 +89,10 @@ export const editorFindPrevious = (win: Win): void => {
   edit(win, 'findPrev')
 }
 
+export const editorAddComment = (win: Win): void => {
+  edit(win, 'addComment')
+}
+
 export const editorReplace = (win: Win): void => {
   edit(win, 'replace')
 }
@@ -145,6 +149,7 @@ export const loadEditCommands = (commandManager: CommandManager): void => {
   commandManager.add(COMMANDS.EDIT_FIND_IN_FOLDER, findInFolder)
   commandManager.add(COMMANDS.EDIT_FIND_NEXT, editorFindNext)
   commandManager.add(COMMANDS.EDIT_FIND_PREVIOUS, editorFindPrevious)
+  commandManager.add(COMMANDS.EDIT_ADD_COMMENT, editorAddComment)
   commandManager.add(COMMANDS.EDIT_PASTE, nativePaste)
   commandManager.add(COMMANDS.EDIT_PASTE_AS_PLAINTEXT, editorPasteAsPlainText)
   commandManager.add(COMMANDS.EDIT_REDO, editorRedo)

@@ -30,6 +30,7 @@ import type {
   PageOptions,
   TabOptions
 } from '@shared/types/files'
+import type { IParsedMarkdownComments } from '@muyajs/core'
 
 // ----------------------------------------------------------------------------
 // Local helper types
@@ -43,6 +44,12 @@ interface TocItem extends ListItem {
 }
 
 type TocTreeNode = TreeNode<TocItem>
+
+const createEmptyComments = (): IParsedMarkdownComments => ({
+  threads: [],
+  ranges: [],
+  diagnostics: []
+})
 
 interface RestoreWarning {
   tabId?: string | null
@@ -142,6 +149,8 @@ export interface EditorState {
   tabIdToIndex: Record<string, number>
   listToc: TocItem[]
   toc: TocTreeNode[]
+  comments: IParsedMarkdownComments
+  activeCommentIds: string[]
 }
 
 const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -152,7 +161,9 @@ export const useEditorStore = defineStore('editor', {
     tabs: [],
     tabIdToIndex: {},
     listToc: [], // Used for equal check and for searching for the correct github-slug to jump to
-    toc: []
+    toc: [],
+    comments: createEmptyComments(),
+    activeCommentIds: []
   }),
 
   actions: {
@@ -199,6 +210,8 @@ export const useEditorStore = defineStore('editor', {
         s.tabIdToIndex = {}
         s.listToc = []
         s.toc = []
+        s.comments = createEmptyComments()
+        s.activeCommentIds = []
       })
 
       this.updateTabIdToIndex()
@@ -1028,6 +1041,8 @@ export const useEditorStore = defineStore('editor', {
       if (this.tabs.length === 0) {
         this.listToc = []
         this.toc = []
+        this.comments = createEmptyComments()
+        this.activeCommentIds = []
       }
 
       const { pathname } = file
@@ -1117,6 +1132,8 @@ export const useEditorStore = defineStore('editor', {
       if (this.tabs.length === 0) {
         this.listToc = []
         this.toc = []
+        this.comments = createEmptyComments()
+        this.activeCommentIds = []
       }
       debouncedSendBufferedState()
     },
@@ -1370,6 +1387,14 @@ export const useEditorStore = defineStore('editor', {
     UPDATE_TOC(toc: TocItem[]): void {
       this.listToc = toc ?? []
       this.toc = listToTree<TocItem>(toc ?? [])
+    },
+
+    UPDATE_COMMENTS(comments: IParsedMarkdownComments | null | undefined): void {
+      this.comments = comments ?? createEmptyComments()
+    },
+
+    UPDATE_ACTIVE_COMMENTS(ids: string[] | null | undefined): void {
+      this.activeCommentIds = ids ? [...ids] : []
     },
 
     // Content change from realtime preview editor and source code editor
@@ -1746,6 +1771,9 @@ export const useEditorStore = defineStore('editor', {
       })
       window.electron.ipcRenderer.on('mt::cm-insert-paragraph', (_, location) => {
         bus.emit('insertParagraph', location)
+      })
+      window.electron.ipcRenderer.on('mt::cm-add-comment', () => {
+        bus.emit('addComment')
       })
 
       // Spelling

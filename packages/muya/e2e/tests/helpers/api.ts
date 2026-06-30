@@ -23,6 +23,28 @@ export async function getTOC(page: Page): Promise<Array<{
     }>);
 }
 
+export interface ICommentApiResult {
+    threads: Array<{
+        id: string;
+        status: string;
+        replies: unknown[];
+    }>;
+    ranges: Array<{
+        id: string;
+        startOffset: number;
+        endOffset: number;
+    }>;
+    diagnostics: Array<{
+        code: string;
+        id: string;
+        message: string;
+    }>;
+}
+
+export async function getComments(page: Page): Promise<ICommentApiResult> {
+    return page.evaluate(() => window.muya!.getComments() as ICommentApiResult);
+}
+
 /** Read the test-only mocks the host wires onto window.__e2e. */
 export async function getLinkJumps(page: Page): Promise<Array<{ href?: string }>> {
     return page.evaluate(() => window.__e2e!.linkJumps.slice());

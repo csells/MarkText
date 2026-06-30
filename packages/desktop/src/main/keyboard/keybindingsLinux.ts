@@ -46,6 +46,7 @@ const keybindings: Map<string, string> = new Map([
   ['edit.find', 'Ctrl+F'],
   ['edit.find-next', 'F3'],
   ['edit.find-previous', 'Shift+F3'],
+  ['edit.add-comment', ''],
   ['edit.replace', 'Ctrl+R'],
   ['edit.find-in-folder', 'Ctrl+Shift+F'],
   ['edit.screenshot', ''], // macOS only

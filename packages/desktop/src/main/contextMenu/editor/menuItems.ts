@@ -52,6 +52,16 @@ export const getPasteAsPlainText = (): MenuItemConstructorOptions => ({
   }
 })
 
+export const getAddComment = (): MenuItemConstructorOptions => ({
+  label: t('contextMenu.addComment'),
+  id: 'addCommentMenuItem',
+  click(_menuItem, targetWindow) {
+    if (targetWindow) {
+      ;(targetWindow as BrowserWindow).webContents.send('mt::cm-add-comment')
+    }
+  }
+})
+
 export const getInsertBefore = (): MenuItemConstructorOptions => ({
   label: t('contextMenu.insertParagraphBefore'),
   id: 'insertParagraphBeforeMenuItem',
@@ -79,6 +89,7 @@ export const PASTE = getPASTE()
 export const COPY_AS_RICH = getCopyAsRich()
 export const COPY_AS_HTML = getCopyAsHtml()
 export const PASTE_AS_PLAIN_TEXT = getPasteAsPlainText()
+export const ADD_COMMENT = getAddComment()
 export const INSERT_BEFORE = getInsertBefore()
 export const INSERT_AFTER = getInsertAfter()
 

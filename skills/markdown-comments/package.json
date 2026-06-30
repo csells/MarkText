@@ -1,0 +1,9 @@
+{
+  "name": "@marktext/markdown-comments-skill",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "tsx src/cli.ts",
+    "test": "vitest run test"
+  }
+}

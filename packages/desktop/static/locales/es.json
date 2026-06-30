@@ -47,6 +47,7 @@
       "findNext": "Buscar Siguiente",
       "findPrevious": "Buscar Anterior",
       "findInFolder": "Buscar en Carpeta",
+      "addComment": "Add Comment",
       "screenshot": "Captura de Pantalla",
       "lineEnding": "Final de Línea",
       "lineEndingCrlf": "CRLF(Windows)",
@@ -186,6 +187,7 @@
     "pasteAsPlainText": "Pegar como Texto Plano",
     "insertParagraphBefore": "Insertar Párrafo Antes",
     "insertParagraphAfter": "Insertar Párrafo Después",
+    "addComment": "Add Comment",
     "spelling": "Ortografía...",
     "changeLanguage": "Cambiar Idioma...",
     "addToDictionary": "Agregar al Diccionario",
@@ -779,6 +781,7 @@
       "findPrevious": "Buscar Anterior",
       "replace": "Reemplazar",
       "findInFolder": "Buscar en Carpeta",
+      "addComment": "Add Comment",
       "screenshot": "Captura de Pantalla"
     },
     "paragraph": {

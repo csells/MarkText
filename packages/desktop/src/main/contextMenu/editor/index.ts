@@ -6,6 +6,7 @@ import {
   getCopyAsRich,
   getCopyAsHtml,
   getPasteAsPlainText,
+  getAddComment,
   SEPARATOR,
   getInsertBefore,
   getInsertAfter
@@ -46,6 +47,7 @@ type ContextMenuEvent = {
 const getContextItems = (): MenuItemConstructorOptions[] => [
   getInsertBefore(),
   getInsertAfter(),
+  getAddComment(),
   SEPARATOR,
   getCUT(),
   getCOPY(),
@@ -104,9 +106,18 @@ export const showEditorContextMenu = (
     }
 
     const contextItems = getContextItems()
-    const copyItems = [contextItems[3], contextItems[4], contextItems[8], contextItems[7]] // CUT, COPY, COPY_AS_HTML, COPY_AS_RICH
-    copyItems.forEach((item) => {
-      if (item) item.enabled = canCopy
+    const copyItemIds = new Set([
+      'cutMenuItem',
+      'copyMenuItem',
+      'copyAsHtmlMenuItem',
+      'copyAsRichMenuItem'
+    ])
+    contextItems.forEach((item) => {
+      if (item.id === 'addCommentMenuItem') {
+        item.enabled = hasText
+      } else if (item.id && copyItemIds.has(item.id)) {
+        item.enabled = canCopy
+      }
     })
     contextItems.forEach((item) => {
       menu.append(new MenuItem(item))

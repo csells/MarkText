@@ -47,6 +47,7 @@
       "findNext": "查找下一个",
       "findPrevious": "查找上一个",
       "findInFolder": "在文件夹中查找",
+      "addComment": "Add Comment",
       "screenshot": "截图",
       "lineEnding": "行结束符",
       "lineEndingCrlf": "CRLF (Windows)",
@@ -186,6 +187,7 @@
     "pasteAsPlainText": "粘贴为纯文本",
     "insertParagraphBefore": "在前面插入段落",
     "insertParagraphAfter": "在后面插入段落",
+    "addComment": "Add Comment",
     "spelling": "拼写…",
     "changeLanguage": "更改语言…",
     "addToDictionary": "添加到词典",
@@ -779,6 +781,7 @@
       "findPrevious": "查找上一个",
       "replace": "替换",
       "findInFolder": "在文件夹中查找",
+      "addComment": "Add Comment",
       "screenshot": "截图"
     },
     "paragraph": {

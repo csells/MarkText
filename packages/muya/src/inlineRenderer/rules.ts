@@ -1,3 +1,4 @@
+import { COMMENT_MARKER_REGEXP } from '../comments/syntax';
 import { escapeCharacters } from '../config/escapeCharacter';
 
 export const beginRules = {
@@ -44,6 +45,7 @@ export const commonMarkRules = {
 
     // patched math marker `$`
     backlash: /^(\\)([\\`*{}[\]()#+\-.!_>~:|<$])/,
+    comment_marker: COMMENT_MARKER_REGEXP,
 };
 
 export type CommonMarkRules = typeof commonMarkRules;

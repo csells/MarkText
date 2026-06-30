@@ -3,6 +3,7 @@ import type TreeNode from '../block/base/treeNode';
 import type { IHighlight } from '../inlineRenderer/types';
 import type { Muya } from '../muya';
 import type { IMatch } from './types';
+import { maskCommentSyntaxForSearch } from '../comments/syntax';
 import { DEFAULT_SEARCH_OPTIONS } from '../config';
 import { buildRegexValue, matchString } from '../utils/search';
 
@@ -172,7 +173,11 @@ export class Search {
                 if (block.isContent()) {
                     const { text } = block;
                     if (text && typeof text === 'string') {
-                        const strMatches = matchString(text, value, options);
+                        const strMatches = matchString(
+                            maskCommentSyntaxForSearch(text),
+                            value,
+                            options,
+                        );
                         matches.push(
                             ...strMatches.map(({ index, match, subMatches }) => {
                                 return {

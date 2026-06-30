@@ -5,6 +5,7 @@ import type {
     Labels,
     Token,
 } from './types';
+import { parseCommentMarker } from '../comments/syntax';
 import { isLengthEven, union } from '../utils';
 import { beginRules, inlineRules, linkValidateRules, validateRules } from './rules';
 import {
@@ -256,6 +257,29 @@ function tryChunks(state: ILexState): boolean {
     }
 
     return false;
+}
+
+function tryCommentMarker(state: ILexState): boolean {
+    const marker = parseCommentMarker(state.src);
+    if (!marker)
+        return false;
+
+    pushPending(state);
+    state.tokens.push({
+        type: 'comment_marker',
+        raw: marker.raw,
+        markerId: marker.id,
+        markerKind: marker.kind,
+        parent: state.tokens,
+        range: {
+            start: state.pos,
+            end: state.pos + marker.raw.length,
+        },
+    });
+    state.src = state.src.substring(marker.raw.length);
+    state.pos += marker.raw.length;
+
+    return true;
 }
 
 function trySuperSubScript(state: ILexState): boolean {
@@ -792,6 +816,7 @@ const INLINE_HANDLERS: ReadonlyArray<(state: ILexState) => boolean> = [
     tryBacklash,
     tryStrongEm,
     tryChunks,
+    tryCommentMarker,
     trySuperSubScript,
     tryFootnote,
     tryImage,

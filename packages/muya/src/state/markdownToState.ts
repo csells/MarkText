@@ -10,14 +10,35 @@ import type {
     ITaskListState,
     TState,
 } from './types';
+import { COMMENT_MARKER_PATTERN, COMMENT_MARKER_SEARCH_REGEXP } from '../comments/syntax';
 import logger from '../utils/logger';
 import { lexBlock } from '../utils/marked';
 
 const debug = logger('import markdown: ');
+const COMMENT_MARKER_GLOBAL_REGEXP = new RegExp(COMMENT_MARKER_PATTERN, 'g');
+
 function restoreTableEscapeCharacters(text: string) {
     // NOTE: markedjs replaces all escaped "|" ("\|") characters inside a cell with "|".
     //       We have to re-escape the character to not break the table.
     return text.replace(/\|/g, '\\|');
+}
+
+function looksLikeRawHtmlAfterCommentMarkers(text: string) {
+    const trimmed = text.replace(COMMENT_MARKER_GLOBAL_REGEXP, '').trim();
+    if (!trimmed.startsWith('<'))
+        return false;
+
+    const next = trimmed[1];
+    return (
+        next === '!'
+        || next === '/'
+        || (next >= 'A' && next <= 'Z')
+        || (next >= 'a' && next <= 'z')
+    );
+}
+
+function shouldTreatHtmlAsParagraph(text: string) {
+    return COMMENT_MARKER_SEARCH_REGEXP.test(text) && !looksLikeRawHtmlAfterCommentMarkers(text);
 }
 
 interface IMarkdownToStateOptions {
@@ -328,7 +349,7 @@ export class MarkdownToState {
                 const text = token.text.trim();
                 // TODO: Treat html state which only contains one img as paragraph, we maybe add image state in the future.
                 const isSingleImage = /^<img[^<>]+>$/.test(text);
-                if (isSingleImage) {
+                if (isSingleImage || shouldTreatHtmlAsParagraph(text)) {
                     state = {
                         name: 'paragraph' as const,
                         text,

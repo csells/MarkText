@@ -1,6 +1,7 @@
 import {
   Folder as FilesIcon,
   Search as SearchIcon,
+  ChatLineSquare as CommentsIcon,
   Memo as TocIcon,
   Setting as SettingIcon
 } from '@element-plus/icons-vue'
@@ -27,6 +28,11 @@ export const sideBarIcons: SideBarIconEntry[] = [
     id: 'toc',
     name: () => t('sideBar.icons.toc'),
     icon: TocIcon
+  },
+  {
+    id: 'comments',
+    name: () => t('sideBar.icons.comments'),
+    icon: CommentsIcon
   }
 ]
 

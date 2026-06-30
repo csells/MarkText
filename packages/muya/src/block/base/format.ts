@@ -1321,6 +1321,13 @@ class Format extends Content {
         // `contenteditable=false` inline image; resolve the real offset from the
         // DOM so the scan can match the image token like any other caret.
         const offset = this._caretOffsetOnInlineImage() ?? start.offset;
+        const commentMarkerOffset = this._skipCommentMarkerToken(tokens, offset, 'backward');
+        if (commentMarkerOffset !== null) {
+            event.preventDefault();
+            this.setCursor(commentMarkerOffset, commentMarkerOffset, true);
+            return;
+        }
+
         const { needRender, imageToken, referenceImageToken }
             = this._scanBackspaceTokens(tokens, offset);
 
@@ -1401,6 +1408,26 @@ class Format extends Content {
         return { needRender: false, imageToken: null, referenceImageToken: null };
     }
 
+    private _skipCommentMarkerToken(
+        tokens: Token[],
+        offset: number,
+        direction: 'backward' | 'forward',
+    ): number | null {
+        for (const token of tokens) {
+            if (token.type !== 'comment_marker')
+                continue;
+
+            const { start, end } = token.range;
+            if (direction === 'backward' && offset > start && offset <= end)
+                return start;
+
+            if (direction === 'forward' && offset >= start && offset < end)
+                return end;
+        }
+
+        return null;
+    }
+
     // Resolve the real caret offset when the collapsed caret is parked on a
     // trailing inline image, otherwise null. Inline images are
     // `contenteditable=false`, so the browser parks the caret on the wrapper or
@@ -1465,6 +1492,21 @@ class Format extends Content {
     override deleteHandler(event: KeyboardEvent): void {
         const { start, end } = this.getCursor()!;
         const { text } = this;
+        if (start.offset === end.offset) {
+            const { footnote, superSubScript } = this.muya.options;
+            const { labels } = this.inlineRenderer;
+            const tokens = tokenizer(text, {
+                labels,
+                options: { footnote, superSubScript },
+            });
+            const commentMarkerOffset = this._skipCommentMarkerToken(tokens, start.offset, 'forward');
+            if (commentMarkerOffset !== null) {
+                event.preventDefault();
+                this.setCursor(commentMarkerOffset, commentMarkerOffset, true);
+                return;
+            }
+        }
+
         // Let input handler to handle this case.
         if (start.offset !== end.offset || start.offset !== text.length)
             return;

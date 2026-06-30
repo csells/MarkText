@@ -29,6 +29,27 @@
     white-space: nowrap;
 }
 
+.mu-comment-marker,
+.mu-comment-metadata {
+    user-select: none;
+}
+
+.mu-comment-highlight {
+    color: inherit;
+
+    background: var(--comment-highlight-color, rgb(247 196 54 / 28%));
+    box-shadow: inset 0 -2px 0 var(--comment-highlight-border-color, rgb(184 124 0 / 60%));
+    border-radius: 1px;
+}
+
+.mu-comment-highlight-active {
+    color: inherit;
+
+    background: var(--comment-highlight-active-color, rgb(247 196 54 / 45%));
+    box-shadow: inset 0 -2px 0 var(--comment-highlight-active-border-color, rgb(156 91 0 / 80%));
+    border-radius: 1px;
+}
+
 /* link and auto-link and reference link */
 a.mu-inline-rule,
 span.mu-inline-rule.mu-link {

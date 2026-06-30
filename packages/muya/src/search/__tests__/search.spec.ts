@@ -91,6 +91,27 @@ describe('search.search()', () => {
         expect(highlightCount(muya)).toBe(0);
         expect(selectionCount(muya)).toBe(0);
     });
+
+    it('matches visible prose without leaking hidden markdown comment syntax', () => {
+        const muya = bootMuya([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119',
+            '',
+        ].join('\n'));
+        placeCursorOnFirstBlock(muya);
+
+        const search = muya.editor.searchModule;
+        search.search('reviewed');
+        expect(search.matches).toHaveLength(1);
+        expect(search.matches[0].start).toBe(13);
+
+        search.search('MC:a');
+        expect(search.matches).toHaveLength(0);
+
+        search.search('data:application/json');
+        expect(search.matches).toHaveLength(0);
+    });
 });
 
 describe('search.search() — selectHighlight restores the editor cursor', () => {

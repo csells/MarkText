@@ -109,7 +109,10 @@ import {
   tr,
   zhCN,
   zhTW,
-  type ILocale
+  type ICommentReplyInput,
+  type IParsedMarkdownComments,
+  type ILocale,
+  type TUpdateCommentThreadPatch
 } from '@muyajs/core'
 import { exportStyledHTML, type HeaderFooterPart } from '@/util/exportHtml'
 import { applyCursor, isIndexCursor } from '@/util/cursor'
@@ -129,6 +132,7 @@ import { addCommonStyle, setEditorWidth } from '@/util/theme'
 import { usePreferencesStore } from '@/store/preferences'
 import { useEditorStore } from '@/store/editor'
 import { useProjectStore } from '@/store/project'
+import { useLayoutStore } from '@/store/layout'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
@@ -204,6 +208,7 @@ const props = defineProps<{
 const preferencesStore = usePreferencesStore()
 const editorStore = useEditorStore()
 const projectStore = useProjectStore()
+const layoutStore = useLayoutStore()
 
 // Use storeToRefs to extract reactive properties from the stores
 const {
@@ -1451,6 +1456,7 @@ const setMarkdownToEditor = (payload: unknown) => {
     // `json-change`, so seed the TOC explicitly (otherwise it stays empty until
     // the first edit, and a file switch keeps the previous file's TOC).
     editorStore.UPDATE_TOC(editor.value.getTOC())
+    syncComments()
     // A freshly created/opened tab should be ready to type into.
     focusFreshEditor()
   }
@@ -1512,6 +1518,7 @@ const handleFileChange = (payload: unknown) => {
       editor.value.replaceContent(newMarkdown, preSourceModeSelection)
       preSourceModeSelection = null
       editorStore.UPDATE_TOC(editor.value.getTOC())
+      syncComments()
       // Map the CodeMirror `{ line, ch }` cursor onto a block-key cursor so the
       // WYSIWYG caret lands where the source-mode cursor was (PG2).
       editor.value.setCursorByOffset(muyaIndexCursor)
@@ -1534,6 +1541,7 @@ const handleFileChange = (payload: unknown) => {
       }
       editor.value.replaceContent(newMarkdown)
       editorStore.UPDATE_TOC(editor.value.getTOC())
+      syncComments()
       if (newCursor) {
         applyCursor(editor.value, newCursor)
       }
@@ -1547,6 +1555,7 @@ const handleFileChange = (payload: unknown) => {
       // Tab switch swaps content without firing `json-change`, so re-seed the
       // TOC (otherwise returning to an open tab keeps the other tab's TOC).
       editorStore.UPDATE_TOC(editor.value.getTOC())
+      syncComments()
       if (newCursor) {
         applyCursor(editor.value, newCursor)
       } else if (isIndexCursor(muyaIndexCursor)) {
@@ -1597,6 +1606,82 @@ const flushActiveEditor = () => {
 
 const focusEditor = () => {
   editor.value?.focus()
+}
+
+const syncComments = () => {
+  const ed = editor.value
+  editorStore.UPDATE_COMMENTS(ed?.getComments())
+  editorStore.UPDATE_ACTIVE_COMMENTS(ed?.getActiveComments())
+}
+
+const showCommentsSidebar = () => {
+  layoutStore.SET_LAYOUT({
+    rightColumn: 'comments',
+    showSideBar: true
+  })
+}
+
+const notifyCommentUnavailable = (message: string): void => {
+  notice.notify({
+    title: t('sideBar.comments.title'),
+    type: 'warning',
+    message
+  })
+}
+
+const handleAddComment = () => {
+  if (sourceCode.value) {
+    notifyCommentUnavailable(t('sideBar.comments.sourceModeUnavailable'))
+    return
+  }
+  if (!editor.value) return
+
+  if (!editor.value.addComment()) {
+    notifyCommentUnavailable(t('sideBar.comments.selectTextHint'))
+    return
+  }
+  showCommentsSidebar()
+  syncComments()
+}
+
+const handleCommentReply = (payload: unknown) => {
+  if (sourceCode.value || !editor.value) return
+  const { id, reply } = (payload ?? {}) as { id?: string; reply?: ICommentReplyInput }
+  if (!id || !reply?.body) return
+  if (editor.value.replyToComment(id, reply)) {
+    syncComments()
+  }
+}
+
+const handleCommentEdit = (payload: unknown) => {
+  if (sourceCode.value || !editor.value) return
+  const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
+  if (!id || !patch) return
+  if (editor.value.updateCommentThread(id, patch)) {
+    syncComments()
+  }
+}
+
+const handleCommentResolve = (id: unknown) => {
+  if (sourceCode.value || !editor.value || typeof id !== 'string') return
+  if (editor.value.resolveComment(id)) {
+    syncComments()
+  }
+}
+
+const handleCommentReopen = (id: unknown) => {
+  if (sourceCode.value || !editor.value || typeof id !== 'string') return
+  if (editor.value.reopenComment(id)) {
+    syncComments()
+  }
+}
+
+const handleCommentFocus = (id: unknown) => {
+  if (sourceCode.value || !editor.value || typeof id !== 'string') return
+  if (editor.value.focusComment(id)) {
+    showCommentsSidebar()
+    syncComments()
+  }
 }
 
 // Focus a freshly opened/created tab's editor. The sibling `file-changed`
@@ -1763,6 +1848,7 @@ onMounted(() => {
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it — seed its TOC here.
   editorStore.UPDATE_TOC(muya.getTOC())
+  syncComments()
 
   // Seed the save-tracking baseline for the mount-loaded document (from the
   // engine's OWN serialization, same reason as setMarkdownToEditor). Without
@@ -1822,6 +1908,12 @@ onMounted(() => {
   bus.on('switch-spellchecker-language', switchSpellcheckLanguage)
   bus.on('open-command-spellchecker-switch-language', openSpellcheckerLanguageCommand)
   bus.on('replace-misspelling', replaceMisspelling)
+  bus.on('addComment', handleAddComment)
+  bus.on('comment:reply', handleCommentReply)
+  bus.on('comment:edit', handleCommentEdit)
+  bus.on('comment:resolve', handleCommentResolve)
+  bus.on('comment:reopen', handleCommentReopen)
+  bus.on('comment:focus', handleCommentFocus)
 
   // The engine emits a low-level `json-change` ({ op, source, prevDoc, doc })
   // on every document mutation; the desktop's content-change pipeline wants the
@@ -1853,6 +1945,14 @@ onMounted(() => {
       toc: editor.value.getTOC(),
       blocks: editor.value.getState()
     })
+  })
+
+  editor.value.on('comments-change', (comments: IParsedMarkdownComments) => {
+    editorStore.UPDATE_COMMENTS(comments)
+  })
+
+  editor.value.on('active-comments-change', (ids: string[]) => {
+    editorStore.UPDATE_ACTIVE_COMMENTS(ids)
   })
 
   // The engine does not emit `scroll`; listen on the scroll container directly
@@ -1976,6 +2076,12 @@ onBeforeUnmount(() => {
   bus.off('open-command-spellchecker-switch-language', openSpellcheckerLanguageCommand)
   bus.off('replace-misspelling', replaceMisspelling)
   bus.off('language-changed', handleLanguageChanged)
+  bus.off('addComment', handleAddComment)
+  bus.off('comment:reply', handleCommentReply)
+  bus.off('comment:edit', handleCommentEdit)
+  bus.off('comment:resolve', handleCommentResolve)
+  bus.off('comment:reopen', handleCommentReopen)
+  bus.off('comment:focus', handleCommentFocus)
 
   document.removeEventListener('keyup', keyup)
 

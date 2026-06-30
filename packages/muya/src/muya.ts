@@ -1,6 +1,14 @@
 import type Content from './block/base/content';
 import type Parent from './block/base/parent';
 import type { TBlockPath } from './block/types';
+import type {
+    IAddCommentInput,
+    ICommentMetadata,
+    ICommentRange,
+    ICommentReplyInput,
+    IParsedMarkdownComments,
+    TUpdateCommentThreadPatch,
+} from './comments';
 import type { Listener } from './event/types';
 import type { ILocale } from './i18n/types';
 import type { IIndexCursor } from './selection/offsetCursor';
@@ -11,6 +19,14 @@ import type { IMuyaOptions, Nullable } from './types';
 import Format from './block/base/format';
 import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replaceBlockByLabel } from './block/blockTransforms';
 import { ScrollPage } from './block/scrollPage';
+import {
+    createCommentMetadata,
+    mergeCommentMetadataPatch,
+    nextCommentId,
+    parseMarkdownComments,
+    updateCommentMetadataDefinition,
+    wrapCommentRange,
+} from './comments';
 import emptyStates from './config/emptyStates';
 import {
     CLASS_NAMES,
@@ -145,6 +161,7 @@ export class Muya {
     public i18n: I18n;
 
     private _uiPlugins: Record<string, unknown> = {};
+    private _lastActiveCommentIds: string[] = [];
 
     constructor(element: HTMLElement, options?: Partial<IMuyaOptions>) {
         this.options = Object.assign({}, MUYA_DEFAULT_OPTIONS, options ?? {});
@@ -155,6 +172,7 @@ export class Muya {
         this.ui = new Ui(this);
         this.i18n = new I18n(this, this.options.locale);
         this._bindFocusBlurEvents();
+        this._bindCommentEvents();
     }
 
     private _bindFocusBlurEvents() {
@@ -164,6 +182,33 @@ export class Muya {
         this.eventCenter.attachDOMEvent(this.domNode, 'blur', () => {
             this.eventCenter.emit('blur');
         });
+    }
+
+    private _bindCommentEvents() {
+        this.eventCenter.on('json-change', () => {
+            this._emitCommentsChange();
+        });
+        this.eventCenter.on('selection-change', () => {
+            this._emitActiveCommentsChange();
+        });
+    }
+
+    private _emitCommentsChange() {
+        this.eventCenter.emit('comments-change', this.getComments());
+        this._emitActiveCommentsChange();
+    }
+
+    private _emitActiveCommentsChange() {
+        const ids = this.getActiveComments();
+        if (this._sameCommentIds(ids, this._lastActiveCommentIds))
+            return;
+
+        this._lastActiveCommentIds = [...ids];
+        this.eventCenter.emit('active-comments-change', ids);
+    }
+
+    private _sameCommentIds(a: string[], b: string[]) {
+        return a.length === b.length && a.every((id, index) => id === b[index]);
     }
 
     init() {
@@ -221,6 +266,150 @@ export class Muya {
         return this.editor.jsonState.getTOC();
     }
 
+    getComments(): IParsedMarkdownComments {
+        return parseMarkdownComments(this.editor.jsonState.getState());
+    }
+
+    getActiveComments(): string[] {
+        const selection = this.editor.selection.getSelection();
+        if (!selection)
+            return [];
+
+        const begin = Math.min(selection.anchor.offset, selection.focus.offset);
+        const end = Math.max(selection.anchor.offset, selection.focus.offset);
+        const activeIds: string[] = [];
+
+        for (const range of this.getComments().ranges) {
+            if (this._selectionIntersectsCommentRange(
+                range,
+                selection.anchor.path,
+                selection.focus.path,
+                begin,
+                end,
+            )) {
+                activeIds.push(range.id);
+            }
+        }
+
+        return activeIds;
+    }
+
+    addComment(input: IAddCommentInput = {}): boolean {
+        const selection = this.editor.selection.getSelection();
+        if (!selection || selection.isCollapsed || !selection.isSelectionInSameBlock)
+            return false;
+
+        const comments = this.getComments();
+        const existingIds = [
+            ...comments.threads.map(thread => thread.id),
+            ...comments.ranges.map(range => range.id),
+        ];
+        const id = input.id ?? nextCommentId(existingIds);
+        if (existingIds.includes(id))
+            return false;
+
+        const startOffset = Math.min(selection.anchor.offset, selection.focus.offset);
+        const endOffset = Math.max(selection.anchor.offset, selection.focus.offset);
+        const states = this.editor.jsonState.getState();
+        const nextStates = wrapCommentRange({
+            states,
+            path: selection.anchor.path,
+            startOffset,
+            endOffset,
+            id,
+            metadata: createCommentMetadata(input),
+        });
+
+        if (!nextStates)
+            return false;
+
+        return this.replaceContent(nextStates, selection);
+    }
+
+    updateCommentThread(id: string, patch: TUpdateCommentThreadPatch): boolean {
+        return this._replaceCommentMetadata(id, metadata => mergeCommentMetadataPatch(metadata, patch));
+    }
+
+    replyToComment(id: string, reply: ICommentReplyInput): boolean {
+        const createdAt = reply.createdAt ?? new Date().toISOString();
+
+        return this._replaceCommentMetadata(id, (metadata) => {
+            const authors = metadata.authors ? [...metadata.authors] : [];
+            if (reply.author && !authors.includes(reply.author))
+                authors.push(reply.author);
+
+            return mergeCommentMetadataPatch(metadata, {
+                ...(authors.length ? { authors } : {}),
+                updatedAt: createdAt,
+                replies: [
+                    ...metadata.replies,
+                    {
+                        author: reply.author,
+                        createdAt,
+                        body: reply.body,
+                    },
+                ],
+            });
+        });
+    }
+
+    resolveComment(id: string, updatedAt = new Date().toISOString()): boolean {
+        return this.updateCommentThread(id, { status: 'resolved', updatedAt });
+    }
+
+    reopenComment(id: string, updatedAt = new Date().toISOString()): boolean {
+        return this.updateCommentThread(id, { status: 'open', updatedAt });
+    }
+
+    focusComment(id: string): boolean {
+        const range = this.getComments().ranges.find(range => range.id === id);
+        if (!range)
+            return false;
+
+        this.setCursor({
+            anchor: { offset: range.startOffset },
+            focus: { offset: range.endOffset },
+            anchorPath: range.startPath,
+            focusPath: range.endPath,
+        });
+
+        return true;
+    }
+
+    private _selectionIntersectsCommentRange(
+        range: ICommentRange,
+        anchorPath: TBlockPath,
+        focusPath: TBlockPath,
+        begin: number,
+        end: number,
+    ): boolean {
+        if (!this._samePath(anchorPath, focusPath) || !this._samePath(anchorPath, range.startPath))
+            return false;
+        if (!this._samePath(range.startPath, range.endPath))
+            return false;
+
+        return begin <= range.endOffset && end >= range.startOffset;
+    }
+
+    private _samePath(a: TBlockPath, b: TBlockPath): boolean {
+        return a.length === b.length && a.every((part, index) => part === b[index]);
+    }
+
+    private _replaceCommentMetadata(
+        id: string,
+        updater: (metadata: ICommentMetadata) => ICommentMetadata,
+    ): boolean {
+        const nextStates = updateCommentMetadataDefinition(
+            this.editor.jsonState.getState(),
+            id,
+            updater,
+        );
+        if (!nextStates)
+            return false;
+
+        return this.replaceContent(nextStates);
+    }
+
     undo() {
         this.editor.history.undo();
     }
@@ -267,6 +456,7 @@ export class Muya {
 
     setContent(content: TState[] | string, autoFocus = false) {
         this.editor.setContent(content, autoFocus);
+        this._emitCommentsChange();
     }
 
     /**

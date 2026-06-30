@@ -8,6 +8,7 @@ interface IUnion {
     start: number;
     end: number;
     active?: boolean;
+    type?: string;
 }
 
 // `never[]` in the contravariant arg-tuple position lets the @methodMixins
@@ -57,21 +58,24 @@ export function conflict(arr1: [number, number], arr2: [number, number]) {
     return !(arr1[1] < arr2[0] || arr2[1] < arr1[0]);
 }
 
-export function union({ start: tStart, end: tEnd }: IUnion, { start: lStart, end: lEnd, active }: IUnion) {
+export function union<T extends IUnion>(
+    { start: tStart, end: tEnd }: IUnion,
+    { start: lStart, end: lEnd, ...rest }: T,
+): T | null {
     if (!(tEnd <= lStart || lEnd <= tStart)) {
         if (lStart < tStart) {
             return {
+                ...rest,
                 start: tStart,
                 end: tEnd < lEnd ? tEnd : lEnd,
-                active,
-            };
+            } as T;
         }
         else {
             return {
+                ...rest,
                 start: lStart,
                 end: tEnd < lEnd ? tEnd : lEnd,
-                active,
-            };
+            } as T;
         }
     }
 

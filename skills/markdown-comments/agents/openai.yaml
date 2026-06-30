@@ -1,0 +1,4 @@
+interface:
+  display_name: "Markdown Comments"
+  short_description: "Manage portable MarkText comment threads"
+  default_prompt: "Use $markdown-comments to inspect or update inline MarkText comments in a Markdown file."

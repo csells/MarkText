@@ -280,6 +280,7 @@ export class Editor {
         const state = this.jsonState.getState();
 
         this.scrollPage = ScrollPage.create(muya, state);
+        this.scrollPage.updateCommentContent();
 
         this._dispatchEvents();
         // Hovering a rendered link wrapper dispatches `muya-link-tools` so the

@@ -1,0 +1,158 @@
+import { expect, test } from '@playwright/test'
+import type { ElectronApplication, Page } from 'playwright'
+import * as fs from 'node:fs'
+import {
+  clickMenuById,
+  enterSourceMode,
+  exitSourceMode,
+  getMarkdownContent,
+  launchElectron,
+  launchWithMarkdown,
+  sendIpcToRenderer,
+  setSourceMarkdown,
+  waitForEditor,
+  waitForMenuReady
+} from './helpers'
+
+const META_OPEN =
+  'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwiYXV0aG9ycyI6WyJBZGEiXSwicmVwbGllcyI6W119'
+const META_RESOLVED =
+  'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJyZXNvbHZlZCIsImF1dGhvcnMiOlsiQWRhIl0sInJlcGxpZXMiOltdfQ=='
+
+const DOC = [
+  'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+  '',
+  `[MC:a]: ${META_OPEN}`,
+  ''
+].join('\n')
+
+const sourceValue = async(page: Page): Promise<string> =>
+  page.evaluate(() => {
+    const cm = document.querySelector('.source-code .CodeMirror') as
+      | (Element & { CodeMirror?: { getValue(): string } })
+      | null
+    return cm?.CodeMirror?.getValue() ?? ''
+  })
+
+const isDirty = (page: Page): Promise<boolean> =>
+  page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))
+
+const save = async(app: ElectronApplication): Promise<void> => {
+  await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+}
+
+const openCommentsSidebar = async(page: Page, app: ElectronApplication): Promise<void> => {
+  if (!(await page.locator('.side-bar').isVisible())) {
+    await clickMenuById(app, 'sideBarMenuItem')
+  }
+
+  await page.locator('.side-bar .left-column > ul').first().locator('li').nth(3).click()
+  await page.waitForSelector('.side-bar-comments', { state: 'visible', timeout: 10000 })
+}
+
+test.describe('Portable markdown comments', () => {
+  test('render in WYSIWYG while preserving the raw Markdown source', async() => {
+    const { app, page } = await launchWithMarkdown(DOC)
+    try {
+      await page.waitForSelector('.mu-comment-highlight', { state: 'attached', timeout: 10000 })
+
+      await expect
+        .poll(() => page.locator('.mu-comment-highlight').first().textContent(), {
+          timeout: 10000
+        })
+        .toBe('reviewed')
+      expect(await page.locator('.mu-comment-marker').first().textContent()).toBe('<!--MC:a-->')
+      expect(await getMarkdownContent(page, app)).toBe(DOC)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('source mode handoffs do not rewrite valid comment syntax', async() => {
+    const { app, page } = await launchWithMarkdown(DOC)
+    try {
+      for (let i = 0; i < 2; i++) {
+        await enterSourceMode(page, app)
+        expect(await sourceValue(page)).toBe(DOC)
+        await exitSourceMode(page, app)
+        expect(await getMarkdownContent(page, app)).toBe(DOC)
+      }
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('source edits outside markers and inside metadata survive the handoff', async() => {
+    const { app, page } = await launchWithMarkdown(DOC)
+    try {
+      const proseEdited = DOC.replace(' span.', ' span with source edit.')
+      await setSourceMarkdown(page, app, proseEdited)
+      expect(await getMarkdownContent(page, app)).toBe(proseEdited)
+
+      const metadataEdited = proseEdited.replace(META_OPEN, META_RESOLVED)
+      await setSourceMarkdown(page, app, metadataEdited)
+      expect(await getMarkdownContent(page, app)).toBe(metadataEdited)
+      await expect
+        .poll(() => page.locator('.mu-comment-highlight').first().textContent(), {
+          timeout: 10000
+        })
+        .toBe('reviewed')
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('sidebar actions edit, reply, resolve, and reopen thread metadata', async() => {
+    const { app, page } = await launchWithMarkdown(DOC)
+    try {
+      await openCommentsSidebar(page, app)
+      const thread = page.locator('.side-bar-comments .thread').first()
+
+      await thread.locator('.thread-actions button').nth(1).click()
+      await thread.locator('.edit-box textarea').fill('Edited first note')
+      await thread.getByRole('button', { name: 'Save' }).click()
+      await expect(thread.locator('.reply p').first()).toHaveText('Edited first note')
+
+      await thread.locator('.reply-box textarea').fill('Second reply')
+      await thread.getByRole('button', { name: 'Reply' }).click()
+      await expect(thread.locator('.reply p').last()).toHaveText('Second reply')
+
+      await thread.locator('.thread-actions button').nth(2).click()
+      await expect(thread.locator('.status')).toHaveText('Resolved')
+
+      await thread.locator('.thread-actions button').nth(2).click()
+      await expect(thread.locator('.status')).toHaveText('Open')
+      expect(await getMarkdownContent(page, app)).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('save and reopen preserve portable comment bytes', async() => {
+    const expected = DOC.replace(' span.', ' persisted span.').replace(META_OPEN, META_RESOLVED)
+    const { app, page, filePath } = await launchWithMarkdown(DOC)
+    try {
+      await setSourceMarkdown(page, app, expected)
+      await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+      await save(app)
+      await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
+      await expect.poll(() => fs.readFileSync(filePath, 'utf-8'), { timeout: 5000 }).toBe(expected)
+    } finally {
+      await app.close()
+    }
+
+    const reopened = await launchElectron([filePath])
+    try {
+      await waitForEditor(reopened.page)
+      await waitForMenuReady(reopened.app)
+      await reopened.page.waitForSelector('.mu-comment-highlight', {
+        state: 'attached',
+        timeout: 10000
+      })
+      expect(await getMarkdownContent(reopened.page, reopened.app)).toBe(expected)
+    } finally {
+      await reopened.app.close()
+    }
+  })
+})

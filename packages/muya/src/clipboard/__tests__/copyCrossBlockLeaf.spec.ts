@@ -129,3 +129,35 @@ describe('cross-block copy with a code-block endpoint', () => {
         expect(text).toBe('ra\n\n```js\nconst a = 1\n```\n');
     });
 });
+
+describe('cross-block copy with markdown comments', () => {
+    it('strips hidden comment markers from selected visible prose', () => {
+        const muya = bootMuya('A <!--MC:a-->reviewed<!--MC:~a--> line.\n\nTail paragraph\n');
+        const sp = muya.editor.scrollPage!;
+        const first = sp.firstContentInDescendant()!;
+        const last = sp.lastContentInDescendant()!;
+        stub(muya, first, 0, last, 4);
+
+        const { text } = muya.editor.clipboard.getClipboardData();
+
+        expect(text).toBe('A reviewed line.\n\nTail\n');
+    });
+
+    it('does not copy hidden metadata definitions in a multi-block selection', () => {
+        const metadata = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+            '',
+            `[MC:a]: ${metadata}`,
+            '',
+        ].join('\n'));
+        const sp = muya.editor.scrollPage!;
+        const first = sp.firstContentInDescendant()!;
+        const last = sp.lastContentInDescendant()!;
+        stub(muya, first, 0, last, last.text.length);
+
+        const { text } = muya.editor.clipboard.getClipboardData();
+
+        expect(text).toBe('A reviewed line.\n');
+    });
+});

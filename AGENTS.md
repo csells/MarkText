@@ -8,6 +8,7 @@ MarkText is a pnpm monorepo. The root contains shared tooling, CI-facing scripts
 - `packages/muya/`: TypeScript rewrite of the editor engine (`@muyajs/core`) with `src/`, CommonMark/GFM spec tests in `test/spec`, and Playwright tests in `e2e/`.
 - `packages/muyajs/`: legacy JavaScript editor engine retained for compatibility.
 - `packages/website/`: Next.js documentation site with its own lint/build scripts.
+- `skills/`: repo-shipped agent skills for project-specific Markdown workflows.
 
 Avoid editing generated outputs such as `out/`, `dist/`, `lib/`, `test-results/`, and `playwright-report/`.
 
@@ -89,6 +90,8 @@ root holds only shared tooling and CI-facing scripts.
                             validateLicenses.ts, thirdPartyChecker.ts all
                             target packages/desktop internally.
   docs/                     Long-form developer docs.
+  skills/                   Repo-shipped agent skills and helper scripts for
+                            MarkText-authored Markdown workflows.
   dist/                     Packaged installers from electron-builder
                             (git-ignored; electron-builder writes here via
                             `directories.output: ../../dist` so CI artifact

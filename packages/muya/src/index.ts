@@ -1,3 +1,21 @@
+export {
+    decodeCommentMetadata,
+    encodeCommentMetadata,
+    parseMarkdownComments,
+} from './comments';
+export type {
+    IAddCommentInput,
+    ICommentDiagnostic,
+    ICommentMetadata,
+    ICommentRange,
+    ICommentReply,
+    ICommentReplyInput,
+    ICommentThread,
+    IParsedMarkdownComments,
+    TCommentDiagnosticCode,
+    TCommentStatus,
+    TUpdateCommentThreadPatch,
+} from './comments';
 export type { ILocale } from './i18n/types';
 export { de, en, es, fr, ja, ko, pt, tr, zhCN, zhTW } from './locales';
 

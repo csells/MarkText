@@ -47,6 +47,7 @@
       "findNext": "尋找下一個",
       "findPrevious": "尋找上一個",
       "findInFolder": "在資料夾中尋找",
+      "addComment": "Add Comment",
       "screenshot": "螢幕截圖",
       "lineEnding": "行結束符",
       "lineEndingCrlf": "CRLF(Windows)",
@@ -186,6 +187,7 @@
     "pasteAsPlainText": "貼上為純文字",
     "insertParagraphBefore": "在前面插入段落",
     "insertParagraphAfter": "在後面插入段落",
+    "addComment": "Add Comment",
     "spelling": "拼字檢查…",
     "changeLanguage": "變更語言…",
     "addToDictionary": "加入字典",
@@ -779,6 +781,7 @@
       "findPrevious": "尋找上一個",
       "replace": "取代",
       "findInFolder": "在資料夾中尋找",
+      "addComment": "Add Comment",
       "screenshot": "螢幕截圖"
     },
     "paragraph": {

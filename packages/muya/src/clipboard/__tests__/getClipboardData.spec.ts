@@ -125,3 +125,23 @@ describe('clipboard.getClipboardData — single table-cell copy keeps the cell t
         expect(text).toBe('only-cell');
     });
 });
+
+describe('clipboard.getClipboardData — markdown comment syntax stays hidden in WYSIWYG copy', () => {
+    it('strips hidden comment markers from a same-block copy', () => {
+        const source = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
+        const clipboard = makeClipboard(source, 0, source.length);
+
+        const { text } = clipboard.getClipboardData();
+
+        expect(text).toBe('A reviewed span.');
+    });
+
+    it('does not copy hidden comment metadata definitions as visible text', () => {
+        const source = '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const clipboard = makeClipboard(source, 0, source.length);
+
+        const { text } = clipboard.getClipboardData();
+
+        expect(text).toBe('');
+    });
+});

@@ -16,6 +16,7 @@ export interface IHighlight {
     start: number;
     end: number;
     active: boolean | undefined;
+    type?: 'search' | 'comment';
 }
 
 export type Labels = Map<
@@ -62,6 +63,7 @@ export type Token
         | HTMLEscapeToken
         | AutoLinkExtensionToken
         | AutoLinkToken
+        | CommentMarkerToken
         | HTMLTagToken
         | SoftLineBreakToken
         | HardLineBreakToken
@@ -215,6 +217,12 @@ export type AutoLinkToken = IBaseToken & {
     email: string;
     isLink: boolean; // It is a link or email.
     marker: '<';
+};
+
+export type CommentMarkerToken = IBaseToken & {
+    type: 'comment_marker';
+    markerId: string;
+    markerKind: 'open' | 'close';
 };
 
 export type HTMLTagToken = IBaseToken & {

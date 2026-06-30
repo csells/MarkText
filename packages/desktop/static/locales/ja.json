@@ -47,6 +47,7 @@
       "findNext": "次を検索",
       "findPrevious": "前を検索",
       "findInFolder": "フォルダ内を検索",
+      "addComment": "Add Comment",
       "screenshot": "スクリーンショット",
       "lineEnding": "改行コード",
       "lineEndingCrlf": "CRLF (Windows)",
@@ -186,6 +187,7 @@
     "pasteAsPlainText": "プレーンテキストとして貼り付け",
     "insertParagraphBefore": "前に段落を挿入",
     "insertParagraphAfter": "後に段落を挿入",
+    "addComment": "Add Comment",
     "spelling": "スペルチェック...",
     "changeLanguage": "言語を変更...",
     "addToDictionary": "辞書に追加",
@@ -779,6 +781,7 @@
       "findPrevious": "前を検索",
       "replace": "置換",
       "findInFolder": "フォルダ内を検索",
+      "addComment": "Add Comment",
       "screenshot": "スクリーンショット"
     },
     "paragraph": {

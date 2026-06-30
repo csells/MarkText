@@ -10,6 +10,7 @@ const COMMANDS = Object.freeze({
   EDIT_FIND_IN_FOLDER: 'edit.find-in-folder',
   EDIT_FIND_NEXT: 'edit.find-next',
   EDIT_FIND_PREVIOUS: 'edit.find-previous',
+  EDIT_ADD_COMMENT: 'edit.add-comment',
   EDIT_PASTE: 'edit.paste',
   EDIT_PASTE_AS_PLAINTEXT: 'edit.paste-as-plaintext',
   EDIT_REDO: 'edit.redo',

@@ -6,6 +6,7 @@ import type { ISelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
 import type Clipboard from './index';
+import { stripCommentSyntaxForClipboard } from '../comments/syntax';
 import StateToMarkdown from '../state/stateToMarkdown';
 import { getClipBoardHtml, getSanitizeClipboardHtml } from '../utils/marked';
 import { CopyType } from './types';
@@ -362,7 +363,7 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
         const begin = Math.min(anchor.offset, focus.offset);
         const end = Math.max(anchor.offset, focus.offset);
 
-        const text = anchorBlock.text.substring(begin, end);
+        const text = stripCommentSyntaxForClipboard(anchorBlock.text.substring(begin, end));
 
         return { html: getClipBoardHtml(text, options), text };
     }
@@ -374,7 +375,7 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
 
     const copyState = collectCopyState(order);
 
-    const text = new StateToMarkdown().generate(copyState);
+    const text = stripCommentSyntaxForClipboard(new StateToMarkdown().generate(copyState));
     const html = getClipBoardHtml(text, options);
 
     return { html, text };

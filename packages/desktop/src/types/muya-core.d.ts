@@ -42,12 +42,82 @@ declare module '@muyajs/core' {
     githubSlug: string
   }
 
+  export interface ICommentReply {
+    author: string
+    createdAt: string
+    body: string
+  }
+
+  export interface ICommentReplyInput {
+    author: string
+    body: string
+    createdAt?: string
+  }
+
+  export interface ICommentMetadata {
+    version: 1
+    status: 'open' | 'resolved'
+    authors?: string[]
+    createdAt?: string
+    updatedAt?: string
+    replies: ICommentReply[]
+  }
+
+  export interface ICommentThread extends ICommentMetadata {
+    id: string
+  }
+
+  export interface ICommentRange {
+    id: string
+    startPath: Array<string | number>
+    endPath: Array<string | number>
+    startOffset: number
+    endOffset: number
+  }
+
+  export interface ICommentDiagnostic {
+    code:
+      | 'duplicate-open-marker'
+      | 'duplicate-metadata'
+      | 'invalid-metadata'
+      | 'missing-metadata'
+      | 'orphan-close-marker'
+      | 'orphan-metadata'
+      | 'unclosed-open-marker'
+    id: string
+    message: string
+  }
+
+  export interface IParsedMarkdownComments {
+    threads: ICommentThread[]
+    ranges: ICommentRange[]
+    diagnostics: ICommentDiagnostic[]
+  }
+
+  export interface IAddCommentInput {
+    id?: string
+    author?: string
+    body?: string
+    createdAt?: string
+    updatedAt?: string
+  }
+
+  export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>
+
   // The editor instance surface is kept permissive (`any`) — every member
   // that crosses the editor boundary was already `any` in editor.vue.
   export class Muya {
     static use(plugin: any, options?: Record<string, unknown>): void
     constructor(element: HTMLElement, options?: Record<string, unknown>)
     init(): void
+    getComments(): IParsedMarkdownComments
+    getActiveComments(): string[]
+    addComment(input?: IAddCommentInput): boolean
+    updateCommentThread(id: string, patch: TUpdateCommentThreadPatch): boolean
+    replyToComment(id: string, reply: ICommentReplyInput): boolean
+    resolveComment(id: string, updatedAt?: string): boolean
+    reopenComment(id: string, updatedAt?: string): boolean
+    focusComment(id: string): boolean
     [key: string]: any
   }
 

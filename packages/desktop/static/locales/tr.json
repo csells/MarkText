@@ -47,6 +47,7 @@
       "findNext": "Sonrakini Bul",
       "findPrevious": "Öncekini Bul",
       "findInFolder": "Klasörde Bul",
+      "addComment": "Add Comment",
       "screenshot": "Ekran Görüntüsü",
       "lineEnding": "Satır Sonu",
       "lineEndingCrlf": "CRLF(Windows)",
@@ -186,6 +187,7 @@
     "pasteAsPlainText": "Düz Metin Olarak Yapıştır",
     "insertParagraphBefore": "Önüne Paragraf Ekle",
     "insertParagraphAfter": "Arkasına Paragraf Ekle",
+    "addComment": "Add Comment",
     "spelling": "Yazım...",
     "changeLanguage": "Dili Değiştir...",
     "addToDictionary": "Sözlüğe Ekle",
@@ -779,6 +781,7 @@
       "findPrevious": "Öncekini Bul",
       "replace": "Değiştir",
       "findInFolder": "Klasörde Bul",
+      "addComment": "Add Comment",
       "screenshot": "Ekran Görüntüsü"
     },
     "paragraph": {

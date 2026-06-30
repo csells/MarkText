@@ -70,6 +70,42 @@ function pressBackspace(content: Format): Event {
     return event;
 }
 
+function pressDelete(content: Format): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', {
+        key: 'Delete',
+        bubbles: true,
+        cancelable: true,
+    });
+    content.deleteHandler(event);
+    return event;
+}
+
+describe('format delete handlers — hidden markdown comment markers', () => {
+    const commented = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
+
+    it('backspace after a hidden close marker skips the marker without corrupting it', () => {
+        const closeStart = commented.indexOf('<!--MC:~a-->');
+        const closeEnd = closeStart + '<!--MC:~a-->'.length;
+        const content = caretInFirstBlock(bootMuya(`${commented}\n`), closeEnd);
+        const event = pressBackspace(content);
+
+        expect(content.text).toBe(commented);
+        expect(content.getCursor()!.start.offset).toBe(closeStart);
+        expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('delete before a hidden open marker skips the marker without corrupting it', () => {
+        const openStart = commented.indexOf('<!--MC:a-->');
+        const openEnd = openStart + '<!--MC:a-->'.length;
+        const content = caretInFirstBlock(bootMuya(`${commented}\n`), openStart);
+        const event = pressDelete(content);
+
+        expect(content.text).toBe(commented);
+        expect(content.getCursor()!.start.offset).toBe(openEnd);
+        expect(event.defaultPrevented).toBe(true);
+    });
+});
+
 describe('format.backspaceHandler — closing-marker boundary (muya#113)', () => {
     it('just-outside the closing `**`: removes one marker char, no doubled markers', () => {
         // Caret at offset 14, immediately after the whole `**strong**` close.

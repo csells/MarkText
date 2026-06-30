@@ -229,6 +229,12 @@ const commands: CommandDescriptor[] = [
     }
   },
   {
+    id: 'edit.add-comment',
+    execute: async() => {
+      focusEditorAndExecute(() => bus.emit('addComment'))
+    }
+  },
+  {
     id: 'edit.find-in-folder',
     execute: async() => {
       await delay(150)

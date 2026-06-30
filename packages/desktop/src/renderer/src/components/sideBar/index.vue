@@ -38,6 +38,7 @@
       />
       <side-bar-search v-else-if="rightColumn === 'search'" />
       <toc v-else-if="rightColumn === 'toc'" />
+      <comments v-else-if="rightColumn === 'comments'" />
     </div>
     <div
       v-show="rightColumn"
@@ -57,6 +58,7 @@ import { sideBarIcons, sideBarBottomIcons } from './help'
 import Tree from './tree.vue'
 import SideBarSearch from './search.vue'
 import Toc from './toc.vue'
+import Comments from './comments.vue'
 import { storeToRefs } from 'pinia'
 import type { TabDescriptor } from './types'
 

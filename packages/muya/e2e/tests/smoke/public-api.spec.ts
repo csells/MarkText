@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { getMarkdown, getTOC } from '../helpers/api';
+import { getComments, getMarkdown, getTOC } from '../helpers/api';
 
 test.describe('public api', () => {
     test('setContent then getMarkdown round-trips', async ({ page }) => {
@@ -24,6 +24,32 @@ test.describe('public api', () => {
         ]);
         expect(toc[0].slug).toBeTruthy();
         expect(toc[0].githubSlug).toBe('h1');
+    });
+
+    test('getComments reflects portable markdown comments', async ({ page }) => {
+        await page.evaluate(() => {
+            window.muya!.setContent([
+                'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+                '',
+                '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119',
+                '',
+            ].join('\n'));
+        });
+        const comments = await getComments(page);
+        expect(comments.diagnostics).toEqual([]);
+        expect(comments.ranges).toEqual([
+            expect.objectContaining({
+                id: 'a',
+                startOffset: 13,
+                endOffset: 21,
+            }),
+        ]);
+        expect(comments.threads).toEqual([
+            expect.objectContaining({
+                id: 'a',
+                status: 'open',
+            }),
+        ]);
     });
 
     test('locale switch flips muya.i18n.lang', async ({ page }) => {

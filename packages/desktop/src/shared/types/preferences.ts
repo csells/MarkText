@@ -72,7 +72,7 @@ export interface IUserPreferences {
 }
 
 export interface LayoutState {
-  rightColumn: 'files' | 'search' | 'toc'
+  rightColumn: 'files' | 'search' | 'toc' | 'comments'
   showSideBar: boolean
   showTabBar: boolean
   [key: string]: unknown

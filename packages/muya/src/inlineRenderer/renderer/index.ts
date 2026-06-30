@@ -4,7 +4,7 @@ import type Format from '../../block/base/format';
 import type { Muya } from '../../index';
 import type { IRenderCursor } from '../../selection/types';
 import type InlineRenderer from '../index';
-import type { ISyntaxRenderOptions, Token } from '../types';
+import type { IHighlight, ISyntaxRenderOptions, Token } from '../types';
 import { CLASS_NAMES } from '../../config';
 import { conflict, methodMixins, snakeToCamel } from '../../utils';
 import { h, toHTML } from '../../utils/snabbdom';
@@ -13,6 +13,7 @@ import autoLinkExtension from './autoLinkExtension';
 import backlash from './backlash';
 import backlashInToken from './backlashInToken';
 import codeFence from './codeFence';
+import commentMarker from './commentMarker';
 import del from './del';
 import delEmStrongFac from './delEmStrongFactory';
 import em from './em';
@@ -46,6 +47,7 @@ const inlineSyntaxRenderer = {
     highlight,
     header,
     link,
+    commentMarker,
     htmlTag,
     hr,
     tailHeader,
@@ -136,8 +138,40 @@ class Renderer {
         );
     }
 
-    getHighlightClassName(active: boolean) {
+    getHighlightClassName(active: boolean, type: IHighlight['type'] = 'search') {
+        if (type === 'comment') {
+            return active
+                ? CLASS_NAMES.MU_COMMENT_HIGHLIGHT_ACTIVE
+                : CLASS_NAMES.MU_COMMENT_HIGHLIGHT;
+        }
+
         return active ? CLASS_NAMES.MU_HIGHLIGHT : CLASS_NAMES.MU_SELECTION;
+    }
+
+    getHighlightClassNames(highlights: IHighlight[]) {
+        const classNames: string[] = [];
+        const searchHighlights = highlights.filter(highlight => highlight.type !== 'comment');
+        const commentHighlights = highlights.filter(highlight => highlight.type === 'comment');
+
+        if (searchHighlights.length) {
+            classNames.push(
+                this.getHighlightClassName(
+                    searchHighlights.some(highlight => !!highlight.active),
+                    'search',
+                ),
+            );
+        }
+
+        if (commentHighlights.length) {
+            classNames.push(
+                this.getHighlightClassName(
+                    commentHighlights.some(highlight => !!highlight.active),
+                    'comment',
+                ),
+            );
+        }
+
+        return classNames;
     }
 
     // Dynamic dispatch helper: each per-token renderer in `inlineSyntaxRenderer`

@@ -1,5 +1,5 @@
 import type Format from '../../block/base/format';
-import type { H, Token } from '../types';
+import type { H, IHighlight, Token } from '../types';
 import type Renderer from './index';
 import { union } from '../../utils';
 
@@ -15,31 +15,39 @@ export default function highlight(
     const { text } = block;
     const { highlights } = token;
     let result = [];
-    const unions = [];
-    let pos = rStart;
+    const clippedHighlights: IHighlight[] = [];
 
     if (highlights) {
         for (const light of highlights) {
             const un = union({ start: rStart, end: rEnd }, light);
             if (un)
-                unions.push(un);
+                clippedHighlights.push(un);
         }
     }
 
-    if (unions.length) {
-        for (const u of unions) {
-            const { start, end, active } = u;
-            const className = this.getHighlightClassName(!!active);
+    if (clippedHighlights.length) {
+        const boundaries = [...new Set([
+            rStart,
+            rEnd,
+            ...clippedHighlights.flatMap(light => [light.start, light.end]),
+        ])].sort((a, b) => a - b);
 
-            if (pos < start)
-                result.push(text.substring(pos, start));
+        for (let i = 0; i < boundaries.length - 1; i++) {
+            const start = boundaries[i];
+            const end = boundaries[i + 1];
+            const segmentHighlights = clippedHighlights.filter(light =>
+                light.start < end && light.end > start,
+            );
 
-            result.push(h(`span.${className}`, text.substring(start, end)));
-            pos = end;
+            if (start === end)
+                continue;
+
+            const classNames = this.getHighlightClassNames(segmentHighlights);
+            if (classNames.length)
+                result.push(h(`span.${classNames.join('.')}`, text.substring(start, end)));
+            else
+                result.push(text.substring(start, end));
         }
-
-        if (pos < rEnd)
-            result.push(block.text.substring(pos, rEnd));
     }
     else {
         result = [text.substring(rStart, rEnd)];

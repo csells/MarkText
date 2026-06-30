@@ -1,11 +1,29 @@
 import type { ISyntaxRenderOptions, ReferenceDefinitionToken } from '../types';
 import type Renderer from './index';
+import { isCommentMetadataReference } from '../../comments/syntax';
 import { CLASS_NAMES } from '../../config';
 
 export default function referenceDefinition(
     this: Renderer,
     { h, block, token }: ISyntaxRenderOptions & { token: ReferenceDefinitionToken },
 ) {
+    if (isCommentMetadataReference(token.label, token.href)) {
+        return [
+            h(
+                `span.${CLASS_NAMES.MU_HIDE}.${CLASS_NAMES.MU_REMOVE}.${CLASS_NAMES.MU_COMMENT_METADATA}`,
+                {
+                    attrs: {
+                        spellcheck: 'false',
+                    },
+                    dataset: {
+                        id: token.label.slice(3),
+                    },
+                },
+                token.raw,
+            ),
+        ];
+    }
+
     const className = CLASS_NAMES.MU_REFERENCE_MARKER;
     const {
         leftBracket,

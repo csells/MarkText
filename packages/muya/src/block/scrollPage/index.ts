@@ -4,6 +4,7 @@ import type { Nullable } from '../../types';
 import type Content from '../base/content';
 import type TreeNode from '../base/treeNode';
 import type { IConstructor, TBlockPath } from '../types';
+import { COMMENT_MARKER_SEARCH_REGEXP } from '../../comments/syntax';
 import { BLOCK_DOM_PROPERTY } from '../../config';
 import { isHTMLElement, isMouseEvent } from '../../utils';
 import logger from '../../utils/logger';
@@ -102,6 +103,23 @@ export class ScrollPage extends Parent {
                 return ScrollPage.loadBlock(block.name).create(muya, block);
             }),
         );
+        this.updateCommentContent();
+    }
+
+    updateCommentContent() {
+        let hasCommentMarkers = false;
+        this.breadthFirstTraverse((node) => {
+            if (node.isContent() && COMMENT_MARKER_SEARCH_REGEXP.test(node.text))
+                hasCommentMarkers = true;
+        });
+
+        if (!hasCommentMarkers)
+            return;
+
+        this.breadthFirstTraverse((node) => {
+            if (node.isContent())
+                node.update();
+        });
     }
 
     /**
