@@ -3,6 +3,7 @@
 import type Content from '../block/base/content';
 import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { updateCommentMetadataInMarkdown } from '../comments';
 import { Muya } from '../muya';
 
 const hosts: HTMLElement[] = [];
@@ -455,6 +456,47 @@ describe('muya comment metadata mutations', () => {
             id: 'a',
             status: 'resolved',
         });
+    });
+
+    it('updates the parser-selected source metadata line without rewriting ignored definitions', () => {
+        const ignored = metadata({ version: 1, status: 'open', replies: [] });
+        const canonical = metadata({ version: 1, status: 'open', replies: [] });
+        const invalid = '[MC:a]: data:application/json;base64,not-base64-json';
+        const document = [
+            '---',
+            `[MC:a]: ${ignored}`,
+            '---',
+            '',
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            invalid,
+            `[MC:a]: ${canonical}  `,
+        ].join('\n');
+
+        const next = updateCommentMetadataInMarkdown(
+            document,
+            'a',
+            current => ({ ...current, status: 'resolved', updatedAt: '2026-06-30T15:00:00.000Z' }),
+        );
+
+        expect(next).not.toBeNull();
+        const lines = next!.split('\n').filter(line => line.trimStart().startsWith('[MC:a]: '));
+        expect(decode(lines[0].replace('[MC:a]: ', '')).status).toBe('open');
+        expect(lines[1]).toBe(invalid);
+        expect(decode(lines[2].trim().replace('[MC:a]: ', '')).status).toBe('resolved');
+        expect(lines[2].endsWith('  ')).toBe(true);
+    });
+
+    it('returns original markdown when the parser-selected metadata update is a no-op', () => {
+        const document = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n');
+
+        expect(updateCommentMetadataInMarkdown(document, 'a', current => current)).toBe(document);
     });
 
     it('returns false when metadata for the requested comment is missing', () => {

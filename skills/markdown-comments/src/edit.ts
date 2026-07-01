@@ -1,8 +1,6 @@
 import {
-  decodeCommentMetadata,
-  encodeCommentMetadata,
   mergeCommentMetadataPatch,
-  normalizeCommentMetadata
+  updateCommentMetadataInMarkdown
 } from './metadata'
 import type {
   ICommentMetadata,
@@ -12,142 +10,17 @@ import type {
   TUpdateCommentThreadPatch
 } from './metadata'
 
-const METADATA_LINE_REGEXP =
-  /^( {0,3}\[MC:([^\]\s]+)\]:\s*)(data:application\/json;base64,\S*)(\s*)$/
-
-interface FenceState {
-  marker: '`' | '~'
-  length: number
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-}
-
-function getFenceStart(line: string): FenceState | null {
-  const match = /^(?: {0,3})(`{3,}|~{3,})/u.exec(line)
-  if (!match) return null
-
-  const marker = match[1][0] as '`' | '~'
-  return { marker, length: match[1].length }
-}
-
-function isFenceEnd(line: string, fence: FenceState): boolean {
-  const escapedMarker = fence.marker === '`' ? '`' : '~'
-  const regexp = new RegExp(`^(?: {0,3})${escapedMarker}{${fence.length},}\\s*$`, 'u')
-  return regexp.test(line)
-}
-
-function getHtmlBlockClosing(line: string): RegExp | 'single-line' | null {
-  const trimmed = line.trim()
-  if (/^<!--/u.test(trimmed)) {
-    return /-->/u.test(trimmed) ? 'single-line' : /-->/u
-  }
-
-  const tag = /^<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s|>|\/>)/u.exec(trimmed)
-  if (!tag) return null
-  if (new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu').test(trimmed) || /\/>\s*$/u.test(trimmed)) {
-    return 'single-line'
-  }
-
-  return new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu')
-}
-
 export function replaceCommentMetadata(
   markdown: string,
   id: string,
   updater: (metadata: ICommentMetadata) => ICommentMetadata
 ): string {
-  const parts = markdown.split(/(\r\n|\n|\r)/)
-  let replaced = false
-  let fence: FenceState | null = null
-  let frontMatterMarker: string | null = null
-  let htmlClosing: RegExp | null = null
-  let inMathBlock = false
-
-  for (let i = 0; i < parts.length; i += 2) {
-    const line = parts[i]
-    if (line == null) continue
-    const trimmed = line.trim()
-
-    if (frontMatterMarker) {
-      if (trimmed === frontMatterMarker) {
-        frontMatterMarker = null
-      }
-      continue
-    }
-
-    if (i === 0) {
-      const frontMatterStart = /^(---|\+\+\+)[ \t]*$/u.exec(line)
-      if (frontMatterStart) {
-        frontMatterMarker = frontMatterStart[1]
-        continue
-      }
-    }
-
-    if (fence) {
-      if (isFenceEnd(line, fence)) {
-        fence = null
-      }
-      continue
-    }
-
-    const fenceStart = getFenceStart(line)
-    if (fenceStart) {
-      fence = fenceStart
-      continue
-    }
-
-    if (inMathBlock) {
-      if (/^ {0,3}\$\$[ \t]*$/u.test(line)) {
-        inMathBlock = false
-      }
-      continue
-    }
-
-    if (/^ {0,3}\$\$[ \t]*$/u.test(line)) {
-      inMathBlock = true
-      continue
-    }
-
-    if (htmlClosing) {
-      if (!trimmed || htmlClosing.test(trimmed)) {
-        htmlClosing = null
-      }
-      continue
-    }
-
-    const htmlBlockClosing = getHtmlBlockClosing(line)
-    if (htmlBlockClosing) {
-      if (htmlBlockClosing !== 'single-line') {
-        htmlClosing = htmlBlockClosing
-      }
-      continue
-    }
-
-    if (/^(?: {4,}|\t)/u.test(line)) continue
-
-    const match = METADATA_LINE_REGEXP.exec(line)
-    if (!match || match[2] !== id) continue
-
-    let currentMetadata: ICommentMetadata
-    try {
-      currentMetadata = decodeCommentMetadata(match[3])
-    } catch {
-      continue
-    }
-
-    const nextMetadata = normalizeCommentMetadata(updater(currentMetadata))
-    parts[i] = `${match[1]}${encodeCommentMetadata(nextMetadata)}${match[4]}`
-    replaced = true
-    break
-  }
-
-  if (!replaced) {
+  const updated = updateCommentMetadataInMarkdown(markdown, id, updater)
+  if (!updated) {
     throw new Error(`No metadata definition found for comment "${id}".`)
   }
 
-  return parts.join('')
+  return updated
 }
 
 export function patchCommentMetadata(

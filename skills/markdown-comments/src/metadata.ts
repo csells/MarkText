@@ -2,7 +2,8 @@ export {
   decodeCommentMetadata,
   encodeCommentMetadata,
   mergeCommentMetadataPatch,
-  normalizeCommentMetadata
+  normalizeCommentMetadata,
+  updateCommentMetadataInMarkdown
 } from '../../../packages/muya/src/comments'
 export type {
   ICommentMetadata,

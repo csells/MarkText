@@ -2,6 +2,8 @@ import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
 import type { ICommentMetadata } from './types';
 import { tokenizer } from '../inlineRenderer/lexer';
+import { MarkdownToState } from '../state/markdownToState';
+import ExportMarkdown from '../state/stateToMarkdown';
 import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
 import {
@@ -407,6 +409,64 @@ export function updateCommentMetadataDefinition(
     });
 
     return found && updated ? states : null;
+}
+
+export function updateCommentMetadataInMarkdown(
+    markdown: string,
+    id: string,
+    updater: (metadata: ICommentMetadata) => ICommentMetadata,
+): string | null {
+    const normalizedMarkdown = markdown.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n');
+    const states = new MarkdownToState().generate(normalizedMarkdown);
+    const before = new ExportMarkdown().generate(states);
+    const nextStates = updateCommentMetadataDefinition(states, id, updater);
+    if (!nextStates)
+        return null;
+
+    const after = new ExportMarkdown().generate(nextStates);
+    if (after === before)
+        return markdown;
+
+    const beforeLines = before.split('\n');
+    const afterLines = after.split('\n');
+    const metadataLineIndex = beforeLines.findIndex((line, index) =>
+        line !== afterLines[index]
+        && parseCommentMetadataDefinition(line)?.id === id
+        && parseCommentMetadataDefinition(afterLines[index])?.id === id,
+    );
+    if (metadataLineIndex < 0)
+        return null;
+
+    const previousLine = beforeLines[metadataLineIndex];
+    const nextLine = afterLines[metadataLineIndex];
+
+    let targetOccurrence = 0;
+    for (let index = 0; index < metadataLineIndex; index += 1) {
+        if (beforeLines[index] === previousLine)
+            targetOccurrence += 1;
+    }
+
+    const parts = markdown.split(/(\r\n|\n|\r)/u);
+    let occurrence = 0;
+    for (let index = 0; index < parts.length; index += 2) {
+        const sourceLine = parts[index];
+        if (sourceLine == null)
+            continue;
+
+        const hasBom = index === 0 && sourceLine.startsWith('\uFEFF');
+        const comparableSourceLine = hasBom ? sourceLine.slice(1) : sourceLine;
+        if (comparableSourceLine !== previousLine)
+            continue;
+
+        if (occurrence === targetOccurrence) {
+            parts[index] = `${hasBom ? '\uFEFF' : ''}${nextLine}`;
+            return parts.join('');
+        }
+
+        occurrence += 1;
+    }
+
+    return null;
 }
 
 export function mergeCommentMetadataPatch(

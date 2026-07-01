@@ -3,6 +3,7 @@ export {
     mergeCommentMetadataPatch,
     nextCommentId,
     updateCommentMetadataDefinition,
+    updateCommentMetadataInMarkdown,
     wrapCommentRange,
 } from './edit';
 export type {

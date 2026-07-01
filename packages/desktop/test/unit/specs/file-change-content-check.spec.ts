@@ -90,6 +90,19 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       }
     })
 
+  const metadata = (body: string): string =>
+    `data:application/json;base64,${Buffer.from(JSON.stringify({
+      version: 1,
+      status: 'open',
+      replies: [
+        {
+          author: 'Agent',
+          createdAt: '2026-06-30T12:00:00.000Z',
+          body
+        }
+      ]
+    })).toString('base64')}`
+
   it('flushes the active editor before sending a save payload', () => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
@@ -276,6 +289,33 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(tab.markdown).toBe('one local\nshared\nthree\n')
     expect(tab.diskBaseMarkdown).toBe('one\nshared\nthree remote\n')
     expect(tab.isSaved).toBe(false)
+  })
+
+  it('auto-merges non-overlapping dirty local edits with disk comment metadata edits', () => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    const base = [
+      'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+      '',
+      `[MC:a]: ${metadata('Base note.')}`,
+      ''
+    ].join('\n')
+    const local = base.replace(' span.', ' span with local edits.')
+    const remote = base.replace(metadata('Base note.'), metadata('Agent note.'))
+    tab.diskBaseMarkdown = base
+    tab.markdown = local
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    fire(captureHandler(), remote)
+
+    expect(tab.markdown).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
+    expect(tab.markdown).toContain('span with local edits.')
+    expect(tab.markdown).toContain(`[MC:a]: ${metadata('Agent note.')}`)
+    expect(tab.diskBaseMarkdown).toBe(remote)
+    expect(tab.isSaved).toBe(false)
+    expect(store.mergeConflict).toBeNull()
   })
 
   it('opens a merge conflict resolver for overlapping dirty local and disk changes', () => {

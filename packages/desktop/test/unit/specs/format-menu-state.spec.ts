@@ -32,6 +32,7 @@ import { isEqualAccelerator } from 'common/keybinding'
 import paragraphTemplate from 'main_renderer/menu/templates/paragraph'
 import editTemplate from 'main_renderer/menu/templates/edit'
 import viewTemplate from 'main_renderer/menu/templates/view'
+import reviewTemplate from 'main_renderer/menu/templates/review'
 
 interface IInlineFormatIcon { type: string, shortcut?: string }
 
@@ -200,7 +201,7 @@ describe('Format-menu accelerators vs muya inlineFormatToolbar shortcuts', () =>
 // off the active platform map — so a hardcoded literal in a template would silently
 // diverge from the table. This walks each template with a fake keybindings backed by
 // every platform map and asserts the menu items pass the table value through verbatim.
-describe('menu template accelerators match the platform keybinding tables (Paragraph/Edit/View)', () => {
+describe('menu template accelerators match the platform keybinding tables (Paragraph/Edit/View/Review)', () => {
   type Template = (kb: { getAccelerator(id: string): string | null }) => MenuItemConstructorOptions
 
   // Sentinel-id keybindings: records the id of every accelerator the template
@@ -252,7 +253,8 @@ describe('menu template accelerators match the platform keybinding tables (Parag
   const TEMPLATES: ReadonlyArray<readonly [string, Template]> = [
     ['paragraph', paragraphTemplate as unknown as Template],
     ['edit', editTemplate as unknown as Template],
-    ['view', viewTemplate as unknown as Template]
+    ['view', viewTemplate as unknown as Template],
+    ['review', reviewTemplate as unknown as Template]
   ]
 
   for (const [tName, template] of TEMPLATES) {
@@ -301,6 +303,7 @@ describe('menu template accelerators match the platform keybinding tables (Parag
     expect(referencedIds(viewTemplate as unknown as Template)).toContain('view.source-code-mode')
     expect(referencedIds(viewTemplate as unknown as Template)).toContain('view.typewriter-mode')
     expect(referencedIds(viewTemplate as unknown as Template)).toContain('view.focus-mode')
+    expect(referencedIds(reviewTemplate as unknown as Template)).toContain('review.add-comment')
 
     expect(isEqualAccelerator(accel(keybindingsDarwin, 'paragraph.heading-1'), 'Command+1')).toBe(true)
     expect(keybindingsWindows.get('paragraph.heading-1')).toBe('')
@@ -311,5 +314,8 @@ describe('menu template accelerators match the platform keybinding tables (Parag
     expect(isEqualAccelerator(accel(keybindingsWindows, 'view.source-code-mode'), 'Ctrl+E')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsDarwin, 'view.source-code-mode'), 'Command+Option+S')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsWindows, 'view.focus-mode'), 'Ctrl+Shift+J')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsDarwin, 'review.add-comment'), 'Command+Shift+A')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsLinux, 'review.add-comment'), 'Ctrl+Shift+A')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsWindows, 'review.add-comment'), 'Ctrl+Shift+A')).toBe(true)
   })
 })

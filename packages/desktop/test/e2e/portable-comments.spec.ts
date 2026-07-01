@@ -69,6 +69,11 @@ const MALFORMED_DOC = [
   ''
 ].join('\n')
 
+const MISSING_METADATA_DOC = [
+  'A <!--MC:missing-->reviewed<!--MC:~missing--> span.',
+  ''
+].join('\n')
+
 const STRUCTURED_DOC = [
   '# <!--MC:heading-->Heading<!--MC:~heading-->',
   '',
@@ -171,6 +176,9 @@ const sourceSelectionText = async(page: Page): Promise<string> =>
     const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
     return cm?.CodeMirror?.getSelection() ?? ''
   })
+
+const wysiwygSelectionText = async(page: Page): Promise<string> =>
+  page.evaluate(() => window.getSelection()?.toString() ?? '')
 
 const save = async(app: ElectronApplication): Promise<void> => {
   await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -867,6 +875,22 @@ test.describe('Portable markdown comments', () => {
         'orphan-metadata'
       ])
       expect(await getMarkdownContent(page, app)).toBe(MALFORMED_DOC)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('WYSIWYG diagnostic click focuses the rendered comment range when one exists', async() => {
+    const { app, page } = await launchWithMarkdown(MISSING_METADATA_DOC)
+    try {
+      await openCommentsSidebar(page, app)
+      await expect(page.locator('.side-bar-comments .diagnostic-code')).toContainText([
+        'missing-metadata'
+      ])
+
+      await page.locator('.side-bar-comments .diagnostic').first().click()
+
+      await expect.poll(() => wysiwygSelectionText(page), { timeout: 5000 }).toBe('reviewed')
     } finally {
       await app.close()
     }
