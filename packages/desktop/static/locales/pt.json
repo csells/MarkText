@@ -944,7 +944,7 @@
     "editor": {
       "anchorLinkCopied": "Link âncora copiado",
       "tabNotFound": "Aba não encontrada",
-      "tocItemNotFound": "Item do índice não encontrado",
+      "tocItemNotFound": "Item do sumário {key} não encontrado",
       "errorLoadingTabTitle": "Erro ao carregar a aba",
       "errorLoadingTabMessage": "Ocorreu um erro ao carregar a alteração do arquivo porque a aba não pôde ser encontrada.",
       "mixedLineEndingsNormalized": "“{name}” possui finais de linha mistos que foram normalizados automaticamente para {lineEnding}.",

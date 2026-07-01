@@ -88,6 +88,47 @@ describe('mergeMarkdownThreeWay', () => {
     expect(result.mergedMarkdown).toContain(`[MC:a]: ${metadata('Agent note.')}`)
   })
 
+  // Byte-preservation invariants for the auto-merge (non-overlapping) path.
+  // A silent external merge must not perturb encoding-significant bytes, or an
+  // otherwise-clean agent edit would churn the file and could break comment
+  // marker anchoring. Existing coverage only asserted CRLF inside conflict
+  // markers, not through a clean auto-merge.
+  it('preserves a leading UTF-8 BOM through a non-overlapping auto-merge', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '﻿title\n\nbody\n',
+      local: '﻿title\n\nbody\nlocal add\n',
+      remote: '﻿title changed\n\nbody\n'
+    })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('﻿title changed\n\nbody\nlocal add\n')
+    expect(result.mergedMarkdown.startsWith('﻿')).toBe(true)
+  })
+
+  it('preserves a missing final newline through a non-overlapping auto-merge', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'line1\nline2',
+      local: 'line1 edited\nline2',
+      remote: 'line1\nline2 edited'
+    })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('line1 edited\nline2 edited')
+    expect(/\n$/.test(result.mergedMarkdown)).toBe(false)
+  })
+
+  it('preserves CRLF line endings through a non-overlapping auto-merge', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'a\r\nb\r\nc\r\n',
+      local: 'A\r\nb\r\nc\r\n',
+      remote: 'a\r\nb\r\nC\r\n'
+    })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('A\r\nb\r\nC\r\n')
+    expect(result.mergedMarkdown).not.toMatch(/(?<!\r)\n/)
+  })
+
   it('escalates overlapping comment range edits to conflict markers', () => {
     const result = mergeMarkdownThreeWay({
       base: 'A <!--MC:a-->reviewed<!--MC:~a--> span.\n',

@@ -263,6 +263,38 @@ describe('desktop locale completeness for markdown comments', () => {
     }
   })
 
+  it('keeps interpolation placeholders in parity with English for comment/editor strings', () => {
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    const placeholders = (value: unknown): string =>
+      typeof value === 'string'
+        ? [...value.matchAll(/\{(\w+)\}/gu)].map(match => match[1]).sort().join(',')
+        : ''
+
+    // Scope to the groups this review feature owns/touches. A translation that
+    // drops a placeholder silently loses information (e.g. the missing name in
+    // a "changed on disk" prompt), so every locale must carry the same set.
+    const groups = ['store.editor', 'sideBar.comments']
+    const en = JSON.parse(readFileSync(resolve(localesDir, 'en.json'), 'utf8'))
+    const pick = (obj: Record<string, unknown>, path: string): Record<string, unknown> =>
+      path.split('.').reduce<Record<string, unknown>>((node, key) => (node?.[key] ?? {}) as Record<string, unknown>, obj)
+
+    for (const file of localeFiles) {
+      if (file === 'en.json') continue
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8'))
+
+      for (const group of groups) {
+        const enGroup = pick(en, group)
+        const localeGroup = pick(locale, group)
+        for (const [key, enValue] of Object.entries(enGroup)) {
+          if (typeof enValue !== 'string' || typeof localeGroup[key] !== 'string') continue
+          expect(placeholders(localeGroup[key]), `${file} ${group}.${key}`).toBe(placeholders(enValue))
+        }
+      }
+    }
+  })
+
   it('keeps generated minified locale files in parity with source locales', () => {
     const localeFiles = readdirSync(localesDir)
       .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))

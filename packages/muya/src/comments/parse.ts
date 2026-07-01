@@ -109,6 +109,13 @@ function selectedTextPreview(
 }
 
 export function parseMarkdownComments(markdownOrStates: string | TState[]): IParsedMarkdownComments {
+    // Fast path: every comment marker (`<!--MC:`) and metadata definition
+    // (`[MC:`) contains the literal `MC:`, and no diagnostic can arise without
+    // one of them. A document lacking `MC:` has no comments, so skip the
+    // expensive full-document re-parse this would otherwise run on every load.
+    if (typeof markdownOrStates === 'string' && !markdownOrStates.includes('MC:'))
+        return { threads: [], ranges: [], diagnostics: [] };
+
     const states = markdownToStates(markdownOrStates);
     const diagnostics: ICommentDiagnostic[] = [];
     const ranges: ICommentRange[] = [];

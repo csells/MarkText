@@ -944,7 +944,7 @@
     "editor": {
       "anchorLinkCopied": "錨點連結已複製",
       "tabNotFound": "找不到標籤頁",
-      "tocItemNotFound": "找不到目錄項目",
+      "tocItemNotFound": "找不到目錄項目 {key}",
       "errorLoadingTabTitle": "載入標籤頁發生錯誤",
       "errorLoadingTabMessage": "載入檔案變更時發生錯誤，因為找不到該標籤頁。",
       "mixedLineEndingsNormalized": "「{name}」含有混合換行字元，已自動正規化為 {lineEnding}。",

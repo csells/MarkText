@@ -944,7 +944,7 @@
     "editor": {
       "anchorLinkCopied": "锚点链接已复制",
       "tabNotFound": "未找到标签页",
-      "tocItemNotFound": "未找到目录项",
+      "tocItemNotFound": "未找到目录项 {key}",
       "errorLoadingTabTitle": "加载标签页出错",
       "errorLoadingTabMessage": "加载文件变更时发生错误，因为找不到该标签页。",
       "mixedLineEndingsNormalized": "“{name}” 含有混合换行符，已自动规范化为 {lineEnding}。",
