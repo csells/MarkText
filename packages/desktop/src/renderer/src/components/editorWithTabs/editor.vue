@@ -329,6 +329,12 @@ const getSyntheticHistory = (id: string, baselineContent: string): SyntheticHist
 const resetSyntheticHistory = (id: string, baselineContent: string): void => {
   syntheticHistoryByTab.set(id, new SyntheticHistory(baselineContent))
 }
+const resetSyntheticHistoryDirty = (id: string, dirtyContent: string): void => {
+  syntheticHistoryByTab.set(
+    id,
+    new SyntheticHistory(`${dirtyContent}\u0000dirty-reload-baseline`)
+  )
+}
 const makeSyntheticHistory = (id: string, content: string): IFileHistoryLike => {
   return getSyntheticHistory(id, content).build(content)
 }
@@ -427,7 +433,8 @@ const adaptSelectionChange = (changes: MuyaChange) => {
       block: { text: focusBlock?.text, functionType: focusInfo?.functionType },
       type: focusInfo?.type
     },
-    affiliation
+    affiliation,
+    canAddComment: typeof changes.canAddComment === 'boolean' ? changes.canAddComment : undefined
   }
 }
 
@@ -1473,6 +1480,7 @@ interface FileChangePayload {
   muyaIndexCursor?: unknown
   blocks?: unknown
   isReload?: boolean
+  preserveDirty?: boolean
 }
 
 // listen for markdown change form source mode or change tabs etc
@@ -1484,7 +1492,8 @@ const handleFileChange = (payload: unknown) => {
     muyaIndexCursor,
     history: payloadHistory,
     scrollTop,
-    isReload
+    isReload,
+    preserveDirty
   } = (payload ?? {}) as FileChangePayload
   if (!editor.value) return
   const container = getScrollContainer()
@@ -1533,12 +1542,15 @@ const handleFileChange = (payload: unknown) => {
       // it too. `replaceContent` preserves the existing undo stack and pushes the
       // boundary on top.
       //
-      // The new content is this tab's clean baseline (the store seeds
-      // `lastSavedHistoryId: 0`), so re-seed the save-tracking allocator BEFORE
-      // applying: `replaceContent` fires a SYNCHRONOUS `json-change` that would
-      // otherwise mark the tab dirty against the stale (pre-reload) baseline.
+      // Ordinary reloads are the new clean baseline. Dirty external merges are
+      // intentionally pending user review/save, so their reloaded content must
+      // receive a fresh dirty id instead of id 0.
       if (id) {
-        resetSyntheticHistory(id, newMarkdown)
+        if (preserveDirty) {
+          resetSyntheticHistoryDirty(id, newMarkdown)
+        } else {
+          resetSyntheticHistory(id, newMarkdown)
+        }
       }
       editor.value.replaceContent(newMarkdown)
       editorStore.UPDATE_TOC(editor.value.getTOC())

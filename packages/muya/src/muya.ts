@@ -21,6 +21,7 @@ import { ScrollPage } from './block/scrollPage';
 import {
     appendCommentReplyMetadata,
     buildTextPathIndexes,
+    canWrapCommentRange,
     createCommentMetadata,
     locateCommentSyntax,
     mergeCommentMetadataPatch,
@@ -271,13 +272,25 @@ export class Muya {
 
     getComments(): IParsedMarkdownComments {
         // Comment derivation runs on every json-change; it must never throw out
-        // of the edit pipeline. Degrade to no comments if parsing ever fails.
+        // of the edit pipeline. Surface the failure as a diagnostic so callers
+        // do not confuse a parser failure with a comment-free document.
         try {
             return parseMarkdownComments(this.editor.jsonState.getState());
         }
         catch (error) {
             console.error('muya.getComments failed:', error);
-            return { threads: [], ranges: [], diagnostics: [] };
+            const message = error instanceof Error ? error.message : String(error);
+            return {
+                threads: [],
+                ranges: [],
+                diagnostics: [
+                    {
+                        code: 'parse-error',
+                        id: '__parser__',
+                        message: `muya.getComments failed: ${message}`,
+                    },
+                ],
+            };
         }
     }
 
@@ -310,6 +323,37 @@ export class Muya {
         catch (error) {
             console.error('muya.getActiveComments failed:', error);
             return [];
+        }
+    }
+
+    canAddComment(input: Pick<IAddCommentInput, 'id'> = {}): boolean {
+        const selection = this.editor.selection.getSelection();
+        if (!selection || selection.isCollapsed)
+            return false;
+
+        try {
+            const comments = this.getComments();
+            const existingIds = [
+                ...comments.threads.map(thread => thread.id),
+                ...comments.ranges.map(range => range.id),
+                ...comments.diagnostics.map(diagnostic => diagnostic.id),
+            ];
+            const id = input.id ?? nextCommentId(existingIds);
+            if (existingIds.includes(id))
+                return false;
+
+            return canWrapCommentRange({
+                states: this.editor.jsonState.getState(),
+                path: selection.anchor.path,
+                endPath: selection.focus.path,
+                startOffset: selection.anchor.offset,
+                endOffset: selection.focus.offset,
+                id,
+            });
+        }
+        catch (error) {
+            console.error('muya.canAddComment failed:', error);
+            return false;
         }
     }
 

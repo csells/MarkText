@@ -1,5 +1,7 @@
 import type { TState } from '../types';
 import { Buffer } from 'node:buffer';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     COMMENT_METADATA_DATA_URI_PREFIX,
@@ -28,6 +30,12 @@ function roundTrip(markdown: string) {
 }
 
 describe('markdown comments - state round-trip', () => {
+    it('keeps markdown comment source files text-reviewable', () => {
+        const source = readFileSync(join(process.cwd(), 'src/state/markdownToState.ts'), 'utf8');
+
+        expect(source).not.toContain('\0');
+    });
+
     it('preserves inline range markers and metadata definitions', () => {
         const meta = metadata({
             version: 1,

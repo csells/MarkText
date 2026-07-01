@@ -62,6 +62,24 @@ describe('selection-change payload', () => {
         expect(Array.isArray(payload!.formats)).toBe(true);
     });
 
+    it('includes Muya commentability for the current selection', () => {
+        const muya = bootMuya('A <!--MC:a-->reviewed<!--MC:~a--> span.\n');
+        const first = muya.editor.scrollPage!.firstContentInDescendant()!;
+
+        let payload: Record<string, unknown> | null = null;
+        muya.on('selection-change', (p: unknown) => {
+            payload = p as Record<string, unknown>;
+        });
+
+        muya.editor.selection.setSelection(
+            { offset: 'A <!--'.length, block: first, path: first.path },
+            { offset: 'A <!--MC:a-->reviewed'.length, block: first, path: first.path },
+        );
+
+        expect(payload).not.toBeNull();
+        expect(payload!.canAddComment).toBe(false);
+    });
+
     it('reports the active inline format when the cursor is inside bold text', () => {
         const muya = bootMuya('**bold**\n');
         const first = muya.editor.scrollPage!.firstContentInDescendant()!;

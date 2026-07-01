@@ -98,6 +98,42 @@ describe('muya.getComments()', () => {
 });
 
 describe('muya.addComment()', () => {
+    it('exposes the same commentability decision used by addComment', () => {
+        const muya = boot('A reviewed span.\n');
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.setCursor(2, 10, true);
+        expect(muya.canAddComment()).toBe(true);
+
+        leaf.setCursor(2, 2, true);
+        expect(muya.canAddComment()).toBe(false);
+    });
+
+    it('rejects whitespace-only selections', () => {
+        const muya = boot('A   span.\n');
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.setCursor(1, 4, true);
+
+        expect(muya.canAddComment({ id: 'whitespace_only' })).toBe(false);
+        expect(muya.addComment({ id: 'whitespace_only' })).toBe(false);
+    });
+
+    it('reports marker-overlap selections as not commentable', () => {
+        const muya = boot([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n'));
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.setCursor('A <!--'.length, 'A <!--MC:a-->reviewed'.length, true);
+
+        expect(muya.canAddComment({ id: 'bad_marker_overlap' })).toBe(false);
+        expect(muya.addComment({ id: 'bad_marker_overlap' })).toBe(false);
+    });
+
     it('wraps a same-leaf selection, appends metadata, and records one undo boundary', () => {
         const muya = boot('A reviewed span.\n');
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
@@ -717,14 +753,26 @@ describe('muya comment events', () => {
 });
 
 describe('muya.getComments() resilience', () => {
-    it('degrades to empty comments when derivation throws instead of breaking the pipeline', () => {
+    it('surfaces a parser diagnostic when derivation throws instead of hiding the review layer', () => {
         const muya = boot('A <!--MC:a-->reviewed<!--MC:~a--> line.\n');
-        (muya as unknown as { editor: { jsonState: { getState: () => unknown } } })
-            .editor.jsonState.getState = () => {
+        const jsonState = (muya as unknown as { editor: { jsonState: { getState: () => unknown } } })
+            .editor
+            .jsonState;
+        jsonState.getState = () => {
             throw new Error('boom');
         };
 
-        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
+        expect(muya.getComments()).toEqual({
+            threads: [],
+            ranges: [],
+            diagnostics: [
+                {
+                    code: 'parse-error',
+                    id: '__parser__',
+                    message: 'muya.getComments failed: boom',
+                },
+            ],
+        });
     });
 });
 

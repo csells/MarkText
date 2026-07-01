@@ -5,7 +5,15 @@ import { dirname, resolve } from 'node:path'
 import { parse, compileScript } from 'vue/compiler-sfc'
 import ts from 'typescript'
 import { ref } from 'vue'
-import { appendCommentReplyMetadata, updateCommentMetadataInMarkdown } from '@muyajs/core'
+import {
+  appendCommentReplyMetadata,
+  buildCommentSourceIndex,
+  collectSourceCommentIds,
+  parseMarkdownComments,
+  sourceCommentIgnoredIndexRanges,
+  sourceRangesOverlap,
+  updateCommentMetadataInMarkdown
+} from '@muyajs/core'
 
 // `handleImageAction` lives as a <script setup> closure in sourceCode.vue
 // (registered on the `image-action` bus during onMounted). The desktop unit
@@ -33,6 +41,7 @@ interface SetupBindings {
     updater: (metadata: Record<string, unknown>) => Record<string, unknown>
   ) => boolean
   sourceCommentIndexRanges: (markdown: string) => Array<{ id: string; start: number; end: number }>
+  syncSourceCursorState: (cm: StubCM) => void
   tabId: { value: string | null }
 }
 
@@ -68,7 +77,9 @@ const loadComponent = (deps: Record<string, unknown>) => {
       setCursorAtFirstLine, setTextDirection, appendCommentReplyMetadata,
       COMMENT_METADATA_DATA_URI_PREFIX, COMMENT_MARKER_PATTERN, createCommentMetadata, decodeCommentMetadata,
       encodeCommentMetadata, nextCommentId, parseCommentMetadataDefinition,
-      parseMarkdownComments, updateCommentMetadataInMarkdown,
+      parseMarkdownComments, serializeCommentMarker, serializeCommentMetadataDefinition,
+      updateCommentMetadataInMarkdown, buildCommentSourceIndex, collectSourceCommentIds,
+      sourceCommentIgnoredIndexRanges, sourceRangesOverlap,
       getWordCount, wordCount, adjustCursor, bus, notice, useI18n,
       oneDarkThemes, railscastsThemes } = __deps
     ${js}
@@ -103,9 +114,15 @@ const makeDeps = (over: Record<string, unknown> = {}) => ({
   createCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
   decodeCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
   encodeCommentMetadata: () => 'data:application/json;base64,e30=',
+  serializeCommentMarker: (id: string, kind: 'open' | 'close' = 'open') => `<!--MC:${kind === 'close' ? '~' : ''}${id}-->`,
+  serializeCommentMetadataDefinition: (id: string, dataUri: string) => `[MC:${id}]: ${dataUri}`,
   nextCommentId: () => 'cmt_1',
   parseCommentMetadataDefinition: () => null,
   parseMarkdownComments: () => ({ threads: [], ranges: [], diagnostics: [] }),
+  buildCommentSourceIndex,
+  collectSourceCommentIds,
+  sourceCommentIgnoredIndexRanges,
+  sourceRangesOverlap,
   updateCommentMetadataInMarkdown,
   wordCount: () => 0,
   getWordCount: () => 0,
@@ -315,6 +332,218 @@ describe('sourceCode handleImageAction', () => {
           focus: { line: 0, ch: 6 }
         }
       })
+    } finally {
+      window.electron = oldElectron
+      window.marktext = oldMarkText
+    }
+  })
+
+  it('does not re-run full comment parsing for cursor-only source moves', () => {
+    const parseMarkdownComments = vi.fn(() => ({ threads: [], ranges: [], diagnostics: [] }))
+    const updateComments = vi.fn()
+    const updateActiveComments = vi.fn()
+    const oldElectron = window.electron
+    const oldMarkText = window.marktext
+    window.electron = { ipcRenderer: { send: vi.fn() } } as unknown as typeof window.electron
+    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+
+    try {
+      const deps = makeDeps({
+        parseMarkdownComments,
+        useEditorStore: () => ({
+          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
+          UPDATE_ACTIVE_COMMENTS: updateActiveComments,
+          UPDATE_COMMENTS: updateComments
+        })
+      })
+      const comp = loadComponent(deps)
+      const ret = comp.setup(
+        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
+        { expose: () => {} }
+      )
+      const focus = { line: 0, ch: 6 }
+      const anchor = { line: 0, ch: 6 }
+      const cm = makeCM('A <!--MC:a-->reviewed<!--MC:~a--> line.\n', focus, anchor)
+
+      ret.editor.value = cm
+      ret.tabId.value = 'tab-1'
+      ret.flushSourceEditor()
+      focus.ch = 20
+      anchor.ch = 20
+      ret.syncSourceCursorState(cm)
+      focus.ch = 21
+      anchor.ch = 21
+      ret.syncSourceCursorState(cm)
+
+      expect(parseMarkdownComments).toHaveBeenCalledTimes(1)
+      expect(updateComments).toHaveBeenCalledTimes(1)
+      expect(updateActiveComments).toHaveBeenCalledTimes(3)
+    } finally {
+      window.electron = oldElectron
+      window.marktext = oldMarkText
+    }
+  })
+
+  it('parses source comments with the current markdown parser preferences', () => {
+    const parseMarkdownComments = vi.fn(() => ({ threads: [], ranges: [], diagnostics: [] }))
+    const oldElectron = window.electron
+    const oldMarkText = window.marktext
+    window.electron = { ipcRenderer: { send: vi.fn() } } as unknown as typeof window.electron
+    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+
+    try {
+      const deps = makeDeps({
+        parseMarkdownComments,
+        usePreferencesStore: () => ({
+          footnote: true,
+          math: false,
+          isGitlabCompatibilityEnabled: false,
+          trimUnnecessaryCodeBlockEmptyLines: true,
+          frontmatterType: '+'
+        }),
+        useEditorStore: () => ({
+          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
+          UPDATE_ACTIVE_COMMENTS: vi.fn(),
+          UPDATE_COMMENTS: vi.fn()
+        })
+      })
+      const comp = loadComponent(deps)
+      const ret = comp.setup(
+        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
+        { expose: () => {} }
+      )
+      const cm = makeCM('A <!--MC:a-->reviewed<!--MC:~a--> line.\n', { line: 0, ch: 20 }, { line: 0, ch: 20 })
+
+      ret.syncSourceCursorState(cm)
+
+      expect(parseMarkdownComments).toHaveBeenCalledWith(
+        'A <!--MC:a-->reviewed<!--MC:~a--> line.\n',
+        {
+          footnote: true,
+          math: false,
+          isGitlabCompatibilityEnabled: false,
+          trimUnnecessaryCodeBlockEmptyLines: true,
+          frontMatter: true
+        }
+      )
+    } finally {
+      window.electron = oldElectron
+      window.marktext = oldMarkText
+    }
+  })
+
+  it('keeps source-mode Add Comment disabled for whitespace-only selections', () => {
+    const emit = vi.fn()
+    const send = vi.fn()
+    const oldElectron = window.electron
+    const oldMarkText = window.marktext
+    window.electron = { ipcRenderer: { send } } as unknown as typeof window.electron
+    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+
+    try {
+      const deps = makeDeps({
+        bus: { on: () => {}, off: () => {}, emit },
+        parseMarkdownComments,
+        useEditorStore: () => ({
+          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
+          UPDATE_ACTIVE_COMMENTS: vi.fn(),
+          UPDATE_COMMENTS: vi.fn()
+        })
+      })
+      const comp = loadComponent(deps)
+      const ret = comp.setup(
+        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
+        { expose: () => {} }
+      )
+      const cm = makeCM('A   span\n', { line: 0, ch: 4 }, { line: 0, ch: 1 })
+
+      ret.syncSourceCursorState(cm)
+
+      expect(emit).toHaveBeenCalledWith('editor-add-comment-enabled-changed', false)
+      expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
+    } finally {
+      window.electron = oldElectron
+      window.marktext = oldMarkText
+    }
+  })
+
+  it('keeps source-mode Add Comment disabled for task-list checkbox prefixes', () => {
+    const emit = vi.fn()
+    const send = vi.fn()
+    const oldElectron = window.electron
+    const oldMarkText = window.marktext
+    window.electron = { ipcRenderer: { send } } as unknown as typeof window.electron
+    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+
+    try {
+      const deps = makeDeps({
+        bus: { on: () => {}, off: () => {}, emit },
+        parseMarkdownComments,
+        useEditorStore: () => ({
+          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
+          UPDATE_ACTIVE_COMMENTS: vi.fn(),
+          UPDATE_COMMENTS: vi.fn()
+        })
+      })
+      const comp = loadComponent(deps)
+      const ret = comp.setup(
+        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
+        { expose: () => {} }
+      )
+      const cm = makeCM('- [ ] task\n', { line: 0, ch: 10 }, { line: 0, ch: 2 })
+
+      ret.syncSourceCursorState(cm)
+
+      expect(emit).toHaveBeenCalledWith('editor-add-comment-enabled-changed', false)
+      expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
+    } finally {
+      window.electron = oldElectron
+      window.marktext = oldMarkText
+    }
+  })
+
+  it.each([
+    {
+      label: 'semicolon JSON frontmatter',
+      markdown: ';;;\n{"review":"text"}\n;;;\n\nOutside\n',
+      focus: { line: 1, ch: 12 },
+      anchor: { line: 1, ch: 1 }
+    },
+    {
+      label: 'brace JSON frontmatter',
+      markdown: '{\n"review": "text"\n}\n\nOutside\n',
+      focus: { line: 1, ch: 11 },
+      anchor: { line: 1, ch: 1 }
+    }
+  ])('keeps source-mode Add Comment disabled inside $label', ({ markdown, focus, anchor }) => {
+    const emit = vi.fn()
+    const send = vi.fn()
+    const oldElectron = window.electron
+    const oldMarkText = window.marktext
+    window.electron = { ipcRenderer: { send } } as unknown as typeof window.electron
+    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+
+    try {
+      const deps = makeDeps({
+        bus: { on: () => {}, off: () => {}, emit },
+        parseMarkdownComments,
+        useEditorStore: () => ({
+          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
+          UPDATE_ACTIVE_COMMENTS: vi.fn(),
+          UPDATE_COMMENTS: vi.fn()
+        })
+      })
+      const comp = loadComponent(deps)
+      const ret = comp.setup(
+        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
+        { expose: () => {} }
+      )
+      const cm = makeCM(markdown, focus, anchor)
+
+      ret.syncSourceCursorState(cm)
+
+      expect(emit).toHaveBeenCalledWith('editor-add-comment-enabled-changed', false)
+      expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
     } finally {
       window.electron = oldElectron
       window.marktext = oldMarkText

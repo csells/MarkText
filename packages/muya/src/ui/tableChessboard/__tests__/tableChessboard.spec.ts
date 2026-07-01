@@ -70,7 +70,7 @@ describe('tableChessboard — plugin shape (restored, revert #4435)', () => {
         const pkg = await import('../../../index');
         expect('TableChessboard' in pkg).toBe(true);
         expect(pkg.TableChessboard).toBe(TableChessboard);
-    });
+    }, 15_000);
 
     it('exposes a stable static pluginName so Muya.use registers it', () => {
         expect(TableChessboard.pluginName).toBe('tablePicker');

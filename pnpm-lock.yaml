@@ -177,6 +177,9 @@ importers:
       ms:
         specifier: ^2.1.3
         version: 2.1.3
+      node-diff3:
+        specifier: 3.2.1
+        version: 3.2.1
       pako:
         specifier: ^2.1.0
         version: 2.1.0
@@ -660,7 +663,11 @@ importers:
         specifier: ^4.103.0
         version: 4.103.0
 
-  skills/markdown-comments: {}
+  skills/markdown-comments:
+    dependencies:
+      '@muyajs/core':
+        specifier: workspace:*
+        version: link:../../packages/muya
 
 packages:
 
@@ -5823,7 +5830,7 @@ packages:
     engines: {node: '>=16.0.0'}
 
   file-icons@https://codeload.github.com/file-icons/atom/tar.gz/28520868aee66e576145a0b18aa2cde5444a897a:
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/file-icons/atom/tar.gz/28520868aee66e576145a0b18aa2cde5444a897a}
+    resolution: {gitHosted: true, integrity: sha512-QHwNw61FyGcI32/sdPQ8N9XDLU2yuYE2JjU/WrLRJFpe1/d0xj4S7tXZd3mx9m5FUVYt+OG/jfOGxnpdspevIw==, tarball: https://codeload.github.com/file-icons/atom/tar.gz/28520868aee66e576145a0b18aa2cde5444a897a}
     version: 2.1.47
     engines: {atom: '>=1.25.0'}
 
@@ -7311,6 +7318,10 @@ packages:
 
   node-api-version@0.2.1:
     resolution: {integrity: sha512-2xP/IGGMmmSQpI1+O/k72jF/ykvZ89JeuKX3TLJAYPDVLUalrshrLHkeVcCCZqG/eEa635cr8IBYzgnDvM2O8Q==}
+
+  node-diff3@3.2.1:
+    resolution: {integrity: sha512-eKZcJ8RtMQ3cIaA15EgmtwG927fYnRlhtdA4Q9HAcCpAZPQhhU2XptnTH9GeAkMiX2bAXxlJSAFa9shFbztPgw==}
+    engines: {bun: '>=1.3.10'}
 
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
@@ -17276,6 +17287,8 @@ snapshots:
   node-api-version@0.2.1:
     dependencies:
       semver: 7.8.5
+
+  node-diff3@3.2.1: {}
 
   node-domexception@1.0.0: {}
 

@@ -278,6 +278,29 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
     await app.close()
   })
 
+  test('dirty WYSIWYG conflict can be resolved through the merge dialog', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('one\nshared\nthree\n')
+    await waitForMenuReady(app)
+
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'selectAll')
+    await page.keyboard.type('one\nlocal\nthree\n', { delay: 0 })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, 'one\nremote\nthree\n')
+    await expectMergeConflictPrompt(page)
+
+    await page.getByRole('button', { name: 'Use Disk' }).click()
+    await page.getByRole('button', { name: 'Accept Merge' }).click()
+
+    await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(
+      'one\nremote\nthree\n'
+    )
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
   test('dirty byte-equivalent external content clears the local dirty state', async() => {
     const { app, page, filePath } = await launchWithMarkdown('old content here\n')
     await waitForMenuReady(app)

@@ -34,6 +34,19 @@ interface IWrapCommentRangeInput {
     metadata: ICommentMetadata;
 }
 
+type TCommentRangeTargetInput = Omit<IWrapCommentRangeInput, 'metadata'>;
+
+interface IValidatedCommentRange {
+    range: {
+        startPath: TBlockPath;
+        endPath: TBlockPath;
+        startOffset: number;
+        endOffset: number;
+    };
+    startText: string;
+    endText: string;
+}
+
 export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>;
 
 const NON_COMMENTABLE_TEXT_STATES = new Set<TState['name']>([
@@ -199,6 +212,115 @@ function selectionIntersectsAcrossLeaves(
     return intersects;
 }
 
+function selectionContainsNonWhitespace(
+    states: TState[],
+    indexes: Map<string, number>,
+    startPath: TBlockPath,
+    endPath: TBlockPath,
+    startOffset: number,
+    endOffset: number,
+): boolean {
+    const startIndex = indexes.get(commentPathKey(startPath));
+    const endIndex = indexes.get(commentPathKey(endPath));
+    if (startIndex == null || endIndex == null)
+        return false;
+
+    let textIndex = 0;
+    let containsNonWhitespace = false;
+
+    const visit = (nodes: TState[]) => {
+        for (const state of nodes) {
+            if ('text' in state && typeof state.text === 'string') {
+                if (textIndex >= startIndex && textIndex <= endIndex) {
+                    const selectionStart = textIndex === startIndex ? startOffset : 0;
+                    const selectionEnd = textIndex === endIndex ? endOffset : state.text.length;
+                    if (state.text.slice(selectionStart, selectionEnd).trim().length > 0)
+                        containsNonWhitespace = true;
+                }
+                textIndex += 1;
+            }
+
+            if (containsNonWhitespace)
+                return;
+
+            if ('children' in state && Array.isArray(state.children))
+                visit(state.children);
+        }
+    };
+
+    visit(states);
+    return containsNonWhitespace;
+}
+
+function validateCommentRangeTarget({
+    states,
+    path,
+    endPath = path,
+    startOffset,
+    endOffset,
+    id,
+}: TCommentRangeTargetInput): IValidatedCommentRange | null {
+    const indexes = buildTextPathIndexes(states);
+    const range = orderTextRange(indexes, path, startOffset, endPath, endOffset);
+    if (!range)
+        return null;
+    if (!isValidCommentId(id) || !selectedTextLeavesAreCommentable(states, indexes, range.startPath, range.endPath))
+        return null;
+
+    const startText = readPath(states, range.startPath);
+    const endText = readPath(states, range.endPath);
+    if (typeof startText !== 'string' || typeof endText !== 'string')
+        return null;
+    if (
+        range.startOffset < 0
+        || range.startOffset > startText.length
+        || range.endOffset < 0
+        || range.endOffset > endText.length
+    ) {
+        return null;
+    }
+    if (
+        !selectionContainsNonWhitespace(
+            states,
+            indexes,
+            range.startPath,
+            range.endPath,
+            range.startOffset,
+            range.endOffset,
+        )
+    ) {
+        return null;
+    }
+    if (
+        selectionIntersectsAcrossLeaves(
+            states,
+            indexes,
+            range.startPath,
+            range.endPath,
+            range.startOffset,
+            range.endOffset,
+            selectionIntersectsInlineCode,
+        )
+    ) {
+        return null;
+    }
+    if (
+        selectionIntersectsAcrossLeaves(
+            states,
+            indexes,
+            range.startPath,
+            range.endPath,
+            range.startOffset,
+            range.endOffset,
+            selectionIntersectsCommentMarker,
+        )
+    ) {
+        return null;
+    }
+
+    return { range, startText, endText };
+}
+
 export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata {
     const createdAt = input.createdAt ?? new Date().toISOString();
     const updatedAt = input.updatedAt ?? createdAt;
@@ -233,6 +355,14 @@ export function nextCommentId(existingIds: Iterable<string>): string {
     return candidate;
 }
 
+export function canWrapCommentRange(input: TCommentRangeTargetInput): boolean {
+    const validation = validateCommentRangeTarget(input);
+    return !!validation && (
+        commentPathKey(validation.range.startPath) !== commentPathKey(validation.range.endPath)
+        || validation.range.startOffset < validation.range.endOffset
+    );
+}
+
 export function wrapCommentRange({
     states,
     path,
@@ -242,51 +372,11 @@ export function wrapCommentRange({
     id,
     metadata,
 }: IWrapCommentRangeInput): TState[] | null {
-    const indexes = buildTextPathIndexes(states);
-    const range = orderTextRange(indexes, path, startOffset, endPath, endOffset);
-    if (!range)
-        return null;
-    if (!isValidCommentId(id) || !selectedTextLeavesAreCommentable(states, indexes, range.startPath, range.endPath))
+    const validation = validateCommentRangeTarget({ states, path, endPath, startOffset, endOffset, id });
+    if (!validation)
         return null;
 
-    const startText = readPath(states, range.startPath);
-    const endText = readPath(states, range.endPath);
-    if (typeof startText !== 'string' || typeof endText !== 'string')
-        return null;
-    if (
-        range.startOffset < 0
-        || range.startOffset > startText.length
-        || range.endOffset < 0
-        || range.endOffset > endText.length
-    ) {
-        return null;
-    }
-    if (
-        selectionIntersectsAcrossLeaves(
-            states,
-            indexes,
-            range.startPath,
-            range.endPath,
-            range.startOffset,
-            range.endOffset,
-            selectionIntersectsInlineCode,
-        )
-    ) {
-        return null;
-    }
-    if (
-        selectionIntersectsAcrossLeaves(
-            states,
-            indexes,
-            range.startPath,
-            range.endPath,
-            range.startOffset,
-            range.endOffset,
-            selectionIntersectsCommentMarker,
-        )
-    ) {
-        return null;
-    }
+    const { range, startText, endText } = validation;
 
     const openMarker = serializeCommentMarker(id, 'open');
     const closeMarker = serializeCommentMarker(id, 'close');

@@ -23,10 +23,12 @@ import { useMainStore } from '.'
 import { t } from '../i18n'
 import { debouncedSendBufferedState, sendBufferedState } from './bufferedState'
 import {
-  mergeMarkdownThreeWay,
+  createWholeFileConflict,
   resolveConflictMarker,
-  type ThreeWayMergeConflict
+  type ThreeWayMergeConflict,
+  type ThreeWayMergeResult
 } from '../util/threeWayMerge'
+import { mergeDirtyExternalMarkdown } from '../util/dirtyExternalMerge'
 import type {
   IFileState,
   FileNotification,
@@ -36,6 +38,7 @@ import type {
   TabOptions
 } from '@shared/types/files'
 import {
+  buildCommentSourceIndex,
   parseCommentMetadataDefinition,
   parseMarkdownComments,
   type IParsedMarkdownComments
@@ -60,6 +63,8 @@ const createEmptyComments = (): IParsedMarkdownComments => ({
   diagnostics: []
 })
 
+const dirtyExternalMergeRequestIds = new Map<string, number>()
+
 interface RestoreWarning {
   tabId?: string | null
   pathname?: string
@@ -73,6 +78,7 @@ interface PushTabNotificationPayload {
   tabId: string
   msg: string
   showConfirm?: boolean
+  confirmLabel?: string
   style?: string
   exclusiveType?: string
   action?: FileNotification['action']
@@ -89,6 +95,10 @@ interface FileChangePayload {
     markdown: string
     filename: string
   }
+}
+
+interface LoadChangeOptions {
+  preserveDirty?: boolean
 }
 
 interface MergeConflictState {
@@ -155,6 +165,7 @@ interface SelectionChange {
   end: { key: string; offset: number; block?: { functionType?: string }; type?: string }
   affiliation?: AffiliationEntry[]
   hasFrontMatter?: boolean
+  canAddComment?: boolean
 }
 
 interface SelectionFormat {
@@ -237,7 +248,33 @@ const isSameFileSnapshot = (tab: IFileState, data: FileChangePayload['data']): b
   return data.markdown === tab.markdown && isSamePersistenceSnapshot(tab, data)
 }
 
-const commentDiagnosticCounts = (markdown: string): Map<string, number> => {
+const sourcePositionsForCommentId = (markdown: string, id: string): number[] => {
+  const positions: number[] = []
+  try {
+    const index = buildCommentSourceIndex(markdown)
+    positions.push(
+      ...index.markers.filter((marker) => marker.id === id).map((marker) => marker.start),
+      ...index.metadataDefinitions
+        .filter((definition) => definition.id === id)
+        .map((definition) => definition.start)
+    )
+  } catch {
+    // Fall back to a raw id scan below; diagnostics must not disappear because
+    // the source indexer rejected malformed syntax.
+  }
+
+  if (positions.length === 0) {
+    let cursor = markdown.indexOf(id)
+    while (cursor >= 0) {
+      positions.push(cursor)
+      cursor = markdown.indexOf(id, cursor + id.length)
+    }
+  }
+
+  return positions.sort((a, b) => a - b)
+}
+
+const commentDiagnosticOccurrences = (markdown: string): Map<string, number> => {
   const counts = new Map<string, number>()
   const add = (key: string): void => {
     counts.set(key, (counts.get(key) ?? 0) + 1)
@@ -245,11 +282,13 @@ const commentDiagnosticCounts = (markdown: string): Map<string, number> => {
 
   try {
     for (const diagnostic of parseMarkdownComments(markdown).diagnostics) {
+      const id = diagnostic.id ?? null
       add(
         JSON.stringify({
           code: diagnostic.code,
-          id: diagnostic.id ?? null,
-          message: diagnostic.message
+          id,
+          message: diagnostic.message,
+          positions: id ? sourcePositionsForCommentId(markdown, id) : []
         })
       )
     }
@@ -264,10 +303,10 @@ const introducesNewCommentDiagnostics = (
   localMarkdown: string,
   remoteMarkdown: string
 ): boolean => {
-  const localCounts = commentDiagnosticCounts(localMarkdown)
-  const remoteCounts = commentDiagnosticCounts(remoteMarkdown)
+  const localCounts = commentDiagnosticOccurrences(localMarkdown)
+  const remoteCounts = commentDiagnosticOccurrences(remoteMarkdown)
 
-  for (const [key, count] of commentDiagnosticCounts(mergedMarkdown)) {
+  for (const [key, count] of commentDiagnosticOccurrences(mergedMarkdown)) {
     const existingCount = Math.max(localCounts.get(key) ?? 0, remoteCounts.get(key) ?? 0)
     if (count > existingCount) return true
   }
@@ -403,6 +442,7 @@ export const useEditorStore = defineStore('editor', {
       const { tabId, msg } = data
       const action = data.action || defaultAction
       const showConfirm = data.showConfirm || false
+      const confirmLabel = data.confirmLabel
       const style = data.style || 'info'
       // Whether only one notification should exist.
       const exclusiveType = data.exclusiveType || ''
@@ -428,13 +468,14 @@ export const useEditorStore = defineStore('editor', {
       notifications.push({
         msg,
         showConfirm,
+        confirmLabel,
         style,
         exclusiveType,
         action
       })
     },
 
-    loadChange(change: FileChangePayload): void {
+    loadChange(change: FileChangePayload, options: LoadChangeOptions = {}): void {
       const { tabs, currentFile } = this
       const { data, pathname } = change
       const {
@@ -532,7 +573,8 @@ export const useEditorStore = defineStore('editor', {
           // External disk reload: the engine handler records the new content as a
           // single invertible undo boundary (replaceContent) instead of clearing
           // history (setContent), so the first undo restores the pre-reload doc.
-          isReload: true
+          isReload: true,
+          preserveDirty: options.preserveDirty === true
         })
       }
       debouncedSendBufferedState()
@@ -1419,7 +1461,11 @@ export const useEditorStore = defineStore('editor', {
       return recoveryTab
     },
 
-    APPLY_DIRTY_EXTERNAL_MERGE(change: FileChangePayload, mergedMarkdown: string): void {
+    APPLY_DIRTY_EXTERNAL_MERGE(
+      change: FileChangePayload,
+      mergedMarkdown: string,
+      options: { keepDirty?: boolean } = {}
+    ): void {
       const tab = this.tabs.find((t) =>
         window.fileUtils.isSamePathSync(t.pathname, change.pathname)
       )
@@ -1433,8 +1479,8 @@ export const useEditorStore = defineStore('editor', {
           markdown: mergedMarkdown
         }
       }
-      const cleanAfterApply = mergedMarkdown === change.data.markdown
-      this.loadChange(mergedChange)
+      const cleanAfterApply = !options.keepDirty && mergedMarkdown === change.data.markdown
+      this.loadChange(mergedChange, { preserveDirty: !cleanAfterApply })
 
       const nextTab = this.tabs.find((t) =>
         window.fileUtils.isSamePathSync(t.pathname, change.pathname)
@@ -1450,17 +1496,21 @@ export const useEditorStore = defineStore('editor', {
           tabId: nextTab.id,
           msg: t('store.editor.fileChangedOnDiskAutoMerged', { name: nextTab.filename }),
           showConfirm: true,
+          confirmLabel: t('menu.edit.undo'),
           exclusiveType: 'file_changed',
           action: (status) => {
             if (!status) return
 
-            this.loadChange({
-              ...change,
-              data: {
-                ...change.data,
-                markdown: localMarkdownBeforeMerge
-              }
-            })
+            this.loadChange(
+              {
+                ...change,
+                data: {
+                  ...change.data,
+                  markdown: localMarkdownBeforeMerge
+                }
+              },
+              { preserveDirty: true }
+            )
 
             const restoredTab = this.tabs.find((t) =>
               window.fileUtils.isSamePathSync(t.pathname, change.pathname)
@@ -1483,7 +1533,7 @@ export const useEditorStore = defineStore('editor', {
       resultMarkdown: string,
       conflicts: ThreeWayMergeConflict[]
     ): void {
-      this.mergeConflict = {
+      const mergeConflict = {
         tabId: tab.id,
         pathname: change.pathname,
         filename: tab.filename,
@@ -1495,12 +1545,19 @@ export const useEditorStore = defineStore('editor', {
         fileChange: change,
         validationError: undefined
       }
+      this.mergeConflict = mergeConflict
       this.pushTabNotification({
         tabId: tab.id,
         msg: t('store.editor.fileChangedOnDiskMergeConflict', { name: tab.filename }),
-        showConfirm: false,
+        showConfirm: true,
+        confirmLabel: t('editor.mergeConflict.title'),
         style: 'warn',
-        exclusiveType: 'file_changed'
+        exclusiveType: 'file_changed',
+        action: (status) => {
+          if (!status) return
+          this.mergeConflict = { ...mergeConflict }
+          debouncedSendBufferedState()
+        }
       })
       debouncedSendBufferedState()
     },
@@ -1530,7 +1587,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       this.mergeConflict = null
-      this.APPLY_DIRTY_EXTERNAL_MERGE(conflict.fileChange, mergedMarkdown)
+      this.APPLY_DIRTY_EXTERNAL_MERGE(conflict.fileChange, mergedMarkdown, { keepDirty: true })
     },
 
     RELOAD_DISK_FROM_MERGE_CONFLICT(): void {
@@ -1571,23 +1628,61 @@ export const useEditorStore = defineStore('editor', {
       pending.validationError = undefined
     },
 
-    HANDLE_DIRTY_EXTERNAL_CHANGE(tab: IFileState, change: FileChangePayload): void {
+    async HANDLE_DIRTY_EXTERNAL_CHANGE(tab: IFileState, change: FileChangePayload): Promise<void> {
       const { data } = change
       // All-in on the three-way merge: an external change to a file the user is
       // still editing is always reconciled by merging, never by a reload
-      // prompt. Content-identical-but-metadata-only changes fall out as clean
-      // merge fast paths (local===remote / remote===base), and loadChange
-      // adopts the on-disk encoding/line-ending during APPLY. Without a recorded
-      // base we cannot merge, so an empty base surfaces the difference in the
-      // conflict resolver rather than silently dropping either side.
+      // prompt. local===remote is handled before this point; remote===base has
+      // no new disk content relative to the edit base and is ignored here.
+      // Without a recorded base we cannot merge, so an empty base surfaces the
+      // difference in the conflict resolver rather than silently dropping either side.
       const baseMarkdown = typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : ''
       const localMarkdown = tab.markdown
+      if (localMarkdown === data.markdown) {
+        this.loadChange(change)
+        const nextTab = this.tabs.find((candidate) =>
+          window.fileUtils.isSamePathSync(candidate.pathname, change.pathname)
+        )
+        if (!nextTab) return
 
-      const mergeResult = mergeMarkdownThreeWay({
-        base: baseMarkdown,
-        local: localMarkdown,
-        remote: data.markdown
-      })
+        nextTab.diskBaseMarkdown = data.markdown
+        debouncedSendBufferedState()
+        return
+      }
+      if (data.markdown === baseMarkdown) return
+
+      const requestId = (dirtyExternalMergeRequestIds.get(tab.id) ?? 0) + 1
+      dirtyExternalMergeRequestIds.set(tab.id, requestId)
+
+      const isStaleDirtyMergeResult = (): boolean =>
+        dirtyExternalMergeRequestIds.get(tab.id) !== requestId ||
+        !this.tabs.some((candidate) => candidate.id === tab.id) ||
+        tab.markdown !== localMarkdown ||
+        tab.isSaved ||
+        (typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : '') !== baseMarkdown
+
+      let mergeResult: ThreeWayMergeResult
+      try {
+        mergeResult = await mergeDirtyExternalMarkdown({
+          base: baseMarkdown,
+          local: localMarkdown,
+          remote: data.markdown
+        })
+      } catch (err) {
+        console.error('Dirty external merge failed:', err)
+        if (isStaleDirtyMergeResult()) return
+
+        const fallback = createWholeFileConflict(baseMarkdown, localMarkdown, data.markdown)
+        this.OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
+          tab,
+          change,
+          baseMarkdown,
+          fallback.mergedMarkdown,
+          fallback.conflicts
+        )
+        return
+      }
+      if (isStaleDirtyMergeResult()) return
 
       if (mergeResult.conflicts.length === 0) {
         if (introducesNewCommentDiagnostics(mergeResult.mergedMarkdown, localMarkdown, data.markdown)) {
@@ -2003,7 +2098,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     LISTEN_FOR_FILE_CHANGE(): void {
-      window.electron.ipcRenderer.on('mt::update-file', (_, payload) => {
+      window.electron.ipcRenderer.on('mt::update-file', async(_, payload) => {
         const { type, change } = payload
         const { tabs } = this
         const { pathname } = change
@@ -2049,7 +2144,7 @@ export const useEditorStore = defineStore('editor', {
                 return
               }
 
-              this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, change as unknown as FileChangePayload)
+              await this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, change as unknown as FileChangePayload)
               debouncedSendBufferedState()
               break
             }
@@ -2273,7 +2368,8 @@ const createApplicationMenuState = ({
   start,
   end,
   affiliation,
-  hasFrontMatter
+  hasFrontMatter,
+  canAddComment: engineCanAddComment
 }: SelectionChange): ApplicationMenuState => {
   const state: ApplicationMenuState = {
     isDisabled: false,
@@ -2318,11 +2414,13 @@ const createApplicationMenuState = ({
     (typeof endBlock.text === 'string' && !!parseCommentMetadataDefinition(endBlock.text))
 
   state.canAddComment =
-    (start.key !== end.key || start.offset !== end.offset) &&
-    hasNonWhitespaceSelection(start, end) &&
-    !state.isCodeFences &&
-    !isCommentMetadataSelection &&
-    !selectionIntersectsInlineCode(start, end)
+    typeof engineCanAddComment === 'boolean'
+      ? engineCanAddComment
+      : (start.key !== end.key || start.offset !== end.offset) &&
+        hasNonWhitespaceSelection(start, end) &&
+        !state.isCodeFences &&
+        !isCommentMetadataSelection &&
+        !selectionIntersectsInlineCode(start, end)
 
   // Check every list level in the affiliation chain — nested lists show all
   // levels (e.g. a ul wrapping an ol checks both). Scanning the full chain (not

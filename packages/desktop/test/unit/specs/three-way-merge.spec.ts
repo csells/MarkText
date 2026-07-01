@@ -70,6 +70,32 @@ describe('mergeMarkdownThreeWay', () => {
     )
   })
 
+  it('keeps Use Both conflict choices separated when neither side ends with a newline', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'shared',
+      local: 'local',
+      remote: 'remote'
+    })
+    const [conflict] = result.conflicts
+
+    expect(resolveConflictMarker(result.mergedMarkdown, conflict, 'both')).toBe(
+      'local\nremote'
+    )
+  })
+
+  it('keeps Use Both conflict choices separated with the conflict line ending', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'one\r\nshared',
+      local: 'one\r\nlocal',
+      remote: 'one\r\nremote'
+    })
+    const [conflict] = result.conflicts
+
+    expect(resolveConflictMarker(result.mergedMarkdown, conflict, 'both')).toBe(
+      'one\r\nlocal\r\nremote'
+    )
+  })
+
   it('auto-merges non-overlapping prose and comment metadata edits without changing marker bytes', () => {
     const base = [
       'A <!--MC:a-->reviewed<!--MC:~a--> span.',

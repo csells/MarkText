@@ -2,7 +2,7 @@ import components from 'prismjs/components.js';
 import getLoader from 'prismjs/dependencies';
 import { getDefer } from '../index';
 
-interface ILangLoadStatus {
+export interface ILangLoadStatus {
     lang: string;
     status: 'noexist' | 'cached' | 'loaded';
 }

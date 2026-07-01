@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import type * as PdfUtil from '@/util/pdf'
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
 
 // `@/util/pdf` reads `window.path.join` and (for disk themes)
 // `window.marktext.paths` / `window.fileUtils` at call time, all normally
-// injected by the preload bridge. Stub the surface before the hoisted imports
-// run so the module graph can load. Per-test overrides below swap the
-// `window.fileUtils` behavior via `vi.resetModules()` + dynamic import.
+// injected by the preload bridge. Stub the surface before imports run so the
+// module graph can load. The helpers read the bridge at call time, so individual
+// tests can replace `window.fileUtils` without re-importing the module.
 vi.hoisted(() => {
   const w = globalThis as unknown as {
     window?: {
@@ -23,17 +24,19 @@ vi.hoisted(() => {
 // EMPTY string under vitest (no CSS `?inline` transform is configured), so the
 // academic/liber branch contributes no CSS in this environment. We therefore
 // characterize the branch *dispatch* (academic/liber take the inline path and
-// never touch `window.fileUtils`/`window.marktext`, unlike a disk theme name)
-// rather than asserting a theme-specific selector token, which is unavailable
-// here.
+// never touch `window.fileUtils`, unlike a disk theme name) rather than
+// asserting a theme-specific selector token, which is unavailable here.
 
-const loadPdf = async() => {
-  return import('@/util/pdf')
-}
+let pdfModule: typeof PdfUtil
+
+const loadPdf = async() => pdfModule
 
 describe('getCssForOptions', () => {
+  beforeAll(async() => {
+    pdfModule = await import('@/util/pdf')
+  }, 15_000)
+
   beforeEach(() => {
-    vi.resetModules()
     const w = globalThis as unknown as {
       window: {
         marktext: { paths: { userDataPath: string } }
@@ -46,14 +49,20 @@ describe('getCssForOptions', () => {
 
   it('academic/liber take the inline-theme branch (no disk access required)', async() => {
     const { getCssForOptions } = await loadPdf()
-    // Remove the disk surfaces entirely: if academic/liber tried a disk read
-    // these would throw. They must not.
-    const w = globalThis as unknown as { window: Record<string, unknown> }
-    delete w.window.marktext
-    delete w.window.fileUtils
+    // If academic/liber tried the disk-theme branch these would throw.
+    const diskAccess = vi.fn(async() => {
+      throw new Error('inline export themes must not read disk theme files')
+    })
+    const w = globalThis as unknown as {
+      window: {
+        fileUtils: { isFile: (p: string) => Promise<boolean>, readFile: (p: string) => Promise<unknown> }
+      }
+    }
+    w.window.fileUtils = { isFile: diskAccess, readFile: diskAccess }
 
     await expect(getCssForOptions({ theme: 'academic' })).resolves.toBeTypeOf('string')
     await expect(getCssForOptions({ theme: 'liber' })).resolves.toBeTypeOf('string')
+    expect(diskAccess).not.toHaveBeenCalled()
   })
 
   it('appends no theme CSS for theme:"default" (disk lookup misses) or {}', async() => {

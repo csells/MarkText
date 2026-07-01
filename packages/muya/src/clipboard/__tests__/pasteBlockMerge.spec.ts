@@ -18,7 +18,7 @@ vi.mock('../../utils/prism/index', () => ({
     walkTokens: () => null,
     loadedLanguages: new Set(),
     transformAliasToOrigin: (s: string) => s,
-    loadLanguage: () => null,
+    loadLanguage: () => Promise.resolve([]),
     search: () => [],
 }));
 
@@ -79,6 +79,25 @@ function stubSelection(muya: Muya, block: Content, start: number, end: number) {
     });
 }
 
+function stubCrossSelection(
+    muya: Muya,
+    anchorBlock: Content,
+    start: number,
+    focusBlock: Content,
+    end: number,
+) {
+    const anchorPath = anchorBlock.path;
+    const focusPath = focusBlock.path;
+    muya.editor.selection.getSelection = () => ({
+        anchor: { offset: start, block: anchorBlock, path: anchorPath },
+        focus: { offset: end, block: focusBlock, path: focusPath },
+        isCollapsed: false,
+        isSelectionInSameBlock: false,
+        direction: SelectionDirection.FORWARD,
+        type: SelectionCaretType.RANGE,
+    });
+}
+
 function pasteEvent(text: string) {
     return {
         preventDefault() {},
@@ -93,6 +112,12 @@ function pasteEvent(text: string) {
 
 async function paste(muya: Muya, block: Content, start: number, end: number, text: string): Promise<string> {
     stubSelection(muya, block, start, end);
+    await muya.editor.clipboard.pasteHandler(pasteEvent(text), text, '');
+    await new Promise(r => setTimeout(r, 40));
+    return muya.getMarkdown();
+}
+
+async function pasteWithCurrentSelection(muya: Muya, text: string): Promise<string> {
     await muya.editor.clipboard.pasteHandler(pasteEvent(text), text, '');
     await new Promise(r => setTimeout(r, 40));
     return muya.getMarkdown();
@@ -231,5 +256,85 @@ describe('paste — portable markdown comments', () => {
                 { id: 'cmt_1', status: 'open' },
             ],
         });
+    });
+
+    it('does not remap MC-looking text inside pasted fenced code', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            'Existing <!--MC:a-->comment<!--MC:~a-->.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+            'Paste here.',
+            '',
+        ].join('\n'));
+        const target = contentBlocks(muya).find(block => block.text.includes('Paste here.'))!;
+        const offset = target.text.length;
+
+        const markdown = await paste(muya, target, offset, offset, [
+            '```md',
+            '<!--MC:a-->literal<!--MC:~a-->',
+            '```',
+            '',
+        ].join('\n'));
+
+        expect(markdown).toContain([
+            '```md',
+            '<!--MC:a-->literal<!--MC:~a-->',
+            '```',
+        ].join('\n'));
+        expect(markdown).not.toContain('<!--MC:cmt_1-->literal<!--MC:~cmt_1-->');
+        expect(muya.getComments().threads.map(thread => thread.id)).toEqual(['a']);
+    });
+
+    it('does not paste over part of a hidden comment marker', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const initial = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya(initial);
+        const block = contentBlocks(muya).find(item => item.text.includes('<!--MC:a-->'))!;
+        const start = 'A <!--'.length;
+        const end = 'A <!--MC:a'.length;
+
+        const markdown = await paste(muya, block, start, end, 'X');
+
+        expect(markdown).toBe(initial);
+        expect(muya.getComments()).toMatchObject({
+            threads: [{ id: 'a', status: 'open' }],
+            ranges: [{ id: 'a' }],
+            diagnostics: [],
+        });
+    });
+
+    it('does not recurse when cross-block paste selection partially cuts a marker', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const initial = [
+            'Alpha <!--MC:a-->one.',
+            '',
+            'Two<!--MC:~a--> omega.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya(initial);
+        const blocks = contentBlocks(muya);
+        const startBlock = blocks.find(item => item.text.includes('<!--MC:a-->'))!;
+        const endBlock = blocks.find(item => item.text.includes('<!--MC:~a-->'))!;
+        stubCrossSelection(
+            muya,
+            startBlock,
+            'Alpha <!--'.length,
+            endBlock,
+            'Two'.length,
+        );
+
+        const markdown = await pasteWithCurrentSelection(muya, 'replacement');
+
+        expect(markdown).toBe(initial);
+        expect(muya.getComments().diagnostics).toEqual([]);
     });
 });

@@ -72,6 +72,17 @@ describe('createApplicationMenuState via SELECTION_CHANGE', () => {
     expect(collapsed.canAddComment).toBe(false)
   })
 
+  it('honors the engine Add Comment predicate when it is provided', () => {
+    const state = menuStateFor({
+      start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
+      end: { key: 'a', offset: 10, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
+      canAddComment: false,
+      affiliation: [{ type: 'p', blockName: 'paragraph' }]
+    })
+
+    expect(state.canAddComment).toBe(false)
+  })
+
   it('disables Add Comment for whitespace-only selections', () => {
     const state = menuStateFor({
       start: { key: 'a', offset: 1, type: 'span', block: { functionType: 'paragraphContent', text: 'A   B' } },

@@ -98,6 +98,7 @@ export interface IFileState {
 export interface FileNotification {
   msg: string
   showConfirm: boolean
+  confirmLabel?: string
   style: string
   exclusiveType: string
   action: (status?: unknown) => void

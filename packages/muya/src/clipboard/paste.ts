@@ -9,6 +9,8 @@ import CodeBlockContent from '../block/content/codeBlockContent';
 import LangInputContent from '../block/content/langInputContent';
 import { ScrollPage } from '../block/scrollPage';
 import {
+    buildCommentSourceIndex,
+    collectSourceCommentIds,
     COMMENT_MARKER_PATTERN,
     nextCommentId,
     parseCommentMetadataDefinition,
@@ -33,6 +35,48 @@ interface IPasteContext {
     start: { offset: number };
     end: { offset: number };
     content: string;
+}
+
+function unsafeCommentMarkerTextEdit(text: string, startOffset: number, endOffset: number): boolean {
+    const selectedKindsById = new Map<string, Set<'open' | 'close'>>();
+    const allKindsById = new Map<string, Set<'open' | 'close'>>();
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+
+    for (const match of text.matchAll(markerRegExp)) {
+        const marker = {
+            id: match[2],
+            kind: match[1] === '~' ? 'close' as const : 'open' as const,
+            start: match.index,
+            end: match.index + match[0].length,
+        };
+        const allKinds = allKindsById.get(marker.id) ?? new Set<'open' | 'close'>();
+        allKinds.add(marker.kind);
+        allKindsById.set(marker.id, allKinds);
+
+        const intersects = startOffset < marker.end && endOffset > marker.start;
+        const cursorInside = startOffset === endOffset && startOffset > marker.start && startOffset < marker.end;
+        if (!intersects && !cursorInside)
+            continue;
+
+        if (startOffset > marker.start || endOffset < marker.end)
+            return true;
+
+        const selectedKinds = selectedKindsById.get(marker.id) ?? new Set<'open' | 'close'>();
+        selectedKinds.add(marker.kind);
+        selectedKindsById.set(marker.id, selectedKinds);
+    }
+
+    for (const [id, selectedKinds] of selectedKindsById) {
+        const allKinds = allKindsById.get(id) ?? new Set<'open' | 'close'>();
+        if (
+            (selectedKinds.has('open') && !selectedKinds.has('close') && allKinds.has('close'))
+            || (selectedKinds.has('close') && !selectedKinds.has('open') && allKinds.has('open'))
+        ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -73,27 +117,12 @@ function sewTail(states: TState[], tail: string): number {
     return offset;
 }
 
-function collectCommentIdsFromMarkdown(markdown: string): Set<string> {
-    const ids = new Set<string>();
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
-    for (const match of markdown.matchAll(markerRegExp))
-        ids.add(match[2]);
-
-    for (const line of markdown.split(/\r\n|\n|\r/u)) {
-        const metadata = parseCommentMetadataDefinition(line);
-        if (metadata)
-            ids.add(metadata.id);
-    }
-
-    return ids;
-}
-
 function remapPastedCommentIdCollisions(clipboard: Clipboard, markdown: string): string {
     const currentMarkdown = typeof clipboard.muya.getMarkdown === 'function'
         ? clipboard.muya.getMarkdown()
         : '';
-    const existingIds = collectCommentIdsFromMarkdown(currentMarkdown);
-    const pastedIds = collectCommentIdsFromMarkdown(markdown);
+    const existingIds = collectSourceCommentIds(currentMarkdown);
+    const pastedIds = collectSourceCommentIds(markdown);
     const usedIds = new Set([...existingIds, ...pastedIds]);
     const replacements = new Map<string, string>();
 
@@ -109,21 +138,63 @@ function remapPastedCommentIdCollisions(clipboard: Clipboard, markdown: string):
     if (replacements.size === 0)
         return markdown;
 
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
-    const metadataLineRegExp = /^( {0,3}\[MC:)([^\]\s]+)(\]:(.*))$/gmu;
+    const sourceIndex = buildCommentSourceIndex(markdown);
+    const edits = [
+        ...sourceIndex.markers.map(marker => ({
+            start: marker.idStart,
+            end: marker.idEnd,
+            id: marker.id,
+        })),
+        ...sourceIndex.metadataDefinitions.map(definition => ({
+            start: definition.idStart,
+            end: definition.idEnd,
+            id: definition.id,
+        })),
+    ]
+        .filter(edit => replacements.has(edit.id))
+        .sort((left, right) => right.start - left.start);
 
-    return markdown
-        .replace(markerRegExp, (raw, closePrefix: string, id: string) => {
-            const replacement = replacements.get(id);
-            if (!replacement)
-                return raw;
+    let nextMarkdown = markdown;
+    for (const edit of edits)
+        nextMarkdown = `${nextMarkdown.slice(0, edit.start)}${replacements.get(edit.id)}${nextMarkdown.slice(edit.end)}`;
 
-            return `<!--MC:${closePrefix}${replacement}-->`;
-        })
-        .replace(metadataLineRegExp, (raw, prefix: string, id: string, suffix: string) => {
-            const replacement = replacements.get(id);
-            return replacement ? `${prefix}${replacement}${suffix}` : raw;
-        });
+    return nextMarkdown;
+}
+
+function splitTableCellCommentPaste(
+    clipboard: Clipboard,
+    markdown: string,
+): { cellMarkdown: string; metadataDefinitions: string[] } {
+    const remapped = remapPastedCommentIdCollisions(clipboard, markdown);
+    const metadataDefinitions: string[] = [];
+    const cellLines: string[] = [];
+
+    for (const line of remapped.split('\n')) {
+        if (parseCommentMetadataDefinition(line)) {
+            metadataDefinitions.push(line);
+        }
+        else if (metadataDefinitions.length === 0 || line.trim().length > 0) {
+            cellLines.push(line);
+        }
+    }
+
+    return {
+        cellMarkdown: cellLines.join('\n'),
+        metadataDefinitions,
+    };
+}
+
+function appendCommentMetadataDefinitions(clipboard: Clipboard, metadataDefinitions: string[]): void {
+    if (metadataDefinitions.length === 0)
+        return;
+
+    for (const definition of metadataDefinitions) {
+        const paragraph = ScrollPage.loadBlock('paragraph').create(
+            clipboard.muya,
+            { name: 'paragraph', text: definition },
+        );
+        clipboard.scrollPage?.append(paragraph, 'user');
+    }
 }
 
 function insertStatesAfter(
@@ -435,6 +506,9 @@ function applyParsedPaste(
     if (states.length === 0)
         return;
 
+    if (unsafeCommentMarkerTextEdit(content, start.offset, end.offset))
+        return;
+
     const head = content.substring(0, start.offset);
     const tail = content.substring(end.offset);
 
@@ -479,6 +553,7 @@ function applyLiteralPaste(
 ): void {
     const { anchorBlock, start, end, content } = ctx;
     let markdown = initialMarkdown;
+    let metadataDefinitions: string[] = [];
 
     // A frozen table-cell selection scopes the paste: a single cell gets its
     // text replaced (with `\n` → `<br/>`); a multi-cell rectangle cancels the
@@ -490,9 +565,11 @@ function applyLiteralPaste(
         if (!isSingleCellSelected(clipboard))
             return;
 
-        anchorBlock.text = markdown.trim().replace(/\n/g, '<br/>');
+        const split = splitTableCellCommentPaste(clipboard, markdown);
+        anchorBlock.text = split.cellMarkdown.trim().replace(/\n/g, '<br/>');
         const offset = anchorBlock.text.length;
         anchorBlock.setCursor(offset, offset, true);
+        appendCommentMetadataDefinitions(clipboard, split.metadataDefinitions);
         clipboard.selection.table.clear();
 
         return;
@@ -518,8 +595,15 @@ function applyLiteralPaste(
 
     // A table cell holds a single visual line: trim and fold newlines to
     // `<br/>` (muyajs trims pasted cell text on both the framed and normal path).
-    if (anchorBlock.blockName === 'table.cell.content')
+    if (anchorBlock.blockName === 'table.cell.content') {
+        const split = splitTableCellCommentPaste(clipboard, markdown);
+        markdown = split.cellMarkdown;
+        metadataDefinitions = split.metadataDefinitions;
         markdown = markdown.trim().replace(/\n/g, '<br/>');
+    }
+
+    if (unsafeCommentMarkerTextEdit(content, start.offset, end.offset))
+        return;
 
     anchorBlock.text
         = content.substring(0, start.offset)
@@ -527,6 +611,7 @@ function applyLiteralPaste(
             + content.substring(end.offset);
     const offset = start.offset + markdown.length;
     anchorBlock.setCursor(offset, offset, true);
+    appendCommentMetadataDefinitions(clipboard, metadataDefinitions);
     // Update html preview if the out container is `html-block`
     if (
         anchorBlock instanceof CodeBlockContent
@@ -594,77 +679,31 @@ function applyHtmlBlockPaste(
     newBlock.lastContentInDescendant().setCursor(offset, offset, true);
 }
 
-// Everything the paste pipeline needs, snapshotted up front so it survives the
-// async hops (image hook, HTML normalization) without re-reading a possibly
-// detached clipboard.
-interface IPasteData {
-    text: string;
-    html: string;
-    imageFile: File | null;
-    pasteType: PasteType;
-}
-
-// The paste pipeline, decoupled from the DOM `paste` event so it can be driven
-// either by a trusted paste event (`pasteSelection`) or by an explicit
-// clipboard read (`pastePlainText`). The latter exists because Chromium removed
-// programmatic clipboard reads via `document.execCommand('paste')`, so the
-// "set a flag → execCommand('paste') → handle the synthetic event" approach no
-// longer fires any paste event at all.
-async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void> {
-    const { muya } = clipboard;
-    const { bulletListMarker } = muya.options;
-
-    // A selected inline image collapses the text selection, so handle the
-    // "paste an image over a selected image" replace before reading the
-    // (now absent) text selection.
-    if (clipboard.selection.image && await tryReplaceSelectedImage(clipboard, data.imageFile))
-        return;
-
-    const selection = clipboard.selection.getSelection();
-    if (!selection)
-        return;
-
-    const { isSelectionInSameBlock, anchor } = selection;
-    const anchorBlock = anchor.block;
-
-    if (!anchorBlock)
-        return;
-
-    const { imageFile, pasteType } = data;
-    let { html } = data;
-    // Preserve source provenance before synthetic URL/table HTML promotion.
-    const hasClipboardHtml = html !== '';
-    // Normalize Windows CRLF / lone CR to LF so every downstream `split('\n')`
-    // and offset calculation sees one newline convention (muyajs strips \r).
-    const text = data.text.replace(/\r\n?/g, '\n');
-
-    if (!isSelectionInSameBlock) {
-        clipboard.cutHandler();
-
-        return applyPaste(clipboard, data);
-    }
-
-    // When the clipboard holds an image — either a file resolved to a path
-    // or an in-memory bitmap — insert it as an inline image
-    // routed through `imageAction`, short-circuiting the text/HTML paste.
-    if (await tryPasteImage(clipboard, anchorBlock, imageFile))
-        return;
+async function applyTextualPaste(
+    clipboard: Clipboard,
+    data: IPasteData,
+    anchorBlock: Content,
+    text: string,
+    html: string,
+    hasClipboardHtml: boolean,
+): Promise<void> {
+    const { bulletListMarker } = clipboard.muya.options;
+    const cursorBeforeNormalize = anchorBlock.getCursor();
+    let normalizedHtml = html;
 
     // Support pasted URLs from Firefox.
-    if (URL_REG.test(text) && !/\s/.test(text) && !html)
-        html = `<a href="${text}">${text}</a>`;
+    if (URL_REG.test(text) && !/\s/.test(text) && !normalizedHtml)
+        normalizedHtml = `<a href="${text}">${text}</a>`;
 
     // Apple Numbers and a handful of other sources only put a raw
     // `<table>...</table>` blob in text/plain. Promote it to the HTML
     // slot so it goes through the HTML→Markdown converter rather than
     // being inserted verbatim.
-    if (!html && isStandaloneTableHtml(text))
-        html = text;
-
-    const cursorBeforeNormalize = anchorBlock.getCursor();
+    if (!normalizedHtml && isStandaloneTableHtml(text))
+        normalizedHtml = text;
 
     // Remove crap from HTML such as meta data and styles.
-    html = await normalizePastedHTML(html, {
+    normalizedHtml = await normalizePastedHTML(normalizedHtml, {
         preserveBareUrlLinks: hasClipboardHtml
             && cursorBeforeNormalize != null
             && shouldPreserveBareUrlLinkForPaste(
@@ -674,10 +713,8 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
                 cursorBeforeNormalize.end,
             ),
     });
-    const copyType = getCopyTextType(html, text, pasteType);
-
+    const copyType = getCopyTextType(normalizedHtml, text, data.pasteType);
     const { start, end } = anchorBlock.getCursor()!;
-    const { text: content } = anchorBlock;
     const wrapperBlock = anchorBlock.getAnchor();
     const ctx: IPasteContext = {
         anchorBlock,
@@ -685,13 +722,13 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
         originWrapperBlock: wrapperBlock,
         start,
         end,
-        content,
+        content: anchorBlock.text,
     };
 
     if (/html|text/.test(copyType)) {
         const markdown
             = copyType === 'html' && anchorBlock.blockName !== 'codeblock.content'
-                ? new HtmlToMarkdown({ bulletListMarker }).generate(html)
+                ? new HtmlToMarkdown({ bulletListMarker }).generate(normalizedHtml)
                 : text;
 
         // Every non-literal anchor always parses through `MarkdownToState`,
@@ -709,7 +746,7 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
         else
             applyParsedPaste(clipboard, ctx, markdown);
     }
-    else if (pasteType === PasteType.PASTE_AS_PLAIN_TEXT) {
+    else if (data.pasteType === PasteType.PASTE_AS_PLAIN_TEXT) {
         // Paste as Plain Text inserts block-level HTML as literal text, not a
         // live html-block (muyajs `pasteAsPlainText` copyAsHtml branch).
         applyPlainTextBlockHtml(clipboard, ctx, text);
@@ -717,6 +754,73 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
     else {
         applyHtmlBlockPaste(clipboard, ctx, text);
     }
+}
+
+// Everything the paste pipeline needs, snapshotted up front so it survives the
+// async hops (image hook, HTML normalization) without re-reading a possibly
+// detached clipboard.
+interface IPasteData {
+    text: string;
+    html: string;
+    imageFile: File | null;
+    pasteType: PasteType;
+}
+
+// The paste pipeline, decoupled from the DOM `paste` event so it can be driven
+// either by a trusted paste event (`pasteSelection`) or by an explicit
+// clipboard read (`pastePlainText`). The latter exists because Chromium removed
+// programmatic clipboard reads via `document.execCommand('paste')`, so the
+// "set a flag → execCommand('paste') → handle the synthetic event" approach no
+// longer fires any paste event at all.
+async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void> {
+    // A selected inline image collapses the text selection, so handle the
+    // "paste an image over a selected image" replace before reading the
+    // (now absent) text selection.
+    if (clipboard.selection.image && await tryReplaceSelectedImage(clipboard, data.imageFile))
+        return;
+
+    const selection = clipboard.selection.getSelection();
+    if (!selection)
+        return;
+
+    const { isSelectionInSameBlock, anchor } = selection;
+    const anchorBlock = anchor.block;
+
+    if (!anchorBlock)
+        return;
+
+    const { imageFile, html } = data;
+    // Preserve source provenance before synthetic URL/table HTML promotion.
+    const hasClipboardHtml = html !== '';
+    // Normalize Windows CRLF / lone CR to LF so every downstream `split('\n')`
+    // and offset calculation sees one newline convention (muyajs strips \r).
+    const text = data.text.replace(/\r\n?/g, '\n');
+
+    if (!isSelectionInSameBlock) {
+        const before = selection;
+        clipboard.cutHandler();
+        const after = clipboard.selection.getSelection();
+        if (
+            after
+            && !after.isSelectionInSameBlock
+            && after.anchor.block === before.anchor.block
+            && after.focus.block === before.focus.block
+            && after.anchor.offset === before.anchor.offset
+            && after.focus.offset === before.focus.offset
+        ) {
+            return;
+        }
+
+        return applyPaste(clipboard, data);
+    }
+
+    // When the clipboard holds an image — either a file resolved to a path
+    // or an in-memory bitmap — insert it as an inline image
+    // routed through `imageAction`, short-circuiting the text/HTML paste.
+    if (await tryPasteImage(clipboard, anchorBlock, imageFile))
+        return;
+
+    await applyTextualPaste(clipboard, data, anchorBlock, text, html, hasClipboardHtml);
 }
 
 // Entry for a trusted DOM `paste` event (native Cmd/Ctrl+V).

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import type * as DirtyExternalMergeModule from '@/util/dirtyExternalMerge'
 
 vi.hoisted(() => {
   const w = globalThis as unknown as {
@@ -22,10 +23,18 @@ vi.mock('@/store/bufferedState', () => ({
   debouncedSendBufferedState: vi.fn(),
   sendBufferedState: vi.fn(() => Promise.resolve(true))
 }))
+vi.mock('@/util/dirtyExternalMerge', async(importOriginal) => {
+  const actual = await importOriginal<typeof DirtyExternalMergeModule>()
+  return {
+    ...actual,
+    mergeDirtyExternalMarkdown: vi.fn(actual.mergeDirtyExternalMarkdown)
+  }
+})
 
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
 import { sendBufferedState } from '@/store/bufferedState'
+import { mergeDirtyExternalMarkdown } from '@/util/dirtyExternalMerge'
 import bus from '@/bus'
 
 // #1861: a watcher 'change' event fires even when only the file's mtime changed
@@ -65,7 +74,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     const onMock = window.electron.ipcRenderer.on as Mock
     const call = onMock.mock.calls.find((c) => c[0] === 'mt::update-file')
     if (!call) throw new Error('mt::update-file handler was not registered')
-    return call[1] as (e: unknown, payload: unknown) => void
+    return call[1] as (e: unknown, payload: unknown) => void | Promise<void>
   }
 
   const fire = (
@@ -190,25 +199,25 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(notifySpy).not.toHaveBeenCalled()
   })
 
-  it('adopts disk metadata and marks a matching dirty tab clean when only line-ending metadata changed', () => {
+  it('adopts disk metadata and marks a matching dirty tab clean when only line-ending metadata changed', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
-    const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {})
+    const loadSpy = vi.spyOn(store, 'loadChange')
     const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'hello', {
+    await fire(captureHandler(), 'hello', {
       lineEnding: 'crlf',
       adjustLineEndingOnSave: true
     })
 
-    // Decoded content matches disk; the merge fast path (local===remote) adopts
-    // the on-disk encoding via loadChange and marks the tab clean rather than
-    // prompting. There is no prompt-to-reload any more.
     expect(loadSpy).toHaveBeenCalledTimes(1)
+    expect(loadSpy.mock.calls[0]?.[1]).toBeUndefined()
     expect(notifySpy).not.toHaveBeenCalled()
     expect(store.mergeConflict).toBeNull()
+    expect(tab.lineEnding).toBe('crlf')
+    expect(tab.adjustLineEndingOnSave).toBe(true)
     expect(tab.isSaved).toBe(true)
   })
 
@@ -234,24 +243,25 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     ['trailing-newline policy', { trimTrailingNewline: 1 }]
   ])(
     'adopts disk metadata and marks a matching dirty tab clean when %s metadata changed',
-    (_name, data) => {
+    async(_name, data) => {
       const store = useEditorStore()
       const tab = makeSavedTab(store)
       tab.isSaved = false
-      const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {})
+      const loadSpy = vi.spyOn(store, 'loadChange')
       const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
       store.LISTEN_FOR_FILE_CHANGE()
 
-      fire(captureHandler(), 'hello', data)
+      await fire(captureHandler(), 'hello', data)
 
       expect(loadSpy).toHaveBeenCalledTimes(1)
+      expect(loadSpy.mock.calls[0]?.[1]).toBeUndefined()
       expect(notifySpy).not.toHaveBeenCalled()
       expect(store.mergeConflict).toBeNull()
       expect(tab.isSaved).toBe(true)
     }
   )
 
-  it('opens the conflict resolver for a dirty change when no merge base is recorded', () => {
+  it('opens the conflict resolver for a dirty change when no merge base is recorded', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
@@ -261,22 +271,23 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     // No diskBaseMarkdown → base '' → we cannot silently choose a side, so the
     // divergent content is surfaced in the conflict resolver and the local
     // buffer is left untouched until the user resolves it.
-    fire(captureHandler(), 'hello world')
+    await fire(captureHandler(), 'hello world')
 
     expect(store.mergeConflict).toEqual(expect.objectContaining({ tabId: 'tab-1' }))
     expect(tab.markdown).toBe('hello')
   })
 
-  it('auto-merges non-overlapping dirty local and disk changes', () => {
+  it('auto-merges non-overlapping dirty local and disk changes', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.diskBaseMarkdown = 'one\nshared\nthree\n'
     tab.markdown = 'one local\nshared\nthree\n'
     tab.isSaved = false
     store.currentFile = tab as unknown as typeof store.currentFile
+    const emitSpy = vi.spyOn(bus, 'emit')
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'one\nshared\nthree remote\n')
+    await fire(captureHandler(), 'one\nshared\nthree remote\n')
 
     expect(tab.markdown).toBe('one local\nshared\nthree remote\n')
     expect(tab.diskBaseMarkdown).toBe('one\nshared\nthree remote\n')
@@ -285,10 +296,19 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(tab.notifications).toEqual([
       expect.objectContaining({
         msg: expect.stringContaining('Merged disk changes'),
+        confirmLabel: 'Undo',
         showConfirm: true,
         action: expect.any(Function)
       })
     ])
+    expect(emitSpy).toHaveBeenCalledWith(
+      'file-changed',
+      expect.objectContaining({
+        markdown: 'one local\nshared\nthree remote\n',
+        isReload: true,
+        preserveDirty: true
+      })
+    )
 
     const [notification] = tab.notifications as Array<{ action: (status?: unknown) => void }>
     notification.action(true)
@@ -296,9 +316,75 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(tab.markdown).toBe('one local\nshared\nthree\n')
     expect(tab.diskBaseMarkdown).toBe('one\nshared\nthree remote\n')
     expect(tab.isSaved).toBe(false)
+    expect(emitSpy).toHaveBeenCalledWith(
+      'file-changed',
+      expect.objectContaining({
+        markdown: 'one local\nshared\nthree\n',
+        isReload: true,
+        preserveDirty: true
+      })
+    )
   })
 
-  it('auto-merges non-overlapping dirty local edits with disk comment metadata edits', () => {
+  it('ignores an async dirty merge result when the local buffer changed again', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one local\nshared\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    const pendingChange = fire(captureHandler(), 'one\nshared\nthree remote\n')
+    tab.markdown = 'one local\nshared\nthree\nstill typing\n'
+
+    await pendingChange
+
+    expect(tab.markdown).toBe('one local\nshared\nthree\nstill typing\n')
+    expect(tab.diskBaseMarkdown).toBe('one\nshared\nthree\n')
+    expect(tab.notifications).toEqual([])
+    expect(store.mergeConflict).toBeNull()
+  })
+
+  it('ignores an async dirty merge result when the tab was saved against a new base', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one local\nshared\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    const pendingChange = fire(captureHandler(), 'one\nshared\nthree remote\n')
+    tab.diskBaseMarkdown = 'one\nshared\nthree saved\n'
+    tab.isSaved = true
+
+    await pendingChange
+
+    expect(tab.markdown).toBe('one local\nshared\nthree\n')
+    expect(tab.diskBaseMarkdown).toBe('one\nshared\nthree saved\n')
+    expect(tab.notifications).toEqual([])
+    expect(store.mergeConflict).toBeNull()
+  })
+
+  it('ignores dirty external changes whose disk content still matches the merge base', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one local\nshared\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    await fire(captureHandler(), 'one\nshared\nthree\n')
+
+    expect(tab.markdown).toBe('one local\nshared\nthree\n')
+    expect(tab.diskBaseMarkdown).toBe('one\nshared\nthree\n')
+    expect(tab.notifications).toEqual([])
+    expect(store.mergeConflict).toBeNull()
+  })
+
+  it('auto-merges non-overlapping dirty local edits with disk comment metadata edits', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     const base = [
@@ -315,7 +401,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), remote)
+    await fire(captureHandler(), remote)
 
     expect(tab.markdown).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
     expect(tab.markdown).toContain('span with local edits.')
@@ -325,7 +411,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(store.mergeConflict).toBeNull()
   })
 
-  it('opens a merge conflict resolver for overlapping dirty local and disk changes', () => {
+  it('opens a merge conflict resolver for overlapping dirty local and disk changes', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.diskBaseMarkdown = 'one\nshared\nthree\n'
@@ -334,7 +420,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'one\nremote\nthree\n')
+    await fire(captureHandler(), 'one\nremote\nthree\n')
 
     expect(tab.markdown).toBe('one\nlocal\nthree\n')
     expect(tab.isSaved).toBe(false)
@@ -348,7 +434,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     )
   })
 
-  it('accepts a resolved conflict as dirty while advancing the disk base', () => {
+  it('can reopen a canceled dirty merge resolver from the notification', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.diskBaseMarkdown = 'one\nshared\nthree\n'
@@ -357,16 +443,61 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'one\nremote\nthree\n')
+    await fire(captureHandler(), 'one\nremote\nthree\n')
+    const [notification] = tab.notifications as Array<{
+      action: (status?: unknown) => void
+      confirmLabel?: string
+      showConfirm?: boolean
+    }>
+    expect(notification).toEqual(
+      expect.objectContaining({
+        showConfirm: true,
+        confirmLabel: 'Resolve disk changes'
+      })
+    )
+
+    store.CANCEL_DIRTY_EXTERNAL_MERGE_CONFLICT()
+    expect(store.mergeConflict).toBeNull()
+
+    notification.action(true)
+
+    expect(store.mergeConflict).toEqual(
+      expect.objectContaining({
+        tabId: 'tab-1',
+        localMarkdown: 'one\nlocal\nthree\n',
+        remoteMarkdown: 'one\nremote\nthree\n'
+      })
+    )
+  })
+
+  it('accepts a resolved conflict as dirty while advancing the disk base', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    const emitSpy = vi.spyOn(bus, 'emit')
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    await fire(captureHandler(), 'one\nremote\nthree\n')
     store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT('one\nlocal\nremote\nthree\n')
 
     expect(tab.markdown).toBe('one\nlocal\nremote\nthree\n')
     expect(tab.diskBaseMarkdown).toBe('one\nremote\nthree\n')
     expect(tab.isSaved).toBe(false)
     expect(store.mergeConflict).toBeNull()
+    expect(emitSpy).toHaveBeenCalledWith(
+      'file-changed',
+      expect.objectContaining({
+        markdown: 'one\nlocal\nremote\nthree\n',
+        isReload: true,
+        preserveDirty: true
+      })
+    )
   })
 
-  it('accepts the remote side of a conflict as clean', () => {
+  it('accepts the remote side of a conflict as dirty while advancing the disk base', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.diskBaseMarkdown = 'one\nshared\nthree\n'
@@ -375,13 +506,42 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'one\nremote\nthree\n')
+    await fire(captureHandler(), 'one\nremote\nthree\n')
     store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT('one\nremote\nthree\n')
 
     expect(tab.markdown).toBe('one\nremote\nthree\n')
     expect(tab.diskBaseMarkdown).toBe('one\nremote\nthree\n')
-    expect(tab.isSaved).toBe(true)
+    expect(tab.isSaved).toBe(false)
     expect(store.mergeConflict).toBeNull()
+  })
+
+  it('opens the conflict resolver when the dirty merge worker fails', async() => {
+    vi.mocked(mergeDirtyExternalMarkdown).mockRejectedValueOnce(new Error('worker crashed'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    try {
+      await fire(captureHandler(), 'one\nremote\nthree\n')
+    } finally {
+      errorSpy.mockRestore()
+    }
+
+    expect(tab.markdown).toBe('one\nlocal\nthree\n')
+    expect(tab.isSaved).toBe(false)
+    expect(store.mergeConflict).toEqual(
+      expect.objectContaining({
+        tabId: 'tab-1',
+        localMarkdown: 'one\nlocal\nthree\n',
+        remoteMarkdown: 'one\nremote\nthree\n',
+        resultMarkdown: expect.stringContaining('<<<<<<< MARKTEXT_LOCAL')
+      })
+    )
   })
 
   it('clears the merge-conflict notification when reloading disk from the resolver', async() => {
@@ -394,7 +554,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {})
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'one\nremote\nthree\n')
+    await fire(captureHandler(), 'one\nremote\nthree\n')
     expect(tab.notifications).toEqual([
       expect.objectContaining({
         msg: expect.stringContaining('Resolve the merge')
@@ -414,7 +574,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(loadSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the resolver open when accepted merge output introduces new comment diagnostics', () => {
+  it('keeps the resolver open when accepted merge output introduces new comment diagnostics', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.diskBaseMarkdown = 'one\nshared\nthree\n'
@@ -423,7 +583,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'one\nremote\nthree\n')
+    await fire(captureHandler(), 'one\nremote\nthree\n')
     store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(
       'one\n<!--MC:missing-->commented<!--MC:~missing-->\nthree\n'
     )
@@ -434,6 +594,29 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(store.mergeConflict).toEqual(
       expect.objectContaining({
         resultMarkdown: 'one\n<!--MC:missing-->commented<!--MC:~missing-->\nthree\n',
+        validationError: expect.stringContaining('invalid MarkText comment syntax')
+      })
+    )
+  })
+
+  it('keeps the resolver open when accepted merge output moves an existing diagnostic to new syntax', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n\n<!--MC:missing-->old<!--MC:~missing-->\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    await fire(captureHandler(), 'one\nremote\nthree\n\n<!--MC:missing-->old<!--MC:~missing-->\n')
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(
+      'one\n<!--MC:missing-->new<!--MC:~missing-->\nthree\n'
+    )
+
+    expect(tab.markdown).toBe('one\nlocal\nthree\n\n<!--MC:missing-->old<!--MC:~missing-->\n')
+    expect(store.mergeConflict).toEqual(
+      expect.objectContaining({
+        resultMarkdown: 'one\n<!--MC:missing-->new<!--MC:~missing-->\nthree\n',
         validationError: expect.stringContaining('invalid MarkText comment syntax')
       })
     )
@@ -452,7 +635,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.LISTEN_FOR_FILE_CHANGE()
 
     // Divergent local + disk edits over the base conflict → resolver opens.
-    fire(captureHandler(), 'disk content')
+    await fire(captureHandler(), 'disk content')
     expect(store.mergeConflict).not.toBeNull()
 
     // Abandoning the merge to reload disk must first preserve the local buffer
@@ -484,7 +667,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {})
     store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'disk content')
+    await fire(captureHandler(), 'disk content')
     expect(store.mergeConflict).not.toBeNull()
 
     const order: string[] = []

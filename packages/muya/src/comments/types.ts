@@ -49,6 +49,7 @@ export type TCommentDiagnosticCode
         | 'missing-metadata'
         | 'orphan-close-marker'
         | 'orphan-metadata'
+        | 'parse-error'
         | 'unclosed-open-marker';
 
 export interface ICommentDiagnostic {

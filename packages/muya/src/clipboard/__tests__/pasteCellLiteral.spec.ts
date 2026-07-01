@@ -57,6 +57,19 @@ function firstCellContent(muya: Muya): Content {
     return muya.editor.scrollPage!.firstContentInDescendant()!;
 }
 
+function lastTableCellContent(muya: Muya): Content {
+    let block: Content | null = muya.editor.scrollPage!.firstContentInDescendant()!;
+    let last: Content | null = null;
+    while (block) {
+        if (block.blockName === 'table.cell.content')
+            last = block;
+        block = block.nextContentInContext() ?? null;
+    }
+    if (!last)
+        throw new Error('No table cell content found');
+    return last;
+}
+
 function stubSelection(muya: Muya, block: Content, start: number, end: number) {
     const path = block.path;
     muya.editor.selection.getSelection = () => ({
@@ -101,5 +114,38 @@ describe('paste — table cell takes text literally (muyajs parity)', () => {
         await pasteInto(muya, cell, 0, cell.text.length, 'x\r\ny');
         // newlines fold to <br/>; the carriage return must be gone, not kept.
         expect(cell.text).toBe('x<br/>y');
+    });
+
+    it('remaps pasted comments in a table cell and appends metadata outside the table', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            '| a1 | b1 |',
+            '| --- | --- |',
+            '| a2 | b2 |',
+            '',
+            'Existing <!--MC:a-->comment<!--MC:~a-->.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+        const cell = lastTableCellContent(muya);
+
+        await pasteInto(muya, cell, 0, cell.text.length, [
+            '<!--MC:a-->copied<!--MC:~a-->',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+
+        expect(cell.text).toBe('<!--MC:cmt_1-->copied<!--MC:~cmt_1-->');
+        expect(cell.text).not.toContain('[MC:cmt_1]');
+        expect(muya.getMarkdown()).toContain('[MC:cmt_1]: ');
+        expect(muya.getComments()).toMatchObject({
+            diagnostics: [],
+            threads: [
+                { id: 'a', status: 'open' },
+                { id: 'cmt_1', status: 'open' },
+            ],
+        });
     });
 });

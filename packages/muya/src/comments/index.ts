@@ -1,5 +1,6 @@
 export {
     appendCommentReplyMetadata,
+    canWrapCommentRange,
     createCommentMetadata,
     mergeCommentMetadataPatch,
     nextCommentId,
@@ -26,6 +27,25 @@ export {
     selectionIntersectsCommentRange,
 } from './range';
 export type { ICommentSyntaxLocation } from './range';
+export {
+    buildCommentSourceIndex,
+    collectSourceCommentIds,
+    createCommentSourceLineState,
+    prepareCommentSourceLine,
+    sourceCommentIgnoredIndexRanges,
+    sourceIndexInsideRanges,
+    sourceInlineCodeRanges,
+    sourceLinePositionInsideInlineCode,
+    sourceRangesOverlap,
+} from './source';
+export type {
+    ICommentSourceIndex,
+    ICommentSourceIndexRange,
+    ICommentSourceLineState,
+    ICommentSourceMarker,
+    ICommentSourceMetadataDefinition,
+    ICommentSourceRange,
+} from './source';
 export {
     COMMENT_ID_PATTERN,
     COMMENT_MARKER_PATTERN,

@@ -1,3 +1,5 @@
+import { diff3Merge } from 'node-diff3'
+
 export interface ThreeWayMergeConflict {
   id: string
   baseStartLine: number
@@ -13,18 +15,7 @@ export interface ThreeWayMergeResult {
   conflicts: ThreeWayMergeConflict[]
 }
 
-// A change to the base document, expressed in BASE line coordinates: base lines
-// [oStart, oEnd) are replaced by `lines`. A pure insertion has oStart === oEnd;
-// a pure deletion has an empty `lines`. Anchoring every change to base
-// coordinates is what lets two sides that both delete the same base line
-// collapse to a single deletion instead of silently keeping the line.
-interface ChangeRegion {
-  oStart: number
-  oEnd: number
-  lines: string[]
-}
-
-interface MergeInput {
+export interface MergeInput {
   base: string
   local: string
   remote: string
@@ -32,11 +23,9 @@ interface MergeInput {
 
 type ConflictChoice = 'local' | 'remote' | 'both'
 
-// The base×changed LCS table is O(n·m) memory; two are built per merge. Beyond
-// this many cells we refuse to allocate and degrade to a whole-file conflict so
-// a huge external change cannot freeze or OOM the renderer. ~64M cells covers
-// symmetric merges up to ~8000 lines (a few hundred MB, sub-second); larger
-// documents degrade to a whole-file conflict instead of risking a crash.
+// Diff3's LCS work is bounded here so a huge external change cannot freeze or
+// OOM the renderer. Larger documents degrade to a whole-file conflict instead
+// of risking a crash while a dirty buffer is open.
 const MERGE_LCS_CELL_BUDGET = 64_000_000
 
 const splitMarkdownLines = (markdown: string): string[] => {
@@ -63,97 +52,6 @@ const splitMarkdownLines = (markdown: string): string[] => {
   return lines
 }
 
-const buildLcsTable = (left: string[], right: string[]): number[][] => {
-  const table = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0))
-
-  for (let i = left.length - 1; i >= 0; i -= 1) {
-    for (let j = right.length - 1; j >= 0; j -= 1) {
-      table[i][j] =
-        left[i] === right[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1])
-    }
-  }
-
-  return table
-}
-
-// The matched (unchanged) line pairs of an LCS alignment of base→side.
-const lcsMatches = (base: string[], side: string[]): Array<[number, number]> => {
-  const table = buildLcsTable(base, side)
-  const matches: Array<[number, number]> = []
-  let i = 0
-  let j = 0
-
-  while (i < base.length && j < side.length) {
-    if (base[i] === side[j]) {
-      matches.push([i, j])
-      i += 1
-      j += 1
-    } else if (table[i + 1][j] >= table[i][j + 1]) {
-      i += 1
-    } else {
-      j += 1
-    }
-  }
-
-  return matches
-}
-
-// Everything between the LCS anchors is a change region in base coordinates.
-const diffRegions = (base: string[], side: string[]): ChangeRegion[] => {
-  const regions: ChangeRegion[] = []
-  let oi = 0
-  let si = 0
-
-  const push = (oEnd: number, sEnd: number): void => {
-    if (oi < oEnd || si < sEnd) {
-      regions.push({ oStart: oi, oEnd, lines: side.slice(si, sEnd) })
-    }
-  }
-
-  for (const [mo, ms] of lcsMatches(base, side)) {
-    push(mo, ms)
-    oi = mo + 1
-    si = ms + 1
-  }
-  push(base.length, side.length)
-
-  return regions
-}
-
-// Reconstruct a side's content for base span [start, end), applying that side's
-// change regions (including insertions at points inside the span).
-const reconstructSide = (
-  base: string[],
-  regions: ChangeRegion[],
-  start: number,
-  end: number
-): string[] => {
-  const out: string[] = []
-  let k = start
-  let idx = 0
-  while (idx < regions.length && regions[idx].oEnd < start) idx += 1
-
-  while (k < end || (idx < regions.length && regions[idx].oStart === k && k <= end)) {
-    if (idx < regions.length && regions[idx].oStart === k) {
-      out.push(...regions[idx].lines)
-      k = Math.max(k, regions[idx].oEnd)
-      idx += 1
-    } else if (k < end) {
-      out.push(base[k])
-      k += 1
-    } else {
-      break
-    }
-  }
-
-  return out
-}
-
-const sameLines = (left: string[], right: string[]): boolean => {
-  if (left.length !== right.length) return false
-  return left.every((line, index) => line === right[index])
-}
-
 const detectLineEnding = (...texts: string[]): string => {
   for (const text of texts) {
     const match = /\r\n|\n|\r/.exec(text)
@@ -163,6 +61,146 @@ const detectLineEnding = (...texts: string[]): string => {
 }
 
 const endsWithLineEnding = (text: string): boolean => /(?:\r\n|\n|\r)$/.test(text)
+
+const countLines = (lines: string[]): Map<string, number> => {
+  const counts = new Map<string, number>()
+  for (const line of lines) {
+    counts.set(line, (counts.get(line) ?? 0) + 1)
+  }
+  return counts
+}
+
+const countFor = (counts: Map<string, number>, line: string): number => counts.get(line) ?? 0
+
+const mergeAlignedLineEdits = (
+  baseLines: string[],
+  localLines: string[],
+  remoteLines: string[]
+): string[] | null => {
+  if (baseLines.length !== localLines.length || baseLines.length !== remoteLines.length) {
+    return null
+  }
+
+  const merged: string[] = []
+  for (let index = 0; index < baseLines.length; index += 1) {
+    const baseLine = baseLines[index]
+    const localLine = localLines[index]
+    const remoteLine = remoteLines[index]
+    if (localLine === remoteLine) {
+      merged.push(localLine)
+    } else if (localLine === baseLine) {
+      merged.push(remoteLine)
+    } else if (remoteLine === baseLine) {
+      merged.push(localLine)
+    } else {
+      return null
+    }
+  }
+  return merged
+}
+
+const findLongestRun = (lines: string[], line: string): { start: number; length: number } | null => {
+  let best: { start: number; length: number } | null = null
+  let index = 0
+  while (index < lines.length) {
+    if (lines[index] !== line) {
+      index += 1
+      continue
+    }
+
+    const start = index
+    while (index < lines.length && lines[index] === line) index += 1
+    const length = index - start
+    if (!best || length > best.length) {
+      best = { start, length }
+    }
+  }
+  return best
+}
+
+const reconcileRepeatedLineCounts = (
+  baseLines: string[],
+  localLines: string[],
+  remoteLines: string[],
+  mergedLines: string[]
+): string[] | null => {
+  const baseCounts = countLines(baseLines)
+  const localCounts = countLines(localLines)
+  const remoteCounts = countLines(remoteLines)
+  const lines = new Set([...baseCounts.keys(), ...localCounts.keys(), ...remoteCounts.keys()])
+  const reconciled = [...mergedLines]
+  const hasAnyCountDeficit = [...lines].some((line) => {
+    const baseCount = countFor(baseCounts, line)
+    return countFor(localCounts, line) < baseCount || countFor(remoteCounts, line) < baseCount
+  })
+
+  for (const line of lines) {
+    const baseCount = countFor(baseCounts, line)
+    const localCount = countFor(localCounts, line)
+    const remoteCount = countFor(remoteCounts, line)
+    if (Math.max(baseCount, localCount, remoteCount) < 2) {
+      continue
+    }
+
+    const localDeficit = Math.max(0, baseCount - localCount)
+    const remoteDeficit = Math.max(0, baseCount - remoteCount)
+    let targetCount: number
+    if (localDeficit > 0 && remoteDeficit > 0 && localDeficit !== remoteDeficit) {
+      targetCount = Math.max(localCount, remoteCount)
+    } else if (!hasAnyCountDeficit && localCount > baseCount && remoteCount > baseCount) {
+      targetCount = Math.max(localCount, remoteCount)
+    } else {
+      targetCount = Math.max(0, localCount + remoteCount - baseCount)
+    }
+    let actualCount = reconciled.filter((candidate) => candidate === line).length
+    if (actualCount > targetCount && baseCount < 3) {
+      continue
+    }
+
+    while (actualCount > targetCount) {
+      const run = findLongestRun(reconciled, line)
+      if (!run) return null
+
+      reconciled.splice(run.start + run.length - 1, 1)
+      actualCount -= 1
+    }
+
+    while (actualCount < targetCount) {
+      const run = findLongestRun(reconciled, line)
+      if (!run) return null
+
+      reconciled.splice(run.start + run.length, 0, line)
+      actualCount += 1
+    }
+  }
+
+  return reconciled
+}
+
+const dropsPositiveLineDelta = (
+  baseLines: string[],
+  localLines: string[],
+  remoteLines: string[],
+  mergedLines: string[]
+): boolean => {
+  const baseCounts = countLines(baseLines)
+  const localCounts = countLines(localLines)
+  const remoteCounts = countLines(remoteLines)
+  const mergedCounts = countLines(mergedLines)
+  const lines = new Set([...localCounts.keys(), ...remoteCounts.keys()])
+
+  for (const line of lines) {
+    const baseCount = countFor(baseCounts, line)
+    const insertedCount =
+      Math.max(0, countFor(localCounts, line) - baseCount) +
+      Math.max(0, countFor(remoteCounts, line) - baseCount)
+    if (insertedCount > 0 && countFor(mergedCounts, line) < baseCount + insertedCount) {
+      return true
+    }
+  }
+
+  return false
+}
 
 const createConflictMarker = (
   id: string,
@@ -185,7 +223,19 @@ const createConflictMarker = (
   ].join('')
 }
 
-const wholeFileConflict = (base: string, local: string, remote: string): ThreeWayMergeResult => {
+const combineConflictTexts = (localText: string, remoteText: string, lineEnding: string): string => {
+  if (!localText) return remoteText
+  if (!remoteText || endsWithLineEnding(localText) || /^(?:\r\n|\n|\r)/.test(remoteText)) {
+    return `${localText}${remoteText}`
+  }
+  return `${localText}${lineEnding}${remoteText}`
+}
+
+export const createWholeFileConflict = (
+  base: string,
+  local: string,
+  remote: string
+): ThreeWayMergeResult => {
   const id = 'c1'
   const markerText = createConflictMarker(
     id,
@@ -220,7 +270,16 @@ export const resolveConflictMarker = (
       ? conflict.localText
       : choice === 'remote'
         ? conflict.remoteText
-        : `${conflict.localText}${conflict.remoteText}`
+        : combineConflictTexts(
+          conflict.localText,
+          conflict.remoteText,
+          detectLineEnding(
+            conflict.localText,
+            conflict.remoteText,
+            conflict.baseText,
+            conflict.markerText
+          )
+        )
 
   // A function replacement is used so `$`, `$$`, `$&`, `` $` `` etc. inside the
   // chosen document text are inserted literally rather than being interpreted as
@@ -244,82 +303,31 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
   const remoteLines = splitMarkdownLines(remote)
 
   if (baseLines.length * Math.max(localLines.length, remoteLines.length) > MERGE_LCS_CELL_BUDGET) {
-    return wholeFileConflict(base, local, remote)
+    return createWholeFileConflict(base, local, remote)
   }
 
-  const chA = diffRegions(baseLines, localLines)
-  const chB = diffRegions(baseLines, remoteLines)
+  const alignedMerge = mergeAlignedLineEdits(baseLines, localLines, remoteLines)
+  if (alignedMerge) {
+    return {
+      mergedMarkdown: alignedMerge.join(''),
+      conflicts: []
+    }
+  }
+
   const merged: string[] = []
   const conflicts: ThreeWayMergeConflict[] = []
-  let oi = 0
-  let ai = 0
-  let bi = 0
 
-  while (ai < chA.length || bi < chB.length || oi < baseLines.length) {
-    const aStart = ai < chA.length ? chA[ai].oStart : Infinity
-    const bStart = bi < chB.length ? chB[bi].oStart : Infinity
-    const nextChange = Math.min(aStart, bStart)
-
-    if (oi < nextChange) {
-      const upto = Math.min(nextChange, baseLines.length)
-      merged.push(...baseLines.slice(oi, upto))
-      oi = upto
-      if (nextChange === Infinity) break
-      continue
-    }
-
-    // A change begins at oi. Grow the region to cover every local/remote change
-    // that overlaps it, so overlapping edits become one conflict/decision.
-    const start = oi
-    let end = oi
-    const aGroup: ChangeRegion[] = []
-    const bGroup: ChangeRegion[] = []
-
-    const seedOrOverlap = (region: ChangeRegion): boolean =>
-      region.oStart === start || region.oStart < end
-
-    let grew = true
-    while (grew) {
-      grew = false
-      while (ai < chA.length && seedOrOverlap(chA[ai])) {
-        aGroup.push(chA[ai])
-        end = Math.max(end, chA[ai].oEnd)
-        ai += 1
-        grew = true
-      }
-      while (bi < chB.length && seedOrOverlap(chB[bi])) {
-        bGroup.push(chB[bi])
-        end = Math.max(end, chB[bi].oEnd)
-        bi += 1
-        grew = true
-      }
-    }
-
-    const baseSpan = baseLines.slice(start, end)
-    const localSpan = reconstructSide(baseLines, aGroup, start, end)
-    const remoteSpan = reconstructSide(baseLines, bGroup, start, end)
-
-    if (sameLines(localSpan, remoteSpan)) {
-      // Both sides produced the same content for this base span. For a shared
-      // modification/deletion (baseSpan non-empty) that is one edit — take it
-      // once. But two independent insertions of identical content at the same
-      // point (baseSpan empty) must both be kept: collapsing them silently drops
-      // one side's insertion. Bias to preserving content — a duplicate is
-      // visible and removable, a dropped line is silent data loss.
-      if (baseSpan.length === 0 && aGroup.length > 0 && bGroup.length > 0) {
-        merged.push(...localSpan, ...remoteSpan)
-      } else {
-        merged.push(...localSpan)
-      }
-    } else if (sameLines(localSpan, baseSpan)) {
-      merged.push(...remoteSpan)
-    } else if (sameLines(remoteSpan, baseSpan)) {
-      merged.push(...localSpan)
-    } else {
+  for (const region of diff3Merge<string>(localLines, baseLines, remoteLines, {
+    excludeFalseConflicts: true
+  })) {
+    if (region.ok) {
+      merged.push(...region.ok)
+    } else if (region.conflict) {
+      const { conflict } = region
       const id = `c${conflicts.length + 1}`
-      const baseText = baseSpan.join('')
-      const localText = localSpan.join('')
-      const remoteText = remoteSpan.join('')
+      const baseText = conflict.o.join('')
+      const localText = conflict.a.join('')
+      const remoteText = conflict.b.join('')
       const markerText = createConflictMarker(
         id,
         baseText,
@@ -329,8 +337,8 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
       )
       conflicts.push({
         id,
-        baseStartLine: start + 1,
-        baseEndLine: end,
+        baseStartLine: conflict.oIndex + 1,
+        baseEndLine: conflict.oIndex + conflict.o.length,
         baseText,
         localText,
         remoteText,
@@ -338,12 +346,23 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
       })
       merged.push(markerText)
     }
+  }
 
-    oi = end
+  const reconciled =
+    conflicts.length === 0
+      ? reconcileRepeatedLineCounts(baseLines, localLines, remoteLines, merged)
+      : null
+  const mergedLines = reconciled ?? merged
+
+  if (
+    conflicts.length === 0 &&
+    dropsPositiveLineDelta(baseLines, localLines, remoteLines, mergedLines)
+  ) {
+    return createWholeFileConflict(base, local, remote)
   }
 
   return {
-    mergedMarkdown: merged.join(''),
+    mergedMarkdown: mergedLines.join(''),
     conflicts
   }
 }

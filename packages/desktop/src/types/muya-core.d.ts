@@ -83,11 +83,14 @@ declare module '@muyajs/core' {
   export interface ICommentDiagnostic {
     code:
       | 'duplicate-open-marker'
+      | 'duplicate-close-marker'
       | 'duplicate-metadata'
       | 'invalid-metadata'
+      | 'malformed-marker'
       | 'missing-metadata'
       | 'orphan-close-marker'
       | 'orphan-metadata'
+      | 'parse-error'
       | 'unclosed-open-marker'
     id: string
     message: string
@@ -97,6 +100,55 @@ declare module '@muyajs/core' {
     threads: ICommentThread[]
     ranges: ICommentRange[]
     diagnostics: ICommentDiagnostic[]
+  }
+
+  export interface IParseMarkdownCommentOptions {
+    footnote?: boolean
+    math?: boolean
+    isGitlabCompatibilityEnabled?: boolean
+    trimUnnecessaryCodeBlockEmptyLines?: boolean
+    frontMatter?: boolean
+  }
+
+  export interface ICommentSourceIndexRange {
+    start: number
+    end: number
+  }
+
+  export interface ICommentSourceMarker extends ICommentSourceIndexRange {
+    id: string
+    kind: 'open' | 'close'
+    raw: string
+    idStart: number
+    idEnd: number
+  }
+
+  export interface ICommentSourceMetadataDefinition extends ICommentSourceIndexRange {
+    id: string
+    dataUri: string
+    idStart: number
+    idEnd: number
+  }
+
+  export interface ICommentSourceRange extends ICommentSourceIndexRange {
+    id: string
+  }
+
+  export interface ICommentSourceIndex {
+    ignoredRanges: ICommentSourceIndexRange[]
+    markers: ICommentSourceMarker[]
+    metadataDefinitions: ICommentSourceMetadataDefinition[]
+    commentRanges: ICommentSourceRange[]
+    syntaxRanges: ICommentSourceIndexRange[]
+  }
+
+  export interface ICommentSourceLineState {
+    seenFirstLine: boolean
+    frontMatterMarker: string | null
+    fence: { char: '`' | '~'; length: number } | null
+    inMathBlock: boolean
+    htmlClosing: RegExp | null
+    ignoreLine: boolean
   }
 
   export interface IParsedCommentMetadataDefinition {
@@ -124,20 +176,38 @@ declare module '@muyajs/core' {
     metadata: ICommentMetadata,
     reply: ICommentReplyInput
   ): ICommentMetadata
+  export function buildCommentSourceIndex(markdown: string): ICommentSourceIndex
+  export function collectSourceCommentIds(markdown: string): Set<string>
   export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata
+  export function createCommentSourceLineState(): ICommentSourceLineState
   export function decodeCommentMetadata(dataUri: string): ICommentMetadata
   export function encodeCommentMetadata(metadata: ICommentMetadata): string
   export function nextCommentId(existingIds: Iterable<string>): string
   export function parseCommentMetadataDefinition(
     text: string
   ): IParsedCommentMetadataDefinition | null
-  export function parseMarkdownComments(markdownOrStates: string | unknown[]): IParsedMarkdownComments
+  export function parseMarkdownComments(
+    markdownOrStates: string | unknown[],
+    options?: IParseMarkdownCommentOptions
+  ): IParsedMarkdownComments
+  export function prepareCommentSourceLine(state: ICommentSourceLineState, line: string): void
   export function updateCommentMetadataInMarkdown(
     markdown: string,
     id: string,
     updater: (metadata: ICommentMetadata) => ICommentMetadata
   ): string | null
-  export function validateCommentGraph(markdownOrStates: string | unknown[]): ICommentDiagnostic[]
+  export function validateCommentGraph(
+    markdownOrStates: string | unknown[],
+    options?: IParseMarkdownCommentOptions
+  ): ICommentDiagnostic[]
+  export function sourceCommentIgnoredIndexRanges(markdown: string): ICommentSourceIndexRange[]
+  export function sourceInlineCodeRanges(line: string): ICommentSourceIndexRange[]
+  export function sourceLinePositionInsideInlineCode(line: string, position: number): boolean
+  export function sourceRangesOverlap(
+    start: number,
+    end: number,
+    ranges: ICommentSourceIndexRange[]
+  ): boolean
 
   // The editor instance surface is kept permissive (`any`) — every member
   // that crosses the editor boundary was already `any` in editor.vue.
@@ -147,6 +217,7 @@ declare module '@muyajs/core' {
     init(): void
     getComments(): IParsedMarkdownComments
     getActiveComments(): string[]
+    canAddComment(input?: Pick<IAddCommentInput, 'id'>): boolean
     addComment(input?: IAddCommentInput): boolean
     updateCommentThread(id: string, patch: TUpdateCommentThreadPatch): boolean
     replyToComment(id: string, reply: ICommentReplyInput): boolean

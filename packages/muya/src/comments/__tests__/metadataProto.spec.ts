@@ -2,8 +2,13 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { decodeCommentMetadata, encodeCommentMetadata } from '../metadata';
 
-const encodeJson = (json: string): string =>
-    `data:application/json;base64,${Buffer.from(json).toString('base64')}`;
+function encodeJson(json: string): string {
+    return `data:application/json;base64,${Buffer.from(json).toString('base64')}`;
+}
+
+const objectHasOwn = (Object as typeof Object & {
+    hasOwn: (object: object, property: PropertyKey) => boolean;
+}).hasOwn;
 
 describe('comment metadata __proto__ safety', () => {
     it('round-trips a display object carrying a __proto__ key without throwing or polluting', () => {
@@ -23,6 +28,6 @@ describe('comment metadata __proto__ safety', () => {
         const display = decoded.display as Record<string, unknown>;
         expect(Object.getPrototypeOf(display)).toBe(Object.prototype);
         expect(display.keep).toBe(2);
-        expect(Object.prototype.hasOwnProperty.call(display, '__proto__')).toBe(true);
+        expect(objectHasOwn(display, '__proto__')).toBe(true);
     });
 });

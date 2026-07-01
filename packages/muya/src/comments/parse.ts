@@ -1,5 +1,6 @@
 import type { TBlockPath } from '../block/types';
 import type { CommentMarkerToken, HTMLTagToken, Token } from '../inlineRenderer/types';
+import type { IMarkdownToStateOptions } from '../state/markdownToState';
 import type { TState } from '../state/types';
 import type {
     ICommentDiagnostic,
@@ -76,12 +77,14 @@ function commentSyntaxTokens(text: string): Token[] {
     ).filter(token => isCommentMarkerToken(token) || isHtmlTagToken(token));
 }
 
-function markdownToStates(markdownOrStates: string | TState[]) {
+type TParseMarkdownCommentOptions = Partial<IMarkdownToStateOptions>;
+
+function markdownToStates(markdownOrStates: string | TState[], options?: TParseMarkdownCommentOptions) {
     if (typeof markdownOrStates !== 'string')
         return markdownOrStates;
 
     const markdown = markdownOrStates.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n');
-    return new MarkdownToState().generate(markdown);
+    return new MarkdownToState(options as IMarkdownToStateOptions | undefined).generate(markdown);
 }
 
 function selectedTextPreview(
@@ -108,7 +111,10 @@ function selectedTextPreview(
     return parts.join(' ').replace(/\s+/gu, ' ').trim();
 }
 
-export function parseMarkdownComments(markdownOrStates: string | TState[]): IParsedMarkdownComments {
+export function parseMarkdownComments(
+    markdownOrStates: string | TState[],
+    options?: TParseMarkdownCommentOptions,
+): IParsedMarkdownComments {
     // Fast path: every comment marker (`<!--MC:`) and metadata definition
     // (`[MC:`) contains the literal `MC:`, and no diagnostic can arise without
     // one of them. A document lacking `MC:` has no comments, so skip the
@@ -116,7 +122,7 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
     if (typeof markdownOrStates === 'string' && !markdownOrStates.includes('MC:'))
         return { threads: [], ranges: [], diagnostics: [] };
 
-    const states = markdownToStates(markdownOrStates);
+    const states = markdownToStates(markdownOrStates, options);
     const diagnostics: ICommentDiagnostic[] = [];
     const ranges: ICommentRange[] = [];
     const textEntries: Array<{ path: TBlockPath; text: string }> = [];
@@ -289,6 +295,9 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
     return { threads, ranges, diagnostics };
 }
 
-export function validateCommentGraph(markdownOrStates: string | TState[]): ICommentDiagnostic[] {
-    return parseMarkdownComments(markdownOrStates).diagnostics;
+export function validateCommentGraph(
+    markdownOrStates: string | TState[],
+    options?: TParseMarkdownCommentOptions,
+): ICommentDiagnostic[] {
+    return parseMarkdownComments(markdownOrStates, options).diagnostics;
 }

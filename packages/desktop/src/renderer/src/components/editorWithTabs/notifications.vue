@@ -15,7 +15,7 @@
           class="inline-button"
           @click.stop="handleClick(true)"
         >
-          {{ t('common.ok') }}
+          {{ currentNotification.confirmLabel ?? t('common.ok') }}
         </span>
         <span
           class="inline-button"
