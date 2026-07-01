@@ -1419,36 +1419,6 @@ export const useEditorStore = defineStore('editor', {
       return recoveryTab
     },
 
-    PROMPT_DIRTY_EXTERNAL_RELOAD(tab: IFileState, change: FileChangePayload): void {
-      tab.isSaved = false
-      this.pushTabNotification({
-        tabId: tab.id,
-        msg: t('store.editor.fileChangedOnDisk', { name: tab.filename }),
-        showConfirm: true,
-        exclusiveType: 'file_changed',
-        action: (status) => {
-          if (status) {
-            const recoveryTab = this.CREATE_DIRTY_RELOAD_RECOVERY_TAB(tab)
-            this.pushTabNotification({
-              tabId: tab.id,
-              msg: t('store.editor.fileChangedOnDiskRecoveryCreated', {
-                name: recoveryTab.filename
-              }),
-              showConfirm: false,
-              exclusiveType: 'file_changed_recovery'
-            })
-            sendBufferedState()
-              .catch((err) => {
-                console.error('Failed to flush dirty reload recovery tab:', err)
-              })
-              .finally(() => {
-                this.loadChange(change)
-              })
-          }
-        }
-      })
-    },
-
     APPLY_DIRTY_EXTERNAL_MERGE(change: FileChangePayload, mergedMarkdown: string): void {
       const tab = this.tabs.find((t) =>
         window.fileUtils.isSamePathSync(t.pathname, change.pathname)
@@ -1603,35 +1573,15 @@ export const useEditorStore = defineStore('editor', {
 
     HANDLE_DIRTY_EXTERNAL_CHANGE(tab: IFileState, change: FileChangePayload): void {
       const { data } = change
-      if (typeof tab.diskBaseMarkdown !== 'string') {
-        this.PROMPT_DIRTY_EXTERNAL_RELOAD(tab, change)
-        return
-      }
-
-      const baseMarkdown = tab.diskBaseMarkdown
+      // All-in on the three-way merge: an external change to a file the user is
+      // still editing is always reconciled by merging, never by a reload
+      // prompt. Content-identical-but-metadata-only changes fall out as clean
+      // merge fast paths (local===remote / remote===base), and loadChange
+      // adopts the on-disk encoding/line-ending during APPLY. Without a recorded
+      // base we cannot merge, so an empty base surfaces the difference in the
+      // conflict resolver rather than silently dropping either side.
+      const baseMarkdown = typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : ''
       const localMarkdown = tab.markdown
-
-      if (data.markdown === localMarkdown) {
-        if (isSamePersistenceSnapshot(tab, data)) {
-          tab.diskBaseMarkdown = data.markdown
-          markTabSavedAtCurrentHistory(tab)
-          clearExclusiveTabNotification(tab, 'file_changed')
-          debouncedSendBufferedState()
-        } else {
-          this.PROMPT_DIRTY_EXTERNAL_RELOAD(tab, change)
-        }
-        return
-      }
-
-      if (data.markdown === baseMarkdown) {
-        if (isSamePersistenceSnapshot(tab, data)) {
-          clearExclusiveTabNotification(tab, 'file_changed')
-          debouncedSendBufferedState()
-        } else {
-          this.PROMPT_DIRTY_EXTERNAL_RELOAD(tab, change)
-        }
-        return
-      }
 
       const mergeResult = mergeMarkdownThreeWay({
         base: baseMarkdown,

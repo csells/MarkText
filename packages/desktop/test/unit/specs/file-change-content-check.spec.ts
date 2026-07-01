@@ -190,10 +190,11 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(notifySpy).not.toHaveBeenCalled()
   })
 
-  it('does not mark a dirty tab clean when matching decoded content has different file metadata', () => {
+  it('adopts disk metadata and marks a matching dirty tab clean when only line-ending metadata changed', () => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
+    const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {})
     const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
     store.LISTEN_FOR_FILE_CHANGE()
 
@@ -202,8 +203,13 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       adjustLineEndingOnSave: true
     })
 
-    expect(notifySpy).toHaveBeenCalledTimes(1)
-    expect(tab.isSaved).toBe(false)
+    // Decoded content matches disk; the merge fast path (local===remote) adopts
+    // the on-disk encoding via loadChange and marks the tab clean rather than
+    // prompting. There is no prompt-to-reload any more.
+    expect(loadSpy).toHaveBeenCalledTimes(1)
+    expect(notifySpy).not.toHaveBeenCalled()
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.isSaved).toBe(true)
   })
 
   it('marks a dirty tab clean when disk content catches up to matching local content', () => {
@@ -227,37 +233,38 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     ['encoding', { encoding: { encoding: 'utf16le', hasBOM: false } }],
     ['trailing-newline policy', { trimTrailingNewline: 1 }]
   ])(
-    'does not mark a dirty tab clean when matching decoded content has changed %s metadata',
+    'adopts disk metadata and marks a matching dirty tab clean when %s metadata changed',
     (_name, data) => {
       const store = useEditorStore()
       const tab = makeSavedTab(store)
       tab.isSaved = false
+      const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {})
       const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
       store.LISTEN_FOR_FILE_CHANGE()
 
       fire(captureHandler(), 'hello', data)
 
-      expect(notifySpy).toHaveBeenCalledTimes(1)
-      expect(tab.isSaved).toBe(false)
+      expect(loadSpy).toHaveBeenCalledTimes(1)
+      expect(notifySpy).not.toHaveBeenCalled()
+      expect(store.mergeConflict).toBeNull()
+      expect(tab.isSaved).toBe(true)
     }
   )
 
-  it('still warns when the on-disk content actually changed', () => {
+  it('opens the conflict resolver for a dirty change when no merge base is recorded', () => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
-    const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
+    store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 
+    // No diskBaseMarkdown → base '' → we cannot silently choose a side, so the
+    // divergent content is surfaced in the conflict resolver and the local
+    // buffer is left untouched until the user resolves it.
     fire(captureHandler(), 'hello world')
 
-    expect(notifySpy).toHaveBeenCalledTimes(1)
-    expect(notifySpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        msg: expect.stringContaining('Undo')
-      })
-    )
-    expect(tab.isSaved).toBe(false)
+    expect(store.mergeConflict).toEqual(expect.objectContaining({ tabId: 'tab-1' }))
+    expect(tab.markdown).toBe('hello')
   })
 
   it('auto-merges non-overlapping dirty local and disk changes', () => {
@@ -432,23 +439,25 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     )
   })
 
-  it('keeps a dirty local recovery tab before confirmed reload replaces the original', async() => {
+  it('keeps a dirty local recovery tab when abandoning a merge to reload disk', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
     tab.markdown = 'local dirty content'
+    tab.diskBaseMarkdown = 'base content'
     tab.lineEnding = 'crlf'
     tab.adjustLineEndingOnSave = true
     store.currentFile = tab as unknown as typeof store.currentFile
     const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {})
     store.LISTEN_FOR_FILE_CHANGE()
 
+    // Divergent local + disk edits over the base conflict → resolver opens.
     fire(captureHandler(), 'disk content')
-    const [notification] = tab.notifications as Array<{ action: (status?: unknown) => void }>
-    expect(notification).toBeDefined()
+    expect(store.mergeConflict).not.toBeNull()
 
-    tab.notifications.shift()
-    notification?.action(true)
+    // Abandoning the merge to reload disk must first preserve the local buffer
+    // in a dirty untitled recovery tab (the data-safety backstop).
+    store.RELOAD_DISK_FROM_MERGE_CONFLICT()
     await Promise.resolve()
     await Promise.resolve()
 
@@ -465,12 +474,19 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(loadSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('flushes the recovery tab snapshot before replacing the original tab', async() => {
+  it('flushes the recovery tab snapshot before replacing the original tab on abandon', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
     tab.markdown = 'local dirty content'
+    tab.diskBaseMarkdown = 'base content'
     store.currentFile = tab as unknown as typeof store.currentFile
+    const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {})
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    fire(captureHandler(), 'disk content')
+    expect(store.mergeConflict).not.toBeNull()
+
     const order: string[] = []
     let resolveFlush: (value: unknown) => void = () => {}
     vi.mocked(sendBufferedState).mockImplementationOnce(
@@ -482,15 +498,11 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
           }
         })
     )
-    const loadSpy = vi.spyOn(store, 'loadChange').mockImplementation(() => {
+    loadSpy.mockImplementation(() => {
       order.push('load')
     })
-    store.LISTEN_FOR_FILE_CHANGE()
 
-    fire(captureHandler(), 'disk content')
-    const [notification] = tab.notifications as Array<{ action: (status?: unknown) => void }>
-    tab.notifications.shift()
-    notification?.action(true)
+    store.RELOAD_DISK_FROM_MERGE_CONFLICT()
 
     expect(sendBufferedState).toHaveBeenCalledTimes(1)
     expect(loadSpy).not.toHaveBeenCalled()

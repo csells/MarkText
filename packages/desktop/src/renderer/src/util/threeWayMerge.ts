@@ -13,9 +13,14 @@ export interface ThreeWayMergeResult {
   conflicts: ThreeWayMergeConflict[]
 }
 
-interface DiffHunk {
-  start: number
-  end: number
+// A change to the base document, expressed in BASE line coordinates: base lines
+// [oStart, oEnd) are replaced by `lines`. A pure insertion has oStart === oEnd;
+// a pure deletion has an empty `lines`. Anchoring every change to base
+// coordinates is what lets two sides that both delete the same base line
+// collapse to a single deletion instead of silently keeping the line.
+interface ChangeRegion {
+  oStart: number
+  oEnd: number
   lines: string[]
 }
 
@@ -26,6 +31,13 @@ interface MergeInput {
 }
 
 type ConflictChoice = 'local' | 'remote' | 'both'
+
+// The base×changed LCS table is O(n·m) memory; two are built per merge. Beyond
+// this many cells we refuse to allocate and degrade to a whole-file conflict so
+// a huge external change cannot freeze or OOM the renderer. ~64M cells covers
+// symmetric merges up to ~8000 lines (a few hundred MB, sub-second); larger
+// documents degrade to a whole-file conflict instead of risking a crash.
+const MERGE_LCS_CELL_BUDGET = 64_000_000
 
 const splitMarkdownLines = (markdown: string): string[] => {
   const lines: string[] = []
@@ -64,97 +76,77 @@ const buildLcsTable = (left: string[], right: string[]): number[][] => {
   return table
 }
 
-const diffAgainstBase = (base: string[], changed: string[]): DiffHunk[] => {
-  const table = buildLcsTable(base, changed)
-  const hunks: DiffHunk[] = []
-  let baseIndex = 0
-  let changedIndex = 0
-  let current: DiffHunk | null = null
+// The matched (unchanged) line pairs of an LCS alignment of base→side.
+const lcsMatches = (base: string[], side: string[]): Array<[number, number]> => {
+  const table = buildLcsTable(base, side)
+  const matches: Array<[number, number]> = []
+  let i = 0
+  let j = 0
 
-  const ensureHunk = (): DiffHunk => {
-    if (!current) {
-      current = {
-        start: baseIndex,
-        end: baseIndex,
-        lines: []
-      }
-    }
-    return current
-  }
-
-  const flush = (): void => {
-    if (current) {
-      hunks.push(current)
-      current = null
+  while (i < base.length && j < side.length) {
+    if (base[i] === side[j]) {
+      matches.push([i, j])
+      i += 1
+      j += 1
+    } else if (table[i + 1][j] >= table[i][j + 1]) {
+      i += 1
+    } else {
+      j += 1
     }
   }
 
-  while (baseIndex < base.length || changedIndex < changed.length) {
-    if (
-      baseIndex < base.length &&
-      changedIndex < changed.length &&
-      base[baseIndex] === changed[changedIndex]
-    ) {
-      flush()
-      baseIndex += 1
-      changedIndex += 1
-      continue
-    }
-
-    const hunk = ensureHunk()
-    if (
-      changedIndex < changed.length &&
-      (baseIndex >= base.length ||
-        table[baseIndex][changedIndex + 1] >= table[baseIndex + 1][changedIndex])
-    ) {
-      hunk.lines.push(changed[changedIndex])
-      changedIndex += 1
-    } else if (baseIndex < base.length) {
-      hunk.end += 1
-      baseIndex += 1
-    }
-  }
-
-  flush()
-  return hunks
+  return matches
 }
 
-const hunksOverlap = (left: DiffHunk, right: DiffHunk): boolean => {
-  if (left.start === left.end && right.start === right.end) {
-    return left.start === right.start
+// Everything between the LCS anchors is a change region in base coordinates.
+const diffRegions = (base: string[], side: string[]): ChangeRegion[] => {
+  const regions: ChangeRegion[] = []
+  let oi = 0
+  let si = 0
+
+  const push = (oEnd: number, sEnd: number): void => {
+    if (oi < oEnd || si < sEnd) {
+      regions.push({ oStart: oi, oEnd, lines: side.slice(si, sEnd) })
+    }
   }
 
-  return left.start < right.end && right.start < left.end
-}
-
-const hunkBefore = (left: DiffHunk, right: DiffHunk): boolean => {
-  if (hunksOverlap(left, right)) return false
-  if (left.end < right.start) return true
-  if (left.end === right.start) {
-    return !(left.start === left.end && right.start === right.end)
+  for (const [mo, ms] of lcsMatches(base, side)) {
+    push(mo, ms)
+    oi = mo + 1
+    si = ms + 1
   }
-  return false
+  push(base.length, side.length)
+
+  return regions
 }
 
-const applyHunksToRegion = (
+// Reconstruct a side's content for base span [start, end), applying that side's
+// change regions (including insertions at points inside the span).
+const reconstructSide = (
   base: string[],
-  hunks: DiffHunk[],
-  regionStart: number,
-  regionEnd: number
+  regions: ChangeRegion[],
+  start: number,
+  end: number
 ): string[] => {
-  const result: string[] = []
-  let baseIndex = regionStart
+  const out: string[] = []
+  let k = start
+  let idx = 0
+  while (idx < regions.length && regions[idx].oEnd < start) idx += 1
 
-  for (const hunk of hunks) {
-    if (hunk.end < regionStart || hunk.start > regionEnd) continue
-    const start = Math.max(regionStart, hunk.start)
-    result.push(...base.slice(baseIndex, start))
-    result.push(...hunk.lines)
-    baseIndex = Math.max(baseIndex, Math.min(regionEnd, hunk.end))
+  while (k < end || (idx < regions.length && regions[idx].oStart === k && k <= end)) {
+    if (idx < regions.length && regions[idx].oStart === k) {
+      out.push(...regions[idx].lines)
+      k = Math.max(k, regions[idx].oEnd)
+      idx += 1
+    } else if (k < end) {
+      out.push(base[k])
+      k += 1
+    } else {
+      break
+    }
   }
 
-  result.push(...base.slice(baseIndex, regionEnd))
-  return result
+  return out
 }
 
 const sameLines = (left: string[], right: string[]): boolean => {
@@ -193,6 +185,31 @@ const createConflictMarker = (
   ].join('')
 }
 
+const wholeFileConflict = (base: string, local: string, remote: string): ThreeWayMergeResult => {
+  const id = 'c1'
+  const markerText = createConflictMarker(
+    id,
+    base,
+    local,
+    remote,
+    detectLineEnding(local, remote, base)
+  )
+  return {
+    mergedMarkdown: markerText,
+    conflicts: [
+      {
+        id,
+        baseStartLine: 1,
+        baseEndLine: splitMarkdownLines(base).length,
+        baseText: base,
+        localText: local,
+        remoteText: remote,
+        markerText
+      }
+    ]
+  }
+}
+
 export const resolveConflictMarker = (
   markdown: string,
   conflict: ThreeWayMergeConflict,
@@ -205,7 +222,10 @@ export const resolveConflictMarker = (
         ? conflict.remoteText
         : `${conflict.localText}${conflict.remoteText}`
 
-  return markdown.replace(conflict.markerText, replacement)
+  // A function replacement is used so `$`, `$$`, `$&`, `` $` `` etc. inside the
+  // chosen document text are inserted literally rather than being interpreted as
+  // String.prototype.replace substitution patterns (which corrupted KaTeX math).
+  return markdown.replace(conflict.markerText, () => replacement)
 }
 
 export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): ThreeWayMergeResult => {
@@ -220,71 +240,76 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
   }
 
   const baseLines = splitMarkdownLines(base)
-  const localHunks = diffAgainstBase(baseLines, splitMarkdownLines(local))
-  const remoteHunks = diffAgainstBase(baseLines, splitMarkdownLines(remote))
-  const mergedLines: string[] = []
+  const localLines = splitMarkdownLines(local)
+  const remoteLines = splitMarkdownLines(remote)
+
+  if (baseLines.length * Math.max(localLines.length, remoteLines.length) > MERGE_LCS_CELL_BUDGET) {
+    return wholeFileConflict(base, local, remote)
+  }
+
+  const chA = diffRegions(baseLines, localLines)
+  const chB = diffRegions(baseLines, remoteLines)
+  const merged: string[] = []
   const conflicts: ThreeWayMergeConflict[] = []
-  let baseIndex = 0
-  let localIndex = 0
-  let remoteIndex = 0
+  let oi = 0
+  let ai = 0
+  let bi = 0
 
-  while (localIndex < localHunks.length || remoteIndex < remoteHunks.length) {
-    const localHunk = localHunks[localIndex]
-    const remoteHunk = remoteHunks[remoteIndex]
+  while (ai < chA.length || bi < chB.length || oi < baseLines.length) {
+    const aStart = ai < chA.length ? chA[ai].oStart : Infinity
+    const bStart = bi < chB.length ? chB[bi].oStart : Infinity
+    const nextChange = Math.min(aStart, bStart)
 
-    if (!remoteHunk || (localHunk && hunkBefore(localHunk, remoteHunk))) {
-      mergedLines.push(...baseLines.slice(baseIndex, localHunk.start), ...localHunk.lines)
-      baseIndex = localHunk.end
-      localIndex += 1
+    if (oi < nextChange) {
+      const upto = Math.min(nextChange, baseLines.length)
+      merged.push(...baseLines.slice(oi, upto))
+      oi = upto
+      if (nextChange === Infinity) break
       continue
     }
 
-    if (!localHunk || hunkBefore(remoteHunk, localHunk)) {
-      mergedLines.push(...baseLines.slice(baseIndex, remoteHunk.start), ...remoteHunk.lines)
-      baseIndex = remoteHunk.end
-      remoteIndex += 1
-      continue
-    }
+    // A change begins at oi. Grow the region to cover every local/remote change
+    // that overlaps it, so overlapping edits become one conflict/decision.
+    const start = oi
+    let end = oi
+    const aGroup: ChangeRegion[] = []
+    const bGroup: ChangeRegion[] = []
 
-    let regionStart = Math.min(localHunk.start, remoteHunk.start)
-    let regionEnd = Math.max(localHunk.end, remoteHunk.end)
-    const localGroup: DiffHunk[] = []
-    const remoteGroup: DiffHunk[] = []
-    let expanded = true
+    const seedOrOverlap = (region: ChangeRegion): boolean =>
+      region.oStart === start || region.oStart < end
 
-    while (expanded) {
-      expanded = false
-      while (localIndex < localHunks.length && localHunks[localIndex].start <= regionEnd) {
-        const hunk = localHunks[localIndex]
-        localGroup.push(hunk)
-        regionStart = Math.min(regionStart, hunk.start)
-        regionEnd = Math.max(regionEnd, hunk.end)
-        localIndex += 1
-        expanded = true
+    let grew = true
+    while (grew) {
+      grew = false
+      while (ai < chA.length && seedOrOverlap(chA[ai])) {
+        aGroup.push(chA[ai])
+        end = Math.max(end, chA[ai].oEnd)
+        ai += 1
+        grew = true
       }
-      while (remoteIndex < remoteHunks.length && remoteHunks[remoteIndex].start <= regionEnd) {
-        const hunk = remoteHunks[remoteIndex]
-        remoteGroup.push(hunk)
-        regionStart = Math.min(regionStart, hunk.start)
-        regionEnd = Math.max(regionEnd, hunk.end)
-        remoteIndex += 1
-        expanded = true
+      while (bi < chB.length && seedOrOverlap(chB[bi])) {
+        bGroup.push(chB[bi])
+        end = Math.max(end, chB[bi].oEnd)
+        bi += 1
+        grew = true
       }
     }
 
-    mergedLines.push(...baseLines.slice(baseIndex, regionStart))
+    const baseSpan = baseLines.slice(start, end)
+    const localSpan = reconstructSide(baseLines, aGroup, start, end)
+    const remoteSpan = reconstructSide(baseLines, bGroup, start, end)
 
-    const baseRegion = baseLines.slice(regionStart, regionEnd)
-    const localRegion = applyHunksToRegion(baseLines, localGroup, regionStart, regionEnd)
-    const remoteRegion = applyHunksToRegion(baseLines, remoteGroup, regionStart, regionEnd)
-
-    if (sameLines(localRegion, remoteRegion)) {
-      mergedLines.push(...localRegion)
+    if (sameLines(localSpan, remoteSpan)) {
+      merged.push(...localSpan)
+    } else if (sameLines(localSpan, baseSpan)) {
+      merged.push(...remoteSpan)
+    } else if (sameLines(remoteSpan, baseSpan)) {
+      merged.push(...localSpan)
     } else {
       const id = `c${conflicts.length + 1}`
-      const baseText = baseRegion.join('')
-      const localText = localRegion.join('')
-      const remoteText = remoteRegion.join('')
+      const baseText = baseSpan.join('')
+      const localText = localSpan.join('')
+      const remoteText = remoteSpan.join('')
       const markerText = createConflictMarker(
         id,
         baseText,
@@ -294,22 +319,21 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
       )
       conflicts.push({
         id,
-        baseStartLine: regionStart + 1,
-        baseEndLine: regionEnd,
+        baseStartLine: start + 1,
+        baseEndLine: end,
         baseText,
         localText,
         remoteText,
         markerText
       })
-      mergedLines.push(markerText)
+      merged.push(markerText)
     }
 
-    baseIndex = regionEnd
+    oi = end
   }
 
-  mergedLines.push(...baseLines.slice(baseIndex))
   return {
-    mergedMarkdown: mergedLines.join(''),
+    mergedMarkdown: merged.join(''),
     conflicts
   }
 }

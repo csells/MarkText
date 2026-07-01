@@ -129,6 +129,85 @@ describe('mergeMarkdownThreeWay', () => {
     expect(result.mergedMarkdown).not.toMatch(/(?<!\r)\n/)
   })
 
+  // Adversarial-review Finding 1 (CRITICAL, silent data loss): when an edit
+  // lands inside a run of identical lines, line-level LCS decomposes it into an
+  // insert + a trailing delete; if the other side also deletes a line from that
+  // run, the two coincident deletions collapse and a line both sides removed is
+  // silently kept — with ZERO conflicts. Verified against `git merge-file`.
+  it('does not silently keep a line that both sides remove within a repeated run', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'c\na\na\na\n',
+      local: 'c\nA\na\na\n',
+      remote: 'c\na\na\n'
+    })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('c\nA\na\n')
+  })
+
+  it('merges a local edit with a disk de-duplication of a repeated list item', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '- apple\n- apple\n- apple\n',
+      local: '- apple pie\n- apple\n- apple\n',
+      remote: '- apple\n- apple\n'
+    })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('- apple pie\n- apple\n')
+  })
+
+  it('does not lose the user unsaved deletion when disk edits a sibling repeated line', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '- task\n- task\n- task\n',
+      local: '- task\n- task\n',
+      remote: '- task done\n- task\n- task\n'
+    })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('- task done\n- task\n')
+  })
+
+  // Finding 2 (CRITICAL): resolveConflictMarker used String.replace, whose
+  // replacement string interprets $$, $&, $` etc. — corrupting KaTeX math.
+  it('preserves $ sequences (KaTeX math) when resolving a conflict', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'x\n',
+      local: '$$E = mc^2$$\n',
+      remote: 'y\n'
+    })
+    expect(result.conflicts).toHaveLength(1)
+
+    const [conflict] = result.conflicts
+    const resolved = resolveConflictMarker(result.mergedMarkdown, conflict, 'local')
+    expect(resolved).toBe('$$E = mc^2$$\n')
+  })
+
+  it('preserves $&, $` and $\' literals when resolving a conflict', () => {
+    const weird = 'a $& b $` c $\' d\n'
+    const result = mergeMarkdownThreeWay({ base: 'x\n', local: weird, remote: 'y\n' })
+    const [conflict] = result.conflicts
+    expect(resolveConflictMarker(result.mergedMarkdown, conflict, 'local')).toBe(weird)
+  })
+
+  // Finding 3 (HIGH): O(n·m) dual LCS tables freeze/OOM the renderer on large
+  // files. Beyond a guard size the merge must degrade to a whole-file conflict
+  // rather than allocating gigabytes, and must never drop content.
+  it('degrades huge inputs to a whole-file conflict instead of allocating an O(n·m) table', () => {
+    const base = `${Array.from({ length: 40000 }, (_, i) => `line ${i}`).join('\n')}\n`
+    const local = base.replace('line 0', 'LOCAL 0')
+    const remote = base.replace('line 1', 'REMOTE 1')
+    const started = performance.now()
+    const result = mergeMarkdownThreeWay({ base, local, remote })
+    const elapsed = performance.now() - started
+
+    // Without the cell-budget guard this allocates a ~40000×40000 LCS table and
+    // freezes/OOMs; the guard must return a whole-file conflict quickly.
+    expect(elapsed).toBeLessThan(1000)
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.mergedMarkdown).toContain('LOCAL 0')
+    expect(result.mergedMarkdown).toContain('REMOTE 1')
+  })
+
   it('escalates overlapping comment range edits to conflict markers', () => {
     const result = mergeMarkdownThreeWay({
       base: 'A <!--MC:a-->reviewed<!--MC:~a--> span.\n',
