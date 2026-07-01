@@ -61,6 +61,7 @@ declare module '@muyajs/core' {
     createdAt?: string
     updatedAt?: string
     replies: ICommentReply[]
+    [key: string]: unknown
   }
 
   export interface ICommentThread extends ICommentMetadata {
@@ -119,6 +120,7 @@ declare module '@muyajs/core' {
     text: string
   ): IParsedCommentMetadataDefinition | null
   export function parseMarkdownComments(markdownOrStates: string | unknown[]): IParsedMarkdownComments
+  export function validateCommentGraph(markdownOrStates: string | unknown[]): ICommentDiagnostic[]
 
   // The editor instance surface is kept permissive (`any`) — every member
   // that crosses the editor boundary was already `any` in editor.vue.

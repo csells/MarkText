@@ -1,5 +1,6 @@
 packages:
   - 'packages/*'
+  - 'skills/*'
   # muya v2 (TS) nests its dev surface and Playwright suite inside its own
   # package directory rather than as siblings under packages/, so list them
   # explicitly.

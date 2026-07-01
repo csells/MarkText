@@ -11,7 +11,7 @@ import type {
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
 import { decodeCommentMetadata } from './metadata';
-import { COMMENT_MARKER_SEARCH_REGEXP, parseCommentMetadataDefinition } from './syntax';
+import { parseCommentMetadataDefinition } from './syntax';
 
 interface IOpenMarker {
     id: string;
@@ -39,7 +39,6 @@ function shouldScanInlineText(state: TState): state is Extract<TState, { text: s
         || state.name === 'atx-heading'
         || state.name === 'setext-heading'
         || state.name === 'table.cell'
-        || (state.name === 'html-block' && COMMENT_MARKER_SEARCH_REGEXP.test(state.text))
     );
 }
 
@@ -215,4 +214,8 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
     }
 
     return { threads, ranges, diagnostics };
+}
+
+export function validateCommentGraph(markdownOrStates: string | TState[]): ICommentDiagnostic[] {
+    return parseMarkdownComments(markdownOrStates).diagnostics;
 }

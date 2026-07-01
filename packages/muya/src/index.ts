@@ -6,6 +6,7 @@ export {
     nextCommentId,
     parseCommentMetadataDefinition,
     parseMarkdownComments,
+    validateCommentGraph,
 } from './comments';
 export type {
     IAddCommentInput,

@@ -156,6 +156,23 @@ describe('muya.addComment()', () => {
         expect(muya.addComment({ id: 'existing' })).toBe(false);
     });
 
+    it('treats orphan metadata IDs as reserved when adding comments', () => {
+        const muya = boot([
+            'A reviewed span.',
+            '',
+            `[MC:cmt_1]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n'));
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.setCursor(2, 10, true);
+        expect(muya.addComment({ id: 'cmt_1' })).toBe(false);
+
+        expect(muya.addComment()).toBe(true);
+        expect(muya.getMarkdown()).toContain('A <!--MC:cmt_2-->reviewed<!--MC:~cmt_2--> span.');
+        expect(muya.getComments().threads.map(thread => thread.id)).toEqual(['cmt_2']);
+    });
+
     it('wraps a cross-leaf selection with one range and one metadata definition', () => {
         const muya = boot('Alpha line.\n\nBeta line.\n');
         const first = muya.editor.scrollPage!.firstContentInDescendant() as Content;
@@ -280,6 +297,34 @@ describe('muya comment metadata mutations', () => {
         expect(muya.reopenComment('a', '2026-06-30T16:00:00.000Z')).toBe(true);
         expect(muya.getComments().threads[0].status).toBe('open');
         expect(muya.getComments().threads[0].updatedAt).toBe('2026-06-30T16:00:00.000Z');
+    });
+
+    it('preserves optional display metadata while editing a thread', () => {
+        const muya = boot([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${metadata({
+                version: 1,
+                status: 'open',
+                display: {
+                    color: 'amber',
+                    label: 'Design review',
+                },
+                replies: [],
+            })}`,
+            '',
+        ].join('\n'));
+
+        expect(muya.resolveComment('a', '2026-06-30T15:00:00.000Z')).toBe(true);
+
+        expect(muya.getComments().threads[0]).toMatchObject({
+            id: 'a',
+            status: 'resolved',
+            display: {
+                color: 'amber',
+                label: 'Design review',
+            },
+        });
     });
 
     it('returns false when metadata for the requested comment is missing', () => {

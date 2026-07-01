@@ -46,6 +46,7 @@
       v-for="thread of comments.threads"
       :key="thread.id"
       class="thread"
+      :data-comment-id="thread.id"
       :class="{
         active: activeCommentIds.includes(thread.id),
         resolved: thread.status === 'resolved'
@@ -164,6 +165,7 @@
 
       <div class="reply-box">
         <el-input
+          :ref="setReplyInputRefFor(thread.id)"
           v-model="replyDrafts[thread.id]"
           type="textarea"
           :autosize="{ minRows: 2, maxRows: 4 }"
@@ -184,7 +186,7 @@
 
 <script setup lang="ts">
 import type { ICommentThread } from '@muyajs/core'
-import { computed, reactive } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Aim, Check, Close, EditPen, Plus, Promotion, RefreshLeft } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -197,6 +199,7 @@ const { comments, activeCommentIds } = storeToRefs(editorStore)
 const replyDrafts = reactive<Record<string, string>>({})
 const editDrafts = reactive<Record<string, string>>({})
 const editingThreads = reactive<Record<string, boolean>>({})
+const replyInputs = new Map<string, { focus: () => void }>()
 
 const summaryText = computed(() => {
   const openCount = comments.value.threads.filter((thread) => thread.status === 'open').length
@@ -217,6 +220,40 @@ const formatDate = (value?: string): string => {
 
 const addComment = (): void => {
   bus.emit('addComment')
+}
+
+const setReplyInputRef = (id: string, input: unknown): void => {
+  if (input && typeof (input as { focus?: unknown }).focus === 'function') {
+    replyInputs.set(id, input as { focus: () => void })
+  } else {
+    replyInputs.delete(id)
+  }
+}
+
+const setReplyInputRefFor = (id: string) => (input: unknown): void => {
+  setReplyInputRef(id, input)
+}
+
+const focusReplyInput = (id: string): void => {
+  const focus = (): void => {
+    replyInputs.get(id)?.focus()
+    const thread = Array.from(
+      document.querySelectorAll<HTMLElement>('.side-bar-comments .thread')
+    ).find(item => item.dataset.commentId === id)
+    thread?.querySelector<HTMLTextAreaElement>('.reply-box textarea')?.focus()
+  }
+
+  nextTick(() => {
+    focus()
+    setTimeout(focus)
+  })
+}
+
+const handleComposeComment = (id: unknown): void => {
+  if (typeof id !== 'string') return
+
+  replyDrafts[id] = replyDrafts[id] ?? ''
+  focusReplyInput(id)
 }
 
 const focusComment = (id: string): void => {
@@ -275,6 +312,14 @@ const submitReply = (id: string): void => {
   })
   replyDrafts[id] = ''
 }
+
+onMounted(() => {
+  bus.on('comment:compose', handleComposeComment)
+})
+
+onBeforeUnmount(() => {
+  bus.off('comment:compose', handleComposeComment)
+})
 </script>
 
 <style scoped>

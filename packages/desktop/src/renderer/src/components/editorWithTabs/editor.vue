@@ -109,6 +109,7 @@ import {
   tr,
   zhCN,
   zhTW,
+  type ICommentThread,
   type ICommentReplyInput,
   type IParsedMarkdownComments,
   type ILocale,
@@ -1635,12 +1636,21 @@ const handleAddComment = () => {
   }
   if (!editor.value) return
 
+  const beforeIds = new Set(
+    editor.value.getComments().threads.map((thread: ICommentThread) => thread.id)
+  )
   if (!editor.value.addComment()) {
     notifyCommentUnavailable(t('sideBar.comments.selectTextHint'))
     return
   }
+  const nextComments = editor.value.getComments()
+  const addedThread = nextComments.threads.find((thread: ICommentThread) => !beforeIds.has(thread.id))
   showCommentsSidebar()
-  syncComments()
+  editorStore.UPDATE_COMMENTS(nextComments)
+  editorStore.UPDATE_ACTIVE_COMMENTS(editor.value.getActiveComments())
+  if (addedThread) {
+    nextTick(() => bus.emit('comment:compose', addedThread.id))
+  }
 }
 
 const handleCommentReply = (payload: unknown) => {

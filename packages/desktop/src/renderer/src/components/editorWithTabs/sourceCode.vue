@@ -16,11 +16,15 @@ import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMi
 import {
   COMMENT_MARKER_PATTERN,
   createCommentMetadata,
+  decodeCommentMetadata,
   encodeCommentMetadata,
   nextCommentId,
   parseCommentMetadataDefinition,
   parseMarkdownComments,
-  wordCount as getWordCount
+  wordCount as getWordCount,
+  type ICommentMetadata,
+  type ICommentReplyInput,
+  type TUpdateCommentThreadPatch
 } from '@muyajs/core'
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
@@ -39,6 +43,12 @@ interface CMPosition {
 interface SourceCommentRange {
   start: CMPosition
   end: CMPosition
+}
+
+interface SourceCommentIndexRange {
+  id: string
+  start: number
+  end: number
 }
 
 interface MuyaIndexCursorLike {
@@ -284,6 +294,54 @@ const sourceLineEnding = (markdown: string): string => {
   return '\n'
 }
 
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+
+const sourceCommentIndexRanges = (markdown: string): SourceCommentIndexRange[] => {
+  const ranges: SourceCommentIndexRange[] = []
+  const openMarkers = new Map<string, number>()
+  const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'g')
+  let markerMatch: RegExpExecArray | null
+
+  while ((markerMatch = markerRegExp.exec(markdown))) {
+    const id = markerMatch[2]
+    if (!id) continue
+
+    if (markerMatch[1] === '~') {
+      const start = openMarkers.get(id)
+      if (start == null) continue
+
+      ranges.push({
+        id,
+        start,
+        end: markerMatch.index
+      })
+      openMarkers.delete(id)
+    } else if (!openMarkers.has(id)) {
+      openMarkers.set(id, markerMatch.index + markerMatch[0].length)
+    }
+  }
+
+  return ranges
+}
+
+const activeSourceCommentIds = (cm: CMInstance, markdown: string): string[] => {
+  const anchorIndex = cm.indexFromPos(cm.getCursor('anchor'))
+  const focusIndex = cm.indexFromPos(cm.getCursor('head'))
+  const selectionStart = Math.min(anchorIndex, focusIndex)
+  const selectionEnd = Math.max(anchorIndex, focusIndex)
+
+  return sourceCommentIndexRanges(markdown)
+    .filter((range) => {
+      if (selectionStart === selectionEnd) {
+        return selectionStart >= range.start && selectionStart <= range.end
+      }
+
+      return selectionEnd >= range.start && selectionStart <= range.end
+    })
+    .map(range => range.id)
+}
+
 const commentMetadataAppendix = (markdown: string, id: string): string => {
   const lineEnding = sourceLineEnding(markdown)
   const separator = markdown.endsWith('\n') || markdown.endsWith('\r')
@@ -322,9 +380,118 @@ const handleAddComment = (): void => {
   })
 
   saveContent(cm)
-  editorStore.UPDATE_COMMENTS(parseMarkdownComments(cm.getValue()))
-  editorStore.UPDATE_ACTIVE_COMMENTS([])
   showCommentsSidebar()
+  nextTick(() => bus.emit('comment:compose', id))
+}
+
+const replaceSourceCommentMetadata = (
+  cm: CMInstance,
+  id: string,
+  updater: (metadata: ICommentMetadata) => ICommentMetadata
+): boolean => {
+  for (let line = cm.firstLine(); line <= cm.lastLine(); line += 1) {
+    const text = cm.getLine(line)
+    const definition = parseCommentMetadataDefinition(text)
+    if (!definition || definition.id !== id) continue
+
+    const nextMetadata = updater(decodeCommentMetadata(definition.dataUri))
+    cm.replaceRange(
+      `[MC:${id}]: ${encodeCommentMetadata(nextMetadata)}`,
+      { line, ch: 0 },
+      { line, ch: text.length }
+    )
+    saveContent(cm)
+    return true
+  }
+
+  return false
+}
+
+const patchSourceCommentMetadata = (
+  cm: CMInstance,
+  id: string,
+  patch: TUpdateCommentThreadPatch
+): boolean =>
+  replaceSourceCommentMetadata(cm, id, (metadata) => {
+    const replies = Array.isArray(patch.replies) ? patch.replies : metadata.replies
+    return {
+      ...metadata,
+      ...patch,
+      version: 1,
+      replies
+    }
+  })
+
+const handleCommentReply = (payload: unknown): void => {
+  if (!sourceCode.value || !editor.value) return
+  const { id, reply } = (payload ?? {}) as { id?: string; reply?: ICommentReplyInput }
+  if (!id || !reply?.body) return
+
+  const createdAt = reply.createdAt ?? new Date().toISOString()
+  replaceSourceCommentMetadata(editor.value, id, (metadata) => {
+    const authors = metadata.authors ? [...metadata.authors] : []
+    if (reply.author && !authors.includes(reply.author)) authors.push(reply.author)
+
+    return {
+      ...metadata,
+      version: 1,
+      ...(authors.length ? { authors } : {}),
+      updatedAt: createdAt,
+      replies: [
+        ...metadata.replies,
+        {
+          author: reply.author,
+          createdAt,
+          body: reply.body
+        }
+      ]
+    }
+  })
+}
+
+const handleCommentEdit = (payload: unknown): void => {
+  if (!sourceCode.value || !editor.value) return
+  const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
+  if (!id || !patch) return
+
+  patchSourceCommentMetadata(editor.value, id, patch)
+}
+
+const handleCommentResolve = (id: unknown): void => {
+  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+
+  patchSourceCommentMetadata(editor.value, id, {
+    status: 'resolved',
+    updatedAt: new Date().toISOString()
+  })
+}
+
+const handleCommentReopen = (id: unknown): void => {
+  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+
+  patchSourceCommentMetadata(editor.value, id, {
+    status: 'open',
+    updatedAt: new Date().toISOString()
+  })
+}
+
+const handleCommentFocus = (id: unknown): void => {
+  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+
+  const cm = editor.value
+  const markdown = cm.getValue()
+  const openMarker = new RegExp(`<!--MC:${escapeRegExp(id)}-->`, 'u')
+  const openMatch = openMarker.exec(markdown)
+  if (!openMatch) return
+
+  const closeMarker = `<!--MC:~${id}-->`
+  const start = openMatch.index + openMatch[0].length
+  const end = markdown.indexOf(closeMarker, start)
+  if (end < 0) return
+
+  cm.focus()
+  cm.setSelection(cm.posFromIndex(start), cm.posFromIndex(end), { scroll: true })
+  editorStore.UPDATE_ACTIVE_COMMENTS([id])
 }
 
 interface ImageActionPayload {
@@ -387,6 +554,9 @@ const saveContent = (cm: CMInstance) => {
   const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(cm)
   // Attention: the cursor may be `{focus: null, anchor: null}` when press `backspace`
   const wordCount = getWordCount(newMarkdown)
+  const comments = parseMarkdownComments(newMarkdown)
+  editorStore.UPDATE_COMMENTS(comments)
+  editorStore.UPDATE_ACTIVE_COMMENTS(activeSourceCommentIds(cm, newMarkdown))
   // See "beforeDestroy" note
   if (!viewDestroyed.value) {
     if (tabId.value) {
@@ -404,6 +574,9 @@ const saveContent = (cm: CMInstance) => {
 }
 
 const listenChange = () => {
+  editor.value.on('changes', (cm: CMInstance) => {
+    saveContent(cm)
+  })
   editor.value.on('cursorActivity', (cm: CMInstance) => {
     saveContent(cm)
   })
@@ -465,6 +638,11 @@ onMounted(() => {
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
   bus.on('addComment', handleAddComment)
+  bus.on('comment:reply', handleCommentReply)
+  bus.on('comment:edit', handleCommentEdit)
+  bus.on('comment:resolve', handleCommentResolve)
+  bus.on('comment:reopen', handleCommentReopen)
+  bus.on('comment:focus', handleCommentFocus)
   bus.on('image-action', handleImageAction)
   bus.on('scroll-to-header', handleScrollToHeader)
 
@@ -504,6 +682,11 @@ onBeforeUnmount(() => {
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
   bus.off('addComment', handleAddComment)
+  bus.off('comment:reply', handleCommentReply)
+  bus.off('comment:edit', handleCommentEdit)
+  bus.off('comment:resolve', handleCommentResolve)
+  bus.off('comment:reopen', handleCommentReopen)
+  bus.off('comment:focus', handleCommentFocus)
   bus.off('image-action', handleImageAction)
   bus.off('scroll-to-header', handleScrollToHeader)
 

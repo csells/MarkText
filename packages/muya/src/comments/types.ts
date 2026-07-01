@@ -21,6 +21,7 @@ export interface ICommentMetadata {
     createdAt?: string;
     updatedAt?: string;
     replies: ICommentReply[];
+    [key: string]: unknown;
 }
 
 export interface ICommentThread extends ICommentMetadata {

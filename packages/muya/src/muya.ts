@@ -306,6 +306,7 @@ export class Muya {
         const existingIds = [
             ...comments.threads.map(thread => thread.id),
             ...comments.ranges.map(range => range.id),
+            ...comments.diagnostics.map(diagnostic => diagnostic.id),
         ];
         const id = input.id ?? nextCommentId(existingIds);
         if (existingIds.includes(id))

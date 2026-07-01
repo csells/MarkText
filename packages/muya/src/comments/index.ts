@@ -14,7 +14,7 @@ export {
     encodeCommentMetadata,
     normalizeCommentMetadata,
 } from './metadata';
-export { parseMarkdownComments } from './parse';
+export { parseMarkdownComments, validateCommentGraph } from './parse';
 export {
     buildTextPathIndexes,
     commentPathKey,

@@ -4,6 +4,7 @@ import {
     decodeCommentMetadata,
     encodeCommentMetadata,
     parseMarkdownComments,
+    validateCommentGraph,
 } from '../../comments';
 import { MarkdownToState } from '../markdownToState';
 import ExportMarkdown from '../stateToMarkdown';
@@ -135,6 +136,26 @@ describe('markdown comments - state round-trip', () => {
         ]);
     });
 
+    it('does not derive review ranges from true raw HTML blocks', () => {
+        const markdown = [
+            '<!--MC:a--><div>raw</div><!--MC:~a-->',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n');
+
+        const result = parseMarkdownComments(markdown);
+
+        expect(result.ranges).toEqual([]);
+        expect(result.threads).toEqual([]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                code: 'orphan-metadata',
+                id: 'a',
+            }),
+        ]);
+    });
+
     it('does not treat markers inside fenced code as comment ranges', () => {
         const markdown = '```md\n<!--MC:cmt_1-->literal<!--MC:~cmt_1-->\n```\n';
         const result = parseMarkdownComments(markdown);
@@ -190,6 +211,17 @@ describe('markdown comments - state round-trip', () => {
             }),
         ]);
     });
+
+    it('exports a graph validator with the same diagnostics as parsing', () => {
+        const markdown = [
+            'Text <!--MC:a-->open only and <!--MC:~missing-->orphan close.',
+            '',
+            `[MC:orphan]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n');
+
+        expect(validateCommentGraph(markdown)).toEqual(parseMarkdownComments(markdown).diagnostics);
+    });
 });
 
 describe('markdown comments - metadata codec', () => {
@@ -222,6 +254,28 @@ describe('markdown comments - metadata codec', () => {
                     body: 'Please clarify this.',
                 },
             ],
+        });
+    });
+
+    it('preserves optional display metadata fields', () => {
+        const encoded = encodeCommentMetadata({
+            version: 1,
+            status: 'open',
+            display: {
+                color: 'amber',
+                label: 'Design review',
+            },
+            replies: [],
+        });
+
+        expect(decodeCommentMetadata(encoded)).toMatchObject({
+            version: 1,
+            status: 'open',
+            display: {
+                color: 'amber',
+                label: 'Design review',
+            },
+            replies: [],
         });
     });
 });

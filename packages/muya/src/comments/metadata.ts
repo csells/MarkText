@@ -1,6 +1,31 @@
 import type { ICommentMetadata, ICommentReply, TCommentStatus } from './types';
 import { COMMENT_METADATA_DATA_URI_PREFIX } from './syntax';
 
+const KNOWN_METADATA_KEYS = new Set([
+    'version',
+    'status',
+    'authors',
+    'createdAt',
+    'updatedAt',
+    'replies',
+]);
+
+const FORBIDDEN_METADATA_KEYS = new Set([
+    'anchor',
+    'anchors',
+    'anchorOffset',
+    'anchorOffsets',
+    'alternateAnchor',
+    'alternateAnchors',
+    'endOffset',
+    'endPath',
+    'range',
+    'repairCoordinate',
+    'repairCoordinates',
+    'startOffset',
+    'startPath',
+]);
+
 function encodeBase64Utf8(value: string): string {
     const bytes = new TextEncoder().encode(value);
     let binary = '';
@@ -56,6 +81,20 @@ function optionalString(value: unknown, field: string): string | undefined {
     return value;
 }
 
+function normalizeExtensionFields(data: Record<string, unknown>): Record<string, unknown> {
+    const extensions: Record<string, unknown> = {};
+    for (const key of Object.keys(data).sort()) {
+        if (KNOWN_METADATA_KEYS.has(key))
+            continue;
+        if (FORBIDDEN_METADATA_KEYS.has(key))
+            throw new Error(`Comment metadata ${key} must not store anchor or repair data.`);
+
+        extensions[key] = data[key];
+    }
+
+    return extensions;
+}
+
 export function normalizeCommentMetadata(value: unknown): ICommentMetadata {
     if (typeof value !== 'object' || value == null)
         throw new Error('Comment metadata must be an object.');
@@ -79,6 +118,7 @@ export function normalizeCommentMetadata(value: unknown): ICommentMetadata {
         ...(normalizedAuthors ? { authors: normalizedAuthors } : {}),
         ...(createdAt ? { createdAt } : {}),
         ...(updatedAt ? { updatedAt } : {}),
+        ...normalizeExtensionFields(data),
         replies: normalizeReplies(data.replies ?? []),
     };
 }
@@ -93,12 +133,18 @@ export function decodeCommentMetadata(dataUri: string): ICommentMetadata {
 
 export function encodeCommentMetadata(metadata: ICommentMetadata): string {
     const normalized = normalizeCommentMetadata(metadata);
+    const extensionFields = Object.fromEntries(
+        Object.entries(normalized)
+            .filter(([key]) => !KNOWN_METADATA_KEYS.has(key))
+            .sort(([a], [b]) => a.localeCompare(b)),
+    );
     const json = JSON.stringify({
         version: normalized.version,
         status: normalized.status,
         ...(normalized.authors ? { authors: normalized.authors } : {}),
         ...(normalized.createdAt ? { createdAt: normalized.createdAt } : {}),
         ...(normalized.updatedAt ? { updatedAt: normalized.updatedAt } : {}),
+        ...extensionFields,
         replies: normalized.replies,
     });
 
