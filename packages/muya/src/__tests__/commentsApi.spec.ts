@@ -727,3 +727,20 @@ describe('muya.getComments() resilience', () => {
         expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
     });
 });
+
+describe('muya.focusComment() range-less navigation', () => {
+    it('navigates to the metadata definition for a comment id with no derived range', () => {
+        const muya = boot([
+            'Text with no marker.',
+            '',
+            `[MC:orphan]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n'));
+
+        // orphan metadata: a definition with no marker, so there is no range.
+        expect(muya.getComments().ranges.some(range => range.id === 'orphan')).toBe(false);
+        // The click still navigates instead of silently doing nothing.
+        expect(muya.focusComment('orphan')).toBe(true);
+        expect(muya.focusComment('nonexistent')).toBe(false);
+    });
+});

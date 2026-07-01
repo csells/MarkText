@@ -1,9 +1,67 @@
 import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
 import type { ICommentRange } from './types';
+import { commentMarkerRegExpForId, parseCommentMetadataDefinition } from './syntax';
 
 export function commentPathKey(path: TBlockPath): string {
     return JSON.stringify(path);
+}
+
+export interface ICommentSyntaxLocation {
+    startPath: TBlockPath;
+    startOffset: number;
+    endPath: TBlockPath;
+    endOffset: number;
+}
+
+// Locate the first marker or metadata-definition occurrence for a comment id.
+// Diagnostics for orphan/malformed comments have no derived range, so this gives
+// navigation a raw-syntax target instead of a dead no-op.
+export function locateCommentSyntax(states: TState[], id: string): ICommentSyntaxLocation | null {
+    const markerRegExp = commentMarkerRegExpForId(id);
+    let found: ICommentSyntaxLocation | null = null;
+
+    const visit = (nodes: TState[], path: TBlockPath): void => {
+        for (let stateIndex = 0; stateIndex < nodes.length && !found; stateIndex += 1) {
+            const state = nodes[stateIndex];
+            const statePath = [...path, stateIndex];
+
+            if ('text' in state && typeof state.text === 'string') {
+                markerRegExp.lastIndex = 0;
+                const markerMatch = markerRegExp.exec(state.text);
+                if (markerMatch) {
+                    found = {
+                        startPath: statePath,
+                        startOffset: markerMatch.index,
+                        endPath: statePath,
+                        endOffset: markerMatch.index + markerMatch[0].length,
+                    };
+                    return;
+                }
+
+                let lineStart = 0;
+                for (const line of state.text.split('\n')) {
+                    const definition = parseCommentMetadataDefinition(line);
+                    if (definition && definition.id === id) {
+                        found = {
+                            startPath: statePath,
+                            startOffset: lineStart,
+                            endPath: statePath,
+                            endOffset: lineStart + line.length,
+                        };
+                        return;
+                    }
+                    lineStart += line.length + 1;
+                }
+            }
+
+            if ('children' in state && Array.isArray(state.children))
+                visit(state.children, [...statePath, 'children']);
+        }
+    };
+
+    visit(states, []);
+    return found;
 }
 
 export function buildTextPathIndexes(states: TState[]): Map<string, number> {

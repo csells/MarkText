@@ -22,6 +22,7 @@ import {
     appendCommentReplyMetadata,
     buildTextPathIndexes,
     createCommentMetadata,
+    locateCommentSyntax,
     mergeCommentMetadataPatch,
     nextCommentId,
     parseMarkdownComments,
@@ -373,18 +374,29 @@ export class Muya {
 
     focusComment(id: string): boolean {
         const range = this.getComments().ranges.find(range => range.id === id);
-        if (!range)
+        // A diagnostic for an orphan/malformed comment has no derived range;
+        // fall back to the raw marker or metadata definition so the click still
+        // navigates instead of being a silent no-op.
+        const location = range
+            ? {
+                    startPath: range.startPath,
+                    startOffset: range.startOffset,
+                    endPath: range.endPath,
+                    endOffset: range.endOffset,
+                }
+            : locateCommentSyntax(this.editor.jsonState.getState(), id);
+        if (!location)
             return false;
 
         const cursor = {
-            anchor: { offset: range.startOffset },
-            focus: { offset: range.endOffset },
-            anchorPath: range.startPath,
-            focusPath: range.endPath,
+            anchor: { offset: location.startOffset },
+            focus: { offset: location.endOffset },
+            anchorPath: location.startPath,
+            focusPath: location.endPath,
         };
         this.setCursor(cursor);
 
-        const block = this.editor.scrollPage?.queryBlock([...range.startPath]);
+        const block = this.editor.scrollPage?.queryBlock([...location.startPath]);
         const element = block?.domNode;
         if (element && typeof element.scrollIntoView === 'function')
             element.scrollIntoView({ block: 'center', inline: 'nearest' });

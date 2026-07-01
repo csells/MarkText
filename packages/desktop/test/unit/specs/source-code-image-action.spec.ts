@@ -69,7 +69,7 @@ const loadComponent = (deps: Record<string, unknown>) => {
       COMMENT_METADATA_DATA_URI_PREFIX, COMMENT_MARKER_PATTERN, createCommentMetadata, decodeCommentMetadata,
       encodeCommentMetadata, nextCommentId, parseCommentMetadataDefinition,
       parseMarkdownComments, updateCommentMetadataInMarkdown,
-      getWordCount, wordCount, adjustCursor, bus,
+      getWordCount, wordCount, adjustCursor, bus, notice, useI18n,
       oneDarkThemes, railscastsThemes } = __deps
     ${js}
     return module.exports`
@@ -82,6 +82,8 @@ const loadComponent = (deps: Record<string, unknown>) => {
 const makeDeps = (over: Record<string, unknown> = {}) => ({
   _defineComponent: (o: unknown) => o,
   ref,
+  notice: { notify: () => {} },
+  useI18n: () => ({ t: (key: string) => key }),
   watch: () => {},
   onMounted: () => {},
   onBeforeUnmount: () => {},

@@ -269,7 +269,8 @@
       "replyPlaceholder": "Write a reply...",
       "defaultAuthor": "Reviewer",
       "selectTextHint": "Select text before adding a comment.",
-      "sourceModeUnavailable": "Comment actions are unavailable for this selection."
+      "sourceModeUnavailable": "Comment actions are unavailable for this selection.",
+      "updateFailed": "Could not update the comment because its saved data is invalid."
     },
     "icons": {
       "files": "Files",

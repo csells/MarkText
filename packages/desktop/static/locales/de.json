@@ -269,7 +269,8 @@
       "replyPlaceholder": "Eine Antwort schreiben...",
       "defaultAuthor": "Prüfer",
       "selectTextHint": "Wählen Sie Text aus, bevor Sie einen Kommentar hinzufügen.",
-      "sourceModeUnavailable": "Kommentaraktionen sind für diese Auswahl nicht verfügbar."
+      "sourceModeUnavailable": "Kommentaraktionen sind für diese Auswahl nicht verfügbar.",
+      "updateFailed": "Der Kommentar konnte nicht aktualisiert werden, da seine gespeicherten Daten ungültig sind."
     },
     "icons": {
       "files": "Dateien",

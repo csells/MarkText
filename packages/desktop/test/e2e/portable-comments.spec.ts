@@ -722,6 +722,30 @@ test.describe('Portable markdown comments', () => {
     }
   })
 
+  test('source mode sidebar jump reaches a comment on an indented paragraph-continuation line', async() => {
+    // The second line is >=4 spaces indented but is a lazy paragraph
+    // continuation (indented code cannot interrupt a paragraph), so its marker
+    // must not be treated as code — the sidebar jump must still find it.
+    const doc = [
+      'paragraph text',
+      '    A <!--MC:a-->reviewed<!--MC:~a--> continuation.',
+      '',
+      `[MC:a]: ${META_OPEN}`,
+      ''
+    ].join('\n')
+    const { app, page } = await launchWithMarkdown(doc)
+    try {
+      await enterSourceMode(page, app)
+      await openCommentsSidebar(page, app)
+
+      await page.locator('.side-bar-comments .thread .thread-actions button').first().click()
+
+      await expect.poll(() => sourceSelectionText(page), { timeout: 5000 }).toBe('reviewed')
+    } finally {
+      await app.close()
+    }
+  })
+
   test('source mode sidebar jump supports line-start and standalone marker ranges', async() => {
     const doc = [
       '<!--MC:line-->alpha<!--MC:~line-->',

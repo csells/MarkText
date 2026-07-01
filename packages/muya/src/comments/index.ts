@@ -21,9 +21,11 @@ export {
     buildTextPathIndexes,
     commentPathKey,
     compareTextPathEndpoints,
+    locateCommentSyntax,
     orderTextRange,
     selectionIntersectsCommentRange,
 } from './range';
+export type { ICommentSyntaxLocation } from './range';
 export {
     COMMENT_ID_PATTERN,
     COMMENT_MARKER_PATTERN,

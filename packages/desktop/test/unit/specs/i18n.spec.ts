@@ -124,7 +124,8 @@ describe('desktop locale completeness for markdown comments', () => {
       'selectTextHint',
       'sourceModeUnavailable',
       'summary',
-      'title'
+      'title',
+      'updateFailed'
     ]
 
     const localeFiles = readdirSync(localesDir)

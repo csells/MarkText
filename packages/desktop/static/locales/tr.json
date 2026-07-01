@@ -269,7 +269,8 @@
       "replyPlaceholder": "Yanıt yaz...",
       "defaultAuthor": "İnceleyen",
       "selectTextHint": "Yorum eklemeden önce metin seçin.",
-      "sourceModeUnavailable": "Bu seçim için yorum eylemleri kullanılamaz."
+      "sourceModeUnavailable": "Bu seçim için yorum eylemleri kullanılamaz.",
+      "updateFailed": "Yorumun kaydedilmiş verileri geçersiz olduğundan güncellenemedi."
     },
     "icons": {
       "files": "Dosyalar",

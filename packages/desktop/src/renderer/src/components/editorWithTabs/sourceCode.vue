@@ -7,6 +7,7 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import notice from '@/services/notification'
 import { useEditorStore } from '@/store/editor'
 import { useLayoutStore } from '@/store/layout'
 import { usePreferencesStore } from '@/store/preferences'
@@ -33,6 +34,7 @@ import {
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
 import { oneDarkThemes, railscastsThemes } from '@/config'
+import { useI18n } from 'vue-i18n'
 
 // CodeMirror 5 ships no first-party types; the wrapper in src/renderer/src/
 // codeMirror/index.ts also keeps the surface intentionally loose.
@@ -84,6 +86,19 @@ const props = defineProps<{
 const editorStore = useEditorStore()
 const layoutStore = useLayoutStore()
 const preferencesStore = usePreferencesStore()
+const { t } = useI18n()
+
+// A source-mode comment action fails only when the target thread's stored
+// metadata is invalid — surface that instead of silently doing nothing.
+const notifyCommentUpdate = (ok: boolean): void => {
+  if (ok) return
+  notice.notify({
+    title: t('sideBar.comments.updateFailed'),
+    type: 'warning',
+    time: 4000,
+    showConfirm: false
+  })
+}
 
 const sourceCodeContainer = ref<HTMLDivElement | null>(null)
 
@@ -584,15 +599,28 @@ const sourceIndentedCodeIndexRanges = (
   const ranges: SourceCommentSyntaxIndexRange[] = []
   const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
   let lineMatch: RegExpExecArray | null
+  // An indented code block cannot interrupt a paragraph (CommonMark): a >=4-space
+  // line that continues a paragraph is lazy paragraph text, not code. Track
+  // whether the previous line left an open paragraph so continuation lines are
+  // not mistaken for code (which would wrongly hide comment markers on them).
+  let openParagraph = false
 
   while ((lineMatch = lineRegExp.exec(markdown))) {
     const rawLine = lineMatch[0]
     if (rawLine.length === 0) break
-    if (indexInsideRanges(lineMatch.index, ignoredRanges)) continue
 
     const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine))
-    if (/^(?: {4,}|\t)/u.test(lineText)) {
+    const isBlank = lineText.trim().length === 0
+    const isIndented = /^(?: {4,}|\t)/u.test(lineText)
+    const insideIgnored = indexInsideRanges(lineMatch.index, ignoredRanges)
+
+    if (isIndented && !openParagraph && !insideIgnored) {
       ranges.push({ start: lineMatch.index, end: lineMatch.index + rawLine.length })
+      // An indented code line does not open a paragraph.
+    } else if (isBlank || insideIgnored) {
+      openParagraph = false
+    } else {
+      openParagraph = true
     }
   }
 
@@ -910,9 +938,9 @@ const handleCommentReply = (payload: unknown): void => {
   const { id, reply } = (payload ?? {}) as { id?: string; reply?: ICommentReplyInput }
   if (!id || !reply?.body) return
 
-  replaceSourceCommentMetadata(editor.value, id, metadata =>
+  notifyCommentUpdate(replaceSourceCommentMetadata(editor.value, id, metadata =>
     appendCommentReplyMetadata(metadata, reply)
-  )
+  ))
 }
 
 const handleCommentEdit = (payload: unknown): void => {
@@ -920,25 +948,25 @@ const handleCommentEdit = (payload: unknown): void => {
   const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
   if (!id || !patch) return
 
-  patchSourceCommentMetadata(editor.value, id, patch)
+  notifyCommentUpdate(patchSourceCommentMetadata(editor.value, id, patch))
 }
 
 const handleCommentResolve = (id: unknown): void => {
   if (!sourceCode.value || !editor.value || typeof id !== 'string') return
 
-  patchSourceCommentMetadata(editor.value, id, {
+  notifyCommentUpdate(patchSourceCommentMetadata(editor.value, id, {
     status: 'resolved',
     updatedAt: new Date().toISOString()
-  })
+  }))
 }
 
 const handleCommentReopen = (id: unknown): void => {
   if (!sourceCode.value || !editor.value || typeof id !== 'string') return
 
-  patchSourceCommentMetadata(editor.value, id, {
+  notifyCommentUpdate(patchSourceCommentMetadata(editor.value, id, {
     status: 'open',
     updatedAt: new Date().toISOString()
-  })
+  }))
 }
 
 const handleCommentFocus = (id: unknown): void => {

@@ -269,7 +269,8 @@
       "replyPlaceholder": "Escreva uma resposta...",
       "defaultAuthor": "Revisor",
       "selectTextHint": "Selecione texto antes de adicionar um comentário.",
-      "sourceModeUnavailable": "As ações de comentário não estão disponíveis para esta seleção."
+      "sourceModeUnavailable": "As ações de comentário não estão disponíveis para esta seleção.",
+      "updateFailed": "Não foi possível atualizar o comentário porque seus dados salvos são inválidos."
     },
     "icons": {
       "files": "Arquivos",
