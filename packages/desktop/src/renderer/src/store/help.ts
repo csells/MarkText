@@ -151,7 +151,9 @@ export const createDocumentState = (
 
   return Object.assign(docState, {
     diskBaseMarkdown:
-      typeof src.diskBaseMarkdown === 'string' ? src.diskBaseMarkdown : docState.markdown,
+      docState.isSaved || typeof src.diskBaseMarkdown !== 'string'
+        ? docState.markdown
+        : src.diskBaseMarkdown,
     id,
     // See `getBlankFileState`: the loaded document is its own clean baseline and
     // the engine's baseline undo-stack depth (the synthetic id) is 0.

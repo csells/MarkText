@@ -18,7 +18,14 @@
           {{ currentNotification.confirmLabel ?? t('common.ok') }}
         </span>
         <span
+          v-if="currentNotification.secondaryLabel"
           class="inline-button"
+          @click.stop="handleClick('secondary')"
+        >
+          {{ currentNotification.secondaryLabel }}
+        </span>
+        <span
+          class="inline-button icon-button"
           @click.stop="handleClick(false)"
         >
           <el-icon
@@ -55,7 +62,7 @@ const currentNotification = computed(() => {
   return notifications[0]
 })
 
-const handleClick = (status: boolean) => {
+const handleClick = (status: boolean | 'secondary') => {
   const notifications = currentFile.value?.notifications
   if (!notifications || notifications.length === 0) {
     console.error(t('editor.notifications.notificationNotFound'))
@@ -110,11 +117,16 @@ const handleClick = (status: boolean) => {
     display: flex;
     justify-content: center;
     align-items: center;
-    width: 24px;
+    min-width: 24px;
     height: 24px;
+    padding: 0 8px;
     font-size: 12px;
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  & .icon-button {
+    width: 24px;
+    padding: 0;
   }
   & .inline-button:hover {
     background: rgba(255, 255, 255, 0.1);

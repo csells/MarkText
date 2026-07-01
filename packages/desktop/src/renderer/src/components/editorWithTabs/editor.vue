@@ -1674,6 +1674,24 @@ const handleCommentReply = (payload: unknown) => {
   }
 }
 
+const handleCommentDiscard = (id: unknown) => {
+  if (sourceCode.value || !editor.value || typeof id !== 'string') return
+
+  const thread = editor.value.getComments().threads.find((item: ICommentThread) => item.id === id)
+  if (!thread || thread.status !== 'open' || thread.replies.length) return
+  if (editor.value.removeComment(id)) {
+    syncComments()
+  }
+}
+
+const handleEmptyCommentThreadDiscard = () => {
+  if (sourceCode.value || !editor.value) return
+
+  if (editor.value.removeEmptyCommentThreads()) {
+    syncComments()
+  }
+}
+
 const handleCommentEdit = (payload: unknown) => {
   if (sourceCode.value || !editor.value) return
   const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
@@ -1939,6 +1957,8 @@ onMounted(() => {
   bus.on('replace-misspelling', replaceMisspelling)
   bus.on('addComment', handleAddComment)
   bus.on('comment:reply', handleCommentReply)
+  bus.on('comment:discard', handleCommentDiscard)
+  bus.on('comment:discard-empty-threads', handleEmptyCommentThreadDiscard)
   bus.on('comment:edit', handleCommentEdit)
   bus.on('comment:resolve', handleCommentResolve)
   bus.on('comment:reopen', handleCommentReopen)
@@ -2108,6 +2128,8 @@ onBeforeUnmount(() => {
   bus.off('language-changed', handleLanguageChanged)
   bus.off('addComment', handleAddComment)
   bus.off('comment:reply', handleCommentReply)
+  bus.off('comment:discard', handleCommentDiscard)
+  bus.off('comment:discard-empty-threads', handleEmptyCommentThreadDiscard)
   bus.off('comment:edit', handleCommentEdit)
   bus.off('comment:resolve', handleCommentResolve)
   bus.off('comment:reopen', handleCommentReopen)

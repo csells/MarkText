@@ -32,11 +32,14 @@ export {
     collectSourceCommentIds,
     createCommentSourceLineState,
     prepareCommentSourceLine,
+    removeCommentSyntaxFromMarkdown,
+    removeEmptyCommentThreadsFromMarkdown,
     sourceCommentIgnoredIndexRanges,
     sourceIndexInsideRanges,
     sourceInlineCodeRanges,
     sourceLinePositionInsideInlineCode,
     sourceRangesOverlap,
+    stripCommentSyntaxFromMarkdown,
 } from './source';
 export type {
     ICommentSourceIndex,

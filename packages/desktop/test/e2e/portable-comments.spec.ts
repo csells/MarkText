@@ -982,6 +982,7 @@ test.describe('Portable markdown comments', () => {
     try {
       await setSourceMarkdown(page, app, expected)
       await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+      await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(expected)
 
       await save(app)
       await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)

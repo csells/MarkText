@@ -244,6 +244,14 @@
           :placeholder="t('sideBar.comments.replyPlaceholder')"
         />
         <el-button
+          v-if="composingThreadIds[thread.id] && !thread.replies.length"
+          size="small"
+          :icon="Close"
+          @click="discardComposedThread(thread.id)"
+        >
+          {{ t('sideBar.comments.cancelEdit') }}
+        </el-button>
+        <el-button
           size="small"
           :icon="Promotion"
           :disabled="!replyDrafts[thread.id]?.trim()"
@@ -273,6 +281,7 @@ const { comments, activeCommentIds } = storeToRefs(editorStore)
 const replyDrafts = reactive<Record<string, string>>({})
 const editDrafts = reactive<Record<string, string>>({})
 const editingReplies = reactive<Record<string, boolean>>({})
+const composingThreadIds = reactive<Record<string, boolean>>({})
 // createdAt of the reply an open edit box targets, so a submit can detect that
 // the reply array shifted underneath (index-based identity would otherwise
 // overwrite a different reply).
@@ -317,6 +326,9 @@ watch(
     const threadIdOf = (key: string): string => key.slice(0, key.lastIndexOf(':')) || key
     for (const key of Object.keys(replyDrafts)) {
       if (!live.has(key)) delete replyDrafts[key]
+    }
+    for (const key of Object.keys(composingThreadIds)) {
+      if (!live.has(key)) delete composingThreadIds[key]
     }
     for (const key of Object.keys(editDrafts)) {
       if (!live.has(threadIdOf(key))) delete editDrafts[key]
@@ -376,6 +388,7 @@ const focusReplyInput = (id: string): void => {
 const handleComposeComment = (id: unknown): void => {
   if (typeof id !== 'string') return
 
+  composingThreadIds[id] = true
   replyDrafts[id] = replyDrafts[id] ?? ''
   focusReplyInput(id)
 }
@@ -468,6 +481,24 @@ const submitReply = (id: string): void => {
     }
   })
   replyDrafts[id] = ''
+  delete composingThreadIds[id]
+}
+
+const discardComposedThread = (id: string): void => {
+  if (!composingThreadIds[id]) return
+
+  delete replyDrafts[id]
+  delete composingThreadIds[id]
+  bus.emit('comment:discard', id)
+}
+
+const discardEmptyComposedThreads = (): void => {
+  const threadsById = new Map(comments.value.threads.map(thread => [thread.id, thread]))
+  for (const id of Object.keys(composingThreadIds)) {
+    const thread = threadsById.get(id)
+    if (!thread || thread.replies.length || replyDrafts[id]?.trim()) continue
+    discardComposedThread(id)
+  }
 }
 
 onMounted(() => {
@@ -476,6 +507,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  discardEmptyComposedThreads()
   bus.off('comment:compose', handleComposeComment)
   bus.off('editor-add-comment-enabled-changed', handleAddCommentEnabledChanged)
 })

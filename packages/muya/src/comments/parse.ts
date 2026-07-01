@@ -173,8 +173,7 @@ export function parseMarkdownComments(
         openMarkers.delete(close.id);
     };
 
-    const scanText = (text: string, path: TBlockPath) => {
-        const metadata = parseCommentMetadataDefinition(text);
+    const recordMetadata = (metadata: ReturnType<typeof parseCommentMetadataDefinition>) => {
         if (metadata) {
             if (seenMetadataIds.has(metadata.id)) {
                 diagnostics.push(diagnostic(
@@ -197,8 +196,22 @@ export function parseMarkdownComments(
                     error instanceof Error ? error.message : `Metadata for comment "${metadata.id}" is invalid.`,
                 ));
             }
-            return;
         }
+    };
+
+    const scanText = (text: string, path: TBlockPath) => {
+        const lines = text.split('\n');
+        let hasMetadataLine = false;
+        for (const line of lines) {
+            const metadata = parseCommentMetadataDefinition(line);
+            if (!metadata)
+                continue;
+            hasMetadataLine = true;
+            recordMetadata(metadata);
+        }
+
+        if (hasMetadataLine && lines.length === 1)
+            return;
 
         for (const token of commentSyntaxTokens(text)) {
             if (!isCommentMarkerToken(token)) {

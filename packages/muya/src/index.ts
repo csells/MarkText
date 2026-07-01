@@ -1,6 +1,7 @@
 export {
     appendCommentReplyMetadata,
     buildCommentSourceIndex,
+    canWrapCommentRange,
     collectSourceCommentIds,
     COMMENT_MARKER_PATTERN,
     COMMENT_METADATA_DATA_URI_PREFIX,
@@ -13,14 +14,19 @@ export {
     parseCommentMetadataDefinition,
     parseMarkdownComments,
     prepareCommentSourceLine,
+    removeCommentSyntaxFromMarkdown,
+    removeEmptyCommentThreadsFromMarkdown,
     serializeCommentMarker,
     serializeCommentMetadataDefinition,
     sourceCommentIgnoredIndexRanges,
     sourceInlineCodeRanges,
     sourceLinePositionInsideInlineCode,
     sourceRangesOverlap,
+    stripCommentSyntaxFromMarkdown,
+    updateCommentMetadataDefinition,
     updateCommentMetadataInMarkdown,
     validateCommentGraph,
+    wrapCommentRange,
 } from './comments';
 export type {
     IAddCommentInput,

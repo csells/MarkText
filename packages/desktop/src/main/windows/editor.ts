@@ -36,7 +36,9 @@ interface RestoredTab {
   pathname: string
   filename?: string
   markdown?: string
+  diskBaseMarkdown?: string
   isSaved?: boolean
+  restoredDiskDocument?: Partial<RawMarkdownDocument>
   [key: string]: unknown
 }
 
@@ -598,10 +600,24 @@ class EditorWindow extends BaseWindow {
             autoNormalizeLineEndings
           )
             .then((rawDocument) => {
-              if (rawDocument.markdown !== tab.markdown) {
-                // File has changed since it was last opened, if it is not saved, we should NOT override the buffer
-                if (tab.isSaved) {
-                  tab.markdown = rawDocument.markdown
+              if (tab.isSaved !== false) {
+                tab.markdown = rawDocument.markdown
+                tab.diskBaseMarkdown = rawDocument.markdown
+                tab.filename = rawDocument.filename
+                tab.encoding = rawDocument.encoding
+                tab.lineEnding = rawDocument.lineEnding
+                tab.adjustLineEndingOnSave = rawDocument.adjustLineEndingOnSave
+                tab.trimTrailingNewline = rawDocument.trimTrailingNewline
+                tab.isMixedLineEndings = rawDocument.isMixedLineEndings
+              } else if (rawDocument.markdown !== (tab.diskBaseMarkdown ?? '')) {
+                tab.restoredDiskDocument = {
+                  markdown: rawDocument.markdown,
+                  filename: rawDocument.filename,
+                  encoding: rawDocument.encoding,
+                  lineEnding: rawDocument.lineEnding,
+                  adjustLineEndingOnSave: rawDocument.adjustLineEndingOnSave,
+                  trimTrailingNewline: rawDocument.trimTrailingNewline,
+                  isMixedLineEndings: rawDocument.isMixedLineEndings
                 }
               }
 

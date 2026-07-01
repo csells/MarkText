@@ -41,6 +41,7 @@ import {
   buildCommentSourceIndex,
   parseCommentMetadataDefinition,
   parseMarkdownComments,
+  removeEmptyCommentThreadsFromMarkdown,
   type IParsedMarkdownComments
 } from '@muyajs/core'
 
@@ -63,6 +64,14 @@ const createEmptyComments = (): IParsedMarkdownComments => ({
   diagnostics: []
 })
 
+const removeEmptyCommentThreadsFromFileState = (tab: IFileState): boolean => {
+  const nextMarkdown = removeEmptyCommentThreadsFromMarkdown(tab.markdown)
+  if (nextMarkdown === tab.markdown) return false
+
+  tab.markdown = nextMarkdown
+  return true
+}
+
 const dirtyExternalMergeRequestIds = new Map<string, number>()
 
 interface RestoreWarning {
@@ -79,6 +88,7 @@ interface PushTabNotificationPayload {
   msg: string
   showConfirm?: boolean
   confirmLabel?: string
+  secondaryLabel?: string
   style?: string
   exclusiveType?: string
   action?: FileNotification['action']
@@ -348,7 +358,11 @@ export const useEditorStore = defineStore('editor', {
 
       const oldIdToNewId: Record<string, string> = {}
       const tabs: IFileState[] = bufferedEditorState.tabs.map((tab) => {
-        const fileState = createDocumentState(tab as unknown as Record<string, unknown>)
+        const fileState = createDocumentState(tab as unknown as Record<string, unknown>) as
+          IFileState & { restoredDiskDocument?: FileChangePayload['data'] }
+        if (tab.restoredDiskDocument) {
+          fileState.restoredDiskDocument = tab.restoredDiskDocument
+        }
         oldIdToNewId[tab.id] = fileState.id
         return fileState
       })
@@ -396,6 +410,8 @@ export const useEditorStore = defineStore('editor', {
           exclusiveType: warning.exclusiveType
         })
       }
+
+      this.RECONCILE_RESTORED_DISK_CHANGES()
     },
 
     /**
@@ -443,6 +459,7 @@ export const useEditorStore = defineStore('editor', {
       const action = data.action || defaultAction
       const showConfirm = data.showConfirm || false
       const confirmLabel = data.confirmLabel
+      const secondaryLabel = data.secondaryLabel
       const style = data.style || 'info'
       // Whether only one notification should exist.
       const exclusiveType = data.exclusiveType || ''
@@ -469,6 +486,7 @@ export const useEditorStore = defineStore('editor', {
         msg,
         showConfirm,
         confirmLabel,
+        secondaryLabel,
         style,
         exclusiveType,
         action
@@ -677,9 +695,27 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
+    PREPARE_FILE_FOR_SAVE(tab: IFileState): void {
+      if (!removeEmptyCommentThreadsFromFileState(tab)) return
+
+      if (tab.id === this.currentFile?.id) {
+        this.UPDATE_COMMENTS(parseMarkdownComments(tab.markdown))
+        this.UPDATE_ACTIVE_COMMENTS([])
+      }
+      debouncedSendBufferedState()
+    },
+
+    FLUSH_ACTIVE_EDITOR_FOR_SAVE(): void {
+      bus.emit('comment:discard-empty-threads')
+      bus.emit('flush-active-editor')
+      if (this.currentFile) {
+        this.PREPARE_FILE_FOR_SAVE(this.currentFile)
+      }
+    },
+
     FILE_SAVE(): void {
       if (!this.currentFile) return
-      bus.emit('flush-active-editor')
+      this.FLUSH_ACTIVE_EDITOR_FOR_SAVE()
       if (!this.currentFile) return
       const projectStore = useProjectStore()
       const { id, filename, pathname, markdown } = this.currentFile
@@ -710,7 +746,7 @@ export const useEditorStore = defineStore('editor', {
 
     FILE_SAVE_AS(): void {
       if (!this.currentFile) return
-      bus.emit('flush-active-editor')
+      this.FLUSH_ACTIVE_EDITOR_FOR_SAVE()
       if (!this.currentFile) return
       const projectStore = useProjectStore()
       const { id, filename, pathname, markdown } = this.currentFile
@@ -844,9 +880,14 @@ export const useEditorStore = defineStore('editor', {
     },
 
     ASK_FOR_SAVE_ALL(closeTabs: boolean): void {
+      this.FLUSH_ACTIVE_EDITOR_FOR_SAVE()
       const { tabs } = this
       const projectStore = useProjectStore()
       const unsavedFiles = tabs
+        .map((file) => {
+          this.PREPARE_FILE_FOR_SAVE(file)
+          return file
+        })
         .filter((file) => !(file.isSaved && /[^\n]/.test(file.markdown)))
         .map((file) => {
           const { id, filename, pathname, markdown } = file
@@ -874,6 +915,8 @@ export const useEditorStore = defineStore('editor', {
     },
 
     MOVE_FILE_TO(): void {
+      if (!this.currentFile) return
+      this.FLUSH_ACTIVE_EDITOR_FOR_SAVE()
       if (!this.currentFile) return
       const projectStore = useProjectStore()
       const { id, filename, pathname, markdown } = this.currentFile
@@ -1471,6 +1514,7 @@ export const useEditorStore = defineStore('editor', {
       )
       if (!tab) return
 
+      const baseMarkdownBeforeMerge = typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : ''
       const localMarkdownBeforeMerge = tab.markdown
       const mergedChange: FileChangePayload = {
         ...change,
@@ -1497,9 +1541,41 @@ export const useEditorStore = defineStore('editor', {
           msg: t('store.editor.fileChangedOnDiskAutoMerged', { name: nextTab.filename }),
           showConfirm: true,
           confirmLabel: t('menu.edit.undo'),
+          secondaryLabel: t('menu.review.review'),
           exclusiveType: 'file_changed',
           action: (status) => {
             if (!status) return
+
+            const actionTab = this.tabs.find((t) =>
+              t.id === nextTab.id && window.fileUtils.isSamePathSync(t.pathname, change.pathname)
+            )
+            const actionTabDiskBase =
+              typeof actionTab?.diskBaseMarkdown === 'string' ? actionTab.diskBaseMarkdown : ''
+            if (
+              !actionTab ||
+              actionTab.isSaved ||
+              actionTab.markdown !== mergedMarkdown ||
+              actionTabDiskBase !== change.data.markdown
+            ) {
+              return
+            }
+
+            if (status === 'secondary') {
+              this.mergeConflict = {
+                tabId: actionTab.id,
+                pathname: change.pathname,
+                filename: actionTab.filename,
+                baseMarkdown: baseMarkdownBeforeMerge,
+                localMarkdown: localMarkdownBeforeMerge,
+                remoteMarkdown: change.data.markdown,
+                resultMarkdown: mergedMarkdown,
+                conflicts: [],
+                fileChange: change,
+                validationError: undefined
+              }
+              debouncedSendBufferedState()
+              return
+            }
 
             this.loadChange(
               {
@@ -1590,6 +1666,27 @@ export const useEditorStore = defineStore('editor', {
       this.APPLY_DIRTY_EXTERNAL_MERGE(conflict.fileChange, mergedMarkdown, { keepDirty: true })
     },
 
+    RECONCILE_RESTORED_DISK_CHANGES(): void {
+      for (const tab of this.tabs as Array<IFileState & { restoredDiskDocument?: FileChangePayload['data'] }>) {
+        const restoredDiskDocument = tab.restoredDiskDocument
+        delete tab.restoredDiskDocument
+        if (!restoredDiskDocument || tab.isSaved || !tab.pathname) continue
+
+        const baseMarkdown = typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : ''
+        if (restoredDiskDocument.markdown === baseMarkdown) continue
+
+        this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, {
+          pathname: tab.pathname,
+          data: {
+            ...restoredDiskDocument,
+            filename: restoredDiskDocument.filename || tab.filename
+          }
+        }).catch((err) => {
+          console.error('Failed to reconcile restored disk changes:', err)
+        })
+      }
+    },
+
     RELOAD_DISK_FROM_MERGE_CONFLICT(): void {
       const conflict = this.mergeConflict
       if (!conflict) return
@@ -1639,13 +1736,15 @@ export const useEditorStore = defineStore('editor', {
       const baseMarkdown = typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : ''
       const localMarkdown = tab.markdown
       if (localMarkdown === data.markdown) {
-        this.loadChange(change)
+        const preserveDirty = !isSamePersistenceSnapshot(tab, data)
+        this.loadChange(change, preserveDirty ? { preserveDirty: true } : undefined)
         const nextTab = this.tabs.find((candidate) =>
           window.fileUtils.isSamePathSync(candidate.pathname, change.pathname)
         )
         if (!nextTab) return
 
         nextTab.diskBaseMarkdown = data.markdown
+        if (preserveDirty) nextTab.isSaved = false
         debouncedSendBufferedState()
         return
       }
@@ -1938,14 +2037,23 @@ export const useEditorStore = defineStore('editor', {
 
         const tab = this.tabs.find((t) => t.id === id)
         if (tab && !tab.isSaved) {
+          if (this.currentFile?.id === id) {
+            this.FLUSH_ACTIVE_EDITOR_FOR_SAVE()
+          } else {
+            this.PREPARE_FILE_FOR_SAVE(tab)
+          }
+
+          const latestTab = this.tabs.find((t) => t.id === id)
+          if (!latestTab || latestTab.isSaved) return
+
           const defaultPath = getRootFolderFromState(projectStore)
           window.electron.ipcRenderer.send(
             'mt::response-file-save',
             id,
-            filename,
-            pathname,
-            markdown,
-            deepClone(options),
+            latestTab.filename || filename,
+            latestTab.pathname || pathname,
+            latestTab.markdown || markdown,
+            deepClone(getOptionsFromState(latestTab) || options),
             defaultPath
           )
         }
@@ -2057,7 +2165,7 @@ export const useEditorStore = defineStore('editor', {
       if (lineEnding !== oldLineEnding) {
         this.currentFile.lineEnding = lineEnding
         this.currentFile.adjustLineEndingOnSave = lineEnding !== 'lf'
-        this.currentFile.isSaved = true
+        this.currentFile.isSaved = false
         this.UPDATE_LINE_ENDING_MENU()
         debouncedSendBufferedState()
       }
@@ -2072,28 +2180,36 @@ export const useEditorStore = defineStore('editor', {
       })
     },
 
+    SET_FILE_ENCODING(encodingName: unknown): void {
+      if (!this.currentFile || typeof encodingName !== 'string') return
+      const { encoding } = this.currentFile.encoding
+      if (encoding !== encodingName) {
+        this.currentFile.encoding.encoding = encodingName
+        this.currentFile.encoding.isBom = false
+        this.currentFile.isSaved = false
+        debouncedSendBufferedState()
+      }
+    },
+
     LISTEN_FOR_SET_ENCODING(): void {
       bus.on('mt::set-file-encoding', (encodingName) => {
-        if (!this.currentFile) return
-        const { encoding } = this.currentFile.encoding
-        if (encoding !== encodingName) {
-          this.currentFile.encoding.encoding = encodingName as string
-          this.currentFile.encoding.isBom = false
-          this.currentFile.isSaved = true
-          debouncedSendBufferedState()
-        }
+        this.SET_FILE_ENCODING(encodingName)
       })
+    },
+
+    SET_FINAL_NEWLINE(value: unknown): void {
+      if (!this.currentFile || typeof value !== 'number') return
+      const { trimTrailingNewline } = this.currentFile
+      if (trimTrailingNewline !== value) {
+        this.currentFile.trimTrailingNewline = value
+        this.currentFile.isSaved = false
+        debouncedSendBufferedState()
+      }
     },
 
     LISTEN_FOR_SET_FINAL_NEWLINE(): void {
       bus.on('mt::set-final-newline', (value) => {
-        if (!this.currentFile) return
-        const { trimTrailingNewline } = this.currentFile
-        if (trimTrailingNewline !== value) {
-          this.currentFile.trimTrailingNewline = value as number
-          this.currentFile.isSaved = true
-          debouncedSendBufferedState()
-        }
+        this.SET_FINAL_NEWLINE(value)
       })
     },
 
@@ -2530,13 +2646,44 @@ interface BufferedTabState {
   wordCount: IFileState['wordCount']
   muyaIndexCursor: unknown
   scrollTop: number
+  restoredDiskDocument?: FileChangePayload['data']
+}
+
+const createBufferedRestoredDiskDocument = (
+  value: unknown,
+  fallbackFilename: string
+): FileChangePayload['data'] | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  if (typeof record.markdown !== 'string') return undefined
+
+  return {
+    markdown: record.markdown,
+    filename: typeof record.filename === 'string' ? record.filename : fallbackFilename,
+    encoding: record.encoding as IFileState['encoding'] | undefined,
+    lineEnding: record.lineEnding as LineEnding | string | undefined,
+    adjustLineEndingOnSave:
+      typeof record.adjustLineEndingOnSave === 'boolean'
+        ? record.adjustLineEndingOnSave
+        : undefined,
+    trimTrailingNewline:
+      typeof record.trimTrailingNewline === 'number' ? record.trimTrailingNewline : undefined,
+    isMixedLineEndings:
+      typeof record.isMixedLineEndings === 'boolean' ? record.isMixedLineEndings : undefined
+  }
 }
 
 const createBufferedTabState = (tab: Partial<IFileState> & { id: string }): BufferedTabState => {
+  const filename = tab.filename ?? defaultFileState.filename
+  const restoredDiskDocument = createBufferedRestoredDiskDocument(
+    (tab as { restoredDiskDocument?: unknown }).restoredDiskDocument,
+    filename
+  )
   return {
     id: tab.id,
     pathname: tab.pathname ?? defaultFileState.pathname,
-    filename: tab.filename ?? defaultFileState.filename,
+    filename,
     markdown: typeof tab.markdown === 'string' ? tab.markdown : defaultFileState.markdown,
     diskBaseMarkdown:
       typeof tab.diskBaseMarkdown === 'string'
@@ -2555,7 +2702,8 @@ const createBufferedTabState = (tab: Partial<IFileState> & { id: string }): Buff
     cursor: toSerializableValue(tab.cursor, defaultFileState.cursor),
     wordCount: toSerializableValue(tab.wordCount, defaultFileState.wordCount),
     muyaIndexCursor: toSerializableValue(tab.muyaIndexCursor, defaultFileState.muyaIndexCursor),
-    scrollTop: tab.scrollTop ?? defaultFileState.scrollTop
+    scrollTop: tab.scrollTop ?? defaultFileState.scrollTop,
+    ...(restoredDiskDocument ? { restoredDiskDocument } : {})
   }
 }
 

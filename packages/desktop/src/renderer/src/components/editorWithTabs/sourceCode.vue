@@ -22,6 +22,7 @@ import {
   encodeCommentMetadata,
   nextCommentId,
   parseMarkdownComments,
+  removeEmptyCommentThreadsFromMarkdown,
   serializeCommentMarker,
   serializeCommentMetadataDefinition,
   sourceRangesOverlap,
@@ -618,6 +619,43 @@ const handleCommentReply = (payload: unknown): void => {
   ))
 }
 
+const handleCommentDiscard = (id: unknown): void => {
+  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+
+  const cm = editor.value
+  const markdown = cm.getValue()
+  const comments = parseMarkdownComments(markdown, sourceCommentParserOptions())
+  const thread = comments.threads.find(item => item.id === id)
+  if (!thread || thread.status !== 'open' || thread.replies.length) return
+
+  const index = buildCommentSourceIndex(markdown)
+  const syntaxRanges = [
+    ...index.markers.filter(marker => marker.id === id),
+    ...index.metadataDefinitions.filter(definition => definition.id === id)
+  ].sort((a, b) => b.start - a.start)
+  if (!syntaxRanges.length) return
+
+  cm.operation(() => {
+    for (const range of syntaxRanges) {
+      cm.replaceRange('', cm.posFromIndex(range.start), cm.posFromIndex(range.end))
+    }
+  })
+
+  saveContent(cm)
+}
+
+const handleEmptyCommentThreadDiscard = (): void => {
+  if (!sourceCode.value || !editor.value) return
+
+  const cm = editor.value
+  const markdown = cm.getValue()
+  const nextMarkdown = removeEmptyCommentThreadsFromMarkdown(markdown)
+  if (nextMarkdown === markdown) return
+
+  cm.setValue(nextMarkdown)
+  saveContent(cm)
+}
+
 const handleCommentEdit = (payload: unknown): void => {
   if (!sourceCode.value || !editor.value) return
   const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
@@ -832,6 +870,8 @@ onMounted(() => {
   bus.on('redo', handleRedo)
   bus.on('addComment', handleAddComment)
   bus.on('comment:reply', handleCommentReply)
+  bus.on('comment:discard', handleCommentDiscard)
+  bus.on('comment:discard-empty-threads', handleEmptyCommentThreadDiscard)
   bus.on('comment:edit', handleCommentEdit)
   bus.on('comment:resolve', handleCommentResolve)
   bus.on('comment:reopen', handleCommentReopen)
@@ -878,6 +918,8 @@ onBeforeUnmount(() => {
   bus.off('redo', handleRedo)
   bus.off('addComment', handleAddComment)
   bus.off('comment:reply', handleCommentReply)
+  bus.off('comment:discard', handleCommentDiscard)
+  bus.off('comment:discard-empty-threads', handleEmptyCommentThreadDiscard)
   bus.off('comment:edit', handleCommentEdit)
   bus.off('comment:resolve', handleCommentResolve)
   bus.off('comment:reopen', handleCommentReopen)

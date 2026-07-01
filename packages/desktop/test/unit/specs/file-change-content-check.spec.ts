@@ -112,6 +112,13 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       ]
     })).toString('base64')}`
 
+  const emptyMetadata = (): string =>
+    `data:application/json;base64,${Buffer.from(JSON.stringify({
+      version: 1,
+      status: 'open',
+      replies: []
+    })).toString('base64')}`
+
   it('flushes the active editor before sending a save payload', () => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
@@ -137,6 +144,67 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       expect.anything(),
       expect.anything()
     )
+  })
+
+  it('strips zero-reply comment threads before sending a save payload', () => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.markdown = [
+      'A <!--MC:draft-->reviewed<!--MC:~draft--> span.',
+      '',
+      `[MC:draft]: ${emptyMetadata()}`,
+      ''
+    ].join('\n')
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    store.FILE_SAVE()
+
+    expect(window.electron.ipcRenderer.send).toHaveBeenCalledWith(
+      'mt::response-file-save',
+      'tab-1',
+      'a.md',
+      '/x/a.md',
+      expect.not.stringContaining('MC:'),
+      expect.anything(),
+      expect.anything()
+    )
+    expect(tab.markdown).toContain('A reviewed span.')
+    expect(tab.markdown).not.toContain('MC:')
+  })
+
+  it('marks the tab dirty when line-ending persistence metadata changes', () => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    store.SET_LINE_ENDING('crlf')
+
+    expect(tab.lineEnding).toBe('crlf')
+    expect(tab.adjustLineEndingOnSave).toBe(true)
+    expect(tab.isSaved).toBe(false)
+  })
+
+  it('marks the tab dirty when encoding persistence metadata changes', () => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.encoding.isBom = true
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    store.SET_FILE_ENCODING('utf16le')
+
+    expect(tab.encoding).toEqual({ encoding: 'utf16le', isBom: false })
+    expect(tab.isSaved).toBe(false)
+  })
+
+  it('marks the tab dirty when final-newline persistence metadata changes', () => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    store.SET_FINAL_NEWLINE(1)
+
+    expect(tab.trimTrailingNewline).toBe(1)
+    expect(tab.isSaved).toBe(false)
   })
 
   it('ignores a change whose content matches the tab (mtime-only change)', () => {
@@ -199,7 +267,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     expect(notifySpy).not.toHaveBeenCalled()
   })
 
-  it('adopts disk metadata and marks a matching dirty tab clean when only line-ending metadata changed', async() => {
+  it('adopts disk metadata but keeps a matching dirty tab dirty when only line-ending metadata changed', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
@@ -213,12 +281,12 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     })
 
     expect(loadSpy).toHaveBeenCalledTimes(1)
-    expect(loadSpy.mock.calls[0]?.[1]).toBeUndefined()
+    expect(loadSpy.mock.calls[0]?.[1]).toEqual({ preserveDirty: true })
     expect(notifySpy).not.toHaveBeenCalled()
     expect(store.mergeConflict).toBeNull()
     expect(tab.lineEnding).toBe('crlf')
     expect(tab.adjustLineEndingOnSave).toBe(true)
-    expect(tab.isSaved).toBe(true)
+    expect(tab.isSaved).toBe(false)
   })
 
   it('marks a dirty tab clean when disk content catches up to matching local content', () => {
@@ -242,7 +310,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     ['encoding', { encoding: { encoding: 'utf16le', hasBOM: false } }],
     ['trailing-newline policy', { trimTrailingNewline: 1 }]
   ])(
-    'adopts disk metadata and marks a matching dirty tab clean when %s metadata changed',
+    'adopts disk metadata but keeps a matching dirty tab dirty when %s metadata changed',
     async(_name, data) => {
       const store = useEditorStore()
       const tab = makeSavedTab(store)
@@ -254,10 +322,10 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       await fire(captureHandler(), 'hello', data)
 
       expect(loadSpy).toHaveBeenCalledTimes(1)
-      expect(loadSpy.mock.calls[0]?.[1]).toBeUndefined()
+      expect(loadSpy.mock.calls[0]?.[1]).toEqual({ preserveDirty: true })
       expect(notifySpy).not.toHaveBeenCalled()
       expect(store.mergeConflict).toBeNull()
-      expect(tab.isSaved).toBe(true)
+      expect(tab.isSaved).toBe(false)
     }
   )
 
@@ -275,6 +343,42 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
 
     expect(store.mergeConflict).toEqual(expect.objectContaining({ tabId: 'tab-1' }))
     expect(tab.markdown).toBe('hello')
+  })
+
+  it('merges disk changes discovered while restoring an unsaved tab', async() => {
+    const store = useEditorStore()
+
+    store.RESTORE_BUFFERED_STATE({
+      currentFileId: 'old-tab',
+      tabs: [
+        {
+          id: 'old-tab',
+          filename: 'a.md',
+          pathname: '/x/a.md',
+          markdown: 'one local\nshared\nthree\n',
+          diskBaseMarkdown: 'one\nshared\nthree\n',
+          isSaved: false,
+          encoding: { encoding: 'utf8', isBom: false },
+          lineEnding: 'lf',
+          adjustLineEndingOnSave: false,
+          trimTrailingNewline: 0,
+          restoredDiskDocument: {
+            markdown: 'one\nshared\nthree remote\n',
+            filename: 'a.md',
+            encoding: { encoding: 'utf8', isBom: false },
+            lineEnding: 'lf',
+            adjustLineEndingOnSave: false,
+            trimTrailingNewline: 0
+          }
+        }
+      ]
+    })
+
+    await vi.waitFor(() => {
+      expect(store.tabs[0]?.markdown).toBe('one local\nshared\nthree remote\n')
+    })
+    expect(store.tabs[0]?.diskBaseMarkdown).toBe('one\nshared\nthree remote\n')
+    expect(store.tabs[0]?.isSaved).toBe(false)
   })
 
   it('auto-merges non-overlapping dirty local and disk changes', async() => {
@@ -297,6 +401,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       expect.objectContaining({
         msg: expect.stringContaining('Merged disk changes'),
         confirmLabel: 'Undo',
+        secondaryLabel: 'Review',
         showConfirm: true,
         action: expect.any(Function)
       })
@@ -311,6 +416,20 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     )
 
     const [notification] = tab.notifications as Array<{ action: (status?: unknown) => void }>
+    notification.action('secondary')
+
+    expect(store.mergeConflict).toEqual(
+      expect.objectContaining({
+        tabId: 'tab-1',
+        baseMarkdown: 'one\nshared\nthree\n',
+        localMarkdown: 'one local\nshared\nthree\n',
+        remoteMarkdown: 'one\nshared\nthree remote\n',
+        resultMarkdown: 'one local\nshared\nthree remote\n',
+        conflicts: []
+      })
+    )
+    store.CANCEL_DIRTY_EXTERNAL_MERGE_CONFLICT()
+
     notification.action(true)
 
     expect(tab.markdown).toBe('one local\nshared\nthree\n')
@@ -324,6 +443,29 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
         preserveDirty: true
       })
     )
+  })
+
+  it('ignores stale auto-merge notification actions after newer local edits', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one local\nshared\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    await fire(captureHandler(), 'one\nshared\nthree remote\n')
+
+    const [notification] = tab.notifications as Array<{ action: (status?: unknown) => void }>
+    tab.markdown = 'one local\nshared\nthree remote\nkept typing\n'
+
+    notification.action('secondary')
+    expect(store.mergeConflict).toBeNull()
+
+    notification.action(true)
+    expect(tab.markdown).toBe('one local\nshared\nthree remote\nkept typing\n')
+    expect(tab.diskBaseMarkdown).toBe('one\nshared\nthree remote\n')
+    expect(tab.isSaved).toBe(false)
   })
 
   it('ignores an async dirty merge result when the local buffer changed again', async() => {

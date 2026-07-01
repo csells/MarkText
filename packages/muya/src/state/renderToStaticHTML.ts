@@ -1,3 +1,4 @@
+import { stripCommentSyntaxFromMarkdown } from '../comments';
 import { EXPORT_DOMPURIFY_CONFIG } from '../config';
 import { sanitize } from '../utils';
 import { getHighlightHtml } from '../utils/marked';
@@ -49,7 +50,8 @@ export function renderToStaticHTML(
 
     const footnote = options.footnote ?? false;
 
-    let html = getHighlightHtml(markdown, {
+    const exportMarkdown = stripCommentSyntaxFromMarkdown(markdown);
+    let html = getHighlightHtml(exportMarkdown, {
         footnote,
         math: options.math ?? true,
         isGitlabCompatibilityEnabled: options.isGitlabCompatibilityEnabled ?? true,

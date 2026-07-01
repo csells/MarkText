@@ -191,6 +191,8 @@ declare module '@muyajs/core' {
     options?: IParseMarkdownCommentOptions
   ): IParsedMarkdownComments
   export function prepareCommentSourceLine(state: ICommentSourceLineState, line: string): void
+  export function removeEmptyCommentThreadsFromMarkdown(markdown: string): string
+  export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): string
   export function updateCommentMetadataInMarkdown(
     markdown: string,
     id: string,
@@ -219,6 +221,8 @@ declare module '@muyajs/core' {
     getActiveComments(): string[]
     canAddComment(input?: Pick<IAddCommentInput, 'id'>): boolean
     addComment(input?: IAddCommentInput): boolean
+    removeComment(id: string): boolean
+    removeEmptyCommentThreads(): boolean
     updateCommentThread(id: string, patch: TUpdateCommentThreadPatch): boolean
     replyToComment(id: string, reply: ICommentReplyInput): boolean
     resolveComment(id: string, updatedAt?: string): boolean

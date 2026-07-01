@@ -34,6 +34,7 @@ interface SetupBindings {
   beginEditReply: (thread: CommentThread, replyIndex: number) => void
   canAddComment: { value: boolean }
   commentFilter: { value: 'all' | 'open' | 'resolved' }
+  discardComposedThread: (id: string) => void
   submitEditReply: (thread: CommentThread, replyIndex: number) => void
   submitReply: (id: string) => void
   editDrafts: Record<string, string>
@@ -258,6 +259,42 @@ describe('comments sidebar reply editing', () => {
         body: 'Looks good'
       }
     })
+  })
+
+  it('discards an empty newly composed thread when the sidebar unmounts', () => {
+    const { emit, handlers, beforeUnmount } = makeBindings({
+      threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
+    })
+
+    handlers.get('comment:compose')?.('cmt_1')
+    beforeUnmount.forEach(fn => fn())
+
+    expect(emit).toHaveBeenCalledWith('comment:discard', 'cmt_1')
+  })
+
+  it('keeps a typed newly composed draft when the sidebar unmounts', () => {
+    const { ret, emit, handlers, beforeUnmount } = makeBindings({
+      threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
+    })
+
+    handlers.get('comment:compose')?.('cmt_1')
+    ret.replyDrafts.cmt_1 = 'draft text'
+    beforeUnmount.forEach(fn => fn())
+
+    expect(emit).not.toHaveBeenCalledWith('comment:discard', 'cmt_1')
+  })
+
+  it('explicitly cancels a newly composed draft by discarding the thread', () => {
+    const { ret, emit, handlers } = makeBindings({
+      threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
+    })
+
+    handlers.get('comment:compose')?.('cmt_1')
+    ret.replyDrafts.cmt_1 = 'draft text'
+    ret.discardComposedThread('cmt_1')
+
+    expect(emit).toHaveBeenCalledWith('comment:discard', 'cmt_1')
+    expect(ret.replyDrafts.cmt_1).toBeUndefined()
   })
 
   it('emits diagnostic focus requests by id', () => {

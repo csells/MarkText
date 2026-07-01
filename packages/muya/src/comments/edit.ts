@@ -7,6 +7,7 @@ import ExportMarkdown from '../state/stateToMarkdown';
 import { escapeRegExp } from '../utils';
 import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
+import { buildCommentSourceIndex } from './source';
 import {
     COMMENT_MARKER_PATTERN,
     COMMENT_METADATA_DATA_URI_PREFIX,
@@ -467,6 +468,32 @@ export function updateCommentMetadataInMarkdown(
     id: string,
     updater: (metadata: ICommentMetadata) => ICommentMetadata,
 ): string | null {
+    const sourceIndex = buildCommentSourceIndex(markdown);
+    for (const sourceDefinition of sourceIndex.metadataDefinitions) {
+        if (sourceDefinition.id !== id)
+            continue;
+
+        let current: ICommentMetadata;
+        try {
+            current = decodeCommentMetadata(sourceDefinition.dataUri);
+        }
+        catch {
+            continue;
+        }
+
+        const sourceLine = markdown.slice(sourceDefinition.start, sourceDefinition.end);
+        const match = COMMENT_METADATA_LINE_REGEXP.exec(sourceLine);
+        if (!match)
+            continue;
+
+        const nextDataUri = encodeCommentMetadata(normalizeCommentMetadata(updater(current)));
+        if (nextDataUri === sourceDefinition.dataUri)
+            return markdown;
+
+        const nextLine = `${match[1]}${nextDataUri}${match[4]}`;
+        return `${markdown.slice(0, sourceDefinition.start)}${nextLine}${markdown.slice(sourceDefinition.end)}`;
+    }
+
     const normalizedMarkdown = markdown.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n');
     const states = new MarkdownToState().generate(normalizedMarkdown);
     const before = new ExportMarkdown().generate(states);

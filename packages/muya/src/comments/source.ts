@@ -1,3 +1,4 @@
+import { decodeCommentMetadata } from './metadata';
 import {
     COMMENT_MARKER_PATTERN,
     parseCommentMetadataDefinition,
@@ -510,4 +511,60 @@ export function collectSourceCommentIds(markdown: string): Set<string> {
         ...index.markers.map(marker => marker.id),
         ...index.metadataDefinitions.map(definition => definition.id),
     ]);
+}
+
+export function stripCommentSyntaxFromMarkdown(markdown: string): string {
+    const index = buildCommentSourceIndex(markdown);
+    const syntaxRanges = [...index.syntaxRanges].sort((a, b) => b.start - a.start);
+    let next = markdown;
+
+    for (const range of syntaxRanges)
+        next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
+
+    return next;
+}
+
+export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): string {
+    const index = buildCommentSourceIndex(markdown);
+    const syntaxRanges = [
+        ...index.markers.filter(marker => marker.id === id),
+        ...index.metadataDefinitions.filter(definition => definition.id === id),
+    ].sort((a, b) => b.start - a.start);
+    let next = markdown;
+
+    for (const range of syntaxRanges)
+        next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
+
+    return next;
+}
+
+export function removeEmptyCommentThreadsFromMarkdown(markdown: string): string {
+    const index = buildCommentSourceIndex(markdown);
+    const emptyThreadIds = new Set<string>();
+
+    for (const definition of index.metadataDefinitions) {
+        try {
+            const metadata = decodeCommentMetadata(definition.dataUri);
+            if (metadata.status === 'open' && metadata.replies.length === 0)
+                emptyThreadIds.add(definition.id);
+        }
+        catch {
+            // Invalid metadata should stay visible to diagnostics instead of
+            // being silently deleted during save cleanup.
+        }
+    }
+
+    if (emptyThreadIds.size === 0)
+        return markdown;
+
+    const syntaxRanges = [
+        ...index.markers.filter(marker => emptyThreadIds.has(marker.id)),
+        ...index.metadataDefinitions.filter(definition => emptyThreadIds.has(definition.id)),
+    ].sort((a, b) => b.start - a.start);
+    let next = markdown;
+
+    for (const range of syntaxRanges)
+        next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
+
+    return next;
 }

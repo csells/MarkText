@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest';
+import { COMMENT_METADATA_DATA_URI_PREFIX } from '../../comments';
+import { MarkdownToHtml } from '../markdownToHtml';
 import { renderToStaticHTML } from '../renderToStaticHTML';
 
 // `renderToStaticHTML` is the synchronous markdown -> HTML public API used by
@@ -24,9 +26,35 @@ import { renderToStaticHTML } from '../renderToStaticHTML';
 // inner HTML; hence a separate, sync API.
 
 describe('renderToStaticHTML', () => {
+    const commentMetadata = `${COMMENT_METADATA_DATA_URI_PREFIX}eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119`;
+
     it('renders a simple paragraph synchronously', () => {
         const html = renderToStaticHTML('Hello, world!');
         expect(html).toContain('<p>Hello, world!</p>');
+    });
+
+    it('strips portable review comment syntax from exported HTML', () => {
+        const html = renderToStaticHTML([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${commentMetadata}`,
+        ].join('\n'), { sanitize: false });
+
+        expect(html).toContain('<p>A reviewed span.</p>');
+        expect(html).not.toContain('MC:');
+        expect(html).not.toContain(commentMetadata);
+    });
+
+    it('strips portable review comment syntax from full document HTML export', async () => {
+        const html = await new MarkdownToHtml([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${commentMetadata}`,
+        ].join('\n')).renderHtml();
+
+        expect(html).toContain('<p>A reviewed span.</p>');
+        expect(html).not.toContain('MC:');
+        expect(html).not.toContain(commentMetadata);
     });
 
     it('renders headings with id-less <hN>', () => {

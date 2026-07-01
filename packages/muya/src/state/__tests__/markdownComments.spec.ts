@@ -8,6 +8,7 @@ import {
     decodeCommentMetadata,
     encodeCommentMetadata,
     parseMarkdownComments,
+    updateCommentMetadataInMarkdown,
     validateCommentGraph,
 } from '../../comments';
 import { MarkdownToState } from '../markdownToState';
@@ -590,6 +591,29 @@ describe('markdown comments - state round-trip', () => {
         expect(result.ranges.map(range => range.id)).toEqual(['legacy']);
     });
 
+    it('recognizes metadata definitions embedded in folded multi-line state text', () => {
+        const states: TState[] = [
+            {
+                name: 'paragraph',
+                text: [
+                    'A <!--MC:folded-->folded leaf<!--MC:~folded--> range.',
+                    `[MC:folded]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+                    'trailing prose',
+                ].join('\n'),
+            },
+        ];
+
+        const result = parseMarkdownComments(states);
+
+        expect(result.diagnostics).toEqual([]);
+        expect(result.threads).toEqual([
+            expect.objectContaining({
+                id: 'folded',
+                status: 'open',
+            }),
+        ]);
+    });
+
     it('exports a graph validator with the same diagnostics as parsing', () => {
         const markdown = [
             'Text <!--MC:a-->open only and <!--MC:~missing-->orphan close.',
@@ -782,5 +806,34 @@ describe('metadata definition round-trip stability', () => {
             current = roundTrip(current);
 
         expect((current.match(/\[MC:a\]:/gu) ?? []).length).toBe(1);
+    });
+});
+
+describe('metadata source edits', () => {
+    const uri = () => metadata({ version: 1, status: 'open', replies: [] });
+
+    it('updates the exact source metadata line without normalizing unrelated bytes', () => {
+        const first = uri();
+        const second = uri();
+        const markdown = [
+            '\uFEFFTitle\r',
+            `A <!--MC:a-->reviewed<!--MC:~a--> line.\r\n`,
+            `[MC:other]: ${first}  \n`,
+            `[MC:a]: ${second}\t`,
+        ].join('');
+
+        const next = updateCommentMetadataInMarkdown(markdown, 'a', current => ({
+            ...current,
+            status: 'resolved',
+        }));
+
+        expect(next).not.toBeNull();
+        expect(next).toMatch(/^\uFEFFTitle\rA/u);
+        expect(next).toContain(`[MC:other]: ${first}  \n`);
+        expect(next).toMatch(/\[MC:a\]: data:application\/json;base64,\S+\t$/u);
+        expect(parseMarkdownComments(next!).threads[0]).toMatchObject({
+            id: 'a',
+            status: 'resolved',
+        });
     });
 });

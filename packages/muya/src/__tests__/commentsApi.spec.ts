@@ -3,7 +3,7 @@
 import type Content from '../block/base/content';
 import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { updateCommentMetadataInMarkdown } from '../comments';
+import { removeEmptyCommentThreadsFromMarkdown, updateCommentMetadataInMarkdown } from '../comments';
 import { Muya } from '../muya';
 
 const hosts: HTMLElement[] = [];
@@ -90,6 +90,34 @@ describe('muya.getComments()', () => {
             {
                 id: 'b',
                 version: 1,
+                status: 'resolved',
+                replies: [],
+            },
+        ]);
+    });
+
+    it('preserves resolved zero-reply comment syntax through source-mode replacement', () => {
+        const original = 'Before source mode.\n';
+        const metadataUri = metadata({
+            version: 1,
+            status: 'resolved',
+            authors: ['Ada'],
+            replies: [],
+        });
+        const nextMarkdown = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> persisted span.',
+            '',
+            `[MC:a]: ${metadataUri}`,
+            '',
+        ].join('\n');
+        const muya = boot(original);
+
+        expect(muya.replaceContent(nextMarkdown)).toBe(true);
+
+        expect(muya.getMarkdown()).toBe(nextMarkdown);
+        expect(muya.getComments().threads).toMatchObject([
+            {
+                id: 'a',
                 status: 'resolved',
                 replies: [],
             },
@@ -546,6 +574,56 @@ describe('muya comment metadata mutations', () => {
         expect(muya.resolveComment('a')).toBe(false);
         expect(muya.reopenComment('a')).toBe(false);
         expect(muya.updateCommentThread('a', { status: 'resolved' })).toBe(false);
+    });
+
+    it('removes a comment thread without deleting the reviewed text', () => {
+        const original = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n');
+        const muya = boot(original);
+
+        expect(muya.removeComment('a')).toBe(true);
+
+        expect(muya.getMarkdown()).toBe('A reviewed span.\n');
+        expect(muya.getComments()).toEqual({
+            diagnostics: [],
+            ranges: [],
+            threads: [],
+        });
+
+        muya.undo();
+        expect(muya.getMarkdown()).toBe(original);
+    });
+
+    it('removes empty comment threads while preserving replied threads', () => {
+        const replied = metadata({
+            version: 1,
+            status: 'open',
+            replies: [{ body: 'Keep me.', createdAt: '2026-06-30T14:00:00.000Z' }],
+        });
+        const resolved = metadata({ version: 1, status: 'resolved', replies: [] });
+        const original = [
+            [
+                'A <!--MC:draft-->draft<!--MC:~draft-->',
+                'and <!--MC:resolved-->resolved<!--MC:~resolved-->',
+                'and <!--MC:kept-->kept<!--MC:~kept--> span.',
+            ].join(' '),
+            '',
+            `[MC:draft]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            `[MC:resolved]: ${resolved}`,
+            `[MC:kept]: ${replied}`,
+            '',
+        ].join('\n');
+
+        const next = removeEmptyCommentThreadsFromMarkdown(original);
+
+        expect(next).toContain('A draft and <!--MC:resolved-->resolved<!--MC:~resolved--> and <!--MC:kept-->kept<!--MC:~kept--> span.');
+        expect(next).not.toContain('MC:draft');
+        expect(next).toContain(`[MC:resolved]: ${resolved}`);
+        expect(next).toContain(`[MC:kept]: ${replied}`);
     });
 });
 

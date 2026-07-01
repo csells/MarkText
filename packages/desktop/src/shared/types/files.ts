@@ -99,6 +99,7 @@ export interface FileNotification {
   msg: string
   showConfirm: boolean
   confirmLabel?: string
+  secondaryLabel?: string
   style: string
   exclusiveType: string
   action: (status?: unknown) => void
