@@ -44,6 +44,8 @@ class JSONState {
 
     private _operationCache: JSONOpList[] = [];
 
+    private _version = 0;
+
     // Handle of the scheduled deferred-op flush. Doubles as the "a flush is
     // already scheduled" guard (non-null ⇒ batching in progress), and lets
     // `setContent` cancel a pending batch that belongs to the outgoing
@@ -63,6 +65,7 @@ class JSONState {
         if (op === null)
             return;
         this._state = asState(json1.type.apply(asDoc(this._state), op));
+        this._version += 1;
     }
 
     setContent(content: TState[] | string) {
@@ -84,10 +87,16 @@ class JSONState {
 
     private _setState(state: TState[]) {
         this._state = state;
+        this._version += 1;
     }
 
     private _setMarkdown(markdown: string) {
         this._state = this.markdownToState(markdown);
+        this._version += 1;
+    }
+
+    get version() {
+        return this._version;
     }
 
     // Parse markdown into a block-state array with the editor's current

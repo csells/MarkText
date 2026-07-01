@@ -47,11 +47,15 @@
       "findNext": "다음 찾기",
       "findPrevious": "이전 찾기",
       "findInFolder": "폴더에서 찾기",
-      "addComment": "Add Comment",
+      "addComment": "댓글 추가",
       "screenshot": "스크린샷",
       "lineEnding": "줄 끝",
       "lineEndingCrlf": "CRLF(Windows)",
       "lineEndingLf": "LF(Linux/Mac)"
+    },
+    "review": {
+      "review": "검토",
+      "addComment": "댓글 추가"
     },
     "paragraph": {
       "title": "단락",
@@ -187,7 +191,7 @@
     "pasteAsPlainText": "일반 텍스트로 붙여넣기",
     "insertParagraphBefore": "앞에 단락 삽입",
     "insertParagraphAfter": "뒤에 단락 삽입",
-    "addComment": "Add Comment",
+    "addComment": "댓글 추가",
     "spelling": "맞춤법...",
     "changeLanguage": "언어 변경...",
     "addToDictionary": "사전에 추가",
@@ -245,11 +249,33 @@
     "toc": {
       "title": "목차"
     },
+    "comments": {
+      "title": "댓글",
+      "summary": "{open}개 열림 / 총 {count}개",
+      "add": "추가",
+      "empty": "댓글 없음",
+      "diagnostics": "진단",
+      "open": "열림",
+      "resolved": "해결됨",
+      "jump": "댓글로 이동",
+      "edit": "편집",
+      "resolve": "해결",
+      "reopen": "다시 열기",
+      "reply": "답글",
+      "saveEdit": "저장",
+      "cancelEdit": "취소",
+      "editPlaceholder": "이 답글 편집...",
+      "replyPlaceholder": "답글 작성...",
+      "defaultAuthor": "검토자",
+      "selectTextHint": "댓글을 추가하기 전에 텍스트를 선택하세요.",
+      "sourceModeUnavailable": "이 선택 영역에서는 댓글 작업을 사용할 수 없습니다."
+    },
     "icons": {
       "files": "파일",
       "search": "검색",
       "toc": "목차",
-      "settings": "설정"
+      "settings": "설정",
+      "comments": "댓글"
     }
   },
   "commandPalette": {
@@ -781,7 +807,7 @@
       "findPrevious": "이전 찾기",
       "replace": "바꾸기",
       "findInFolder": "폴더에서 찾기",
-      "addComment": "Add Comment",
+      "addComment": "댓글 추가",
       "screenshot": "스크린샷"
     },
     "paragraph": {
@@ -872,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "언어 전환"
+    },
+    "review": {
+      "addComment": "댓글 추가"
     }
   },
   "common": {
@@ -924,7 +953,8 @@
       "exportSuccessTitle": "내보내기 성공",
       "exportSuccessMessage": "“{name}”을(를) 성공적으로 내보냈습니다!",
       "fileRemovedOnDisk": "“{name}”이(가) 디스크에서 삭제되었습니다.",
-      "fileChangedOnDisk": "“{name}”이(가) 디스크에서 변경되었습니다. 다시 로드하시겠습니까?"
+      "fileChangedOnDisk": "“{name}”이(가) 디스크에서 변경되었습니다. 다시 로드하시겠습니까?",
+      "fileChangedOnDiskRecoveryCreated": "저장하지 않은 편집 내용이 \"{name}\"에 보관되었습니다."
     }
   },
   "spellchecker": {
@@ -932,6 +962,21 @@
     "unexpectedError": "예상치 못한 맞춤법 검사 오류"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "디스크 변경 사항 해결",
+      "summary": "이 탭에 저장하지 않은 편집 내용이 있는 동안 파일이 디스크에서 변경되었습니다.",
+      "local": "저장하지 않은 편집 내용",
+      "remote": "디스크에서 변경됨",
+      "result": "병합 결과",
+      "conflictLabel": "충돌 {id}: 기준 줄 {start}-{end}",
+      "useLocal": "내 편집 사용",
+      "useRemote": "디스크 사용",
+      "useBoth": "둘 다 사용",
+      "keepEditing": "계속 편집",
+      "acceptMerge": "병합 적용",
+      "invalidCommentSyntax": "병합 결과에 잘못된 MarkText 댓글 구문이 포함되어 있습니다. 적용하기 전에 결과를 수정하세요.",
+      "reloadDisk": "디스크에서 다시 로드"
+    },
     "export": {
       "error": "내보내기 오류",
       "errorExporting": "파일 내보내기 오류",

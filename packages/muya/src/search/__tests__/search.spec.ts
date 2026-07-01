@@ -2,6 +2,7 @@
 
 import type Content from '../../block/base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseMarkdownComments } from '../../comments';
 import { Muya } from '../../muya';
 
 // Coverage for the Search module (src/search/index.ts) — the find/replace
@@ -55,6 +56,11 @@ function highlightCount(muya: Muya): number {
 
 function selectionCount(muya: Muya): number {
     return muya.domNode.querySelectorAll('span.mu-selection').length;
+}
+
+async function waitForEditorWrite(): Promise<void> {
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 }
 
 describe('search.search()', () => {
@@ -111,6 +117,26 @@ describe('search.search()', () => {
 
         search.search('data:application/json');
         expect(search.matches).toHaveLength(0);
+    });
+
+    it('matches visible prose across hidden markdown comment markers', () => {
+        const muya = bootMuya([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119',
+            '',
+        ].join('\n'));
+        placeCursorOnFirstBlock(muya);
+
+        const search = muya.editor.searchModule;
+        search.search('A reviewed span');
+
+        expect(search.matches).toHaveLength(1);
+        expect(search.matches[0]).toMatchObject({
+            start: 0,
+            end: 'A <!--MC:a-->reviewed<!--MC:~a--> span'.length,
+            match: 'A reviewed span',
+        });
     });
 });
 
@@ -201,5 +227,30 @@ describe('search.replace() — replace all across multiple blocks', () => {
         // A fresh search for the old needle finds nothing.
         search.search('foo');
         expect(search.matches.length).toBe(0);
+    });
+
+    it('replaces visible matches whose raw range crosses hidden comment markers', async () => {
+        const markdown = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119',
+            '',
+        ].join('\n');
+        const muya = bootMuya(markdown);
+        placeCursorOnFirstBlock(muya);
+
+        const search = muya.editor.searchModule;
+        search.search('A reviewed span');
+        expect(search.matches).toHaveLength(1);
+
+        search.replace('A checked span', { isSingle: true, isRegexp: false });
+        await waitForEditorWrite();
+
+        const updated = muya.getMarkdown();
+        expect(updated).toContain('checked');
+        expect(updated).not.toContain('reviewed');
+        expect(updated).toContain('<!--MC:a-->');
+        expect(updated).toContain('<!--MC:~a-->');
+        expect(parseMarkdownComments(updated).diagnostics).toEqual([]);
     });
 });

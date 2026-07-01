@@ -7,6 +7,7 @@ const KNOWN_METADATA_KEYS = new Set([
     'authors',
     'createdAt',
     'updatedAt',
+    'display',
     'replies',
 ]);
 
@@ -25,6 +26,16 @@ const FORBIDDEN_METADATA_KEYS = new Set([
     'startOffset',
     'startPath',
 ]);
+
+const FORBIDDEN_METADATA_KEY_PATTERN = /anchor|offset|path|range|repair/iu;
+
+function compareOrdinal(a: string, b: string): number {
+    if (a < b)
+        return -1;
+    if (a > b)
+        return 1;
+    return 0;
+}
 
 function encodeBase64Utf8(value: string): string {
     const bytes = new TextEncoder().encode(value);
@@ -52,6 +63,46 @@ function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return (
+        typeof value === 'object'
+        && value != null
+        && !Array.isArray(value)
+        && Object.getPrototypeOf(value) === Object.prototype
+    );
+}
+
+function isForbiddenMetadataKey(key: string): boolean {
+    return FORBIDDEN_METADATA_KEYS.has(key) || FORBIDDEN_METADATA_KEY_PATTERN.test(key);
+}
+
+function normalizeDisplayValue(value: unknown, path: string): unknown {
+    if (Array.isArray(value))
+        return value.map((item, index) => normalizeDisplayValue(item, `${path}[${index}]`));
+
+    if (!isPlainRecord(value))
+        return value;
+
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(value).sort(compareOrdinal)) {
+        if (isForbiddenMetadataKey(key))
+            throw new Error(`Comment metadata ${path}.${key} must not store anchor or repair data.`);
+
+        normalized[key] = normalizeDisplayValue(value[key], `${path}.${key}`);
+    }
+
+    return normalized;
+}
+
+function normalizeDisplay(value: unknown, path = 'display'): Record<string, unknown> | undefined {
+    if (value == null)
+        return undefined;
+    if (!isPlainRecord(value))
+        throw new Error(`Comment metadata ${path} must be an object.`);
+
+    return normalizeDisplayValue(value, path) as Record<string, unknown>;
+}
+
 function normalizeReplies(value: unknown): ICommentReply[] {
     if (!Array.isArray(value))
         throw new Error('Comment metadata replies must be an array.');
@@ -68,7 +119,18 @@ function normalizeReplies(value: unknown): ICommentReply[] {
         }
 
         const { author, createdAt, body } = reply as ICommentReply;
-        return { author, createdAt, body };
+        const replyData = reply as Record<string, unknown>;
+        for (const key of Object.keys(replyData).sort(compareOrdinal)) {
+            if (key === 'author' || key === 'createdAt' || key === 'body' || key === 'display')
+                continue;
+            if (isForbiddenMetadataKey(key))
+                throw new Error(`Comment metadata reply.${key} must not store anchor or repair data.`);
+
+            throw new Error(`Comment metadata reply.${key} is not part of the portable thread schema.`);
+        }
+
+        const display = normalizeDisplay(replyData.display, 'reply.display');
+        return { author, createdAt, body, ...(display ? { display } : {}) };
     });
 }
 
@@ -81,18 +143,15 @@ function optionalString(value: unknown, field: string): string | undefined {
     return value;
 }
 
-function normalizeExtensionFields(data: Record<string, unknown>): Record<string, unknown> {
-    const extensions: Record<string, unknown> = {};
-    for (const key of Object.keys(data).sort()) {
+function assertNoUnknownMetadataFields(data: Record<string, unknown>) {
+    for (const key of Object.keys(data).sort(compareOrdinal)) {
         if (KNOWN_METADATA_KEYS.has(key))
             continue;
-        if (FORBIDDEN_METADATA_KEYS.has(key))
+        if (isForbiddenMetadataKey(key))
             throw new Error(`Comment metadata ${key} must not store anchor or repair data.`);
 
-        extensions[key] = data[key];
+        throw new Error(`Comment metadata ${key} is not part of the portable thread schema.`);
     }
-
-    return extensions;
 }
 
 export function normalizeCommentMetadata(value: unknown): ICommentMetadata {
@@ -111,6 +170,8 @@ export function normalizeCommentMetadata(value: unknown): ICommentMetadata {
     const normalizedAuthors = authors as string[] | undefined;
     const createdAt = optionalString(data.createdAt, 'createdAt');
     const updatedAt = optionalString(data.updatedAt, 'updatedAt');
+    const display = normalizeDisplay(data.display);
+    assertNoUnknownMetadataFields(data);
 
     return {
         version: 1,
@@ -118,7 +179,7 @@ export function normalizeCommentMetadata(value: unknown): ICommentMetadata {
         ...(normalizedAuthors ? { authors: normalizedAuthors } : {}),
         ...(createdAt ? { createdAt } : {}),
         ...(updatedAt ? { updatedAt } : {}),
-        ...normalizeExtensionFields(data),
+        ...(display ? { display } : {}),
         replies: normalizeReplies(data.replies ?? []),
     };
 }
@@ -133,18 +194,13 @@ export function decodeCommentMetadata(dataUri: string): ICommentMetadata {
 
 export function encodeCommentMetadata(metadata: ICommentMetadata): string {
     const normalized = normalizeCommentMetadata(metadata);
-    const extensionFields = Object.fromEntries(
-        Object.entries(normalized)
-            .filter(([key]) => !KNOWN_METADATA_KEYS.has(key))
-            .sort(([a], [b]) => a.localeCompare(b)),
-    );
     const json = JSON.stringify({
         version: normalized.version,
         status: normalized.status,
         ...(normalized.authors ? { authors: normalized.authors } : {}),
         ...(normalized.createdAt ? { createdAt: normalized.createdAt } : {}),
         ...(normalized.updatedAt ? { updatedAt: normalized.updatedAt } : {}),
-        ...extensionFields,
+        ...(normalized.display ? { display: normalized.display } : {}),
         replies: normalized.replies,
     });
 

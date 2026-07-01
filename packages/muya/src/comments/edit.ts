@@ -1,9 +1,15 @@
 import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
 import type { ICommentMetadata } from './types';
+import { tokenizer } from '../inlineRenderer/lexer';
 import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
-import { parseCommentMetadataDefinition } from './syntax';
+import {
+    COMMENT_MARKER_PATTERN,
+    COMMENT_METADATA_DATA_URI_PREFIX,
+    isValidCommentId,
+    parseCommentMetadataDefinition,
+} from './syntax';
 
 export interface IAddCommentInput {
     id?: string;
@@ -24,6 +30,24 @@ interface IWrapCommentRangeInput {
 }
 
 export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>;
+
+const NON_COMMENTABLE_TEXT_STATES = new Set<TState['name']>([
+    'code-block',
+    'diagram',
+    'frontmatter',
+    'html-block',
+    'link-reference-definition',
+    'math-block',
+    'thematic-break',
+]);
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+const COMMENT_METADATA_LINE_REGEXP = new RegExp(
+    `^( {0,3}\\[MC:([^\\]\\s]+)\\]:\\s*)(${escapeRegExp(COMMENT_METADATA_DATA_URI_PREFIX)}\\S*)(\\s*)$`,
+);
 
 function readPath(root: unknown, path: TBlockPath): unknown {
     let current = root;
@@ -58,14 +82,158 @@ function writePath(root: unknown, path: TBlockPath, value: unknown): boolean {
 
 function visitStateTexts(states: TState[], visitor: (state: Extract<TState, { text: string }>) => boolean): boolean {
     for (const state of states) {
-        if ('text' in state && typeof state.text === 'string' && visitor(state as Extract<TState, { text: string }>))
+        if (
+            'text' in state
+            && typeof state.text === 'string'
+            && !NON_COMMENTABLE_TEXT_STATES.has(state.name)
+            && visitor(state as Extract<TState, { text: string }>)
+        ) {
             return true;
+        }
 
         if ('children' in state && Array.isArray(state.children) && visitStateTexts(state.children, visitor))
             return true;
     }
 
     return false;
+}
+
+function isCommentableTextState(state: TState): boolean {
+    if (!('text' in state) || typeof state.text !== 'string')
+        return false;
+
+    return !NON_COMMENTABLE_TEXT_STATES.has(state.name) && !parseCommentMetadataDefinition(state.text);
+}
+
+function selectionIntersectsInlineCode(text: string, startOffset: number, endOffset: number): boolean {
+    return tokenizer(text, { options: {} as never }).some(token =>
+        token.type === 'inline_code' && startOffset < token.range.end && endOffset > token.range.start,
+    );
+}
+
+function selectionIntersectsCommentMarker(text: string, startOffset: number, endOffset: number): boolean {
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+    for (const match of text.matchAll(markerRegExp)) {
+        const markerStart = match.index;
+        const markerEnd = markerStart + match[0].length;
+        if (startOffset < markerEnd && endOffset > markerStart)
+            return true;
+    }
+
+    return false;
+}
+
+function selectedTextLeavesAreCommentable(
+    states: TState[],
+    indexes: Map<string, number>,
+    startPath: TBlockPath,
+    endPath: TBlockPath,
+): boolean {
+    const startIndex = indexes.get(commentPathKey(startPath));
+    const endIndex = indexes.get(commentPathKey(endPath));
+    if (startIndex == null || endIndex == null)
+        return false;
+
+    let textIndex = 0;
+    let isCommentable = true;
+
+    const visit = (nodes: TState[]) => {
+        for (const state of nodes) {
+            if ('text' in state && typeof state.text === 'string') {
+                if (textIndex >= startIndex && textIndex <= endIndex && !isCommentableTextState(state))
+                    isCommentable = false;
+                textIndex += 1;
+            }
+
+            if (!isCommentable)
+                return;
+
+            if ('children' in state && Array.isArray(state.children))
+                visit(state.children);
+        }
+    };
+
+    visit(states);
+    return isCommentable;
+}
+
+function selectionIntersectsInlineCodeAcrossLeaves(
+    states: TState[],
+    indexes: Map<string, number>,
+    startPath: TBlockPath,
+    endPath: TBlockPath,
+    startOffset: number,
+    endOffset: number,
+): boolean {
+    return selectionIntersectsAcrossLeaves(
+        states,
+        indexes,
+        startPath,
+        endPath,
+        startOffset,
+        endOffset,
+        selectionIntersectsInlineCode,
+    );
+}
+
+function selectionIntersectsCommentMarkerAcrossLeaves(
+    states: TState[],
+    indexes: Map<string, number>,
+    startPath: TBlockPath,
+    endPath: TBlockPath,
+    startOffset: number,
+    endOffset: number,
+): boolean {
+    return selectionIntersectsAcrossLeaves(
+        states,
+        indexes,
+        startPath,
+        endPath,
+        startOffset,
+        endOffset,
+        selectionIntersectsCommentMarker,
+    );
+}
+
+function selectionIntersectsAcrossLeaves(
+    states: TState[],
+    indexes: Map<string, number>,
+    startPath: TBlockPath,
+    endPath: TBlockPath,
+    startOffset: number,
+    endOffset: number,
+    predicate: (text: string, startOffset: number, endOffset: number) => boolean,
+): boolean {
+    const startIndex = indexes.get(commentPathKey(startPath));
+    const endIndex = indexes.get(commentPathKey(endPath));
+    if (startIndex == null || endIndex == null)
+        return true;
+
+    let textIndex = 0;
+    let intersects = false;
+
+    const visit = (nodes: TState[]) => {
+        for (const state of nodes) {
+            if ('text' in state && typeof state.text === 'string') {
+                if (textIndex >= startIndex && textIndex <= endIndex) {
+                    const selectionStart = textIndex === startIndex ? startOffset : 0;
+                    const selectionEnd = textIndex === endIndex ? endOffset : state.text.length;
+                    if (predicate(state.text, selectionStart, selectionEnd))
+                        intersects = true;
+                }
+                textIndex += 1;
+            }
+
+            if (intersects)
+                return;
+
+            if ('children' in state && Array.isArray(state.children))
+                visit(state.children);
+        }
+    };
+
+    visit(states);
+    return intersects;
 }
 
 export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata {
@@ -115,6 +283,8 @@ export function wrapCommentRange({
     const range = orderTextRange(indexes, path, startOffset, endPath, endOffset);
     if (!range)
         return null;
+    if (!isValidCommentId(id) || !selectedTextLeavesAreCommentable(states, indexes, range.startPath, range.endPath))
+        return null;
 
     const startText = readPath(states, range.startPath);
     const endText = readPath(states, range.endPath);
@@ -128,11 +298,37 @@ export function wrapCommentRange({
     ) {
         return null;
     }
+    if (
+        selectionIntersectsInlineCodeAcrossLeaves(
+            states,
+            indexes,
+            range.startPath,
+            range.endPath,
+            range.startOffset,
+            range.endOffset,
+        )
+    ) {
+        return null;
+    }
+    if (
+        selectionIntersectsCommentMarkerAcrossLeaves(
+            states,
+            indexes,
+            range.startPath,
+            range.endPath,
+            range.startOffset,
+            range.endOffset,
+        )
+    ) {
+        return null;
+    }
 
     const openMarker = `<!--MC:${id}-->`;
     const closeMarker = `<!--MC:~${id}-->`;
     if (commentPathKey(range.startPath) === commentPathKey(range.endPath)) {
         if (range.startOffset >= range.endOffset)
+            return null;
+        if (selectionIntersectsInlineCode(startText, range.startOffset, range.endOffset))
             return null;
 
         const nextText = [
@@ -147,6 +343,13 @@ export function wrapCommentRange({
             return null;
     }
     else {
+        if (
+            selectionIntersectsInlineCode(startText, range.startOffset, startText.length)
+            || selectionIntersectsInlineCode(endText, 0, range.endOffset)
+        ) {
+            return null;
+        }
+
         const nextStartText = [
             startText.slice(0, range.startOffset),
             openMarker,
@@ -185,9 +388,20 @@ export function updateCommentMetadataDefinition(
         if (!definition || definition.id !== id)
             return false;
 
-        const current = decodeCommentMetadata(definition.dataUri);
+        let current: ICommentMetadata;
+        try {
+            current = decodeCommentMetadata(definition.dataUri);
+        }
+        catch {
+            return false;
+        }
+
         const next = normalizeCommentMetadata(updater(current));
-        state.text = `[MC:${id}]: ${encodeCommentMetadata(next)}`;
+        const match = COMMENT_METADATA_LINE_REGEXP.exec(state.text);
+        if (!match)
+            return false;
+
+        state.text = `${match[1]}${encodeCommentMetadata(next)}${match[4]}`;
         updated = true;
         return true;
     });

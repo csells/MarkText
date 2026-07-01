@@ -49,12 +49,15 @@ const FORMAT_MENU_IDS = [
 const makeMenu = () => {
   const paragraphItems = PARAGRAPH_MENU_IDS.map((id) => ({ id, enabled: true, checked: false }))
   const formatItems = FORMAT_MENU_IDS.map((id) => ({ id, enabled: true, checked: false }))
+  const addCommentItem = { id: 'review.add-comment', enabled: true, checked: false }
   return {
     paragraphItems,
     formatItems,
+    addCommentItem,
     getMenuItemById: (id: string) => {
       if (id === 'paragraphMenuEntry') return { submenu: { items: paragraphItems } }
       if (id === 'formatMenuItem') return { submenu: { items: formatItems } }
+      if (id === 'review.add-comment') return addCommentItem
       return undefined
     }
   }
@@ -143,6 +146,23 @@ describe('updateSelectionMenus', () => {
 
     const checked = menu.paragraphItems.filter((i) => i.checked).map((i) => i.id)
     expect(checked).toEqual(['heading1MenuItem'])
+  })
+
+  it('enables Add Comment only when the selection state allows it', () => {
+    const menu = makeMenu()
+
+    updateSelectionMenus(menu as unknown as Menu, { affiliation: { p: true }, canAddComment: false })
+    expect(menu.addCommentItem.enabled).toBe(false)
+
+    updateSelectionMenus(menu as unknown as Menu, { affiliation: { p: true }, canAddComment: true })
+    expect(menu.addCommentItem.enabled).toBe(true)
+
+    updateSelectionMenus(menu as unknown as Menu, {
+      affiliation: { figure: true },
+      isDisabled: true,
+      canAddComment: true
+    })
+    expect(menu.addCommentItem.enabled).toBe(false)
   })
 })
 

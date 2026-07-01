@@ -37,6 +37,7 @@ export interface PreferencesState {
   lastOpenedFolder: string
   treePathExcludePatterns: string[]
   language: string
+  commentAuthorName: string
 
   // ----- Editor / typography -----
   editorFontFamily: string
@@ -155,6 +156,7 @@ export const usePreferencesStore = defineStore('preferences', {
     lastOpenedFolder: '',
     treePathExcludePatterns: [],
     language: 'en',
+    commentAuthorName: '',
 
     editorFontFamily: 'Open Sans',
     fontSize: 16,

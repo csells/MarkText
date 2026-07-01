@@ -177,3 +177,59 @@ describe('paste — markdown link into a link destination uses only the URL (#38
         expect(md).toBe('[my text](https://example.com/page)\n');
     });
 });
+
+describe('paste — portable markdown comments', () => {
+    it('preserves pasted MC markers and metadata as a live comment graph', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const pasted = [
+            '<!--MC:a-->reviewed<!--MC:~a-->',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya('\n');
+        const block = contentBlocks(muya)[0];
+
+        const markdown = await paste(muya, block, 0, 0, pasted);
+
+        expect(markdown).toBe(pasted);
+        expect(muya.getComments()).toMatchObject({
+            threads: [{ id: 'a', status: 'open' }],
+            ranges: [{ id: 'a' }],
+            diagnostics: [],
+        });
+    });
+
+    it('remaps pasted comment IDs that collide with existing document comments', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            'Existing <!--MC:a-->comment<!--MC:~a-->.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+            'Paste here.',
+            '',
+        ].join('\n'));
+        const target = contentBlocks(muya).find(block => block.text.includes('Paste here.'))!;
+        const offset = target.text.length;
+
+        const markdown = await paste(muya, target, offset, offset, [
+            '<!--MC:a-->copied<!--MC:~a-->',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+
+        expect(markdown).toContain('Existing <!--MC:a-->comment<!--MC:~a-->.');
+        expect(markdown).toContain('<!--MC:cmt_1-->copied<!--MC:~cmt_1-->');
+        expect(markdown).toContain('[MC:a]: ');
+        expect(markdown).toContain('[MC:cmt_1]: ');
+        expect(muya.getComments()).toMatchObject({
+            diagnostics: [],
+            threads: [
+                { id: 'a', status: 'open' },
+                { id: 'cmt_1', status: 'open' },
+            ],
+        });
+    });
+});

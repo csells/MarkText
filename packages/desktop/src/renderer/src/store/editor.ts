@@ -22,6 +22,11 @@ import { useLayoutStore } from './layout'
 import { useMainStore } from '.'
 import { t } from '../i18n'
 import { debouncedSendBufferedState, sendBufferedState } from './bufferedState'
+import {
+  mergeMarkdownThreeWay,
+  resolveConflictMarker,
+  type ThreeWayMergeConflict
+} from '../util/threeWayMerge'
 import type {
   IFileState,
   FileNotification,
@@ -30,7 +35,11 @@ import type {
   PageOptions,
   TabOptions
 } from '@shared/types/files'
-import type { IParsedMarkdownComments } from '@muyajs/core'
+import {
+  parseCommentMetadataDefinition,
+  parseMarkdownComments,
+  type IParsedMarkdownComments
+} from '@muyajs/core'
 
 // ----------------------------------------------------------------------------
 // Local helper types
@@ -82,6 +91,19 @@ interface FileChangePayload {
   }
 }
 
+interface MergeConflictState {
+  tabId: string
+  pathname: string
+  filename: string
+  baseMarkdown: string
+  localMarkdown: string
+  remoteMarkdown: string
+  resultMarkdown: string
+  conflicts: ThreeWayMergeConflict[]
+  fileChange: FileChangePayload
+  validationError?: string
+}
+
 interface FormatLinkClickPayload {
   // muya's getLinkInfo yields `href: null` when the rendered link carries no
   // usable href (e.g. an unsupported protocol stripped by sanitizeHyperlink).
@@ -124,7 +146,12 @@ interface AffiliationEntry {
 }
 
 interface SelectionChange {
-  start: { key: string; offset: number; block?: { text?: string; functionType?: string }; type?: string }
+  start: {
+    key: string
+    offset: number
+    block?: { text?: string; functionType?: string }
+    type?: string
+  }
   end: { key: string; offset: number; block?: { functionType?: string }; type?: string }
   affiliation?: AffiliationEntry[]
   hasFrontMatter?: boolean
@@ -151,9 +178,101 @@ export interface EditorState {
   toc: TocTreeNode[]
   comments: IParsedMarkdownComments
   activeCommentIds: string[]
+  mergeConflict: MergeConflictState | null
 }
 
 const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let latestAddCommentEnabled = false
+
+bus.on('editor-add-comment-enabled-changed', (enabled: unknown) => {
+  latestAddCommentEnabled = enabled === true
+})
+
+const markTabSavedAtCurrentHistory = (tab: IFileState): void => {
+  const lastEditIndex = tab.history.lastEditIndex
+  if (
+    typeof lastEditIndex === 'number' &&
+    lastEditIndex >= 0 &&
+    lastEditIndex < tab.history.stack.length
+  ) {
+    const entry = tab.history.stack[lastEditIndex]
+    if (entry && typeof entry.id === 'number') {
+      tab.lastSavedHistoryId = entry.id
+    }
+  }
+  tab.diskBaseMarkdown = tab.markdown
+  tab.isSaved = true
+}
+
+const clearExclusiveTabNotification = (tab: IFileState, exclusiveType: string): void => {
+  tab.notifications = tab.notifications.filter((n) => n.exclusiveType !== exclusiveType)
+}
+
+const normalizeEncodingForComparison = (encoding: unknown): unknown => {
+  if (!encoding || typeof encoding !== 'object') return encoding
+
+  const record = encoding as Record<string, unknown>
+  return {
+    encoding: record.encoding,
+    isBom: record.isBom ?? record.hasBOM ?? false
+  }
+}
+
+const filePersistenceSnapshot = (data: {
+  encoding?: unknown
+  lineEnding?: unknown
+  adjustLineEndingOnSave?: unknown
+  trimTrailingNewline?: unknown
+}): Record<string, unknown> => ({
+  encoding: normalizeEncodingForComparison(data.encoding),
+  lineEnding: data.lineEnding,
+  adjustLineEndingOnSave: data.adjustLineEndingOnSave,
+  trimTrailingNewline: data.trimTrailingNewline
+})
+
+const isSamePersistenceSnapshot = (tab: IFileState, data: FileChangePayload['data']): boolean =>
+  equal(filePersistenceSnapshot(data), filePersistenceSnapshot(tab))
+
+const isSameFileSnapshot = (tab: IFileState, data: FileChangePayload['data']): boolean => {
+  return data.markdown === tab.markdown && isSamePersistenceSnapshot(tab, data)
+}
+
+const commentDiagnosticCounts = (markdown: string): Map<string, number> => {
+  const counts = new Map<string, number>()
+  const add = (key: string): void => {
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+
+  try {
+    for (const diagnostic of parseMarkdownComments(markdown).diagnostics) {
+      add(
+        JSON.stringify({
+          code: diagnostic.code,
+          id: diagnostic.id ?? null,
+          message: diagnostic.message
+        })
+      )
+    }
+  } catch (err) {
+    add(`parse-error:${String(err)}`)
+  }
+  return counts
+}
+
+const introducesNewCommentDiagnostics = (
+  mergedMarkdown: string,
+  localMarkdown: string,
+  remoteMarkdown: string
+): boolean => {
+  const localCounts = commentDiagnosticCounts(localMarkdown)
+  const remoteCounts = commentDiagnosticCounts(remoteMarkdown)
+
+  for (const [key, count] of commentDiagnosticCounts(mergedMarkdown)) {
+    const existingCount = Math.max(localCounts.get(key) ?? 0, remoteCounts.get(key) ?? 0)
+    if (count > existingCount) return true
+  }
+  return false
+}
 
 export const useEditorStore = defineStore('editor', {
   state: (): EditorState => ({
@@ -163,7 +282,8 @@ export const useEditorStore = defineStore('editor', {
     listToc: [], // Used for equal check and for searching for the correct github-slug to jump to
     toc: [],
     comments: createEmptyComments(),
-    activeCommentIds: []
+    activeCommentIds: [],
+    mergeConflict: null
   }),
 
   actions: {
@@ -212,6 +332,7 @@ export const useEditorStore = defineStore('editor', {
         s.toc = []
         s.comments = createEmptyComments()
         s.activeCommentIds = []
+        s.mergeConflict = null
       })
 
       this.updateTabIdToIndex()
@@ -377,6 +498,7 @@ export const useEditorStore = defineStore('editor', {
       tab.id = oldId
       tab.notifications = oldNotifications
       tab.scrollTop = oldScrollTop
+      tab.diskBaseMarkdown = markdown
       if (oldHistory) {
         tab.history = oldHistory
       }
@@ -395,7 +517,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       // Reload the editor if the tab is currently opened.
-      if (currentFile && pathname === currentFile.pathname) {
+      if (currentFile && window.fileUtils.isSamePathSync(pathname, currentFile.pathname)) {
         // save current state first
         this.currentFile = tab
         const { id, cursor, history, scrollTop, muyaIndexCursor } = tab // Should not use blocks history as this is loaded from disk
@@ -515,6 +637,8 @@ export const useEditorStore = defineStore('editor', {
 
     FILE_SAVE(): void {
       if (!this.currentFile) return
+      bus.emit('flush-active-editor')
+      if (!this.currentFile) return
       const projectStore = useProjectStore()
       const { id, filename, pathname, markdown } = this.currentFile
       const options = getOptionsFromState(this.currentFile)
@@ -543,6 +667,8 @@ export const useEditorStore = defineStore('editor', {
     },
 
     FILE_SAVE_AS(): void {
+      if (!this.currentFile) return
+      bus.emit('flush-active-editor')
       if (!this.currentFile) return
       const projectStore = useProjectStore()
       const { id, filename, pathname, markdown } = this.currentFile
@@ -597,7 +723,7 @@ export const useEditorStore = defineStore('editor', {
           window.DIRNAME = window.path.dirname(pathname)
         }
         if (tab) {
-          Object.assign(tab, { filename, pathname, isSaved: true })
+          Object.assign(tab, { filename, pathname, isSaved: true, diskBaseMarkdown: tab.markdown })
           debouncedSendBufferedState()
         }
       })
@@ -605,18 +731,7 @@ export const useEditorStore = defineStore('editor', {
       window.electron.ipcRenderer.on('mt::tab-saved', (_, tabId) => {
         const tab = this.tabs.find((f) => f.id === tabId)
         if (tab) {
-          const lastEditIndex = tab.history.lastEditIndex
-          if (
-            typeof lastEditIndex === 'number' &&
-            lastEditIndex >= 0 &&
-            lastEditIndex < tab.history.stack.length
-          ) {
-            const entry = tab.history.stack[lastEditIndex]
-            if (entry && typeof entry.id === 'number') {
-              tab.lastSavedHistoryId = entry.id
-            }
-          }
-          tab.isSaved = true
+          markTabSavedAtCurrentHistory(tab)
           debouncedSendBufferedState()
         }
       })
@@ -872,14 +987,8 @@ export const useEditorStore = defineStore('editor', {
             project: projectStore
           })
         )
-        bus.emit(
-          'cmd::register-command',
-          new LineEndingCommand(this)
-        )
-        bus.emit(
-          'cmd::register-command',
-          new TrailingNewlineCommand(this)
-        )
+        bus.emit('cmd::register-command', new LineEndingCommand(this))
+        bus.emit('cmd::register-command', new TrailingNewlineCommand(this))
 
         setTimeout(() => {
           window.electron.ipcRenderer.send('mt::request-keybindings')
@@ -1110,8 +1219,7 @@ export const useEditorStore = defineStore('editor', {
       this.updateTabIdToIndex() // Update before sending it out to prevent stale mappings.
 
       if (this.currentFile == null && this.tabs.length > 0) {
-        this.currentFile =
-          this.tabs[tabIndex] ?? this.tabs[tabIndex - 1] ?? this.tabs[0] ?? null
+        this.currentFile = this.tabs[tabIndex] ?? this.tabs[tabIndex - 1] ?? this.tabs[0] ?? null
         if (this.currentFile && typeof this.currentFile.markdown === 'string') {
           const { id, markdown, cursor, history, pathname, scrollTop, blocks, muyaIndexCursor } =
             this.currentFile
@@ -1144,10 +1252,10 @@ export const useEditorStore = defineStore('editor', {
       const moveItem = <T>(arr: T[], from: number, to: number): boolean => {
         if (from === to) return true
         const len = arr.length
-        const item = arr.splice(from, 1)
-        if (item.length === 0) return false
+        const [item] = arr.splice(from, 1)
+        if (item === undefined) return false
 
-        arr.splice(to, 0, item[0]!)
+        arr.splice(to, 0, item)
         return arr.length === len
       }
 
@@ -1246,7 +1354,10 @@ export const useEditorStore = defineStore('editor', {
     NEW_UNTITLED_TAB({
       markdown: markdownString,
       selected
-    }: { markdown?: string; selected?: boolean }): void {
+    }: {
+      markdown?: string
+      selected?: boolean
+    }): void {
       if (selected == null) {
         selected = true
       }
@@ -1271,6 +1382,286 @@ export const useEditorStore = defineStore('editor', {
         this.updateTabIdToIndex()
         debouncedSendBufferedState()
       }
+    },
+
+    CREATE_DIRTY_RELOAD_RECOVERY_TAB(sourceTab: IFileState): IFileState {
+      bus.emit('flush-active-editor')
+
+      const latestTab = this.tabs.find((tab) => tab.id === sourceTab.id) ?? sourceTab
+      const preferencesStore = usePreferencesStore()
+      const { defaultEncoding, endOfLine } = preferencesStore
+      const markdown = typeof latestTab.markdown === 'string' ? latestTab.markdown : ''
+      const lineEnding = latestTab.lineEnding ?? endOfLine
+      const recoveryTab = getBlankFileState(
+        this.tabs,
+        latestTab.encoding?.encoding ?? defaultEncoding,
+        lineEnding,
+        markdown
+      )
+
+      recoveryTab.isSaved = false
+      recoveryTab.encoding = deepClone(latestTab.encoding ?? recoveryTab.encoding)
+      recoveryTab.lineEnding = lineEnding
+      recoveryTab.adjustLineEndingOnSave = latestTab.adjustLineEndingOnSave
+      recoveryTab.trimTrailingNewline = latestTab.trimTrailingNewline
+      if (latestTab.wordCount !== undefined) recoveryTab.wordCount = deepClone(latestTab.wordCount)
+      if (latestTab.cursor !== undefined) recoveryTab.cursor = deepClone(latestTab.cursor)
+      if (latestTab.muyaIndexCursor !== undefined) {
+        recoveryTab.muyaIndexCursor = deepClone(latestTab.muyaIndexCursor)
+      }
+      recoveryTab.history = { stack: [], index: -1 }
+      recoveryTab.lastSavedHistoryId = -1
+
+      this.SHOW_TAB_VIEW(false)
+      this.tabs.push(recoveryTab)
+      this.updateTabIdToIndex()
+      debouncedSendBufferedState()
+      return recoveryTab
+    },
+
+    PROMPT_DIRTY_EXTERNAL_RELOAD(tab: IFileState, change: FileChangePayload): void {
+      tab.isSaved = false
+      this.pushTabNotification({
+        tabId: tab.id,
+        msg: t('store.editor.fileChangedOnDisk', { name: tab.filename }),
+        showConfirm: true,
+        exclusiveType: 'file_changed',
+        action: (status) => {
+          if (status) {
+            const recoveryTab = this.CREATE_DIRTY_RELOAD_RECOVERY_TAB(tab)
+            this.pushTabNotification({
+              tabId: tab.id,
+              msg: t('store.editor.fileChangedOnDiskRecoveryCreated', {
+                name: recoveryTab.filename
+              }),
+              showConfirm: false,
+              exclusiveType: 'file_changed_recovery'
+            })
+            sendBufferedState()
+              .catch((err) => {
+                console.error('Failed to flush dirty reload recovery tab:', err)
+              })
+              .finally(() => {
+                this.loadChange(change)
+              })
+          }
+        }
+      })
+    },
+
+    APPLY_DIRTY_EXTERNAL_MERGE(change: FileChangePayload, mergedMarkdown: string): void {
+      const tab = this.tabs.find((t) =>
+        window.fileUtils.isSamePathSync(t.pathname, change.pathname)
+      )
+      if (!tab) return
+
+      const localMarkdownBeforeMerge = tab.markdown
+      const mergedChange: FileChangePayload = {
+        ...change,
+        data: {
+          ...change.data,
+          markdown: mergedMarkdown
+        }
+      }
+      const cleanAfterApply = mergedMarkdown === change.data.markdown
+      this.loadChange(mergedChange)
+
+      const nextTab = this.tabs.find((t) =>
+        window.fileUtils.isSamePathSync(t.pathname, change.pathname)
+      )
+      if (!nextTab) return
+
+      nextTab.diskBaseMarkdown = change.data.markdown
+      if (cleanAfterApply) {
+        markTabSavedAtCurrentHistory(nextTab)
+      } else {
+        nextTab.isSaved = false
+        this.pushTabNotification({
+          tabId: nextTab.id,
+          msg: t('store.editor.fileChangedOnDiskAutoMerged', { name: nextTab.filename }),
+          showConfirm: true,
+          exclusiveType: 'file_changed',
+          action: (status) => {
+            if (!status) return
+
+            this.loadChange({
+              ...change,
+              data: {
+                ...change.data,
+                markdown: localMarkdownBeforeMerge
+              }
+            })
+
+            const restoredTab = this.tabs.find((t) =>
+              window.fileUtils.isSamePathSync(t.pathname, change.pathname)
+            )
+            if (!restoredTab) return
+
+            restoredTab.diskBaseMarkdown = change.data.markdown
+            restoredTab.isSaved = false
+            debouncedSendBufferedState()
+          }
+        })
+      }
+      debouncedSendBufferedState()
+    },
+
+    OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
+      tab: IFileState,
+      change: FileChangePayload,
+      baseMarkdown: string,
+      resultMarkdown: string,
+      conflicts: ThreeWayMergeConflict[]
+    ): void {
+      this.mergeConflict = {
+        tabId: tab.id,
+        pathname: change.pathname,
+        filename: tab.filename,
+        baseMarkdown,
+        localMarkdown: tab.markdown,
+        remoteMarkdown: change.data.markdown,
+        resultMarkdown,
+        conflicts,
+        fileChange: change,
+        validationError: undefined
+      }
+      this.pushTabNotification({
+        tabId: tab.id,
+        msg: t('store.editor.fileChangedOnDiskMergeConflict', { name: tab.filename }),
+        showConfirm: false,
+        style: 'warn',
+        exclusiveType: 'file_changed'
+      })
+      debouncedSendBufferedState()
+    },
+
+    CANCEL_DIRTY_EXTERNAL_MERGE_CONFLICT(): void {
+      this.mergeConflict = null
+      debouncedSendBufferedState()
+    },
+
+    ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(mergedMarkdown: string): void {
+      const conflict = this.mergeConflict
+      if (!conflict) return
+
+      if (
+        introducesNewCommentDiagnostics(
+          mergedMarkdown,
+          conflict.localMarkdown,
+          conflict.remoteMarkdown
+        )
+      ) {
+        this.mergeConflict = {
+          ...conflict,
+          resultMarkdown: mergedMarkdown,
+          validationError: t('editor.mergeConflict.invalidCommentSyntax')
+        }
+        return
+      }
+
+      this.mergeConflict = null
+      this.APPLY_DIRTY_EXTERNAL_MERGE(conflict.fileChange, mergedMarkdown)
+    },
+
+    RELOAD_DISK_FROM_MERGE_CONFLICT(): void {
+      const conflict = this.mergeConflict
+      if (!conflict) return
+
+      const tab = this.tabs.find((t) => t.id === conflict.tabId)
+      this.mergeConflict = null
+      if (!tab) return
+
+      clearExclusiveTabNotification(tab, 'file_changed')
+      const recoveryTab = this.CREATE_DIRTY_RELOAD_RECOVERY_TAB(tab)
+      this.pushTabNotification({
+        tabId: tab.id,
+        msg: t('store.editor.fileChangedOnDiskRecoveryCreated', {
+          name: recoveryTab.filename
+        }),
+        showConfirm: false,
+        exclusiveType: 'file_changed_recovery'
+      })
+      sendBufferedState()
+        .catch((err) => {
+          console.error('Failed to flush dirty reload recovery tab:', err)
+        })
+        .finally(() => {
+          this.loadChange(conflict.fileChange)
+        })
+    },
+
+    RESOLVE_MERGE_CONFLICT_MARKER(conflictId: string, choice: 'local' | 'remote' | 'both'): void {
+      const pending = this.mergeConflict
+      if (!pending) return
+
+      const conflict = pending.conflicts.find((item) => item.id === conflictId)
+      if (!conflict) return
+
+      pending.resultMarkdown = resolveConflictMarker(pending.resultMarkdown, conflict, choice)
+      pending.validationError = undefined
+    },
+
+    HANDLE_DIRTY_EXTERNAL_CHANGE(tab: IFileState, change: FileChangePayload): void {
+      const { data } = change
+      if (typeof tab.diskBaseMarkdown !== 'string') {
+        this.PROMPT_DIRTY_EXTERNAL_RELOAD(tab, change)
+        return
+      }
+
+      const baseMarkdown = tab.diskBaseMarkdown
+      const localMarkdown = tab.markdown
+
+      if (data.markdown === localMarkdown) {
+        if (isSamePersistenceSnapshot(tab, data)) {
+          tab.diskBaseMarkdown = data.markdown
+          markTabSavedAtCurrentHistory(tab)
+          clearExclusiveTabNotification(tab, 'file_changed')
+          debouncedSendBufferedState()
+        } else {
+          this.PROMPT_DIRTY_EXTERNAL_RELOAD(tab, change)
+        }
+        return
+      }
+
+      if (data.markdown === baseMarkdown) {
+        if (isSamePersistenceSnapshot(tab, data)) {
+          clearExclusiveTabNotification(tab, 'file_changed')
+          debouncedSendBufferedState()
+        } else {
+          this.PROMPT_DIRTY_EXTERNAL_RELOAD(tab, change)
+        }
+        return
+      }
+
+      const mergeResult = mergeMarkdownThreeWay({
+        base: baseMarkdown,
+        local: localMarkdown,
+        remote: data.markdown
+      })
+
+      if (mergeResult.conflicts.length === 0) {
+        if (introducesNewCommentDiagnostics(mergeResult.mergedMarkdown, localMarkdown, data.markdown)) {
+          this.OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
+            tab,
+            change,
+            baseMarkdown,
+            mergeResult.mergedMarkdown,
+            []
+          )
+          return
+        }
+
+        this.APPLY_DIRTY_EXTERNAL_MERGE(change, mergeResult.mergedMarkdown)
+        return
+      }
+
+      this.OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
+        tab,
+        change,
+        baseMarkdown,
+        mergeResult.mergedMarkdown,
+        mergeResult.conflicts
+      )
     },
 
     /**
@@ -1421,7 +1812,10 @@ export const useEditorStore = defineStore('editor', {
         return
       }
 
-      const tab = this.tabs[this.tabIdToIndex[id]!]
+      const tabIndex = this.tabIdToIndex[id]
+      if (tabIndex === undefined) return
+
+      const tab = this.tabs[tabIndex]
       if (!tab) return
 
       const { filename, pathname, markdown: oldMarkdown, trimTrailingNewline } = tab
@@ -1525,12 +1919,11 @@ export const useEditorStore = defineStore('editor', {
         }
       }
 
+      const menuState = createApplicationMenuState(changes)
+      bus.emit('editor-add-comment-enabled-changed', menuState.canAddComment)
+
       const { windowId } = window.marktext?.env ?? { windowId: -1 }
-      window.electron.ipcRenderer.send(
-        'mt::editor-selection-changed',
-        windowId,
-        createApplicationMenuState(changes)
-      )
+      window.electron.ipcRenderer.send('mt::editor-selection-changed', windowId, menuState)
     },
 
     // Persist the caret for a tab without the heavy content-change pipeline. A
@@ -1660,16 +2053,15 @@ export const useEditorStore = defineStore('editor', {
     },
 
     LISTEN_FOR_FILE_CHANGE(): void {
-      const preferencesStore = usePreferencesStore()
       window.electron.ipcRenderer.on('mt::update-file', (_, payload) => {
         const { type, change } = payload
         const { tabs } = this
         const { pathname } = change
         const tab = tabs.find((t) => window.fileUtils.isSamePathSync(t.pathname, pathname))
         if (tab) {
-          const { id, isSaved, filename } = tab
           switch (type) {
             case 'unlink': {
+              const { id, filename } = tab
               tab.isSaved = false
               this.pushTabNotification({
                 tabId: id,
@@ -1683,40 +2075,31 @@ export const useEditorStore = defineStore('editor', {
             }
             case 'add':
             case 'change': {
+              bus.emit('flush-active-editor')
+              const { id, isSaved } = tab
               // Only the file's metadata changed on disk (e.g. a git checkout
               // that left the content byte-identical) — there is nothing to
               // reload and no reason to warn the user (#1861).
-              const newMarkdown = (change as unknown as FileChangePayload).data?.markdown
-              if (typeof newMarkdown === 'string' && newMarkdown === tab.markdown) {
+              const changeData = (change as unknown as FileChangePayload).data
+              if (changeData && isSameFileSnapshot(tab, changeData)) {
+                markTabSavedAtCurrentHistory(tab)
+                clearExclusiveTabNotification(tab, 'file_changed')
+                debouncedSendBufferedState()
                 break
               }
 
-              const { autoSave } = preferencesStore
-              if (autoSave) {
-                if (autoSaveTimers.has(id)) {
-                  const timer = autoSaveTimers.get(id)
-                  if (timer) clearTimeout(timer)
-                  autoSaveTimers.delete(id)
-                }
-
-                if (isSaved) {
-                  this.loadChange(change as unknown as FileChangePayload)
-                  return
-                }
+              if (autoSaveTimers.has(id)) {
+                const timer = autoSaveTimers.get(id)
+                if (timer) clearTimeout(timer)
+                autoSaveTimers.delete(id)
               }
 
-              tab.isSaved = false
-              this.pushTabNotification({
-                tabId: id,
-                msg: t('store.editor.fileChangedOnDisk', { name: filename }),
-                showConfirm: true,
-                exclusiveType: 'file_changed',
-                action: (status) => {
-                  if (status) {
-                    this.loadChange(change as unknown as FileChangePayload)
-                  }
-                }
-              })
+              if (isSaved) {
+                this.loadChange(change as unknown as FileChangePayload)
+                return
+              }
+
+              this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, change as unknown as FileChangePayload)
               debouncedSendBufferedState()
               break
             }
@@ -1773,6 +2156,7 @@ export const useEditorStore = defineStore('editor', {
         bus.emit('insertParagraph', location)
       })
       window.electron.ipcRenderer.on('mt::cm-add-comment', () => {
+        if (!latestAddCommentEnabled) return
         bus.emit('addComment')
       })
 
@@ -1814,10 +2198,7 @@ const getRootFolderFromState = (projectStore: ProjectStoreLike): string => {
  * @param markdown The text to trim.
  * @param trimTrailingNewlineOption The option how we should trim the final newlines.
  */
-const adjustTrailingNewlines = (
-  markdown: string,
-  trimTrailingNewlineOption: number
-): string => {
+const adjustTrailingNewlines = (markdown: string, trimTrailingNewlineOption: number): string => {
   if (!markdown) {
     return ''
   }
@@ -1873,7 +2254,63 @@ interface ApplicationMenuState {
   isCodeContent: boolean
   isTable: boolean
   hasFrontMatter: boolean
+  canAddComment: boolean
   affiliation: Record<string, boolean>
+}
+
+const hasNonWhitespaceSelection = (
+  start: SelectionChange['start'],
+  end: SelectionChange['end']
+): boolean => {
+  if (start.key !== end.key) return true
+  const text = start.block?.text
+  if (typeof text !== 'string') return true
+
+  const from = Math.min(start.offset, end.offset)
+  const to = Math.max(start.offset, end.offset)
+  return text.slice(from, to).trim().length > 0
+}
+
+const rangeIntersectsInlineCode = (text: string, from: number, to: number): boolean => {
+  let cursor = 0
+  while (cursor < text.length) {
+    const start = text.indexOf('`', cursor)
+    if (start < 0) return false
+
+    let tickCount = 1
+    while (text[start + tickCount] === '`') tickCount += 1
+
+    const marker = '`'.repeat(tickCount)
+    const end = text.indexOf(marker, start + tickCount)
+    if (end < 0) return false
+
+    if (from < end + tickCount && to > start) return true
+    cursor = end + tickCount
+  }
+
+  return false
+}
+
+const selectionIntersectsInlineCode = (
+  start: SelectionChange['start'],
+  end: SelectionChange['end']
+): boolean => {
+  const startText = (start.block as { text?: unknown } | undefined)?.text
+  const endText = (end.block as { text?: unknown } | undefined)?.text
+  if (typeof startText !== 'string' || typeof endText !== 'string') return false
+
+  if (start.key === end.key) {
+    return rangeIntersectsInlineCode(
+      startText,
+      Math.min(start.offset, end.offset),
+      Math.max(start.offset, end.offset)
+    )
+  }
+
+  return (
+    rangeIntersectsInlineCode(startText, start.offset, startText.length) ||
+    rangeIntersectsInlineCode(endText, 0, end.offset)
+  )
 }
 
 /**
@@ -1902,13 +2339,14 @@ const createApplicationMenuState = ({
     // Whether the selection contains a table.
     isTable: false,
     hasFrontMatter: !!hasFrontMatter,
+    canAddComment: false,
     // Contains keys about the selection type(s) (string, boolean) like "ul: true".
     affiliation: {}
   }
   const { isMultiline } = state
   const aff: AffiliationEntry[] = affiliation ?? []
   const startBlock: { text?: string; functionType?: string } = start.block ?? {}
-  const endBlock: { functionType?: string } = end.block ?? {}
+  const endBlock: { text?: string; functionType?: string } = end.block ?? {}
 
   // Get code block information from selection.
   if (
@@ -1924,6 +2362,17 @@ const createApplicationMenuState = ({
       state.isCodeContent = true
     }
   }
+
+  const isCommentMetadataSelection =
+    (typeof startBlock.text === 'string' && !!parseCommentMetadataDefinition(startBlock.text)) ||
+    (typeof endBlock.text === 'string' && !!parseCommentMetadataDefinition(endBlock.text))
+
+  state.canAddComment =
+    (start.key !== end.key || start.offset !== end.offset) &&
+    hasNonWhitespaceSelection(start, end) &&
+    !state.isCodeFences &&
+    !isCommentMetadataSelection &&
+    !selectionIntersectsInlineCode(start, end)
 
   // Check every list level in the affiliation chain — nested lists show all
   // levels (e.g. a ul wrapping an ol checks both). Scanning the full chain (not
@@ -1990,9 +2439,7 @@ const createApplicationMenuState = ({
 /**
  * Creates a object that contains the formats selection state.
  */
-export const createSelectionFormatState = (
-  formats: SelectionFormat[]
-): Record<string, boolean> => {
+export const createSelectionFormatState = (formats: SelectionFormat[]): Record<string, boolean> => {
   const state: Record<string, boolean> = {}
   for (const item of formats) {
     // Underline/superscript/subscript/highlight are carried as `html_tag`
@@ -2025,6 +2472,7 @@ interface BufferedTabState {
   pathname: string
   filename: string
   markdown: string
+  diskBaseMarkdown: string
   isSaved: boolean
   encoding: IFileState['encoding']
   lineEnding: IFileState['lineEnding']
@@ -2042,6 +2490,12 @@ const createBufferedTabState = (tab: Partial<IFileState> & { id: string }): Buff
     pathname: tab.pathname ?? defaultFileState.pathname,
     filename: tab.filename ?? defaultFileState.filename,
     markdown: typeof tab.markdown === 'string' ? tab.markdown : defaultFileState.markdown,
+    diskBaseMarkdown:
+      typeof tab.diskBaseMarkdown === 'string'
+        ? tab.diskBaseMarkdown
+        : typeof tab.markdown === 'string'
+          ? tab.markdown
+          : defaultFileState.markdown,
     isSaved: tab.isSaved ?? defaultFileState.isSaved,
     encoding: toSerializableValue(tab.encoding, defaultFileState.encoding),
     lineEnding: tab.lineEnding ?? defaultFileState.lineEnding,

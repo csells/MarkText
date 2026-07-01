@@ -84,6 +84,9 @@ const executeCommand = (root: Root, commandId: string): void => {
     log.error(errorMsg)
     throw new Error(errorMsg)
   }
+  if (command.isEnabled?.() === false) {
+    return
+  }
   command.execute?.()
 }
 

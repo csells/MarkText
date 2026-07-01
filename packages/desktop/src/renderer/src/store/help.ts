@@ -20,6 +20,7 @@ const defaultFileStateWithoutId = {
   pathname: '',
   filename: 'Untitled-1',
   markdown: '',
+  diskBaseMarkdown: '',
   encoding: {
     encoding: 'utf8',
     isBom: false
@@ -73,6 +74,7 @@ const documentStateKeys = [
   'pathname',
   'filename',
   'markdown',
+  'diskBaseMarkdown',
   'encoding',
   'lineEnding',
   'trimTrailingNewline',
@@ -119,6 +121,7 @@ export const getBlankFileState = (
     id,
     filename: `${defaultFilenamePrefix}-${++untitleId}`,
     markdown,
+    diskBaseMarkdown: markdown,
     // The freshly-loaded document IS its on-disk/clean baseline. The engine
     // clears its undo history on `setContent`, so the baseline undo-stack depth
     // (the synthetic save-tracking id) is 0. Seeding `lastSavedHistoryId` to 0
@@ -147,6 +150,8 @@ export const createDocumentState = (
   }
 
   return Object.assign(docState, {
+    diskBaseMarkdown:
+      typeof src.diskBaseMarkdown === 'string' ? src.diskBaseMarkdown : docState.markdown,
     id,
     // See `getBlankFileState`: the loaded document is its own clean baseline and
     // the engine's baseline undo-stack depth (the synthetic id) is 0.

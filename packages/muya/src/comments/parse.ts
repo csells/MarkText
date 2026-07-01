@@ -1,5 +1,5 @@
 import type { TBlockPath } from '../block/types';
-import type { CommentMarkerToken, Token } from '../inlineRenderer/types';
+import type { CommentMarkerToken, HTMLTagToken, Token } from '../inlineRenderer/types';
 import type { TState } from '../state/types';
 import type {
     ICommentDiagnostic,
@@ -11,7 +11,11 @@ import type {
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
 import { decodeCommentMetadata } from './metadata';
-import { parseCommentMetadataDefinition } from './syntax';
+import {
+    COMMENT_MARKER_PATTERN,
+    parseCommentMetadataDefinition,
+    parseMalformedCommentMarker,
+} from './syntax';
 
 interface IOpenMarker {
     id: string;
@@ -33,13 +37,17 @@ function isTextState(state: TState): state is Extract<TState, { text: string }> 
     return 'text' in state && typeof state.text === 'string';
 }
 
+const NON_INLINE_COMMENT_TEXT_STATES = new Set<TState['name']>([
+    'code-block',
+    'diagram',
+    'frontmatter',
+    'html-block',
+    'math-block',
+    'thematic-break',
+]);
+
 function shouldScanInlineText(state: TState): state is Extract<TState, { text: string }> {
-    return (
-        state.name === 'paragraph'
-        || state.name === 'atx-heading'
-        || state.name === 'setext-heading'
-        || state.name === 'table.cell'
-    );
+    return isTextState(state) && !NON_INLINE_COMMENT_TEXT_STATES.has(state.name);
 }
 
 function flatten(tokens: Token[]): Token[] {
@@ -54,29 +62,64 @@ function isCommentMarkerToken(token: Token): token is CommentMarkerToken {
     return token.type === 'comment_marker';
 }
 
-function commentMarkerTokens(text: string): CommentMarkerToken[] {
+function isHtmlTagToken(token: Token): token is HTMLTagToken {
+    return token.type === 'html_tag';
+}
+
+function commentSyntaxTokens(text: string): Token[] {
     return flatten(
         tokenizer(text, {
             hasBeginRules: false,
             options: { superSubScript: true, footnote: false },
         }),
-    ).filter(isCommentMarkerToken);
+    ).filter(token => isCommentMarkerToken(token) || isHtmlTagToken(token));
 }
 
 function markdownToStates(markdownOrStates: string | TState[]) {
     if (typeof markdownOrStates !== 'string')
         return markdownOrStates;
 
-    return new MarkdownToState().generate(markdownOrStates);
+    const markdown = markdownOrStates.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n');
+    return new MarkdownToState().generate(markdown);
+}
+
+function pathKey(path: TBlockPath): string {
+    return JSON.stringify(path);
+}
+
+function selectedTextPreview(
+    textEntries: Array<{ path: TBlockPath; text: string }>,
+    open: IOpenMarker,
+    close: ICloseMarker,
+): string {
+    const startKey = pathKey(open.path);
+    const endKey = pathKey(close.path);
+    const startIndex = textEntries.findIndex(entry => pathKey(entry.path) === startKey);
+    const endIndex = textEntries.findIndex(entry => pathKey(entry.path) === endKey);
+    if (startIndex < 0 || endIndex < 0 || startIndex > endIndex)
+        return '';
+
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+    const parts: string[] = [];
+    for (let index = startIndex; index <= endIndex; index += 1) {
+        const entry = textEntries[index];
+        const startOffset = index === startIndex ? open.endOffset : 0;
+        const endOffset = index === endIndex ? close.startOffset : entry.text.length;
+        parts.push(entry.text.slice(startOffset, endOffset).replace(markerRegExp, ''));
+    }
+
+    return parts.join(' ').replace(/\s+/gu, ' ').trim();
 }
 
 export function parseMarkdownComments(markdownOrStates: string | TState[]): IParsedMarkdownComments {
     const states = markdownToStates(markdownOrStates);
     const diagnostics: ICommentDiagnostic[] = [];
     const ranges: ICommentRange[] = [];
+    const textEntries: Array<{ path: TBlockPath; text: string }> = [];
     const openMarkers = new Map<string, IOpenMarker>();
     const ignoredDuplicateOpenMarkers = new Map<string, number>();
     const rangeIds = new Set<string>();
+    const seenMetadataIds = new Set<string>();
     const metadataById = new Map<string, ICommentMetadata>();
 
     const recordClose = (close: ICloseMarker) => {
@@ -88,6 +131,15 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
                     ignoredDuplicateOpenMarkers.delete(close.id);
                 else
                     ignoredDuplicateOpenMarkers.set(close.id, ignoredCount - 1);
+                return;
+            }
+
+            if (rangeIds.has(close.id)) {
+                diagnostics.push(diagnostic(
+                    'duplicate-close-marker',
+                    close.id,
+                    `Found duplicate closing marker for comment "${close.id}".`,
+                ));
                 return;
             }
 
@@ -105,6 +157,7 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
             endPath: close.path,
             startOffset: open.endOffset,
             endOffset: close.startOffset,
+            preview: selectedTextPreview(textEntries, open, close),
         });
         rangeIds.add(close.id);
         openMarkers.delete(close.id);
@@ -113,17 +166,19 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
     const scanText = (text: string, path: TBlockPath) => {
         const metadata = parseCommentMetadataDefinition(text);
         if (metadata) {
-            if (metadataById.has(metadata.id)) {
+            if (seenMetadataIds.has(metadata.id)) {
                 diagnostics.push(diagnostic(
                     'duplicate-metadata',
                     metadata.id,
                     `Found duplicate metadata definition for comment "${metadata.id}".`,
                 ));
-                return;
             }
+            seenMetadataIds.add(metadata.id);
 
             try {
-                metadataById.set(metadata.id, decodeCommentMetadata(metadata.dataUri));
+                const decoded = decodeCommentMetadata(metadata.dataUri);
+                if (!metadataById.has(metadata.id))
+                    metadataById.set(metadata.id, decoded);
             }
             catch (error) {
                 diagnostics.push(diagnostic(
@@ -135,7 +190,19 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
             return;
         }
 
-        for (const token of commentMarkerTokens(text)) {
+        for (const token of commentSyntaxTokens(text)) {
+            if (!isCommentMarkerToken(token)) {
+                const malformed = parseMalformedCommentMarker(token.raw);
+                if (malformed) {
+                    diagnostics.push(diagnostic(
+                        'malformed-marker',
+                        malformed.id,
+                        `Found malformed comment ${malformed.kind} marker "${malformed.raw}".`,
+                    ));
+                }
+                continue;
+            }
+
             if (token.markerKind === 'open') {
                 if (openMarkers.has(token.markerId) || rangeIds.has(token.markerId)) {
                     diagnostics.push(diagnostic(
@@ -169,8 +236,10 @@ export function parseMarkdownComments(markdownOrStates: string | TState[]): IPar
     const visit = (nodes: TState[], path: TBlockPath = []) => {
         nodes.forEach((state, index) => {
             const statePath = [...path, index];
-            if (isTextState(state) && shouldScanInlineText(state))
+            if (isTextState(state) && shouldScanInlineText(state)) {
+                textEntries.push({ path: [...statePath, 'text'], text: state.text });
                 scanText(state.text, [...statePath, 'text']);
+            }
 
             if ('children' in state && Array.isArray(state.children))
                 visit(state.children, [...statePath, 'children']);

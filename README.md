@@ -120,7 +120,7 @@ MarkText is an open-source Markdown editor powered by the support of its communi
 - Output **HTML** and **PDF** files.
 - Various [themes](https://marktext.me/docs/themes): **Cadmium Light**, **Material Dark** etc.
 - Various editing modes: **Source Code mode**, **Typewriter mode**, **Focus mode**.
-- Portable inline comments for local-first Markdown review workflows.
+- Portable inline comments for local-first Markdown review workflows, with comment data stored directly in the `.md` file for Git and agent-friendly collaboration.
 - Paste images directly from clipboard.
 
 ## Download and Installation

@@ -8,6 +8,7 @@ export type {
   ICommentMetadata,
   ICommentReplyInput,
   ICommentThread,
+  TCommentDisplayMetadata,
   TCommentStatus,
   TUpdateCommentThreadPatch
 } from '../../../packages/muya/src/comments'

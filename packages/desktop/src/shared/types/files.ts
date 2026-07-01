@@ -72,6 +72,7 @@ export interface IFileState {
   // missing entirely. Always a string at runtime now.
   pathname: string
   markdown: string
+  diskBaseMarkdown?: string
   isSaved: boolean
   encoding: FileEncoding
   lineEnding: LineEnding | string

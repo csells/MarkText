@@ -3,9 +3,53 @@ import type TreeNode from '../block/base/treeNode';
 import type { IHighlight } from '../inlineRenderer/types';
 import type { Muya } from '../muya';
 import type { IMatch } from './types';
-import { maskCommentSyntaxForSearch } from '../comments/syntax';
+import {
+    COMMENT_MARKER_PATTERN,
+    COMMENT_MARKER_SEARCH_REGEXP,
+    createCommentSearchText,
+} from '../comments/syntax';
 import { DEFAULT_SEARCH_OPTIONS } from '../config';
 import { buildRegexValue, matchString } from '../utils/search';
+
+function rawRangeForSearchMatch(rawIndexBySearchIndex: number[], index: number, length: number) {
+    const start = rawIndexBySearchIndex[index];
+    const end = rawIndexBySearchIndex[index + length - 1];
+
+    if (start == null || end == null)
+        return null;
+
+    return { start, end: end + 1 };
+}
+
+function replaceVisibleTextPreservingCommentMarkers(rawText: string, replacement: string): string {
+    COMMENT_MARKER_SEARCH_REGEXP.lastIndex = 0;
+    if (!COMMENT_MARKER_SEARCH_REGEXP.test(rawText))
+        return replacement;
+
+    const markers: Array<{ raw: string; visibleOffset: number }> = [];
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+    let visibleOffset = 0;
+    let lastIndex = 0;
+
+    for (const match of rawText.matchAll(markerRegExp)) {
+        visibleOffset += match.index - lastIndex;
+        markers.push({
+            raw: match[0],
+            visibleOffset,
+        });
+        lastIndex = match.index + match[0].length;
+    }
+
+    let result = replacement;
+    let insertedLength = 0;
+    for (const marker of markers) {
+        const offset = Math.min(marker.visibleOffset, replacement.length) + insertedLength;
+        result = `${result.slice(0, offset)}${marker.raw}${result.slice(offset)}`;
+        insertedLength += marker.raw.length;
+    }
+
+    return result;
+}
 
 export class Search {
     private _value: string = '';
@@ -84,11 +128,18 @@ export class Search {
             }
 
             tempText += block.text.substring(lastEnd, start);
-            tempText += value;
+            tempText += replaceVisibleTextPreservingCommentMarkers(
+                block.text.substring(start, end),
+                value,
+            );
             lastEnd = end;
         }
 
         lastBlock.text = tempText + lastBlock.text.substring(lastEnd);
+    }
+
+    private _canReplaceMatch(match: IMatch): boolean {
+        return !!match.block.text.slice(match.start, match.end);
     }
 
     replace(replaceValue: string, opt = { isSingle: true, isRegexp: false }) {
@@ -103,11 +154,13 @@ export class Search {
 
             if (isSingle) {
                 // replace one
-                this._innerReplace([matches[index]], replaceValue);
+                const activeMatch = matches[index];
+                if (activeMatch && this._canReplaceMatch(activeMatch))
+                    this._innerReplace([activeMatch], replaceValue);
             }
             else {
                 // replace all
-                this._innerReplace(matches, replaceValue);
+                this._innerReplace(matches.filter(match => this._canReplaceMatch(match)), replaceValue);
             }
             const highlightIndex = index < matches.length - 1 ? index : index - 1;
 
@@ -173,21 +226,30 @@ export class Search {
                 if (block.isContent()) {
                     const { text } = block;
                     if (text && typeof text === 'string') {
+                        const searchText = createCommentSearchText(text);
                         const strMatches = matchString(
-                            maskCommentSyntaxForSearch(text),
+                            searchText.text,
                             value,
                             options,
                         );
                         matches.push(
                             ...strMatches.map(({ index, match, subMatches }) => {
+                                const range = rawRangeForSearchMatch(
+                                    searchText.rawIndexBySearchIndex,
+                                    index,
+                                    match.length,
+                                );
+                                if (!range)
+                                    return null;
+
                                 return {
                                     block,
-                                    start: index,
-                                    end: index + match.length,
+                                    start: range.start,
+                                    end: range.end,
                                     match,
                                     subMatches,
                                 };
-                            }),
+                            }).filter((match): match is IMatch => !!match),
                         );
                     }
                 }

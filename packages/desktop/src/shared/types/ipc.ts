@@ -118,6 +118,7 @@ export interface IpcSendChannels {
   'mt::cmd-open-file': []
   'mt::cmd-open-folder': []
   'mt::cmd-toggle-autosave': []
+  'mt::editor-add-comment-selection-changed': [windowId: number, enabled: boolean]
   'mt::editor-selection-changed': [windowId: number, state: unknown]
   'mt::format-link-click': [payload: { data: unknown; dirname: string }]
   'mt::get-current-language': []

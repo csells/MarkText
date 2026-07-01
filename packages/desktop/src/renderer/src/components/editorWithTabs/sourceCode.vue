@@ -14,6 +14,7 @@ import { findMarkdownHeadingLine, scrollSourceEditorToLine } from '@/util/source
 import { storeToRefs } from 'pinia'
 import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMirror'
 import {
+  COMMENT_METADATA_DATA_URI_PREFIX,
   COMMENT_MARKER_PATTERN,
   createCommentMetadata,
   decodeCommentMetadata,
@@ -51,6 +52,21 @@ interface SourceCommentIndexRange {
   end: number
 }
 
+interface SourceCommentSyntaxIndexRange {
+  start: number
+  end: number
+}
+
+interface SourceCommentCandidate {
+  id: string
+  range: SourceCommentRange
+}
+
+interface SourceSelectionSnapshot {
+  anchor: CMPosition
+  focus: CMPosition
+}
+
 interface MuyaIndexCursorLike {
   anchor: CMCursor
   focus: CMCursor
@@ -80,6 +96,29 @@ const isValidMuyaIndexCursor = (cursor: unknown): cursor is MuyaIndexCursorLike 
   const c = cursor as MuyaIndexCursorLike | null | undefined
   return !!(c && c.anchor && c.focus)
 }
+
+const clampSourceCursor = (cm: CMInstance, cursor: CMPosition): CMPosition => {
+  const lastLine = Math.max(0, cm.lineCount() - 1)
+  const line = Math.min(Math.max(cursor.line, 0), lastLine)
+  const lineText = cm.getLine(line) ?? ''
+  return {
+    line,
+    ch: Math.min(Math.max(cursor.ch, 0), lineText.length)
+  }
+}
+
+const restoreSourceSelection = (cm: CMInstance, selection: SourceSelectionSnapshot): void => {
+  cm.setSelection(
+    clampSourceCursor(cm, selection.anchor),
+    clampSourceCursor(cm, selection.focus),
+    { scroll: false }
+  )
+}
+
+const cloneSourceCursor = (cursor: CMPosition): CMPosition => ({
+  line: cursor.line,
+  ch: cursor.ch
+})
 
 watch(
   () => props.textDirection,
@@ -162,7 +201,15 @@ const handleFileChange = (payload: unknown) => {
   // fresh markdown from disk would otherwise overwrite uncommitted edits.
   const isSameTabReload = tabId.value && tabId.value === id
   const scrollTargets: Array<{ el: HTMLElement; top: number }> = []
+  let sourceSelection: SourceSelectionSnapshot | null = null
   if (isSameTabReload) {
+    const cursor = cloneSourceCursor(editor.value.getCursor())
+    sourceSelection = editor.value.somethingSelected?.()
+      ? {
+          anchor: cloneSourceCursor(editor.value.getCursor('anchor')),
+          focus: cloneSourceCursor(editor.value.getCursor('head'))
+        }
+      : { anchor: cursor, focus: cursor }
     const seen = new Set<HTMLElement>()
     const consider = (el: HTMLElement | null | undefined) => {
       if (el && !seen.has(el)) {
@@ -189,22 +236,32 @@ const handleFileChange = (payload: unknown) => {
     tabId.value = id
   }
 
+  const restoreSameTabSourceView = () => {
+    if (sourceSelection && editor.value) restoreSourceSelection(editor.value, sourceSelection)
+    for (const { el, top } of scrollTargets) el.scrollTop = top
+  }
+
   if (typeof newMarkdown === 'string') {
-    editor.value.setValue(newMarkdown)
+    if (sourceSelection) {
+      editor.value.operation(() => {
+        editor.value.setValue(newMarkdown)
+        restoreSourceSelection(editor.value, sourceSelection)
+      })
+    } else {
+      editor.value.setValue(newMarkdown)
+    }
   }
 
   // t('editor.sourceCode.cursorNullComment')
-  if (isValidMuyaIndexCursor(muyaIndexCursor)) {
+  if (!isSameTabReload && isValidMuyaIndexCursor(muyaIndexCursor)) {
     const { anchor, focus } = muyaIndexCursor
 
     editor.value.setSelection(anchor, focus, { scroll: true }) // Scroll the focus into view.
   } else if (scrollTargets.length) {
-    const restoreScroll = () => {
-      for (const { el, top } of scrollTargets) el.scrollTop = top
-    }
-    restoreScroll()
-    nextTick(restoreScroll)
-    requestAnimationFrame(restoreScroll)
+    restoreSameTabSourceView()
+    nextTick(restoreSameTabSourceView)
+    requestAnimationFrame(restoreSameTabSourceView)
+    window.setTimeout(restoreSameTabSourceView, 0)
   } else {
     setCursorAtFirstLine(editor.value)
   }
@@ -297,13 +354,265 @@ const sourceLineEnding = (markdown: string): string => {
 const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 
-const sourceCommentIndexRanges = (markdown: string): SourceCommentIndexRange[] => {
+const COMMENT_METADATA_LINE_REGEXP = new RegExp(
+  `^( {0,3}\\[MC:([^\\]\\s]+)\\]:\\s*)(${escapeRegExp(
+    COMMENT_METADATA_DATA_URI_PREFIX
+  )}\\S*)(\\s*)$`
+)
+const SOURCE_COMMENT_MARKER_START_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u')
+
+const lineEndLength = (rawLine: string): number => {
+  const match = /(?:\r\n|\n|\r)$/u.exec(rawLine)
+  return match ? match[0].length : 0
+}
+
+const sourceFencedCodeIndexRanges = (markdown: string): SourceCommentSyntaxIndexRange[] => {
+  const ranges: SourceCommentSyntaxIndexRange[] = []
+  const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
+  let lineMatch: RegExpExecArray | null
+  let fence:
+    | {
+      char: '`' | '~'
+      length: number
+      start: number
+    }
+    | null = null
+
+  while ((lineMatch = lineRegExp.exec(markdown))) {
+    const rawLine = lineMatch[0]
+    if (rawLine.length === 0) break
+
+    const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine))
+    if (fence) {
+      const closing = /^( {0,3})(`{3,}|~{3,})(?:[ \t]*)$/u.exec(lineText)
+      if (
+        closing &&
+        closing[2][0] === fence.char &&
+        closing[2].length >= fence.length
+      ) {
+        ranges.push({ start: fence.start, end: lineMatch.index + rawLine.length })
+        fence = null
+      }
+      continue
+    }
+
+    const opening = /^( {0,3})(`{3,}|~{3,})/u.exec(lineText)
+    if (opening) {
+      fence = {
+        char: opening[2][0] as '`' | '~',
+        length: opening[2].length,
+        start: lineMatch.index
+      }
+    }
+  }
+
+  if (fence) ranges.push({ start: fence.start, end: markdown.length })
+  return ranges
+}
+
+const sourceInlineCodeIndexRanges = (
+  markdown: string,
+  ignoredRanges: SourceCommentSyntaxIndexRange[]
+): SourceCommentSyntaxIndexRange[] => {
+  const ranges: SourceCommentSyntaxIndexRange[] = []
+  const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
+  let lineMatch: RegExpExecArray | null
+
+  while ((lineMatch = lineRegExp.exec(markdown))) {
+    const rawLine = lineMatch[0]
+    if (rawLine.length === 0) break
+    if (indexInsideRanges(lineMatch.index, ignoredRanges)) continue
+
+    const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine))
+    let cursor = 0
+    while (cursor < lineText.length) {
+      const start = lineText.indexOf('`', cursor)
+      if (start < 0) break
+
+      let tickCount = 1
+      while (lineText[start + tickCount] === '`') tickCount += 1
+
+      const marker = '`'.repeat(tickCount)
+      const end = lineText.indexOf(marker, start + tickCount)
+      if (end < 0) break
+
+      ranges.push({
+        start: lineMatch.index + start,
+        end: lineMatch.index + end + tickCount
+      })
+      cursor = end + tickCount
+    }
+  }
+
+  return ranges
+}
+
+const indexInsideRanges = (index: number, ranges: SourceCommentSyntaxIndexRange[]): boolean =>
+  ranges.some(range => index >= range.start && index < range.end)
+
+const rangesOverlap = (
+  start: number,
+  end: number,
+  ranges: SourceCommentSyntaxIndexRange[]
+): boolean =>
+  ranges.some(range => start < range.end && end > range.start)
+
+const sourceFrontMatterIndexRanges = (markdown: string): SourceCommentSyntaxIndexRange[] => {
+  const opening = /^(---|\+\+\+)[ \t]*(?:\r\n|\n|\r)/u.exec(markdown)
+  if (!opening) return []
+
+  const marker = opening[1]
+  const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
+  lineRegExp.lastIndex = opening[0].length
+  let lineMatch: RegExpExecArray | null
+  while ((lineMatch = lineRegExp.exec(markdown))) {
+    const rawLine = lineMatch[0]
+    if (rawLine.length === 0) break
+
+    const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine))
+    if (lineText.trim() === marker) {
+      return [{ start: 0, end: lineMatch.index + rawLine.length }]
+    }
+  }
+
+  return [{ start: 0, end: markdown.length }]
+}
+
+const sourceMathBlockIndexRanges = (
+  markdown: string,
+  ignoredRanges: SourceCommentSyntaxIndexRange[]
+): SourceCommentSyntaxIndexRange[] => {
+  const ranges: SourceCommentSyntaxIndexRange[] = []
+  const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
+  let lineMatch: RegExpExecArray | null
+  let start: number | null = null
+
+  while ((lineMatch = lineRegExp.exec(markdown))) {
+    const rawLine = lineMatch[0]
+    if (rawLine.length === 0) break
+    if (indexInsideRanges(lineMatch.index, ignoredRanges)) continue
+
+    const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine))
+    if (!/^ {0,3}\$\$[ \t]*$/u.test(lineText)) continue
+
+    if (start == null) {
+      start = lineMatch.index
+    } else {
+      ranges.push({ start, end: lineMatch.index + rawLine.length })
+      start = null
+    }
+  }
+
+  if (start != null) ranges.push({ start, end: markdown.length })
+  return ranges
+}
+
+const sourceHtmlBlockIndexRanges = (
+  markdown: string,
+  ignoredRanges: SourceCommentSyntaxIndexRange[]
+): SourceCommentSyntaxIndexRange[] => {
+  const ranges: SourceCommentSyntaxIndexRange[] = []
+  const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
+  let lineMatch: RegExpExecArray | null
+  let start: number | null = null
+  let closing: RegExp | null = null
+
+  while ((lineMatch = lineRegExp.exec(markdown))) {
+    const rawLine = lineMatch[0]
+    if (rawLine.length === 0) break
+    if (indexInsideRanges(lineMatch.index, ignoredRanges)) continue
+
+    const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine))
+    const trimmed = lineText.trim()
+    if (start != null) {
+      if (!trimmed || closing?.test(trimmed)) {
+        ranges.push({ start, end: lineMatch.index + rawLine.length })
+        start = null
+        closing = null
+      }
+      continue
+    }
+
+    if (/^<!--/u.test(trimmed)) {
+      if (SOURCE_COMMENT_MARKER_START_REGEXP.test(trimmed)) continue
+
+      if (/-->/u.test(trimmed)) {
+        ranges.push({ start: lineMatch.index, end: lineMatch.index + rawLine.length })
+      } else {
+        start = lineMatch.index
+        closing = /-->/u
+      }
+      continue
+    }
+
+    const tag = /^<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s|>|\/>)/u.exec(trimmed)
+    if (!tag) continue
+
+    if (new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu').test(trimmed) || /\/>\s*$/u.test(trimmed)) {
+      ranges.push({ start: lineMatch.index, end: lineMatch.index + rawLine.length })
+    } else {
+      start = lineMatch.index
+      closing = new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu')
+    }
+  }
+
+  if (start != null) ranges.push({ start, end: markdown.length })
+  return ranges
+}
+
+const sourceIndentedCodeIndexRanges = (
+  markdown: string,
+  ignoredRanges: SourceCommentSyntaxIndexRange[]
+): SourceCommentSyntaxIndexRange[] => {
+  const ranges: SourceCommentSyntaxIndexRange[] = []
+  const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
+  let lineMatch: RegExpExecArray | null
+
+  while ((lineMatch = lineRegExp.exec(markdown))) {
+    const rawLine = lineMatch[0]
+    if (rawLine.length === 0) break
+    if (indexInsideRanges(lineMatch.index, ignoredRanges)) continue
+
+    const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine))
+    if (/^(?: {4,}|\t)/u.test(lineText)) {
+      ranges.push({ start: lineMatch.index, end: lineMatch.index + rawLine.length })
+    }
+  }
+
+  return ranges
+}
+
+const sourceCommentIgnoredIndexRanges = (markdown: string): SourceCommentSyntaxIndexRange[] => {
+  const frontMatterRanges = sourceFrontMatterIndexRanges(markdown)
+  const fencedRanges = sourceFencedCodeIndexRanges(markdown)
+  const blockRanges = [
+    ...frontMatterRanges,
+    ...fencedRanges,
+    ...sourceMathBlockIndexRanges(markdown, [...frontMatterRanges, ...fencedRanges])
+  ]
+  const htmlRanges = sourceHtmlBlockIndexRanges(markdown, blockRanges)
+  const blockAndHtmlRanges = [...blockRanges, ...htmlRanges]
+  const indentedRanges = sourceIndentedCodeIndexRanges(markdown, blockAndHtmlRanges)
+  const blockIgnoredRanges = [...blockAndHtmlRanges, ...indentedRanges]
+
+  return [
+    ...blockIgnoredRanges,
+    ...sourceInlineCodeIndexRanges(markdown, blockIgnoredRanges)
+  ]
+}
+
+const sourceCommentIndexRanges = (
+  markdown: string,
+  ignoredRanges = sourceCommentIgnoredIndexRanges(markdown)
+): SourceCommentIndexRange[] => {
   const ranges: SourceCommentIndexRange[] = []
   const openMarkers = new Map<string, number>()
   const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'g')
   let markerMatch: RegExpExecArray | null
 
   while ((markerMatch = markerRegExp.exec(markdown))) {
+    if (indexInsideRanges(markerMatch.index, ignoredRanges)) continue
+
     const id = markerMatch[2]
     if (!id) continue
 
@@ -323,6 +632,97 @@ const sourceCommentIndexRanges = (markdown: string): SourceCommentIndexRange[] =
   }
 
   return ranges
+}
+
+const sourceCommentDiagnosticSyntaxRange = (
+  markdown: string,
+  id: string
+): SourceCommentSyntaxIndexRange | null => {
+  const markerRegExp = new RegExp(`<!--MC:~?${escapeRegExp(id)}-->`, 'g')
+  const markerMatch = markerRegExp.exec(markdown)
+  if (markerMatch) {
+    return {
+      start: markerMatch.index,
+      end: markerMatch.index + markerMatch[0].length
+    }
+  }
+
+  const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
+  let lineMatch: RegExpExecArray | null
+  while ((lineMatch = lineRegExp.exec(markdown))) {
+    const rawLine = lineMatch[0]
+    if (rawLine.length === 0) break
+
+    const lineText = rawLine.replace(/(?:\r\n|\n|\r)$/u, '')
+    const metadata = parseCommentMetadataDefinition(lineText)
+    if (metadata?.id === id) {
+      return {
+        start: lineMatch.index,
+        end: lineMatch.index + lineText.length
+      }
+    }
+  }
+
+  return null
+}
+
+const sourceCommentSyntaxIndexRanges = (markdown: string): SourceCommentSyntaxIndexRange[] => {
+  const ranges: SourceCommentSyntaxIndexRange[] = []
+  const ignoredRanges = sourceCommentIgnoredIndexRanges(markdown)
+  const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'g')
+  let markerMatch: RegExpExecArray | null
+
+  while ((markerMatch = markerRegExp.exec(markdown))) {
+    if (indexInsideRanges(markerMatch.index, ignoredRanges)) continue
+
+    ranges.push({
+      start: markerMatch.index,
+      end: markerMatch.index + markerMatch[0].length
+    })
+  }
+
+  const lineRegExp = /[^\r\n]*(?:\r\n|\n|\r|$)/gu
+  let lineMatch: RegExpExecArray | null
+  while ((lineMatch = lineRegExp.exec(markdown))) {
+    const rawLine = lineMatch[0]
+    if (rawLine.length === 0) break
+
+    const lineText = rawLine.replace(/(?:\r\n|\n|\r)$/u, '')
+    if (indexInsideRanges(lineMatch.index, ignoredRanges)) continue
+
+    if (parseCommentMetadataDefinition(lineText)) {
+      ranges.push({
+        start: lineMatch.index,
+        end: lineMatch.index + lineText.length
+      })
+    }
+  }
+
+  return ranges
+}
+
+const sourceSelectionIntersectsCommentSyntax = (
+  cm: CMInstance,
+  range: SourceCommentRange
+): boolean => {
+  const markdown = cm.getValue()
+  const startIndex = cm.indexFromPos(range.start)
+  const endIndex = cm.indexFromPos(range.end)
+
+  return sourceCommentSyntaxIndexRanges(markdown).some(syntaxRange =>
+    startIndex < syntaxRange.end && endIndex > syntaxRange.start
+  )
+}
+
+const sourceSelectionIntersectsIgnoredContent = (
+  cm: CMInstance,
+  range: SourceCommentRange
+): boolean => {
+  const markdown = cm.getValue()
+  const startIndex = cm.indexFromPos(range.start)
+  const endIndex = cm.indexFromPos(range.end)
+
+  return rangesOverlap(startIndex, endIndex, sourceCommentIgnoredIndexRanges(markdown))
 }
 
 const activeSourceCommentIds = (cm: CMInstance, markdown: string): string[] => {
@@ -351,6 +751,52 @@ const commentMetadataAppendix = (markdown: string, id: string): string => {
   return `${separator}[MC:${id}]: ${metadata}${lineEnding}`
 }
 
+const sourceCommentMarkdown = (
+  cm: CMInstance,
+  range: SourceCommentRange,
+  id: string
+): string => {
+  const markdown = cm.getValue()
+  const startIndex = cm.indexFromPos(range.start)
+  const endIndex = cm.indexFromPos(range.end)
+  const openMarker = `<!--MC:${id}-->`
+  const closeMarker = `<!--MC:~${id}-->`
+  const markedMarkdown = [
+    markdown.slice(0, startIndex),
+    openMarker,
+    markdown.slice(startIndex, endIndex),
+    closeMarker,
+    markdown.slice(endIndex)
+  ].join('')
+
+  return `${markedMarkdown}${commentMetadataAppendix(markedMarkdown, id)}`
+}
+
+const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | null => {
+  const range = getSourceCommentRange(cm)
+  if (!range) return null
+  if (sourceSelectionIntersectsIgnoredContent(cm, range)) return null
+  if (sourceSelectionIntersectsCommentSyntax(cm, range)) return null
+
+  const id = nextCommentId(collectCommentIds(cm.getValue()))
+  const parsed = parseMarkdownComments(sourceCommentMarkdown(cm, range, id))
+  if (!parsed.ranges.some(commentRange => commentRange.id === id)) return null
+  if (parsed.diagnostics.some(diagnostic => diagnostic.id === id)) return null
+
+  return { id, range }
+}
+
+const syncSourceAddCommentMenu = (cm: CMInstance): void => {
+  const enabled = !!getSourceCommentCandidate(cm)
+  bus.emit('editor-add-comment-enabled-changed', enabled)
+  const { windowId } = window.marktext?.env ?? { windowId: -1 }
+  window.electron.ipcRenderer.send(
+    'mt::editor-add-comment-selection-changed',
+    windowId,
+    enabled
+  )
+}
+
 const showCommentsSidebar = (): void => {
   layoutStore.SET_LAYOUT({
     rightColumn: 'comments',
@@ -362,10 +808,10 @@ const handleAddComment = (): void => {
   if (!sourceCode.value || !editor.value) return
 
   const cm = editor.value
-  const range = getSourceCommentRange(cm)
-  if (!range) return
+  const candidate = getSourceCommentCandidate(cm)
+  if (!candidate) return
 
-  const id = nextCommentId(collectCommentIds(cm.getValue()))
+  const { id, range } = candidate
   const openMarker = `<!--MC:${id}-->`
   const closeMarker = `<!--MC:~${id}-->`
 
@@ -389,14 +835,28 @@ const replaceSourceCommentMetadata = (
   id: string,
   updater: (metadata: ICommentMetadata) => ICommentMetadata
 ): boolean => {
+  const ignoredRanges = sourceCommentIgnoredIndexRanges(cm.getValue())
+
   for (let line = cm.firstLine(); line <= cm.lastLine(); line += 1) {
     const text = cm.getLine(line)
+    if (indexInsideRanges(cm.indexFromPos({ line, ch: 0 }), ignoredRanges)) continue
+
     const definition = parseCommentMetadataDefinition(text)
     if (!definition || definition.id !== id) continue
 
-    const nextMetadata = updater(decodeCommentMetadata(definition.dataUri))
+    const match = COMMENT_METADATA_LINE_REGEXP.exec(text)
+    if (!match) continue
+
+    let currentMetadata: ICommentMetadata
+    try {
+      currentMetadata = decodeCommentMetadata(definition.dataUri)
+    } catch {
+      continue
+    }
+
+    const nextMetadata = updater(currentMetadata)
     cm.replaceRange(
-      `[MC:${id}]: ${encodeCommentMetadata(nextMetadata)}`,
+      `${match[1]}${encodeCommentMetadata(nextMetadata)}${match[4]}`,
       { line, ch: 0 },
       { line, ch: text.length }
     )
@@ -480,17 +940,26 @@ const handleCommentFocus = (id: unknown): void => {
 
   const cm = editor.value
   const markdown = cm.getValue()
-  const openMarker = new RegExp(`<!--MC:${escapeRegExp(id)}-->`, 'u')
-  const openMatch = openMarker.exec(markdown)
-  if (!openMatch) return
-
-  const closeMarker = `<!--MC:~${id}-->`
-  const start = openMatch.index + openMatch[0].length
-  const end = markdown.indexOf(closeMarker, start)
-  if (end < 0) return
+  const range = sourceCommentIndexRanges(markdown).find(commentRange => commentRange.id === id)
+  if (!range) return
 
   cm.focus()
-  cm.setSelection(cm.posFromIndex(start), cm.posFromIndex(end), { scroll: true })
+  cm.setSelection(cm.posFromIndex(range.start), cm.posFromIndex(range.end), { scroll: true })
+  editorStore.UPDATE_ACTIVE_COMMENTS([id])
+}
+
+const handleCommentDiagnosticFocus = (id: unknown): void => {
+  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+
+  const cm = editor.value
+  const range = sourceCommentDiagnosticSyntaxRange(cm.getValue(), id)
+  if (!range) {
+    handleCommentFocus(id)
+    return
+  }
+
+  cm.focus()
+  cm.setSelection(cm.posFromIndex(range.start), cm.posFromIndex(range.end), { scroll: true })
   editorStore.UPDATE_ACTIVE_COMMENTS([id])
 }
 
@@ -557,6 +1026,7 @@ const saveContent = (cm: CMInstance) => {
   const comments = parseMarkdownComments(newMarkdown)
   editorStore.UPDATE_COMMENTS(comments)
   editorStore.UPDATE_ACTIVE_COMMENTS(activeSourceCommentIds(cm, newMarkdown))
+  syncSourceAddCommentMenu(cm)
   // See "beforeDestroy" note
   if (!viewDestroyed.value) {
     if (tabId.value) {
@@ -570,6 +1040,12 @@ const saveContent = (cm: CMInstance) => {
       // This may occur during tab switching but should not occur otherwise.
       console.warn('LISTEN_FOR_CONTENT_CHANGE: Cannot commit changes because not tab id was set!')
     }
+  }
+}
+
+const flushSourceEditor = (): void => {
+  if (editor.value) {
+    saveContent(editor.value)
   }
 }
 
@@ -632,6 +1108,7 @@ onMounted(() => {
   }
 
   bus.on('file-loaded', handleFileChange)
+  bus.on('flush-active-editor', flushSourceEditor)
   bus.on('invalidate-image-cache', handleInvalidateImageCache)
   bus.on('file-changed', handleFileChange)
   bus.on('selectAll', handleSelectAll)
@@ -643,6 +1120,7 @@ onMounted(() => {
   bus.on('comment:resolve', handleCommentResolve)
   bus.on('comment:reopen', handleCommentReopen)
   bus.on('comment:focus', handleCommentFocus)
+  bus.on('comment:diagnostic-focus', handleCommentDiagnosticFocus)
   bus.on('image-action', handleImageAction)
   bus.on('scroll-to-header', handleScrollToHeader)
 
@@ -669,6 +1147,7 @@ onMounted(() => {
   tabId.value = id
 
   listenChange()
+  syncSourceAddCommentMenu(codeMirrorInstance)
 })
 
 onBeforeUnmount(() => {
@@ -676,6 +1155,7 @@ onBeforeUnmount(() => {
   if (commitTimer.value) clearTimeout(commitTimer.value)
 
   bus.off('file-loaded', handleFileChange)
+  bus.off('flush-active-editor', flushSourceEditor)
   bus.off('invalidate-image-cache', handleInvalidateImageCache)
   bus.off('file-changed', handleFileChange)
   bus.off('selectAll', handleSelectAll)
@@ -687,6 +1167,7 @@ onBeforeUnmount(() => {
   bus.off('comment:resolve', handleCommentResolve)
   bus.off('comment:reopen', handleCommentReopen)
   bus.off('comment:focus', handleCommentFocus)
+  bus.off('comment:diagnostic-focus', handleCommentDiagnosticFocus)
   bus.off('image-action', handleImageAction)
   bus.off('scroll-to-header', handleScrollToHeader)
 

@@ -1,5 +1,7 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+import fs from 'node:fs'
 import {
+  clickMenuById,
   launchWithMarkdown,
   waitForMenuReady,
   getMarkdownContent,
@@ -7,10 +9,81 @@ import {
   enterSourceMode
 } from './helpers'
 
+type SourceCodeMirrorElement = Element & {
+  CodeMirror?: {
+    getValue(): string
+    firstLine(): number
+    getLine(line: number): string
+    lastLine(): number
+    replaceRange(
+      replacement: string,
+      from: { line: number; ch: number },
+      to?: { line: number; ch: number }
+    ): void
+    setValue(value: string): void
+  }
+}
+
+const isDirty = (page: Page): Promise<boolean> =>
+  page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))
+
+const metadata = (data: Record<string, unknown>): string =>
+  `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`
+
+const openCommentsSidebar = async(page: Page, app: Parameters<typeof sendIpcToRenderer>[0]): Promise<void> => {
+  if (!(await page.locator('.side-bar').isVisible())) {
+    await clickMenuById(app, 'sideBarMenuItem')
+  }
+
+  await page.locator('.side-bar .left-column > ul').first().locator('li').nth(3).click()
+  await page.waitForSelector('.side-bar-comments', { state: 'visible', timeout: 10000 })
+}
+
+const sourceValue = (page: Page): Promise<string> =>
+  page.evaluate(() => {
+    const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
+    return cm?.CodeMirror?.getValue() ?? ''
+  })
+
+const setSourceValue = async(page: Page, markdown: string): Promise<void> => {
+  await page.evaluate((value) => {
+    const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
+    if (!cm?.CodeMirror) throw new Error('CodeMirror is not available')
+    cm.CodeMirror.setValue(value)
+  }, markdown)
+}
+
+const replaceSourceValue = async(page: Page, markdown: string): Promise<void> => {
+  await page.evaluate((value) => {
+    const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
+    const editor = cm?.CodeMirror
+    if (!editor) throw new Error('CodeMirror is not available')
+    const firstLine = editor.firstLine()
+    const lastLine = editor.lastLine()
+    editor.replaceRange(value, { line: firstLine, ch: 0 }, {
+      line: lastLine,
+      ch: editor.getLine(lastLine).length
+    })
+  }, markdown)
+}
+
 // Trigger an editor undo through the same IPC channel the Edit › Undo menu item
 // uses (`mt::editor-edit-action` → bus `undo` → editor.undo()).
 const undo = async(app: Parameters<typeof sendIpcToRenderer>[0]): Promise<void> => {
   await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+}
+
+const expectMergeConflictPrompt = async(page: Page): Promise<void> => {
+  await expect(page.locator('.editor-notifications')).toContainText(
+    'Resolve the merge to continue',
+    { timeout: 12000 }
+  )
+  await expect(page.locator('.merge-conflict-dialog')).toBeVisible()
+}
+
+const reloadDiskFromMergeConflict = async(page: Page): Promise<void> => {
+  await page.getByRole('button', { name: 'Reload Disk' }).click()
+  await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
 }
 
 // Reproduce the watcher's external-change report: the same `mt::update-file`
@@ -50,12 +123,6 @@ test.describe('External disk reload — undo restores the pre-change document', 
     const { app, page, filePath } = await launchWithMarkdown('old content here\n')
     await waitForMenuReady(app)
 
-    // Auto-reload only applies silently when autoSave is on AND the tab is
-    // unmodified (a freshly-loaded tab is saved). Enable autoSave so the change
-    // applies without the manual "Reload" confirmation prompt.
-    await sendIpcToRenderer(app, 'mt::user-preference', { autoSave: true })
-    await page.waitForTimeout(100)
-
     await reportExternalChange(app, filePath, 'new content here\n')
     await page.waitForTimeout(600)
 
@@ -67,6 +134,7 @@ test.describe('External disk reload — undo restores the pre-change document', 
     expect(await page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))).toBe(
       false
     )
+    await expect(page.locator('.editor-notifications')).toHaveCount(0)
 
     // The first undo reverts the external change in one step, back to the
     // document as it was before the reload.
@@ -79,9 +147,232 @@ test.describe('External disk reload — undo restores the pre-change document', 
       .toBe(true)
     await app.close()
   })
+
+  test('clean reload updates comment highlights, sidebar state, diagnostics, and undo boundary', async() => {
+    const before = 'plain content before agent edit\n'
+    const after = [
+      'Agent added <!--MC:a-->reviewed<!--MC:~a--> content.',
+      '',
+      `[MC:a]: ${metadata({
+        version: 1,
+        status: 'open',
+        authors: ['Agent'],
+        replies: [
+          {
+            author: 'Agent',
+            createdAt: '2026-06-30T12:00:00.000Z',
+            body: 'Please review this change.'
+          }
+        ]
+      })}`,
+      ''
+    ].join('\n')
+    const { app, page, filePath } = await launchWithMarkdown(before)
+    await waitForMenuReady(app)
+
+    await openCommentsSidebar(page, app)
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
+    await expect(page.locator('.side-bar-comments .diagnostic')).toHaveCount(0)
+
+    await reportExternalChange(app, filePath, after)
+
+    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(after)
+    await expect(page.locator('.mu-comment-highlight')).toHaveText('reviewed')
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
+    await expect(page.locator('.side-bar-comments .reply p')).toHaveText(
+      'Please review this change.'
+    )
+    await expect(page.locator('.side-bar-comments .diagnostic')).toHaveCount(0)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
+
+    await undo(app)
+
+    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(before)
+    await expect(page.locator('.mu-comment-highlight')).toHaveCount(0)
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
+    await expect(page.locator('.side-bar-comments .diagnostic')).toHaveCount(0)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
+  test('clean source-mode reload refreshes sidebar threads and diagnostics', async() => {
+    const before = 'plain source content before agent edit\n'
+    const after = [
+      'Agent added <!--MC:a-->reviewed<!--MC:~a--> content.',
+      '',
+      'Bad <!--MC:bad.id--> marker.',
+      '',
+      `[MC:a]: ${metadata({
+        version: 1,
+        status: 'open',
+        authors: ['Agent'],
+        replies: [
+          {
+            author: 'Agent',
+            createdAt: '2026-06-30T12:00:00.000Z',
+            body: 'Please review this source-mode change.'
+          }
+        ]
+      })}`,
+      ''
+    ].join('\n')
+    const { app, page, filePath } = await launchWithMarkdown(before)
+    await waitForMenuReady(app)
+    await enterSourceMode(page, app)
+    await openCommentsSidebar(page, app)
+
+    await reportExternalChange(app, filePath, after)
+
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe(after)
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
+    await expect(page.locator('.side-bar-comments .reply p')).toHaveText(
+      'Please review this source-mode change.'
+    )
+    await expect(page.locator('.side-bar-comments .diagnostic-code')).toContainText([
+      'malformed-marker'
+    ])
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
+
+    await undo(app)
+
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe(before)
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
+    await expect(page.locator('.side-bar-comments .diagnostic')).toHaveCount(0)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+})
+
+test.describe('External disk reload — dirty buffers are not overwritten', () => {
+  test('dirty WYSIWYG content prompts and keeps the local buffer', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('old content here\n')
+    await waitForMenuReady(app)
+
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'selectAll')
+    await page.keyboard.type('local dirty content\n', { delay: 0 })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, 'agent content here\n')
+    await page.waitForTimeout(600)
+
+    expect(await getMarkdownContent(page, app)).toBe('local dirty content\n')
+    await expectMergeConflictPrompt(page)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
+  test('dirty source content prompts and keeps the CodeMirror buffer', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('old content here\n')
+    await waitForMenuReady(app)
+    await enterSourceMode(page, app)
+
+    await setSourceValue(page, 'local source dirty content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, 'agent source content here\n')
+    await page.waitForTimeout(600)
+
+    expect(await sourceValue(page)).toBe('local source dirty content\n')
+    await expectMergeConflictPrompt(page)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
+  test('dirty byte-equivalent external content clears the local dirty state', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('old content here\n')
+    await waitForMenuReady(app)
+
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'selectAll')
+    await page.keyboard.type('local content now on disk\n', { delay: 0 })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, 'local content now on disk\n')
+
+    expect(await getMarkdownContent(page, app)).toBe('local content now on disk\n')
+    await expect(page.locator('.editor-notifications')).toHaveCount(0)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
+    await app.close()
+  })
+})
+
+test.describe('External disk reload — confirmed dirty reloads remain recoverable', () => {
+  test('confirmed WYSIWYG reload can be undone back to the local buffer', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('old content here\n')
+    await waitForMenuReady(app)
+
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'selectAll')
+    await page.keyboard.type('local dirty content\n', { delay: 0 })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, 'agent content here\n')
+    await expectMergeConflictPrompt(page)
+    await reloadDiskFromMergeConflict(page)
+    await page.waitForTimeout(600)
+
+    expect(await getMarkdownContent(page, app)).toBe('agent content here\n')
+    await expect(page.locator('.editor-notifications')).toContainText('kept')
+    await expect(page.locator('.editor-tabs li')).toHaveCount(2)
+    const recoveryTab = page.locator('.editor-tabs li.unsaved:not(.active)').first()
+    await expect(recoveryTab.locator('span').first()).toHaveText(/Untitled-/)
+    await recoveryTab.click()
+    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(
+      'local dirty content\n'
+    )
+    await page.locator('.editor-tabs li:not(.unsaved)').first().click()
+    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(
+      'agent content here\n'
+    )
+    await undo(app)
+    await page.waitForTimeout(600)
+    expect(await getMarkdownContent(page, app)).toBe('local dirty content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
+  test('confirmed source reload can be undone back to the local buffer', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('old content here\n')
+    await waitForMenuReady(app)
+    await enterSourceMode(page, app)
+
+    await replaceSourceValue(page, 'local source dirty content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, 'agent source content here\n')
+    await expectMergeConflictPrompt(page)
+    await reloadDiskFromMergeConflict(page)
+    await page.waitForTimeout(600)
+
+    expect(await sourceValue(page)).toBe('agent source content here\n')
+    const recoveryTab = page.locator('.editor-tabs li.unsaved:not(.active)').first()
+    await expect(recoveryTab.locator('span').first()).toHaveText(/Untitled-/)
+    await recoveryTab.click()
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe('local source dirty content\n')
+    await page.locator('.editor-tabs li:not(.unsaved)').first().click()
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe('agent source content here\n')
+    await undo(app)
+    await page.waitForTimeout(600)
+    expect(await sourceValue(page)).toBe('local source dirty content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
 })
 
 test.describe('External disk reload — source-mode scroll position survives a same-tab reload', () => {
+  test('clean source-mode auto-reload can be undone back to the previous buffer', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('old source content\n')
+    await waitForMenuReady(app)
+    await enterSourceMode(page, app)
+
+    await reportExternalChange(app, filePath, 'new source content\n')
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe('new source content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
+
+    await undo(app)
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe('old source content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
   // Item 258: a same-id `mt::update-file` reload must not yank the CodeMirror
   // view back to the top. sourceCode.vue handleFileChange snapshots every
   // plausible scroll element on `isSameTabReload`, runs `editor.setValue`, then
@@ -97,11 +388,6 @@ test.describe('External disk reload — source-mode scroll position survives a s
     const longBody = 'line\n'.repeat(400)
     const { app, page, filePath } = await launchWithMarkdown(longBody)
     await waitForMenuReady(app)
-
-    // Auto-reload only applies silently when autoSave is on AND the tab is
-    // unmodified (a freshly-loaded tab is saved) — same gate as the undo test.
-    await sendIpcToRenderer(app, 'mt::user-preference', { autoSave: true })
-    await page.waitForTimeout(100)
 
     await enterSourceMode(page, app)
 
@@ -162,6 +448,180 @@ test.describe('External disk reload — source-mode scroll position survives a s
         { timeout: 4000 }
       )
       .toBeGreaterThan(maxCaptured * 0.5)
+    await app.close()
+  })
+
+  test('same-id reload preserves the source-mode cursor when no source cursor payload is supplied', async() => {
+    const lines = Array.from({ length: 180 }, (_, index) => `paragraph ${index}`).join('\n\n') + '\n'
+    const { app, page, filePath } = await launchWithMarkdown(lines)
+    await waitForMenuReady(app)
+    await enterSourceMode(page, app)
+
+    await page.evaluate(() => {
+      const cmEl = document.querySelector('.source-code .CodeMirror') as
+        | (Element & { CodeMirror?: { setCursor(pos: { line: number; ch: number }): void } })
+        | null
+      if (!cmEl?.CodeMirror) throw new Error('CodeMirror is not available')
+      cmEl.CodeMirror.setCursor({ line: 120, ch: 4 })
+    })
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const cmEl = document.querySelector('.source-code .CodeMirror') as
+              | (Element & { CodeMirror?: { getCursor(): { line: number; ch: number } } })
+              | null
+            const cursor = cmEl?.CodeMirror?.getCursor() ?? null
+            return cursor ? { line: cursor.line, ch: cursor.ch } : null
+          }),
+        { timeout: 4000 }
+      )
+      .toEqual({ line: 120, ch: 4 })
+
+    const cleanSourceBaseline = await sourceValue(page)
+    await reportExternalChange(app, filePath, cleanSourceBaseline)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
+
+    await reportExternalChange(app, filePath, `${cleanSourceBaseline}tail line\n`)
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toContain('tail line')
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const cmEl = document.querySelector('.source-code .CodeMirror') as
+              | (Element & { CodeMirror?: { getCursor(): { line: number; ch: number } } })
+              | null
+            const cursor = cmEl?.CodeMirror?.getCursor() ?? null
+            return cursor ? { line: cursor.line, ch: cursor.ch } : null
+          }),
+        { timeout: 4000 }
+      )
+      .toEqual({ line: 120, ch: 4 })
+    await app.close()
+  })
+})
+
+test.describe('External disk reload — real watcher source-mode sync', () => {
+  test('clean WYSIWYG file watcher reload updates comments and undo boundary', async() => {
+    const before = 'plain content before agent edit\n'
+    const after = [
+      'Agent wrote <!--MC:realwysiwyg-->reviewed<!--MC:~realwysiwyg--> WYSIWYG content.',
+      '',
+      `[MC:realwysiwyg]: ${metadata({
+        version: 1,
+        status: 'open',
+        authors: ['Agent'],
+        replies: [
+          {
+            author: 'Agent',
+            createdAt: '2026-06-30T12:00:00.000Z',
+            body: 'Real watcher WYSIWYG update.'
+          }
+        ]
+      })}`,
+      ''
+    ].join('\n')
+    const { app, page, filePath } = await launchWithMarkdown(before)
+    await waitForMenuReady(app)
+    await openCommentsSidebar(page, app)
+
+    fs.writeFileSync(filePath, after, 'utf-8')
+
+    await expect.poll(() => getMarkdownContent(page, app), { timeout: 12000 }).toBe(after)
+    await expect(page.locator('.mu-comment-highlight')).toHaveText('reviewed')
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
+    await expect(page.locator('.side-bar-comments .reply p')).toHaveText(
+      'Real watcher WYSIWYG update.'
+    )
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
+
+    await undo(app)
+
+    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(before)
+    await expect(page.locator('.mu-comment-highlight')).toHaveCount(0)
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
+  test('clean source-mode file watcher reload updates comments and undo boundary', async() => {
+    const before = 'plain source content before agent edit\n'
+    const after = [
+      'Agent wrote <!--MC:realwatch-->reviewed<!--MC:~realwatch--> source content.',
+      '',
+      'Broken <!--MC:bad.id--> source marker.',
+      '',
+      `[MC:realwatch]: ${metadata({
+        version: 1,
+        status: 'open',
+        authors: ['Agent'],
+        replies: [
+          {
+            author: 'Agent',
+            createdAt: '2026-06-30T12:00:00.000Z',
+            body: 'Real watcher source-mode update.'
+          }
+        ]
+      })}`,
+      ''
+    ].join('\n')
+    const { app, page, filePath } = await launchWithMarkdown(before)
+    await waitForMenuReady(app)
+    await enterSourceMode(page, app)
+    await openCommentsSidebar(page, app)
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe(before)
+
+    fs.writeFileSync(filePath, after, 'utf-8')
+
+    await expect.poll(() => sourceValue(page), { timeout: 12000 }).toBe(after)
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
+    await expect(page.locator('.side-bar-comments .reply p')).toHaveText(
+      'Real watcher source-mode update.'
+    )
+    await expect(page.locator('.side-bar-comments .diagnostic-code')).toContainText([
+      'malformed-marker'
+    ])
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
+
+    await undo(app)
+
+    await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe(before)
+    await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
+    await expect(page.locator('.side-bar-comments .diagnostic')).toHaveCount(0)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
+  test('dirty WYSIWYG file watcher change prompts without overwriting local content', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('old content here\n')
+    await waitForMenuReady(app)
+
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'selectAll')
+    await page.keyboard.type('local dirty content\n', { delay: 0 })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    fs.writeFileSync(filePath, 'agent watcher content\n', 'utf-8')
+
+    await expectMergeConflictPrompt(page)
+    expect(await getMarkdownContent(page, app)).toBe('local dirty content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+
+  test('dirty source-mode file watcher change prompts without overwriting CodeMirror content', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('old source content here\n')
+    await waitForMenuReady(app)
+    await enterSourceMode(page, app)
+
+    await replaceSourceValue(page, 'local source dirty content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    fs.writeFileSync(filePath, 'agent source watcher content\n', 'utf-8')
+
+    await expectMergeConflictPrompt(page)
+    expect(await sourceValue(page)).toBe('local source dirty content\n')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     await app.close()
   })
 })

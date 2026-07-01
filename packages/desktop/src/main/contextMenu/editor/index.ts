@@ -12,7 +12,12 @@ import {
   getInsertAfter
 } from './menuItems'
 import spellcheckMenuBuilder from './spellcheck'
+import { isEditorContextAddCommentEnabled } from './addCommentState'
 import { t } from '../../i18n'
+export {
+  isEditorContextAddCommentEnabled,
+  updateEditorContextAddCommentSelection
+} from './addCommentState'
 
 // Electron's ContextMenuParams shape we rely on. Kept narrow — the renderer
 // supplies the full surface so we only annotate the fields we use.
@@ -114,7 +119,7 @@ export const showEditorContextMenu = (
     ])
     contextItems.forEach((item) => {
       if (item.id === 'addCommentMenuItem') {
-        item.enabled = hasText
+        item.enabled = isEditorContextAddCommentEnabled(win, hasText)
       } else if (item.id && copyItemIds.has(item.id)) {
         item.enabled = canCopy
       }

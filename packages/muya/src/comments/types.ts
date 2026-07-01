@@ -2,10 +2,13 @@ import type { TBlockPath } from '../block/types';
 
 export type TCommentStatus = 'open' | 'resolved';
 
+export type TCommentDisplayMetadata = Record<string, unknown>;
+
 export interface ICommentReply {
     author: string;
     createdAt: string;
     body: string;
+    display?: TCommentDisplayMetadata;
 }
 
 export interface ICommentReplyInput {
@@ -20,8 +23,8 @@ export interface ICommentMetadata {
     authors?: string[];
     createdAt?: string;
     updatedAt?: string;
+    display?: TCommentDisplayMetadata;
     replies: ICommentReply[];
-    [key: string]: unknown;
 }
 
 export interface ICommentThread extends ICommentMetadata {
@@ -34,12 +37,15 @@ export interface ICommentRange {
     endPath: TBlockPath;
     startOffset: number;
     endOffset: number;
+    preview: string;
 }
 
 export type TCommentDiagnosticCode
     = | 'duplicate-open-marker'
+        | 'duplicate-close-marker'
         | 'duplicate-metadata'
         | 'invalid-metadata'
+        | 'malformed-marker'
         | 'missing-metadata'
         | 'orphan-close-marker'
         | 'orphan-metadata'

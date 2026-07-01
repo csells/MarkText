@@ -71,6 +71,11 @@
     "type": "string",
     "default": "en"
   },
+  "commentAuthorName": {
+    "description": "General--The name used for newly-authored markdown review comments.--internal",
+    "type": "string",
+    "default": ""
+  },
   "editorFontFamily": {
     "description": "Editor--editor font family",
     "type": "string",

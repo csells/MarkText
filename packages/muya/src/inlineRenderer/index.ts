@@ -23,9 +23,18 @@ interface IRenderSelectionRange {
     focusOffset: number;
 }
 
+interface ICommentRenderModel {
+    comments: IParsedMarkdownComments;
+    textPathIndexes: Map<string, number>;
+}
+
 class InlineRenderer {
     public labels: Labels = new Map();
     public renderer: Renderer;
+    private _commentRenderCache: {
+        version: number;
+        model: ICommentRenderModel;
+    } | null = null;
 
     constructor(public muya: Muya) {
         this.renderer = new Renderer(muya, this);
@@ -90,13 +99,14 @@ class InlineRenderer {
     }
 
     private _commentHighlights(block: Format, cursor?: IRenderCursor): IHighlight[] {
-        const states = this.muya.editor.jsonState.getState();
-        const comments = parseMarkdownComments(states);
+        const {
+            comments,
+            textPathIndexes,
+        } = this._commentRenderModel();
         if (!comments.ranges.length)
             return [];
 
         const blockIndexes = this._contentBlockIndexes();
-        const textPathIndexes = buildTextPathIndexes(states);
         const blockKey = this._pathKey(block.path);
         const blockIndex = blockIndexes.get(blockKey);
         if (blockIndex === undefined)
@@ -133,6 +143,22 @@ class InlineRenderer {
         }
 
         return highlights;
+    }
+
+    private _commentRenderModel(): ICommentRenderModel {
+        const { jsonState } = this.muya.editor;
+        const version = jsonState.version;
+        if (this._commentRenderCache?.version === version)
+            return this._commentRenderCache.model;
+
+        const states = jsonState.getState();
+        const model = {
+            comments: parseMarkdownComments(states),
+            textPathIndexes: buildTextPathIndexes(states),
+        };
+
+        this._commentRenderCache = { version, model };
+        return model;
     }
 
     private _contentBlockIndexes() {

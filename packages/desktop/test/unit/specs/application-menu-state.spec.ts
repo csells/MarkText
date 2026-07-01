@@ -28,7 +28,7 @@ function menuStateFor(changes: unknown) {
   const store = useEditorStore()
   store.SELECTION_CHANGE(changes as never)
   const call = [...sendSpy.mock.calls].reverse().find((c) => c[0] === 'mt::editor-selection-changed')
-  return call?.[2] as { isCodeFences: boolean; isTable: boolean }
+  return call?.[2] as { isCodeFences: boolean; isTable: boolean; canAddComment: boolean }
 }
 
 describe('createApplicationMenuState via SELECTION_CHANGE', () => {
@@ -54,6 +54,65 @@ describe('createApplicationMenuState via SELECTION_CHANGE', () => {
     })
     expect(state.isCodeFences).toBe(true)
     expect(state.isTable).toBe(false)
+  })
+
+  it('enables Add Comment only for a non-collapsed editable selection', () => {
+    const selected = menuStateFor({
+      start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
+      end: { key: 'a', offset: 10, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
+      affiliation: [{ type: 'p', blockName: 'paragraph' }]
+    })
+    expect(selected.canAddComment).toBe(true)
+
+    const collapsed = menuStateFor({
+      start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
+      end: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
+      affiliation: [{ type: 'p', blockName: 'paragraph' }]
+    })
+    expect(collapsed.canAddComment).toBe(false)
+  })
+
+  it('disables Add Comment for whitespace-only selections', () => {
+    const state = menuStateFor({
+      start: { key: 'a', offset: 1, type: 'span', block: { functionType: 'paragraphContent', text: 'A   B' } },
+      end: { key: 'a', offset: 4, type: 'span', block: { functionType: 'paragraphContent', text: 'A   B' } },
+      affiliation: [{ type: 'p', blockName: 'paragraph' }]
+    })
+
+    expect(state.canAddComment).toBe(false)
+  })
+
+  it('disables Add Comment for inline-code selections', () => {
+    const state = menuStateFor({
+      start: { key: 'a', offset: 3, type: 'span', block: { functionType: 'paragraphContent', text: 'A `reviewed` span.' } },
+      end: { key: 'a', offset: 11, type: 'span', block: { functionType: 'paragraphContent', text: 'A `reviewed` span.' } },
+      affiliation: [{ type: 'p', blockName: 'paragraph' }]
+    })
+
+    expect(state.canAddComment).toBe(false)
+  })
+
+  it('disables Add Comment inside code-like selections', () => {
+    const state = menuStateFor({
+      start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'codeContent' } },
+      end: { key: 'a', offset: 10, type: 'span', block: { functionType: 'codeContent' } },
+      affiliation: [{ type: 'pre', blockName: 'code-block', functionType: 'code' }]
+    })
+
+    expect(state.isCodeFences).toBe(true)
+    expect(state.canAddComment).toBe(false)
+  })
+
+  it('disables Add Comment inside hidden MC metadata definitions', () => {
+    const metadataLine =
+      '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119'
+    const state = menuStateFor({
+      start: { key: 'a', offset: 1, type: 'span', block: { functionType: 'paragraphContent', text: metadataLine } },
+      end: { key: 'a', offset: 5, type: 'span', block: { functionType: 'paragraphContent', text: metadataLine } },
+      affiliation: [{ type: 'p', blockName: 'paragraph' }]
+    })
+
+    expect(state.canAddComment).toBe(false)
   })
 
   it('checks every list level for a deeply nested ul > ul > ol (flags from innermost)', () => {

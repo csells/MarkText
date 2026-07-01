@@ -1,4 +1,16 @@
 <template>
+  <button
+    v-if="!showSideBar && commentDiagnosticCount > 0"
+    class="comments-diagnostic-peek"
+    :title="commentsIcon?.name()"
+    type="button"
+    @click="openCommentsDiagnostics"
+  >
+    <component :is="commentsIcon?.icon" />
+    <span class="comments-diagnostic-badge">
+      {{ commentDiagnosticBadgeText }}
+    </span>
+  </button>
   <div
     v-show="showSideBar"
     ref="sideBar"
@@ -14,6 +26,12 @@
           @click="handleLeftIconClick(c.id)"
         >
           <component :is="c.icon" />
+          <span
+            v-if="c.id === 'comments' && commentDiagnosticCount > 0"
+            class="comments-diagnostic-badge"
+          >
+            {{ commentDiagnosticBadgeText }}
+          </span>
         </li>
       </ul>
       <ul class="bottom">
@@ -38,7 +56,7 @@
       />
       <side-bar-search v-else-if="rightColumn === 'search'" />
       <toc v-else-if="rightColumn === 'toc'" />
-      <comments v-else-if="rightColumn === 'comments'" />
+      <Comments v-else-if="rightColumn === 'comments'" />
     </div>
     <div
       v-show="rightColumn"
@@ -75,7 +93,14 @@ const sideBarViewWidth = ref(280)
 const { rightColumn, showSideBar, sideBarWidth } = storeToRefs(layoutStore)
 
 const { projectTree } = storeToRefs(projectStore)
-const { tabs } = storeToRefs(editorStore)
+const { tabs, comments } = storeToRefs(editorStore)
+
+const commentDiagnosticCount = computed(() => comments.value.diagnostics.length)
+const commentDiagnosticBadgeText = computed(() => {
+  const count = commentDiagnosticCount.value
+  return count > 9 ? '9+' : `${count}`
+})
+const commentsIcon = computed(() => sideBarIcons.find(icon => icon.id === 'comments'))
 
 const finalSideBarWidth = computed<number>(() => {
   if (!showSideBar.value) return 0
@@ -132,6 +157,13 @@ const handleLeftIconClick = (name: string): void => {
       layoutStore.CHANGE_SIDE_BAR_WIDTH(finalSideBarWidth.value)
     }
   }
+}
+
+const openCommentsDiagnostics = (): void => {
+  layoutStore.SET_LAYOUT({
+    showSideBar: true,
+    rightColumn: 'comments'
+  })
 }
 
 const handleLeftBottomClick = (name: string): void => {
@@ -191,6 +223,7 @@ const handleLeftBottomClick = (name: string): void => {
   justify-content: space-around;
   align-items: center;
   cursor: pointer;
+  position: relative;
 }
 
 .left-column ul > li > svg {
@@ -203,6 +236,53 @@ const handleLeftBottomClick = (name: string): void => {
 
 .left-column ul > li.active > svg {
   color: var(--themeColor);
+}
+
+.comments-diagnostic-badge {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  box-sizing: border-box;
+  background: var(--notificationErrorBg);
+  color: var(--notificationErrorColor);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.comments-diagnostic-peek {
+  position: fixed;
+  top: calc(var(--titleBarHeight) + 12px);
+  left: 10px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--itemBgColor);
+  border-radius: 6px;
+  background: var(--sideBarBgColor);
+  color: var(--sideBarColor);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+}
+
+.comments-diagnostic-peek svg {
+  width: 18px;
+  height: 18px;
+  color: var(--sideBarIconColor);
+}
+
+.comments-diagnostic-peek .comments-diagnostic-badge {
+  top: -5px;
+  right: -5px;
 }
 
 .side-bar:hover .left-column ul li svg {

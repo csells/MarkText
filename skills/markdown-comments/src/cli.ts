@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs'
 import path from 'node:path'
-import { patchCommentMetadata, replyToComment, setCommentStatus } from './edit'
+import { TextDecoder } from 'node:util'
+import { editCommentReply, patchCommentMetadata, replyToComment, setCommentStatus } from './edit'
 import { readMarkdownComments, stableJson } from './parse'
 import type { TCommentStatus, TUpdateCommentThreadPatch } from './metadata'
 
@@ -17,6 +18,7 @@ const usage = `Usage:
   markdown-comments resolve <file> <id> [--updated-at <iso>]
   markdown-comments reopen <file> <id> [--updated-at <iso>]
   markdown-comments edit <file> <id> [--status open|resolved] [--authors Ada,Grace] [--updated-at <iso>]
+  markdown-comments edit <file> <id> --reply-index <zero-based-index> [--body <text>] [--author <name>] [--created-at <iso>] [--updated-at <iso>]
 `
 
 function parseArgs(args: string[]): ParsedArgs {
@@ -58,7 +60,12 @@ function requireValue(value: string | undefined, name: string): string {
 }
 
 function readFile(file: string): string {
-  return fs.readFileSync(path.resolve(file), 'utf8')
+  const bytes = fs.readFileSync(path.resolve(file))
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
+  } catch {
+    throw new Error('Unsupported file encoding: markdown-comments only supports UTF-8 Markdown files.')
+  }
 }
 
 function writeFile(file: string, markdown: string): void {
@@ -93,6 +100,14 @@ function buildPatch(options: Record<string, string>): TUpdateCommentThreadPatch 
   }
 
   return patch
+}
+
+function parseReplyIndex(value: string | undefined): number | null {
+  if (value == null) return null
+  if (!/^\d+$/u.test(value)) {
+    throw new Error('--reply-index must be a zero-based non-negative integer.')
+  }
+  return Number(value)
 }
 
 function writeAndPrint(file: string, markdown: string): void {
@@ -143,6 +158,17 @@ function main(): void {
   }
 
   if (command === 'edit') {
+    const replyIndex = parseReplyIndex(options['reply-index'])
+    if (replyIndex != null) {
+      writeAndPrint(file, editCommentReply(markdown, id, replyIndex, {
+        author: options.author,
+        body: options.body,
+        createdAt: options['created-at'],
+        updatedAt: options['updated-at']
+      }))
+      return
+    }
+
     writeAndPrint(file, patchCommentMetadata(markdown, id, buildPatch(options)))
     return
   }

@@ -47,11 +47,15 @@
       "findNext": "Weitersuchen",
       "findPrevious": "Rückwärts suchen",
       "findInFolder": "Im Ordner suchen",
-      "addComment": "Add Comment",
+      "addComment": "Kommentar hinzufügen",
       "screenshot": "Screenshot",
       "lineEnding": "Zeilenendezeichen",
       "lineEndingCrlf": "CRLF (Windows)",
       "lineEndingLf": "LF (Linux/Mac)"
+    },
+    "review": {
+      "review": "Überprüfen",
+      "addComment": "Kommentar hinzufügen"
     },
     "paragraph": {
       "title": "Absatz",
@@ -187,7 +191,7 @@
     "pasteAsPlainText": "Als reinen Text einfügen",
     "insertParagraphBefore": "Absatz davor einfügen",
     "insertParagraphAfter": "Absatz danach einfügen",
-    "addComment": "Add Comment",
+    "addComment": "Kommentar hinzufügen",
     "spelling": "Rechtschreibung...",
     "changeLanguage": "Sprache ändern...",
     "addToDictionary": "Zum Wörterbuch hinzufügen",
@@ -245,11 +249,33 @@
     "toc": {
       "title": "Inhaltsverzeichnis"
     },
+    "comments": {
+      "title": "Kommentare",
+      "summary": "{open} offen / {count} insgesamt",
+      "add": "Hinzufügen",
+      "empty": "Keine Kommentare",
+      "diagnostics": "Diagnosen",
+      "open": "Offen",
+      "resolved": "Erledigt",
+      "jump": "Zum Kommentar springen",
+      "edit": "Bearbeiten",
+      "resolve": "Erledigen",
+      "reopen": "Wieder öffnen",
+      "reply": "Antworten",
+      "saveEdit": "Speichern",
+      "cancelEdit": "Abbrechen",
+      "editPlaceholder": "Diese Antwort bearbeiten...",
+      "replyPlaceholder": "Eine Antwort schreiben...",
+      "defaultAuthor": "Prüfer",
+      "selectTextHint": "Wählen Sie Text aus, bevor Sie einen Kommentar hinzufügen.",
+      "sourceModeUnavailable": "Kommentaraktionen sind für diese Auswahl nicht verfügbar."
+    },
     "icons": {
       "files": "Dateien",
       "search": "Suchen",
       "toc": "Inhaltsverzeichnis",
-      "settings": "Einstellungen"
+      "settings": "Einstellungen",
+      "comments": "Kommentare"
     }
   },
   "commandPalette": {
@@ -781,7 +807,7 @@
       "findPrevious": "Rückwärts suchen",
       "replace": "Ersetzen",
       "findInFolder": "Im Ordner suchen",
-      "addComment": "Add Comment",
+      "addComment": "Kommentar hinzufügen",
       "screenshot": "Screenshot"
     },
     "paragraph": {
@@ -872,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "Sprache wechseln"
+    },
+    "review": {
+      "addComment": "Kommentar hinzufügen"
     }
   },
   "common": {
@@ -924,7 +953,8 @@
       "exportSuccessTitle": "Erfolgreich exportiert",
       "exportSuccessMessage": "„{name}“ wurde erfolgreich exportiert!",
       "fileRemovedOnDisk": "„{name}“ wurde auf dem Datenträger gelöscht.",
-      "fileChangedOnDisk": "„{name}“ wurde auf dem Datenträger geändert. Möchten Sie neu laden?"
+      "fileChangedOnDisk": "„{name}“ wurde auf dem Datenträger geändert. Möchten Sie neu laden?",
+      "fileChangedOnDiskRecoveryCreated": "Ihre ungespeicherten Änderungen wurden in \"{name}\" behalten."
     }
   },
   "spellchecker": {
@@ -932,6 +962,21 @@
     "unexpectedError": "Unerwarteter Rechtschreibprüfungsfehler"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "Datenträgeränderungen auflösen",
+      "summary": "Die Datei wurde auf dem Datenträger geändert, während dieser Tab ungespeicherte Änderungen hatte.",
+      "local": "Ihre ungespeicherten Änderungen",
+      "remote": "Auf dem Datenträger geändert",
+      "result": "Merge-Ergebnis",
+      "conflictLabel": "Konflikt {id}: Basiszeilen {start}-{end}",
+      "useLocal": "Ihre Version verwenden",
+      "useRemote": "Datenträger verwenden",
+      "useBoth": "Beide verwenden",
+      "keepEditing": "Weiter bearbeiten",
+      "acceptMerge": "Merge akzeptieren",
+      "invalidCommentSyntax": "Das Merge-Ergebnis führt ungültige MarkText-Kommentarsyntax ein. Korrigieren Sie das Ergebnis vor dem Akzeptieren.",
+      "reloadDisk": "Von Datenträger neu laden"
+    },
     "export": {
       "error": "Export-Fehler",
       "errorExporting": "Fehler beim Exportieren der {type}-Datei",

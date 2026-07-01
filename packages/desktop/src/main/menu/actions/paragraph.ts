@@ -176,6 +176,7 @@ export interface SelectionState {
   isCodeFences?: boolean
   isCodeContent?: boolean
   hasFrontMatter?: boolean
+  canAddComment?: boolean
 }
 
 const setCheckedMenuItem = (
@@ -236,6 +237,10 @@ export const updateSelectionMenus = (
 
   // Reset paragraph menu.
   setParagraphMenuItemStatus(applicationMenu, !isDisabled)
+  const addCommentMenuItem = applicationMenu.getMenuItemById(COMMANDS.REVIEW_ADD_COMMENT)
+  if (addCommentMenuItem) {
+    addCommentMenuItem.enabled = !isDisabled && !!state.canAddComment
+  }
   if (isDisabled) {
     return
   }

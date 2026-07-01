@@ -47,11 +47,15 @@
       "findNext": "查找下一个",
       "findPrevious": "查找上一个",
       "findInFolder": "在文件夹中查找",
-      "addComment": "Add Comment",
+      "addComment": "添加评论",
       "screenshot": "截图",
       "lineEnding": "行结束符",
       "lineEndingCrlf": "CRLF (Windows)",
       "lineEndingLf": "LF (Unix/macOS)"
+    },
+    "review": {
+      "review": "审阅",
+      "addComment": "添加评论"
     },
     "paragraph": {
       "title": "段落",
@@ -187,7 +191,7 @@
     "pasteAsPlainText": "粘贴为纯文本",
     "insertParagraphBefore": "在前面插入段落",
     "insertParagraphAfter": "在后面插入段落",
-    "addComment": "Add Comment",
+    "addComment": "添加评论",
     "spelling": "拼写…",
     "changeLanguage": "更改语言…",
     "addToDictionary": "添加到词典",
@@ -245,11 +249,33 @@
     "toc": {
       "title": "目录"
     },
+    "comments": {
+      "title": "评论",
+      "summary": "{open} 个未解决 / 共 {count} 个",
+      "add": "添加",
+      "empty": "暂无评论",
+      "diagnostics": "诊断",
+      "open": "未解决",
+      "resolved": "已解决",
+      "jump": "跳转到评论",
+      "edit": "编辑",
+      "resolve": "解决",
+      "reopen": "重新打开",
+      "reply": "回复",
+      "saveEdit": "保存",
+      "cancelEdit": "取消",
+      "editPlaceholder": "编辑此回复...",
+      "replyPlaceholder": "写下回复...",
+      "defaultAuthor": "审阅者",
+      "selectTextHint": "添加评论前，请选择文本。",
+      "sourceModeUnavailable": "此选择无法使用评论操作。"
+    },
     "icons": {
       "files": "文件",
       "search": "搜索",
       "toc": "目录",
-      "settings": "设置"
+      "settings": "设置",
+      "comments": "评论"
     }
   },
   "commandPalette": {
@@ -781,7 +807,7 @@
       "findPrevious": "查找上一个",
       "replace": "替换",
       "findInFolder": "在文件夹中查找",
-      "addComment": "Add Comment",
+      "addComment": "添加评论",
       "screenshot": "截图"
     },
     "paragraph": {
@@ -872,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "切换拼写检查语言"
+    },
+    "review": {
+      "addComment": "添加评论"
     }
   },
   "common": {
@@ -924,7 +953,8 @@
       "exportSuccessTitle": "导出成功",
       "exportSuccessMessage": "已成功导出“{name}”！",
       "fileRemovedOnDisk": "“{name}” 已在磁盘上被删除。",
-      "fileChangedOnDisk": "“{name}” 已在磁盘上发生变更。是否重新加载？"
+      "fileChangedOnDisk": "“{name}” 已在磁盘上发生变更。是否重新加载？",
+      "fileChangedOnDiskRecoveryCreated": "未保存的编辑已保留在“{name}”中。"
     }
   },
   "spellchecker": {
@@ -932,6 +962,21 @@
     "unexpectedError": "意外的拼写检查器错误"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "解决磁盘更改",
+      "summary": "此标签页存在未保存编辑时，文件已在磁盘上发生更改。",
+      "local": "你的未保存编辑",
+      "remote": "磁盘上的更改",
+      "result": "合并结果",
+      "conflictLabel": "冲突 {id}：基准行 {start}-{end}",
+      "useLocal": "使用你的版本",
+      "useRemote": "使用磁盘版本",
+      "useBoth": "同时使用",
+      "keepEditing": "继续编辑",
+      "acceptMerge": "接受合并",
+      "invalidCommentSyntax": "合并结果引入了无效的 MarkText 评论语法。请先修正结果再接受。",
+      "reloadDisk": "从磁盘重新加载"
+    },
     "insertTable": {
       "title": "插入表格",
       "rows": "行",

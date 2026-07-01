@@ -47,11 +47,15 @@
       "findNext": "Sonrakini Bul",
       "findPrevious": "Öncekini Bul",
       "findInFolder": "Klasörde Bul",
-      "addComment": "Add Comment",
+      "addComment": "Yorum ekle",
       "screenshot": "Ekran Görüntüsü",
       "lineEnding": "Satır Sonu",
       "lineEndingCrlf": "CRLF(Windows)",
       "lineEndingLf": "LF(Linux/Mac)"
+    },
+    "review": {
+      "review": "İnceleme",
+      "addComment": "Yorum ekle"
     },
     "paragraph": {
       "title": "Paragraf",
@@ -187,7 +191,7 @@
     "pasteAsPlainText": "Düz Metin Olarak Yapıştır",
     "insertParagraphBefore": "Önüne Paragraf Ekle",
     "insertParagraphAfter": "Arkasına Paragraf Ekle",
-    "addComment": "Add Comment",
+    "addComment": "Yorum ekle",
     "spelling": "Yazım...",
     "changeLanguage": "Dili Değiştir...",
     "addToDictionary": "Sözlüğe Ekle",
@@ -245,11 +249,33 @@
     "toc": {
       "title": "İçindekiler"
     },
+    "comments": {
+      "title": "Yorumlar",
+      "summary": "{open} açık / toplam {count}",
+      "add": "Ekle",
+      "empty": "Yorum yok",
+      "diagnostics": "Tanılar",
+      "open": "Açık",
+      "resolved": "Çözüldü",
+      "jump": "Yoruma git",
+      "edit": "Düzenle",
+      "resolve": "Çöz",
+      "reopen": "Yeniden aç",
+      "reply": "Yanıtla",
+      "saveEdit": "Kaydet",
+      "cancelEdit": "İptal",
+      "editPlaceholder": "Bu yanıtı düzenle...",
+      "replyPlaceholder": "Yanıt yaz...",
+      "defaultAuthor": "İnceleyen",
+      "selectTextHint": "Yorum eklemeden önce metin seçin.",
+      "sourceModeUnavailable": "Bu seçim için yorum eylemleri kullanılamaz."
+    },
     "icons": {
       "files": "Dosyalar",
       "search": "Ara",
       "toc": "İçindekiler",
-      "settings": "Ayarlar"
+      "settings": "Ayarlar",
+      "comments": "Yorumlar"
     }
   },
   "commandPalette": {
@@ -781,7 +807,7 @@
       "findPrevious": "Öncekini Bul",
       "replace": "Değiştir",
       "findInFolder": "Klasörde Bul",
-      "addComment": "Add Comment",
+      "addComment": "Yorum ekle",
       "screenshot": "Ekran Görüntüsü"
     },
     "paragraph": {
@@ -872,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "Dili Değiştir"
+    },
+    "review": {
+      "addComment": "Yorum ekle"
     }
   },
   "common": {
@@ -924,7 +953,8 @@
       "exportSuccessTitle": "Başarıyla dışa aktarıldı",
       "exportSuccessMessage": "\"{name}\" başarıyla dışa aktarıldı!",
       "fileRemovedOnDisk": "\"{name}\" diskten kaldırıldı.",
-      "fileChangedOnDisk": "\"{name}\" dosyasında değişiklikler var, yeniden yüklensin mi?"
+      "fileChangedOnDisk": "\"{name}\" dosyasında değişiklikler var, yeniden yüklensin mi?",
+      "fileChangedOnDiskRecoveryCreated": "Kaydedilmemiş düzenlemeleriniz \"{name}\" içinde korundu."
     }
   },
   "spellchecker": {
@@ -932,6 +962,21 @@
     "unexpectedError": "Beklenmeyen yazım denetleyici hatası"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "Disk değişikliklerini çöz",
+      "summary": "Bu sekmede kaydedilmemiş düzenlemeler varken dosya diskte değişti.",
+      "local": "Kaydedilmemiş düzenlemeleriniz",
+      "remote": "Diskte değişti",
+      "result": "Birleştirme sonucu",
+      "conflictLabel": "Çakışma {id}: temel satırlar {start}-{end}",
+      "useLocal": "Sizinkini Kullan",
+      "useRemote": "Diski Kullan",
+      "useBoth": "İkisini de Kullan",
+      "keepEditing": "Düzenlemeye Devam Et",
+      "acceptMerge": "Birleştirmeyi Kabul Et",
+      "invalidCommentSyntax": "Birleştirme sonucu geçersiz MarkText yorum sözdizimi ekliyor. Kabul etmeden önce sonucu düzeltin.",
+      "reloadDisk": "Diskten Yeniden Yükle"
+    },
     "export": {
       "error": "Dışa aktarma hatası",
       "errorExporting": "{type} dosyası dışa aktarılırken hata",

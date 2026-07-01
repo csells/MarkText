@@ -6,16 +6,50 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // templates and assert every window menu (editor + macOS settings) is rebuilt
 // from the current keybindings and the active window's menu is re-applied.
 
+interface MockMenuItem {
+  id?: string
+  checked?: boolean
+  enabled?: boolean
+  submenu?: MockMenuItem[]
+}
+
+interface MockMenu {
+  template: MockMenuItem[]
+  getMenuItemById: (id: string) => MockMenuItem | null
+}
+
 const { buildFromTemplate, setApplicationMenu, configureMenu, configSettingMenu } = vi.hoisted(
-  () => ({
-    buildFromTemplate: vi.fn((template: unknown) => ({
-      template,
-      getMenuItemById: () => ({ checked: false, enabled: true })
-    })),
-    setApplicationMenu: vi.fn(),
-    configureMenu: vi.fn(() => ['EDITOR_TEMPLATE']),
-    configSettingMenu: vi.fn(() => ['SETTINGS_TEMPLATE'])
-  })
+  () => {
+    const editorTemplate = (): MockMenuItem[] => [
+      { id: 'sourceCodeModeMenuItem', checked: false, enabled: true },
+      { id: 'typewriterModeMenuItem', checked: false, enabled: true },
+      { id: 'focusModeMenuItem', checked: false, enabled: true },
+      { id: 'sideBarMenuItem', checked: false, enabled: true },
+      { id: 'tabBarMenuItem', checked: false, enabled: true },
+      { id: 'review.add-comment', checked: false, enabled: false }
+    ]
+    const buildMenu = (template: MockMenuItem[]): MockMenu => {
+      const items = new Map<string, MockMenuItem>()
+      const collect = (entries: MockMenuItem[]): void => {
+        for (const entry of entries) {
+          if (entry.id) items.set(entry.id, { ...entry })
+          if (entry.submenu) collect(entry.submenu)
+        }
+      }
+      collect(template)
+      return {
+        template,
+        getMenuItemById: (id: string) => items.get(id) ?? null
+      }
+    }
+
+    return {
+      buildFromTemplate: vi.fn((template: MockMenuItem[]) => buildMenu(template)),
+      setApplicationMenu: vi.fn(),
+      configureMenu: vi.fn(editorTemplate),
+      configSettingMenu: vi.fn(() => ['SETTINGS_TEMPLATE'])
+    }
+  }
 )
 
 vi.mock('electron', () => ({
@@ -38,7 +72,7 @@ vi.mock('main_renderer/menu/actions/format', () => ({ updateFormatMenu: vi.fn() 
 vi.mock('main_renderer/menu/actions/paragraph', () => ({ updateSelectionMenus: vi.fn() }))
 vi.mock('main_renderer/menu/actions/view', () => ({ viewLayoutChanged: vi.fn() }))
 vi.mock('main_renderer/utils/internalIpc', () => ({ onInternalChannel: vi.fn() }))
-vi.mock('main_renderer/i18n.js', () => ({ setLanguage: vi.fn() }))
+vi.mock('main_renderer/i18n.js', () => ({ setLanguage: vi.fn(), t: (key: string) => key }))
 vi.mock('main_renderer/menu/templates', () => ({
   default: configureMenu,
   configSettingMenu
@@ -89,5 +123,21 @@ describe('AppMenu.updateKeybindings rebuilds menus after a keybinding change (#3
     appMenu.updateKeybindings()
 
     expect(configSettingMenu).toHaveBeenCalled()
+  })
+
+  it('preserves Add Comment enabled state when menus are rebuilt', () => {
+    const appMenu = makeAppMenu()
+    const editorWin = { id: 1 } as never
+    appMenu.addEditorMenu(editorWin)
+    const menu = appMenu.getWindowMenuById(1) as unknown as MockMenu
+    const addCommentItem = menu.getMenuItemById('review.add-comment')
+    expect(addCommentItem).toBeTruthy()
+    if (!addCommentItem) throw new Error('Add Comment menu item missing')
+    addCommentItem.enabled = true
+
+    appMenu.updateKeybindings()
+
+    const rebuilt = appMenu.getWindowMenuById(1) as unknown as MockMenu
+    expect(rebuilt.getMenuItemById('review.add-comment')?.enabled).toBe(true)
   })
 })

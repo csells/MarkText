@@ -10,7 +10,6 @@ const COMMANDS = Object.freeze({
   EDIT_FIND_IN_FOLDER: 'edit.find-in-folder',
   EDIT_FIND_NEXT: 'edit.find-next',
   EDIT_FIND_PREVIOUS: 'edit.find-previous',
-  EDIT_ADD_COMMENT: 'edit.add-comment',
   EDIT_PASTE: 'edit.paste',
   EDIT_PASTE_AS_PLAINTEXT: 'edit.paste-as-plaintext',
   EDIT_REDO: 'edit.redo',
@@ -55,6 +54,8 @@ const COMMANDS = Object.freeze({
   MT_HIDE: 'mt.hide',
   MT_HIDE_OTHERS: 'mt.hide-others',
 
+  LEGACY_EDIT_ADD_COMMENT: 'edit.add-comment',
+
   PARAGRAPH_BULLET_LIST: 'paragraph.bullet-list',
   PARAGRAPH_CODE_FENCE: 'paragraph.code-fence',
   PARAGRAPH_DEGRADE_HEADING: 'paragraph.degrade-heading',
@@ -75,6 +76,8 @@ const COMMANDS = Object.freeze({
   PARAGRAPH_TABLE: 'paragraph.table',
   PARAGRAPH_TASK_LIST: 'paragraph.task-list',
   PARAGRAPH_INCREASE_HEADING: 'paragraph.upgrade-heading',
+
+  REVIEW_ADD_COMMENT: 'review.add-comment',
 
   TABS_CYCLE_BACKWARD: 'tabs.cycleBackward',
   TABS_CYCLE_FORWARD: 'tabs.cycleForward',

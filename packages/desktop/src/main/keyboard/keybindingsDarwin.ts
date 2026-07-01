@@ -42,7 +42,6 @@ const keybindings: Map<string, string> = new Map([
   ['edit.find', 'Command+F'],
   ['edit.find-next', 'Cmd+G'],
   ['edit.find-previous', 'Cmd+Shift+G'],
-  ['edit.add-comment', ''],
   ['edit.replace', 'Command+Option+F'],
   ['edit.find-in-folder', 'Shift+Command+F'],
   ['edit.screenshot', 'Command+Option+A'], // macOS only
@@ -82,6 +81,9 @@ const keybindings: Map<string, string> = new Map([
   ['format.hyperlink', 'Command+L'],
   ['format.image', 'Command+Shift+I'],
   ['format.clear-format', 'Shift+Command+R'],
+
+  // Review menu
+  ['review.add-comment', ''],
 
   // Window menu
   ['window.minimize', 'Command+M'],

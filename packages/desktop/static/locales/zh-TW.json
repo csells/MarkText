@@ -47,11 +47,15 @@
       "findNext": "尋找下一個",
       "findPrevious": "尋找上一個",
       "findInFolder": "在資料夾中尋找",
-      "addComment": "Add Comment",
+      "addComment": "新增評論",
       "screenshot": "螢幕截圖",
       "lineEnding": "行結束符",
       "lineEndingCrlf": "CRLF(Windows)",
       "lineEndingLf": "LF(Linux/Mac)"
+    },
+    "review": {
+      "review": "審閱",
+      "addComment": "新增評論"
     },
     "paragraph": {
       "title": "段落",
@@ -187,7 +191,7 @@
     "pasteAsPlainText": "貼上為純文字",
     "insertParagraphBefore": "在前面插入段落",
     "insertParagraphAfter": "在後面插入段落",
-    "addComment": "Add Comment",
+    "addComment": "新增評論",
     "spelling": "拼字檢查…",
     "changeLanguage": "變更語言…",
     "addToDictionary": "加入字典",
@@ -245,11 +249,33 @@
     "toc": {
       "title": "目錄"
     },
+    "comments": {
+      "title": "評論",
+      "summary": "{open} 個未解決 / 共 {count} 個",
+      "add": "新增",
+      "empty": "沒有評論",
+      "diagnostics": "診斷",
+      "open": "未解決",
+      "resolved": "已解決",
+      "jump": "跳到評論",
+      "edit": "編輯",
+      "resolve": "解決",
+      "reopen": "重新開啟",
+      "reply": "回覆",
+      "saveEdit": "儲存",
+      "cancelEdit": "取消",
+      "editPlaceholder": "編輯此回覆...",
+      "replyPlaceholder": "撰寫回覆...",
+      "defaultAuthor": "審閱者",
+      "selectTextHint": "新增評論前，請先選取文字。",
+      "sourceModeUnavailable": "此選取範圍無法使用評論操作。"
+    },
     "icons": {
       "files": "檔案",
       "search": "搜尋",
       "toc": "目錄",
-      "settings": "設定"
+      "settings": "設定",
+      "comments": "評論"
     }
   },
   "commandPalette": {
@@ -781,7 +807,7 @@
       "findPrevious": "尋找上一個",
       "replace": "取代",
       "findInFolder": "在資料夾中尋找",
-      "addComment": "Add Comment",
+      "addComment": "新增評論",
       "screenshot": "螢幕截圖"
     },
     "paragraph": {
@@ -872,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "切換語言"
+    },
+    "review": {
+      "addComment": "新增評論"
     }
   },
   "common": {
@@ -924,7 +953,8 @@
       "exportSuccessTitle": "匯出成功",
       "exportSuccessMessage": "已成功匯出「{name}」！",
       "fileRemovedOnDisk": "「{name}」已在磁碟上被刪除。",
-      "fileChangedOnDisk": "「{name}」已在磁碟上發生變更。是否重新載入？"
+      "fileChangedOnDisk": "「{name}」已在磁碟上發生變更。是否重新載入？",
+      "fileChangedOnDiskRecoveryCreated": "未儲存的編輯已保留在「{name}」。"
     }
   },
   "spellchecker": {
@@ -932,6 +962,21 @@
     "unexpectedError": "意外的拼字檢查錯誤"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "解決磁碟變更",
+      "summary": "此標籤頁存在未儲存編輯時，檔案已在磁碟上發生變更。",
+      "local": "你的未儲存編輯",
+      "remote": "磁碟上的變更",
+      "result": "合併結果",
+      "conflictLabel": "衝突 {id}：基準行 {start}-{end}",
+      "useLocal": "使用你的版本",
+      "useRemote": "使用磁碟版本",
+      "useBoth": "同時使用",
+      "keepEditing": "繼續編輯",
+      "acceptMerge": "接受合併",
+      "invalidCommentSyntax": "合併結果引入了無效的 MarkText 評論語法。請先修正結果再接受。",
+      "reloadDisk": "從磁碟重新載入"
+    },
     "export": {
       "error": "匯出錯誤",
       "errorExporting": "匯出檔案時發生錯誤",

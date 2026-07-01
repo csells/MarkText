@@ -10,7 +10,11 @@ import type {
     ITaskListState,
     TState,
 } from './types';
-import { COMMENT_MARKER_PATTERN, COMMENT_MARKER_SEARCH_REGEXP } from '../comments/syntax';
+import {
+    COMMENT_MARKER_PATTERN,
+    COMMENT_MARKER_SEARCH_REGEXP,
+    parseCommentMetadataDefinition,
+} from '../comments/syntax';
 import logger from '../utils/logger';
 import { lexBlock } from '../utils/marked';
 
@@ -39,6 +43,186 @@ function looksLikeRawHtmlAfterCommentMarkers(text: string) {
 
 function shouldTreatHtmlAsParagraph(text: string) {
     return COMMENT_MARKER_SEARCH_REGEXP.test(text) && !looksLikeRawHtmlAfterCommentMarkers(text);
+}
+
+interface IFenceState {
+    marker: '`' | '~';
+    length: number;
+}
+
+interface ICommentMetadataDefinitionScanOptions {
+    frontMatter: boolean;
+    math: boolean;
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+function getFenceStart(line: string): IFenceState | null {
+    const match = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+    if (!match)
+        return null;
+
+    const marker = match[1][0] as '`' | '~';
+    return { marker, length: match[1].length };
+}
+
+function isFenceEnd(line: string, fence: IFenceState): boolean {
+    const regexp = new RegExp(`^(?: {0,3})${fence.marker}{${fence.length},}\\s*$`, 'u');
+    return regexp.test(line);
+}
+
+function getFrontMatterStart(line: string): string | null {
+    const match = /^(---|\+\+\+|;;;|\{)[ \t]*$/u.exec(line);
+    if (!match)
+        return null;
+
+    return match[1] === '{' ? '}' : match[1];
+}
+
+function getFrontMatterEndLine(lines: string[]): number | null {
+    const closing = lines[0] == null ? null : getFrontMatterStart(lines[0]);
+    if (!closing)
+        return null;
+
+    for (let index = 1; index < lines.length; index += 1) {
+        if (lines[index].trim() === closing)
+            return index;
+    }
+
+    return null;
+}
+
+function getHtmlBlockClosing(line: string): RegExp | 'single-line' | null {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('<!--')) {
+        return /-->/u.test(trimmed) ? 'single-line' : /-->/u;
+    }
+
+    const tag = /^<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s|>|\/>)/u.exec(trimmed);
+    if (!tag)
+        return null;
+    if (new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu').test(trimmed) || /\/>\s*$/u.test(trimmed))
+        return 'single-line';
+
+    return new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu');
+}
+
+function commentMetadataDefinitionLines(
+    markdown: string,
+    options: ICommentMetadataDefinitionScanOptions,
+): string[] {
+    const lines = markdown
+        .replace(/^\uFEFF/u, '')
+        .split(/\r\n|\n|\r/u);
+    const definitions: string[] = [];
+    let fence: IFenceState | null = null;
+    const frontMatterEndLine = options.frontMatter ? getFrontMatterEndLine(lines) : null;
+    let htmlClosing: RegExp | null = null;
+    let inMathBlock = false;
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const trimmed = line.trim();
+
+        if (frontMatterEndLine != null && index <= frontMatterEndLine)
+            continue;
+
+        if (fence) {
+            if (isFenceEnd(line, fence))
+                fence = null;
+            continue;
+        }
+
+        const fenceStart = getFenceStart(line);
+        if (fenceStart) {
+            fence = fenceStart;
+            continue;
+        }
+
+        if (options.math && inMathBlock) {
+            if (/^ {0,3}\$\$[ \t]*$/u.test(line))
+                inMathBlock = false;
+            continue;
+        }
+
+        if (options.math && /^ {0,3}\$\$[ \t]*$/u.test(line)) {
+            inMathBlock = true;
+            continue;
+        }
+
+        if (htmlClosing) {
+            if (!trimmed || htmlClosing.test(trimmed))
+                htmlClosing = null;
+            continue;
+        }
+
+        const htmlBlockClosing = getHtmlBlockClosing(line);
+        if (htmlBlockClosing) {
+            if (htmlBlockClosing !== 'single-line')
+                htmlClosing = htmlBlockClosing;
+            continue;
+        }
+
+        if (/^(?: {4,}|\t)/u.test(line))
+            continue;
+
+        if (parseCommentMetadataDefinition(line))
+            definitions.push(line);
+    }
+
+    return definitions;
+}
+
+function restoreDroppedCommentMetadataDefinitions(
+    markdown: string,
+    states: TState[],
+    options: ICommentMetadataDefinitionScanOptions,
+): void {
+    const rawDefinitions = commentMetadataDefinitionLines(markdown, options);
+    if (!rawDefinitions.length)
+        return;
+
+    const remaining = new Map<string, number>();
+    for (const definition of rawDefinitions)
+        remaining.set(definition, (remaining.get(definition) ?? 0) + 1);
+
+    let insertIndex = states.length;
+    states.forEach((state, index) => {
+        if (state.name !== 'paragraph' || !parseCommentMetadataDefinition(state.text))
+            return;
+
+        const count = remaining.get(state.text) ?? 0;
+        if (count > 1)
+            remaining.set(state.text, count - 1);
+        else
+            remaining.delete(state.text);
+        insertIndex = index + 1;
+    });
+
+    const missing = rawDefinitions.filter((definition) => {
+        const count = remaining.get(definition) ?? 0;
+        if (count <= 0)
+            return false;
+
+        if (count === 1)
+            remaining.delete(definition);
+        else
+            remaining.set(definition, count - 1);
+        return true;
+    });
+    if (!missing.length)
+        return;
+
+    states.splice(
+        insertIndex,
+        0,
+        ...missing.map(text => ({
+            name: 'paragraph' as const,
+            text,
+        })),
+    );
 }
 
 interface IMarkdownToStateOptions {
@@ -105,6 +289,9 @@ export class MarkdownToState {
             else
                 this._handleLeafToken(token, parentList, tokens, trimUnnecessaryCodeBlockEmptyLines);
         }
+
+        if (states.length)
+            restoreDroppedCommentMetadataDefinitions(markdown, states, { frontMatter, math });
 
         return states.length ? states : [{ name: 'paragraph', text: '' }];
     }

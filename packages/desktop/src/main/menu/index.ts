@@ -4,13 +4,15 @@ import { app, Menu, ipcMain, type BrowserWindow } from 'electron'
 import log from 'electron-log'
 import { ensureDirSync, isDirectory2, isFile2 } from 'common/filesystem'
 import { isLinux, isOsx, isWindows } from '../config'
-import { updateSidebarMenu } from '../menu/actions/edit'
+import { updateAddCommentMenu, updateSidebarMenu } from '../menu/actions/edit'
 import { updateFormatMenu } from '../menu/actions/format'
 import { updateSelectionMenus, type SelectionState } from '../menu/actions/paragraph'
+import { updateEditorContextAddCommentSelection } from '../contextMenu/editor'
 import { onInternalChannel } from '../utils/internalIpc'
 import { viewLayoutChanged } from '../menu/actions/view'
 import configureMenu, { configSettingMenu } from '../menu/templates'
 import { setLanguage } from '../i18n.js'
+import { COMMANDS } from '../commands'
 import type Preference from '../preferences'
 import type Keybindings from '../keyboard/shortcutHandler'
 import type { IUserPreferences } from '@shared/types/preferences'
@@ -298,6 +300,7 @@ class AppMenu {
       updateMenuItem(oldMenu, newMenu, 'focusModeMenuItem')
       updateMenuItem(oldMenu, newMenu, 'sideBarMenuItem')
       updateMenuItem(oldMenu, newMenu, 'tabBarMenuItem')
+      updateMenuItem(oldMenu, newMenu, COMMANDS.REVIEW_ADD_COMMENT, { enabled: true })
 
       // update window menu
       value.menu = newMenu
@@ -330,6 +333,7 @@ class AppMenu {
         updateMenuItem(oldMenu, rebuilt, 'focusModeMenuItem')
         updateMenuItem(oldMenu, rebuilt, 'sideBarMenuItem')
         updateMenuItem(oldMenu, rebuilt, 'tabBarMenuItem')
+        updateMenuItem(oldMenu, rebuilt, COMMANDS.REVIEW_ADD_COMMENT, { enabled: true })
         newMenu = rebuilt
       } else if (type === MenuType.SETTINGS) {
         newMenu = this._buildSettingMenu().menu
@@ -508,8 +512,23 @@ class AppMenu {
         log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)
         return
       }
+      updateEditorContextAddCommentSelection(
+        windowId,
+        !changes.isDisabled && !!changes.canAddComment
+      )
       updateSelectionMenus(this.getWindowMenuById(windowId), changes)
     })
+    ipcMain.on(
+      'mt::editor-add-comment-selection-changed',
+      (_e, windowId: number, enabled: boolean) => {
+        if (!this.has(windowId)) {
+          log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)
+          return
+        }
+        updateEditorContextAddCommentSelection(windowId, enabled)
+        updateAddCommentMenu(this.getWindowMenuById(windowId), enabled)
+      }
+    )
 
     onInternalChannel('menu-add-recently-used', (pathname: string) => {
       this.addRecentlyUsedDocument(pathname)
@@ -534,11 +553,23 @@ class AppMenu {
   }
 }
 
-const updateMenuItem = (oldMenus: Menu, newMenus: Menu, id: string): void => {
+interface UpdateMenuItemOptions {
+  enabled?: boolean
+}
+
+const updateMenuItem = (
+  oldMenus: Menu,
+  newMenus: Menu,
+  id: string,
+  options: UpdateMenuItemOptions = {}
+): void => {
   const oldItem = oldMenus.getMenuItemById(id)
   const newItem = newMenus.getMenuItemById(id)
   if (oldItem && newItem) {
     newItem.checked = oldItem.checked
+    if (options.enabled) {
+      newItem.enabled = oldItem.enabled
+    }
   }
 }
 

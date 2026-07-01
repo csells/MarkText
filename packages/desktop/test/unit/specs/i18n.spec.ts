@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 interface MockI18nUtils {
   loadTranslations: Mock
@@ -7,6 +10,15 @@ interface MockI18nUtils {
 // Window.i18nUtils is required in the runtime contextBridge typing, but in
 // this unit test we install a mock with `vi.fn` and remove it between specs.
 const win = window as unknown as { i18nUtils?: MockI18nUtils }
+const localesDir = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../static/locales'
+)
+
+const i18nUtils = (): MockI18nUtils => {
+  if (!win.i18nUtils) throw new Error('i18nUtils test mock was not installed')
+  return win.i18nUtils
+}
 
 describe('renderer i18n language loading', () => {
   beforeEach(() => {
@@ -32,7 +44,7 @@ describe('renderer i18n language loading', () => {
 
     setLanguage('en')
 
-    expect(win.i18nUtils!.loadTranslations).not.toHaveBeenCalled()
+    expect(i18nUtils().loadTranslations).not.toHaveBeenCalled()
     expect(getCurrentLanguage()).to.equal('en')
   })
 
@@ -42,8 +54,8 @@ describe('renderer i18n language loading', () => {
     setLanguage('zh-CN')
     setLanguage('zh-CN')
 
-    expect(win.i18nUtils!.loadTranslations).toHaveBeenCalledTimes(1)
-    expect(win.i18nUtils!.loadTranslations).toHaveBeenCalledWith('zh-CN')
+    expect(i18nUtils().loadTranslations).toHaveBeenCalledTimes(1)
+    expect(i18nUtils().loadTranslations).toHaveBeenCalledWith('zh-CN')
   })
 })
 
@@ -87,5 +99,160 @@ describe('renderer i18n malformed-message resilience (issue #4046)', () => {
     composer.locale.value = 'xx'
 
     expect(composer.t('greeting', { name: 'World' })).toBe('Hello World')
+  })
+})
+
+describe('desktop locale completeness for markdown comments', () => {
+  it('ships the comments sidebar strings in every source locale', () => {
+    const expectedCommentKeys = [
+      'add',
+      'cancelEdit',
+      'defaultAuthor',
+      'diagnostics',
+      'edit',
+      'editPlaceholder',
+      'empty',
+      'jump',
+      'open',
+      'reopen',
+      'reply',
+      'replyPlaceholder',
+      'resolve',
+      'resolved',
+      'saveEdit',
+      'selectTextHint',
+      'sourceModeUnavailable',
+      'summary',
+      'title'
+    ]
+
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8')) as {
+        sideBar?: {
+          comments?: Record<string, unknown>
+          icons?: Record<string, unknown>
+        }
+      }
+
+      expect(Object.keys(locale.sideBar?.comments ?? {}).sort(), file).toEqual(
+        expectedCommentKeys.sort()
+      )
+      expect(locale.sideBar?.icons?.comments, file).toBeTypeOf('string')
+    }
+  })
+
+  it('ships the Review menu strings in every source locale', () => {
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8')) as {
+        menu?: {
+          review?: Record<string, unknown>
+        }
+      }
+
+      expect(locale.menu?.review?.review, file).toBeTypeOf('string')
+      expect(locale.menu?.review?.addComment, file).toBeTypeOf('string')
+    }
+  })
+
+  it('ships Review command-palette strings in every source locale', () => {
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8')) as {
+        commands?: {
+          review?: Record<string, unknown>
+        }
+      }
+
+      expect(locale.commands?.review?.addComment, file).toBeTypeOf('string')
+    }
+  })
+
+  it('ships merge-conflict resolver strings in every source locale', () => {
+    const expectedMergeKeys = [
+      'acceptMerge',
+      'conflictLabel',
+      'invalidCommentSyntax',
+      'keepEditing',
+      'local',
+      'reloadDisk',
+      'remote',
+      'result',
+      'summary',
+      'title',
+      'useBoth',
+      'useLocal',
+      'useRemote'
+    ]
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8')) as {
+        editor?: {
+          mergeConflict?: Record<string, unknown>
+        }
+      }
+
+      expect(Object.keys(locale.editor?.mergeConflict ?? {}).sort(), file).toEqual(
+        expectedMergeKeys.sort()
+      )
+    }
+  })
+
+  it('does not describe comment actions as WYSIWYG-only or disabled in source mode', () => {
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8')) as {
+        sideBar?: {
+          comments?: {
+            selectTextHint?: string
+            sourceModeUnavailable?: string
+          }
+        }
+      }
+      const selectTextHint = locale.sideBar?.comments?.selectTextHint ?? ''
+      const sourceModeUnavailable = locale.sideBar?.comments?.sourceModeUnavailable ?? ''
+
+      expect(selectTextHint, file).not.toMatch(/WYSIWYG|source mode|modo fuente|mode source|Quellmodus|ソースモード|소스 모드|modo de código-fonte|Kaynak modu|源码模式|原始碼模式/iu)
+      expect(sourceModeUnavailable, file).not.toMatch(/WYSIWYG|source mode|modo fuente|mode source|Quellmodus|ソースモード|소스 모드|modo de código-fonte|Kaynak modu|源码模式|原始碼模式/iu)
+    }
+  })
+
+  it('ships dirty reload recovery notification strings in every source locale', () => {
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8')) as {
+        store?: {
+          editor?: Record<string, unknown>
+        }
+      }
+
+      expect(locale.store?.editor?.fileChangedOnDiskRecoveryCreated, file).toBeTypeOf('string')
+    }
+  })
+
+  it('keeps generated minified locale files in parity with source locales', () => {
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const source = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8'))
+      const minifiedPath = resolve(localesDir, file.replace(/\.json$/u, '.min.json'))
+
+      expect(existsSync(minifiedPath), file).toBe(true)
+      expect(JSON.parse(readFileSync(minifiedPath, 'utf8')), file).toEqual(source)
+    }
   })
 })

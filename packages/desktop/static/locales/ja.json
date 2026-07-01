@@ -47,11 +47,15 @@
       "findNext": "次を検索",
       "findPrevious": "前を検索",
       "findInFolder": "フォルダ内を検索",
-      "addComment": "Add Comment",
+      "addComment": "コメントを追加",
       "screenshot": "スクリーンショット",
       "lineEnding": "改行コード",
       "lineEndingCrlf": "CRLF (Windows)",
       "lineEndingLf": "LF (Linux/Mac)"
+    },
+    "review": {
+      "review": "レビュー",
+      "addComment": "コメントを追加"
     },
     "paragraph": {
       "title": "段落",
@@ -187,7 +191,7 @@
     "pasteAsPlainText": "プレーンテキストとして貼り付け",
     "insertParagraphBefore": "前に段落を挿入",
     "insertParagraphAfter": "後に段落を挿入",
-    "addComment": "Add Comment",
+    "addComment": "コメントを追加",
     "spelling": "スペルチェック...",
     "changeLanguage": "言語を変更...",
     "addToDictionary": "辞書に追加",
@@ -245,11 +249,33 @@
     "toc": {
       "title": "目次"
     },
+    "comments": {
+      "title": "コメント",
+      "summary": "{open} 件が未解決 / 全 {count} 件",
+      "add": "追加",
+      "empty": "コメントはありません",
+      "diagnostics": "診断",
+      "open": "未解決",
+      "resolved": "解決済み",
+      "jump": "コメントへ移動",
+      "edit": "編集",
+      "resolve": "解決",
+      "reopen": "再開",
+      "reply": "返信",
+      "saveEdit": "保存",
+      "cancelEdit": "キャンセル",
+      "editPlaceholder": "この返信を編集...",
+      "replyPlaceholder": "返信を書く...",
+      "defaultAuthor": "レビュアー",
+      "selectTextHint": "コメントを追加する前にテキストを選択してください。",
+      "sourceModeUnavailable": "この選択範囲ではコメント操作は利用できません。"
+    },
     "icons": {
       "files": "ファイル",
       "search": "検索",
       "toc": "目次",
-      "settings": "設定"
+      "settings": "設定",
+      "comments": "コメント"
     }
   },
   "commandPalette": {
@@ -781,7 +807,7 @@
       "findPrevious": "前を検索",
       "replace": "置換",
       "findInFolder": "フォルダ内を検索",
-      "addComment": "Add Comment",
+      "addComment": "コメントを追加",
       "screenshot": "スクリーンショット"
     },
     "paragraph": {
@@ -872,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "言語を切り替え"
+    },
+    "review": {
+      "addComment": "コメントを追加"
     }
   },
   "common": {
@@ -924,7 +953,8 @@
       "exportSuccessTitle": "エクスポートに成功",
       "exportSuccessMessage": "「{name}」を正常にエクスポートしました！",
       "fileRemovedOnDisk": "「{name}」はディスク上で削除されました。",
-      "fileChangedOnDisk": "「{name}」はディスク上で変更されました。再読み込みしますか？"
+      "fileChangedOnDisk": "「{name}」はディスク上で変更されました。再読み込みしますか？",
+      "fileChangedOnDiskRecoveryCreated": "未保存の編集内容は「{name}」に保持されました。"
     }
   },
   "spellchecker": {
@@ -932,6 +962,21 @@
     "unexpectedError": "予期しないスペルチェックエラー"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "ディスク上の変更を解決",
+      "summary": "このタブに未保存の編集がある間に、ファイルがディスク上で変更されました。",
+      "local": "未保存の編集",
+      "remote": "ディスク上の変更",
+      "result": "マージ結果",
+      "conflictLabel": "競合 {id}: ベース行 {start}-{end}",
+      "useLocal": "自分の編集を使用",
+      "useRemote": "ディスクを使用",
+      "useBoth": "両方を使用",
+      "keepEditing": "編集を続ける",
+      "acceptMerge": "マージを承認",
+      "invalidCommentSyntax": "マージ結果に無効な MarkText コメント構文が含まれています。承認する前に結果を修正してください。",
+      "reloadDisk": "ディスクから再読み込み"
+    },
     "export": {
       "error": "エクスポートエラー",
       "errorExporting": "ファイルのエクスポート中にエラーが発生しました",

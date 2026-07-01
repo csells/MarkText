@@ -1,6 +1,7 @@
 // NOTE: This are mutable fields that may change at runtime.
 
 import { type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { canExecuteEditorContextAddComment } from './addCommentState'
 import { t } from '../../i18n'
 
 // Use function form to avoid calling the translation function during module load
@@ -56,7 +57,7 @@ export const getAddComment = (): MenuItemConstructorOptions => ({
   label: t('contextMenu.addComment'),
   id: 'addCommentMenuItem',
   click(_menuItem, targetWindow) {
-    if (targetWindow) {
+    if (targetWindow && canExecuteEditorContextAddComment(targetWindow as BrowserWindow)) {
       ;(targetWindow as BrowserWindow).webContents.send('mt::cm-add-comment')
     }
   }

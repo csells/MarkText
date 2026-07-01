@@ -47,11 +47,15 @@
       "findNext": "Rechercher suivant",
       "findPrevious": "Rechercher précédent",
       "findInFolder": "Rechercher dans le dossier",
-      "addComment": "Add Comment",
+      "addComment": "Ajouter un commentaire",
       "screenshot": "Capture d'écran",
       "lineEnding": "Fin de ligne",
       "lineEndingCrlf": "CRLF (Windows)",
       "lineEndingLf": "LF (Linux/Mac)"
+    },
+    "review": {
+      "review": "Révision",
+      "addComment": "Ajouter un commentaire"
     },
     "paragraph": {
       "title": "Paragraphe",
@@ -187,7 +191,7 @@
     "pasteAsPlainText": "Coller en texte brut",
     "insertParagraphBefore": "Insérer un paragraphe avant",
     "insertParagraphAfter": "Insérer un paragraphe après",
-    "addComment": "Add Comment",
+    "addComment": "Ajouter un commentaire",
     "spelling": "Orthographe...",
     "changeLanguage": "Changer de langue...",
     "addToDictionary": "Ajouter au dictionnaire",
@@ -245,11 +249,33 @@
     "toc": {
       "title": "Table des matières"
     },
+    "comments": {
+      "title": "Commentaires",
+      "summary": "{open} ouverts / {count} au total",
+      "add": "Ajouter",
+      "empty": "Aucun commentaire",
+      "diagnostics": "Problèmes",
+      "open": "Ouvert",
+      "resolved": "Résolu",
+      "jump": "Aller au commentaire",
+      "edit": "Modifier",
+      "resolve": "Résoudre",
+      "reopen": "Rouvrir",
+      "reply": "Répondre",
+      "saveEdit": "Enregistrer",
+      "cancelEdit": "Annuler",
+      "editPlaceholder": "Modifier cette réponse...",
+      "replyPlaceholder": "Écrire une réponse...",
+      "defaultAuthor": "Relecteur",
+      "selectTextHint": "Sélectionnez du texte avant d’ajouter un commentaire.",
+      "sourceModeUnavailable": "Les actions de commentaire ne sont pas disponibles pour cette sélection."
+    },
     "icons": {
       "files": "Fichiers",
       "search": "Rechercher",
       "toc": "Table des matières",
-      "settings": "Paramètres"
+      "settings": "Paramètres",
+      "comments": "Commentaires"
     }
   },
   "commandPalette": {
@@ -781,7 +807,7 @@
       "findPrevious": "Rechercher précédent",
       "replace": "Remplacer",
       "findInFolder": "Rechercher dans le dossier",
-      "addComment": "Add Comment",
+      "addComment": "Ajouter un commentaire",
       "screenshot": "Capture d'écran"
     },
     "paragraph": {
@@ -872,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "Changer de langue"
+    },
+    "review": {
+      "addComment": "Ajouter un commentaire"
     }
   },
   "common": {
@@ -924,7 +953,8 @@
       "exportSuccessTitle": "Exportation réussie",
       "exportSuccessMessage": "« {name} » a été exporté avec succès !",
       "fileRemovedOnDisk": "« {name} » a été supprimé du disque.",
-      "fileChangedOnDisk": "« {name} » a été modifié sur le disque. Voulez-vous le recharger ?"
+      "fileChangedOnDisk": "« {name} » a été modifié sur le disque. Voulez-vous le recharger ?",
+      "fileChangedOnDiskRecoveryCreated": "Vos modifications non enregistrées ont été conservées dans \"{name}\"."
     }
   },
   "spellchecker": {
@@ -932,6 +962,21 @@
     "unexpectedError": "Erreur inattendue du correcteur orthographique"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "Résoudre les modifications du disque",
+      "summary": "Le fichier a changé sur le disque pendant que cet onglet contenait des modifications non enregistrées.",
+      "local": "Vos modifications non enregistrées",
+      "remote": "Modifié sur le disque",
+      "result": "Résultat de la fusion",
+      "conflictLabel": "Conflit {id} : lignes de base {start}-{end}",
+      "useLocal": "Utiliser vos modifications",
+      "useRemote": "Utiliser le disque",
+      "useBoth": "Utiliser les deux",
+      "keepEditing": "Continuer l'édition",
+      "acceptMerge": "Accepter la fusion",
+      "invalidCommentSyntax": "Le résultat de la fusion introduit une syntaxe de commentaire MarkText invalide. Corrigez le résultat avant de l'accepter.",
+      "reloadDisk": "Recharger depuis le disque"
+    },
     "export": {
       "error": "Erreur d'exportation",
       "errorExporting": "Erreur lors de l'exportation du fichier",

@@ -23,12 +23,14 @@ export {
     selectionIntersectsCommentRange,
 } from './range';
 export {
+    COMMENT_ID_PATTERN,
     COMMENT_MARKER_PATTERN,
     COMMENT_MARKER_REGEXP,
     COMMENT_MARKER_SEARCH_REGEXP,
     COMMENT_METADATA_DATA_URI_PREFIX,
     COMMENT_METADATA_DEFINITION_REGEXP,
     isCommentMetadataReference,
+    isValidCommentId,
     parseCommentMarker,
     parseCommentMetadataDefinition,
 } from './syntax';
@@ -46,5 +48,6 @@ export type {
     ICommentThread,
     IParsedMarkdownComments,
     TCommentDiagnosticCode,
+    TCommentDisplayMetadata,
     TCommentStatus,
 } from './types';

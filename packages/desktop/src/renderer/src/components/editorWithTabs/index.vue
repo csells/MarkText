@@ -19,6 +19,7 @@
       />
     </div>
     <tab-notifications />
+    <merge-conflict-dialog />
   </div>
 </template>
 
@@ -29,6 +30,7 @@ import Tabs from './tabs.vue'
 import Editor from './editor.vue'
 import SourceCode from './sourceCode.vue'
 import TabNotifications from './notifications.vue'
+import MergeConflictDialog from './mergeConflictDialog.vue'
 
 defineProps<{
   markdown: string

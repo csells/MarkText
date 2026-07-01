@@ -53,6 +53,10 @@
       "lineEndingCrlf": "CRLF(Windows)",
       "lineEndingLf": "LF(Linux/Mac)"
     },
+    "review": {
+      "review": "Review",
+      "addComment": "Add Comment"
+    },
     "paragraph": {
       "title": "Paragraph",
       "paragraph": "Paragraph",
@@ -260,11 +264,11 @@
       "reply": "Reply",
       "saveEdit": "Save",
       "cancelEdit": "Cancel",
-      "editPlaceholder": "Edit the first note...",
+      "editPlaceholder": "Edit this reply...",
       "replyPlaceholder": "Write a reply...",
       "defaultAuthor": "Reviewer",
-      "selectTextHint": "Select text in WYSIWYG mode before adding a comment.",
-      "sourceModeUnavailable": "Comment actions are disabled in source mode."
+      "selectTextHint": "Select text before adding a comment.",
+      "sourceModeUnavailable": "Comment actions are unavailable for this selection."
     },
     "icons": {
       "files": "Files",
@@ -894,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "Switch Language"
+    },
+    "review": {
+      "addComment": "Add Comment"
     }
   },
   "common": {
@@ -946,7 +953,10 @@
       "exportSuccessTitle": "Exported successfully",
       "exportSuccessMessage": "Exported \"{name}\" successfully!",
       "fileRemovedOnDisk": "\"{name}\" has been removed on disk.",
-      "fileChangedOnDisk": "\"{name}\" has been changed on disk. Do you want to reload it?"
+      "fileChangedOnDisk": "\"{name}\" has changed on disk. Reload from disk? MarkText will keep your unsaved edits in a new untitled tab before replacing this tab; you can also Undo immediately after reload.",
+      "fileChangedOnDiskRecoveryCreated": "Your unsaved edits were kept in \"{name}\".",
+      "fileChangedOnDiskAutoMerged": "Merged disk changes into your unsaved edits in \"{name}\".",
+      "fileChangedOnDiskMergeConflict": "\"{name}\" has disk changes that conflict with your unsaved edits. Resolve the merge to continue."
     }
   },
   "spellchecker": {
@@ -954,6 +964,21 @@
     "unexpectedError": "Unexpected spellchecker error"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "Resolve disk changes",
+      "summary": "The file changed on disk while this tab had unsaved edits.",
+      "local": "Your unsaved edits",
+      "remote": "Changed on disk",
+      "result": "Merge result",
+      "conflictLabel": "Conflict {id}: base lines {start}-{end}",
+      "useLocal": "Use Yours",
+      "useRemote": "Use Disk",
+      "useBoth": "Use Both",
+      "keepEditing": "Keep Editing",
+      "acceptMerge": "Accept Merge",
+      "invalidCommentSyntax": "The merge result introduces invalid MarkText comment syntax. Fix the result before accepting.",
+      "reloadDisk": "Reload Disk"
+    },
     "export": {
       "error": "Export error",
       "errorExporting": "Error exporting {type} file",

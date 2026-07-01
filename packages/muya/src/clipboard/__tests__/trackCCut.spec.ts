@@ -174,6 +174,28 @@ describe('track C — cross-block cut keeps both endpoint tails (leaf merge)', (
         expect(await cutAndRead(muya)).toBe('almma\n');
     });
 
+    it('removes metadata for a comment range wholly inside a deleted middle block', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            'Alpha start',
+            '',
+            'Middle <!--MC:a-->reviewed<!--MC:~a--> block.',
+            '',
+            'Omega end',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+
+        stubSelection(muya, blocks[0], 'Alp'.length, blocks[2], 'Omega'.length);
+        const markdown = await cutAndRead(muya);
+
+        expect(markdown).toBe('Alp end\n');
+        expect(markdown).not.toContain('MC:a');
+        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
+    });
+
     it('cut is the engine behind typing-replace on a cross-block selection', async () => {
         // The paste/typing path calls cutHandler first to collapse the range;
         // the result must be the merged single block ready to receive input.
@@ -181,6 +203,132 @@ describe('track C — cross-block cut keeps both endpoint tails (leaf merge)', (
         const blocks = contentBlocks(muya);
         stubSelection(muya, blocks[0], 1, blocks[1], 2);
         expect(await cutAndRead(muya)).toBe('fr\n');
+    });
+
+    it('cutting the whole visible text of a comment removes the empty anchors and metadata', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+        const block = contentBlocks(muya)[0];
+        const start = 'A <!--MC:a-->'.length;
+        const end = start + 'reviewed'.length;
+
+        stubSelection(muya, block, start, block, end);
+        const markdown = await cutAndRead(muya);
+
+        expect(markdown).toBe('A  span.\n');
+        expect(markdown).not.toContain('MC:a');
+        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
+    });
+
+    it('cutting a whole marker-wrapped comment span removes now-unreferenced metadata', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+        const block = contentBlocks(muya)[0];
+        const start = 'A '.length;
+        const end = 'A <!--MC:a-->reviewed<!--MC:~a-->'.length;
+
+        stubSelection(muya, block, start, block, end);
+        const markdown = await cutAndRead(muya);
+
+        expect(markdown).toBe('A  span.\n');
+        expect(markdown).not.toContain('MC:a');
+        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
+    });
+
+    it('does not cut a partial hidden comment marker', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const original = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya(original);
+        const block = contentBlocks(muya)[0];
+        const start = 'A <!--'.length;
+        const end = start + 'MC'.length;
+
+        stubSelection(muya, block, start, block, end);
+        const markdown = await cutAndRead(muya);
+
+        expect(markdown).toBe(original);
+        expect(muya.getComments().diagnostics).toEqual([]);
+    });
+
+    it('does not cross-block cut from inside a hidden opening marker', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const original = [
+            'Alpha <!--MC:a-->line.',
+            '',
+            'Beta<!--MC:~a--> tail.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya(original);
+        const blocks = contentBlocks(muya);
+        const start = 'Alpha <!--'.length;
+        const end = 'Beta'.length;
+
+        stubSelection(muya, blocks[0], start, blocks[1], end);
+        const markdown = await cutAndRead(muya);
+
+        expect(markdown).toBe(original);
+        expect(muya.getComments().diagnostics).toEqual([]);
+    });
+
+    it('does not cross-block cut into a hidden closing marker', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const original = [
+            'Alpha <!--MC:a-->line.',
+            '',
+            'Beta<!--MC:~a--> tail.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n');
+        const muya = bootMuya(original);
+        const blocks = contentBlocks(muya);
+        const start = 'Alpha <!--MC:a-->'.length;
+        const end = 'Beta<!--MC:'.length;
+
+        stubSelection(muya, blocks[0], start, blocks[1], end);
+        const markdown = await cutAndRead(muya);
+
+        expect(markdown).toBe(original);
+        expect(muya.getComments().diagnostics).toEqual([]);
+    });
+
+    it('cutting the whole visible text of a cross-leaf comment removes the empty anchors and metadata', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            'Alpha <!--MC:a-->line.',
+            '',
+            'Beta<!--MC:~a--> tail.',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+        const start = 'Alpha <!--MC:a-->'.length;
+        const end = 'Beta'.length;
+
+        stubSelection(muya, blocks[0], start, blocks[1], end);
+        const markdown = await cutAndRead(muya);
+
+        expect(markdown).toBe('Alpha  tail.\n');
+        expect(markdown).not.toContain('MC:a');
+        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
     });
 
     it('paragraph -> table cell: grid is preserved, spanned cells emptied', async () => {
@@ -383,5 +531,24 @@ describe('track C — empty table row/column/whole-table cut is structural', () 
         expect(md).not.toContain('|');
         expect(md).not.toContain('a1');
         expect(md).not.toContain('b2');
+    });
+
+    it('cutting a whole table with a comment removes now-unreferenced metadata', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            '| <!--MC:a-->reviewed<!--MC:~a--> | other |',
+            '| --- | --- |',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+        const table = firstTable(muya);
+
+        dragSelect(table, 0, 0, table.rowCount - 1, table.columnCount - 1);
+        const md = await cutSelectionAndRead(muya);
+
+        expect(md).toBe('\n');
+        expect(md).not.toContain('MC:a');
+        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
     });
 });

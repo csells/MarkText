@@ -1,5 +1,5 @@
 import path from 'path'
-import { BrowserWindow, ipcMain, type Menu, type MenuItem } from 'electron'
+import { BrowserWindow, ipcMain, Menu, type MenuItem } from 'electron'
 import log from 'electron-log'
 import { COMMANDS } from '../../commands'
 import type { CommandManager } from '../../commands'
@@ -90,7 +90,22 @@ export const editorFindPrevious = (win: Win): void => {
 }
 
 export const editorAddComment = (win: Win): void => {
+  if (!isAddCommentMenuEnabled()) {
+    return
+  }
   edit(win, 'addComment')
+}
+
+export const isAddCommentMenuEnabled = (applicationMenu: Menu | null = Menu.getApplicationMenu()): boolean => {
+  const menuItem = applicationMenu?.getMenuItemById(COMMANDS.REVIEW_ADD_COMMENT)
+  return menuItem?.enabled === true
+}
+
+export const updateAddCommentMenu = (applicationMenu: Menu, enabled: boolean): void => {
+  const menuItem = applicationMenu.getMenuItemById(COMMANDS.REVIEW_ADD_COMMENT)
+  if (menuItem) {
+    menuItem.enabled = enabled
+  }
 }
 
 export const editorReplace = (win: Win): void => {
@@ -149,7 +164,8 @@ export const loadEditCommands = (commandManager: CommandManager): void => {
   commandManager.add(COMMANDS.EDIT_FIND_IN_FOLDER, findInFolder)
   commandManager.add(COMMANDS.EDIT_FIND_NEXT, editorFindNext)
   commandManager.add(COMMANDS.EDIT_FIND_PREVIOUS, editorFindPrevious)
-  commandManager.add(COMMANDS.EDIT_ADD_COMMENT, editorAddComment)
+  commandManager.add(COMMANDS.REVIEW_ADD_COMMENT, editorAddComment)
+  commandManager.add(COMMANDS.LEGACY_EDIT_ADD_COMMENT, editorAddComment)
   commandManager.add(COMMANDS.EDIT_PASTE, nativePaste)
   commandManager.add(COMMANDS.EDIT_PASTE_AS_PLAINTEXT, editorPasteAsPlainText)
   commandManager.add(COMMANDS.EDIT_REDO, editorRedo)
@@ -165,6 +181,8 @@ export const loadEditCommands = (commandManager: CommandManager): void => {
 //       window id from `AppMenu` manager.
 
 export const updateSidebarMenu = (applicationMenu: Menu, value: unknown): void => {
-  const sideBarMenuItem: MenuItem = applicationMenu.getMenuItemById('sideBarMenuItem')!
+  const sideBarMenuItem: MenuItem | null = applicationMenu.getMenuItemById('sideBarMenuItem')
+  if (!sideBarMenuItem) return
+
   sideBarMenuItem.checked = !!value
 }

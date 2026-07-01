@@ -12,11 +12,36 @@
       <el-button
         size="small"
         :icon="Plus"
+        :disabled="!canAddComment"
         @click="addComment"
       >
         {{ t('sideBar.comments.add') }}
       </el-button>
     </header>
+
+    <div class="comment-filters">
+      <button
+        type="button"
+        :class="{ active: commentFilter === 'all' }"
+        @click="commentFilter = 'all'"
+      >
+        All
+      </button>
+      <button
+        type="button"
+        :class="{ active: commentFilter === 'open' }"
+        @click="commentFilter = 'open'"
+      >
+        {{ t('sideBar.comments.open') }}
+      </button>
+      <button
+        type="button"
+        :class="{ active: commentFilter === 'resolved' }"
+        @click="commentFilter = 'resolved'"
+      >
+        {{ t('sideBar.comments.resolved') }}
+      </button>
+    </div>
 
     <section
       v-if="comments.diagnostics.length"
@@ -25,25 +50,27 @@
       <div class="section-title">
         {{ t('sideBar.comments.diagnostics') }}
       </div>
-      <div
+      <button
         v-for="diagnostic of comments.diagnostics"
         :key="`${diagnostic.code}:${diagnostic.id}`"
         class="diagnostic"
+        type="button"
+        @click="focusDiagnostic(diagnostic.id)"
       >
         <span class="diagnostic-code">{{ diagnostic.code }}</span>
         <span>{{ diagnostic.message }}</span>
-      </div>
+      </button>
     </section>
 
     <div
-      v-if="comments.threads.length === 0"
+      v-if="visibleThreads.length === 0"
       class="empty"
     >
       {{ t('sideBar.comments.empty') }}
     </div>
 
     <section
-      v-for="thread of comments.threads"
+      v-for="thread of visibleThreads"
       :key="thread.id"
       class="thread"
       :data-comment-id="thread.id"
@@ -73,6 +100,12 @@
         >
           {{ formatDate(thread.updatedAt ?? thread.createdAt) }}
         </span>
+        <span
+          v-if="rangePreview(thread.id)"
+          class="range-preview"
+        >
+          {{ rangePreview(thread.id) }}
+        </span>
       </button>
 
       <div
@@ -87,8 +120,47 @@
           <div class="reply-meta">
             <span>{{ reply.author }}</span>
             <span>{{ formatDate(reply.createdAt) }}</span>
+            <el-tooltip :content="t('sideBar.comments.edit')">
+              <el-button
+                circle
+                size="small"
+                :icon="EditPen"
+                @click.stop="beginEditReply(thread, index)"
+              />
+            </el-tooltip>
           </div>
-          <p>{{ reply.body }}</p>
+          <p v-if="!editingReplies[replyEditKey(thread.id, index)]">
+            {{ reply.body }}
+          </p>
+          <div
+            v-else
+            class="edit-box reply-edit-box"
+          >
+            <el-input
+              v-model="editDrafts[replyEditKey(thread.id, index)]"
+              type="textarea"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              :placeholder="t('sideBar.comments.editPlaceholder')"
+            />
+            <div class="edit-actions">
+              <el-button
+                size="small"
+                :icon="Close"
+                @click="cancelEditReply(thread.id, index)"
+              >
+                {{ t('sideBar.comments.cancelEdit') }}
+              </el-button>
+              <el-button
+                size="small"
+                type="primary"
+                :icon="Check"
+                :disabled="!editDrafts[replyEditKey(thread.id, index)]?.trim()"
+                @click="submitEditReply(thread, index)"
+              >
+                {{ t('sideBar.comments.saveEdit') }}
+              </el-button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -134,11 +206,11 @@
       </div>
 
       <div
-        v-if="editingThreads[thread.id]"
+        v-if="!thread.replies.length && editingReplies[replyEditKey(thread.id, 0)]"
         class="edit-box"
       >
         <el-input
-          v-model="editDrafts[thread.id]"
+          v-model="editDrafts[replyEditKey(thread.id, 0)]"
           type="textarea"
           :autosize="{ minRows: 2, maxRows: 4 }"
           :placeholder="t('sideBar.comments.editPlaceholder')"
@@ -147,7 +219,7 @@
           <el-button
             size="small"
             :icon="Close"
-            @click="cancelEdit(thread.id)"
+            @click="cancelEditReply(thread.id, 0)"
           >
             {{ t('sideBar.comments.cancelEdit') }}
           </el-button>
@@ -155,7 +227,7 @@
             size="small"
             type="primary"
             :icon="Check"
-            :disabled="!editDrafts[thread.id]?.trim()"
+            :disabled="!editDrafts[replyEditKey(thread.id, 0)]?.trim()"
             @click="submitEdit(thread)"
           >
             {{ t('sideBar.comments.saveEdit') }}
@@ -185,21 +257,26 @@
 </template>
 
 <script setup lang="ts">
-import type { ICommentThread } from '@muyajs/core'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive } from 'vue'
+import type { ICommentRange, ICommentThread } from '@muyajs/core'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Aim, Check, Close, EditPen, Plus, Promotion, RefreshLeft } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import bus from '@/bus'
 import { useEditorStore } from '@/store/editor'
+import { usePreferencesStore } from '@/store/preferences'
 
 const { t } = useI18n()
 const editorStore = useEditorStore()
+const preferencesStore = usePreferencesStore()
 const { comments, activeCommentIds } = storeToRefs(editorStore)
 const replyDrafts = reactive<Record<string, string>>({})
 const editDrafts = reactive<Record<string, string>>({})
-const editingThreads = reactive<Record<string, boolean>>({})
+const editingReplies = reactive<Record<string, boolean>>({})
 const replyInputs = new Map<string, { focus: () => void }>()
+const canAddComment = ref(false)
+type CommentFilter = 'all' | 'open' | 'resolved'
+const commentFilter = ref<CommentFilter>('all')
 
 const summaryText = computed(() => {
   const openCount = comments.value.threads.filter((thread) => thread.status === 'open').length
@@ -212,6 +289,19 @@ const summaryText = computed(() => {
 const statusLabel = (status: string): string =>
   status === 'resolved' ? t('sideBar.comments.resolved') : t('sideBar.comments.open')
 
+const visibleThreads = computed(() => {
+  if (commentFilter.value === 'all') return comments.value.threads
+  return comments.value.threads.filter(thread => thread.status === commentFilter.value)
+})
+
+const rangePreview = (id: string): string =>
+  comments.value.ranges.find((range: ICommentRange) => range.id === id)?.preview ?? ''
+
+const commentAuthorName = computed(() => {
+  const configured = preferencesStore.commentAuthorName.trim()
+  return configured || t('sideBar.comments.defaultAuthor')
+})
+
 const formatDate = (value?: string): string => {
   if (!value) return ''
   const date = new Date(value)
@@ -219,7 +309,13 @@ const formatDate = (value?: string): string => {
 }
 
 const addComment = (): void => {
+  if (!canAddComment.value) return
+
   bus.emit('addComment')
+}
+
+const handleAddCommentEnabledChanged = (enabled: unknown): void => {
+  canAddComment.value = enabled === true
 }
 
 const setReplyInputRef = (id: string, input: unknown): void => {
@@ -260,6 +356,10 @@ const focusComment = (id: string): void => {
   bus.emit('comment:focus', id)
 }
 
+const focusDiagnostic = (id: string): void => {
+  bus.emit('comment:diagnostic-focus', id)
+}
+
 const resolveComment = (id: string): void => {
   bus.emit('comment:resolve', id)
 }
@@ -268,24 +368,40 @@ const reopenComment = (id: string): void => {
   bus.emit('comment:reopen', id)
 }
 
+const replyEditKey = (id: string, replyIndex: number): string => `${id}:${replyIndex}`
+
+const beginEditReply = (thread: ICommentThread, replyIndex: number): void => {
+  if (!Number.isInteger(replyIndex) || replyIndex < 0) return
+
+  const key = replyEditKey(thread.id, replyIndex)
+  editingReplies[key] = true
+  editDrafts[key] = thread.replies[replyIndex]?.body ?? ''
+}
+
 const beginEdit = (thread: ICommentThread): void => {
-  editingThreads[thread.id] = true
-  editDrafts[thread.id] = thread.replies[0]?.body ?? ''
+  beginEditReply(thread, 0)
 }
 
-const cancelEdit = (id: string): void => {
-  editingThreads[id] = false
-  editDrafts[id] = ''
+const cancelEditReply = (id: string, replyIndex: number): void => {
+  const key = replyEditKey(id, replyIndex)
+  editingReplies[key] = false
+  editDrafts[key] = ''
 }
 
-const submitEdit = (thread: ICommentThread): void => {
-  const body = editDrafts[thread.id]?.trim()
+const submitEditReply = (thread: ICommentThread, replyIndex: number): void => {
+  if (!Number.isInteger(replyIndex) || replyIndex < 0) return
+
+  const key = replyEditKey(thread.id, replyIndex)
+  const body = editDrafts[key]?.trim()
   if (!body) return
 
   const updatedAt = new Date().toISOString()
-  const author = thread.replies[0]?.author || t('sideBar.comments.defaultAuthor')
-  const replies = thread.replies.length
-    ? thread.replies.map((reply, index) => (index === 0 ? { ...reply, body } : reply))
+  const existingReply = thread.replies[replyIndex]
+  if (!existingReply && (replyIndex !== 0 || thread.replies.length > 0)) return
+
+  const author = existingReply?.author || commentAuthorName.value
+  const replies = existingReply
+    ? thread.replies.map((reply, index) => (index === replyIndex ? { ...reply, body } : reply))
     : [{ author, createdAt: updatedAt, body }]
 
   bus.emit('comment:edit', {
@@ -296,7 +412,11 @@ const submitEdit = (thread: ICommentThread): void => {
       replies
     }
   })
-  cancelEdit(thread.id)
+  cancelEditReply(thread.id, replyIndex)
+}
+
+const submitEdit = (thread: ICommentThread): void => {
+  submitEditReply(thread, 0)
 }
 
 const submitReply = (id: string): void => {
@@ -306,7 +426,7 @@ const submitReply = (id: string): void => {
   bus.emit('comment:reply', {
     id,
     reply: {
-      author: t('sideBar.comments.defaultAuthor'),
+      author: commentAuthorName.value,
       body
     }
   })
@@ -315,10 +435,12 @@ const submitReply = (id: string): void => {
 
 onMounted(() => {
   bus.on('comment:compose', handleComposeComment)
+  bus.on('editor-add-comment-enabled-changed', handleAddCommentEnabledChanged)
 })
 
 onBeforeUnmount(() => {
   bus.off('comment:compose', handleComposeComment)
+  bus.off('editor-add-comment-enabled-changed', handleAddCommentEnabledChanged)
 })
 </script>
 
@@ -338,6 +460,28 @@ onBeforeUnmount(() => {
   margin-bottom: 18px;
 }
 
+.comment-filters {
+  display: flex;
+  gap: 6px;
+  margin: -6px 0 14px;
+}
+
+.comment-filters button {
+  border: 1px solid var(--itemBgColor);
+  background: transparent;
+  color: var(--sideBarColor);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.comment-filters button.active {
+  border-color: var(--themeColor);
+  color: var(--themeColor);
+}
+
 .title {
   color: var(--sideBarTitleColor);
   font-weight: 600;
@@ -347,11 +491,21 @@ onBeforeUnmount(() => {
 
 .summary,
 .meta,
+.range-preview,
 .reply-meta {
   color: var(--sideBarColor);
   opacity: 0.72;
   font-size: 12px;
   line-height: 18px;
+}
+
+.range-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 6px;
+  font-style: italic;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .section-title {
@@ -372,10 +526,15 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  width: 100%;
+  border: 0;
+  background: transparent;
   color: var(--sideBarColor);
   font-size: 12px;
   line-height: 17px;
   padding: 8px 0;
+  text-align: left;
+  cursor: pointer;
 }
 
 .diagnostic-code {

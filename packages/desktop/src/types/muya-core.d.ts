@@ -42,10 +42,13 @@ declare module '@muyajs/core' {
     githubSlug: string
   }
 
+  export type TCommentDisplayMetadata = Record<string, unknown>
+
   export interface ICommentReply {
     author: string
     createdAt: string
     body: string
+    display?: TCommentDisplayMetadata
   }
 
   export interface ICommentReplyInput {
@@ -60,8 +63,8 @@ declare module '@muyajs/core' {
     authors?: string[]
     createdAt?: string
     updatedAt?: string
+    display?: TCommentDisplayMetadata
     replies: ICommentReply[]
-    [key: string]: unknown
   }
 
   export interface ICommentThread extends ICommentMetadata {
@@ -74,6 +77,7 @@ declare module '@muyajs/core' {
     endPath: Array<string | number>
     startOffset: number
     endOffset: number
+    preview: string
   }
 
   export interface ICommentDiagnostic {
@@ -110,6 +114,7 @@ declare module '@muyajs/core' {
 
   export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>
 
+  export const COMMENT_METADATA_DATA_URI_PREFIX: string
   export const COMMENT_MARKER_PATTERN: string
 
   export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata

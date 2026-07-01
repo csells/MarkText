@@ -8,7 +8,11 @@ import type {
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
-const compareStrings = (a: string, b: string): number => a.localeCompare(b)
+const compareStrings = (a: string, b: string): number => {
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
+}
 
 const pathKey = (path: Array<string | number>): string => path.join('/')
 

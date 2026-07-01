@@ -16,6 +16,10 @@ import type { AppEnvironment } from '../app/env'
 
 type ShortcutCallback = (win: BrowserWindow) => void
 
+const LEGACY_KEYBINDING_IDS: Record<string, string> = {
+  'edit.add-comment': 'review.add-comment'
+}
+
 class Keybindings {
   configPath: string
   commandManager: CommandManager
@@ -200,9 +204,10 @@ class Keybindings {
     // }
 
     const userAccelerators: Map<string, string> = new Map()
-    for (const key in rawUserKeybindings) {
+    for (const rawKey in rawUserKeybindings) {
+      const key = LEGACY_KEYBINDING_IDS[rawKey] ?? rawKey
       if (this.keys.has(key)) {
-        const value = rawUserKeybindings[key]
+        const value = rawUserKeybindings[rawKey]
         if (typeof value === 'string') {
           if (value.length === 0) {
             // Unset key

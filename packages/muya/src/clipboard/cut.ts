@@ -7,9 +7,15 @@ import type { Nullable } from '../types';
 import type Clipboard from './index';
 import Format from '../block/base/format';
 import { ScrollPage } from '../block/scrollPage';
+import { COMMENT_ID_PATTERN, COMMENT_MARKER_PATTERN, parseCommentMetadataDefinition } from '../comments/syntax';
 import { CLASS_NAMES } from '../config';
 import { SelectionDirection, SelectionType } from '../selection/types';
 import { getBlock } from '../utils/dom';
+
+const EMPTY_COMMENT_RANGE_REGEXP = new RegExp(
+    `<!--MC:(${COMMENT_ID_PATTERN})--><!--MC:~\\1-->`,
+    'gu',
+);
 
 /**
  * Whole-document selection predicate: the selection spans from the very first
@@ -68,6 +74,276 @@ function setCursorAndConvert(block: Content, offset: number): void {
 function resetIfEmpty(clipboard: Clipboard): void {
     if (clipboard.scrollPage?.length() === 0)
         resetToEmptyParagraph(clipboard);
+}
+
+function contentBlocks(clipboard: Clipboard): Content[] {
+    const blocks: Content[] = [];
+    let block: Nullable<Content> = clipboard.scrollPage?.firstContentInDescendant() ?? null;
+    while (block) {
+        blocks.push(block);
+        block = block.nextContentInContext();
+    }
+
+    return blocks;
+}
+
+function findEmptyCommentRangeAroundOffset(
+    text: string,
+    offset: number,
+): Nullable<{ id: string; start: number; end: number }> {
+    EMPTY_COMMENT_RANGE_REGEXP.lastIndex = 0;
+    for (const match of text.matchAll(EMPTY_COMMENT_RANGE_REGEXP)) {
+        const start = match.index;
+        const end = start + match[0].length;
+        if (offset >= start && offset <= end) {
+            return {
+                id: match[1],
+                start,
+                end,
+            };
+        }
+    }
+
+    return null;
+}
+
+function documentHasCommentMarker(clipboard: Clipboard, id: string): boolean {
+    const openMarker = `<!--MC:${id}-->`;
+    const closeMarker = `<!--MC:~${id}-->`;
+
+    return contentBlocks(clipboard).some(block =>
+        block.text.includes(openMarker) || block.text.includes(closeMarker),
+    );
+}
+
+function commentIdsInText(text: string): string[] {
+    const ids = new Set<string>();
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+    for (const match of text.matchAll(markerRegExp))
+        ids.add(match[2]);
+
+    return [...ids];
+}
+
+interface ISelectedCommentMarkers {
+    ids: string[];
+    isPartial: boolean;
+    kindsById: Map<string, Set<'open' | 'close'>>;
+}
+
+function selectedCommentMarkers(text: string, startOffset: number, endOffset: number): ISelectedCommentMarkers {
+    const ids = new Set<string>();
+    const kindsById = new Map<string, Set<'open' | 'close'>>();
+    let isPartial = false;
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+
+    for (const match of text.matchAll(markerRegExp)) {
+        const marker = {
+            id: match[2],
+            kind: match[1] === '~' ? 'close' as const : 'open' as const,
+            start: match.index,
+            end: match.index + match[0].length,
+        };
+        const intersects = startOffset < marker.end && endOffset > marker.start;
+        if (!intersects)
+            continue;
+
+        if (startOffset > marker.start || endOffset < marker.end) {
+            isPartial = true;
+            continue;
+        }
+
+        ids.add(marker.id);
+        const kinds = kindsById.get(marker.id) ?? new Set<'open' | 'close'>();
+        kinds.add(marker.kind);
+        kindsById.set(marker.id, kinds);
+    }
+
+    return { ids: [...ids], isPartial, kindsById };
+}
+
+function mergeSelectedCommentMarkers(...selections: ISelectedCommentMarkers[]): ISelectedCommentMarkers {
+    const ids = new Set<string>();
+    const kindsById = new Map<string, Set<'open' | 'close'>>();
+
+    for (const selection of selections) {
+        for (const id of selection.ids)
+            ids.add(id);
+
+        for (const [id, kinds] of selection.kindsById) {
+            const mergedKinds = kindsById.get(id) ?? new Set<'open' | 'close'>();
+            for (const kind of kinds)
+                mergedKinds.add(kind);
+            kindsById.set(id, mergedKinds);
+        }
+    }
+
+    return {
+        ids: [...ids],
+        isPartial: selections.some(selection => selection.isPartial),
+        kindsById,
+    };
+}
+
+function commentMarkerKindsInBlocks(blocks: Content[]): Map<string, Set<'open' | 'close'>> {
+    const kindsById = new Map<string, Set<'open' | 'close'>>();
+
+    for (const block of blocks) {
+        const markers = selectedCommentMarkers(block.text, 0, block.text.length);
+        for (const [id, kinds] of markers.kindsById) {
+            const mergedKinds = kindsById.get(id) ?? new Set<'open' | 'close'>();
+            for (const kind of kinds)
+                mergedKinds.add(kind);
+            kindsById.set(id, mergedKinds);
+        }
+    }
+
+    return kindsById;
+}
+
+function selectedCommentMarkersInCrossBlockRange(
+    startBlock: Content,
+    startOffset: number,
+    endBlock: Content,
+    endOffset: number,
+): ISelectedCommentMarkers {
+    const selections: ISelectedCommentMarkers[] = [];
+    let block: Nullable<Content> = startBlock;
+
+    while (block) {
+        selections.push(selectedCommentMarkers(
+            block.text,
+            block === startBlock ? startOffset : 0,
+            block === endBlock ? endOffset : block.text.length,
+        ));
+        if (block === endBlock)
+            break;
+
+        block = block.nextContentInContext();
+    }
+
+    return mergeSelectedCommentMarkers(...selections);
+}
+
+function unsafeCommentMarkerCut(text: string, startOffset: number, endOffset: number): boolean {
+    const selectedMarkers = selectedCommentMarkers(text, startOffset, endOffset);
+    if (selectedMarkers.isPartial)
+        return true;
+
+    const markers = [...text.matchAll(new RegExp(COMMENT_MARKER_PATTERN, 'gu'))].map(match => ({
+        id: match[2],
+        kind: match[1] === '~' ? 'close' as const : 'open' as const,
+        start: match.index,
+        end: match.index + match[0].length,
+    }));
+
+    for (const [id, kinds] of selectedMarkers.kindsById) {
+        const openCount = markers.filter(marker => marker.id === id && marker.kind === 'open').length;
+        const closeCount = markers.filter(marker => marker.id === id && marker.kind === 'close').length;
+        if (
+            (kinds.has('open') && !kinds.has('close') && closeCount > 0)
+            || (kinds.has('close') && !kinds.has('open') && openCount > 0)
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function unsafeCrossBlockCommentMarkerCut(
+    clipboard: Clipboard,
+    startBlock: Content,
+    startOffset: number,
+    endBlock: Content,
+    endOffset: number,
+): { unsafe: boolean; removedIds: string[] } {
+    const selectedMarkers = selectedCommentMarkersInCrossBlockRange(
+        startBlock,
+        startOffset,
+        endBlock,
+        endOffset,
+    );
+    if (selectedMarkers.isPartial)
+        return { unsafe: true, removedIds: [] };
+
+    const documentKinds = commentMarkerKindsInBlocks(contentBlocks(clipboard));
+    for (const [id, kinds] of selectedMarkers.kindsById) {
+        const allKinds = documentKinds.get(id);
+        if (!allKinds)
+            continue;
+
+        if (
+            (kinds.has('open') && !kinds.has('close') && allKinds.has('close'))
+            || (kinds.has('close') && !kinds.has('open') && allKinds.has('open'))
+        ) {
+            return { unsafe: true, removedIds: [] };
+        }
+    }
+
+    return { unsafe: false, removedIds: selectedMarkers.ids };
+}
+
+function commentIdsInTableCells(cells: TableBodyCell[]): string[] {
+    const ids = new Set<string>();
+    for (const cell of cells) {
+        const content = cell.firstChild;
+        if (!content?.isContent())
+            continue;
+
+        for (const id of commentIdsInText((content as Content).text))
+            ids.add(id);
+    }
+
+    return [...ids];
+}
+
+function removeCommentMetadataForUnreferencedIds(clipboard: Clipboard, ids: string[]): void {
+    for (const id of ids)
+        removeCommentMetadataIfUnreferenced(clipboard, id);
+}
+
+function removeCommentMetadataIfUnreferenced(clipboard: Clipboard, id: string): void {
+    if (documentHasCommentMarker(clipboard, id))
+        return;
+
+    for (const block of contentBlocks(clipboard)) {
+        const metadata = parseCommentMetadataDefinition(block.text);
+        if (metadata?.id === id)
+            block.outMostBlock?.remove();
+    }
+
+    resetIfEmpty(clipboard);
+}
+
+function pruneEmptyCommentRangesAtCutCursor(
+    clipboard: Clipboard,
+    block: Content,
+    offset: number,
+): number {
+    const removedIds: string[] = [];
+    let nextText = block.text;
+    let nextOffset = offset;
+
+    for (;;) {
+        const emptyRange = findEmptyCommentRangeAroundOffset(nextText, nextOffset);
+        if (!emptyRange)
+            break;
+
+        nextText = nextText.slice(0, emptyRange.start) + nextText.slice(emptyRange.end);
+        nextOffset = emptyRange.start;
+        removedIds.push(emptyRange.id);
+    }
+
+    if (removedIds.length === 0)
+        return offset;
+
+    block.text = nextText;
+
+    for (const id of removedIds)
+        removeCommentMetadataIfUnreferenced(clipboard, id);
+
+    return nextOffset;
 }
 
 // Empty every cell content leaf from `start` up to and including `after`,
@@ -354,8 +630,12 @@ export function cutSelection(clipboard: Clipboard): void {
     }
 
     if (clipboard.selection.table.hasSelection) {
+        const selectedCells = selectedTableCells(clipboard);
+        const removedCommentIds = selectedCells ? commentIdsInTableCells(selectedCells.cells) : [];
         if (!cutTableStructure(clipboard))
             clipboard.selection.table.clearSelectedCells();
+
+        removeCommentMetadataForUnreferencedIds(clipboard, removedCommentIds);
 
         return;
     }
@@ -379,11 +659,16 @@ export function cutSelection(clipboard: Clipboard): void {
         const startOffset
             = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
         const endOffset = direction === SelectionDirection.FORWARD ? focus.offset : anchor.offset;
+        if (unsafeCommentMarkerCut(text, startOffset, endOffset))
+            return;
+        const removedCommentIds = commentIdsInText(text.substring(startOffset, endOffset));
 
         anchorBlock.text
             = text.substring(0, startOffset) + text.substring(endOffset);
 
-        setCursorAndConvert(anchorBlock, startOffset);
+        const cursorOffset = pruneEmptyCommentRangesAtCutCursor(clipboard, anchorBlock, startOffset);
+        removeCommentMetadataForUnreferencedIds(clipboard, removedCommentIds);
+        setCursorAndConvert(anchorBlock, cursorOffset);
 
         return;
     }
@@ -392,6 +677,15 @@ export function cutSelection(clipboard: Clipboard): void {
     const endBlock = direction === SelectionDirection.FORWARD ? focusBlock : anchorBlock;
     const startOffset = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
     const endOffset = direction === SelectionDirection.FORWARD ? focus.offset : anchor.offset;
+    const markerCut = unsafeCrossBlockCommentMarkerCut(
+        clipboard,
+        startBlock,
+        startOffset,
+        endBlock,
+        endOffset,
+    );
+    if (markerCut.unsafe)
+        return;
 
     // Whole-document selection collapses to a single empty paragraph.
     if (isSelectAll(clipboard, startBlock, startOffset, endBlock, endOffset)) {
@@ -420,7 +714,9 @@ export function cutSelection(clipboard: Clipboard): void {
 
     removeBlocks(startBlock, endBlock);
 
-    setCursorAndConvert(startBlock, startOffset);
+    const cursorOffset = pruneEmptyCommentRangesAtCutCursor(clipboard, startBlock, startOffset);
+    removeCommentMetadataForUnreferencedIds(clipboard, markerCut.removedIds);
+    setCursorAndConvert(startBlock, cursorOffset);
     resetIfEmpty(clipboard);
 }
 
@@ -457,9 +753,17 @@ function collapseLanguageInputCut(
 // frozen; once the cells are empty, the next press removes whole column(s) /
 // row(s) / the whole table, or drops the selection for a partial rectangle.
 export function deleteTableSelection(clipboard: Clipboard): void {
-    if (clipboard.selection.table.emptySelectedCells())
+    const selectedCells = selectedTableCells(clipboard);
+    const removedCommentIds = selectedCells ? commentIdsInTableCells(selectedCells.cells) : [];
+
+    if (clipboard.selection.table.emptySelectedCells()) {
+        removeCommentMetadataForUnreferencedIds(clipboard, removedCommentIds);
+
         return;
+    }
 
     if (!removeEmptyTableStructure(clipboard))
         clipboard.selection.table.clear();
+
+    removeCommentMetadataForUnreferencedIds(clipboard, removedCommentIds);
 }

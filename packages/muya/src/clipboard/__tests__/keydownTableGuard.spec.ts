@@ -141,6 +141,27 @@ describe('track C — keydown over a frozen table rect (two-stage, muyajs parity
         expect(md).not.toMatch(/\bb2\b/);
     });
 
+    it('delete over selected commented table cells removes now-unreferenced metadata', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            '| <!--MC:a-->reviewed<!--MC:~a--> | other |',
+            '| --- | --- |',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+        const table = firstTable(muya);
+
+        dragSelect(table, 0, 0, table.rowCount - 1, table.columnCount - 1);
+        pressDelete(table, 'Delete');
+        await tick();
+
+        const md = muya.getMarkdown();
+        expect(md).toContain('|');
+        expect(md).not.toContain('MC:a');
+        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
+    });
+
     it('a second Backspace on an emptied PARTIAL rectangle drops the selection without changing the grid', async () => {
         // 3×3 table so a top-left 2×2 spans neither all rows nor all columns.
         const muya = bootMuya('| a | b | c |\n| --- | --- | --- |\n| d | e | f |\n| g | h | i |\n');

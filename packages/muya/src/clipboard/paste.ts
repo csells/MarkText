@@ -8,6 +8,11 @@ import type Clipboard from './index';
 import CodeBlockContent from '../block/content/codeBlockContent';
 import LangInputContent from '../block/content/langInputContent';
 import { ScrollPage } from '../block/scrollPage';
+import {
+    COMMENT_MARKER_PATTERN,
+    nextCommentId,
+    parseCommentMetadataDefinition,
+} from '../comments';
 import { URL_REG } from '../config';
 import { tokenizer } from '../inlineRenderer/lexer';
 import HtmlToMarkdown from '../state/htmlToMarkdown';
@@ -66,6 +71,59 @@ function sewTail(states: TState[], tail: string): number {
         leaf.text += tail;
 
     return offset;
+}
+
+function collectCommentIdsFromMarkdown(markdown: string): Set<string> {
+    const ids = new Set<string>();
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+    for (const match of markdown.matchAll(markerRegExp))
+        ids.add(match[2]);
+
+    for (const line of markdown.split(/\r\n|\n|\r/u)) {
+        const metadata = parseCommentMetadataDefinition(line);
+        if (metadata)
+            ids.add(metadata.id);
+    }
+
+    return ids;
+}
+
+function remapPastedCommentIdCollisions(clipboard: Clipboard, markdown: string): string {
+    const currentMarkdown = typeof clipboard.muya.getMarkdown === 'function'
+        ? clipboard.muya.getMarkdown()
+        : '';
+    const existingIds = collectCommentIdsFromMarkdown(currentMarkdown);
+    const pastedIds = collectCommentIdsFromMarkdown(markdown);
+    const usedIds = new Set([...existingIds, ...pastedIds]);
+    const replacements = new Map<string, string>();
+
+    for (const id of pastedIds) {
+        if (!existingIds.has(id))
+            continue;
+
+        const nextId = nextCommentId(usedIds);
+        replacements.set(id, nextId);
+        usedIds.add(nextId);
+    }
+
+    if (replacements.size === 0)
+        return markdown;
+
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+    const metadataLineRegExp = /^( {0,3}\[MC:)([^\]\s]+)(\]:(.*))$/gmu;
+
+    return markdown
+        .replace(markerRegExp, (raw, closePrefix: string, id: string) => {
+            const replacement = replacements.get(id);
+            if (!replacement)
+                return raw;
+
+            return `<!--MC:${closePrefix}${replacement}-->`;
+        })
+        .replace(metadataLineRegExp, (raw, prefix: string, id: string, suffix: string) => {
+            const replacement = replacements.get(id);
+            return replacement ? `${prefix}${replacement}${suffix}` : raw;
+        });
 }
 
 function insertStatesAfter(
@@ -347,10 +405,11 @@ function tryMergeListPaste(
 function applyParsedPaste(
     clipboard: Clipboard,
     ctx: IPasteContext,
-    markdown: string,
+    rawMarkdown: string,
 ): void {
     const { muya } = clipboard;
     const { anchorBlock, start, end, content } = ctx;
+    const markdown = remapPastedCommentIdCollisions(clipboard, rawMarkdown);
 
     // An empty / whitespace-only paste is a no-op while parsing; non-empty
     // inline whitespace from text/plain is routed through literal insertion.

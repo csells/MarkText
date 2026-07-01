@@ -2,7 +2,7 @@
 
 import type Content from '../block/base/content';
 import { Buffer } from 'node:buffer';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya } from '../muya';
 
 const hosts: HTMLElement[] = [];
@@ -19,6 +19,10 @@ afterEach(() => {
 
 function metadata(data: Record<string, unknown>) {
     return `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`;
+}
+
+function decode(dataUri: string): { status?: string } {
+    return JSON.parse(Buffer.from(dataUri.replace('data:application/json;base64,', ''), 'base64').toString('utf8'));
 }
 
 function boot(markdown: string): Muya {
@@ -51,6 +55,7 @@ describe('muya.getComments()', () => {
                     id: 'a',
                     startOffset: 13,
                     endOffset: 21,
+                    preview: 'reviewed',
                 },
             ],
             threads: [
@@ -114,6 +119,7 @@ describe('muya.addComment()', () => {
                     id: 'cmt_test',
                     startOffset: 20,
                     endOffset: 28,
+                    preview: 'reviewed',
                 },
             ],
             threads: [
@@ -130,6 +136,10 @@ describe('muya.addComment()', () => {
                 },
             ],
         });
+        const selection = muya.getSelection();
+        expect(selection?.anchor.offset).toBe(20);
+        expect(selection?.focus.offset).toBe(28);
+        expect(muya.getActiveComments()).toEqual(['cmt_test']);
 
         muya.undo();
         expect(muya.getMarkdown()).toBe('A reviewed span.\n');
@@ -156,6 +166,36 @@ describe('muya.addComment()', () => {
         expect(muya.addComment({ id: 'existing' })).toBe(false);
     });
 
+    it('rejects invalid IDs and code-like selections', () => {
+        const invalidId = boot('A reviewed span.\n');
+        const invalidLeaf = invalidId.editor.scrollPage!.firstContentInDescendant() as Content;
+        invalidLeaf.setCursor(2, 10, true);
+
+        expect(invalidId.addComment({ id: 'bad.id' })).toBe(false);
+        expect(invalidId.getMarkdown()).toBe('A reviewed span.\n');
+
+        const code = boot('```js\nconst a = 1\n```\n');
+        const codeLeaf = code.editor.scrollPage!.lastContentInDescendant() as Content;
+        codeLeaf.setCursor(0, 5, true);
+
+        expect(code.addComment({ id: 'code_comment' })).toBe(false);
+        expect(code.getMarkdown()).not.toContain('<!--MC:code_comment-->');
+    });
+
+    it('rejects selections inside inline code without appending orphan metadata', () => {
+        const muya = boot('A `reviewed` span.\n');
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        leaf.setCursor(3, 11, true);
+
+        expect(muya.addComment({ id: 'inline_code_comment' })).toBe(false);
+        expect(muya.getMarkdown()).toBe('A `reviewed` span.\n');
+        expect(muya.getComments()).toEqual({
+            diagnostics: [],
+            ranges: [],
+            threads: [],
+        });
+    });
+
     it('treats orphan metadata IDs as reserved when adding comments', () => {
         const muya = boot([
             'A reviewed span.',
@@ -171,6 +211,23 @@ describe('muya.addComment()', () => {
         expect(muya.addComment()).toBe(true);
         expect(muya.getMarkdown()).toContain('A <!--MC:cmt_2-->reviewed<!--MC:~cmt_2--> span.');
         expect(muya.getComments().threads.map(thread => thread.id)).toEqual(['cmt_2']);
+    });
+
+    it('rejects selections that intersect existing hidden comment marker syntax', () => {
+        const original = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n');
+        const muya = boot(original);
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.setCursor('A <!--'.length, 'A <!--MC:a-->reviewed'.length, true);
+
+        expect(muya.addComment({ id: 'bad_marker_overlap' })).toBe(false);
+        expect(muya.getMarkdown()).toBe(original);
+        expect(muya.getComments().diagnostics).toEqual([]);
     });
 
     it('wraps a cross-leaf selection with one range and one metadata definition', () => {
@@ -203,6 +260,7 @@ describe('muya.addComment()', () => {
                     id: 'cross_leaf',
                     startPath: firstPath,
                     endPath: secondPath,
+                    preview: 'line. Beta',
                 },
             ],
             threads: [
@@ -215,6 +273,26 @@ describe('muya.addComment()', () => {
 
         muya.undo();
         expect(muya.getMarkdown()).toBe('Alpha line.\n\nBeta line.\n');
+    });
+
+    it('rejects cross-leaf selections that pass through inline code in an intermediate leaf', () => {
+        const markdown = 'Alpha line.\n\nMiddle `code` line.\n\nBeta line.\n';
+        const muya = boot(markdown);
+        const first = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        const last = muya.editor.scrollPage!.lastContentInDescendant() as Content;
+
+        muya.editor.selection.setSelection(
+            { offset: 6, block: first, path: [...first.path] },
+            { offset: 4, block: last, path: [...last.path] },
+        );
+
+        expect(muya.addComment({ id: 'cross_inline_code' })).toBe(false);
+        expect(muya.getMarkdown()).toBe(markdown);
+        expect(muya.getComments()).toEqual({
+            diagnostics: [],
+            ranges: [],
+            threads: [],
+        });
     });
 });
 
@@ -327,6 +405,58 @@ describe('muya comment metadata mutations', () => {
         });
     });
 
+    it('preserves metadata definition spacing around WYSIWYG thread edits', () => {
+        const muya = boot([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]:    ${metadata({ version: 1, status: 'open', replies: [] })}   `,
+            '',
+        ].join('\n'));
+
+        expect(muya.resolveComment('a', '2026-06-30T15:00:00.000Z')).toBe(true);
+
+        expect(muya.getMarkdown()).toMatch(
+            /\[MC:a\]: {4}data:application\/json;base64,\S+ {3}\n/u,
+        );
+    });
+
+    it('does not update metadata-looking definitions in non-commentable blocks', () => {
+        const ignored = metadata({ version: 1, status: 'open', replies: [] });
+        const canonical = metadata({ version: 1, status: 'open', replies: [] });
+        const muya = boot([
+            '---',
+            `[MC:a]: ${ignored}`,
+            '---',
+            '',
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${canonical}`,
+            '',
+        ].join('\n'));
+
+        expect(muya.resolveComment('a', '2026-06-30T15:00:00.000Z')).toBe(true);
+
+        const lines = muya.getMarkdown().split('\n').filter(line => line.startsWith('[MC:a]:'));
+        expect(decode(lines[0].replace('[MC:a]: ', '')).status).toBe('open');
+        expect(decode(lines[1].replace('[MC:a]: ', '')).status).toBe('resolved');
+    });
+
+    it('updates a later valid duplicate instead of throwing on an earlier invalid definition', () => {
+        const muya = boot([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            '[MC:a]: data:application/json;base64,not-base64-json',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n'));
+
+        expect(() => muya.resolveComment('a', '2026-06-30T15:00:00.000Z')).not.toThrow();
+        expect(muya.getComments().threads[0]).toMatchObject({
+            id: 'a',
+            status: 'resolved',
+        });
+    });
+
     it('returns false when metadata for the requested comment is missing', () => {
         const muya = boot('A <!--MC:a-->reviewed<!--MC:~a--> span.\n');
 
@@ -365,6 +495,9 @@ describe('muya active comment navigation', () => {
             `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
             '',
         ].join('\n'));
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        const scrollIntoView = vi.fn();
+        leaf.domNode!.scrollIntoView = scrollIntoView;
 
         expect(muya.focusComment('a')).toBe(true);
 
@@ -372,6 +505,7 @@ describe('muya active comment navigation', () => {
         expect(selection?.anchor.offset).toBe(13);
         expect(selection?.focus.offset).toBe(21);
         expect(muya.getActiveComments()).toEqual(['a']);
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' });
         expect(muya.focusComment('missing')).toBe(false);
     });
 

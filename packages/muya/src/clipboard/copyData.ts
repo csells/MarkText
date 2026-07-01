@@ -3,7 +3,7 @@ import type Parent from '../block/base/parent';
 import type TreeNode from '../block/base/treeNode';
 import type { Muya } from '../muya';
 import type { ISelection } from '../selection/types';
-import type { TState } from '../state/types';
+import type { ITableState, TState } from '../state/types';
 import type { Nullable } from '../types';
 import type Clipboard from './index';
 import { stripCommentSyntaxForClipboard } from '../comments/syntax';
@@ -44,6 +44,19 @@ function buildHtmlOptions(options: Muya['options']) {
     return { footnote, frontMatter, math, isGitlabCompatibilityEnabled, superSubScript };
 }
 
+function stripCommentSyntaxFromTableState(state: ITableState): ITableState {
+    return {
+        ...state,
+        children: state.children.map(row => ({
+            ...row,
+            children: row.children.map(cell => ({
+                ...cell,
+                text: stripCommentSyntaxForClipboard(cell.text),
+            })),
+        })),
+    };
+}
+
 /**
  * Clipboard payload for a frozen cross-cell table selection, or `null` when
  * none is active. A single selected cell with text yields its plain text and
@@ -57,13 +70,14 @@ function getTableSelectionClipboardData(
     if (state == null)
         return null;
 
+    const visibleState = stripCommentSyntaxFromTableState(state);
     const isSingleCell
-        = state.children.length === 1 && state.children[0].children.length === 1;
+        = visibleState.children.length === 1 && visibleState.children[0].children.length === 1;
     if (isSingleCell) {
-        return { html: '', text: state.children[0].children[0].text };
+        return { html: '', text: visibleState.children[0].children[0].text };
     }
 
-    const text = new StateToMarkdown().generate([state]);
+    const text = new StateToMarkdown().generate([visibleState]);
     const html = getClipBoardHtml(text, buildHtmlOptions(clipboard.muya.options));
 
     return { html, text };

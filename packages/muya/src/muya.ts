@@ -326,7 +326,18 @@ export class Muya {
         if (!nextStates)
             return false;
 
-        return this.replaceContent(nextStates, selection);
+        const nextRange = parseMarkdownComments(nextStates).ranges.find(range => range.id === id);
+        const changed = this.replaceContent(nextStates, selection);
+        if (changed && nextRange) {
+            this.setCursor({
+                anchor: { offset: nextRange.startOffset },
+                focus: { offset: nextRange.endOffset },
+                anchorPath: nextRange.startPath,
+                focusPath: nextRange.endPath,
+            });
+        }
+
+        return changed;
     }
 
     updateCommentThread(id: string, patch: TUpdateCommentThreadPatch): boolean {
@@ -369,12 +380,18 @@ export class Muya {
         if (!range)
             return false;
 
-        this.setCursor({
+        const cursor = {
             anchor: { offset: range.startOffset },
             focus: { offset: range.endOffset },
             anchorPath: range.startPath,
             focusPath: range.endPath,
-        });
+        };
+        this.setCursor(cursor);
+
+        const block = this.editor.scrollPage?.queryBlock([...range.startPath]);
+        const element = block?.domNode;
+        if (element && typeof element.scrollIntoView === 'function')
+            element.scrollIntoView({ block: 'center', inline: 'nearest' });
 
         return true;
     }

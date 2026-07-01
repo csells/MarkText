@@ -19,6 +19,7 @@ export interface CommandSubcommand {
   id: string
   description?: string
   value?: unknown
+  isEnabled?: () => boolean
   execute?: () => void | Promise<void>
 }
 
@@ -27,6 +28,7 @@ export interface CommandDescriptor {
   description?: string
   shortcut?: string[]
   subcommands?: CommandSubcommand[]
+  isEnabled?: () => boolean
   execute?: () => void | Promise<void>
   executeSubcommand?: (commandId: string, value?: unknown) => void | Promise<void>
 }
@@ -56,6 +58,16 @@ export class RootCommand {
 const focusEditorAndExecute = (fn: () => void): void => {
   setTimeout(() => bus.emit('editor-focus'), 10)
   setTimeout(() => fn(), 150)
+}
+
+let addCommentCommandEnabled = false
+
+bus.on('editor-add-comment-enabled-changed', (enabled: unknown) => {
+  addCommentCommandEnabled = enabled === true
+})
+
+export const isAddCommentCommandEnabled = (): boolean => {
+  return addCommentCommandEnabled
 }
 
 const commands: CommandDescriptor[] = [
@@ -229,8 +241,10 @@ const commands: CommandDescriptor[] = [
     }
   },
   {
-    id: 'edit.add-comment',
+    id: 'review.add-comment',
+    isEnabled: isAddCommentCommandEnabled,
     execute: async() => {
+      if (!isAddCommentCommandEnabled()) return
       focusEditorAndExecute(() => bus.emit('addComment'))
     }
   },

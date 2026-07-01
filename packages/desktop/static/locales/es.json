@@ -47,11 +47,15 @@
       "findNext": "Buscar Siguiente",
       "findPrevious": "Buscar Anterior",
       "findInFolder": "Buscar en Carpeta",
-      "addComment": "Add Comment",
+      "addComment": "Agregar comentario",
       "screenshot": "Captura de Pantalla",
       "lineEnding": "Final de Línea",
       "lineEndingCrlf": "CRLF(Windows)",
       "lineEndingLf": "LF(Linux/Mac)"
+    },
+    "review": {
+      "review": "Revisar",
+      "addComment": "Agregar comentario"
     },
     "paragraph": {
       "title": "Párrafo",
@@ -187,7 +191,7 @@
     "pasteAsPlainText": "Pegar como Texto Plano",
     "insertParagraphBefore": "Insertar Párrafo Antes",
     "insertParagraphAfter": "Insertar Párrafo Después",
-    "addComment": "Add Comment",
+    "addComment": "Agregar comentario",
     "spelling": "Ortografía...",
     "changeLanguage": "Cambiar Idioma...",
     "addToDictionary": "Agregar al Diccionario",
@@ -245,11 +249,33 @@
     "toc": {
       "title": "Tabla de Contenidos"
     },
+    "comments": {
+      "title": "Comentarios",
+      "summary": "{open} abiertos / {count} en total",
+      "add": "Agregar",
+      "empty": "Sin comentarios",
+      "diagnostics": "Diagnósticos",
+      "open": "Abierto",
+      "resolved": "Resuelto",
+      "jump": "Ir al comentario",
+      "edit": "Editar",
+      "resolve": "Resolver",
+      "reopen": "Reabrir",
+      "reply": "Responder",
+      "saveEdit": "Guardar",
+      "cancelEdit": "Cancelar",
+      "editPlaceholder": "Editar esta respuesta...",
+      "replyPlaceholder": "Escribe una respuesta...",
+      "defaultAuthor": "Revisor",
+      "selectTextHint": "Selecciona texto antes de agregar un comentario.",
+      "sourceModeUnavailable": "Las acciones de comentarios no están disponibles para esta selección."
+    },
     "icons": {
       "files": "Archivos",
       "search": "Buscar",
       "toc": "Tabla de Contenidos",
-      "settings": "Configuración"
+      "settings": "Configuración",
+      "comments": "Comentarios"
     }
   },
   "commandPalette": {
@@ -781,7 +807,7 @@
       "findPrevious": "Buscar Anterior",
       "replace": "Reemplazar",
       "findInFolder": "Buscar en Carpeta",
-      "addComment": "Add Comment",
+      "addComment": "Agregar comentario",
       "screenshot": "Captura de Pantalla"
     },
     "paragraph": {
@@ -872,6 +898,9 @@
     },
     "spellchecker": {
       "switchLanguage": "Cambiar Idioma"
+    },
+    "review": {
+      "addComment": "Agregar comentario"
     }
   },
   "common": {
@@ -924,7 +953,8 @@
       "exportSuccessTitle": "Exportado correctamente",
       "exportSuccessMessage": "¡Se exportó «{name}» correctamente!",
       "fileRemovedOnDisk": "«{name}» ha sido eliminado del disco.",
-      "fileChangedOnDisk": "«{name}» ha cambiado en el disco. ¿Deseas recargarlo?"
+      "fileChangedOnDisk": "«{name}» ha cambiado en el disco. ¿Deseas recargarlo?",
+      "fileChangedOnDiskRecoveryCreated": "Tus cambios sin guardar se conservaron en \"{name}\"."
     }
   },
   "spellchecker": {
@@ -932,6 +962,21 @@
     "unexpectedError": "Error inesperado del corrector ortográfico"
   },
   "editor": {
+    "mergeConflict": {
+      "title": "Resolver cambios del disco",
+      "summary": "El archivo cambió en el disco mientras esta pestaña tenía ediciones sin guardar.",
+      "local": "Tus ediciones sin guardar",
+      "remote": "Cambiado en disco",
+      "result": "Resultado de la fusión",
+      "conflictLabel": "Conflicto {id}: líneas base {start}-{end}",
+      "useLocal": "Usar lo tuyo",
+      "useRemote": "Usar disco",
+      "useBoth": "Usar ambos",
+      "keepEditing": "Seguir editando",
+      "acceptMerge": "Aceptar fusión",
+      "invalidCommentSyntax": "El resultado de la fusión introduce sintaxis de comentarios de MarkText no válida. Corrige el resultado antes de aceptarlo.",
+      "reloadDisk": "Recargar desde disco"
+    },
     "export": {
       "error": "Error de exportación",
       "errorExporting": "Error al exportar archivo {type}",

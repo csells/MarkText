@@ -88,6 +88,7 @@ interface CommandItem {
   executeSubcommand?: (commandId: string, value?: unknown) => void
   placeholder?: string
   value?: unknown
+  isEnabled?: () => boolean
   [key: string]: unknown
 }
 
@@ -114,6 +115,14 @@ const searcherBusy = ref(false)
 
 const commandCenterStore = useCommandCenterStore()
 
+const isCommandEnabled = (command: CommandItem): boolean => {
+  return command.isEnabled?.() ?? true
+}
+
+const enabledSubcommands = (command: CommandItem): CommandItem[] => {
+  return (command.subcommands ?? []).filter(isCommandEnabled)
+}
+
 onBeforeUpdate(() => {
   commandItems = []
 })
@@ -127,7 +136,7 @@ const handleShow = (command?: unknown) => {
     .then(() => {
       const cmd = currentCommand.value
       if (!cmd) return
-      availableCommands.value = cmd.subcommands ?? []
+      availableCommands.value = enabledSubcommands(cmd)
       selectedCommandIndex.value = cmd.subcommandSelectedIndex ?? -1
       placeholderText.value = cmd.placeholder || defaultPlaceholderText.value
       query.value = ''
@@ -283,9 +292,9 @@ const updateCommands = () => {
 
   // Default handler
   if (!queryString) {
-    availableCommands.value = cmd.subcommands ?? []
+    availableCommands.value = enabledSubcommands(cmd)
   } else {
-    availableCommands.value = (cmd.subcommands ?? []).filter(
+    availableCommands.value = enabledSubcommands(cmd).filter(
       (c) => (c.description ?? '').toLowerCase().includes(queryString.toLowerCase())
     )
   }
@@ -296,6 +305,9 @@ const executeCommand = (commandId: string) => {
   const command = availableCommands.value.find((c) => c.id === commandId)
   if (!command) {
     log.error(`Command not found: ${commandId}`)
+    return
+  }
+  if (!isCommandEnabled(command)) {
     return
   }
 
@@ -328,7 +340,7 @@ const handleLanguageChanged = () => {
   if (showCommandPalette.value && currentCommand.value) {
     const cmd = currentCommand.value
     cmd.run?.().then(() => {
-      availableCommands.value = cmd.subcommands ?? []
+      availableCommands.value = enabledSubcommands(cmd)
       updateCommands()
     })
   }

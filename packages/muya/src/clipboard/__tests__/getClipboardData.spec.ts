@@ -58,6 +58,18 @@ function makeClipboard(
     return clipboard;
 }
 
+function makeClipboardWithTableState(state: unknown) {
+    const clipboard = new Clipboard(fakeMuya());
+    Object.defineProperty(clipboard, 'selection', {
+        get: () => ({
+            getSelection: () => null,
+            table: { hasSelection: true, getStateForCopy: () => state, clear: vi.fn() },
+        }),
+    });
+    Object.defineProperty(clipboard, 'scrollPage', { get: () => null });
+    return clipboard;
+}
+
 describe('clipboard.getClipboardData — single-block selection is not HTML-escaped', () => {
     it('preserves angle brackets and ampersands verbatim in text/plain', () => {
         const clipboard = makeClipboard('a <b> & "c"', 0, 11);
@@ -143,5 +155,72 @@ describe('clipboard.getClipboardData — markdown comment syntax stays hidden in
         const { text } = clipboard.getClipboardData();
 
         expect(text).toBe('');
+    });
+
+    it('strips hidden comment markers from a frozen single-cell table copy', () => {
+        const clipboard = makeClipboardWithTableState({
+            name: 'table',
+            children: [
+                {
+                    name: 'table.row',
+                    children: [
+                        {
+                            name: 'table.cell',
+                            meta: { align: 'none' },
+                            text: 'A <!--MC:a-->reviewed<!--MC:~a--> cell.',
+                        },
+                    ],
+                },
+            ],
+        });
+
+        const { text } = clipboard.getClipboardData();
+
+        expect(text).toBe('A reviewed cell.');
+    });
+
+    it('strips hidden comment markers from a frozen rectangular table copy', () => {
+        const clipboard = makeClipboardWithTableState({
+            name: 'table',
+            aligns: [],
+            children: [
+                {
+                    name: 'table.row',
+                    children: [
+                        {
+                            name: 'table.cell',
+                            meta: { align: 'none' },
+                            text: 'A <!--MC:a-->reviewed<!--MC:~a--> cell',
+                        },
+                        {
+                            name: 'table.cell',
+                            meta: { align: 'none' },
+                            text: 'plain',
+                        },
+                    ],
+                },
+                {
+                    name: 'table.row',
+                    children: [
+                        {
+                            name: 'table.cell',
+                            meta: { align: 'none' },
+                            text: 'tail',
+                        },
+                        {
+                            name: 'table.cell',
+                            meta: { align: 'none' },
+                            text: 'done',
+                        },
+                    ],
+                },
+            ],
+        });
+
+        const { text } = clipboard.getClipboardData();
+
+        expect(text).not.toContain('<!--MC:a-->');
+        expect(text).not.toContain('<!--MC:~a-->');
+        expect(text).toContain('A reviewed cell');
     });
 });

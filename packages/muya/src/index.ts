@@ -1,5 +1,6 @@
 export {
     COMMENT_MARKER_PATTERN,
+    COMMENT_METADATA_DATA_URI_PREFIX,
     createCommentMetadata,
     decodeCommentMetadata,
     encodeCommentMetadata,
@@ -18,6 +19,7 @@ export type {
     ICommentThread,
     IParsedMarkdownComments,
     TCommentDiagnosticCode,
+    TCommentDisplayMetadata,
     TCommentStatus,
     TUpdateCommentThreadPatch,
 } from './comments';

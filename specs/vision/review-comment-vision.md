@@ -10,6 +10,7 @@ The first-class workflow is:
 4. Edit, reply, resolve, or reopen threads.
 5. Save a plain `.md` file that carries all comment data with it.
 6. Let Git, branches, pull requests, and agents handle collaboration using normal files.
+7. When an agent edits a loaded Markdown file on disk, MarkText auto-syncs the clean editor view from the filesystem so the human reviewer sees agent changes without manually reloading.
 
 ## Canonical Comment Model
 
