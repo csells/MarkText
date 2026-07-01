@@ -273,6 +273,10 @@ const { comments, activeCommentIds } = storeToRefs(editorStore)
 const replyDrafts = reactive<Record<string, string>>({})
 const editDrafts = reactive<Record<string, string>>({})
 const editingReplies = reactive<Record<string, boolean>>({})
+// createdAt of the reply an open edit box targets, so a submit can detect that
+// the reply array shifted underneath (index-based identity would otherwise
+// overwrite a different reply).
+const editReplyAnchors = reactive<Record<string, string>>({})
 const replyInputs = new Map<string, { focus: () => void }>()
 const canAddComment = ref(false)
 type CommentFilter = 'all' | 'open' | 'resolved'
@@ -319,6 +323,9 @@ watch(
     }
     for (const key of Object.keys(editingReplies)) {
       if (!live.has(threadIdOf(key))) delete editingReplies[key]
+    }
+    for (const key of Object.keys(editReplyAnchors)) {
+      if (!live.has(threadIdOf(key))) delete editReplyAnchors[key]
     }
   }
 )
@@ -397,6 +404,7 @@ const beginEditReply = (thread: ICommentThread, replyIndex: number): void => {
   const key = replyEditKey(thread.id, replyIndex)
   editingReplies[key] = true
   editDrafts[key] = thread.replies[replyIndex]?.body ?? ''
+  editReplyAnchors[key] = thread.replies[replyIndex]?.createdAt ?? ''
 }
 
 const beginEdit = (thread: ICommentThread): void => {
@@ -407,6 +415,7 @@ const cancelEditReply = (id: string, replyIndex: number): void => {
   const key = replyEditKey(id, replyIndex)
   editingReplies[key] = false
   editDrafts[key] = ''
+  delete editReplyAnchors[key]
 }
 
 const submitEditReply = (thread: ICommentThread, replyIndex: number): void => {
@@ -419,6 +428,13 @@ const submitEditReply = (thread: ICommentThread, replyIndex: number): void => {
   const updatedAt = new Date().toISOString()
   const existingReply = thread.replies[replyIndex]
   if (!existingReply && (replyIndex !== 0 || thread.replies.length > 0)) return
+  // The reply array shifted while the edit box was open — the index now points
+  // at a different reply, so abort rather than overwrite the wrong one.
+  const anchor = editReplyAnchors[key]
+  if (existingReply && anchor && existingReply.createdAt !== anchor) {
+    cancelEditReply(thread.id, replyIndex)
+    return
+  }
 
   const author = existingReply?.author || commentAuthorName.value
   const replies = existingReply

@@ -37,6 +37,7 @@ interface SetupBindings {
   submitEditReply: (thread: CommentThread, replyIndex: number) => void
   submitReply: (id: string) => void
   editDrafts: Record<string, string>
+  editingReplies: Record<string, boolean>
   focusDiagnostic: (id: string) => void
   rangePreview: (id: string) => string
   replyDrafts: Record<string, string>
@@ -156,6 +157,34 @@ describe('comments sidebar reply editing', () => {
         ]
       })
     })
+  })
+
+  it('does not overwrite a different reply when the array shifts under an open edit box', () => {
+    const { ret, emit } = makeBindings()
+    const thread: CommentThread = {
+      id: 'cmt_1',
+      status: 'open',
+      authors: ['Ada', 'Grace'],
+      replies: [
+        { author: 'Ada', createdAt: '2026-06-30T10:00:00.000Z', body: 'first' },
+        { author: 'Grace', createdAt: '2026-06-30T11:00:00.000Z', body: 'second' }
+      ]
+    }
+    ret.beginEditReply(thread, 1)
+    ret.editDrafts['cmt_1:1'] = 'second edited'
+
+    // An earlier reply was removed elsewhere: index 1 now points at a different
+    // reply (distinct createdAt). Submit must abort, not clobber it.
+    const shifted: CommentThread = {
+      ...thread,
+      replies: [
+        { author: 'Ada', createdAt: '2026-06-30T10:00:00.000Z', body: 'first' },
+        { author: 'Zoe', createdAt: '2026-06-30T12:00:00.000Z', body: 'third' }
+      ]
+    }
+    ret.submitEditReply(shifted, 1)
+
+    expect(emit).not.toHaveBeenCalledWith('comment:edit', expect.anything())
   })
 
   it('prunes reply/edit drafts for a comment id that is no longer present', () => {
