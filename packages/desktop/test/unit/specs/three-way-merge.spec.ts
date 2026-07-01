@@ -167,6 +167,19 @@ describe('mergeMarkdownThreeWay', () => {
     expect(result.mergedMarkdown).toBe('- task done\n- task\n')
   })
 
+  // Concurrent independent insertions of identical content must both survive —
+  // collapsing them to one silently drops a side's insertion (data loss).
+  it('keeps both independent identical insertions instead of dropping one', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '- item\na\n- item\nc\n',
+      local: '- item\na\na\n- item\nc\n',
+      remote: 'a\na\n- item\nc\n'
+    })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('a\na\na\n- item\nc\n')
+  })
+
   // Finding 2 (CRITICAL): resolveConflictMarker used String.replace, whose
   // replacement string interprets $$, $&, $` etc. — corrupting KaTeX math.
   it('preserves $ sequences (KaTeX math) when resolving a conflict', () => {

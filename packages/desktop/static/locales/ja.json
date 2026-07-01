@@ -954,7 +954,6 @@
       "exportSuccessTitle": "エクスポートに成功",
       "exportSuccessMessage": "「{name}」を正常にエクスポートしました！",
       "fileRemovedOnDisk": "「{name}」はディスク上で削除されました。",
-      "fileChangedOnDisk": "「{name}」はディスク上で変更されました。ディスクから再読み込みしますか？MarkText はこのタブを置き換える前に、未保存の編集内容を新しい無題タブに保持します。再読み込み直後に元に戻すこともできます。",
       "fileChangedOnDiskRecoveryCreated": "未保存の編集内容は「{name}」に保持されました。",
       "fileChangedOnDiskAutoMerged": "ディスク上の変更を「{name}」の未保存の編集内容に統合しました。",
       "fileChangedOnDiskMergeConflict": "「{name}」のディスク上の変更が未保存の編集内容と競合しています。続行するにはマージを解決してください。"

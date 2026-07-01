@@ -954,7 +954,6 @@
       "exportSuccessTitle": "내보내기 성공",
       "exportSuccessMessage": "“{name}”을(를) 성공적으로 내보냈습니다!",
       "fileRemovedOnDisk": "“{name}”이(가) 디스크에서 삭제되었습니다.",
-      "fileChangedOnDisk": "\"{name}\"이(가) 디스크에서 변경되었습니다. 디스크에서 다시 불러올까요? MarkText는 이 탭을 바꾸기 전에 저장하지 않은 편집 내용을 제목 없는 새 탭에 보관합니다. 다시 불러온 직후에 실행 취소할 수도 있습니다.",
       "fileChangedOnDiskRecoveryCreated": "저장하지 않은 편집 내용이 \"{name}\"에 보관되었습니다.",
       "fileChangedOnDiskAutoMerged": "디스크의 변경 사항을 \"{name}\"의 저장하지 않은 편집 내용에 병합했습니다.",
       "fileChangedOnDiskMergeConflict": "\"{name}\"에 저장하지 않은 편집 내용과 충돌하는 디스크 변경 사항이 있습니다. 계속하려면 병합을 해결하세요."

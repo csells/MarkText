@@ -954,7 +954,6 @@
       "exportSuccessTitle": "Başarıyla dışa aktarıldı",
       "exportSuccessMessage": "\"{name}\" başarıyla dışa aktarıldı!",
       "fileRemovedOnDisk": "\"{name}\" diskten kaldırıldı.",
-      "fileChangedOnDisk": "\"{name}\" diskte değiştirildi. Diskten yeniden yüklensin mi? MarkText, bu sekmeyi değiştirmeden önce kaydedilmemiş düzenlemelerinizi yeni bir adsız sekmede tutar; ayrıca yeniden yüklemenin hemen ardından geri alabilirsiniz.",
       "fileChangedOnDiskRecoveryCreated": "Kaydedilmemiş düzenlemeleriniz \"{name}\" içinde korundu.",
       "fileChangedOnDiskAutoMerged": "Diskteki değişiklikler \"{name}\" içindeki kaydedilmemiş düzenlemelerinizle birleştirildi.",
       "fileChangedOnDiskMergeConflict": "\"{name}\" diskte, kaydedilmemiş düzenlemelerinizle çakışan değişiklikler içeriyor. Devam etmek için birleştirmeyi çözün."

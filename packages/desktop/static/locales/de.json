@@ -954,7 +954,6 @@
       "exportSuccessTitle": "Erfolgreich exportiert",
       "exportSuccessMessage": "„{name}“ wurde erfolgreich exportiert!",
       "fileRemovedOnDisk": "„{name}“ wurde auf dem Datenträger gelöscht.",
-      "fileChangedOnDisk": "„{name}“ wurde auf dem Datenträger geändert. Vom Datenträger neu laden? MarkText behält Ihre ungespeicherten Änderungen in einem neuen unbenannten Tab, bevor dieser Tab ersetzt wird; Sie können den Vorgang direkt nach dem Neuladen auch rückgängig machen.",
       "fileChangedOnDiskRecoveryCreated": "Ihre ungespeicherten Änderungen wurden in \"{name}\" behalten.",
       "fileChangedOnDiskAutoMerged": "Änderungen vom Datenträger wurden mit Ihren ungespeicherten Bearbeitungen in „{name}“ zusammengeführt.",
       "fileChangedOnDiskMergeConflict": "„{name}“ enthält Änderungen auf dem Datenträger, die mit Ihren ungespeicherten Bearbeitungen in Konflikt stehen. Lösen Sie die Zusammenführung auf, um fortzufahren."

@@ -715,3 +715,15 @@ describe('muya comment events', () => {
         expect(events).toEqual([['a'], []]);
     });
 });
+
+describe('muya.getComments() resilience', () => {
+    it('degrades to empty comments when derivation throws instead of breaking the pipeline', () => {
+        const muya = boot('A <!--MC:a-->reviewed<!--MC:~a--> line.\n');
+        (muya as unknown as { editor: { jsonState: { getState: () => unknown } } })
+            .editor.jsonState.getState = () => {
+            throw new Error('boom');
+        };
+
+        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
+    });
+});

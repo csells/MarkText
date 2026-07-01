@@ -90,13 +90,13 @@ const gitAvailable = (() => {
 })()
 
 // KNOWN LIMITATION (skipped, do not delete — it documents the gap and is the
-// regression gate to un-skip once the merge is canonical). Even after fixing the
-// three confirmed critical bugs, this hand-rolled LCS-based diff3 still diverges
-// from git's canonical diff3 on ~1% of pathologically-repeated-line inputs — and
-// some divergences DROP a duplicate content line on a conflict-free merge (silent
-// data loss). A hand-rolled diff3 cannot be trusted for silent auto-merge of user
-// files; the production fix is to adopt a vetted library (e.g. node-diff3) for the
-// merge core, then un-skip this oracle. See the readiness assessment.
+// regression gate to un-skip once the merge is canonical). After the critical
+// fixes plus keep-both for concurrent identical insertions, silent content DROPS
+// on a conflict-free merge are down to ~1 in 4000 pathological repeated-line
+// triples (most former drops are now harmless visible duplicates, which are
+// safe). The residual is an inherent LCS-alignment ambiguity a hand-rolled diff3
+// cannot fully resolve; the complete fix is a vetted library (e.g. node-diff3)
+// for the merge core, then un-skip this oracle. See the readiness assessment.
 describe.skip('mergeMarkdownThreeWay fuzz — git merge-file oracle (KNOWN GAP)', () => {
   it.skipIf(!gitAvailable)('agrees with git on clean-vs-conflict and on clean merged bytes', () => {
     const next = rng(0x0feed99)

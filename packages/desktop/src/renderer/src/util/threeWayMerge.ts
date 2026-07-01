@@ -300,7 +300,17 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
     const remoteSpan = reconstructSide(baseLines, bGroup, start, end)
 
     if (sameLines(localSpan, remoteSpan)) {
-      merged.push(...localSpan)
+      // Both sides produced the same content for this base span. For a shared
+      // modification/deletion (baseSpan non-empty) that is one edit — take it
+      // once. But two independent insertions of identical content at the same
+      // point (baseSpan empty) must both be kept: collapsing them silently drops
+      // one side's insertion. Bias to preserving content — a duplicate is
+      // visible and removable, a dropped line is silent data loss.
+      if (baseSpan.length === 0 && aGroup.length > 0 && bGroup.length > 0) {
+        merged.push(...localSpan, ...remoteSpan)
+      } else {
+        merged.push(...localSpan)
+      }
     } else if (sameLines(localSpan, baseSpan)) {
       merged.push(...remoteSpan)
     } else if (sameLines(remoteSpan, baseSpan)) {

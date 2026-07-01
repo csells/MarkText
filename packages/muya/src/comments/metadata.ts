@@ -88,7 +88,15 @@ function normalizeDisplayValue(value: unknown, path: string): unknown {
         if (isForbiddenMetadataKey(key))
             throw new Error(`Comment metadata ${path}.${key} must not store anchor or repair data.`);
 
-        normalized[key] = normalizeDisplayValue(value[key], `${path}.${key}`);
+        // defineProperty, not `normalized[key] = ...`, so a `__proto__` key is
+        // stored as ordinary data instead of invoking the prototype setter
+        // (which would silently drop the field and mutate the object's prototype).
+        Object.defineProperty(normalized, key, {
+            value: normalizeDisplayValue(value[key], `${path}.${key}`),
+            enumerable: true,
+            writable: true,
+            configurable: true,
+        });
     }
 
     return normalized;

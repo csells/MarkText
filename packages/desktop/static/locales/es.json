@@ -954,7 +954,6 @@
       "exportSuccessTitle": "Exportado correctamente",
       "exportSuccessMessage": "¡Se exportó «{name}» correctamente!",
       "fileRemovedOnDisk": "«{name}» ha sido eliminado del disco.",
-      "fileChangedOnDisk": "\"{name}\" ha cambiado en el disco. ¿Recargar desde el disco? MarkText conservará tus cambios sin guardar en una nueva pestaña sin título antes de reemplazar esta pestaña; también puedes deshacer inmediatamente después de recargar.",
       "fileChangedOnDiskRecoveryCreated": "Tus cambios sin guardar se conservaron en \"{name}\".",
       "fileChangedOnDiskAutoMerged": "Se combinaron los cambios del disco con tus cambios sin guardar en \"{name}\".",
       "fileChangedOnDiskMergeConflict": "\"{name}\" tiene cambios en el disco que entran en conflicto con tus cambios sin guardar. Resuelve la combinación para continuar."

@@ -422,21 +422,42 @@ const sourceInlineCodeIndexRanges = (
     const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine))
     let cursor = 0
     while (cursor < lineText.length) {
-      const start = lineText.indexOf('`', cursor)
-      if (start < 0) break
+      if (lineText[cursor] !== '`') {
+        cursor += 1
+        continue
+      }
 
-      let tickCount = 1
-      while (lineText[start + tickCount] === '`') tickCount += 1
+      let openLen = 1
+      while (lineText[cursor + openLen] === '`') openLen += 1
+      const openStart = cursor
 
-      const marker = '`'.repeat(tickCount)
-      const end = lineText.indexOf(marker, start + tickCount)
-      if (end < 0) break
+      // A closing run must be exactly openLen backticks (CommonMark): a backtick
+      // inside a longer run does not close the span.
+      let scan = cursor + openLen
+      let closeStart = -1
+      while (scan < lineText.length) {
+        if (lineText[scan] !== '`') {
+          scan += 1
+          continue
+        }
+        let closeLen = 1
+        while (lineText[scan + closeLen] === '`') closeLen += 1
+        if (closeLen === openLen) {
+          closeStart = scan
+          break
+        }
+        scan += closeLen
+      }
 
+      if (closeStart < 0) {
+        cursor = openStart + openLen
+        continue
+      }
       ranges.push({
-        start: lineMatch.index + start,
-        end: lineMatch.index + end + tickCount
+        start: lineMatch.index + openStart,
+        end: lineMatch.index + closeStart + openLen
       })
-      cursor = end + tickCount
+      cursor = closeStart + openLen
     }
   }
 
@@ -746,6 +767,23 @@ const sourceCommentMarkdown = (
   return `${markedMarkdown}${commentMetadataAppendix(markedMarkdown, id)}`
 }
 
+// Column where a line's block-level content begins — after leading whitespace,
+// blockquote markers, a list marker, and a heading marker. Inserting a comment
+// marker before this column pushes the block prefix off line-start and silently
+// demotes the block (a heading/list/quote becomes a plain paragraph), so such an
+// insertion must be rejected.
+const blockContentStartIndex = (markdown: string, index: number): number => {
+  const lineStart = markdown.lastIndexOf('\n', index - 1) + 1
+  let lineEnd = markdown.indexOf('\n', lineStart)
+  if (lineEnd === -1) lineEnd = markdown.length
+  const line = markdown.slice(lineStart, lineEnd)
+  const prefix = /^[ \t]*(?:>[ \t]*)*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?(?:#{1,6}[ \t]+)?/u.exec(line)
+  return lineStart + (prefix ? prefix[0].length : 0)
+}
+
+const insertionDemotesBlock = (markdown: string, index: number): boolean =>
+  index < blockContentStartIndex(markdown, index)
+
 const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | null => {
   const range = getSourceCommentRange(cm)
   if (!range) return null
@@ -760,6 +798,11 @@ const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | nul
       startIndex < syntaxRange.end && endIndex > syntaxRange.start
     )
   ) {
+    return null
+  }
+  // The open marker goes at startIndex and the close marker at endIndex; neither
+  // may land before its line's block prefix.
+  if (insertionDemotesBlock(markdown, startIndex) || insertionDemotesBlock(markdown, endIndex)) {
     return null
   }
 

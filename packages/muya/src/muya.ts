@@ -269,33 +269,47 @@ export class Muya {
     }
 
     getComments(): IParsedMarkdownComments {
-        return parseMarkdownComments(this.editor.jsonState.getState());
+        // Comment derivation runs on every json-change; it must never throw out
+        // of the edit pipeline. Degrade to no comments if parsing ever fails.
+        try {
+            return parseMarkdownComments(this.editor.jsonState.getState());
+        }
+        catch (error) {
+            console.error('muya.getComments failed:', error);
+            return { threads: [], ranges: [], diagnostics: [] };
+        }
     }
 
     getActiveComments(): string[] {
-        const selection = this.editor.selection.getSelection();
-        if (!selection)
-            return [];
+        try {
+            const selection = this.editor.selection.getSelection();
+            if (!selection)
+                return [];
 
-        const states = this.editor.jsonState.getState();
-        const comments = parseMarkdownComments(states);
-        const textPathIndexes = buildTextPathIndexes(states);
-        const activeIds: string[] = [];
+            const states = this.editor.jsonState.getState();
+            const comments = parseMarkdownComments(states);
+            const textPathIndexes = buildTextPathIndexes(states);
+            const activeIds: string[] = [];
 
-        for (const range of comments.ranges) {
-            if (selectionIntersectsCommentRange(
-                range,
-                selection.anchor.path,
-                selection.anchor.offset,
-                selection.focus.path,
-                selection.focus.offset,
-                textPathIndexes,
-            )) {
-                activeIds.push(range.id);
+            for (const range of comments.ranges) {
+                if (selectionIntersectsCommentRange(
+                    range,
+                    selection.anchor.path,
+                    selection.anchor.offset,
+                    selection.focus.path,
+                    selection.focus.offset,
+                    textPathIndexes,
+                )) {
+                    activeIds.push(range.id);
+                }
             }
-        }
 
-        return activeIds;
+            return activeIds;
+        }
+        catch (error) {
+            console.error('muya.getActiveComments failed:', error);
+            return [];
+        }
     }
 
     addComment(input: IAddCommentInput = {}): boolean {

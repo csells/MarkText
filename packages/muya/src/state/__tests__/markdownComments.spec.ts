@@ -748,3 +748,31 @@ describe('markdown comments - metadata codec', () => {
         });
     });
 });
+
+describe('metadata definition round-trip stability', () => {
+    const uri = () => metadata({ version: 1, status: 'open', replies: [] });
+
+    it('does not duplicate an embedded metadata definition across repeated saves', () => {
+        let current = `some prose line\n[MC:a]: ${uri()}\nmore prose\n`;
+        for (let i = 0; i < 3; i += 1)
+            current = roundTrip(current);
+
+        expect((current.match(/\[MC:a\]:/gu) ?? []).length).toBe(1);
+    });
+
+    it('does not duplicate a metadata definition indented inside a list item', () => {
+        let current = `- item\n\n  [MC:a]: ${uri()}\n`;
+        for (let i = 0; i < 3; i += 1)
+            current = roundTrip(current);
+
+        expect((current.match(/\[MC:a\]:/gu) ?? []).length).toBe(1);
+    });
+
+    it('does not duplicate a marker-adjacent definition with no blank line', () => {
+        let current = `A <!--MC:a-->reviewed<!--MC:~a--> line.\n[MC:a]: ${uri()}\n`;
+        for (let i = 0; i < 3; i += 1)
+            current = roundTrip(current);
+
+        expect((current.match(/\[MC:a\]:/gu) ?? []).length).toBe(1);
+    });
+});

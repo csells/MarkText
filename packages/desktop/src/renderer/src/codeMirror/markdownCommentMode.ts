@@ -22,18 +22,40 @@ const inlineCodeRanges = (line: string): Array<{ start: number; end: number }> =
   let cursor = 0
 
   while (cursor < line.length) {
-    const start = line.indexOf('`', cursor)
-    if (start < 0) break
+    if (line[cursor] !== '`') {
+      cursor += 1
+      continue
+    }
 
-    let tickCount = 1
-    while (line[start + tickCount] === '`') tickCount += 1
+    let openLen = 1
+    while (line[cursor + openLen] === '`') openLen += 1
+    const openStart = cursor
 
-    const marker = '`'.repeat(tickCount)
-    const end = line.indexOf(marker, start + tickCount)
-    if (end < 0) break
+    // A closing run must be exactly openLen backticks (CommonMark): a backtick
+    // that is part of a longer run does not close the span, so scan for a run of
+    // matching length rather than the first same-length substring.
+    let scan = cursor + openLen
+    let closeStart = -1
+    while (scan < line.length) {
+      if (line[scan] !== '`') {
+        scan += 1
+        continue
+      }
+      let closeLen = 1
+      while (line[scan + closeLen] === '`') closeLen += 1
+      if (closeLen === openLen) {
+        closeStart = scan
+        break
+      }
+      scan += closeLen
+    }
 
-    ranges.push({ start, end: end + tickCount })
-    cursor = end + tickCount
+    if (closeStart < 0) {
+      cursor = openStart + openLen
+      continue
+    }
+    ranges.push({ start: openStart, end: closeStart + openLen })
+    cursor = closeStart + openLen
   }
 
   return ranges

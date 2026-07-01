@@ -954,7 +954,6 @@
       "exportSuccessTitle": "Exportation réussie",
       "exportSuccessMessage": "« {name} » a été exporté avec succès !",
       "fileRemovedOnDisk": "« {name} » a été supprimé du disque.",
-      "fileChangedOnDisk": "\"{name}\" a été modifié sur le disque. Recharger depuis le disque ? MarkText conservera vos modifications non enregistrées dans un nouvel onglet sans titre avant de remplacer cet onglet ; vous pouvez aussi annuler immédiatement après le rechargement.",
       "fileChangedOnDiskRecoveryCreated": "Vos modifications non enregistrées ont été conservées dans \"{name}\".",
       "fileChangedOnDiskAutoMerged": "Les modifications du disque ont été fusionnées avec vos modifications non enregistrées dans \"{name}\".",
       "fileChangedOnDiskMergeConflict": "\"{name}\" comporte des modifications sur le disque qui entrent en conflit avec vos modifications non enregistrées. Résolvez la fusion pour continuer."

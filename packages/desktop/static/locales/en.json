@@ -954,7 +954,6 @@
       "exportSuccessTitle": "Exported successfully",
       "exportSuccessMessage": "Exported \"{name}\" successfully!",
       "fileRemovedOnDisk": "\"{name}\" has been removed on disk.",
-      "fileChangedOnDisk": "\"{name}\" has changed on disk. Reload from disk? MarkText will keep your unsaved edits in a new untitled tab before replacing this tab; you can also Undo immediately after reload.",
       "fileChangedOnDiskRecoveryCreated": "Your unsaved edits were kept in \"{name}\".",
       "fileChangedOnDiskAutoMerged": "Merged disk changes into your unsaved edits in \"{name}\".",
       "fileChangedOnDiskMergeConflict": "\"{name}\" has disk changes that conflict with your unsaved edits. Resolve the merge to continue."

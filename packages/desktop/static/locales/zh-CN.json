@@ -954,7 +954,6 @@
       "exportSuccessTitle": "导出成功",
       "exportSuccessMessage": "已成功导出“{name}”！",
       "fileRemovedOnDisk": "“{name}” 已在磁盘上被删除。",
-      "fileChangedOnDisk": "“{name}”已在磁盘上发生变更。要从磁盘重新加载吗？MarkText 会在替换此标签页之前，将您未保存的编辑保留在新的无标题标签页中；您也可以在重新加载后立即撤销。",
       "fileChangedOnDiskRecoveryCreated": "未保存的编辑已保留在“{name}”中。",
       "fileChangedOnDiskAutoMerged": "已将磁盘上的更改合并到“{name}”中未保存的编辑。",
       "fileChangedOnDiskMergeConflict": "“{name}”在磁盘上的更改与您未保存的编辑存在冲突。请解决合并后继续。"

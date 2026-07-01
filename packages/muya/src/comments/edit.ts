@@ -339,27 +339,34 @@ export function updateCommentMetadataDefinition(
     updater: (metadata: ICommentMetadata) => ICommentMetadata,
 ): TState[] | null {
     let updated = false;
+    // Scan each line of a leaf's text, not just leaves whose entire text is a
+    // definition: marked folds a definition that is not blank-line-isolated into
+    // a multi-line paragraph, and it must still be updatable in place.
     const found = visitStateTexts(states, (state) => {
-        const definition = parseCommentMetadataDefinition(state.text);
-        if (!definition || definition.id !== id)
-            return false;
+        const lines = state.text.split('\n');
+        for (let index = 0; index < lines.length; index += 1) {
+            const definition = parseCommentMetadataDefinition(lines[index]);
+            if (!definition || definition.id !== id)
+                continue;
 
-        let current: ICommentMetadata;
-        try {
-            current = decodeCommentMetadata(definition.dataUri);
+            let current: ICommentMetadata;
+            try {
+                current = decodeCommentMetadata(definition.dataUri);
+            }
+            catch {
+                continue;
+            }
+
+            const match = COMMENT_METADATA_LINE_REGEXP.exec(lines[index]);
+            if (!match)
+                continue;
+
+            lines[index] = `${match[1]}${encodeCommentMetadata(normalizeCommentMetadata(updater(current)))}${match[4]}`;
+            state.text = lines.join('\n');
+            updated = true;
+            return true;
         }
-        catch {
-            return false;
-        }
-
-        const next = normalizeCommentMetadata(updater(current));
-        const match = COMMENT_METADATA_LINE_REGEXP.exec(state.text);
-        if (!match)
-            return false;
-
-        state.text = `${match[1]}${encodeCommentMetadata(next)}${match[4]}`;
-        updated = true;
-        return true;
+        return false;
     });
 
     return found && updated ? states : null;

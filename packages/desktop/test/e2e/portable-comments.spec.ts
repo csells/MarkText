@@ -432,6 +432,36 @@ test.describe('Portable markdown comments', () => {
     }
   })
 
+  test('source mode Add Comment rejects a whole-line block selection that would demote the block', async() => {
+    const doc = '# Heading\n\n- item\n\n> quote\n'
+    const { app, page } = await launchWithMarkdown(doc)
+    try {
+      await enterSourceMode(page, app)
+
+      // Whole heading line from column 0 (includes the '# ' prefix): a marker
+      // inserted at column 0 would turn the heading into a paragraph.
+      await setSourceSelection(page, { line: 0, ch: 0 }, { line: 0, ch: 9 })
+      expect(await waitForMenuItemEnabled(app, 'review.add-comment', false)).toBe(false)
+      await clickMenuById(app, 'review.add-comment')
+      expect(await sourceValue(page)).toBe(doc)
+      expect(await sourceValue(page)).not.toContain('[MC:')
+
+      // Whole list-item line from column 0 (includes the '- ' prefix).
+      await setSourceSelection(page, { line: 2, ch: 0 }, { line: 2, ch: 6 })
+      expect(await waitForMenuItemEnabled(app, 'review.add-comment', false)).toBe(false)
+
+      // Whole blockquote line from column 0 (includes the '> ' prefix).
+      await setSourceSelection(page, { line: 4, ch: 0 }, { line: 4, ch: 7 })
+      expect(await waitForMenuItemEnabled(app, 'review.add-comment', false)).toBe(false)
+
+      // But selecting only the heading TEXT (after the prefix) is allowed.
+      await setSourceSelection(page, { line: 0, ch: 2 }, { line: 0, ch: 9 })
+      expect(await waitForMenuItemEnabled(app, 'review.add-comment', true)).toBe(true)
+    } finally {
+      await app.close()
+    }
+  })
+
   test('source mode Add Comment rejects non-commentable block selections', async() => {
     const doc = [
       '---',

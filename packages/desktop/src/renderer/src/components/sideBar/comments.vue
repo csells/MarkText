@@ -51,8 +51,8 @@
         {{ t('sideBar.comments.diagnostics') }}
       </div>
       <button
-        v-for="diagnostic of comments.diagnostics"
-        :key="`${diagnostic.code}:${diagnostic.id}`"
+        v-for="(diagnostic, index) of comments.diagnostics"
+        :key="`${diagnostic.code}:${diagnostic.id}:${index}`"
         class="diagnostic"
         type="button"
         @click="focusDiagnostic(diagnostic.id)"
@@ -258,7 +258,7 @@
 
 <script setup lang="ts">
 import type { ICommentRange, ICommentThread } from '@muyajs/core'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Aim, Check, Close, EditPen, Plus, Promotion, RefreshLeft } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -298,9 +298,30 @@ const rangePreview = (id: string): string =>
   comments.value.ranges.find((range: ICommentRange) => range.id === id)?.preview ?? ''
 
 const commentAuthorName = computed(() => {
-  const configured = preferencesStore.commentAuthorName.trim()
+  const configured = (preferencesStore.commentAuthorName ?? '').trim()
   return configured || t('sideBar.comments.defaultAuthor')
 })
+
+// Comment ids are recycled (nextCommentId fills the lowest free cmt_N), so an
+// unsent reply/edit draft for a thread that has since disappeared must be
+// dropped — otherwise it would resurface, pre-filled, on an unrelated new thread
+// that happens to reuse the id.
+watch(
+  () => comments.value.threads.map(thread => thread.id),
+  (ids) => {
+    const live = new Set(ids)
+    const threadIdOf = (key: string): string => key.slice(0, key.lastIndexOf(':')) || key
+    for (const key of Object.keys(replyDrafts)) {
+      if (!live.has(key)) delete replyDrafts[key]
+    }
+    for (const key of Object.keys(editDrafts)) {
+      if (!live.has(threadIdOf(key))) delete editDrafts[key]
+    }
+    for (const key of Object.keys(editingReplies)) {
+      if (!live.has(threadIdOf(key))) delete editingReplies[key]
+    }
+  }
+)
 
 const formatDate = (value?: string): string => {
   if (!value) return ''

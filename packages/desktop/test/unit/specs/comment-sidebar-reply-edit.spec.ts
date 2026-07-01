@@ -60,7 +60,7 @@ const loadComponent = (deps: Record<string, unknown>) => {
     'exports',
     'module',
     `const { _defineComponent, computed, nextTick, onBeforeUnmount, onMounted,
-      reactive, ref, storeToRefs, Aim, Check, Close, EditPen, Plus, Promotion,
+      reactive, ref, watch, storeToRefs, Aim, Check, Close, EditPen, Plus, Promotion,
       RefreshLeft, useI18n, bus, useEditorStore, usePreferencesStore } = __deps
     ${js}
     return module.exports`
@@ -85,6 +85,7 @@ const makeBindings = (
   const emit = vi.fn()
   const mounted: Array<() => void> = []
   const beforeUnmount: Array<() => void> = []
+  const watchers: Array<{ cb: (value: unknown) => void }> = []
   const handlers = new Map<string, (...args: unknown[]) => void>()
   const deps = {
     _defineComponent: (o: unknown) => o,
@@ -94,6 +95,7 @@ const makeBindings = (
     onMounted: (fn: () => void) => mounted.push(fn),
     reactive,
     ref,
+    watch: (_source: unknown, cb: (value: unknown) => void) => watchers.push({ cb }),
     storeToRefs: () => ({
       comments: ref({
         threads: initialComments.threads ?? [],
@@ -124,7 +126,8 @@ const makeBindings = (
   const comp = loadComponent(deps)
   const ret = comp.setup({}, { expose: () => {} })
   mounted.forEach(fn => fn())
-  return { ret, emit, handlers, beforeUnmount }
+  const triggerThreadIds = (ids: string[]): void => watchers.forEach(w => w.cb(ids))
+  return { ret, emit, handlers, beforeUnmount, triggerThreadIds }
 }
 
 describe('comments sidebar reply editing', () => {
@@ -153,6 +156,25 @@ describe('comments sidebar reply editing', () => {
         ]
       })
     })
+  })
+
+  it('prunes reply/edit drafts for a comment id that is no longer present', () => {
+    const { ret, triggerThreadIds } = makeBindings({
+      threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
+    })
+    ret.replyDrafts.cmt_1 = 'live'
+    ret.replyDrafts.cmt_2 = 'stale'
+    ret.editDrafts['cmt_2:0'] = 'stale edit'
+    ret.editingReplies['cmt_2:0'] = true
+
+    // cmt_2 disappears (e.g. its markers were deleted) — its drafts must not
+    // survive to resurface on a future thread that reuses the id.
+    triggerThreadIds(['cmt_1'])
+
+    expect(ret.replyDrafts.cmt_1).toBe('live')
+    expect(ret.replyDrafts.cmt_2).toBeUndefined()
+    expect(ret.editDrafts['cmt_2:0']).toBeUndefined()
+    expect(ret.editingReplies['cmt_2:0']).toBeUndefined()
   })
 
   it('does not emit Add Comment while the shared predicate is disabled', () => {
