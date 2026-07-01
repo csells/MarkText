@@ -11,6 +11,7 @@ vi.mock('main_renderer/i18n', () => ({
 }))
 
 import {
+  clearEditorContextAddCommentSelection,
   isEditorContextAddCommentEnabled,
   updateEditorContextAddCommentSelection
 } from 'main_renderer/contextMenu/editor'
@@ -29,6 +30,16 @@ describe('editor context menu Add Comment state', () => {
     updateEditorContextAddCommentSelection(2001, true)
     expect(isEditorContextAddCommentEnabled({ id: 2001 }, true)).toBe(true)
     expect(isEditorContextAddCommentEnabled({ id: 2001 }, false)).toBe(false)
+  })
+
+  it('drops per-window state when the window closes', () => {
+    updateEditorContextAddCommentSelection(4001, true)
+    expect(isEditorContextAddCommentEnabled({ id: 4001 }, true)).toBe(true)
+
+    clearEditorContextAddCommentSelection(4001)
+
+    // Back to the pre-arrival default; the entry is no longer retained.
+    expect(isEditorContextAddCommentEnabled({ id: 4001 }, true)).toBe(false)
   })
 
   it('fails closed through the same predicate when clicked directly', () => {

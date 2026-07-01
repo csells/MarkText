@@ -15,6 +15,7 @@ import spellcheckMenuBuilder from './spellcheck'
 import { isEditorContextAddCommentEnabled } from './addCommentState'
 import { t } from '../../i18n'
 export {
+  clearEditorContextAddCommentSelection,
   isEditorContextAddCommentEnabled,
   updateEditorContextAddCommentSelection
 } from './addCommentState'

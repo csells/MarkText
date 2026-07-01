@@ -1,3 +1,5 @@
+import { escapeRegExp } from '../utils';
+
 export const COMMENT_METADATA_DATA_URI_PREFIX = 'data:application/json;base64,';
 export const COMMENT_ID_PATTERN = '\\w[\\w-]*';
 export const COMMENT_MARKER_PATTERN = `<!--MC:(~?)(${COMMENT_ID_PATTERN})-->`;
@@ -20,12 +22,6 @@ export interface IParsedCommentMetadataDefinition {
     dataUri: string;
 }
 
-export interface IParsedMalformedCommentMarker {
-    raw: string;
-    id: string;
-    kind: TCommentMarkerKind;
-}
-
 export interface ICommentSearchText {
     text: string;
     rawIndexBySearchIndex: number[];
@@ -43,11 +39,28 @@ export function parseCommentMarker(src: string): IParsedCommentMarker | null {
     };
 }
 
+// The canonical byte form of a comment marker. This module is the single owner
+// of the MC wire format; callers must not hand-build marker strings.
+export function serializeCommentMarker(id: string, kind: TCommentMarkerKind = 'open'): string {
+    return `<!--MC:${kind === 'close' ? '~' : ''}${id}-->`;
+}
+
+// The canonical byte form of a metadata reference-definition line. `dataUri` is
+// the already-encoded payload (see encodeCommentMetadata).
+export function serializeCommentMetadataDefinition(id: string, dataUri: string): string {
+    return `[MC:${id}]: ${dataUri}`;
+}
+
+// Matches both the open and close marker for one specific id.
+export function commentMarkerRegExpForId(id: string, flags = 'g'): RegExp {
+    return new RegExp(`<!--MC:~?${escapeRegExp(id)}-->`, flags);
+}
+
 export function isValidCommentId(id: string): boolean {
     return new RegExp(`^${COMMENT_ID_PATTERN}$`).test(id);
 }
 
-export function parseMalformedCommentMarker(src: string): IParsedMalformedCommentMarker | null {
+export function parseMalformedCommentMarker(src: string): IParsedCommentMarker | null {
     const match = COMMENT_MARKER_LIKE_REGEXP.exec(src);
     if (!match || isValidCommentId(match[2]))
         return null;
@@ -72,16 +85,6 @@ export function parseCommentMetadataDefinition(text: string): IParsedCommentMeta
 
 export function isCommentMetadataReference(label: string, _href: string): boolean {
     return /^MC:[^\]\s]+$/.test(label);
-}
-
-export function maskCommentSyntaxForSearch(text: string): string {
-    if (parseCommentMetadataDefinition(text))
-        return ' '.repeat(text.length);
-
-    return text.replace(
-        new RegExp(COMMENT_MARKER_PATTERN, 'g'),
-        match => ' '.repeat(match.length),
-    );
 }
 
 export function createCommentSearchText(text: string): ICommentSearchText {

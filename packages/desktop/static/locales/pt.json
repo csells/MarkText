@@ -250,6 +250,7 @@
       "title": "Índice"
     },
     "comments": {
+      "all": "Todos",
       "title": "Comentários",
       "summary": "{open} abertos / {count} no total",
       "add": "Adicionar",
@@ -953,8 +954,10 @@
       "exportSuccessTitle": "Exportado com sucesso",
       "exportSuccessMessage": "“{name}” foi exportado com sucesso!",
       "fileRemovedOnDisk": "“{name}” foi removido no disco.",
-      "fileChangedOnDisk": "“{name}” foi alterado no disco. Deseja recarregar?",
-      "fileChangedOnDiskRecoveryCreated": "Suas edições não salvas foram mantidas em \"{name}\"."
+      "fileChangedOnDisk": "\"{name}\" foi alterado no disco. Recarregar do disco? O MarkText manterá suas edições não salvas em uma nova aba sem título antes de substituir esta aba; você também pode desfazer imediatamente após recarregar.",
+      "fileChangedOnDiskRecoveryCreated": "Suas edições não salvas foram mantidas em \"{name}\".",
+      "fileChangedOnDiskAutoMerged": "As alterações do disco foram mescladas com suas edições não salvas em \"{name}\".",
+      "fileChangedOnDiskMergeConflict": "\"{name}\" tem alterações no disco que conflitam com suas edições não salvas. Resolva a mesclagem para continuar."
     }
   },
   "spellchecker": {

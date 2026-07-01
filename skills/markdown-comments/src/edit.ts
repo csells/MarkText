@@ -2,14 +2,14 @@ import {
   appendCommentReplyMetadata,
   mergeCommentMetadataPatch,
   updateCommentMetadataInMarkdown
-} from '../../../packages/muya/src/comments'
+} from '@muyajs/core/comments'
 import type {
   ICommentMetadata,
   ICommentReply,
   ICommentReplyInput,
   TCommentStatus,
   TUpdateCommentThreadPatch
-} from '../../../packages/muya/src/comments'
+} from '@muyajs/core/comments'
 
 export function replaceCommentMetadata(
   markdown: string,

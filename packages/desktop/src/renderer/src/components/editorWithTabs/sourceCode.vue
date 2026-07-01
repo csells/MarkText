@@ -16,11 +16,14 @@ import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMi
 import {
   appendCommentReplyMetadata,
   COMMENT_MARKER_PATTERN,
+  commentMarkerRegExpForId,
   createCommentMetadata,
   encodeCommentMetadata,
   nextCommentId,
   parseCommentMetadataDefinition,
   parseMarkdownComments,
+  serializeCommentMarker,
+  serializeCommentMetadataDefinition,
   updateCommentMetadataInMarkdown,
   wordCount as getWordCount,
   type ICommentMetadata,
@@ -631,7 +634,7 @@ const sourceCommentDiagnosticSyntaxRange = (
   markdown: string,
   id: string
 ): SourceCommentSyntaxIndexRange | null => {
-  const markerRegExp = new RegExp(`<!--MC:~?${escapeRegExp(id)}-->`, 'g')
+  const markerRegExp = commentMarkerRegExpForId(id)
   const markerMatch = markerRegExp.exec(markdown)
   if (markerMatch) {
     return {
@@ -719,7 +722,7 @@ const commentMetadataAppendix = (markdown: string, id: string): string => {
     ? lineEnding
     : `${lineEnding}${lineEnding}`
   const metadata = encodeCommentMetadata(createCommentMetadata({}))
-  return `${separator}[MC:${id}]: ${metadata}${lineEnding}`
+  return `${separator}${serializeCommentMetadataDefinition(id, metadata)}${lineEnding}`
 }
 
 const sourceCommentMarkdown = (
@@ -730,8 +733,8 @@ const sourceCommentMarkdown = (
 ): string => {
   const startIndex = cm.indexFromPos(range.start)
   const endIndex = cm.indexFromPos(range.end)
-  const openMarker = `<!--MC:${id}-->`
-  const closeMarker = `<!--MC:~${id}-->`
+  const openMarker = serializeCommentMarker(id, 'open')
+  const closeMarker = serializeCommentMarker(id, 'close')
   const markedMarkdown = [
     markdown.slice(0, startIndex),
     openMarker,
@@ -794,8 +797,8 @@ const handleAddComment = (): void => {
   if (!candidate) return
 
   const { id, range } = candidate
-  const openMarker = `<!--MC:${id}-->`
-  const closeMarker = `<!--MC:~${id}-->`
+  const openMarker = serializeCommentMarker(id, 'open')
+  const closeMarker = serializeCommentMarker(id, 'close')
 
   cm.operation(() => {
     cm.replaceRange(closeMarker, range.end)

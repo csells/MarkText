@@ -5,5 +5,8 @@
   "scripts": {
     "cli": "tsx src/cli.ts",
     "test": "vitest run test"
+  },
+  "dependencies": {
+    "@muyajs/core": "workspace:*"
   }
 }

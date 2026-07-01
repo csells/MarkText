@@ -9,6 +9,11 @@ export const updateEditorContextAddCommentSelection = (
   addCommentSelectionByWindowId.set(windowId, enabled)
 }
 
+// Called when a window closes so the per-window selection state does not leak.
+export const clearEditorContextAddCommentSelection = (windowId: number): void => {
+  addCommentSelectionByWindowId.delete(windowId)
+}
+
 export const isEditorContextAddCommentEnabled = (
   win: Pick<BrowserWindow, 'id'>,
   hasText: boolean

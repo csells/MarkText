@@ -4,6 +4,7 @@ import type { ICommentMetadata, ICommentReplyInput } from './types';
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
 import ExportMarkdown from '../state/stateToMarkdown';
+import { escapeRegExp } from '../utils';
 import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
 import {
@@ -11,6 +12,8 @@ import {
     COMMENT_METADATA_DATA_URI_PREFIX,
     isValidCommentId,
     parseCommentMetadataDefinition,
+    serializeCommentMarker,
+    serializeCommentMetadataDefinition,
 } from './syntax';
 
 export interface IAddCommentInput {
@@ -42,10 +45,6 @@ const NON_COMMENTABLE_TEXT_STATES = new Set<TState['name']>([
     'math-block',
     'thematic-break',
 ]);
-
-function escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-}
 
 const COMMENT_METADATA_LINE_REGEXP = new RegExp(
     `^( {0,3}\\[MC:([^\\]\\s]+)\\]:\\s*)(${escapeRegExp(COMMENT_METADATA_DATA_URI_PREFIX)}\\S*)(\\s*)$`,
@@ -108,7 +107,7 @@ function isCommentableTextState(state: TState): boolean {
 }
 
 function selectionIntersectsInlineCode(text: string, startOffset: number, endOffset: number): boolean {
-    return tokenizer(text, { options: {} as never }).some(token =>
+    return tokenizer(text, { options: { superSubScript: false, footnote: false } }).some(token =>
         token.type === 'inline_code' && startOffset < token.range.end && endOffset > token.range.start,
     );
 }
@@ -289,8 +288,8 @@ export function wrapCommentRange({
         return null;
     }
 
-    const openMarker = `<!--MC:${id}-->`;
-    const closeMarker = `<!--MC:~${id}-->`;
+    const openMarker = serializeCommentMarker(id, 'open');
+    const closeMarker = serializeCommentMarker(id, 'close');
     if (commentPathKey(range.startPath) === commentPathKey(range.endPath)) {
         if (range.startOffset >= range.endOffset)
             return null;
@@ -328,7 +327,7 @@ export function wrapCommentRange({
 
     states.push({
         name: 'paragraph',
-        text: `[MC:${id}]: ${encodeCommentMetadata(metadata)}`,
+        text: serializeCommentMetadataDefinition(id, encodeCommentMetadata(metadata)),
     });
 
     return states;

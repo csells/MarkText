@@ -117,6 +117,9 @@ declare module '@muyajs/core' {
   export const COMMENT_METADATA_DATA_URI_PREFIX: string
   export const COMMENT_MARKER_PATTERN: string
 
+  export function serializeCommentMarker(id: string, kind?: 'open' | 'close'): string
+  export function serializeCommentMetadataDefinition(id: string, dataUri: string): string
+  export function commentMarkerRegExpForId(id: string, flags?: string): RegExp
   export function appendCommentReplyMetadata(
     metadata: ICommentMetadata,
     reply: ICommentReplyInput

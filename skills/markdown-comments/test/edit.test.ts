@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { encodeCommentMetadata } from '../../../packages/muya/src/comments'
+import { encodeCommentMetadata } from '@muyajs/core/comments'
 import { editCommentReply, patchCommentMetadata, replyToComment, setCommentStatus } from '../src/edit'
 import { readMarkdownComments, stableJson } from '../src/parse'
 

@@ -9,6 +9,7 @@
     ],
     "exports": {
         ".": "./src/index.ts",
+        "./comments": "./src/comments/index.ts",
         "./*": "./src/*"
     },
     "main": "./lib/cjs/index.js",

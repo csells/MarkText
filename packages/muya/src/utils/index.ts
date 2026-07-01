@@ -139,6 +139,12 @@ export function deepClone<T>(value: T): T {
     return structuredClone(value);
 }
 
+// Escapes regexp metacharacters so a runtime string can be embedded as a
+// literal inside a `new RegExp(...)` pattern.
+export function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
 export function escapeHTML(str: string) {
     return str.replace(
         /[&<>'"]/g,

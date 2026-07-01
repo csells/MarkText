@@ -106,6 +106,7 @@ describe('desktop locale completeness for markdown comments', () => {
   it('ships the comments sidebar strings in every source locale', () => {
     const expectedCommentKeys = [
       'add',
+      'all',
       'cancelEdit',
       'defaultAuthor',
       'diagnostics',
@@ -228,7 +229,7 @@ describe('desktop locale completeness for markdown comments', () => {
     }
   })
 
-  it('ships dirty reload recovery notification strings in every source locale', () => {
+  it('ships every external-sync notification string in every source locale', () => {
     const localeFiles = readdirSync(localesDir)
       .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
 
@@ -238,8 +239,27 @@ describe('desktop locale completeness for markdown comments', () => {
           editor?: Record<string, unknown>
         }
       }
+      const editor = locale.store?.editor
 
-      expect(locale.store?.editor?.fileChangedOnDiskRecoveryCreated, file).toBeTypeOf('string')
+      expect(editor?.fileChangedOnDiskRecoveryCreated, file).toBeTypeOf('string')
+      expect(editor?.fileChangedOnDiskAutoMerged, file).toBeTypeOf('string')
+      expect(editor?.fileChangedOnDiskMergeConflict, file).toBeTypeOf('string')
+    }
+  })
+
+  it('localizes the comments status filter labels in every source locale', () => {
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8')) as {
+        sideBar?: { comments?: Record<string, unknown> }
+      }
+      const comments = locale.sideBar?.comments
+
+      expect(comments?.all, file).toBeTypeOf('string')
+      expect(comments?.open, file).toBeTypeOf('string')
+      expect(comments?.resolved, file).toBeTypeOf('string')
     }
   })
 

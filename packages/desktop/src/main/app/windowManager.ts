@@ -6,6 +6,7 @@ import Watcher, {
   WATCHER_STABILITY_THRESHOLD,
   WATCHER_STABILITY_POLL_INTERVAL
 } from '../filesystem/watcher'
+import { clearEditorContextAddCommentSelection } from '../contextMenu/editor/addCommentState'
 import { onInternalChannel } from '../utils/internalIpc'
 import type BaseWindow from '../windows/base'
 import type Preference from '../preferences'
@@ -136,6 +137,7 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
     window.on('window-closed', () => {
       this.remove(windowId)
       this._watcher.unwatchByWindowId(windowId)
+      clearEditorContextAddCommentSelection(windowId)
     })
   }
 

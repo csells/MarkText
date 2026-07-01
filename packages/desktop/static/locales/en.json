@@ -250,6 +250,7 @@
       "title": "Table Of Contents"
     },
     "comments": {
+      "all": "All",
       "title": "Comments",
       "summary": "{open} open / {count} total",
       "add": "Add",

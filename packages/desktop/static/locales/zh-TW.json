@@ -250,6 +250,7 @@
       "title": "目錄"
     },
     "comments": {
+      "all": "全部",
       "title": "評論",
       "summary": "{open} 個未解決 / 共 {count} 個",
       "add": "新增",
@@ -953,8 +954,10 @@
       "exportSuccessTitle": "匯出成功",
       "exportSuccessMessage": "已成功匯出「{name}」！",
       "fileRemovedOnDisk": "「{name}」已在磁碟上被刪除。",
-      "fileChangedOnDisk": "「{name}」已在磁碟上發生變更。是否重新載入？",
-      "fileChangedOnDiskRecoveryCreated": "未儲存的編輯已保留在「{name}」。"
+      "fileChangedOnDisk": "「{name}」已在磁碟上變更。要從磁碟重新載入嗎？MarkText 會在取代此分頁之前，將您未儲存的編輯保留在新的未命名分頁中；您也可以在重新載入後立即復原。",
+      "fileChangedOnDiskRecoveryCreated": "未儲存的編輯已保留在「{name}」。",
+      "fileChangedOnDiskAutoMerged": "已將磁碟上的變更合併到「{name}」中未儲存的編輯。",
+      "fileChangedOnDiskMergeConflict": "「{name}」在磁碟上的變更與您未儲存的編輯發生衝突。請解決合併後再繼續。"
     }
   },
   "spellchecker": {

@@ -25,7 +25,7 @@
         :class="{ active: commentFilter === 'all' }"
         @click="commentFilter = 'all'"
       >
-        All
+        {{ t('sideBar.comments.all') }}
       </button>
       <button
         type="button"

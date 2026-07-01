@@ -1,9 +1,20 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from 'vitest';
-import { parseMarkdownComments, validateCommentGraph } from '../index';
+import {
+    parseMarkdownComments,
+    serializeCommentMarker,
+    serializeCommentMetadataDefinition,
+    validateCommentGraph,
+} from '../index';
 
 describe('public comment exports', () => {
+    it('exposes the wire-format serializers from the package entrypoint', () => {
+        expect(serializeCommentMarker('cmt_1')).toBe('<!--MC:cmt_1-->');
+        expect(serializeCommentMarker('cmt_1', 'close')).toBe('<!--MC:~cmt_1-->');
+        expect(serializeCommentMetadataDefinition('cmt_1', 'data:x')).toBe('[MC:cmt_1]: data:x');
+    });
+
     it('exports validateCommentGraph from the package entrypoint', () => {
         const markdown = [
             'Text <!--MC:a-->open only.',

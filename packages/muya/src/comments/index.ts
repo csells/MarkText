@@ -31,10 +31,13 @@ export {
     COMMENT_MARKER_SEARCH_REGEXP,
     COMMENT_METADATA_DATA_URI_PREFIX,
     COMMENT_METADATA_DEFINITION_REGEXP,
+    commentMarkerRegExpForId,
     isCommentMetadataReference,
     isValidCommentId,
     parseCommentMarker,
     parseCommentMetadataDefinition,
+    serializeCommentMarker,
+    serializeCommentMetadataDefinition,
 } from './syntax';
 export type {
     IParsedCommentMarker,

@@ -15,6 +15,7 @@ import {
     COMMENT_MARKER_SEARCH_REGEXP,
     parseCommentMetadataDefinition,
 } from '../comments/syntax';
+import { escapeRegExp } from '../utils';
 import logger from '../utils/logger';
 import { lexBlock } from '../utils/marked';
 
@@ -53,10 +54,6 @@ interface IFenceState {
 interface ICommentMetadataDefinitionScanOptions {
     frontMatter: boolean;
     math: boolean;
-}
-
-function escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function getFenceStart(line: string): IFenceState | null {

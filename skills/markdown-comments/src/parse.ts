@@ -1,10 +1,10 @@
-import { parseMarkdownComments } from '../../../packages/muya/src/comments'
+import { parseMarkdownComments } from '@muyajs/core/comments'
 import type {
   ICommentDiagnostic,
   ICommentRange,
   ICommentThread,
   IParsedMarkdownComments
-} from '../../../packages/muya/src/comments'
+} from '@muyajs/core/comments'
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
