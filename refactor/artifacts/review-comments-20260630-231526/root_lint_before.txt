@@ -1,0 +1,182 @@
+(node:61702) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/csells/Code/csells/MarkText/eslint.config.js?mtime=1782844565104 is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/csells/Code/csells/MarkText/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/app/index.ts
+  491:43  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  504:43  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  646:36  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/app/windowManager.ts
+  285:17  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  287:37  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/menu/actions/file.ts
+  113:41  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  118:44  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  204:43  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  369:47  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  379:47  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  587:31  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/menu/actions/format.ts
+  104:36  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  105:3   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  106:3   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  107:28  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/menu/actions/paragraph.ts
+  154:29  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  155:3   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  163:29  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  164:3   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  186:29  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  187:3   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  188:3   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  232:36  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  233:3   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  254:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  262:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  266:27  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  267:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/menu/actions/view.ts
+  110:32  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  114:32  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/menu/index.ts
+  192:19  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  193:18  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/preferences/index.ts
+   71:9   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+   78:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  215:31  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/utils/index.ts
+  18:21  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  20:14  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  21:16  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  24:10  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/windows/base.ts
+  123:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/windows/editor.ts
+  161:29  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  172:36  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  174:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  176:23  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  183:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  187:9   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  191:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  193:18  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  195:19  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  218:56  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  225:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  237:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  243:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  249:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  250:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  260:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  332:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  334:9   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  348:13  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  354:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  372:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  374:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  403:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  414:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  423:19  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  426:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  428:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  439:19  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  441:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  454:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  460:28  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  484:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  491:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  539:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  540:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  553:46  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  556:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  568:25  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  568:25  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  608:20  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  617:15  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  629:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  633:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/windows/setting.ts
+   78:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+   84:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+   91:42  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  109:9   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/main/windows/utils.ts
+  64:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  65:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  66:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  67:11  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/renderer/src/commands/quickOpen.ts
+   99:26  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+   99:26  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  121:55  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  159:18  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  216:30  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/renderer/src/components/sideBar/tree.vue
+  8:38  warning  'class' should be on a new line  vue/max-attributes-per-line
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/renderer/src/store/project.ts
+  167:17  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  176:20  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  180:22  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  183:25  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  187:27  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/src/renderer/src/util/pdf.ts
+  70:32  warning  Forbidden non-null assertion   @typescript-eslint/no-non-null-assertion
+  78:18  warning  '_' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/csells/Code/csells/MarkText/packages/desktop/test/e2e/issue-2372-source-selection-color.spec.ts
+  36:7  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  37:7  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/test/e2e/issue-2421-sidebar-state.spec.ts
+  46:27  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  46:36  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  46:52  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  48:27  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  48:36  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  48:58  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/test/e2e/view-modes.spec.ts
+  247:23  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  346:12  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  347:12  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  347:48  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  376:12  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  377:12  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  377:58  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/test/e2e/xss.spec.ts
+  8:7  warning  'page' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/Users/csells/Code/csells/MarkText/packages/desktop/test/unit/specs/exportHtml.spec.ts
+   70:18  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  200:18  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/csells/Code/csells/MarkText/packages/desktop/test/unit/specs/selection-menus.spec.ts
+  117:38  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  129:19  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  138:19  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  175:16  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  184:16  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  226:19  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+✖ 128 problems (0 errors, 128 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

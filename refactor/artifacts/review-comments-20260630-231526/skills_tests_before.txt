@@ -1,0 +1,9 @@
+
+ RUN  v4.1.9 /Users/csells/Code/csells/MarkText
+
+
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+   Start at  23:16:19
+   Duration  5.39s (transform 737ms, setup 0ms, import 885ms, tests 4.89s, environment 0ms)
+

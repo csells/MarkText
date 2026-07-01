@@ -7,7 +7,7 @@ import type { IRenderCursor } from '../selection/types';
 import type { IParagraphState, TContainerState, TState } from '../state/types';
 import type { IHighlight, Labels } from './types';
 import { parseMarkdownComments } from '../comments/parse';
-import { buildTextPathIndexes, selectionIntersectsCommentRange } from '../comments/range';
+import { buildTextPathIndexes, commentPathKey, selectionIntersectsCommentRange } from '../comments/range';
 import { isCommentMetadataReference } from '../comments/syntax';
 import logger from '../utils/logger';
 import { tokenizer } from './lexer';
@@ -107,7 +107,7 @@ class InlineRenderer {
             return [];
 
         const blockIndexes = this._contentBlockIndexes();
-        const blockKey = this._pathKey(block.path);
+        const blockKey = commentPathKey(block.path);
         const blockIndex = blockIndexes.get(blockKey);
         if (blockIndex === undefined)
             return [];
@@ -116,8 +116,8 @@ class InlineRenderer {
         const highlights: IHighlight[] = [];
 
         for (const range of comments.ranges) {
-            const startKey = this._pathKey(range.startPath);
-            const endKey = this._pathKey(range.endPath);
+            const startKey = commentPathKey(range.startPath);
+            const endKey = commentPathKey(range.endPath);
             const startIndex = blockIndexes.get(startKey);
             const endIndex = blockIndexes.get(endKey);
 
@@ -167,7 +167,7 @@ class InlineRenderer {
 
         this.muya.editor.scrollPage?.depthFirstTraverse((node) => {
             if (node.isContent())
-                indexes.set(this._pathKey(node.path), index++);
+                indexes.set(commentPathKey(node.path), index++);
         });
 
         return indexes;
@@ -219,10 +219,6 @@ class InlineRenderer {
             anchorOffset: selection.anchor.offset,
             focusOffset: selection.focus.offset,
         };
-    }
-
-    private _pathKey(path: TBlockPath) {
-        return JSON.stringify(path);
     }
 
     private _collectReferenceDefinitions() {

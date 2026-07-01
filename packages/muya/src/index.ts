@@ -1,4 +1,5 @@
 export {
+    appendCommentReplyMetadata,
     COMMENT_MARKER_PATTERN,
     COMMENT_METADATA_DATA_URI_PREFIX,
     createCommentMetadata,
@@ -7,6 +8,7 @@ export {
     nextCommentId,
     parseCommentMetadataDefinition,
     parseMarkdownComments,
+    updateCommentMetadataInMarkdown,
     validateCommentGraph,
 } from './comments';
 export type {

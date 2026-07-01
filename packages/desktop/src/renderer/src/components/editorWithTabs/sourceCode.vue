@@ -14,14 +14,14 @@ import { findMarkdownHeadingLine, scrollSourceEditorToLine } from '@/util/source
 import { storeToRefs } from 'pinia'
 import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMirror'
 import {
-  COMMENT_METADATA_DATA_URI_PREFIX,
+  appendCommentReplyMetadata,
   COMMENT_MARKER_PATTERN,
   createCommentMetadata,
-  decodeCommentMetadata,
   encodeCommentMetadata,
   nextCommentId,
   parseCommentMetadataDefinition,
   parseMarkdownComments,
+  updateCommentMetadataInMarkdown,
   wordCount as getWordCount,
   type ICommentMetadata,
   type ICommentReplyInput,
@@ -85,7 +85,6 @@ const preferencesStore = usePreferencesStore()
 const sourceCodeContainer = ref<HTMLDivElement | null>(null)
 
 const editor = ref<CMInstance>(null)
-const commitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const viewDestroyed = ref(false)
 const tabId = ref<string | null>(null)
 
@@ -168,7 +167,6 @@ const getMarkdownAndCursor = (cm: CMInstance) => {
  * @param id
  */
 const prepareTabSwitch = () => {
-  if (commitTimer.value) clearTimeout(commitTimer.value)
   if (tabId.value) {
     const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(editor.value)
     editorStore.LISTEN_FOR_CONTENT_CHANGE({
@@ -354,11 +352,6 @@ const sourceLineEnding = (markdown: string): string => {
 const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 
-const COMMENT_METADATA_LINE_REGEXP = new RegExp(
-  `^( {0,3}\\[MC:([^\\]\\s]+)\\]:\\s*)(${escapeRegExp(
-    COMMENT_METADATA_DATA_URI_PREFIX
-  )}\\S*)(\\s*)$`
-)
 const SOURCE_COMMENT_MARKER_START_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u')
 
 const lineEndLength = (rawLine: string): number => {
@@ -666,9 +659,11 @@ const sourceCommentDiagnosticSyntaxRange = (
   return null
 }
 
-const sourceCommentSyntaxIndexRanges = (markdown: string): SourceCommentSyntaxIndexRange[] => {
+const sourceCommentSyntaxIndexRanges = (
+  markdown: string,
+  ignoredRanges = sourceCommentIgnoredIndexRanges(markdown)
+): SourceCommentSyntaxIndexRange[] => {
   const ranges: SourceCommentSyntaxIndexRange[] = []
-  const ignoredRanges = sourceCommentIgnoredIndexRanges(markdown)
   const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'g')
   let markerMatch: RegExpExecArray | null
 
@@ -701,30 +696,6 @@ const sourceCommentSyntaxIndexRanges = (markdown: string): SourceCommentSyntaxIn
   return ranges
 }
 
-const sourceSelectionIntersectsCommentSyntax = (
-  cm: CMInstance,
-  range: SourceCommentRange
-): boolean => {
-  const markdown = cm.getValue()
-  const startIndex = cm.indexFromPos(range.start)
-  const endIndex = cm.indexFromPos(range.end)
-
-  return sourceCommentSyntaxIndexRanges(markdown).some(syntaxRange =>
-    startIndex < syntaxRange.end && endIndex > syntaxRange.start
-  )
-}
-
-const sourceSelectionIntersectsIgnoredContent = (
-  cm: CMInstance,
-  range: SourceCommentRange
-): boolean => {
-  const markdown = cm.getValue()
-  const startIndex = cm.indexFromPos(range.start)
-  const endIndex = cm.indexFromPos(range.end)
-
-  return rangesOverlap(startIndex, endIndex, sourceCommentIgnoredIndexRanges(markdown))
-}
-
 const activeSourceCommentIds = (cm: CMInstance, markdown: string): string[] => {
   const anchorIndex = cm.indexFromPos(cm.getCursor('anchor'))
   const focusIndex = cm.indexFromPos(cm.getCursor('head'))
@@ -754,9 +725,9 @@ const commentMetadataAppendix = (markdown: string, id: string): string => {
 const sourceCommentMarkdown = (
   cm: CMInstance,
   range: SourceCommentRange,
-  id: string
+  id: string,
+  markdown = cm.getValue()
 ): string => {
-  const markdown = cm.getValue()
   const startIndex = cm.indexFromPos(range.start)
   const endIndex = cm.indexFromPos(range.end)
   const openMarker = `<!--MC:${id}-->`
@@ -775,11 +746,22 @@ const sourceCommentMarkdown = (
 const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | null => {
   const range = getSourceCommentRange(cm)
   if (!range) return null
-  if (sourceSelectionIntersectsIgnoredContent(cm, range)) return null
-  if (sourceSelectionIntersectsCommentSyntax(cm, range)) return null
 
-  const id = nextCommentId(collectCommentIds(cm.getValue()))
-  const parsed = parseMarkdownComments(sourceCommentMarkdown(cm, range, id))
+  const markdown = cm.getValue()
+  const startIndex = cm.indexFromPos(range.start)
+  const endIndex = cm.indexFromPos(range.end)
+  const ignoredRanges = sourceCommentIgnoredIndexRanges(markdown)
+  if (rangesOverlap(startIndex, endIndex, ignoredRanges)) return null
+  if (
+    sourceCommentSyntaxIndexRanges(markdown, ignoredRanges).some(syntaxRange =>
+      startIndex < syntaxRange.end && endIndex > syntaxRange.start
+    )
+  ) {
+    return null
+  }
+
+  const id = nextCommentId(collectCommentIds(markdown))
+  const parsed = parseMarkdownComments(sourceCommentMarkdown(cm, range, id, markdown))
   if (!parsed.ranges.some(commentRange => commentRange.id === id)) return null
   if (parsed.diagnostics.some(diagnostic => diagnostic.id === id)) return null
 
@@ -835,30 +817,25 @@ const replaceSourceCommentMetadata = (
   id: string,
   updater: (metadata: ICommentMetadata) => ICommentMetadata
 ): boolean => {
-  const ignoredRanges = sourceCommentIgnoredIndexRanges(cm.getValue())
+  const markdown = cm.getValue()
+  const nextMarkdown = updateCommentMetadataInMarkdown(markdown, id, updater)
+  if (!nextMarkdown) return false
 
-  for (let line = cm.firstLine(); line <= cm.lastLine(); line += 1) {
-    const text = cm.getLine(line)
-    if (indexInsideRanges(cm.indexFromPos({ line, ch: 0 }), ignoredRanges)) continue
+  if (nextMarkdown === markdown) {
+    saveContent(cm)
+    return true
+  }
 
-    const definition = parseCommentMetadataDefinition(text)
-    if (!definition || definition.id !== id) continue
+  const beforeParts = markdown.split(/(\r\n|\n|\r)/u)
+  const afterParts = nextMarkdown.split(/(\r\n|\n|\r)/u)
+  for (let index = 0; index < beforeParts.length; index += 2) {
+    if (beforeParts[index] === afterParts[index]) continue
 
-    const match = COMMENT_METADATA_LINE_REGEXP.exec(text)
-    if (!match) continue
-
-    let currentMetadata: ICommentMetadata
-    try {
-      currentMetadata = decodeCommentMetadata(definition.dataUri)
-    } catch {
-      continue
-    }
-
-    const nextMetadata = updater(currentMetadata)
+    const line = index / 2
     cm.replaceRange(
-      `${match[1]}${encodeCommentMetadata(nextMetadata)}${match[4]}`,
+      afterParts[index],
       { line, ch: 0 },
-      { line, ch: text.length }
+      { line, ch: beforeParts[index].length }
     )
     saveContent(cm)
     return true
@@ -887,26 +864,9 @@ const handleCommentReply = (payload: unknown): void => {
   const { id, reply } = (payload ?? {}) as { id?: string; reply?: ICommentReplyInput }
   if (!id || !reply?.body) return
 
-  const createdAt = reply.createdAt ?? new Date().toISOString()
-  replaceSourceCommentMetadata(editor.value, id, (metadata) => {
-    const authors = metadata.authors ? [...metadata.authors] : []
-    if (reply.author && !authors.includes(reply.author)) authors.push(reply.author)
-
-    return {
-      ...metadata,
-      version: 1,
-      ...(authors.length ? { authors } : {}),
-      updatedAt: createdAt,
-      replies: [
-        ...metadata.replies,
-        {
-          author: reply.author,
-          createdAt,
-          body: reply.body
-        }
-      ]
-    }
-  })
+  replaceSourceCommentMetadata(editor.value, id, metadata =>
+    appendCommentReplyMetadata(metadata, reply)
+  )
 }
 
 const handleCommentEdit = (payload: unknown): void => {
@@ -1152,7 +1112,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   viewDestroyed.value = true
-  if (commitTimer.value) clearTimeout(commitTimer.value)
 
   bus.off('file-loaded', handleFileChange)
   bus.off('flush-active-editor', flushSourceEditor)

@@ -19,6 +19,7 @@ import Format from './block/base/format';
 import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replaceBlockByLabel } from './block/blockTransforms';
 import { ScrollPage } from './block/scrollPage';
 import {
+    appendCommentReplyMetadata,
     buildTextPathIndexes,
     createCommentMetadata,
     mergeCommentMetadataPatch,
@@ -345,26 +346,7 @@ export class Muya {
     }
 
     replyToComment(id: string, reply: ICommentReplyInput): boolean {
-        const createdAt = reply.createdAt ?? new Date().toISOString();
-
-        return this._replaceCommentMetadata(id, (metadata) => {
-            const authors = metadata.authors ? [...metadata.authors] : [];
-            if (reply.author && !authors.includes(reply.author))
-                authors.push(reply.author);
-
-            return mergeCommentMetadataPatch(metadata, {
-                ...(authors.length ? { authors } : {}),
-                updatedAt: createdAt,
-                replies: [
-                    ...metadata.replies,
-                    {
-                        author: reply.author,
-                        createdAt,
-                        body: reply.body,
-                    },
-                ],
-            });
-        });
+        return this._replaceCommentMetadata(id, metadata => appendCommentReplyMetadata(metadata, reply));
     }
 
     resolveComment(id: string, updatedAt = new Date().toISOString()): boolean {

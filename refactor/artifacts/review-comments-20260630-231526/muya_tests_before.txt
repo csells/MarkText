@@ -1,0 +1,20 @@
+
+ RUN  v4.1.9 /Users/csells/Code/csells/MarkText/packages/muya
+
+DOMException [AbortError]: The operation was aborted.
+    at Fetch.onAsyncTaskManagerAbort (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/happy-dom@20.10.6/node_modules/happy-dom/lib/fetch/Fetch.js:546:23)
+    at Object.<anonymous> (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/happy-dom@20.10.6/node_modules/happy-dom/lib/fetch/Fetch.js:416:101)
+    at AsyncTaskManager.abortAll (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/happy-dom@20.10.6/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:292:30)
+    at AsyncTaskManager.abort (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/happy-dom@20.10.6/node_modules/happy-dom/lib/async-task-manager/AsyncTaskManager.js:52:21)
+    at DetachedBrowserFrame.abort (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/happy-dom@20.10.6/node_modules/happy-dom/lib/browser/detached-browser/DetachedBrowserFrame.js:112:58)
+    at DetachedWindowAPI.abort (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/happy-dom@20.10.6/node_modules/happy-dom/lib/window/DetachedWindowAPI.js:51:35)
+    at teardownWindow (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/vitest@4.1.9_@opentelemetry+api@1.9.0_@types+node@26.0.0_@vitest+coverage-istanbul@4.1._9bc486cd83ac947114cec7601523ed9c/node_modules/vitest/dist/chunks/index.DC7d2Pf8.js:331:22)
+    at Object.teardown (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/vitest@4.1.9_@opentelemetry+api@1.9.0_@types+node@26.0.0_@vitest+coverage-istanbul@4.1._9bc486cd83ac947114cec7601523ed9c/node_modules/vitest/dist/chunks/index.DC7d2Pf8.js:392:10)
+    at file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/vitest@4.1.9_@opentelemetry+api@1.9.0_@types+node@26.0.0_@vitest+coverage-istanbul@4.1._9bc486cd83ac947114cec7601523ed9c/node_modules/vitest/dist/chunks/base.BE3cXZj3.js:168:65
+    at Traces.$ (file:///Users/csells/Code/csells/MarkText/node_modules/.pnpm/vitest@4.1.9_@opentelemetry+api@1.9.0_@types+node@26.0.0_@vitest+coverage-istanbul@4.1._9bc486cd83ac947114cec7601523ed9c/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js:142:27)
+
+ Test Files  199 passed (199)
+      Tests  1473 passed (1473)
+   Start at  23:16:19
+   Duration  9.30s (transform 22.47s, setup 0ms, import 66.54s, tests 22.29s, environment 42.62s)
+

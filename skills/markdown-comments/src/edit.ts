@@ -1,14 +1,15 @@
 import {
+  appendCommentReplyMetadata,
   mergeCommentMetadataPatch,
   updateCommentMetadataInMarkdown
-} from './metadata'
+} from '../../../packages/muya/src/comments'
 import type {
   ICommentMetadata,
   ICommentReply,
   ICommentReplyInput,
   TCommentStatus,
   TUpdateCommentThreadPatch
-} from './metadata'
+} from '../../../packages/muya/src/comments'
 
 export function replaceCommentMetadata(
   markdown: string,
@@ -32,26 +33,7 @@ export function patchCommentMetadata(
 }
 
 export function replyToComment(markdown: string, id: string, reply: ICommentReplyInput): string {
-  const createdAt = reply.createdAt ?? new Date().toISOString()
-  return replaceCommentMetadata(markdown, id, (metadata) => {
-    const authors = metadata.authors ? [...metadata.authors] : []
-    if (reply.author && !authors.includes(reply.author)) {
-      authors.push(reply.author)
-    }
-
-    return mergeCommentMetadataPatch(metadata, {
-      authors,
-      updatedAt: createdAt,
-      replies: [
-        ...metadata.replies,
-        {
-          author: reply.author,
-          createdAt,
-          body: reply.body
-        }
-      ]
-    })
-  })
+  return replaceCommentMetadata(markdown, id, metadata => appendCommentReplyMetadata(metadata, reply))
 }
 
 export interface IEditCommentReplyPatch {

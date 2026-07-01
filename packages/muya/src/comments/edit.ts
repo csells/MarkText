@@ -1,6 +1,6 @@
 import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
-import type { ICommentMetadata } from './types';
+import type { ICommentMetadata, ICommentReplyInput } from './types';
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
 import ExportMarkdown from '../state/stateToMarkdown';
@@ -159,44 +159,6 @@ function selectedTextLeavesAreCommentable(
     return isCommentable;
 }
 
-function selectionIntersectsInlineCodeAcrossLeaves(
-    states: TState[],
-    indexes: Map<string, number>,
-    startPath: TBlockPath,
-    endPath: TBlockPath,
-    startOffset: number,
-    endOffset: number,
-): boolean {
-    return selectionIntersectsAcrossLeaves(
-        states,
-        indexes,
-        startPath,
-        endPath,
-        startOffset,
-        endOffset,
-        selectionIntersectsInlineCode,
-    );
-}
-
-function selectionIntersectsCommentMarkerAcrossLeaves(
-    states: TState[],
-    indexes: Map<string, number>,
-    startPath: TBlockPath,
-    endPath: TBlockPath,
-    startOffset: number,
-    endOffset: number,
-): boolean {
-    return selectionIntersectsAcrossLeaves(
-        states,
-        indexes,
-        startPath,
-        endPath,
-        startOffset,
-        endOffset,
-        selectionIntersectsCommentMarker,
-    );
-}
-
 function selectionIntersectsAcrossLeaves(
     states: TState[],
     indexes: Map<string, number>,
@@ -301,25 +263,27 @@ export function wrapCommentRange({
         return null;
     }
     if (
-        selectionIntersectsInlineCodeAcrossLeaves(
+        selectionIntersectsAcrossLeaves(
             states,
             indexes,
             range.startPath,
             range.endPath,
             range.startOffset,
             range.endOffset,
+            selectionIntersectsInlineCode,
         )
     ) {
         return null;
     }
     if (
-        selectionIntersectsCommentMarkerAcrossLeaves(
+        selectionIntersectsAcrossLeaves(
             states,
             indexes,
             range.startPath,
             range.endPath,
             range.startOffset,
             range.endOffset,
+            selectionIntersectsCommentMarker,
         )
     ) {
         return null;
@@ -329,8 +293,6 @@ export function wrapCommentRange({
     const closeMarker = `<!--MC:~${id}-->`;
     if (commentPathKey(range.startPath) === commentPathKey(range.endPath)) {
         if (range.startOffset >= range.endOffset)
-            return null;
-        if (selectionIntersectsInlineCode(startText, range.startOffset, range.endOffset))
             return null;
 
         const nextText = [
@@ -345,13 +307,6 @@ export function wrapCommentRange({
             return null;
     }
     else {
-        if (
-            selectionIntersectsInlineCode(startText, range.startOffset, startText.length)
-            || selectionIntersectsInlineCode(endText, 0, range.endOffset)
-        ) {
-            return null;
-        }
-
         const nextStartText = [
             startText.slice(0, range.startOffset),
             openMarker,
@@ -478,5 +433,28 @@ export function mergeCommentMetadataPatch(
         ...patch,
         version: 1,
         replies: patch.replies ?? metadata.replies,
+    });
+}
+
+export function appendCommentReplyMetadata(
+    metadata: ICommentMetadata,
+    reply: ICommentReplyInput,
+): ICommentMetadata {
+    const createdAt = reply.createdAt ?? new Date().toISOString();
+    const authors = metadata.authors ? [...metadata.authors] : [];
+    if (reply.author && !authors.includes(reply.author))
+        authors.push(reply.author);
+
+    return mergeCommentMetadataPatch(metadata, {
+        ...(authors.length ? { authors } : {}),
+        updatedAt: createdAt,
+        replies: [
+            ...metadata.replies,
+            {
+                author: reply.author,
+                createdAt,
+                body: reply.body,
+            },
+        ],
     });
 }

@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path'
 import { parse, compileScript } from 'vue/compiler-sfc'
 import ts from 'typescript'
 import { ref } from 'vue'
+import { appendCommentReplyMetadata, updateCommentMetadataInMarkdown } from '@muyajs/core'
 
 // `handleImageAction` lives as a <script setup> closure in sourceCode.vue
 // (registered on the `image-action` bus during onMounted). The desktop unit
@@ -64,10 +65,11 @@ const loadComponent = (deps: Record<string, unknown>) => {
     `const { _defineComponent, ref, watch, onMounted, onBeforeUnmount, nextTick,
       useEditorStore, usePreferencesStore, storeToRefs, codeMirror,
       useLayoutStore, findMarkdownHeadingLine, scrollSourceEditorToLine,
-      setCursorAtFirstLine, setTextDirection, COMMENT_METADATA_DATA_URI_PREFIX,
-      COMMENT_MARKER_PATTERN, createCommentMetadata, decodeCommentMetadata,
+      setCursorAtFirstLine, setTextDirection, appendCommentReplyMetadata,
+      COMMENT_METADATA_DATA_URI_PREFIX, COMMENT_MARKER_PATTERN, createCommentMetadata, decodeCommentMetadata,
       encodeCommentMetadata, nextCommentId, parseCommentMetadataDefinition,
-      parseMarkdownComments, getWordCount, wordCount, adjustCursor, bus,
+      parseMarkdownComments, updateCommentMetadataInMarkdown,
+      getWordCount, wordCount, adjustCursor, bus,
       oneDarkThemes, railscastsThemes } = __deps
     ${js}
     return module.exports`
@@ -93,6 +95,7 @@ const makeDeps = (over: Record<string, unknown> = {}) => ({
   codeMirror: () => ({}),
   setCursorAtFirstLine: vi.fn(),
   setTextDirection: () => {},
+  appendCommentReplyMetadata,
   COMMENT_METADATA_DATA_URI_PREFIX: 'data:application/json;base64,',
   COMMENT_MARKER_PATTERN: '<!--MC:(~?)(\\w[\\w-]*)-->',
   createCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
@@ -101,6 +104,7 @@ const makeDeps = (over: Record<string, unknown> = {}) => ({
   nextCommentId: () => 'cmt_1',
   parseCommentMetadataDefinition: () => null,
   parseMarkdownComments: () => ({ threads: [], ranges: [], diagnostics: [] }),
+  updateCommentMetadataInMarkdown,
   wordCount: () => 0,
   getWordCount: () => 0,
   adjustCursor: (c: unknown) => c,

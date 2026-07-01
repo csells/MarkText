@@ -11,6 +11,7 @@ import type {
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
 import { decodeCommentMetadata } from './metadata';
+import { commentPathKey } from './range';
 import {
     COMMENT_MARKER_PATTERN,
     parseCommentMetadataDefinition,
@@ -83,19 +84,15 @@ function markdownToStates(markdownOrStates: string | TState[]) {
     return new MarkdownToState().generate(markdown);
 }
 
-function pathKey(path: TBlockPath): string {
-    return JSON.stringify(path);
-}
-
 function selectedTextPreview(
     textEntries: Array<{ path: TBlockPath; text: string }>,
     open: IOpenMarker,
     close: ICloseMarker,
 ): string {
-    const startKey = pathKey(open.path);
-    const endKey = pathKey(close.path);
-    const startIndex = textEntries.findIndex(entry => pathKey(entry.path) === startKey);
-    const endIndex = textEntries.findIndex(entry => pathKey(entry.path) === endKey);
+    const startKey = commentPathKey(open.path);
+    const endKey = commentPathKey(close.path);
+    const startIndex = textEntries.findIndex(entry => commentPathKey(entry.path) === startKey);
+    const endIndex = textEntries.findIndex(entry => commentPathKey(entry.path) === endKey);
     if (startIndex < 0 || endIndex < 0 || startIndex > endIndex)
         return '';
 

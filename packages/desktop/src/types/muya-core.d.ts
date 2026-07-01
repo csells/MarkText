@@ -117,6 +117,10 @@ declare module '@muyajs/core' {
   export const COMMENT_METADATA_DATA_URI_PREFIX: string
   export const COMMENT_MARKER_PATTERN: string
 
+  export function appendCommentReplyMetadata(
+    metadata: ICommentMetadata,
+    reply: ICommentReplyInput
+  ): ICommentMetadata
   export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata
   export function decodeCommentMetadata(dataUri: string): ICommentMetadata
   export function encodeCommentMetadata(metadata: ICommentMetadata): string
@@ -125,6 +129,11 @@ declare module '@muyajs/core' {
     text: string
   ): IParsedCommentMetadataDefinition | null
   export function parseMarkdownComments(markdownOrStates: string | unknown[]): IParsedMarkdownComments
+  export function updateCommentMetadataInMarkdown(
+    markdown: string,
+    id: string,
+    updater: (metadata: ICommentMetadata) => ICommentMetadata
+  ): string | null
   export function validateCommentGraph(markdownOrStates: string | unknown[]): ICommentDiagnostic[]
 
   // The editor instance surface is kept permissive (`any`) — every member

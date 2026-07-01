@@ -1,4 +1,5 @@
 export {
+    appendCommentReplyMetadata,
     createCommentMetadata,
     mergeCommentMetadataPatch,
     nextCommentId,

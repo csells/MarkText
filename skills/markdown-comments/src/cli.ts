@@ -4,7 +4,7 @@ import path from 'node:path'
 import { TextDecoder } from 'node:util'
 import { editCommentReply, patchCommentMetadata, replyToComment, setCommentStatus } from './edit'
 import { readMarkdownComments, stableJson } from './parse'
-import type { TCommentStatus, TUpdateCommentThreadPatch } from './metadata'
+import type { TCommentStatus, TUpdateCommentThreadPatch } from '../../../packages/muya/src/comments'
 
 interface ParsedArgs {
   positional: string[]
