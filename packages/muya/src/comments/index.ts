@@ -56,6 +56,7 @@ export {
     COMMENT_MARKER_SEARCH_REGEXP,
     COMMENT_METADATA_DATA_URI_PREFIX,
     COMMENT_METADATA_DEFINITION_REGEXP,
+    commentMarkerKindsInTexts,
     commentMarkerRegExpForId,
     isCommentMetadataReference,
     isValidCommentId,

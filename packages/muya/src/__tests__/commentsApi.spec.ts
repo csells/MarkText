@@ -863,3 +863,43 @@ describe('muya.focusComment() range-less navigation', () => {
         expect(muya.focusComment('nonexistent')).toBe(false);
     });
 });
+
+describe('comment mutations flush rAF-batched edits (#2938 lost-edit class)', () => {
+    it('a keystroke edit still pending its animation-frame flush survives resolveComment', () => {
+        const muya = boot([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n'));
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        // Queue a text op exactly like a keystroke does: the Content.text
+        // setter batches it for the next animation frame.
+        leaf.text = `${leaf.text} EDITED`;
+
+        expect(muya.resolveComment('a')).toBe(true);
+
+        const markdown = muya.getMarkdown();
+        expect(markdown).toContain('EDITED');
+        const definition = /\[MC:a\]: (\S+)/.exec(markdown);
+        expect(definition).not.toBeNull();
+        expect(decode(definition![1]).status).toBe('resolved');
+    });
+
+    it('a pending edit survives removeComment and addComment snapshots', () => {
+        const muya = boot([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n'));
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        leaf.text = `${leaf.text} EDITED`;
+
+        expect(muya.removeComment('a')).toBe(true);
+
+        const markdown = muya.getMarkdown();
+        expect(markdown).toContain('EDITED');
+        expect(markdown).not.toContain('MC:a');
+    });
+});

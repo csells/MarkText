@@ -60,6 +60,27 @@ export function isValidCommentId(id: string): boolean {
     return new RegExp(`^${COMMENT_ID_PATTERN}$`).test(id);
 }
 
+// Aggregate every marker kind present across the given texts, keyed by
+// comment id. Edit guards use this to answer "does this comment's counterpart
+// marker exist anywhere in the document?" — a range can open in one block and
+// close in another, so a single-block scan misses the counterpart.
+export function commentMarkerKindsInTexts(
+    texts: Iterable<string>,
+): Map<string, Set<TCommentMarkerKind>> {
+    const kindsById = new Map<string, Set<TCommentMarkerKind>>();
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+
+    for (const text of texts) {
+        for (const match of text.matchAll(markerRegExp)) {
+            const kinds = kindsById.get(match[2]) ?? new Set<TCommentMarkerKind>();
+            kinds.add(match[1] === '~' ? 'close' : 'open');
+            kindsById.set(match[2], kinds);
+        }
+    }
+
+    return kindsById;
+}
+
 export function parseMalformedCommentMarker(src: string): IParsedCommentMarker | null {
     const match = COMMENT_MARKER_LIKE_REGEXP.exec(src);
     if (!match || isValidCommentId(match[2]))

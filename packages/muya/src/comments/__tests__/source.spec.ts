@@ -130,3 +130,34 @@ describe('comment source index', () => {
         expect(collectSourceCommentIds(markdown)).toEqual(new Set());
     });
 });
+
+describe('isUnsafeCommentMarkerTextEdit — document-wide counterpart check', () => {
+    it('consults the supplied document kinds for a counterpart in another block', async () => {
+        const { isUnsafeCommentMarkerTextEdit } = await import('../source');
+        const text = 'alpha <!--MC:a-->beta';
+
+        // In-block scan alone: no close marker in this text, so the edit
+        // looks safe — the historical hole that orphaned cross-block ranges.
+        expect(isUnsafeCommentMarkerTextEdit(text, 0, text.length)).toBe(false);
+
+        // With document-wide kinds the close marker elsewhere makes the same
+        // edit unsafe.
+        const documentKinds = new Map([['a', new Set<'open' | 'close'>(['open', 'close'])]]);
+        expect(isUnsafeCommentMarkerTextEdit(text, 0, text.length, () => documentKinds)).toBe(true);
+
+        // A genuinely orphaned marker (no counterpart anywhere) stays safe to
+        // delete.
+        const orphanKinds = new Map([['a', new Set<'open' | 'close'>(['open'])]]);
+        expect(isUnsafeCommentMarkerTextEdit(text, 0, text.length, () => orphanKinds)).toBe(false);
+    });
+
+    it('does not invoke the document-kinds thunk when no marker is covered', async () => {
+        const { isUnsafeCommentMarkerTextEdit } = await import('../source');
+        let called = false;
+        expect(isUnsafeCommentMarkerTextEdit('plain text', 0, 5, () => {
+            called = true;
+            return new Map();
+        })).toBe(false);
+        expect(called).toBe(false);
+    });
+});

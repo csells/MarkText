@@ -7,7 +7,8 @@ import type { Nullable } from '../types';
 import type Clipboard from './index';
 import Format from '../block/base/format';
 import { ScrollPage } from '../block/scrollPage';
-import { COMMENT_ID_PATTERN, COMMENT_MARKER_PATTERN, parseCommentMetadataDefinition } from '../comments/syntax';
+import { isUnsafeCommentMarkerTextEdit } from '../comments/source';
+import { COMMENT_ID_PATTERN, COMMENT_MARKER_PATTERN, commentMarkerKindsInTexts, parseCommentMetadataDefinition } from '../comments/syntax';
 import { CLASS_NAMES } from '../config';
 import { SelectionDirection, SelectionType } from '../selection/types';
 import { getBlock } from '../utils/dom';
@@ -186,19 +187,13 @@ function mergeSelectedCommentMarkers(...selections: ISelectedCommentMarkers[]): 
 }
 
 function commentMarkerKindsInBlocks(blocks: Content[]): Map<string, Set<'open' | 'close'>> {
-    const kindsById = new Map<string, Set<'open' | 'close'>>();
+    return commentMarkerKindsInTexts(blocks.map(block => block.text));
+}
 
-    for (const block of blocks) {
-        const markers = selectedCommentMarkers(block.text, 0, block.text.length);
-        for (const [id, kinds] of markers.kindsById) {
-            const mergedKinds = kindsById.get(id) ?? new Set<'open' | 'close'>();
-            for (const kind of kinds)
-                mergedKinds.add(kind);
-            kindsById.set(id, mergedKinds);
-        }
-    }
-
-    return kindsById;
+// Marker kinds present anywhere in the document, for the edit guards'
+// cross-block counterpart checks. Shared with paste.
+export function documentCommentMarkerKinds(clipboard: Clipboard): Map<string, Set<'open' | 'close'>> {
+    return commentMarkerKindsInBlocks(contentBlocks(clipboard));
 }
 
 function selectedCommentMarkersInCrossBlockRange(
@@ -223,32 +218,6 @@ function selectedCommentMarkersInCrossBlockRange(
     }
 
     return mergeSelectedCommentMarkers(...selections);
-}
-
-function unsafeCommentMarkerCut(text: string, startOffset: number, endOffset: number): boolean {
-    const selectedMarkers = selectedCommentMarkers(text, startOffset, endOffset);
-    if (selectedMarkers.isPartial)
-        return true;
-
-    const markers = [...text.matchAll(new RegExp(COMMENT_MARKER_PATTERN, 'gu'))].map(match => ({
-        id: match[2],
-        kind: match[1] === '~' ? 'close' as const : 'open' as const,
-        start: match.index,
-        end: match.index + match[0].length,
-    }));
-
-    for (const [id, kinds] of selectedMarkers.kindsById) {
-        const openCount = markers.filter(marker => marker.id === id && marker.kind === 'open').length;
-        const closeCount = markers.filter(marker => marker.id === id && marker.kind === 'close').length;
-        if (
-            (kinds.has('open') && !kinds.has('close') && closeCount > 0)
-            || (kinds.has('close') && !kinds.has('open') && openCount > 0)
-        ) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 function unsafeCrossBlockCommentMarkerCut(
@@ -308,9 +277,27 @@ function removeCommentMetadataIfUnreferenced(clipboard: Clipboard, id: string): 
         return;
 
     for (const block of contentBlocks(clipboard)) {
+        // Mirror the comment parser's eligibility: a definition-shaped line
+        // inside a code fence / front matter / html block is literal text,
+        // not metadata.
+        if (block.blockName !== 'paragraph.content')
+            continue;
+
         const metadata = parseCommentMetadataDefinition(block.text);
-        if (metadata?.id === id)
-            block.outMostBlock?.remove();
+        if (metadata?.id !== id)
+            continue;
+
+        // Remove only the definition's own paragraph, then any ancestors the
+        // removal emptied — never the whole outermost container, which may
+        // hold unrelated content (e.g. the other lines of a blockquote).
+        let node: Nullable<Parent> = block.parent;
+        while (node && !node.isScrollPage) {
+            const parent: Nullable<Parent> = node.parent;
+            node.remove();
+            if (!parent || parent.isScrollPage || parent.length() > 0)
+                break;
+            node = parent;
+        }
     }
 
     resetIfEmpty(clipboard);
@@ -618,7 +605,11 @@ function cutTableStructure(clipboard: Clipboard): boolean {
     return removeEmptyTableStructure(clipboard);
 }
 
-export function cutSelection(clipboard: Clipboard): void {
+// Returns false when a comment-marker guard blocked the cut — the document
+// was left untouched, so the caller must also suppress the browser's native
+// edit (e.g. a printable key replacing a cross-block selection) or the DOM
+// would diverge from the model.
+export function cutSelection(clipboard: Clipboard): boolean {
     // Cut a selected image: the copy half wrote its raw markdown; remove it here.
     const selectedImage = clipboard.selection.image;
     if (selectedImage) {
@@ -626,7 +617,7 @@ export function cutSelection(clipboard: Clipboard): void {
         block.deleteImage(imageInfo);
         clipboard.selection.activate(SelectionType.TEXT);
 
-        return;
+        return true;
     }
 
     if (clipboard.selection.table.hasSelection) {
@@ -637,12 +628,12 @@ export function cutSelection(clipboard: Clipboard): void {
 
         removeCommentMetadataForUnreferencedIds(clipboard, removedCommentIds);
 
-        return;
+        return true;
     }
 
     const selection = clipboard.selection.getSelection();
     if (selection == null)
-        return;
+        return true;
 
     const {
         isSelectionInSameBlock,
@@ -659,8 +650,10 @@ export function cutSelection(clipboard: Clipboard): void {
         const startOffset
             = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
         const endOffset = direction === SelectionDirection.FORWARD ? focus.offset : anchor.offset;
-        if (unsafeCommentMarkerCut(text, startOffset, endOffset))
-            return;
+        const unsafe = isUnsafeCommentMarkerTextEdit(text, startOffset, endOffset, () =>
+            documentCommentMarkerKinds(clipboard));
+        if (unsafe)
+            return false;
         const removedCommentIds = commentIdsInText(text.substring(startOffset, endOffset));
 
         anchorBlock.text
@@ -670,7 +663,7 @@ export function cutSelection(clipboard: Clipboard): void {
         removeCommentMetadataForUnreferencedIds(clipboard, removedCommentIds);
         setCursorAndConvert(anchorBlock, cursorOffset);
 
-        return;
+        return true;
     }
 
     const startBlock = direction === SelectionDirection.FORWARD ? anchorBlock : focusBlock;
@@ -685,13 +678,13 @@ export function cutSelection(clipboard: Clipboard): void {
         endOffset,
     );
     if (markerCut.unsafe)
-        return;
+        return false;
 
     // Whole-document selection collapses to a single empty paragraph.
     if (isSelectAll(clipboard, startBlock, startOffset, endBlock, endOffset)) {
         resetToEmptyParagraph(clipboard);
 
-        return;
+        return true;
     }
 
     // #918: a cross-block cut that starts inside a code fence's language line
@@ -700,7 +693,7 @@ export function cutSelection(clipboard: Clipboard): void {
     if (startBlock.blockName === 'language-input') {
         collapseLanguageInputCut(clipboard, startBlock, endBlock, startOffset, endOffset);
 
-        return;
+        return true;
     }
 
     // Leaf-level merge: keep the
@@ -718,6 +711,8 @@ export function cutSelection(clipboard: Clipboard): void {
     removeCommentMetadataForUnreferencedIds(clipboard, markerCut.removedIds);
     setCursorAndConvert(startBlock, cursorOffset);
     resetIfEmpty(clipboard);
+
+    return true;
 }
 
 // #918: collapse the start code block (whose language line begins the

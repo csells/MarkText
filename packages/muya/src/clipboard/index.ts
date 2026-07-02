@@ -86,9 +86,9 @@ class Clipboard {
             // Enter and mirror the same-block path — delete then split (#2443).
             if (key === 'Enter') {
                 event.preventDefault();
-                this.cutHandler();
+                const performed = this.cutHandler();
                 const block = this.muya.editor.activeContentBlock;
-                if (!event.shiftKey && block instanceof Format)
+                if (performed && !event.shiftKey && block instanceof Format)
                     block.enterHandler(event);
                 return;
             }
@@ -96,7 +96,11 @@ class Clipboard {
             if (key === 'Backspace' || key === 'Delete')
                 event.preventDefault();
 
-            this.cutHandler();
+            // A guard-blocked cut leaves the model untouched, so the browser's
+            // native edit (a printable key replacing the still-spanning DOM
+            // selection) must be suppressed too or DOM and model diverge.
+            if (!this.cutHandler())
+                event.preventDefault();
         };
 
         const pasteHandler = (event: Event) => {
@@ -120,8 +124,10 @@ class Clipboard {
         writeClipboardData(this, event);
     }
 
-    cutHandler(): void {
-        cutSelection(this);
+    // False when a comment-marker guard blocked the cut (document untouched);
+    // callers must then suppress any accompanying native edit.
+    cutHandler(): boolean {
+        return cutSelection(this);
     }
 
     pasteHandler(

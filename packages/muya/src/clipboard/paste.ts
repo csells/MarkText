@@ -11,7 +11,7 @@ import { ScrollPage } from '../block/scrollPage';
 import {
     buildCommentSourceIndex,
     collectSourceCommentIds,
-    COMMENT_MARKER_PATTERN,
+    isUnsafeCommentMarkerTextEdit,
     nextCommentId,
     parseCommentMetadataDefinition,
 } from '../comments';
@@ -21,6 +21,7 @@ import HtmlToMarkdown from '../state/htmlToMarkdown';
 import { MarkdownToState } from '../state/markdownToState';
 import { isAnyListState, isParagraphState } from '../state/types';
 import { getClipboardImageFile, getCopyTextType, isStandaloneTableHtml, normalizePastedHTML } from '../utils/paste';
+import { documentCommentMarkerKinds } from './cut';
 import { mergePasteIntoHeading } from './mergePasteIntoHeading';
 import { tryPasteImage, tryReplaceSelectedImage } from './pasteImage';
 import { PasteType } from './types';
@@ -35,48 +36,6 @@ interface IPasteContext {
     start: { offset: number };
     end: { offset: number };
     content: string;
-}
-
-function unsafeCommentMarkerTextEdit(text: string, startOffset: number, endOffset: number): boolean {
-    const selectedKindsById = new Map<string, Set<'open' | 'close'>>();
-    const allKindsById = new Map<string, Set<'open' | 'close'>>();
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
-
-    for (const match of text.matchAll(markerRegExp)) {
-        const marker = {
-            id: match[2],
-            kind: match[1] === '~' ? 'close' as const : 'open' as const,
-            start: match.index,
-            end: match.index + match[0].length,
-        };
-        const allKinds = allKindsById.get(marker.id) ?? new Set<'open' | 'close'>();
-        allKinds.add(marker.kind);
-        allKindsById.set(marker.id, allKinds);
-
-        const intersects = startOffset < marker.end && endOffset > marker.start;
-        const cursorInside = startOffset === endOffset && startOffset > marker.start && startOffset < marker.end;
-        if (!intersects && !cursorInside)
-            continue;
-
-        if (startOffset > marker.start || endOffset < marker.end)
-            return true;
-
-        const selectedKinds = selectedKindsById.get(marker.id) ?? new Set<'open' | 'close'>();
-        selectedKinds.add(marker.kind);
-        selectedKindsById.set(marker.id, selectedKinds);
-    }
-
-    for (const [id, selectedKinds] of selectedKindsById) {
-        const allKinds = allKindsById.get(id) ?? new Set<'open' | 'close'>();
-        if (
-            (selectedKinds.has('open') && !selectedKinds.has('close') && allKinds.has('close'))
-            || (selectedKinds.has('close') && !selectedKinds.has('open') && allKinds.has('open'))
-        ) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 /**
@@ -506,8 +465,12 @@ function applyParsedPaste(
     if (states.length === 0)
         return;
 
-    if (unsafeCommentMarkerTextEdit(content, start.offset, end.offset))
+    if (
+        isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
+            documentCommentMarkerKinds(clipboard))
+    ) {
         return;
+    }
 
     const head = content.substring(0, start.offset);
     const tail = content.substring(end.offset);
@@ -602,8 +565,12 @@ function applyLiteralPaste(
         markdown = markdown.trim().replace(/\n/g, '<br/>');
     }
 
-    if (unsafeCommentMarkerTextEdit(content, start.offset, end.offset))
+    if (
+        isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
+            documentCommentMarkerKinds(clipboard))
+    ) {
         return;
+    }
 
     anchorBlock.text
         = content.substring(0, start.offset)

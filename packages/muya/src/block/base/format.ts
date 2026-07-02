@@ -15,7 +15,7 @@ import type Parent from './parent';
 import type TreeNode from './treeNode';
 import Content from '../../block/base/content';
 import { ScrollPage } from '../../block/scrollPage';
-import { isUnsafeCommentMarkerTextEdit } from '../../comments';
+import { commentMarkerKindsInTexts, isUnsafeCommentMarkerTextEdit } from '../../comments';
 import {
     CLASS_NAMES,
     FORMAT_MARKER_MAP,
@@ -615,7 +615,10 @@ class Format extends Content {
             CLASS_NAMES.MU_MATH_RENDER,
             CLASS_NAMES.MU_RUBY_RENDER,
         ]);
-        if (isUnsafeCommentMarkerTextEdit(this.text, start.offset, end.offset)) {
+        if (
+            isUnsafeCommentMarkerTextEdit(this.text, start.offset, end.offset, () =>
+                commentMarkerKindsInTexts(this._documentContentTexts()))
+        ) {
             event.preventDefault();
             const { footnote, superSubScript } = this.muya.options;
             const { labels } = this.inlineRenderer;
@@ -1427,6 +1430,16 @@ class Format extends Content {
         }
 
         return { needRender: false, imageToken: null, referenceImageToken: null };
+    }
+
+    // Every content leaf's text, in document order — the marker-edit guard
+    // scans these for a cross-block counterpart marker.
+    private* _documentContentTexts(): Generator<string> {
+        let content: Nullable<Content> = this.scrollPage?.firstContentInDescendant() ?? null;
+        while (content) {
+            yield content.text;
+            content = content.nextContentInContext();
+        }
     }
 
     private _skipCommentMarkerToken(

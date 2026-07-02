@@ -38,7 +38,6 @@ import type {
   TabOptions
 } from '@shared/types/files'
 import {
-  buildCommentSourceIndex,
   parseCommentMetadataDefinition,
   parseMarkdownComments,
   type IParsedMarkdownComments
@@ -251,32 +250,6 @@ const isSameFileSnapshot = (tab: IFileState, data: FileChangePayload['data']): b
   return data.markdown === tab.markdown && isSamePersistenceSnapshot(tab, data)
 }
 
-const sourcePositionsForCommentId = (markdown: string, id: string): number[] => {
-  const positions: number[] = []
-  try {
-    const index = buildCommentSourceIndex(markdown)
-    positions.push(
-      ...index.markers.filter((marker) => marker.id === id).map((marker) => marker.start),
-      ...index.metadataDefinitions
-        .filter((definition) => definition.id === id)
-        .map((definition) => definition.start)
-    )
-  } catch {
-    // Fall back to a raw id scan below; diagnostics must not disappear because
-    // the source indexer rejected malformed syntax.
-  }
-
-  if (positions.length === 0) {
-    let cursor = markdown.indexOf(id)
-    while (cursor >= 0) {
-      positions.push(cursor)
-      cursor = markdown.indexOf(id, cursor + id.length)
-    }
-  }
-
-  return positions.sort((a, b) => a - b)
-}
-
 const commentDiagnosticOccurrences = (markdown: string): Map<string, number> => {
   const counts = new Map<string, number>()
   const add = (key: string): void => {
@@ -285,13 +258,15 @@ const commentDiagnosticOccurrences = (markdown: string): Map<string, number> => 
 
   try {
     for (const diagnostic of parseMarkdownComments(markdown).diagnostics) {
-      const id = diagnostic.id ?? null
+      // Identity only — no source positions. A clean merge shifts offsets, and
+      // a position-bearing key would make every pre-existing diagnostic look
+      // "new", escalating the merge to a conflict dialog whose Accept can then
+      // never pass validation. Multiplicity is handled by the counts map.
       add(
         JSON.stringify({
           code: diagnostic.code,
-          id,
-          message: diagnostic.message,
-          positions: id ? sourcePositionsForCommentId(markdown, id) : []
+          id: diagnostic.id ?? null,
+          message: diagnostic.message
         })
       )
     }
@@ -2029,7 +2004,9 @@ export const useEditorStore = defineStore('editor', {
             id,
             latestTab.filename || filename,
             latestTab.pathname || pathname,
-            latestTab.markdown || markdown,
+            // An emptied document is a legitimate '' — `||` would resurrect
+            // the stale snapshot captured when this timer was armed.
+            typeof latestTab.markdown === 'string' ? latestTab.markdown : markdown,
             deepClone(getOptionsFromState(latestTab) || options),
             defaultPath
           )

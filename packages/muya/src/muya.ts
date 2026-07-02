@@ -359,6 +359,10 @@ export class Muya {
     }
 
     addComment(input: IAddCommentInput = {}): boolean {
+        // Commit any rAF-batched keystroke ops before reading state below —
+        // building the replacement from a stale snapshot would let the pending
+        // op flush onto the replaced document later (the #2938 lost-edit class).
+        this.flush();
         const selection = this.editor.selection.getSelection();
         if (!selection || selection.isCollapsed)
             return false;
@@ -402,6 +406,8 @@ export class Muya {
     }
 
     removeComment(id: string): boolean {
+        // See addComment: commit pending ops before snapshotting the document.
+        this.flush();
         const currentMarkdown = this.getMarkdown();
         const nextMarkdown = removeCommentSyntaxFromMarkdown(currentMarkdown, id);
         if (nextMarkdown === currentMarkdown)
@@ -462,6 +468,8 @@ export class Muya {
         id: string,
         updater: (metadata: ICommentMetadata) => ICommentMetadata,
     ): boolean {
+        // See addComment: commit pending ops before snapshotting the document.
+        this.flush();
         const nextStates = updateCommentMetadataDefinition(
             this.editor.jsonState.getState(),
             id,

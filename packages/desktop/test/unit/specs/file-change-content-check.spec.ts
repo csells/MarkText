@@ -752,7 +752,13 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     )
   })
 
-  it('keeps the resolver open when accepted merge output moves an existing diagnostic to new syntax', async() => {
+  // Occurrence keys are diagnostic IDENTITY only (code/id/message), never
+  // source offsets: a resolution that relocates an already-diagnosed range —
+  // or a clean merge that merely shifts its offsets — is not new corruption.
+  // Position-bearing keys made every offset shift look like a fresh
+  // diagnostic, so Accept could never pass unless the content was
+  // byte-identical to one side.
+  it('accepts merge output that relocates an existing diagnostic without adding new ones', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.diskBaseMarkdown = 'one\nshared\nthree\n'
@@ -766,13 +772,9 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       'one\n<!--MC:missing-->new<!--MC:~missing-->\nthree\n'
     )
 
-    expect(tab.markdown).toBe('one\nlocal\nthree\n\n<!--MC:missing-->old<!--MC:~missing-->\n')
-    expect(store.mergeConflict).toEqual(
-      expect.objectContaining({
-        resultMarkdown: 'one\n<!--MC:missing-->new<!--MC:~missing-->\nthree\n',
-        validationError: expect.stringContaining('invalid MarkText comment syntax')
-      })
-    )
+    expect(tab.markdown).toBe('one\n<!--MC:missing-->new<!--MC:~missing-->\nthree\n')
+    expect(tab.isSaved).toBe(false)
+    expect(store.mergeConflict).toBeNull()
   })
 
   it('keeps a dirty local recovery tab when abandoning a merge to reload disk', async() => {
@@ -880,5 +882,31 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
         isReload: true
       })
     )
+  })
+
+  // Regression: diagnostic occurrence keys embedded absolute source offsets,
+  // so a clean merge that merely SHIFTED a pre-existing diagnostic (e.g. a
+  // remote edit prepending a line above an orphan metadata definition) made it
+  // look "new" — escalating a conflict-free merge to the resolver dialog whose
+  // Accept then failed the same check forever.
+  it('auto-merges cleanly when a pre-existing comment diagnostic only shifts offsets', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    // An orphan metadata definition (no markers anywhere) is a stable,
+    // pre-existing diagnostic present in base, local, and remote alike.
+    const orphan = `[MC:zz]: ${metadata('Stale note.')}`
+    tab.diskBaseMarkdown = `one\nshared\nthree\n\n${orphan}\n`
+    tab.markdown = `one\nlocal\nthree\n\n${orphan}\n`
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    // The remote edit prepends a line, shifting the orphan's offsets in the
+    // merged result relative to both local and remote.
+    await fire(captureHandler(), `zero\none\nshared\nthree\n\n${orphan}\n`)
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe(`zero\none\nlocal\nthree\n\n${orphan}\n`)
+    expect(tab.isSaved).toBe(false)
   })
 })
