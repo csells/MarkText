@@ -82,6 +82,7 @@ const makeBindings = (
   } = {},
   options: {
     commentAuthorName?: string
+    initialCanAddComment?: boolean
   } = {}
 ) => {
   const emit = vi.fn()
@@ -119,7 +120,9 @@ const makeBindings = (
       off: (event: string) => handlers.delete(event),
       emit
     },
-    useEditorStore: () => ({}),
+    useEditorStore: () => ({
+      GET_LATEST_ADD_COMMENT_ENABLED: () => options.initialCanAddComment === true
+    }),
     usePreferencesStore: () => ({
       commentAuthorName: options.commentAuthorName ?? ''
     })
@@ -217,6 +220,15 @@ describe('comments sidebar reply editing', () => {
     handlers.get('editor-add-comment-enabled-changed')?.(true)
     expect(ret.canAddComment.value).toBe(true)
     ret.addComment()
+    expect(emit).toHaveBeenCalledWith('addComment')
+  })
+
+  it('initializes Add Comment from the latest editor selection state', () => {
+    const { ret, emit } = makeBindings({}, { initialCanAddComment: true })
+
+    expect(ret.canAddComment.value).toBe(true)
+    ret.addComment()
+
     expect(emit).toHaveBeenCalledWith('addComment')
   })
 

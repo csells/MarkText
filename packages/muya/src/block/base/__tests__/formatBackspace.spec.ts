@@ -80,6 +80,17 @@ function pressDelete(content: Format): KeyboardEvent {
     return event;
 }
 
+function pressInput(content: Format, inputType: string, data: string | null): InputEvent {
+    const event = new InputEvent('input', {
+        inputType,
+        data,
+        bubbles: true,
+        cancelable: true,
+    });
+    content.inputHandler(event);
+    return event;
+}
+
 describe('format delete handlers — hidden markdown comment markers', () => {
     const commented = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
 
@@ -103,6 +114,19 @@ describe('format delete handlers — hidden markdown comment markers', () => {
         expect(content.text).toBe(commented);
         expect(content.getCursor()!.start.offset).toBe(openEnd);
         expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('insertText inside a hidden marker restores the marker instead of committing corrupted DOM text', () => {
+        const openStart = commented.indexOf('<!--MC:a-->');
+        const content = caretInFirstBlock(bootMuya(`${commented}\n`), openStart + '<!--MC'.length);
+        const marker = content.domNode!.querySelector<HTMLElement>('.mu-comment-marker')!;
+
+        (marker.firstChild as Text).data = '<!--MC:broken-->';
+        pressInput(content, 'insertText', 'broken');
+
+        expect(content.text).toBe(commented);
+        expect(content.domNode!.querySelector<HTMLElement>('.mu-comment-marker')?.textContent)
+            .toBe('<!--MC:a-->');
     });
 });
 

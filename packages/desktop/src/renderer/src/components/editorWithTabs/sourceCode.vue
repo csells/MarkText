@@ -22,7 +22,6 @@ import {
   encodeCommentMetadata,
   nextCommentId,
   parseMarkdownComments,
-  removeEmptyCommentThreadsFromMarkdown,
   serializeCommentMarker,
   serializeCommentMetadataDefinition,
   sourceRangesOverlap,
@@ -644,18 +643,6 @@ const handleCommentDiscard = (id: unknown): void => {
   saveContent(cm)
 }
 
-const handleEmptyCommentThreadDiscard = (): void => {
-  if (!sourceCode.value || !editor.value) return
-
-  const cm = editor.value
-  const markdown = cm.getValue()
-  const nextMarkdown = removeEmptyCommentThreadsFromMarkdown(markdown)
-  if (nextMarkdown === markdown) return
-
-  cm.setValue(nextMarkdown)
-  saveContent(cm)
-}
-
 const handleCommentEdit = (payload: unknown): void => {
   if (!sourceCode.value || !editor.value) return
   const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
@@ -871,7 +858,6 @@ onMounted(() => {
   bus.on('addComment', handleAddComment)
   bus.on('comment:reply', handleCommentReply)
   bus.on('comment:discard', handleCommentDiscard)
-  bus.on('comment:discard-empty-threads', handleEmptyCommentThreadDiscard)
   bus.on('comment:edit', handleCommentEdit)
   bus.on('comment:resolve', handleCommentResolve)
   bus.on('comment:reopen', handleCommentReopen)
@@ -919,7 +905,6 @@ onBeforeUnmount(() => {
   bus.off('addComment', handleAddComment)
   bus.off('comment:reply', handleCommentReply)
   bus.off('comment:discard', handleCommentDiscard)
-  bus.off('comment:discard-empty-threads', handleEmptyCommentThreadDiscard)
   bus.off('comment:edit', handleCommentEdit)
   bus.off('comment:resolve', handleCommentResolve)
   bus.off('comment:reopen', handleCommentReopen)

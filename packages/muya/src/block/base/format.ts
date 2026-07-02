@@ -15,6 +15,7 @@ import type Parent from './parent';
 import type TreeNode from './treeNode';
 import Content from '../../block/base/content';
 import { ScrollPage } from '../../block/scrollPage';
+import { isUnsafeCommentMarkerTextEdit } from '../../comments';
 import {
     CLASS_NAMES,
     FORMAT_MARKER_MAP,
@@ -614,6 +615,26 @@ class Format extends Content {
             CLASS_NAMES.MU_MATH_RENDER,
             CLASS_NAMES.MU_RUBY_RENDER,
         ]);
+        if (isUnsafeCommentMarkerTextEdit(this.text, start.offset, end.offset)) {
+            event.preventDefault();
+            const { footnote, superSubScript } = this.muya.options;
+            const { labels } = this.inlineRenderer;
+            const tokens = tokenizer(this.text, {
+                labels,
+                options: { footnote, superSubScript },
+            });
+            const offset
+                = this._skipCommentMarkerToken(tokens, start.offset, 'forward')
+                    ?? this._skipCommentMarkerToken(tokens, start.offset, 'backward')
+                    ?? start.offset;
+            this.update({
+                block: this,
+                anchor: { offset },
+                focus: { offset },
+            });
+            this.setCursor(offset, offset);
+            return;
+        }
         const isInInlineMath = !!this._checkCursorInTokenType(
             textContent,
             start.offset,

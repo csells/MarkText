@@ -1684,14 +1684,6 @@ const handleCommentDiscard = (id: unknown) => {
   }
 }
 
-const handleEmptyCommentThreadDiscard = () => {
-  if (sourceCode.value || !editor.value) return
-
-  if (editor.value.removeEmptyCommentThreads()) {
-    syncComments()
-  }
-}
-
 const handleCommentEdit = (payload: unknown) => {
   if (sourceCode.value || !editor.value) return
   const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
@@ -1958,7 +1950,6 @@ onMounted(() => {
   bus.on('addComment', handleAddComment)
   bus.on('comment:reply', handleCommentReply)
   bus.on('comment:discard', handleCommentDiscard)
-  bus.on('comment:discard-empty-threads', handleEmptyCommentThreadDiscard)
   bus.on('comment:edit', handleCommentEdit)
   bus.on('comment:resolve', handleCommentResolve)
   bus.on('comment:reopen', handleCommentReopen)
@@ -2129,7 +2120,6 @@ onBeforeUnmount(() => {
   bus.off('addComment', handleAddComment)
   bus.off('comment:reply', handleCommentReply)
   bus.off('comment:discard', handleCommentDiscard)
-  bus.off('comment:discard-empty-threads', handleEmptyCommentThreadDiscard)
   bus.off('comment:edit', handleCommentEdit)
   bus.off('comment:resolve', handleCommentResolve)
   bus.off('comment:reopen', handleCommentReopen)

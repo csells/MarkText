@@ -287,7 +287,10 @@ const composingThreadIds = reactive<Record<string, boolean>>({})
 // overwrite a different reply).
 const editReplyAnchors = reactive<Record<string, string>>({})
 const replyInputs = new Map<string, { focus: () => void }>()
-const canAddComment = ref(false)
+const getLatestAddCommentEnabled = (
+  editorStore as { GET_LATEST_ADD_COMMENT_ENABLED?: () => boolean }
+).GET_LATEST_ADD_COMMENT_ENABLED
+const canAddComment = ref(getLatestAddCommentEnabled?.() === true)
 type CommentFilter = 'all' | 'open' | 'resolved'
 const commentFilter = ref<CommentFilter>('all')
 

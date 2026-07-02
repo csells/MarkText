@@ -28,7 +28,6 @@ import {
     nextCommentId,
     parseMarkdownComments,
     removeCommentSyntaxFromMarkdown,
-    removeEmptyCommentThreadsFromMarkdown,
     selectionIntersectsCommentRange,
     updateCommentMetadataDefinition,
     wrapCommentRange,
@@ -405,15 +404,6 @@ export class Muya {
     removeComment(id: string): boolean {
         const currentMarkdown = this.getMarkdown();
         const nextMarkdown = removeCommentSyntaxFromMarkdown(currentMarkdown, id);
-        if (nextMarkdown === currentMarkdown)
-            return false;
-
-        return this.replaceContent(nextMarkdown);
-    }
-
-    removeEmptyCommentThreads(): boolean {
-        const currentMarkdown = this.getMarkdown();
-        const nextMarkdown = removeEmptyCommentThreadsFromMarkdown(currentMarkdown);
         if (nextMarkdown === currentMarkdown)
             return false;
 

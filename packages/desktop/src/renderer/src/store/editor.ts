@@ -41,7 +41,6 @@ import {
   buildCommentSourceIndex,
   parseCommentMetadataDefinition,
   parseMarkdownComments,
-  removeEmptyCommentThreadsFromMarkdown,
   type IParsedMarkdownComments
 } from '@muyajs/core'
 
@@ -63,14 +62,6 @@ const createEmptyComments = (): IParsedMarkdownComments => ({
   ranges: [],
   diagnostics: []
 })
-
-const removeEmptyCommentThreadsFromFileState = (tab: IFileState): boolean => {
-  const nextMarkdown = removeEmptyCommentThreadsFromMarkdown(tab.markdown)
-  if (nextMarkdown === tab.markdown) return false
-
-  tab.markdown = nextMarkdown
-  return true
-}
 
 const dirtyExternalMergeRequestIds = new Map<string, number>()
 
@@ -244,11 +235,13 @@ const filePersistenceSnapshot = (data: {
   lineEnding?: unknown
   adjustLineEndingOnSave?: unknown
   trimTrailingNewline?: unknown
+  isMixedLineEndings?: unknown
 }): Record<string, unknown> => ({
   encoding: normalizeEncodingForComparison(data.encoding),
   lineEnding: data.lineEnding,
   adjustLineEndingOnSave: data.adjustLineEndingOnSave,
-  trimTrailingNewline: data.trimTrailingNewline
+  trimTrailingNewline: data.trimTrailingNewline,
+  isMixedLineEndings: data.isMixedLineEndings ?? false
 })
 
 const isSamePersistenceSnapshot = (tab: IFileState, data: FileChangePayload['data']): boolean =>
@@ -695,22 +688,12 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
-    PREPARE_FILE_FOR_SAVE(tab: IFileState): void {
-      if (!removeEmptyCommentThreadsFromFileState(tab)) return
-
-      if (tab.id === this.currentFile?.id) {
-        this.UPDATE_COMMENTS(parseMarkdownComments(tab.markdown))
-        this.UPDATE_ACTIVE_COMMENTS([])
-      }
-      debouncedSendBufferedState()
+    GET_LATEST_ADD_COMMENT_ENABLED(): boolean {
+      return latestAddCommentEnabled
     },
 
     FLUSH_ACTIVE_EDITOR_FOR_SAVE(): void {
-      bus.emit('comment:discard-empty-threads')
       bus.emit('flush-active-editor')
-      if (this.currentFile) {
-        this.PREPARE_FILE_FOR_SAVE(this.currentFile)
-      }
     },
 
     FILE_SAVE(): void {
@@ -884,10 +867,6 @@ export const useEditorStore = defineStore('editor', {
       const { tabs } = this
       const projectStore = useProjectStore()
       const unsavedFiles = tabs
-        .map((file) => {
-          this.PREPARE_FILE_FOR_SAVE(file)
-          return file
-        })
         .filter((file) => !(file.isSaved && /[^\n]/.test(file.markdown)))
         .map((file) => {
           const { id, filename, pathname, markdown } = file
@@ -2039,8 +2018,6 @@ export const useEditorStore = defineStore('editor', {
         if (tab && !tab.isSaved) {
           if (this.currentFile?.id === id) {
             this.FLUSH_ACTIVE_EDITOR_FOR_SAVE()
-          } else {
-            this.PREPARE_FILE_FOR_SAVE(tab)
           }
 
           const latestTab = this.tabs.find((t) => t.id === id)

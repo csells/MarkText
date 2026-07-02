@@ -62,6 +62,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       lineEnding: 'lf',
       adjustLineEndingOnSave: false,
       trimTrailingNewline: 0,
+      isMixedLineEndings: false,
       notifications: [],
       history: { stack: [], index: -1 }
     }
@@ -146,13 +147,13 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     )
   })
 
-  it('strips zero-reply comment threads before sending a save payload', () => {
+  it('preserves valid zero-reply comment threads when saving', () => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.markdown = [
-      'A <!--MC:draft-->reviewed<!--MC:~draft--> span.',
+      'A <!--MC:a-->reviewed<!--MC:~a--> span.',
       '',
-      `[MC:draft]: ${emptyMetadata()}`,
+      `[MC:a]: ${emptyMetadata()}`,
       ''
     ].join('\n')
     store.currentFile = tab as unknown as typeof store.currentFile
@@ -164,12 +165,12 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       'tab-1',
       'a.md',
       '/x/a.md',
-      expect.not.stringContaining('MC:'),
+      tab.markdown,
       expect.anything(),
       expect.anything()
     )
-    expect(tab.markdown).toContain('A reviewed span.')
-    expect(tab.markdown).not.toContain('MC:')
+    expect(tab.markdown).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
+    expect(tab.markdown).toContain('[MC:a]:')
   })
 
   it('marks the tab dirty when line-ending persistence metadata changes', () => {
@@ -253,7 +254,8 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
   it.each([
     ['BOM', { encoding: { encoding: 'utf8', hasBOM: true } }],
     ['encoding', { encoding: { encoding: 'utf16le', hasBOM: false } }],
-    ['trailing-newline policy', { trimTrailingNewline: 1 }]
+    ['trailing-newline policy', { trimTrailingNewline: 1 }],
+    ['mixed line-ending policy', { isMixedLineEndings: true }]
   ])('does not ignore matching decoded content when file %s metadata changed', (_name, data) => {
     const store = useEditorStore()
     makeSavedTab(store)
@@ -308,7 +310,8 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
   it.each([
     ['BOM', { encoding: { encoding: 'utf8', hasBOM: true } }],
     ['encoding', { encoding: { encoding: 'utf16le', hasBOM: false } }],
-    ['trailing-newline policy', { trimTrailingNewline: 1 }]
+    ['trailing-newline policy', { trimTrailingNewline: 1 }],
+    ['mixed line-ending policy', { isMixedLineEndings: true }]
   ])(
     'adopts disk metadata but keeps a matching dirty tab dirty when %s metadata changed',
     async(_name, data) => {
@@ -323,7 +326,15 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
 
       expect(loadSpy).toHaveBeenCalledTimes(1)
       expect(loadSpy.mock.calls[0]?.[1]).toEqual({ preserveDirty: true })
-      expect(notifySpy).not.toHaveBeenCalled()
+      if (_name === 'mixed line-ending policy') {
+        expect(notifySpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            msg: expect.stringContaining('mixed line endings')
+          })
+        )
+      } else {
+        expect(notifySpy).not.toHaveBeenCalled()
+      }
       expect(store.mergeConflict).toBeNull()
       expect(tab.isSaved).toBe(false)
     }

@@ -3,7 +3,7 @@
 import type Content from '../block/base/content';
 import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { removeEmptyCommentThreadsFromMarkdown, updateCommentMetadataInMarkdown } from '../comments';
+import { updateCommentMetadataInMarkdown } from '../comments';
 import { Muya } from '../muya';
 
 const hosts: HTMLElement[] = [];
@@ -598,32 +598,25 @@ describe('muya comment metadata mutations', () => {
         expect(muya.getMarkdown()).toBe(original);
     });
 
-    it('removes empty comment threads while preserving replied threads', () => {
-        const replied = metadata({
-            version: 1,
-            status: 'open',
-            replies: [{ body: 'Keep me.', createdAt: '2026-06-30T14:00:00.000Z' }],
-        });
-        const resolved = metadata({ version: 1, status: 'resolved', replies: [] });
+    it('preserves valid open zero-reply comment threads across content replacement', () => {
         const original = [
-            [
-                'A <!--MC:draft-->draft<!--MC:~draft-->',
-                'and <!--MC:resolved-->resolved<!--MC:~resolved-->',
-                'and <!--MC:kept-->kept<!--MC:~kept--> span.',
-            ].join(' '),
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
             '',
-            `[MC:draft]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
-            `[MC:resolved]: ${resolved}`,
-            `[MC:kept]: ${replied}`,
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
             '',
         ].join('\n');
+        const muya = boot('Before source handoff.\n');
 
-        const next = removeEmptyCommentThreadsFromMarkdown(original);
+        expect(muya.replaceContent(original)).toBe(true);
 
-        expect(next).toContain('A draft and <!--MC:resolved-->resolved<!--MC:~resolved--> and <!--MC:kept-->kept<!--MC:~kept--> span.');
-        expect(next).not.toContain('MC:draft');
-        expect(next).toContain(`[MC:resolved]: ${resolved}`);
-        expect(next).toContain(`[MC:kept]: ${replied}`);
+        expect(muya.getMarkdown()).toBe(original);
+        expect(muya.getComments().threads).toEqual([
+            expect.objectContaining({
+                id: 'a',
+                status: 'open',
+                replies: [],
+            }),
+        ]);
     });
 });
 
