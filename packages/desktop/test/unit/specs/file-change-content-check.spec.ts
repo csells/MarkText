@@ -695,6 +695,38 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     )
   })
 
+  // Re-review finding: reopening from the notification is an explicit REVIEW
+  // request. If the user's post-cancel edits happen to merge cleanly, the
+  // dialog must still open for review — not silently auto-apply the merge.
+  it('opens the dialog for review on reopen even when the re-merge is clean', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    await fire(captureHandler(), 'one\nremote\nthree\n')
+    const [notification] = tab.notifications as Array<{ action: (status?: unknown) => void }>
+    store.CANCEL_DIRTY_EXTERNAL_MERGE_CONFLICT()
+
+    // The user edits a DIFFERENT line than the disk change, so the re-merge is
+    // now clean (no overlap) — but they still clicked "review".
+    tab.markdown = 'one edited\nshared\nthree\n'
+    notification.action(true)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Dialog is open (not silently applied); the tab content is unchanged
+    // until the user accepts.
+    expect(store.mergeConflict).not.toBeNull()
+    expect(store.mergeConflict).toEqual(
+      expect.objectContaining({ localMarkdown: 'one edited\nshared\nthree\n' })
+    )
+    expect(tab.markdown).toBe('one edited\nshared\nthree\n')
+  })
+
   it('accepts a resolved conflict as dirty while advancing the disk base', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)

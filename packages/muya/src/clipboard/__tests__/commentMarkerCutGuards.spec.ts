@@ -6,6 +6,7 @@ import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya as MuyaClass } from '../../muya';
 import { SelectionCaretType, SelectionDirection } from '../../selection/types';
+import { blockedCommentMarkerCut } from '../cut';
 
 // Guards for comment-marker integrity during cut:
 //   1. A cut that fully covers ONE endpoint marker of a comment must be
@@ -189,6 +190,55 @@ describe('code-fence literal markers are not counterparts', () => {
         // The fence's literal documentation text is untouched.
         expect(markdown).toContain('docs: <!--MC:~c1--> is the close marker');
     });
+
+    it('allows cutting literal marker text OUT OF a code fence (edited block is not scannable)', async () => {
+        const muya = bootMuya([
+            'alpha <!--MC:c1-->beta<!--MC:~c1--> gamma',
+            '',
+            '```txt',
+            'docs line with <!--MC:c1--> literal here',
+            '```',
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+        // The code-fence content leaf holding the literal marker.
+        const fence = blocks.find(b => b.blockName === 'codeblock.content')!;
+        const start = 'docs line with '.length;
+        // Select just the literal '<!--MC:c1-->' (12 chars) inside the fence.
+        stubSelection(muya, fence, start, fence, start + 12);
+
+        // A real comment pair exists in the paragraph above, but the fence text
+        // is literal — cutting it must be allowed, not blocked by treating the
+        // literal as an endpoint.
+        expect(muya.editor.clipboard.cutHandler()).toBe(true);
+        const markdown = await settle(muya);
+        // The real comment is untouched; the fence literal is gone.
+        expect(markdown).toContain('<!--MC:c1-->beta<!--MC:~c1-->');
+        expect(markdown).toContain('docs line with  literal here');
+    });
+
+    it('allows a CROSS-block cut of an orphan marker whose only close is a fence literal', async () => {
+        const muya = bootMuya([
+            'alpha <!--MC:c1-->beta',
+            '',
+            'gamma delta more text here',
+            '',
+            '```txt',
+            'docs: <!--MC:~c1--> is the close marker',
+            '```',
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+        // Cross-block selection from inside block 0 (covering the orphan open
+        // marker) into block 1. The only close is literal fence text the parser
+        // ignores — the cross-block guard must not count it as a counterpart.
+        stubSelection(muya, blocks[0], 0, blocks[1], 5);
+
+        expect(muya.editor.clipboard.cutHandler()).toBe(true);
+        const markdown = await settle(muya);
+        expect(markdown).not.toContain('<!--MC:c1-->');
+        expect(markdown).toContain('docs: <!--MC:~c1--> is the close marker');
+    });
 });
 
 describe('comment metadata cleanup after a cut', () => {
@@ -231,5 +281,102 @@ describe('comment metadata cleanup after a cut', () => {
         // survive the unreferenced-id cleanup.
         expect(markdown).toContain('```txt');
         expect(markdown).toContain(definition);
+    });
+});
+
+describe('blocked cut does not clobber the clipboard (Ctrl+X guard predicate)', () => {
+    it('reports a cross-block cut that would orphan a marker as blocked', () => {
+        const muya = bootMuya([
+            'alpha <!--MC:a-->beta',
+            '',
+            'gamma delta<!--MC:~a--> end',
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+        stubSelection(muya, blocks[0], 0, blocks[1], 5);
+
+        // The cut-event handler consults this BEFORE writing the clipboard, so
+        // a true result means copy+cut are skipped and the clipboard is kept.
+        expect(blockedCommentMarkerCut(muya.editor.clipboard)).toBe(true);
+    });
+
+    it('reports an ordinary cross-block cut as not blocked', () => {
+        const muya = bootMuya('hello\n\nworld\n');
+        const blocks = contentBlocks(muya);
+        stubSelection(muya, blocks[0], 2, blocks[1], 3);
+
+        expect(blockedCommentMarkerCut(muya.editor.clipboard)).toBe(false);
+    });
+});
+
+describe('iME composition over a guarded SAME-block selection', () => {
+    it('collapses a same-block selection covering a lone marker so compose cannot delete it', async () => {
+        const muya = bootMuya([
+            'alpha <!--MC:a-->beta',
+            '',
+            'delta<!--MC:~a--> end',
+            '',
+        ].join('\n'));
+        const before = muya.getMarkdown();
+        const blocks = contentBlocks(muya);
+        (blocks[0].domNode as HTMLElement).focus();
+        // Same-block selection fully covering the open marker (offsets 6..18);
+        // its close lives in another block.
+        stubSelection(muya, blocks[0], 6, blocks[0], 18);
+
+        const setCursorSpy = vi.spyOn(blocks[0], 'setCursor');
+        document.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 20));
+
+        // The marker would be orphaned by a native compose, so the handler
+        // collapses the selection to a caret and leaves the model untouched.
+        const collapsed = setCursorSpy.mock.calls.some(([begin, end]) => begin === end);
+        expect(collapsed).toBe(true);
+        expect(muya.getMarkdown()).toBe(before);
+    });
+
+    it('leaves an ordinary same-block selection alone at compositionstart', async () => {
+        const muya = bootMuya('plain paragraph text here\n');
+        const blocks = contentBlocks(muya);
+        (blocks[0].domNode as HTMLElement).focus();
+        stubSelection(muya, blocks[0], 0, blocks[0], 5);
+
+        const setCursorSpy = vi.spyOn(blocks[0], 'setCursor');
+        document.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 20));
+
+        // No marker at risk: the handler does not interfere (native compose
+        // replaces the selection as usual).
+        expect(setCursorSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('iME composition over a guarded cross-block selection', () => {
+    it('collapses the selection at compositionstart so native compose cannot merge the blocks', async () => {
+        const muya = bootMuya([
+            'alpha <!--MC:a-->beta',
+            '',
+            'gamma delta<!--MC:~a--> end',
+            '',
+        ].join('\n'));
+        const before = muya.getMarkdown();
+        const blocks = contentBlocks(muya);
+        // Focus a node inside the editor so the document-level handler owns the
+        // event (muya.hasFocus()).
+        (blocks[0].domNode as HTMLElement).focus();
+        stubSelection(muya, blocks[0], 0, blocks[1], 5);
+
+        const setCursorSpy = vi.spyOn(blocks[0], 'setCursor');
+
+        document.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 20));
+
+        // The guarded cut is blocked, so the handler collapses the selection to
+        // a caret (begin === end) rather than letting the native composition
+        // merge the blocks.
+        const collapsed = setCursorSpy.mock.calls.some(([begin, end]) => begin === end);
+        expect(collapsed).toBe(true);
+        // The model is untouched by the collapse (no cross-block merge).
+        expect(muya.getMarkdown()).toBe(before);
     });
 });

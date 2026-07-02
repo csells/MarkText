@@ -252,7 +252,7 @@ function unsafeCrossBlockCommentMarkerCut(
     if (selectedMarkers.isPartial)
         return { unsafe: true, removedIds: [] };
 
-    const documentKinds = commentMarkerKindsInBlocks(contentBlocks(clipboard));
+    const documentKinds = documentCommentMarkerKinds(clipboard);
     for (const [id, kinds] of selectedMarkers.kindsById) {
         const allKinds = documentKinds.get(id);
         if (!allKinds)
@@ -678,6 +678,10 @@ export function blockedCommentMarkerCut(clipboard: Clipboard): boolean {
     const endOffset = direction === SelectionDirection.FORWARD ? focus.offset : anchor.offset;
 
     if (isSelectionInSameBlock) {
+        // A non-scannable leaf (code fence) holds literal marker text — not a
+        // real endpoint — so its edit is never blocked. Mirrors cutSelection.
+        if (NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(anchor.block.blockName))
+            return false;
         return isUnsafeCommentMarkerTextEdit(anchor.block.text, startOffset, endOffset, () =>
             documentCommentMarkerKinds(clipboard));
     }
@@ -741,8 +745,15 @@ export function cutSelection(clipboard: Clipboard): boolean {
         const startOffset
             = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
         const endOffset = direction === SelectionDirection.FORWARD ? focus.offset : anchor.offset;
-        const unsafe = isUnsafeCommentMarkerTextEdit(text, startOffset, endOffset, () =>
-            documentCommentMarkerKinds(clipboard));
+        // Marker-shaped text inside a non-scannable leaf (a code fence) is
+        // literal, not a comment endpoint — skip the guard so it can be edited
+        // freely, matching how the counterpart scan excludes those leaves.
+        const editedBlockIsScannable
+            = !NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(anchorBlock.blockName);
+        const unsafe
+            = editedBlockIsScannable
+                && isUnsafeCommentMarkerTextEdit(text, startOffset, endOffset, () =>
+                    documentCommentMarkerKinds(clipboard));
         if (unsafe)
             return false;
         const removedCommentIds = commentIdsInText(text.substring(startOffset, endOffset));

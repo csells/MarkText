@@ -16,7 +16,10 @@ const rng = (seed: number) => () => {
 
 // Small alphabet with deliberate repeats and blank lines — the exact conditions
 // that triggered the false-clean data-loss bug (Finding 1).
-const LINES = ['a\n', 'a\n', 'b\n', '\n', 'c\n', '- item\n', '- item\n', 'x\n']
+// Includes repeated code-fence and thematic-break lines so the git-oracle
+// cross-check exercises the fence-corruption topology (a repeated line spliced
+// into a code block) the position-blind reconciliation used to produce.
+const LINES = ['a\n', 'a\n', 'b\n', '\n', 'c\n', '- item\n', '- item\n', 'x\n', '```\n', '```\n', '---\n']
 
 const randomDoc = (next: () => number, maxLen: number): string => {
   const len = Math.floor(next() * maxLen)

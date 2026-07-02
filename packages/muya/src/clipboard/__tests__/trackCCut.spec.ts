@@ -536,8 +536,9 @@ describe('track C — empty table row/column/whole-table cut is structural', () 
     it('blocks a table-cell cut that would orphan a comment closing outside the table', async () => {
         const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
         const muya = bootMuya([
-            '| <!--MC:a-->reviewed | other |',
+            '| head a | head b |',
             '| --- | --- |',
+            '| <!--MC:a-->reviewed | other |',
             '',
             'closing here<!--MC:~a--> in a paragraph',
             '',
@@ -547,9 +548,13 @@ describe('track C — empty table row/column/whole-table cut is structural', () 
         const before = muya.getMarkdown();
         const table = firstTable(muya);
 
-        // Select only the cell holding the OPEN marker; the close lives in the
-        // paragraph after the table.
-        dragSelect(table, 0, 0, 0, 0);
+        // A REAL multi-cell rect selection (pointer leaves the anchor cell, so
+        // table.hasSelection is true) covering the body row that holds the open
+        // marker; the close lives in the paragraph after the table. Spanning a
+        // single cell would create no selection and the cut would no-op
+        // regardless — this drives the guarded branch.
+        const bodyRow = table.rowCount - 1;
+        dragSelect(table, bodyRow, 0, bodyRow, 1);
         const md = await cutSelectionAndRead(muya);
 
         // Guard blocks the cut: document untouched, no orphaned marker.
@@ -575,5 +580,44 @@ describe('track C — empty table row/column/whole-table cut is structural', () 
         expect(md).toBe('\n');
         expect(md).not.toContain('MC:a');
         expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
+    });
+});
+
+describe('track C — table row/column delete guards cross-boundary comments', () => {
+    it('blocks removeRow when a cell holds one endpoint of a comment closing outside the table', async () => {
+        const muya = bootMuya([
+            '| <!--MC:a-->reviewed | other |',
+            '| --- | --- |',
+            '| plain | plain |',
+            '',
+            'closing here<!--MC:~a--> in a paragraph',
+            '',
+        ].join('\n'));
+        const before = muya.getMarkdown();
+        const table = firstTable(muya);
+
+        // Row 0 holds the open marker; the close lives in the paragraph after
+        // the table. Deleting the row would orphan the close — must be blocked.
+        const result = table.removeRow(0);
+
+        expect(result).toBeNull();
+        expect(await new Promise(r => setTimeout(() => r(muya.getMarkdown()), 40))).toBe(before);
+    });
+
+    it('still allows removeRow when the whole comment is inside the removed row', async () => {
+        const muya = bootMuya([
+            '| <!--MC:a-->reviewed<!--MC:~a--> | other |',
+            '| --- | --- |',
+            '| keep | keep |',
+            '',
+        ].join('\n'));
+        const table = firstTable(muya);
+
+        const result = table.removeRow(0);
+
+        expect(result).not.toBeNull();
+        const md = await new Promise(r => setTimeout(() => r(muya.getMarkdown()), 40));
+        expect(md).not.toContain('MC:a');
+        expect(md).toContain('keep');
     });
 });

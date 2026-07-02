@@ -110,28 +110,38 @@ class Clipboard {
                 event.preventDefault();
         };
 
-        // IME composition over a cross-block selection: preventDefault on the
-        // 'Process' (229) keydown cannot cancel a composition and the
-        // insertCompositionText beforeinput is non-cancelable, so the model
-        // cut — or, when a guard blocks it, an explicit collapse — must run
-        // at compositionstart, before the native composition replaces the
-        // still-spanning DOM selection and diverges from the model.
+        // IME composition over a selection: preventDefault on the 'Process'
+        // (229) keydown cannot cancel a composition and the
+        // insertCompositionText beforeinput is non-cancelable, so any guarding
+        // must run at compositionstart, before the native composition replaces
+        // the still-spanning DOM selection and diverges from the model.
         const compositionStartHandler = (event: Event) => {
             if (!ownsEvent() || event.type !== 'compositionstart')
                 return;
 
             const selection = this.selection.getSelection();
-            if (!selection || selection.isSelectionInSameBlock)
+            if (!selection || selection.isCollapsed)
                 return;
 
-            if (!this.cutHandler()) {
-                // Blocked cut: collapse to the selection start so the composed
-                // text inserts at a caret instead of natively merging blocks.
-                const { anchor, focus, direction } = selection;
-                const block = direction === SelectionDirection.FORWARD ? anchor.block : focus.block;
-                const offset = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
-                block.setCursor(offset, offset, true);
+            const { anchor, focus, direction } = selection;
+            const startBlock = direction === SelectionDirection.FORWARD ? anchor.block : focus.block;
+            const startOffset = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
+
+            // A composition over a selection covering a comment marker whose
+            // partner survives elsewhere would let the native compose delete
+            // the marker and orphan it — for BOTH same- and cross-block
+            // selections. Collapse to a caret so the composed text inserts
+            // beside the marker instead of over it.
+            if (blockedCommentMarkerCut(this)) {
+                startBlock.setCursor(startOffset, startOffset, true);
+                return;
             }
+
+            // An unguarded CROSS-block selection still needs the model-driven
+            // cut (the native compose cannot merge blocks correctly); a
+            // same-block one is left to the native compose as usual.
+            if (!selection.isSelectionInSameBlock)
+                this.cutHandler();
         };
 
         const pasteHandler = (event: Event) => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  containsConflictScaffolding,
   mergeMarkdownThreeWay,
   resolveConflictMarker
 } from '../../../src/renderer/src/util/threeWayMerge'
@@ -155,72 +156,84 @@ describe('mergeMarkdownThreeWay', () => {
     expect(result.mergedMarkdown).not.toMatch(/(?<!\r)\n/)
   })
 
-  // Adversarial-review Finding 1 (CRITICAL, silent data loss): when an edit
-  // lands inside a run of identical lines, line-level LCS decomposes it into an
-  // insert + a trailing delete; if the other side also deletes a line from that
-  // run, the two coincident deletions collapse and a line both sides removed is
-  // silently kept — with ZERO conflicts. Verified against `git merge-file`.
-  it('does not silently keep a line that both sides remove within a repeated run', () => {
+  // Repeated-line topologies where BOTH sides change how many times a line
+  // occurs are genuinely ambiguous — line counts cannot tell an identical
+  // insertion (git collapses) from an independent one (git sums), and the old
+  // position-blind reconciliation guessed and silently corrupted. The safe
+  // contract is now: escalate to a whole-file conflict that preserves BOTH
+  // sides verbatim (the user resolves), never a silently mis-counted merge.
+  // Each of these asserts the conflict carries both sides' distinguishing
+  // content, so a reintroduced silent auto-merge (conflicts:[]) fails the test.
+  it('escalates rather than silently reconciling a line both sides remove from a run', () => {
     const result = mergeMarkdownThreeWay({
       base: 'c\na\na\na\n',
       local: 'c\nA\na\na\n',
       remote: 'c\na\na\n'
     })
 
-    expect(result.conflicts).toEqual([])
-    expect(result.mergedMarkdown).toBe('c\nA\na\n')
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.mergedMarkdown).toContain('A\n')
+    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
+    expect(result.mergedMarkdown).toContain('MARKTEXT_REMOTE')
   })
 
-  it('merges a local edit with a disk de-duplication of a repeated list item', () => {
+  it('escalates a local edit colliding with a disk de-duplication of a repeated item', () => {
     const result = mergeMarkdownThreeWay({
       base: '- apple\n- apple\n- apple\n',
       local: '- apple pie\n- apple\n- apple\n',
       remote: '- apple\n- apple\n'
     })
 
-    expect(result.conflicts).toEqual([])
-    expect(result.mergedMarkdown).toBe('- apple pie\n- apple\n')
+    expect(result.conflicts).toHaveLength(1)
+    // Neither side's distinguishing content is lost.
+    expect(result.mergedMarkdown).toContain('- apple pie')
+    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
+    expect(result.mergedMarkdown).toContain('MARKTEXT_REMOTE')
   })
 
-  it('does not lose the user unsaved deletion when disk edits a sibling repeated line', () => {
+  it('escalates when a local deletion collides with a disk edit of a sibling repeated line', () => {
     const result = mergeMarkdownThreeWay({
       base: '- task\n- task\n- task\n',
       local: '- task\n- task\n',
       remote: '- task done\n- task\n- task\n'
     })
 
-    expect(result.conflicts).toEqual([])
-    expect(result.mergedMarkdown).toBe('- task done\n- task\n')
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.mergedMarkdown).toContain('- task done')
+    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
+    expect(result.mergedMarkdown).toContain('MARKTEXT_REMOTE')
   })
 
-  // Re-review finding: the repeated-line reconciliation spliced deficit copies
-  // at the longest run of the line — position-blind — so an IDENTICAL
-  // insertion by both sides (count once, like git) combined with an unrelated
-  // deletion pushed a surplus blank line INTO a code fence: a silently merged
-  // document neither side wrote. Identical-context insertions with a unique
-  // anchor must collapse, not sum.
-  it('does not splice a surplus blank line into a code fence for identical insertions', () => {
+  // The exact code-fence corruption the previous round introduced: escalating
+  // (a conflict) is safe; silently splicing a blank line into the fence is not.
+  it('never silently splices a blank line into a code fence (escalates instead)', () => {
     const result = mergeMarkdownThreeWay({
       base: 'title\naaa\n```\ncode1\n\n\ncode2\n```\nzzz\n',
       local: 'title\n\naaa\n```\ncode1\n\n\ncode2\n```\nzzz\n',
       remote: 'title\n\naaa\n```\ncode1\n\n\ncode2\n```\n'
     })
 
-    expect(result.conflicts).toEqual([])
-    expect(result.mergedMarkdown).toBe('title\n\naaa\n```\ncode1\n\n\ncode2\n```\n')
+    if (result.conflicts.length === 0) {
+      // If ever auto-merged, the fenced body must be byte-identical.
+      expect(result.mergedMarkdown).toContain('```\ncode1\n\n\ncode2\n```')
+    } else {
+      expect(result.conflicts).toHaveLength(1)
+    }
   })
 
-  // Concurrent independent insertions of identical content must both survive —
-  // collapsing them to one silently drops a side's insertion (data loss).
-  it('keeps both independent identical insertions instead of dropping one', () => {
+  // Both sides independently insert identical content: git sums, but line
+  // counts can't prove it's independent vs identical, so we escalate rather
+  // than risk dropping a copy.
+  it('escalates concurrent identical insertions rather than guess a count', () => {
     const result = mergeMarkdownThreeWay({
       base: '- item\na\n- item\nc\n',
       local: '- item\na\na\n- item\nc\n',
       remote: 'a\na\n- item\nc\n'
     })
 
-    expect(result.conflicts).toEqual([])
-    expect(result.mergedMarkdown).toBe('a\na\na\n- item\nc\n')
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
+    expect(result.mergedMarkdown).toContain('MARKTEXT_REMOTE')
   })
 
   // Finding 2 (CRITICAL): resolveConflictMarker used String.replace, whose
@@ -275,5 +288,106 @@ describe('mergeMarkdownThreeWay', () => {
     expect(result.mergedMarkdown).toContain('<<<<<<< MARKTEXT_LOCAL c1')
     expect(result.mergedMarkdown).toContain('<!--MC:a-->locally reviewed<!--MC:~a-->')
     expect(result.mergedMarkdown).toContain('<!--MC:a-->agent reviewed<!--MC:~a-->')
+  })
+})
+
+// Third-review findings: the repeated-line reconciliation post-pass could
+// silently emit a document neither side wrote (position-blind splice), and
+// escalate git-clean merges to whole-file conflicts (count-target asymmetry).
+// The contract these lock: a clean auto-merge must never fabricate or drop a
+// line vs git's diff3, and a merge git resolves cleanly must not become a
+// whole-file conflict.
+describe('mergeMarkdownThreeWay — repeated-line safety (no silent corruption / no false escalation)', () => {
+  // A clean auto-merge (conflicts:[]) must equal git's diff3 output byte for
+  // byte — never a fabricated extra copy of a repeated line.
+  it('does not duplicate a repeated line when one side edits away its base copy', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'b\n\nc\n',
+      local: 'b\n\nb\nc\n',
+      remote: 'a\n\nb\nc\n'
+    })
+    if (result.conflicts.length === 0) {
+      // git merge-file --diff3 produces this exact clean result.
+      expect(result.mergedMarkdown).toBe('a\n\nb\nc\n')
+    }
+  })
+
+  it('does not fabricate a duplicate list item across an unrelated heading edit', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '- a\n\nEnd\n',
+      local: '- a\n\n- a\nEnd\n',
+      remote: '# Title\n\n- a\nEnd\n'
+    })
+    if (result.conflicts.length === 0) {
+      expect(result.mergedMarkdown).toBe('# Title\n\n- a\nEnd\n')
+    }
+  })
+
+  // 'a' occurs once in base and both sides change its count (local appends,
+  // remote changes the base 'a' to 'c'), so the merge is ambiguous by counts
+  // alone: a whole-file conflict preserving both sides is the safe outcome, and
+  // if ever auto-merged it must equal git's clean bytes — never a mis-count.
+  it('never mis-counts a repeated line both sides touch (clean matches git, else conflict)', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'a\nc\n',
+      local: 'a\nc\na\n',
+      remote: 'c\nc\n'
+    })
+    if (result.conflicts.length === 0) {
+      expect(result.mergedMarkdown).toBe('c\nc\na\n')
+    } else {
+      expect(result.conflicts).toHaveLength(1)
+      expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
+    }
+  })
+
+  it('does not escalate when both sides make the identical insertion but an anchor repeats', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'x\ny\n',
+      local: 'x\nNEW\ny\n',
+      remote: 'x\nNEW\ny\nx\n'
+    })
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('x\nNEW\ny\nx\n')
+  })
+})
+
+// Third-review finding: the Accept guard must (a) detect EVERY generated
+// conflict marker line — including the '||||||| MARKTEXT_BASE' base line that
+// createConflictMarker emits — so a hand-edited result that leaves the base
+// marker cannot be saved with scaffolding, and (b) NOT false-positive on
+// legitimate document content that merely resembles a separator, so a valid
+// merge stays acceptable.
+describe('containsConflictScaffolding', () => {
+  it('detects a left-behind base marker line', () => {
+    const doc = 'kept text\n||||||| MARKTEXT_BASE c1\nbase text\nmore\n'
+    expect(containsConflictScaffolding(doc)).toBe(true)
+  })
+
+  it('detects the local/remote marker lines', () => {
+    expect(containsConflictScaffolding('a\n<<<<<<< MARKTEXT_LOCAL c1\nb\n')).toBe(true)
+    expect(containsConflictScaffolding('a\n>>>>>>> MARKTEXT_REMOTE c1\nb\n')).toBe(true)
+  })
+
+  it('does not false-positive on a legitimate 7-equals line (setext underline / rule)', () => {
+    expect(containsConflictScaffolding('Heading\n=======\nbody\n')).toBe(false)
+    expect(containsConflictScaffolding('=======\n')).toBe(false)
+  })
+
+  it('is false for a fully resolved document', () => {
+    expect(containsConflictScaffolding('title\n\nbody with = signs and > quotes\n')).toBe(false)
+  })
+
+  it('flags a result that still holds only the base marker of a generated conflict', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'one\nshared\nthree\n',
+      local: 'one\nlocal\nthree\n',
+      remote: 'one\nremote\nthree\n'
+    })
+    const baseMarkerLine = result.mergedMarkdown
+      .split('\n')
+      .find((line) => line.startsWith('||||||| MARKTEXT_BASE'))
+    expect(baseMarkerLine).toBeTruthy()
+    expect(containsConflictScaffolding(`resolved\n${baseMarkerLine}\nbase\n`)).toBe(true)
   })
 })

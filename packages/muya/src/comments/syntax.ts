@@ -73,6 +73,36 @@ export const NON_COMMENT_SCANNABLE_LEAF_BLOCKS: ReadonlySet<string> = new Set([
     'thematicbreak.content',
 ]);
 
+// Would removing `removedTexts` while `survivingTexts` remain leave a comment
+// with only one of its paired markers? A removed open marker whose close still
+// survives (or vice versa) orphans the range. When both endpoints are in the
+// removed set the comment is fully gone — safe. Used by structural edits
+// (table row/column removal) that delete whole blocks at once.
+export function removalOrphansCommentMarker(
+    removedTexts: Iterable<string>,
+    survivingTexts: Iterable<string>,
+): boolean {
+    const removed = commentMarkerKindsInTexts(removedTexts);
+    if (removed.size === 0)
+        return false;
+
+    const surviving = commentMarkerKindsInTexts(survivingTexts);
+    for (const [id, kinds] of removed) {
+        const survivingKinds = surviving.get(id);
+        if (!survivingKinds)
+            continue;
+
+        if (
+            (kinds.has('open') && !kinds.has('close') && survivingKinds.has('close'))
+            || (kinds.has('close') && !kinds.has('open') && survivingKinds.has('open'))
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // Aggregate every marker kind present across the given texts, keyed by
 // comment id. Edit guards use this to answer "does this comment's counterpart
 // marker exist anywhere in the document?" — a range can open in one block and

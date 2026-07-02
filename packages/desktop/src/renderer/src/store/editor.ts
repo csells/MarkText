@@ -1592,7 +1592,9 @@ export const useEditorStore = defineStore('editor', {
           // captured localMarkdown/resultMarkdown are stale. Re-merge from the
           // tab's current content instead of applying an outdated result.
           if (currentTab.markdown !== mergeConflict.localMarkdown) {
-            this.HANDLE_DIRTY_EXTERNAL_CHANGE(currentTab, mergeConflict.fileChange).catch((err) => {
+            this.HANDLE_DIRTY_EXTERNAL_CHANGE(currentTab, mergeConflict.fileChange, {
+              forceReview: true
+            }).catch((err) => {
               console.error('Failed to re-open dirty external merge conflict:', err)
             })
             return
@@ -1710,7 +1712,15 @@ export const useEditorStore = defineStore('editor', {
       pending.validationError = undefined
     },
 
-    async HANDLE_DIRTY_EXTERNAL_CHANGE(tab: IFileState, change: FileChangePayload): Promise<void> {
+    async HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab: IFileState,
+      change: FileChangePayload,
+      // When the user explicitly reopens the resolver from the notification,
+      // a cleanly-mergeable result must still surface the dialog for review
+      // rather than silently auto-applying it (the initial-change path auto-
+      // applies clean merges, but an explicit review request must not).
+      options: { forceReview?: boolean } = {}
+    ): Promise<void> {
       const { data } = change
       // All-in on the three-way merge: an external change to a file the user is
       // still editing is always reconciled by merging, never by a reload
@@ -1769,7 +1779,12 @@ export const useEditorStore = defineStore('editor', {
       if (isStaleDirtyMergeResult()) return
 
       if (mergeResult.conflicts.length === 0) {
-        if (introducesNewCommentDiagnostics(mergeResult.mergedMarkdown, localMarkdown, data.markdown)) {
+        // A clean merge auto-applies on the initial change, but an explicit
+        // reopen (forceReview) surfaces the dialog so the user can inspect it.
+        if (
+          options.forceReview ||
+          introducesNewCommentDiagnostics(mergeResult.mergedMarkdown, localMarkdown, data.markdown)
+        ) {
           this.OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
             tab,
             change,

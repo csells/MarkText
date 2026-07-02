@@ -9,6 +9,7 @@ import type TableRow from './row';
 import type TableInner from './table';
 import diff from 'fast-diff';
 import { fromEvent } from 'rxjs';
+import { NON_COMMENT_SCANNABLE_LEAF_BLOCKS, removalOrphansCommentMarker } from '../../../comments';
 import { diffToTextOp } from '../../../utils';
 import logger from '../../../utils/logger';
 import { LinkedList } from '../../base/linkedList/linkedList';
@@ -182,11 +183,68 @@ class Table extends Parent {
         return firstCellInNewColumn!.firstChild as TableCellContent;
     }
 
+    // Every scannable content leaf's text in the document, split into those
+    // inside `removedCells` and the rest. Structural removals use this to
+    // detect whether deleting the cells would orphan a comment that continues
+    // outside them.
+    private _commentTextsAroundRemoval(removedCells: TableBodyCell[]): {
+        removedTexts: string[];
+        survivingTexts: string[];
+    } {
+        const removedContent = new Set<Content>();
+        for (const cell of removedCells) {
+            const content = cell.firstChild;
+            if (content?.isContent())
+                removedContent.add(content as Content);
+        }
+
+        const removedTexts: string[] = [];
+        const survivingTexts: string[] = [];
+        let leaf: Nullable<Content> = this.scrollPage?.firstContentInDescendant() ?? null;
+        while (leaf) {
+            if (removedContent.has(leaf))
+                removedTexts.push(leaf.text);
+            else if (!NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(leaf.blockName))
+                survivingTexts.push(leaf.text);
+            leaf = leaf.nextContentInContext();
+        }
+
+        return { removedTexts, survivingTexts };
+    }
+
+    private _removalOrphansComment(removedCells: TableBodyCell[]): boolean {
+        // Needs a live document to scan for surviving counterparts; when
+        // absent (e.g. prototype-level unit tests with a structural `this`)
+        // there is nothing to orphan.
+        if (this.scrollPage == null)
+            return false;
+        const { removedTexts, survivingTexts } = this._commentTextsAroundRemoval(removedCells);
+        return removalOrphansCommentMarker(removedTexts, survivingTexts);
+    }
+
     removeRow(offset: number): Nullable<Content> {
         const inner = this.firstChild as TableInner;
         const row = inner.find(offset);
         if (row == null)
             return;
+
+        // Refuse a delete that would strand one endpoint of a comment whose
+        // partner marker lives outside this row (same guard the cut/backspace
+        // table paths apply). The user removes the comment first, then the row.
+        // Walk cells via firstChild/next so the check is robust to either the
+        // real LinkedList row or a structurally-typed test row.
+        const rowCells: TableBodyCell[] = [];
+        for (
+            let cell = (row as TableRow).firstChild as Nullable<TableBodyCell>;
+            cell != null;
+            cell = cell.next as Nullable<TableBodyCell>
+        ) {
+            rowCells.push(cell);
+        }
+        // `scrollPage != null` also short-circuits the prototype-level unit
+        // tests (structural `this` without a document or this helper).
+        if (this.scrollPage != null && this._removalOrphansComment(rowCells))
+            return null;
 
         // Capture a surviving neighbour
         // BEFORE the detach so the caller can place the caret on a cell that
@@ -219,6 +277,21 @@ class Table extends Parent {
         }
 
         const table = this.firstChild as TableInner;
+
+        // Refuse a delete that would strand one endpoint of a comment whose
+        // partner marker lives outside this column. `scrollPage != null` also
+        // short-circuits the prototype-level unit tests (structural `this`).
+        if (this.scrollPage != null) {
+            const columnCells: TableBodyCell[] = [];
+            table.forEach((row) => {
+                const cell = (row as TableRow).find(offset) as TableBodyCell | null;
+                if (cell)
+                    columnCells.push(cell);
+            });
+            if (this._removalOrphansComment(columnCells))
+                return null;
+        }
+
         if (this.columnCount === 1) {
             // Same outside-of-table fallback as removeRow when the whole
             // table is removed — never leave the caret inside a detached

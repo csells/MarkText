@@ -99,155 +99,26 @@ const mergeAlignedLineEdits = (
   return merged
 }
 
-const findLongestRun = (lines: string[], line: string): { start: number; length: number } | null => {
-  let best: { start: number; length: number } | null = null
-  let index = 0
-  while (index < lines.length) {
-    if (lines[index] !== line) {
-      index += 1
-      continue
-    }
-
-    const start = index
-    while (index < lines.length && lines[index] === line) index += 1
-    const length = index - start
-    if (!best || length > best.length) {
-      best = { start, length }
-    }
-  }
-  return best
-}
-
-// Where a side inserted `line`, capture the neighbor context (the preceding
-// line) of each occurrence the side has beyond base. If local and remote
-// inserted `line` with IDENTICAL context multisets, they made the same edit —
-// git counts an identical change once, so the merge target must be the max of
-// the two sides, never their sum. Summing an identical insertion forced a
-// position-blind splice that could relocate a repeated line (e.g. a blank
-// line) into content neither side wrote.
-const LINE_START_SENTINEL = '\u0000<start>'
-
-const contextBigramsForLine = (lines: string[], line: string): Map<string, number> => {
-  const bigrams = new Map<string, number>()
-  for (let index = 0; index < lines.length; index += 1) {
-    if (lines[index] !== line) continue
-    const prev = index === 0 ? LINE_START_SENTINEL : lines[index - 1]
-    bigrams.set(prev, (bigrams.get(prev) ?? 0) + 1)
-  }
-  return bigrams
-}
-
-const insertedContextBigrams = (
-  baseLines: string[],
-  sideLines: string[],
-  line: string
-): Map<string, number> => {
-  const base = contextBigramsForLine(baseLines, line)
-  const side = contextBigramsForLine(sideLines, line)
-  const inserted = new Map<string, number>()
-  for (const [context, count] of side) {
-    const extra = count - (base.get(context) ?? 0)
-    if (extra > 0) inserted.set(context, extra)
-  }
-  return inserted
-}
-
-const occurrenceCount = (lines: string[], line: string): number => {
-  let count = 0
-  for (const candidate of lines) {
-    if (candidate === line) count += 1
-  }
-  return count
-}
-
-const insertedContextsMatch = (
-  baseLines: string[],
-  localLines: string[],
-  remoteLines: string[],
-  line: string
-): boolean => {
-  const local = insertedContextBigrams(baseLines, localLines, line)
-  const remote = insertedContextBigrams(baseLines, remoteLines, line)
-  if (local.size !== remote.size) return false
-  for (const [context, count] of local) {
-    if (remote.get(context) !== count) return false
-    // The context must pin ONE position: an anchor that repeats (or is the
-    // inserted line itself, i.e. a run extension) leaves the alignment
-    // ambiguous, and git's positional diff may then treat the two sides'
-    // insertions as independent — assume independence there too.
-    if (context === line) return false
-    if (context !== LINE_START_SENTINEL) {
-      if (occurrenceCount(localLines, context) !== 1) return false
-      if (occurrenceCount(remoteLines, context) !== 1) return false
-    }
-  }
-  return true
-}
-
-const reconcileRepeatedLineCounts = (
-  baseLines: string[],
-  localLines: string[],
-  remoteLines: string[],
-  mergedLines: string[]
-): string[] | null => {
-  const baseCounts = countLines(baseLines)
-  const localCounts = countLines(localLines)
-  const remoteCounts = countLines(remoteLines)
-  const lines = new Set([...baseCounts.keys(), ...localCounts.keys(), ...remoteCounts.keys()])
-  const reconciled = [...mergedLines]
-  const hasAnyCountDeficit = [...lines].some((line) => {
-    const baseCount = countFor(baseCounts, line)
-    return countFor(localCounts, line) < baseCount || countFor(remoteCounts, line) < baseCount
-  })
-
-  for (const line of lines) {
-    const baseCount = countFor(baseCounts, line)
-    const localCount = countFor(localCounts, line)
-    const remoteCount = countFor(remoteCounts, line)
-    if (Math.max(baseCount, localCount, remoteCount) < 2) {
-      continue
-    }
-
-    const localDeficit = Math.max(0, baseCount - localCount)
-    const remoteDeficit = Math.max(0, baseCount - remoteCount)
-    const bothInserted = localCount > baseCount && remoteCount > baseCount
-    let targetCount: number
-    if (localDeficit > 0 && remoteDeficit > 0 && localDeficit !== remoteDeficit) {
-      targetCount = Math.max(localCount, remoteCount)
-    } else if (
-      bothInserted &&
-      (!hasAnyCountDeficit || insertedContextsMatch(baseLines, localLines, remoteLines, line))
-    ) {
-      targetCount = Math.max(localCount, remoteCount)
-    } else {
-      targetCount = Math.max(0, localCount + remoteCount - baseCount)
-    }
-    let actualCount = reconciled.filter((candidate) => candidate === line).length
-    if (actualCount > targetCount && baseCount < 3) {
-      continue
-    }
-
-    while (actualCount > targetCount) {
-      const run = findLongestRun(reconciled, line)
-      if (!run) return null
-
-      reconciled.splice(run.start + run.length - 1, 1)
-      actualCount -= 1
-    }
-
-    while (actualCount < targetCount) {
-      const run = findLongestRun(reconciled, line)
-      if (!run) return null
-
-      reconciled.splice(run.start + run.length, 0, line)
-      actualCount += 1
-    }
-  }
-
-  return reconciled
-}
-
-const dropsPositiveLineDelta = (
+// Repeated lines (blank lines, list bullets, fences) are where line-level
+// diff3 is least trustworthy: it can silently keep a copy both sides removed
+// or drop one a side added. Rather than "fix" the merged output by splicing
+// copies around — a position-blind operation that three review rounds showed
+// can relocate a line into content neither side wrote — we only ACCEPT a clean
+// auto-merge whose per-line counts are provably safe, and escalate everything
+// else to a whole-file conflict the user resolves explicitly. A conflict is
+// recoverable; silent corruption or a silently dropped line is not.
+//
+// A repeated line's merged count is SAFE to auto-accept only when it is
+// unambiguously determined by the three inputs — i.e. at most one side changed
+// how many times the line occurs, or both sides changed it to the same count —
+// AND the merged output already holds exactly that count. When both sides
+// changed the count differently (or to the same number but via independent
+// vs identical insertions git would resolve differently), the correct count
+// is not decidable from counts alone, so we escalate rather than guess. This
+// is deliberately conservative: it can escalate a merge git would resolve
+// cleanly, but it can never emit a clean merge whose repeated-line count is
+// wrong (the silent-corruption class from prior review rounds).
+const hasUnsafeRepeatedLineCount = (
   baseLines: string[],
   localLines: string[],
   remoteLines: string[],
@@ -257,19 +128,43 @@ const dropsPositiveLineDelta = (
   const localCounts = countLines(localLines)
   const remoteCounts = countLines(remoteLines)
   const mergedCounts = countLines(mergedLines)
-  const lines = new Set([...localCounts.keys(), ...remoteCounts.keys()])
+  const lines = new Set([
+    ...baseCounts.keys(),
+    ...localCounts.keys(),
+    ...remoteCounts.keys()
+  ])
 
   for (const line of lines) {
     const baseCount = countFor(baseCounts, line)
-    const localInserted = Math.max(0, countFor(localCounts, line) - baseCount)
-    const remoteInserted = Math.max(0, countFor(remoteCounts, line) - baseCount)
-    const insertedCount =
-      localInserted > 0 &&
-      remoteInserted > 0 &&
-      insertedContextsMatch(baseLines, localLines, remoteLines, line)
-        ? Math.max(localInserted, remoteInserted)
-        : localInserted + remoteInserted
-    if (insertedCount > 0 && countFor(mergedCounts, line) < baseCount + insertedCount) {
+    const localCount = countFor(localCounts, line)
+    const remoteCount = countFor(remoteCounts, line)
+    const mergedCount = countFor(mergedCounts, line)
+    // Only repeated lines suffer the diff3 mis-count: a line appearing at most
+    // once everywhere is aligned unambiguously (an edit or move of a unique
+    // line is normal diff3 territory, not a count hazard). Skipping them
+    // avoids escalating the common "one side edited this unique line" case,
+    // which legitimately drops the old text (count 1 -> 0).
+    if (Math.max(baseCount, localCount, remoteCount, mergedCount) < 2) {
+      continue
+    }
+    // A line whose count never varies across the inputs cannot be mis-counted.
+    if (localCount === baseCount && remoteCount === baseCount) {
+      continue
+    }
+    // The count is unambiguous only when EXACTLY ONE side changed it. When both
+    // sides changed it — even to the same number — the result depends on
+    // whether the two edits are the same insertion (git collapses them) or
+    // independent (git sums them), which line counts cannot distinguish, so we
+    // escalate. When one side changed it, git takes that side's count.
+    let expected: number
+    if (localCount === baseCount) {
+      expected = remoteCount
+    } else if (remoteCount === baseCount) {
+      expected = localCount
+    } else {
+      return true
+    }
+    if (mergedCount !== expected) {
       return true
     }
   }
@@ -366,7 +261,14 @@ export const resolveConflictMarker = (
 // (a) tell a resolve action its exact-match splice found nothing (e.g. the user
 // edited inside the block), and (b) block accepting a result that would write
 // literal '<<<<<<< MARKTEXT_LOCAL' markers into the document.
-const CONFLICT_SCAFFOLDING_REGEXP = /^<{7} MARKTEXT_LOCAL |^={7}$|^>{7} MARKTEXT_REMOTE /m
+// Match the three id-bearing marker lines createConflictMarker emits (local,
+// base, and remote) — any surviving one means a conflict block is unresolved.
+// The bare '=======' separator is deliberately NOT matched: it never appears
+// without these labelled markers in a generated conflict, and matching it
+// would false-positive on legitimate content (a setext H1 underline or a
+// 7-equals horizontal rule), blocking a valid merge from ever being accepted.
+const CONFLICT_SCAFFOLDING_REGEXP =
+  /^(?:<{7} MARKTEXT_LOCAL |\|{7} MARKTEXT_BASE |>{7} MARKTEXT_REMOTE )/m
 export const containsConflictScaffolding = (markdown: string): boolean =>
   CONFLICT_SCAFFOLDING_REGEXP.test(markdown)
 
@@ -431,15 +333,11 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
     }
   }
 
-  const reconciled =
-    conflicts.length === 0
-      ? reconcileRepeatedLineCounts(baseLines, localLines, remoteLines, merged)
-      : null
-  const mergedLines = reconciled ?? merged
+  const mergedLines = merged
 
   if (
     conflicts.length === 0 &&
-    dropsPositiveLineDelta(baseLines, localLines, remoteLines, mergedLines)
+    hasUnsafeRepeatedLineCount(baseLines, localLines, remoteLines, mergedLines)
   ) {
     return createWholeFileConflict(base, local, remote)
   }
