@@ -21,6 +21,7 @@ pnpm exec tsx skills/markdown-comments/src/cli.ts resolve path/to/file.md cmt_1
 pnpm exec tsx skills/markdown-comments/src/cli.ts reopen path/to/file.md cmt_1
 pnpm exec tsx skills/markdown-comments/src/cli.ts edit path/to/file.md cmt_1 --status resolved --authors "Ada,Grace"
 pnpm exec tsx skills/markdown-comments/src/cli.ts edit path/to/file.md cmt_1 --reply-index 0 --body "Updated reply."
+pnpm exec tsx skills/markdown-comments/src/cli.ts list legacy.md --encoding cp1252
 ```
 
 `list` prints deterministic JSON with this shape:
@@ -61,7 +62,7 @@ pnpm exec tsx skills/markdown-comments/src/cli.ts edit path/to/file.md cmt_1 --r
 
 Mutation commands rewrite only the target metadata reference definition. They do not move range markers, normalize unrelated Markdown, create sidecar files, or start a server.
 
-The CLI supports UTF-8 Markdown files only, including UTF-8 files with a BOM. When a mutation command edits one metadata definition, it preserves unrelated Markdown bytes as much as practical, including existing line separators, a UTF-8 BOM, trailing whitespace on the target metadata line, and whether the file has a final newline. If a file is encoded as UTF-16 or another legacy encoding, open and save it as UTF-8 in MarkText before using this skill.
+The CLI auto-detects UTF-8 Markdown files, UTF-8 files with a BOM, and BOM-marked UTF-16 Markdown files. For legacy files without a Unicode BOM, pass `--encoding <name>` with an `iconv-lite` encoding such as `cp1252`, `shiftjis`, `gbk`, or `big5`. When a mutation command edits one metadata definition, it preserves unrelated Markdown bytes as much as practical, including existing line separators, the original BOM, the original or explicitly requested encoding, trailing whitespace on the target metadata line, and whether the file has a final newline.
 
 ## Rules
 

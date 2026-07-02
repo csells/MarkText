@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import iconv from 'iconv-lite'
 import { encodeCommentMetadata } from '@muyajs/core/comments'
 import { readMarkdownComments } from '../src/parse'
 
@@ -436,7 +437,10 @@ describe('markdown-comments CLI', () => {
     ])
   })
 
-  it('rejects unsupported non-UTF-8 files without writing them', () => {
+  it.each([
+    ['UTF-16LE', [0xff, 0xfe], (markdown: string) => Buffer.from(markdown, 'utf16le'), 'utf16le'],
+    ['UTF-16BE', [0xfe, 0xff], (markdown: string) => iconv.encode(markdown, 'utf16be'), 'utf16be']
+  ])('lists and updates %s BOM files without rewriting them as UTF-8', (_name, bom, encode, encoding) => {
     const metadata = encodeCommentMetadata({
       version: 1,
       status: 'open',
@@ -449,10 +453,9 @@ describe('markdown-comments CLI', () => {
       ''
     ].join('\n')
     const file = writeMarkdownBuffer(Buffer.concat([
-      Buffer.from([0xff, 0xfe]),
-      Buffer.from(utf16Markdown, 'utf16le')
+      Buffer.from(bom),
+      encode(utf16Markdown)
     ]))
-    const before = fs.readFileSync(file)
 
     const listResult = spawnSync(tsxPath, [cliPath, 'list', file], {
       cwd: repoRoot,
@@ -463,16 +466,78 @@ describe('markdown-comments CLI', () => {
       encoding: 'utf8'
     })
 
-    expect(listResult.status).toBe(1)
-    expect(listResult.stderr).toContain('Unsupported file encoding')
-    expect(resolveResult.status).toBe(1)
-    expect(resolveResult.stderr).toContain('Unsupported file encoding')
-    expect(fs.readFileSync(file)).toEqual(before)
+    expect(listResult.status).toBe(0)
+    expect(JSON.parse(listResult.stdout)).toMatchObject({
+      threads: [{ id: 'a', status: 'open' }],
+      diagnostics: []
+    })
+    expect(resolveResult.status).toBe(0)
+
+    const bytes = fs.readFileSync(file)
+    expect([...bytes.subarray(0, 2)]).toEqual(bom)
+    const updated = iconv.decode(bytes.subarray(2), encoding)
+    expect(updated).toContain('A <!--MC:a-->reviewed<!--MC:~a--> line.')
+    expect(readMarkdownComments(updated).threads[0]).toMatchObject({
+      id: 'a',
+      status: 'resolved'
+    })
+  })
+
+  it.each([
+    ['CP1252', 'cp1252', 'Café <!--MC:a-->résumé<!--MC:~a--> line.'],
+    ['Shift_JIS', 'shiftjis', 'メモ <!--MC:a-->レビュー<!--MC:~a--> line.']
+  ])('lists and updates %s files with an explicit encoding override', (_name, encoding, firstLine) => {
+    const metadata = encodeCommentMetadata({
+      version: 1,
+      status: 'open',
+      replies: []
+    })
+    const markdown = [
+      firstLine,
+      '',
+      `[MC:a]: ${metadata}`,
+      ''
+    ].join('\n')
+    const file = writeMarkdownBuffer(iconv.encode(markdown, encoding))
+
+    const listResult = spawnSync(tsxPath, [cliPath, 'list', file, '--encoding', encoding], {
+      cwd: repoRoot,
+      encoding: 'utf8'
+    })
+    const resolveResult = spawnSync(
+      tsxPath,
+      [cliPath, 'resolve', file, 'a', '--encoding', encoding, '--updated-at', '2026-06-30T15:00:00.000Z'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8'
+      }
+    )
+
+    expect(listResult.status).toBe(0)
+    expect(JSON.parse(listResult.stdout)).toMatchObject({
+      threads: [{ id: 'a', status: 'open' }],
+      diagnostics: []
+    })
+    expect(resolveResult.status).toBe(0)
+
+    const bytes = fs.readFileSync(file)
+    const firstLineBytes = iconv.encode(firstLine, encoding)
+    expect(bytes.subarray(0, firstLineBytes.length)).toEqual(firstLineBytes)
+
+    const updated = iconv.decode(bytes, encoding)
+    expect(readMarkdownComments(updated).threads[0]).toMatchObject({
+      id: 'a',
+      status: 'resolved',
+      updatedAt: '2026-06-30T15:00:00.000Z'
+    })
   })
 
   it('documents deterministic reply edits in the shipped skill', () => {
     const skill = fs.readFileSync(path.join(repoRoot, 'skills/markdown-comments/SKILL.md'), 'utf8')
 
     expect(skill).toContain('--reply-index')
+    expect(skill).toContain('--encoding')
+    expect(skill).toContain('BOM-marked UTF-16')
+    expect(skill).not.toContain('UTF-8 Markdown files only')
   })
 })

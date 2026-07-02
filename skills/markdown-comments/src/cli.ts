@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { TextDecoder } from 'node:util'
+import iconv from 'iconv-lite'
 import { editCommentReply, patchCommentMetadata, replyToComment, setCommentStatus } from './edit'
 import { readMarkdownComments, stableJson } from './parse'
 import type { TCommentStatus, TUpdateCommentThreadPatch } from '@muyajs/core/comments'
@@ -11,6 +12,18 @@ interface ParsedArgs {
   options: Record<string, string>
 }
 
+interface MarkdownDocument {
+  markdown: string
+  encoding: string
+  hasBOM: boolean
+}
+
+const BOM_ENCODINGS: Array<{ encoding: string; bytes: number[] }> = [
+  { encoding: 'utf8', bytes: [0xef, 0xbb, 0xbf] },
+  { encoding: 'utf16be', bytes: [0xfe, 0xff] },
+  { encoding: 'utf16le', bytes: [0xff, 0xfe] }
+]
+
 const usage = `Usage:
   markdown-comments list <file>
   markdown-comments validate <file>
@@ -19,6 +32,9 @@ const usage = `Usage:
   markdown-comments reopen <file> <id> [--updated-at <iso>]
   markdown-comments edit <file> <id> [--status open|resolved] [--authors Ada,Grace] [--updated-at <iso>]
   markdown-comments edit <file> <id> --reply-index <zero-based-index> [--body <text>] [--author <name>] [--created-at <iso>] [--updated-at <iso>]
+
+Options:
+  --encoding <name> Decode and write a non-BOM legacy file with an iconv-lite encoding such as cp1252 or shiftjis.
 `
 
 function parseArgs(args: string[]): ParsedArgs {
@@ -59,17 +75,56 @@ function requireValue(value: string | undefined, name: string): string {
   return value
 }
 
-function readFile(file: string): string {
-  const bytes = fs.readFileSync(path.resolve(file))
+function startsWithBytes(bytes: Buffer, prefix: number[]): boolean {
+  return bytes.length >= prefix.length && prefix.every((byte, index) => bytes[index] === byte)
+}
+
+function normalizeEncodingOption(encoding: string | undefined): string | undefined {
+  const normalized = encoding?.trim()
+  return normalized || undefined
+}
+
+function detectFileEncoding(
+  bytes: Buffer,
+  requestedEncoding?: string
+): Pick<MarkdownDocument, 'encoding' | 'hasBOM'> {
+  const bomEncoding = BOM_ENCODINGS.find(item => startsWithBytes(bytes, item.bytes))
+  if (bomEncoding) {
+    return { encoding: bomEncoding.encoding, hasBOM: true }
+  }
+
+  if (requestedEncoding) {
+    if (!iconv.encodingExists(requestedEncoding)) {
+      throw new Error(`Unsupported file encoding: "${requestedEncoding}" is not available.`)
+    }
+    return { encoding: requestedEncoding, hasBOM: false }
+  }
+
   try {
-    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    return { encoding: 'utf8', hasBOM: false }
   } catch {
-    throw new Error('Unsupported file encoding: markdown-comments only supports UTF-8 Markdown files.')
+    throw new Error('Unsupported file encoding: markdown-comments supports UTF-8 and BOM-marked UTF-16 Markdown files. Use --encoding for legacy encodings.')
   }
 }
 
-function writeFile(file: string, markdown: string): void {
-  fs.writeFileSync(path.resolve(file), markdown)
+function readFile(file: string, requestedEncoding?: string): MarkdownDocument {
+  const bytes = fs.readFileSync(path.resolve(file))
+  const encoding = detectFileEncoding(bytes, requestedEncoding)
+  if (!iconv.encodingExists(encoding.encoding)) {
+    throw new Error(`Unsupported file encoding: "${encoding.encoding}" is not available.`)
+  }
+
+  return {
+    ...encoding,
+    markdown: iconv.decode(bytes, encoding.encoding)
+  }
+}
+
+function writeFile(file: string, document: MarkdownDocument, markdown: string): void {
+  fs.writeFileSync(path.resolve(file), iconv.encode(markdown, document.encoding, {
+    addBOM: document.hasBOM
+  }))
 }
 
 function printJson(value: unknown): void {
@@ -110,8 +165,8 @@ function parseReplyIndex(value: string | undefined): number | null {
   return Number(value)
 }
 
-function writeAndPrint(file: string, markdown: string): void {
-  writeFile(file, markdown)
+function writeAndPrint(file: string, document: MarkdownDocument, markdown: string): void {
+  writeFile(file, document, markdown)
   printJson(readMarkdownComments(markdown))
 }
 
@@ -124,7 +179,8 @@ function main(): void {
     throw new Error(usage)
   }
 
-  const markdown = readFile(file)
+  const document = readFile(file, normalizeEncodingOption(options.encoding))
+  const { markdown } = document
 
   if (command === 'list') {
     printJson(readMarkdownComments(markdown))
@@ -141,7 +197,7 @@ function main(): void {
   const id = requireValue(positional[1], 'comment id')
 
   if (command === 'reply') {
-    writeAndPrint(file, replyToComment(markdown, id, {
+    writeAndPrint(file, document, replyToComment(markdown, id, {
       author: requireValue(options.author, '--author'),
       body: requireValue(options.body, '--body'),
       createdAt: options['created-at']
@@ -152,6 +208,7 @@ function main(): void {
   if (command === 'resolve' || command === 'reopen') {
     writeAndPrint(
       file,
+      document,
       setCommentStatus(markdown, id, command === 'resolve' ? 'resolved' : 'open', options['updated-at'])
     )
     return
@@ -160,7 +217,7 @@ function main(): void {
   if (command === 'edit') {
     const replyIndex = parseReplyIndex(options['reply-index'])
     if (replyIndex != null) {
-      writeAndPrint(file, editCommentReply(markdown, id, replyIndex, {
+      writeAndPrint(file, document, editCommentReply(markdown, id, replyIndex, {
         author: options.author,
         body: options.body,
         createdAt: options['created-at'],
@@ -169,7 +226,7 @@ function main(): void {
       return
     }
 
-    writeAndPrint(file, patchCommentMetadata(markdown, id, buildPatch(options)))
+    writeAndPrint(file, document, patchCommentMetadata(markdown, id, buildPatch(options)))
     return
   }
 
