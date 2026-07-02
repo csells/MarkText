@@ -5,6 +5,13 @@ export const isOsx: boolean = process.platform === 'darwin'
 export const isWindows: boolean = process.platform === 'win32'
 export const isLinux: boolean = process.platform === 'linux'
 
+// Set by the e2e harness (test/e2e/helpers.ts) so test-driven instances never
+// steal focus from the user's desktop: windows are created hidden, never
+// shown or focused, and background throttling is disabled so hidden renderers
+// still run timers/rAF at full speed. '0' opts out for interactive debugging.
+export const isBackgroundTestMode: boolean =
+  !!process.env.MARKTEXT_TEST_BACKGROUND && process.env.MARKTEXT_TEST_BACKGROUND !== '0'
+
 export const editorWinOptions: Readonly<BrowserWindowConstructorOptions> = Object.freeze({
   minWidth: 550,
   minHeight: 350,

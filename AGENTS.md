@@ -252,6 +252,13 @@ pnpm -C packages/desktop exec playwright test test/e2e/launch.spec.ts
 pnpm -C packages/desktop exec playwright test -g 'partial test name'
 ```
 
+On macOS the desktop e2e suite runs in **background test mode**: every
+test-launched MarkText instance keeps its windows hidden and never steals
+focus (`MARKTEXT_TEST_BACKGROUND`, see `src/main/config.ts` and
+`test/e2e/helpers.ts`). Native error/crash dialogs are suppressed in this mode
+(specs still fail via timeout or window destruction). To watch the app while
+debugging a spec, run with `MARKTEXT_TEST_BACKGROUND=0`.
+
 ## Code Style
 
 Enforced by ESLint + Prettier. Run `pnpm run lint` and `pnpm run typecheck` before committing.

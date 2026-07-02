@@ -5,7 +5,13 @@ import { electronLocalshortcut } from '@hfelix/electron-localshortcut'
 import BaseWindow, { WindowLifecycle, WindowType, type EnvLike, type PreferenceLike } from './base'
 import type Accessor from '../app/accessor'
 import { centerWindowOptions } from './utils'
-import { TITLE_BAR_HEIGHT, preferencesWinOptions, isLinux, isOsx } from '../config'
+import {
+  TITLE_BAR_HEIGHT,
+  isBackgroundTestMode,
+  isLinux,
+  isOsx,
+  preferencesWinOptions
+} from '../config'
 import log from 'electron-log'
 
 class SettingWindow extends BaseWindow {
@@ -54,6 +60,11 @@ class SettingWindow extends BaseWindow {
     }
 
     winOptions.backgroundColor = this._getPreferredBackgroundColor(theme)
+    if (isBackgroundTestMode) {
+      winOptions.show = false
+      ;(winOptions.webPreferences as { backgroundThrottling: boolean }).backgroundThrottling =
+        false
+    }
     let win: BrowserWindow | null = (this.browserWindow = new BrowserWindow(winOptions))
 
     win.webContents.on('did-fail-load', (_event, code, desc, url) => {

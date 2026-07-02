@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchElectron } from './helpers'
+import { isBackgroundTestRun, launchElectron } from './helpers'
 
 test.describe('Test XSS Vulnerabilities', () => {
   let app: ElectronApplication
@@ -21,15 +21,23 @@ test.describe('Test XSS Vulnerabilities', () => {
   })
 
   test('Load malicious document', async() => {
-    const { isVisible, isCrashed } = await app.evaluate(async(process) => {
+    const { isVisible, isDestroyed, isCrashed } = await app.evaluate(async(process) => {
       const mainWindow = process.BrowserWindow.getAllWindows()[0]
       return {
         isVisible: mainWindow.isVisible(),
+        isDestroyed: mainWindow.isDestroyed(),
         isCrashed: mainWindow.webContents.isCrashed()
       }
     })
 
-    expect(isVisible).toBeTruthy()
+    // Background test runs keep every window hidden by design, so "the app
+    // survived the malicious document" is asserted via the window still being
+    // alive rather than visible.
+    if (isBackgroundTestRun) {
+      expect(isDestroyed).toBeFalsy()
+    } else {
+      expect(isVisible).toBeTruthy()
+    }
     expect(isCrashed).toBeFalsy()
   })
 })

@@ -47,6 +47,15 @@ process.on('exit', () => {
   }
 })
 
+// Mirrors the default applied in launchElectron below: on macOS test apps run
+// in background test mode (hidden, unfocused windows) unless explicitly
+// overridden via MARKTEXT_TEST_BACKGROUND. Specs that assert window
+// visibility use this to know which behavior to expect.
+export const isBackgroundTestRun: boolean =
+  process.env.MARKTEXT_TEST_BACKGROUND !== undefined
+    ? process.env.MARKTEXT_TEST_BACKGROUND !== '0'
+    : process.platform === 'darwin'
+
 export interface LaunchResult {
   app: ElectronApplication
   page: Page
@@ -74,6 +83,12 @@ export const launchElectron = async(
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   env.PERF_TESTING = 'true'
+  // On macOS every launch would otherwise activate the app and steal focus —
+  // with each spec launching its own MarkText instance, a full run makes the
+  // machine unusable. Background test mode (src/main/config.ts) keeps windows
+  // hidden and unfocused; export MARKTEXT_TEST_BACKGROUND=0 to watch the app
+  // while debugging a spec. Linux CI runs under xvfb, so it stays as-is.
+  if (isBackgroundTestRun) env.MARKTEXT_TEST_BACKGROUND = '1'
   if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
   const app = await _electron.launch({
     executablePath,

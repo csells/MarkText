@@ -2,6 +2,7 @@ import path from 'path'
 import type { BrowserWindow } from 'electron'
 import { TypedEmitter } from '@shared/types/typedEmitter'
 import type Accessor from '../app/accessor'
+import { isBackgroundTestMode } from '../config'
 import { getThemeBackgroundColor } from '../../common/theme'
 
 /**
@@ -81,6 +82,9 @@ class BaseWindow extends TypedEmitter<BaseWindowEvents> {
   }
 
   bringToFront(): void {
+    // Windows stay hidden for the whole life of a background-test instance —
+    // showing or focusing one here would pop it over the user's desktop.
+    if (isBackgroundTestMode) return
     const { browserWindow: win } = this
     if (!win) return
     if (win.isMinimized()) win.restore()

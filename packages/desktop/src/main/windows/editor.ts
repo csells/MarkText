@@ -7,7 +7,13 @@ import { isChildOfDirectory, isSamePathSync } from 'common/filesystem/paths'
 import BaseWindow, { WindowLifecycle, WindowType } from './base'
 import type Accessor from '../app/accessor'
 import { ensureWindowPosition, zoomIn, zoomOut } from './utils'
-import { TITLE_BAR_HEIGHT, editorWinOptions, isLinux, isOsx } from '../config'
+import {
+  TITLE_BAR_HEIGHT,
+  editorWinOptions,
+  isBackgroundTestMode,
+  isLinux,
+  isOsx
+} from '../config'
 import { showEditorContextMenu } from '../contextMenu/editor'
 import { loadMarkdownFile } from '../filesystem/markdown'
 import { switchLanguage } from '../spellchecker'
@@ -135,6 +141,13 @@ class EditorWindow extends BaseWindow {
       // winOptions.webPreferences is set by editorWinOptions spread above
       ;(winOptions.webPreferences as { spellcheck: boolean }).spellcheck = false
     }
+    if (isBackgroundTestMode) {
+      winOptions.show = false
+      // Without this, a hidden window's renderer reports `document.hidden`
+      // and stops firing rAF, which stalls the editor under test.
+      ;(winOptions.webPreferences as { backgroundThrottling: boolean }).backgroundThrottling =
+        false
+    }
 
     let win: BrowserWindow | null = (this.browserWindow = new BrowserWindow(winOptions))
 
@@ -215,6 +228,13 @@ class EditorWindow extends BaseWindow {
 
       if (reason === 'abnormal-exit') {
         return
+      }
+
+      // No native dialog during background test runs — it would activate the
+      // hidden app and steal focus. Destroy the window so the driving spec
+      // fails fast instead of hanging on an invisible modal.
+      if (isBackgroundTestMode) {
+        return this.destroy()
       }
 
       const { response } = await dialog.showMessageBox(win!, {

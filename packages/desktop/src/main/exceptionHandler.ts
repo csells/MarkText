@@ -9,6 +9,7 @@
 import { app, clipboard, crashReporter, dialog, ipcMain } from 'electron'
 import os from 'os'
 import log from 'electron-log'
+import { isBackgroundTestMode } from './config'
 import { createAndOpenGitHubIssueUrl } from './utils/createGitHubIssue'
 import { t } from './i18n'
 
@@ -57,6 +58,16 @@ const handleError = async(title: string, error: Error, type: ErrorType): Promise
       type === 'renderer')
   ) {
     return
+  }
+
+  // A native dialog would activate the (otherwise hidden) app and steal the
+  // user's focus mid test run. Pre-ready errors exit like the dialog branch
+  // below would; post-ready errors block exactly like the modal would — the
+  // spec that hit the error still hangs and fails by timeout — just without
+  // UI. The full error is already in the log file / console at this point.
+  if (isBackgroundTestMode) {
+    if (!app.isReady()) process.exit(1)
+    return new Promise(() => {})
   }
 
   // show error dialog

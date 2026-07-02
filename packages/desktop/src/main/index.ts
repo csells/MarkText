@@ -5,6 +5,7 @@ import log from 'electron-log'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 
 import cli from './cli'
+import { isBackgroundTestMode } from './config'
 import setupExceptionHandler, { initExceptionLogger } from './exceptionHandler'
 import setupEnvironment from './app/env'
 import type { AppEnvironment } from './app/env'
@@ -70,6 +71,17 @@ if (args['--disable-gpu']) {
   app.disableHardwareAcceleration()
 }
 
+if (isBackgroundTestMode) {
+  // Hiding the dock icon switches macOS to the 'accessory' activation policy,
+  // so launching the app never activates it / steals focus from whatever the
+  // user is doing. The switches keep the hidden, unfocused renderers running
+  // at full speed instead of being throttled as background pages.
+  app.dock?.hide()
+  app.commandLine.appendSwitch('disable-renderer-backgrounding')
+  app.commandLine.appendSwitch('disable-background-timer-throttling')
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+}
+
 // Single instance lock (except macOS & development)
 if (!process.mas && process.env.NODE_ENV !== 'development') {
   const gotLock = app.requestSingleInstanceLock()
@@ -102,7 +114,7 @@ try {
   log.error(t('error.initializationFailed', { hint: msgHint }), errorObj)
 
   const EXIT_ON_ERROR = !!process.env.MARKTEXT_EXIT_ON_ERROR
-  const SHOW_ERROR_DIALOG = !process.env.MARKTEXT_ERROR_INTERACTION
+  const SHOW_ERROR_DIALOG = !process.env.MARKTEXT_ERROR_INTERACTION && !isBackgroundTestMode
   if (!EXIT_ON_ERROR && SHOW_ERROR_DIALOG) {
     dialog.showErrorBox(
       t('error.startupError'),
