@@ -47,6 +47,10 @@ test.describe('Editor input and source-mode roundtrip', () => {
 
   test('Typing into the editor appends content', async() => {
     await typeIntoEditor(page, ' typed-token')
+    // No settle-wait on purpose: entering source mode right on the heels of
+    // the last keystroke is the regression case for the lost-trailing-edit
+    // flush in editor.vue's sourceCode watch (muya batches ops per animation
+    // frame; without the flush the serialize drops the in-flight keystroke).
     await expect.poll(async() => await getMarkdownContent(page, app)).toContain('typed-token')
   })
 })

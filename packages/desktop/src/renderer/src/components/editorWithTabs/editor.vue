@@ -811,6 +811,11 @@ watch(
   (value, oldValue) => {
     if (value && value !== oldValue) {
       if (editor.value) {
+        // Muya batches edit operations until the next animation frame; commit
+        // them now so the handoff below (and sourceCode.vue reading the tab's
+        // markdown on mount) can't drop a trailing keystroke — the same lost
+        // edit class as the tab-switch flush (#2938).
+        editor.value.flush()
         editor.value.hideAllFloatTools()
         // Compute the WYSIWYG caret as a source-markdown `{ line, ch }` index
         // cursor JUST-IN-TIME, only when entering source mode (Phase G — G7),
