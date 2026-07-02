@@ -978,6 +978,8 @@
       "keepEditing": "Continuar editando",
       "acceptMerge": "Aceitar mesclagem",
       "invalidCommentSyntax": "O resultado da mesclagem introduz sintaxe de comentário MarkText inválida. Corrija o resultado antes de aceitar.",
+      "unresolvedConflict": "O resultado da mesclagem ainda contém marcadores de conflito. Resolva todos os conflitos antes de aceitar.",
+      "markerNotFound": "Esse bloco de conflito foi editado. Resolva-o manualmente no resultado e depois aceite.",
       "reloadDisk": "Recarregar do disco"
     },
     "export": {

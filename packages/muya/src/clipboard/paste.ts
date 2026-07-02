@@ -21,7 +21,7 @@ import HtmlToMarkdown from '../state/htmlToMarkdown';
 import { MarkdownToState } from '../state/markdownToState';
 import { isAnyListState, isParagraphState } from '../state/types';
 import { getClipboardImageFile, getCopyTextType, isStandaloneTableHtml, normalizePastedHTML } from '../utils/paste';
-import { documentCommentMarkerKinds } from './cut';
+import { commentIdsInText, documentCommentMarkerKinds, removeCommentMetadataForUnreferencedIds } from './cut';
 import { mergePasteIntoHeading } from './mergePasteIntoHeading';
 import { tryPasteImage, tryReplaceSelectedImage } from './pasteImage';
 import { PasteType } from './types';
@@ -528,11 +528,23 @@ function applyLiteralPaste(
         if (!isSingleCellSelected(clipboard))
             return;
 
+        // The whole cell text is replaced: mirror the ordinary text path's
+        // marker guard (a lone endpoint whose counterpart lives elsewhere
+        // must not be destroyed) and its unreferenced-metadata sweep.
+        const oldCellText = anchorBlock.text;
+        if (
+            isUnsafeCommentMarkerTextEdit(oldCellText, 0, oldCellText.length, () =>
+                documentCommentMarkerKinds(clipboard))
+        ) {
+            return;
+        }
+
         const split = splitTableCellCommentPaste(clipboard, markdown);
         anchorBlock.text = split.cellMarkdown.trim().replace(/\n/g, '<br/>');
         const offset = anchorBlock.text.length;
         anchorBlock.setCursor(offset, offset, true);
         appendCommentMetadataDefinitions(clipboard, split.metadataDefinitions);
+        removeCommentMetadataForUnreferencedIds(clipboard, commentIdsInText(oldCellText));
         clipboard.selection.table.clear();
 
         return;

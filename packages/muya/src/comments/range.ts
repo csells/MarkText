@@ -30,10 +30,12 @@ export function locateCommentSyntax(states: TState[], id: string): ICommentSynta
                 markerRegExp.lastIndex = 0;
                 const markerMatch = markerRegExp.exec(state.text);
                 if (markerMatch) {
+                    // Parity with parse.ts range paths: setCursor resolves the
+                    // content LEAF only when the path ends in 'text'.
                     found = {
-                        startPath: statePath,
+                        startPath: [...statePath, 'text'],
                         startOffset: markerMatch.index,
-                        endPath: statePath,
+                        endPath: [...statePath, 'text'],
                         endOffset: markerMatch.index + markerMatch[0].length,
                     };
                     return;
@@ -44,9 +46,9 @@ export function locateCommentSyntax(states: TState[], id: string): ICommentSynta
                     const definition = parseCommentMetadataDefinition(line);
                     if (definition && definition.id === id) {
                         found = {
-                            startPath: statePath,
+                            startPath: [...statePath, 'text'],
                             startOffset: lineStart,
-                            endPath: statePath,
+                            endPath: [...statePath, 'text'],
                             endOffset: lineStart + line.length,
                         };
                         return;

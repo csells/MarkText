@@ -118,6 +118,72 @@ const findLongestRun = (lines: string[], line: string): { start: number; length:
   return best
 }
 
+// Where a side inserted `line`, capture the neighbor context (the preceding
+// line) of each occurrence the side has beyond base. If local and remote
+// inserted `line` with IDENTICAL context multisets, they made the same edit —
+// git counts an identical change once, so the merge target must be the max of
+// the two sides, never their sum. Summing an identical insertion forced a
+// position-blind splice that could relocate a repeated line (e.g. a blank
+// line) into content neither side wrote.
+const LINE_START_SENTINEL = '\u0000<start>'
+
+const contextBigramsForLine = (lines: string[], line: string): Map<string, number> => {
+  const bigrams = new Map<string, number>()
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index] !== line) continue
+    const prev = index === 0 ? LINE_START_SENTINEL : lines[index - 1]
+    bigrams.set(prev, (bigrams.get(prev) ?? 0) + 1)
+  }
+  return bigrams
+}
+
+const insertedContextBigrams = (
+  baseLines: string[],
+  sideLines: string[],
+  line: string
+): Map<string, number> => {
+  const base = contextBigramsForLine(baseLines, line)
+  const side = contextBigramsForLine(sideLines, line)
+  const inserted = new Map<string, number>()
+  for (const [context, count] of side) {
+    const extra = count - (base.get(context) ?? 0)
+    if (extra > 0) inserted.set(context, extra)
+  }
+  return inserted
+}
+
+const occurrenceCount = (lines: string[], line: string): number => {
+  let count = 0
+  for (const candidate of lines) {
+    if (candidate === line) count += 1
+  }
+  return count
+}
+
+const insertedContextsMatch = (
+  baseLines: string[],
+  localLines: string[],
+  remoteLines: string[],
+  line: string
+): boolean => {
+  const local = insertedContextBigrams(baseLines, localLines, line)
+  const remote = insertedContextBigrams(baseLines, remoteLines, line)
+  if (local.size !== remote.size) return false
+  for (const [context, count] of local) {
+    if (remote.get(context) !== count) return false
+    // The context must pin ONE position: an anchor that repeats (or is the
+    // inserted line itself, i.e. a run extension) leaves the alignment
+    // ambiguous, and git's positional diff may then treat the two sides'
+    // insertions as independent — assume independence there too.
+    if (context === line) return false
+    if (context !== LINE_START_SENTINEL) {
+      if (occurrenceCount(localLines, context) !== 1) return false
+      if (occurrenceCount(remoteLines, context) !== 1) return false
+    }
+  }
+  return true
+}
+
 const reconcileRepeatedLineCounts = (
   baseLines: string[],
   localLines: string[],
@@ -144,10 +210,14 @@ const reconcileRepeatedLineCounts = (
 
     const localDeficit = Math.max(0, baseCount - localCount)
     const remoteDeficit = Math.max(0, baseCount - remoteCount)
+    const bothInserted = localCount > baseCount && remoteCount > baseCount
     let targetCount: number
     if (localDeficit > 0 && remoteDeficit > 0 && localDeficit !== remoteDeficit) {
       targetCount = Math.max(localCount, remoteCount)
-    } else if (!hasAnyCountDeficit && localCount > baseCount && remoteCount > baseCount) {
+    } else if (
+      bothInserted &&
+      (!hasAnyCountDeficit || insertedContextsMatch(baseLines, localLines, remoteLines, line))
+    ) {
       targetCount = Math.max(localCount, remoteCount)
     } else {
       targetCount = Math.max(0, localCount + remoteCount - baseCount)
@@ -191,9 +261,14 @@ const dropsPositiveLineDelta = (
 
   for (const line of lines) {
     const baseCount = countFor(baseCounts, line)
+    const localInserted = Math.max(0, countFor(localCounts, line) - baseCount)
+    const remoteInserted = Math.max(0, countFor(remoteCounts, line) - baseCount)
     const insertedCount =
-      Math.max(0, countFor(localCounts, line) - baseCount) +
-      Math.max(0, countFor(remoteCounts, line) - baseCount)
+      localInserted > 0 &&
+      remoteInserted > 0 &&
+      insertedContextsMatch(baseLines, localLines, remoteLines, line)
+        ? Math.max(localInserted, remoteInserted)
+        : localInserted + remoteInserted
     if (insertedCount > 0 && countFor(mergedCounts, line) < baseCount + insertedCount) {
       return true
     }
@@ -286,6 +361,14 @@ export const resolveConflictMarker = (
   // String.prototype.replace substitution patterns (which corrupted KaTeX math).
   return markdown.replace(conflict.markerText, () => replacement)
 }
+
+// True when `markdown` still contains generated conflict scaffolding. Used to
+// (a) tell a resolve action its exact-match splice found nothing (e.g. the user
+// edited inside the block), and (b) block accepting a result that would write
+// literal '<<<<<<< MARKTEXT_LOCAL' markers into the document.
+const CONFLICT_SCAFFOLDING_REGEXP = /^<{7} MARKTEXT_LOCAL |^={7}$|^>{7} MARKTEXT_REMOTE /m
+export const containsConflictScaffolding = (markdown: string): boolean =>
+  CONFLICT_SCAFFOLDING_REGEXP.test(markdown)
 
 export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): ThreeWayMergeResult => {
   if (local === remote) {

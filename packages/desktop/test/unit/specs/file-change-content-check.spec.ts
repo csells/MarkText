@@ -623,6 +623,78 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     )
   })
 
+  // Re-review: accepting merged output that still contains conflict
+  // scaffolding wrote literal '<<<<<<< MARKTEXT_LOCAL' markers into the tab.
+  it('refuses to accept a merge result that still contains conflict markers', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    await fire(captureHandler(), 'one\nremote\nthree\n')
+    const scaffolded = store.mergeConflict!.resultMarkdown
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(scaffolded)
+
+    expect(tab.markdown).toBe('one\nlocal\nthree\n')
+    expect(store.mergeConflict).toEqual(
+      expect.objectContaining({
+        validationError: expect.stringContaining('conflict markers')
+      })
+    )
+  })
+
+  // Re-review: resolving a conflict block the user has since edited matched no
+  // scaffolding and silently no-oped, leaving the button dead.
+  it('reports when a resolve action no longer matches an edited conflict block', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    await fire(captureHandler(), 'one\nremote\nthree\n')
+    // Simulate the user editing inside the conflict block in the result pane.
+    store.mergeConflict!.resultMarkdown = 'one\nedited-in-place\nthree\n'
+    store.RESOLVE_MERGE_CONFLICT_MARKER('c1', 'local')
+
+    expect(store.mergeConflict!.resultMarkdown).toBe('one\nedited-in-place\nthree\n')
+    expect(store.mergeConflict!.validationError).toEqual(expect.stringContaining('edited'))
+  })
+
+  // Re-review: reopening the dialog from the notification after further edits
+  // reinstated a stale result; it must re-merge from the tab's current content.
+  it('re-merges from current content when reopened after post-cancel edits', async() => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    tab.isSaved = false
+    store.currentFile = tab as unknown as typeof store.currentFile
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    await fire(captureHandler(), 'one\nremote\nthree\n')
+    const [notification] = tab.notifications as Array<{ action: (status?: unknown) => void }>
+    store.CANCEL_DIRTY_EXTERNAL_MERGE_CONFLICT()
+
+    // User keeps editing after dismissing the dialog.
+    tab.markdown = 'one\nlocal-edited-more\nthree\n'
+    notification.action(true)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(store.mergeConflict).toEqual(
+      expect.objectContaining({
+        localMarkdown: 'one\nlocal-edited-more\nthree\n',
+        remoteMarkdown: 'one\nremote\nthree\n'
+      })
+    )
+  })
+
   it('accepts a resolved conflict as dirty while advancing the disk base', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)

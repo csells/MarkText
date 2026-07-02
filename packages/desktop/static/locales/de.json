@@ -978,6 +978,8 @@
       "keepEditing": "Weiter bearbeiten",
       "acceptMerge": "Merge akzeptieren",
       "invalidCommentSyntax": "Das Merge-Ergebnis führt ungültige MarkText-Kommentarsyntax ein. Korrigieren Sie das Ergebnis vor dem Akzeptieren.",
+      "unresolvedConflict": "Das Merge-Ergebnis enthält noch Konfliktmarkierungen. Lösen Sie alle Konflikte, bevor Sie akzeptieren.",
+      "markerNotFound": "Dieser Konfliktblock wurde bearbeitet. Lösen Sie ihn manuell im Ergebnis auf und akzeptieren Sie dann.",
       "reloadDisk": "Von Datenträger neu laden"
     },
     "export": {

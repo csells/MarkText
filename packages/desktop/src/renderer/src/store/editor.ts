@@ -23,6 +23,7 @@ import { useMainStore } from '.'
 import { t } from '../i18n'
 import { debouncedSendBufferedState, sendBufferedState } from './bufferedState'
 import {
+  containsConflictScaffolding,
   createWholeFileConflict,
   resolveConflictMarker,
   type ThreeWayMergeConflict,
@@ -1585,6 +1586,17 @@ export const useEditorStore = defineStore('editor', {
         exclusiveType: 'file_changed',
         action: (status) => {
           if (!status) return
+          const currentTab = this.tabs.find((t) => t.id === mergeConflict.tabId)
+          if (!currentTab) return
+          // The user may have kept editing after dismissing the dialog, so the
+          // captured localMarkdown/resultMarkdown are stale. Re-merge from the
+          // tab's current content instead of applying an outdated result.
+          if (currentTab.markdown !== mergeConflict.localMarkdown) {
+            this.HANDLE_DIRTY_EXTERNAL_CHANGE(currentTab, mergeConflict.fileChange).catch((err) => {
+              console.error('Failed to re-open dirty external merge conflict:', err)
+            })
+            return
+          }
           this.mergeConflict = { ...mergeConflict }
           debouncedSendBufferedState()
         }
@@ -1600,6 +1612,17 @@ export const useEditorStore = defineStore('editor', {
     ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(mergedMarkdown: string): void {
       const conflict = this.mergeConflict
       if (!conflict) return
+
+      // Never write generated conflict scaffolding into the document: an
+      // unresolved (or hand-mangled) marker block must be resolved first.
+      if (containsConflictScaffolding(mergedMarkdown)) {
+        this.mergeConflict = {
+          ...conflict,
+          resultMarkdown: mergedMarkdown,
+          validationError: t('editor.mergeConflict.unresolvedConflict')
+        }
+        return
+      }
 
       if (
         introducesNewCommentDiagnostics(
@@ -1675,7 +1698,15 @@ export const useEditorStore = defineStore('editor', {
       const conflict = pending.conflicts.find((item) => item.id === conflictId)
       if (!conflict) return
 
-      pending.resultMarkdown = resolveConflictMarker(pending.resultMarkdown, conflict, choice)
+      const resolved = resolveConflictMarker(pending.resultMarkdown, conflict, choice)
+      // resolveConflictMarker splices by exact scaffolding match; if the user
+      // edited inside the block it no longer matches and the click would be a
+      // silent no-op. Surface that instead of leaving the button dead.
+      if (resolved === pending.resultMarkdown) {
+        pending.validationError = t('editor.mergeConflict.markerNotFound')
+        return
+      }
+      pending.resultMarkdown = resolved
       pending.validationError = undefined
     },
 

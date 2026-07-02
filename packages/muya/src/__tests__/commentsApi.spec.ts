@@ -551,6 +551,32 @@ describe('muya comment metadata mutations', () => {
         expect(lines[2].endsWith('  ')).toBe(true);
     });
 
+    it('edits a definition whose base64 payload contains internal whitespace', () => {
+        // Forgiving-base64 (atob) ignores ASCII whitespace, so the parser
+        // surfaces this thread; the edit-line matcher must accept it too or the
+        // visible thread would be silently un-editable.
+        const raw = metadata({ version: 1, status: 'open', replies: [] });
+        // Splice a space into the base64 payload tail.
+        const mid = Math.floor((raw.length + 'data:application/json;base64,'.length) / 2);
+        const withSpace = `${raw.slice(0, mid)} ${raw.slice(mid)}`;
+        const document = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            `[MC:a]: ${withSpace}`,
+            '',
+        ].join('\n');
+
+        const next = updateCommentMetadataInMarkdown(
+            document,
+            'a',
+            current => ({ ...current, status: 'resolved', updatedAt: '2026-06-30T15:00:00.000Z' }),
+        );
+
+        expect(next).not.toBeNull();
+        const line = next!.split('\n').find(l => l.startsWith('[MC:a]: '))!;
+        expect(decode(line.replace('[MC:a]: ', '')).status).toBe('resolved');
+    });
+
     it('returns original markdown when the parser-selected metadata update is a no-op', () => {
         const document = [
             'A <!--MC:a-->reviewed<!--MC:~a--> span.',
@@ -861,6 +887,27 @@ describe('muya.focusComment() range-less navigation', () => {
         // The click still navigates instead of silently doing nothing.
         expect(muya.focusComment('orphan')).toBe(true);
         expect(muya.focusComment('nonexistent')).toBe(false);
+    });
+
+    it('places the selection on the located syntax, not just scrolls', () => {
+        const muya = boot([
+            'Text with an orphan <!--MC:~o--> close marker.',
+            '',
+        ].join('\n'));
+
+        // Orphan close marker: diagnostic, no derived range → fallback path.
+        expect(muya.getComments().ranges.some(range => range.id === 'o')).toBe(false);
+        expect(muya.focusComment('o')).toBe(true);
+
+        // The fallback must actually select the marker (a content-leaf cursor),
+        // which requires the located path to end in 'text'.
+        const selection = muya.editor.selection.getSelection();
+        expect(selection).not.toBeNull();
+        expect(selection!.isCollapsed).toBe(false);
+        const marker = '<!--MC:~o-->';
+        const start = 'Text with an orphan '.length;
+        expect(selection!.anchor.offset).toBe(start);
+        expect(selection!.focus.offset).toBe(start + marker.length);
     });
 });
 

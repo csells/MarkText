@@ -978,6 +978,8 @@
       "keepEditing": "계속 편집",
       "acceptMerge": "병합 적용",
       "invalidCommentSyntax": "병합 결과에 잘못된 MarkText 댓글 구문이 포함되어 있습니다. 적용하기 전에 결과를 수정하세요.",
+      "unresolvedConflict": "병합 결과에 여전히 충돌 표시가 포함되어 있습니다. 적용하기 전에 모든 충돌을 해결하세요.",
+      "markerNotFound": "이 충돌 블록이 편집되었습니다. 결과에서 직접 해결한 다음 적용하세요.",
       "reloadDisk": "디스크에서 다시 로드"
     },
     "export": {

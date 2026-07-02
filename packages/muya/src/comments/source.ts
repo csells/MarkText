@@ -3,6 +3,62 @@ import {
     parseCommentMetadataDefinition,
 } from './syntax';
 
+type TMarkerKind = 'open' | 'close';
+
+interface IScannedMarkers {
+    // Marker kinds fully covered by the edit, keyed by comment id.
+    selectedKindsById: Map<string, Set<TMarkerKind>>;
+    // Every marker kind present in `text`, the fallback counterpart source.
+    allKindsById: Map<string, Set<TMarkerKind>>;
+    // The edit only partially covers a marker (would leave a broken fragment).
+    partial: boolean;
+}
+
+// Scan `text` for comment markers the edit touches. Returns `partial: true` as
+// soon as the edit clips a marker without covering it whole.
+function scanEditedCommentMarkers(text: string, startOffset: number, endOffset: number): IScannedMarkers {
+    const selectedKindsById = new Map<string, Set<TMarkerKind>>();
+    const allKindsById = new Map<string, Set<TMarkerKind>>();
+    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+
+    for (const match of text.matchAll(markerRegExp)) {
+        const id = match[2];
+        const kind: TMarkerKind = match[1] === '~' ? 'close' : 'open';
+        const start = match.index;
+        const end = match.index + match[0].length;
+
+        const allKinds = allKindsById.get(id) ?? new Set<TMarkerKind>();
+        allKinds.add(kind);
+        allKindsById.set(id, allKinds);
+
+        const intersects = startOffset < end && endOffset > start;
+        const cursorInside = startOffset === endOffset && startOffset > start && startOffset < end;
+        if (!intersects && !cursorInside)
+            continue;
+
+        if (startOffset > start || endOffset < end)
+            return { selectedKindsById, allKindsById, partial: true };
+
+        const selectedKinds = selectedKindsById.get(id) ?? new Set<TMarkerKind>();
+        selectedKinds.add(kind);
+        selectedKindsById.set(id, selectedKinds);
+    }
+
+    return { selectedKindsById, allKindsById, partial: false };
+}
+
+// Whether removing exactly `selectedKinds` for `id` orphans a counterpart that
+// survives elsewhere (per `documentKinds`).
+function orphansCounterpart(
+    selectedKinds: ReadonlySet<TMarkerKind>,
+    documentKinds: ReadonlySet<TMarkerKind>,
+): boolean {
+    return (
+        (selectedKinds.has('open') && !selectedKinds.has('close') && documentKinds.has('close'))
+        || (selectedKinds.has('close') && !selectedKinds.has('open') && documentKinds.has('open'))
+    );
+}
+
 export function isUnsafeCommentMarkerTextEdit(
     text: string,
     startOffset: number,
@@ -11,49 +67,23 @@ export function isUnsafeCommentMarkerTextEdit(
     // counterpart check must consult marker kinds from the whole document,
     // not just `text`. Lazy because most edits touch no marker at all — the
     // thunk runs only when the edit fully covers at least one marker.
-    getDocumentKinds?: () => ReadonlyMap<string, ReadonlySet<'open' | 'close'>>,
+    getDocumentKinds?: () => ReadonlyMap<string, ReadonlySet<TMarkerKind>>,
 ): boolean {
-    const selectedKindsById = new Map<string, Set<'open' | 'close'>>();
-    const allKindsById = new Map<string, Set<'open' | 'close'>>();
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
-
-    for (const match of text.matchAll(markerRegExp)) {
-        const marker = {
-            id: match[2],
-            kind: match[1] === '~' ? 'close' as const : 'open' as const,
-            start: match.index,
-            end: match.index + match[0].length,
-        };
-        const allKinds = allKindsById.get(marker.id) ?? new Set<'open' | 'close'>();
-        allKinds.add(marker.kind);
-        allKindsById.set(marker.id, allKinds);
-
-        const intersects = startOffset < marker.end && endOffset > marker.start;
-        const cursorInside = startOffset === endOffset && startOffset > marker.start && startOffset < marker.end;
-        if (!intersects && !cursorInside)
-            continue;
-
-        if (startOffset > marker.start || endOffset < marker.end) {
-            return true;
-        }
-
-        const selectedKinds = selectedKindsById.get(marker.id) ?? new Set<'open' | 'close'>();
-        selectedKinds.add(marker.kind);
-        selectedKindsById.set(marker.id, selectedKinds);
-    }
-
+    const { selectedKindsById, allKindsById, partial } = scanEditedCommentMarkers(
+        text,
+        startOffset,
+        endOffset,
+    );
+    if (partial)
+        return true;
     if (selectedKindsById.size === 0)
         return false;
 
     const documentKinds = getDocumentKinds?.() ?? allKindsById;
     for (const [id, selectedKinds] of selectedKindsById) {
-        const allKinds = documentKinds.get(id) ?? allKindsById.get(id) ?? new Set<'open' | 'close'>();
-        if (
-            (selectedKinds.has('open') && !selectedKinds.has('close') && allKinds.has('close'))
-            || (selectedKinds.has('close') && !selectedKinds.has('open') && allKinds.has('open'))
-        ) {
+        const counterpartKinds = documentKinds.get(id) ?? allKindsById.get(id) ?? new Set<TMarkerKind>();
+        if (orphansCounterpart(selectedKinds, counterpartKinds))
             return true;
-        }
     }
 
     return false;

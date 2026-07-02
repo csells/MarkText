@@ -60,6 +60,7 @@ export {
     commentMarkerRegExpForId,
     isCommentMetadataReference,
     isValidCommentId,
+    NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
     parseCommentMarker,
     parseCommentMetadataDefinition,
     serializeCommentMarker,

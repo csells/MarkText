@@ -15,7 +15,11 @@ import type Parent from './parent';
 import type TreeNode from './treeNode';
 import Content from '../../block/base/content';
 import { ScrollPage } from '../../block/scrollPage';
-import { commentMarkerKindsInTexts, isUnsafeCommentMarkerTextEdit } from '../../comments';
+import {
+    commentMarkerKindsInTexts,
+    isUnsafeCommentMarkerTextEdit,
+    NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
+} from '../../comments';
 import {
     CLASS_NAMES,
     FORMAT_MARKER_MAP,
@@ -1432,12 +1436,15 @@ class Format extends Content {
         return { needRender: false, imageToken: null, referenceImageToken: null };
     }
 
-    // Every content leaf's text, in document order — the marker-edit guard
-    // scans these for a cross-block counterpart marker.
+    // Every parser-scannable content leaf's text, in document order — the
+    // marker-edit guard scans these for a cross-block counterpart marker.
     private* _documentContentTexts(): Generator<string> {
         let content: Nullable<Content> = this.scrollPage?.firstContentInDescendant() ?? null;
         while (content) {
-            yield content.text;
+            // Skip code-like leaves: marker-shaped text there is literal to
+            // the comment parser and must not count as a counterpart.
+            if (!NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(content.blockName))
+                yield content.text;
             content = content.nextContentInContext();
         }
     }

@@ -533,6 +533,31 @@ describe('track C — empty table row/column/whole-table cut is structural', () 
         expect(md).not.toContain('b2');
     });
 
+    it('blocks a table-cell cut that would orphan a comment closing outside the table', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya([
+            '| <!--MC:a-->reviewed | other |',
+            '| --- | --- |',
+            '',
+            'closing here<!--MC:~a--> in a paragraph',
+            '',
+            `[MC:a]: ${meta}`,
+            '',
+        ].join('\n'));
+        const before = muya.getMarkdown();
+        const table = firstTable(muya);
+
+        // Select only the cell holding the OPEN marker; the close lives in the
+        // paragraph after the table.
+        dragSelect(table, 0, 0, 0, 0);
+        const md = await cutSelectionAndRead(muya);
+
+        // Guard blocks the cut: document untouched, no orphaned marker.
+        expect(md).toBe(before);
+        expect(md).toContain('<!--MC:a-->');
+        expect(md).toContain('<!--MC:~a-->');
+    });
+
     it('cutting a whole table with a comment removes now-unreferenced metadata', async () => {
         const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
         const muya = bootMuya([

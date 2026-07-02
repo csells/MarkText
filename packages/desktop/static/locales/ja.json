@@ -978,6 +978,8 @@
       "keepEditing": "編集を続ける",
       "acceptMerge": "マージを承認",
       "invalidCommentSyntax": "マージ結果に無効な MarkText コメント構文が含まれています。承認する前に結果を修正してください。",
+      "unresolvedConflict": "マージ結果にまだ競合マーカーが含まれています。承認する前にすべての競合を解決してください。",
+      "markerNotFound": "この競合ブロックは編集されています。結果内で手動で解決してから承認してください。",
       "reloadDisk": "ディスクから再読み込み"
     },
     "export": {

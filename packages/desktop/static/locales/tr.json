@@ -978,6 +978,8 @@
       "keepEditing": "Düzenlemeye Devam Et",
       "acceptMerge": "Birleştirmeyi Kabul Et",
       "invalidCommentSyntax": "Birleştirme sonucu geçersiz MarkText yorum sözdizimi ekliyor. Kabul etmeden önce sonucu düzeltin.",
+      "unresolvedConflict": "Birleştirme sonucu hâlâ çakışma işaretleri içeriyor. Kabul etmeden önce tüm çakışmaları çözün.",
+      "markerNotFound": "Bu çakışma bloğu düzenlendi. Sonuçta elle çözün, ardından kabul edin.",
       "reloadDisk": "Diskten Yeniden Yükle"
     },
     "export": {

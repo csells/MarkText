@@ -978,6 +978,8 @@
       "keepEditing": "Seguir editando",
       "acceptMerge": "Aceptar fusión",
       "invalidCommentSyntax": "El resultado de la fusión introduce sintaxis de comentarios de MarkText no válida. Corrige el resultado antes de aceptarlo.",
+      "unresolvedConflict": "El resultado de la fusión todavía contiene marcadores de conflicto. Resuelve todos los conflictos antes de aceptar.",
+      "markerNotFound": "Ese bloque de conflicto se ha editado. Resuélvelo a mano en el resultado y luego acepta.",
       "reloadDisk": "Recargar desde disco"
     },
     "export": {

@@ -184,11 +184,13 @@ describe('desktop locale completeness for markdown comments', () => {
       'invalidCommentSyntax',
       'keepEditing',
       'local',
+      'markerNotFound',
       'reloadDisk',
       'remote',
       'result',
       'summary',
       'title',
+      'unresolvedConflict',
       'useBoth',
       'useLocal',
       'useRemote'

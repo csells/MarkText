@@ -168,6 +168,29 @@ describe('comment marker cut guards — cross-block counterpart detection', () =
     });
 });
 
+describe('code-fence literal markers are not counterparts', () => {
+    it('lets a genuine orphan open marker be cut even when a fence contains the literal close', async () => {
+        const muya = bootMuya([
+            'alpha <!--MC:c1-->beta',
+            '',
+            '```txt',
+            'docs: <!--MC:~c1--> is the close marker',
+            '```',
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+        // Fully cover the orphan open marker (offsets 6..18) in the paragraph;
+        // the only "close" is literal text inside the fence.
+        stubSelection(muya, blocks[0], 6, blocks[0], 18);
+
+        expect(muya.editor.clipboard.cutHandler()).toBe(true);
+        const markdown = await settle(muya);
+        expect(markdown).not.toContain('<!--MC:c1-->');
+        // The fence's literal documentation text is untouched.
+        expect(markdown).toContain('docs: <!--MC:~c1--> is the close marker');
+    });
+});
+
 describe('comment metadata cleanup after a cut', () => {
     it('removes only the definition paragraph from a blockquote, keeping siblings', async () => {
         const muya = bootMuya([

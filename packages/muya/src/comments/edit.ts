@@ -4,13 +4,11 @@ import type { ICommentMetadata, ICommentReplyInput } from './types';
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
 import ExportMarkdown from '../state/stateToMarkdown';
-import { escapeRegExp } from '../utils';
 import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
 import { buildCommentSourceIndex } from './source';
 import {
     COMMENT_MARKER_PATTERN,
-    COMMENT_METADATA_DATA_URI_PREFIX,
     isValidCommentId,
     parseCommentMetadataDefinition,
     serializeCommentMarker,
@@ -60,9 +58,30 @@ const NON_COMMENTABLE_TEXT_STATES = new Set<TState['name']>([
     'thematic-break',
 ]);
 
-const COMMENT_METADATA_LINE_REGEXP = new RegExp(
-    `^( {0,3}\\[MC:([^\\]\\s]+)\\]:\\s*)(${escapeRegExp(COMMENT_METADATA_DATA_URI_PREFIX)}\\S*)(\\s*)$`,
-);
+// Must accept every line the parser's COMMENT_METADATA_DEFINITION_REGEXP
+// accepts (any payload tail; decode validates it), or a thread the parser
+// surfaces becomes silently un-editable — e.g. a base64 payload containing
+// whitespace, which forgiving-base64 decodes but a \S*-only matcher rejects.
+// Matches only the `[MC:id]: ` label prefix (with its trailing spaces); the
+// payload and trailing whitespace are split off arithmetically to avoid a
+// backtracking-prone `(.*?)(\s*)$` tail.
+const COMMENT_METADATA_LINE_PREFIX_REGEXP = /^ {0,3}\[MC:[^\]\s]+\]:[^\S\n]*/;
+
+// Split a metadata-definition line into its rewriteable pieces: the label
+// prefix (kept verbatim) and any trailing whitespace (preserved), leaving the
+// payload to be replaced. Returns null when the line is not a definition.
+function splitCommentMetadataLine(line: string): { prefix: string; trailing: string } | null {
+    const match = COMMENT_METADATA_LINE_PREFIX_REGEXP.exec(line);
+    if (!match)
+        return null;
+
+    const prefix = match[0];
+    let end = line.length;
+    while (end > prefix.length && /\s/u.test(line[end - 1]))
+        end -= 1;
+
+    return { prefix, trailing: line.slice(end) };
+}
 
 function readPath(root: unknown, path: TBlockPath): unknown {
     let current = root;
@@ -448,11 +467,11 @@ export function updateCommentMetadataDefinition(
                 continue;
             }
 
-            const match = COMMENT_METADATA_LINE_REGEXP.exec(lines[index]);
-            if (!match)
+            const parts = splitCommentMetadataLine(lines[index]);
+            if (!parts)
                 continue;
 
-            lines[index] = `${match[1]}${encodeCommentMetadata(normalizeCommentMetadata(updater(current)))}${match[4]}`;
+            lines[index] = `${parts.prefix}${encodeCommentMetadata(normalizeCommentMetadata(updater(current)))}${parts.trailing}`;
             state.text = lines.join('\n');
             updated = true;
             return true;
@@ -482,15 +501,15 @@ export function updateCommentMetadataInMarkdown(
         }
 
         const sourceLine = markdown.slice(sourceDefinition.start, sourceDefinition.end);
-        const match = COMMENT_METADATA_LINE_REGEXP.exec(sourceLine);
-        if (!match)
+        const parts = splitCommentMetadataLine(sourceLine);
+        if (!parts)
             continue;
 
         const nextDataUri = encodeCommentMetadata(normalizeCommentMetadata(updater(current)));
         if (nextDataUri === sourceDefinition.dataUri)
             return markdown;
 
-        const nextLine = `${match[1]}${nextDataUri}${match[4]}`;
+        const nextLine = `${parts.prefix}${nextDataUri}${parts.trailing}`;
         return `${markdown.slice(0, sourceDefinition.start)}${nextLine}${markdown.slice(sourceDefinition.end)}`;
     }
 

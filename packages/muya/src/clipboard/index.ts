@@ -1,9 +1,10 @@
 import type { Muya } from '../muya';
 import type { IClipboardPayload } from './copyData';
 import Format from '../block/base/format';
+import { SelectionDirection } from '../selection/types';
 import { isClipboardEvent, isKeyboardEvent } from '../utils';
 import { getClipboardData, writeClipboardData } from './copyData';
-import { cutSelection, deleteTableSelection } from './cut';
+import { blockedCommentMarkerCut, cutSelection, deleteTableSelection } from './cut';
 import { pastePlainText, pasteSelection } from './paste';
 import { pasteImageSrc } from './pasteImage';
 import { CopyType, PasteType } from './types';
@@ -56,6 +57,12 @@ class Clipboard {
 
             const isCut = event.type === 'cut';
 
+            // A blocked cut must be a full no-op: skipping the copy too keeps
+            // the user's existing clipboard instead of silently degrading
+            // Ctrl+X to a copy of text that was never removed.
+            if (isCut && blockedCommentMarkerCut(this))
+                return;
+
             this.copyHandler(event);
 
             if (isCut)
@@ -103,6 +110,30 @@ class Clipboard {
                 event.preventDefault();
         };
 
+        // IME composition over a cross-block selection: preventDefault on the
+        // 'Process' (229) keydown cannot cancel a composition and the
+        // insertCompositionText beforeinput is non-cancelable, so the model
+        // cut — or, when a guard blocks it, an explicit collapse — must run
+        // at compositionstart, before the native composition replaces the
+        // still-spanning DOM selection and diverges from the model.
+        const compositionStartHandler = (event: Event) => {
+            if (!ownsEvent() || event.type !== 'compositionstart')
+                return;
+
+            const selection = this.selection.getSelection();
+            if (!selection || selection.isSelectionInSameBlock)
+                return;
+
+            if (!this.cutHandler()) {
+                // Blocked cut: collapse to the selection start so the composed
+                // text inserts at a caret instead of natively merging blocks.
+                const { anchor, focus, direction } = selection;
+                const block = direction === SelectionDirection.FORWARD ? anchor.block : focus.block;
+                const offset = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
+                block.setCursor(offset, offset, true);
+            }
+        };
+
         const pasteHandler = (event: Event) => {
             if (ownsEvent() && isClipboardEvent(event))
                 this.pasteHandler(event);
@@ -114,6 +145,7 @@ class Clipboard {
         eventCenter.attachDOMEvent(document, 'cut', copyCutHandler);
         eventCenter.attachDOMEvent(document, 'paste', pasteHandler);
         eventCenter.attachDOMEvent(document, 'keydown', keydownHandler);
+        eventCenter.attachDOMEvent(document, 'compositionstart', compositionStartHandler);
     }
 
     getClipboardData(): IClipboardPayload {

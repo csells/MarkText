@@ -193,6 +193,23 @@ describe('mergeMarkdownThreeWay', () => {
     expect(result.mergedMarkdown).toBe('- task done\n- task\n')
   })
 
+  // Re-review finding: the repeated-line reconciliation spliced deficit copies
+  // at the longest run of the line — position-blind — so an IDENTICAL
+  // insertion by both sides (count once, like git) combined with an unrelated
+  // deletion pushed a surplus blank line INTO a code fence: a silently merged
+  // document neither side wrote. Identical-context insertions with a unique
+  // anchor must collapse, not sum.
+  it('does not splice a surplus blank line into a code fence for identical insertions', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'title\naaa\n```\ncode1\n\n\ncode2\n```\nzzz\n',
+      local: 'title\n\naaa\n```\ncode1\n\n\ncode2\n```\nzzz\n',
+      remote: 'title\n\naaa\n```\ncode1\n\n\ncode2\n```\n'
+    })
+
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('title\n\naaa\n```\ncode1\n\n\ncode2\n```\n')
+  })
+
   // Concurrent independent insertions of identical content must both survive —
   // collapsing them to one silently drops a side's insertion (data loss).
   it('keeps both independent identical insertions instead of dropping one', () => {

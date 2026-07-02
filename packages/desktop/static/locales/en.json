@@ -978,6 +978,8 @@
       "keepEditing": "Keep Editing",
       "acceptMerge": "Accept Merge",
       "invalidCommentSyntax": "The merge result introduces invalid MarkText comment syntax. Fix the result before accepting.",
+      "unresolvedConflict": "The merge result still contains conflict markers. Resolve every conflict before accepting.",
+      "markerNotFound": "That conflict block has been edited. Resolve it by hand in the result, then accept.",
       "reloadDisk": "Reload Disk"
     },
     "export": {

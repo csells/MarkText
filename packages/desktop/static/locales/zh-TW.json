@@ -978,6 +978,8 @@
       "keepEditing": "繼續編輯",
       "acceptMerge": "接受合併",
       "invalidCommentSyntax": "合併結果引入了無效的 MarkText 評論語法。請先修正結果再接受。",
+      "unresolvedConflict": "合併結果仍包含衝突標記。請先解決所有衝突再接受。",
+      "markerNotFound": "該衝突區塊已被編輯。請在結果中手動解決後再接受。",
       "reloadDisk": "從磁碟重新載入"
     },
     "export": {

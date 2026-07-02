@@ -60,6 +60,19 @@ export function isValidCommentId(id: string): boolean {
     return new RegExp(`^${COMMENT_ID_PATTERN}$`).test(id);
 }
 
+// Content-leaf block names whose text the comment parser never scans (code
+// fences and the code-like containers — frontmatter/math/html/diagram — all
+// render through these leaves, plus thematic breaks): marker-shaped text
+// there is LITERAL. Document walks that feed the guards below must skip
+// these leaves, mirroring parse.ts's NON_INLINE_COMMENT_TEXT_STATES at the
+// block level, or a fence containing "<!--MC:~id-->" as documentation would
+// count as a real counterpart and falsely block edits.
+export const NON_COMMENT_SCANNABLE_LEAF_BLOCKS: ReadonlySet<string> = new Set([
+    'codeblock.content',
+    'language-input',
+    'thematicbreak.content',
+]);
+
 // Aggregate every marker kind present across the given texts, keyed by
 // comment id. Edit guards use this to answer "does this comment's counterpart
 // marker exist anywhere in the document?" — a range can open in one block and

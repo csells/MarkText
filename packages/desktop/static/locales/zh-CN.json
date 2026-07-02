@@ -978,6 +978,8 @@
       "keepEditing": "继续编辑",
       "acceptMerge": "接受合并",
       "invalidCommentSyntax": "合并结果引入了无效的 MarkText 评论语法。请先修正结果再接受。",
+      "unresolvedConflict": "合并结果仍包含冲突标记。请先解决所有冲突再接受。",
+      "markerNotFound": "该冲突块已被编辑。请在结果中手动解决后再接受。",
       "reloadDisk": "从磁盘重新加载"
     },
     "insertTable": {
