@@ -1,3 +1,4 @@
+import type { IFenceMarker } from '../utils/markdownBlockRules';
 import type { TBlockToken } from '../utils/marked/types';
 import type {
     IAtxHeadingState,
@@ -17,6 +18,14 @@ import {
 } from '../comments/syntax';
 import { escapeRegExp } from '../utils';
 import logger from '../utils/logger';
+import {
+    FRONT_MATTER_OPEN_REGEXP,
+    frontMatterCloseMarker,
+    INDENTED_CODE_REGEXP,
+    isFenceClose,
+    MATH_BLOCK_DELIM_REGEXP,
+    parseFenceMarker,
+} from '../utils/markdownBlockRules';
 import { lexBlock } from '../utils/marked';
 
 const debug = logger('import markdown: ');
@@ -115,43 +124,17 @@ function consumeTextToken(token: Extract<TBlockToken, { type: 'text' }>, tokens:
     return value;
 }
 
-interface IFenceState {
-    marker: '`' | '~';
-    length: number;
-}
-
 interface ICommentMetadataDefinitionScanOptions {
     frontMatter: boolean;
     math: boolean;
 }
 
-function getFenceStart(line: string): IFenceState | null {
-    const match = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
-    if (!match)
-        return null;
-
-    const marker = match[1][0] as '`' | '~';
-    return { marker, length: match[1].length };
-}
-
-function isFenceEnd(line: string, fence: IFenceState): boolean {
-    const regexp = new RegExp(`^(?: {0,3})${fence.marker}{${fence.length},}\\s*$`, 'u');
-    return regexp.test(line);
-}
-
-function getFrontMatterStart(line: string): string | null {
-    const match = /^(---|\+\+\+|;;;|\{)[ \t]*$/u.exec(line);
-    if (!match)
-        return null;
-
-    return match[1] === '{' ? '}' : match[1];
-}
-
 function getFrontMatterEndLine(lines: string[]): number | null {
-    const closing = lines[0] == null ? null : getFrontMatterStart(lines[0]);
-    if (!closing)
+    const opening = lines[0] == null ? null : FRONT_MATTER_OPEN_REGEXP.exec(lines[0]);
+    if (!opening)
         return null;
 
+    const closing = frontMatterCloseMarker(opening[1]);
     for (let index = 1; index < lines.length; index += 1) {
         if (lines[index].trim() === closing)
             return index;
@@ -183,7 +166,7 @@ function commentMetadataDefinitionLines(
         .replace(/^\uFEFF/u, '')
         .split(/\r\n|\n|\r/u);
     const definitions: string[] = [];
-    let fence: IFenceState | null = null;
+    let fence: IFenceMarker | null = null;
     const frontMatterEndLine = options.frontMatter ? getFrontMatterEndLine(lines) : null;
     let htmlClosing: RegExp | null = null;
     let inMathBlock = false;
@@ -196,24 +179,24 @@ function commentMetadataDefinitionLines(
             continue;
 
         if (fence) {
-            if (isFenceEnd(line, fence))
+            if (isFenceClose(line, fence))
                 fence = null;
             continue;
         }
 
-        const fenceStart = getFenceStart(line);
+        const fenceStart = parseFenceMarker(line);
         if (fenceStart) {
             fence = fenceStart;
             continue;
         }
 
         if (options.math && inMathBlock) {
-            if (/^ {0,3}\$\$[ \t]*$/u.test(line))
+            if (MATH_BLOCK_DELIM_REGEXP.test(line))
                 inMathBlock = false;
             continue;
         }
 
-        if (options.math && /^ {0,3}\$\$[ \t]*$/u.test(line)) {
+        if (options.math && MATH_BLOCK_DELIM_REGEXP.test(line)) {
             inMathBlock = true;
             continue;
         }
@@ -231,7 +214,7 @@ function commentMetadataDefinitionLines(
             continue;
         }
 
-        if (/^(?: {4,}|\t)/u.test(line))
+        if (INDENTED_CODE_REGEXP.test(line))
             continue;
 
         if (parseCommentMetadataDefinition(line))

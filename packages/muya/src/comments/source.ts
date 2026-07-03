@@ -1,3 +1,11 @@
+import {
+    FRONT_MATTER_OPEN_REGEXP,
+    frontMatterCloseMarker,
+    INDENTED_CODE_REGEXP,
+    isFenceClose,
+    MATH_BLOCK_DELIM_REGEXP,
+    parseFenceMarker,
+} from '../utils/markdownBlockRules';
 import { forEachRealCommentMarker } from './markerScan';
 import {
     COMMENT_MARKER_PATTERN,
@@ -135,24 +143,6 @@ export interface ICommentSourceLineState {
 }
 
 const SOURCE_COMMENT_MARKER_START_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u');
-const FRONT_MATTER_OPEN_REGEXP = /^(---|\+\+\+|;;;|\{)[ \t]*$/u;
-
-// Block-construct rules shared by the streaming line classifier
-// (prepareCommentSourceLine) and the batch index it now backs — one definition
-// so the two cannot drift.
-const FENCE_OPEN_REGEXP = /^ {0,3}(`{3,}|~{3,})/u;
-const FENCE_CLOSE_REGEXP = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u;
-const MATH_DELIM_REGEXP = /^ {0,3}\$\$[ \t]*$/u;
-const INDENTED_CODE_REGEXP = /^(?: {4,}|\t)/u;
-
-function isFenceClose(line: string, fence: { char: '`' | '~'; length: number }): boolean {
-    const match = FENCE_CLOSE_REGEXP.exec(line);
-    return !!match && match[1][0] === fence.char && match[1].length >= fence.length;
-}
-
-function frontMatterCloseMarker(openMarker: string): string {
-    return openMarker === '{' ? '}' : openMarker;
-}
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
@@ -333,12 +323,9 @@ export function prepareCommentSourceLine(state: ICommentSourceLineState, line: s
         return;
     }
 
-    const openingFence = FENCE_OPEN_REGEXP.exec(line);
+    const openingFence = parseFenceMarker(line);
     if (openingFence) {
-        state.fence = {
-            char: openingFence[1][0] as '`' | '~',
-            length: openingFence[1].length,
-        };
+        state.fence = openingFence;
         state.ignoreLine = true;
         state.openParagraph = false;
         return;
@@ -347,12 +334,12 @@ export function prepareCommentSourceLine(state: ICommentSourceLineState, line: s
     if (state.inMathBlock) {
         state.ignoreLine = true;
         state.openParagraph = false;
-        if (MATH_DELIM_REGEXP.test(line))
+        if (MATH_BLOCK_DELIM_REGEXP.test(line))
             state.inMathBlock = false;
         return;
     }
 
-    if (MATH_DELIM_REGEXP.test(line)) {
+    if (MATH_BLOCK_DELIM_REGEXP.test(line)) {
         state.inMathBlock = true;
         state.ignoreLine = true;
         state.openParagraph = false;
