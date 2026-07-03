@@ -185,6 +185,24 @@ export function documentCommentMarkerKinds(clipboard: Clipboard): Map<string, Se
     return commentMarkerKindsInBlocks(scannableContentBlocks(clipboard));
 }
 
+// Whether a same-block cut over [startOffset, endOffset) would orphan a comment
+// marker. Marker-shaped text inside a non-scannable leaf (a code fence) is
+// literal, not a comment endpoint, so its edit is never blocked. Shared by the
+// pre-cut check (blockedCommentMarkerCut) and the executor (cutSelection) so the
+// two cannot drift.
+function sameBlockCutUnsafe(
+    clipboard: Clipboard,
+    block: Content,
+    startOffset: number,
+    endOffset: number,
+): boolean {
+    if (NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(block.blockName))
+        return false;
+
+    return isUnsafeCommentMarkerTextEdit(block.text, startOffset, endOffset, () =>
+        documentCommentMarkerKinds(clipboard));
+}
+
 function selectedCommentMarkersInCrossBlockRange(
     startBlock: Content,
     startOffset: number,
@@ -636,14 +654,8 @@ export function blockedCommentMarkerCut(clipboard: Clipboard): boolean {
     const startOffset = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
     const endOffset = direction === SelectionDirection.FORWARD ? focus.offset : anchor.offset;
 
-    if (isSelectionInSameBlock) {
-        // A non-scannable leaf (code fence) holds literal marker text — not a
-        // real endpoint — so its edit is never blocked. Mirrors cutSelection.
-        if (NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(anchor.block.blockName))
-            return false;
-        return isUnsafeCommentMarkerTextEdit(anchor.block.text, startOffset, endOffset, () =>
-            documentCommentMarkerKinds(clipboard));
-    }
+    if (isSelectionInSameBlock)
+        return sameBlockCutUnsafe(clipboard, anchor.block, startOffset, endOffset);
 
     const startBlock = direction === SelectionDirection.FORWARD ? anchor.block : focus.block;
     const endBlock = direction === SelectionDirection.FORWARD ? focus.block : anchor.block;
@@ -704,16 +716,7 @@ export function cutSelection(clipboard: Clipboard): boolean {
         const startOffset
             = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
         const endOffset = direction === SelectionDirection.FORWARD ? focus.offset : anchor.offset;
-        // Marker-shaped text inside a non-scannable leaf (a code fence) is
-        // literal, not a comment endpoint — skip the guard so it can be edited
-        // freely, matching how the counterpart scan excludes those leaves.
-        const editedBlockIsScannable
-            = !NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(anchorBlock.blockName);
-        const unsafe
-            = editedBlockIsScannable
-                && isUnsafeCommentMarkerTextEdit(text, startOffset, endOffset, () =>
-                    documentCommentMarkerKinds(clipboard));
-        if (unsafe)
+        if (sameBlockCutUnsafe(clipboard, anchorBlock, startOffset, endOffset))
             return false;
         const removedCommentIds = commentIdsInText(text.substring(startOffset, endOffset));
 
