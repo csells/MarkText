@@ -718,7 +718,11 @@ export function cutSelection(clipboard: Clipboard): boolean {
         const endOffset = direction === SelectionDirection.FORWARD ? focus.offset : anchor.offset;
         if (sameBlockCutUnsafe(clipboard, anchorBlock, startOffset, endOffset))
             return false;
-        const removedCommentIds = commentIdsInText(text.substring(startOffset, endOffset));
+        // Scan the FULL block text (with offsets), not the cut fragment: the
+        // tokenizer re-evaluates inline-code boundaries per string, so a marker
+        // that is live in the block can fall inside a spurious code span when
+        // only the removed slice is tokenized, leaving its metadata orphaned.
+        const removedCommentIds = selectedCommentMarkers(text, startOffset, endOffset).ids;
 
         anchorBlock.text
             = text.substring(0, startOffset) + text.substring(endOffset);

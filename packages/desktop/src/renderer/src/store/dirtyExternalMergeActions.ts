@@ -339,7 +339,7 @@ export function reloadDiskFromMergeConflict(store: EditorStore): void {
   if (!tab) return
 
   clearExclusiveTabNotification(tab, 'file_changed')
-  const recoveryTab = createDirtyReloadRecoveryTab(store, tab)
+  const recoveryTab = store.CREATE_DIRTY_RELOAD_RECOVERY_TAB(tab)
   store.pushTabNotification({
     tabId: tab.id,
     msg: t('store.editor.fileChangedOnDiskRecoveryCreated', {

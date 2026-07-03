@@ -282,6 +282,27 @@ describe('comment metadata cleanup after a cut', () => {
         expect(markdown).not.toContain('MC:a');
     });
 
+    it('cleans up metadata for a comment sitting between inline-code spans', async () => {
+        // Adversarial-review regression: the same-block cut computed cleanup ids
+        // by tokenizing only the removed slice, so a marker live in the block but
+        // falling inside a spurious code span in the fragment was missed and its
+        // metadata left orphaned. The cut must scan the full block text.
+        const muya = bootMuya([
+            `\`a\` <!--MC:x-->t<!--MC:~x--> \`b\``,
+            '',
+            `[MC:x]: ${metadata()}`,
+            '',
+        ].join('\n'));
+        const para = contentBlocks(muya)[0];
+        // Cut from inside the left code span to inside the right one; both x
+        // markers are fully covered, so the cut is allowed.
+        stubSelection(muya, para, 1, para, 31);
+
+        expect(muya.editor.clipboard.cutHandler()).toBe(true);
+        const markdown = await settle(muya);
+        expect(markdown).not.toContain('MC:x');
+    });
+
     it('leaves a definition-shaped line inside a code fence untouched', async () => {
         const definition = `[MC:a]: ${metadata()}`;
         const muya = bootMuya([
