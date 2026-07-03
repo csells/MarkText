@@ -311,19 +311,17 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
     }
   }
 
-  const mergedLines = merged
-
   // node-diff3 produced a clean merge; accept it only if it provably preserved
   // data, otherwise escalate to a whole-file conflict the user resolves.
   if (
     conflicts.length === 0 &&
-    mergeViolatesDataPreservation(localLines, remoteLines, mergedLines)
+    mergeViolatesDataPreservation(localLines, remoteLines, merged)
   ) {
     return createWholeFileConflict(base, local, remote)
   }
 
   return {
-    mergedMarkdown: mergedLines.join(''),
+    mergedMarkdown: merged.join(''),
     conflicts
   }
 }

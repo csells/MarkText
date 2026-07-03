@@ -11,22 +11,9 @@ const KNOWN_METADATA_KEYS = new Set([
     'replies',
 ]);
 
-const FORBIDDEN_METADATA_KEYS = new Set([
-    'anchor',
-    'anchors',
-    'anchorOffset',
-    'anchorOffsets',
-    'alternateAnchor',
-    'alternateAnchors',
-    'endOffset',
-    'endPath',
-    'range',
-    'repairCoordinate',
-    'repairCoordinates',
-    'startOffset',
-    'startPath',
-]);
-
+// Anchor/offset/path/range/repair data is never persisted in comment metadata
+// (it is recomputed from the document). Any key mentioning those concepts is
+// rejected — the pattern subsumes every concrete key name.
 const FORBIDDEN_METADATA_KEY_PATTERN = /anchor|offset|path|range|repair/iu;
 
 function compareOrdinal(a: string, b: string): number {
@@ -73,7 +60,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isForbiddenMetadataKey(key: string): boolean {
-    return FORBIDDEN_METADATA_KEYS.has(key) || FORBIDDEN_METADATA_KEY_PATTERN.test(key);
+    return FORBIDDEN_METADATA_KEY_PATTERN.test(key);
 }
 
 function normalizeDisplayValue(value: unknown, path: string): unknown {

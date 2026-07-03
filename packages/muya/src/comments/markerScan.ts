@@ -82,10 +82,23 @@ export function commentMarkerKindsInTexts(
     return kindsById;
 }
 
+// Whether removing exactly `removedKinds` for a comment orphans a counterpart
+// that survives elsewhere (per `survivingKinds`): one endpoint is removed while
+// its partner remains, or vice versa. The single definition of "this edit
+// orphans a marker", shared by every edit guard.
+export function orphansCounterpart(
+    removedKinds: ReadonlySet<TCommentMarkerKind>,
+    survivingKinds: ReadonlySet<TCommentMarkerKind>,
+): boolean {
+    return (
+        (removedKinds.has('open') && !removedKinds.has('close') && survivingKinds.has('close'))
+        || (removedKinds.has('close') && !removedKinds.has('open') && survivingKinds.has('open'))
+    );
+}
+
 // Whether removing `removedTexts` while keeping `survivingTexts` orphans a
-// comment: one endpoint is removed while its counterpart survives (or vice
-// versa). Used by structural edits (table row/column removal) that delete whole
-// blocks at once.
+// comment. Used by structural edits (table row/column removal) that delete
+// whole blocks at once.
 export function removalOrphansCommentMarker(
     removedTexts: Iterable<string>,
     survivingTexts: Iterable<string>,
@@ -97,15 +110,8 @@ export function removalOrphansCommentMarker(
     const surviving = commentMarkerKindsInTexts(survivingTexts);
     for (const [id, kinds] of removed) {
         const survivingKinds = surviving.get(id);
-        if (!survivingKinds)
-            continue;
-
-        if (
-            (kinds.has('open') && !kinds.has('close') && survivingKinds.has('close'))
-            || (kinds.has('close') && !kinds.has('open') && survivingKinds.has('open'))
-        ) {
+        if (survivingKinds && orphansCounterpart(kinds, survivingKinds))
             return true;
-        }
     }
 
     return false;

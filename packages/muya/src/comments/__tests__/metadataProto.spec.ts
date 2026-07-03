@@ -31,3 +31,36 @@ describe('comment metadata __proto__ safety', () => {
         expect(objectHasOwn(display, '__proto__')).toBe(true);
     });
 });
+
+// Thermo-nuclear review: FORBIDDEN_METADATA_KEYS (an explicit Set) was 100%
+// subsumed by FORBIDDEN_METADATA_KEY_PATTERN (/anchor|offset|path|range|repair/i)
+// beside it. This locks that every previously-listed key is still rejected, so
+// deleting the redundant Set cannot change behavior.
+describe('forbidden comment metadata keys (anchor/offset/path/range/repair)', () => {
+    const previouslyEnumeratedKeys = [
+        'anchor',
+        'anchors',
+        'anchorOffset',
+        'anchorOffsets',
+        'alternateAnchor',
+        'alternateAnchors',
+        'endOffset',
+        'endPath',
+        'range',
+        'repairCoordinate',
+        'repairCoordinates',
+        'startOffset',
+        'startPath',
+    ];
+
+    for (const key of previouslyEnumeratedKeys) {
+        it(`rejects a display key "${key}"`, () => {
+            const dataUri = encodeJson(JSON.stringify({
+                status: 'open',
+                replies: [],
+                display: { [key]: 'x' },
+            }));
+            expect(() => decodeCommentMetadata(dataUri)).toThrow();
+        });
+    }
+});

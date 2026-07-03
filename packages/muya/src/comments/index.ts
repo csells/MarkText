@@ -16,6 +16,7 @@ export {
     commentMarkerKindsInText,
     commentMarkerKindsInTexts,
     forEachRealCommentMarker,
+    orphansCounterpart,
     removalOrphansCommentMarker,
 } from './markerScan';
 export {

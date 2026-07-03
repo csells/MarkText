@@ -240,36 +240,21 @@ function selectionContainsNonWhitespace(
     startOffset: number,
     endOffset: number,
 ): boolean {
-    const startIndex = indexes.get(commentPathKey(startPath));
-    const endIndex = indexes.get(commentPathKey(endPath));
-    if (startIndex == null || endIndex == null)
+    // Same per-leaf walk as selectionIntersectsAcrossLeaves, but a selection
+    // whose endpoints are not in the tree counts as empty (false), not
+    // intersecting (true) — so guard the missing-path case before delegating.
+    if (indexes.get(commentPathKey(startPath)) == null || indexes.get(commentPathKey(endPath)) == null)
         return false;
 
-    let textIndex = 0;
-    let containsNonWhitespace = false;
-
-    const visit = (nodes: TState[]) => {
-        for (const state of nodes) {
-            if ('text' in state && typeof state.text === 'string') {
-                if (textIndex >= startIndex && textIndex <= endIndex) {
-                    const selectionStart = textIndex === startIndex ? startOffset : 0;
-                    const selectionEnd = textIndex === endIndex ? endOffset : state.text.length;
-                    if (state.text.slice(selectionStart, selectionEnd).trim().length > 0)
-                        containsNonWhitespace = true;
-                }
-                textIndex += 1;
-            }
-
-            if (containsNonWhitespace)
-                return;
-
-            if ('children' in state && Array.isArray(state.children))
-                visit(state.children);
-        }
-    };
-
-    visit(states);
-    return containsNonWhitespace;
+    return selectionIntersectsAcrossLeaves(
+        states,
+        indexes,
+        startPath,
+        endPath,
+        startOffset,
+        endOffset,
+        (text, selectionStart, selectionEnd) => text.slice(selectionStart, selectionEnd).trim().length > 0,
+    );
 }
 
 function validateCommentRangeTarget({

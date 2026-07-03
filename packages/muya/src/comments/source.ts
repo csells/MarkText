@@ -7,7 +7,7 @@ import {
     parseFenceMarker,
 } from '../utils/markdownBlockRules';
 import getFrontMatterInfo from '../utils/marked/frontMatter';
-import { forEachRealCommentMarker } from './markerScan';
+import { forEachRealCommentMarker, orphansCounterpart } from './markerScan';
 import {
     COMMENT_MARKER_PATTERN,
     parseCommentMetadataDefinition,
@@ -54,18 +54,6 @@ function scanEditedCommentMarkers(text: string, startOffset: number, endOffset: 
     }
 
     return { selectedKindsById, allKindsById, partial: false };
-}
-
-// Whether removing exactly `selectedKinds` for `id` orphans a counterpart that
-// survives elsewhere (per `documentKinds`).
-function orphansCounterpart(
-    selectedKinds: ReadonlySet<TMarkerKind>,
-    documentKinds: ReadonlySet<TMarkerKind>,
-): boolean {
-    return (
-        (selectedKinds.has('open') && !selectedKinds.has('close') && documentKinds.has('close'))
-        || (selectedKinds.has('close') && !selectedKinds.has('open') && documentKinds.has('open'))
-    );
 }
 
 export function isUnsafeCommentMarkerTextEdit(
