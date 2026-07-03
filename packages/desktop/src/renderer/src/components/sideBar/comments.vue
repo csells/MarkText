@@ -277,7 +277,7 @@ import { usePreferencesStore } from '@/store/preferences'
 const { t } = useI18n()
 const editorStore = useEditorStore()
 const preferencesStore = usePreferencesStore()
-const { comments, activeCommentIds } = storeToRefs(editorStore)
+const { comments, activeCommentIds, addCommentEnabled: canAddComment } = storeToRefs(editorStore)
 const replyDrafts = reactive<Record<string, string>>({})
 const editDrafts = reactive<Record<string, string>>({})
 const editingReplies = reactive<Record<string, boolean>>({})
@@ -287,10 +287,6 @@ const composingThreadIds = reactive<Record<string, boolean>>({})
 // overwrite a different reply).
 const editReplyAnchors = reactive<Record<string, string>>({})
 const replyInputs = new Map<string, { focus: () => void }>()
-const getLatestAddCommentEnabled = (
-  editorStore as { GET_LATEST_ADD_COMMENT_ENABLED?: () => boolean }
-).GET_LATEST_ADD_COMMENT_ENABLED
-const canAddComment = ref(getLatestAddCommentEnabled?.() === true)
 type CommentFilter = 'all' | 'open' | 'resolved'
 const commentFilter = ref<CommentFilter>('all')
 
@@ -355,10 +351,6 @@ const addComment = (): void => {
   if (!canAddComment.value) return
 
   bus.emit('addComment')
-}
-
-const handleAddCommentEnabledChanged = (enabled: unknown): void => {
-  canAddComment.value = enabled === true
 }
 
 const setReplyInputRef = (id: string, input: unknown): void => {
@@ -506,13 +498,11 @@ const discardEmptyComposedThreads = (): void => {
 
 onMounted(() => {
   bus.on('comment:compose', handleComposeComment)
-  bus.on('editor-add-comment-enabled-changed', handleAddCommentEnabledChanged)
 })
 
 onBeforeUnmount(() => {
   discardEmptyComposedThreads()
   bus.off('comment:compose', handleComposeComment)
-  bus.off('editor-add-comment-enabled-changed', handleAddCommentEnabledChanged)
 })
 </script>
 

@@ -90,6 +90,8 @@ const makeBindings = (
   const beforeUnmount: Array<() => void> = []
   const watchers: Array<{ cb: (value: unknown) => void }> = []
   const handlers = new Map<string, (...args: unknown[]) => void>()
+  // The reactive store field the comments sidebar now binds to directly.
+  const addCommentEnabledRef = ref(options.initialCanAddComment === true)
   const deps = {
     _defineComponent: (o: unknown) => o,
     computed,
@@ -105,7 +107,8 @@ const makeBindings = (
         ranges: initialComments.ranges ?? [],
         diagnostics: initialComments.diagnostics ?? []
       }),
-      activeCommentIds: ref([])
+      activeCommentIds: ref([]),
+      addCommentEnabled: addCommentEnabledRef
     }),
     Aim: {},
     Check: {},
@@ -120,9 +123,7 @@ const makeBindings = (
       off: (event: string) => handlers.delete(event),
       emit
     },
-    useEditorStore: () => ({
-      GET_LATEST_ADD_COMMENT_ENABLED: () => options.initialCanAddComment === true
-    }),
+    useEditorStore: () => ({}),
     usePreferencesStore: () => ({
       commentAuthorName: options.commentAuthorName ?? ''
     })
@@ -132,7 +133,7 @@ const makeBindings = (
   const ret = comp.setup({}, { expose: () => {} })
   mounted.forEach(fn => fn())
   const triggerThreadIds = (ids: string[]): void => watchers.forEach(w => w.cb(ids))
-  return { ret, emit, handlers, beforeUnmount, triggerThreadIds }
+  return { ret, emit, handlers, beforeUnmount, triggerThreadIds, addCommentEnabledRef }
 }
 
 describe('comments sidebar reply editing', () => {
@@ -211,13 +212,15 @@ describe('comments sidebar reply editing', () => {
   })
 
   it('does not emit Add Comment while the shared predicate is disabled', () => {
-    const { ret, emit, handlers } = makeBindings()
+    const { ret, emit, addCommentEnabledRef } = makeBindings()
 
     expect(ret.canAddComment.value).toBe(false)
     ret.addComment()
     expect(emit).not.toHaveBeenCalledWith('addComment')
 
-    handlers.get('editor-add-comment-enabled-changed')?.(true)
+    // The sidebar binds the store field reactively; the enabled-changed event
+    // updates that field (in the store) and the binding follows.
+    addCommentEnabledRef.value = true
     expect(ret.canAddComment.value).toBe(true)
     ret.addComment()
     expect(emit).toHaveBeenCalledWith('addComment')

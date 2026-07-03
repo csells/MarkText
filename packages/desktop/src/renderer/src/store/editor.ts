@@ -188,13 +188,16 @@ export interface EditorState {
   comments: IParsedMarkdownComments
   activeCommentIds: string[]
   mergeConflict: MergeConflictState | null
+  // Whether the current selection can start a comment. Written from the one
+  // selection-change notification, read reactively by the comments sidebar and
+  // by the context-menu Add Comment guard.
+  addCommentEnabled: boolean
 }
 
 const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-let latestAddCommentEnabled = false
 
 bus.on('editor-add-comment-enabled-changed', (enabled: unknown) => {
-  latestAddCommentEnabled = enabled === true
+  useEditorStore().addCommentEnabled = enabled === true
 })
 
 export const markTabSavedAtCurrentHistory = (tab: IFileState): void => {
@@ -257,7 +260,8 @@ export const useEditorStore = defineStore('editor', {
     toc: [],
     comments: createEmptyComments(),
     activeCommentIds: [],
-    mergeConflict: null
+    mergeConflict: null,
+    addCommentEnabled: false
   }),
 
   actions: {
@@ -618,10 +622,6 @@ export const useEditorStore = defineStore('editor', {
           lineEnding as LineEnding
         )
       }
-    },
-
-    GET_LATEST_ADD_COMMENT_ENABLED(): boolean {
-      return latestAddCommentEnabled
     },
 
     FLUSH_ACTIVE_EDITOR_FOR_SAVE(): void {
@@ -1939,7 +1939,7 @@ export const useEditorStore = defineStore('editor', {
         bus.emit('insertParagraph', location)
       })
       window.electron.ipcRenderer.on('mt::cm-add-comment', () => {
-        if (!latestAddCommentEnabled) return
+        if (!this.addCommentEnabled) return
         bus.emit('addComment')
       })
 
