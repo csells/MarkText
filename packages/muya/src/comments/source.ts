@@ -128,10 +128,27 @@ export interface ICommentSourceLineState {
     inMathBlock: boolean;
     htmlClosing: RegExp | null;
     ignoreLine: boolean;
+    // An indented line only starts an indented code block when it does NOT
+    // continue a paragraph. Tracks whether the previous non-ignored line was
+    // paragraph text (CommonMark lazy-continuation rule).
+    openParagraph: boolean;
 }
 
 const SOURCE_COMMENT_MARKER_START_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u');
 const FRONT_MATTER_OPEN_REGEXP = /^(---|\+\+\+|;;;|\{)[ \t]*$/u;
+
+// Block-construct rules shared by the streaming line classifier
+// (prepareCommentSourceLine) and the batch index it now backs — one definition
+// so the two cannot drift.
+const FENCE_OPEN_REGEXP = /^ {0,3}(`{3,}|~{3,})/u;
+const FENCE_CLOSE_REGEXP = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u;
+const MATH_DELIM_REGEXP = /^ {0,3}\$\$[ \t]*$/u;
+const INDENTED_CODE_REGEXP = /^(?: {4,}|\t)/u;
+
+function isFenceClose(line: string, fence: { char: '`' | '~'; length: number }): boolean {
+    const match = FENCE_CLOSE_REGEXP.exec(line);
+    return !!match && match[1][0] === fence.char && match[1].length >= fence.length;
+}
 
 function frontMatterCloseMarker(openMarker: string): string {
     return openMarker === '{' ? '}' : openMarker;
@@ -170,37 +187,31 @@ export function sourceRangesOverlap(
     return ranges.some(range => start < range.end && end > range.start);
 }
 
-function sourceFencedCodeIndexRanges(markdown: string): ICommentSourceIndexRange[] {
+// Contiguous runs of lines the streaming classifier marks as ignored (front
+// matter, fenced code, math blocks, HTML blocks, indented code). Folding the
+// one classifier here is what keeps the batch index and the CodeMirror
+// source-mode highlighter from drifting — there is a single set of block rules.
+function sourceBlockIgnoredIndexRanges(markdown: string): ICommentSourceIndexRange[] {
     const ranges: ICommentSourceIndexRange[] = [];
-    let fence: { char: '`' | '~'; length: number; start: number } | null = null;
+    const state = createCommentSourceLineState();
+    let runStart: number | null = null;
+    let runEnd = 0;
 
     for (const { index, rawLine } of sourceLines(markdown)) {
         const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        if (fence) {
-            const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u.exec(lineText);
-            if (
-                closing
-                && closing[1][0] === fence.char
-                && closing[1].length >= fence.length
-            ) {
-                ranges.push({ start: fence.start, end: index + rawLine.length });
-                fence = null;
-            }
-            continue;
+        prepareCommentSourceLine(state, lineText);
+        if (state.ignoreLine) {
+            runStart ??= index;
+            runEnd = index + rawLine.length;
         }
-
-        const opening = /^ {0,3}(`{3,}|~{3,})/u.exec(lineText);
-        if (opening) {
-            fence = {
-                char: opening[1][0] as '`' | '~',
-                length: opening[1].length,
-                start: index,
-            };
+        else if (runStart != null) {
+            ranges.push({ start: runStart, end: runEnd });
+            runStart = null;
         }
     }
 
-    if (fence)
-        ranges.push({ start: fence.start, end: markdown.length });
+    if (runStart != null)
+        ranges.push({ start: runStart, end: runEnd });
     return ranges;
 }
 
@@ -281,6 +292,7 @@ export function createCommentSourceLineState(): ICommentSourceLineState {
         inMathBlock: false,
         htmlClosing: null,
         ignoreLine: false,
+        openParagraph: false,
     };
 }
 
@@ -294,11 +306,13 @@ export function prepareCommentSourceLine(state: ICommentSourceLineState, line: s
         if (frontMatter) {
             state.frontMatterMarker = frontMatterCloseMarker(frontMatter[1]);
             state.ignoreLine = true;
+            state.openParagraph = false;
             return;
         }
     }
 
     if (state.frontMatterMarker) {
+        state.openParagraph = false;
         if (trimmed === state.frontMatterMarker) {
             state.frontMatterMarker = null;
         }
@@ -313,102 +327,67 @@ export function prepareCommentSourceLine(state: ICommentSourceLineState, line: s
 
     if (state.fence) {
         state.ignoreLine = true;
-        const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u.exec(line);
-        if (
-            closing
-            && closing[1][0] === state.fence.char
-            && closing[1].length >= state.fence.length
-        ) {
+        state.openParagraph = false;
+        if (isFenceClose(line, state.fence))
             state.fence = null;
-        }
         return;
     }
 
-    const openingFence = /^ {0,3}(`{3,}|~{3,})/u.exec(line);
+    const openingFence = FENCE_OPEN_REGEXP.exec(line);
     if (openingFence) {
         state.fence = {
             char: openingFence[1][0] as '`' | '~',
             length: openingFence[1].length,
         };
         state.ignoreLine = true;
+        state.openParagraph = false;
         return;
     }
 
     if (state.inMathBlock) {
         state.ignoreLine = true;
-        if (/^ {0,3}\$\$[ \t]*$/u.test(line))
+        state.openParagraph = false;
+        if (MATH_DELIM_REGEXP.test(line))
             state.inMathBlock = false;
         return;
     }
 
-    if (/^ {0,3}\$\$[ \t]*$/u.test(line)) {
+    if (MATH_DELIM_REGEXP.test(line)) {
         state.inMathBlock = true;
         state.ignoreLine = true;
+        state.openParagraph = false;
         return;
     }
 
     if (state.htmlClosing) {
         state.ignoreLine = true;
+        state.openParagraph = false;
         if (!trimmed || state.htmlClosing.test(trimmed))
             state.htmlClosing = null;
         return;
     }
 
-    if (/^(?: {4,}|\t)/u.test(line)) {
+    // A blank line ends any open paragraph; the next indented line then starts
+    // an indented code block instead of continuing the paragraph.
+    if (trimmed === '') {
+        state.openParagraph = false;
+        return;
+    }
+
+    if (INDENTED_CODE_REGEXP.test(line) && !state.openParagraph) {
         state.ignoreLine = true;
         return;
     }
 
     const htmlClosing = getHtmlBlockClosing(line);
-    if (!htmlClosing)
+    if (htmlClosing) {
+        state.ignoreLine = true;
+        state.openParagraph = false;
+        state.htmlClosing = htmlClosing === 'single-line' ? null : htmlClosing;
         return;
-
-    state.ignoreLine = true;
-    state.htmlClosing = htmlClosing === 'single-line' ? null : htmlClosing;
-}
-
-function sourceFrontMatterIndexRanges(markdown: string): ICommentSourceIndexRange[] {
-    const opening = /^(---|\+\+\+|;;;|\{)[ \t]*(?:\r\n|\n|\r)/u.exec(markdown);
-    if (!opening)
-        return [];
-
-    const marker = frontMatterCloseMarker(opening[1]);
-    for (const { index, rawLine } of sourceLines(markdown, opening[0].length)) {
-        const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        if (lineText.trim() === marker)
-            return [{ start: 0, end: index + rawLine.length }];
     }
 
-    return [];
-}
-
-function sourceMathBlockIndexRanges(
-    markdown: string,
-    ignoredRanges: ICommentSourceIndexRange[],
-): ICommentSourceIndexRange[] {
-    const ranges: ICommentSourceIndexRange[] = [];
-    let start: number | null = null;
-
-    for (const { index, rawLine } of sourceLines(markdown)) {
-        if (sourceIndexInsideRanges(index, ignoredRanges))
-            continue;
-
-        const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        if (!/^ {0,3}\$\$[ \t]*$/u.test(lineText))
-            continue;
-
-        if (start == null) {
-            start = index;
-        }
-        else {
-            ranges.push({ start, end: index + rawLine.length });
-            start = null;
-        }
-    }
-
-    if (start != null)
-        ranges.push({ start, end: markdown.length });
-    return ranges;
+    state.openParagraph = true;
 }
 
 function getHtmlBlockClosing(line: string): 'single-line' | RegExp | null {
@@ -435,88 +414,11 @@ function getHtmlBlockClosing(line: string): 'single-line' | RegExp | null {
     return new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu');
 }
 
-function sourceHtmlBlockIndexRanges(
-    markdown: string,
-    ignoredRanges: ICommentSourceIndexRange[],
-): ICommentSourceIndexRange[] {
-    const ranges: ICommentSourceIndexRange[] = [];
-    let start: number | null = null;
-    let closing: RegExp | null = null;
-
-    for (const { index, rawLine } of sourceLines(markdown)) {
-        if (sourceIndexInsideRanges(index, ignoredRanges))
-            continue;
-
-        const trimmed = rawLine.slice(0, rawLine.length - lineEndLength(rawLine)).trim();
-        if (start != null) {
-            if (!trimmed || closing?.test(trimmed)) {
-                ranges.push({ start, end: index + rawLine.length });
-                start = null;
-                closing = null;
-            }
-            continue;
-        }
-
-        const htmlClosing = getHtmlBlockClosing(rawLine);
-        if (!htmlClosing)
-            continue;
-        if (htmlClosing === 'single-line') {
-            ranges.push({ start: index, end: index + rawLine.length });
-        }
-        else {
-            start = index;
-            closing = htmlClosing;
-        }
-    }
-
-    if (start != null)
-        ranges.push({ start, end: markdown.length });
-    return ranges;
-}
-
-function sourceIndentedCodeIndexRanges(
-    markdown: string,
-    ignoredRanges: ICommentSourceIndexRange[],
-): ICommentSourceIndexRange[] {
-    const ranges: ICommentSourceIndexRange[] = [];
-    let openParagraph = false;
-
-    for (const { index, rawLine } of sourceLines(markdown)) {
-        const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        const isBlank = lineText.trim().length === 0;
-        const isIndented = /^(?: {4,}|\t)/u.test(lineText);
-        const insideIgnored = sourceIndexInsideRanges(index, ignoredRanges);
-
-        if (isIndented && !openParagraph && !insideIgnored) {
-            ranges.push({ start: index, end: index + rawLine.length });
-        }
-        else if (isBlank || insideIgnored) {
-            openParagraph = false;
-        }
-        else {
-            openParagraph = true;
-        }
-    }
-
-    return ranges;
-}
-
 export function sourceCommentIgnoredIndexRanges(markdown: string): ICommentSourceIndexRange[] {
-    const frontMatterRanges = sourceFrontMatterIndexRanges(markdown);
-    const fencedRanges = sourceFencedCodeIndexRanges(markdown);
-    const blockRanges = [
-        ...frontMatterRanges,
-        ...fencedRanges,
-        ...sourceMathBlockIndexRanges(markdown, [...frontMatterRanges, ...fencedRanges]),
-    ];
-    const htmlRanges = sourceHtmlBlockIndexRanges(markdown, blockRanges);
-    const blockAndHtmlRanges = [...blockRanges, ...htmlRanges];
-    const indentedRanges = sourceIndentedCodeIndexRanges(markdown, blockAndHtmlRanges);
-    const blockIgnoredRanges = [...blockAndHtmlRanges, ...indentedRanges];
-
+    const blockRanges = sourceBlockIgnoredIndexRanges(markdown);
     return [
-        ...blockIgnoredRanges,
-        ...sourceInlineCodeIndexRanges(markdown, blockIgnoredRanges),
+        ...blockRanges,
+        ...sourceInlineCodeIndexRanges(markdown, blockRanges),
     ];
 }
 

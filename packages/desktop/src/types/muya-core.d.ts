@@ -149,6 +149,7 @@ declare module '@muyajs/core' {
     inMathBlock: boolean
     htmlClosing: RegExp | null
     ignoreLine: boolean
+    openParagraph: boolean
   }
 
   export interface IParsedCommentMetadataDefinition {
