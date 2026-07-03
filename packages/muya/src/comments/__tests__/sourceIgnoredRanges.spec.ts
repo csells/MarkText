@@ -110,3 +110,24 @@ describe('source-mode block classifier — batch behaviour', () => {
         expect(buildCommentSourceIndex(markdown).markers).toHaveLength(2);
     });
 });
+
+// Adversarial-review regression: the batch index must match the PARSER's
+// front-matter view (getFrontMatterInfo), not the streaming classifier's
+// forgiving one. A bare or unterminated leading `---` is a thematic break, not
+// front matter, so comments on the following lines are real and must be seen.
+describe('source index — front matter matches the parser, not the forgiving stream', () => {
+    it('recognizes a comment after a bare leading --- (thematic break, not front matter)', () => {
+        const md = '---\nintro <!--MC:a-->important<!--MC:~a-->\n\nBody.\n';
+        expect(buildCommentSourceIndex(md).markers.map(m => m.id)).toEqual(['a', 'a']);
+    });
+
+    it('recognizes a metadata def under an unterminated leading --- (mid-edit)', () => {
+        const md = '---\ntitle: Draft\n[MC:a]: data:text/plain,note\n';
+        expect(buildCommentSourceIndex(md).metadataDefinitions.map(d => d.id)).toEqual(['a']);
+    });
+
+    it('still ignores markers INSIDE a valid terminated front-matter block', () => {
+        const md = '---\ntitle: <!--MC:x-->y<!--MC:~x-->\n---\n\n<!--MC:b-->real<!--MC:~b-->\n';
+        expect(buildCommentSourceIndex(md).markers.map(m => m.id)).toEqual(['b', 'b']);
+    });
+});

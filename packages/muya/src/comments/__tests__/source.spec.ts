@@ -160,4 +160,28 @@ describe('isUnsafeCommentMarkerTextEdit — document-wide counterpart check', ()
         })).toBe(false);
         expect(called).toBe(false);
     });
+
+    // Regression: the tokenizer-based guard must tokenize like the parser
+    // (hasBeginRules:false). A comment marker that closes on a reference-
+    // definition line (`[ref]: url`, which round-trips as paragraph text and is
+    // a real comment to the parser) was missed when the guard tokenized with
+    // begin rules on — the ref-def rule swallowed the marker — so deleting the
+    // OPEN marker was wrongly permitted, orphaning the surviving close.
+    it('sees a marker that closes on a reference-definition line', async () => {
+        const { commentMarkerKindsInTexts } = await import('../markerScan');
+        const refDefLine = '[ref]: http://example.com <!--MC:~c1-->';
+        const kinds = commentMarkerKindsInTexts([refDefLine]);
+        expect(kinds.get('c1')).toEqual(new Set(['close']));
+    });
+
+    it('blocks deleting an open marker whose close survives on a ref-def line', async () => {
+        const { isUnsafeCommentMarkerTextEdit } = await import('../source');
+        const { commentMarkerKindsInTexts } = await import('../markerScan');
+        const openBlock = 'intro <!--MC:c1-->highlighted';
+        const refDefBlock = '[ref]: http://example.com <!--MC:~c1-->';
+        const documentKinds = () => commentMarkerKindsInTexts([openBlock, refDefBlock]);
+        const openStart = openBlock.indexOf('<!--MC:c1-->');
+        const openEnd = openStart + '<!--MC:c1-->'.length;
+        expect(isUnsafeCommentMarkerTextEdit(openBlock, openStart, openEnd, documentKinds)).toBe(true);
+    });
 });

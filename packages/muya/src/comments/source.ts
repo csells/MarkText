@@ -6,6 +6,7 @@ import {
     MATH_BLOCK_DELIM_REGEXP,
     parseFenceMarker,
 } from '../utils/markdownBlockRules';
+import getFrontMatterInfo from '../utils/marked/frontMatter';
 import { forEachRealCommentMarker } from './markerScan';
 import {
     COMMENT_MARKER_PATTERN,
@@ -177,17 +178,34 @@ export function sourceRangesOverlap(
     return ranges.some(range => start < range.end && end > range.start);
 }
 
-// Contiguous runs of lines the streaming classifier marks as ignored (front
-// matter, fenced code, math blocks, HTML blocks, indented code). Folding the
-// one classifier here is what keeps the batch index and the CodeMirror
-// source-mode highlighter from drifting — there is a single set of block rules.
+// Contiguous runs of lines the streaming classifier marks as ignored (fenced
+// code, math blocks, HTML blocks, indented code). Folding the one classifier
+// here keeps the batch index and the CodeMirror source-mode highlighter from
+// drifting on those constructs.
+//
+// Front matter is the deliberate exception: it needs whole-document look-ahead
+// (a leading `---` is front matter only when a matching close + blank/EOF
+// follows — otherwise it is a thematic break whose following lines carry real
+// comments). The streaming classifier cannot look ahead, so it is intentionally
+// forgiving for live highlighting; the batch index feeds persistence/CLI and
+// MUST match the parser, so it detects front matter with the parser's own
+// `getFrontMatterInfo` and suppresses the classifier's forgiving version.
 function sourceBlockIgnoredIndexRanges(markdown: string): ICommentSourceIndexRange[] {
     const ranges: ICommentSourceIndexRange[] = [];
+
+    const { token: frontMatter } = getFrontMatterInfo(markdown);
+    const frontMatterEnd = frontMatter ? frontMatter.raw.length : 0;
+    if (frontMatterEnd > 0)
+        ranges.push({ start: 0, end: frontMatterEnd });
+
     const state = createCommentSourceLineState();
+    // Front matter is resolved above; mark the first line seen so the classifier
+    // never treats a leading (bare/unterminated) `---` as forgiving front matter.
+    state.seenFirstLine = true;
     let runStart: number | null = null;
     let runEnd = 0;
 
-    for (const { index, rawLine } of sourceLines(markdown)) {
+    for (const { index, rawLine } of sourceLines(markdown, frontMatterEnd)) {
         const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
         prepareCommentSourceLine(state, lineText);
         if (state.ignoreLine) {

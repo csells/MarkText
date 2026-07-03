@@ -16,6 +16,18 @@ export interface IScannedCommentMarker {
 // not re-tokenized), so this matches exactly what the parser treats as a live
 // comment. The edit guards use it so "what the guard protects" stays identical
 // to "what the parser renders as a comment".
+//
+// Tokenize exactly as `parseMarkdownComments` does (`comments/parse.ts`):
+// `hasBeginRules: false`. With begin rules on, block-level rules (notably the
+// reference-definition rule for a `[ref]: url` line, which round-trips as
+// paragraph text) consume the line and swallow a trailing comment marker the
+// parser DOES treat as live — the guard would then miss that marker and permit
+// an edit that orphans its counterpart.
+const COMMENT_TOKENIZER_OPTIONS = {
+    hasBeginRules: false,
+    options: { superSubScript: true, footnote: false },
+} as const;
+
 export function forEachRealCommentMarker(
     text: string,
     visit: (marker: IScannedCommentMarker) => void,
@@ -37,7 +49,7 @@ export function forEachRealCommentMarker(
         }
     };
 
-    walk(tokenizer(text));
+    walk(tokenizer(text, COMMENT_TOKENIZER_OPTIONS));
 }
 
 // Every marker kind present in `text`, keyed by comment id.
