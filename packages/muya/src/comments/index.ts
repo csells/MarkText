@@ -13,6 +13,12 @@ export type {
     TUpdateCommentThreadPatch,
 } from './edit';
 export {
+    commentMarkerKindsInText,
+    commentMarkerKindsInTexts,
+    forEachRealCommentMarker,
+    removalOrphansCommentMarker,
+} from './markerScan';
+export {
     decodeCommentMetadata,
     encodeCommentMetadata,
     normalizeCommentMetadata,
@@ -56,14 +62,12 @@ export {
     COMMENT_MARKER_SEARCH_REGEXP,
     COMMENT_METADATA_DATA_URI_PREFIX,
     COMMENT_METADATA_DEFINITION_REGEXP,
-    commentMarkerKindsInTexts,
     commentMarkerRegExpForId,
     isCommentMetadataReference,
     isValidCommentId,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
     parseCommentMarker,
     parseCommentMetadataDefinition,
-    removalOrphansCommentMarker,
     serializeCommentMarker,
     serializeCommentMetadataDefinition,
 } from './syntax';

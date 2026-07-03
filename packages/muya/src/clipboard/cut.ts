@@ -7,11 +7,11 @@ import type { Nullable } from '../types';
 import type Clipboard from './index';
 import Format from '../block/base/format';
 import { ScrollPage } from '../block/scrollPage';
+import { commentMarkerKindsInTexts } from '../comments/markerScan';
 import { isUnsafeCommentMarkerTextEdit } from '../comments/source';
 import {
     COMMENT_ID_PATTERN,
     COMMENT_MARKER_PATTERN,
-    commentMarkerKindsInTexts,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
     parseCommentMetadataDefinition,
     serializeCommentMarker,

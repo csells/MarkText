@@ -241,6 +241,27 @@ describe('code-fence literal markers are not counterparts', () => {
     });
 });
 
+describe('inline-code literal markers are not counterparts (real tokenizer, not regex)', () => {
+    it('lets an orphan open marker be cut when its only close is inside an inline-code span', async () => {
+        const muya = bootMuya([
+            'alpha <!--MC:c1-->beta',
+            '',
+            'docs: `<!--MC:~c1-->` is the close marker syntax',
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+        // The close marker is literal text inside an inline-code span in block 1;
+        // the real inline tokenizer does not treat it as a comment marker, so
+        // cutting the genuine orphan open marker must be allowed.
+        stubSelection(muya, blocks[0], 6, blocks[0], 18);
+
+        expect(muya.editor.clipboard.cutHandler()).toBe(true);
+        const markdown = await settle(muya);
+        expect(markdown).not.toContain('<!--MC:c1-->beta');
+        expect(markdown).toContain('`<!--MC:~c1-->`');
+    });
+});
+
 describe('comment metadata cleanup after a cut', () => {
     it('removes only the definition paragraph from a blockquote, keeping siblings', async () => {
         const muya = bootMuya([

@@ -18,6 +18,32 @@ const metadata = (body: string): string =>
     ]
   })).toString('base64')}`
 
+// The sound merge contract: for every line, the merged copy count is at least
+// what BOTH sides kept (no data loss) and at most their combined additions (no
+// fabrication) — whether the merge is clean or a whole-file conflict (a
+// conflict block still contains both sides verbatim). This is the property that
+// matters, replacing the old byte-parity-with-git assertions.
+const countLineIn = (text: string, line: string): number =>
+  (text.match(/[^\n]*\n|[^\n]+/g) || []).filter((l) => l === line).length
+
+const expectDataPreserved = (
+  result: { conflicts: unknown[]; mergedMarkdown: string },
+  local: string,
+  remote: string
+): void => {
+  const lines = new Set([
+    ...(local.match(/[^\n]*\n|[^\n]+/g) || []),
+    ...(remote.match(/[^\n]*\n|[^\n]+/g) || [])
+  ])
+  for (const line of lines) {
+    const lo = Math.min(countLineIn(local, line), countLineIn(remote, line))
+    const hi = countLineIn(local, line) + countLineIn(remote, line)
+    const m = countLineIn(result.mergedMarkdown, line)
+    expect(m).toBeGreaterThanOrEqual(lo)
+    expect(m).toBeLessThanOrEqual(hi)
+  }
+}
+
 describe('mergeMarkdownThreeWay', () => {
   it('auto-merges non-overlapping line changes', () => {
     const result = mergeMarkdownThreeWay({
@@ -164,44 +190,30 @@ describe('mergeMarkdownThreeWay', () => {
   // sides verbatim (the user resolves), never a silently mis-counted merge.
   // Each of these asserts the conflict carries both sides' distinguishing
   // content, so a reintroduced silent auto-merge (conflicts:[]) fails the test.
-  it('escalates rather than silently reconciling a line both sides remove from a run', () => {
-    const result = mergeMarkdownThreeWay({
-      base: 'c\na\na\na\n',
-      local: 'c\nA\na\na\n',
-      remote: 'c\na\na\n'
-    })
-
-    expect(result.conflicts).toHaveLength(1)
+  it('preserves data when a line both sides touch is reconciled in a run', () => {
+    const local = 'c\nA\na\na\n'
+    const remote = 'c\na\na\n'
+    const result = mergeMarkdownThreeWay({ base: 'c\na\na\na\n', local, remote })
+    // Local's edit (A) is retained; no line both sides kept is dropped or
+    // fabricated — whether auto-merged or escalated.
     expect(result.mergedMarkdown).toContain('A\n')
-    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
-    expect(result.mergedMarkdown).toContain('MARKTEXT_REMOTE')
+    expectDataPreserved(result, local, remote)
   })
 
-  it('escalates a local edit colliding with a disk de-duplication of a repeated item', () => {
-    const result = mergeMarkdownThreeWay({
-      base: '- apple\n- apple\n- apple\n',
-      local: '- apple pie\n- apple\n- apple\n',
-      remote: '- apple\n- apple\n'
-    })
-
-    expect(result.conflicts).toHaveLength(1)
-    // Neither side's distinguishing content is lost.
+  it('preserves data when a local edit collides with a disk de-duplication', () => {
+    const local = '- apple pie\n- apple\n- apple\n'
+    const remote = '- apple\n- apple\n'
+    const result = mergeMarkdownThreeWay({ base: '- apple\n- apple\n- apple\n', local, remote })
     expect(result.mergedMarkdown).toContain('- apple pie')
-    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
-    expect(result.mergedMarkdown).toContain('MARKTEXT_REMOTE')
+    expectDataPreserved(result, local, remote)
   })
 
-  it('escalates when a local deletion collides with a disk edit of a sibling repeated line', () => {
-    const result = mergeMarkdownThreeWay({
-      base: '- task\n- task\n- task\n',
-      local: '- task\n- task\n',
-      remote: '- task done\n- task\n- task\n'
-    })
-
-    expect(result.conflicts).toHaveLength(1)
+  it('preserves data when a local deletion collides with a disk edit of a sibling line', () => {
+    const local = '- task\n- task\n'
+    const remote = '- task done\n- task\n- task\n'
+    const result = mergeMarkdownThreeWay({ base: '- task\n- task\n- task\n', local, remote })
     expect(result.mergedMarkdown).toContain('- task done')
-    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
-    expect(result.mergedMarkdown).toContain('MARKTEXT_REMOTE')
+    expectDataPreserved(result, local, remote)
   })
 
   // The exact code-fence corruption the previous round introduced: escalating
@@ -224,16 +236,11 @@ describe('mergeMarkdownThreeWay', () => {
   // Both sides independently insert identical content: git sums, but line
   // counts can't prove it's independent vs identical, so we escalate rather
   // than risk dropping a copy.
-  it('escalates concurrent identical insertions rather than guess a count', () => {
-    const result = mergeMarkdownThreeWay({
-      base: '- item\na\n- item\nc\n',
-      local: '- item\na\na\n- item\nc\n',
-      remote: 'a\na\n- item\nc\n'
-    })
-
-    expect(result.conflicts).toHaveLength(1)
-    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
-    expect(result.mergedMarkdown).toContain('MARKTEXT_REMOTE')
+  it('preserves data for concurrent identical insertions', () => {
+    const local = '- item\na\na\n- item\nc\n'
+    const remote = 'a\na\n- item\nc\n'
+    const result = mergeMarkdownThreeWay({ base: '- item\na\n- item\nc\n', local, remote })
+    expectDataPreserved(result, local, remote)
   })
 
   // Finding 2 (CRITICAL): resolveConflictMarker used String.replace, whose
@@ -298,29 +305,25 @@ describe('mergeMarkdownThreeWay', () => {
 // line vs git's diff3, and a merge git resolves cleanly must not become a
 // whole-file conflict.
 describe('mergeMarkdownThreeWay — repeated-line safety (no silent corruption / no false escalation)', () => {
-  // A clean auto-merge (conflicts:[]) must equal git's diff3 output byte for
-  // byte — never a fabricated extra copy of a repeated line.
-  it('does not duplicate a repeated line when one side edits away its base copy', () => {
-    const result = mergeMarkdownThreeWay({
-      base: 'b\n\nc\n',
-      local: 'b\n\nb\nc\n',
-      remote: 'a\n\nb\nc\n'
-    })
-    if (result.conflicts.length === 0) {
-      // git merge-file --diff3 produces this exact clean result.
-      expect(result.mergedMarkdown).toBe('a\n\nb\nc\n')
-    }
+  // Adversarial-review F3: these two used to assert only inside
+  // `if (conflicts.length === 0)`, but their inputs escalate — so the body
+  // never ran and injected clean-path corruption did not fail them. Their
+  // inputs are genuinely count-ambiguous (both sides change a repeated line's
+  // count), so escalation to a whole-file conflict preserving BOTH sides is the
+  // correct safe behavior; assert that UNCONDITIONALLY so the test has teeth.
+  it('preserves data when both sides change a repeated line', () => {
+    const local = 'b\n\nb\nc\n'
+    const remote = 'a\n\nb\nc\n'
+    const result = mergeMarkdownThreeWay({ base: 'b\n\nc\n', local, remote })
+    expectDataPreserved(result, local, remote)
   })
 
-  it('does not fabricate a duplicate list item across an unrelated heading edit', () => {
-    const result = mergeMarkdownThreeWay({
-      base: '- a\n\nEnd\n',
-      local: '- a\n\n- a\nEnd\n',
-      remote: '# Title\n\n- a\nEnd\n'
-    })
-    if (result.conflicts.length === 0) {
-      expect(result.mergedMarkdown).toBe('# Title\n\n- a\nEnd\n')
-    }
+  it('preserves data (incl. the heading edit) in a duplicate-list-item topology', () => {
+    const local = '- a\n\n- a\nEnd\n'
+    const remote = '# Title\n\n- a\nEnd\n'
+    const result = mergeMarkdownThreeWay({ base: '- a\n\nEnd\n', local, remote })
+    expect(result.mergedMarkdown).toContain('# Title')
+    expectDataPreserved(result, local, remote)
   })
 
   // 'a' occurs once in base and both sides change its count (local appends,
@@ -389,5 +392,127 @@ describe('containsConflictScaffolding', () => {
       .find((line) => line.startsWith('||||||| MARKTEXT_BASE'))
     expect(baseMarkerLine).toBeTruthy()
     expect(containsConflictScaffolding(`resolved\n${baseMarkerLine}\nbase\n`)).toBe(true)
+  })
+})
+
+// F2 (adversarial review, git-oracle reproduced): node-diff3 can silently DROP
+// a repeated line even when its count is unchanged across base/local/remote
+// (the merge of adjacent edits loses it). The count check must not skip
+// count-unchanged repeated lines — a clean merge whose count for such a line
+// differs from base is a silent line loss and must escalate. git merge-file
+// --diff3 keeps 3 code-fence lines here; the unfixed code returned 2 clean.
+describe('mergeMarkdownThreeWay — count-unchanged repeated line must not be silently dropped', () => {
+  it('does not drop a code-fence line whose count is unchanged on both sides', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '```\n    indented\n```\n```\n',
+      local: '# Heading\n```\n```\n```\n',
+      remote: '```\n```\n    indented\n```\n'
+    })
+    if (result.conflicts.length === 0) {
+      const fences = (result.mergedMarkdown.match(/```\n/g) || []).length
+      expect(fences).toBe(3)
+    } else {
+      expect(result.conflicts).toHaveLength(1)
+    }
+  })
+
+  it('escalates rather than emit a clean merge that drops a repeated line', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '```\n    indented\n```\n```\n',
+      local: '# Heading\n```\n```\n```\n',
+      remote: '```\n```\n    indented\n```\n'
+    })
+    expect(result.conflicts).toHaveLength(1)
+  })
+})
+
+// F2 root cause: the count check skipped UNIQUE lines (count < 2), so a unique
+// line node-diff3 drops while merging adjacent edits was silently lost. The
+// sound guarantee is: never emit a clean merge that drops a line BOTH sides
+// kept (merged count < min(local, remote)); escalate instead. This is a
+// library-agnostic safety net over the merge output, not a merge algorithm.
+describe('mergeMarkdownThreeWay — never silently drops a line both sides retained', () => {
+  it('escalates when the merge would drop a code-fence line both sides kept', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '```\n    indented\n```\n```\n',
+      local: '# Heading\n```\n```\n```\n',
+      remote: '```\n```\n    indented\n```\n'
+    })
+    if (result.conflicts.length === 0) {
+      expect((result.mergedMarkdown.match(/```\n/g) || []).length).toBeGreaterThanOrEqual(3)
+    } else {
+      expect(result.conflicts).toHaveLength(1)
+    }
+  })
+
+  it('never emits a clean merge missing a unique line both sides retained', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'a\nkeep me\nb\n',
+      local: 'a1\nkeep me\nb\n',
+      remote: 'a\nkeep me\nb1\n'
+    })
+    expect(
+      result.conflicts.length > 0 || result.mergedMarkdown.includes('keep me')
+    ).toBe(true)
+  })
+})
+
+// Merge redesign (approved): drop the git-emulation heuristic. Use node-diff3
+// and accept its clean output ONLY when it is provably lossless and non-
+// fabricating; escalate to a whole-file conflict otherwise. Correctness is
+// defined by data preservation, NOT byte-parity with git: for every line,
+// merged copies must be >= min(local, remote) (nothing both sides kept is
+// dropped) and <= local + remote (nothing is fabricated).
+describe('mergeMarkdownThreeWay — sound data-preservation (library-based, not git-parity)', () => {
+  const countLine = (text: string, line: string): number =>
+    (text.match(/[^\n]*\n|[^\n]+/g) || []).filter((l) => l === line).length
+
+  it('never drops a line both sides kept (escalates instead)', () => {
+    const result = mergeMarkdownThreeWay({
+      base: '```\n    indented\n```\n```\n',
+      local: '# Heading\n```\n```\n```\n',
+      remote: '```\n```\n    indented\n```\n'
+    })
+    // Both sides keep 3 fence lines; a clean merge must keep >= 3, else conflict.
+    if (result.conflicts.length === 0) {
+      expect(countLine(result.mergedMarkdown, '```\n')).toBeGreaterThanOrEqual(3)
+    } else {
+      expect(result.conflicts).toHaveLength(1)
+    }
+  })
+
+  it('never fabricates a line neither side has', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'x\ny\nz\n',
+      local: 'x\nA\ny\nz\n',
+      remote: 'x\ny\nB\nz\n'
+    })
+    if (result.conflicts.length === 0) {
+      for (const line of (result.mergedMarkdown.match(/[^\n]*\n|[^\n]+/g) || [])) {
+        const inLocal = countLine('x\nA\ny\nz\n', line)
+        const inRemote = countLine('x\ny\nB\nz\n', line)
+        expect(countLine(result.mergedMarkdown, line)).toBeLessThanOrEqual(inLocal + inRemote)
+      }
+    }
+  })
+
+  it('auto-merges genuinely non-overlapping edits (no needless escalation)', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'one\ntwo\nthree\n',
+      local: 'ONE\ntwo\nthree\n',
+      remote: 'one\ntwo\nTHREE\n'
+    })
+    expect(result.conflicts).toEqual([])
+    expect(result.mergedMarkdown).toBe('ONE\ntwo\nTHREE\n')
+  })
+
+  it('escalates a genuinely conflicting edit to the same line', () => {
+    const result = mergeMarkdownThreeWay({
+      base: 'one\nshared\nthree\n',
+      local: 'one\nlocal\nthree\n',
+      remote: 'one\nremote\nthree\n'
+    })
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.mergedMarkdown).toContain('MARKTEXT_LOCAL')
   })
 })

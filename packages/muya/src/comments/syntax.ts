@@ -76,53 +76,11 @@ export const NON_COMMENT_SCANNABLE_LEAF_BLOCKS: ReadonlySet<string> = new Set([
 // Would removing `removedTexts` while `survivingTexts` remain leave a comment
 // with only one of its paired markers? A removed open marker whose close still
 // survives (or vice versa) orphans the range. When both endpoints are in the
-// removed set the comment is fully gone — safe. Used by structural edits
-// (table row/column removal) that delete whole blocks at once.
-export function removalOrphansCommentMarker(
-    removedTexts: Iterable<string>,
-    survivingTexts: Iterable<string>,
-): boolean {
-    const removed = commentMarkerKindsInTexts(removedTexts);
-    if (removed.size === 0)
-        return false;
-
-    const surviving = commentMarkerKindsInTexts(survivingTexts);
-    for (const [id, kinds] of removed) {
-        const survivingKinds = surviving.get(id);
-        if (!survivingKinds)
-            continue;
-
-        if (
-            (kinds.has('open') && !kinds.has('close') && survivingKinds.has('close'))
-            || (kinds.has('close') && !kinds.has('open') && survivingKinds.has('open'))
-        ) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-// Aggregate every marker kind present across the given texts, keyed by
-// comment id. Edit guards use this to answer "does this comment's counterpart
-// marker exist anywhere in the document?" — a range can open in one block and
-// close in another, so a single-block scan misses the counterpart.
-export function commentMarkerKindsInTexts(
-    texts: Iterable<string>,
-): Map<string, Set<TCommentMarkerKind>> {
-    const kindsById = new Map<string, Set<TCommentMarkerKind>>();
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
-
-    for (const text of texts) {
-        for (const match of text.matchAll(markerRegExp)) {
-            const kinds = kindsById.get(match[2]) ?? new Set<TCommentMarkerKind>();
-            kinds.add(match[1] === '~' ? 'close' : 'open');
-            kindsById.set(match[2], kinds);
-        }
-    }
-
-    return kindsById;
-}
+// removed set the comment is fully gone — safe. `removalOrphansCommentMarker`
+// and `commentMarkerKindsInTexts` moved to `./markerScan`, which detects
+// markers with the real inline tokenizer (correctly ignoring marker-looking
+// text inside inline-code/inline-math) — a dependency this low-level module
+// cannot take without a cycle (the tokenizer imports from here).
 
 export function parseMalformedCommentMarker(src: string): IParsedCommentMarker | null {
     const match = COMMENT_MARKER_LIKE_REGEXP.exec(src);

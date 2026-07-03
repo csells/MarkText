@@ -1,8 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { mergeMarkdownThreeWay } from '../../../src/renderer/src/util/threeWayMerge'
 
 // Deterministic PRNG (mulberry32) so any failure is reproducible from the seed.
@@ -83,68 +79,39 @@ describe('mergeMarkdownThreeWay fuzz — invariants', () => {
   })
 })
 
-// Gold-standard cross-check against git's diff3 merge (the oracle the adversarial
-// review used). Skipped gracefully where git is unavailable.
-const gitAvailable = (() => {
-  try {
-    execFileSync('git', ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})()
+// The merge contract is DATA PRESERVATION, not byte-parity with git (git's
+// diff3 is one valid algorithm among several; matching it is not a correctness
+// requirement). node-diff3 does the merge; our safety net escalates to a
+// conflict if its clean output ever loses or fabricates a line. This fuzz
+// asserts that invariant directly over a large random corpus, no git needed:
+// for every clean auto-merge, each line's copy count is within
+// [min(local, remote), local + remote].
+describe('mergeMarkdownThreeWay fuzz — data preservation (no loss / no fabrication)', () => {
+  const countLineIn = (text: string, line: string): number =>
+    splitLines(text).filter((l) => l === line).length
 
-describe('mergeMarkdownThreeWay fuzz — git merge-file oracle', () => {
-  it.skipIf(!gitAvailable)('never silently diverges from git clean merged bytes', () => {
+  it('a clean auto-merge never drops a line both sides kept nor fabricates content', () => {
     const next = rng(0x0feed99)
-    const dir = mkdtempSync(join(tmpdir(), 'twm-fuzz-'))
-    let compared = 0
-    try {
-      for (let iter = 0; iter < 400; iter += 1) {
-        const base = randomDoc(next, 10)
-        const local = editDoc(next, base)
-        const remote = editDoc(next, base)
-        if (local === remote || local === base || remote === base) continue
+    let checked = 0
+    for (let iter = 0; iter < 5000; iter += 1) {
+      const base = randomDoc(next, 12)
+      const local = editDoc(next, base)
+      const remote = editDoc(next, base)
+      if (local === remote || local === base || remote === base) continue
 
-        const lp = join(dir, 'l')
-        const bp = join(dir, 'b')
-        const rp = join(dir, 'r')
-        writeFileSync(lp, local)
-        writeFileSync(bp, base)
-        writeFileSync(rp, remote)
+      const mine = mergeMarkdownThreeWay({ base, local, remote })
+      if (mine.conflicts.length !== 0) continue
+      checked += 1
 
-        let gitOut = ''
-        let gitClean = false
-        try {
-          gitOut = execFileSync('git', ['merge-file', '-p', '--diff3', lp, bp, rp], {
-            encoding: 'utf8'
-          })
-          gitClean = true
-        } catch {
-          // Non-zero exit = conflicts (or error); status is the conflict count.
-          gitClean = false
-        }
-
-        const mine = mergeMarkdownThreeWay({ base, local, remote })
-
-        if (gitClean) {
-          compared += 1
-          if (mine.conflicts.length === 0) {
-            expect(mine.mergedMarkdown, `clean bytes differ @${iter}`).toBe(gitOut)
-          } else {
-            for (const conflict of mine.conflicts) {
-              expect(mine.mergedMarkdown, `missing conflict marker @${iter}`).toContain(
-                conflict.markerText
-              )
-              expect(conflict.localText.length + conflict.remoteText.length, `empty conflict @${iter}`)
-                .toBeGreaterThan(0)
-            }
-          }
-        }
+      const lines = new Set([...splitLines(local), ...splitLines(remote)])
+      for (const line of lines) {
+        const lo = Math.min(countLineIn(local, line), countLineIn(remote, line))
+        const hi = countLineIn(local, line) + countLineIn(remote, line)
+        const merged = countLineIn(mine.mergedMarkdown, line)
+        expect(merged, `data loss @${iter} line=${JSON.stringify(line)}`).toBeGreaterThanOrEqual(lo)
+        expect(merged, `fabrication @${iter} line=${JSON.stringify(line)}`).toBeLessThanOrEqual(hi)
       }
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
     }
-    expect(compared).toBeGreaterThan(0)
+    expect(checked).toBeGreaterThan(0)
   }, 30_000)
 })

@@ -617,6 +617,15 @@ function applyLiteralPaste(
 // `createBlockP(lines.slice(1).join('\n')) + insertHtmlBlock`.
 function applyPlainTextBlockHtml(clipboard: Clipboard, ctx: IPasteContext, text: string): void {
     const { anchorBlock, start, end, content } = ctx;
+    // Same marker guard as the ordinary text/literal paste paths: replacing a
+    // selection that covers one endpoint of a comment whose partner survives
+    // elsewhere would orphan it. Skip the paste when unsafe.
+    if (
+        isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
+            documentCommentMarkerKinds(clipboard))
+    ) {
+        return;
+    }
     const head = content.substring(0, start.offset);
     const tail = content.substring(end.offset);
     const lines = text.trim().split('\n');

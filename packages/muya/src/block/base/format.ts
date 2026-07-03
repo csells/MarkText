@@ -1599,12 +1599,44 @@ class Format extends Content {
         needRemovedBlock!.remove();
     }
 
+    // A non-collapsed selection that would delete one endpoint of a comment
+    // whose partner survives orphans the comment. Enter/Shift+Enter drop the
+    // selected range, so guard them the same way inputHandler guards typing:
+    // when the edit is unsafe, collapse the caret to a marker-safe offset and
+    // report handled, so the caller performs no destructive split. Returns the
+    // safe collapsed offset, or null when the edit is safe to proceed.
+    private _markerSafeCollapseOffset(startOffset: number, endOffset: number): number | null {
+        if (startOffset === endOffset)
+            return null;
+        if (
+            !isUnsafeCommentMarkerTextEdit(this.text, startOffset, endOffset, () =>
+                commentMarkerKindsInTexts(this._documentContentTexts()))
+        ) {
+            return null;
+        }
+        const tokens = tokenizer(this.text, {
+            labels: this.inlineRenderer.labels,
+            options: this.muya.options,
+        });
+        return (
+            this._skipCommentMarkerToken(tokens, startOffset, 'forward')
+            ?? this._skipCommentMarkerToken(tokens, startOffset, 'backward')
+            ?? startOffset
+        );
+    }
+
     protected shiftEnterHandler(event: Event): void {
         event.preventDefault();
         event.stopPropagation();
 
         const { text: oldText } = this;
         const { start, end } = this.getCursor()!;
+        const safeOffset = this._markerSafeCollapseOffset(start.offset, end.offset);
+        if (safeOffset !== null) {
+            this.update({ block: this, anchor: { offset: safeOffset }, focus: { offset: safeOffset } });
+            this.setCursor(safeOffset, safeOffset, true);
+            return;
+        }
         this.text
             = `${oldText.substring(0, start.offset)}\n${oldText.substring(end.offset)}`;
         this.setCursor(start.offset + 1, end.offset + 1, true);
@@ -1615,6 +1647,12 @@ class Format extends Content {
         this.muya.editor.history.markInputBoundary('insertParagraph', '\n');
         const { text: oldText, muya, parent } = this;
         const { start, end } = this.getCursor()!;
+        const safeOffset = this._markerSafeCollapseOffset(start.offset, end.offset);
+        if (safeOffset !== null) {
+            this.update({ block: this, anchor: { offset: safeOffset }, focus: { offset: safeOffset } });
+            this.setCursor(safeOffset, safeOffset, true);
+            return;
+        }
         this.text = oldText.substring(0, start.offset);
         const textOfNewNode = oldText.substring(end.offset);
         const newParagraphState = {

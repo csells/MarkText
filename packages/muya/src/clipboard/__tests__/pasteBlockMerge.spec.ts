@@ -5,6 +5,7 @@ import type { Muya } from '../../muya';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya as MuyaClass } from '../../muya';
 import { SelectionCaretType, SelectionDirection } from '../../selection/types';
+import { pastePlainText } from '../paste';
 
 // muyajs `pasteCtrl` MERGE semantics ported into @muyajs/core: pasting a
 // paragraph into a non-empty text block merges its first paragraph inline
@@ -336,5 +337,42 @@ describe('paste — portable markdown comments', () => {
 
         expect(markdown).toBe(initial);
         expect(muya.getComments().diagnostics).toEqual([]);
+    });
+});
+
+// F4 (adversarial review): "Paste as Plain Text" of block-level HTML replaced
+// the selection via applyPlainTextBlockHtml with NO comment-marker guard,
+// unlike the ordinary text/literal paste paths — so pasting over one endpoint
+// of a comment whose partner survives elsewhere orphaned it.
+describe('paste — Paste as Plain Text over a comment marker', () => {
+    function markerKinds(muya: Muya): Record<string, string[]> {
+        const out: Record<string, Set<string>> = {};
+        let leaf = contentBlocks(muya)[0] as { text: string; nextContentInContext: () => unknown } | null;
+        while (leaf) {
+            for (const m of leaf.text.matchAll(/<!--MC:(~?)([\w-]+)-->/g))
+                (out[m[2]] ??= new Set()).add(m[1] === '~' ? 'close' : 'open');
+            leaf = leaf.nextContentInContext() as typeof leaf;
+        }
+        return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v]]));
+    }
+
+    it('does not orphan a marker when block HTML is pasted over one endpoint', async () => {
+        const muya = bootMuya([
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            'more text',
+            '',
+        ].join('\n'));
+        const block = contentBlocks(muya)[0];
+        const closeStart = 'A <!--MC:a-->reviewed'.length;
+        const closeEnd = closeStart + '<!--MC:~a-->'.length;
+        stubSelection(muya, block, closeStart, closeEnd);
+
+        // Block-level HTML → getCopyTextType 'code' → applyPlainTextBlockHtml.
+        await pastePlainText(muya.editor.clipboard, '<ul><li>x</li></ul>');
+        await new Promise(r => setTimeout(r, 40));
+
+        // The close marker was not deleted: the comment is still balanced.
+        expect(markerKinds(muya)).toEqual({ a: ['open', 'close'] });
     });
 });

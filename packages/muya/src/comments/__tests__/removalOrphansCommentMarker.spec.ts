@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { removalOrphansCommentMarker } from '../syntax';
+import { removalOrphansCommentMarker } from '../markerScan';
 
 describe('removalOrphansCommentMarker', () => {
     it('orphans when a removed open marker has a surviving close', () => {

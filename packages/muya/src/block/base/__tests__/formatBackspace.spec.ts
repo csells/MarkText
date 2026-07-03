@@ -240,3 +240,68 @@ describe('format.backspaceHandler — plain-text boundaries (no markers involved
         expect(event.defaultPrevented).toBe(false);
     });
 });
+
+// F1 (adversarial review): Enter / Shift+Enter over a SELECTION that covers a
+// comment marker used to drop the selected range with no marker guard, while
+// every other same-block deletion path (backspace/delete/input) guards it.
+// A dropped endpoint whose partner survives is an orphaned comment.
+function selectInFirstBlock(muya: Muya, start: number, end: number): Format {
+    const content = muya.editor.scrollPage!.firstContentInDescendant() as unknown as Format;
+    muya.editor.activeContentBlock = content as never;
+    content.setCursor(start, end, true);
+    return content;
+}
+
+function firstBlockText(muya: Muya): string {
+    return (muya.editor.scrollPage!.firstContentInDescendant() as unknown as Format).text;
+}
+
+// Document-order marker kinds by id, to detect an orphan (one endpoint only).
+function markerKinds(muya: Muya): Record<string, string[]> {
+    const out: Record<string, Set<string>> = {};
+    let leaf = muya.editor.scrollPage!.firstContentInDescendant() as unknown as { text: string; nextContentInContext: () => unknown } | null;
+    while (leaf) {
+        for (const m of leaf.text.matchAll(/<!--MC:(~?)([\w-]+)-->/g)) {
+            (out[m[2]] ??= new Set()).add(m[1] === '~' ? 'close' : 'open');
+        }
+        leaf = leaf.nextContentInContext() as typeof leaf;
+    }
+    return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v]]));
+}
+
+describe('format Enter handlers — hidden markdown comment markers', () => {
+    const commented = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
+
+    it('enter over a selection covering the close marker does not orphan it', () => {
+        const closeStart = commented.indexOf('<!--MC:~a-->');
+        const closeEnd = closeStart + '<!--MC:~a-->'.length;
+        const muya = bootMuya(`${commented}\n`);
+        const content = selectInFirstBlock(muya, closeStart, closeEnd);
+        const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+        content.enterHandler(event);
+
+        // Neither marker was deleted: the comment is still balanced.
+        expect(markerKinds(muya)).toEqual({ a: ['open', 'close'] });
+    });
+
+    it('shift+Enter over a selection covering the open marker does not orphan it', () => {
+        const openStart = commented.indexOf('<!--MC:a-->');
+        const openEnd = openStart + '<!--MC:a-->'.length;
+        const muya = bootMuya(`${commented}\n`);
+        const content = selectInFirstBlock(muya, openStart, openEnd);
+        // shiftEnterHandler is protected; the test drives it directly.
+        (content as unknown as { shiftEnterHandler: (event: Event) => void })
+            .shiftEnterHandler(new Event('keydown', { cancelable: true }));
+
+        expect(markerKinds(muya)).toEqual({ a: ['open', 'close'] });
+    });
+
+    it('enter with a collapsed caret still splits normally (no marker involved)', () => {
+        const muya = bootMuya('hello world\n');
+        const content = selectInFirstBlock(muya, 5, 5);
+        content.enterHandler(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+
+        // Split at the caret: first block keeps the head.
+        expect(firstBlockText(muya)).toBe('hello');
+    });
+});

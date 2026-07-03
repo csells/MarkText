@@ -1,3 +1,4 @@
+import { forEachRealCommentMarker } from './markerScan';
 import {
     COMMENT_MARKER_PATTERN,
     parseCommentMetadataDefinition,
@@ -14,19 +15,18 @@ interface IScannedMarkers {
     partial: boolean;
 }
 
-// Scan `text` for comment markers the edit touches. Returns `partial: true` as
-// soon as the edit clips a marker without covering it whole.
+// Scan `text` for comment markers the edit touches, using the real inline
+// tokenizer (so a marker inside an inline-code/inline-math span is not treated
+// as a comment marker). Returns `partial: true` as soon as the edit clips a
+// marker without covering it whole.
 function scanEditedCommentMarkers(text: string, startOffset: number, endOffset: number): IScannedMarkers {
     const selectedKindsById = new Map<string, Set<TMarkerKind>>();
     const allKindsById = new Map<string, Set<TMarkerKind>>();
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
 
-    for (const match of text.matchAll(markerRegExp)) {
-        const id = match[2];
-        const kind: TMarkerKind = match[1] === '~' ? 'close' : 'open';
-        const start = match.index;
-        const end = match.index + match[0].length;
+    const markers: Array<{ id: string; kind: TMarkerKind; start: number; end: number }> = [];
+    forEachRealCommentMarker(text, marker => markers.push(marker));
 
+    for (const { id, kind, start, end } of markers) {
         const allKinds = allKindsById.get(id) ?? new Set<TMarkerKind>();
         allKinds.add(kind);
         allKindsById.set(id, allKinds);

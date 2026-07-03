@@ -72,6 +72,14 @@ const countLines = (lines: string[]): Map<string, number> => {
 
 const countFor = (counts: Map<string, number>, line: string): number => counts.get(line) ?? 0
 
+// A correct positional three-way merge for the case where all three sides have
+// the SAME line count: at each index take whichever side changed the line (or
+// the common value). node-diff3 needlessly conflicts some of these (e.g. a
+// file with no trailing newline, where its last-line diff granularity groups
+// unrelated edits), so this handles the common "both sides edited different
+// lines" case cleanly. It is NOT sound on its own — equal line counts can mask
+// an insert+delete that misaligns positions — so its output, like node-diff3's,
+// is validated by mergeViolatesDataPreservation before being accepted.
 const mergeAlignedLineEdits = (
   baseLines: string[],
   localLines: string[],
@@ -99,72 +107,40 @@ const mergeAlignedLineEdits = (
   return merged
 }
 
-// Repeated lines (blank lines, list bullets, fences) are where line-level
-// diff3 is least trustworthy: it can silently keep a copy both sides removed
-// or drop one a side added. Rather than "fix" the merged output by splicing
-// copies around — a position-blind operation that three review rounds showed
-// can relocate a line into content neither side wrote — we only ACCEPT a clean
-// auto-merge whose per-line counts are provably safe, and escalate everything
-// else to a whole-file conflict the user resolves explicitly. A conflict is
-// recoverable; silent corruption or a silently dropped line is not.
+// node-diff3 does the actual general three-way merge (a maintained
+// implementation of the diff3 algorithm). It is the merge engine — we do NOT
+// re-derive or second-guess its alignment. But diff3 (this library, like others) can
+// occasionally emit a CLEAN merge that silently drops a line both sides kept
+// when reconciling adjacent edits. So the one thing we add on top is a SOUND
+// data-preservation check on its output — not an attempt to reproduce any
+// particular diff tool's bytes.
 //
-// A repeated line's merged count is SAFE to auto-accept only when it is
-// unambiguously determined by the three inputs — i.e. at most one side changed
-// how many times the line occurs, or both sides changed it to the same count —
-// AND the merged output already holds exactly that count. When both sides
-// changed the count differently (or to the same number but via independent
-// vs identical insertions git would resolve differently), the correct count
-// is not decidable from counts alone, so we escalate rather than guess. This
-// is deliberately conservative: it can escalate a merge git would resolve
-// cleanly, but it can never emit a clean merge whose repeated-line count is
-// wrong (the silent-corruption class from prior review rounds).
-const hasUnsafeRepeatedLineCount = (
-  baseLines: string[],
+// For every distinct line, the accepted merge's copy count must satisfy:
+//   count >= min(local, remote)   — nothing BOTH sides retained is dropped
+//   count <= local + remote       — nothing is fabricated beyond both sides
+// A merged line outside these bounds means the library dropped or invented
+// content, so we reject the auto-merge and escalate to a whole-file conflict
+// the user resolves. This is a provable invariant, not a heuristic: it cannot
+// accept a merge that loses retained content or fabricates content.
+const mergeViolatesDataPreservation = (
   localLines: string[],
   remoteLines: string[],
   mergedLines: string[]
 ): boolean => {
-  const baseCounts = countLines(baseLines)
   const localCounts = countLines(localLines)
   const remoteCounts = countLines(remoteLines)
   const mergedCounts = countLines(mergedLines)
   const lines = new Set([
-    ...baseCounts.keys(),
     ...localCounts.keys(),
-    ...remoteCounts.keys()
+    ...remoteCounts.keys(),
+    ...mergedCounts.keys()
   ])
 
   for (const line of lines) {
-    const baseCount = countFor(baseCounts, line)
-    const localCount = countFor(localCounts, line)
-    const remoteCount = countFor(remoteCounts, line)
-    const mergedCount = countFor(mergedCounts, line)
-    // Only repeated lines suffer the diff3 mis-count: a line appearing at most
-    // once everywhere is aligned unambiguously (an edit or move of a unique
-    // line is normal diff3 territory, not a count hazard). Skipping them
-    // avoids escalating the common "one side edited this unique line" case,
-    // which legitimately drops the old text (count 1 -> 0).
-    if (Math.max(baseCount, localCount, remoteCount, mergedCount) < 2) {
-      continue
-    }
-    // A line whose count never varies across the inputs cannot be mis-counted.
-    if (localCount === baseCount && remoteCount === baseCount) {
-      continue
-    }
-    // The count is unambiguous only when EXACTLY ONE side changed it. When both
-    // sides changed it — even to the same number — the result depends on
-    // whether the two edits are the same insertion (git collapses them) or
-    // independent (git sums them), which line counts cannot distinguish, so we
-    // escalate. When one side changed it, git takes that side's count.
-    let expected: number
-    if (localCount === baseCount) {
-      expected = remoteCount
-    } else if (remoteCount === baseCount) {
-      expected = localCount
-    } else {
-      return true
-    }
-    if (mergedCount !== expected) {
+    const local = countFor(localCounts, line)
+    const remote = countFor(remoteCounts, line)
+    const merged = countFor(mergedCounts, line)
+    if (merged < Math.min(local, remote) || merged > local + remote) {
       return true
     }
   }
@@ -291,8 +267,10 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
     return createWholeFileConflict(base, local, remote)
   }
 
+  // Fast path: a positional merge for equal-length inputs, accepted only when
+  // it provably preserved data (the same sound check applied to node-diff3).
   const alignedMerge = mergeAlignedLineEdits(baseLines, localLines, remoteLines)
-  if (alignedMerge) {
+  if (alignedMerge && !mergeViolatesDataPreservation(localLines, remoteLines, alignedMerge)) {
     return {
       mergedMarkdown: alignedMerge.join(''),
       conflicts: []
@@ -335,9 +313,11 @@ export const mergeMarkdownThreeWay = ({ base, local, remote }: MergeInput): Thre
 
   const mergedLines = merged
 
+  // node-diff3 produced a clean merge; accept it only if it provably preserved
+  // data, otherwise escalate to a whole-file conflict the user resolves.
   if (
     conflicts.length === 0 &&
-    hasUnsafeRepeatedLineCount(baseLines, localLines, remoteLines, mergedLines)
+    mergeViolatesDataPreservation(localLines, remoteLines, mergedLines)
   ) {
     return createWholeFileConflict(base, local, remote)
   }
