@@ -505,15 +505,52 @@ export function stripCommentSyntaxFromMarkdown(markdown: string): string {
     return next;
 }
 
-// A single comment's marker + metadata-definition ranges, sorted descending so
-// a caller can splice them out left-to-right without shifting later offsets.
-// Shared by removeCommentSyntaxFromMarkdown and the source-mode discard action.
+// A metadata definition occupies its own line, set off from the document body
+// by the blank-line separator the metadata appendix introduced. Removing the
+// definition text alone would leave that blank line behind (so discarding a
+// just-created comment left trailing blanks). Take the whole line including its
+// terminator, and — only when the definition is the last content in the
+// document — the one blank-line separator before it too (which is then just
+// trailing whitespace, so dropping it is safe and restores the prior bytes).
+function definitionRemovalRange(
+    markdown: string,
+    range: ICommentSourceIndexRange,
+): ICommentSourceIndexRange {
+    let { start } = range;
+    let { end } = range;
+
+    if (markdown[end] === '\r')
+        end += markdown[end + 1] === '\n' ? 2 : 1;
+    else if (markdown[end] === '\n')
+        end += 1;
+
+    if (end >= markdown.length && (markdown[start - 1] === '\n' || markdown[start - 1] === '\r')) {
+        const separatorStart = markdown[start - 1] === '\n' && markdown[start - 2] === '\r'
+            ? start - 2
+            : start - 1;
+        if (markdown[separatorStart - 1] === '\n' || markdown[separatorStart - 1] === '\r')
+            start = separatorStart;
+    }
+
+    return { start, end };
+}
+
+// A single comment's marker + metadata-definition removal ranges, sorted
+// descending so a caller can splice them out left-to-right without shifting
+// later offsets. Shared by removeCommentSyntaxFromMarkdown and the source-mode
+// discard action.
 export function commentSyntaxRangesForId(markdown: string, id: string): ICommentSourceIndexRange[] {
     const index = buildCommentSourceIndex(markdown);
-    return [
-        ...index.markers.filter(marker => marker.id === id),
-        ...index.metadataDefinitions.filter(definition => definition.id === id),
-    ].sort((a, b) => b.start - a.start);
+    const ranges: ICommentSourceIndexRange[] = index.markers
+        .filter(marker => marker.id === id)
+        .map(marker => ({ start: marker.start, end: marker.end }));
+
+    for (const definition of index.metadataDefinitions) {
+        if (definition.id === id)
+            ranges.push(definitionRemovalRange(markdown, definition));
+    }
+
+    return ranges.sort((a, b) => b.start - a.start);
 }
 
 export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): string {

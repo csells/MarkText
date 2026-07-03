@@ -155,3 +155,22 @@ describe('commentSyntaxRangesForId', () => {
         expect(spliced).toBe(removeCommentSyntaxFromMarkdown(md, 'x'));
     });
 });
+
+// Discarding a comment must not leave the blank lines the metadata appendix
+// introduced. removeCommentSyntaxFromMarkdown (and the source-mode discard that
+// shares its per-id ranges) should restore the pre-comment bytes.
+describe('removeCommentSyntaxFromMarkdown — no leftover blank lines', () => {
+    it('restores the exact prose when discarding a comment whose def is at EOF', async () => {
+        const { removeCommentSyntaxFromMarkdown } = await import('../source');
+        const meta = 'data:text/plain,note';
+        const md = `A <!--MC:a-->reviewed<!--MC:~a--> span.\n\n[MC:a]: ${meta}\n`;
+        expect(removeCommentSyntaxFromMarkdown(md, 'a')).toBe('A reviewed span.\n');
+    });
+
+    it('keeps the blank separator for sibling definitions when removing one', async () => {
+        const { removeCommentSyntaxFromMarkdown } = await import('../source');
+        const md = 'c.\n\n[MC:a]: data:text/plain,A\n[MC:b]: data:text/plain,B\n';
+        expect(removeCommentSyntaxFromMarkdown(md, 'a')).toBe('c.\n\n[MC:b]: data:text/plain,B\n');
+        expect(removeCommentSyntaxFromMarkdown(md, 'b')).toBe('c.\n\n[MC:a]: data:text/plain,A\n');
+    });
+});

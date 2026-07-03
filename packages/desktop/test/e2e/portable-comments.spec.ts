@@ -1037,15 +1037,10 @@ test.describe('Portable markdown comments', () => {
         .getByRole('button', { name: 'Cancel' }).click()
 
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
-      // handleCommentDiscard -> commentSyntaxRangesForId removes all comment
-      // syntax while leaving the prose intact. (It leaves the trailing blank
-      // lines the metadata appendix introduced — a cosmetic residue, not data
-      // loss; the syntax itself is fully gone.)
-      await expect.poll(() => sourceValue(page), { timeout: 5000 }).not.toContain('MC:cmt_1')
-      const after = await sourceValue(page)
-      expect(after).toContain('A reviewed span.')
-      expect(after).not.toContain('<!--MC:')
-      expect(after).not.toContain('[MC:')
+      // handleCommentDiscard -> commentSyntaxRangesForId removes the markers and
+      // the metadata definition line together with the blank-line separator the
+      // appendix added, restoring the exact pre-comment bytes.
+      await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe('A reviewed span.\n')
     } finally {
       await app.close()
     }
