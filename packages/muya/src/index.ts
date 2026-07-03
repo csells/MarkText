@@ -6,6 +6,7 @@ export {
     COMMENT_MARKER_PATTERN,
     COMMENT_METADATA_DATA_URI_PREFIX,
     commentMarkerRegExpForId,
+    commentSyntaxRangesForId,
     createCommentMetadata,
     createCommentSourceLineState,
     decodeCommentMetadata,

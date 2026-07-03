@@ -193,6 +193,7 @@ declare module '@muyajs/core' {
   ): IParsedMarkdownComments
   export function prepareCommentSourceLine(state: ICommentSourceLineState, line: string): void
   export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): string
+  export function commentSyntaxRangesForId(markdown: string, id: string): ICommentSourceIndexRange[]
   export function updateCommentMetadataInMarkdown(
     markdown: string,
     id: string,

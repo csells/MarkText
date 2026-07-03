@@ -17,6 +17,7 @@ import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMi
 import {
   appendCommentReplyMetadata,
   buildCommentSourceIndex,
+  commentSyntaxRangesForId,
   collectSourceCommentIds,
   createCommentMetadata,
   encodeCommentMetadata,
@@ -627,11 +628,9 @@ const handleCommentDiscard = (id: unknown): void => {
   const thread = comments.threads.find(item => item.id === id)
   if (!thread || thread.status !== 'open' || thread.replies.length) return
 
-  const index = buildCommentSourceIndex(markdown)
-  const syntaxRanges = [
-    ...index.markers.filter(marker => marker.id === id),
-    ...index.metadataDefinitions.filter(definition => definition.id === id)
-  ].sort((a, b) => b.start - a.start)
+  // Same per-id ranges muya's removeCommentSyntaxFromMarkdown computes, but
+  // spliced incrementally into the live buffer to preserve undo and cursor.
+  const syntaxRanges = commentSyntaxRangesForId(markdown, id)
   if (!syntaxRanges.length) return
 
   cm.operation(() => {

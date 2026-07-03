@@ -505,15 +505,21 @@ export function stripCommentSyntaxFromMarkdown(markdown: string): string {
     return next;
 }
 
-export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): string {
+// A single comment's marker + metadata-definition ranges, sorted descending so
+// a caller can splice them out left-to-right without shifting later offsets.
+// Shared by removeCommentSyntaxFromMarkdown and the source-mode discard action.
+export function commentSyntaxRangesForId(markdown: string, id: string): ICommentSourceIndexRange[] {
     const index = buildCommentSourceIndex(markdown);
-    const syntaxRanges = [
+    return [
         ...index.markers.filter(marker => marker.id === id),
         ...index.metadataDefinitions.filter(definition => definition.id === id),
     ].sort((a, b) => b.start - a.start);
+}
+
+export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): string {
     let next = markdown;
 
-    for (const range of syntaxRanges)
+    for (const range of commentSyntaxRangesForId(markdown, id))
         next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
 
     return next;

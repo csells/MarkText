@@ -131,3 +131,27 @@ describe('source index — front matter matches the parser, not the forgiving st
         expect(buildCommentSourceIndex(md).markers.map(m => m.id)).toEqual(['b', 'b']);
     });
 });
+
+// Quality review ③: removeCommentSyntaxFromMarkdown and the source-mode
+// discard handler both computed a comment's syntax ranges from the index by
+// hand. Lock the shared computation.
+describe('commentSyntaxRangesForId', () => {
+    it('returns a comment id\'s marker + metadata ranges, descending, empty for others', async () => {
+        const { commentSyntaxRangesForId, removeCommentSyntaxFromMarkdown } = await import('../source');
+        const meta = 'data:text/plain,note';
+        const md = `a <!--MC:x-->b<!--MC:~x--> c\n\n[MC:x]: ${meta}\n`;
+
+        const ranges = commentSyntaxRangesForId(md, 'x');
+        expect(ranges.length).toBeGreaterThanOrEqual(3); // open, close, metadata def
+        // Descending by start so splicing left-to-right is stable.
+        for (let i = 1; i < ranges.length; i += 1)
+            expect(ranges[i - 1].start).toBeGreaterThanOrEqual(ranges[i].start);
+        expect(commentSyntaxRangesForId(md, 'missing')).toEqual([]);
+
+        // Splicing the ranges reproduces removeCommentSyntaxFromMarkdown.
+        let spliced = md;
+        for (const r of ranges)
+            spliced = `${spliced.slice(0, r.start)}${spliced.slice(r.end)}`;
+        expect(spliced).toBe(removeCommentSyntaxFromMarkdown(md, 'x'));
+    });
+});
