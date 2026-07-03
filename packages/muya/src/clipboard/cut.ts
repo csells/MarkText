@@ -7,11 +7,10 @@ import type { Nullable } from '../types';
 import type Clipboard from './index';
 import Format from '../block/base/format';
 import { ScrollPage } from '../block/scrollPage';
-import { commentMarkerKindsInTexts } from '../comments/markerScan';
-import { isUnsafeCommentMarkerTextEdit } from '../comments/source';
+import { commentMarkerKindsInText, commentMarkerKindsInTexts, orphansCounterpart } from '../comments/markerScan';
+import { isUnsafeCommentMarkerTextEdit, scanEditedCommentMarkers } from '../comments/source';
 import {
     COMMENT_ID_PATTERN,
-    COMMENT_MARKER_PATTERN,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
     parseCommentMetadataDefinition,
     serializeCommentMarker,
@@ -133,13 +132,10 @@ function documentHasCommentMarker(clipboard: Clipboard, id: string): boolean {
     );
 }
 
+// Real comment ids in `text` (tokenizer-based, so marker-shaped text inside
+// inline code/math is ignored — the same definition the document scan uses).
 export function commentIdsInText(text: string): string[] {
-    const ids = new Set<string>();
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
-    for (const match of text.matchAll(markerRegExp))
-        ids.add(match[2]);
-
-    return [...ids];
+    return [...commentMarkerKindsInText(text).keys()];
 }
 
 interface ISelectedCommentMarkers {
@@ -148,35 +144,12 @@ interface ISelectedCommentMarkers {
     kindsById: Map<string, Set<'open' | 'close'>>;
 }
 
+// Which markers a [startOffset, endOffset) selection fully covers in `text`,
+// via the shared tokenizer scan so "selected marker" means exactly what
+// "document marker" means (no inline-code false positives).
 function selectedCommentMarkers(text: string, startOffset: number, endOffset: number): ISelectedCommentMarkers {
-    const ids = new Set<string>();
-    const kindsById = new Map<string, Set<'open' | 'close'>>();
-    let isPartial = false;
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
-
-    for (const match of text.matchAll(markerRegExp)) {
-        const marker = {
-            id: match[2],
-            kind: match[1] === '~' ? 'close' as const : 'open' as const,
-            start: match.index,
-            end: match.index + match[0].length,
-        };
-        const intersects = startOffset < marker.end && endOffset > marker.start;
-        if (!intersects)
-            continue;
-
-        if (startOffset > marker.start || endOffset < marker.end) {
-            isPartial = true;
-            continue;
-        }
-
-        ids.add(marker.id);
-        const kinds = kindsById.get(marker.id) ?? new Set<'open' | 'close'>();
-        kinds.add(marker.kind);
-        kindsById.set(marker.id, kinds);
-    }
-
-    return { ids: [...ids], isPartial, kindsById };
+    const { selectedKindsById, partial } = scanEditedCommentMarkers(text, startOffset, endOffset);
+    return { ids: [...selectedKindsById.keys()], isPartial: partial, kindsById: selectedKindsById };
 }
 
 function mergeSelectedCommentMarkers(...selections: ISelectedCommentMarkers[]): ISelectedCommentMarkers {
@@ -255,15 +228,8 @@ function unsafeCrossBlockCommentMarkerCut(
     const documentKinds = documentCommentMarkerKinds(clipboard);
     for (const [id, kinds] of selectedMarkers.kindsById) {
         const allKinds = documentKinds.get(id);
-        if (!allKinds)
-            continue;
-
-        if (
-            (kinds.has('open') && !kinds.has('close') && allKinds.has('close'))
-            || (kinds.has('close') && !kinds.has('open') && allKinds.has('open'))
-        ) {
+        if (allKinds && orphansCounterpart(kinds, allKinds))
             return { unsafe: true, removedIds: [] };
-        }
     }
 
     return { unsafe: false, removedIds: selectedMarkers.ids };
@@ -290,15 +256,8 @@ function unsafeTableCellsCommentCut(clipboard: Clipboard, cells: TableBodyCell[]
     const documentKinds = documentCommentMarkerKinds(clipboard);
     for (const [id, kinds] of selectedMarkers.kindsById) {
         const allKinds = documentKinds.get(id);
-        if (!allKinds)
-            continue;
-
-        if (
-            (kinds.has('open') && !kinds.has('close') && allKinds.has('close'))
-            || (kinds.has('close') && !kinds.has('open') && allKinds.has('open'))
-        ) {
+        if (allKinds && orphansCounterpart(kinds, allKinds))
             return true;
-        }
     }
 
     return false;

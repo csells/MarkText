@@ -15,7 +15,7 @@ import {
 
 type TMarkerKind = 'open' | 'close';
 
-interface IScannedMarkers {
+export interface IScannedMarkers {
     // Marker kinds fully covered by the edit, keyed by comment id.
     selectedKindsById: Map<string, Set<TMarkerKind>>;
     // Every marker kind present in `text`, the fallback counterpart source.
@@ -27,8 +27,9 @@ interface IScannedMarkers {
 // Scan `text` for comment markers the edit touches, using the real inline
 // tokenizer (so a marker inside an inline-code/inline-math span is not treated
 // as a comment marker). Returns `partial: true` as soon as the edit clips a
-// marker without covering it whole.
-function scanEditedCommentMarkers(text: string, startOffset: number, endOffset: number): IScannedMarkers {
+// marker without covering it whole. Exported so the clipboard cut guards scan
+// selections with the SAME tokenizer definition of a marker as everything else.
+export function scanEditedCommentMarkers(text: string, startOffset: number, endOffset: number): IScannedMarkers {
     const selectedKindsById = new Map<string, Set<TMarkerKind>>();
     const allKindsById = new Map<string, Set<TMarkerKind>>();
 
