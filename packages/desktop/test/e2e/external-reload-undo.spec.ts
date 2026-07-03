@@ -301,6 +301,54 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
     await app.close()
   })
 
+  test('merge dialog Use Yours resolves a conflict to the local edit', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('one\nshared\nthree\n')
+    await waitForMenuReady(app)
+
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'selectAll')
+    await page.keyboard.type('one\nlocal\nthree\n', { delay: 0 })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, 'one\nremote\nthree\n')
+    await expectMergeConflictPrompt(page)
+
+    await page.getByRole('button', { name: 'Use Yours' }).click()
+    await page.getByRole('button', { name: 'Accept Merge' }).click()
+
+    await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
+    // Use Yours resolves the conflict to the local edit: local kept, disk
+    // dropped, no leftover conflict scaffolding. (Exact bytes depend on the
+    // WYSIWYG paragraph round-trip, so assert the resolution, not the layout.)
+    const yoursResult = await getMarkdownContent(page, app)
+    expect(yoursResult).toContain('local')
+    expect(yoursResult).not.toContain('remote')
+    expect(yoursResult).not.toContain('MARKTEXT_LOCAL')
+    await app.close()
+  })
+
+  test('merge dialog Use Both keeps the local and disk edits', async() => {
+    const { app, page, filePath } = await launchWithMarkdown('one\nshared\nthree\n')
+    await waitForMenuReady(app)
+
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'selectAll')
+    await page.keyboard.type('one\nlocal\nthree\n', { delay: 0 })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, 'one\nremote\nthree\n')
+    await expectMergeConflictPrompt(page)
+
+    await page.getByRole('button', { name: 'Use Both' }).click()
+    await page.getByRole('button', { name: 'Accept Merge' }).click()
+
+    await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
+    // Use Both keeps local AND disk edits, no leftover conflict scaffolding.
+    const bothResult = await getMarkdownContent(page, app)
+    expect(bothResult).toContain('local')
+    expect(bothResult).toContain('remote')
+    expect(bothResult).not.toContain('MARKTEXT_LOCAL')
+    await app.close()
+  })
+
   test('dirty byte-equivalent external content clears the local dirty state', async() => {
     const { app, page, filePath } = await launchWithMarkdown('old content here\n')
     await waitForMenuReady(app)

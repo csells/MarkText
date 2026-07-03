@@ -353,6 +353,8 @@ pnpm install
 
 Focused regression coverage must include parser, serializer, hidden rendering, selection offsets, source/WYSIWYG switching, sidebar actions, menu commands, undo/redo, copy/paste, search, save/reload, clean external agent file auto-sync, dirty external-change prompting, Git-style dirty external merge, CRLF/BOM/no-final-newline preservation in merge and skill metadata edits, dirty reload recovery tabs, and agent-script behavior.
 
+End-to-end coverage additionally exercises the full comment lifecycle in both WYSIWYG and source mode (add, reply, edit, resolve, reopen, jump, and **discard** — the compose-cancel path that strips a just-created comment's syntax), save/reopen byte preservation, and the merge-conflict resolver's per-conflict choices (**Use Yours / Use Disk / Use Both**) plus whole-file accept/reload/undo. The goal is that these workflows never require manual verification — only real-world dogfooding of a local build covers subjective UX, visual fidelity, large-document performance, and OS-native integration.
+
 ## Known Risks
 
 - Generic HTML comments currently render through the normal inline HTML path; MC markers must be special-cased before that path.

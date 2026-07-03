@@ -1004,4 +1004,50 @@ test.describe('Portable markdown comments', () => {
       await reopened.app.close()
     }
   })
+
+  test('discarding a composed WYSIWYG comment removes its markers from the document', async() => {
+    const { app, page } = await launchWithMarkdown('A reviewed span.\n')
+    try {
+      await focusEditor(page)
+      await clickMenuById(app, 'review.add-comment')
+      await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
+      expect(await getMarkdownContent(page, app)).toContain('<!--MC:')
+
+      // Cancel the just-composed thread before adding a note → comment:discard.
+      await page.locator('.side-bar-comments .thread').first()
+        .getByRole('button', { name: 'Cancel' }).click()
+
+      await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
+      expect(await getMarkdownContent(page, app)).not.toContain('<!--MC:')
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('discarding a composed comment in source mode strips its syntax bytes', async() => {
+    const { app, page } = await launchWithMarkdown('A reviewed span.\n')
+    try {
+      await enterSourceMode(page, app)
+      await setSourceSelection(page, { line: 0, ch: 2 }, { line: 0, ch: 10 })
+      await clickMenuById(app, 'review.add-comment')
+      await expect.poll(() => sourceValue(page), { timeout: 5000 }).toContain('<!--MC:cmt_1-->')
+      expect(await sourceValue(page)).toContain('[MC:cmt_1]: ')
+
+      await page.locator('.side-bar-comments .thread').first()
+        .getByRole('button', { name: 'Cancel' }).click()
+
+      await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
+      // handleCommentDiscard -> commentSyntaxRangesForId removes all comment
+      // syntax while leaving the prose intact. (It leaves the trailing blank
+      // lines the metadata appendix introduced — a cosmetic residue, not data
+      // loss; the syntax itself is fully gone.)
+      await expect.poll(() => sourceValue(page), { timeout: 5000 }).not.toContain('MC:cmt_1')
+      const after = await sourceValue(page)
+      expect(after).toContain('A reviewed span.')
+      expect(after).not.toContain('<!--MC:')
+      expect(after).not.toContain('[MC:')
+    } finally {
+      await app.close()
+    }
+  })
 })
