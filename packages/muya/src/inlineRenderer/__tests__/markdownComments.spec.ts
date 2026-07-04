@@ -139,3 +139,46 @@ describe('markdown comments - render caching', () => {
         expect(getState).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('markdown comments - resolved highlights', () => {
+    const buildRenderer = (status: 'open' | 'resolved') => {
+        const metadata = encodeCommentMetadata({ version: 1, status, replies: [] });
+        const states: TState[] = [
+            { name: 'paragraph', text: 'A <!--MC:a-->reviewed<!--MC:~a--> line.' },
+            { name: 'paragraph', text: `[MC:a]: ${metadata}` },
+        ];
+        const contentNodes = states.map((state, index) => ({
+            isContent: () => true,
+            path: [index, 'text'],
+            text: 'text' in state ? state.text : '',
+        }));
+        const renderer = Object.create(InlineRenderer.prototype) as {
+            _commentRenderCache: unknown;
+            muya: unknown;
+            _commentHighlights: (block: unknown) => unknown[];
+        };
+        renderer._commentRenderCache = null;
+        renderer.muya = {
+            editor: {
+                jsonState: { getState: () => states, version: 1 },
+                scrollPage: {
+                    depthFirstTraverse(callback: (node: unknown) => void) {
+                        contentNodes.forEach(callback);
+                    },
+                },
+                selection: { getSelection: () => null },
+            },
+        } as never;
+        return { renderer, contentNodes };
+    };
+
+    it('highlights an open comment range', () => {
+        const { renderer, contentNodes } = buildRenderer('open');
+        expect(renderer._commentHighlights(contentNodes[0]).length).toBeGreaterThan(0);
+    });
+
+    it('drops the highlight once the comment is resolved', () => {
+        const { renderer, contentNodes } = buildRenderer('resolved');
+        expect(renderer._commentHighlights(contentNodes[0])).toEqual([]);
+    });
+});

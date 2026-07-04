@@ -113,9 +113,20 @@ class InlineRenderer {
             return [];
 
         const activeIds = this._activeCommentIds(comments, cursor, textPathIndexes);
+        // Resolved comments keep their markers in the text but drop their
+        // in-document highlight, matching Google Docs (they live on only in the
+        // sidebar's Resolved filter).
+        const resolvedIds = new Set(
+            comments.threads
+                .filter(thread => thread.status === 'resolved')
+                .map(thread => thread.id),
+        );
         const highlights: IHighlight[] = [];
 
         for (const range of comments.ranges) {
+            if (resolvedIds.has(range.id))
+                continue;
+
             const startKey = commentPathKey(range.startPath);
             const endKey = commentPathKey(range.endPath);
             const startIndex = blockIndexes.get(startKey);
