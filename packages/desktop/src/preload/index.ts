@@ -242,6 +242,7 @@ const electronAPI = {
   },
   paths: bootInfo?.paths || {},
   isUpdatable: !!bootInfo?.isUpdatable,
+  osUsername: bootInfo?.osUsername || '',
   windowControl: windowControlAPI
 }
 

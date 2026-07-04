@@ -270,7 +270,9 @@
       "defaultAuthor": "Revisor",
       "selectTextHint": "Selecione texto antes de adicionar um comentário.",
       "sourceModeUnavailable": "As ações de comentário não estão disponíveis para esta seleção.",
-      "updateFailed": "Não foi possível atualizar o comentário porque seus dados salvos são inválidos."
+      "updateFailed": "Não foi possível atualizar o comentário porque seus dados salvos são inválidos.",
+      "comment": "Comment",
+      "commentPlaceholder": "Add a comment..."
     },
     "icons": {
       "files": "Arquivos",

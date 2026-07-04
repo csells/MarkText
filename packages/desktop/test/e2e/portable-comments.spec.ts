@@ -534,7 +534,7 @@ test.describe('Portable markdown comments', () => {
       const thread = page.locator('.side-bar-comments .thread').first()
       await expect(thread.locator('.reply-box textarea')).toBeFocused()
       await thread.locator('.reply-box textarea').fill('Initial note')
-      await thread.getByRole('button', { name: 'Reply' }).click()
+      await thread.getByRole('button', { name: 'Comment' }).click()
       await expect(thread.locator('.reply p').first()).toHaveText('Initial note')
     } finally {
       await app.close()
@@ -565,7 +565,7 @@ test.describe('Portable markdown comments', () => {
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
       const thread = page.locator('.side-bar-comments .thread').first()
       await thread.locator('.reply-box textarea').fill('Initial note')
-      await thread.getByRole('button', { name: 'Reply' }).click()
+      await thread.getByRole('button', { name: 'Comment' }).click()
       await expect(thread.locator('.reply p').first()).toHaveText('Initial note')
 
       await save(app)

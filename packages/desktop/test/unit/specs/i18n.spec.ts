@@ -108,6 +108,8 @@ describe('desktop locale completeness for markdown comments', () => {
       'add',
       'all',
       'cancelEdit',
+      'comment',
+      'commentPlaceholder',
       'defaultAuthor',
       'diagnostics',
       'edit',

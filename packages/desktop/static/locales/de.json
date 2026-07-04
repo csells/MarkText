@@ -270,7 +270,9 @@
       "defaultAuthor": "Prüfer",
       "selectTextHint": "Wählen Sie Text aus, bevor Sie einen Kommentar hinzufügen.",
       "sourceModeUnavailable": "Kommentaraktionen sind für diese Auswahl nicht verfügbar.",
-      "updateFailed": "Der Kommentar konnte nicht aktualisiert werden, da seine gespeicherten Daten ungültig sind."
+      "updateFailed": "Der Kommentar konnte nicht aktualisiert werden, da seine gespeicherten Daten ungültig sind.",
+      "comment": "Comment",
+      "commentPlaceholder": "Add a comment..."
     },
     "icons": {
       "files": "Dateien",

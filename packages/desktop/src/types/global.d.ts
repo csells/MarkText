@@ -93,6 +93,7 @@ declare global {
     }
     paths: Partial<BootInfo['paths']>
     isUpdatable: boolean
+    osUsername: string
     windowControl: ElectronWindowControlAPI
   }
 

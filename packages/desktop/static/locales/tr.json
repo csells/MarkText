@@ -270,7 +270,9 @@
       "defaultAuthor": "İnceleyen",
       "selectTextHint": "Yorum eklemeden önce metin seçin.",
       "sourceModeUnavailable": "Bu seçim için yorum eylemleri kullanılamaz.",
-      "updateFailed": "Yorumun kaydedilmiş verileri geçersiz olduğundan güncellenemedi."
+      "updateFailed": "Yorumun kaydedilmiş verileri geçersiz olduğundan güncellenemedi.",
+      "comment": "Comment",
+      "commentPlaceholder": "Add a comment..."
     },
     "icons": {
       "files": "Dosyalar",

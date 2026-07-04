@@ -668,6 +668,13 @@ const handleCommentReopen = (id: unknown): void => {
   }))
 }
 
+// Return focus to the source editor (e.g. after posting a comment from the
+// sidebar). No-op unless source mode is the active editor.
+const handleEditorFocus = (): void => {
+  if (!sourceCode.value || !editor.value) return
+  editor.value.focus()
+}
+
 const handleCommentFocus = (id: unknown): void => {
   if (!sourceCode.value || !editor.value || typeof id !== 'string') return
 
@@ -855,6 +862,7 @@ onMounted(() => {
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
   bus.on('addComment', handleAddComment)
+  bus.on('editor-focus', handleEditorFocus)
   bus.on('comment:reply', handleCommentReply)
   bus.on('comment:discard', handleCommentDiscard)
   bus.on('comment:edit', handleCommentEdit)
@@ -902,6 +910,7 @@ onBeforeUnmount(() => {
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
   bus.off('addComment', handleAddComment)
+  bus.off('editor-focus', handleEditorFocus)
   bus.off('comment:reply', handleCommentReply)
   bus.off('comment:discard', handleCommentDiscard)
   bus.off('comment:edit', handleCommentEdit)

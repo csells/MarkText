@@ -1,4 +1,5 @@
 import path from 'path'
+import os from 'os'
 import fs from 'fs-extra'
 import { app, ipcMain } from 'electron'
 import { rgPath } from '@vscode/ripgrep'
@@ -23,6 +24,18 @@ const pickEnv = (): Record<string, string> => {
     if (value !== undefined) out[key] = value
   }
   return out
+}
+
+// Default comment author name. os.userInfo() throws when the process has no
+// passwd entry (some CI/container setups), so fall back to the env vars.
+const resolveOsUsername = (): string => {
+  try {
+    const name = os.userInfo().username?.trim()
+    if (name) return name
+  } catch {
+    // no-op — fall through to env
+  }
+  return (process.env.USER || process.env.USERNAME || '').trim()
 }
 
 const resolveRipgrepBinary = (): string => {
@@ -60,6 +73,7 @@ const buildBootInfo = (): BootInfo => ({
     electron: process.versions.electron
   },
   env: pickEnv(),
+  osUsername: resolveOsUsername(),
   paths: {
     ripgrepBinary: resolveRipgrepBinary(),
     resources: process.resourcesPath,

@@ -270,7 +270,9 @@
       "defaultAuthor": "Revisor",
       "selectTextHint": "Selecciona texto antes de agregar un comentario.",
       "sourceModeUnavailable": "Las acciones de comentarios no están disponibles para esta selección.",
-      "updateFailed": "No se pudo actualizar el comentario porque sus datos guardados no son válidos."
+      "updateFailed": "No se pudo actualizar el comentario porque sus datos guardados no son válidos.",
+      "comment": "Comment",
+      "commentPlaceholder": "Add a comment..."
     },
     "icons": {
       "files": "Archivos",

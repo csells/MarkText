@@ -270,7 +270,9 @@
       "defaultAuthor": "審閱者",
       "selectTextHint": "新增評論前，請先選取文字。",
       "sourceModeUnavailable": "此選取範圍無法使用評論操作。",
-      "updateFailed": "無法更新該評論，因為其儲存的資料無效。"
+      "updateFailed": "無法更新該評論，因為其儲存的資料無效。",
+      "comment": "Comment",
+      "commentPlaceholder": "Add a comment..."
     },
     "icons": {
       "files": "檔案",

@@ -84,28 +84,10 @@
         type="button"
         @click="focusComment(thread.id)"
       >
-        <span class="thread-title">
-          <span class="thread-id">#{{ thread.id }}</span>
-          <span class="status">{{ statusLabel(thread.status) }}</span>
-        </span>
         <span
-          v-if="thread.authors?.length"
-          class="meta"
-        >
-          {{ thread.authors.join(', ') }}
-        </span>
-        <span
-          v-if="thread.updatedAt || thread.createdAt"
-          class="meta"
-        >
-          {{ formatDate(thread.updatedAt ?? thread.createdAt) }}
-        </span>
-        <span
-          v-if="rangePreview(thread.id)"
-          class="range-preview"
-        >
-          {{ rangePreview(thread.id) }}
-        </span>
+          class="status"
+          :class="thread.status"
+        >{{ statusLabel(thread.status) }}</span>
       </button>
 
       <div
@@ -117,11 +99,16 @@
           :key="`${thread.id}:${index}:${reply.createdAt}`"
           class="reply"
         >
-          <div class="reply-meta">
-            <span>{{ reply.author }}</span>
-            <span>{{ formatDate(reply.createdAt) }}</span>
+          <div class="entry-head">
+            <span
+              class="avatar"
+              :style="avatarStyle(reply.author)"
+            >{{ initials(reply.author) }}</span>
+            <span class="entry-author">{{ reply.author || t('sideBar.comments.defaultAuthor') }}</span>
+            <span class="entry-date">{{ formatDate(reply.createdAt) }}</span>
             <el-tooltip :content="t('sideBar.comments.edit')">
               <el-button
+                class="entry-edit"
                 circle
                 size="small"
                 :icon="EditPen"
@@ -129,7 +116,10 @@
               />
             </el-tooltip>
           </div>
-          <p v-if="!editingReplies[replyEditKey(thread.id, index)]">
+          <p
+            v-if="!editingReplies[replyEditKey(thread.id, index)]"
+            class="entry-body"
+          >
             {{ reply.body }}
           </p>
           <div
@@ -141,6 +131,7 @@
               type="textarea"
               :autosize="{ minRows: 2, maxRows: 4 }"
               :placeholder="t('sideBar.comments.editPlaceholder')"
+              @keydown.enter="submitOnModEnter($event, () => submitEditReply(thread, index))"
             />
             <div class="edit-actions">
               <el-button
@@ -214,6 +205,7 @@
           type="textarea"
           :autosize="{ minRows: 2, maxRows: 4 }"
           :placeholder="t('sideBar.comments.editPlaceholder')"
+          @keydown.enter="submitOnModEnter($event, () => submitEdit(thread))"
         />
         <div class="edit-actions">
           <el-button
@@ -236,39 +228,52 @@
       </div>
 
       <div class="reply-box">
+        <div class="entry-head compose-head">
+          <span
+            class="avatar"
+            :style="avatarStyle(commentAuthorName)"
+          >{{ initials(commentAuthorName) }}</span>
+          <span class="entry-author">{{ commentAuthorName }}</span>
+        </div>
         <el-input
           :ref="setReplyInputRefFor(thread.id)"
           v-model="replyDrafts[thread.id]"
           type="textarea"
           :autosize="{ minRows: 2, maxRows: 4 }"
-          :placeholder="t('sideBar.comments.replyPlaceholder')"
+          :placeholder="thread.replies.length
+            ? t('sideBar.comments.replyPlaceholder')
+            : t('sideBar.comments.commentPlaceholder')"
+          @keydown.enter="submitOnModEnter($event, () => submitReply(thread.id))"
         />
-        <el-button
-          v-if="composingThreadIds[thread.id] && !thread.replies.length"
-          size="small"
-          :icon="Close"
-          @click="discardComposedThread(thread.id)"
-        >
-          {{ t('sideBar.comments.cancelEdit') }}
-        </el-button>
-        <el-button
-          size="small"
-          :icon="Promotion"
-          :disabled="!replyDrafts[thread.id]?.trim()"
-          @click="submitReply(thread.id)"
-        >
-          {{ t('sideBar.comments.reply') }}
-        </el-button>
+        <div class="compose-actions">
+          <el-button
+            v-if="composingThreadIds[thread.id] && !thread.replies.length"
+            size="small"
+            @click="discardComposedThread(thread.id)"
+          >
+            {{ t('sideBar.comments.cancelEdit') }}
+          </el-button>
+          <el-button
+            size="small"
+            type="primary"
+            :disabled="!replyDrafts[thread.id]?.trim()"
+            @click="submitReply(thread.id)"
+          >
+            {{ thread.replies.length
+              ? t('sideBar.comments.reply')
+              : t('sideBar.comments.comment') }}
+          </el-button>
+        </div>
       </div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { ICommentRange, ICommentThread } from '@muyajs/core'
+import type { ICommentThread } from '@muyajs/core'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Aim, Check, Close, EditPen, Plus, Promotion, RefreshLeft } from '@element-plus/icons-vue'
+import { Aim, Check, Close, EditPen, Plus, RefreshLeft } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import bus from '@/bus'
 import { useEditorStore } from '@/store/editor'
@@ -306,13 +311,28 @@ const visibleThreads = computed(() => {
   return comments.value.threads.filter(thread => thread.status === commentFilter.value)
 })
 
-const rangePreview = (id: string): string =>
-  comments.value.ranges.find((range: ICommentRange) => range.id === id)?.preview ?? ''
-
 const commentAuthorName = computed(() => {
   const configured = (preferencesStore.commentAuthorName ?? '').trim()
-  return configured || t('sideBar.comments.defaultAuthor')
+  const osName = (window.electron?.osUsername ?? '').trim()
+  return configured || osName || t('sideBar.comments.defaultAuthor')
 })
+
+const initials = (name?: string): string => {
+  const trimmed = (name ?? '').trim()
+  if (!trimmed) return '?'
+  const parts = trimmed.split(/\s+/)
+  const first = parts[0]?.[0] ?? ''
+  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? '') : ''
+  return (first + last).toUpperCase()
+}
+
+// Deterministic per-author colour so avatars stay stable and distinguishable.
+const avatarStyle = (name?: string): Record<string, string> => {
+  const trimmed = (name ?? '').trim() || '?'
+  let hash = 0
+  for (let i = 0; i < trimmed.length; i++) hash = (hash * 31 + trimmed.charCodeAt(i)) | 0
+  return { backgroundColor: `hsl(${Math.abs(hash) % 360}, 45%, 45%)` }
+}
 
 // Comment ids are recycled (nextCommentId fills the lowest free cmt_N), so an
 // unsent reply/edit draft for a thread that has since disappeared must be
@@ -464,6 +484,14 @@ const submitEdit = (thread: ICommentThread): void => {
   submitEditReply(thread, 0)
 }
 
+// Cmd/Ctrl+Enter submits from any comment textarea; a bare Enter still inserts
+// a newline.
+const submitOnModEnter = (event: KeyboardEvent, submit: () => void): void => {
+  if (!(event.metaKey || event.ctrlKey)) return
+  event.preventDefault()
+  submit()
+}
+
 const submitReply = (id: string): void => {
   const body = replyDrafts[id]?.trim()
   if (!body) return
@@ -477,6 +505,9 @@ const submitReply = (id: string): void => {
   })
   replyDrafts[id] = ''
   delete composingThreadIds[id]
+  // Posting a comment is a punctuation mark on editing, not the start of a
+  // commenting session — hand focus back to the document.
+  bus.emit('editor-focus')
 }
 
 const discardComposedThread = (id: string): void => {
@@ -510,7 +541,7 @@ onBeforeUnmount(() => {
 .side-bar-comments {
   height: 100%;
   overflow: auto;
-  padding: 34px 16px 20px;
+  padding: 30px 12px 24px;
   box-sizing: border-box;
 }
 
@@ -519,21 +550,37 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
+}
+
+.title {
+  color: var(--sideBarTitleColor);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.summary {
+  color: var(--sideBarColor);
+  opacity: 0.6;
+  font-size: 12px;
+  line-height: 18px;
+  margin-top: 2px;
+  white-space: nowrap;
 }
 
 .comment-filters {
   display: flex;
   gap: 6px;
-  margin: -6px 0 14px;
+  margin: 0 0 14px;
 }
 
 .comment-filters button {
   border: 1px solid var(--itemBgColor);
   background: transparent;
   color: var(--sideBarColor);
-  border-radius: 4px;
-  padding: 3px 8px;
+  border-radius: 12px;
+  padding: 3px 10px;
   font-size: 12px;
   line-height: 18px;
   cursor: pointer;
@@ -542,32 +589,6 @@ onBeforeUnmount(() => {
 .comment-filters button.active {
   border-color: var(--themeColor);
   color: var(--themeColor);
-}
-
-.title {
-  color: var(--sideBarTitleColor);
-  font-weight: 600;
-  font-size: 16px;
-  line-height: 24px;
-}
-
-.summary,
-.meta,
-.range-preview,
-.reply-meta {
-  color: var(--sideBarColor);
-  opacity: 0.72;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.range-preview {
-  display: -webkit-box;
-  overflow: hidden;
-  margin-top: 6px;
-  font-style: italic;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
 }
 
 .section-title {
@@ -579,9 +600,10 @@ onBeforeUnmount(() => {
 }
 
 .diagnostics {
-  border-bottom: 1px solid var(--itemBgColor);
-  padding-bottom: 12px;
-  margin-bottom: 8px;
+  border: 1px solid var(--itemBgColor);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
 }
 
 .diagnostic {
@@ -594,7 +616,7 @@ onBeforeUnmount(() => {
   color: var(--sideBarColor);
   font-size: 12px;
   line-height: 17px;
-  padding: 8px 0;
+  padding: 6px 0;
   text-align: left;
   cursor: pointer;
 }
@@ -606,75 +628,105 @@ onBeforeUnmount(() => {
 
 .empty {
   color: var(--sideBarColor);
-  opacity: 0.72;
+  opacity: 0.6;
   font-size: 13px;
   line-height: 20px;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
+/* Each thread is a Google-Docs-style card. */
 .thread {
-  border-bottom: 1px solid var(--itemBgColor);
-  padding: 12px 0 14px;
+  border: 1px solid var(--itemBgColor);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
 }
 
 .thread.active {
-  border-left: 3px solid var(--themeColor);
-  padding-left: 10px;
+  border-color: var(--themeColor);
+  box-shadow: 0 0 0 1px var(--themeColor);
 }
 
 .thread.resolved {
-  opacity: 0.68;
+  opacity: 0.6;
 }
 
 .thread-main {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
   width: 100%;
   border: 0;
   padding: 0;
   margin: 0;
-  color: var(--sideBarColor);
-  text-align: left;
   background: transparent;
   cursor: pointer;
 }
 
-.thread-main:hover .thread-id {
+.status {
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  background: var(--itemBgColor);
+  color: var(--sideBarColor);
+}
+
+.status.resolved {
   color: var(--themeColor);
 }
 
-.thread-title,
-.reply-meta {
+/* A single comment or reply: avatar + author + date, then the body. */
+.entry-head {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 8px;
 }
 
-.thread-id {
-  font-size: 13px;
+.avatar {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 20px;
+  line-height: 1;
 }
 
-.status {
-  border: 1px solid var(--itemBgColor);
-  border-radius: 6px;
-  padding: 1px 6px;
+.entry-author {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--sideBarTitleColor);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-date {
+  flex: 0 0 auto;
+  color: var(--sideBarColor);
+  opacity: 0.6;
   font-size: 11px;
   line-height: 16px;
 }
 
-.replies {
-  margin-top: 10px;
+.entry-edit {
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 0.1s ease;
 }
 
-.reply {
-  padding: 8px 0;
+.reply:hover .entry-edit {
+  opacity: 1;
 }
 
-.reply p {
-  margin: 4px 0 0;
+.entry-body {
+  margin: 4px 0 0 32px;
   color: var(--sideBarColor);
   font-size: 13px;
   line-height: 19px;
@@ -682,21 +734,33 @@ onBeforeUnmount(() => {
   user-select: text;
 }
 
+.replies {
+  margin-top: 4px;
+}
+
+.reply {
+  padding: 6px 0;
+}
+
 .thread-actions {
   display: flex;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 8px;
+}
+
+.compose-head {
+  margin-bottom: 6px;
 }
 
 .reply-box,
 .edit-box {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
+.compose-actions,
 .edit-actions {
   display: flex;
   gap: 8px;

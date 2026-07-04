@@ -28,6 +28,22 @@
     <compound>
       <template #head>
         <h6 class="title">
+          {{ t('preferences.general.comments.title') }}
+        </h6>
+      </template>
+      <template #children>
+        <text-box
+          :description="t('preferences.general.comments.authorName')"
+          :input="commentAuthorName"
+          :default-value="electronOsUsername"
+          :on-change="(value) => onSelectChange('commentAuthorName', value)"
+        />
+      </template>
+    </compound>
+
+    <compound>
+      <template #head>
+        <h6 class="title">
           {{ t('preferences.general.window.title') }}
         </h6>
       </template>
@@ -209,6 +225,7 @@ const preferenceStore = usePreferencesStore()
 const {
   autoSave,
   autoSaveDelay,
+  commentAuthorName,
   titleBarStyle,
   defaultDirectoryToOpen,
   openFilesInNewWindow,
@@ -222,6 +239,10 @@ const {
   language,
   openedFilesInSidebar
 } = storeToRefs(preferenceStore)
+
+// Shown as the field's placeholder — the system user name used when no custom
+// author name is set.
+const electronOsUsername = window.electron?.osUsername || ''
 
 const startUpAction = computed<string>({
   get: () => preferenceStore.startUpAction,

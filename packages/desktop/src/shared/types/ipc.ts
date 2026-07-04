@@ -308,6 +308,7 @@ export interface BootInfo {
   arch: string
   versions: Record<string, string>
   env: Record<string, string>
+  osUsername: string
   paths: {
     resources: string
     userData: string

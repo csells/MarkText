@@ -270,7 +270,9 @@
       "defaultAuthor": "レビュアー",
       "selectTextHint": "コメントを追加する前にテキストを選択してください。",
       "sourceModeUnavailable": "この選択範囲ではコメント操作は利用できません。",
-      "updateFailed": "コメントの保存データが無効なため、更新できませんでした。"
+      "updateFailed": "コメントの保存データが無効なため、更新できませんでした。",
+      "comment": "Comment",
+      "commentPlaceholder": "Add a comment..."
     },
     "icons": {
       "files": "ファイル",

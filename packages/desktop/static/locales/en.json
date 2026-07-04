@@ -262,11 +262,13 @@
       "edit": "Edit",
       "resolve": "Resolve",
       "reopen": "Reopen",
+      "comment": "Comment",
       "reply": "Reply",
       "saveEdit": "Save",
       "cancelEdit": "Cancel",
       "editPlaceholder": "Edit this reply...",
-      "replyPlaceholder": "Write a reply...",
+      "commentPlaceholder": "Add a comment...",
+      "replyPlaceholder": "Reply...",
       "defaultAuthor": "Reviewer",
       "selectTextHint": "Select text before adding a comment.",
       "sourceModeUnavailable": "Comment actions are unavailable for this selection.",
@@ -469,6 +471,10 @@
         "title": "Auto Save",
         "description": "Auto save",
         "delayDescription": "Auto save delay"
+      },
+      "comments": {
+        "title": "Comments",
+        "authorName": "Author name shown on comments you add (defaults to your system user name)"
       },
       "window": {
         "title": "Window",

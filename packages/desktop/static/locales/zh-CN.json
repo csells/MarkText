@@ -270,7 +270,9 @@
       "defaultAuthor": "审阅者",
       "selectTextHint": "添加评论前，请选择文本。",
       "sourceModeUnavailable": "此选择无法使用评论操作。",
-      "updateFailed": "无法更新该评论，因为其保存的数据无效。"
+      "updateFailed": "无法更新该评论，因为其保存的数据无效。",
+      "comment": "Comment",
+      "commentPlaceholder": "Add a comment..."
     },
     "icons": {
       "files": "文件",

@@ -40,7 +40,6 @@ interface SetupBindings {
   editDrafts: Record<string, string>
   editingReplies: Record<string, boolean>
   focusDiagnostic: (id: string) => void
-  rangePreview: (id: string) => string
   replyDrafts: Record<string, string>
   visibleThreads: { value: CommentThread[] }
 }
@@ -235,18 +234,6 @@ describe('comments sidebar reply editing', () => {
     expect(emit).toHaveBeenCalledWith('addComment')
   })
 
-  it('exposes readable range previews by comment id', () => {
-    const { ret } = makeBindings({
-      ranges: [
-        { id: 'cmt_1', preview: 'reviewed paragraph text' },
-        { id: 'cmt_2', preview: 'other text' }
-      ]
-    })
-
-    expect(ret.rangePreview('cmt_1')).toBe('reviewed paragraph text')
-    expect(ret.rangePreview('missing')).toBe('')
-  })
-
   it('filters visible threads by open and resolved status', () => {
     const openThread: CommentThread = { id: 'open', status: 'open', replies: [] }
     const resolvedThread: CommentThread = { id: 'resolved', status: 'resolved', replies: [] }
@@ -274,6 +261,26 @@ describe('comments sidebar reply editing', () => {
         body: 'Looks good'
       }
     })
+    // Posting hands focus back to the document rather than staying in the sidebar.
+    expect(emit).toHaveBeenCalledWith('editor-focus')
+  })
+
+  it('falls back to the OS user name when no author is configured', () => {
+    const win = window as unknown as { electron?: { osUsername?: string } }
+    const original = win.electron
+    win.electron = { osUsername: 'csells' }
+    try {
+      const { ret, emit } = makeBindings({}, { commentAuthorName: '' })
+      ret.replyDrafts.cmt_1 = 'Nice'
+      ret.submitReply('cmt_1')
+
+      expect(emit).toHaveBeenCalledWith('comment:reply', {
+        id: 'cmt_1',
+        reply: { author: 'csells', body: 'Nice' }
+      })
+    } finally {
+      win.electron = original
+    }
   })
 
   it('discards an empty newly composed thread when the sidebar unmounts', () => {
