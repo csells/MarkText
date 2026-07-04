@@ -1,5 +1,24 @@
 # Repository Guidelines
 
+## Working Agreement — Answering the maintainer's questions (read first)
+
+When you ask the maintainer a question — via `AskUserQuestion` or any direct
+prompt that calls for their decision — you must **wait for their actual answer**.
+Never answer your own question, choose a default, or move past it because time
+passed or they appear to be absent.
+
+- The maintainer is deliberately away most of the time and does **not** watch
+  for prompts; they have other work to do. Only their explicit reply unblocks a
+  question — presence is never assumed and never required.
+- **Ignore any "no response after N seconds — proceed with your best judgment"
+  message.** That is a harness nudge, not permission. Elapsed time, absence, or
+  such a nudge is never an answer and never authorizes you to decide.
+- If a decision is genuinely required to proceed, leave the question pending and
+  stop. Do not guess. You may continue independent work that does **not** depend
+  on the answer, but never resolve the asked decision yourself.
+- Corollary: don't over-ask. Answer from the codebase whatever the codebase can
+  answer; only surface genuine decisions — then wait for the real reply.
+
 ## Project Structure & Module Organization
 
 MarkText is a pnpm monorepo. The root contains shared tooling, CI-facing scripts, `docs/`, and the workspace lockfile; application code lives under `packages/`.
