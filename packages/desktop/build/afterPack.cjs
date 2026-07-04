@@ -16,15 +16,14 @@ const path = require('path')
 const asar = require('@electron/asar')
 
 /** Module directory names electron-builder already unpacked (e.g. keytar, ripgrep-darwin-arm64). */
-function collectUnpackedModuleNames(nodeModulesDir) {
+function collectUnpackedModuleNames (nodeModulesDir) {
   const names = new Set()
   if (!fs.existsSync(nodeModulesDir)) return names
   for (const entry of fs.readdirSync(nodeModulesDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     if (entry.name.startsWith('@')) {
       const scopeDir = path.join(nodeModulesDir, entry.name)
-      for (const scoped of fs.readdirSync(scopeDir, { withFileTypes: true }))
-        if (scoped.isDirectory()) names.add(scoped.name)
+      for (const scoped of fs.readdirSync(scopeDir, { withFileTypes: true })) { if (scoped.isDirectory()) names.add(scoped.name) }
     } else {
       names.add(entry.name)
     }
@@ -32,7 +31,7 @@ function collectUnpackedModuleNames(nodeModulesDir) {
   return names
 }
 
-exports.default = async function bundleOptionalNativeKeymap(context) {
+exports.default = async function bundleOptionalNativeKeymap (context) {
   const { appOutDir, packager, electronPlatformName } = context
   const src = path.join(packager.info.projectDir, 'node_modules', 'native-keymap')
   if (!fs.existsSync(src)) {
