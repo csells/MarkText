@@ -83,7 +83,7 @@ const keybindings: Map<string, string> = new Map([
   ['format.clear-format', 'Shift+Command+R'],
 
   // Review menu
-  ['review.add-comment', 'Command+Shift+A'],
+  ['review.add-comment', 'Command+Shift+L'],
 
   // Window menu
   ['window.minimize', 'Command+M'],

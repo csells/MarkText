@@ -67,7 +67,7 @@ const keybindings: Map<string, string> = new Map([
   ['paragraph.order-list', 'Ctrl+G'],
   ['paragraph.bullet-list', 'Ctrl+H'],
   ['paragraph.task-list', 'Ctrl+Shift+X'],
-  ['paragraph.loose-list-item', 'Ctrl+Shift+L'],
+  ['paragraph.loose-list-item', 'Ctrl+Alt+L'],
   ['paragraph.paragraph', 'Ctrl+Shift+0'],
   ['paragraph.horizontal-line', 'Ctrl+_'], // Ctrl+Shift+-
   ['paragraph.front-matter', 'Ctrl+Shift+Y'],
@@ -87,7 +87,7 @@ const keybindings: Map<string, string> = new Map([
   ['format.clear-format', 'Ctrl+Shift+R'],
 
   // Review menu
-  ['review.add-comment', 'Ctrl+Shift+A'],
+  ['review.add-comment', 'Ctrl+Shift+L'],
 
   // Window menu
   ['window.minimize', 'Ctrl+M'],

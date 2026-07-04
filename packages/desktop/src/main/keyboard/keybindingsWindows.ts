@@ -86,7 +86,7 @@ const keybindings: Map<string, string> = new Map([
   ['format.clear-format', 'Ctrl+Shift+R'],
 
   // Review menu
-  ['review.add-comment', 'Ctrl+Shift+A'],
+  ['review.add-comment', 'Ctrl+Shift+L'],
 
   // Window menu
   ['window.minimize', 'Ctrl+M'],

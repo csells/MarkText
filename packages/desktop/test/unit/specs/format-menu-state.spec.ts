@@ -314,8 +314,13 @@ describe('menu template accelerators match the platform keybinding tables (Parag
     expect(isEqualAccelerator(accel(keybindingsWindows, 'view.source-code-mode'), 'Ctrl+E')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsDarwin, 'view.source-code-mode'), 'Command+Option+S')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsWindows, 'view.focus-mode'), 'Ctrl+Shift+J')).toBe(true)
-    expect(isEqualAccelerator(accel(keybindingsDarwin, 'review.add-comment'), 'Command+Shift+A')).toBe(true)
-    expect(isEqualAccelerator(accel(keybindingsLinux, 'review.add-comment'), 'Ctrl+Shift+A')).toBe(true)
-    expect(isEqualAccelerator(accel(keybindingsWindows, 'review.add-comment'), 'Ctrl+Shift+A')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsDarwin, 'review.add-comment'), 'Command+Shift+L')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsLinux, 'review.add-comment'), 'Ctrl+Shift+L')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsWindows, 'review.add-comment'), 'Ctrl+Shift+L')).toBe(true)
+    // loose-list-item now uses the Option/Alt+L slot on all platforms (Linux was
+    // the odd one out on Ctrl+Shift+L, which now belongs to Add Comment).
+    expect(isEqualAccelerator(accel(keybindingsDarwin, 'paragraph.loose-list-item'), 'Command+Option+L')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsLinux, 'paragraph.loose-list-item'), 'Ctrl+Alt+L')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsWindows, 'paragraph.loose-list-item'), 'Ctrl+Alt+L')).toBe(true)
   })
 })
