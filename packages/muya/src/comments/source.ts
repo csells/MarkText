@@ -1,3 +1,4 @@
+import { escapeRegExp } from '../utils';
 import {
     FRONT_MATTER_OPEN_REGEXP,
     frontMatterCloseMarker,
@@ -133,10 +134,6 @@ export interface ICommentSourceLineState {
 }
 
 const SOURCE_COMMENT_MARKER_START_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u');
-
-function escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-}
 
 function lineEndLength(rawLine: string): number {
     const match = /(?:\r\n|\n|\r)$/u.exec(rawLine);

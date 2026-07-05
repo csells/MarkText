@@ -2,6 +2,7 @@ import {
   COMMENT_MARKER_PATTERN,
   COMMENT_METADATA_DATA_URI_PREFIX,
   createCommentSourceLineState,
+  escapeRegExp,
   prepareCommentSourceLine,
   sourceLinePositionInsideInlineCode,
   type ICommentSourceLineState
@@ -11,9 +12,6 @@ import {
 type CodeMirrorLike = any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = any
-
-const escapeRegExp = (value: string): string =>
-  value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 
 const COMMENT_MARKER = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u')
 const COMMENT_METADATA = new RegExp(

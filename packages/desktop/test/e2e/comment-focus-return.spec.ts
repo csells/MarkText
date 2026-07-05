@@ -3,8 +3,8 @@
 // moved/edited in the document while the box was open, dismissing the box must
 // NOT restore an old selection — it leaves the editor exactly as the user left
 // it. And focus must land back in the editor, not stay in the textarea.
-import { type ElectronApplication, expect, type Page, test } from '@playwright/test'
-import { clickMenuById, focusEditor, launchWithMarkdown } from './helpers'
+import { expect, type Page, test } from '@playwright/test'
+import { focusEditor, launchWithMarkdown, selectWorldThenComment } from './helpers'
 
 const state = (page: Page) => page.evaluate(() => {
   const sel = document.getSelection()
@@ -17,20 +17,6 @@ const state = (page: Page) => page.evaluate(() => {
     anchorOffset: sel?.anchorOffset ?? -1,
   }
 })
-
-async function selectWorldThenComment(page: Page, app: ElectronApplication) {
-  await page.evaluate(() => {
-    const p = [...document.querySelectorAll('.mu-paragraph')].find(el => el.textContent?.includes('hello'))!
-    const t = document.createTreeWalker(p, NodeFilter.SHOW_TEXT).nextNode()!
-    const sel = document.getSelection()!
-    const r = document.createRange()
-    r.setStart(t, 6); r.setEnd(t, 11)
-    sel.removeAllRanges(); sel.addRange(r)
-    document.dispatchEvent(new Event('selectionchange'))
-  })
-  await clickMenuById(app, 'review.add-comment')
-  await page.waitForTimeout(200)
-}
 
 test('dismissing the comment box does not clobber the editor selection the user moved to', async() => {
   const { app, page } = await launchWithMarkdown('hello world\n\nsecond line\n', { suppressErrorDialog: true })
@@ -51,8 +37,6 @@ test('dismissing the comment box does not clobber the editor selection the user 
     await page.waitForTimeout(200)
 
     const s = await state(page)
-    // eslint-disable-next-line no-console
-    console.log('after submit (moved to 2nd para):', JSON.stringify(s))
     expect(s.activeIsTextarea, 'focus should leave the compose box').toBe(false)
     expect(s.inEditor, 'focus should return to the editor').toBe(true)
     // The caret must stay where the user put it (2nd paragraph), NOT be restored

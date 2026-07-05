@@ -1742,15 +1742,10 @@ const handleCommentReopen = (id: unknown) => {
   syncComments()
 }
 
+// Both a comment and a diagnostic focus resolve to the same engine call —
+// focusComment already falls back to the raw marker/metadata location for an
+// orphan or malformed comment, so the WYSIWYG side needs no separate handler.
 const handleCommentFocus = (id: unknown) => {
-  if (sourceCode.value || !editor.value || typeof id !== 'string') return
-  if (editor.value.focusComment(id)) {
-    showCommentsSidebar()
-    syncComments()
-  }
-}
-
-const handleCommentDiagnosticFocus = (id: unknown) => {
   if (sourceCode.value || !editor.value || typeof id !== 'string') return
   if (editor.value.focusComment(id)) {
     showCommentsSidebar()
@@ -1989,7 +1984,7 @@ onMounted(() => {
   bus.on('comment:resolve', handleCommentResolve)
   bus.on('comment:reopen', handleCommentReopen)
   bus.on('comment:focus', handleCommentFocus)
-  bus.on('comment:diagnostic-focus', handleCommentDiagnosticFocus)
+  bus.on('comment:diagnostic-focus', handleCommentFocus)
 
   // The engine emits a low-level `json-change` ({ op, source, prevDoc, doc })
   // on every document mutation; the desktop's content-change pipeline wants the
@@ -2159,7 +2154,7 @@ onBeforeUnmount(() => {
   bus.off('comment:resolve', handleCommentResolve)
   bus.off('comment:reopen', handleCommentReopen)
   bus.off('comment:focus', handleCommentFocus)
-  bus.off('comment:diagnostic-focus', handleCommentDiagnosticFocus)
+  bus.off('comment:diagnostic-focus', handleCommentFocus)
 
   document.removeEventListener('keyup', keyup)
 

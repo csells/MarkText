@@ -12,6 +12,7 @@ export {
     decodeCommentMetadata,
     encodeCommentMetadata,
     isUnsafeCommentMarkerTextEdit,
+    mergeCommentMetadataPatch,
     nextCommentId,
     parseCommentMetadataDefinition,
     parseMarkdownComments,
@@ -81,5 +82,5 @@ export { TableDragBar } from './ui/tableDragBar';
 export { TableRowColumMenu } from './ui/tableRowColumMenu';
 export type { IImageInfo } from './utils/image';
 export { getImageInfo } from './utils/image';
-export { escapeHTML, sanitize, unescapeHTML, wordCount } from './utils/index';
+export { escapeHTML, escapeRegExp, sanitize, unescapeHTML, wordCount } from './utils/index';
 export { generateGithubSlug } from './utils/slug';

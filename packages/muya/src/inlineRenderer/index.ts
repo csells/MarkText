@@ -99,6 +99,16 @@ class InlineRenderer {
     }
 
     private _commentHighlights(block: Format, cursor?: IRenderCursor): IHighlight[] {
+        // A blur can fire on a content block whose subtree was just detached by
+        // a rebuild (e.g. replying to a comment tears down the caret's
+        // paragraph) and drive it through blur → update → patch. `.path` below
+        // would throw walking a null parent, and a detached block owns no
+        // highlight regardless. `outMostBlock` is null once it leaves the tree.
+        // (The base render reads no path, so it stays safe — only this
+        // comment-specific step needs the guard.)
+        if (block.outMostBlock == null)
+            return [];
+
         const {
             comments,
             textPathIndexes,
@@ -263,7 +273,7 @@ class InlineRenderer {
         let info = null;
         if (tokens) {
             const rawLabel = tokens[2] + tokens[3];
-            if (!isCommentMetadataReference(rawLabel, tokens[6])) {
+            if (!isCommentMetadataReference(rawLabel)) {
                 label = rawLabel.toLowerCase();
                 info = {
                     href: tokens[6],

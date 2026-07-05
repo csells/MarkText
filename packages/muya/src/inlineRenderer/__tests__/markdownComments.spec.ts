@@ -106,6 +106,9 @@ describe('markdown comments - render caching', () => {
         ];
         const contentNodes = states.map((state, index) => ({
             isContent: () => true,
+            // Truthy: the block is attached to the document tree. Detached
+            // blocks (outMostBlock == null) own no highlight and are skipped.
+            outMostBlock: {},
             path: [index, 'text'],
             text: 'text' in state ? state.text : '',
         }));
@@ -149,6 +152,9 @@ describe('markdown comments - resolved highlights', () => {
         ];
         const contentNodes = states.map((state, index) => ({
             isContent: () => true,
+            // Truthy: the block is attached to the document tree. Detached
+            // blocks (outMostBlock == null) own no highlight and are skipped.
+            outMostBlock: {},
             path: [index, 'text'],
             text: 'text' in state ? state.text : '',
         }));
@@ -180,5 +186,19 @@ describe('markdown comments - resolved highlights', () => {
     it('drops the highlight once the comment is resolved', () => {
         const { renderer, contentNodes } = buildRenderer('resolved');
         expect(renderer._commentHighlights(contentNodes[0])).toEqual([]);
+    });
+
+    it('returns no highlights for a detached block without throwing', () => {
+        // A blur event can fire on a content block whose subtree was just
+        // detached by a rebuild (e.g. replying to a comment). Its `.path` would
+        // throw walking a null parent; the guard must bail on outMostBlock null.
+        const { renderer, contentNodes } = buildRenderer('open');
+        const detached = {
+            ...contentNodes[0],
+            outMostBlock: null,
+            get path(): never { throw new Error('detached block path accessed'); },
+        };
+        expect(() => renderer._commentHighlights(detached)).not.toThrow();
+        expect(renderer._commentHighlights(detached)).toEqual([]);
     });
 });

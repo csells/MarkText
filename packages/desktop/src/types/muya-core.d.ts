@@ -199,6 +199,10 @@ declare module '@muyajs/core' {
     id: string,
     updater: (metadata: ICommentMetadata) => ICommentMetadata
   ): string | null
+  export function mergeCommentMetadataPatch(
+    metadata: ICommentMetadata,
+    patch: TUpdateCommentThreadPatch
+  ): ICommentMetadata
   export function validateCommentGraph(
     markdownOrStates: string | unknown[],
     options?: IParseMarkdownCommentOptions
@@ -265,6 +269,7 @@ declare module '@muyajs/core' {
   export function renderToStaticHTML(...args: any[]): any
 
   export function escapeHTML(str: string): string
+  export function escapeRegExp(value: string): string
   export function unescapeHTML(str: string): string
   export function sanitize(html: string, config?: any, isInline?: boolean): string
   export function generateGithubSlug(text: string): string

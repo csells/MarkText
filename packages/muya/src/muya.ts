@@ -326,6 +326,20 @@ export class Muya {
         return activeIds;
     }
 
+    // Reserve a collision-free comment id against every id already in the
+    // document (threads, ranges, and diagnostics). Returns null when a
+    // caller-supplied id is already taken.
+    private _reserveCommentId(input: Pick<IAddCommentInput, 'id'>): string | null {
+        const comments = this.getComments();
+        const existingIds = [
+            ...comments.threads.map(thread => thread.id),
+            ...comments.ranges.map(range => range.id),
+            ...comments.diagnostics.map(diagnostic => diagnostic.id),
+        ];
+        const id = input.id ?? nextCommentId(existingIds);
+        return existingIds.includes(id) ? null : id;
+    }
+
     canAddComment(input: Pick<IAddCommentInput, 'id'> = {}): boolean {
         const selection = this.editor.selection.getSelection();
         if (!selection || selection.isCollapsed)
@@ -336,14 +350,8 @@ export class Muya {
         // parse-error diagnostic, never throws). getComments/nextCommentId/
         // canWrapCommentRange are all throw-free, so a residual throw here is a
         // genuine bug that must surface, not be silently turned into "disabled".
-        const comments = this.getComments();
-        const existingIds = [
-            ...comments.threads.map(thread => thread.id),
-            ...comments.ranges.map(range => range.id),
-            ...comments.diagnostics.map(diagnostic => diagnostic.id),
-        ];
-        const id = input.id ?? nextCommentId(existingIds);
-        if (existingIds.includes(id))
+        const id = this._reserveCommentId(input);
+        if (id == null)
             return false;
 
         return canWrapCommentRange({
@@ -365,14 +373,8 @@ export class Muya {
         if (!selection || selection.isCollapsed)
             return false;
 
-        const comments = this.getComments();
-        const existingIds = [
-            ...comments.threads.map(thread => thread.id),
-            ...comments.ranges.map(range => range.id),
-            ...comments.diagnostics.map(diagnostic => diagnostic.id),
-        ];
-        const id = input.id ?? nextCommentId(existingIds);
-        if (existingIds.includes(id))
+        const id = this._reserveCommentId(input);
+        if (id == null)
             return false;
 
         const states = this.editor.jsonState.getState();

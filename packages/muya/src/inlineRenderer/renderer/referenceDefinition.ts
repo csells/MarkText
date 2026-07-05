@@ -7,7 +7,7 @@ export default function referenceDefinition(
     this: Renderer,
     { h, block, token }: ISyntaxRenderOptions & { token: ReferenceDefinitionToken },
 ) {
-    if (isCommentMetadataReference(token.label, token.href)) {
+    if (isCommentMetadataReference(token.label)) {
         return [
             h(
                 `span.${CLASS_NAMES.MU_HIDE}.${CLASS_NAMES.MU_REMOVE}.${CLASS_NAMES.MU_COMMENT_METADATA}`,

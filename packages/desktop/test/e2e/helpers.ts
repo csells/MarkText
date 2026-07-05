@@ -319,6 +319,30 @@ export const placeCaretInEditor = async(page: Page): Promise<void> => {
   await page.waitForTimeout(150)
 }
 
+// Select the word "world" in the first paragraph of a "hello world" document
+// and open the comment compose box. Shared by the comment-focus specs.
+export const selectWorldThenComment = async(
+  page: Page,
+  app: ElectronApplication
+): Promise<void> => {
+  await page.evaluate(() => {
+    const p = [...document.querySelectorAll('.mu-paragraph')].find(el => el.textContent?.includes('hello'))
+    const t = p && document.createTreeWalker(p, NodeFilter.SHOW_TEXT).nextNode()
+    const sel = document.getSelection()
+    if (!t || !sel) {
+      throw new Error('selectWorldThenComment: hello paragraph text node or selection missing')
+    }
+    const r = document.createRange()
+    r.setStart(t, 6)
+    r.setEnd(t, 11)
+    sel.removeAllRanges()
+    sel.addRange(r)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  await clickMenuById(app, 'review.add-comment')
+  await page.waitForTimeout(200)
+}
+
 export const setSourceMarkdown = async(
   page: Page,
   app: ElectronApplication,

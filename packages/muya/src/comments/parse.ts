@@ -200,6 +200,10 @@ export function parseMarkdownComments(
     };
 
     const scanText = (text: string, path: TBlockPath) => {
+        // Every marker/metadata/malformed candidate contains the literal `MC:`.
+        if (!text.includes('MC:'))
+            return;
+
         const lines = text.split('\n');
         let hasMetadataLine = false;
         for (const line of lines) {

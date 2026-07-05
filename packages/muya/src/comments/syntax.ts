@@ -105,7 +105,7 @@ export function parseCommentMetadataDefinition(text: string): IParsedCommentMeta
     };
 }
 
-export function isCommentMetadataReference(label: string, _href: string): boolean {
+export function isCommentMetadataReference(label: string): boolean {
     return /^MC:[^\]\s]+$/.test(label);
 }
 

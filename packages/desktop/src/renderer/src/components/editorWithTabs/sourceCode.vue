@@ -21,6 +21,7 @@ import {
   collectSourceCommentIds,
   createCommentMetadata,
   encodeCommentMetadata,
+  mergeCommentMetadataPatch,
   nextCommentId,
   parseMarkdownComments,
   serializeCommentMarker,
@@ -599,15 +600,9 @@ const patchSourceCommentMetadata = (
   id: string,
   patch: TUpdateCommentThreadPatch
 ): boolean =>
-  replaceSourceCommentMetadata(cm, id, (metadata) => {
-    const replies = Array.isArray(patch.replies) ? patch.replies : metadata.replies
-    return {
-      ...metadata,
-      ...patch,
-      version: 1,
-      replies
-    }
-  })
+  // Same merge the WYSIWYG side applies via updateCommentThread, so both
+  // editing surfaces produce identical portable metadata.
+  replaceSourceCommentMetadata(cm, id, metadata => mergeCommentMetadataPatch(metadata, patch))
 
 const handleCommentReply = (payload: unknown): void => {
   if (!sourceCode.value || !editor.value) return
