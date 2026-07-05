@@ -215,6 +215,12 @@ const openCommentsSidebar = async(page: Page, app: ElectronApplication): Promise
   await page.waitForSelector('.side-bar-comments', { state: 'visible', timeout: 10000 })
 }
 
+// The sidebar defaults to the "Open" filter, which hides resolved threads.
+// Tests that resolve a comment and then inspect it must switch to "All" first.
+const showAllComments = async(page: Page): Promise<void> => {
+  await page.locator('.side-bar-comments .comment-filters button', { hasText: 'All' }).first().click()
+}
+
 test.describe('Portable markdown comments', () => {
   test('render in WYSIWYG while preserving the raw Markdown source', async() => {
     const { app, page } = await launchWithMarkdown(DOC)
@@ -632,6 +638,7 @@ test.describe('Portable markdown comments', () => {
       await expect(thread.locator('.reply p').last()).toHaveText('Source reply')
 
       await thread.locator('.thread-actions button').nth(2).click()
+      await showAllComments(page)
       await expect(thread.locator('.status')).toHaveText('Resolved')
 
       await thread.locator('.thread-actions button').nth(2).click()
@@ -660,6 +667,7 @@ test.describe('Portable markdown comments', () => {
       await expect(thread.locator('.reply p').last()).toHaveText('Persisted source reply')
 
       await thread.locator('.thread-actions button').nth(2).click()
+      await showAllComments(page)
       await expect(thread.locator('.status')).toHaveText('Resolved')
 
       await save(app)
@@ -687,6 +695,7 @@ test.describe('Portable markdown comments', () => {
       await waitForEditor(reopened.page)
       await waitForMenuReady(reopened.app)
       await openCommentsSidebar(reopened.page, reopened.app)
+      await showAllComments(reopened.page)
       const reopenedThread = reopened.page.locator('.side-bar-comments .thread').first()
 
       await expect(reopenedThread.locator('.status')).toHaveText('Resolved')
@@ -846,6 +855,7 @@ test.describe('Portable markdown comments', () => {
 
       const thread = page.locator('.side-bar-comments .thread').first()
       await thread.locator('.thread-actions button').nth(2).click()
+      await showAllComments(page)
       await expect(thread.locator('.status')).toHaveText('Resolved')
 
       const updated = await sourceValue(page)
@@ -873,6 +883,7 @@ test.describe('Portable markdown comments', () => {
 
       const thread = page.locator('.side-bar-comments .thread').first()
       await thread.locator('.thread-actions button').nth(2).click()
+      await showAllComments(page)
       await expect(thread.locator('.status')).toHaveText('Resolved')
 
       const metadataLines = (await sourceValue(page))
@@ -900,11 +911,12 @@ test.describe('Portable markdown comments', () => {
       const metadataEdited = proseEdited.replace(META_OPEN, META_RESOLVED)
       await setSourceMarkdown(page, app, metadataEdited)
       expect(await getMarkdownContent(page, app)).toBe(metadataEdited)
+      // Resolving via the metadata edit drops the in-document highlight; the
+      // commented text and its markers survive, just unhighlighted.
       await expect
-        .poll(() => page.locator('.mu-comment-highlight').first().textContent(), {
-          timeout: 10000
-        })
-        .toBe('reviewed')
+        .poll(() => page.locator('.mu-comment-highlight').count(), { timeout: 10000 })
+        .toBe(0)
+      expect(await getMarkdownContent(page, app)).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
     } finally {
       await app.close()
     }
@@ -966,6 +978,7 @@ test.describe('Portable markdown comments', () => {
       await expect(thread.locator('.reply p').last()).toHaveText('Second reply')
 
       await thread.locator('.thread-actions button').nth(2).click()
+      await showAllComments(page)
       await expect(thread.locator('.status')).toHaveText('Resolved')
 
       await thread.locator('.thread-actions button').nth(2).click()
@@ -995,7 +1008,9 @@ test.describe('Portable markdown comments', () => {
     try {
       await waitForEditor(reopened.page)
       await waitForMenuReady(reopened.app)
-      await reopened.page.waitForSelector('.mu-comment-highlight', {
+      // The reopened comment is resolved, so it has no highlight; its hidden
+      // markers persist and confirm the WYSIWYG rendered the comment.
+      await reopened.page.waitForSelector('.mu-comment-marker', {
         state: 'attached',
         timeout: 10000
       })

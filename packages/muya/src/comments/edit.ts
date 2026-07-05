@@ -522,14 +522,14 @@ export function updateCommentMetadataInMarkdown(
     const previousLine = beforeLines[metadataLineIndex];
     const nextLine = afterLines[metadataLineIndex];
 
-    let targetOccurrence = 0;
-    for (let index = 0; index < metadataLineIndex; index += 1) {
-        if (beforeLines[index] === previousLine)
-            targetOccurrence += 1;
-    }
-
+    // Locate the definition line in the original source by exact match. A
+    // well-formed document has exactly one such line (the comment id is
+    // unique), so this is unambiguous. If the identical line appears more than
+    // once the target is genuinely ambiguous \u2014 fail loud (the caller surfaces
+    // it) instead of guessing which duplicate to rewrite, which could silently
+    // edit the wrong line when export reflow shifts line correspondence.
     const parts = markdown.split(/(\r\n|\n|\r)/u);
-    let occurrence = 0;
+    let matchIndex = -1;
     for (let index = 0; index < parts.length; index += 2) {
         const sourceLine = parts[index];
         if (sourceLine == null)
@@ -540,15 +540,17 @@ export function updateCommentMetadataInMarkdown(
         if (comparableSourceLine !== previousLine)
             continue;
 
-        if (occurrence === targetOccurrence) {
-            parts[index] = `${hasBom ? '\uFEFF' : ''}${nextLine}`;
-            return parts.join('');
-        }
-
-        occurrence += 1;
+        if (matchIndex !== -1)
+            return null;
+        matchIndex = index;
     }
 
-    return null;
+    if (matchIndex < 0)
+        return null;
+
+    const matchHasBom = matchIndex === 0 && (parts[matchIndex]?.startsWith('\uFEFF') ?? false);
+    parts[matchIndex] = `${matchHasBom ? '\uFEFF' : ''}${nextLine}`;
+    return parts.join('');
 }
 
 export function mergeCommentMetadataPatch(

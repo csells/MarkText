@@ -315,6 +315,27 @@ export class Editor {
 
             if (!isSelectionInSameBlock || !anchorBlock) {
                 this.activeContentBlock = null;
+
+                // A cross-block selection can't dispatch block-level handlers,
+                // but the UI still needs to know the selection changed (e.g. to
+                // enable "Add Comment"). The mouse path emits via mouseup ->
+                // setSelection; a keyboard shift-selection has no equivalent, so
+                // sync the cached endpoints and emit here on keyup. Without this
+                // the selection-change (and the menu's canAddComment) stays
+                // stale from the previous collapsed caret.
+                if (
+                    event.type === 'keyup'
+                    && selectionResult
+                    && !selectionResult.isCollapsed
+                    && selectionResult.anchor.block
+                    && selectionResult.focus.block
+                ) {
+                    const { anchor, focus } = selectionResult;
+                    this.selection.setSelection(
+                        { offset: anchor.offset, block: anchor.block, path: anchor.path },
+                        { offset: focus.offset, block: focus.block, path: focus.path },
+                    );
+                }
                 return;
             }
 

@@ -77,11 +77,17 @@ function sewTail(states: TState[], tail: string): number {
 }
 
 function remapPastedCommentIdCollisions(clipboard: Clipboard, markdown: string): string {
-    const currentMarkdown = typeof clipboard.muya.getMarkdown === 'function'
-        ? clipboard.muya.getMarkdown()
-        : '';
-    const existingIds = collectSourceCommentIds(currentMarkdown);
     const pastedIds = collectSourceCommentIds(markdown);
+    // No comment markers in the pasted text means there is nothing to remap, so
+    // there is no need to read the current document at all.
+    if (pastedIds.size === 0)
+        return markdown;
+
+    // getMarkdown is always present on a Muya instance; calling it directly lets
+    // a missing method surface as an error instead of silently treating the
+    // document as empty (which would skip id-collision remapping and paste
+    // duplicate comment markers).
+    const existingIds = collectSourceCommentIds(clipboard.muya.getMarkdown());
     const usedIds = new Set([...existingIds, ...pastedIds]);
     const replacements = new Map<string, string>();
 

@@ -559,7 +559,7 @@ const handleAddComment = (): void => {
 
   saveContent(cm)
   showCommentsSidebar()
-  nextTick(() => bus.emit('comment:compose', id))
+  editorStore.SET_COMPOSE_COMMENT_ID(id)
 }
 
 const replaceSourceCommentMetadata = (

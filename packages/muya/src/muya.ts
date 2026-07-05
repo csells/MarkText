@@ -296,35 +296,34 @@ export class Muya {
     }
 
     getActiveComments(): string[] {
-        try {
-            const selection = this.editor.selection.getSelection();
-            if (!selection)
-                return [];
-
-            const states = this.editor.jsonState.getState();
-            const comments = parseMarkdownComments(states);
-            const textPathIndexes = buildTextPathIndexes(states);
-            const activeIds: string[] = [];
-
-            for (const range of comments.ranges) {
-                if (selectionIntersectsCommentRange(
-                    range,
-                    selection.anchor.path,
-                    selection.anchor.offset,
-                    selection.focus.path,
-                    selection.focus.offset,
-                    textPathIndexes,
-                )) {
-                    activeIds.push(range.id);
-                }
-            }
-
-            return activeIds;
-        }
-        catch (error) {
-            console.error('muya.getActiveComments failed:', error);
+        const selection = this.editor.selection.getSelection();
+        if (!selection)
             return [];
+
+        // Use getComments() (not a second parseMarkdownComments call) so a
+        // corrupt-metadata parse failure is surfaced once, as getComments'
+        // parse-error diagnostic, and yields no ranges here — rather than a
+        // silent [] that disagrees with the sidebar. The remaining calls
+        // (buildTextPathIndexes, selectionIntersectsCommentRange) are throw-free.
+        const states = this.editor.jsonState.getState();
+        const comments = this.getComments();
+        const textPathIndexes = buildTextPathIndexes(states);
+        const activeIds: string[] = [];
+
+        for (const range of comments.ranges) {
+            if (selectionIntersectsCommentRange(
+                range,
+                selection.anchor.path,
+                selection.anchor.offset,
+                selection.focus.path,
+                selection.focus.offset,
+                textPathIndexes,
+            )) {
+                activeIds.push(range.id);
+            }
         }
+
+        return activeIds;
     }
 
     canAddComment(input: Pick<IAddCommentInput, 'id'> = {}): boolean {
@@ -332,30 +331,29 @@ export class Muya {
         if (!selection || selection.isCollapsed)
             return false;
 
-        try {
-            const comments = this.getComments();
-            const existingIds = [
-                ...comments.threads.map(thread => thread.id),
-                ...comments.ranges.map(range => range.id),
-                ...comments.diagnostics.map(diagnostic => diagnostic.id),
-            ];
-            const id = input.id ?? nextCommentId(existingIds);
-            if (existingIds.includes(id))
-                return false;
-
-            return canWrapCommentRange({
-                states: this.editor.jsonState.getState(),
-                path: selection.anchor.path,
-                endPath: selection.focus.path,
-                startOffset: selection.anchor.offset,
-                endOffset: selection.focus.offset,
-                id,
-            });
-        }
-        catch (error) {
-            console.error('muya.canAddComment failed:', error);
+        // No try/catch: the only throwing call in the comment area is metadata
+        // decode, which is quarantined inside getComments() (it returns a
+        // parse-error diagnostic, never throws). getComments/nextCommentId/
+        // canWrapCommentRange are all throw-free, so a residual throw here is a
+        // genuine bug that must surface, not be silently turned into "disabled".
+        const comments = this.getComments();
+        const existingIds = [
+            ...comments.threads.map(thread => thread.id),
+            ...comments.ranges.map(range => range.id),
+            ...comments.diagnostics.map(diagnostic => diagnostic.id),
+        ];
+        const id = input.id ?? nextCommentId(existingIds);
+        if (existingIds.includes(id))
             return false;
-        }
+
+        return canWrapCommentRange({
+            states: this.editor.jsonState.getState(),
+            path: selection.anchor.path,
+            endPath: selection.focus.path,
+            startOffset: selection.anchor.offset,
+            endOffset: selection.focus.offset,
+            id,
+        });
     }
 
     addComment(input: IAddCommentInput = {}): boolean {
@@ -478,7 +476,27 @@ export class Muya {
         if (!nextStates)
             return false;
 
-        return this.replaceContent(nextStates);
+        // Only the hidden `[MC:id]:` metadata line changes here — the visible
+        // blocks and their paths are untouched. Preserve the editor's caret
+        // across the rebuild from the CACHED selection (the live DOM selection
+        // is empty while the user is typing in the sidebar), so replying or
+        // resolving never yanks the caret to the document start.
+        const { selection } = this.editor;
+        const preserved
+            = selection.anchor && selection.focus
+                ? {
+                        anchor: { offset: selection.anchor.offset },
+                        focus: { offset: selection.focus.offset },
+                        anchorPath: selection.anchorPath,
+                        focusPath: selection.focusPath,
+                    }
+                : null;
+
+        const changed = this.replaceContent(nextStates);
+        if (changed && preserved)
+            this.setCursor(preserved);
+
+        return changed;
     }
 
     undo() {

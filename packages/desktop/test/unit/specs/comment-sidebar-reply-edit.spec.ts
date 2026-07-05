@@ -35,6 +35,7 @@ interface SetupBindings {
   canAddComment: { value: boolean }
   commentFilter: { value: 'all' | 'open' | 'resolved' }
   discardComposedThread: (id: string) => void
+  handleComposeComment: (id: string) => void
   submitEditReply: (thread: CommentThread, replyIndex: number) => void
   submitReply: (id: string) => void
   editDrafts: Record<string, string>
@@ -107,7 +108,8 @@ const makeBindings = (
         diagnostics: initialComments.diagnostics ?? []
       }),
       activeCommentIds: ref([]),
-      addCommentEnabled: addCommentEnabledRef
+      addCommentEnabled: addCommentEnabledRef,
+      composeCommentId: ref(null)
     }),
     Aim: {},
     Check: {},
@@ -122,7 +124,7 @@ const makeBindings = (
       off: (event: string) => handlers.delete(event),
       emit
     },
-    useEditorStore: () => ({}),
+    useEditorStore: () => ({ SET_COMPOSE_COMMENT_ID: vi.fn() }),
     usePreferencesStore: () => ({
       commentAuthorName: options.commentAuthorName ?? ''
     })
@@ -239,6 +241,10 @@ describe('comments sidebar reply editing', () => {
     const resolvedThread: CommentThread = { id: 'resolved', status: 'resolved', replies: [] }
     const { ret } = makeBindings({ threads: [openThread, resolvedThread] })
 
+    // Defaults to open-only; 'all' shows both.
+    expect(ret.visibleThreads.value.map(thread => thread.id)).toEqual(['open'])
+
+    ret.commentFilter.value = 'all'
     expect(ret.visibleThreads.value.map(thread => thread.id)).toEqual(['open', 'resolved'])
 
     ret.commentFilter.value = 'open'
@@ -284,22 +290,22 @@ describe('comments sidebar reply editing', () => {
   })
 
   it('discards an empty newly composed thread when the sidebar unmounts', () => {
-    const { emit, handlers, beforeUnmount } = makeBindings({
+    const { ret, emit, beforeUnmount } = makeBindings({
       threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
     })
 
-    handlers.get('comment:compose')?.('cmt_1')
+    ret.handleComposeComment('cmt_1')
     beforeUnmount.forEach(fn => fn())
 
     expect(emit).toHaveBeenCalledWith('comment:discard', 'cmt_1')
   })
 
   it('keeps a typed newly composed draft when the sidebar unmounts', () => {
-    const { ret, emit, handlers, beforeUnmount } = makeBindings({
+    const { ret, emit, beforeUnmount } = makeBindings({
       threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
     })
 
-    handlers.get('comment:compose')?.('cmt_1')
+    ret.handleComposeComment('cmt_1')
     ret.replyDrafts.cmt_1 = 'draft text'
     beforeUnmount.forEach(fn => fn())
 
@@ -307,11 +313,11 @@ describe('comments sidebar reply editing', () => {
   })
 
   it('explicitly cancels a newly composed draft by discarding the thread', () => {
-    const { ret, emit, handlers } = makeBindings({
+    const { ret, emit } = makeBindings({
       threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
     })
 
-    handlers.get('comment:compose')?.('cmt_1')
+    ret.handleComposeComment('cmt_1')
     ret.replyDrafts.cmt_1 = 'draft text'
     ret.discardComposedThread('cmt_1')
 

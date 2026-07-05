@@ -137,8 +137,15 @@ class TextSelection {
 
     selectAllContent() {
         const { _scrollPage: scrollPage } = this;
-        const aBlock = scrollPage?.firstContentInDescendant();
-        const fBlock = scrollPage?.lastContentInDescendant();
+        // Clamp the ends past hidden comment metadata definition blocks so a
+        // collapse of the select-all range can never drop the caret into that
+        // off-limits syntax (the metadata is typically the trailing block).
+        let aBlock: Nullable<Content> = scrollPage?.firstContentInDescendant();
+        while (aBlock && aBlock.isCommentMetadataBlock())
+            aBlock = aBlock.nextContentInContext();
+        let fBlock: Nullable<Content> = scrollPage?.lastContentInDescendant();
+        while (fBlock && fBlock.isCommentMetadataBlock())
+            fBlock = fBlock.previousContentInContext();
 
         if (aBlock == null || fBlock == null)
             return;

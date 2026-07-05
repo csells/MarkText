@@ -12,6 +12,15 @@ export default function commentMarker(
             {
                 attrs: {
                     spellcheck: 'false',
+                    // Atomic, non-editable island: the browser cannot place a
+                    // caret inside the hidden marker, so native arrow
+                    // navigation steps straight past its zero-size
+                    // `<!--MC:id-->` text instead of parking an invisible caret
+                    // there. Timing-independent (no reliance on cancelling the
+                    // key's default action). Cross-block placement lands past
+                    // the marker via arrowHandler's boundary clamp; the marker
+                    // text still counts toward block offsets.
+                    contenteditable: 'false',
                 },
                 dataset: {
                     id: token.markerId,

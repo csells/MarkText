@@ -171,3 +171,55 @@ describe('muya.getCursorOffset() (Phase G — G7)', () => {
         expect(muya.getCursorOffset()).toBeNull();
     });
 });
+
+// A collapsed caret placed strictly inside a comment marker renders invisibly
+// (the marker's raw text is a zero-width hidden span). The click/arrow handlers
+// snap the caret out via `_caretOutOfCommentMarker`.
+describe('caret snaps out of hidden comment markers', () => {
+    const openStart = 'A '.length; // 2
+    const openEnd = openStart + '<!--MC:a-->'.length; // 13
+
+    interface IWithSkip {
+        _caretOutOfCommentMarker: (offset: number, prefer: 'backward' | 'forward') => number | null;
+    }
+
+    function commentedBlock(): IWithSkip {
+        const muya = bootMuya(
+            `A <!--MC:a-->commented<!--MC:~a--> B\n\n[MC:a]: ${COMMENT_METADATA}\n`,
+        );
+        return muya.editor.scrollPage!.firstContentInDescendant()! as unknown as IWithSkip;
+    }
+
+    it('snaps a strictly-interior caret to the marker edge in the preferred direction', () => {
+        const block = commentedBlock();
+        const inside = openStart + 3;
+        expect(block._caretOutOfCommentMarker(inside, 'forward')).toBe(openEnd);
+        expect(block._caretOutOfCommentMarker(inside, 'backward')).toBe(openStart);
+    });
+
+    it('leaves a caret at a marker boundary or in plain text alone', () => {
+        const block = commentedBlock();
+        expect(block._caretOutOfCommentMarker(openEnd, 'forward')).toBeNull();
+        expect(block._caretOutOfCommentMarker(openStart, 'forward')).toBeNull();
+        expect(block._caretOutOfCommentMarker(0, 'forward')).toBeNull();
+    });
+
+    it('falls back to the visible edge when the marker begins the block', () => {
+        // Comment starts the block (open marker at [0, 11)); arrowing right in
+        // from the previous line lands here and would snap backward to offset 0
+        // (before a hidden line-start marker → still invisible), so it must fall
+        // back to the end edge.
+        const muya = bootMuya(
+            `<!--MC:a-->commented<!--MC:~a--> B\n\n[MC:a]: ${COMMENT_METADATA}\n`,
+        );
+        const block = muya.editor.scrollPage!.firstContentInDescendant()! as unknown as IWithSkip;
+        const markerEnd = '<!--MC:a-->'.length; // 11
+        // Caret AT offset 0 (the marker's start edge, which begins the block) is
+        // invisible too — arrowing in from the previous line lands exactly here.
+        expect(block._caretOutOfCommentMarker(0, 'backward')).toBe(markerEnd);
+        expect(block._caretOutOfCommentMarker(0, 'forward')).toBe(markerEnd);
+        // ...as is a strictly-interior offset.
+        expect(block._caretOutOfCommentMarker(3, 'backward')).toBe(markerEnd);
+        expect(block._caretOutOfCommentMarker(3, 'forward')).toBe(markerEnd);
+    });
+});

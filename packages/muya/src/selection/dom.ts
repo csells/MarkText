@@ -133,6 +133,19 @@ export function getNodeAndOffset(
                 ? count + textLength > offset
                 : count + textLength >= offset
         ) {
+            // A caret at the exact END of a hidden comment marker renders inside
+            // that zero-width span (an invisible, zero-height caret). When a node
+            // follows, skip to it so the caret lands at the start of visible text.
+            if (
+                count + textLength === offset
+                && i !== len - 1
+                && isElement(child)
+                && child.classList?.contains(CLASS_NAMES.MU_COMMENT_MARKER)
+            ) {
+                count += textLength;
+                continue;
+            }
+
             if (
                 isElement(child)
                 && child.classList

@@ -36,6 +36,19 @@ Thread metadata belongs in Markdown reference-style definitions near the bottom 
 
 Metadata may include status, authors, timestamps, and replies. It must not store anchor offsets or repair positions. The markers are the anchors.
 
+### Hidden syntax is untouchable in WYSIWYG
+
+In WYSIWYG mode both the inline markers (`<!--MC:id-->` / `<!--MC:~id-->`) and
+the metadata definition lines (`[MC:id]: data:...`) render as zero-size hidden
+regions. **The caret must never be able to enter, cross into, or type inside any
+of them, by any means** — arrow keys, word/line/document jumps (including ⌘↓ /
+Down-arrow to end-of-document, where the metadata block usually sits), mouse
+click, select-all-then-collapse, or programmatic cursor restore. The document,
+for the purpose of the caret, ends at the last *visible* content; the trailing
+hidden metadata is not a place the user can go. This raw syntax is editable only
+in source mode. This is a hard, general invariant — enforce it at the navigation
+and cursor-placement layer, not as one-off patches per key.
+
 ## Agent Experience
 
 Agents should not need a long-running server or editor-specific process to participate. A project-provided skill with scripts should parse Markdown, validate comment structure, and output JSON for agent workflows such as `list`, `reply`, and `resolve`. The agents use the skill (and the scripts) to write back to the `.md` file as well.

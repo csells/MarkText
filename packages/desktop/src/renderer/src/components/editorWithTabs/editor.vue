@@ -1623,7 +1623,14 @@ const flushActiveEditor = () => {
 }
 
 const focusEditor = () => {
-  editor.value?.focus()
+  const ed = editor.value
+  if (!ed) return
+  // Return DOM focus to the contenteditable WITHOUT changing its selection: the
+  // comment box is non-modal, so the editor's caret/selection is wherever the
+  // user last left it (they may have edited the doc while the box was open).
+  // `preventScroll` avoids yanking the viewport; the engine's own selection is
+  // left untouched.
+  ed.domNode.focus({ preventScroll: true })
 }
 
 const syncComments = () => {
@@ -1647,6 +1654,19 @@ const notifyCommentUnavailable = (message: string): void => {
   })
 }
 
+// A WYSIWYG comment op returns false only when the engine rejects it (e.g. the
+// target thread's stored metadata is corrupt, or the id isn't found). Surface
+// that instead of silently doing nothing — mirrors source mode's
+// notifyCommentUpdate so both editing surfaces report the same failure.
+const notifyCommentUpdateFailed = (): void => {
+  notice.notify({
+    title: t('sideBar.comments.updateFailed'),
+    type: 'warning',
+    time: 4000,
+    showConfirm: false
+  })
+}
+
 const handleAddComment = () => {
   if (sourceCode.value) {
     return
@@ -1666,7 +1686,7 @@ const handleAddComment = () => {
   editorStore.UPDATE_COMMENTS(nextComments)
   editorStore.UPDATE_ACTIVE_COMMENTS(editor.value.getActiveComments())
   if (addedThread) {
-    nextTick(() => bus.emit('comment:compose', addedThread.id))
+    editorStore.SET_COMPOSE_COMMENT_ID(addedThread.id)
   }
 }
 
@@ -1674,9 +1694,11 @@ const handleCommentReply = (payload: unknown) => {
   if (sourceCode.value || !editor.value) return
   const { id, reply } = (payload ?? {}) as { id?: string; reply?: ICommentReplyInput }
   if (!id || !reply?.body) return
-  if (editor.value.replyToComment(id, reply)) {
-    syncComments()
+  if (!editor.value.replyToComment(id, reply)) {
+    notifyCommentUpdateFailed()
+    return
   }
+  syncComments()
 }
 
 const handleCommentDiscard = (id: unknown) => {
@@ -1684,32 +1706,40 @@ const handleCommentDiscard = (id: unknown) => {
 
   const thread = editor.value.getComments().threads.find((item: ICommentThread) => item.id === id)
   if (!thread || thread.status !== 'open' || thread.replies.length) return
-  if (editor.value.removeComment(id)) {
-    syncComments()
+  if (!editor.value.removeComment(id)) {
+    notifyCommentUpdateFailed()
+    return
   }
+  syncComments()
 }
 
 const handleCommentEdit = (payload: unknown) => {
   if (sourceCode.value || !editor.value) return
   const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
   if (!id || !patch) return
-  if (editor.value.updateCommentThread(id, patch)) {
-    syncComments()
+  if (!editor.value.updateCommentThread(id, patch)) {
+    notifyCommentUpdateFailed()
+    return
   }
+  syncComments()
 }
 
 const handleCommentResolve = (id: unknown) => {
   if (sourceCode.value || !editor.value || typeof id !== 'string') return
-  if (editor.value.resolveComment(id)) {
-    syncComments()
+  if (!editor.value.resolveComment(id)) {
+    notifyCommentUpdateFailed()
+    return
   }
+  syncComments()
 }
 
 const handleCommentReopen = (id: unknown) => {
   if (sourceCode.value || !editor.value || typeof id !== 'string') return
-  if (editor.value.reopenComment(id)) {
-    syncComments()
+  if (!editor.value.reopenComment(id)) {
+    notifyCommentUpdateFailed()
+    return
   }
+  syncComments()
 }
 
 const handleCommentFocus = (id: unknown) => {

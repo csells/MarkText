@@ -51,7 +51,6 @@ import type {
   TabOptions
 } from '@shared/types/files'
 import {
-  parseCommentMetadataDefinition,
   parseMarkdownComments,
   type IParsedMarkdownComments
 } from '@muyajs/core'
@@ -187,6 +186,10 @@ export interface EditorState {
   toc: TocTreeNode[]
   comments: IParsedMarkdownComments
   activeCommentIds: string[]
+  // Id of a freshly-added comment whose compose box should take focus. A durable
+  // signal (not a one-shot event) so the comments sidebar focuses the box even
+  // when Add Comment mounts the sidebar fresh. The sidebar clears it once used.
+  composeCommentId: string | null
   mergeConflict: MergeConflictState | null
   // Whether the current selection can start a comment. Written from the one
   // selection-change notification, read reactively by the comments sidebar and
@@ -260,6 +263,7 @@ export const useEditorStore = defineStore('editor', {
     toc: [],
     comments: createEmptyComments(),
     activeCommentIds: [],
+    composeCommentId: null,
     mergeConflict: null,
     addCommentEnabled: false
   }),
@@ -1554,6 +1558,10 @@ export const useEditorStore = defineStore('editor', {
       this.activeCommentIds = ids ? [...ids] : []
     },
 
+    SET_COMPOSE_COMMENT_ID(id: string | null): void {
+      this.composeCommentId = id
+    },
+
     // Content change from realtime preview editor and source code editor
     // There is a chance that this event is fired AFTER the tab is switched.
     LISTEN_FOR_CONTENT_CHANGE({
@@ -2041,61 +2049,6 @@ interface ApplicationMenuState {
   affiliation: Record<string, boolean>
 }
 
-const hasNonWhitespaceSelection = (
-  start: SelectionChange['start'],
-  end: SelectionChange['end']
-): boolean => {
-  if (start.key !== end.key) return true
-  const text = start.block?.text
-  if (typeof text !== 'string') return true
-
-  const from = Math.min(start.offset, end.offset)
-  const to = Math.max(start.offset, end.offset)
-  return text.slice(from, to).trim().length > 0
-}
-
-const rangeIntersectsInlineCode = (text: string, from: number, to: number): boolean => {
-  let cursor = 0
-  while (cursor < text.length) {
-    const start = text.indexOf('`', cursor)
-    if (start < 0) return false
-
-    let tickCount = 1
-    while (text[start + tickCount] === '`') tickCount += 1
-
-    const marker = '`'.repeat(tickCount)
-    const end = text.indexOf(marker, start + tickCount)
-    if (end < 0) return false
-
-    if (from < end + tickCount && to > start) return true
-    cursor = end + tickCount
-  }
-
-  return false
-}
-
-const selectionIntersectsInlineCode = (
-  start: SelectionChange['start'],
-  end: SelectionChange['end']
-): boolean => {
-  const startText = (start.block as { text?: unknown } | undefined)?.text
-  const endText = (end.block as { text?: unknown } | undefined)?.text
-  if (typeof startText !== 'string' || typeof endText !== 'string') return false
-
-  if (start.key === end.key) {
-    return rangeIntersectsInlineCode(
-      startText,
-      Math.min(start.offset, end.offset),
-      Math.max(start.offset, end.offset)
-    )
-  }
-
-  return (
-    rangeIntersectsInlineCode(startText, start.offset, startText.length) ||
-    rangeIntersectsInlineCode(endText, 0, end.offset)
-  )
-}
-
 /**
  * Creates a object that contains the application menu state.
  *
@@ -2147,18 +2100,11 @@ const createApplicationMenuState = ({
     }
   }
 
-  const isCommentMetadataSelection =
-    (typeof startBlock.text === 'string' && !!parseCommentMetadataDefinition(startBlock.text)) ||
-    (typeof endBlock.text === 'string' && !!parseCommentMetadataDefinition(endBlock.text))
-
-  state.canAddComment =
-    typeof engineCanAddComment === 'boolean'
-      ? engineCanAddComment
-      : (start.key !== end.key || start.offset !== end.offset) &&
-        hasNonWhitespaceSelection(start, end) &&
-        !state.isCodeFences &&
-        !isCommentMetadataSelection &&
-        !selectionIntersectsInlineCode(start, end)
+  // The engine's `muya.canAddComment()` is the single authority (it checks
+  // marker intersection, cross-block commentability, and id availability — none
+  // of which selection geometry can recover). A missing value means "disabled",
+  // never a weaker re-derivation that could disagree with the engine.
+  state.canAddComment = engineCanAddComment === true
 
   // Check every list level in the affiliation chain — nested lists show all
   // levels (e.g. a ul wrapping an ol checks both). Scanning the full chain (not

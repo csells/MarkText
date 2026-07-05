@@ -14,8 +14,47 @@ This plan adapts MarkText into a local-first Markdown review editor with portabl
 - Comment metadata is stored in `[MC:id]: data:application/json;base64,...` reference definitions near the bottom of the same Markdown file.
 - Metadata stores thread data only: schema version, status, authors, timestamps, replies, and optional display fields. It must not store anchor offsets, repair coordinates, or alternate anchors.
 - WYSIWYG mode hides raw `MC` syntax while showing readable highlights and sidebar threads.
+- **The caret must NEVER be able to enter the hidden regions that hold comment
+  syntax in WYSIWYG mode.** This covers BOTH the inline comment markers
+  (`<!--MC:id-->` / `<!--MC:~id-->`) and the comment metadata definition lines
+  (`[MC:id]: data:...`), each rendered as zero-size hidden spans. It is a hard,
+  general invariant — not a per-key patch. EVERY caret placement and navigation
+  path must skip these regions to the nearest visible position and must land the
+  caret only on visible content:
+  - arrow keys (Left/Right/Up/Down) within a line and across blocks;
+  - word/line/document jumps (⌘/Ctrl/Alt+arrows, Home/End, Page Up/Down,
+    ⌘↑/⌘↓ to document start/end);
+  - mouse click and shift-click;
+  - selection extension (Shift+navigation) — a selection may *span* hidden
+    syntax, but a collapsed caret must never *rest* inside it;
+  - programmatic placement (cursor restore on load, comment jump, undo/redo).
+  A user must never be able to place the caret in, type into, or reveal this
+  hidden syntax by accident in WYSIWYG mode. The metadata definition block in
+  particular (typically the last block in the document) must be unreachable by
+  ⌘↓/Down-arrow to end-of-document. The syntax is editable only in source mode.
 - Source mode preserves the raw syntax and may optionally decorate it, but must never rewrite valid comments unless the user edits the source text.
 - Git and the filesystem are the sync model.
+
+## Engineering Principles (Non-Negotiable)
+
+- **No fallbacks, no heuristics, no error-hiding.** Never add a "try A else
+  silently use B" path, a default that masks a missing/wrong value, a
+  `try`/`catch` that swallows an error into a safe-looking value, or a heuristic
+  that guesses around a state you do not understand. These hide bugs instead of
+  fixing them.
+- **One source of truth per fact.** When two sources disagree (e.g. the live DOM
+  selection vs the cached selection endpoints), that divergence is a bug at the
+  source. Fix the one place that produces the bad state; never read whichever
+  source happens to return the answer you want — doing so desyncs the rest of
+  the code and buries the real defect. Example this branch hit: the comment
+  menu's enabled state must be derived from the SAME selection endpoints the
+  selection-change event already reports, not by re-reading a live DOM selection
+  that can collapse across blocks.
+- **Reproduce the root cause before fixing.** A change that makes a symptom
+  disappear without a reproduced root cause is not a fix.
+- **Fail loudly.** Prefer throwing/asserting/surfacing an error over degrading
+  silently. A visible failure is a bug report; a silent fallback is a latent bug
+  shipped to the user.
 
 ## Current Architecture To Use
 

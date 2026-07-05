@@ -132,6 +132,7 @@
               :autosize="{ minRows: 2, maxRows: 4 }"
               :placeholder="t('sideBar.comments.editPlaceholder')"
               @keydown.enter="submitOnModEnter($event, () => submitEditReply(thread, index))"
+              @keydown.esc.prevent.stop="cancelEditReply(thread.id, index)"
             />
             <div class="edit-actions">
               <el-button
@@ -206,6 +207,7 @@
           :autosize="{ minRows: 2, maxRows: 4 }"
           :placeholder="t('sideBar.comments.editPlaceholder')"
           @keydown.enter="submitOnModEnter($event, () => submitEdit(thread))"
+          @keydown.esc.prevent.stop="cancelEditReply(thread.id, 0)"
         />
         <div class="edit-actions">
           <el-button
@@ -244,6 +246,7 @@
             ? t('sideBar.comments.replyPlaceholder')
             : t('sideBar.comments.commentPlaceholder')"
           @keydown.enter="submitOnModEnter($event, () => submitReply(thread.id))"
+          @keydown.esc.prevent.stop="composeEscape(thread.id)"
         />
         <div class="compose-actions">
           <el-button
@@ -271,7 +274,7 @@
 
 <script setup lang="ts">
 import type { ICommentThread } from '@muyajs/core'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Aim, Check, Close, EditPen, Plus, RefreshLeft } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -282,7 +285,7 @@ import { usePreferencesStore } from '@/store/preferences'
 const { t } = useI18n()
 const editorStore = useEditorStore()
 const preferencesStore = usePreferencesStore()
-const { comments, activeCommentIds, addCommentEnabled: canAddComment } = storeToRefs(editorStore)
+const { comments, activeCommentIds, addCommentEnabled: canAddComment, composeCommentId } = storeToRefs(editorStore)
 const replyDrafts = reactive<Record<string, string>>({})
 const editDrafts = reactive<Record<string, string>>({})
 const editingReplies = reactive<Record<string, boolean>>({})
@@ -293,7 +296,7 @@ const composingThreadIds = reactive<Record<string, boolean>>({})
 const editReplyAnchors = reactive<Record<string, string>>({})
 const replyInputs = new Map<string, { focus: () => void }>()
 type CommentFilter = 'all' | 'open' | 'resolved'
-const commentFilter = ref<CommentFilter>('all')
+const commentFilter = ref<CommentFilter>('open')
 
 const summaryText = computed(() => {
   const openCount = comments.value.threads.filter((thread) => thread.status === 'open').length
@@ -386,17 +389,28 @@ const setReplyInputRefFor = (id: string) => (input: unknown): void => {
 }
 
 const focusReplyInput = (id: string): void => {
-  const focus = (): void => {
-    replyInputs.get(id)?.focus()
+  const textarea = (): HTMLTextAreaElement | undefined => {
     const thread = Array.from(
       document.querySelectorAll<HTMLElement>('.side-bar-comments .thread')
     ).find(item => item.dataset.commentId === id)
-    thread?.querySelector<HTMLTextAreaElement>('.reply-box textarea')?.focus()
+    return thread?.querySelector<HTMLTextAreaElement>('.reply-box textarea') ?? undefined
+  }
+  const focus = (): void => {
+    // Stop once the thread is no longer composing (submitted/discarded), so a
+    // late retry can't yank focus back from the document after Cmd+Enter.
+    if (!composingThreadIds[id]) return
+    const box = textarea()
+    if (box && document.activeElement !== box) {
+      replyInputs.get(id)?.focus()
+      box.focus()
+    }
   }
 
+  // Add Comment first re-focuses the editor and edits the document, both of
+  // which can grab focus back; retry across a short window so the compose box
+  // wins, stopping early once it already holds focus.
   nextTick(() => {
-    focus()
-    setTimeout(focus)
+    for (const delay of [0, 80, 200, 400]) setTimeout(focus, delay)
   })
 }
 
@@ -444,6 +458,8 @@ const cancelEditReply = (id: string, replyIndex: number): void => {
   editingReplies[key] = false
   editDrafts[key] = ''
   delete editReplyAnchors[key]
+  // Cancelling an edit returns focus (and the caret) to the document.
+  bus.emit('editor-focus')
 }
 
 const submitEditReply = (thread: ICommentThread, replyIndex: number): void => {
@@ -516,6 +532,21 @@ const discardComposedThread = (id: string): void => {
   delete replyDrafts[id]
   delete composingThreadIds[id]
   bus.emit('comment:discard', id)
+  // Cancelling a just-added comment hands focus (and the caret) back to the doc.
+  bus.emit('editor-focus')
+}
+
+// Esc from a compose/reply box: discard a brand-new (empty) comment, or just
+// close a reply, and return focus to the editor either way.
+const composeEscape = (id: string): void => {
+  const thread = comments.value.threads.find(item => item.id === id)
+  if (thread && composingThreadIds[id] && !thread.replies.length) {
+    discardComposedThread(id)
+    return
+  }
+  replyDrafts[id] = ''
+  delete composingThreadIds[id]
+  bus.emit('editor-focus')
 }
 
 const discardEmptyComposedThreads = (): void => {
@@ -527,13 +558,20 @@ const discardEmptyComposedThreads = (): void => {
   }
 }
 
-onMounted(() => {
-  bus.on('comment:compose', handleComposeComment)
-})
+// Durable compose signal: fires on mount too (immediate), so Add Comment focuses
+// the box even when it just mounted this sidebar. Clear it once consumed.
+watch(
+  composeCommentId,
+  (id) => {
+    if (typeof id !== 'string' || !id) return
+    handleComposeComment(id)
+    editorStore.SET_COMPOSE_COMMENT_ID(null)
+  },
+  { immediate: true, flush: 'post' }
+)
 
 onBeforeUnmount(() => {
   discardEmptyComposedThreads()
-  bus.off('comment:compose', handleComposeComment)
 })
 </script>
 

@@ -19,6 +19,30 @@ passed or they appear to be absent.
 - Corollary: don't over-ask. Answer from the codebase whatever the codebase can
   answer; only surface genuine decisions — then wait for the real reply.
 
+## Working Agreement — No fallbacks, no heuristics (read first)
+
+This branch does not tolerate fallbacks, heuristics, or any code whose purpose
+is to paper over an inconsistent or unexpected state. They hide bugs instead of
+fixing them.
+
+- **Never** add a "fallback" path (try A, else silently use B), a default that
+  masks a missing or wrong value, a `try`/`catch` that swallows an error into a
+  safe-looking value, or a heuristic that guesses around a state you do not
+  understand.
+- When two sources of truth disagree (e.g. a live DOM selection vs a cached
+  selection), that divergence is a **bug at the source**. Find why they diverge
+  and fix that one place. Do not read whichever source happens to give the
+  answer you want — that hides the real defect and desyncs the rest of the code.
+- Before fixing any defect, **reproduce the root cause first**. A change that
+  makes a symptom disappear without a reproduced root cause is not a fix; it is
+  a new place for the bug to hide.
+- Prefer failing loudly (throw, assert, surface the error) over degrading
+  silently. A visible failure is a bug report; a silent fallback is a latent bug
+  shipped to the user.
+
+If a change seems to require a fallback, stop: the real fix is upstream, at
+whatever produced the bad state.
+
 ## Project Structure & Module Organization
 
 MarkText is a pnpm monorepo. The root contains shared tooling, CI-facing scripts, `docs/`, and the workspace lockfile; application code lives under `packages/`.
