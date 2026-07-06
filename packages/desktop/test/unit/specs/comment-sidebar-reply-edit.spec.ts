@@ -31,6 +31,8 @@ interface CommentRange {
 
 interface SetupBindings {
   addComment: () => void
+  focusComment: (id: string) => void
+  threadsRoot: { value: HTMLElement | null }
   beginEditReply: (thread: CommentThread, replyIndex: number) => void
   canAddComment: { value: boolean }
   commentFilter: { value: 'all' | 'open' | 'resolved' }
@@ -88,10 +90,11 @@ const makeBindings = (
   const emit = vi.fn()
   const mounted: Array<() => void> = []
   const beforeUnmount: Array<() => void> = []
-  const watchers: Array<{ cb: (value: unknown) => void }> = []
+  const watchers: Array<{ source: unknown, cb: (value: unknown, previous?: unknown) => void }> = []
   const handlers = new Map<string, (...args: unknown[]) => void>()
   // The reactive store field the comments sidebar now binds to directly.
   const addCommentEnabledRef = ref(options.initialCanAddComment === true)
+  const activeCommentIdsRef = ref<string[]>([])
   const deps = {
     _defineComponent: (o: unknown) => o,
     computed,
@@ -100,14 +103,14 @@ const makeBindings = (
     onMounted: (fn: () => void) => mounted.push(fn),
     reactive,
     ref,
-    watch: (_source: unknown, cb: (value: unknown) => void) => watchers.push({ cb }),
+    watch: (source: unknown, cb: (value: unknown, previous?: unknown) => void) => watchers.push({ source, cb }),
     storeToRefs: () => ({
       comments: ref({
         threads: initialComments.threads ?? [],
         ranges: initialComments.ranges ?? [],
         diagnostics: initialComments.diagnostics ?? []
       }),
-      activeCommentIds: ref([]),
+      activeCommentIds: activeCommentIdsRef,
       addCommentEnabled: addCommentEnabledRef,
       composeCommentId: ref(null)
     }),
@@ -134,7 +137,7 @@ const makeBindings = (
   const ret = comp.setup({}, { expose: () => {} })
   mounted.forEach(fn => fn())
   const triggerThreadIds = (ids: string[]): void => watchers.forEach(w => w.cb(ids))
-  return { ret, emit, handlers, beforeUnmount, triggerThreadIds, addCommentEnabledRef }
+  return { ret, emit, handlers, beforeUnmount, triggerThreadIds, addCommentEnabledRef, activeCommentIdsRef, watchers }
 }
 
 describe('comments sidebar reply editing', () => {
@@ -331,5 +334,49 @@ describe('comments sidebar reply editing', () => {
     ret.focusDiagnostic('broken')
 
     expect(emit).toHaveBeenCalledWith('comment:diagnostic-focus', 'broken')
+  })
+
+  it('scrolls a newly activated thread card into view (document -> sidebar)', async() => {
+    const { ret, watchers, activeCommentIdsRef } = makeBindings({
+      threads: [{ id: 'cmt_1', status: 'open', replies: [] }]
+    })
+
+    const root = document.createElement('div')
+    const card = document.createElement('section')
+    card.setAttribute('data-comment-id', 'cmt_1')
+    const scrolled = vi.fn()
+    card.scrollIntoView = scrolled
+    root.appendChild(card)
+    ret.threadsRoot.value = root
+
+    const activeWatch = watchers.find(w => w.source === activeCommentIdsRef)
+    expect(activeWatch).toBeDefined()
+    activeCommentIdsRef.value = ['cmt_1']
+    activeWatch!.cb(['cmt_1'], [])
+    await nextTick()
+
+    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' })
+  })
+
+  it('does not scroll the list for the echo of a sidebar click', async() => {
+    const { ret, watchers, activeCommentIdsRef } = makeBindings({
+      threads: [{ id: 'cmt_1', status: 'open', replies: [] }]
+    })
+
+    const root = document.createElement('div')
+    const card = document.createElement('section')
+    card.setAttribute('data-comment-id', 'cmt_1')
+    const scrolled = vi.fn()
+    card.scrollIntoView = scrolled
+    root.appendChild(card)
+    ret.threadsRoot.value = root
+
+    ret.focusComment('cmt_1')
+    const activeWatch = watchers.find(w => w.source === activeCommentIdsRef)
+    activeCommentIdsRef.value = ['cmt_1']
+    activeWatch!.cb(['cmt_1'], [])
+    await nextTick()
+
+    expect(scrolled).not.toHaveBeenCalled()
   })
 })

@@ -1,5 +1,8 @@
 <template>
-  <div class="side-bar-comments">
+  <div
+    ref="threadsRoot"
+    class="side-bar-comments"
+  >
     <header class="comments-header">
       <div>
         <div class="title">
@@ -422,7 +425,33 @@ const handleComposeComment = (id: unknown): void => {
   focusReplyInput(id)
 }
 
+const threadsRoot = ref<HTMLElement | null>(null)
+// A sidebar click on a thread activates that thread in the document, which
+// echoes back as an activeCommentIds change; scrolling the list the user is
+// already interacting with would yank it out from under their pointer.
+let suppressActiveScrollUntil = 0
+
+const scrollActiveThreadIntoView = (): void => {
+  const root = threadsRoot.value
+  const id = activeCommentIds.value[0]
+  if (!root || !id) return
+
+  // Comment ids are parser-constrained to \w[\w-]* (COMMENT_ID_PATTERN), so
+  // they are attribute-selector-safe without escaping.
+  root.querySelector(`[data-comment-id="${id}"]`)?.scrollIntoView({ block: 'nearest' })
+}
+
+watch(activeCommentIds, (ids, previous) => {
+  if (performance.now() < suppressActiveScrollUntil) return
+
+  const previousIds = new Set(previous ?? [])
+  if (!ids.some((id) => !previousIds.has(id))) return
+
+  nextTick().then(scrollActiveThreadIntoView)
+})
+
 const focusComment = (id: string): void => {
+  suppressActiveScrollUntil = performance.now() + 500
   bus.emit('comment:focus', id)
 }
 
