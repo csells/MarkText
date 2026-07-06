@@ -56,23 +56,25 @@ describe('createApplicationMenuState via SELECTION_CHANGE', () => {
     expect(state.isTable).toBe(false)
   })
 
-  it('enables Add Comment only for a non-collapsed editable selection', () => {
-    const selected = menuStateFor({
+  // The engine's `muya.canAddComment()` is the single authority for the Add
+  // Comment enabled state; it travels on every selection-change payload. The
+  // desktop passes the bit through and fails safe when it is absent — it must
+  // never re-derive commentability from selection geometry, which cannot see
+  // marker intersection, cross-leaf rules, or id availability. The predicate
+  // itself (collapsed carets, whitespace-only, inline code, markers) is locked
+  // engine-side in packages/muya/src/__tests__/commentsApi.spec.ts.
+  it('passes the engine Add Comment predicate through — enabled', () => {
+    const state = menuStateFor({
       start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
       end: { key: 'a', offset: 10, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
+      canAddComment: true,
       affiliation: [{ type: 'p', blockName: 'paragraph' }]
     })
-    expect(selected.canAddComment).toBe(true)
 
-    const collapsed = menuStateFor({
-      start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
-      end: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
-      affiliation: [{ type: 'p', blockName: 'paragraph' }]
-    })
-    expect(collapsed.canAddComment).toBe(false)
+    expect(state.canAddComment).toBe(true)
   })
 
-  it('honors the engine Add Comment predicate when it is provided', () => {
+  it('passes the engine Add Comment predicate through — disabled', () => {
     const state = menuStateFor({
       start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
       end: { key: 'a', offset: 10, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
@@ -83,27 +85,17 @@ describe('createApplicationMenuState via SELECTION_CHANGE', () => {
     expect(state.canAddComment).toBe(false)
   })
 
-  it('disables Add Comment for whitespace-only selections', () => {
+  it('fails safe: a payload without the engine predicate disables Add Comment', () => {
     const state = menuStateFor({
-      start: { key: 'a', offset: 1, type: 'span', block: { functionType: 'paragraphContent', text: 'A   B' } },
-      end: { key: 'a', offset: 4, type: 'span', block: { functionType: 'paragraphContent', text: 'A   B' } },
+      start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
+      end: { key: 'a', offset: 10, type: 'span', block: { functionType: 'paragraphContent', text: 'A reviewed span.' } },
       affiliation: [{ type: 'p', blockName: 'paragraph' }]
     })
 
     expect(state.canAddComment).toBe(false)
   })
 
-  it('disables Add Comment for inline-code selections', () => {
-    const state = menuStateFor({
-      start: { key: 'a', offset: 3, type: 'span', block: { functionType: 'paragraphContent', text: 'A `reviewed` span.' } },
-      end: { key: 'a', offset: 11, type: 'span', block: { functionType: 'paragraphContent', text: 'A `reviewed` span.' } },
-      affiliation: [{ type: 'p', blockName: 'paragraph' }]
-    })
-
-    expect(state.canAddComment).toBe(false)
-  })
-
-  it('disables Add Comment inside code-like selections', () => {
+  it('marks a code-block line selection as code-fences', () => {
     const state = menuStateFor({
       start: { key: 'a', offset: 2, type: 'span', block: { functionType: 'codeContent' } },
       end: { key: 'a', offset: 10, type: 'span', block: { functionType: 'codeContent' } },
@@ -111,19 +103,6 @@ describe('createApplicationMenuState via SELECTION_CHANGE', () => {
     })
 
     expect(state.isCodeFences).toBe(true)
-    expect(state.canAddComment).toBe(false)
-  })
-
-  it('disables Add Comment inside hidden MC metadata definitions', () => {
-    const metadataLine =
-      '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119'
-    const state = menuStateFor({
-      start: { key: 'a', offset: 1, type: 'span', block: { functionType: 'paragraphContent', text: metadataLine } },
-      end: { key: 'a', offset: 5, type: 'span', block: { functionType: 'paragraphContent', text: metadataLine } },
-      affiliation: [{ type: 'p', blockName: 'paragraph' }]
-    })
-
-    expect(state.canAddComment).toBe(false)
   })
 
   it('checks every list level for a deeply nested ul > ul > ol (flags from innermost)', () => {
