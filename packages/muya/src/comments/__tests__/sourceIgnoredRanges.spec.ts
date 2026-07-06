@@ -78,11 +78,7 @@ describe('source-mode block classifier — batch behaviour', () => {
             markdown: 'para line\n    lazy continuation\n',
             ignored: [false, false],
         },
-        {
-            name: 'single-line HTML block',
-            markdown: 'a\n<div>x</div>\nb\n',
-            ignored: [false, true, false],
-        },
+
         {
             name: 'plain paragraphs are never ignored',
             markdown: 'one\ntwo\nthree\n',
@@ -99,6 +95,15 @@ describe('source-mode block classifier — batch behaviour', () => {
             expect(streamLineIgnored(markdown)).toEqual(ignored);
         });
     }
+
+    // The batch index follows the parser: a CommonMark type-6 HTML block
+    // continues past its closing tag until a blank line, so the trailing
+    // paragraph-looking line is literal text. The streaming adapter keeps the
+    // single-line approximation for live decoration and is not asserted here.
+    it('batch classifies: HTML block continues to the blank line (CommonMark type 6)', () => {
+        expect(batchLineIgnored('a\n<div>x</div>\nb\n')).toEqual([false, true, true]);
+        expect(batchLineIgnored('a\n<div>x</div>\n\nb\n')).toEqual([false, true, false, false]);
+    });
 
     it('a comment marker inside indented code is ignored by the batch index', () => {
         const markdown = 'para\n\n    <!--MC:a-->x<!--MC:~a-->\n';

@@ -60,6 +60,41 @@ const CASES: Array<{ name: string; markdown: string }> = [
         name: 'no comments at all',
         markdown: 'Just some plain text with no markers.\n',
     },
+    // Container-context cases: the hand-rolled line classifier used to
+    // diverge from the parser on exactly these (loose-list continuations
+    // classified as indented code, blockquote-nested definitions invisible
+    // to a line-start regexp, fences behind '>' prefixes never opening).
+    {
+        name: 'marker on a 4-space loose-list continuation line is live to both',
+        markdown: `- item\n\n    text <!--MC:a-->hello<!--MC:~a--> tail\n\n${meta('a')}\n`,
+    },
+    {
+        name: 'markers inside a blockquoted fence are literal to both',
+        markdown: `> \`\`\`\n> <!--MC:lit-->x<!--MC:~lit-->\n> \`\`\`\n\nlive <!--MC:a-->y<!--MC:~a-->\n\n${meta('a')}\n`,
+    },
+    {
+        name: 'markers on an indented line inside a blockquote paragraph are live to both',
+        markdown: `> lead\n>     cont <!--MC:a-->x<!--MC:~a-->\n\n${meta('a')}\n`,
+    },
+];
+
+// A definition is live wherever the parser's state walk sees one — including
+// nested in a blockquote — and literal inside code/front matter. Def ids on
+// the parse side are threads (def + markers + valid payload) plus the
+// metadata-shaped diagnostics.
+const DEFINITION_CASES: Array<{ name: string; markdown: string }> = [
+    {
+        name: 'blockquote-nested definition',
+        markdown: `<!--MC:a-->x<!--MC:~a-->\n\n> ${META.replace('%ID%', 'a')}\n`,
+    },
+    {
+        name: 'list-nested definition',
+        markdown: `<!--MC:a-->x<!--MC:~a-->\n\n- ${META.replace('%ID%', 'a')}\n`,
+    },
+    {
+        name: 'definition inside a fenced block is literal to both',
+        markdown: `<!--MC:a-->x<!--MC:~a-->\n\n\`\`\`\n${META.replace('%ID%', 'ghost')}\n\`\`\`\n\n${meta('a')}\n`,
+    },
 ];
 
 describe('comment parser consistency: block-path parser vs source-char index', () => {
@@ -68,6 +103,20 @@ describe('comment parser consistency: block-path parser vs source-char index', (
             const parsed = idSet(parseMarkdownComments(markdown, { frontMatter: true, math: true }).ranges);
             const indexed = idSet(buildCommentSourceIndex(markdown).commentRanges);
             expect(indexed).toEqual(parsed);
+        });
+    }
+
+    for (const { name, markdown } of [...CASES, ...DEFINITION_CASES]) {
+        it(`agrees on metadata definition ids: ${name}`, () => {
+            const comments = parseMarkdownComments(markdown, { frontMatter: true, math: true });
+            const parsedDefIds = [...new Set([
+                ...comments.threads.map(thread => thread.id),
+                ...comments.diagnostics
+                    .filter(d => d.code === 'orphan-metadata' || d.code === 'duplicate-metadata' || d.code === 'invalid-metadata')
+                    .map(d => d.id),
+            ])].sort();
+            const indexedDefIds = idSet(buildCommentSourceIndex(markdown).metadataDefinitions);
+            expect(indexedDefIds).toEqual(parsedDefIds);
         });
     }
 });

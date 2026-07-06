@@ -44,6 +44,15 @@ function shouldTreatHtmlAsParagraph(text: string) {
     return COMMENT_MARKER_SEARCH_REGEXP.test(text) && !looksLikeRawHtmlAfterCommentMarkers(text);
 }
 
+// Whether an `html` block token is lowered to a paragraph state (single
+// image, or comment-marker-led text that is not raw HTML underneath). The
+// comment source index consumes this so its live/literal decision matches
+// the state walk exactly.
+export function htmlBlockTokenIsParagraph(text: string): boolean {
+    const trimmed = text.trim();
+    return /^<img[^<>]+>$/.test(trimmed) || shouldTreatHtmlAsParagraph(trimmed);
+}
+
 function buildHeadingState(token: Extract<TBlockToken, { type: 'heading' }>): IAtxHeadingState | ISetextHeadingState {
     const { headingStyle, depth, text, marker } = token;
     const value = headingStyle === 'atx'
@@ -90,9 +99,7 @@ function buildTableState(token: Extract<TBlockToken, { type: 'table' }>): ITable
 
 function buildHtmlState(token: Extract<TBlockToken, { type: 'html' }>): TState {
     const text = token.text.trim();
-    // TODO: Treat html state which only contains one img as paragraph, we maybe add image state in the future.
-    const isSingleImage = /^<img[^<>]+>$/.test(text);
-    return isSingleImage || shouldTreatHtmlAsParagraph(text)
+    return htmlBlockTokenIsParagraph(text)
         ? {
                 name: 'paragraph' as const,
                 text,

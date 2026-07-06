@@ -1,3 +1,5 @@
+import type { TLexedToken } from '../utils/marked/types';
+import { htmlBlockTokenIsParagraph } from '../state/markdownToState';
 import { escapeRegExp } from '../utils';
 import {
     FRONT_MATTER_OPEN_REGEXP,
@@ -7,7 +9,7 @@ import {
     MATH_BLOCK_DELIM_REGEXP,
     parseFenceMarker,
 } from '../utils/markdownBlockRules';
-import getFrontMatterInfo from '../utils/marked/frontMatter';
+import { lexBlock } from '../utils/marked';
 import { forEachRealCommentMarker, orphansCounterpart } from './markerScan';
 import {
     COMMENT_MARKER_PATTERN,
@@ -180,43 +182,223 @@ export function sourceRangesOverlap(
     return ranges.some(range => start < range.end && end > range.start);
 }
 
-// Contiguous runs of lines the streaming classifier marks as ignored (fenced
-// code, math blocks, HTML blocks, indented code). Folding the one classifier
-// here keeps the batch index and the CodeMirror source-mode highlighter from
-// drifting on those constructs.
-//
-// Front matter is the deliberate exception: it needs whole-document look-ahead
-// (a leading `---` is front matter only when a matching close + blank/EOF
-// follows — otherwise it is a thematic break whose following lines carry real
-// comments). The streaming classifier cannot look ahead, so it is intentionally
-// forgiving for live highlighting; the batch index feeds persistence/CLI and
-// MUST match the parser, so it detects front matter with the parser's own
-// `getFrontMatterInfo` and suppresses the classifier's forgiving version.
-function sourceBlockIgnoredIndexRanges(
+// The batch index derives its per-line view from the REAL parser token
+// stream (lexBlock), not from a re-derived line grammar: marked's block
+// tokenization is the single authority on what is code/html/math/front
+// matter, including inside containers (blockquotes, list items) that a flat
+// line scan cannot see. Each original line gets its container-stripped
+// content and the byte delta to map stripped offsets back to source bytes,
+// so markers and metadata definitions are recognized on exactly the text the
+// state-walk parser sees. The streaming classifier below
+// (prepareCommentSourceLine) remains ONLY as the non-authoritative
+// CodeMirror live-decoration adapter.
+export interface ICommentSourceLineView {
+    // Byte offset of the line start in the original markdown.
+    start: number;
+    // Byte length including the line terminator.
+    rawLength: number;
+    // Inside a code/html/math/front-matter block — comment syntax is literal.
+    ignored: boolean;
+    // Container-stripped line content (blockquote '>' prefixes, list
+    // indentation removed) — the text the parser's state walk sees.
+    stripped: string;
+    // stripped[i] lives at byte start + delta + i in the original markdown.
+    delta: number;
+}
+
+function splitContentLines(text: string): string[] {
+    if (text.length === 0)
+        return [];
+    const lines = text.split(/\r\n|\n|\r/u);
+    // A trailing terminator yields a phantom empty segment, not a line.
+    if (lines[lines.length - 1] === '')
+        lines.pop();
+    return lines;
+}
+
+// Byte offsets of every line start in `text` (line 0 always starts at 0).
+function lineStartOffsets(text: string): number[] {
+    const starts = [0];
+    const terminator = /\r\n|\n|\r/gu;
+    for (let match = terminator.exec(text); match; match = terminator.exec(text)) {
+        if (match.index + match[0].length < text.length)
+            starts.push(match.index + match[0].length);
+    }
+    return starts;
+}
+
+type TContainerToken = TLexedToken & { text?: string; tokens?: TLexedToken[]; items?: TLexedToken[] };
+
+// One nesting level of the token walk: `text` is the container-stripped
+// source the tokens were lexed from (token raws concatenate to it) and
+// `viewOfLine[k]` is the original-document view behind its k-th line.
+interface IWalkLevel {
+    text: string;
+    lineStarts: number[];
+    viewOfLine: ICommentSourceLineView[];
+}
+
+// Re-view a container's lines through its children: each child line is the
+// container line minus a per-line prefix (CommonMark container stripping
+// never merges or splits lines), so child content must be a suffix of the
+// current view. Anything else means the walk desynced from the source —
+// fail loudly, never guess.
+function descendIntoContainer(
+    children: TLexedToken[],
+    level: IWalkLevel,
+    startLine: number,
+    lineCount: number,
+): void {
+    const innerText = children.map(child => child.raw ?? '').join('');
+    const innerLines = splitContentLines(innerText);
+    if (innerLines.length > lineCount)
+        throw new Error('comment source index: container children span more lines than the container');
+
+    const viewOfLine: ICommentSourceLineView[] = [];
+    for (let k = 0; k < innerLines.length; k += 1) {
+        const view = level.viewOfLine[startLine + k];
+        const inner = innerLines[k];
+        if (view.stripped.endsWith(inner)) {
+            view.delta += view.stripped.length - inner.length;
+        }
+        else if (
+            inner.endsWith(view.stripped)
+            && /^\s*$/u.test(inner.slice(0, inner.length - view.stripped.length))
+        ) {
+            // marked pads a lazy-continuation line with leading whitespace to
+            // defuse a would-be setext underline ('===' -> '    ==='). The
+            // parser's state text carries the same padding, so recognition
+            // agrees; the padded columns simply map back left of the line.
+            view.delta -= inner.length - view.stripped.length;
+        }
+        else {
+            throw new Error('comment source index: container line alignment failed');
+        }
+        view.stripped = inner;
+        viewOfLine.push(view);
+    }
+
+    walkLevelTokens(children, {
+        text: innerText,
+        lineStarts: lineStartOffsets(innerText),
+        viewOfLine,
+    });
+}
+
+function walkLevelTokens(tokens: TLexedToken[], level: IWalkLevel): void {
+    const lineAt = (byte: number): number => {
+        let low = 0;
+        let high = level.lineStarts.length - 1;
+        while (low < high) {
+            const mid = (low + high + 1) >> 1;
+            if (level.lineStarts[mid] <= byte)
+                low = mid;
+            else
+                high = mid - 1;
+        }
+        return low;
+    };
+
+    // Byte cursor shared across the recursion: a `list` token's items are
+    // unstripped slices of this level's text, so walking them advances the
+    // same cursor the list occupies.
+    let byteOffset = 0;
+    const walk = (levelTokens: TLexedToken[]): void => {
+        for (const token of levelTokens as TContainerToken[]) {
+            const raw = token.raw ?? '';
+            if (raw.length === 0)
+                continue;
+            const startLine = lineAt(byteOffset);
+            const endLine = lineAt(byteOffset + raw.length - 1);
+            switch (token.type) {
+                case 'code':
+                case 'multiplemath':
+                case 'frontmatter': {
+                    for (let line = startLine; line <= endLine; line += 1)
+                        level.viewOfLine[line].ignored = true;
+                    byteOffset += raw.length;
+                    break;
+                }
+                case 'html': {
+                    // The state walk lowers marker-led non-HTML (and single
+                    // images) to paragraphs; those lines carry LIVE comment
+                    // syntax. Real raw HTML is literal.
+                    if (!htmlBlockTokenIsParagraph(token.text ?? raw)) {
+                        for (let line = startLine; line <= endLine; line += 1)
+                            level.viewOfLine[line].ignored = true;
+                    }
+                    byteOffset += raw.length;
+                    break;
+                }
+                case 'blockquote':
+                case 'footnote':
+                case 'list_item': {
+                    descendIntoContainer(token.tokens ?? [], level, startLine, endLine - startLine + 1);
+                    byteOffset += raw.length;
+                    break;
+                }
+                case 'list': {
+                    // Items advance the shared cursor through the list's
+                    // span, but their raws exclude the list's trailing
+                    // terminator (and any inter-item bytes marked absorbed),
+                    // so the cursor is pinned to the list's exact end after.
+                    const listStart = byteOffset;
+                    walk(token.items ?? []);
+                    byteOffset = listStart + raw.length;
+                    break;
+                }
+                default: {
+                    byteOffset += raw.length;
+                    break;
+                }
+            }
+        }
+    };
+
+    walk(tokens);
+}
+
+export function buildCommentSourceLineViews(
     markdown: string,
     options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
-): ICommentSourceIndexRange[] {
+): ICommentSourceLineView[] {
     const normalized = normalizeSourceIndexOptions(options);
+    const views: ICommentSourceLineView[] = [];
+    for (const { index, rawLine } of sourceLines(markdown)) {
+        views.push({
+            start: index,
+            rawLength: rawLine.length,
+            ignored: false,
+            stripped: rawLine.slice(0, rawLine.length - lineEndLength(rawLine)),
+            delta: 0,
+        });
+    }
+
+    const tokens = lexBlock(markdown, {
+        footnote: false,
+        math: normalized.math,
+        frontMatter: normalized.frontMatter,
+        isGitlabCompatibilityEnabled: false,
+    });
+    walkLevelTokens(tokens, {
+        text: markdown,
+        lineStarts: views.map(view => view.start),
+        viewOfLine: views,
+    });
+    return views;
+}
+
+function sourceBlockIgnoredIndexRanges(
+    views: ICommentSourceLineView[],
+): ICommentSourceIndexRange[] {
     const ranges: ICommentSourceIndexRange[] = [];
-
-    const { token: frontMatter } = normalized.frontMatter ? getFrontMatterInfo(markdown) : { token: null };
-    const frontMatterEnd = frontMatter ? frontMatter.raw.length : 0;
-    if (frontMatterEnd > 0)
-        ranges.push({ start: 0, end: frontMatterEnd });
-
-    const state = createCommentSourceLineState();
-    // Front matter is resolved above; mark the first line seen so the classifier
-    // never treats a leading (bare/unterminated) `---` as forgiving front matter.
-    state.seenFirstLine = true;
     let runStart: number | null = null;
     let runEnd = 0;
 
-    for (const { index, rawLine } of sourceLines(markdown, frontMatterEnd)) {
-        const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        prepareCommentSourceLine(state, lineText, normalized);
-        if (state.ignoreLine) {
-            runStart ??= index;
-            runEnd = index + rawLine.length;
+    for (const view of views) {
+        if (view.ignored) {
+            runStart ??= view.start;
+            runEnd = view.start + view.rawLength;
         }
         else if (runStart != null) {
             ranges.push({ start: runStart, end: runEnd });
@@ -230,20 +412,18 @@ function sourceBlockIgnoredIndexRanges(
 }
 
 function sourceInlineCodeIndexRanges(
-    markdown: string,
-    ignoredRanges: ICommentSourceIndexRange[],
+    views: ICommentSourceLineView[],
 ): ICommentSourceIndexRange[] {
     const ranges: ICommentSourceIndexRange[] = [];
 
-    for (const { index, rawLine } of sourceLines(markdown)) {
-        if (sourceIndexInsideRanges(index, ignoredRanges))
+    for (const view of views) {
+        if (view.ignored)
             continue;
 
-        const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        for (const range of sourceInlineCodeRanges(lineText)) {
+        for (const range of sourceInlineCodeRanges(view.stripped)) {
             ranges.push({
-                start: index + range.start,
-                end: index + range.end,
+                start: view.start + view.delta + range.start,
+                end: view.start + view.delta + range.end,
             });
         }
     }
@@ -434,10 +614,10 @@ export function sourceCommentIgnoredIndexRanges(
     markdown: string,
     options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
 ): ICommentSourceIndexRange[] {
-    const blockRanges = sourceBlockIgnoredIndexRanges(markdown, options);
+    const views = buildCommentSourceLineViews(markdown, options);
     return [
-        ...blockRanges,
-        ...sourceInlineCodeIndexRanges(markdown, blockRanges),
+        ...sourceBlockIgnoredIndexRanges(views),
+        ...sourceInlineCodeIndexRanges(views),
     ];
 }
 
@@ -445,30 +625,31 @@ export function buildCommentSourceIndex(
     markdown: string,
     options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
 ): ICommentSourceIndex {
-    const blockIgnoredRanges = sourceBlockIgnoredIndexRanges(markdown, options);
+    const views = buildCommentSourceLineViews(markdown, options);
+    const blockIgnoredRanges = sourceBlockIgnoredIndexRanges(views);
     const ignoredRanges = [
         ...blockIgnoredRanges,
-        ...sourceInlineCodeIndexRanges(markdown, blockIgnoredRanges),
+        ...sourceInlineCodeIndexRanges(views),
     ];
     const markers: ICommentSourceMarker[] = [];
     const metadataDefinitions: ICommentSourceMetadataDefinition[] = [];
     const commentRanges: ICommentSourceRange[] = [];
     const openMarkers = new Map<string, number>();
 
-    for (const { index, rawLine } of sourceLines(markdown)) {
-        if (sourceIndexInsideRanges(index, blockIgnoredRanges))
+    for (const view of views) {
+        if (view.ignored)
             continue;
 
-        const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        forEachRealCommentMarker(lineText, (scanned) => {
-            const markerStart = index + scanned.start;
+        const lineStart = view.start + view.delta;
+        forEachRealCommentMarker(view.stripped, (scanned) => {
+            const markerStart = lineStart + scanned.start;
             const idStart = markerStart + '<!--MC:'.length + (scanned.kind === 'close' ? 1 : 0);
             const marker: ICommentSourceMarker = {
                 id: scanned.id,
                 kind: scanned.kind,
-                raw: lineText.slice(scanned.start, scanned.end),
+                raw: view.stripped.slice(scanned.start, scanned.end),
                 start: markerStart,
-                end: index + scanned.end,
+                end: lineStart + scanned.end,
                 idStart,
                 idEnd: idStart + scanned.id.length,
             };
@@ -487,23 +668,23 @@ export function buildCommentSourceIndex(
         });
     }
 
-    for (const { index, rawLine } of sourceLines(markdown)) {
-        if (sourceIndexInsideRanges(index, blockIgnoredRanges))
+    for (const view of views) {
+        if (view.ignored)
             continue;
 
-        const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        const metadata = parseCommentMetadataDefinition(lineText);
+        const metadata = parseCommentMetadataDefinition(view.stripped);
         if (!metadata)
             continue;
 
-        const idStartInLine = lineText.indexOf(`[MC:${metadata.id}]`) + '[MC:'.length;
+        const lineStart = view.start + view.delta;
+        const idStartInLine = view.stripped.indexOf(`[MC:${metadata.id}]`) + '[MC:'.length;
         metadataDefinitions.push({
             id: metadata.id,
             dataUri: metadata.dataUri,
-            start: index,
-            end: index + lineText.length,
-            idStart: index + idStartInLine,
-            idEnd: index + idStartInLine + metadata.id.length,
+            start: lineStart,
+            end: lineStart + view.stripped.length,
+            idStart: lineStart + idStartInLine,
+            idEnd: lineStart + idStartInLine + metadata.id.length,
         });
     }
 

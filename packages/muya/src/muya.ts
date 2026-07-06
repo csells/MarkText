@@ -419,6 +419,17 @@ export class Muya {
         if (nextMarkdown === currentMarkdown)
             return false;
 
+        // Backstop against index/parser drift: a removal must be COMPLETE.
+        // Applying a partial removal (say, the definition without its
+        // markers) would silently corrupt the document — refuse instead.
+        const residue = analyzeMarkdownComments(nextMarkdown).sourceIndex;
+        if (
+            residue.markers.some(marker => marker.id === id)
+            || residue.metadataDefinitions.some(definition => definition.id === id)
+        ) {
+            return false;
+        }
+
         return this.replaceContent(nextMarkdown);
     }
 

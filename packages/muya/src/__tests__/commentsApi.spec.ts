@@ -970,3 +970,53 @@ describe('comment mutations flush rAF-batched edits (#2938 lost-edit class)', ()
         expect(markdown).not.toContain('MC:a');
     });
 });
+
+// Container-context mutation soundness: the byte index used by removeComment
+// and metadata updates must agree with the parser about container-nested
+// syntax, or first-class flows silently corrupt documents (stranded hidden
+// markers, byte deletion inside quoted fences, refused healthy threads).
+describe('muya comment mutations in container context', () => {
+    const META = metadata({ version: 1, status: 'open', replies: [] });
+
+    it('removeComment on a loose-list continuation removes markers AND metadata', () => {
+        const muya = boot(`- item\n\n    text <!--MC:a-->hello<!--MC:~a--> tail\n\n[MC:a]: ${META}\n`);
+
+        expect(muya.removeComment('a')).toBe(true);
+
+        const markdown = muya.getMarkdown();
+        expect(markdown).not.toContain('MC:a');
+        expect(markdown).toContain('text hello tail');
+    });
+
+    it('removeComment never deletes marker-shaped bytes inside a blockquoted fence', () => {
+        const muya = boot([
+            '> ```',
+            '> <!--MC:a-->literal<!--MC:~a-->',
+            '> ```',
+            '',
+            'live <!--MC:a-->y<!--MC:~a-->',
+            '',
+            `[MC:a]: ${META}`,
+            '',
+        ].join('\n'));
+
+        expect(muya.removeComment('a')).toBe(true);
+
+        const markdown = muya.getMarkdown();
+        // The live markers and the definition are gone; the quoted fence's
+        // literal marker bytes are untouched.
+        expect(markdown).toContain('> <!--MC:a-->literal<!--MC:~a-->');
+        expect(markdown).toContain('live y');
+        expect(markdown).not.toContain(`[MC:a]:`);
+    });
+
+    it('resolves a thread whose definition lives inside a blockquote', () => {
+        const muya = boot(`<!--MC:a-->x<!--MC:~a-->\n\n> [MC:a]: ${META}\n`);
+
+        expect(muya.resolveComment('a')).toBe(true);
+
+        const markdown = muya.getMarkdown();
+        expect(markdown).toMatch(/^> \[MC:a\]: data:application\/json;base64,/mu);
+        expect(muya.getComments().threads[0]).toMatchObject({ id: 'a', status: 'resolved' });
+    });
+});
