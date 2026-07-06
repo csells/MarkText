@@ -67,7 +67,10 @@ const keybindings: Map<string, string> = new Map([
   ['paragraph.order-list', 'Ctrl+G'],
   ['paragraph.bullet-list', 'Ctrl+H'],
   ['paragraph.task-list', 'Ctrl+Shift+X'],
-  ['paragraph.loose-list-item', 'Ctrl+Alt+L'],
+  // Ctrl+Shift+L belongs to review.add-comment and Ctrl+Alt+L is KDE
+  // Plasma's default lock-screen shortcut (the compositor consumes it
+  // before the app), so loose-list-item takes the tri-modifier form.
+  ['paragraph.loose-list-item', 'Ctrl+Shift+Alt+L'],
   ['paragraph.paragraph', 'Ctrl+Shift+0'],
   ['paragraph.horizontal-line', 'Ctrl+_'], // Ctrl+Shift+-
   ['paragraph.front-matter', 'Ctrl+Shift+Y'],

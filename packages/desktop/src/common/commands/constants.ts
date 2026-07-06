@@ -54,8 +54,6 @@ const COMMANDS = Object.freeze({
   MT_HIDE: 'mt.hide',
   MT_HIDE_OTHERS: 'mt.hide-others',
 
-  LEGACY_EDIT_ADD_COMMENT: 'edit.add-comment',
-
   PARAGRAPH_BULLET_LIST: 'paragraph.bullet-list',
   PARAGRAPH_CODE_FENCE: 'paragraph.code-fence',
   PARAGRAPH_DEGRADE_HEADING: 'paragraph.degrade-heading',

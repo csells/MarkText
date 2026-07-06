@@ -317,10 +317,11 @@ describe('menu template accelerators match the platform keybinding tables (Parag
     expect(isEqualAccelerator(accel(keybindingsDarwin, 'review.add-comment'), 'Command+Shift+L')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsLinux, 'review.add-comment'), 'Ctrl+Shift+L')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsWindows, 'review.add-comment'), 'Ctrl+Shift+L')).toBe(true)
-    // loose-list-item now uses the Option/Alt+L slot on all platforms (Linux was
-    // the odd one out on Ctrl+Shift+L, which now belongs to Add Comment).
+    // loose-list-item moved off Ctrl+Shift+L (now Add Comment) onto the
+    // Option/Alt+L slot. Linux adds Shift because Ctrl+Alt+L is KDE Plasma's
+    // default lock-screen shortcut — the compositor consumes it before the app.
     expect(isEqualAccelerator(accel(keybindingsDarwin, 'paragraph.loose-list-item'), 'Command+Option+L')).toBe(true)
-    expect(isEqualAccelerator(accel(keybindingsLinux, 'paragraph.loose-list-item'), 'Ctrl+Alt+L')).toBe(true)
+    expect(isEqualAccelerator(accel(keybindingsLinux, 'paragraph.loose-list-item'), 'Ctrl+Shift+Alt+L')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsWindows, 'paragraph.loose-list-item'), 'Ctrl+Alt+L')).toBe(true)
   })
 })

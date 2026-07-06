@@ -165,7 +165,6 @@ export const loadEditCommands = (commandManager: CommandManager): void => {
   commandManager.add(COMMANDS.EDIT_FIND_NEXT, editorFindNext)
   commandManager.add(COMMANDS.EDIT_FIND_PREVIOUS, editorFindPrevious)
   commandManager.add(COMMANDS.REVIEW_ADD_COMMENT, editorAddComment)
-  commandManager.add(COMMANDS.LEGACY_EDIT_ADD_COMMENT, editorAddComment)
   commandManager.add(COMMANDS.EDIT_PASTE, nativePaste)
   commandManager.add(COMMANDS.EDIT_PASTE_AS_PLAINTEXT, editorPasteAsPlainText)
   commandManager.add(COMMANDS.EDIT_REDO, editorRedo)
