@@ -6,6 +6,23 @@ export interface FileChangePayload {
   data: FileDocumentPayload
 }
 
+// Markdown sent with the most recent in-flight save request, per tab id.
+// mt::tab-saved echoes only the id, so this is the renderer's record of the
+// bytes actually written — the only valid source for the merge base.
+export const pendingSaveSnapshots = new Map<string, string>()
+
+// Complete a save against the recorded snapshot: the disk base advances to
+// the WRITTEN bytes; the tab is clean only if the buffer still matches them
+// (the user may have kept editing during the async write).
+export const completeTabSaveFromSnapshot = (tab: IFileState, savedMarkdown: string): void => {
+  tab.diskBaseMarkdown = savedMarkdown
+  if (tab.markdown === savedMarkdown) {
+    markTabSavedAtCurrentHistory(tab)
+    return
+  }
+  tab.isSaved = false
+}
+
 export const markTabSavedAtCurrentHistory = (tab: IFileState): void => {
   const lastEditIndex = tab.history.lastEditIndex
   if (

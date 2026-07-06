@@ -26,7 +26,9 @@ import {
   clearExclusiveTabNotification,
   type FileChangePayload,
   isSamePersistenceSnapshot,
-  markTabSavedAtCurrentHistory
+  completeTabSaveFromSnapshot,
+  markTabSavedAtCurrentHistory,
+  pendingSaveSnapshots
 } from './editorPersistence'
 import {
   ADD_COMMENT_CAPABILITY_CHANGED,
@@ -582,6 +584,7 @@ export const useEditorStore = defineStore('editor', {
       const options = getOptionsFromState(this.currentFile)
       const defaultPath = getRootFolderFromState(projectStore)
       if (id) {
+        pendingSaveSnapshots.set(id, markdown)
         window.electron.ipcRenderer.send(
           'mt::response-file-save',
           id,
@@ -661,7 +664,17 @@ export const useEditorStore = defineStore('editor', {
           window.DIRNAME = window.path.dirname(pathname)
         }
         if (tab) {
-          Object.assign(tab, { filename, pathname, isSaved: true, diskBaseMarkdown: tab.markdown })
+          Object.assign(tab, { filename, pathname })
+          const savedMarkdown = pendingSaveSnapshots.get(tab.id)
+          pendingSaveSnapshots.delete(tab.id)
+          if (typeof savedMarkdown === 'string') {
+            completeTabSaveFromSnapshot(tab, savedMarkdown)
+          } else {
+            // Pure path change (rename/move without a content write): the
+            // disk bytes did not change, so the base and dirty state stand.
+            tab.isSaved = true
+            tab.diskBaseMarkdown = tab.markdown
+          }
           debouncedSendBufferedState()
         }
       })
@@ -669,7 +682,15 @@ export const useEditorStore = defineStore('editor', {
       window.electron.ipcRenderer.on('mt::tab-saved', (_, tabId) => {
         const tab = this.tabs.find((f) => f.id === tabId)
         if (tab) {
-          markTabSavedAtCurrentHistory(tab)
+          const savedMarkdown = pendingSaveSnapshots.get(tab.id)
+          pendingSaveSnapshots.delete(tab.id)
+          if (typeof savedMarkdown !== 'string') {
+            // No recorded request means the handshake is broken; guessing a
+            // base (e.g. the live buffer) would corrupt the merge pipeline.
+            console.error(`mt::tab-saved for tab ${tab.id} without a recorded save request`)
+            return
+          }
+          completeTabSaveFromSnapshot(tab, savedMarkdown)
           // A save advances the merge base, so any open conflict session for
           // this tab is resolving disk content that no longer exists.
           if (this.mergeConflict?.tabId === tab.id) {
@@ -680,6 +701,7 @@ export const useEditorStore = defineStore('editor', {
       })
 
       window.electron.ipcRenderer.on('mt::tab-save-failure', (_, tabId, msg) => {
+        pendingSaveSnapshots.delete(tabId as string)
         const tab = this.tabs.find((t) => t.id === tabId)
         if (!tab) {
           notice.notify({
@@ -786,6 +808,7 @@ export const useEditorStore = defineStore('editor', {
       if (!id) return
       if (!pathname) {
         // if current file is a newly created file, just save it!
+        pendingSaveSnapshots.set(id, markdown)
         window.electron.ipcRenderer.send(
           'mt::response-file-save',
           id,
@@ -828,6 +851,7 @@ export const useEditorStore = defineStore('editor', {
       if (!id) return
       if (!pathname) {
         // if current file is a newly created file, just save it!
+        pendingSaveSnapshots.set(id, markdown)
         window.electron.ipcRenderer.send(
           'mt::response-file-save',
           id,
@@ -1621,14 +1645,17 @@ export const useEditorStore = defineStore('editor', {
           if (!latestTab || latestTab.isSaved) return
 
           const defaultPath = getRootFolderFromState(projectStore)
+          // An emptied document is a legitimate '' — `||` would resurrect
+          // the stale snapshot captured when this timer was armed.
+          const markdownToSave =
+            typeof latestTab.markdown === 'string' ? latestTab.markdown : markdown
+          pendingSaveSnapshots.set(id, markdownToSave)
           window.electron.ipcRenderer.send(
             'mt::response-file-save',
             id,
             latestTab.filename || filename,
             latestTab.pathname || pathname,
-            // An emptied document is a legitimate '' — `||` would resurrect
-            // the stale snapshot captured when this timer was armed.
-            typeof latestTab.markdown === 'string' ? latestTab.markdown : markdown,
+            markdownToSave,
             deepClone(getOptionsFromState(latestTab) || options),
             defaultPath
           )
