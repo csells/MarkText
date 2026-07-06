@@ -6,7 +6,7 @@ import type { ISelection } from '../selection/types';
 import type { ITableState, TState } from '../state/types';
 import type { Nullable } from '../types';
 import type Clipboard from './index';
-import { stripCommentSyntaxForClipboard } from '../comments/syntax';
+import { stripCommentSyntaxForClipboard } from '../comments/markerScan';
 import StateToMarkdown from '../state/stateToMarkdown';
 import { getClipBoardHtml, getSanitizeClipboardHtml } from '../utils/marked';
 import { CopyType } from './types';

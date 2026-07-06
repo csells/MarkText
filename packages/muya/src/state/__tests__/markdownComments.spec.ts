@@ -4,10 +4,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+    analyzeMarkdownComments,
+    canWrapCommentRange,
     COMMENT_METADATA_DATA_URI_PREFIX,
     decodeCommentMetadata,
     encodeCommentMetadata,
-    parseMarkdownComments,
+    locateCommentSyntax,
     updateCommentMetadataInMarkdown,
     validateCommentGraph,
 } from '../../comments';
@@ -28,6 +30,10 @@ function roundTrip(markdown: string) {
     }).generate(markdown);
 
     return new ExportMarkdown().generate(states);
+}
+
+function readMarkdownComments(...args: Parameters<typeof analyzeMarkdownComments>) {
+    return analyzeMarkdownComments(...args).comments;
 }
 
 describe('markdown comments - state round-trip', () => {
@@ -91,7 +97,7 @@ describe('markdown comments - state round-trip', () => {
         ].join('\n');
 
         const output = roundTrip(markdown);
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.diagnostics).toEqual([]);
         expect(result.threads.map(thread => thread.id)).toEqual(ids);
@@ -112,7 +118,7 @@ describe('markdown comments - state round-trip', () => {
             '',
         ].join('\n');
 
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.diagnostics).toEqual([]);
         expect(result.ranges.map(r => [r.id, r.startOffset, r.endOffset])).toEqual([
@@ -133,7 +139,7 @@ describe('markdown comments - state round-trip', () => {
             '',
         ].join('\r\n');
 
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.diagnostics).toEqual([]);
         expect(result.ranges).toEqual([
@@ -175,7 +181,7 @@ describe('markdown comments - state round-trip', () => {
 
         const states = new MarkdownToState().generate(markdown);
         const output = roundTrip(markdown);
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(states.slice(0, 3)).toEqual([
             {
@@ -221,7 +227,7 @@ describe('markdown comments - state round-trip', () => {
             '',
         ].join('\n');
 
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.ranges).toEqual([]);
         expect(result.threads).toEqual([]);
@@ -235,7 +241,7 @@ describe('markdown comments - state round-trip', () => {
 
     it('does not treat markers inside fenced code as comment ranges', () => {
         const markdown = '```md\n<!--MC:cmt_1-->literal<!--MC:~cmt_1-->\n```\n';
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.ranges).toEqual([]);
         expect(result.diagnostics).toEqual([]);
@@ -250,7 +256,7 @@ describe('markdown comments - state round-trip', () => {
             'A <!--MC:a-->reviewed<!--MC:~a--> line.',
             '',
         ].join('\n');
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.threads).toEqual([]);
         expect(result.diagnostics).toEqual([
@@ -274,7 +280,7 @@ describe('markdown comments - state round-trip', () => {
             'A <!--MC:a-->reviewed<!--MC:~a--> line.',
             '',
         ].join('\n');
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.threads).toEqual([]);
         expect(result.diagnostics).toEqual([
@@ -295,7 +301,7 @@ describe('markdown comments - state round-trip', () => {
             `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
             '',
         ].join('\n');
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.diagnostics).toEqual([]);
         expect(result.threads).toEqual([
@@ -309,7 +315,7 @@ describe('markdown comments - state round-trip', () => {
     it('does not treat marker-looking text inside inline code as a comment range', () => {
         const markdown = '`<!--MC:cmt_1-->literal<!--MC:~cmt_1-->`\n';
         const output = roundTrip(markdown);
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(output).toContain('`<!--MC:cmt_1-->literal<!--MC:~cmt_1-->`');
         expect(result.ranges).toEqual([]);
@@ -325,7 +331,7 @@ describe('markdown comments - state round-trip', () => {
         ].join('\n');
 
         const output = roundTrip(markdown);
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(output).toContain('<!--MC:a-->open only');
         expect(output).toContain('<!--MC:~missing-->orphan close');
@@ -344,7 +350,7 @@ describe('markdown comments - state round-trip', () => {
             '',
         ].join('\n');
 
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.diagnostics).toEqual([
             expect.objectContaining({
@@ -364,7 +370,7 @@ describe('markdown comments - state round-trip', () => {
         ].join('\n');
 
         const output = roundTrip(markdown);
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(output.match(/\[MC:a\]:/gu)).toHaveLength(2);
         expect(result.diagnostics.map(diagnostic => diagnostic.code)).toEqual([
@@ -385,7 +391,7 @@ describe('markdown comments - state round-trip', () => {
             })}`,
             '',
         ].join('\n');
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.threads).toEqual([]);
         expect(result.diagnostics).toEqual([
@@ -415,7 +421,7 @@ describe('markdown comments - state round-trip', () => {
             })}`,
             '',
         ].join('\n');
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.threads).toEqual([]);
         expect(result.diagnostics).toEqual([
@@ -431,7 +437,7 @@ describe('markdown comments - state round-trip', () => {
     });
 
     it('allows optional display metadata while rejecting anchor-like display data', () => {
-        const valid = parseMarkdownComments([
+        const valid = readMarkdownComments([
             'A <!--MC:a-->reviewed<!--MC:~a--> line.',
             '',
             `[MC:a]: ${metadata({
@@ -445,7 +451,7 @@ describe('markdown comments - state round-trip', () => {
             })}`,
             '',
         ].join('\n'));
-        const invalid = parseMarkdownComments([
+        const invalid = readMarkdownComments([
             'A <!--MC:b-->reviewed<!--MC:~b--> line.',
             '',
             `[MC:b]: ${metadata({
@@ -483,7 +489,7 @@ describe('markdown comments - state round-trip', () => {
             '',
         ].join('\n');
 
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.threads).toEqual([
             expect.objectContaining({
@@ -507,7 +513,7 @@ describe('markdown comments - state round-trip', () => {
         ].join('\n');
 
         const output = roundTrip(markdown);
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(output.match(/\[MC:a\]:/gu)).toHaveLength(2);
         expect(result.diagnostics.map(diagnostic => diagnostic.code)).toEqual([
@@ -525,7 +531,7 @@ describe('markdown comments - state round-trip', () => {
         ].join('\n');
 
         const output = roundTrip(markdown);
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(output).toContain(`[MC:a]: ${COMMENT_METADATA_DATA_URI_PREFIX}`);
         expect(result.diagnostics.map(diagnostic => diagnostic.code)).toEqual([
@@ -536,7 +542,7 @@ describe('markdown comments - state round-trip', () => {
 
     it('reports malformed MC markers that look like comment anchors', () => {
         const markdown = 'A <!--MC:bad.id-->reviewed<!--MC:~bad.id--> line.\n';
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.diagnostics.map(diagnostic => diagnostic.code)).toEqual([
             'malformed-marker',
@@ -553,7 +559,7 @@ describe('markdown comments - state round-trip', () => {
             '',
         ].join('\n');
 
-        const result = parseMarkdownComments(markdown);
+        const result = readMarkdownComments(markdown);
 
         expect(result.diagnostics).toEqual([
             expect.objectContaining({
@@ -584,11 +590,59 @@ describe('markdown comments - state round-trip', () => {
             },
         ];
 
-        const result = parseMarkdownComments(states);
+        const result = readMarkdownComments(states);
 
         expect(result.diagnostics).toEqual([]);
         expect(result.threads.map(thread => thread.id)).toEqual(['legacy']);
         expect(result.ranges.map(range => range.id)).toEqual(['legacy']);
+    });
+
+    it('keeps marker-looking inline-code text in the selected preview', () => {
+        const markdown = [
+            'A <!--MC:a-->visible `<!--MC:code-->literal<!--MC:~code-->` tail<!--MC:~a-->.',
+            '',
+            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '',
+        ].join('\n');
+
+        const result = readMarkdownComments(markdown);
+
+        expect(result.ranges[0].preview).toBe(
+            'visible `<!--MC:code-->literal<!--MC:~code-->` tail',
+        );
+    });
+
+    it('locates metadata instead of marker-looking inline-code text for syntax navigation', () => {
+        const dataUri = metadata({ version: 1, status: 'open', replies: [] });
+        const text = [
+            'Example `<!--MC:a-->literal<!--MC:~a-->` marker text.',
+            `[MC:a]: ${dataUri}`,
+        ].join('\n');
+
+        const location = locateCommentSyntax([{ name: 'paragraph', text }], 'a');
+
+        expect(location).toMatchObject({
+            startPath: [0, 'text'],
+            startOffset: text.indexOf('[MC:a]:'),
+            endPath: [0, 'text'],
+            endOffset: text.length,
+        });
+    });
+
+    it('allows wrapping a selection that contains marker-looking inline-math text', () => {
+        const text = 'Keep $<!--MC:math-->literal<!--MC:~math-->$ equation.';
+        const startOffset = text.indexOf('$');
+        const endOffset = text.lastIndexOf('$') + 1;
+
+        expect(
+            canWrapCommentRange({
+                states: [{ name: 'paragraph', text }],
+                path: [0, 'text'],
+                startOffset,
+                endOffset,
+                id: 'outer',
+            }),
+        ).toBe(true);
     });
 
     it('recognizes metadata definitions embedded in folded multi-line state text', () => {
@@ -603,7 +657,7 @@ describe('markdown comments - state round-trip', () => {
             },
         ];
 
-        const result = parseMarkdownComments(states);
+        const result = readMarkdownComments(states);
 
         expect(result.diagnostics).toEqual([]);
         expect(result.threads).toEqual([
@@ -622,7 +676,7 @@ describe('markdown comments - state round-trip', () => {
             '',
         ].join('\n');
 
-        expect(validateCommentGraph(markdown)).toEqual(parseMarkdownComments(markdown).diagnostics);
+        expect(validateCommentGraph(markdown)).toEqual(readMarkdownComments(markdown).diagnostics);
     });
 });
 
@@ -831,7 +885,7 @@ describe('metadata source edits', () => {
         expect(next).toMatch(/^\uFEFFTitle\rA/u);
         expect(next).toContain(`[MC:other]: ${first}  \n`);
         expect(next).toMatch(/\[MC:a\]: data:application\/json;base64,\S+\t$/u);
-        expect(parseMarkdownComments(next!).threads[0]).toMatchObject({
+        expect(readMarkdownComments(next!).threads[0]).toMatchObject({
             id: 'a',
             status: 'resolved',
         });

@@ -2,7 +2,7 @@
 
 import type Content from '../../block/base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseMarkdownComments } from '../../comments';
+import { analyzeMarkdownComments } from '../../comments';
 import { Muya } from '../../muya';
 
 // Coverage for the Search module (src/search/index.ts) — the find/replace
@@ -251,6 +251,6 @@ describe('search.replace() — replace all across multiple blocks', () => {
         expect(updated).not.toContain('reviewed');
         expect(updated).toContain('<!--MC:a-->');
         expect(updated).toContain('<!--MC:~a-->');
-        expect(parseMarkdownComments(updated).diagnostics).toEqual([]);
+        expect(analyzeMarkdownComments(updated).comments.diagnostics).toEqual([]);
     });
 });

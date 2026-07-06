@@ -7,22 +7,20 @@ import type { Nullable } from '../types';
 import type Clipboard from './index';
 import Format from '../block/base/format';
 import { ScrollPage } from '../block/scrollPage';
-import { commentMarkerKindsInText, commentMarkerKindsInTexts, orphansCounterpart } from '../comments/markerScan';
+import {
+    commentMarkerKindsInText,
+    commentMarkerKindsInTexts,
+    orphansCounterpart,
+    realCommentMarkersInText,
+} from '../comments/markerScan';
 import { isUnsafeCommentMarkerTextEdit, scanEditedCommentMarkers } from '../comments/source';
 import {
-    COMMENT_ID_PATTERN,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
     parseCommentMetadataDefinition,
-    serializeCommentMarker,
 } from '../comments/syntax';
 import { CLASS_NAMES } from '../config';
 import { SelectionDirection, SelectionType } from '../selection/types';
 import { getBlock } from '../utils/dom';
-
-const EMPTY_COMMENT_RANGE_REGEXP = new RegExp(
-    `<!--MC:(${COMMENT_ID_PATTERN})--><!--MC:~\\1-->`,
-    'gu',
-);
 
 /**
  * Whole-document selection predicate: the selection spans from the very first
@@ -98,13 +96,24 @@ function findEmptyCommentRangeAroundOffset(
     text: string,
     offset: number,
 ): Nullable<{ id: string; start: number; end: number }> {
-    EMPTY_COMMENT_RANGE_REGEXP.lastIndex = 0;
-    for (const match of text.matchAll(EMPTY_COMMENT_RANGE_REGEXP)) {
-        const start = match.index;
-        const end = start + match[0].length;
+    const markers = realCommentMarkersInText(text);
+    for (let index = 0; index < markers.length - 1; index += 1) {
+        const open = markers[index];
+        const close = markers[index + 1];
+        if (
+            open.kind !== 'open'
+            || close.kind !== 'close'
+            || open.id !== close.id
+            || open.end !== close.start
+        ) {
+            continue;
+        }
+
+        const start = open.start;
+        const end = close.end;
         if (offset >= start && offset <= end) {
             return {
-                id: match[1],
+                id: open.id,
                 start,
                 end,
             };
@@ -124,12 +133,7 @@ function scannableContentBlocks(clipboard: Clipboard): Content[] {
 }
 
 function documentHasCommentMarker(clipboard: Clipboard, id: string): boolean {
-    const openMarker = serializeCommentMarker(id);
-    const closeMarker = serializeCommentMarker(id, 'close');
-
-    return scannableContentBlocks(clipboard).some(block =>
-        block.text.includes(openMarker) || block.text.includes(closeMarker),
-    );
+    return documentCommentMarkerKinds(clipboard).has(id);
 }
 
 // Real comment ids in `text` (tokenizer-based, so marker-shaped text inside

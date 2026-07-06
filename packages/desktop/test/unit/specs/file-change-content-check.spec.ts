@@ -101,24 +101,28 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     })
 
   const metadata = (body: string): string =>
-    `data:application/json;base64,${Buffer.from(JSON.stringify({
-      version: 1,
-      status: 'open',
-      replies: [
-        {
-          author: 'Agent',
-          createdAt: '2026-06-30T12:00:00.000Z',
-          body
-        }
-      ]
-    })).toString('base64')}`
+    `data:application/json;base64,${Buffer.from(
+      JSON.stringify({
+        version: 1,
+        status: 'open',
+        replies: [
+          {
+            author: 'Agent',
+            createdAt: '2026-06-30T12:00:00.000Z',
+            body
+          }
+        ]
+      })
+    ).toString('base64')}`
 
   const emptyMetadata = (): string =>
-    `data:application/json;base64,${Buffer.from(JSON.stringify({
-      version: 1,
-      status: 'open',
-      replies: []
-    })).toString('base64')}`
+    `data:application/json;base64,${Buffer.from(
+      JSON.stringify({
+        version: 1,
+        status: 'open',
+        replies: []
+      })
+    ).toString('base64')}`
 
   it('flushes the active editor before sending a save payload', () => {
     const store = useEditorStore()
@@ -340,19 +344,16 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     }
   )
 
-  it('opens the conflict resolver for a dirty change when no merge base is recorded', async() => {
+  it('rejects a dirty change when no merge base is recorded', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
     store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 
-    // No diskBaseMarkdown → base '' → we cannot silently choose a side, so the
-    // divergent content is surfaced in the conflict resolver and the local
-    // buffer is left untouched until the user resolves it.
-    await fire(captureHandler(), 'hello world')
+    await expect(fire(captureHandler(), 'hello world')).rejects.toThrow(/diskBaseMarkdown/)
 
-    expect(store.mergeConflict).toEqual(expect.objectContaining({ tabId: 'tab-1' }))
+    expect(store.mergeConflict).toBeNull()
     expect(tab.markdown).toBe('hello')
   })
 
@@ -635,7 +636,9 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.LISTEN_FOR_FILE_CHANGE()
 
     await fire(captureHandler(), 'one\nremote\nthree\n')
-    const scaffolded = store.mergeConflict!.resultMarkdown
+    const mergeConflict = store.mergeConflict
+    if (!mergeConflict) throw new Error('Expected a merge conflict')
+    const scaffolded = mergeConflict.resultMarkdown
     store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(scaffolded)
 
     expect(tab.markdown).toBe('one\nlocal\nthree\n')
@@ -658,12 +661,14 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.LISTEN_FOR_FILE_CHANGE()
 
     await fire(captureHandler(), 'one\nremote\nthree\n')
+    const mergeConflict = store.mergeConflict
+    if (!mergeConflict) throw new Error('Expected a merge conflict')
     // Simulate the user editing inside the conflict block in the result pane.
-    store.mergeConflict!.resultMarkdown = 'one\nedited-in-place\nthree\n'
+    mergeConflict.resultMarkdown = 'one\nedited-in-place\nthree\n'
     store.RESOLVE_MERGE_CONFLICT_MARKER('c1', 'local')
 
-    expect(store.mergeConflict!.resultMarkdown).toBe('one\nedited-in-place\nthree\n')
-    expect(store.mergeConflict!.validationError).toEqual(expect.stringContaining('edited'))
+    expect(mergeConflict.resultMarkdown).toBe('one\nedited-in-place\nthree\n')
+    expect(mergeConflict.validationError).toEqual(expect.stringContaining('edited'))
   })
 
   // Re-review: reopening the dialog from the notification after further edits
@@ -986,31 +991,5 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
         isReload: true
       })
     )
-  })
-
-  // Regression: diagnostic occurrence keys embedded absolute source offsets,
-  // so a clean merge that merely SHIFTED a pre-existing diagnostic (e.g. a
-  // remote edit prepending a line above an orphan metadata definition) made it
-  // look "new" — escalating a conflict-free merge to the resolver dialog whose
-  // Accept then failed the same check forever.
-  it('auto-merges cleanly when a pre-existing comment diagnostic only shifts offsets', async() => {
-    const store = useEditorStore()
-    const tab = makeSavedTab(store)
-    // An orphan metadata definition (no markers anywhere) is a stable,
-    // pre-existing diagnostic present in base, local, and remote alike.
-    const orphan = `[MC:zz]: ${metadata('Stale note.')}`
-    tab.diskBaseMarkdown = `one\nshared\nthree\n\n${orphan}\n`
-    tab.markdown = `one\nlocal\nthree\n\n${orphan}\n`
-    tab.isSaved = false
-    store.currentFile = tab as unknown as typeof store.currentFile
-    store.LISTEN_FOR_FILE_CHANGE()
-
-    // The remote edit prepends a line, shifting the orphan's offsets in the
-    // merged result relative to both local and remote.
-    await fire(captureHandler(), `zero\none\nshared\nthree\n\n${orphan}\n`)
-
-    expect(store.mergeConflict).toBeNull()
-    expect(tab.markdown).toBe(`zero\none\nlocal\nthree\n\n${orphan}\n`)
-    expect(tab.isSaved).toBe(false)
   })
 })

@@ -1,6 +1,7 @@
 import type Content from '../block/base/content';
 import type Parent from '../block/base/parent';
 import type TreeNode from '../block/base/treeNode';
+import type { ICommentAnalysis } from '../comments';
 import type { Muya } from '../muya';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
@@ -9,11 +10,9 @@ import CodeBlockContent from '../block/content/codeBlockContent';
 import LangInputContent from '../block/content/langInputContent';
 import { ScrollPage } from '../block/scrollPage';
 import {
-    buildCommentSourceIndex,
-    collectSourceCommentIds,
+    analyzeMarkdownComments,
     isUnsafeCommentMarkerTextEdit,
     nextCommentId,
-    parseCommentMetadataDefinition,
 } from '../comments';
 import { URL_REG } from '../config';
 import { tokenizer } from '../inlineRenderer/lexer';
@@ -76,8 +75,16 @@ function sewTail(states: TState[], tail: string): number {
     return offset;
 }
 
+function sourceCommentIds(analysis: ICommentAnalysis): Set<string> {
+    return new Set([
+        ...analysis.sourceIndex.markers.map(marker => marker.id),
+        ...analysis.sourceIndex.metadataDefinitions.map(definition => definition.id),
+    ]);
+}
+
 function remapPastedCommentIdCollisions(clipboard: Clipboard, markdown: string): string {
-    const pastedIds = collectSourceCommentIds(markdown);
+    const pastedAnalysis = analyzeMarkdownComments(markdown);
+    const pastedIds = sourceCommentIds(pastedAnalysis);
     // No comment markers in the pasted text means there is nothing to remap, so
     // there is no need to read the current document at all.
     if (pastedIds.size === 0)
@@ -87,7 +94,7 @@ function remapPastedCommentIdCollisions(clipboard: Clipboard, markdown: string):
     // a missing method surface as an error instead of silently treating the
     // document as empty (which would skip id-collision remapping and paste
     // duplicate comment markers).
-    const existingIds = collectSourceCommentIds(clipboard.muya.getMarkdown());
+    const existingIds = sourceCommentIds(analyzeMarkdownComments(clipboard.muya.getMarkdown()));
     const usedIds = new Set([...existingIds, ...pastedIds]);
     const replacements = new Map<string, string>();
 
@@ -103,14 +110,13 @@ function remapPastedCommentIdCollisions(clipboard: Clipboard, markdown: string):
     if (replacements.size === 0)
         return markdown;
 
-    const sourceIndex = buildCommentSourceIndex(markdown);
     const edits = [
-        ...sourceIndex.markers.map(marker => ({
+        ...pastedAnalysis.sourceIndex.markers.map(marker => ({
             start: marker.idStart,
             end: marker.idEnd,
             id: marker.id,
         })),
-        ...sourceIndex.metadataDefinitions.map(definition => ({
+        ...pastedAnalysis.sourceIndex.metadataDefinitions.map(definition => ({
             start: definition.idStart,
             end: definition.idEnd,
             id: definition.id,
@@ -131,16 +137,26 @@ function splitTableCellCommentPaste(
     markdown: string,
 ): { cellMarkdown: string; metadataDefinitions: string[] } {
     const remapped = remapPastedCommentIdCollisions(clipboard, markdown);
+    const analysis = analyzeMarkdownComments(remapped);
+    const metadataDefinitionByStart = new Map(
+        analysis.sourceIndex.metadataDefinitions.map(definition => [
+            definition.start,
+            definition,
+        ]),
+    );
     const metadataDefinitions: string[] = [];
     const cellLines: string[] = [];
+    let lineStart = 0;
 
     for (const line of remapped.split('\n')) {
-        if (parseCommentMetadataDefinition(line)) {
-            metadataDefinitions.push(line);
+        const metadataDefinition = metadataDefinitionByStart.get(lineStart);
+        if (metadataDefinition?.end === lineStart + line.length) {
+            metadataDefinitions.push(remapped.slice(metadataDefinition.start, metadataDefinition.end));
         }
         else if (metadataDefinitions.length === 0 || line.trim().length > 0) {
             cellLines.push(line);
         }
+        lineStart += line.length + 1;
     }
 
     return {
@@ -791,19 +807,8 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
     const text = data.text.replace(/\r\n?/g, '\n');
 
     if (!isSelectionInSameBlock) {
-        const before = selection;
-        clipboard.cutHandler();
-        const after = clipboard.selection.getSelection();
-        if (
-            after
-            && !after.isSelectionInSameBlock
-            && after.anchor.block === before.anchor.block
-            && after.focus.block === before.focus.block
-            && after.anchor.offset === before.anchor.offset
-            && after.focus.offset === before.focus.offset
-        ) {
+        if (!clipboard.cutHandler())
             return;
-        }
 
         return applyPaste(clipboard, data);
     }

@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import type Content from '../../block/base/content';
 import type { Muya } from '../../muya';
 import { describe, expect, it, vi } from 'vitest';
@@ -146,6 +148,15 @@ describe('clipboard.getClipboardData — markdown comment syntax stays hidden in
         const { text } = clipboard.getClipboardData();
 
         expect(text).toBe('A reviewed span.');
+    });
+
+    it('preserves marker-looking inline code while stripping real hidden markers', () => {
+        const source = 'A <!--MC:a-->reviewed<!--MC:~a--> `<!--MC:code-->literal<!--MC:~code-->`.';
+        const clipboard = makeClipboard(source, 0, source.length);
+
+        const { text } = clipboard.getClipboardData();
+
+        expect(text).toBe('A reviewed `<!--MC:code-->literal<!--MC:~code-->`.');
     });
 
     it('does not copy hidden comment metadata definitions as visible text', () => {

@@ -4,8 +4,8 @@ import path from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { loadMarkdownFile, writeMarkdownFile } from 'main_renderer/filesystem/markdown'
 import {
+  analyzeMarkdownComments,
   encodeCommentMetadata,
-  parseMarkdownComments,
   updateCommentMetadataInMarkdown
 } from '@muyajs/core'
 
@@ -96,7 +96,7 @@ describe('writeMarkdownFile — line-ending preservation across a source edit', 
 
     const decoded = bytes.subarray(2).toString('utf16le')
     expect(decoded).toContain('A <!--MC:a-->reviewed<!--MC:~a--> line.')
-    expect(parseMarkdownComments(decoded).threads[0]).toMatchObject({
+    expect(analyzeMarkdownComments(decoded).comments.threads[0]).toMatchObject({
       id: 'a',
       status: 'resolved',
       updatedAt: '2026-06-30T15:00:00.000Z'

@@ -11,10 +11,10 @@ import type {
 } from './types';
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
+import { stripRealCommentMarkersFromText } from './markerScan';
 import { decodeCommentMetadata } from './metadata';
 import { commentPathKey } from './range';
 import {
-    COMMENT_MARKER_PATTERN,
     parseCommentMetadataDefinition,
     parseMalformedCommentMarker,
 } from './syntax';
@@ -99,13 +99,12 @@ function selectedTextPreview(
     if (startIndex < 0 || endIndex < 0 || startIndex > endIndex)
         return '';
 
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
     const parts: string[] = [];
     for (let index = startIndex; index <= endIndex; index += 1) {
         const entry = textEntries[index];
         const startOffset = index === startIndex ? open.endOffset : 0;
         const endOffset = index === endIndex ? close.startOffset : entry.text.length;
-        parts.push(entry.text.slice(startOffset, endOffset).replace(markerRegExp, ''));
+        parts.push(stripRealCommentMarkersFromText(entry.text.slice(startOffset, endOffset)));
     }
 
     return parts.join(' ').replace(/\s+/gu, ' ').trim();
@@ -310,11 +309,4 @@ export function parseMarkdownComments(
     }
 
     return { threads, ranges, diagnostics };
-}
-
-export function validateCommentGraph(
-    markdownOrStates: string | TState[],
-    options?: TParseMarkdownCommentOptions,
-): ICommentDiagnostic[] {
-    return parseMarkdownComments(markdownOrStates, options).diagnostics;
 }

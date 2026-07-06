@@ -6,7 +6,7 @@ import type { Muya } from '../muya';
 import type { IRenderCursor } from '../selection/types';
 import type { IParagraphState, TContainerState, TState } from '../state/types';
 import type { IHighlight, Labels } from './types';
-import { parseMarkdownComments } from '../comments/parse';
+import { analyzeMarkdownComments } from '../comments/analyze';
 import { buildTextPathIndexes, commentPathKey, selectionIntersectsCommentRange } from '../comments/range';
 import { isCommentMetadataReference } from '../comments/syntax';
 import logger from '../utils/logger';
@@ -174,7 +174,7 @@ class InlineRenderer {
 
         const states = jsonState.getState();
         const model = {
-            comments: parseMarkdownComments(states),
+            comments: analyzeMarkdownComments(states).comments,
             textPathIndexes: buildTextPathIndexes(states),
         };
 

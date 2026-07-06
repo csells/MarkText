@@ -148,4 +148,19 @@ describe('paste — table cell takes text literally (muyajs parity)', () => {
             ],
         });
     });
+
+    it('keeps definition-shaped fenced text in the pasted table cell', async () => {
+        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+        const muya = bootMuya('| a1 | b1 |\n| --- | --- |\n| a2 | b2 |\n');
+        const cell = lastTableCellContent(muya);
+
+        await pasteInto(muya, cell, 0, cell.text.length, [
+            '```md',
+            `[MC:a]: ${meta}`,
+            '```',
+        ].join('\n'));
+
+        expect(cell.text).toBe(`\`\`\`md<br/>[MC:a]: ${meta}<br/>\`\`\``);
+        expect(muya.getComments().diagnostics).toEqual([]);
+    });
 });

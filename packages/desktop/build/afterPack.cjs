@@ -23,7 +23,9 @@ function collectUnpackedModuleNames (nodeModulesDir) {
     if (!entry.isDirectory()) continue
     if (entry.name.startsWith('@')) {
       const scopeDir = path.join(nodeModulesDir, entry.name)
-      for (const scoped of fs.readdirSync(scopeDir, { withFileTypes: true })) { if (scoped.isDirectory()) names.add(scoped.name) }
+      for (const scoped of fs.readdirSync(scopeDir, { withFileTypes: true })) {
+        if (scoped.isDirectory()) names.add(scoped.name)
+      }
     } else {
       names.add(entry.name)
     }
@@ -33,38 +35,65 @@ function collectUnpackedModuleNames (nodeModulesDir) {
 
 exports.default = async function bundleOptionalNativeKeymap (context) {
   const { appOutDir, packager, electronPlatformName } = context
-  const src = path.join(packager.info.projectDir, 'node_modules', 'native-keymap')
-  if (!fs.existsSync(src)) {
-    console.warn('[afterPack] native-keymap absent from node_modules — skipping injection (keyboard remap will be unavailable)')
-    return
-  }
-
-  const resourcesDir = electronPlatformName === 'darwin'
-    ? path.join(appOutDir, `${packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
-    : path.join(appOutDir, 'resources')
+  const resourcesDir =
+    electronPlatformName === 'darwin'
+      ? path.join(appOutDir, `${packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
+      : path.join(appOutDir, 'resources')
   const asarPath = path.join(resourcesDir, 'app.asar')
-  if (!fs.existsSync(asarPath)) {
-    console.warn(`[afterPack] app.asar not found at ${asarPath} — skipping`)
-    return
-  }
+  if (!fs.existsSync(asarPath)) throw new Error(`[afterPack] app.asar not found at ${asarPath}`)
 
   // Idempotent: on setups where the collector already bundled it, do nothing.
-  if (asar.listPackage(asarPath).some(e => e.split(path.sep).includes('native-keymap'))) return
+  if (asar.listPackage(asarPath).some((e) => e.split(path.sep).includes('native-keymap'))) return
+
+  const src = path.join(packager.info.projectDir, 'node_modules', 'native-keymap')
+  if (!fs.existsSync(src)) throw new Error('[afterPack] native-keymap absent from node_modules')
 
   const unpackedRoot = `${asarPath}.unpacked`
   const unpackNames = collectUnpackedModuleNames(path.join(unpackedRoot, 'node_modules'))
   unpackNames.add('native-keymap')
 
   const staging = path.join(appOutDir, '.native-keymap-inject')
-  fs.rmSync(staging, { recursive: true, force: true })
-  asar.extractAll(asarPath, staging)
-  fs.cpSync(src, path.join(staging, 'node_modules', 'native-keymap'), { recursive: true, dereference: true })
+  const preservedUnpackedRoot = path.join(appOutDir, '.native-keymap-existing-unpacked')
+  const tempAsarPath = path.join(resourcesDir, '.app.asar.native-keymap')
+  const tempUnpackedRoot = `${tempAsarPath}.unpacked`
 
-  fs.rmSync(asarPath, { force: true })
-  fs.rmSync(unpackedRoot, { recursive: true, force: true })
-  await asar.createPackageWithOptions(staging, asarPath, {
-    unpackDir: `**/{${[...unpackNames].join(',')}}`,
-  })
-  fs.rmSync(staging, { recursive: true, force: true })
-  console.log(`[afterPack] injected native-keymap into ${path.relative(packager.info.projectDir, asarPath)}`)
+  try {
+    fs.rmSync(staging, { recursive: true, force: true })
+    fs.rmSync(preservedUnpackedRoot, { recursive: true, force: true })
+    fs.rmSync(tempAsarPath, { force: true })
+    fs.rmSync(tempUnpackedRoot, { recursive: true, force: true })
+
+    asar.extractAll(asarPath, staging)
+    fs.cpSync(src, path.join(staging, 'node_modules', 'native-keymap'), {
+      recursive: true,
+      dereference: true
+    })
+    if (fs.existsSync(unpackedRoot)) {
+      fs.cpSync(unpackedRoot, preservedUnpackedRoot, { recursive: true, dereference: false })
+    }
+
+    await asar.createPackageWithOptions(staging, tempAsarPath, {
+      unpackDir: `**/{${[...unpackNames].join(',')}}`
+    })
+    if (fs.existsSync(preservedUnpackedRoot)) {
+      fs.cpSync(preservedUnpackedRoot, tempUnpackedRoot, {
+        recursive: true,
+        force: true,
+        dereference: false
+      })
+    }
+
+    fs.rmSync(asarPath, { force: true })
+    fs.renameSync(tempAsarPath, asarPath)
+    fs.rmSync(unpackedRoot, { recursive: true, force: true })
+    if (fs.existsSync(tempUnpackedRoot)) fs.renameSync(tempUnpackedRoot, unpackedRoot)
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true })
+    fs.rmSync(preservedUnpackedRoot, { recursive: true, force: true })
+    fs.rmSync(tempAsarPath, { force: true })
+    fs.rmSync(tempUnpackedRoot, { recursive: true, force: true })
+  }
+  console.log(
+    `[afterPack] injected native-keymap into ${path.relative(packager.info.projectDir, asarPath)}`
+  )
 }

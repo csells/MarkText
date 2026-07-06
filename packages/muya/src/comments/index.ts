@@ -1,4 +1,14 @@
 export {
+    analyzeMarkdownComments,
+    stripAnalyzedCommentSyntaxFromMarkdown,
+    validateCommentGraph,
+} from './analyze';
+export type {
+    ICommentAnalysis,
+    ICommentDiagnosticSourceMap,
+    ICommentRangeSourceMap,
+} from './analyze';
+export {
     appendCommentReplyMetadata,
     canWrapCommentRange,
     createCommentMetadata,
@@ -15,16 +25,20 @@ export type {
 export {
     commentMarkerKindsInText,
     commentMarkerKindsInTexts,
+    createCommentSearchText,
     forEachRealCommentMarker,
     orphansCounterpart,
+    realCommentMarkersInText,
     removalOrphansCommentMarker,
+    stripCommentSyntaxForClipboard,
+    stripRealCommentMarkersFromText,
 } from './markerScan';
+export type { ICommentSearchText } from './markerScan';
 export {
     decodeCommentMetadata,
     encodeCommentMetadata,
     normalizeCommentMetadata,
 } from './metadata';
-export { parseMarkdownComments, validateCommentGraph } from './parse';
 export {
     buildTextPathIndexes,
     commentPathKey,
@@ -35,22 +49,18 @@ export {
 } from './range';
 export type { ICommentSyntaxLocation } from './range';
 export {
-    buildCommentSourceIndex,
-    collectSourceCommentIds,
-    commentSyntaxRangesForId,
     createCommentSourceLineState,
     isUnsafeCommentMarkerTextEdit,
     prepareCommentSourceLine,
-    removeCommentSyntaxFromMarkdown,
     sourceCommentIgnoredIndexRanges,
     sourceIndexInsideRanges,
     sourceInlineCodeRanges,
     sourceLinePositionInsideInlineCode,
     sourceRangesOverlap,
-    stripCommentSyntaxFromMarkdown,
 } from './source';
 export type {
     ICommentSourceIndex,
+    ICommentSourceIndexOptions,
     ICommentSourceIndexRange,
     ICommentSourceLineState,
     ICommentSourceMarker,

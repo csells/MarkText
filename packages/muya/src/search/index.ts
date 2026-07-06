@@ -4,10 +4,9 @@ import type { IHighlight } from '../inlineRenderer/types';
 import type { Muya } from '../muya';
 import type { IMatch } from './types';
 import {
-    COMMENT_MARKER_PATTERN,
-    COMMENT_MARKER_SEARCH_REGEXP,
     createCommentSearchText,
-} from '../comments/syntax';
+    realCommentMarkersInText,
+} from '../comments/markerScan';
 import { DEFAULT_SEARCH_OPTIONS } from '../config';
 import { buildRegexValue, matchString } from '../utils/search';
 
@@ -22,23 +21,20 @@ function rawRangeForSearchMatch(rawIndexBySearchIndex: number[], index: number, 
 }
 
 function replaceVisibleTextPreservingCommentMarkers(rawText: string, replacement: string): string {
-    COMMENT_MARKER_SEARCH_REGEXP.lastIndex = 0;
-    if (!COMMENT_MARKER_SEARCH_REGEXP.test(rawText))
-        return replacement;
-
     const markers: Array<{ raw: string; visibleOffset: number }> = [];
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
     let visibleOffset = 0;
     let lastIndex = 0;
 
-    for (const match of rawText.matchAll(markerRegExp)) {
-        visibleOffset += match.index - lastIndex;
+    for (const marker of realCommentMarkersInText(rawText)) {
+        visibleOffset += marker.start - lastIndex;
         markers.push({
-            raw: match[0],
+            raw: rawText.slice(marker.start, marker.end),
             visibleOffset,
         });
-        lastIndex = match.index + match[0].length;
+        lastIndex = marker.end;
     }
+    if (markers.length === 0)
+        return replacement;
 
     let result = replacement;
     let insertedLength = 0;

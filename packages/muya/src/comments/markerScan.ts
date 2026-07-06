@@ -1,5 +1,6 @@
 import type { Token } from '../inlineRenderer/types';
 import { tokenizer } from '../inlineRenderer/lexer';
+import { parseCommentMetadataDefinition } from './syntax';
 
 type TCommentMarkerKind = 'open' | 'close';
 
@@ -8,6 +9,11 @@ export interface IScannedCommentMarker {
     kind: TCommentMarkerKind;
     start: number;
     end: number;
+}
+
+export interface ICommentSearchText {
+    text: string;
+    rawIndexBySearchIndex: number[];
 }
 
 // Comment markers as the REAL inline tokenizer recognizes them. Unlike a raw
@@ -50,6 +56,75 @@ export function forEachRealCommentMarker(
     };
 
     walk(tokenizer(text, COMMENT_TOKENIZER_OPTIONS));
+}
+
+export function realCommentMarkersInText(text: string): IScannedCommentMarker[] {
+    const markers: IScannedCommentMarker[] = [];
+    forEachRealCommentMarker(text, marker => markers.push(marker));
+    return markers.sort((a, b) => a.start - b.start);
+}
+
+export function createCommentSearchText(text: string): ICommentSearchText {
+    if (!text.includes('MC:')) {
+        return {
+            text,
+            rawIndexBySearchIndex: Array.from({ length: text.length }, (_, index) => index),
+        };
+    }
+    if (parseCommentMetadataDefinition(text))
+        return { text: '', rawIndexBySearchIndex: [] };
+
+    const rawIndexBySearchIndex: number[] = [];
+    let searchText = '';
+    let lastIndex = 0;
+
+    const appendVisibleText = (start: number, end: number) => {
+        for (let index = start; index < end; index += 1) {
+            searchText += text[index];
+            rawIndexBySearchIndex.push(index);
+        }
+    };
+
+    for (const marker of realCommentMarkersInText(text)) {
+        appendVisibleText(lastIndex, marker.start);
+        lastIndex = marker.end;
+    }
+    appendVisibleText(lastIndex, text.length);
+
+    return { text: searchText, rawIndexBySearchIndex };
+}
+
+export function stripRealCommentMarkersFromText(text: string): string {
+    let next = '';
+    let lastIndex = 0;
+
+    for (const marker of realCommentMarkersInText(text)) {
+        next += text.slice(lastIndex, marker.start);
+        lastIndex = marker.end;
+    }
+
+    return next + text.slice(lastIndex);
+}
+
+export function stripCommentSyntaxForClipboard(text: string): string {
+    if (!text.includes('MC:'))
+        return text;
+
+    if (parseCommentMetadataDefinition(text))
+        return '';
+
+    const withoutMarkers = stripRealCommentMarkersFromText(text);
+    const lines = withoutMarkers.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? [];
+    const withoutMetadata = lines
+        .filter((line) => {
+            const content = line.replace(/(?:\r\n|\n|\r)$/u, '');
+            return !parseCommentMetadataDefinition(content);
+        })
+        .join('');
+
+    return withoutMetadata
+        .replace(/(?:\r\n|\n|\r){3,}/gu, '\n\n')
+        .replace(/(?:\r\n|\n|\r){2,}$/u, '\n');
 }
 
 // Every marker kind present in `text`, keyed by comment id.

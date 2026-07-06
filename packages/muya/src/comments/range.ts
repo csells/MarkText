@@ -1,7 +1,8 @@
 import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
 import type { ICommentRange } from './types';
-import { commentMarkerRegExpForId, parseCommentMetadataDefinition } from './syntax';
+import { realCommentMarkersInText } from './markerScan';
+import { parseCommentMetadataDefinition } from './syntax';
 
 export function commentPathKey(path: TBlockPath): string {
     return JSON.stringify(path);
@@ -18,7 +19,6 @@ export interface ICommentSyntaxLocation {
 // Diagnostics for orphan/malformed comments have no derived range, so this gives
 // navigation a raw-syntax target instead of a dead no-op.
 export function locateCommentSyntax(states: TState[], id: string): ICommentSyntaxLocation | null {
-    const markerRegExp = commentMarkerRegExpForId(id);
     let found: ICommentSyntaxLocation | null = null;
 
     const visit = (nodes: TState[], path: TBlockPath): void => {
@@ -27,33 +27,38 @@ export function locateCommentSyntax(states: TState[], id: string): ICommentSynta
             const statePath = [...path, stateIndex];
 
             if ('text' in state && typeof state.text === 'string') {
-                markerRegExp.lastIndex = 0;
-                const markerMatch = markerRegExp.exec(state.text);
-                if (markerMatch) {
-                    // Parity with parse.ts range paths: setCursor resolves the
-                    // content LEAF only when the path ends in 'text'.
-                    found = {
+                const candidates: ICommentSyntaxLocation[] = [];
+
+                for (const marker of realCommentMarkersInText(state.text)) {
+                    if (marker.id !== id)
+                        continue;
+
+                    candidates.push({
                         startPath: [...statePath, 'text'],
-                        startOffset: markerMatch.index,
+                        startOffset: marker.start,
                         endPath: [...statePath, 'text'],
-                        endOffset: markerMatch.index + markerMatch[0].length,
-                    };
-                    return;
+                        endOffset: marker.end,
+                    });
                 }
 
                 let lineStart = 0;
                 for (const line of state.text.split('\n')) {
                     const definition = parseCommentMetadataDefinition(line);
                     if (definition && definition.id === id) {
-                        found = {
+                        candidates.push({
                             startPath: [...statePath, 'text'],
                             startOffset: lineStart,
                             endPath: [...statePath, 'text'],
                             endOffset: lineStart + line.length,
-                        };
-                        return;
+                        });
                     }
                     lineStart += line.length + 1;
+                }
+
+                const candidate = candidates.sort((a, b) => a.startOffset - b.startOffset)[0];
+                if (candidate) {
+                    found = candidate;
+                    return;
                 }
             }
 

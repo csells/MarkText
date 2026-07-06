@@ -3,7 +3,7 @@ import githubMarkdownCss from 'github-markdown-css/github-markdown-light.css?inl
 import katexCss from 'katex/dist/katex.css?inline';
 import prismCss from 'prismjs/themes/prism.css?inline';
 import exportStyle from '../assets/styles/exportStyle.css?inline';
-import { stripCommentSyntaxFromMarkdown } from '../comments';
+import { stripAnalyzedCommentSyntaxFromMarkdown } from '../comments';
 import { EXPORT_DOMPURIFY_CONFIG } from '../config';
 import { isHTMLElement, sanitize, unescapeHTML } from '../utils';
 import loadRenderer from '../utils/diagram';
@@ -170,12 +170,13 @@ export class MarkdownToHtml {
     // render pure html by marked
     async renderHtml() {
         const footnote = this._muya?.options?.footnote ?? false;
-        let html = getHighlightHtml(stripCommentSyntaxFromMarkdown(this.markdown), {
+        const math = this._muya?.options?.math ?? true;
+        let html = getHighlightHtml(stripAnalyzedCommentSyntaxFromMarkdown(this.markdown, { math }), {
             superSubScript: this._muya?.options?.superSubScript ?? true,
             footnote,
             isGitlabCompatibilityEnabled:
         this._muya?.options?.isGitlabCompatibilityEnabled ?? true,
-            math: this._muya?.options?.math ?? true,
+            math,
         });
 
         // Post-process footnotes into the standard GFM / pandoc shape (inline

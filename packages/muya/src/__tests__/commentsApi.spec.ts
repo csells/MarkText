@@ -5,6 +5,7 @@ import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { updateCommentMetadataInMarkdown } from '../comments';
 import { Muya } from '../muya';
+import { MarkdownToState } from '../state/markdownToState';
 
 const hosts: HTMLElement[] = [];
 
@@ -549,6 +550,25 @@ describe('muya comment metadata mutations', () => {
         expect(lines[1]).toBe(invalid);
         expect(decode(lines[2].trim().replace('[MC:a]: ', '')).status).toBe('resolved');
         expect(lines[2].endsWith('  ')).toBe(true);
+    });
+
+    it('does not parse and export the whole document when no source metadata update is possible', () => {
+        const generate = vi.spyOn(MarkdownToState.prototype, 'generate');
+        const document = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            '',
+            '[MC:a]: data:application/json;base64,not-base64-json',
+            '',
+        ].join('\n');
+
+        const next = updateCommentMetadataInMarkdown(
+            document,
+            'a',
+            current => ({ ...current, status: 'resolved' }),
+        );
+
+        expect(next).toBeNull();
+        expect(generate).not.toHaveBeenCalled();
     });
 
     it('edits a definition whose base64 payload contains internal whitespace', () => {

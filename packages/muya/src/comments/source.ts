@@ -133,7 +133,23 @@ export interface ICommentSourceLineState {
     openParagraph: boolean;
 }
 
+export interface ICommentSourceIndexOptions {
+    frontMatter?: boolean;
+    math?: boolean;
+}
+
 const SOURCE_COMMENT_MARKER_START_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u');
+const DEFAULT_SOURCE_INDEX_OPTIONS = {
+    frontMatter: true,
+    math: true,
+} as const;
+
+function normalizeSourceIndexOptions(options: ICommentSourceIndexOptions = {}): Required<ICommentSourceIndexOptions> {
+    return {
+        ...DEFAULT_SOURCE_INDEX_OPTIONS,
+        ...options,
+    };
+}
 
 function lineEndLength(rawLine: string): number {
     const match = /(?:\r\n|\n|\r)$/u.exec(rawLine);
@@ -176,10 +192,14 @@ export function sourceRangesOverlap(
 // forgiving for live highlighting; the batch index feeds persistence/CLI and
 // MUST match the parser, so it detects front matter with the parser's own
 // `getFrontMatterInfo` and suppresses the classifier's forgiving version.
-function sourceBlockIgnoredIndexRanges(markdown: string): ICommentSourceIndexRange[] {
+function sourceBlockIgnoredIndexRanges(
+    markdown: string,
+    options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
+): ICommentSourceIndexRange[] {
+    const normalized = normalizeSourceIndexOptions(options);
     const ranges: ICommentSourceIndexRange[] = [];
 
-    const { token: frontMatter } = getFrontMatterInfo(markdown);
+    const { token: frontMatter } = normalized.frontMatter ? getFrontMatterInfo(markdown) : { token: null };
     const frontMatterEnd = frontMatter ? frontMatter.raw.length : 0;
     if (frontMatterEnd > 0)
         ranges.push({ start: 0, end: frontMatterEnd });
@@ -193,7 +213,7 @@ function sourceBlockIgnoredIndexRanges(markdown: string): ICommentSourceIndexRan
 
     for (const { index, rawLine } of sourceLines(markdown, frontMatterEnd)) {
         const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
-        prepareCommentSourceLine(state, lineText);
+        prepareCommentSourceLine(state, lineText, normalized);
         if (state.ignoreLine) {
             runStart ??= index;
             runEnd = index + rawLine.length;
@@ -290,7 +310,12 @@ export function createCommentSourceLineState(): ICommentSourceLineState {
     };
 }
 
-export function prepareCommentSourceLine(state: ICommentSourceLineState, line: string): void {
+export function prepareCommentSourceLine(
+    state: ICommentSourceLineState,
+    line: string,
+    options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
+): void {
+    const { math } = normalizeSourceIndexOptions(options);
     const trimmed = line.trim();
     state.ignoreLine = false;
 
@@ -335,7 +360,7 @@ export function prepareCommentSourceLine(state: ICommentSourceLineState, line: s
         return;
     }
 
-    if (state.inMathBlock) {
+    if (math && state.inMathBlock) {
         state.ignoreLine = true;
         state.openParagraph = false;
         if (MATH_BLOCK_DELIM_REGEXP.test(line))
@@ -343,7 +368,7 @@ export function prepareCommentSourceLine(state: ICommentSourceLineState, line: s
         return;
     }
 
-    if (MATH_BLOCK_DELIM_REGEXP.test(line)) {
+    if (math && MATH_BLOCK_DELIM_REGEXP.test(line)) {
         state.inMathBlock = true;
         state.ignoreLine = true;
         state.openParagraph = false;
@@ -405,54 +430,65 @@ function getHtmlBlockClosing(line: string): 'single-line' | RegExp | null {
     return new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu');
 }
 
-export function sourceCommentIgnoredIndexRanges(markdown: string): ICommentSourceIndexRange[] {
-    const blockRanges = sourceBlockIgnoredIndexRanges(markdown);
+export function sourceCommentIgnoredIndexRanges(
+    markdown: string,
+    options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
+): ICommentSourceIndexRange[] {
+    const blockRanges = sourceBlockIgnoredIndexRanges(markdown, options);
     return [
         ...blockRanges,
         ...sourceInlineCodeIndexRanges(markdown, blockRanges),
     ];
 }
 
-export function buildCommentSourceIndex(markdown: string): ICommentSourceIndex {
-    const ignoredRanges = sourceCommentIgnoredIndexRanges(markdown);
+export function buildCommentSourceIndex(
+    markdown: string,
+    options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
+): ICommentSourceIndex {
+    const blockIgnoredRanges = sourceBlockIgnoredIndexRanges(markdown, options);
+    const ignoredRanges = [
+        ...blockIgnoredRanges,
+        ...sourceInlineCodeIndexRanges(markdown, blockIgnoredRanges),
+    ];
     const markers: ICommentSourceMarker[] = [];
     const metadataDefinitions: ICommentSourceMetadataDefinition[] = [];
     const commentRanges: ICommentSourceRange[] = [];
     const openMarkers = new Map<string, number>();
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
 
-    for (let markerMatch = markerRegExp.exec(markdown); markerMatch; markerMatch = markerRegExp.exec(markdown)) {
-        if (sourceIndexInsideRanges(markerMatch.index, ignoredRanges))
+    for (const { index, rawLine } of sourceLines(markdown)) {
+        if (sourceIndexInsideRanges(index, blockIgnoredRanges))
             continue;
 
-        const closePrefix = markerMatch[1];
-        const id = markerMatch[2];
-        const idStart = markerMatch.index + '<!--MC:'.length + closePrefix.length;
-        const marker: ICommentSourceMarker = {
-            id,
-            kind: closePrefix === '~' ? 'close' : 'open',
-            raw: markerMatch[0],
-            start: markerMatch.index,
-            end: markerMatch.index + markerMatch[0].length,
-            idStart,
-            idEnd: idStart + id.length,
-        };
-        markers.push(marker);
+        const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));
+        forEachRealCommentMarker(lineText, (scanned) => {
+            const markerStart = index + scanned.start;
+            const idStart = markerStart + '<!--MC:'.length + (scanned.kind === 'close' ? 1 : 0);
+            const marker: ICommentSourceMarker = {
+                id: scanned.id,
+                kind: scanned.kind,
+                raw: lineText.slice(scanned.start, scanned.end),
+                start: markerStart,
+                end: index + scanned.end,
+                idStart,
+                idEnd: idStart + scanned.id.length,
+            };
+            markers.push(marker);
 
-        if (marker.kind === 'close') {
-            const start = openMarkers.get(id);
-            if (start != null) {
-                commentRanges.push({ id, start, end: marker.start });
-                openMarkers.delete(id);
+            if (marker.kind === 'close') {
+                const start = openMarkers.get(marker.id);
+                if (start != null) {
+                    commentRanges.push({ id: marker.id, start, end: marker.start });
+                    openMarkers.delete(marker.id);
+                }
             }
-        }
-        else if (!openMarkers.has(id)) {
-            openMarkers.set(id, marker.end);
-        }
+            else if (!openMarkers.has(marker.id)) {
+                openMarkers.set(marker.id, marker.end);
+            }
+        });
     }
 
     for (const { index, rawLine } of sourceLines(markdown)) {
-        if (sourceIndexInsideRanges(index, ignoredRanges))
+        if (sourceIndexInsideRanges(index, blockIgnoredRanges))
             continue;
 
         const lineText = rawLine.slice(0, rawLine.length - lineEndLength(rawLine));

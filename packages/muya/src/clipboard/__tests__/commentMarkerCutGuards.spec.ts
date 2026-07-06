@@ -324,6 +324,35 @@ describe('comment metadata cleanup after a cut', () => {
         expect(markdown).toContain('```txt');
         expect(markdown).toContain(definition);
     });
+
+    it('removes metadata when only marker-looking inline-code text remains', async () => {
+        const muya = bootMuya([
+            'Literal `<!--MC:a-->docs<!--MC:~a-->` text.',
+            '',
+            'alpha <!--MC:a-->beta<!--MC:~a--> gamma',
+            '',
+            `[MC:a]: ${metadata()}`,
+            '',
+        ].join('\n'));
+        const target = contentBlocks(muya).find(block => block.text.startsWith('alpha '));
+        if (!target)
+            throw new Error('Commented paragraph not found');
+        stubSelection(muya, target, 6, target, 33);
+
+        expect(muya.editor.clipboard.cutHandler()).toBe(true);
+        const markdown = await settle(muya);
+        expect(markdown).toContain('`<!--MC:a-->docs<!--MC:~a-->`');
+        expect(markdown).not.toContain('[MC:a]:');
+    });
+
+    it('does not prune an empty marker-looking pair inside inline code after an adjacent cut', async () => {
+        const muya = bootMuya('`x<!--MC:a--><!--MC:~a-->y`\n');
+        const block = contentBlocks(muya)[0];
+        stubSelection(muya, block, 1, block, 2);
+
+        expect(muya.editor.clipboard.cutHandler()).toBe(true);
+        expect(await settle(muya)).toBe('`<!--MC:a--><!--MC:~a-->y`\n');
+    });
 });
 
 describe('blocked cut does not clobber the clipboard (Ctrl+X guard predicate)', () => {

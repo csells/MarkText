@@ -19,6 +19,7 @@ import Format from './block/base/format';
 import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replaceBlockByLabel } from './block/blockTransforms';
 import { ScrollPage } from './block/scrollPage';
 import {
+    analyzeMarkdownComments,
     appendCommentReplyMetadata,
     buildTextPathIndexes,
     canWrapCommentRange,
@@ -26,8 +27,6 @@ import {
     locateCommentSyntax,
     mergeCommentMetadataPatch,
     nextCommentId,
-    parseMarkdownComments,
-    removeCommentSyntaxFromMarkdown,
     selectionIntersectsCommentRange,
     updateCommentMetadataDefinition,
     wrapCommentRange,
@@ -276,7 +275,7 @@ export class Muya {
         // of the edit pipeline. Surface the failure as a diagnostic so callers
         // do not confuse a parser failure with a comment-free document.
         try {
-            return parseMarkdownComments(this.editor.jsonState.getState());
+            return analyzeMarkdownComments(this.editor.jsonState.getState()).comments;
         }
         catch (error) {
             console.error('muya.getComments failed:', error);
@@ -391,7 +390,7 @@ export class Muya {
         if (!nextStates)
             return false;
 
-        const nextRange = parseMarkdownComments(nextStates).ranges.find(range => range.id === id);
+        const nextRange = analyzeMarkdownComments(nextStates).comments.ranges.find(range => range.id === id);
         const changed = this.replaceContent(nextStates, selection);
         if (changed && nextRange) {
             this.setCursor({
@@ -409,7 +408,14 @@ export class Muya {
         // See addComment: commit pending ops before snapshotting the document.
         this.flush();
         const currentMarkdown = this.getMarkdown();
-        const nextMarkdown = removeCommentSyntaxFromMarkdown(currentMarkdown, id);
+        const analysis = analyzeMarkdownComments(currentMarkdown);
+        const sourceMap = analysis.sourceMaps.ranges.find(range => range.id === id);
+        if (!sourceMap)
+            return false;
+
+        let nextMarkdown = currentMarkdown;
+        for (const range of sourceMap.syntaxRemovalRanges)
+            nextMarkdown = `${nextMarkdown.slice(0, range.start)}${nextMarkdown.slice(range.end)}`;
         if (nextMarkdown === currentMarkdown)
             return false;
 

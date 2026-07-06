@@ -1,4 +1,3 @@
-import type { IFenceMarker } from '../utils/markdownBlockRules';
 import type { TBlockToken } from '../utils/marked/types';
 import type {
     IAtxHeadingState,
@@ -11,21 +10,13 @@ import type {
     ITaskListState,
     TState,
 } from './types';
+import { analyzeMarkdownComments } from '../comments/analyze';
 import {
     COMMENT_MARKER_PATTERN,
     COMMENT_MARKER_SEARCH_REGEXP,
     parseCommentMetadataDefinition,
 } from '../comments/syntax';
-import { escapeRegExp } from '../utils';
 import logger from '../utils/logger';
-import {
-    FRONT_MATTER_OPEN_REGEXP,
-    frontMatterCloseMarker,
-    INDENTED_CODE_REGEXP,
-    isFenceClose,
-    MATH_BLOCK_DELIM_REGEXP,
-    parseFenceMarker,
-} from '../utils/markdownBlockRules';
 import { lexBlock } from '../utils/marked';
 
 const debug = logger('import markdown: ');
@@ -129,108 +120,16 @@ interface ICommentMetadataDefinitionScanOptions {
     math: boolean;
 }
 
-function getFrontMatterEndLine(lines: string[]): number | null {
-    const opening = lines[0] == null ? null : FRONT_MATTER_OPEN_REGEXP.exec(lines[0]);
-    if (!opening)
-        return null;
-
-    const closing = frontMatterCloseMarker(opening[1]);
-    for (let index = 1; index < lines.length; index += 1) {
-        if (lines[index].trim() === closing)
-            return index;
-    }
-
-    return null;
-}
-
-function getHtmlBlockClosing(line: string): RegExp | 'single-line' | null {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('<!--')) {
-        return /-->/u.test(trimmed) ? 'single-line' : /-->/u;
-    }
-
-    const tag = /^<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s|>|\/>)/u.exec(trimmed);
-    if (!tag)
-        return null;
-    if (new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu').test(trimmed) || /\/>\s*$/u.test(trimmed))
-        return 'single-line';
-
-    return new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu');
-}
-
-function commentMetadataDefinitionLines(
-    markdown: string,
-    options: ICommentMetadataDefinitionScanOptions,
-): string[] {
-    const lines = markdown
-        .replace(/^\uFEFF/u, '')
-        .split(/\r\n|\n|\r/u);
-    const definitions: string[] = [];
-    let fence: IFenceMarker | null = null;
-    const frontMatterEndLine = options.frontMatter ? getFrontMatterEndLine(lines) : null;
-    let htmlClosing: RegExp | null = null;
-    let inMathBlock = false;
-
-    for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index];
-        const trimmed = line.trim();
-
-        if (frontMatterEndLine != null && index <= frontMatterEndLine)
-            continue;
-
-        if (fence) {
-            if (isFenceClose(line, fence))
-                fence = null;
-            continue;
-        }
-
-        const fenceStart = parseFenceMarker(line);
-        if (fenceStart) {
-            fence = fenceStart;
-            continue;
-        }
-
-        if (options.math && inMathBlock) {
-            if (MATH_BLOCK_DELIM_REGEXP.test(line))
-                inMathBlock = false;
-            continue;
-        }
-
-        if (options.math && MATH_BLOCK_DELIM_REGEXP.test(line)) {
-            inMathBlock = true;
-            continue;
-        }
-
-        if (htmlClosing) {
-            if (!trimmed || htmlClosing.test(trimmed))
-                htmlClosing = null;
-            continue;
-        }
-
-        const htmlBlockClosing = getHtmlBlockClosing(line);
-        if (htmlBlockClosing) {
-            if (htmlBlockClosing !== 'single-line')
-                htmlClosing = htmlBlockClosing;
-            continue;
-        }
-
-        if (INDENTED_CODE_REGEXP.test(line))
-            continue;
-
-        if (parseCommentMetadataDefinition(line))
-            definitions.push(line);
-    }
-
-    return definitions;
-}
-
 function restoreDroppedCommentMetadataDefinitions(
     markdown: string,
     states: TState[],
     options: ICommentMetadataDefinitionScanOptions,
 ): void {
     const definitionKeySeparator = '\u0000';
-    const rawDefinitions = commentMetadataDefinitionLines(markdown, options);
+    const rawDefinitions = analyzeMarkdownComments(markdown, options)
+        .sourceIndex
+        .metadataDefinitions
+        .map(definition => markdown.slice(definition.start, definition.end));
     if (!rawDefinitions.length)
         return;
 
@@ -244,9 +143,9 @@ function restoreDroppedCommentMetadataDefinitions(
         const parsed = parseCommentMetadataDefinition(line);
         return parsed ? `${parsed.id}${definitionKeySeparator}${parsed.dataUri}` : null;
     };
-    // Definitions inside these blocks are literal text, not real definitions —
-    // mirror what commentMetadataDefinitionLines skips so a def in frontmatter or
-    // a code block cannot mask a genuinely dropped definition with the same id.
+    // Definitions inside these blocks are literal text, not real definitions.
+    // Keep this aligned with the comment analyzer so a def in frontmatter or a
+    // code block cannot mask a genuinely dropped definition with the same id.
     const nonDefinitionStates = new Set<TState['name']>([
         'code-block',
         'diagram',

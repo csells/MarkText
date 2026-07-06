@@ -1,4 +1,4 @@
-import { stripCommentSyntaxFromMarkdown } from '../comments';
+import { stripAnalyzedCommentSyntaxFromMarkdown } from '../comments';
 import { EXPORT_DOMPURIFY_CONFIG } from '../config';
 import { sanitize } from '../utils';
 import { getHighlightHtml } from '../utils/marked';
@@ -50,13 +50,15 @@ export function renderToStaticHTML(
 
     const footnote = options.footnote ?? false;
 
-    const exportMarkdown = stripCommentSyntaxFromMarkdown(markdown);
+    const math = options.math ?? true;
+    const frontMatter = options.frontMatter ?? false;
+    const exportMarkdown = stripAnalyzedCommentSyntaxFromMarkdown(markdown, { math, frontMatter });
     let html = getHighlightHtml(exportMarkdown, {
         footnote,
-        math: options.math ?? true,
+        math,
         isGitlabCompatibilityEnabled: options.isGitlabCompatibilityEnabled ?? true,
         superSubScript: options.superSubScript ?? true,
-        frontMatter: options.frontMatter ?? false,
+        frontMatter,
     });
 
     // Post-process footnotes into the standard GFM / pandoc shape (inline

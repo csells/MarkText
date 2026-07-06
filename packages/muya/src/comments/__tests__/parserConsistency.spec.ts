@@ -37,6 +37,10 @@ const CASES: Array<{ name: string; markdown: string }> = [
         markdown: `Live <!--MC:a-->x<!--MC:~a--> then \`<!--MC:code-->y<!--MC:~code-->\`\n\n${meta('a')}\n`,
     },
     {
+        name: 'markers inside inline math are ignored by both',
+        markdown: `Live <!--MC:a-->x<!--MC:~a--> then $<!--MC:math-->y<!--MC:~math-->$\n\n${meta('a')}\n`,
+    },
+    {
         name: 'markers inside a fenced code block are ignored by both',
         markdown: `<!--MC:a-->real<!--MC:~a-->\n\n\`\`\`\n<!--MC:fenced-->nope<!--MC:~fenced-->\n\`\`\`\n\n${meta('a')}\n`,
     },
@@ -61,7 +65,7 @@ const CASES: Array<{ name: string; markdown: string }> = [
 describe('comment parser consistency: block-path parser vs source-char index', () => {
     for (const { name, markdown } of CASES) {
         it(`agrees on comment ids: ${name}`, () => {
-            const parsed = idSet(parseMarkdownComments(markdown, { frontMatter: true }).ranges);
+            const parsed = idSet(parseMarkdownComments(markdown, { frontMatter: true, math: true }).ranges);
             const indexed = idSet(buildCommentSourceIndex(markdown).commentRanges);
             expect(indexed).toEqual(parsed);
         });

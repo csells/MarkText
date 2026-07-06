@@ -205,6 +205,37 @@ describe('paste — markdown link into a link destination uses only the URL (#38
 });
 
 describe('paste — portable markdown comments', () => {
+    it('does not paste when cross-block cut is blocked even if the next selection read changed shape', async () => {
+        const muya = bootMuya('alpha\n\nbeta\n');
+        const [first, second] = contentBlocks(muya);
+        const crossSelection = {
+            anchor: { offset: 1, block: first, path: first.path },
+            focus: { offset: 2, block: second, path: second.path },
+            isCollapsed: false,
+            isSelectionInSameBlock: false,
+            direction: SelectionDirection.FORWARD,
+            type: SelectionCaretType.RANGE,
+        };
+        const sameBlockSelection = {
+            anchor: { offset: 1, block: first, path: first.path },
+            focus: { offset: 1, block: first, path: first.path },
+            isCollapsed: true,
+            isSelectionInSameBlock: true,
+            direction: SelectionDirection.FORWARD,
+            type: SelectionCaretType.RANGE,
+        };
+        let selectionReads = 0;
+        muya.editor.selection.getSelection = () => {
+            selectionReads += 1;
+            return selectionReads === 1 ? crossSelection : sameBlockSelection;
+        };
+        vi.spyOn(muya.editor.clipboard, 'cutHandler').mockReturnValue(false);
+
+        const markdown = await pasteWithCurrentSelection(muya, 'INSERT');
+
+        expect(markdown).toBe('alpha\n\nbeta\n');
+    });
+
     it('preserves pasted MC markers and metadata as a live comment graph', async () => {
         const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
         const pasted = [

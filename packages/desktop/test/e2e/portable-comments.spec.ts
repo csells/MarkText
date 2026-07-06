@@ -1,225 +1,38 @@
 import { expect, test } from '@playwright/test'
-import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
 import {
   clickMenuById,
+  DOC,
+  DOC_WITH_REPLY,
   enterSourceMode,
   exitSourceMode,
   focusEditor,
   getMarkdownContent,
+  isDirty,
   launchElectron,
   launchWithMarkdown,
+  MALFORMED_DOC,
+  metadata,
+  META_OPEN,
+  META_RESOLVED,
+  MISSING_METADATA_DOC,
+  openCommentsSidebar,
+  OVERLAP_CROSS_BLOCK_DOC,
+  readCommentMetadata,
+  replaceSourceText,
+  save,
   sendIpcToRenderer,
+  setSourceSelection,
   setSourceMarkdown,
+  showAllComments,
+  sourceSelectionText,
+  sourceValue,
+  STRUCTURED_DOC,
   waitForEditor,
-  waitForMenuReady
-} from './helpers'
-
-const metadata = (data: Record<string, unknown>): string =>
-  `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`
-
-interface CommentThreadMetadata {
-  status?: string
-  replies?: Array<{ body?: string }>
-}
-
-const readCommentMetadata = (markdown: string, id: string): CommentThreadMetadata => {
-  const line = markdown.split(/\r\n|\n|\r/u).find(value => value.startsWith(`[MC:${id}]: `))
-  if (!line) throw new Error(`Missing metadata for ${id}`)
-  const dataUri = line.slice(`[MC:${id}]: `.length)
-  return JSON.parse(
-    Buffer.from(dataUri.replace('data:application/json;base64,', ''), 'base64').toString('utf8')
-  ) as CommentThreadMetadata
-}
-
-const META_OPEN =
-  'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwiYXV0aG9ycyI6WyJBZGEiXSwicmVwbGllcyI6W119'
-const META_RESOLVED =
-  'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJyZXNvbHZlZCIsImF1dGhvcnMiOlsiQWRhIl0sInJlcGxpZXMiOltdfQ=='
-
-const DOC = [
-  'A <!--MC:a-->reviewed<!--MC:~a--> span.',
-  '',
-  `[MC:a]: ${META_OPEN}`,
-  ''
-].join('\n')
-
-const DOC_WITH_REPLY = [
-  'A <!--MC:a-->reviewed<!--MC:~a--> span.',
-  '',
-  `[MC:a]: ${metadata({
-    version: 1,
-    status: 'open',
-    authors: ['Ada'],
-    replies: [
-      {
-        author: 'Ada',
-        createdAt: '2026-06-30T12:00:00.000Z',
-        body: 'Original note'
-      }
-    ]
-  })}`,
-  ''
-].join('\n')
-
-const MALFORMED_DOC = [
-  'A <!--MC:broken-->dangling span.',
-  '',
-  `[MC:orphan]: ${META_OPEN}`,
-  ''
-].join('\n')
-
-const MISSING_METADATA_DOC = [
-  'A <!--MC:missing-->reviewed<!--MC:~missing--> span.',
-  ''
-].join('\n')
-
-const STRUCTURED_DOC = [
-  '# <!--MC:heading-->Heading<!--MC:~heading-->',
-  '',
-  '> A <!--MC:quote-->quoted<!--MC:~quote--> line.',
-  '',
-  '- A <!--MC:list-->list item<!--MC:~list-->',
-  '',
-  '[<!--MC:link-->linked text<!--MC:~link-->](https://example.com)',
-  '',
-  '| Column |',
-  '| --- |',
-  '| <!--MC:table-->cell<!--MC:~table--> |',
-  '',
-  ...['heading', 'quote', 'list', 'link', 'table'].map(
-    id => `[MC:${id}]: ${metadata({ version: 1, status: 'open', replies: [] })}`
-  ),
-  ''
-].join('\n')
-
-const OVERLAP_CROSS_BLOCK_DOC = [
-  'A <!--MC:a-->alpha <!--MC:b-->beta<!--MC:~a--> gamma<!--MC:~b-->.',
-  '',
-  'Start <!--MC:cross-->first paragraph.',
-  '',
-  'second paragraph<!--MC:~cross--> end.',
-  '',
-  ...['a', 'b', 'cross'].map(
-    id => `[MC:${id}]: ${metadata({ version: 1, status: 'open', replies: [] })}`
-  ),
-  ''
-].join('\n')
-
-const sourceValue = async(page: Page): Promise<string> =>
-  page.evaluate(() => {
-    const cm = document.querySelector('.source-code .CodeMirror') as
-      | (Element & { CodeMirror?: { getValue(): string } })
-      | null
-    return cm?.CodeMirror?.getValue() ?? ''
-  })
-
-const isDirty = (page: Page): Promise<boolean> =>
-  page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))
-
-type SourceCodeMirrorElement = Element & {
-  CodeMirror?: {
-    focus(): void
-    getSelection(): string
-    getValue(): string
-    posFromIndex(index: number): { line: number; ch: number }
-    replaceRange(
-      replacement: string,
-      from: { line: number; ch: number },
-      to?: { line: number; ch: number }
-    ): void
-    setCursor(cursor: { line: number; ch: number }): void
-    setSelection(anchor: { line: number; ch: number }, focus: { line: number; ch: number }): void
-  }
-}
-
-const setSourceSelection = async(
-  page: Page,
-  anchor: { line: number; ch: number },
-  focus: { line: number; ch: number }
-): Promise<void> => {
-  await page.evaluate(
-    ({ anchor, focus }) => {
-      const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
-      cm?.CodeMirror?.focus()
-      cm?.CodeMirror?.setSelection(anchor, focus)
-    },
-    { anchor, focus }
-  )
-}
-
-const replaceSourceText = async(
-  page: Page,
-  search: string,
-  replacement: string
-): Promise<void> => {
-  await page.evaluate(
-    ({ search, replacement }) => {
-      const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
-      const editor = cm?.CodeMirror
-      if (!editor) throw new Error('CodeMirror is not available')
-      const value = editor.getValue()
-      const index = value.indexOf(search)
-      if (index < 0) throw new Error(`Source text not found: ${search}`)
-      const from = editor.posFromIndex(index)
-      const to = editor.posFromIndex(index + search.length)
-      editor.focus()
-      editor.replaceRange(replacement, from, to)
-      editor.setCursor(editor.posFromIndex(index + replacement.length))
-    },
-    { search, replacement }
-  )
-}
-
-const sourceSelectionText = async(page: Page): Promise<string> =>
-  page.evaluate(() => {
-    const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
-    return cm?.CodeMirror?.getSelection() ?? ''
-  })
-
-const wysiwygSelectionText = async(page: Page): Promise<string> =>
-  page.evaluate(() => window.getSelection()?.toString() ?? '')
-
-const save = async(app: ElectronApplication): Promise<void> => {
-  await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-}
-
-const menuItemEnabled = async(app: ElectronApplication, id: string): Promise<boolean | null> =>
-  app.evaluate(({ Menu }, menuId) => {
-    const item = Menu.getApplicationMenu()?.getMenuItemById(menuId)
-    return item ? !!item.enabled : null
-  }, id)
-
-const waitForMenuItemEnabled = async(
-  app: ElectronApplication,
-  id: string,
-  expected: boolean,
-  timeout = 4000
-): Promise<boolean | null> => {
-  const deadline = Date.now() + timeout
-  let last = await menuItemEnabled(app, id)
-  while (Date.now() < deadline) {
-    if (last === expected) return last
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    last = await menuItemEnabled(app, id)
-  }
-  return last
-}
-
-const openCommentsSidebar = async(page: Page, app: ElectronApplication): Promise<void> => {
-  if (!(await page.locator('.side-bar').isVisible())) {
-    await clickMenuById(app, 'sideBarMenuItem')
-  }
-
-  await page.locator('.side-bar .left-column > ul').first().locator('li').nth(3).click()
-  await page.waitForSelector('.side-bar-comments', { state: 'visible', timeout: 10000 })
-}
-
-// The sidebar defaults to the "Open" filter, which hides resolved threads.
-// Tests that resolve a comment and then inspect it must switch to "All" first.
-const showAllComments = async(page: Page): Promise<void> => {
-  await page.locator('.side-bar-comments .comment-filters button', { hasText: 'All' }).first().click()
-}
+  waitForMenuItemEnabled,
+  waitForMenuReady,
+  wysiwygSelectionText
+} from './portable-comments-fixtures'
 
 test.describe('Portable markdown comments', () => {
   test('render in WYSIWYG while preserving the raw Markdown source', async() => {
@@ -243,20 +56,23 @@ test.describe('Portable markdown comments', () => {
     const { app, page } = await launchWithMarkdown(STRUCTURED_DOC)
     try {
       await expect(page.locator('.mu-comment-highlight')).toHaveCount(5, { timeout: 10000 })
-      const highlights = await page.locator('.mu-comment-highlight').evaluateAll(elements =>
-        elements.map(element => element.textContent)
-      )
+      const highlights = await page
+        .locator('.mu-comment-highlight')
+        .evaluateAll((elements) => elements.map((element) => element.textContent))
       expect(highlights).toEqual(
         expect.arrayContaining(['Heading', 'quoted', 'list item', 'linked text', 'cell'])
       )
 
-      const markerStyle = await page.locator('.mu-comment-marker').first().evaluate((element) => {
-        const style = window.getComputedStyle(element)
-        return {
-          fontSize: style.fontSize,
-          text: element.textContent
-        }
-      })
+      const markerStyle = await page
+        .locator('.mu-comment-marker')
+        .first()
+        .evaluate((element) => {
+          const style = window.getComputedStyle(element)
+          return {
+            fontSize: style.fontSize,
+            text: element.textContent
+          }
+        })
       expect(markerStyle).toEqual({
         fontSize: '0px',
         text: '<!--MC:heading-->'
@@ -274,9 +90,9 @@ test.describe('Portable markdown comments', () => {
     try {
       await expect(page.locator('.mu-comment-highlight').first()).toBeAttached({ timeout: 10000 })
       const highlightedText = (
-        await page.locator('.mu-comment-highlight').evaluateAll(elements =>
-          elements.map(element => element.textContent ?? '')
-        )
+        await page
+          .locator('.mu-comment-highlight')
+          .evaluateAll((elements) => elements.map((element) => element.textContent ?? ''))
       ).join('|')
 
       expect(highlightedText).toContain('alpha')
@@ -513,9 +329,9 @@ test.describe('Portable markdown comments', () => {
       await setSourceSelection(page, { line: 0, ch: 2 }, { line: 0, ch: 10 })
       await clickMenuById(app, 'review.add-comment')
 
-      await expect.poll(() => sourceValue(page), { timeout: 5000 }).toContain(
-        'A <!--MC:cmt_1-->reviewed<!--MC:~cmt_1--> span.'
-      )
+      await expect
+        .poll(() => sourceValue(page), { timeout: 5000 })
+        .toContain('A <!--MC:cmt_1-->reviewed<!--MC:~cmt_1--> span.')
       const markdown = await sourceValue(page)
       expect(markdown).toContain('[MC:cmt_1]: data:application/json;base64,')
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
@@ -576,9 +392,9 @@ test.describe('Portable markdown comments', () => {
 
       await save(app)
       await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
-      await expect.poll(() => fs.readFileSync(filePath, 'utf-8'), { timeout: 5000 }).toContain(
-        '<!--MC:cmt_1-->A<!--MC:~cmt_1--> reviewed span.'
-      )
+      await expect
+        .poll(() => fs.readFileSync(filePath, 'utf-8'), { timeout: 5000 })
+        .toContain('<!--MC:cmt_1-->A<!--MC:~cmt_1--> reviewed span.')
     } finally {
       await app.close()
     }
@@ -611,7 +427,9 @@ test.describe('Portable markdown comments', () => {
         'orphan-metadata'
       ])
       await page.locator('.side-bar-comments .diagnostic').first().click()
-      await expect.poll(() => sourceSelectionText(page), { timeout: 5000 }).toBe('<!--MC:~missing-->')
+      await expect
+        .poll(() => sourceSelectionText(page), { timeout: 5000 })
+        .toBe('<!--MC:~missing-->')
       expect(await sourceValue(page)).toContain('<!--MC:~missing-->')
     } finally {
       await app.close()
@@ -672,17 +490,19 @@ test.describe('Portable markdown comments', () => {
 
       await save(app)
       await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
-      await expect.poll(() => {
-        const thread = readCommentMetadata(fs.readFileSync(filePath, 'utf-8'), 'a')
-        return thread.replies?.map(reply => reply.body)
-      }, { timeout: 5000 }).toEqual([
-        'Persisted source edit',
-        'Persisted source reply'
-      ])
+      await expect
+        .poll(
+          () => {
+            const thread = readCommentMetadata(fs.readFileSync(filePath, 'utf-8'), 'a')
+            return thread.replies?.map((reply) => reply.body)
+          },
+          { timeout: 5000 }
+        )
+        .toEqual(['Persisted source edit', 'Persisted source reply'])
       savedMarkdown = fs.readFileSync(filePath, 'utf-8')
       const savedThread = readCommentMetadata(savedMarkdown, 'a')
       expect(savedThread.status).toBe('resolved')
-      expect(savedThread.replies?.map(reply => reply.body)).toEqual([
+      expect(savedThread.replies?.map((reply) => reply.body)).toEqual([
         'Persisted source edit',
         'Persisted source reply'
       ])
@@ -774,15 +594,18 @@ test.describe('Portable markdown comments', () => {
       await enterSourceMode(page, app)
       await openCommentsSidebar(page, app)
 
-      await page.locator('.side-bar-comments .thread[data-comment-id="line"] .thread-actions button')
+      await page
+        .locator('.side-bar-comments .thread[data-comment-id="line"] .thread-actions button')
         .first()
         .click()
       await expect.poll(() => sourceSelectionText(page), { timeout: 5000 }).toBe('alpha')
 
-      await page.locator('.side-bar-comments .thread[data-comment-id="block"] .thread-actions button')
+      await page
+        .locator('.side-bar-comments .thread[data-comment-id="block"] .thread-actions button')
         .first()
         .click()
-      await expect.poll(() => sourceSelectionText(page), { timeout: 5000 })
+      await expect
+        .poll(() => sourceSelectionText(page), { timeout: 5000 })
         .toContain('reviewed paragraph')
     } finally {
       await app.close()
@@ -859,7 +682,7 @@ test.describe('Portable markdown comments', () => {
       await expect(thread.locator('.status')).toHaveText('Resolved')
 
       const updated = await sourceValue(page)
-      const metadataLine = updated.split('\n').find(line => line.includes('[MC:a]:'))
+      const metadataLine = updated.split('\n').find((line) => line.includes('[MC:a]:'))
       expect(metadataLine?.startsWith('   [MC:a]:   data:application/json;base64,')).toBe(true)
       expect(metadataLine?.endsWith('   ')).toBe(true)
     } finally {
@@ -888,12 +711,13 @@ test.describe('Portable markdown comments', () => {
 
       const metadataLines = (await sourceValue(page))
         .split('\n')
-        .filter(line => line.startsWith('[MC:a]:'))
+        .filter((line) => line.startsWith('[MC:a]:'))
       expect(metadataLines[0]).toBe(badLine)
       const updatedDataUri = metadataLines[1].replace('[MC:a]: ', '')
       const updatedJson = JSON.parse(
-        Buffer.from(updatedDataUri.replace('data:application/json;base64,', ''), 'base64')
-          .toString('utf8')
+        Buffer.from(updatedDataUri.replace('data:application/json;base64,', ''), 'base64').toString(
+          'utf8'
+        )
       ) as { status?: string }
       expect(updatedJson.status).toBe('resolved')
     } finally {
@@ -1029,8 +853,11 @@ test.describe('Portable markdown comments', () => {
       expect(await getMarkdownContent(page, app)).toContain('<!--MC:')
 
       // Cancel the just-composed thread before adding a note → comment:discard.
-      await page.locator('.side-bar-comments .thread').first()
-        .getByRole('button', { name: 'Cancel' }).click()
+      await page
+        .locator('.side-bar-comments .thread')
+        .first()
+        .getByRole('button', { name: 'Cancel' })
+        .click()
 
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
       expect(await getMarkdownContent(page, app)).not.toContain('<!--MC:')
@@ -1048,13 +875,16 @@ test.describe('Portable markdown comments', () => {
       await expect.poll(() => sourceValue(page), { timeout: 5000 }).toContain('<!--MC:cmt_1-->')
       expect(await sourceValue(page)).toContain('[MC:cmt_1]: ')
 
-      await page.locator('.side-bar-comments .thread').first()
-        .getByRole('button', { name: 'Cancel' }).click()
+      await page
+        .locator('.side-bar-comments .thread')
+        .first()
+        .getByRole('button', { name: 'Cancel' })
+        .click()
 
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
-      // handleCommentDiscard -> commentSyntaxRangesForId removes the markers and
-      // the metadata definition line together with the blank-line separator the
-      // appendix added, restoring the exact pre-comment bytes.
+      // handleCommentDiscard uses analyzer syntax-removal ranges to drop the
+      // markers and metadata definition line together with the blank-line
+      // separator the appendix added, restoring the exact pre-comment bytes.
       await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe('A reviewed span.\n')
     } finally {
       await app.close()

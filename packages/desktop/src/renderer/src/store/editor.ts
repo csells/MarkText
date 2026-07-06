@@ -23,13 +23,16 @@ import { useMainStore } from '.'
 import { t } from '../i18n'
 import { debouncedSendBufferedState, sendBufferedState } from './bufferedState'
 import {
-  containsConflictScaffolding,
-  createWholeFileConflict,
-  resolveConflictMarker,
-  type ThreeWayMergeConflict,
-  type ThreeWayMergeResult
-} from '../util/threeWayMerge'
-import { mergeDirtyExternalMarkdown } from '../util/dirtyExternalMerge'
+  clearExclusiveTabNotification,
+  type FileChangePayload,
+  isSamePersistenceSnapshot,
+  markTabSavedAtCurrentHistory
+} from './editorPersistence'
+import {
+  ADD_COMMENT_CAPABILITY_CHANGED,
+  publishAddCommentCapability
+} from '../review/addCommentCapability'
+import { type ThreeWayMergeConflict } from '../util/threeWayMerge'
 import {
   acceptDirtyExternalMergeConflict,
   applyDirtyExternalMerge,
@@ -50,10 +53,7 @@ import type {
   PageOptions,
   TabOptions
 } from '@shared/types/files'
-import {
-  parseMarkdownComments,
-  type IParsedMarkdownComments
-} from '@muyajs/core'
+import type { IParsedMarkdownComments } from '@muyajs/core'
 
 // ----------------------------------------------------------------------------
 // Local helper types
@@ -92,19 +92,6 @@ interface PushTabNotificationPayload {
   style?: string
   exclusiveType?: string
   action?: FileNotification['action']
-}
-
-export interface FileChangePayload {
-  pathname: string
-  data: {
-    isMixedLineEndings?: boolean
-    lineEnding?: LineEnding | string
-    adjustLineEndingOnSave?: boolean
-    trimTrailingNewline?: number
-    encoding?: IFileState['encoding']
-    markdown: string
-    filename: string
-  }
 }
 
 interface LoadChangeOptions {
@@ -199,56 +186,9 @@ export interface EditorState {
 
 const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-bus.on('editor-add-comment-enabled-changed', (enabled: unknown) => {
+bus.on(ADD_COMMENT_CAPABILITY_CHANGED, (enabled: unknown) => {
   useEditorStore().addCommentEnabled = enabled === true
 })
-
-export const markTabSavedAtCurrentHistory = (tab: IFileState): void => {
-  const lastEditIndex = tab.history.lastEditIndex
-  if (
-    typeof lastEditIndex === 'number' &&
-    lastEditIndex >= 0 &&
-    lastEditIndex < tab.history.stack.length
-  ) {
-    const entry = tab.history.stack[lastEditIndex]
-    if (entry && typeof entry.id === 'number') {
-      tab.lastSavedHistoryId = entry.id
-    }
-  }
-  tab.diskBaseMarkdown = tab.markdown
-  tab.isSaved = true
-}
-
-export const clearExclusiveTabNotification = (tab: IFileState, exclusiveType: string): void => {
-  tab.notifications = tab.notifications.filter((n) => n.exclusiveType !== exclusiveType)
-}
-
-const normalizeEncodingForComparison = (encoding: unknown): unknown => {
-  if (!encoding || typeof encoding !== 'object') return encoding
-
-  const record = encoding as Record<string, unknown>
-  return {
-    encoding: record.encoding,
-    isBom: record.isBom ?? record.hasBOM ?? false
-  }
-}
-
-const filePersistenceSnapshot = (data: {
-  encoding?: unknown
-  lineEnding?: unknown
-  adjustLineEndingOnSave?: unknown
-  trimTrailingNewline?: unknown
-  isMixedLineEndings?: unknown
-}): Record<string, unknown> => ({
-  encoding: normalizeEncodingForComparison(data.encoding),
-  lineEnding: data.lineEnding,
-  adjustLineEndingOnSave: data.adjustLineEndingOnSave,
-  trimTrailingNewline: data.trimTrailingNewline,
-  isMixedLineEndings: data.isMixedLineEndings ?? false
-})
-
-export const isSamePersistenceSnapshot = (tab: IFileState, data: FileChangePayload['data']): boolean =>
-  equal(filePersistenceSnapshot(data), filePersistenceSnapshot(tab))
 
 const isSameFileSnapshot = (tab: IFileState, data: FileChangePayload['data']): boolean => {
   return data.markdown === tab.markdown && isSamePersistenceSnapshot(tab, data)
@@ -291,8 +231,9 @@ export const useEditorStore = defineStore('editor', {
 
       const oldIdToNewId: Record<string, string> = {}
       const tabs: IFileState[] = bufferedEditorState.tabs.map((tab) => {
-        const fileState = createDocumentState(tab as unknown as Record<string, unknown>) as
-          IFileState & { restoredDiskDocument?: FileChangePayload['data'] }
+        const fileState = createDocumentState(
+          tab as unknown as Record<string, unknown>
+        ) as IFileState & { restoredDiskDocument?: FileChangePayload['data'] }
         if (tab.restoredDiskDocument) {
           fileState.restoredDiskDocument = tab.restoredDiskDocument
         }
@@ -1703,7 +1644,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       const menuState = createApplicationMenuState(changes)
-      bus.emit('editor-add-comment-enabled-changed', menuState.canAddComment)
+      publishAddCommentCapability(menuState.canAddComment)
 
       const { windowId } = window.marktext?.env ?? { windowId: -1 }
       window.electron.ipcRenderer.send('mt::editor-selection-changed', windowId, menuState)

@@ -6,14 +6,19 @@ import { parse, compileScript } from 'vue/compiler-sfc'
 import ts from 'typescript'
 import { ref } from 'vue'
 import {
+  analyzeMarkdownComments,
   appendCommentReplyMetadata,
-  buildCommentSourceIndex,
-  collectSourceCommentIds,
-  parseMarkdownComments,
   sourceCommentIgnoredIndexRanges,
   sourceRangesOverlap,
   updateCommentMetadataInMarkdown
 } from '@muyajs/core'
+import {
+  activeSourceCommentIds,
+  commentMetadataAppendix,
+  getSourceCommentCandidate,
+  sourceCommentDiagnosticSyntaxRange,
+  sourceCommentIndexRanges
+} from '../../../src/renderer/src/components/editorWithTabs/sourceCommentController'
 
 // `handleImageAction` lives as a <script setup> closure in sourceCode.vue
 // (registered on the `image-action` bus during onMounted). The desktop unit
@@ -55,10 +60,7 @@ const loadComponent = (deps: Record<string, unknown>) => {
   const compiled = compileScript(descriptor, { id: 'test' })
   // Drop every import; bindings come from the injected `__deps` object so the
   // store/codeMirror/muya/config modules never load.
-  const noImports = compiled.content.replace(
-    /^\s*import[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm,
-    ''
-  )
+  const noImports = compiled.content.replace(/^\s*import[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '')
   // esbuild's transformSync trips over jsdom's TextEncoder realm, so transpile
   // the TS away with the (pure-JS) typescript compiler.
   const js = ts.transpileModule(noImports, {
@@ -77,9 +79,15 @@ const loadComponent = (deps: Record<string, unknown>) => {
       setCursorAtFirstLine, setTextDirection, appendCommentReplyMetadata,
       COMMENT_METADATA_DATA_URI_PREFIX, COMMENT_MARKER_PATTERN, createCommentMetadata, decodeCommentMetadata,
       encodeCommentMetadata, nextCommentId, parseCommentMetadataDefinition,
-      parseMarkdownComments, serializeCommentMarker, serializeCommentMetadataDefinition,
-      updateCommentMetadataInMarkdown, buildCommentSourceIndex, collectSourceCommentIds,
+      serializeCommentMarker, serializeCommentMetadataDefinition,
+      updateCommentMetadataInMarkdown,
       sourceCommentIgnoredIndexRanges, sourceRangesOverlap,
+      activeSourceCommentIds: activeSourceCommentIdsForIndexes,
+      commentMetadataAppendix, createSourceCommentAnalysis,
+      getSourceCommentCandidate: getSourceCommentCandidateForIndexes,
+      sourceCommentDiagnosticSyntaxRange: sourceCommentDiagnosticSyntaxRangeFromAnalysis,
+      sourceCommentIndexRanges: sourceCommentIndexRangesFromAnalysis,
+      publishSourceAddCommentCapability,
       getWordCount, wordCount, adjustCursor, bus, notice, useI18n,
       oneDarkThemes, railscastsThemes } = __deps
     ${js}
@@ -90,48 +98,75 @@ const loadComponent = (deps: Record<string, unknown>) => {
   return exported.default
 }
 
-const makeDeps = (over: Record<string, unknown> = {}) => ({
-  _defineComponent: (o: unknown) => o,
-  ref,
-  notice: { notify: () => {} },
-  useI18n: () => ({ t: (key: string) => key }),
-  watch: () => {},
-  onMounted: () => {},
-  onBeforeUnmount: () => {},
-  nextTick: () => Promise.resolve(),
-  useEditorStore: () => ({ LISTEN_FOR_CONTENT_CHANGE: () => {} }),
-  useLayoutStore: () => ({ SET_LAYOUT: () => {} }),
-  usePreferencesStore: () => ({}),
-  storeToRefs: () => ({ theme: ref(''), sourceCode: ref(true), currentFile: ref(null) }),
-  findMarkdownHeadingLine: () => null,
-  scrollSourceEditorToLine: () => {},
-  codeMirror: () => ({}),
-  setCursorAtFirstLine: vi.fn(),
-  setTextDirection: () => {},
-  appendCommentReplyMetadata,
-  COMMENT_METADATA_DATA_URI_PREFIX: 'data:application/json;base64,',
-  COMMENT_MARKER_PATTERN: '<!--MC:(~?)(\\w[\\w-]*)-->',
-  createCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
-  decodeCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
-  encodeCommentMetadata: () => 'data:application/json;base64,e30=',
-  serializeCommentMarker: (id: string, kind: 'open' | 'close' = 'open') => `<!--MC:${kind === 'close' ? '~' : ''}${id}-->`,
-  serializeCommentMetadataDefinition: (id: string, dataUri: string) => `[MC:${id}]: ${dataUri}`,
-  nextCommentId: () => 'cmt_1',
-  parseCommentMetadataDefinition: () => null,
-  parseMarkdownComments: () => ({ threads: [], ranges: [], diagnostics: [] }),
-  buildCommentSourceIndex,
-  collectSourceCommentIds,
-  sourceCommentIgnoredIndexRanges,
-  sourceRangesOverlap,
-  updateCommentMetadataInMarkdown,
-  wordCount: () => 0,
-  getWordCount: () => 0,
-  adjustCursor: (c: unknown) => c,
-  bus: { on: () => {}, off: () => {}, emit: () => {} },
-  oneDarkThemes: [],
-  railscastsThemes: [],
-  ...over
-})
+const makeDeps = (over: Record<string, unknown> = {}) => {
+  const deps = {
+    _defineComponent: (o: unknown) => o,
+    ref,
+    notice: { notify: () => {} },
+    useI18n: () => ({ t: (key: string) => key }),
+    watch: () => {},
+    onMounted: () => {},
+    onBeforeUnmount: () => {},
+    nextTick: () => Promise.resolve(),
+    useEditorStore: () => ({ LISTEN_FOR_CONTENT_CHANGE: () => {} }),
+    useLayoutStore: () => ({ SET_LAYOUT: () => {} }),
+    usePreferencesStore: () => ({}),
+    storeToRefs: () => ({ theme: ref(''), sourceCode: ref(true), currentFile: ref(null) }),
+    findMarkdownHeadingLine: () => null,
+    scrollSourceEditorToLine: () => {},
+    codeMirror: () => ({}),
+    setCursorAtFirstLine: vi.fn(),
+    setTextDirection: () => {},
+    appendCommentReplyMetadata,
+    COMMENT_METADATA_DATA_URI_PREFIX: 'data:application/json;base64,',
+    COMMENT_MARKER_PATTERN: '<!--MC:(~?)(\\w[\\w-]*)-->',
+    createCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
+    decodeCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
+    encodeCommentMetadata: () => 'data:application/json;base64,e30=',
+    serializeCommentMarker: (id: string, kind: 'open' | 'close' = 'open') =>
+      `<!--MC:${kind === 'close' ? '~' : ''}${id}-->`,
+    serializeCommentMetadataDefinition: (id: string, dataUri: string) => `[MC:${id}]: ${dataUri}`,
+    nextCommentId: () => 'cmt_1',
+    parseCommentMetadataDefinition: () => null,
+    analyzeMarkdownComments,
+    sourceCommentIgnoredIndexRanges,
+    sourceRangesOverlap,
+    activeSourceCommentIds,
+    commentMetadataAppendix,
+    getSourceCommentCandidate,
+    sourceCommentDiagnosticSyntaxRange,
+    sourceCommentIndexRanges,
+    updateCommentMetadataInMarkdown,
+    wordCount: () => 0,
+    getWordCount: () => 0,
+    adjustCursor: (c: unknown) => c,
+    bus: { on: () => {}, off: () => {}, emit: () => {} },
+    oneDarkThemes: [],
+    railscastsThemes: [],
+    ...over
+  }
+  ;(deps as Record<string, unknown>).publishSourceAddCommentCapability = (enabled: boolean) => {
+    ;(deps.bus.emit as (event: string, enabled: boolean) => void)(
+      'editor-add-comment-enabled-changed',
+      enabled
+    )
+    const { windowId } = window.marktext?.env ?? { windowId: -1 }
+    window.electron.ipcRenderer.send('mt::editor-add-comment-selection-changed', windowId, enabled)
+  }
+  return {
+    ...deps,
+    createSourceCommentAnalysis: (markdown: string, parserOptions: unknown) => ({
+      markdown,
+      parserOptionsKey: JSON.stringify(parserOptions),
+      ...(
+        deps.analyzeMarkdownComments as (
+          markdown: string,
+          options: unknown
+        ) => ReturnType<typeof analyzeMarkdownComments>
+      )(markdown, parserOptions)
+    })
+  }
+}
 
 interface StubCM {
   firstLine: () => number
@@ -199,11 +234,7 @@ describe('sourceCode handleImageAction', () => {
   })
 
   it('rewrites only the line carrying the id, leaving siblings intact', () => {
-    const cm = makeCM(
-      'before\n![abc123](old.png)\nafter',
-      { line: 0, ch: 0 },
-      { line: 0, ch: 0 }
-    )
+    const cm = makeCM('before\n![abc123](old.png)\nafter', { line: 0, ch: 0 }, { line: 0, ch: 0 })
     bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(cm.getValue()).toBe('before\n![cat](new.png)\nafter')
   })
@@ -254,7 +285,7 @@ describe('sourceCode handleImageAction', () => {
     bootHandler(cm, deps)({ id: 'zzz', result: 'r.png', alt: 'x' })
     expect(cm.getValue()).toBe('no images here')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect((deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
   })
 
   it('early-returns on the structure-deleted branch (id present, no image markup)', () => {
@@ -265,7 +296,7 @@ describe('sourceCode handleImageAction', () => {
     bootHandler(cm, deps)({ id: 'abc123', result: 'r.png', alt: 'x' })
     expect(cm.getValue()).toBe('see abc123 ref')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect((deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
   })
 
   it('skips an image whose id starts at column 0 (indexOf > 0 quirk)', () => {
@@ -282,7 +313,7 @@ describe('sourceCode handleImageAction', () => {
     bootHandler(cm, deps)({ id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(cm.getValue()).toBe('![cat](new.png)')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect((deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1)
+    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1)
   })
 
   it('flushes the current source buffer when external reload asks the active editor to commit', () => {
@@ -318,11 +349,7 @@ describe('sourceCode handleImageAction', () => {
 
       expect(updateComments).toHaveBeenCalled()
       expect(updateActiveComments).toHaveBeenCalled()
-      expect(ipcSend).toHaveBeenCalledWith(
-        'mt::editor-add-comment-selection-changed',
-        12,
-        false
-      )
+      expect(ipcSend).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
       expect(listenForContentChange).toHaveBeenCalledWith({
         id: 'tab-1',
         markdown: 'latest source\n',
@@ -338,8 +365,8 @@ describe('sourceCode handleImageAction', () => {
     }
   })
 
-  it('does not re-run full comment parsing for cursor-only source moves', () => {
-    const parseMarkdownComments = vi.fn(() => ({ threads: [], ranges: [], diagnostics: [] }))
+  it('does not re-run full comment analysis for cursor-only source moves', () => {
+    const analyzeMarkdownCommentsSpy = vi.fn(analyzeMarkdownComments)
     const updateComments = vi.fn()
     const updateActiveComments = vi.fn()
     const oldElectron = window.electron
@@ -349,7 +376,7 @@ describe('sourceCode handleImageAction', () => {
 
     try {
       const deps = makeDeps({
-        parseMarkdownComments,
+        analyzeMarkdownComments: analyzeMarkdownCommentsSpy,
         useEditorStore: () => ({
           LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
           UPDATE_ACTIVE_COMMENTS: updateActiveComments,
@@ -375,7 +402,7 @@ describe('sourceCode handleImageAction', () => {
       anchor.ch = 21
       ret.syncSourceCursorState(cm)
 
-      expect(parseMarkdownComments).toHaveBeenCalledTimes(1)
+      expect(analyzeMarkdownCommentsSpy).toHaveBeenCalledTimes(1)
       expect(updateComments).toHaveBeenCalledTimes(1)
       expect(updateActiveComments).toHaveBeenCalledTimes(3)
     } finally {
@@ -384,8 +411,8 @@ describe('sourceCode handleImageAction', () => {
     }
   })
 
-  it('parses source comments with the current markdown parser preferences', () => {
-    const parseMarkdownComments = vi.fn(() => ({ threads: [], ranges: [], diagnostics: [] }))
+  it('analyzes source comments with the current markdown parser preferences', () => {
+    const analyzeMarkdownCommentsSpy = vi.fn(analyzeMarkdownComments)
     const oldElectron = window.electron
     const oldMarkText = window.marktext
     window.electron = { ipcRenderer: { send: vi.fn() } } as unknown as typeof window.electron
@@ -393,10 +420,10 @@ describe('sourceCode handleImageAction', () => {
 
     try {
       const deps = makeDeps({
-        parseMarkdownComments,
+        analyzeMarkdownComments: analyzeMarkdownCommentsSpy,
         usePreferencesStore: () => ({
           footnote: true,
-          math: false,
+          math: true,
           isGitlabCompatibilityEnabled: false,
           trimUnnecessaryCodeBlockEmptyLines: true,
           frontmatterType: '+'
@@ -412,15 +439,19 @@ describe('sourceCode handleImageAction', () => {
         { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
         { expose: () => {} }
       )
-      const cm = makeCM('A <!--MC:a-->reviewed<!--MC:~a--> line.\n', { line: 0, ch: 20 }, { line: 0, ch: 20 })
+      const cm = makeCM(
+        'A <!--MC:a-->reviewed<!--MC:~a--> line.\n',
+        { line: 0, ch: 20 },
+        { line: 0, ch: 20 }
+      )
 
       ret.syncSourceCursorState(cm)
 
-      expect(parseMarkdownComments).toHaveBeenCalledWith(
+      expect(analyzeMarkdownCommentsSpy).toHaveBeenCalledWith(
         'A <!--MC:a-->reviewed<!--MC:~a--> line.\n',
         {
           footnote: true,
-          math: false,
+          math: true,
           isGitlabCompatibilityEnabled: false,
           trimUnnecessaryCodeBlockEmptyLines: true,
           frontMatter: true
@@ -443,7 +474,6 @@ describe('sourceCode handleImageAction', () => {
     try {
       const deps = makeDeps({
         bus: { on: () => {}, off: () => {}, emit },
-        parseMarkdownComments,
         useEditorStore: () => ({
           LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
           UPDATE_ACTIVE_COMMENTS: vi.fn(),
@@ -478,7 +508,6 @@ describe('sourceCode handleImageAction', () => {
     try {
       const deps = makeDeps({
         bus: { on: () => {}, off: () => {}, emit },
-        parseMarkdownComments,
         useEditorStore: () => ({
           LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
           UPDATE_ACTIVE_COMMENTS: vi.fn(),
@@ -526,7 +555,6 @@ describe('sourceCode handleImageAction', () => {
     try {
       const deps = makeDeps({
         bus: { on: () => {}, off: () => {}, emit },
-        parseMarkdownComments,
         useEditorStore: () => ({
           LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
           UPDATE_ACTIVE_COMMENTS: vi.fn(),
@@ -557,14 +585,7 @@ describe('sourceCode handleImageAction', () => {
       { expose: () => {} }
     )
     const lineStart = '<!--MC:a-->alpha<!--MC:~a-->\n'
-    const standalone = [
-      '<!--MC:a-->',
-      '',
-      'reviewed paragraph',
-      '',
-      '<!--MC:~a-->',
-      ''
-    ].join('\n')
+    const standalone = ['<!--MC:a-->', '', 'reviewed paragraph', '', '<!--MC:~a-->', ''].join('\n')
 
     expect(ret.sourceCommentIndexRanges(lineStart)).toEqual([
       {
@@ -581,9 +602,10 @@ describe('sourceCode handleImageAction', () => {
   it('does not update metadata-looking definitions inside ignored source blocks', () => {
     const encode = (data: Record<string, unknown>) =>
       `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`
-    const decode = (dataUri: string) => JSON.parse(
-      Buffer.from(dataUri.replace('data:application/json;base64,', ''), 'base64').toString('utf8')
-    ) as { status?: string }
+    const decode = (dataUri: string) =>
+      JSON.parse(
+        Buffer.from(dataUri.replace('data:application/json;base64,', ''), 'base64').toString('utf8')
+      ) as { status?: string }
     const open = encode({ version: 1, status: 'open', replies: [] })
     const markdown = [
       '---',
@@ -624,15 +646,18 @@ describe('sourceCode handleImageAction', () => {
 
       ret.editor.value = cm
       ret.tabId.value = 'tab-1'
-      expect(ret.replaceSourceCommentMetadata(cm, 'a', metadata => ({
-        ...metadata,
-        status: 'resolved'
-      }))).toBe(true)
+      expect(
+        ret.replaceSourceCommentMetadata(cm, 'a', (metadata) => ({
+          ...metadata,
+          status: 'resolved'
+        }))
+      ).toBe(true)
 
-      const statuses = cm.getValue()
+      const statuses = cm
+        .getValue()
         .split('\n')
-        .filter(line => line.startsWith('[MC:a]: '))
-        .map(line => decode(line.replace('[MC:a]: ', '')).status)
+        .filter((line) => line.startsWith('[MC:a]: '))
+        .map((line) => decode(line.replace('[MC:a]: ', '')).status)
       expect(statuses).toEqual(['open', 'resolved'])
     } finally {
       window.electron = oldElectron

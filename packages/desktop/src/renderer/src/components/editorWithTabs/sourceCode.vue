@@ -16,30 +16,31 @@ import { storeToRefs } from 'pinia'
 import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMirror'
 import {
   appendCommentReplyMetadata,
-  buildCommentSourceIndex,
-  commentSyntaxRangesForId,
-  collectSourceCommentIds,
-  createCommentMetadata,
-  encodeCommentMetadata,
   mergeCommentMetadataPatch,
-  nextCommentId,
-  parseMarkdownComments,
   serializeCommentMarker,
-  serializeCommentMetadataDefinition,
-  sourceRangesOverlap,
   updateCommentMetadataInMarkdown,
   wordCount as getWordCount,
-  type ICommentSourceIndex,
-  type ICommentSourceIndexRange,
   type ICommentMetadata,
   type ICommentReplyInput,
-  type IParsedMarkdownComments,
   type TUpdateCommentThreadPatch
 } from '@muyajs/core'
+import {
+  activeSourceCommentIds as activeSourceCommentIdsForIndexes,
+  commentMetadataAppendix,
+  createSourceCommentAnalysis,
+  getSourceCommentCandidate as getSourceCommentCandidateForIndexes,
+  sourceCommentDiagnosticSyntaxRange as sourceCommentDiagnosticSyntaxRangeFromAnalysis,
+  sourceCommentDiscardRanges,
+  sourceCommentIndexRanges as sourceCommentIndexRangesFromAnalysis,
+  type SourceCommentAnalysis,
+  type SourceCommentParserOptions,
+  type SourceCommentSyntaxIndexRange
+} from './sourceCommentController'
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
 import { oneDarkThemes, railscastsThemes } from '@/config'
 import { useI18n } from 'vue-i18n'
+import { publishSourceAddCommentCapability } from '@/review/addCommentCapability'
 
 // CodeMirror 5 ships no first-party types; the wrapper in src/renderer/src/
 // codeMirror/index.ts also keeps the surface intentionally loose.
@@ -56,24 +57,9 @@ interface SourceCommentRange {
   end: CMPosition
 }
 
-interface SourceCommentIndexRange {
-  id: string
-  start: number
-  end: number
-}
-
-type SourceCommentSyntaxIndexRange = ICommentSourceIndexRange
-
 interface SourceCommentCandidate {
   id: string
   range: SourceCommentRange
-}
-
-interface SourceCommentAnalysis {
-  markdown: string
-  parserOptionsKey: string
-  comments: IParsedMarkdownComments
-  sourceIndex: ICommentSourceIndex
 }
 
 interface SourceSelectionSnapshot {
@@ -134,11 +120,9 @@ const clampSourceCursor = (cm: CMInstance, cursor: CMPosition): CMPosition => {
 }
 
 const restoreSourceSelection = (cm: CMInstance, selection: SourceSelectionSnapshot): void => {
-  cm.setSelection(
-    clampSourceCursor(cm, selection.anchor),
-    clampSourceCursor(cm, selection.focus),
-    { scroll: false }
-  )
+  cm.setSelection(clampSourceCursor(cm, selection.anchor), clampSourceCursor(cm, selection.focus), {
+    scroll: false
+  })
 }
 
 const cloneSourceCursor = (cursor: CMPosition): CMPosition => ({
@@ -344,19 +328,17 @@ const getSourceCommentRange = (cm: CMInstance): SourceCommentRange | null => {
   const focusIndex = cm.indexFromPos(focus)
   if (anchorIndex === focusIndex) return null
 
-  return anchorIndex < focusIndex
-    ? { start: anchor, end: focus }
-    : { start: focus, end: anchor }
+  return anchorIndex < focusIndex ? { start: anchor, end: focus } : { start: focus, end: anchor }
 }
 
 let sourceCommentAnalysis: SourceCommentAnalysis | null = null
 
-const sourceCommentParserOptions = () => ({
+const sourceCommentParserOptions = (): SourceCommentParserOptions => ({
   footnote: !!preferencesStore.footnote,
-  math: (preferencesStore as { math?: boolean }).math ?? true,
+  math: true,
   isGitlabCompatibilityEnabled: !!preferencesStore.isGitlabCompatibilityEnabled,
   trimUnnecessaryCodeBlockEmptyLines: !!preferencesStore.trimUnnecessaryCodeBlockEmptyLines,
-  frontMatter: (preferencesStore as { frontMatter?: boolean }).frontMatter ?? true
+  frontMatter: true
 })
 
 const analyzeSourceComments = (markdown: string): SourceCommentAnalysis => {
@@ -369,53 +351,22 @@ const analyzeSourceComments = (markdown: string): SourceCommentAnalysis => {
     return sourceCommentAnalysis
   }
 
-  sourceCommentAnalysis = {
-    markdown,
-    parserOptionsKey,
-    comments: parseMarkdownComments(markdown, parserOptions),
-    sourceIndex: buildCommentSourceIndex(markdown)
-  }
+  sourceCommentAnalysis = createSourceCommentAnalysis(markdown, parserOptions)
   return sourceCommentAnalysis
-}
-
-const collectCommentIds = (markdown: string): string[] =>
-  [...collectSourceCommentIds(markdown)]
-
-const sourceLineEnding = (markdown: string): string => {
-  if (markdown.includes('\r\n')) return '\r\n'
-  if (markdown.includes('\r')) return '\r'
-  return '\n'
 }
 
 const sourceCommentIndexRanges = (
   markdown: string,
   analysis = analyzeSourceComments(markdown)
-): SourceCommentIndexRange[] => {
-  return analysis.sourceIndex.commentRanges
-}
+): ReturnType<typeof sourceCommentIndexRangesFromAnalysis> =>
+  sourceCommentIndexRangesFromAnalysis(analysis)
 
 const sourceCommentDiagnosticSyntaxRange = (
   markdown: string,
   id: string,
   analysis = analyzeSourceComments(markdown)
-): SourceCommentSyntaxIndexRange | null => {
-  const marker = analysis.sourceIndex.markers.find(marker => marker.id === id)
-  if (marker) {
-    return {
-      start: marker.start,
-      end: marker.end
-    }
-  }
-
-  return analysis.sourceIndex.metadataDefinitions.find(definition => definition.id === id) ?? null
-}
-
-const sourceCommentSyntaxIndexRanges = (
-  markdown: string,
-  analysis = analyzeSourceComments(markdown)
-): SourceCommentSyntaxIndexRange[] => {
-  return analysis.sourceIndex.syntaxRanges
-}
+): SourceCommentSyntaxIndexRange | null =>
+  sourceCommentDiagnosticSyntaxRangeFromAnalysis(analysis, id)
 
 const activeSourceCommentIds = (
   cm: CMInstance,
@@ -427,63 +378,8 @@ const activeSourceCommentIds = (
   const selectionStart = Math.min(anchorIndex, focusIndex)
   const selectionEnd = Math.max(anchorIndex, focusIndex)
 
-  return sourceCommentIndexRanges(markdown, analysis)
-    .filter((range) => {
-      if (selectionStart === selectionEnd) {
-        return selectionStart >= range.start && selectionStart <= range.end
-      }
-
-      return selectionEnd >= range.start && selectionStart <= range.end
-    })
-    .map(range => range.id)
+  return activeSourceCommentIdsForIndexes(selectionStart, selectionEnd, analysis)
 }
-
-const commentMetadataAppendix = (markdown: string, id: string): string => {
-  const lineEnding = sourceLineEnding(markdown)
-  const separator = markdown.endsWith('\n') || markdown.endsWith('\r')
-    ? lineEnding
-    : `${lineEnding}${lineEnding}`
-  const metadata = encodeCommentMetadata(createCommentMetadata({}))
-  return `${separator}${serializeCommentMetadataDefinition(id, metadata)}${lineEnding}`
-}
-
-const sourceCommentMarkdown = (
-  cm: CMInstance,
-  range: SourceCommentRange,
-  id: string,
-  markdown = cm.getValue()
-): string => {
-  const startIndex = cm.indexFromPos(range.start)
-  const endIndex = cm.indexFromPos(range.end)
-  const openMarker = serializeCommentMarker(id, 'open')
-  const closeMarker = serializeCommentMarker(id, 'close')
-  const markedMarkdown = [
-    markdown.slice(0, startIndex),
-    openMarker,
-    markdown.slice(startIndex, endIndex),
-    closeMarker,
-    markdown.slice(endIndex)
-  ].join('')
-
-  return `${markedMarkdown}${commentMetadataAppendix(markedMarkdown, id)}`
-}
-
-// Column where a line's block-level content begins — after leading whitespace,
-// blockquote markers, a list marker, and a heading marker. Inserting a comment
-// marker before this column pushes the block prefix off line-start and silently
-// demotes the block (a heading/list/quote becomes a plain paragraph), so such an
-// insertion must be rejected.
-const blockContentStartIndex = (markdown: string, index: number): number => {
-  const lineStart = markdown.lastIndexOf('\n', index - 1) + 1
-  let lineEnd = markdown.indexOf('\n', lineStart)
-  if (lineEnd === -1) lineEnd = markdown.length
-  const line = markdown.slice(lineStart, lineEnd)
-  const prefix = /^[ \t]*(?:>[ \t]*)*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?(?:#{1,6}[ \t]+)?/u.exec(line)
-  return lineStart + (prefix ? prefix[0].length : 0)
-}
-
-const insertionDemotesBlock = (markdown: string, index: number): boolean =>
-  index < blockContentStartIndex(markdown, index)
 
 const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | null => {
   const range = getSourceCommentRange(cm)
@@ -493,41 +389,21 @@ const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | nul
   const startIndex = cm.indexFromPos(range.start)
   const endIndex = cm.indexFromPos(range.end)
   const analysis = analyzeSourceComments(markdown)
-  if (markdown.slice(startIndex, endIndex).trim().length === 0) return null
-  if (sourceRangesOverlap(startIndex, endIndex, analysis.sourceIndex.ignoredRanges)) return null
-  if (
-    sourceCommentSyntaxIndexRanges(markdown, analysis).some(syntaxRange =>
-      startIndex < syntaxRange.end && endIndex > syntaxRange.start
-    )
-  ) {
-    return null
-  }
-  // The open marker goes at startIndex and the close marker at endIndex; neither
-  // may land before its line's block prefix.
-  if (insertionDemotesBlock(markdown, startIndex) || insertionDemotesBlock(markdown, endIndex)) {
-    return null
-  }
-
-  const id = nextCommentId(collectCommentIds(markdown))
-  const parsed = parseMarkdownComments(
-    sourceCommentMarkdown(cm, range, id, markdown),
-    sourceCommentParserOptions()
+  const candidate = getSourceCommentCandidateForIndexes(
+    markdown,
+    startIndex,
+    endIndex,
+    sourceCommentParserOptions(),
+    analysis
   )
-  if (!parsed.ranges.some(commentRange => commentRange.id === id)) return null
-  if (parsed.diagnostics.some(diagnostic => diagnostic.id === id)) return null
+  if (!candidate) return null
 
-  return { id, range }
+  return { id: candidate.id, range }
 }
 
 const syncSourceAddCommentMenu = (cm: CMInstance): void => {
   const enabled = !!getSourceCommentCandidate(cm)
-  bus.emit('editor-add-comment-enabled-changed', enabled)
-  const { windowId } = window.marktext?.env ?? { windowId: -1 }
-  window.electron.ipcRenderer.send(
-    'mt::editor-add-comment-selection-changed',
-    windowId,
-    enabled
-  )
+  publishSourceAddCommentCapability(enabled)
 }
 
 const showCommentsSidebar = (): void => {
@@ -583,11 +459,7 @@ const replaceSourceCommentMetadata = (
     if (beforeParts[index] === afterParts[index]) continue
 
     const line = index / 2
-    cm.replaceRange(
-      afterParts[index],
-      { line, ch: 0 },
-      { line, ch: beforeParts[index].length }
-    )
+    cm.replaceRange(afterParts[index], { line, ch: 0 }, { line, ch: beforeParts[index].length })
     saveContent(cm)
     return true
   }
@@ -602,16 +474,18 @@ const patchSourceCommentMetadata = (
 ): boolean =>
   // Same merge the WYSIWYG side applies via updateCommentThread, so both
   // editing surfaces produce identical portable metadata.
-  replaceSourceCommentMetadata(cm, id, metadata => mergeCommentMetadataPatch(metadata, patch))
+  replaceSourceCommentMetadata(cm, id, (metadata) => mergeCommentMetadataPatch(metadata, patch))
 
 const handleCommentReply = (payload: unknown): void => {
   if (!sourceCode.value || !editor.value) return
   const { id, reply } = (payload ?? {}) as { id?: string; reply?: ICommentReplyInput }
   if (!id || !reply?.body) return
 
-  notifyCommentUpdate(replaceSourceCommentMetadata(editor.value, id, metadata =>
-    appendCommentReplyMetadata(metadata, reply)
-  ))
+  notifyCommentUpdate(
+    replaceSourceCommentMetadata(editor.value, id, (metadata) =>
+      appendCommentReplyMetadata(metadata, reply)
+    )
+  )
 }
 
 const handleCommentDiscard = (id: unknown): void => {
@@ -619,13 +493,11 @@ const handleCommentDiscard = (id: unknown): void => {
 
   const cm = editor.value
   const markdown = cm.getValue()
-  const comments = parseMarkdownComments(markdown, sourceCommentParserOptions())
-  const thread = comments.threads.find(item => item.id === id)
-  if (!thread || thread.status !== 'open' || thread.replies.length) return
+  const analysis = analyzeSourceComments(markdown)
 
-  // Same per-id ranges muya's removeCommentSyntaxFromMarkdown computes, but
-  // spliced incrementally into the live buffer to preserve undo and cursor.
-  const syntaxRanges = commentSyntaxRangesForId(markdown, id)
+  // Same per-id removal ranges the Muya comment analyzer computes, but spliced
+  // incrementally into the live buffer to preserve undo and cursor.
+  const syntaxRanges = sourceCommentDiscardRanges(analysis, id)
   if (!syntaxRanges.length) return
 
   cm.operation(() => {
@@ -648,19 +520,23 @@ const handleCommentEdit = (payload: unknown): void => {
 const handleCommentResolve = (id: unknown): void => {
   if (!sourceCode.value || !editor.value || typeof id !== 'string') return
 
-  notifyCommentUpdate(patchSourceCommentMetadata(editor.value, id, {
-    status: 'resolved',
-    updatedAt: new Date().toISOString()
-  }))
+  notifyCommentUpdate(
+    patchSourceCommentMetadata(editor.value, id, {
+      status: 'resolved',
+      updatedAt: new Date().toISOString()
+    })
+  )
 }
 
 const handleCommentReopen = (id: unknown): void => {
   if (!sourceCode.value || !editor.value || typeof id !== 'string') return
 
-  notifyCommentUpdate(patchSourceCommentMetadata(editor.value, id, {
-    status: 'open',
-    updatedAt: new Date().toISOString()
-  }))
+  notifyCommentUpdate(
+    patchSourceCommentMetadata(editor.value, id, {
+      status: 'open',
+      updatedAt: new Date().toISOString()
+    })
+  )
 }
 
 // Return focus to the source editor (e.g. after posting a comment from the
@@ -675,7 +551,7 @@ const handleCommentFocus = (id: unknown): void => {
 
   const cm = editor.value
   const markdown = cm.getValue()
-  const range = sourceCommentIndexRanges(markdown).find(commentRange => commentRange.id === id)
+  const range = sourceCommentIndexRanges(markdown).find((commentRange) => commentRange.id === id)
   if (!range) return
 
   cm.focus()
@@ -805,7 +681,7 @@ const listenChange = () => {
 // CodeMirror instead. Resolve the TOC entry to its heading line in the source.
 const handleScrollToHeader = (slug: unknown) => {
   if (!editor.value) return
-  const index = editorStore.listToc.findIndex(item => item.slug === slug)
+  const index = editorStore.listToc.findIndex((item) => item.slug === slug)
   if (index < 0) return
   const line = findMarkdownHeadingLine(editor.value.getValue(), index)
   if (line < 0) return

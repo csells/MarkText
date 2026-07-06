@@ -2,13 +2,11 @@ import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
 import type { ICommentMetadata, ICommentReplyInput } from './types';
 import { tokenizer } from '../inlineRenderer/lexer';
-import { MarkdownToState } from '../state/markdownToState';
-import ExportMarkdown from '../state/stateToMarkdown';
+import { analyzeMarkdownComments } from './analyze';
+import { realCommentMarkersInText } from './markerScan';
 import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
-import { buildCommentSourceIndex } from './source';
 import {
-    COMMENT_MARKER_PATTERN,
     isValidCommentId,
     parseCommentMetadataDefinition,
     serializeCommentMarker,
@@ -146,15 +144,9 @@ function selectionIntersectsInlineCode(text: string, startOffset: number, endOff
 }
 
 function selectionIntersectsCommentMarker(text: string, startOffset: number, endOffset: number): boolean {
-    const markerRegExp = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
-    for (const match of text.matchAll(markerRegExp)) {
-        const markerStart = match.index;
-        const markerEnd = markerStart + match[0].length;
-        if (startOffset < markerEnd && endOffset > markerStart)
-            return true;
-    }
-
-    return false;
+    return realCommentMarkersInText(text).some(marker =>
+        startOffset < marker.end && endOffset > marker.start,
+    );
 }
 
 function selectedTextLeavesAreCommentable(
@@ -472,8 +464,8 @@ export function updateCommentMetadataInMarkdown(
     id: string,
     updater: (metadata: ICommentMetadata) => ICommentMetadata,
 ): string | null {
-    const sourceIndex = buildCommentSourceIndex(markdown);
-    for (const sourceDefinition of sourceIndex.metadataDefinitions) {
+    const analysis = analyzeMarkdownComments(markdown);
+    for (const sourceDefinition of analysis.sourceIndex.metadataDefinitions) {
         if (sourceDefinition.id !== id)
             continue;
 
@@ -498,59 +490,7 @@ export function updateCommentMetadataInMarkdown(
         return `${markdown.slice(0, sourceDefinition.start)}${nextLine}${markdown.slice(sourceDefinition.end)}`;
     }
 
-    const normalizedMarkdown = markdown.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n');
-    const states = new MarkdownToState().generate(normalizedMarkdown);
-    const before = new ExportMarkdown().generate(states);
-    const nextStates = updateCommentMetadataDefinition(states, id, updater);
-    if (!nextStates)
-        return null;
-
-    const after = new ExportMarkdown().generate(nextStates);
-    if (after === before)
-        return markdown;
-
-    const beforeLines = before.split('\n');
-    const afterLines = after.split('\n');
-    const metadataLineIndex = beforeLines.findIndex((line, index) =>
-        line !== afterLines[index]
-        && parseCommentMetadataDefinition(line)?.id === id
-        && parseCommentMetadataDefinition(afterLines[index])?.id === id,
-    );
-    if (metadataLineIndex < 0)
-        return null;
-
-    const previousLine = beforeLines[metadataLineIndex];
-    const nextLine = afterLines[metadataLineIndex];
-
-    // Locate the definition line in the original source by exact match. A
-    // well-formed document has exactly one such line (the comment id is
-    // unique), so this is unambiguous. If the identical line appears more than
-    // once the target is genuinely ambiguous \u2014 fail loud (the caller surfaces
-    // it) instead of guessing which duplicate to rewrite, which could silently
-    // edit the wrong line when export reflow shifts line correspondence.
-    const parts = markdown.split(/(\r\n|\n|\r)/u);
-    let matchIndex = -1;
-    for (let index = 0; index < parts.length; index += 2) {
-        const sourceLine = parts[index];
-        if (sourceLine == null)
-            continue;
-
-        const hasBom = index === 0 && sourceLine.startsWith('\uFEFF');
-        const comparableSourceLine = hasBom ? sourceLine.slice(1) : sourceLine;
-        if (comparableSourceLine !== previousLine)
-            continue;
-
-        if (matchIndex !== -1)
-            return null;
-        matchIndex = index;
-    }
-
-    if (matchIndex < 0)
-        return null;
-
-    const matchHasBom = matchIndex === 0 && (parts[matchIndex]?.startsWith('\uFEFF') ?? false);
-    parts[matchIndex] = `${matchHasBom ? '\uFEFF' : ''}${nextLine}`;
-    return parts.join('');
+    return null;
 }
 
 export function mergeCommentMetadataPatch(

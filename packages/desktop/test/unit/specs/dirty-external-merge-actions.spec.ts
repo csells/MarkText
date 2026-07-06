@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import type * as MuyaCore from '@muyajs/core'
 
 vi.hoisted(() => {
   const w = globalThis as unknown as {
@@ -22,8 +23,16 @@ vi.mock('@/store/bufferedState', () => ({
   debouncedSendBufferedState: vi.fn(),
   sendBufferedState: vi.fn(() => Promise.resolve(true))
 }))
+vi.mock('@muyajs/core', async(importOriginal) => {
+  const actual = await importOriginal<typeof MuyaCore>()
+  return {
+    ...actual,
+    analyzeMarkdownComments: vi.fn(actual.analyzeMarkdownComments)
+  }
+})
 
 import { useEditorStore } from '@/store/editor'
+import { analyzeMarkdownComments } from '@muyajs/core'
 
 // Characterization tests locking the observable behavior of the dirty-external
 // merge store actions that are only transitively covered elsewhere, so the
@@ -54,6 +63,21 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     store.tabIdToIndex = { 'tab-1': 0 }
     return tab
   }
+
+  const metadata = (body: string): string =>
+    `data:application/json;base64,${Buffer.from(
+      JSON.stringify({
+        version: 1,
+        status: 'open',
+        replies: [
+          {
+            author: 'Agent',
+            createdAt: '2026-06-30T12:00:00.000Z',
+            body
+          }
+        ]
+      })
+    ).toString('base64')}`
 
   it('CREATE_DIRTY_RELOAD_RECOVERY_TAB adds an unsaved tab carrying the source markdown', () => {
     const store = useEditorStore()
@@ -93,9 +117,29 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     })
   })
 
+  it('HANDLE_DIRTY_EXTERNAL_CHANGE rejects a dirty merge without a recorded disk base', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    delete (tab as { diskBaseMarkdown?: string }).diskBaseMarkdown
+
+    await expect(
+      store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+        tab as never,
+        {
+          pathname: '/x/a.md',
+          data: { filename: 'a.md', markdown: 'remote edits' }
+        } as never
+      )
+    ).rejects.toThrow(/diskBaseMarkdown/)
+
+    expect(tab.markdown).toBe('local edits')
+    expect(store.mergeConflict).toBeNull()
+  })
+
   it('RECONCILE_RESTORED_DISK_CHANGES re-handles a tab whose restored disk content diverged', () => {
     const store = useEditorStore()
-    const tab = makeDirtyTab(store) as typeof makeDirtyTab extends never ? never
+    const tab = makeDirtyTab(store) as typeof makeDirtyTab extends never
+      ? never
       : { restoredDiskDocument?: unknown } & ReturnType<typeof makeDirtyTab>
     ;(tab as { restoredDiskDocument?: unknown }).restoredDiskDocument = {
       filename: 'a.md',
@@ -108,5 +152,60 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(handle).toHaveBeenCalledTimes(1)
     // The transient restoredDiskDocument marker is consumed.
     expect((tab as { restoredDiskDocument?: unknown }).restoredDiskDocument).toBeUndefined()
+  })
+
+  // Regression: diagnostic occurrence keys embedded absolute source offsets,
+  // so a clean merge that merely shifted a pre-existing diagnostic escalated
+  // to the resolver dialog even though no new comment defect was introduced.
+  it('HANDLE_DIRTY_EXTERNAL_CHANGE auto-merges when a pre-existing diagnostic only shifts offsets', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    const orphan = `[MC:zz]: ${metadata('Stale note.')}`
+    tab.diskBaseMarkdown = `one\nshared\nthree\n\n${orphan}\n`
+    tab.markdown = `one\nlocal\nthree\n\n${orphan}\n`
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: {
+          filename: 'a.md',
+          pathname: '/x/a.md',
+          markdown: `zero\none\nshared\nthree\n\n${orphan}\n`
+        }
+      } as never
+    )
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe(`zero\none\nlocal\nthree\n\n${orphan}\n`)
+    expect(tab.isSaved).toBe(false)
+  })
+
+  it('HANDLE_DIRTY_EXTERNAL_CHANGE compares comment diagnostics through the authoritative analyzer', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    store.OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: {
+          filename: 'a.md',
+          pathname: '/x/a.md',
+          markdown: 'one\nremote\nthree\n'
+        }
+      } as never,
+      tab.diskBaseMarkdown,
+      'one\n<<<<<<< MARKTEXT_LOCAL\nlocal\n=======\nremote\n>>>>>>> MARKTEXT_REMOTE\nthree\n',
+      [] as never
+    )
+
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(
+      'one\n<!--MC:missing-->commented<!--MC:~missing-->\nthree\n'
+    )
+
+    expect(analyzeMarkdownComments).toHaveBeenCalled()
   })
 })

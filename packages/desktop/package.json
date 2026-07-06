@@ -114,6 +114,7 @@
     "native-keymap": "^3.3.9"
   },
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@electron/rebuild": "^4.0.4",
     "@playwright/test": "^1.61.0",
     "@types/codemirror": "^5.60.17",

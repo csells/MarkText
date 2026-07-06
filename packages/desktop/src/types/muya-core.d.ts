@@ -142,6 +142,32 @@ declare module '@muyajs/core' {
     syntaxRanges: ICommentSourceIndexRange[]
   }
 
+  export interface ICommentRangeSourceMap {
+    id: string
+    range: ICommentRange
+    sourceRange: ICommentSourceRange | null
+    openMarker: ICommentSourceMarker | null
+    closeMarker: ICommentSourceMarker | null
+    metadataDefinition: ICommentSourceMetadataDefinition | null
+    syntaxRemovalRanges: ICommentSourceIndexRange[]
+  }
+
+  export interface ICommentDiagnosticSourceMap {
+    id: string
+    diagnostic: ICommentDiagnostic
+    syntaxRange: ICommentSourceIndexRange | null
+  }
+
+  export interface ICommentAnalysis {
+    comments: IParsedMarkdownComments
+    ids: Set<string>
+    sourceIndex: ICommentSourceIndex
+    sourceMaps: {
+      ranges: ICommentRangeSourceMap[]
+      diagnostics: ICommentDiagnosticSourceMap[]
+    }
+  }
+
   export interface ICommentSourceLineState {
     seenFirstLine: boolean
     frontMatterMarker: string | null
@@ -165,6 +191,11 @@ declare module '@muyajs/core' {
     updatedAt?: string
   }
 
+  export interface ICommentSourceIndexOptions {
+    frontMatter?: boolean
+    math?: boolean
+  }
+
   export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>
 
   export const COMMENT_METADATA_DATA_URI_PREFIX: string
@@ -177,8 +208,14 @@ declare module '@muyajs/core' {
     metadata: ICommentMetadata,
     reply: ICommentReplyInput
   ): ICommentMetadata
-  export function buildCommentSourceIndex(markdown: string): ICommentSourceIndex
-  export function collectSourceCommentIds(markdown: string): Set<string>
+  export function analyzeMarkdownComments(
+    markdownOrStates: string | unknown[],
+    options?: IParseMarkdownCommentOptions & ICommentSourceIndexOptions
+  ): ICommentAnalysis
+  export function stripAnalyzedCommentSyntaxFromMarkdown(
+    markdown: string,
+    options?: IParseMarkdownCommentOptions & ICommentSourceIndexOptions
+  ): string
   export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata
   export function createCommentSourceLineState(): ICommentSourceLineState
   export function decodeCommentMetadata(dataUri: string): ICommentMetadata
@@ -187,13 +224,11 @@ declare module '@muyajs/core' {
   export function parseCommentMetadataDefinition(
     text: string
   ): IParsedCommentMetadataDefinition | null
-  export function parseMarkdownComments(
-    markdownOrStates: string | unknown[],
-    options?: IParseMarkdownCommentOptions
-  ): IParsedMarkdownComments
-  export function prepareCommentSourceLine(state: ICommentSourceLineState, line: string): void
-  export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): string
-  export function commentSyntaxRangesForId(markdown: string, id: string): ICommentSourceIndexRange[]
+  export function prepareCommentSourceLine(
+    state: ICommentSourceLineState,
+    line: string,
+    options?: ICommentSourceIndexOptions
+  ): void
   export function updateCommentMetadataInMarkdown(
     markdown: string,
     id: string,
@@ -207,7 +242,10 @@ declare module '@muyajs/core' {
     markdownOrStates: string | unknown[],
     options?: IParseMarkdownCommentOptions
   ): ICommentDiagnostic[]
-  export function sourceCommentIgnoredIndexRanges(markdown: string): ICommentSourceIndexRange[]
+  export function sourceCommentIgnoredIndexRanges(
+    markdown: string,
+    options?: ICommentSourceIndexOptions
+  ): ICommentSourceIndexRange[]
   export function sourceInlineCodeRanges(line: string): ICommentSourceIndexRange[]
   export function sourceLinePositionInsideInlineCode(line: string, position: number): boolean
   export function sourceRangesOverlap(
@@ -273,7 +311,11 @@ declare module '@muyajs/core' {
   export function unescapeHTML(str: string): string
   export function sanitize(html: string, config?: any, isInline?: boolean): string
   export function generateGithubSlug(text: string): string
-  export function getImageInfo(src: string): { isUnknownType: boolean; src: string; [key: string]: any }
+  export function getImageInfo(src: string): {
+    isUnknownType: boolean
+    src: string
+    [key: string]: any
+  }
   export function wordCount(markdown: string): {
     word: number
     paragraph: number

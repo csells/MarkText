@@ -3,7 +3,6 @@ import { escapeRegExp } from '../utils';
 export const COMMENT_METADATA_DATA_URI_PREFIX = 'data:application/json;base64,';
 export const COMMENT_ID_PATTERN = '\\w[\\w-]*';
 export const COMMENT_MARKER_PATTERN = `<!--MC:(~?)(${COMMENT_ID_PATTERN})-->`;
-const COMMENT_MARKER_TEXT_PATTERN = `<!--MC:~?${COMMENT_ID_PATTERN}-->`;
 const COMMENT_MARKER_LIKE_REGEXP = /^<!--MC:(~?)(.*?)-->/;
 export const COMMENT_MARKER_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`);
 export const COMMENT_MARKER_SEARCH_REGEXP = new RegExp(COMMENT_MARKER_PATTERN);
@@ -20,11 +19,6 @@ export interface IParsedCommentMarker {
 export interface IParsedCommentMetadataDefinition {
     id: string;
     dataUri: string;
-}
-
-export interface ICommentSearchText {
-    text: string;
-    rawIndexBySearchIndex: number[];
 }
 
 export function parseCommentMarker(src: string): IParsedCommentMarker | null {
@@ -107,49 +101,4 @@ export function parseCommentMetadataDefinition(text: string): IParsedCommentMeta
 
 export function isCommentMetadataReference(label: string): boolean {
     return /^MC:[^\]\s]+$/.test(label);
-}
-
-export function createCommentSearchText(text: string): ICommentSearchText {
-    if (parseCommentMetadataDefinition(text))
-        return { text: '', rawIndexBySearchIndex: [] };
-
-    const rawIndexBySearchIndex: number[] = [];
-    let searchText = '';
-    let lastIndex = 0;
-    const markerRegExp = new RegExp(COMMENT_MARKER_TEXT_PATTERN, 'g');
-    let markerMatch = markerRegExp.exec(text);
-
-    const appendVisibleText = (start: number, end: number) => {
-        for (let index = start; index < end; index += 1) {
-            searchText += text[index];
-            rawIndexBySearchIndex.push(index);
-        }
-    };
-
-    while (markerMatch) {
-        appendVisibleText(lastIndex, markerMatch.index);
-        lastIndex = markerMatch.index + markerMatch[0].length;
-        markerMatch = markerRegExp.exec(text);
-    }
-    appendVisibleText(lastIndex, text.length);
-
-    return { text: searchText, rawIndexBySearchIndex };
-}
-
-export function stripCommentSyntaxForClipboard(text: string): string {
-    if (parseCommentMetadataDefinition(text))
-        return '';
-
-    const withoutMarkers = text.replace(new RegExp(COMMENT_MARKER_PATTERN, 'g'), '');
-    const lines = withoutMarkers.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? [];
-    const withoutMetadata = lines
-        .filter((line) => {
-            const content = line.replace(/(?:\r\n|\n|\r)$/u, '');
-            return !parseCommentMetadataDefinition(content);
-        })
-        .join('');
-
-    return withoutMetadata
-        .replace(/(?:\r\n|\n|\r){3,}/gu, '\n\n')
-        .replace(/(?:\r\n|\n|\r){2,}$/u, '\n');
 }

@@ -1,4 +1,4 @@
-import { parseMarkdownComments } from '@muyajs/core'
+import { analyzeMarkdownComments } from '@muyajs/core'
 import bus from '../bus'
 import { t } from '../i18n'
 import { deepClone } from '../util'
@@ -13,14 +13,14 @@ import {
   type ThreeWayMergeResult
 } from '../util/threeWayMerge'
 import { mergeDirtyExternalMarkdown } from '../util/dirtyExternalMerge'
-import type { IFileState } from '@shared/types/files'
+import type { FileNotification, IFileState } from '@shared/types/files'
 import {
   clearExclusiveTabNotification,
-  type EditorStore,
   type FileChangePayload,
   isSamePersistenceSnapshot,
-  markTabSavedAtCurrentHistory
-} from './editor'
+  markTabSavedAtCurrentHistory,
+  requireDiskBaseMarkdown
+} from './editorPersistence'
 
 // The dirty-buffer + external-file-change reconciliation subsystem. These were
 // actions on the (already very large) editor store; they are pure functions
@@ -40,6 +40,44 @@ export interface MergeConflictState {
   validationError?: string
 }
 
+interface PushTabNotificationPayload {
+  tabId: string
+  msg: string
+  showConfirm?: boolean
+  confirmLabel?: string
+  secondaryLabel?: string
+  style?: string
+  exclusiveType?: string
+  action?: FileNotification['action']
+}
+
+interface DirtyExternalMergeStore {
+  tabs: IFileState[]
+  mergeConflict: MergeConflictState | null
+  SHOW_TAB_VIEW: (show: boolean) => void
+  updateTabIdToIndex: () => void
+  pushTabNotification: (payload: PushTabNotificationPayload) => void
+  loadChange: (change: FileChangePayload, options?: { preserveDirty?: boolean }) => void
+  APPLY_DIRTY_EXTERNAL_MERGE: (
+    change: FileChangePayload,
+    mergedMarkdown: string,
+    options?: { keepDirty?: boolean }
+  ) => void
+  HANDLE_DIRTY_EXTERNAL_CHANGE: (
+    tab: IFileState,
+    change: FileChangePayload,
+    options?: { forceReview?: boolean }
+  ) => Promise<void>
+  OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT: (
+    tab: IFileState,
+    change: FileChangePayload,
+    baseMarkdown: string,
+    resultMarkdown: string,
+    conflicts: ThreeWayMergeConflict[]
+  ) => void
+  CREATE_DIRTY_RELOAD_RECOVERY_TAB: (sourceTab: IFileState) => IFileState
+}
+
 // Per-tab generation counter so a slow async merge whose inputs changed (the
 // user kept typing, or the tab closed) is discarded instead of clobbering the
 // current state.
@@ -52,7 +90,7 @@ const commentDiagnosticOccurrences = (markdown: string): Map<string, number> => 
   }
 
   try {
-    for (const diagnostic of parseMarkdownComments(markdown).diagnostics) {
+    for (const diagnostic of analyzeMarkdownComments(markdown).comments.diagnostics) {
       // Identity only — no source positions. A clean merge shifts offsets, and
       // a position-bearing key would make every pre-existing diagnostic look
       // "new", escalating the merge to a conflict dialog whose Accept can then
@@ -86,7 +124,10 @@ const introducesNewCommentDiagnostics = (
   return false
 }
 
-export function createDirtyReloadRecoveryTab(store: EditorStore, sourceTab: IFileState): IFileState {
+export function createDirtyReloadRecoveryTab(
+  store: DirtyExternalMergeStore,
+  sourceTab: IFileState
+): IFileState {
   bus.emit('flush-active-editor')
 
   const latestTab = store.tabs.find((tab) => tab.id === sourceTab.id) ?? sourceTab
@@ -122,17 +163,15 @@ export function createDirtyReloadRecoveryTab(store: EditorStore, sourceTab: IFil
 }
 
 export function applyDirtyExternalMerge(
-  store: EditorStore,
+  store: DirtyExternalMergeStore,
   change: FileChangePayload,
   mergedMarkdown: string,
   options: { keepDirty?: boolean } = {}
 ): void {
-  const tab = store.tabs.find((t) =>
-    window.fileUtils.isSamePathSync(t.pathname, change.pathname)
-  )
+  const tab = store.tabs.find((t) => window.fileUtils.isSamePathSync(t.pathname, change.pathname))
   if (!tab) return
 
-  const baseMarkdownBeforeMerge = typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : ''
+  const baseMarkdownBeforeMerge = requireDiskBaseMarkdown(tab)
   const localMarkdownBeforeMerge = tab.markdown
   const mergedChange: FileChangePayload = {
     ...change,
@@ -164,13 +203,12 @@ export function applyDirtyExternalMerge(
       action: (status) => {
         if (!status) return
 
-        const actionTab = store.tabs.find((t) =>
-          t.id === nextTab.id && window.fileUtils.isSamePathSync(t.pathname, change.pathname)
+        const actionTab = store.tabs.find(
+          (t) => t.id === nextTab.id && window.fileUtils.isSamePathSync(t.pathname, change.pathname)
         )
-        const actionTabDiskBase =
-          typeof actionTab?.diskBaseMarkdown === 'string' ? actionTab.diskBaseMarkdown : ''
+        if (!actionTab) return
+        const actionTabDiskBase = requireDiskBaseMarkdown(actionTab)
         if (
-          !actionTab ||
           actionTab.isSaved ||
           actionTab.markdown !== mergedMarkdown ||
           actionTabDiskBase !== change.data.markdown
@@ -221,7 +259,7 @@ export function applyDirtyExternalMerge(
 }
 
 export function openDirtyExternalMergeConflict(
-  store: EditorStore,
+  store: DirtyExternalMergeStore,
   tab: IFileState,
   change: FileChangePayload,
   baseMarkdown: string,
@@ -256,11 +294,13 @@ export function openDirtyExternalMergeConflict(
       // captured localMarkdown/resultMarkdown are stale. Re-merge from the
       // tab's current content instead of applying an outdated result.
       if (currentTab.markdown !== mergeConflict.localMarkdown) {
-        store.HANDLE_DIRTY_EXTERNAL_CHANGE(currentTab, mergeConflict.fileChange, {
-          forceReview: true
-        }).catch((err) => {
-          console.error('Failed to re-open dirty external merge conflict:', err)
-        })
+        store
+          .HANDLE_DIRTY_EXTERNAL_CHANGE(currentTab, mergeConflict.fileChange, {
+            forceReview: true
+          })
+          .catch((err) => {
+            console.error('Failed to re-open dirty external merge conflict:', err)
+          })
         return
       }
       store.mergeConflict = { ...mergeConflict }
@@ -270,12 +310,15 @@ export function openDirtyExternalMergeConflict(
   debouncedSendBufferedState()
 }
 
-export function cancelDirtyExternalMergeConflict(store: EditorStore): void {
+export function cancelDirtyExternalMergeConflict(store: DirtyExternalMergeStore): void {
   store.mergeConflict = null
   debouncedSendBufferedState()
 }
 
-export function acceptDirtyExternalMergeConflict(store: EditorStore, mergedMarkdown: string): void {
+export function acceptDirtyExternalMergeConflict(
+  store: DirtyExternalMergeStore,
+  mergedMarkdown: string
+): void {
   const conflict = store.mergeConflict
   if (!conflict) return
 
@@ -291,11 +334,7 @@ export function acceptDirtyExternalMergeConflict(store: EditorStore, mergedMarkd
   }
 
   if (
-    introducesNewCommentDiagnostics(
-      mergedMarkdown,
-      conflict.localMarkdown,
-      conflict.remoteMarkdown
-    )
+    introducesNewCommentDiagnostics(mergedMarkdown, conflict.localMarkdown, conflict.remoteMarkdown)
   ) {
     store.mergeConflict = {
       ...conflict,
@@ -309,28 +348,32 @@ export function acceptDirtyExternalMergeConflict(store: EditorStore, mergedMarkd
   store.APPLY_DIRTY_EXTERNAL_MERGE(conflict.fileChange, mergedMarkdown, { keepDirty: true })
 }
 
-export function reconcileRestoredDiskChanges(store: EditorStore): void {
-  for (const tab of store.tabs as Array<IFileState & { restoredDiskDocument?: FileChangePayload['data'] }>) {
+export function reconcileRestoredDiskChanges(store: DirtyExternalMergeStore): void {
+  for (const tab of store.tabs as Array<
+    IFileState & { restoredDiskDocument?: FileChangePayload['data'] }
+  >) {
     const restoredDiskDocument = tab.restoredDiskDocument
     delete tab.restoredDiskDocument
     if (!restoredDiskDocument || tab.isSaved || !tab.pathname) continue
 
-    const baseMarkdown = typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : ''
+    const baseMarkdown = requireDiskBaseMarkdown(tab)
     if (restoredDiskDocument.markdown === baseMarkdown) continue
 
-    store.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, {
-      pathname: tab.pathname,
-      data: {
-        ...restoredDiskDocument,
-        filename: restoredDiskDocument.filename || tab.filename
-      }
-    }).catch((err) => {
-      console.error('Failed to reconcile restored disk changes:', err)
-    })
+    store
+      .HANDLE_DIRTY_EXTERNAL_CHANGE(tab, {
+        pathname: tab.pathname,
+        data: {
+          ...restoredDiskDocument,
+          filename: restoredDiskDocument.filename || tab.filename
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to reconcile restored disk changes:', err)
+      })
   }
 }
 
-export function reloadDiskFromMergeConflict(store: EditorStore): void {
+export function reloadDiskFromMergeConflict(store: DirtyExternalMergeStore): void {
   const conflict = store.mergeConflict
   if (!conflict) return
 
@@ -358,7 +401,7 @@ export function reloadDiskFromMergeConflict(store: EditorStore): void {
 }
 
 export function resolveMergeConflictMarker(
-  store: EditorStore,
+  store: DirtyExternalMergeStore,
   conflictId: string,
   choice: 'local' | 'remote' | 'both'
 ): void {
@@ -381,7 +424,7 @@ export function resolveMergeConflictMarker(
 }
 
 export async function handleDirtyExternalChange(
-  store: EditorStore,
+  store: DirtyExternalMergeStore,
   tab: IFileState,
   change: FileChangePayload,
   // When the user explicitly reopens the resolver from the notification,
@@ -397,7 +440,6 @@ export async function handleDirtyExternalChange(
   // no new disk content relative to the edit base and is ignored here.
   // Without a recorded base we cannot merge, so an empty base surfaces the
   // difference in the conflict resolver rather than silently dropping either side.
-  const baseMarkdown = typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : ''
   const localMarkdown = tab.markdown
   if (localMarkdown === data.markdown) {
     const preserveDirty = !isSamePersistenceSnapshot(tab, data)
@@ -412,6 +454,7 @@ export async function handleDirtyExternalChange(
     debouncedSendBufferedState()
     return
   }
+  const baseMarkdown = requireDiskBaseMarkdown(tab)
   if (data.markdown === baseMarkdown) return
 
   const requestId = (dirtyExternalMergeRequestIds.get(tab.id) ?? 0) + 1
@@ -422,7 +465,7 @@ export async function handleDirtyExternalChange(
     !store.tabs.some((candidate) => candidate.id === tab.id) ||
     tab.markdown !== localMarkdown ||
     tab.isSaved ||
-    (typeof tab.diskBaseMarkdown === 'string' ? tab.diskBaseMarkdown : '') !== baseMarkdown
+    requireDiskBaseMarkdown(tab) !== baseMarkdown
 
   let mergeResult: ThreeWayMergeResult
   try {

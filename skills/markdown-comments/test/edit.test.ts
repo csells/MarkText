@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { encodeCommentMetadata } from '@muyajs/core/comments'
 import { editCommentReply, patchCommentMetadata, replyToComment, setCommentStatus } from '../src/edit'
@@ -20,6 +21,13 @@ const markdown = [
 ].join('\n')
 
 describe('markdown-comments skill helpers', () => {
+  it('reads comments through the authoritative analyzer', () => {
+    const source = readFileSync(new URL('../src/parse.ts', import.meta.url), 'utf8')
+
+    expect(source).toContain('analyzeMarkdownComments')
+    expect(source).not.toContain('parseMarkdownComments')
+  })
+
   it('parses comments with deterministic ordering', () => {
     expect(readMarkdownComments(markdown)).toMatchObject({
       threads: [{ id: 'a', status: 'open' }],
