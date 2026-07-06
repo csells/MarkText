@@ -21,6 +21,34 @@ export interface IParsedCommentMetadataDefinition {
     dataUri: string;
 }
 
+const COMMENT_MARKER_GLOBAL_REGEXP = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
+export const LINE_LEADING_COMMENT_MARKER_REGEXP = new RegExp(`^ {0,3}${COMMENT_MARKER_PATTERN}`, 'u');
+
+function looksLikeRawHtmlAfterCommentMarkers(text: string): boolean {
+    const trimmed = text.replace(COMMENT_MARKER_GLOBAL_REGEXP, '').trim();
+    if (!trimmed.startsWith('<'))
+        return false;
+
+    const next = trimmed[1];
+    return (
+        next === '!'
+        || next === '/'
+        || (next >= 'A' && next <= 'Z')
+        || (next >= 'a' && next <= 'z')
+    );
+}
+
+// Whether an html-classified chunk is really comment-marker-led prose (or a
+// single image) that the state walk lowers to a paragraph. Shared by the
+// block tokenizer override, markdownToState, and the comment source index so
+// live/literal decisions can never drift.
+export function htmlBlockTokenIsParagraph(text: string): boolean {
+    const trimmed = text.trim();
+    if (/^<img[^<>]+>$/u.test(trimmed))
+        return true;
+    return COMMENT_MARKER_SEARCH_REGEXP.test(trimmed) && !looksLikeRawHtmlAfterCommentMarkers(trimmed);
+}
+
 export function parseCommentMarker(src: string): IParsedCommentMarker | null {
     const match = COMMENT_MARKER_REGEXP.exec(src);
     if (!match)

@@ -931,3 +931,40 @@ describe('comment metadata definitions are first-class block tokens', () => {
         expect(roundTrip(markdown)).toBe(markdown);
     });
 });
+
+// Line-leading markers must never trigger CommonMark's HTML-block rule:
+// kind 2 (comment blocks) split soft-wrapped paragraphs at the marker line,
+// injecting blank lines on the next save — byte corruption from a pure
+// load/save cycle. The html tokenizer override + adjacent-paragraph merge
+// keep such lines ordinary paragraph content.
+describe('line-leading comment markers stay paragraph content', () => {
+    it('round-trips a paragraph that STARTS with a marker and soft-wraps', () => {
+        const markdown = '<!--MC:a-->first\nsecond line<!--MC:~a-->\n';
+
+        const states = new MarkdownToState().generate(markdown);
+
+        expect(states).toEqual([
+            { name: 'paragraph', text: '<!--MC:a-->first\nsecond line<!--MC:~a-->' },
+        ]);
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('round-trips a soft-wrapped line that starts with a marker mid-paragraph', () => {
+        const markdown = 'first line\n<!--MC:b-->second<!--MC:~b--> line\n';
+
+        const states = new MarkdownToState().generate(markdown);
+
+        expect(states).toEqual([
+            { name: 'paragraph', text: 'first line\n<!--MC:b-->second<!--MC:~b--> line' },
+        ]);
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('keeps marker-led REAL html a raw html block', () => {
+        const markdown = '<!--MC:a--><div>x</div><!--MC:~a-->\nplain\n';
+
+        const states = new MarkdownToState().generate(markdown);
+
+        expect(states[0]).toEqual({ name: 'html-block', text: '<!--MC:a--><div>x</div><!--MC:~a-->' });
+    });
+});

@@ -1,5 +1,4 @@
 import type { TLexedToken } from '../utils/marked/types';
-import { htmlBlockTokenIsParagraph } from '../state/markdownToState';
 import { escapeRegExp } from '../utils';
 import {
     FRONT_MATTER_OPEN_REGEXP,
@@ -13,6 +12,7 @@ import { lexBlock } from '../utils/marked';
 import { forEachRealCommentMarker, orphansCounterpart } from './markerScan';
 import {
     COMMENT_MARKER_PATTERN,
+    htmlBlockTokenIsParagraph,
     parseCommentMetadataDefinition,
 } from './syntax';
 

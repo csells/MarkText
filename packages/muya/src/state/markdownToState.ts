@@ -10,47 +10,16 @@ import type {
     ITaskListState,
     TState,
 } from './types';
-import {
-    COMMENT_MARKER_PATTERN,
-    COMMENT_MARKER_SEARCH_REGEXP,
-} from '../comments/syntax';
+import { htmlBlockTokenIsParagraph } from '../comments/syntax';
 import logger from '../utils/logger';
 import { lexBlock } from '../utils/marked';
 
 const debug = logger('import markdown: ');
-const COMMENT_MARKER_GLOBAL_REGEXP = new RegExp(COMMENT_MARKER_PATTERN, 'g');
 
 function restoreTableEscapeCharacters(text: string) {
     // NOTE: markedjs replaces all escaped "|" ("\|") characters inside a cell with "|".
     //       We have to re-escape the character to not break the table.
     return text.replace(/\|/g, '\\|');
-}
-
-function looksLikeRawHtmlAfterCommentMarkers(text: string) {
-    const trimmed = text.replace(COMMENT_MARKER_GLOBAL_REGEXP, '').trim();
-    if (!trimmed.startsWith('<'))
-        return false;
-
-    const next = trimmed[1];
-    return (
-        next === '!'
-        || next === '/'
-        || (next >= 'A' && next <= 'Z')
-        || (next >= 'a' && next <= 'z')
-    );
-}
-
-function shouldTreatHtmlAsParagraph(text: string) {
-    return COMMENT_MARKER_SEARCH_REGEXP.test(text) && !looksLikeRawHtmlAfterCommentMarkers(text);
-}
-
-// Whether an `html` block token is lowered to a paragraph state (single
-// image, or comment-marker-led text that is not raw HTML underneath). The
-// comment source index consumes this so its live/literal decision matches
-// the state walk exactly.
-export function htmlBlockTokenIsParagraph(text: string): boolean {
-    const trimmed = text.trim();
-    return /^<img[^<>]+>$/.test(trimmed) || shouldTreatHtmlAsParagraph(trimmed);
 }
 
 function buildHeadingState(token: Extract<TBlockToken, { type: 'heading' }>): IAtxHeadingState | ISetextHeadingState {
@@ -402,7 +371,14 @@ export class MarkdownToState {
             }
 
             case 'paragraph': {
+                // Adjacent paragraph tokens (no blank line between) are one
+                // paragraph that an interrupting rule split — e.g. the html
+                // kind-2 interrupt defused by the comment tokenizer override.
                 value = token.text;
+                while (tokens[0]?.type === 'paragraph') {
+                    const next = tokens.shift() as Extract<TBlockToken, { type: 'paragraph' }>;
+                    value += `\n${next.text}`;
+                }
                 state = {
                     name: 'paragraph' as const,
                     text: value,
