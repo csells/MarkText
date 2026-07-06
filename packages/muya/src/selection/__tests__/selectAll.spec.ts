@@ -284,6 +284,48 @@ describe('selection.selectAll code / language blocks', () => {
     });
 });
 
+describe('keyboard Cmd/Ctrl+A', () => {
+    // Native select-all semantics: ONE press spans the whole document (clamped
+    // past hidden comment metadata). The progressive block-first escalation
+    // above belongs to the menu/toolbar-driven selectAll() only — routing the
+    // keyboard through it once regressed Ctrl+A to selecting a single block
+    // (muya/e2e/tests/editing/selection.spec.ts is the e2e twin of this pin).
+    function pressCtrlA(block: Content): void {
+        block.keydownHandler(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, cancelable: true }));
+    }
+
+    it('spans the whole document in ONE press from a collapsed caret', () => {
+        const muya = bootMuya('alpha\n\nbeta\n\ngamma\n');
+        const sp = muya.editor.scrollPage!;
+        const first = sp.firstContentInDescendant()!;
+        const { selection } = muya.editor;
+
+        first.setCursor(1, 1, false);
+        pressCtrlA(first);
+
+        expect(selection.anchorBlock).toBe(sp.firstContentInDescendant());
+        expect(selection.focusBlock).toBe(sp.lastContentInDescendant());
+        expect(selection.anchor!.offset).toBe(0);
+        expect(selection.focus!.offset).toBe('gamma'.length);
+    });
+
+    it('never lands an endpoint on a hidden comment metadata block', () => {
+        const muya = bootMuya(
+            'alpha\n\n<!--MC:a-->beta<!--MC:~a-->\n\n[MC:a]: data:application/json;base64,e30=\n',
+        );
+        const sp = muya.editor.scrollPage!;
+        const first = sp.firstContentInDescendant()!;
+        const { selection } = muya.editor;
+
+        first.setCursor(1, 1, false);
+        pressCtrlA(first);
+
+        expect(selection.anchorBlock).toBe(first);
+        expect(selection.focusBlock!.isCommentMetadataBlock()).toBe(false);
+        expect(selection.focusBlock!.text).toContain('beta');
+    });
+});
+
 describe('selection.selectAll honors the live selection over stale cache', () => {
     it('selects the clicked block, not the document, after a whole-document selection', () => {
         const muya = bootMuya('hello world\n\nsecond line\n');

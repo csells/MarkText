@@ -799,10 +799,12 @@ class Content extends TreeNode {
         if (this.muya.ui.handleContentKeydown(event))
             return;
 
-        // Cmd/Ctrl+A: run muya's own select-all, which stops at the last
-        // EDITABLE block, so a following collapse can never drop the caret into
+        // Cmd/Ctrl+A: whole-document select-all in ONE press (native
+        // semantics), but through muya's own path, which stops at the last
+        // EDITABLE block so a following collapse can never drop the caret into
         // the hidden trailing comment metadata. preventDefault stops the
         // browser's native select-all, which would otherwise reach that block.
+        // (The progressive block-first selectAll() is the menu/toolbar path.)
         if (
             (event.metaKey || event.ctrlKey)
             && !event.shiftKey
@@ -810,7 +812,7 @@ class Content extends TreeNode {
             && event.key.toLowerCase() === 'a'
         ) {
             event.preventDefault();
-            this.muya.editor.selection.selectAll();
+            this.muya.editor.selection.selectWholeDocument();
             return;
         }
 
