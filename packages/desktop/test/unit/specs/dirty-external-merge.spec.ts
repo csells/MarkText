@@ -9,40 +9,52 @@ describe('mergeDirtyExternalMarkdown', () => {
     vi.restoreAllMocks()
   })
 
-  it('uses a Web Worker when one is available', async() => {
-    const posted: unknown[] = []
+  // Speaks the real worker protocol: the { ok } envelope the production
+  // worker posts (dirtyExternalMerge.worker.ts). The bridge accepts nothing
+  // else — an unexpected reply shape must fail loudly, not resolve.
+  const workerReplying = (reply: unknown, posted: unknown[] = []) => {
     class FakeWorker {
       onmessage: ((event: MessageEvent) => void) | null = null
       onerror: ((event: ErrorEvent) => void) | null = null
 
       postMessage(message: unknown): void {
         posted.push(message)
-        this.onmessage?.({
-          data: {
-            mergedMarkdown: 'merged\n',
-            conflicts: []
-          }
-        } as MessageEvent)
+        this.onmessage?.({ data: reply } as MessageEvent)
       }
 
       terminate = vi.fn()
     }
-    globalThis.Worker = FakeWorker as unknown as typeof Worker
+    return FakeWorker as unknown as typeof Worker
+  }
 
-    await expect(mergeDirtyExternalMarkdown({
-      base: 'base\n',
-      local: 'local\n',
-      remote: 'remote\n'
-    })).resolves.toEqual({
+  const INPUT = { base: 'base\n', local: 'local\n', remote: 'remote\n' }
+
+  it('uses a Web Worker when one is available', async() => {
+    const posted: unknown[] = []
+    globalThis.Worker = workerReplying(
+      { ok: true, result: { mergedMarkdown: 'merged\n', conflicts: [] } },
+      posted
+    )
+
+    await expect(mergeDirtyExternalMarkdown(INPUT)).resolves.toEqual({
       mergedMarkdown: 'merged\n',
       conflicts: []
     })
-    expect(posted).toEqual([
-      {
-        base: 'base\n',
-        local: 'local\n',
-        remote: 'remote\n'
-      }
-    ])
+    expect(posted).toEqual([INPUT])
+  })
+
+  it('rejects when the worker reports a failure', async() => {
+    globalThis.Worker = workerReplying({ ok: false, message: 'merge exploded' })
+
+    await expect(mergeDirtyExternalMarkdown(INPUT)).rejects.toThrow('merge exploded')
+  })
+
+  it('rejects a malformed worker reply instead of guessing at its shape', async() => {
+    // The pre-envelope protocol (a bare merge result) must not be quietly
+    // accepted — a shape mismatch here means the worker and bridge are out
+    // of sync, which should fail loudly.
+    globalThis.Worker = workerReplying({ mergedMarkdown: 'merged\n', conflicts: [] })
+
+    await expect(mergeDirtyExternalMarkdown(INPUT)).rejects.toThrow(/malformed/i)
   })
 })

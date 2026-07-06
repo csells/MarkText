@@ -8,12 +8,6 @@ type DirtyExternalMergeWorkerResponse =
   | { ok: true; result: ThreeWayMergeResult }
   | { ok: false; message: string }
 
-const isMergeResult = (value: unknown): value is ThreeWayMergeResult =>
-  typeof value === 'object' &&
-  value !== null &&
-  typeof (value as { mergedMarkdown?: unknown }).mergedMarkdown === 'string' &&
-  Array.isArray((value as { conflicts?: unknown }).conflicts)
-
 export const mergeDirtyExternalMarkdown = (input: MergeInput): Promise<ThreeWayMergeResult> => {
   if (typeof Worker === 'undefined') {
     return Promise.resolve().then(() => mergeMarkdownThreeWay(input))
@@ -24,17 +18,24 @@ export const mergeDirtyExternalMarkdown = (input: MergeInput): Promise<ThreeWayM
       type: 'module'
     })
 
-    worker.onmessage = (event: MessageEvent<DirtyExternalMergeWorkerResponse | ThreeWayMergeResult>) => {
+    // The worker speaks exactly one protocol: the { ok } envelope. Any other
+    // shape means the worker and this bridge are out of sync — fail loudly
+    // rather than guess at the payload.
+    worker.onmessage = (event: MessageEvent<DirtyExternalMergeWorkerResponse>) => {
       worker.terminate()
-      if (isMergeResult(event.data)) {
-        resolve(event.data)
-        return
+      const data: unknown = event.data
+      if (typeof data === 'object' && data !== null && 'ok' in data) {
+        const reply = data as DirtyExternalMergeWorkerResponse
+        if (reply.ok === true) {
+          resolve(reply.result)
+          return
+        }
+        if (reply.ok === false && typeof reply.message === 'string') {
+          reject(new Error(reply.message))
+          return
+        }
       }
-      if (event.data.ok) {
-        resolve(event.data.result)
-      } else {
-        reject(new Error(event.data.message))
-      }
+      reject(new Error('Malformed dirty-external-merge worker reply'))
     }
 
     worker.onerror = (event) => {
