@@ -1,17 +1,9 @@
 import equal from 'deep-equal'
-import type { IFileState, LineEnding } from '@shared/types/files'
+import type { FileDocumentPayload, IFileState } from '@shared/types/files'
 
 export interface FileChangePayload {
   pathname: string
-  data: {
-    isMixedLineEndings?: boolean
-    lineEnding?: LineEnding | string
-    adjustLineEndingOnSave?: boolean
-    trimTrailingNewline?: number
-    encoding?: IFileState['encoding']
-    markdown: string
-    filename: string
-  }
+  data: FileDocumentPayload
 }
 
 export const markTabSavedAtCurrentHistory = (tab: IFileState): void => {

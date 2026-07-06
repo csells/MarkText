@@ -349,9 +349,7 @@ export function acceptDirtyExternalMergeConflict(
 }
 
 export function reconcileRestoredDiskChanges(store: DirtyExternalMergeStore): void {
-  for (const tab of store.tabs as Array<
-    IFileState & { restoredDiskDocument?: FileChangePayload['data'] }
-  >) {
+  for (const tab of store.tabs) {
     const restoredDiskDocument = tab.restoredDiskDocument
     delete tab.restoredDiskDocument
     if (!restoredDiskDocument || tab.isSaved || !tab.pathname) continue

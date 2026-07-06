@@ -89,6 +89,23 @@ export interface IFileState {
   // Muya block tree; only populated for the actively edited tab.
   blocks?: unknown
   isMixedLineEndings?: boolean
+  // A disk change detected while this tab was mid-session-restore; the
+  // dirty-external reconciliation consumes and clears it once tabs are live.
+  restoredDiskDocument?: FileDocumentPayload
+}
+
+/**
+ * The decoded document payload of an external file change (the watcher's
+ * `loadMarkdownFile` result shape the renderer receives).
+ */
+export interface FileDocumentPayload {
+  markdown: string
+  filename: string
+  encoding?: FileEncoding
+  lineEnding?: LineEnding | string
+  adjustLineEndingOnSave?: boolean
+  trimTrailingNewline?: number
+  isMixedLineEndings?: boolean
 }
 
 /**

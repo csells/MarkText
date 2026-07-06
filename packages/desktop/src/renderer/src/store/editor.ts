@@ -233,7 +233,7 @@ export const useEditorStore = defineStore('editor', {
       const tabs: IFileState[] = bufferedEditorState.tabs.map((tab) => {
         const fileState = createDocumentState(
           tab as unknown as Record<string, unknown>
-        ) as IFileState & { restoredDiskDocument?: FileChangePayload['data'] }
+        ) as IFileState
         if (tab.restoredDiskDocument) {
           fileState.restoredDiskDocument = tab.restoredDiskDocument
         }
@@ -2186,7 +2186,7 @@ const createBufferedRestoredDiskDocument = (
 const createBufferedTabState = (tab: Partial<IFileState> & { id: string }): BufferedTabState => {
   const filename = tab.filename ?? defaultFileState.filename
   const restoredDiskDocument = createBufferedRestoredDiskDocument(
-    (tab as { restoredDiskDocument?: unknown }).restoredDiskDocument,
+    tab.restoredDiskDocument,
     filename
   )
   return {
