@@ -269,7 +269,6 @@
       "replyPlaceholder": "Eine Antwort schreiben...",
       "defaultAuthor": "Prüfer",
       "selectTextHint": "Wählen Sie Text aus, bevor Sie einen Kommentar hinzufügen.",
-      "sourceModeUnavailable": "Kommentaraktionen sind für diese Auswahl nicht verfügbar.",
       "updateFailed": "Der Kommentar konnte nicht aktualisiert werden, da seine gespeicherten Daten ungültig sind.",
       "comment": "Comment",
       "commentPlaceholder": "Add a comment..."
@@ -471,6 +470,10 @@
         "title": "Automatisches Speichern",
         "description": "Automatisches Speichern",
         "delayDescription": "Verzögerung beim automatischen Speichern"
+      },
+      "comments": {
+        "title": "Kommentare",
+        "authorName": "Autorname, der an Ihren Kommentaren angezeigt wird (standardmäßig Ihr Systembenutzername)"
       },
       "window": {
         "title": "Fenster",

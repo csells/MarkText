@@ -269,7 +269,6 @@
       "replyPlaceholder": "Écrire une réponse...",
       "defaultAuthor": "Relecteur",
       "selectTextHint": "Sélectionnez du texte avant d’ajouter un commentaire.",
-      "sourceModeUnavailable": "Les actions de commentaire ne sont pas disponibles pour cette sélection.",
       "updateFailed": "Impossible de mettre à jour le commentaire, car ses données enregistrées sont invalides.",
       "comment": "Comment",
       "commentPlaceholder": "Add a comment..."
@@ -471,6 +470,10 @@
         "title": "Enregistrement automatique",
         "description": "Enregistrement automatique",
         "delayDescription": "Délai d'enregistrement automatique"
+      },
+      "comments": {
+        "title": "Commentaires",
+        "authorName": "Nom d'auteur affiché sur les commentaires que vous ajoutez (par défaut, votre nom d'utilisateur système)"
       },
       "window": {
         "title": "Fenêtre",

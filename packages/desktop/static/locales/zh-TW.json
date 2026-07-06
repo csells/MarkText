@@ -269,7 +269,6 @@
       "replyPlaceholder": "撰寫回覆...",
       "defaultAuthor": "審閱者",
       "selectTextHint": "新增評論前，請先選取文字。",
-      "sourceModeUnavailable": "此選取範圍無法使用評論操作。",
       "updateFailed": "無法更新該評論，因為其儲存的資料無效。",
       "comment": "Comment",
       "commentPlaceholder": "Add a comment..."
@@ -471,6 +470,10 @@
         "title": "自動儲存",
         "description": "自動儲存",
         "delayDescription": "自動儲存延遲"
+      },
+      "comments": {
+        "title": "評論",
+        "authorName": "您新增的評論上顯示的作者名稱（預設為系統使用者名稱）"
       },
       "window": {
         "title": "視窗",

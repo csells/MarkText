@@ -124,7 +124,6 @@ describe('desktop locale completeness for markdown comments', () => {
       'resolved',
       'saveEdit',
       'selectTextHint',
-      'sourceModeUnavailable',
       'summary',
       'title',
       'updateFailed'
@@ -145,6 +144,25 @@ describe('desktop locale completeness for markdown comments', () => {
         expectedCommentKeys.sort()
       )
       expect(locale.sideBar?.icons?.comments, file).toBeTypeOf('string')
+    }
+  })
+
+  it('ships the comments preferences strings in every source locale', () => {
+    const localeFiles = readdirSync(localesDir)
+      .filter(file => file.endsWith('.json') && !file.endsWith('.min.json'))
+
+    for (const file of localeFiles) {
+      const locale = JSON.parse(readFileSync(resolve(localesDir, file), 'utf8')) as {
+        preferences?: {
+          general?: {
+            comments?: { title?: unknown, authorName?: unknown }
+          }
+        }
+      }
+
+      const comments = locale.preferences?.general?.comments ?? {}
+      expect(comments.title, file).toBeTypeOf('string')
+      expect(comments.authorName, file).toBeTypeOf('string')
     }
   })
 
@@ -222,15 +240,12 @@ describe('desktop locale completeness for markdown comments', () => {
         sideBar?: {
           comments?: {
             selectTextHint?: string
-            sourceModeUnavailable?: string
           }
         }
       }
       const selectTextHint = locale.sideBar?.comments?.selectTextHint ?? ''
-      const sourceModeUnavailable = locale.sideBar?.comments?.sourceModeUnavailable ?? ''
 
       expect(selectTextHint, file).not.toMatch(/WYSIWYG|source mode|modo fuente|mode source|Quellmodus|ソースモード|소스 모드|modo de código-fonte|Kaynak modu|源码模式|原始碼模式/iu)
-      expect(sourceModeUnavailable, file).not.toMatch(/WYSIWYG|source mode|modo fuente|mode source|Quellmodus|ソースモード|소스 모드|modo de código-fonte|Kaynak modu|源码模式|原始碼模式/iu)
     }
   })
 

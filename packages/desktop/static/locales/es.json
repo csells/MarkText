@@ -269,7 +269,6 @@
       "replyPlaceholder": "Escribe una respuesta...",
       "defaultAuthor": "Revisor",
       "selectTextHint": "Selecciona texto antes de agregar un comentario.",
-      "sourceModeUnavailable": "Las acciones de comentarios no están disponibles para esta selección.",
       "updateFailed": "No se pudo actualizar el comentario porque sus datos guardados no son válidos.",
       "comment": "Comment",
       "commentPlaceholder": "Add a comment..."
@@ -471,6 +470,10 @@
         "title": "Guardado Automático",
         "description": "Guardado automático",
         "delayDescription": "Retraso del guardado automático"
+      },
+      "comments": {
+        "title": "Comentarios",
+        "authorName": "Nombre de autor mostrado en los comentarios que añades (por defecto, el nombre de usuario del sistema)"
       },
       "window": {
         "title": "Ventana",

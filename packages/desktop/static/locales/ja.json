@@ -269,7 +269,6 @@
       "replyPlaceholder": "返信を書く...",
       "defaultAuthor": "レビュアー",
       "selectTextHint": "コメントを追加する前にテキストを選択してください。",
-      "sourceModeUnavailable": "この選択範囲ではコメント操作は利用できません。",
       "updateFailed": "コメントの保存データが無効なため、更新できませんでした。",
       "comment": "Comment",
       "commentPlaceholder": "Add a comment..."
@@ -471,6 +470,10 @@
         "title": "自動保存",
         "description": "自動保存",
         "delayDescription": "自動保存の遅延"
+      },
+      "comments": {
+        "title": "コメント",
+        "authorName": "追加したコメントに表示される作成者名（既定ではシステムのユーザー名）"
       },
       "window": {
         "title": "ウィンドウ",

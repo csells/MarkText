@@ -269,7 +269,6 @@
       "replyPlaceholder": "写下回复...",
       "defaultAuthor": "审阅者",
       "selectTextHint": "添加评论前，请选择文本。",
-      "sourceModeUnavailable": "此选择无法使用评论操作。",
       "updateFailed": "无法更新该评论，因为其保存的数据无效。",
       "comment": "Comment",
       "commentPlaceholder": "Add a comment..."
@@ -471,6 +470,10 @@
         "title": "自动保存",
         "description": "自动保存",
         "delayDescription": "自动保存延迟"
+      },
+      "comments": {
+        "title": "评论",
+        "authorName": "您添加的评论上显示的作者名称（默认为系统用户名）"
       },
       "window": {
         "title": "窗口",

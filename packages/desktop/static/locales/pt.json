@@ -269,7 +269,6 @@
       "replyPlaceholder": "Escreva uma resposta...",
       "defaultAuthor": "Revisor",
       "selectTextHint": "Selecione texto antes de adicionar um comentário.",
-      "sourceModeUnavailable": "As ações de comentário não estão disponíveis para esta seleção.",
       "updateFailed": "Não foi possível atualizar o comentário porque seus dados salvos são inválidos.",
       "comment": "Comment",
       "commentPlaceholder": "Add a comment..."
@@ -471,6 +470,10 @@
         "title": "Salvamento Automático",
         "description": "Salvamento automático",
         "delayDescription": "Atraso do salvamento automático"
+      },
+      "comments": {
+        "title": "Comentários",
+        "authorName": "Nome do autor exibido nos comentários que você adiciona (por padrão, o nome de usuário do sistema)"
       },
       "window": {
         "title": "Janela",

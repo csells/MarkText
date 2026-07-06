@@ -269,7 +269,6 @@
       "replyPlaceholder": "Yanıt yaz...",
       "defaultAuthor": "İnceleyen",
       "selectTextHint": "Yorum eklemeden önce metin seçin.",
-      "sourceModeUnavailable": "Bu seçim için yorum eylemleri kullanılamaz.",
       "updateFailed": "Yorumun kaydedilmiş verileri geçersiz olduğundan güncellenemedi.",
       "comment": "Comment",
       "commentPlaceholder": "Add a comment..."
@@ -471,6 +470,10 @@
         "title": "Otomatik Kaydet",
         "description": "Otomatik kaydet",
         "delayDescription": "Otomatik kaydetme gecikmesi"
+      },
+      "comments": {
+        "title": "Yorumlar",
+        "authorName": "Eklediğiniz yorumlarda gösterilen yazar adı (varsayılan olarak sistem kullanıcı adınız)"
       },
       "window": {
         "title": "Pencere",
