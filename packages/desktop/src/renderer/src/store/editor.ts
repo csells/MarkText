@@ -1979,7 +1979,7 @@ const adjustTrailingNewlines = (markdown: string, trimTrailingNewlineOption: num
  * @param {string} text The text to trim.
  */
 const trimTrailingNewlines = (text: string): string => {
-  return text.replace(/[\r?\n]+$/, '')
+  return text.replace(/[\r\n]+$/, '')
 }
 
 interface ApplicationMenuState {
