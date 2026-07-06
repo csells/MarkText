@@ -2,6 +2,40 @@
 
 This plan adapts MarkText into a local-first Markdown review editor with portable inline comments. The canonical file format is still plain Markdown; the desktop app and Muya derive all review state from that Markdown on load and serialize it back into the same file on save.
 
+## Status (2026-07-06)
+
+Phases 1–7 are implemented and gated. The feature is in a hardening loop
+against the vision's four-point bar ("The Bar" in
+`specs/vision/review-comment-vision.md`); the settled technical contracts now
+live in `specs/architecture/` and take precedence over the phase notes below
+where they overlap. Landed since the last review round:
+
+- **Parser push-down**: `[MC:id]:` definitions are first-class block tokens
+  (marked extension ahead of the generic def rule); the post-hoc restore
+  pass, its parser→analyzer dependency cycle (CI `check-circular` red), and
+  two silent data bugs (duplicate-def reordering, case-collision deletion of
+  user `[mc:*]` definitions) are gone.
+- **Caret invariant at the placement layer**: `Content.setCursor` redirects
+  metadata-block placements; a `selectionchange` backstop snaps natively
+  placed carets. De-vacuizing the Linux-blind e2e exposed and fixed a real
+  select-all-collapse violation. Keyboard Cmd/Ctrl+A is one-press
+  whole-document again (progressive select-all stays on the menu path).
+- **Merge pipeline hardening**: single worker reply protocol (no bare-result
+  fallback), virtualized resolver panes, resolver titled with its file,
+  escalation-gate and race-guard unit coverage, MC/CRLF/unicode fuzz corpus,
+  and the flagship agent auto-merge flow driven end-to-end (WYSIWYG + source,
+  Undo + Review paths).
+- **UX/i18n**: notification actions are real buttons (keyboard/a11y),
+  comments preferences strings shipped in all 10 locales (dead key removed),
+  sidebar scrolls the active thread into view, merge resolver themed like the
+  source editor under all dark themes, Linux keybinding moved off KDE's
+  lock-screen chord.
+
+In flight: adversarial verification of the remaining review findings, then
+the structural consolidation queue (single guard layer for comment editing,
+Muya comment facade extraction, editor store/component decomposition,
+sidebar component split, comment-API caching).
+
 ## Hard Requirements
 
 - The `.md` file is canonical and portable.

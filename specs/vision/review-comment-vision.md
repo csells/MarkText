@@ -2,6 +2,36 @@
 
 MarkText should become a serious review surface for Markdown-based work: specs, plans, design docs, README files, and agent-authored artifacts. The editor must support source mode and WYSIWYG mode without making comments visible noise reading or writing via a UX just like Google Docs.
 
+## The Bar (non-negotiable product quality)
+
+These four demands define "done" for the review feature; anything below this
+bar is not shippable:
+
+1. **First-class parser syntax.** The Markdown extensions that carry review
+   data — the `<!--MC:id-->` inline markers and the `[MC:id]:` metadata
+   definitions — are pushed down into the base Markdown parser as first-class
+   syntax (block-level and inline tokenizers), not recognized by side-scans
+   and special cases layered on top of it. One module owns the grammar; every
+   consumer (engine, source mode, agent tooling) derives from it.
+2. **Bulletproof comment data manipulation.** No data loss, no corruption, no
+   silent normalization of comment bytes on any path: typing, backspace/
+   delete, cut/copy/paste, undo/redo, search, source-mode round-trips,
+   save/reload, and merges. Byte-exact preservation wherever it is promised.
+3. **Polished, exemplary UX.** The review surface blends in seamlessly as a
+   native part of MarkText: correct under every theme, localized in every
+   shipped language, keyboard-accessible, with the affordances (scroll-sync,
+   focus handoff, file identification, empty states) a Google-Docs-quality
+   reviewer expects.
+4. **Robust agent collaboration.** An agent editing the loaded file on disk
+   has its changes properly, correctly, robustly merged into the user's
+   current document — automatically when the edits don't overlap, and through
+   a polished, seamlessly blended merge-assist UI when they do.
+
+Backwards compatibility is explicitly not a constraint while these initial
+versions are hammered out: rearchitecture and redesign in service of the bar
+are always in scope. `specs/architecture/` records the technical contracts
+that implement this vision.
+
 The first-class workflow is:
 
 1. Open a Markdown file from the local filesystem.
