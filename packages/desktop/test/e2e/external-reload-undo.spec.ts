@@ -366,6 +366,118 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
   })
 })
 
+// The flagship agent flow: the user is mid-edit (dirty buffer) while an agent
+// rewrites a DIFFERENT part of the file on disk. The disjoint edits must merge
+// automatically into the live editor — no dialog — leaving the tab dirty, with
+// the auto-merged notification offering Undo (restore the pre-merge local
+// buffer) and Review (open the resolver on the clean merge).
+test.describe('External disk changes — clean auto-merge into a dirty editor (agent flow)', () => {
+  const AGENT_BASE = 'alpha start\n\nbravo middle\n\ncharlie end\n'
+  const agentMeta = metadata({
+    version: 1,
+    status: 'open',
+    replies: [{ author: 'Agent', createdAt: '2026-07-06T12:00:00.000Z', body: 'Please review this section.' }]
+  })
+  const AGENT_DOC =
+    `alpha start\n\nbravo middle\n\n<!--MC:agent1-->charlie end<!--MC:~agent1-->\n\n[MC:agent1]: ${agentMeta}\n`
+  const MERGED_DOC =
+    `alpha start (edited)\n\nbravo middle\n\n<!--MC:agent1-->charlie end<!--MC:~agent1-->\n\n[MC:agent1]: ${agentMeta}\n`
+
+  const editorText = (page: Page): Promise<string> =>
+    page.evaluate(() => document.querySelector('.mu-editor')?.textContent ?? '')
+
+  const editFirstParagraph = async(page: Page): Promise<void> => {
+    await page.locator('.mu-paragraph', { hasText: 'alpha start' }).first().click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' (edited)', { delay: 0 })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+  }
+
+  const expectAutoMerged = async(page: Page): Promise<void> => {
+    await expect(page.locator('.editor-notifications')).toContainText(
+      'Merged disk changes into your unsaved edits',
+      { timeout: 12000 }
+    )
+    await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    // Light-weight DOM poll first; the byte-exact check below round-trips
+    // through source mode and must run exactly once (repeated mode toggles
+    // inside a poll wedge the app).
+    await expect.poll(() => editorText(page), { timeout: 8000 }).toContain('alpha start (edited)')
+    await expect.poll(() => editorText(page), { timeout: 8000 }).toContain('MC:agent1')
+  }
+
+  test('WYSIWYG: a disjoint agent edit auto-merges into the dirty buffer; Undo restores it', async() => {
+    const { app, page, filePath } = await launchWithMarkdown(AGENT_BASE)
+    await waitForMenuReady(app)
+
+    await editFirstParagraph(page)
+    await reportExternalChange(app, filePath, AGENT_DOC)
+    await expectAutoMerged(page)
+
+    // The agent's comment thread is live in the sidebar after the merge.
+    await openCommentsSidebar(page, app)
+    await expect(page.locator('.side-bar-comments [data-comment-id="agent1"]')).toBeVisible()
+    await expect(page.locator('.side-bar-comments')).toContainText('Please review this section.')
+
+    // Undo on the notification restores the pre-merge local buffer, still dirty.
+    await page.locator('.editor-notifications').getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(() => editorText(page), { timeout: 8000 }).not.toContain('MC:agent1')
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    expect(await getMarkdownContent(page, app)).toBe(
+      'alpha start (edited)\n\nbravo middle\n\ncharlie end\n'
+    )
+    await app.close()
+  })
+
+  test('WYSIWYG: Review on the auto-merge notification opens the resolver with no conflicts', async() => {
+    const { app, page, filePath } = await launchWithMarkdown(AGENT_BASE)
+    await waitForMenuReady(app)
+
+    await editFirstParagraph(page)
+    await reportExternalChange(app, filePath, AGENT_DOC)
+    await expectAutoMerged(page)
+
+    await page.locator('.editor-notifications').getByRole('button', { name: 'Review' }).click()
+    await expect(page.locator('.merge-conflict-dialog')).toBeVisible()
+    // A clean merge has no per-conflict rows; the header names the file.
+    await expect(page.locator('.merge-conflict-dialog .conflict-row')).toHaveCount(0)
+    await expect(page.locator('.merge-conflict-dialog')).toContainText('note.md')
+
+    await page.getByRole('button', { name: 'Keep Editing' }).click()
+    await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    expect(await getMarkdownContent(page, app)).toBe(MERGED_DOC)
+    await app.close()
+  })
+
+  test('source mode: a disjoint agent edit auto-merges into the dirty CodeMirror buffer', async() => {
+    const { app, page, filePath } = await launchWithMarkdown(AGENT_BASE)
+    await waitForMenuReady(app)
+    await enterSourceMode(page, app)
+
+    // Edit only line 0 so the agent's paragraph-3 rewrite stays disjoint.
+    await page.evaluate(() => {
+      const cm = document.querySelector('.source-code .CodeMirror') as SourceCodeMirrorElement | null
+      const editor = cm?.CodeMirror
+      if (!editor) throw new Error('CodeMirror is not available')
+      editor.replaceRange('alpha start (edited)', { line: 0, ch: 0 }, { line: 0, ch: editor.getLine(0).length })
+    })
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+
+    await reportExternalChange(app, filePath, AGENT_DOC)
+
+    await expect(page.locator('.editor-notifications')).toContainText(
+      'Merged disk changes into your unsaved edits',
+      { timeout: 12000 }
+    )
+    await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
+    await expect.poll(() => sourceValue(page), { timeout: 8000 }).toBe(MERGED_DOC)
+    await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
+    await app.close()
+  })
+})
+
 test.describe('External disk reload — confirmed dirty reloads remain recoverable', () => {
   test('confirmed WYSIWYG reload can be undone back to the local buffer', async() => {
     const { app, page, filePath } = await launchWithMarkdown('old content here\n')

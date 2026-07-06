@@ -182,6 +182,72 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(tab.isSaved).toBe(false)
   })
 
+  // The initial-merge escalation gate: a CLEAN line merge whose combined
+  // output introduces a comment defect neither side had (here: both sides
+  // independently added a comment with the same id in disjoint regions) must
+  // open the resolver instead of silently auto-applying a corrupted document.
+  it('HANDLE_DIRTY_EXTERNAL_CHANGE escalates a clean merge that introduces new comment diagnostics', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    const localDef = `[MC:x]: ${metadata('Local note.')}`
+    const remoteDef = `[MC:x]: ${metadata('Agent note.')}`
+    tab.diskBaseMarkdown = 'aaa\nbbb\nccc\nddd\neee\n'
+    tab.markdown = `<!--MC:x-->aaa<!--MC:~x-->\n${localDef}\nccc\nddd\neee\n`
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: {
+          filename: 'a.md',
+          pathname: '/x/a.md',
+          markdown: `aaa\nbbb\nccc\n<!--MC:x-->ddd<!--MC:~x-->\n${remoteDef}\n`
+        }
+      } as never
+    )
+
+    // The user's buffer is untouched and the resolver is open on the clean
+    // (conflict-free) but comment-corrupting merge output.
+    expect(tab.markdown).toBe(`<!--MC:x-->aaa<!--MC:~x-->\n${localDef}\nccc\nddd\neee\n`)
+    expect(tab.isSaved).toBe(false)
+    expect(store.mergeConflict).not.toBeNull()
+    expect(store.mergeConflict!.conflicts).toEqual([])
+    expect(store.mergeConflict!.resultMarkdown).toContain('<!--MC:x-->aaa<!--MC:~x-->')
+    expect(store.mergeConflict!.resultMarkdown).toContain('<!--MC:x-->ddd<!--MC:~x-->')
+  })
+
+  it('ACCEPT applies a hand-corrected result after the escalation and clears the session', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    const localDef = `[MC:x]: ${metadata('Local note.')}`
+    const remoteDefY = `[MC:y]: ${metadata('Agent note.')}`
+    tab.diskBaseMarkdown = 'aaa\nbbb\nccc\nddd\neee\n'
+    tab.markdown = `<!--MC:x-->aaa<!--MC:~x-->\n${localDef}\nccc\nddd\neee\n`
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: {
+          filename: 'a.md',
+          pathname: '/x/a.md',
+          markdown: `aaa\nbbb\nccc\n<!--MC:x-->ddd<!--MC:~x-->\n[MC:x]: ${metadata('Agent note.')}\n`
+        }
+      } as never
+    )
+    expect(store.mergeConflict).not.toBeNull()
+
+    // The user renames the agent's duplicate id in the result pane and accepts.
+    const corrected = `<!--MC:x-->aaa<!--MC:~x-->\n${localDef}\nccc\n<!--MC:y-->ddd<!--MC:~y-->\n${remoteDefY}\n`
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(corrected)
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe(corrected)
+    expect(tab.isSaved).toBe(false)
+  })
+
   it('HANDLE_DIRTY_EXTERNAL_CHANGE compares comment diagnostics through the authoritative analyzer', async() => {
     const store = useEditorStore()
     const tab = makeDirtyTab(store)

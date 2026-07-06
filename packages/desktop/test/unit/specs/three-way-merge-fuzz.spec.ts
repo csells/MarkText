@@ -15,18 +15,37 @@ const rng = (seed: number) => () => {
 // Includes repeated code-fence and thematic-break lines so the git-oracle
 // cross-check exercises the fence-corruption topology (a repeated line spliced
 // into a code block) the position-blind reconciliation used to produce.
-const LINES = ['a\n', 'a\n', 'b\n', '\n', 'c\n', '- item\n', '- item\n', 'x\n', '```\n', '```\n', '---\n']
+// The MC marker/metadata lines, CRLF/CR endings, and non-ASCII text are the
+// payloads this merge exists for — agent edits to comment-bearing documents.
+const MC_DEF = '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119\n'
+const PRESERVE_LINES = [
+  'a\n', 'a\n', 'b\n', '\n', 'c\n', '- item\n', '- item\n', 'x\n', '```\n', '```\n', '---\n',
+  '<!--MC:a-->reviewed<!--MC:~a--> text\n',
+  'open <!--MC:b-->starts here\n',
+  'and ends<!--MC:~b--> there\n',
+  MC_DEF,
+  MC_DEF,
+  '[MC:c]: not-a-data-uri\n',
+  'crlf line\r\n',
+  '汉字 と かな ✓\n',
+  'astral \u{1F600}\u{1F680} pair\n'
+]
+// The structural-invariants corpus additionally mixes bare-CR line endings,
+// which the engine's line splitter treats as their own lines; the count-bounds
+// fuzz below sticks to PRESERVE_LINES because its \n-based test-side splitter
+// must agree with the engine about what a "line" is.
+const LINES = [...PRESERVE_LINES, 'bare-cr\r', '\r']
 
-const randomDoc = (next: () => number, maxLen: number): string => {
+const randomDoc = (next: () => number, maxLen: number, corpus: string[] = LINES): string => {
   const len = Math.floor(next() * maxLen)
   let out = ''
-  for (let i = 0; i < len; i += 1) out += LINES[Math.floor(next() * LINES.length)]
+  for (let i = 0; i < len; i += 1) out += corpus[Math.floor(next() * corpus.length)]
   return out
 }
 
 // Derive an edited variant of base by randomly deleting / duplicating / mutating
 // whole lines — the kind of edit an agent or a human makes.
-const editDoc = (next: () => number, base: string): string => {
+const editDoc = (next: () => number, base: string, corpus: string[] = LINES): string => {
   const lines = base.length ? base.match(/[^\n]*\n|[^\n]+/g) ?? [] : []
   const out: string[] = []
   for (const line of lines) {
@@ -35,10 +54,10 @@ const editDoc = (next: () => number, base: string): string => {
     else if (r < 0.3) {
       out.push(line)
       out.push(line)
-    } else if (r < 0.45) out.push(LINES[Math.floor(next() * LINES.length)]) // replace
+    } else if (r < 0.45) out.push(corpus[Math.floor(next() * corpus.length)]) // replace
     else out.push(line) // keep
   }
-  if (next() < 0.3) out.push(LINES[Math.floor(next() * LINES.length)]) // append
+  if (next() < 0.3) out.push(corpus[Math.floor(next() * corpus.length)]) // append
   return out.join('')
 }
 
@@ -58,20 +77,21 @@ describe('mergeMarkdownThreeWay fuzz — invariants', () => {
       const again = mergeMarkdownThreeWay({ base, local, remote })
       expect(again.mergedMarkdown, `determinism @${iter}`).toBe(result.mergedMarkdown)
 
-      if (result.conflicts.length === 0) {
-        // No fabrication: every merged line came from one of the three inputs.
-        const known = new Set([...splitLines(base), ...splitLines(local), ...splitLines(remote)])
-        for (const line of splitLines(result.mergedMarkdown)) {
-          expect(known.has(line), `fabricated line ${JSON.stringify(line)} @${iter}`).toBe(true)
-        }
-      } else {
-        // A conflict must carry both sides so nothing is silently discarded.
-        for (const c of result.conflicts) {
-          expect(result.mergedMarkdown).toContain(c.markerText)
-        }
+      // A conflict must carry both sides so nothing is silently discarded.
+      // (No-fabrication is asserted rigorously by the count-bounds fuzz below;
+      // a set-membership check could never fail for a line-based diff3.)
+      for (const c of result.conflicts) {
+        expect(result.mergedMarkdown).toContain(c.markerText)
       }
+    }
+  })
 
-      // Agreement: if both sides made the identical edit, it is not a conflict.
+  it('identical edits on both sides never conflict (agreement contract)', () => {
+    const next = rng(0x51deca11)
+    for (let iter = 0; iter < 200; iter += 1) {
+      const base = randomDoc(next, 12)
+      const local = editDoc(next, base)
+
       const agree = mergeMarkdownThreeWay({ base, local, remote: local })
       expect(agree.conflicts, `agreement @${iter}`).toEqual([])
       expect(agree.mergedMarkdown, `agreement @${iter}`).toBe(local)
@@ -93,10 +113,11 @@ describe('mergeMarkdownThreeWay fuzz — data preservation (no loss / no fabrica
   it('a clean auto-merge never drops a line both sides kept nor fabricates content', () => {
     const next = rng(0x0feed99)
     let checked = 0
+    let mcChecked = 0
     for (let iter = 0; iter < 5000; iter += 1) {
-      const base = randomDoc(next, 12)
-      const local = editDoc(next, base)
-      const remote = editDoc(next, base)
+      const base = randomDoc(next, 12, PRESERVE_LINES)
+      const local = editDoc(next, base, PRESERVE_LINES)
+      const remote = editDoc(next, base, PRESERVE_LINES)
       if (local === remote || local === base || remote === base) continue
 
       const mine = mergeMarkdownThreeWay({ base, local, remote })
@@ -110,8 +131,11 @@ describe('mergeMarkdownThreeWay fuzz — data preservation (no loss / no fabrica
         const merged = countLineIn(mine.mergedMarkdown, line)
         expect(merged, `data loss @${iter} line=${JSON.stringify(line)}`).toBeGreaterThanOrEqual(lo)
         expect(merged, `fabrication @${iter} line=${JSON.stringify(line)}`).toBeLessThanOrEqual(hi)
+        if (line.includes('MC:')) mcChecked += 1
       }
     }
     expect(checked).toBeGreaterThan(0)
+    // The corpus must actually exercise comment payloads, not just prose.
+    expect(mcChecked).toBeGreaterThan(0)
   }, 30_000)
 })
