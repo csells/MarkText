@@ -38,7 +38,7 @@ import {
 } from './sourceCommentController'
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
-import { oneDarkThemes, railscastsThemes } from '@/config'
+import { codeMirrorThemeFor } from '@/config'
 import { useI18n } from 'vue-i18n'
 import { publishSourceAddCommentCapability } from '@/review/addCommentCapability'
 
@@ -719,11 +719,7 @@ onMounted(() => {
     }
   }
 
-  if (railscastsThemes.includes(theme.value)) {
-    codeMirrorConfig.theme = 'railscasts'
-  } else if (oneDarkThemes.includes(theme.value)) {
-    codeMirrorConfig.theme = 'one-dark'
-  }
+  codeMirrorConfig.theme = codeMirrorThemeFor(theme.value)
 
   bus.on('file-loaded', handleFileChange)
   bus.on('flush-active-editor', flushSourceEditor)

@@ -17,7 +17,9 @@
 }
 
 .source-code .CodeMirror .cm-mt-comment-marker,
-.source-code .CodeMirror .cm-mt-comment-metadata {
+.source-code .CodeMirror .cm-mt-comment-metadata,
+.merge-editor .CodeMirror .cm-mt-comment-marker,
+.merge-editor .CodeMirror .cm-mt-comment-metadata {
   background: rgb(247 196 54 / 18%);
   border-bottom: 1px solid rgb(184 124 0 / 55%);
   color: inherit;

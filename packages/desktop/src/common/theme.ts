@@ -32,6 +32,19 @@ export const isDarkThemeId = (theme: unknown): theme is string => {
   )
 }
 
+// The CodeMirror theme matching a MarkText UI theme id. Single owner of the
+// mapping so every CodeMirror instance (source mode, merge resolver) shades
+// identically under all 25 dark themes.
+export const codeMirrorThemeFor = (theme: string): 'railscasts' | 'one-dark' | 'default' => {
+  if (railscastsThemes.includes(theme)) {
+    return 'railscasts'
+  }
+  if (oneDarkThemes.includes(theme)) {
+    return 'one-dark'
+  }
+  return 'default'
+}
+
 // Each built-in theme's editor background colour, kept in sync with the
 // `--editorBgColor` of the matching renderer theme (renderer/src/assets/themes/
 // *.theme.css; the default light theme lives in styles/index.css and is handled

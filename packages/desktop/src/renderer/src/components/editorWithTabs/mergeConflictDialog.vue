@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     class="merge-conflict-dialog"
-    :title="t('editor.mergeConflict.title')"
+    :title="dialogTitle"
     :modal="true"
     :close-on-click-modal="false"
     :close-on-press-escape="false"
@@ -13,7 +13,10 @@
       v-if="mergeConflict"
       class="merge-conflict"
     >
-      <p class="merge-summary">
+      <p
+        class="merge-summary"
+        :title="mergeConflict.pathname"
+      >
         {{ t('editor.mergeConflict.summary') }}
       </p>
       <p
@@ -109,6 +112,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import codeMirror from '../../codeMirror'
+import { codeMirrorThemeFor } from '@/config'
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
 import { t } from '../../i18n'
@@ -140,6 +144,14 @@ const visible = computed({
 
 const validationError = computed(() => mergeConflict.value?.validationError ?? '')
 
+// The dialog is a global modal that can open for a background tab, so the
+// header must identify the file being resolved.
+const dialogTitle = computed(() => {
+  const filename = mergeConflict.value?.filename
+  const title = t('editor.mergeConflict.title')
+  return filename ? `${title} \u2014 ${filename}` : title
+})
+
 const destroyEditor = (editor: CMInstance | null): void => {
   const wrapper = editor?.getWrapperElement?.()
   wrapper?.remove()
@@ -158,7 +170,7 @@ const createEditor = (parent: HTMLDivElement, value: string, readOnly: boolean):
   codeMirror(parent, {
     value,
     mode: 'markdown-comments',
-    theme: theme.value === 'dark' ? 'railscasts' : 'default',
+    theme: codeMirrorThemeFor(theme.value),
     lineNumbers: true,
     lineWrapping: true,
     readOnly,
@@ -191,7 +203,7 @@ watch(
 )
 
 watch(theme, () => {
-  const nextTheme = theme.value === 'dark' ? 'railscasts' : 'default'
+  const nextTheme = codeMirrorThemeFor(theme.value)
   localEditor.value?.setOption('theme', nextTheme)
   remoteEditor.value?.setOption('theme', nextTheme)
   resultEditor.value?.setOption('theme', nextTheme)
@@ -276,8 +288,9 @@ onBeforeUnmount(() => {
 .merge-validation-error {
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid var(--notificationWarnColor, #d97706);
-  color: var(--notificationWarnColor, #d97706);
+  /* Amber warning accent, readable on light and dark dialog surfaces. */
+  border: 1px solid #d97706;
+  color: #d97706;
   font-size: 13px;
 }
 

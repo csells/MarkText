@@ -14,4 +14,4 @@ export const DEFAULT_STYLE = Object.freeze({
   theme: 'light'
 })
 
-export { railscastsThemes, oneDarkThemes } from '../../common/theme'
+export { railscastsThemes, oneDarkThemes, codeMirrorThemeFor } from '../../common/theme'
