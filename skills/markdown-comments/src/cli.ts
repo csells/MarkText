@@ -37,7 +37,23 @@ Options:
   --encoding <name> Decode and write a non-BOM legacy file with an iconv-lite encoding such as cp1252 or shiftjis.
 `
 
-function parseArgs(args: string[]): ParsedArgs {
+// Every option this CLI knows takes a value; per-command allowed sets keep a
+// typo (or an option the command would silently drop) from passing as valid.
+const COMMAND_OPTIONS: Record<string, ReadonlySet<string>> = {
+  'list': new Set(['encoding']),
+  'validate': new Set(['encoding']),
+  'reply': new Set(['encoding', 'author', 'body', 'created-at']),
+  'resolve': new Set(['encoding', 'updated-at']),
+  'reopen': new Set(['encoding', 'updated-at']),
+  'edit': new Set(['encoding', 'status', 'authors', 'updated-at', 'reply-index', 'body', 'author', 'created-at'])
+}
+
+function parseArgs(command: string, args: string[]): ParsedArgs {
+  const allowed = COMMAND_OPTIONS[command]
+  if (!allowed) {
+    throw new Error(`Unknown command "${command}".\n${usage}`)
+  }
+
   const positional: string[] = []
   const options: Record<string, string> = {}
 
@@ -50,18 +66,25 @@ function parseArgs(args: string[]): ParsedArgs {
 
     const raw = arg.slice(2)
     const inlineValueIndex = raw.indexOf('=')
+    const name = inlineValueIndex >= 0 ? raw.slice(0, inlineValueIndex) : raw
+    if (!allowed.has(name)) {
+      throw new Error(`Unknown option "--${name}" for "${command}".\n${usage}`)
+    }
+
     if (inlineValueIndex >= 0) {
-      options[raw.slice(0, inlineValueIndex)] = raw.slice(inlineValueIndex + 1)
+      options[name] = raw.slice(inlineValueIndex + 1)
       continue
     }
 
+    // Every option takes a value; the value may itself begin with dashes
+    // (e.g. --body "--fixed the flag parsing"), so consume the next argument
+    // unconditionally and fail loudly when it is absent.
     const next = args[i + 1]
-    if (next == null || next.startsWith('--')) {
-      options[raw] = 'true'
-      continue
+    if (next == null) {
+      throw new Error(`Missing value for --${name}.\n${usage}`)
     }
 
-    options[raw] = next
+    options[name] = next
     i += 1
   }
 
@@ -172,10 +195,13 @@ function writeAndPrint(file: string, document: MarkdownDocument, markdown: strin
 
 function main(): void {
   const [command, ...rest] = process.argv.slice(2)
-  const { positional, options } = parseArgs(rest)
+  if (!command) {
+    throw new Error(usage)
+  }
+  const { positional, options } = parseArgs(command, rest)
   const file = positional[0]
 
-  if (!command || !file) {
+  if (!file) {
     throw new Error(usage)
   }
 
@@ -217,6 +243,13 @@ function main(): void {
   if (command === 'edit') {
     const replyIndex = parseReplyIndex(options['reply-index'])
     if (replyIndex != null) {
+      // A reply edit patches one reply; thread-level options would be
+      // silently dropped — reject the combination instead.
+      for (const threadOnly of ['status', 'authors']) {
+        if (options[threadOnly] != null) {
+          throw new Error(`--${threadOnly} does not apply to a reply edit (--reply-index).\n${usage}`)
+        }
+      }
       writeAndPrint(file, document, editCommentReply(markdown, id, replyIndex, {
         author: options.author,
         body: options.body,
@@ -230,7 +263,7 @@ function main(): void {
     return
   }
 
-  throw new Error(`Unknown command "${command}".\n${usage}`)
+  throw new Error(usage)
 }
 
 try {

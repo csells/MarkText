@@ -561,13 +561,11 @@ describe('muya comment metadata mutations', () => {
             '',
         ].join('\n');
 
-        const next = updateCommentMetadataInMarkdown(
+        expect(() => updateCommentMetadataInMarkdown(
             document,
             'a',
             current => ({ ...current, status: 'resolved' }),
-        );
-
-        expect(next).toBeNull();
+        )).toThrow(/corrupt/);
         expect(generate).not.toHaveBeenCalled();
     });
 

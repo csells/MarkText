@@ -465,6 +465,7 @@ export function updateCommentMetadataInMarkdown(
     updater: (metadata: ICommentMetadata) => ICommentMetadata,
 ): string | null {
     const analysis = analyzeMarkdownComments(markdown);
+    let corruptDecodeError: unknown = null;
     for (const sourceDefinition of analysis.sourceIndex.metadataDefinitions) {
         if (sourceDefinition.id !== id)
             continue;
@@ -473,7 +474,11 @@ export function updateCommentMetadataInMarkdown(
         try {
             current = decodeCommentMetadata(sourceDefinition.dataUri);
         }
-        catch {
+        catch (err) {
+            // A duplicate id may still carry a decodable definition, so keep
+            // scanning; if none decodes, the error below tells the caller the
+            // truth (corrupt payload) instead of "no definition found".
+            corruptDecodeError = err;
             continue;
         }
 
@@ -488,6 +493,11 @@ export function updateCommentMetadataInMarkdown(
 
         const nextLine = `${parts.prefix}${nextDataUri}${parts.trailing}`;
         return `${markdown.slice(0, sourceDefinition.start)}${nextLine}${markdown.slice(sourceDefinition.end)}`;
+    }
+
+    if (corruptDecodeError != null) {
+        const reason = corruptDecodeError instanceof Error ? corruptDecodeError.message : String(corruptDecodeError);
+        throw new Error(`Metadata for comment "${id}" is corrupt and cannot be decoded: ${reason}`);
     }
 
     return null;

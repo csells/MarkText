@@ -541,3 +541,66 @@ describe('markdown-comments CLI', () => {
     expect(skill).not.toContain('UTF-8 Markdown files only')
   })
 })
+
+describe('markdown-comments CLI — argument honesty', () => {
+  const openMeta = () =>
+    encodeCommentMetadata({ version: 1, status: 'open', authors: ['Ada'], replies: [] })
+
+  const docWithComment = () =>
+    writeMarkdown(`Text <!--MC:a-->reviewed<!--MC:~a--> end\n\n[MC:a]: ${openMeta()}\n`)
+
+  function runCliFailure(...args: string[]): { status: number | null; stderr: string } {
+    const result = spawnSync(tsxPath, [cliPath, ...args], { cwd: repoRoot, encoding: 'utf8' })
+    return { status: result.status, stderr: result.stderr }
+  }
+
+  it('accepts option values that begin with dashes', () => {
+    const file = docWithComment()
+
+    runCli('reply', file, 'a', '--author', 'Grace', '--body', '--fixed the flag parsing')
+
+    const parsed = readMarkdownComments(fs.readFileSync(file, 'utf8'))
+    expect(parsed.threads[0].replies.at(-1)?.body).toBe('--fixed the flag parsing')
+  })
+
+  it('rejects an option that is missing its value', () => {
+    const file = docWithComment()
+    const { status, stderr } = runCliFailure('reply', file, 'a', '--author', 'Grace', '--body')
+
+    expect(status).toBe(1)
+    expect(stderr).toContain('--body')
+    // The document is untouched.
+    expect(readMarkdownComments(fs.readFileSync(file, 'utf8')).threads[0].replies).toHaveLength(0)
+  })
+
+  it('rejects unknown options instead of silently ignoring them', () => {
+    const file = docWithComment()
+    const { status, stderr } = runCliFailure('resolve', file, 'a', '--bogus', 'x')
+
+    expect(status).toBe(1)
+    expect(stderr).toContain('--bogus')
+  })
+
+  it('rejects thread options combined with a reply edit instead of dropping them', () => {
+    const file = docWithComment()
+    runCli('reply', file, 'a', '--author', 'Grace', '--body', 'first')
+
+    const { status, stderr } = runCliFailure(
+      'edit', file, 'a', '--reply-index', '0', '--body', 'x', '--status', 'resolved'
+    )
+
+    expect(status).toBe(1)
+    expect(stderr).toContain('--status')
+  })
+
+  it('reports corrupt metadata as corruption, not as a missing definition', () => {
+    const file = writeMarkdown(
+      'Text <!--MC:a-->reviewed<!--MC:~a--> end\n\n[MC:a]: data:application/json;base64,%%%not-base64%%%\n'
+    )
+    const { status, stderr } = runCliFailure('resolve', file, 'a')
+
+    expect(status).toBe(1)
+    expect(stderr.toLowerCase()).toMatch(/corrupt|invalid|decode/)
+    expect(stderr).not.toContain('No metadata definition found')
+  })
+})
