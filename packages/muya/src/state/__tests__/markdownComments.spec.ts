@@ -891,3 +891,43 @@ describe('metadata source edits', () => {
         });
     });
 });
+
+// MC metadata definitions must be first-class block tokens in the base parser
+// (utils/marked/extensions/commentMetadata.ts). If they fall through to
+// marked's generic reference-definition rule instead, marked's
+// case-insensitive label dedup silently drops "duplicate" lines — losing
+// merge artifacts diagnostics must see, and deleting a user's own [mc:x]
+// link definition that collides with a comment id.
+describe('comment metadata definitions are first-class block tokens', () => {
+    it('round-trips duplicate [MC:id] definitions byte-identically, in place', () => {
+        const meta = metadata({ version: 1, status: 'open', replies: [] });
+        const markdown = `[MC:a]: ${meta}\n\nbody <!--MC:a-->text<!--MC:~a-->.\n\n[MC:a]: ${meta}\n`;
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('keeps duplicate definitions visible to duplicate-metadata diagnostics after a round-trip', () => {
+        const meta = metadata({ version: 1, status: 'open', replies: [] });
+        const markdown = `body <!--MC:a-->text<!--MC:~a-->.\n\n[MC:a]: ${meta}\n\n[MC:a]: ${meta}\n`;
+
+        const diagnostics = analyzeMarkdownComments(roundTrip(markdown)).comments.diagnostics;
+
+        expect(diagnostics).toEqual([
+            expect.objectContaining({ code: 'duplicate-metadata', id: 'a' }),
+        ]);
+    });
+
+    it('preserves a user link definition whose label collides case-insensitively with an MC id', () => {
+        const meta = metadata({ version: 1, status: 'open', replies: [] });
+        const markdown = `<!--MC:note-->flagged<!--MC:~note-->\n\n[MC:note]: ${meta}\n\nSee [the docs][mc:note].\n\n[mc:note]: https://example.com "user def"\n`;
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('keeps a mid-document definition at its position', () => {
+        const meta = metadata({ version: 1, status: 'open', replies: [] });
+        const markdown = `alpha <!--MC:a-->x<!--MC:~a-->\n\n[MC:a]: ${meta}\n\nomega\n`;
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+});

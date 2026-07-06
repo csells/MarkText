@@ -49,6 +49,16 @@ export interface IFrontmatterToken {
     lang: 'yaml' | 'toml' | 'json';
 }
 
+// `[MC:id]: <payload>` comment-metadata definition line, tokenized ahead of
+// marked's generic reference-definition rule so label dedup can never drop or
+// shadow one (see utils/marked/extensions/commentMetadata.ts). `text` is the
+// definition line without its trailing newline.
+export interface ICommentMetadataDefinitionToken {
+    type: 'commentMetadataDefinition';
+    raw: string;
+    text: string;
+}
+
 export interface IBlockEndToken {
     type: 'block-end';
     tokenType: 'blockquote' | 'list' | 'list-item' | 'footnote';
@@ -68,7 +78,8 @@ export type TLexedToken
         | ListItemToken
         | IFootnoteToken
         | IMultipleMathToken
-        | IFrontmatterToken;
+        | IFrontmatterToken
+        | ICommentMetadataDefinitionToken;
 
 // The working token stream `markdownToState` walks: lexer output plus the
 // synthetic `block-end` markers it injects to pop the parent stack.

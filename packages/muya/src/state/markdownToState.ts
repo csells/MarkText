@@ -10,11 +10,9 @@ import type {
     ITaskListState,
     TState,
 } from './types';
-import { analyzeMarkdownComments } from '../comments/analyze';
 import {
     COMMENT_MARKER_PATTERN,
     COMMENT_MARKER_SEARCH_REGEXP,
-    parseCommentMetadataDefinition,
 } from '../comments/syntax';
 import logger from '../utils/logger';
 import { lexBlock } from '../utils/marked';
@@ -115,91 +113,6 @@ function consumeTextToken(token: Extract<TBlockToken, { type: 'text' }>, tokens:
     return value;
 }
 
-interface ICommentMetadataDefinitionScanOptions {
-    frontMatter: boolean;
-    math: boolean;
-}
-
-function restoreDroppedCommentMetadataDefinitions(
-    markdown: string,
-    states: TState[],
-    options: ICommentMetadataDefinitionScanOptions,
-): void {
-    const definitionKeySeparator = '\u0000';
-    const rawDefinitions = analyzeMarkdownComments(markdown, options)
-        .sourceIndex
-        .metadataDefinitions
-        .map(definition => markdown.slice(definition.start, definition.end));
-    if (!rawDefinitions.length)
-        return;
-
-    // Count each (id, dataUri) definition already present anywhere in the parsed
-    // state tree — including definitions marked folded into a multi-line
-    // paragraph or indented inside a container, which it does not surface as
-    // their own paragraph. Keying on the parsed definition (not the raw line
-    // text) makes this indentation-independent. Only genuinely dropped
-    // definitions are restored, so a save never duplicates one that survived.
-    const definitionKey = (line: string): string | null => {
-        const parsed = parseCommentMetadataDefinition(line);
-        return parsed ? `${parsed.id}${definitionKeySeparator}${parsed.dataUri}` : null;
-    };
-    // Definitions inside these blocks are literal text, not real definitions.
-    // Keep this aligned with the comment analyzer so a def in frontmatter or a
-    // code block cannot mask a genuinely dropped definition with the same id.
-    const nonDefinitionStates = new Set<TState['name']>([
-        'code-block',
-        'diagram',
-        'frontmatter',
-        'html-block',
-        'math-block',
-    ]);
-    const present = new Map<string, number>();
-    const countPresent = (nodes: TState[]): void => {
-        for (const state of nodes) {
-            if ('text' in state && typeof state.text === 'string' && !nonDefinitionStates.has(state.name)) {
-                for (const line of state.text.split('\n')) {
-                    const key = definitionKey(line);
-                    if (key)
-                        present.set(key, (present.get(key) ?? 0) + 1);
-                }
-            }
-            if ('children' in state && Array.isArray(state.children))
-                countPresent(state.children);
-        }
-    };
-    countPresent(states);
-
-    let insertIndex = states.length;
-    states.forEach((state, index) => {
-        if (state.name === 'paragraph' && 'text' in state && parseCommentMetadataDefinition(state.text))
-            insertIndex = index + 1;
-    });
-
-    const missing = rawDefinitions.filter((definition) => {
-        const key = definitionKey(definition);
-        if (!key)
-            return false;
-
-        const count = present.get(key) ?? 0;
-        if (count > 0) {
-            present.set(key, count - 1);
-            return false;
-        }
-        return true;
-    });
-    if (!missing.length)
-        return;
-
-    states.splice(
-        insertIndex,
-        0,
-        ...missing.map(text => ({
-            name: 'paragraph' as const,
-            text,
-        })),
-    );
-}
-
 export interface IMarkdownToStateOptions {
     footnote: boolean;
     math: boolean;
@@ -264,9 +177,6 @@ export class MarkdownToState {
             else
                 this._handleLeafToken(token, parentList, tokens, trimUnnecessaryCodeBlockEmptyLines);
         }
-
-        if (states.length)
-            restoreDroppedCommentMetadataDefinitions(markdown, states, { frontMatter, math });
 
         return states.length ? states : [{ name: 'paragraph', text: '' }];
     }
@@ -495,6 +405,20 @@ export class MarkdownToState {
             }
 
             case 'space': {
+                break;
+            }
+
+            case 'commentMetadataDefinition': {
+                // First-class `[MC:id]:` block token (see
+                // utils/marked/extensions/commentMetadata.ts) — tokenized ahead
+                // of marked's generic def rule, so duplicates, position, and
+                // malformed payloads survive verbatim for the comment analyzer.
+                // Lowered to paragraph text exactly like `def` below.
+                state = {
+                    name: 'paragraph' as const,
+                    text: token.text,
+                };
+                parentList[0].push(state);
                 break;
             }
 

@@ -2,6 +2,7 @@ import type { Token } from 'marked';
 import type { IFrontmatterToken, ILexOption, TLexedToken } from './types';
 import { Marked } from 'marked';
 import compatibleTaskList from './compatibleTaskList';
+import commentMetadataExtension from './extensions/commentMetadata';
 import footnoteExtension from './extensions/footnote';
 import mathExtension from './extensions/math';
 import fm from './frontMatter';
@@ -20,6 +21,10 @@ export function lexBlock(
     // marked.use() on the global singleton would make math / footnote sticky:
     // any consumer that once passed `math: true` would get math parsing forever.
     const m = new Marked();
+
+    // MC comment metadata is core syntax, not an option: `[MC:id]:` lines must
+    // never reach marked's generic def rule, whose label dedup drops them.
+    m.use(commentMetadataExtension());
 
     if (math) {
         m.use(
