@@ -248,6 +248,60 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(tab.isSaved).toBe(false)
   })
 
+  // Two watcher events can be in flight at once (agents write fast). The
+  // FIRST merge result is stale by the time it resolves and must be dropped,
+  // or the newest disk content would be overwritten by the older merge.
+  it('HANDLE_DIRTY_EXTERNAL_CHANGE drops a superseded in-flight merge (second watcher event wins)', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    const changeFor = (markdown: string) =>
+      ({
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown }
+      }) as never
+
+    // Fire both before awaiting either: the second supersedes the first
+    // while the first merge is still in flight.
+    const first = store.HANDLE_DIRTY_EXTERNAL_CHANGE(tab as never, changeFor('ONE\nshared\nthree\n'))
+    const second = store.HANDLE_DIRTY_EXTERNAL_CHANGE(tab as never, changeFor('one\nshared\nTHREE\n'))
+    await Promise.all([first, second])
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe('one\nlocal\nTHREE\n')
+    expect(tab.diskBaseMarkdown).toBe('one\nshared\nTHREE\n')
+    expect(tab.isSaved).toBe(false)
+  })
+
+  it('HANDLE_DIRTY_EXTERNAL_CHANGE drops a merge whose tab was closed mid-flight', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    const pending = store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: 'one\nshared\nTHREE\n' }
+      } as never
+    )
+    // The user closes the tab while the merge is in flight.
+    store.tabs = [] as unknown as typeof store.tabs
+    store.tabIdToIndex = {}
+    store.currentFile = null as unknown as typeof store.currentFile
+    await pending
+
+    expect(store.mergeConflict).toBeNull()
+    // The closed tab's buffer is left untouched — nothing was applied.
+    expect(tab.markdown).toBe('one\nlocal\nthree\n')
+    expect(tab.notifications).toEqual([])
+  })
+
   it('HANDLE_DIRTY_EXTERNAL_CHANGE compares comment diagnostics through the authoritative analyzer', async() => {
     const store = useEditorStore()
     const tab = makeDirtyTab(store)

@@ -173,8 +173,10 @@ const createEditor = (parent: HTMLDivElement, value: string, readOnly: boolean):
     theme: codeMirrorThemeFor(theme.value),
     lineNumbers: true,
     lineWrapping: true,
-    readOnly,
-    viewportMargin: Infinity
+    // Default viewport virtualization stays on: the whole-file escalation
+    // path exists precisely for documents too large to merge cell-by-cell,
+    // and three unvirtualized panes of such a file would freeze the renderer.
+    readOnly
   })
 
 const mountEditors = async (): Promise<void> => {
