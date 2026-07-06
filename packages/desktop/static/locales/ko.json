@@ -912,6 +912,7 @@
   },
   "common": {
     "cancel": "취소",
+    "close": "닫기",
     "ok": "확인"
   },
   "dialog": {

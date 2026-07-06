@@ -912,6 +912,7 @@
   },
   "common": {
     "cancel": "キャンセル",
+    "close": "閉じる",
     "ok": "OK"
   },
   "dialog": {

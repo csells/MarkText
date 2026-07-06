@@ -912,6 +912,7 @@
   },
   "common": {
     "cancel": "İptal",
+    "close": "Kapat",
     "ok": "Tamam"
   },
   "dialog": {

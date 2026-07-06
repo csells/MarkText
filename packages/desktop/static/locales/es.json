@@ -912,6 +912,7 @@
   },
   "common": {
     "cancel": "Cancelar",
+    "close": "Cerrar",
     "ok": "OK"
   },
   "dialog": {

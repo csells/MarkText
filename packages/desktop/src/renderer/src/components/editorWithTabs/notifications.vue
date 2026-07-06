@@ -10,22 +10,26 @@
     </div>
     <div class="controls">
       <div>
-        <span
+        <button
           v-if="currentNotification.showConfirm"
+          type="button"
           class="inline-button"
           @click.stop="handleClick(true)"
         >
           {{ currentNotification.confirmLabel ?? t('common.ok') }}
-        </span>
-        <span
+        </button>
+        <button
           v-if="currentNotification.secondaryLabel"
+          type="button"
           class="inline-button"
           @click.stop="handleClick('secondary')"
         >
           {{ currentNotification.secondaryLabel }}
-        </span>
-        <span
+        </button>
+        <button
+          type="button"
           class="inline-button icon-button"
+          :aria-label="t('common.close')"
           @click.stop="handleClick(false)"
         >
           <el-icon
@@ -34,7 +38,7 @@
           >
             <Close />
           </el-icon>
-        </span>
+        </button>
       </div>
     </div>
   </div>
@@ -121,7 +125,10 @@ const handleClick = (status: boolean | 'secondary') => {
     height: 24px;
     padding: 0 8px;
     font-size: 12px;
+    font-family: inherit;
+    color: inherit;
     cursor: pointer;
+    background: none;
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
   & .icon-button {
