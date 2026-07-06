@@ -103,9 +103,14 @@ describe('muya.getCursorOffset() (Phase G — G7)', () => {
         expect(muya.getMarkdown()).toBe(markdown);
     });
 
-    it('maps a caret inside a hidden comment metadata definition', () => {
+    it('clamps a caret aimed at hidden comment metadata to the last visible position', () => {
+        // HARD INVARIANT (vision): the caret must never REST inside hidden
+        // comment syntax, programmatic placement included. Placing a cursor
+        // into the metadata block redirects to the end of the previous visible
+        // block, and the mapping reports THAT position.
+        const visibleLine = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
         const markdown = [
-            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+            visibleLine,
             '',
             `[MC:a]: ${COMMENT_METADATA}`,
             '',
@@ -116,8 +121,8 @@ describe('muya.getCursorOffset() (Phase G — G7)', () => {
 
         const cursor = muya.getCursorOffset();
 
-        expect(cursor?.anchor).toEqual({ line: 2, ch: 7 });
-        expect(cursor?.focus).toEqual({ line: 2, ch: 7 });
+        expect(cursor?.anchor).toEqual({ line: 0, ch: visibleLine.length });
+        expect(cursor?.focus).toEqual({ line: 0, ch: visibleLine.length });
         expect(muya.getMarkdown()).toBe(markdown);
     });
 

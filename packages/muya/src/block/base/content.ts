@@ -666,6 +666,25 @@ class Content extends TreeNode {
      * @param {boolean} needUpdate
      */
     setCursor(begin: number, end: number, needUpdate = false) {
+        // HARD INVARIANT: the caret must never rest inside a hidden comment
+        // metadata block — programmatic placement included (cursor restore,
+        // source-mode handoff, comment jump). This primitive is the choke
+        // point every model-driven placement flows through, so redirect to
+        // the nearest visible content here: the end of the previous editable
+        // block (metadata definitions trail the document by convention), else
+        // the start of the next.
+        if (this.isCommentMetadataBlock()) {
+            const previous = this.previousEditableContentInContext();
+            if (previous) {
+                previous.setCursor(previous.text.length, previous.text.length, needUpdate);
+                return;
+            }
+            const next = this.nextEditableContentInContext();
+            if (next)
+                next.setCursor(0, 0, needUpdate);
+            return;
+        }
+
         const anchor = { offset: begin, block: this, path: this.path };
         const focus = { offset: end, block: this, path: this.path };
 
