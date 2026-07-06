@@ -670,6 +670,11 @@ export const useEditorStore = defineStore('editor', {
         const tab = this.tabs.find((f) => f.id === tabId)
         if (tab) {
           markTabSavedAtCurrentHistory(tab)
+          // A save advances the merge base, so any open conflict session for
+          // this tab is resolving disk content that no longer exists.
+          if (this.mergeConflict?.tabId === tab.id) {
+            this.mergeConflict = null
+          }
           debouncedSendBufferedState()
         }
       })

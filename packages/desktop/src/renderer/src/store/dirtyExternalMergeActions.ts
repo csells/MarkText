@@ -28,6 +28,14 @@ import {
 // unchanged — `this` simply became the explicit `store` parameter.
 
 export interface MergeConflictState {
+  // Monotonic session token: every (re)derivation mints a new one so the
+  // dialog can remount its panes when a same-tab session is superseded.
+  session: number
+  // Liveness snapshot: the session may act only while the tab's buffer and
+  // disk base still hold exactly these values (a save, edit, or newer disk
+  // change moves them and supersedes the session).
+  expectedMarkdown: string
+  expectedDiskBase: string
   tabId: string
   pathname: string
   filename: string
@@ -82,6 +90,26 @@ interface DirtyExternalMergeStore {
 // user kept typing, or the tab closed) is discarded instead of clobbering the
 // current state.
 const dirtyExternalMergeRequestIds = new Map<string, number>()
+
+let mergeConflictSessionCounter = 0
+
+// A session is live only while its snapshots still describe reality: the tab
+// exists, the buffer is the captured local, and the disk base has not moved.
+// Anything else means a save, edit, or newer disk change superseded it.
+const isLiveMergeConflictSession = (
+  store: DirtyExternalMergeStore,
+  conflict: MergeConflictState
+): IFileState | null => {
+  const tab = store.tabs.find(
+    (candidate) =>
+      candidate.id === conflict.tabId &&
+      window.fileUtils.isSamePathSync(candidate.pathname, conflict.pathname)
+  )
+  if (!tab) return null
+  if (tab.markdown !== conflict.expectedMarkdown) return null
+  if (tab.isSaved || requireDiskBaseMarkdown(tab) !== conflict.expectedDiskBase) return null
+  return tab
+}
 
 const commentDiagnosticOccurrences = (markdown: string): Map<string, number> => {
   const counts = new Map<string, number>()
@@ -217,7 +245,11 @@ export function applyDirtyExternalMerge(
         }
 
         if (status === 'secondary') {
+          mergeConflictSessionCounter += 1
           store.mergeConflict = {
+            session: mergeConflictSessionCounter,
+            expectedMarkdown: mergedMarkdown,
+            expectedDiskBase: change.data.markdown,
             tabId: actionTab.id,
             pathname: change.pathname,
             filename: actionTab.filename,
@@ -266,7 +298,11 @@ export function openDirtyExternalMergeConflict(
   resultMarkdown: string,
   conflicts: ThreeWayMergeConflict[]
 ): void {
+  mergeConflictSessionCounter += 1
   const mergeConflict = {
+    session: mergeConflictSessionCounter,
+    expectedMarkdown: tab.markdown,
+    expectedDiskBase: baseMarkdown,
     tabId: tab.id,
     pathname: change.pathname,
     filename: tab.filename,
@@ -303,7 +339,8 @@ export function openDirtyExternalMergeConflict(
           })
         return
       }
-      store.mergeConflict = { ...mergeConflict }
+      mergeConflictSessionCounter += 1
+      store.mergeConflict = { ...mergeConflict, session: mergeConflictSessionCounter }
       debouncedSendBufferedState()
     }
   })
@@ -321,6 +358,25 @@ export function acceptDirtyExternalMergeConflict(
 ): void {
   const conflict = store.mergeConflict
   if (!conflict) return
+
+  // A stale session must never apply: the buffer or the disk base moved
+  // since the panes were captured. A moved buffer re-derives the merge
+  // against the current content; a moved base (save/newer reload) means the
+  // disk content this session was resolving no longer exists — close it.
+  const liveTab = isLiveMergeConflictSession(store, conflict)
+  if (!liveTab) {
+    store.mergeConflict = null
+    const tab = store.tabs.find((candidate) => candidate.id === conflict.tabId)
+    if (tab && !tab.isSaved && requireDiskBaseMarkdown(tab) === conflict.expectedDiskBase) {
+      store
+        .HANDLE_DIRTY_EXTERNAL_CHANGE(tab, conflict.fileChange, { forceReview: true })
+        .catch((err) => {
+          console.error('Failed to re-derive a stale merge-conflict session:', err)
+        })
+    }
+    debouncedSendBufferedState()
+    return
+  }
 
   // Never write generated conflict scaffolding into the document: an
   // unresolved (or hand-mangled) marker block must be resolved first.
@@ -374,6 +430,15 @@ export function reconcileRestoredDiskChanges(store: DirtyExternalMergeStore): vo
 export function reloadDiskFromMergeConflict(store: DirtyExternalMergeStore): void {
   const conflict = store.mergeConflict
   if (!conflict) return
+
+  // A stale session's fileChange no longer matches the disk (a save or newer
+  // change superseded it); loading it would resurrect dead bytes. Close the
+  // session — the watcher reports the real disk state on the next change.
+  if (!isLiveMergeConflictSession(store, conflict)) {
+    store.mergeConflict = null
+    debouncedSendBufferedState()
+    return
+  }
 
   const tab = store.tabs.find((t) => t.id === conflict.tabId)
   store.mergeConflict = null
@@ -431,6 +496,15 @@ export async function handleDirtyExternalChange(
   // applies clean merges, but an explicit review request must not).
   options: { forceReview?: boolean } = {}
 ): Promise<void> {
+  // A newer change for a tab with an open resolver SUPERSEDES that session:
+  // never auto-apply beneath the modal or leave stale panes up. Re-derive
+  // against the newest remote and keep the user in review.
+  let forceReview = options.forceReview === true
+  if (store.mergeConflict?.tabId === tab.id) {
+    store.mergeConflict = null
+    forceReview = true
+  }
+
   const { data } = change
   // All-in on the three-way merge: an external change to a file the user is
   // still editing is always reconciled by merging, never by a reload
@@ -492,7 +566,7 @@ export async function handleDirtyExternalChange(
     // A clean merge auto-applies on the initial change, but an explicit
     // reopen (forceReview) surfaces the dialog so the user can inspect it.
     if (
-      options.forceReview ||
+      forceReview ||
       introducesNewCommentDiagnostics(mergeResult.mergedMarkdown, localMarkdown, data.markdown)
     ) {
       store.OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(

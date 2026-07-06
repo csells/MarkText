@@ -302,6 +302,79 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(tab.notifications).toEqual([])
   })
 
+  // Session liveness: a merge-conflict session captures snapshots (base,
+  // local, remote). Any superseding event — a newer disk change, a save that
+  // advances the base, a buffer edit — must invalidate the session instead of
+  // letting Accept/Reload apply stale content over newer reality.
+  const openConflictSession = (store: ReturnType<typeof useEditorStore>, tab: ReturnType<typeof makeDirtyTab>) => {
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nlocal\nthree\n'
+    store.OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: 'one\nremote\nthree\n' }
+      } as never,
+      tab.diskBaseMarkdown,
+      'one\n<<<<<<< MARKTEXT_LOCAL\nlocal\n=======\nremote\n>>>>>>> MARKTEXT_REMOTE\nthree\n',
+      [] as never
+    )
+  }
+
+  it('ACCEPT refuses a session whose local buffer moved and re-derives against the new buffer', () => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    openConflictSession(store, tab)
+
+    // The buffer changed under the open dialog (background edit).
+    tab.markdown = 'one\nlocal EDITED\nthree\n'
+
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT('one\nremote\nthree\n')
+
+    // The stale result was NOT applied.
+    expect(tab.markdown).toBe('one\nlocal EDITED\nthree\n')
+    expect(tab.diskBaseMarkdown).toBe('one\nshared\nthree\n')
+  })
+
+  it('ACCEPT refuses a session whose disk base advanced (save happened) and closes it', () => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    openConflictSession(store, tab)
+
+    // A save advanced the base: the on-disk agent write this session was
+    // resolving no longer exists.
+    tab.diskBaseMarkdown = tab.markdown
+    tab.isSaved = true
+
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT('one\nremote\nthree\n')
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe('one\nlocal\nthree\n')
+    expect(tab.diskBaseMarkdown).toBe('one\nlocal\nthree\n')
+  })
+
+  it('a newer disk change supersedes an open session instead of acting beneath it', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    openConflictSession(store, tab)
+    const firstSession = store.mergeConflict!.session
+
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: 'one\nshared\nthree NEWER\n' }
+      } as never
+    )
+
+    // The session was re-derived against the newest remote — not auto-applied
+    // beneath the open modal, not left stale.
+    expect(store.mergeConflict).not.toBeNull()
+    expect(store.mergeConflict!.remoteMarkdown).toBe('one\nshared\nthree NEWER\n')
+    expect(store.mergeConflict!.session).not.toBe(firstSession)
+    expect(tab.markdown).toBe('one\nlocal\nthree\n')
+  })
+
   it('HANDLE_DIRTY_EXTERNAL_CHANGE compares comment diagnostics through the authoritative analyzer', async() => {
     const store = useEditorStore()
     const tab = makeDirtyTab(store)

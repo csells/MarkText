@@ -196,7 +196,7 @@ const mountEditors = async (): Promise<void> => {
 }
 
 watch(
-  () => mergeConflict.value?.tabId,
+  () => mergeConflict.value?.session,
   () => {
     mountEditors().catch((err) => {
       console.error('Failed to mount merge conflict editors:', err)
