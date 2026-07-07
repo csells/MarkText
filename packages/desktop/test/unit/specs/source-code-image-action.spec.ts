@@ -1,253 +1,257 @@
-import { describe, it, expect, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
-import { parse, compileScript } from 'vue/compiler-sfc'
-import ts from 'typescript'
-import { ref } from 'vue'
-import {
-  analyzeMarkdownComments,
-  appendCommentReplyMetadata,
-  sourceCommentIgnoredIndexRanges,
-  sourceRangesOverlap,
-  updateCommentMetadataInMarkdown
-} from '@muyajs/core'
-import {
-  activeSourceCommentIds,
-  commentMetadataAppendix,
-  getSourceCommentCandidate,
-  screenSourceCommentCandidate,
-  sourceCommentDiagnosticSyntaxRange,
-  sourceCommentIndexRanges
-} from '../../../src/renderer/src/components/editorWithTabs/sourceCommentController'
+import { createPinia, setActivePinia } from 'pinia'
+import { mount, type VueWrapper } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi, type Mock, type MockInstance } from 'vitest'
 
-// `handleImageAction` lives as a <script setup> closure in sourceCode.vue
-// (registered on the `image-action` bus during onMounted). The desktop unit
-// runner ships no @vitejs/plugin-vue and no @vue/test-utils, so the SFC cannot
-// be imported or mounted directly. Instead, compile the *real* source at
-// runtime, swap its imports for injected stubs, and run setup() to grab the
-// closure off the dev-mode `__returned__` bindings. This drives the actual
-// product algorithm and re-reads the file every run, so it cannot drift.
+// Real-mount component spec per specs/architecture/test-infrastructure.md:
+// sourceCode.vue is mounted with @vue/test-utils; behaviors are driven the way
+// the app drives them (bus events, CodeMirror events routed through a mocked
+// @/codeMirror boundary) and asserted on the buffer, stores, and IPC.
 
-const here = dirname(fileURLToPath(import.meta.url))
-const vuePath = resolve(here, '../../../src/renderer/src/components/editorWithTabs/sourceCode.vue')
+vi.hoisted(() => {
+  const w = globalThis as unknown as {
+    window?: {
+      path?: { sep: string; dirname: (p: string) => string }
+      marktext?: { env: { windowId: number } }
+      fileUtils?: { isSamePathSync: (a: string, b: string) => boolean }
+      electron?: {
+        clipboard: { writeText: (s: string) => void }
+        ipcRenderer: { send: (...a: unknown[]) => void; on: (...a: unknown[]) => void }
+      }
+    }
+  }
+  w.window ??= {}
+  w.window.path ??= { sep: '/', dirname: (p: string) => p }
+  w.window.marktext ??= { env: { windowId: 1 } }
+  w.window.fileUtils ??= { isSamePathSync: (a, b) => a === b }
+  w.window.electron ??= {
+    clipboard: { writeText: () => {} },
+    ipcRenderer: { send: () => {}, on: () => {} }
+  }
+})
 
-interface CMCursor {
+vi.mock('@/services/notification', () => ({ default: { notify: vi.fn(), name: 'notify' } }))
+vi.mock('@/store/bufferedState', () => ({
+  debouncedSendBufferedState: vi.fn(),
+  sendBufferedState: vi.fn(() => Promise.resolve(true))
+}))
+vi.mock(import('vue-i18n'), async(importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    useI18n: (() => ({ t: (key: string) => key })) as unknown as typeof actual.useI18n
+  }
+})
+// Package-boundary spy: everything stays real, the analyzer call count and
+// arguments become observable (the analysis cache contract needs both).
+vi.mock(import('@muyajs/core'), async(importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, analyzeMarkdownComments: vi.fn(actual.analyzeMarkdownComments) }
+})
+
+interface CMPosition {
   line: number
   ch: number
 }
 
-interface SetupBindings {
-  editor: { value: unknown }
-  flushSourceEditor: () => void
-  handleImageAction: (payload: unknown) => void
-  replaceSourceCommentMetadata: (
-    cm: StubCM,
-    id: string,
-    updater: (metadata: Record<string, unknown>) => Record<string, unknown>
-  ) => boolean
-  sourceCommentIndexRanges: (markdown: string) => Array<{ id: string; start: number; end: number }>
-  refreshCommentState: (cm: StubCM) => void
-  tabId: { value: string | null }
-}
-
-interface SetupModule {
-  default: { setup: (props: unknown, ctx: { expose: () => void }) => SetupBindings }
-}
-
-const loadComponent = (deps: Record<string, unknown>) => {
-  const src = readFileSync(vuePath, 'utf8')
-  const { descriptor } = parse(src)
-  const compiled = compileScript(descriptor, { id: 'test' })
-  // Drop every import; bindings come from the injected `__deps` object so the
-  // store/codeMirror/muya/config modules never load.
-  const noImports = compiled.content.replace(/^\s*import[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '')
-  // esbuild's transformSync trips over jsdom's TextEncoder realm, so transpile
-  // the TS away with the (pure-JS) typescript compiler.
-  const js = ts.transpileModule(noImports, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
-  }).outputText
-  // Running the compiled setup needs the Function constructor; there is no
-  // module loader to hand it the swapped-in dependency object otherwise.
-  // eslint-disable-next-line no-new-func
-  const factory = new Function(
-    '__deps',
-    'exports',
-    'module',
-    `const { _defineComponent, ref, watch, onMounted, onBeforeUnmount, nextTick,
-      useEditorStore, usePreferencesStore, storeToRefs, codeMirror,
-      useLayoutStore, findMarkdownHeadingLine, scrollSourceEditorToLine,
-      setCursorAtFirstLine, setTextDirection, appendCommentReplyMetadata,
-      COMMENT_METADATA_DATA_URI_PREFIX, COMMENT_MARKER_PATTERN, createCommentMetadata, decodeCommentMetadata,
-      encodeCommentMetadata, nextCommentId, parseCommentMetadataDefinition,
-      serializeCommentMarker, serializeCommentMetadataDefinition,
-      updateCommentMetadataInMarkdown,
-      sourceCommentIgnoredIndexRanges, sourceRangesOverlap,
-      activeSourceCommentIds: activeSourceCommentIdsForIndexes,
-      commentMetadataAppendix, createSourceCommentAnalysis,
-      getSourceCommentCandidate: getSourceCommentCandidateForIndexes,
-      screenSourceCommentCandidate: screenSourceCommentCandidateForIndexes,
-      sourceCommentDiagnosticSyntaxRange: sourceCommentDiagnosticSyntaxRangeFromAnalysis,
-      sourceCommentIndexRanges: sourceCommentIndexRangesFromAnalysis,
-      publishSourceAddCommentCapability,
-      getWordCount, wordCount, adjustCursor, bus, notice, useI18n,
-      oneDarkThemes, railscastsThemes } = __deps
-    ${js}
-    return module.exports`
-  ) as (deps: Record<string, unknown>, exports: object, module: object) => SetupModule
-  const m = { exports: {} as Record<string, unknown> }
-  const exported = factory(deps, m.exports, m)
-  return exported.default
-}
-
-const makeDeps = (over: Record<string, unknown> = {}) => {
-  const deps = {
-    _defineComponent: (o: unknown) => o,
-    ref,
-    notice: { notify: () => {} },
-    useI18n: () => ({ t: (key: string) => key }),
-    watch: () => {},
-    onMounted: () => {},
-    onBeforeUnmount: () => {},
-    nextTick: () => Promise.resolve(),
-    useEditorStore: () => ({ LISTEN_FOR_CONTENT_CHANGE: () => {} }),
-    useLayoutStore: () => ({ SET_LAYOUT: () => {} }),
-    usePreferencesStore: () => ({}),
-    storeToRefs: () => ({ theme: ref(''), sourceCode: ref(true), currentFile: ref(null) }),
-    findMarkdownHeadingLine: () => null,
-    scrollSourceEditorToLine: () => {},
-    codeMirror: () => ({}),
-    setCursorAtFirstLine: vi.fn(),
-    setTextDirection: () => {},
-    appendCommentReplyMetadata,
-    COMMENT_METADATA_DATA_URI_PREFIX: 'data:application/json;base64,',
-    COMMENT_MARKER_PATTERN: '<!--MC:(~?)(\\w[\\w-]*)-->',
-    createCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
-    decodeCommentMetadata: () => ({ version: 1, status: 'open', replies: [] }),
-    encodeCommentMetadata: () => 'data:application/json;base64,e30=',
-    serializeCommentMarker: (id: string, kind: 'open' | 'close' = 'open') =>
-      `<!--MC:${kind === 'close' ? '~' : ''}${id}-->`,
-    serializeCommentMetadataDefinition: (id: string, dataUri: string) => `[MC:${id}]: ${dataUri}`,
-    nextCommentId: () => 'cmt_1',
-    parseCommentMetadataDefinition: () => null,
-    analyzeMarkdownComments,
-    sourceCommentIgnoredIndexRanges,
-    sourceRangesOverlap,
-    activeSourceCommentIds,
-    commentMetadataAppendix,
-    getSourceCommentCandidate,
-    screenSourceCommentCandidate,
-    sourceCommentDiagnosticSyntaxRange,
-    sourceCommentIndexRanges,
-    updateCommentMetadataInMarkdown,
-    wordCount: () => 0,
-    getWordCount: () => 0,
-    adjustCursor: (c: unknown) => c,
-    bus: { on: () => {}, off: () => {}, emit: () => {} },
-    oneDarkThemes: [],
-    railscastsThemes: [],
-    ...over
-  }
-  ;(deps as Record<string, unknown>).publishSourceAddCommentCapability = (enabled: boolean) => {
-    ;(deps.bus.emit as (event: string, enabled: boolean) => void)(
-      'editor-add-comment-enabled-changed',
-      enabled
-    )
-    const { windowId } = window.marktext?.env ?? { windowId: -1 }
-    window.electron.ipcRenderer.send('mt::editor-add-comment-selection-changed', windowId, enabled)
-  }
-  return {
-    ...deps,
-    createSourceCommentAnalysis: (markdown: string, parserOptions: unknown) => ({
-      markdown,
-      parserOptionsKey: JSON.stringify(parserOptions),
-      ...(
-        deps.analyzeMarkdownComments as (
-          markdown: string,
-          options: unknown
-        ) => ReturnType<typeof analyzeMarkdownComments>
-      )(markdown, parserOptions)
-    })
-  }
-}
-
-interface StubCM {
-  firstLine: () => number
+interface FakeCM {
+  cursorState: { focus: CMPosition | null; anchor: CMPosition | null }
+  fire: (event: string) => void
   getValue: () => string
-  setValue: (v: string) => void
-  getCursor: (which: string) => CMCursor | null
+  setValue: (value: string) => void
+  getCursor: (which?: string) => CMPosition | null
   getLine: (line: number) => string
-  indexFromPos: (pos: CMCursor) => number
+  firstLine: () => number
   lastLine: () => number
   lineCount: () => number
-  replaceRange: (
-    replacement: string,
-    from: { line: number; ch: number },
-    to?: { line: number; ch: number }
-  ) => void
-  setSelection: ReturnType<typeof vi.fn>
+  indexFromPos: (pos: CMPosition) => number
+  posFromIndex: (index: number) => CMPosition
+  replaceRange: (replacement: string, from: CMPosition, to?: CMPosition) => void
+  setSelection: Mock
+  operation: (fn: () => void) => void
+  on: (event: string, handler: (...args: unknown[]) => void) => void
+  setOption: Mock
+  focus: Mock
+  execCommand: Mock
+  hasFocus: () => boolean
+  invalidateImageCache: Mock
+  getScrollerElement: () => HTMLElement
+  somethingSelected: () => boolean
 }
 
-const makeCM = (value: string, focus: CMCursor | null, anchor: CMCursor | null): StubCM => {
-  let current = value
-  const lines = () => current.split('\n')
-  const indexFromPos = (pos: CMCursor) => {
-    const allLines = lines()
-    let index = 0
-    for (let i = 0; i < pos.line; i++) {
-      index += (allLines[i] ?? '').length + 1
+const { codeMirrorMock, createdEditors, setCursorAtFirstLineMock, setTextDirectionMock } =
+  vi.hoisted(() => {
+    const createdEditors: FakeCM[] = []
+
+    const makeFakeCM = (value: string): FakeCM => {
+      let current = value
+      const handlers = new Map<string, Array<(...args: unknown[]) => void>>()
+      const cursorState: FakeCM['cursorState'] = {
+        focus: { line: 0, ch: 0 },
+        anchor: { line: 0, ch: 0 }
+      }
+      const lines = () => current.split('\n')
+      const indexFromPos = (pos: CMPosition) => {
+        const allLines = lines()
+        let index = 0
+        for (let i = 0; i < pos.line; i++) {
+          index += (allLines[i] ?? '').length + 1
+        }
+        return index + pos.ch
+      }
+      const posFromIndex = (index: number) => {
+        const allLines = lines()
+        let rest = index
+        for (let line = 0; line < allLines.length; line++) {
+          if (rest <= allLines[line].length) return { line, ch: rest }
+          rest -= allLines[line].length + 1
+        }
+        return { line: allLines.length - 1, ch: allLines[allLines.length - 1].length }
+      }
+      const cm: FakeCM = {
+        cursorState,
+        fire: (event) => {
+          for (const handler of handlers.get(event) ?? []) handler(cm)
+        },
+        getValue: () => current,
+        setValue: (v) => {
+          current = v
+        },
+        getCursor: (which) => (which === 'anchor' ? cursorState.anchor : cursorState.focus),
+        getLine: (line) => lines()[line] ?? '',
+        firstLine: () => 0,
+        lastLine: () => lines().length - 1,
+        lineCount: () => lines().length,
+        indexFromPos,
+        posFromIndex,
+        replaceRange: (replacement, from, to = from) => {
+          const start = indexFromPos(from)
+          const end = indexFromPos(to)
+          current = `${current.slice(0, start)}${replacement}${current.slice(end)}`
+        },
+        setSelection: vi.fn(),
+        operation: (fn) => fn(),
+        on: (event, handler) => {
+          const list = handlers.get(event) ?? []
+          list.push(handler)
+          handlers.set(event, list)
+        },
+        setOption: vi.fn(),
+        focus: vi.fn(),
+        execCommand: vi.fn(),
+        hasFocus: () => false,
+        invalidateImageCache: vi.fn(),
+        getScrollerElement: () => document.createElement('div'),
+        somethingSelected: () => false
+      }
+      return cm
     }
-    return index + pos.ch
-  }
-  return {
-    firstLine: () => 0,
-    getValue: () => current,
-    setValue: (v: string) => {
-      current = v
-    },
-    getCursor: (which: string) => (which === 'anchor' ? anchor : focus),
-    getLine: (line: number) => lines()[line] ?? '',
-    indexFromPos,
-    lastLine: () => lines().length - 1,
-    lineCount: () => lines().length,
-    replaceRange: (replacement, from, to = from) => {
-      const start = indexFromPos(from)
-      const end = indexFromPos(to)
-      current = `${current.slice(0, start)}${replacement}${current.slice(end)}`
-    },
-    setSelection: vi.fn()
-  }
+
+    const codeMirrorMock = vi.fn((_container: HTMLElement, options: Record<string, unknown>) => {
+      const cm = makeFakeCM(String(options.value ?? ''))
+      createdEditors.push(cm)
+      return cm
+    })
+
+    return {
+      codeMirrorMock,
+      createdEditors,
+      setCursorAtFirstLineMock: vi.fn(),
+      setTextDirectionMock: vi.fn()
+    }
+  })
+vi.mock('@/codeMirror', () => ({
+  default: codeMirrorMock,
+  setCursorAtFirstLine: setCursorAtFirstLineMock,
+  setTextDirection: setTextDirectionMock
+}))
+
+import {
+  analyzeMarkdownComments,
+  createCommentMetadata,
+  decodeCommentMetadata,
+  encodeCommentMetadata,
+  wordCount
+} from '@muyajs/core'
+import bus from '@/bus'
+import { useEditorStore } from '@/store/editor'
+import { usePreferencesStore } from '@/store/preferences'
+import { initCommentCommandRouter } from '@/review/commentCommandRouter'
+import {
+  createSourceCommentAnalysis,
+  sourceCommentIndexRanges as sourceCommentIndexRangesFromAnalysis,
+  type SourceCommentParserOptions
+} from '@/components/editorWithTabs/sourceCommentController'
+import SourceCode from '@/components/editorWithTabs/sourceCode.vue'
+
+// The router is what the app uses to dispatch comment commands to the
+// mounted overlay's surface; registering it here keeps that path real.
+initCommentCommandRouter()
+
+let wrapper: VueWrapper | null = null
+let sendSpy: MockInstance
+
+interface MountedSource {
+  cm: FakeCM
+  listenForContentChange: MockInstance
+  updateComments: MockInstance
+  updateActiveComments: MockInstance
 }
 
-const bootHandler = (cm: StubCM, deps: Record<string, unknown> = makeDeps()) => {
-  const comp = loadComponent(deps)
-  const ret = comp.setup(
-    { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-    { expose: () => {} }
-  )
-  ret.editor.value = cm
-  return ret.handleImageAction
+const mountSource = (markdown: string): MountedSource => {
+  const editorStore = useEditorStore()
+  const preferencesStore = usePreferencesStore()
+  preferencesStore.sourceCode = true
+  editorStore.currentFile = { id: 'tab-1' } as never
+  const listenForContentChange = vi
+    .spyOn(editorStore, 'LISTEN_FOR_CONTENT_CHANGE')
+    .mockImplementation(() => {})
+  const updateComments = vi.spyOn(editorStore, 'UPDATE_COMMENTS').mockImplementation(() => {})
+  const updateActiveComments = vi
+    .spyOn(editorStore, 'UPDATE_ACTIVE_COMMENTS')
+    .mockImplementation(() => {})
+  wrapper = mount(SourceCode, {
+    props: { markdown, muyaIndexCursor: null, textDirection: 'ltr' }
+  })
+  const cm = createdEditors[createdEditors.length - 1]
+  // Mounting parks the cursor at the first line; tests assert on what the
+  // action under test does afterwards.
+  setCursorAtFirstLineMock.mockClear()
+  sendSpy.mockClear()
+  return { cm, listenForContentChange, updateComments, updateActiveComments }
 }
 
-describe('sourceCode handleImageAction', () => {
+describe('sourceCode (mounted)', () => {
+  beforeEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    setActivePinia(createPinia())
+    createdEditors.length = 0
+    setCursorAtFirstLineMock.mockClear()
+    vi.mocked(analyzeMarkdownComments).mockClear()
+    sendSpy = vi.spyOn(window.electron.ipcRenderer, 'send').mockImplementation(() => {})
+    sendSpy.mockClear()
+  })
+
   it('rewrites ![id](old) to ![alt](result) on the matched line', () => {
-    const cm = makeCM('![abc123](old.png) tail', { line: 0, ch: 0 }, { line: 0, ch: 0 })
-    bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
+    const { cm } = mountSource('![abc123](old.png) tail')
+    bus.emit('image-action', { id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(cm.getValue()).toBe('![cat](new.png) tail')
   })
 
   it('rewrites only the line carrying the id, leaving siblings intact', () => {
-    const cm = makeCM('before\n![abc123](old.png)\nafter', { line: 0, ch: 0 }, { line: 0, ch: 0 })
-    bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
+    const { cm } = mountSource('before\n![abc123](old.png)\nafter')
+    bus.emit('image-action', { id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(cm.getValue()).toBe('before\n![cat](new.png)\nafter')
   })
 
   it('shifts a cursor sitting after the image by the length delta', () => {
     // ![abc123](old.png) is 18 chars; ![cat](new.png) is 15 -> delta -3.
+    const { cm } = mountSource('![abc123](old.png) tail')
     const focus = { line: 0, ch: 20 }
     const anchor = { line: 0, ch: 20 }
-    const cm = makeCM('![abc123](old.png) tail', focus, anchor)
-    bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
+    cm.cursorState.focus = focus
+    cm.cursorState.anchor = anchor
+    bus.emit('image-action', { id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(focus.ch).toBe(17)
     expect(anchor.ch).toBe(17)
     expect(cm.setSelection).toHaveBeenCalledWith(anchor, focus, { scroll: true })
@@ -255,290 +259,181 @@ describe('sourceCode handleImageAction', () => {
 
   it('clamps a cursor inside the old image to the end of the new image text', () => {
     // New image text length = alt(3) + result(7) + 5 = 15.
+    const { cm } = mountSource('![abc123](old.png)')
     const focus = { line: 0, ch: 5 }
     const anchor = { line: 0, ch: 5 }
-    const cm = makeCM('![abc123](old.png)', focus, anchor)
-    bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
+    cm.cursorState.focus = focus
+    cm.cursorState.anchor = anchor
+    bus.emit('image-action', { id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(focus.ch).toBe(15)
     expect(anchor.ch).toBe(15)
   })
 
   it('leaves a cursor at or before the image start untouched', () => {
+    const { cm } = mountSource('![abc123](old.png) tail')
     const focus = { line: 0, ch: 0 }
     const anchor = { line: 0, ch: 0 }
-    const cm = makeCM('![abc123](old.png) tail', focus, anchor)
-    bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
+    cm.cursorState.focus = focus
+    cm.cursorState.anchor = anchor
+    bus.emit('image-action', { id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(focus.ch).toBe(0)
     expect(anchor.ch).toBe(0)
   })
 
   it('only adjusts pointers that sit on the rewritten line', () => {
+    const { cm } = mountSource('![abc123](old.png)\nplain text line')
     const focus = { line: 1, ch: 4 }
     const anchor = { line: 1, ch: 4 }
-    const cm = makeCM('![abc123](old.png)\nplain text line', focus, anchor)
-    bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
+    cm.cursorState.focus = focus
+    cm.cursorState.anchor = anchor
+    bus.emit('image-action', { id: 'abc123', result: 'new.png', alt: 'cat' })
     // Image is on line 0; line-1 pointers are off the edited line, so untouched.
     expect(focus.ch).toBe(4)
     expect(anchor.ch).toBe(4)
   })
 
   it('does nothing when the id is absent from every line', () => {
-    const deps = makeDeps()
-    const cm = makeCM('no images here', { line: 0, ch: 3 }, { line: 0, ch: 3 })
-    bootHandler(cm, deps)({ id: 'zzz', result: 'r.png', alt: 'x' })
+    const { cm } = mountSource('no images here')
+    cm.cursorState.focus = { line: 0, ch: 3 }
+    cm.cursorState.anchor = { line: 0, ch: 3 }
+    bus.emit('image-action', { id: 'zzz', result: 'r.png', alt: 'x' })
     expect(cm.getValue()).toBe('no images here')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+    expect(setCursorAtFirstLineMock).not.toHaveBeenCalled()
   })
 
   it('early-returns on the structure-deleted branch (id present, no image markup)', () => {
     // The id still appears (indexOf > 0) but the ![..](..) was deleted, so the
     // broad image regex finds no match -> early return, no selection change.
-    const deps = makeDeps()
-    const cm = makeCM('see abc123 ref', { line: 0, ch: 10 }, { line: 0, ch: 10 })
-    bootHandler(cm, deps)({ id: 'abc123', result: 'r.png', alt: 'x' })
+    const { cm } = mountSource('see abc123 ref')
+    cm.cursorState.focus = { line: 0, ch: 10 }
+    cm.cursorState.anchor = { line: 0, ch: 10 }
+    bus.emit('image-action', { id: 'abc123', result: 'r.png', alt: 'x' })
     expect(cm.getValue()).toBe('see abc123 ref')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+    expect(setCursorAtFirstLineMock).not.toHaveBeenCalled()
   })
 
   it('skips an image whose id starts at column 0 (indexOf > 0 quirk)', () => {
     // findIndex uses `line.indexOf(id) > 0` (strict), so a line that begins
     // with the id renders no rewrite. Pinning the off-by-one rather than fixing.
-    const cm = makeCM('abc123](old.png)', { line: 0, ch: 0 }, { line: 0, ch: 0 })
-    bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
+    const { cm } = mountSource('abc123](old.png)')
+    bus.emit('image-action', { id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(cm.getValue()).toBe('abc123](old.png)')
   })
 
   it('falls back to setCursorAtFirstLine when a pointer is null after a rewrite', () => {
-    const deps = makeDeps()
-    const cm = makeCM('![abc123](old.png)', { line: 0, ch: 5 }, null)
-    bootHandler(cm, deps)({ id: 'abc123', result: 'new.png', alt: 'cat' })
+    const { cm } = mountSource('![abc123](old.png)')
+    cm.cursorState.focus = { line: 0, ch: 5 }
+    cm.cursorState.anchor = null
+    bus.emit('image-action', { id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(cm.getValue()).toBe('![cat](new.png)')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1)
+    expect(setCursorAtFirstLineMock).toHaveBeenCalledTimes(1)
+    // Unmount commits the buffer through getMarkdownAndCursor, which walks
+    // both cursors; give it back a real anchor first.
+    cm.cursorState.anchor = { line: 0, ch: 0 }
   })
 
   it('flushes the current source buffer when external reload asks the active editor to commit', () => {
-    const listenForContentChange = vi.fn()
-    const updateComments = vi.fn()
-    const updateActiveComments = vi.fn()
-    const ipcSend = vi.fn()
-    const oldElectron = window.electron
-    const oldMarkText = window.marktext
-    window.electron = { ipcRenderer: { send: ipcSend } } as unknown as typeof window.electron
-    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+    const { cm, listenForContentChange, updateComments, updateActiveComments } =
+      mountSource('latest source\n')
+    cm.cursorState.focus = { line: 0, ch: 6 }
+    cm.cursorState.anchor = { line: 0, ch: 6 }
 
-    try {
-      const deps = makeDeps({
-        useEditorStore: () => ({
-          LISTEN_FOR_CONTENT_CHANGE: listenForContentChange,
-          UPDATE_ACTIVE_COMMENTS: updateActiveComments,
-          UPDATE_COMMENTS: updateComments
-        }),
-        getWordCount: () => ({ words: 2, characters: 13, paragraphs: 1 }),
-        wordCount: () => ({ words: 2, characters: 13, paragraphs: 1 })
-      })
-      const comp = loadComponent(deps)
-      const ret = comp.setup(
-        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-        { expose: () => {} }
-      )
-      const cm = makeCM('latest source\n', { line: 0, ch: 6 }, { line: 0, ch: 6 })
+    bus.emit('flush-active-editor')
 
-      ret.editor.value = cm
-      ret.tabId.value = 'tab-1'
-      ret.flushSourceEditor()
-
-      expect(updateComments).toHaveBeenCalled()
-      expect(updateActiveComments).toHaveBeenCalled()
-      expect(ipcSend).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
-      expect(listenForContentChange).toHaveBeenCalledWith({
-        id: 'tab-1',
-        markdown: 'latest source\n',
-        wordCount: { words: 2, characters: 13, paragraphs: 1 },
-        muyaIndexCursor: {
-          anchor: { line: 0, ch: 6 },
-          focus: { line: 0, ch: 6 }
-        }
-      })
-    } finally {
-      window.electron = oldElectron
-      window.marktext = oldMarkText
-    }
+    expect(updateComments).toHaveBeenCalled()
+    expect(updateActiveComments).toHaveBeenCalled()
+    expect(sendSpy).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 1, false)
+    expect(listenForContentChange).toHaveBeenCalledWith({
+      id: 'tab-1',
+      markdown: 'latest source\n',
+      wordCount: wordCount('latest source\n'),
+      muyaIndexCursor: {
+        anchor: { line: 0, ch: 6 },
+        focus: { line: 0, ch: 6 }
+      }
+    })
   })
 
   it('does not re-run full comment analysis for cursor-only source moves', () => {
-    const analyzeMarkdownCommentsSpy = vi.fn(analyzeMarkdownComments)
-    const updateComments = vi.fn()
-    const updateActiveComments = vi.fn()
-    const oldElectron = window.electron
-    const oldMarkText = window.marktext
-    window.electron = { ipcRenderer: { send: vi.fn() } } as unknown as typeof window.electron
-    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+    const { cm, updateComments, updateActiveComments } = mountSource(
+      'A <!--MC:a-->reviewed<!--MC:~a--> line.\n'
+    )
+    cm.cursorState.focus = { line: 0, ch: 6 }
+    cm.cursorState.anchor = { line: 0, ch: 6 }
+    bus.emit('flush-active-editor')
 
+    vi.useFakeTimers()
     try {
-      const deps = makeDeps({
-        analyzeMarkdownComments: analyzeMarkdownCommentsSpy,
-        useEditorStore: () => ({
-          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
-          UPDATE_ACTIVE_COMMENTS: updateActiveComments,
-          UPDATE_COMMENTS: updateComments
-        })
-      })
-      const comp = loadComponent(deps)
-      const ret = comp.setup(
-        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-        { expose: () => {} }
-      )
-      const focus = { line: 0, ch: 6 }
-      const anchor = { line: 0, ch: 6 }
-      const cm = makeCM('A <!--MC:a-->reviewed<!--MC:~a--> line.\n', focus, anchor)
-
-      ret.editor.value = cm
-      ret.tabId.value = 'tab-1'
-      ret.flushSourceEditor()
-      focus.ch = 20
-      anchor.ch = 20
-      ret.refreshCommentState(cm)
-      focus.ch = 21
-      anchor.ch = 21
-      ret.refreshCommentState(cm)
-
-      // The string-keyed analysis cache is what keeps cursor-only moves
-      // cheap; the store writes receive the SAME cached object each time.
-      expect(analyzeMarkdownCommentsSpy).toHaveBeenCalledTimes(1)
-      expect(updateComments).toHaveBeenCalledTimes(3)
-      expect(new Set(updateComments.mock.calls.map((call) => call[0])).size).toBe(1)
-      expect(updateActiveComments).toHaveBeenCalledTimes(3)
+      cm.cursorState.focus = { line: 0, ch: 20 }
+      cm.cursorState.anchor = { line: 0, ch: 20 }
+      cm.fire('cursorActivity')
+      vi.advanceTimersByTime(150)
+      cm.cursorState.focus = { line: 0, ch: 21 }
+      cm.cursorState.anchor = { line: 0, ch: 21 }
+      cm.fire('cursorActivity')
+      vi.advanceTimersByTime(150)
     } finally {
-      window.electron = oldElectron
-      window.marktext = oldMarkText
+      vi.useRealTimers()
     }
+
+    // The string-keyed analysis cache is what keeps cursor-only moves
+    // cheap; the store writes receive the SAME cached object each time.
+    expect(vi.mocked(analyzeMarkdownComments)).toHaveBeenCalledTimes(1)
+    expect(updateComments).toHaveBeenCalledTimes(3)
+    expect(new Set(updateComments.mock.calls.map((call) => call[0])).size).toBe(1)
+    expect(updateActiveComments).toHaveBeenCalledTimes(3)
   })
 
   it('analyzes source comments with the current markdown parser preferences', () => {
-    const analyzeMarkdownCommentsSpy = vi.fn(analyzeMarkdownComments)
-    const oldElectron = window.electron
-    const oldMarkText = window.marktext
-    window.electron = { ipcRenderer: { send: vi.fn() } } as unknown as typeof window.electron
-    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+    const preferences = usePreferencesStore()
+    preferences.footnote = true
+    preferences.isGitlabCompatibilityEnabled = false
+    preferences.trimUnnecessaryCodeBlockEmptyLines = true
+    const { cm } = mountSource('A <!--MC:a-->reviewed<!--MC:~a--> line.\n')
+    cm.cursorState.focus = { line: 0, ch: 20 }
+    cm.cursorState.anchor = { line: 0, ch: 20 }
 
-    try {
-      const deps = makeDeps({
-        analyzeMarkdownComments: analyzeMarkdownCommentsSpy,
-        usePreferencesStore: () => ({
-          footnote: true,
-          math: true,
-          isGitlabCompatibilityEnabled: false,
-          trimUnnecessaryCodeBlockEmptyLines: true,
-          frontmatterType: '+'
-        }),
-        useEditorStore: () => ({
-          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
-          UPDATE_ACTIVE_COMMENTS: vi.fn(),
-          UPDATE_COMMENTS: vi.fn()
-        })
-      })
-      const comp = loadComponent(deps)
-      const ret = comp.setup(
-        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-        { expose: () => {} }
-      )
-      const cm = makeCM(
-        'A <!--MC:a-->reviewed<!--MC:~a--> line.\n',
-        { line: 0, ch: 20 },
-        { line: 0, ch: 20 }
-      )
+    bus.emit('flush-active-editor')
 
-      ret.refreshCommentState(cm)
-
-      expect(analyzeMarkdownCommentsSpy).toHaveBeenCalledWith(
-        'A <!--MC:a-->reviewed<!--MC:~a--> line.\n',
-        {
-          footnote: true,
-          math: true,
-          isGitlabCompatibilityEnabled: false,
-          trimUnnecessaryCodeBlockEmptyLines: true,
-          frontMatter: true
-        }
-      )
-    } finally {
-      window.electron = oldElectron
-      window.marktext = oldMarkText
-    }
+    expect(vi.mocked(analyzeMarkdownComments)).toHaveBeenCalledWith(
+      'A <!--MC:a-->reviewed<!--MC:~a--> line.\n',
+      {
+        footnote: true,
+        math: true,
+        isGitlabCompatibilityEnabled: false,
+        trimUnnecessaryCodeBlockEmptyLines: true,
+        frontMatter: true
+      }
+    )
   })
 
   it('keeps source-mode Add Comment disabled for whitespace-only selections', () => {
-    const emit = vi.fn()
-    const send = vi.fn()
-    const oldElectron = window.electron
-    const oldMarkText = window.marktext
-    window.electron = { ipcRenderer: { send } } as unknown as typeof window.electron
-    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+    const store = useEditorStore()
+    const { cm } = mountSource('A   span\n')
+    store.addCommentEnabled = true
+    cm.cursorState.focus = { line: 0, ch: 4 }
+    cm.cursorState.anchor = { line: 0, ch: 1 }
 
-    try {
-      const editorStore = {
-        LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
-        UPDATE_ACTIVE_COMMENTS: vi.fn(),
-        UPDATE_COMMENTS: vi.fn(),
-        addCommentEnabled: true
-      }
-      const deps = makeDeps({
-        bus: { on: () => {}, off: () => {}, emit },
-        useEditorStore: () => editorStore
-      })
-      const comp = loadComponent(deps)
-      const ret = comp.setup(
-        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-        { expose: () => {} }
-      )
-      const cm = makeCM('A   span\n', { line: 0, ch: 4 }, { line: 0, ch: 1 })
+    cm.fire('cursorActivity')
 
-      ret.refreshCommentState(cm)
-
-      expect(editorStore.addCommentEnabled).toBe(false)
-      expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
-    } finally {
-      window.electron = oldElectron
-      window.marktext = oldMarkText
-    }
+    expect(store.addCommentEnabled).toBe(false)
+    expect(sendSpy).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 1, false)
   })
 
   it('keeps source-mode Add Comment disabled for task-list checkbox prefixes', () => {
-    const emit = vi.fn()
-    const send = vi.fn()
-    const oldElectron = window.electron
-    const oldMarkText = window.marktext
-    window.electron = { ipcRenderer: { send } } as unknown as typeof window.electron
-    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+    const store = useEditorStore()
+    const { cm } = mountSource('- [ ] task\n')
+    store.addCommentEnabled = true
+    cm.cursorState.focus = { line: 0, ch: 10 }
+    cm.cursorState.anchor = { line: 0, ch: 2 }
 
-    try {
-      const editorStore = {
-        LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
-        UPDATE_ACTIVE_COMMENTS: vi.fn(),
-        UPDATE_COMMENTS: vi.fn(),
-        addCommentEnabled: true
-      }
-      const deps = makeDeps({
-        bus: { on: () => {}, off: () => {}, emit },
-        useEditorStore: () => editorStore
-      })
-      const comp = loadComponent(deps)
-      const ret = comp.setup(
-        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-        { expose: () => {} }
-      )
-      const cm = makeCM('- [ ] task\n', { line: 0, ch: 10 }, { line: 0, ch: 2 })
+    cm.fire('cursorActivity')
 
-      ret.refreshCommentState(cm)
-
-      expect(editorStore.addCommentEnabled).toBe(false)
-      expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
-    } finally {
-      window.electron = oldElectron
-      window.marktext = oldMarkText
-    }
+    expect(store.addCommentEnabled).toBe(false)
+    expect(sendSpy).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 1, false)
   })
 
   it.each([
@@ -555,70 +450,22 @@ describe('sourceCode handleImageAction', () => {
       anchor: { line: 1, ch: 1 }
     }
   ])('keeps source-mode Add Comment disabled inside $label', ({ markdown, focus, anchor }) => {
-    const emit = vi.fn()
-    const send = vi.fn()
-    const oldElectron = window.electron
-    const oldMarkText = window.marktext
-    window.electron = { ipcRenderer: { send } } as unknown as typeof window.electron
-    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+    const store = useEditorStore()
+    const { cm } = mountSource(markdown)
+    store.addCommentEnabled = true
+    cm.cursorState.focus = focus
+    cm.cursorState.anchor = anchor
 
-    try {
-      const editorStore = {
-        LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
-        UPDATE_ACTIVE_COMMENTS: vi.fn(),
-        UPDATE_COMMENTS: vi.fn(),
-        addCommentEnabled: true
-      }
-      const deps = makeDeps({
-        bus: { on: () => {}, off: () => {}, emit },
-        useEditorStore: () => editorStore
-      })
-      const comp = loadComponent(deps)
-      const ret = comp.setup(
-        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-        { expose: () => {} }
-      )
-      const cm = makeCM(markdown, focus, anchor)
+    cm.fire('cursorActivity')
 
-      ret.refreshCommentState(cm)
-
-      expect(editorStore.addCommentEnabled).toBe(false)
-      expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
-    } finally {
-      window.electron = oldElectron
-      window.marktext = oldMarkText
-    }
-  })
-
-  it('scans line-start and standalone MC markers as source comment ranges', () => {
-    const comp = loadComponent(makeDeps())
-    const ret = comp.setup(
-      { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-      { expose: () => {} }
-    )
-    const lineStart = '<!--MC:a-->alpha<!--MC:~a-->\n'
-    const standalone = ['<!--MC:a-->', '', 'reviewed paragraph', '', '<!--MC:~a-->', ''].join('\n')
-
-    expect(ret.sourceCommentIndexRanges(lineStart)).toEqual([
-      {
-        id: 'a',
-        start: lineStart.indexOf('alpha'),
-        end: lineStart.indexOf('<!--MC:~a-->')
-      }
-    ])
-    const range = ret.sourceCommentIndexRanges(standalone)[0]
-    expect(range?.id).toBe('a')
-    expect(standalone.slice(range.start, range.end)).toContain('reviewed paragraph')
+    expect(store.addCommentEnabled).toBe(false)
+    expect(sendSpy).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 1, false)
   })
 
   it('does not update metadata-looking definitions inside ignored source blocks', () => {
-    const encode = (data: Record<string, unknown>) =>
-      `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`
-    const decode = (dataUri: string) =>
-      JSON.parse(
-        Buffer.from(dataUri.replace('data:application/json;base64,', ''), 'base64').toString('utf8')
-      ) as { status?: string }
-    const open = encode({ version: 1, status: 'open', replies: [] })
+    const open = encodeCommentMetadata(
+      createCommentMetadata({ author: 'Ada', createdAt: '2026-06-30T10:00:00.000Z' })
+    )
     const markdown = [
       '---',
       `[MC:a]: ${open}`,
@@ -629,51 +476,45 @@ describe('sourceCode handleImageAction', () => {
       `[MC:a]: ${open}`,
       ''
     ].join('\n')
-    const listenForContentChange = vi.fn()
-    const oldElectron = window.electron
-    const oldMarkText = window.marktext
-    window.electron = { ipcRenderer: { send: vi.fn() } } as unknown as typeof window.electron
-    window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
+    const { cm } = mountSource(markdown)
 
-    try {
-      const deps = makeDeps({
-        decodeCommentMetadata: decode,
-        encodeCommentMetadata: encode,
-        parseCommentMetadataDefinition: (line: string) => {
-          const match = /^ {0,3}\[MC:([^\]\s]+)\]:\s*(\S+)/u.exec(line)
-          return match ? { id: match[1], dataUri: match[2] } : null
-        },
-        useEditorStore: () => ({
-          LISTEN_FOR_CONTENT_CHANGE: listenForContentChange,
-          UPDATE_ACTIVE_COMMENTS: vi.fn(),
-          UPDATE_COMMENTS: vi.fn()
-        })
-      })
-      const comp = loadComponent(deps)
-      const ret = comp.setup(
-        { markdown: '', muyaIndexCursor: null, textDirection: 'ltr' },
-        { expose: () => {} }
-      )
-      const cm = makeCM(markdown, { line: 4, ch: 5 }, { line: 4, ch: 5 })
+    bus.emit('comment:edit', { id: 'a', patch: { status: 'resolved' } })
 
-      ret.editor.value = cm
-      ret.tabId.value = 'tab-1'
-      expect(
-        ret.replaceSourceCommentMetadata(cm, 'a', (metadata) => ({
-          ...metadata,
-          status: 'resolved'
-        }))
-      ).toBe(true)
+    const statuses = cm
+      .getValue()
+      .split('\n')
+      .filter((line) => line.startsWith('[MC:a]: '))
+      .map((line) => decodeCommentMetadata(line.slice('[MC:a]: '.length)).status)
+    expect(statuses).toEqual(['open', 'resolved'])
+  })
+})
 
-      const statuses = cm
-        .getValue()
-        .split('\n')
-        .filter((line) => line.startsWith('[MC:a]: '))
-        .map((line) => decode(line.replace('[MC:a]: ', '')).status)
-      expect(statuses).toEqual(['open', 'resolved'])
-    } finally {
-      window.electron = oldElectron
-      window.marktext = oldMarkText
-    }
+describe('sourceCommentController index ranges', () => {
+  const parserOptions: SourceCommentParserOptions = {
+    footnote: false,
+    math: true,
+    isGitlabCompatibilityEnabled: false,
+    trimUnnecessaryCodeBlockEmptyLines: false,
+    frontMatter: true
+  }
+
+  it('scans line-start and standalone MC markers as source comment ranges', () => {
+    const lineStart = '<!--MC:a-->alpha<!--MC:~a-->\n'
+    const standalone = ['<!--MC:a-->', '', 'reviewed paragraph', '', '<!--MC:~a-->', ''].join('\n')
+
+    expect(
+      sourceCommentIndexRangesFromAnalysis(createSourceCommentAnalysis(lineStart, parserOptions))
+    ).toEqual([
+      {
+        id: 'a',
+        start: lineStart.indexOf('alpha'),
+        end: lineStart.indexOf('<!--MC:~a-->')
+      }
+    ])
+    const range = sourceCommentIndexRangesFromAnalysis(
+      createSourceCommentAnalysis(standalone, parserOptions)
+    )[0]
+    expect(range?.id).toBe('a')
+    expect(standalone.slice(range.start, range.end)).toContain('reviewed paragraph')
   })
 })

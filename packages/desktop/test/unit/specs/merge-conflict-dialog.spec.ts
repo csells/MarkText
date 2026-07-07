@@ -1,157 +1,179 @@
-import { describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
-import { parse, compileScript } from 'vue/compiler-sfc'
-import ts from 'typescript'
-import { computed, ref } from 'vue'
-import { codeMirrorThemeFor } from '../../../src/common/theme'
+import { createPinia, setActivePinia } from 'pinia'
+import { mount, type VueWrapper } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const vuePath = resolve(here, '../../../src/renderer/src/components/editorWithTabs/mergeConflictDialog.vue')
+// Real-mount component spec per specs/architecture/test-infrastructure.md:
+// the component under test is mounted with @vue/test-utils; stores are real
+// Pinia instances with state written directly and actions spied; only the
+// module boundaries (CodeMirror, i18n) are mocked.
 
-interface SetupBindings {
-  acceptMerge: () => void
-  closingByAction: { value: boolean }
-  createEditor: (parent: HTMLDivElement, value: string, readOnly: boolean) => unknown
-  dialogTitle: { value: string }
-  resultEditor: { value: null | { getValue: () => string; setValue: (value: string) => void } }
-  validationError: { value: string }
-}
-
-const loadComponent = (deps: Record<string, unknown>) => {
-  const src = readFileSync(vuePath, 'utf8')
-  const { descriptor } = parse(src)
-  const compiled = compileScript(descriptor, { id: 'test' })
-  const noImports = compiled.content.replace(
-    /^\s*import[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm,
-    ''
-  )
-  const js = ts.transpileModule(noImports, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
-  }).outputText
-  // eslint-disable-next-line no-new-func
-  const factory = new Function(
-    '__deps',
-    'exports',
-    'module',
-    `const { _defineComponent, computed, nextTick, onBeforeUnmount, ref, watch,
-      storeToRefs, codeMirror, codeMirrorThemeFor, useEditorStore, usePreferencesStore, t } = __deps
-    ${js}
-    return module.exports`
-  ) as (deps: Record<string, unknown>, exports: object, module: object) => {
-    default: { setup: (props: unknown, ctx: { expose: () => void }) => SetupBindings }
-  }
-
-  const m = { exports: {} as Record<string, unknown> }
-  return factory(deps, m.exports, m).default
-}
-
-describe('merge conflict dialog', () => {
-  it('keeps the result editor mounted when comment validation rejects accept', () => {
-    const mergeConflict = ref({
-      tabId: 'tab-1',
-      pathname: '/tmp/doc.md',
-      filename: 'doc.md',
-      baseMarkdown: 'base',
-      localMarkdown: 'local',
-      remoteMarkdown: 'remote',
-      resultMarkdown: 'bad',
-      conflicts: [],
-      fileChange: {},
-      validationError: ''
-    })
-    const setValue = vi.fn()
-    const resultEditor = {
-      getValue: () => 'bad',
-      setValue
-    }
-    const accept = vi.fn(() => {
-      mergeConflict.value = {
-        ...mergeConflict.value,
-        resultMarkdown: 'bad',
-        validationError: 'The merge result introduces invalid MarkText comment syntax.'
+vi.hoisted(() => {
+  const w = globalThis as unknown as {
+    window?: {
+      path?: { sep: string; dirname: (p: string) => string }
+      marktext?: { env: { windowId: number } }
+      fileUtils?: { isSamePathSync: (a: string, b: string) => boolean }
+      electron?: {
+        clipboard: { writeText: (s: string) => void }
+        ipcRenderer: { send: (...a: unknown[]) => void; on: (...a: unknown[]) => void }
       }
-    })
-    const component = loadComponent({
-      _defineComponent: (o: unknown) => o,
-      computed,
-      nextTick: (fn?: () => void) => {
-        fn?.()
-        return Promise.resolve()
-      },
-      onBeforeUnmount: vi.fn(),
-      ref,
-      watch: vi.fn(),
-      storeToRefs: () => ({
-        mergeConflict,
-        theme: ref('light')
-      }),
-      codeMirror: vi.fn(),
-      useEditorStore: () => ({
-        ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT: accept,
-        CANCEL_DIRTY_EXTERNAL_MERGE_CONFLICT: vi.fn(),
-        RELOAD_DISK_FROM_MERGE_CONFLICT: vi.fn(),
-        RESOLVE_MERGE_CONFLICT_MARKER: vi.fn()
-      }),
-      usePreferencesStore: () => ({}),
-      t: (key: string) => key
-    })
+    }
+  }
+  w.window ??= {}
+  w.window.path ??= { sep: '/', dirname: (p: string) => p }
+  w.window.marktext ??= { env: { windowId: 1 } }
+  w.window.fileUtils ??= { isSamePathSync: (a, b) => a === b }
+  w.window.electron ??= {
+    clipboard: { writeText: () => {} },
+    ipcRenderer: { send: () => {}, on: () => {} }
+  }
+})
 
-    const ret = component.setup({}, { expose: vi.fn() })
-    ret.resultEditor.value = resultEditor
+vi.mock('@/services/notification', () => ({ default: { notify: vi.fn(), name: 'notify' } }))
+vi.mock('@/store/bufferedState', () => ({
+  debouncedSendBufferedState: vi.fn(),
+  sendBufferedState: vi.fn(() => Promise.resolve(true))
+}))
 
-    // The dialog is a global modal — it must say WHICH file it is resolving.
-    expect(ret.dialogTitle.value).toContain('doc.md')
+interface FakeCM {
+  getValue: Mock
+  setValue: Mock
+  setOption: Mock
+  getWrapperElement: Mock
+}
 
-    ret.acceptMerge()
+const { codeMirrorMock, createdEditors } = vi.hoisted(() => {
+  const createdEditors: Array<{ options: Record<string, unknown>; cm: FakeCM }> = []
+  const codeMirrorMock = vi.fn((_parent: HTMLElement, options: Record<string, unknown>) => {
+    const cm: FakeCM = {
+      getValue: vi.fn(() => String(options.value ?? '')),
+      setValue: vi.fn(),
+      setOption: vi.fn(),
+      getWrapperElement: vi.fn(() => document.createElement('div'))
+    }
+    createdEditors.push({ options, cm })
+    return cm
+  })
+  return { codeMirrorMock, createdEditors }
+})
+vi.mock('@/codeMirror', () => ({ default: codeMirrorMock }))
+vi.mock('@/i18n', () => ({ t: (key: string, _args?: unknown) => key }))
 
-    expect(accept).toHaveBeenCalledWith('bad')
-    expect(ret.resultEditor.value).not.toBeNull()
-    expect(ret.resultEditor.value?.getValue()).toBe('bad')
-    expect(setValue).toHaveBeenCalledWith('bad')
-    expect(ret.validationError.value).toContain('invalid MarkText comment syntax')
-    expect(ret.closingByAction.value).toBe(false)
+import { useEditorStore } from '@/store/editor'
+import { usePreferencesStore } from '@/store/preferences'
+import MergeConflictDialog from '@/components/editorWithTabs/mergeConflictDialog.vue'
+
+const elementStubs = {
+  'el-dialog': {
+    props: ['modelValue', 'title'],
+    template:
+      '<div class="el-dialog-stub"><h2 class="dialog-title">{{ title }}</h2><slot /><slot name="footer" /></div>'
+  },
+  'el-button': {
+    props: ['disabled'],
+    template:
+      '<button type="button" :disabled="disabled" @click="$emit(\'click\', $event)"><slot /></button>'
+  },
+  'el-icon': true
+}
+
+const makeConflict = (overrides: Record<string, unknown> = {}) => ({
+  session: 1,
+  expectedMarkdown: 'local',
+  expectedDiskBase: 'base',
+  tabId: 'tab-1',
+  pathname: '/tmp/doc.md',
+  filename: 'doc.md',
+  baseMarkdown: 'base',
+  localMarkdown: 'local',
+  remoteMarkdown: 'remote',
+  resultMarkdown: 'bad',
+  conflicts: [],
+  fileChange: { pathname: '/tmp/doc.md', data: { filename: 'doc.md', markdown: 'remote' } },
+  validationError: undefined,
+  ...overrides
+})
+
+const mountDialog = () =>
+  mount(MergeConflictDialog, {
+    global: { stubs: elementStubs },
+    attachTo: document.body
   })
 
-  it('maps the app theme to the same CodeMirror theme the source editor uses', () => {
-    // 24 of the 25 dark themes are railscasts-family; only the literal 'dark'
-    // check regressed the dialog to a light editor under all the others.
-    const codeMirrorMock = vi.fn(() => ({}))
-    const themeRef = ref('dracula')
-    const component = loadComponent({
-      _defineComponent: (o: unknown) => o,
-      computed,
-      nextTick: (fn?: () => void) => {
-        fn?.()
-        return Promise.resolve()
-      },
-      onBeforeUnmount: vi.fn(),
-      ref,
-      watch: vi.fn(),
-      storeToRefs: () => ({
-        mergeConflict: ref(null),
-        theme: themeRef
-      }),
-      codeMirror: codeMirrorMock,
-      codeMirrorThemeFor,
-      useEditorStore: () => ({}),
-      usePreferencesStore: () => ({}),
-      t: (key: string) => key
+describe('merge conflict dialog', () => {
+  let wrapper: VueWrapper | null = null
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    createdEditors.length = 0
+    codeMirrorMock.mockClear()
+    wrapper?.unmount()
+    wrapper = null
+  })
+
+  it('keeps the result editor mounted when comment validation rejects accept', async() => {
+    const store = useEditorStore()
+    const accept = vi
+      .spyOn(store, 'ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT')
+      .mockImplementation(() => {
+        store.mergeConflict = makeConflict({
+          validationError: 'The merge result introduces invalid MarkText comment syntax.'
+        }) as never
+      })
+
+    wrapper = mountDialog()
+    // The dialog is mounted globally; panes mount when a conflict ARRIVES.
+    store.mergeConflict = makeConflict() as never
+    await vi.waitFor(() => {
+      expect(createdEditors.length).toBe(3)
+    })
+    const resultEditor = createdEditors[2].cm
+
+    const acceptButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('acceptMerge'))!
+    await acceptButton.trigger('click')
+
+    expect(accept).toHaveBeenCalledWith('bad')
+    // The dialog stays open on the SAME panes: no editors were torn down or
+    // recreated, and the result pane was re-synced to the rejected text.
+    expect(createdEditors.length).toBe(3)
+    expect(resultEditor.setValue).toHaveBeenCalledWith('bad')
+    expect(wrapper.text()).toContain('invalid MarkText comment syntax')
+  })
+
+  it('maps the app theme to the same CodeMirror theme the source editor uses', async() => {
+    // 24 of the 25 dark themes are railscasts-family; only a literal 'dark'
+    // check would regress the dialog to a light editor under all the others.
+    const store = useEditorStore()
+    const preferences = usePreferencesStore()
+    preferences.theme = 'dracula'
+
+    wrapper = mountDialog()
+    store.mergeConflict = makeConflict() as never
+    await vi.waitFor(() => {
+      expect(createdEditors.length).toBe(3)
     })
 
-    const ret = component.setup({}, { expose: vi.fn() })
-    const parent = {} as HTMLDivElement
+    expect(createdEditors.every(({ options }) => options.theme === 'railscasts')).toBe(true)
 
-    ret.createEditor(parent, 'text', true)
-    expect(codeMirrorMock).toHaveBeenLastCalledWith(parent, expect.objectContaining({ theme: 'railscasts' }))
+    preferences.theme = 'one-dark'
+    await vi.waitFor(() => {
+      expect(createdEditors[0].cm.setOption).toHaveBeenCalledWith('theme', 'one-dark')
+    })
 
-    themeRef.value = 'one-dark'
-    ret.createEditor(parent, 'text', true)
-    expect(codeMirrorMock).toHaveBeenLastCalledWith(parent, expect.objectContaining({ theme: 'one-dark' }))
+    preferences.theme = 'light'
+    await vi.waitFor(() => {
+      expect(createdEditors[0].cm.setOption).toHaveBeenCalledWith('theme', 'default')
+    })
+  })
 
-    themeRef.value = 'light'
-    ret.createEditor(parent, 'text', true)
-    expect(codeMirrorMock).toHaveBeenLastCalledWith(parent, expect.objectContaining({ theme: 'default' }))
+  it('titles the dialog with the file being resolved', async() => {
+    const store = useEditorStore()
+    wrapper = mountDialog()
+    store.mergeConflict = makeConflict({ filename: 'notes.md' }) as never
+    await vi.waitFor(() => {
+      expect(wrapper!.find('.dialog-title').text()).toContain('notes.md')
+    })
   })
 })

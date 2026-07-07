@@ -1,13 +1,52 @@
-import { describe, it, expect, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
-import { parse, compileScript } from 'vue/compiler-sfc'
-import ts from 'typescript'
-import { computed, nextTick, reactive, ref } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import { mount, type VueWrapper } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const vuePath = resolve(here, '../../../src/renderer/src/components/sideBar/comments.vue')
+// Real-mount component spec per specs/architecture/test-infrastructure.md:
+// interactions go through the rendered DOM, state is arranged on real Pinia
+// stores, and outcomes are asserted on bus emissions and the DOM.
+
+vi.hoisted(() => {
+  const w = globalThis as unknown as {
+    window?: {
+      path?: { sep: string; dirname: (p: string) => string }
+      marktext?: { env: { windowId: number } }
+      fileUtils?: { isSamePathSync: (a: string, b: string) => boolean }
+      electron?: {
+        osUsername?: string
+        clipboard: { writeText: (s: string) => void }
+        ipcRenderer: { send: (...a: unknown[]) => void; on: (...a: unknown[]) => void }
+      }
+    }
+  }
+  w.window ??= {}
+  w.window.path ??= { sep: '/', dirname: (p: string) => p }
+  w.window.marktext ??= { env: { windowId: 1 } }
+  w.window.fileUtils ??= { isSamePathSync: (a, b) => a === b }
+  w.window.electron ??= {
+    clipboard: { writeText: () => {} },
+    ipcRenderer: { send: () => {}, on: () => {} }
+  }
+})
+
+vi.mock('@/services/notification', () => ({ default: { notify: vi.fn(), name: 'notify' } }))
+vi.mock('@/store/bufferedState', () => ({
+  debouncedSendBufferedState: vi.fn(),
+  sendBufferedState: vi.fn(() => Promise.resolve(true))
+}))
+vi.mock(import('vue-i18n'), async(importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    useI18n: (() => ({ t: (key: string) => key })) as unknown as typeof actual.useI18n
+  }
+})
+
+import bus from '@/bus'
+import { useEditorStore } from '@/store/editor'
+import { usePreferencesStore } from '@/store/preferences'
+import Comments from '@/components/sideBar/comments.vue'
 
 interface CommentReply {
   author: string
@@ -19,144 +58,85 @@ interface CommentThread {
   id: string
   status: 'open' | 'resolved'
   authors?: string[]
-  createdAt?: string
-  updatedAt?: string
   replies: CommentReply[]
 }
 
-interface CommentRange {
-  id: string
-  preview: string
-}
-
-interface SetupBindings {
-  addComment: () => void
-  focusComment: (id: string) => void
-  threadsRoot: { value: HTMLElement | null }
-  beginEditReply: (thread: CommentThread, replyIndex: number) => void
-  canAddComment: { value: boolean }
-  commentFilter: { value: 'all' | 'open' | 'resolved' }
-  discardComposedThread: (id: string) => void
-  handleComposeComment: (id: string) => void
-  submitEditReply: (thread: CommentThread, replyIndex: number) => void
-  submitReply: (id: string) => void
-  editDrafts: Record<string, string>
-  editingReplies: Record<string, boolean>
-  focusDiagnostic: (id: string) => void
-  replyDrafts: Record<string, string>
-  visibleThreads: { value: CommentThread[] }
-}
-
-const loadComponent = (deps: Record<string, unknown>) => {
-  const src = readFileSync(vuePath, 'utf8')
-  const { descriptor } = parse(src)
-  const compiled = compileScript(descriptor, { id: 'test' })
-  const noImports = compiled.content.replace(
-    /^\s*import[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm,
-    ''
-  )
-  const js = ts.transpileModule(noImports, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
-  }).outputText
-  // eslint-disable-next-line no-new-func
-  const factory = new Function(
-    '__deps',
-    'exports',
-    'module',
-    `const { _defineComponent, computed, nextTick, onBeforeUnmount, onMounted,
-      reactive, ref, watch, storeToRefs, Aim, Check, Close, EditPen, Plus, Promotion,
-      RefreshLeft, useI18n, bus, useEditorStore, usePreferencesStore, CommentEditBox } = __deps
-    ${js}
-    return module.exports`
-  ) as (deps: Record<string, unknown>, exports: object, module: object) => {
-    default: { setup: (props: unknown, ctx: { expose: () => void }) => SetupBindings }
-  }
-
-  const m = { exports: {} as Record<string, unknown> }
-  return factory(deps, m.exports, m).default
-}
-
-const makeBindings = (
-  initialComments: {
-    threads?: CommentThread[]
-    ranges?: CommentRange[]
-    diagnostics?: unknown[]
-  } = {},
-  options: {
-    commentAuthorName?: string
-    initialCanAddComment?: boolean
-  } = {}
-) => {
-  const emit = vi.fn()
-  const mounted: Array<() => void> = []
-  const beforeUnmount: Array<() => void> = []
-  const watchers: Array<{ source: unknown, cb: (value: unknown, previous?: unknown) => void }> = []
-  const handlers = new Map<string, (...args: unknown[]) => void>()
-  // The reactive store field the comments sidebar now binds to directly.
-  const addCommentEnabledRef = ref(options.initialCanAddComment === true)
-  const activeCommentIdsRef = ref<string[]>([])
-  const deps = {
-    _defineComponent: (o: unknown) => o,
-    computed,
-    nextTick,
-    onBeforeUnmount: (fn: () => void) => beforeUnmount.push(fn),
-    onMounted: (fn: () => void) => mounted.push(fn),
-    reactive,
-    ref,
-    watch: (source: unknown, cb: (value: unknown, previous?: unknown) => void) => watchers.push({ source, cb }),
-    storeToRefs: () => ({
-      comments: ref({
-        threads: initialComments.threads ?? [],
-        ranges: initialComments.ranges ?? [],
-        diagnostics: initialComments.diagnostics ?? []
-      }),
-      activeCommentIds: activeCommentIdsRef,
-      addCommentEnabled: addCommentEnabledRef,
-      composeCommentId: ref(null)
-    }),
-    Aim: {},
-    CommentEditBox: {},
-    Check: {},
-    Close: {},
-    EditPen: {},
-    Plus: {},
-    Promotion: {},
-    RefreshLeft: {},
-    useI18n: () => ({ t: (key: string) => key === 'sideBar.comments.defaultAuthor' ? 'Reviewer' : key }),
-    bus: {
-      on: (event: string, handler: (...args: unknown[]) => void) => handlers.set(event, handler),
-      off: (event: string) => handlers.delete(event),
-      emit
+const elementStubs = {
+  'el-button': {
+    props: ['disabled', 'icon', 'size', 'type', 'circle'],
+    template:
+      '<button type="button" :disabled="disabled" @click="$emit(\'click\', $event)"><slot /></button>'
+  },
+  'el-input': {
+    props: ['modelValue', 'placeholder', 'autosize', 'type'],
+    emits: ['update:modelValue'],
+    methods: {
+      focus(): void {
+        /* focus target for the compose handoff */
+      }
     },
-    useEditorStore: () => ({ SET_COMPOSE_COMMENT_ID: vi.fn() }),
-    usePreferencesStore: () => ({
-      commentAuthorName: options.commentAuthorName ?? ''
-    })
-  }
-
-  const comp = loadComponent(deps)
-  const ret = comp.setup({}, { expose: () => {} })
-  mounted.forEach(fn => fn())
-  const triggerThreadIds = (ids: string[]): void => watchers.forEach(w => w.cb(ids))
-  return { ret, emit, handlers, beforeUnmount, triggerThreadIds, addCommentEnabledRef, activeCommentIdsRef, watchers }
+    template:
+      '<textarea :placeholder="placeholder" :value="modelValue" ' +
+      '@input="$emit(\'update:modelValue\', $event.target.value)" />'
+  },
+  'el-tooltip': { template: '<span><slot /></span>' },
+  'el-icon': true
 }
 
-describe('comments sidebar reply editing', () => {
-  it('edits a deterministic reply index without rewriting sibling replies', () => {
-    const { ret, emit } = makeBindings()
-    const thread: CommentThread = {
-      id: 'cmt_1',
-      status: 'open',
-      authors: ['Ada', 'Grace'],
-      replies: [
-        { author: 'Ada', createdAt: '2026-06-30T10:00:00.000Z', body: 'first' },
-        { author: 'Grace', createdAt: '2026-06-30T11:00:00.000Z', body: 'second' }
-      ]
-    }
+const makeComments = (
+  threads: CommentThread[] = [],
+  diagnostics: Array<{ code: string; id: string; message: string }> = []
+) => ({ threads, ranges: [], diagnostics })
 
-    ret.beginEditReply(thread, 1)
-    ret.editDrafts['cmt_1:1'] = 'second edited'
-    ret.submitEditReply(thread, 1)
+const reply = (author: string, createdAt: string, body: string): CommentReply => ({
+  author,
+  createdAt,
+  body
+})
+
+let wrapper: VueWrapper | null = null
+
+const mountSidebar = () => {
+  wrapper = mount(Comments, { global: { stubs: elementStubs }, attachTo: document.body })
+  return wrapper
+}
+
+const thread = (id: string) => wrapper!.find(`section.thread[data-comment-id="${id}"]`)
+const replyBox = (id: string) => thread(id).find('.reply-box textarea')
+const buttonWithText = (root: ReturnType<typeof thread> | VueWrapper, text: string) =>
+  (root as VueWrapper).findAll('button').find((b) => b.text().includes(text))!
+
+describe('comments sidebar (mounted)', () => {
+  let emit: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.restoreAllMocks()
+    wrapper?.unmount()
+    wrapper = null
+    emit = vi.spyOn(bus, 'emit')
+  })
+
+  it('edits a deterministic reply index without rewriting sibling replies', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments([
+      {
+        id: 'cmt_1',
+        status: 'open',
+        authors: ['Ada', 'Grace'],
+        replies: [
+          reply('Ada', '2026-06-30T10:00:00.000Z', 'first'),
+          reply('Grace', '2026-06-30T11:00:00.000Z', 'second')
+        ]
+      }
+    ]) as never
+    mountSidebar()
+
+    // Open the SECOND reply's edit box, change it, save.
+    await thread('cmt_1').findAll('.entry-edit')[1].trigger('click')
+    const editBox = thread('cmt_1').find('.reply-edit-box textarea')
+    await editBox.setValue('second edited')
+    await buttonWithText(thread('cmt_1') as never, 'saveEdit').trigger('click')
 
     expect(emit).toHaveBeenCalledWith('comment:edit', {
       id: 'cmt_1',
@@ -169,214 +149,234 @@ describe('comments sidebar reply editing', () => {
     })
   })
 
-  it('does not overwrite a different reply when the array shifts under an open edit box', () => {
-    const { ret, emit } = makeBindings()
-    const thread: CommentThread = {
-      id: 'cmt_1',
-      status: 'open',
-      authors: ['Ada', 'Grace'],
-      replies: [
-        { author: 'Ada', createdAt: '2026-06-30T10:00:00.000Z', body: 'first' },
-        { author: 'Grace', createdAt: '2026-06-30T11:00:00.000Z', body: 'second' }
-      ]
-    }
-    ret.beginEditReply(thread, 1)
-    ret.editDrafts['cmt_1:1'] = 'second edited'
+  it('does not overwrite a different reply when the array shifts under an open edit box', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments([
+      {
+        id: 'cmt_1',
+        status: 'open',
+        replies: [
+          reply('Ada', '2026-06-30T10:00:00.000Z', 'first'),
+          reply('Grace', '2026-06-30T11:00:00.000Z', 'second')
+        ]
+      }
+    ]) as never
+    mountSidebar()
 
-    // An earlier reply was removed elsewhere: index 1 now points at a different
-    // reply (distinct createdAt). Submit must abort, not clobber it.
-    const shifted: CommentThread = {
-      ...thread,
-      replies: [
-        { author: 'Ada', createdAt: '2026-06-30T10:00:00.000Z', body: 'first' },
-        { author: 'Zoe', createdAt: '2026-06-30T12:00:00.000Z', body: 'third' }
-      ]
-    }
-    ret.submitEditReply(shifted, 1)
+    await thread('cmt_1').findAll('.entry-edit')[1].trigger('click')
+    await thread('cmt_1').find('.reply-edit-box textarea').setValue('second edited')
+
+    // An earlier reply was removed elsewhere: index 1 now points at a
+    // different reply (distinct createdAt). Save must abort, not clobber it.
+    store.comments = makeComments([
+      {
+        id: 'cmt_1',
+        status: 'open',
+        replies: [
+          reply('Ada', '2026-06-30T10:00:00.000Z', 'first'),
+          reply('Zoe', '2026-06-30T12:00:00.000Z', 'third')
+        ]
+      }
+    ]) as never
+    await nextTick()
+    emit.mockClear()
+    await buttonWithText(thread('cmt_1') as never, 'saveEdit').trigger('click')
 
     expect(emit).not.toHaveBeenCalledWith('comment:edit', expect.anything())
   })
 
-  it('prunes reply/edit drafts for a comment id that is no longer present', () => {
-    const { ret, triggerThreadIds } = makeBindings({
-      threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
-    })
-    ret.replyDrafts.cmt_1 = 'live'
-    ret.replyDrafts.cmt_2 = 'stale'
-    ret.editDrafts['cmt_2:0'] = 'stale edit'
-    ret.editingReplies['cmt_2:0'] = true
+  it('prunes drafts for a comment id that disappears, so a recycled id starts clean', async() => {
+    const store = useEditorStore()
+    const threads: CommentThread[] = [
+      { id: 'cmt_1', status: 'open', replies: [reply('Ada', 't1', 'x')] },
+      { id: 'cmt_2', status: 'open', replies: [reply('Ada', 't1', 'y')] }
+    ]
+    store.comments = makeComments(threads) as never
+    mountSidebar()
 
-    // cmt_2 disappears (e.g. its markers were deleted) — its drafts must not
-    // survive to resurface on a future thread that reuses the id.
-    triggerThreadIds(['cmt_1'])
+    await replyBox('cmt_1').setValue('live')
+    await replyBox('cmt_2').setValue('stale')
 
-    expect(ret.replyDrafts.cmt_1).toBe('live')
-    expect(ret.replyDrafts.cmt_2).toBeUndefined()
-    expect(ret.editDrafts['cmt_2:0']).toBeUndefined()
-    expect(ret.editingReplies['cmt_2:0']).toBeUndefined()
+    // cmt_2 disappears (its markers were deleted) …
+    store.comments = makeComments([threads[0]]) as never
+    await nextTick()
+    // … and a later thread recycles the id: its compose box must be empty.
+    store.comments = makeComments(threads) as never
+    await nextTick()
+
+    expect((replyBox('cmt_1').element as HTMLTextAreaElement).value).toBe('live')
+    expect((replyBox('cmt_2').element as HTMLTextAreaElement).value).toBe('')
   })
 
-  it('does not emit Add Comment while the shared predicate is disabled', () => {
-    const { ret, emit, addCommentEnabledRef } = makeBindings()
+  it('gates Add Comment on the shared predicate from the store', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments() as never
+    mountSidebar()
 
-    expect(ret.canAddComment.value).toBe(false)
-    ret.addComment()
+    const addButton = buttonWithText(wrapper!, 'sideBar.comments.add')
+    expect(addButton.attributes('disabled')).toBeDefined()
+    await addButton.trigger('click')
     expect(emit).not.toHaveBeenCalledWith('addComment')
 
-    // The sidebar binds the store field reactively; the enabled-changed event
-    // updates that field (in the store) and the binding follows.
-    addCommentEnabledRef.value = true
-    expect(ret.canAddComment.value).toBe(true)
-    ret.addComment()
+    store.addCommentEnabled = true
+    await nextTick()
+    expect(addButton.attributes('disabled')).toBeUndefined()
+    await addButton.trigger('click')
     expect(emit).toHaveBeenCalledWith('addComment')
   })
 
-  it('initializes Add Comment from the latest editor selection state', () => {
-    const { ret, emit } = makeBindings({}, { initialCanAddComment: true })
+  it('filters visible threads by open and resolved status', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments([
+      { id: 'open1', status: 'open', replies: [] },
+      { id: 'resolved1', status: 'resolved', replies: [] }
+    ]) as never
+    mountSidebar()
 
-    expect(ret.canAddComment.value).toBe(true)
-    ret.addComment()
-
-    expect(emit).toHaveBeenCalledWith('addComment')
-  })
-
-  it('filters visible threads by open and resolved status', () => {
-    const openThread: CommentThread = { id: 'open', status: 'open', replies: [] }
-    const resolvedThread: CommentThread = { id: 'resolved', status: 'resolved', replies: [] }
-    const { ret } = makeBindings({ threads: [openThread, resolvedThread] })
+    const visibleIds = () =>
+      wrapper!.findAll('section.thread').map((node) => node.attributes('data-comment-id'))
 
     // Defaults to open-only; 'all' shows both.
-    expect(ret.visibleThreads.value.map(thread => thread.id)).toEqual(['open'])
-
-    ret.commentFilter.value = 'all'
-    expect(ret.visibleThreads.value.map(thread => thread.id)).toEqual(['open', 'resolved'])
-
-    ret.commentFilter.value = 'open'
-    expect(ret.visibleThreads.value.map(thread => thread.id)).toEqual(['open'])
-
-    ret.commentFilter.value = 'resolved'
-    expect(ret.visibleThreads.value.map(thread => thread.id)).toEqual(['resolved'])
+    expect(visibleIds()).toEqual(['open1'])
+    await buttonWithText(wrapper!, 'sideBar.comments.all').trigger('click')
+    expect(visibleIds()).toEqual(['open1', 'resolved1'])
+    await buttonWithText(wrapper!, 'sideBar.comments.resolved').trigger('click')
+    expect(visibleIds()).toEqual(['resolved1'])
+    await buttonWithText(wrapper!, 'sideBar.comments.open').trigger('click')
+    expect(visibleIds()).toEqual(['open1'])
   })
 
-  it('uses the configured comment author for new replies', () => {
-    const { ret, emit } = makeBindings({}, { commentAuthorName: 'Chris Sells' })
+  it('uses the configured comment author for new replies and returns focus to the document', async() => {
+    const store = useEditorStore()
+    const preferences = usePreferencesStore()
+    preferences.commentAuthorName = 'Chris Sells'
+    store.comments = makeComments([
+      { id: 'cmt_1', status: 'open', replies: [reply('Ada', 't1', 'x')] }
+    ]) as never
+    mountSidebar()
 
-    ret.replyDrafts.cmt_1 = 'Looks good'
-    ret.submitReply('cmt_1')
+    await replyBox('cmt_1').setValue('Looks good')
+    await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.reply').trigger('click')
 
     expect(emit).toHaveBeenCalledWith('comment:reply', {
       id: 'cmt_1',
-      reply: {
-        author: 'Chris Sells',
-        body: 'Looks good'
-      }
+      reply: { author: 'Chris Sells', body: 'Looks good' }
     })
-    // Posting hands focus back to the document rather than staying in the sidebar.
     expect(emit).toHaveBeenCalledWith('editor-focus')
   })
 
-  it('falls back to the OS user name when no author is configured', () => {
-    const win = window as unknown as { electron?: { osUsername?: string } }
-    const original = win.electron
-    win.electron = { osUsername: 'csells' }
+  it('falls back to the OS user name when no author is configured', async() => {
+    const win = window as unknown as { electron: { osUsername?: string } }
+    const original = win.electron.osUsername
+    win.electron.osUsername = 'csells'
     try {
-      const { ret, emit } = makeBindings({}, { commentAuthorName: '' })
-      ret.replyDrafts.cmt_1 = 'Nice'
-      ret.submitReply('cmt_1')
+      const store = useEditorStore()
+      usePreferencesStore().commentAuthorName = ''
+      store.comments = makeComments([
+        { id: 'cmt_1', status: 'open', replies: [reply('Ada', 't1', 'x')] }
+      ]) as never
+      mountSidebar()
+
+      await replyBox('cmt_1').setValue('Nice')
+      await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.reply').trigger('click')
 
       expect(emit).toHaveBeenCalledWith('comment:reply', {
         id: 'cmt_1',
         reply: { author: 'csells', body: 'Nice' }
       })
     } finally {
-      win.electron = original
+      win.electron.osUsername = original
     }
   })
 
-  it('discards an empty newly composed thread when the sidebar unmounts', () => {
-    const { ret, emit, beforeUnmount } = makeBindings({
-      threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
+  it('discards an empty newly composed thread when the sidebar unmounts', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments([{ id: 'cmt_1', status: 'open', replies: [] }]) as never
+    mountSidebar()
+    store.composeCommentId = 'cmt_1'
+    await vi.waitFor(() => {
+      expect(store.composeCommentId).toBeNull()
     })
 
-    ret.handleComposeComment('cmt_1')
-    beforeUnmount.forEach(fn => fn())
+    wrapper!.unmount()
+    wrapper = null
 
     expect(emit).toHaveBeenCalledWith('comment:discard', 'cmt_1')
   })
 
-  it('keeps a typed newly composed draft when the sidebar unmounts', () => {
-    const { ret, emit, beforeUnmount } = makeBindings({
-      threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
+  it('keeps a typed newly composed draft when the sidebar unmounts', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments([{ id: 'cmt_1', status: 'open', replies: [] }]) as never
+    mountSidebar()
+    store.composeCommentId = 'cmt_1'
+    await vi.waitFor(() => {
+      expect(store.composeCommentId).toBeNull()
     })
+    await replyBox('cmt_1').setValue('draft text')
 
-    ret.handleComposeComment('cmt_1')
-    ret.replyDrafts.cmt_1 = 'draft text'
-    beforeUnmount.forEach(fn => fn())
+    wrapper!.unmount()
+    wrapper = null
 
     expect(emit).not.toHaveBeenCalledWith('comment:discard', 'cmt_1')
   })
 
-  it('explicitly cancels a newly composed draft by discarding the thread', () => {
-    const { ret, emit } = makeBindings({
-      threads: [{ id: 'cmt_1', status: 'open', authors: [], replies: [] }]
+  it('explicitly cancels a composed draft by discarding the thread', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments([{ id: 'cmt_1', status: 'open', replies: [] }]) as never
+    mountSidebar()
+    store.composeCommentId = 'cmt_1'
+    await vi.waitFor(() => {
+      expect(store.composeCommentId).toBeNull()
     })
+    await replyBox('cmt_1').setValue('draft text')
 
-    ret.handleComposeComment('cmt_1')
-    ret.replyDrafts.cmt_1 = 'draft text'
-    ret.discardComposedThread('cmt_1')
+    await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.cancelEdit').trigger('click')
 
     expect(emit).toHaveBeenCalledWith('comment:discard', 'cmt_1')
-    expect(ret.replyDrafts.cmt_1).toBeUndefined()
+    expect((replyBox('cmt_1').element as HTMLTextAreaElement).value).toBe('')
   })
 
-  it('emits diagnostic focus requests by id', () => {
-    const { ret, emit } = makeBindings()
+  it('emits diagnostic focus requests by id', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments(
+      [],
+      [{ code: 'orphan-metadata', id: 'broken', message: 'orphaned' }]
+    ) as never
+    mountSidebar()
 
-    ret.focusDiagnostic('broken')
+    await wrapper!.find('button.diagnostic').trigger('click')
 
     expect(emit).toHaveBeenCalledWith('comment:diagnostic-focus', 'broken')
   })
 
   it('scrolls a newly activated thread card into view (document -> sidebar)', async() => {
-    const { ret, watchers, activeCommentIdsRef } = makeBindings({
-      threads: [{ id: 'cmt_1', status: 'open', replies: [] }]
-    })
-
-    const root = document.createElement('div')
-    const card = document.createElement('section')
-    card.setAttribute('data-comment-id', 'cmt_1')
+    // jsdom has no scrollIntoView; install one to observe.
     const scrolled = vi.fn()
-    card.scrollIntoView = scrolled
-    root.appendChild(card)
-    ret.threadsRoot.value = root
+    ;(Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = scrolled
+    const store = useEditorStore()
+    store.comments = makeComments([{ id: 'cmt_1', status: 'open', replies: [] }]) as never
+    mountSidebar()
 
-    const activeWatch = watchers.find(w => w.source === activeCommentIdsRef)
-    expect(activeWatch).toBeDefined()
-    activeCommentIdsRef.value = ['cmt_1']
-    activeWatch!.cb(['cmt_1'], [])
-    await nextTick()
-
-    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' })
+    store.activeCommentIds = ['cmt_1'] as never
+    await vi.waitFor(() => {
+      expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' })
+    })
   })
 
   it('does not scroll the list for the echo of a sidebar click', async() => {
-    const { ret, watchers, activeCommentIdsRef } = makeBindings({
-      threads: [{ id: 'cmt_1', status: 'open', replies: [] }]
-    })
-
-    const root = document.createElement('div')
-    const card = document.createElement('section')
-    card.setAttribute('data-comment-id', 'cmt_1')
+    // jsdom has no scrollIntoView; install one to observe.
     const scrolled = vi.fn()
-    card.scrollIntoView = scrolled
-    root.appendChild(card)
-    ret.threadsRoot.value = root
+    ;(Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = scrolled
+    const store = useEditorStore()
+    store.comments = makeComments([{ id: 'cmt_1', status: 'open', replies: [] }]) as never
+    mountSidebar()
 
-    ret.focusComment('cmt_1')
-    const activeWatch = watchers.find(w => w.source === activeCommentIdsRef)
-    activeCommentIdsRef.value = ['cmt_1']
-    activeWatch!.cb(['cmt_1'], [])
+    await thread('cmt_1').find('.thread-main').trigger('click')
+    expect(emit).toHaveBeenCalledWith('comment:focus', 'cmt_1')
+
+    store.activeCommentIds = ['cmt_1'] as never
     await nextTick()
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
 
     expect(scrolled).not.toHaveBeenCalled()
   })
