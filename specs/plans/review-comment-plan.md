@@ -31,10 +31,33 @@ where they overlap. Landed since the last review round:
   source editor under all dark themes, Linux keybinding moved off KDE's
   lock-screen chord.
 
-In flight: adversarial verification of the remaining review findings, then
-the structural consolidation queue (single guard layer for comment editing,
-Muya comment facade extraction, editor store/component decomposition,
-sidebar component split, comment-API caching).
+All 23 adversarially confirmed correctness findings from the full review are
+fixed (every one red/green TDD): the comment source index now derives from
+the real parser token stream (container context, blockquote defs, fences);
+line-leading markers no longer trigger the HTML-block rule (soft-wrap split);
+merge-conflict sessions carry liveness snapshots and are superseded rather
+than stale-applied; save completion carries main's ground-truth bytes;
+restored sessions never fabricate merge bases (legacy dirty tabs go to the
+whole-file resolver); background-tab auto-merge invalidates stale engine
+history; cut/copy/paste/typing/Enter cannot strand or mangle comment
+metadata (the unreferenced-metadata sweep lives on ScrollPage); the Add
+Comment guard sees nested inline code; modified arrows jump natively;
+highlights render from flushed state through ONE version-keyed analysis
+shared with the whole comment API (zero clones per keystroke); the agent CLI
+parses options honestly, reports corruption as corruption, and refuses lossy
+re-encodes; afterPack verifies native-module unpackedness; malformed UTF-8
+metadata is a diagnostic; the trailing-newline trim no longer eats '?'.
+
+Remaining structural queue (confirmed, not yet executed): consolidate the
+per-key hidden-syntax guards into the placement layer fully (the backstop
+exists; per-path guards still duplicate); extract the Muya comment facade
+from muya.ts; decompose store/editor.ts and editor.vue/sourceCode.vue's
+duplicated comment bus-handler blocks; split comments.vue; replace the
+sidebar focus setTimeout barrage with a deterministic handoff; unify the
+four commentability caches; finish retiring muya-core.d.ts by pointing
+typecheck at muya's built types. Remaining UX polish: silent no-op comment
+guards need feedback affordances; remaining test gaps are listed in the
+review result (scratchpad archive).
 
 ## Hard Requirements
 
