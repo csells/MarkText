@@ -19,6 +19,7 @@ import {
   type FileChangePayload,
   isSamePersistenceSnapshot,
   markTabSavedAtCurrentHistory,
+  type PushTabNotificationPayload,
   requireDiskBaseMarkdown
 } from './editorPersistence'
 
@@ -46,17 +47,6 @@ export interface MergeConflictState {
   conflicts: ThreeWayMergeConflict[]
   fileChange: FileChangePayload
   validationError?: string
-}
-
-interface PushTabNotificationPayload {
-  tabId: string
-  msg: string
-  showConfirm?: boolean
-  confirmLabel?: string
-  secondaryLabel?: string
-  style?: string
-  exclusiveType?: string
-  action?: FileNotification['action']
 }
 
 interface DirtyExternalMergeStore {

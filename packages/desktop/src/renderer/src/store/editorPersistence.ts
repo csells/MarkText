@@ -1,5 +1,5 @@
 import equal from 'deep-equal'
-import type { FileDocumentPayload, IFileState } from '@shared/types/files'
+import type { FileDocumentPayload, FileNotification, IFileState } from '@shared/types/files'
 
 export interface FileChangePayload {
   pathname: string
@@ -16,6 +16,19 @@ export const completeTabSaveFromSnapshot = (tab: IFileState, savedMarkdown: stri
     return
   }
   tab.isSaved = false
+}
+
+// The pushTabNotification payload — one definition; the editor store and the
+// merge subsystem both consume it.
+export interface PushTabNotificationPayload {
+  tabId: string
+  msg: string
+  showConfirm?: boolean
+  confirmLabel?: string
+  secondaryLabel?: string
+  style?: string
+  exclusiveType?: string
+  action?: FileNotification['action']
 }
 
 export const markTabSavedAtCurrentHistory = (tab: IFileState): void => {

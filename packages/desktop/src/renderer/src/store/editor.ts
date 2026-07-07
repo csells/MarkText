@@ -27,7 +27,8 @@ import {
   type FileChangePayload,
   isSamePersistenceSnapshot,
   completeTabSaveFromSnapshot,
-  markTabSavedAtCurrentHistory
+  markTabSavedAtCurrentHistory,
+  type PushTabNotificationPayload
 } from './editorPersistence'
 import { type ThreeWayMergeConflict } from '../util/threeWayMerge'
 import {
@@ -78,17 +79,6 @@ interface RestoreWarning {
   showConfirm?: boolean
   style?: string
   exclusiveType?: string
-}
-
-interface PushTabNotificationPayload {
-  tabId: string
-  msg: string
-  showConfirm?: boolean
-  confirmLabel?: string
-  secondaryLabel?: string
-  style?: string
-  exclusiveType?: string
-  action?: FileNotification['action']
 }
 
 interface LoadChangeOptions {
@@ -202,6 +192,15 @@ export const useEditorStore = defineStore('editor', {
   }),
 
   actions: {
+    // Document-derived view state (TOC + comment review) resets as one unit
+    // whenever no document is loaded; three call sites used to hand-copy it.
+    RESET_DOCUMENT_VIEW_STATE(): void {
+      this.listToc = []
+      this.toc = []
+      this.comments = createEmptyComments()
+      this.activeCommentIds = []
+    },
+
     updateTabIdToIndex(): void {
       this.tabIdToIndex = this.tabs.reduce<Record<string, number>>((map, tab, index) => {
         map[tab.id] = index
@@ -1112,10 +1111,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       if (this.tabs.length === 0) {
-        this.listToc = []
-        this.toc = []
-        this.comments = createEmptyComments()
-        this.activeCommentIds = []
+        this.RESET_DOCUMENT_VIEW_STATE()
       }
 
       const { pathname } = file
@@ -1205,10 +1201,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       if (this.tabs.length === 0) {
-        this.listToc = []
-        this.toc = []
-        this.comments = createEmptyComments()
-        this.activeCommentIds = []
+        this.RESET_DOCUMENT_VIEW_STATE()
       }
       debouncedSendBufferedState()
     },
