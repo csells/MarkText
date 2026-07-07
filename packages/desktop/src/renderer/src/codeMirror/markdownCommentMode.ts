@@ -1,8 +1,7 @@
 import {
   COMMENT_MARKER_PATTERN,
-  COMMENT_METADATA_DATA_URI_PREFIX,
   createCommentSourceLineState,
-  escapeRegExp,
+  parseCommentMetadataDefinition,
   prepareCommentSourceLine,
   sourceLinePositionInsideInlineCode,
   type ICommentSourceLineState
@@ -14,10 +13,6 @@ type CodeMirrorLike = any
 type AnyObj = any
 
 const COMMENT_MARKER = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u')
-const COMMENT_METADATA = new RegExp(
-  `^\\[MC:[^\\]\\s]+\\]:\\s*${escapeRegExp(COMMENT_METADATA_DATA_URI_PREFIX)}\\S+`,
-  'u'
-)
 
 const registerMarkdownCommentMode = (CodeMirror: CodeMirrorLike): void => {
   if (CodeMirror.modes && Object.prototype.hasOwnProperty.call(CodeMirror.modes, 'markdown-comments')) {
@@ -43,7 +38,11 @@ const registerMarkdownCommentMode = (CodeMirror: CodeMirrorLike): void => {
           return null
         }
 
-        if (stream.sol() && stream.match(COMMENT_METADATA)) {
+        // Definition recognition is the canonical parser's, not a second
+        // regex — a line the analyzer treats as metadata must decorate as
+        // metadata (leading indentation and malformed payloads included).
+        if (stream.sol() && parseCommentMetadataDefinition(stream.string)) {
+          stream.skipToEnd()
           return 'mt-comment-metadata'
         }
 

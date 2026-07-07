@@ -89,6 +89,20 @@ export function isValidCommentId(id: string): boolean {
 // these leaves, mirroring parse.ts's NON_INLINE_COMMENT_TEXT_STATES at the
 // block level, or a fence containing "<!--MC:~id-->" as documentation would
 // count as a real counterpart and falsely block edits.
+// State names whose text is LITERAL for the comment grammar — markers and
+// definition-shaped lines inside them are documentation, never syntax. The
+// single source for every state-space derivation (parse's inline scan,
+// edit's commentability check); NON_COMMENT_SCANNABLE_LEAF_BLOCKS below is
+// the same fact in block-name space.
+export const LITERAL_COMMENT_TEXT_STATES: ReadonlySet<string> = new Set([
+    'code-block',
+    'diagram',
+    'frontmatter',
+    'html-block',
+    'math-block',
+    'thematic-break',
+]);
+
 export const NON_COMMENT_SCANNABLE_LEAF_BLOCKS: ReadonlySet<string> = new Set([
     'codeblock.content',
     'language-input',

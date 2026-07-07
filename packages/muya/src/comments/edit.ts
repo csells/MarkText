@@ -7,6 +7,7 @@ import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata 
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
 import {
     isValidCommentId,
+    LITERAL_COMMENT_TEXT_STATES,
     parseCommentMetadataDefinition,
     serializeCommentMarker,
     serializeCommentMetadataDefinition,
@@ -45,14 +46,11 @@ interface IValidatedCommentRange {
 
 export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>;
 
-const NON_COMMENTABLE_TEXT_STATES = new Set<TState['name']>([
-    'code-block',
-    'diagram',
-    'frontmatter',
-    'html-block',
+// Commentability additionally excludes the deprecated
+// link-reference-definition state (raw definition text, no prose to anchor).
+const NON_COMMENTABLE_TEXT_STATES = new Set<string>([
+    ...LITERAL_COMMENT_TEXT_STATES,
     'link-reference-definition',
-    'math-block',
-    'thematic-break',
 ]);
 
 // Must accept every line the parser's COMMENT_METADATA_DEFINITION_REGEXP

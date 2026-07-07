@@ -15,6 +15,7 @@ import { stripRealCommentMarkersFromText } from './markerScan';
 import { decodeCommentMetadata } from './metadata';
 import { commentPathKey } from './range';
 import {
+    LITERAL_COMMENT_TEXT_STATES,
     parseCommentMetadataDefinition,
     parseMalformedCommentMarker,
 } from './syntax';
@@ -39,14 +40,7 @@ function isTextState(state: TState): state is Extract<TState, { text: string }> 
     return 'text' in state && typeof state.text === 'string';
 }
 
-const NON_INLINE_COMMENT_TEXT_STATES = new Set<TState['name']>([
-    'code-block',
-    'diagram',
-    'frontmatter',
-    'html-block',
-    'math-block',
-    'thematic-break',
-]);
+const NON_INLINE_COMMENT_TEXT_STATES = LITERAL_COMMENT_TEXT_STATES;
 
 function shouldScanInlineText(state: TState): state is Extract<TState, { text: string }> {
     return isTextState(state) && !NON_INLINE_COMMENT_TEXT_STATES.has(state.name);
