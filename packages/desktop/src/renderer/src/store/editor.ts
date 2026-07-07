@@ -729,6 +729,9 @@ export const useEditorStore = defineStore('editor', {
       const projectStore = useProjectStore()
       const preferencesStore = usePreferencesStore()
       window.electron.ipcRenderer.on('mt::ask-for-close', () => {
+        // Same preamble as every save path: commit muya's rAF-batched edits
+        // so the close dialog and save-and-quit see the real buffer.
+        this.FLUSH_ACTIVE_EDITOR_FOR_SAVE()
         sendBufferedState()
           .catch((err) => {
             console.error('Failed to update buffered state before closing', err)
@@ -1131,6 +1134,9 @@ export const useEditorStore = defineStore('editor', {
     },
 
     CLOSE_UNSAVED_TAB(file: IFileState): void {
+      if (this.currentFile?.id === file.id) {
+        this.FLUSH_ACTIVE_EDITOR_FOR_SAVE()
+      }
       const { id, pathname, filename, markdown } = file
       const options = getOptionsFromState(file)
       window.electron.ipcRenderer.send('mt::save-and-close-tabs', [

@@ -314,7 +314,12 @@ const statusLabel = (status: string): string =>
 
 const visibleThreads = computed(() => {
   if (commentFilter.value === 'all') return comments.value.threads
-  return comments.value.threads.filter(thread => thread.status === commentFilter.value)
+  // A thread being composed must stay visible under any filter — hiding it
+  // strands the compose flow (its input never mounts) and persists an empty
+  // thread.
+  return comments.value.threads.filter(
+    thread => thread.status === commentFilter.value || composingThreadIds[thread.id]
+  )
 })
 
 const commentAuthorName = computed(() => {

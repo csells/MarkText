@@ -492,9 +492,19 @@ class Content extends TreeNode {
             this.domNode!,
         );
 
-        // Just do nothing if the cursor is not collapsed or `shiftKey` pressed
-        if (start.offset !== end.offset || event.shiftKey)
+        // Just do nothing if the cursor is not collapsed or a modifier is
+        // held: Shift extends a selection; Cmd/Alt/Ctrl arrows are word/line/
+        // document jumps whose native motion must run (the cursor-placement
+        // layer snaps any landing inside hidden syntax).
+        if (
+            start.offset !== end.offset
+            || event.shiftKey
+            || event.metaKey
+            || event.altKey
+            || event.ctrlKey
+        ) {
             return;
+        }
 
         // In RTL the physical Left/Right arrows are visually mirrored, so the
         // cross-block boundary keys swap (offset 0 is the visual right end).
