@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 
-import type * as Comments from '../comments';
+import type * as CommentsAnalyze from '../comments/analyze';
 import { Buffer } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../comments', async (importOriginal) => {
-    const actual = await importOriginal<typeof Comments>();
+// The facade imports the analyzer module directly, so the spy must live on
+// '../comments/analyze' (the barrel re-export would not intercept it).
+vi.mock('../comments/analyze', async (importOriginal) => {
+    const actual = await importOriginal<typeof CommentsAnalyze>();
     return {
         ...actual,
         analyzeMarkdownComments: vi.fn(actual.analyzeMarkdownComments),
@@ -30,7 +32,7 @@ function metadata(data: Record<string, unknown>) {
 
 describe('muya comment API analyzer wiring', () => {
     it('derives public comments through the authoritative analyzer', async () => {
-        const comments = await import('../comments');
+        const comments = await import('../comments/analyze');
         const { Muya } = await import('../muya');
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -58,7 +60,7 @@ describe('muya comment API analyzer wiring', () => {
     });
 
     it('derives visible comment highlights through the authoritative analyzer', async () => {
-        const comments = await import('../comments');
+        const comments = await import('../comments/analyze');
         const { Muya } = await import('../muya');
         const host = document.createElement('div');
         document.body.appendChild(host);

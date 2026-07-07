@@ -3,7 +3,6 @@ import type Parent from './block/base/parent';
 import type { TBlockPath } from './block/types';
 import type {
     IAddCommentInput,
-    ICommentMetadata,
     ICommentReplyInput,
     IParsedMarkdownComments,
     TUpdateCommentThreadPatch,
@@ -18,19 +17,7 @@ import type { IMuyaOptions, Nullable } from './types';
 import Format from './block/base/format';
 import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replaceBlockByLabel } from './block/blockTransforms';
 import { ScrollPage } from './block/scrollPage';
-import {
-    analyzeMarkdownComments,
-    appendCommentReplyMetadata,
-    buildTextPathIndexes,
-    canWrapCommentRange,
-    createCommentMetadata,
-    locateCommentSyntax,
-    mergeCommentMetadataPatch,
-    nextCommentId,
-    selectionIntersectsCommentRange,
-    updateCommentMetadataDefinition,
-    wrapCommentRange,
-} from './comments';
+import { MuyaComments } from './comments/facade';
 import emptyStates from './config/emptyStates';
 import {
     CLASS_NAMES,
@@ -161,11 +148,11 @@ export class Muya {
     public eventCenter: EventCenter;
     public domNode: HTMLElement;
     public editor: Editor;
+    private _comments: MuyaComments;
     public ui: Ui;
     public i18n: I18n;
 
     private _uiPlugins: Record<string, unknown> = {};
-    private _lastActiveCommentIds: string[] = [];
 
     constructor(element: HTMLElement, options?: Partial<IMuyaOptions>) {
         this.options = Object.assign({}, MUYA_DEFAULT_OPTIONS, options ?? {});
@@ -173,10 +160,11 @@ export class Muya {
         this.domNode = getContainer(element, this.options);
         // this.domNode[BLOCK_DOM_PROPERTY] = this;
         this.editor = new Editor(this);
+        this._comments = new MuyaComments(this);
         this.ui = new Ui(this);
         this.i18n = new I18n(this, this.options.locale);
         this._bindFocusBlurEvents();
-        this._bindCommentEvents();
+        this._comments.bindEvents();
     }
 
     private _bindFocusBlurEvents() {
@@ -186,33 +174,6 @@ export class Muya {
         this.eventCenter.attachDOMEvent(this.domNode, 'blur', () => {
             this.eventCenter.emit('blur');
         });
-    }
-
-    private _bindCommentEvents() {
-        this.eventCenter.on('json-change', () => {
-            this._emitCommentsChange();
-        });
-        this.eventCenter.on('selection-change', () => {
-            this._emitActiveCommentsChange();
-        });
-    }
-
-    private _emitCommentsChange() {
-        this.eventCenter.emit('comments-change', this.getComments());
-        this._emitActiveCommentsChange();
-    }
-
-    private _emitActiveCommentsChange() {
-        const ids = this.getActiveComments();
-        if (this._sameCommentIds(ids, this._lastActiveCommentIds))
-            return;
-
-        this._lastActiveCommentIds = [...ids];
-        this.eventCenter.emit('active-comments-change', ids);
-    }
-
-    private _sameCommentIds(a: string[], b: string[]) {
-        return a.length === b.length && a.every((id, index) => id === b[index]);
     }
 
     init() {
@@ -270,303 +231,54 @@ export class Muya {
         return this.editor.jsonState.getTOC();
     }
 
-    // One comment analysis per document version, shared by getComments,
-    // getActiveComments, canAddComment, and both change emitters — every
-    // keystroke used to pay multiple whole-document clones and re-parses.
-    private _commentViewCache: Nullable<{
-        version: number;
-        comments: IParsedMarkdownComments;
-        textPathIndexes: Nullable<ReturnType<typeof buildTextPathIndexes>>;
-    }> = null;
+    // ---- Comment subsystem (delegates to comments/facade.ts) ----------------
 
-    private _commentView() {
-        const { jsonState } = this.editor;
-        const states = jsonState.peekState();
-        const version = jsonState.version;
-        if (this._commentViewCache?.version !== version) {
-            this._commentViewCache = {
-                version,
-                comments: analyzeMarkdownComments(states).comments,
-                textPathIndexes: null,
-            };
-        }
-        return this._commentViewCache;
+    commentRenderView() {
+        return this._comments.commentRenderView();
     }
 
-    private _commentViewTextPathIndexes() {
-        const view = this._commentView();
-        view.textPathIndexes ??= buildTextPathIndexes(this.editor.jsonState.peekState());
-        return view.textPathIndexes;
-    }
-
-    // Internal: the inline renderer's per-version render model — same cached
-    // analysis the public comment API serves, so highlights and sidebar can
-    // never disagree (and the document is cloned zero times on this path).
-    commentRenderView(): { comments: IParsedMarkdownComments; textPathIndexes: ReturnType<typeof buildTextPathIndexes> } {
-        return {
-            comments: this._commentView().comments,
-            textPathIndexes: this._commentViewTextPathIndexes(),
-        };
-    }
-
-    // Guard refusals (an edit that would corrupt comment syntax) are policy,
-    // not errors — but they must never be SILENT. Every guard funnels its
-    // refusal through here so the host can show feedback.
     notifyCommentEditBlocked(): void {
-        this.eventCenter.emit('comment-edit-blocked');
+        this._comments.notifyCommentEditBlocked();
     }
 
     getComments(): IParsedMarkdownComments {
-        // Comment derivation runs on every json-change; it must never throw out
-        // of the edit pipeline. Surface the failure as a diagnostic so callers
-        // do not confuse a parser failure with a comment-free document.
-        try {
-            return this._commentView().comments;
-        }
-        catch (error) {
-            console.error('muya.getComments failed:', error);
-            const message = error instanceof Error ? error.message : String(error);
-            return {
-                threads: [],
-                ranges: [],
-                diagnostics: [
-                    {
-                        code: 'parse-error',
-                        id: '__parser__',
-                        message: `muya.getComments failed: ${message}`,
-                    },
-                ],
-            };
-        }
+        return this._comments.getComments();
     }
 
     getActiveComments(): string[] {
-        const selection = this.editor.selection.getSelection();
-        if (!selection)
-            return [];
-
-        // Use getComments() (not a second parseMarkdownComments call) so a
-        // corrupt-metadata parse failure is surfaced once, as getComments'
-        // parse-error diagnostic, and yields no ranges here — rather than a
-        // silent [] that disagrees with the sidebar. The remaining calls
-        // (buildTextPathIndexes, selectionIntersectsCommentRange) are throw-free.
-        const comments = this.getComments();
-        if (comments.ranges.length === 0)
-            return [];
-
-        const textPathIndexes = this._commentViewTextPathIndexes();
-        const activeIds: string[] = [];
-
-        for (const range of comments.ranges) {
-            if (selectionIntersectsCommentRange(
-                range,
-                selection.anchor.path,
-                selection.anchor.offset,
-                selection.focus.path,
-                selection.focus.offset,
-                textPathIndexes,
-            )) {
-                activeIds.push(range.id);
-            }
-        }
-
-        return activeIds;
-    }
-
-    // Reserve a collision-free comment id against every id already in the
-    // document (threads, ranges, and diagnostics). Returns null when a
-    // caller-supplied id is already taken.
-    private _reserveCommentId(input: Pick<IAddCommentInput, 'id'>): string | null {
-        const comments = this.getComments();
-        const existingIds = [
-            ...comments.threads.map(thread => thread.id),
-            ...comments.ranges.map(range => range.id),
-            ...comments.diagnostics.map(diagnostic => diagnostic.id),
-        ];
-        const id = input.id ?? nextCommentId(existingIds);
-        return existingIds.includes(id) ? null : id;
+        return this._comments.getActiveComments();
     }
 
     canAddComment(input: Pick<IAddCommentInput, 'id'> = {}): boolean {
-        const selection = this.editor.selection.getSelection();
-        if (!selection || selection.isCollapsed)
-            return false;
-
-        // No try/catch: the only throwing call in the comment area is metadata
-        // decode, which is quarantined inside getComments() (it returns a
-        // parse-error diagnostic, never throws). getComments/nextCommentId/
-        // canWrapCommentRange are all throw-free, so a residual throw here is a
-        // genuine bug that must surface, not be silently turned into "disabled".
-        const id = this._reserveCommentId(input);
-        if (id == null)
-            return false;
-
-        return canWrapCommentRange({
-            states: this.editor.jsonState.peekState(),
-            path: selection.anchor.path,
-            endPath: selection.focus.path,
-            startOffset: selection.anchor.offset,
-            endOffset: selection.focus.offset,
-            id,
-        });
+        return this._comments.canAddComment(input);
     }
 
-    // Returns the created thread's id, or null when the selection is not
-    // commentable — the caller needs the id to open the compose flow, and
-    // re-deriving it from a before/after diff costs two extra analyses.
     addComment(input: IAddCommentInput = {}): string | null {
-        // Commit any rAF-batched keystroke ops before reading state below —
-        // building the replacement from a stale snapshot would let the pending
-        // op flush onto the replaced document later (the #2938 lost-edit class).
-        this.flush();
-        const selection = this.editor.selection.getSelection();
-        if (!selection || selection.isCollapsed)
-            return null;
-
-        const id = this._reserveCommentId(input);
-        if (id == null)
-            return null;
-
-        const states = this.editor.jsonState.getState();
-        const nextStates = wrapCommentRange({
-            states,
-            path: selection.anchor.path,
-            endPath: selection.focus.path,
-            startOffset: selection.anchor.offset,
-            endOffset: selection.focus.offset,
-            id,
-            metadata: createCommentMetadata(input),
-        });
-
-        if (!nextStates)
-            return null;
-
-        const nextRange = analyzeMarkdownComments(nextStates).comments.ranges.find(range => range.id === id);
-        const changed = this.replaceContent(nextStates, selection);
-        if (changed && nextRange) {
-            this.setCursor({
-                anchor: { offset: nextRange.startOffset },
-                focus: { offset: nextRange.endOffset },
-                anchorPath: nextRange.startPath,
-                focusPath: nextRange.endPath,
-            });
-        }
-
-        return changed ? id : null;
+        return this._comments.addComment(input);
     }
 
     removeComment(id: string): boolean {
-        // See addComment: commit pending ops before snapshotting the document.
-        this.flush();
-        const currentMarkdown = this.getMarkdown();
-        const analysis = analyzeMarkdownComments(currentMarkdown);
-        const sourceMap = analysis.sourceMaps.ranges.find(range => range.id === id);
-        if (!sourceMap)
-            return false;
-
-        let nextMarkdown = currentMarkdown;
-        for (const range of sourceMap.syntaxRemovalRanges)
-            nextMarkdown = `${nextMarkdown.slice(0, range.start)}${nextMarkdown.slice(range.end)}`;
-        if (nextMarkdown === currentMarkdown)
-            return false;
-
-        // Backstop against index/parser drift: a removal must be COMPLETE.
-        // Applying a partial removal (say, the definition without its
-        // markers) would silently corrupt the document — refuse instead.
-        const residue = analyzeMarkdownComments(nextMarkdown).sourceIndex;
-        if (
-            residue.markers.some(marker => marker.id === id)
-            || residue.metadataDefinitions.some(definition => definition.id === id)
-        ) {
-            return false;
-        }
-
-        return this.replaceContent(nextMarkdown);
+        return this._comments.removeComment(id);
     }
 
     updateCommentThread(id: string, patch: TUpdateCommentThreadPatch): boolean {
-        return this._replaceCommentMetadata(id, metadata => mergeCommentMetadataPatch(metadata, patch));
+        return this._comments.updateCommentThread(id, patch);
     }
 
     replyToComment(id: string, reply: ICommentReplyInput): boolean {
-        return this._replaceCommentMetadata(id, metadata => appendCommentReplyMetadata(metadata, reply));
+        return this._comments.replyToComment(id, reply);
     }
 
-    resolveComment(id: string, updatedAt = new Date().toISOString()): boolean {
-        return this.updateCommentThread(id, { status: 'resolved', updatedAt });
+    resolveComment(id: string, updatedAt?: string): boolean {
+        return this._comments.resolveComment(id, updatedAt);
     }
 
-    reopenComment(id: string, updatedAt = new Date().toISOString()): boolean {
-        return this.updateCommentThread(id, { status: 'open', updatedAt });
+    reopenComment(id: string, updatedAt?: string): boolean {
+        return this._comments.reopenComment(id, updatedAt);
     }
 
     focusComment(id: string): boolean {
-        const range = this.getComments().ranges.find(range => range.id === id);
-        // A diagnostic for an orphan/malformed comment has no derived range;
-        // fall back to the raw marker or metadata definition so the click still
-        // navigates instead of being a silent no-op.
-        const location = range
-            ? {
-                    startPath: range.startPath,
-                    startOffset: range.startOffset,
-                    endPath: range.endPath,
-                    endOffset: range.endOffset,
-                }
-            : locateCommentSyntax(this.editor.jsonState.getState(), id);
-        if (!location)
-            return false;
-
-        const cursor = {
-            anchor: { offset: location.startOffset },
-            focus: { offset: location.endOffset },
-            anchorPath: location.startPath,
-            focusPath: location.endPath,
-        };
-        this.setCursor(cursor);
-
-        const block = this.editor.scrollPage?.queryBlock([...location.startPath]);
-        const element = block?.domNode;
-        if (element && typeof element.scrollIntoView === 'function')
-            element.scrollIntoView({ block: 'center', inline: 'nearest' });
-
-        return true;
-    }
-
-    private _replaceCommentMetadata(
-        id: string,
-        updater: (metadata: ICommentMetadata) => ICommentMetadata,
-    ): boolean {
-        // See addComment: commit pending ops before snapshotting the document.
-        this.flush();
-        const nextStates = updateCommentMetadataDefinition(
-            this.editor.jsonState.getState(),
-            id,
-            updater,
-        );
-        if (!nextStates)
-            return false;
-
-        // Only the hidden `[MC:id]:` metadata line changes here — the visible
-        // blocks and their paths are untouched. Preserve the editor's caret
-        // across the rebuild from the CACHED selection (the live DOM selection
-        // is empty while the user is typing in the sidebar), so replying or
-        // resolving never yanks the caret to the document start.
-        const { selection } = this.editor;
-        const preserved
-            = selection.anchor && selection.focus
-                ? {
-                        anchor: { offset: selection.anchor.offset },
-                        focus: { offset: selection.focus.offset },
-                        anchorPath: selection.anchorPath,
-                        focusPath: selection.focusPath,
-                    }
-                : null;
-
-        const changed = this.replaceContent(nextStates);
-        if (changed && preserved)
-            this.setCursor(preserved);
-
-        return changed;
+        return this._comments.focusComment(id);
     }
 
     undo() {
@@ -615,7 +327,7 @@ export class Muya {
 
     setContent(content: TState[] | string, autoFocus = false) {
         this.editor.setContent(content, autoFocus);
-        this._emitCommentsChange();
+        this._comments.emitCommentsChange();
     }
 
     /**
