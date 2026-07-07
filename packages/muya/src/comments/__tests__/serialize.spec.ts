@@ -1,4 +1,6 @@
+import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
+import { parseMarkdownComments } from '../parse';
 import {
     commentMarkerRegExpForId,
     parseCommentMarker,
@@ -33,5 +35,20 @@ describe('comment wire-format serializers', () => {
 
     it('escapes regexp metacharacters in the id when building the id-scoped regexp', () => {
         expect(commentMarkerRegExpForId('a.b').source).toContain('a\\.b');
+    });
+});
+
+describe('metadata decoding rejects malformed UTF-8', () => {
+    it('reports invalid-metadata instead of silently substituting U+FFFD', () => {
+        // Valid base64 whose decoded bytes contain a lone 0xC3 continuation
+        // start — invalid UTF-8 that a non-fatal decoder would turn into '�'.
+        const bytes = Buffer.from([0x7B, 0x22, 0xC3, 0x22, 0x7D]);
+        const markdown = `x <!--MC:a-->y<!--MC:~a--> z\n\n[MC:a]: data:application/json;base64,${bytes.toString('base64')}\n`;
+
+        const { diagnostics } = parseMarkdownComments(markdown);
+
+        expect(diagnostics).toContainEqual(
+            expect.objectContaining({ code: 'invalid-metadata', id: 'a' }),
+        );
     });
 });

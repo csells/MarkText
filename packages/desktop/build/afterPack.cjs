@@ -72,9 +72,20 @@ exports.default = async function bundleOptionalNativeKeymap (context) {
       fs.cpSync(unpackedRoot, preservedUnpackedRoot, { recursive: true, dereference: false })
     }
 
+    // minimatch does not brace-expand a single-entry brace, so `**/{name}`
+    // matches nothing when only one module needs unpacking.
+    const names = [...unpackNames]
     await asar.createPackageWithOptions(staging, tempAsarPath, {
-      unpackDir: `**/{${[...unpackNames].join(',')}}`
+      unpackDir: names.length === 1 ? `**/${names[0]}` : `**/{${names.join(',')}}`
     })
+    // Unpackedness is the whole point (native modules cannot load from
+    // inside the archive) — verify instead of trusting the glob.
+    for (const name of names) {
+      const marker = path.join(tempUnpackedRoot, 'node_modules', name)
+      if (!fs.existsSync(marker)) {
+        throw new Error(`[afterPack] ${name} was not unpacked from the rebuilt asar`)
+      }
+    }
     if (fs.existsSync(preservedUnpackedRoot)) {
       fs.cpSync(preservedUnpackedRoot, tempUnpackedRoot, {
         recursive: true,

@@ -39,7 +39,9 @@ function decodeBase64Utf8(value: string): string {
     for (let i = 0; i < binary.length; i++)
         bytes[i] = binary.charCodeAt(i);
 
-    return new TextDecoder().decode(bytes);
+    // fatal: malformed UTF-8 must surface as invalid-metadata, not silently
+    // become U+FFFD that every edit then re-encodes as canonical bytes.
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
 function isCommentStatus(value: unknown): value is TCommentStatus {
