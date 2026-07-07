@@ -92,6 +92,13 @@ class InlineRenderer {
         domNode!.innerHTML = html;
     }
 
+    // Whether re-rendering `block` would paint comment highlights — the
+    // attach-time repaint in ScrollPage.updateCommentContent asks this so it
+    // re-renders only affected blocks instead of the whole document.
+    hasCommentHighlights(block: Format): boolean {
+        return this._commentHighlights(block).length > 0;
+    }
+
     private _commentHighlights(block: Format, cursor?: IRenderCursor): IHighlight[] {
         // A blur can fire on a content block whose subtree was just detached by
         // a rebuild (e.g. replying to a comment tears down the caret's

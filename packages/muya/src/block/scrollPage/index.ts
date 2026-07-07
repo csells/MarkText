@@ -6,7 +6,6 @@ import type TreeNode from '../base/treeNode';
 import type { IConstructor, TBlockPath } from '../types';
 import { commentMarkerKindsInTexts } from '../../comments/markerScan';
 import {
-    COMMENT_MARKER_SEARCH_REGEXP,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
     parseCommentMetadataDefinition,
 } from '../../comments/syntax';
@@ -170,17 +169,18 @@ export class ScrollPage extends Parent {
     }
 
     updateCommentContent() {
-        let hasCommentMarkers = false;
-        this.breadthFirstTraverse((node) => {
-            if (node.isContent() && COMMENT_MARKER_SEARCH_REGEXP.test(node.text))
-                hasCommentMarkers = true;
-        });
-
-        if (!hasCommentMarkers)
+        // Blocks render DETACHED during updateState's append, and the
+        // highlight step skips detached blocks — so highlight-bearing blocks
+        // need one repaint after attach. Marker/definition HIDING has no
+        // cross-block dependency and is correct on the first render, so only
+        // blocks the (cached) render model actually highlights re-render.
+        const { comments } = this.muya.commentRenderView();
+        if (comments.ranges.length === 0)
             return;
 
+        const { inlineRenderer } = this.muya.editor;
         this.breadthFirstTraverse((node) => {
-            if (node.isContent())
+            if (node.isContent() && inlineRenderer.hasCommentHighlights(node as never))
                 node.update();
         });
     }
