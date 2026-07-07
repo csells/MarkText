@@ -341,6 +341,22 @@ describe('structural merges skip hidden comment metadata blocks', () => {
 // Typing/Enter over a fully selected comment legally removes the marker pair;
 // the hidden definition must go with it or it orphans silently (cut already
 // swept — the sweep lives on ScrollPage now so every editing surface shares it).
+describe('typing a marker-like character at a marker edge', () => {
+    it('keeps a \'<\' typed immediately before an open marker', () => {
+        const muya = bootMuya('a<!--MC:x-->mid<!--MC:~x-->b\n');
+        const content = caretInFirstBlock(muya, 1);
+
+        // The browser inserts '<' at offset 1; prefix/suffix trimming alone
+        // would attribute the edit INSIDE the marker (old[1] is also '<') and
+        // the guard would revert the keystroke.
+        content.domNode!.textContent = 'a<<!--MC:x-->mid<!--MC:~x-->b';
+        document.getSelection()!.collapse(content.domNode!.firstChild!, 2);
+        pressInput(content, 'insertText', '<');
+
+        expect(content.text).toBe('a<<!--MC:x-->mid<!--MC:~x-->b');
+    });
+});
+
 describe('replacing a whole comment sweeps its metadata definition', () => {
     const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
 

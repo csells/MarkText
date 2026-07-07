@@ -225,7 +225,14 @@ function checkTokenIsInlineFormat(token: Token) {
 // trailing edge that post-edit offset slides into the (now-stale) closing marker
 // and false-flags a safe insertion, dropping the character. Deriving the real
 // edited range keeps the guard accurate.
-function editedTextRange(oldText: string, newText: string): { start: number; end: number } {
+function editedTextRange(
+    oldText: string,
+    newText: string,
+    // Post-edit caret offset: disambiguates repeated characters. Typing '<'
+    // right before '<!--MC:...-->' is textually identical to inserting INSIDE
+    // the marker; only the caret says which happened.
+    postEditCursor?: number,
+): { start: number; end: number } {
     const oldLen = oldText.length;
     const newLen = newText.length;
     let prefix = 0;
@@ -236,6 +243,20 @@ function editedTextRange(oldText: string, newText: string): { start: number; end
     const maxSuffix = Math.min(oldLen - prefix, newLen - prefix);
     while (suffix < maxSuffix && oldText[oldLen - 1 - suffix] === newText[newLen - 1 - suffix])
         suffix++;
+
+    if (postEditCursor != null && newLen > oldLen && prefix + suffix >= oldLen) {
+        const insertedLength = newLen - oldLen;
+        const anchoredStart = postEditCursor - insertedLength;
+        if (
+            anchoredStart >= 0
+            && anchoredStart < prefix
+            && oldText.slice(0, anchoredStart) === newText.slice(0, anchoredStart)
+            && oldText.slice(anchoredStart) === newText.slice(postEditCursor)
+        ) {
+            return { start: anchoredStart, end: anchoredStart };
+        }
+    }
+
     return { start: prefix, end: oldLen - suffix };
 }
 
@@ -656,7 +677,7 @@ class Format extends Content {
         // Validate the edit's real range in the pre-edit text, not the post-edit
         // cursor: at a comment's trailing edge the moved cursor lands inside the
         // stale closing marker and would wrongly revert a safe character.
-        const edited = editedTextRange(this.text, textContent);
+        const edited = editedTextRange(this.text, textContent, start.offset);
         // A legal edit may replace COMPLETE marker pairs (typing over a fully
         // selected comment) — their definitions must not be left orphaned.
         const replacedCommentIds = [...commentMarkerKindsInText(this.text.slice(edited.start, edited.end)).keys()];
