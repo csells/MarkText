@@ -119,6 +119,12 @@ import { exportStyledHTML, type HeaderFooterPart } from '@/util/exportHtml'
 import { applyCursor, isIndexCursor } from '@/util/cursor'
 import EditorSearch from '../search/index.vue'
 import bus from '@/bus'
+import {
+  type ICommentSurface,
+  initCommentCommandRouter,
+  popCommentSurface,
+  pushCommentSurface
+} from '@/review/commentCommandRouter'
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_CODE_FONT_FAMILY } from '@/config'
 import notice from '@/services/notification'
 import Printer from '@/services/printService'
@@ -1761,6 +1767,19 @@ const handleCommentReopen = (id: unknown) => {
 // Both a comment and a diagnostic focus resolve to the same engine call —
 // focusComment already falls back to the raw marker/metadata location for an
 // orphan or malformed comment, so the WYSIWYG side needs no separate handler.
+// The WYSIWYG comment surface: the router dispatches here whenever the
+// source-mode overlay (which pushes itself above this) is not mounted.
+const wysiwygCommentSurface: ICommentSurface = {
+  addComment: () => handleAddComment(),
+  reply: (payload) => handleCommentReply(payload),
+  discard: (id) => handleCommentDiscard(id),
+  edit: (payload) => handleCommentEdit(payload),
+  resolve: (id) => handleCommentResolve(id),
+  reopen: (id) => handleCommentReopen(id),
+  focus: (id) => handleCommentFocus(id),
+  focusDiagnostic: (id) => handleCommentFocus(id)
+}
+
 const handleCommentFocus = (id: unknown) => {
   if (sourceCode.value || !editor.value || typeof id !== 'string') return
   if (editor.value.focusComment(id)) {
@@ -1994,14 +2013,8 @@ onMounted(() => {
   bus.on('switch-spellchecker-language', switchSpellcheckLanguage)
   bus.on('open-command-spellchecker-switch-language', openSpellcheckerLanguageCommand)
   bus.on('replace-misspelling', replaceMisspelling)
-  bus.on('addComment', handleAddComment)
-  bus.on('comment:reply', handleCommentReply)
-  bus.on('comment:discard', handleCommentDiscard)
-  bus.on('comment:edit', handleCommentEdit)
-  bus.on('comment:resolve', handleCommentResolve)
-  bus.on('comment:reopen', handleCommentReopen)
-  bus.on('comment:focus', handleCommentFocus)
-  bus.on('comment:diagnostic-focus', handleCommentFocus)
+  initCommentCommandRouter()
+  pushCommentSurface(wysiwygCommentSurface)
 
   // The engine emits a low-level `json-change` ({ op, source, prevDoc, doc })
   // on every document mutation; the desktop's content-change pipeline wants the
@@ -2167,14 +2180,7 @@ onBeforeUnmount(() => {
   bus.off('open-command-spellchecker-switch-language', openSpellcheckerLanguageCommand)
   bus.off('replace-misspelling', replaceMisspelling)
   bus.off('language-changed', handleLanguageChanged)
-  bus.off('addComment', handleAddComment)
-  bus.off('comment:reply', handleCommentReply)
-  bus.off('comment:discard', handleCommentDiscard)
-  bus.off('comment:edit', handleCommentEdit)
-  bus.off('comment:resolve', handleCommentResolve)
-  bus.off('comment:reopen', handleCommentReopen)
-  bus.off('comment:focus', handleCommentFocus)
-  bus.off('comment:diagnostic-focus', handleCommentFocus)
+  popCommentSurface(wysiwygCommentSurface)
 
   document.removeEventListener('keyup', keyup)
 

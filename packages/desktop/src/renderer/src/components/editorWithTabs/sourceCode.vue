@@ -39,6 +39,11 @@ import {
 } from './sourceCommentController'
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
+import {
+  type ICommentSurface,
+  popCommentSurface,
+  pushCommentSurface
+} from '@/review/commentCommandRouter'
 import { codeMirrorThemeFor } from '@/config'
 import { useI18n } from 'vue-i18n'
 
@@ -427,6 +432,19 @@ const showCommentsSidebar = (): void => {
   })
 }
 
+// The source-mode comment surface (registered above the WYSIWYG one for the
+// overlay's lifetime).
+const sourceCommentSurface: ICommentSurface = {
+  addComment: () => handleAddComment(),
+  reply: (payload) => handleCommentReply(payload),
+  discard: (id) => handleCommentDiscard(id),
+  edit: (payload) => handleCommentEdit(payload),
+  resolve: (id) => handleCommentResolve(id),
+  reopen: (id) => handleCommentReopen(id),
+  focus: (id) => handleCommentFocus(id),
+  focusDiagnostic: (id) => handleCommentDiagnosticFocus(id)
+}
+
 const handleAddComment = (): void => {
   if (!sourceCode.value || !editor.value) return
 
@@ -761,15 +779,10 @@ onMounted(() => {
   bus.on('selectAll', handleSelectAll)
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
-  bus.on('addComment', handleAddComment)
   bus.on('editor-focus', handleEditorFocus)
-  bus.on('comment:reply', handleCommentReply)
-  bus.on('comment:discard', handleCommentDiscard)
-  bus.on('comment:edit', handleCommentEdit)
-  bus.on('comment:resolve', handleCommentResolve)
-  bus.on('comment:reopen', handleCommentReopen)
-  bus.on('comment:focus', handleCommentFocus)
-  bus.on('comment:diagnostic-focus', handleCommentDiagnosticFocus)
+  // The overlay mounts only in source mode: pushing here shadows the
+  // WYSIWYG surface until unmount.
+  pushCommentSurface(sourceCommentSurface)
   bus.on('image-action', handleImageAction)
   bus.on('scroll-to-header', handleScrollToHeader)
 
@@ -813,15 +826,8 @@ onBeforeUnmount(() => {
   bus.off('selectAll', handleSelectAll)
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
-  bus.off('addComment', handleAddComment)
   bus.off('editor-focus', handleEditorFocus)
-  bus.off('comment:reply', handleCommentReply)
-  bus.off('comment:discard', handleCommentDiscard)
-  bus.off('comment:edit', handleCommentEdit)
-  bus.off('comment:resolve', handleCommentResolve)
-  bus.off('comment:reopen', handleCommentReopen)
-  bus.off('comment:focus', handleCommentFocus)
-  bus.off('comment:diagnostic-focus', handleCommentDiagnosticFocus)
+  popCommentSurface(sourceCommentSurface)
   bus.off('image-action', handleImageAction)
   bus.off('scroll-to-header', handleScrollToHeader)
 
