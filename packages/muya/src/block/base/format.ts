@@ -16,6 +16,7 @@ import type TreeNode from './treeNode';
 import Content from '../../block/base/content';
 import { ScrollPage } from '../../block/scrollPage';
 import {
+    commentMarkerKindsInText,
     commentMarkerKindsInTexts,
     isUnsafeCommentMarkerTextEdit,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
@@ -656,6 +657,9 @@ class Format extends Content {
         // cursor: at a comment's trailing edge the moved cursor lands inside the
         // stale closing marker and would wrongly revert a safe character.
         const edited = editedTextRange(this.text, textContent);
+        // A legal edit may replace COMPLETE marker pairs (typing over a fully
+        // selected comment) — their definitions must not be left orphaned.
+        const replacedCommentIds = [...commentMarkerKindsInText(this.text.slice(edited.start, edited.end)).keys()];
         if (
             isUnsafeCommentMarkerTextEdit(this.text, edited.start, edited.end, () =>
                 commentMarkerKindsInTexts(this._documentContentTexts()))
@@ -707,6 +711,8 @@ class Format extends Content {
         this.muya.editor.history.markInputBoundary(inputType, inputData);
 
         this.text = text;
+        if (replacedCommentIds.length)
+            this.scrollPage?.removeUnreferencedCommentMetadata(replacedCommentIds);
 
         const cursor = {
             block: this,
@@ -1778,6 +1784,9 @@ class Format extends Content {
         }
         this.text
             = `${oldText.substring(0, start.offset)}\n${oldText.substring(end.offset)}`;
+        this.scrollPage?.removeUnreferencedCommentMetadata(
+            [...commentMarkerKindsInText(oldText.slice(start.offset, end.offset)).keys()],
+        );
         this.setCursor(start.offset + 1, end.offset + 1, true);
     }
 

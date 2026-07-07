@@ -132,10 +132,6 @@ function scannableContentBlocks(clipboard: Clipboard): Content[] {
     );
 }
 
-function documentHasCommentMarker(clipboard: Clipboard, id: string): boolean {
-    return documentCommentMarkerKinds(clipboard).has(id);
-}
-
 // Real comment ids in `text` (tokenizer-based, so marker-shaped text inside
 // inline code/math is ignored — the same definition the document scan uses).
 export function commentIdsInText(text: string): string[] {
@@ -355,39 +351,9 @@ function commentIdsInTableCells(cells: TableBodyCell[]): string[] {
 }
 
 export function removeCommentMetadataForUnreferencedIds(clipboard: Clipboard, ids: string[]): void {
-    for (const id of ids)
-        removeCommentMetadataIfUnreferenced(clipboard, id);
-}
-
-function removeCommentMetadataIfUnreferenced(clipboard: Clipboard, id: string): void {
-    if (documentHasCommentMarker(clipboard, id))
+    if (ids.length === 0)
         return;
-
-    for (const block of contentBlocks(clipboard)) {
-        // Mirror the comment parser's eligibility: a definition-shaped line
-        // inside a code fence / front matter / html block is literal text,
-        // not metadata.
-        if (block.blockName !== 'paragraph.content')
-            continue;
-
-        const metadata = parseCommentMetadataDefinition(block.text);
-        if (metadata?.id !== id)
-            continue;
-
-        // Remove only the definition's own paragraph, then any ancestors the
-        // removal emptied — never the whole outermost container, which may
-        // hold unrelated content (e.g. the other lines of a blockquote).
-        let node: Nullable<Parent> = block.parent;
-        while (node && !node.isScrollPage) {
-            const parent: Nullable<Parent> = node.parent;
-            node.remove();
-            if (!parent || parent.isScrollPage || parent.length() > 0)
-                break;
-            node = parent;
-        }
-    }
-
-    resetIfEmpty(clipboard);
+    clipboard.scrollPage?.removeUnreferencedCommentMetadata(ids);
 }
 
 function pruneEmptyCommentRangesAtCutCursor(
@@ -414,8 +380,7 @@ function pruneEmptyCommentRangesAtCutCursor(
 
     block.text = nextText;
 
-    for (const id of removedIds)
-        removeCommentMetadataIfUnreferenced(clipboard, id);
+    removeCommentMetadataForUnreferencedIds(clipboard, removedIds);
 
     return nextOffset;
 }

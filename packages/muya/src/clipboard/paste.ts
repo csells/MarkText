@@ -494,6 +494,10 @@ function applyParsedPaste(
         return;
     }
 
+    // A legal replacement may remove COMPLETE marker pairs; their now-
+    // unreferenced definitions must go with them or they orphan silently.
+    const replacedCommentIds = commentIdsInText(content.substring(start.offset, end.offset));
+
     const head = content.substring(0, start.offset);
     const tail = content.substring(end.offset);
 
@@ -505,12 +509,15 @@ function applyParsedPaste(
     );
     if (remaining !== states) {
         pasteAfterHeading(muya, ctx, remaining, tail);
+        removeCommentMetadataForUnreferencedIds(clipboard, replacedCommentIds);
 
         return;
     }
 
-    if (tryMergeListPaste(clipboard, ctx, states, head, tail))
+    if (tryMergeListPaste(clipboard, ctx, states, head, tail)) {
+        removeCommentMetadataForUnreferencedIds(clipboard, replacedCommentIds);
         return;
+    }
 
     let mergeText = inlineMergeText(states[0], head.length > 0);
 
@@ -527,6 +534,7 @@ function applyParsedPaste(
         pasteInlineMerge(muya, ctx, states, mergeText, head, tail);
     else
         pasteNewline(muya, ctx, states, head, tail);
+    removeCommentMetadataForUnreferencedIds(clipboard, replacedCommentIds);
 }
 
 // `language-input`, `table.cell.content` and `codeblock.content` never parse a
@@ -606,12 +614,15 @@ function applyLiteralPaste(
         return;
     }
 
+    const replacedCommentIds = commentIdsInText(content.substring(start.offset, end.offset));
+
     anchorBlock.text
         = content.substring(0, start.offset)
             + markdown
             + content.substring(end.offset);
     const offset = start.offset + markdown.length;
     anchorBlock.setCursor(offset, offset, true);
+    removeCommentMetadataForUnreferencedIds(clipboard, replacedCommentIds);
     appendCommentMetadataDefinitions(clipboard, metadataDefinitions);
     // Update html preview if the out container is `html-block`
     if (

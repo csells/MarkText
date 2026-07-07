@@ -337,3 +337,28 @@ describe('structural merges skip hidden comment metadata blocks', () => {
         expect(markdown).toContain('last <!--MC:a-->x<!--MC:~a-->');
     });
 });
+
+// Typing/Enter over a fully selected comment legally removes the marker pair;
+// the hidden definition must go with it or it orphans silently (cut already
+// swept — the sweep lives on ScrollPage now so every editing surface shares it).
+describe('replacing a whole comment sweeps its metadata definition', () => {
+    const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+
+    it('typing over the fully selected range removes the definition too', () => {
+        const commented = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
+        const muya = bootMuya(`${commented}\n\n[MC:a]: ${META}\n`);
+        const content = caretInFirstBlock(muya, 0);
+        content.setCursor(0, commented.length, true);
+
+        // Simulate the browser having replaced the selection with 'X': the
+        // DOM text is the post-edit content (with the caret after it) when
+        // inputHandler runs.
+        content.domNode!.textContent = 'X';
+        document.getSelection()!.collapse(content.domNode!.firstChild!, 1);
+        pressInput(content, 'insertText', 'X');
+
+        const markdown = muya.getMarkdown();
+        expect(markdown).not.toContain('MC:a');
+        expect(markdown.trim()).toBe('X');
+    });
+});
