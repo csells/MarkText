@@ -94,24 +94,28 @@ function pressInput(content: Format, inputType: string, data: string | null): In
 describe('format delete handlers — hidden markdown comment markers', () => {
     const commented = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
 
-    it('backspace after a hidden close marker skips the marker without corrupting it', () => {
+    it('backspace after a hidden close marker deletes through it without corrupting it', () => {
         const closeStart = commented.indexOf('<!--MC:~a-->');
         const closeEnd = closeStart + '<!--MC:~a-->'.length;
         const content = caretInFirstBlock(bootMuya(`${commented}\n`), closeEnd);
         const event = pressBackspace(content);
 
-        expect(content.text).toBe(commented);
-        expect(content.getCursor()!.start.offset).toBe(closeStart);
+        // Transparent deletion: the trailing 'd' of 'reviewed' goes, both
+        // markers stay whole.
+        expect(content.text).toBe('A <!--MC:a-->reviewe<!--MC:~a--> span.');
+        expect(content.getCursor()!.start.offset).toBe(closeStart - 1);
         expect(event.defaultPrevented).toBe(true);
     });
 
-    it('delete before a hidden open marker skips the marker without corrupting it', () => {
+    it('delete before a hidden open marker deletes through it without corrupting it', () => {
         const openStart = commented.indexOf('<!--MC:a-->');
         const openEnd = openStart + '<!--MC:a-->'.length;
         const content = caretInFirstBlock(bootMuya(`${commented}\n`), openStart);
         const event = pressDelete(content);
 
-        expect(content.text).toBe(commented);
+        // Transparent deletion: the leading 'r' of 'reviewed' goes, both
+        // markers stay whole.
+        expect(content.text).toBe('A <!--MC:a-->eviewed<!--MC:~a--> span.');
         expect(content.getCursor()!.start.offset).toBe(openEnd);
         expect(event.defaultPrevented).toBe(true);
     });
@@ -376,5 +380,33 @@ describe('replacing a whole comment sweeps its metadata definition', () => {
         const markdown = muya.getMarkdown();
         expect(markdown).not.toContain('MC:a');
         expect(markdown.trim()).toBe('X');
+    });
+});
+
+// Hidden markers are transparent to deletion, not one-press speed bumps: the
+// hop across the zero-width marker and the intended deletion happen in the
+// SAME keypress (both marker edges render at one visual column, so a hop-only
+// press looks like a dead key).
+describe('deletion is transparent across hidden markers', () => {
+    const doc = 'A <!--MC:a-->hi<!--MC:~a--> t\n';
+
+    it('backspace just after the close marker deletes the preceding visible char', () => {
+        const muya = bootMuya(doc);
+        const afterClose = 'A <!--MC:a-->hi<!--MC:~a-->'.length;
+        const content = caretInFirstBlock(muya, afterClose);
+
+        pressBackspace(content);
+
+        expect(content.text).toBe('A <!--MC:a-->h<!--MC:~a--> t');
+    });
+
+    it('forward-delete just before the open marker deletes the following visible char', () => {
+        const muya = bootMuya(doc);
+        const beforeOpen = 'A '.length;
+        const content = caretInFirstBlock(muya, beforeOpen);
+
+        pressDelete(content);
+
+        expect(content.text).toBe('A <!--MC:a-->i<!--MC:~a--> t');
     });
 });

@@ -1417,7 +1417,26 @@ class Format extends Content {
         const commentMarkerOffset = this._skipCommentMarkerToken(tokens, offset, 'backward');
         if (commentMarkerOffset !== null) {
             event.preventDefault();
-            this.setCursor(commentMarkerOffset, commentMarkerOffset, true);
+            // The marker is transparent to deletion, not a one-press speed
+            // bump (its edges share one visual column): chain across any
+            // adjacent markers, then delete the preceding visible character
+            // in the same keypress. At the block start there is nothing to
+            // delete — the hop alone places the caret.
+            let transparentOffset = commentMarkerOffset;
+            for (
+                let next = this._skipCommentMarkerToken(tokens, transparentOffset, 'backward');
+                next !== null;
+                next = this._skipCommentMarkerToken(tokens, transparentOffset, 'backward')
+            ) {
+                transparentOffset = next;
+            }
+            if (transparentOffset > 0) {
+                this.text = text.slice(0, transparentOffset - 1) + text.slice(transparentOffset);
+                this.setCursor(transparentOffset - 1, transparentOffset - 1, true);
+            }
+            else {
+                this.setCursor(transparentOffset, transparentOffset, true);
+            }
             return;
         }
 
@@ -1704,7 +1723,19 @@ class Format extends Content {
             const commentMarkerOffset = this._skipCommentMarkerToken(tokens, start.offset, 'forward');
             if (commentMarkerOffset !== null) {
                 event.preventDefault();
-                this.setCursor(commentMarkerOffset, commentMarkerOffset, true);
+                // Transparent deletion, mirroring backspace above.
+                let transparentOffset = commentMarkerOffset;
+                for (
+                    let next = this._skipCommentMarkerToken(tokens, transparentOffset, 'forward');
+                    next !== null;
+                    next = this._skipCommentMarkerToken(tokens, transparentOffset, 'forward')
+                ) {
+                    transparentOffset = next;
+                }
+                if (transparentOffset < text.length) {
+                    this.text = text.slice(0, transparentOffset) + text.slice(transparentOffset + 1);
+                }
+                this.setCursor(transparentOffset, transparentOffset, true);
                 return;
             }
         }
