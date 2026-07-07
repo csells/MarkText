@@ -62,7 +62,10 @@ describe('selection-change payload', () => {
         expect(Array.isArray(payload!.formats)).toBe(true);
     });
 
-    it('includes Muya commentability for the current selection', () => {
+    it('carries no comment-layer fields — the host derives commentability', () => {
+        // The selection module must not reach up into the comment analysis;
+        // the desktop wiring calls muya.canAddComment() itself (cheap via the
+        // per-version analysis cache).
         const muya = bootMuya('A <!--MC:a-->reviewed<!--MC:~a--> span.\n');
         const first = muya.editor.scrollPage!.firstContentInDescendant()!;
 
@@ -77,7 +80,8 @@ describe('selection-change payload', () => {
         );
 
         expect(payload).not.toBeNull();
-        expect(payload!.canAddComment).toBe(false);
+        expect('canAddComment' in payload!).toBe(false);
+        expect(muya.canAddComment()).toBe(false);
     });
 
     it('reports the active inline format when the cursor is inside bold text', () => {

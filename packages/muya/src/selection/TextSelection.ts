@@ -263,7 +263,6 @@ class TextSelection {
             selectedImage: this._selection.image,
             cursorCoords,
             formats,
-            canAddComment: this._muya.canAddComment(),
             affiliation,
             anchorBlockInfo: endpointBlockInfo(anchorBlock),
             focusBlockInfo: endpointBlockInfo(focusBlock),

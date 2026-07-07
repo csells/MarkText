@@ -1383,6 +1383,10 @@ const handlePrintServiceClearup = () => {
 const pushSelectionMenuState = (changes: MuyaChange) => {
   editorStore.SELECTION_CHANGE({
     ...adaptSelectionChange(changes),
+    // The engine predicate, derived HERE (comment-layer concern) instead of
+    // riding on the selection module's payload; the per-version analysis
+    // cache makes it cheap on every cursor move.
+    canAddComment: editor.value?.canAddComment() === true,
     // Read the live block tree (O(1)) rather than getState(), which deep-clones
     // the whole document — this runs on every cursor move.
     hasFrontMatter: editor.value?.editor?.scrollPage?.firstChild?.blockName === 'frontmatter'
