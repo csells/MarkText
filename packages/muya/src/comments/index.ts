@@ -7,6 +7,7 @@ export type {
     ICommentAnalysis,
     ICommentDiagnosticSourceMap,
     ICommentRangeSourceMap,
+    TCommentAnalysisOptions,
 } from './analyze';
 export {
     appendCommentReplyMetadata,

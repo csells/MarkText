@@ -16,7 +16,7 @@ import type {
 import { parseMarkdownComments } from './parse';
 import { buildCommentSourceIndex } from './source';
 
-type TCommentAnalysisOptions = Partial<IMarkdownToStateOptions> & ICommentSourceIndexOptions;
+export type TCommentAnalysisOptions = Partial<IMarkdownToStateOptions> & ICommentSourceIndexOptions;
 
 export interface ICommentRangeSourceMap {
     id: string;

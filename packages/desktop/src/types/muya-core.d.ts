@@ -102,7 +102,8 @@ declare module '@muyajs/core' {
     diagnostics: ICommentDiagnostic[]
   }
 
-  export interface IParseMarkdownCommentOptions {
+  // Mirrors muya's exported TCommentAnalysisOptions (comments/analyze.ts).
+  export interface TCommentAnalysisOptions {
     footnote?: boolean
     math?: boolean
     isGitlabCompatibilityEnabled?: boolean
@@ -210,11 +211,11 @@ declare module '@muyajs/core' {
   ): ICommentMetadata
   export function analyzeMarkdownComments(
     markdownOrStates: string | unknown[],
-    options?: IParseMarkdownCommentOptions & ICommentSourceIndexOptions
+    options?: TCommentAnalysisOptions
   ): ICommentAnalysis
   export function stripAnalyzedCommentSyntaxFromMarkdown(
     markdown: string,
-    options?: IParseMarkdownCommentOptions & ICommentSourceIndexOptions
+    options?: TCommentAnalysisOptions
   ): string
   export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata
   export function createCommentSourceLineState(): ICommentSourceLineState
@@ -240,7 +241,7 @@ declare module '@muyajs/core' {
   ): ICommentMetadata
   export function validateCommentGraph(
     markdownOrStates: string | unknown[],
-    options?: IParseMarkdownCommentOptions
+    options?: TCommentAnalysisOptions
   ): ICommentDiagnostic[]
   export function sourceCommentIgnoredIndexRanges(
     markdown: string,
@@ -261,6 +262,8 @@ declare module '@muyajs/core' {
     constructor(element: HTMLElement, options?: Record<string, unknown>)
     init(): void
     getComments(): IParsedMarkdownComments
+    getMarkdown(): string
+    getTOC(): Array<{ content: string; lvl: number; slug: string; githubSlug: string }>
     getActiveComments(): string[]
     canAddComment(input?: Pick<IAddCommentInput, 'id'>): boolean
     addComment(input?: IAddCommentInput): boolean
@@ -270,7 +273,6 @@ declare module '@muyajs/core' {
     resolveComment(id: string, updatedAt?: string): boolean
     reopenComment(id: string, updatedAt?: string): boolean
     focusComment(id: string): boolean
-    [key: string]: any
   }
 
   // UI plugins (constructors registered via `Muya.use`).
@@ -314,7 +316,6 @@ declare module '@muyajs/core' {
   export function getImageInfo(src: string): {
     isUnknownType: boolean
     src: string
-    [key: string]: any
   }
   export function wordCount(markdown: string): {
     word: number

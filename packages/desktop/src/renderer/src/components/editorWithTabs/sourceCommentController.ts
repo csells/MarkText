@@ -9,11 +9,11 @@ import {
   type ICommentAnalysis,
   type ICommentSourceIndex,
   type ICommentSourceIndexRange,
-  type IParseMarkdownCommentOptions,
+  type TCommentAnalysisOptions,
   type IParsedMarkdownComments
 } from '@muyajs/core'
 
-export type SourceCommentParserOptions = Required<IParseMarkdownCommentOptions>
+export type SourceCommentParserOptions = Required<TCommentAnalysisOptions>
 
 export interface SourceCommentAnalysis {
   markdown: string
