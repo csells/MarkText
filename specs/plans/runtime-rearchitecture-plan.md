@@ -23,8 +23,12 @@ until the implementation reflects the specs.
   engine-level half of pinned property 2) lands with P3's materialization
   pass — today untouched v1 lines round-trip byte-verbatim and convert on
   their first mutation.
-- P3 (OT anchors) — **in progress**. Landed in the working tree (commit
-  pending until the suite is green):
+- P3 (OT anchors) — **in progress**. Stages 1–4 COMMITTED and green
+  (muya unit 1707 + conformance 1347 + lint/types/circular): commits
+  7916d981 (model) and 2a0fd669 (engine cutover). Remaining: muya e2e
+  sweep, desktop pass (stage 6), and deleting the now-inert guard
+  machinery code (tests already converted; grep the list below). History
+  of the landing:
   - Stage 1 committed: `comments/model.ts` extraction/materialization +
     `anchorModel.spec.ts` (17 green).
   - Stages 2–4 implemented: `JSONState` owns the model (extract on set,

@@ -115,6 +115,17 @@ class JSONState {
         this._commentModel = model;
         this._version += 1;
         this._muya.eventCenter.emit('comment-model-change');
+        // A model swap changes the SERIALIZED document without moving state
+        // bytes. Hosts track content through json-change (markdown, dirty
+        // state, word count), so emit one with the empty op — History's
+        // recorder no-ops on op.length 0, and the model entry itself was
+        // already recorded by the mutation path.
+        this._muya.eventCenter.emit('json-change', {
+            op: [],
+            source: 'comment-model',
+            prevDoc: this._state,
+            doc: this._state,
+        });
     }
 
     // Anchors as they were when the most recent op applied — the history

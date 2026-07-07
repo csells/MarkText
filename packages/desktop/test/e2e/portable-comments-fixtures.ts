@@ -51,6 +51,17 @@ export const DOC = ['A <!--MC:a-->reviewed<!--MC:~a--> span.', '', `[MC:a]: ${ME
   '\n'
 )
 
+// v2 twins for byte-fidelity flows: the engine writes v2, so only v2 input
+// round-trips byte-identically (v1 is read-forever, written-never).
+export const META_OPEN_V2 = '{"version":2,"status":"open","authors":["Ada"]}'
+export const META_RESOLVED_V2 = '{"version":2,"status":"resolved","authors":["Ada"]}'
+export const DOC_V2 = [
+  'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+  '',
+  `[MC:a]: ${META_OPEN_V2}`,
+  ''
+].join('\n')
+
 export const DOC_WITH_REPLY = [
   'A <!--MC:a-->reviewed<!--MC:~a--> span.',
   '',

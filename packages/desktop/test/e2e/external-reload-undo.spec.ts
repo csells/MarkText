@@ -27,8 +27,6 @@ type SourceCodeMirrorElement = Element & {
 const isDirty = (page: Page): Promise<boolean> =>
   page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))
 
-const metadata = (data: Record<string, unknown>): string =>
-  `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`
 
 const openCommentsSidebar = async(page: Page, app: Parameters<typeof sendIpcToRenderer>[0]): Promise<void> => {
   if (!(await page.locator('.side-bar').isVisible())) {
@@ -153,18 +151,8 @@ test.describe('External disk reload — undo restores the pre-change document', 
     const after = [
       'Agent added <!--MC:a-->reviewed<!--MC:~a--> content.',
       '',
-      `[MC:a]: ${metadata({
-        version: 1,
-        status: 'open',
-        authors: ['Agent'],
-        replies: [
-          {
-            author: 'Agent',
-            createdAt: '2026-06-30T12:00:00.000Z',
-            body: 'Please review this change.'
-          }
-        ]
-      })}`,
+      '[MC:a]: {"version":2,"status":"open","authors":["Agent"]}',
+      '[MC:a.0]: {"author":"Agent","createdAt":"2026-06-30T12:00:00.000Z","body":"Please review this change."}',
       ''
     ].join('\n')
     const { app, page, filePath } = await launchWithMarkdown(before)
@@ -202,18 +190,8 @@ test.describe('External disk reload — undo restores the pre-change document', 
       '',
       'Bad <!--MC:bad.id--> marker.',
       '',
-      `[MC:a]: ${metadata({
-        version: 1,
-        status: 'open',
-        authors: ['Agent'],
-        replies: [
-          {
-            author: 'Agent',
-            createdAt: '2026-06-30T12:00:00.000Z',
-            body: 'Please review this source-mode change.'
-          }
-        ]
-      })}`,
+      '[MC:a]: {"version":2,"status":"open","authors":["Agent"]}',
+      '[MC:a.0]: {"author":"Agent","createdAt":"2026-06-30T12:00:00.000Z","body":"Please review this source-mode change."}',
       ''
     ].join('\n')
     const { app, page, filePath } = await launchWithMarkdown(before)
@@ -373,15 +351,14 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
 // buffer) and Review (open the resolver on the clean merge).
 test.describe('External disk changes — clean auto-merge into a dirty editor (agent flow)', () => {
   const AGENT_BASE = 'alpha start\n\nbravo middle\n\ncharlie end\n'
-  const agentMeta = metadata({
-    version: 1,
-    status: 'open',
-    replies: [{ author: 'Agent', createdAt: '2026-07-06T12:00:00.000Z', body: 'Please review this section.' }]
-  })
+  const agentMetaLines = [
+    '[MC:agent1]: {"version":2,"status":"open"}',
+    '[MC:agent1.0]: {"author":"Agent","createdAt":"2026-07-06T12:00:00.000Z","body":"Please review this section."}'
+  ].join('\n')
   const AGENT_DOC =
-    `alpha start\n\nbravo middle\n\n<!--MC:agent1-->charlie end<!--MC:~agent1-->\n\n[MC:agent1]: ${agentMeta}\n`
+    `alpha start\n\nbravo middle\n\n<!--MC:agent1-->charlie end<!--MC:~agent1-->\n\n${agentMetaLines}\n`
   const MERGED_DOC =
-    `alpha start (edited)\n\nbravo middle\n\n<!--MC:agent1-->charlie end<!--MC:~agent1-->\n\n[MC:agent1]: ${agentMeta}\n`
+    `alpha start (edited)\n\nbravo middle\n\n<!--MC:agent1-->charlie end<!--MC:~agent1-->\n\n${agentMetaLines}\n`
 
   const editorText = (page: Page): Promise<string> =>
     page.evaluate(() => document.querySelector('.mu-editor')?.textContent ?? '')
@@ -400,11 +377,11 @@ test.describe('External disk changes — clean auto-merge into a dirty editor (a
     )
     await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
-    // Light-weight DOM poll first; the byte-exact check below round-trips
-    // through source mode and must run exactly once (repeated mode toggles
-    // inside a poll wedge the app).
     await expect.poll(() => editorText(page), { timeout: 8000 }).toContain('alpha start (edited)')
-    await expect.poll(() => editorText(page), { timeout: 8000 }).toContain('MC:agent1')
+    // The runtime text is clean — the merged comment shows as a highlight.
+    await expect(page.locator('.mu-comment-highlight')).toHaveText('charlie end', {
+      timeout: 8000
+    })
   }
 
   test('WYSIWYG: a disjoint agent edit auto-merges into the dirty buffer; Undo restores it', async() => {
@@ -422,7 +399,7 @@ test.describe('External disk changes — clean auto-merge into a dirty editor (a
 
     // Undo on the notification restores the pre-merge local buffer, still dirty.
     await page.locator('.editor-notifications').getByRole('button', { name: 'Undo' }).click()
-    await expect.poll(() => editorText(page), { timeout: 8000 }).not.toContain('MC:agent1')
+    await expect(page.locator('.mu-comment-highlight')).toHaveCount(0, { timeout: 8000 })
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     expect(await getMarkdownContent(page)).toBe(
       'alpha start (edited)\n\nbravo middle\n\ncharlie end\n'
@@ -691,18 +668,8 @@ test.describe('External disk reload — real watcher source-mode sync', () => {
     const after = [
       'Agent wrote <!--MC:realwysiwyg-->reviewed<!--MC:~realwysiwyg--> WYSIWYG content.',
       '',
-      `[MC:realwysiwyg]: ${metadata({
-        version: 1,
-        status: 'open',
-        authors: ['Agent'],
-        replies: [
-          {
-            author: 'Agent',
-            createdAt: '2026-06-30T12:00:00.000Z',
-            body: 'Real watcher WYSIWYG update.'
-          }
-        ]
-      })}`,
+      '[MC:realwysiwyg]: {"version":2,"status":"open","authors":["Agent"]}',
+      '[MC:realwysiwyg.0]: {"author":"Agent","createdAt":"2026-06-30T12:00:00.000Z","body":"Real watcher WYSIWYG update."}',
       ''
     ].join('\n')
     const { app, page, filePath } = await launchWithMarkdown(before)
@@ -735,18 +702,8 @@ test.describe('External disk reload — real watcher source-mode sync', () => {
       '',
       'Broken <!--MC:bad.id--> source marker.',
       '',
-      `[MC:realwatch]: ${metadata({
-        version: 1,
-        status: 'open',
-        authors: ['Agent'],
-        replies: [
-          {
-            author: 'Agent',
-            createdAt: '2026-06-30T12:00:00.000Z',
-            body: 'Real watcher source-mode update.'
-          }
-        ]
-      })}`,
+      '[MC:realwatch]: {"version":2,"status":"open","authors":["Agent"]}',
+      '[MC:realwatch.0]: {"author":"Agent","createdAt":"2026-06-30T12:00:00.000Z","body":"Real watcher source-mode update."}',
       ''
     ].join('\n')
     const { app, page, filePath } = await launchWithMarkdown(before)

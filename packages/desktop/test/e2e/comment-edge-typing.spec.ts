@@ -4,7 +4,7 @@
 // comment landed (in the DOM) at an offset that fell inside the closing marker
 // of the stale text — the unsafe-marker guard then reverted it.
 import { expect, test } from '@playwright/test'
-import { focusEditor, launchWithMarkdown } from './helpers'
+import { focusEditor, getMarkdownContent, launchWithMarkdown } from './helpers'
 
 const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119'
 
@@ -31,18 +31,13 @@ test('typing at the end of a comment keeps the character (inside the comment)', 
     await page.waitForTimeout(60)
     await page.keyboard.type('Z')
 
-    // Read the block's raw text (marker syntax is present in the DOM) — lighter
-    // than a source-mode round trip and enough to prove the char's position.
-    const readBlockText = () => page.evaluate(() => {
-      const p = [...document.querySelectorAll('.mu-paragraph')]
-        .find(el => el.textContent?.includes('commented'))
-      return p?.textContent ?? ''
-    })
-    // The keystroke landing (or being reverted) is the observable.
-    await expect.poll(readBlockText, { timeout: 5000 }).toContain('Z')
-    const blockText = await readBlockText()
-    // The 'Z' must survive, inside the comment (before the closing marker).
-    expect(blockText).toContain('<!--MC:a-->commentedZ<!--MC:~a-->')
+    // The rendered text is clean; the char's position relative to the range
+    // is only visible in the SERIALIZED bytes (close anchors absorb
+    // insertions at their offset, so end-typing lands inside).
+    await expect
+      .poll(() => getMarkdownContent(page), { timeout: 5000 })
+      .toContain('Z')
+    expect(await getMarkdownContent(page)).toContain('<!--MC:a-->commentedZ<!--MC:~a-->')
   } finally {
     await app.close()
   }

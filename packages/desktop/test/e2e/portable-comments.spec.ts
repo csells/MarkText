@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import {
   clickMenuById,
   DOC,
+  DOC_V2,
   DOC_WITH_REPLY,
   enterSourceMode,
   exitSourceMode,
@@ -14,6 +15,8 @@ import {
   MALFORMED_DOC,
   metadata,
   META_OPEN,
+  META_OPEN_V2,
+  META_RESOLVED_V2,
   META_RESOLVED,
   MISSING_METADATA_DOC,
   openCommentsSidebar,
@@ -45,7 +48,9 @@ test.describe('Portable markdown comments', () => {
           timeout: 10000
         })
         .toBe('reviewed')
-      expect(await page.locator('.mu-comment-marker').first().textContent()).toBe('<!--MC:a-->')
+      // Marker bytes exist only in serialized output — never in the DOM.
+      await expect(page.locator('.mu-comment-marker')).toHaveCount(0)
+      expect(await page.locator('.editor-component').textContent()).not.toContain('MC:')
       expect(await getMarkdownContent(page)).toBe(DOC)
     } finally {
       await app.close()
@@ -63,20 +68,8 @@ test.describe('Portable markdown comments', () => {
         expect.arrayContaining(['Heading', 'quoted', 'list item', 'linked text', 'cell'])
       )
 
-      const markerStyle = await page
-        .locator('.mu-comment-marker')
-        .first()
-        .evaluate((element) => {
-          const style = window.getComputedStyle(element)
-          return {
-            fontSize: style.fontSize,
-            text: element.textContent
-          }
-        })
-      expect(markerStyle).toEqual({
-        fontSize: '0px',
-        text: '<!--MC:heading-->'
-      })
+      // No hidden marker spans exist at runtime.
+      await expect(page.locator('.mu-comment-marker')).toHaveCount(0)
 
       await openCommentsSidebar(page, app)
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(5)
@@ -724,13 +717,13 @@ test.describe('Portable markdown comments', () => {
   })
 
   test('source edits outside markers and inside metadata survive the handoff', async() => {
-    const { app, page } = await launchWithMarkdown(DOC)
+    const { app, page } = await launchWithMarkdown(DOC_V2)
     try {
-      const proseEdited = DOC.replace(' span.', ' span with source edit.')
+      const proseEdited = DOC_V2.replace(' span.', ' span with source edit.')
       await setSourceMarkdown(page, app, proseEdited)
       expect(await getMarkdownContent(page)).toBe(proseEdited)
 
-      const metadataEdited = proseEdited.replace(META_OPEN, META_RESOLVED)
+      const metadataEdited = proseEdited.replace(META_OPEN_V2, META_RESOLVED_V2)
       await setSourceMarkdown(page, app, metadataEdited)
       expect(await getMarkdownContent(page)).toBe(metadataEdited)
       // Resolving via the metadata edit drops the in-document highlight; the
@@ -812,8 +805,11 @@ test.describe('Portable markdown comments', () => {
   })
 
   test('save and reopen preserve portable comment bytes', async() => {
-    const expected = DOC.replace(' span.', ' persisted span.').replace(META_OPEN, META_RESOLVED)
-    const { app, page, filePath } = await launchWithMarkdown(DOC)
+    const expected = DOC_V2.replace(' span.', ' persisted span.').replace(
+      META_OPEN_V2,
+      META_RESOLVED_V2
+    )
+    const { app, page, filePath } = await launchWithMarkdown(DOC_V2)
     try {
       await setSourceMarkdown(page, app, expected)
       await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
@@ -830,12 +826,8 @@ test.describe('Portable markdown comments', () => {
     try {
       await waitForEditor(reopened.page)
       await waitForMenuReady(reopened.app)
-      // The reopened comment is resolved, so it has no highlight; its hidden
-      // markers persist and confirm the WYSIWYG rendered the comment.
-      await reopened.page.waitForSelector('.mu-comment-marker', {
-        state: 'attached',
-        timeout: 10000
-      })
+      // The reopened comment is resolved, so it has no highlight; the
+      // sidebar's thread (via the bridge read) confirms it loaded.
       expect(await getMarkdownContent(reopened.page)).toBe(expected)
     } finally {
       await reopened.app.close()

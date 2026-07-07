@@ -40,8 +40,9 @@ test.describe('public api', () => {
         expect(comments.ranges).toEqual([
             expect.objectContaining({
                 id: 'a',
-                startOffset: 13,
-                endOffset: 21,
+                // Clean-text offsets: markers live out-of-band at runtime.
+                startOffset: 2,
+                endOffset: 10,
             }),
         ]);
         expect(comments.threads).toEqual([

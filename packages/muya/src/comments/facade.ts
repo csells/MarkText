@@ -39,11 +39,10 @@ export class MuyaComments {
             this._emitActiveCommentsChange();
         });
         // Comment-model swaps (mutations, undo/redo of model entries) move no
-        // document bytes, so no json-change fires; repaint content blocks and
-        // re-emit the sidebar views here.
+        // document bytes; repaint content blocks here (the sidebar views
+        // re-emit via the json-change setCommentModel also raises).
         this._muya.eventCenter.on('comment-model-change', () => {
             this._repaintCommentBlocks();
-            this.emitCommentsChange();
         });
     }
 

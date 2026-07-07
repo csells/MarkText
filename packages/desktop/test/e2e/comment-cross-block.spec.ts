@@ -3,7 +3,7 @@
 // cross-block commenting; see comment-cross-block-keyboard.spec.ts for the
 // menu-enabled-state bug that made "⌘⇧L does nothing" for keyboard selections.
 import { expect, test } from '@playwright/test'
-import { clickMenuById, focusEditor, launchWithMarkdown } from './helpers'
+import { clickMenuById, focusEditor, getMarkdownContent, launchWithMarkdown } from './helpers'
 import { waitForMenuItemEnabled } from './portable-comments-fixtures'
 
 test('adding a comment across two paragraphs wraps the whole range', async() => {
@@ -38,18 +38,16 @@ test('adding a comment across two paragraphs wraps the whole range', async() => 
     expect(await waitForMenuItemEnabled(app, 'review.add-comment', true)).toBe(true)
     await clickMenuById(app, 'review.add-comment')
 
-    // Both paragraphs should now carry marker syntax (open in p1, close in p2).
-    const readParagraphTexts = () => page.evaluate(() =>
-      [...document.querySelectorAll('.mu-paragraph')].map(p => p.textContent ?? ''))
+    // Markers exist only in the SERIALIZED document (the runtime is clean);
+    // the open marker lands in the first paragraph, the close in the second.
     await expect
-      .poll(async() => (await readParagraphTexts()).join('\n'), { timeout: 5000 })
+      .poll(() => getMarkdownContent(page), { timeout: 5000 })
       .toMatch(/<!--MC:[^>]+-->/)
-    const texts = await readParagraphTexts()
-    const joined = texts.join('\n')
-    expect(joined, `after cross-block comment:\n${joined}`).toMatch(/<!--MC:[^>]+-->/)
-    // Open marker in the first paragraph, close marker in the second.
-    expect(texts.find(t => t.includes('hello'))).toMatch(/<!--MC:[^~][^>]*-->/)
-    expect(texts.find(t => t.includes('second'))).toMatch(/<!--MC:~/)
+    const markdown = await getMarkdownContent(page)
+    expect(markdown).toMatch(/hello <!--MC:[^~][^>]*-->world/)
+    expect(markdown).toMatch(/second<!--MC:~[^>]*--> line/)
+    // The rendered document never shows MC bytes.
+    expect(await page.evaluate(() => document.querySelector('.editor-component')?.textContent ?? '')).not.toContain('MC:')
   } finally {
     await app.close()
   }
