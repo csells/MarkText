@@ -1018,3 +1018,31 @@ describe('muya comment mutations in container context', () => {
         expect(muya.getComments().threads[0]).toMatchObject({ id: 'a', status: 'resolved' });
     });
 });
+
+describe('addComment guard — nested inline code', () => {
+    it('rejects a selection inside inline code nested under emphasis', () => {
+        const muya = boot('plain *em `co de` em* tail\n');
+        const first = muya.editor.scrollPage!.firstContentInDescendant()!;
+        const start = 'plain *em `'.length;
+        muya.editor.selection.setSelection(
+            { offset: start, block: first, path: first.path },
+            { offset: start + 'co d'.length, block: first, path: first.path },
+        );
+
+        expect(muya.canAddComment({ id: 'nested_code' })).toBe(false);
+        expect(muya.addComment({ id: 'nested_code' })).toBe(false);
+        expect(muya.getMarkdown()).toBe('plain *em `co de` em* tail\n');
+    });
+
+    it('rejects a selection inside inline code nested under a link label', () => {
+        const muya = boot('see [a `code` label](https://example.com) end\n');
+        const first = muya.editor.scrollPage!.firstContentInDescendant()!;
+        const start = 'see [a `'.length;
+        muya.editor.selection.setSelection(
+            { offset: start, block: first, path: first.path },
+            { offset: start + 'cod'.length, block: first, path: first.path },
+        );
+
+        expect(muya.addComment({ id: 'nested_link_code' })).toBe(false);
+    });
+});

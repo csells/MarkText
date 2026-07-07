@@ -34,6 +34,25 @@ const COMMENT_TOKENIZER_OPTIONS = {
     options: { superSubScript: true, footnote: false },
 } as const;
 
+// Inline-code spans a selection may intersect — recursive for the same
+// reason as the marker scan (code can nest under em/strong/del/link), and on
+// the SAME canonical tokenizer options so no two guards define tokenization
+// differently.
+export function inlineCodeRangesInText(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    const walk = (tokens: Token[]): void => {
+        for (const token of tokens) {
+            if (token.type === 'inline_code')
+                ranges.push({ start: token.range.start, end: token.range.end });
+            if ('children' in token && token.children && Array.isArray(token.children))
+                walk(token.children);
+        }
+    };
+
+    walk(tokenizer(text, COMMENT_TOKENIZER_OPTIONS));
+    return ranges;
+}
+
 export function forEachRealCommentMarker(
     text: string,
     visit: (marker: IScannedCommentMarker) => void,

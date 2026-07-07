@@ -1,9 +1,8 @@
 import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
 import type { ICommentMetadata, ICommentReplyInput } from './types';
-import { tokenizer } from '../inlineRenderer/lexer';
 import { analyzeMarkdownComments } from './analyze';
-import { realCommentMarkersInText } from './markerScan';
+import { inlineCodeRangesInText, realCommentMarkersInText } from './markerScan';
 import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
 import {
@@ -138,8 +137,8 @@ function isCommentableTextState(state: TState): boolean {
 }
 
 function selectionIntersectsInlineCode(text: string, startOffset: number, endOffset: number): boolean {
-    return tokenizer(text, { options: { superSubScript: false, footnote: false } }).some(token =>
-        token.type === 'inline_code' && startOffset < token.range.end && endOffset > token.range.start,
+    return inlineCodeRangesInText(text).some(range =>
+        startOffset < range.end && endOffset > range.start,
     );
 }
 
