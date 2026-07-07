@@ -90,7 +90,6 @@ describe('muya.getComments()', () => {
         expect(muya.getComments().threads).toEqual([
             {
                 id: 'b',
-                version: 1,
                 status: 'resolved',
                 replies: [],
             },
@@ -177,7 +176,12 @@ describe('muya.addComment()', () => {
 
         const markdown = muya.getMarkdown();
         expect(markdown).toContain('A <!--MC:cmt_test-->reviewed<!--MC:~cmt_test--> span.');
-        expect(markdown).toContain('[MC:cmt_test]: data:application/json;base64,');
+        // New comments serialize as a v2 thread block: head line + one line
+        // for the composed body, contiguous.
+        expect(markdown).toContain(
+            '[MC:cmt_test]: {"version":2,"status":"open","authors":["Ada"],"createdAt":"2026-06-30T12:00:00.000Z"}\n'
+            + '[MC:cmt_test.0]: {"author":"Ada","createdAt":"2026-06-30T12:00:00.000Z","body":"Please check this."}',
+        );
         expect(muya.getComments()).toMatchObject({
             diagnostics: [],
             ranges: [
@@ -386,7 +390,6 @@ describe('muya comment metadata mutations', () => {
         expect(muya.getComments().threads).toEqual([
             {
                 id: 'a',
-                version: 1,
                 status: 'open',
                 authors: ['Ada', 'Grace'],
                 createdAt: '2026-06-30T12:00:00.000Z',
@@ -475,14 +478,14 @@ describe('muya comment metadata mutations', () => {
         const muya = boot([
             'A <!--MC:a-->reviewed<!--MC:~a--> span.',
             '',
-            `[MC:a]:    ${metadata({ version: 1, status: 'open', replies: [] })}   `,
+            '[MC:a]:    {"version":2,"status":"open"}   ',
             '',
         ].join('\n'));
 
         expect(muya.resolveComment('a', '2026-06-30T15:00:00.000Z')).toBe(true);
 
         expect(muya.getMarkdown()).toMatch(
-            /\[MC:a\]: {4}data:application\/json;base64,\S+ {3}\n/u,
+            /\[MC:a\]: {4}\{"version":2,"status":"resolved","updatedAt":"2026-06-30T15:00:00.000Z"\} {3}\n/u,
         );
     });
 
@@ -504,7 +507,8 @@ describe('muya comment metadata mutations', () => {
 
         const lines = muya.getMarkdown().split('\n').filter(line => line.startsWith('[MC:a]:'));
         expect(decode(lines[0].replace('[MC:a]: ', '')).status).toBe('open');
-        expect(decode(lines[1].replace('[MC:a]: ', '')).status).toBe('resolved');
+        // The mutated line upgraded to a v2 head.
+        expect(lines[1]).toContain('"status":"resolved"');
     });
 
     it('updates a later valid duplicate instead of throwing on an earlier invalid definition', () => {
@@ -548,8 +552,10 @@ describe('muya comment metadata mutations', () => {
         const lines = next!.split('\n').filter(line => line.trimStart().startsWith('[MC:a]: '));
         expect(decode(lines[0].replace('[MC:a]: ', '')).status).toBe('open');
         expect(lines[1]).toBe(invalid);
-        expect(decode(lines[2].trim().replace('[MC:a]: ', '')).status).toBe('resolved');
-        expect(lines[2].endsWith('  ')).toBe(true);
+        // The mutated line is the v1->v2 upgrade point (spacing preservation
+        // for in-place v2 head rewrites is pinned separately).
+        expect(lines[2]).toContain('"version":2');
+        expect(lines[2]).toContain('"status":"resolved"');
     });
 
     it('does not parse and export the whole document when no source metadata update is possible', () => {
@@ -592,7 +598,8 @@ describe('muya comment metadata mutations', () => {
 
         expect(next).not.toBeNull();
         const line = next!.split('\n').find(l => l.startsWith('[MC:a]: '))!;
-        expect(decode(line.replace('[MC:a]: ', '')).status).toBe('resolved');
+        expect(line).toContain('"version":2');
+        expect(line).toContain('"status":"resolved"');
     });
 
     it('returns original markdown when the parser-selected metadata update is a no-op', () => {
@@ -946,9 +953,8 @@ describe('comment mutations flush rAF-batched edits (#2938 lost-edit class)', ()
 
         const markdown = muya.getMarkdown();
         expect(markdown).toContain('EDITED');
-        const definition = /\[MC:a\]: (\S+)/.exec(markdown);
-        expect(definition).not.toBeNull();
-        expect(decode(definition![1]).status).toBe('resolved');
+        const definition = markdown.split('\n').find(line => line.startsWith('[MC:a]: '));
+        expect(definition).toContain('"status":"resolved"');
     });
 
     it('a pending edit survives removeComment and addComment snapshots', () => {
@@ -1014,7 +1020,7 @@ describe('muya comment mutations in container context', () => {
         expect(muya.resolveComment('a')).toBe(true);
 
         const markdown = muya.getMarkdown();
-        expect(markdown).toMatch(/^> \[MC:a\]: data:application\/json;base64,/mu);
+        expect(markdown).toMatch(/^> \[MC:a\]: \{"version":2,"status":"resolved"/mu);
         expect(muya.getComments().threads[0]).toMatchObject({ id: 'a', status: 'resolved' });
     });
 });

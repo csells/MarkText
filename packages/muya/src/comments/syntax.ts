@@ -16,9 +16,24 @@ export interface IParsedCommentMarker {
     kind: TCommentMarkerKind;
 }
 
+// The broad definition-line shape: `[MC:<label>]: <payload>` with up to three
+// leading spaces. `label` may be a plain thread id (head line), an `id.N`
+// reply label, or — in damaged files — anything bracket-safe; refinement into
+// head/reply happens in parseCommentHeadDefinition/parseCommentReplyDefinition.
 export interface IParsedCommentMetadataDefinition {
     id: string;
-    dataUri: string;
+    payload: string;
+}
+
+export interface IParsedCommentHeadDefinition {
+    id: string;
+    payload: string;
+}
+
+export interface IParsedCommentReplyDefinition {
+    id: string;
+    index: number;
+    payload: string;
 }
 
 const COMMENT_MARKER_GLOBAL_REGEXP = new RegExp(COMMENT_MARKER_PATTERN, 'gu');
@@ -137,10 +152,66 @@ export function parseCommentMetadataDefinition(text: string): IParsedCommentMeta
 
     return {
         id: match[1],
-        dataUri: match[2].trim(),
+        payload: match[2].trim(),
     };
+}
+
+const COMMENT_REPLY_LABEL_REGEXP = new RegExp(`^(${COMMENT_ID_PATTERN})\\.(\\d+)$`);
+
+// A definition line whose label is a plain thread id — the v2 head line or a
+// v1 data-URI line; the payload codec disambiguates.
+export function parseCommentHeadDefinition(text: string): IParsedCommentHeadDefinition | null {
+    const definition = parseCommentMetadataDefinition(text);
+    if (!definition || !isValidCommentId(definition.id))
+        return null;
+
+    return definition;
+}
+
+// A v2 reply line: `[MC:id.N]: {json}`. The numeric suffix is a positional
+// hint only — readers order replies by document position.
+export function parseCommentReplyDefinition(text: string): IParsedCommentReplyDefinition | null {
+    const definition = parseCommentMetadataDefinition(text);
+    if (!definition)
+        return null;
+
+    const label = COMMENT_REPLY_LABEL_REGEXP.exec(definition.id);
+    if (!label)
+        return null;
+
+    return {
+        id: label[1],
+        index: Number.parseInt(label[2], 10),
+        payload: definition.payload,
+    };
+}
+
+export function serializeCommentReplyDefinition(id: string, index: number, payload: string): string {
+    return `[MC:${id}.${index}]: ${payload}`;
 }
 
 export function isCommentMetadataReference(label: string): boolean {
     return /^MC:[^\]\s]+$/.test(label);
+}
+
+// The thread a definition-shaped line belongs to: the id itself for head
+// lines, the id before the `.N` suffix for reply lines, the raw label for
+// anything else (damaged files keep the v1 semantics: label = id).
+export function commentDefinitionLineThreadId(line: string): string | null {
+    const reply = parseCommentReplyDefinition(line);
+    if (reply)
+        return reply.id;
+
+    return parseCommentMetadataDefinition(line)?.id ?? null;
+}
+
+// The shape of a metadata block: EVERY line is a definition-shaped line.
+// Contiguous head/reply runs tokenize as one block (preserving byte-level
+// adjacency through the state round-trip), so whole-text predicates must
+// accept multi-line runs, not just a single definition line.
+export function isCommentMetadataDefinitionText(text: string): boolean {
+    if (text.length === 0)
+        return false;
+
+    return text.split('\n').every(line => COMMENT_METADATA_DEFINITION_REGEXP.test(line));
 }

@@ -1,8 +1,11 @@
 import type { ICommentMetadata, ICommentReply, TCommentStatus } from './types';
-import { COMMENT_METADATA_DATA_URI_PREFIX } from './syntax';
+import {
+    COMMENT_METADATA_DATA_URI_PREFIX,
+    serializeCommentMetadataDefinition,
+    serializeCommentReplyDefinition,
+} from './syntax';
 
 const KNOWN_METADATA_KEYS = new Set([
-    'version',
     'status',
     'authors',
     'createdAt',
@@ -22,15 +25,6 @@ function compareOrdinal(a: string, b: string): number {
     if (a > b)
         return 1;
     return 0;
-}
-
-function encodeBase64Utf8(value: string): string {
-    const bytes = new TextEncoder().encode(value);
-    let binary = '';
-    for (const byte of bytes)
-        binary += String.fromCharCode(byte);
-
-    return btoa(binary);
 }
 
 function decodeBase64Utf8(value: string): string {
@@ -156,8 +150,6 @@ export function normalizeCommentMetadata(value: unknown): ICommentMetadata {
         throw new Error('Comment metadata must be an object.');
 
     const data = value as Record<string, unknown>;
-    if (data.version !== 1)
-        throw new Error('Comment metadata version must be 1.');
     if (!isCommentStatus(data.status))
         throw new Error('Comment metadata status must be open or resolved.');
 
@@ -171,7 +163,6 @@ export function normalizeCommentMetadata(value: unknown): ICommentMetadata {
     assertNoUnknownMetadataFields(data);
 
     return {
-        version: 1,
         status: data.status,
         ...(normalizedAuthors ? { authors: normalizedAuthors } : {}),
         ...(createdAt ? { createdAt } : {}),
@@ -181,25 +172,79 @@ export function normalizeCommentMetadata(value: unknown): ICommentMetadata {
     };
 }
 
+// v1 reader (read forever, written never): base64 data URI whose JSON embeds
+// the replies array. The wire version tag is validated here and stripped —
+// decoded objects are version-less (see ICommentMetadata).
 export function decodeCommentMetadata(dataUri: string): ICommentMetadata {
     if (!dataUri.startsWith(COMMENT_METADATA_DATA_URI_PREFIX))
         throw new Error('Comment metadata must be a base64 JSON data URI.');
 
     const encoded = dataUri.slice(COMMENT_METADATA_DATA_URI_PREFIX.length);
-    return normalizeCommentMetadata(JSON.parse(decodeBase64Utf8(encoded)));
+    const data = JSON.parse(decodeBase64Utf8(encoded)) as Record<string, unknown>;
+    if (data.version !== 1)
+        throw new Error('Comment metadata version must be 1 for data-URI payloads.');
+
+    const { version: _version, ...rest } = data;
+    return normalizeCommentMetadata(rest);
 }
 
-export function encodeCommentMetadata(metadata: ICommentMetadata): string {
+// Head-payload dispatch: a v2 head line carries compact JSON; a v1 line
+// carries the legacy data URI. Anything else is invalid metadata.
+export function decodeCommentHeadPayload(payload: string): ICommentMetadata {
+    if (payload.startsWith(COMMENT_METADATA_DATA_URI_PREFIX))
+        return decodeCommentMetadata(payload);
+
+    if (!payload.startsWith('{'))
+        throw new Error('Comment metadata payload must be v2 JSON or a v1 base64 JSON data URI.');
+
+    const data = JSON.parse(payload) as Record<string, unknown>;
+    if (data.version !== 2)
+        throw new Error('Comment metadata version must be 2 for JSON head lines.');
+    if ('replies' in data)
+        throw new Error('A v2 head line must not carry replies; replies are their own lines.');
+
+    const { version: _version, ...rest } = data;
+    return normalizeCommentMetadata({ ...rest, replies: [] });
+}
+
+export function decodeCommentReplyPayload(payload: string): ICommentReply {
+    return normalizeReplies([JSON.parse(payload)])[0];
+}
+
+// Stable key order (version,status,authors,createdAt,updatedAt,display) so
+// identical threads always produce identical bytes; `replies` never appears
+// on the head line.
+export function encodeCommentHeadPayload(metadata: ICommentMetadata): string {
     const normalized = normalizeCommentMetadata(metadata);
-    const json = JSON.stringify({
-        version: normalized.version,
+    return JSON.stringify({
+        version: 2,
         status: normalized.status,
         ...(normalized.authors ? { authors: normalized.authors } : {}),
         ...(normalized.createdAt ? { createdAt: normalized.createdAt } : {}),
         ...(normalized.updatedAt ? { updatedAt: normalized.updatedAt } : {}),
         ...(normalized.display ? { display: normalized.display } : {}),
-        replies: normalized.replies,
     });
+}
 
-    return `${COMMENT_METADATA_DATA_URI_PREFIX}${encodeBase64Utf8(json)}`;
+// Stable key order (author,createdAt,body,display); newlines and quotes in
+// bodies are JSON-escaped, keeping every reply line self-contained.
+export function encodeCommentReplyPayload(reply: ICommentReply): string {
+    const normalized = normalizeReplies([reply])[0];
+    return JSON.stringify({
+        author: normalized.author,
+        createdAt: normalized.createdAt,
+        body: normalized.body,
+        ...(normalized.display ? { display: normalized.display } : {}),
+    });
+}
+
+// The canonical v2 byte form of a whole thread: head line first, then one
+// line per reply with indexes normalized to document position.
+export function serializeCommentThreadLines(id: string, metadata: ICommentMetadata): string[] {
+    const normalized = normalizeCommentMetadata(metadata);
+    return [
+        serializeCommentMetadataDefinition(id, encodeCommentHeadPayload(normalized)),
+        ...normalized.replies.map((reply, index) =>
+            serializeCommentReplyDefinition(id, index, encodeCommentReplyPayload(reply))),
+    ];
 }

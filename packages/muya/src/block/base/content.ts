@@ -7,7 +7,7 @@ import type Parent from './parent';
 import diff from 'fast-diff';
 import TreeNode from '../../block/base/treeNode';
 import { ScrollPage } from '../../block/scrollPage';
-import { parseCommentMetadataDefinition } from '../../comments';
+import { isCommentMetadataDefinitionText } from '../../comments';
 import { BACK_HASH, BRACKET_HASH, EVENT_KEYS, isFirefox } from '../../config';
 import Selection from '../../selection';
 import {
@@ -456,7 +456,7 @@ class Content extends TreeNode {
     // as an all-hidden paragraph. The caret must never enter it (it's off-limits
     // WYSIWYG syntax), so navigation treats it as non-content.
     isCommentMetadataBlock(): boolean {
-        return parseCommentMetadataDefinition(this.text) != null;
+        return isCommentMetadataDefinitionText(this.text);
     }
 
     // Next/previous content block that can actually hold the caret — hidden

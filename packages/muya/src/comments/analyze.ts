@@ -18,6 +18,8 @@ import { buildCommentSourceIndex } from './source';
 
 export type TCommentAnalysisOptions = Partial<IMarkdownToStateOptions> & ICommentSourceIndexOptions;
 
+export type { ICommentSourceMetadataDefinition } from './source';
+
 export interface ICommentRangeSourceMap {
     id: string;
     range: ICommentRange;

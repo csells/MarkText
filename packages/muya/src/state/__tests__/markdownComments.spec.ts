@@ -7,8 +7,10 @@ import {
     analyzeMarkdownComments,
     canWrapCommentRange,
     COMMENT_METADATA_DATA_URI_PREFIX,
-    decodeCommentMetadata,
-    encodeCommentMetadata,
+    decodeCommentHeadPayload,
+    decodeCommentReplyPayload,
+    encodeCommentHeadPayload,
+    encodeCommentReplyPayload,
     locateCommentSyntax,
     updateCommentMetadataInMarkdown,
     validateCommentGraph,
@@ -681,13 +683,39 @@ describe('markdown comments - state round-trip', () => {
 });
 
 describe('markdown comments - metadata codec', () => {
-    it('round-trips metadata with stable encoded JSON', () => {
-        const encoded = encodeCommentMetadata({
-            version: 1,
+    it('round-trips a thread through the v2 payload codecs', () => {
+        const headPayload = encodeCommentHeadPayload({
             status: 'open',
             authors: ['Ada'],
             createdAt: '2026-06-30T12:00:00.000Z',
             updatedAt: '2026-06-30T12:00:00.000Z',
+            replies: [],
+        });
+        const replyPayload = encodeCommentReplyPayload({
+            author: 'Grace',
+            createdAt: '2026-06-30T13:00:00.000Z',
+            body: 'Please clarify this.',
+        });
+
+        expect(decodeCommentHeadPayload(headPayload)).toEqual({
+            status: 'open',
+            authors: ['Ada'],
+            createdAt: '2026-06-30T12:00:00.000Z',
+            updatedAt: '2026-06-30T12:00:00.000Z',
+            replies: [],
+        });
+        expect(decodeCommentReplyPayload(replyPayload)).toEqual({
+            author: 'Grace',
+            createdAt: '2026-06-30T13:00:00.000Z',
+            body: 'Please clarify this.',
+        });
+    });
+
+    it('decodes a v1 data URI with full fidelity (read forever, written never)', () => {
+        const encoded = metadata({
+            version: 1,
+            status: 'open',
+            authors: ['Ada'],
             replies: [
                 {
                     author: 'Grace',
@@ -697,12 +725,9 @@ describe('markdown comments - metadata codec', () => {
             ],
         });
 
-        expect(decodeCommentMetadata(encoded)).toEqual({
-            version: 1,
+        expect(decodeCommentHeadPayload(encoded)).toEqual({
             status: 'open',
             authors: ['Ada'],
-            createdAt: '2026-06-30T12:00:00.000Z',
-            updatedAt: '2026-06-30T12:00:00.000Z',
             replies: [
                 {
                     author: 'Grace',
@@ -714,8 +739,7 @@ describe('markdown comments - metadata codec', () => {
     });
 
     it('preserves optional display metadata fields', () => {
-        const encoded = encodeCommentMetadata({
-            version: 1,
+        const encoded = encodeCommentHeadPayload({
             status: 'open',
             display: {
                 color: 'amber',
@@ -724,8 +748,7 @@ describe('markdown comments - metadata codec', () => {
             replies: [],
         });
 
-        expect(decodeCommentMetadata(encoded)).toMatchObject({
-            version: 1,
+        expect(decodeCommentHeadPayload(encoded)).toMatchObject({
             status: 'open',
             display: {
                 color: 'amber',
@@ -737,8 +760,7 @@ describe('markdown comments - metadata codec', () => {
 
     it('rejects nested anchor or repair coordinates in display metadata', () => {
         expect(() =>
-            encodeCommentMetadata({
-                version: 1,
+            encodeCommentHeadPayload({
                 status: 'open',
                 display: {
                     label: 'Design review',
@@ -750,8 +772,7 @@ describe('markdown comments - metadata codec', () => {
     });
 
     it('canonicalizes nested display metadata key order', () => {
-        const first = encodeCommentMetadata({
-            version: 1,
+        const first = encodeCommentHeadPayload({
             status: 'open',
             display: {
                 label: 'Design review',
@@ -759,8 +780,7 @@ describe('markdown comments - metadata codec', () => {
             },
             replies: [],
         });
-        const second = encodeCommentMetadata({
-            version: 1,
+        const second = encodeCommentHeadPayload({
             status: 'open',
             display: {
                 color: 'amber',
@@ -770,7 +790,7 @@ describe('markdown comments - metadata codec', () => {
         });
 
         expect(first).toBe(second);
-        expect(decodeCommentMetadata(first)).toMatchObject({
+        expect(decodeCommentHeadPayload(first)).toMatchObject({
             display: {
                 color: 'amber',
                 label: 'Design review',
@@ -780,8 +800,7 @@ describe('markdown comments - metadata codec', () => {
 
     it('rejects non-display extension fields', () => {
         expect(() =>
-            encodeCommentMetadata({
-                version: 1,
+            encodeCommentHeadPayload({
                 status: 'open',
                 z: 1,
                 replies: [],
@@ -790,8 +809,7 @@ describe('markdown comments - metadata codec', () => {
     });
 
     it('uses ordinal display key ordering for stable metadata encoding', () => {
-        const encoded = encodeCommentMetadata({
-            version: 1,
+        const encoded = encodeCommentHeadPayload({
             status: 'open',
             display: {
                 z: 1,
@@ -800,31 +818,12 @@ describe('markdown comments - metadata codec', () => {
             },
             replies: [],
         });
-        const json = Buffer.from(
-            encoded.slice(COMMENT_METADATA_DATA_URI_PREFIX.length),
-            'base64',
-        ).toString('utf8');
 
-        expect(json).toBe('{"version":1,"status":"open","display":{"a":3,"z":1,"ä":2},"replies":[]}');
+        expect(encoded).toBe('{"version":2,"status":"open","display":{"a":3,"z":1,"ä":2}}');
     });
 
     it('preserves display fields on replies', () => {
-        const encoded = encodeCommentMetadata({
-            version: 1,
-            status: 'open',
-            replies: [
-                {
-                    author: 'Ada',
-                    createdAt: '2026-06-30T12:00:00.000Z',
-                    body: 'First note.',
-                    display: {
-                        color: 'amber',
-                    },
-                },
-            ],
-        });
-
-        expect(decodeCommentMetadata(encoded).replies[0]).toMatchObject({
+        const encoded = encodeCommentReplyPayload({
             author: 'Ada',
             createdAt: '2026-06-30T12:00:00.000Z',
             body: 'First note.',
@@ -832,6 +831,63 @@ describe('markdown comments - metadata codec', () => {
                 color: 'amber',
             },
         });
+
+        expect(decodeCommentReplyPayload(encoded)).toMatchObject({
+            author: 'Ada',
+            createdAt: '2026-06-30T12:00:00.000Z',
+            body: 'First note.',
+            display: {
+                color: 'amber',
+            },
+        });
+    });
+});
+
+// Pinned property 1 of the v2 wire format (comment-format.md): v2 documents
+// round-trip byte-identically, including duplicate and malformed lines and
+// the conventional contiguous head+reply appendix.
+describe('v2 metadata round-trip byte identity', () => {
+    const HEAD = '[MC:a]: {"version":2,"status":"open","authors":["Ada"],"createdAt":"2026-07-07T09:00:00.000Z"}';
+    const REPLY_0 = '[MC:a.0]: {"author":"Ada","createdAt":"2026-07-07T09:00:00.000Z","body":"First"}';
+    const REPLY_1 = '[MC:a.1]: {"author":"Agent","createdAt":"2026-07-07T09:05:00.000Z","body":"Second"}';
+
+    it('round-trips a contiguous head+replies appendix byte-identically', () => {
+        const markdown = `Hello <!--MC:a-->x<!--MC:~a--> world.\n\n${HEAD}\n${REPLY_0}\n${REPLY_1}\n`;
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('round-trips blank-line separated thread lines byte-identically', () => {
+        const markdown = `Hello <!--MC:a-->x<!--MC:~a--> world.\n\n${HEAD}\n\n${REPLY_0}\n`;
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('round-trips duplicate and malformed v2 lines byte-identically', () => {
+        const markdown = [
+            'Hello <!--MC:a-->x<!--MC:~a--> world.',
+            '',
+            HEAD,
+            HEAD,
+            '[MC:a.0]: {not json',
+            REPLY_1,
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('round-trips gapped and duplicated reply indexes byte-identically', () => {
+        const markdown = [
+            'Hello <!--MC:a-->x<!--MC:~a--> world.',
+            '',
+            HEAD,
+            REPLY_1.replace('[MC:a.1]', '[MC:a.7]'),
+            REPLY_1.replace('[MC:a.1]', '[MC:a.7]'),
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe(markdown);
     });
 });
 
@@ -884,7 +940,9 @@ describe('metadata source edits', () => {
         expect(next).not.toBeNull();
         expect(next).toMatch(/^\uFEFFTitle\rA/u);
         expect(next).toContain(`[MC:other]: ${first}  \n`);
-        expect(next).toMatch(/\[MC:a\]: data:application\/json;base64,\S+\t$/u);
+        // A mutation is the v1->v2 upgrade point: the touched thread's line is
+        // rewritten as a v2 head; every unrelated byte stays put.
+        expect(next).toContain('[MC:a]: {"version":2,"status":"resolved"');
         expect(readMarkdownComments(next!).threads[0]).toMatchObject({
             id: 'a',
             status: 'resolved',

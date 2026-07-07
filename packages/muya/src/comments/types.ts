@@ -17,8 +17,13 @@ export interface ICommentReplyInput {
     createdAt?: string;
 }
 
+// The in-memory thread model. The wire `version` tag (1 = legacy base64
+// data-URI, 2 = line-oriented JSON) is a serialization detail owned by the
+// codecs in metadata.ts and never lives on decoded objects. `updatedAt` is
+// the head-level value only — writers set it for head-level changes (status,
+// authors, display); the thread-level updatedAt on ICommentThread is derived
+// at read time from head and reply timestamps.
 export interface ICommentMetadata {
-    version: 1;
     status: TCommentStatus;
     authors?: string[];
     createdAt?: string;
@@ -50,7 +55,9 @@ export type TCommentDiagnosticCode
         | 'orphan-close-marker'
         | 'orphan-metadata'
         | 'parse-error'
-        | 'unclosed-open-marker';
+        | 'unclosed-open-marker'
+        | 'orphan-reply'
+        | 'invalid-reply';
 
 export interface ICommentDiagnostic {
     code: TCommentDiagnosticCode;

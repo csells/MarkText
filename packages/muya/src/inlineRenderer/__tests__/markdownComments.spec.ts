@@ -3,7 +3,7 @@
 import type { IParagraphState, TState } from '../../state/types';
 import type { CommentMarkerToken, Token } from '../types';
 import { describe, expect, it, vi } from 'vitest';
-import { analyzeMarkdownComments, buildTextPathIndexes, encodeCommentMetadata } from '../../comments';
+import { analyzeMarkdownComments, buildTextPathIndexes, encodeCommentHeadPayload } from '../../comments';
 import InlineRenderer from '../index';
 import { tokenizer } from '../lexer';
 
@@ -89,8 +89,7 @@ describe('markdown comments - reference metadata labels', () => {
 
 describe('markdown comments - render caching', () => {
     it('reuses parsed comments for repeated content patches in the same json version', () => {
-        const metadata = encodeCommentMetadata({
-            version: 1,
+        const metadata = encodeCommentHeadPayload({
             status: 'open',
             replies: [],
         });
@@ -146,7 +145,7 @@ describe('markdown comments - render caching', () => {
 
 describe('markdown comments - resolved highlights', () => {
     const buildRenderer = (status: 'open' | 'resolved') => {
-        const metadata = encodeCommentMetadata({ version: 1, status, replies: [] });
+        const metadata = encodeCommentHeadPayload({ status, replies: [] });
         const states: TState[] = [
             { name: 'paragraph', text: 'A <!--MC:a-->reviewed<!--MC:~a--> line.' },
             { name: 'paragraph', text: `[MC:a]: ${metadata}` },

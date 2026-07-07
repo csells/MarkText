@@ -12,11 +12,12 @@ import type {
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
 import { stripRealCommentMarkersFromText } from './markerScan';
-import { decodeCommentMetadata } from './metadata';
+import { decodeCommentHeadPayload, decodeCommentReplyPayload } from './metadata';
 import { commentPathKey } from './range';
 import {
     LITERAL_COMMENT_TEXT_STATES,
     parseCommentMetadataDefinition,
+    parseCommentReplyDefinition,
     parseMalformedCommentMarker,
 } from './syntax';
 
@@ -153,6 +154,10 @@ export function parseMarkdownComments(
     const rangeIds = new Set<string>();
     const seenMetadataIds = new Set<string>();
     const metadataById = new Map<string, ICommentMetadata>();
+    // Reply lines in document order; attachment happens after the walk so a
+    // head that appears below its replies (a merge artifact) still collects
+    // them. The numeric label suffix is a positional hint only.
+    const replyOccurrences: Array<{ id: string; payload: string }> = [];
 
     const recordClose = (close: ICloseMarker) => {
         const open = openMarkers.get(close.id);
@@ -207,7 +212,7 @@ export function parseMarkdownComments(
             seenMetadataIds.add(metadata.id);
 
             try {
-                const decoded = decodeCommentMetadata(metadata.dataUri);
+                const decoded = decodeCommentHeadPayload(metadata.payload);
                 if (!metadataById.has(metadata.id))
                     metadataById.set(metadata.id, decoded);
             }
@@ -229,6 +234,12 @@ export function parseMarkdownComments(
         const lines = text.split('\n');
         let hasMetadataLine = false;
         for (const line of lines) {
+            const reply = parseCommentReplyDefinition(line);
+            if (reply) {
+                hasMetadataLine = true;
+                replyOccurrences.push({ id: reply.id, payload: reply.payload });
+                continue;
+            }
             const metadata = parseCommentMetadataDefinition(line);
             if (!metadata)
                 continue;
@@ -297,6 +308,29 @@ export function parseMarkdownComments(
 
     visit(states);
 
+    for (const occurrence of replyOccurrences) {
+        const head = metadataById.get(occurrence.id);
+        if (!head) {
+            diagnostics.push(diagnostic(
+                'orphan-reply',
+                occurrence.id,
+                `Found reply line for comment "${occurrence.id}" without a head metadata line.`,
+            ));
+            continue;
+        }
+
+        try {
+            head.replies.push(decodeCommentReplyPayload(occurrence.payload));
+        }
+        catch (error) {
+            diagnostics.push(diagnostic(
+                'invalid-reply',
+                occurrence.id,
+                error instanceof Error ? error.message : `A reply line for comment "${occurrence.id}" is invalid.`,
+            ));
+        }
+    }
+
     for (const open of openMarkers.values()) {
         diagnostics.push(diagnostic(
             'unclosed-open-marker',
@@ -327,9 +361,38 @@ export function parseMarkdownComments(
 
     const threads: ICommentThread[] = [];
     for (const [id, metadata] of metadataById.entries()) {
-        if (rangeIds.has(id))
-            threads.push({ id, ...metadata });
+        if (rangeIds.has(id)) {
+            threads.push({
+                id,
+                ...metadata,
+                ...derivedThreadUpdatedAt(metadata),
+                ...derivedThreadAuthors(metadata),
+            });
+        }
     }
 
     return { threads, ranges, diagnostics };
+}
+
+// Thread-level updatedAt and authors are derived at read time — appending a
+// reply must write exactly one reply line, so the head only records
+// head-level changes and never accumulates per-reply facts.
+function derivedThreadUpdatedAt(metadata: ICommentMetadata): { updatedAt?: string } {
+    let latest = metadata.updatedAt ?? metadata.createdAt;
+    for (const reply of metadata.replies) {
+        if (latest === undefined || reply.createdAt > latest)
+            latest = reply.createdAt;
+    }
+
+    return latest === undefined ? {} : { updatedAt: latest };
+}
+
+function derivedThreadAuthors(metadata: ICommentMetadata): { authors?: string[] } {
+    const authors: string[] = [];
+    for (const author of [...(metadata.authors ?? []), ...metadata.replies.map(reply => reply.author)]) {
+        if (author && !authors.includes(author))
+            authors.push(author);
+    }
+
+    return authors.length === 0 ? {} : { authors };
 }

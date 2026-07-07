@@ -1,6 +1,6 @@
 import type { Token } from '../inlineRenderer/types';
 import { tokenizer } from '../inlineRenderer/lexer';
-import { parseCommentMetadataDefinition } from './syntax';
+import { isCommentMetadataDefinitionText, parseCommentMetadataDefinition } from './syntax';
 
 type TCommentMarkerKind = 'open' | 'close';
 
@@ -90,7 +90,7 @@ export function createCommentSearchText(text: string): ICommentSearchText {
             rawIndexBySearchIndex: Array.from({ length: text.length }, (_, index) => index),
         };
     }
-    if (parseCommentMetadataDefinition(text))
+    if (isCommentMetadataDefinitionText(text))
         return { text: '', rawIndexBySearchIndex: [] };
 
     const rawIndexBySearchIndex: number[] = [];
@@ -138,7 +138,7 @@ export function stripCommentSyntaxForClipboard(text: string): string {
     if (!text.includes('MC:'))
         return text;
 
-    if (parseCommentMetadataDefinition(text))
+    if (isCommentMetadataDefinitionText(text))
         return '';
 
     const withoutMarkers = stripRealCommentMarkersFromText(text);

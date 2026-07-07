@@ -15,8 +15,9 @@ import {
 } from '../comments/markerScan';
 import { isUnsafeCommentMarkerTextEdit, scanEditedCommentMarkers } from '../comments/source';
 import {
+    commentDefinitionLineThreadId,
+    isCommentMetadataDefinitionText,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
-    parseCommentMetadataDefinition,
 } from '../comments/syntax';
 import { CLASS_NAMES } from '../config';
 import { SelectionDirection, SelectionType } from '../selection/types';
@@ -242,21 +243,27 @@ function unsafeCrossBlockDefinitionCut(
     let block: Nullable<Content> = startBlock;
     while (block) {
         if (!NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(block.blockName)) {
-            const definition = parseCommentMetadataDefinition(block.text);
-            if (definition) {
+            if (isCommentMetadataDefinitionText(block.text)) {
                 const from = block === startBlock ? startOffset : 0;
                 const to = block === endBlock ? endOffset : block.text.length;
                 if (to > from) {
                     if (from !== 0 || to !== block.text.length)
                         return true;
 
-                    const survivingKinds = documentKinds.get(definition.id);
-                    const removedKinds = removedKindsById.get(definition.id);
-                    if (
-                        survivingKinds
-                        && ![...survivingKinds].every(kind => removedKinds?.has(kind))
-                    ) {
-                        return true;
+                    // A metadata run can hold several threads' lines; the cut
+                    // is unsafe if it strands ANY of them.
+                    for (const line of block.text.split('\n')) {
+                        const threadId = commentDefinitionLineThreadId(line);
+                        if (threadId == null)
+                            continue;
+                        const survivingKinds = documentKinds.get(threadId);
+                        const removedKinds = removedKindsById.get(threadId);
+                        if (
+                            survivingKinds
+                            && ![...survivingKinds].every(kind => removedKinds?.has(kind))
+                        ) {
+                            return true;
+                        }
                     }
                 }
             }

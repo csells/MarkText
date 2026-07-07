@@ -1,16 +1,27 @@
 import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
-import type { ICommentMetadata, ICommentReplyInput } from './types';
+import type { ICommentSourceMetadataDefinition } from './analyze';
+import type { ICommentMetadata, ICommentReply, ICommentReplyInput } from './types';
 import { analyzeMarkdownComments } from './analyze';
 import { inlineCodeRangesInText, realCommentMarkersInText } from './markerScan';
-import { decodeCommentMetadata, encodeCommentMetadata, normalizeCommentMetadata } from './metadata';
+import {
+    decodeCommentHeadPayload,
+    decodeCommentReplyPayload,
+    encodeCommentHeadPayload,
+    encodeCommentReplyPayload,
+    normalizeCommentMetadata,
+    serializeCommentThreadLines,
+} from './metadata';
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
 import {
+    COMMENT_METADATA_DATA_URI_PREFIX,
+    isCommentMetadataDefinitionText,
     isValidCommentId,
     LITERAL_COMMENT_TEXT_STATES,
-    parseCommentMetadataDefinition,
+    parseCommentHeadDefinition,
+    parseCommentReplyDefinition,
     serializeCommentMarker,
-    serializeCommentMetadataDefinition,
+    serializeCommentReplyDefinition,
 } from './syntax';
 
 export interface IAddCommentInput {
@@ -44,7 +55,7 @@ interface IValidatedCommentRange {
     endText: string;
 }
 
-export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>;
+export type TUpdateCommentThreadPatch = Partial<ICommentMetadata>;
 
 // Commentability additionally excludes the deprecated
 // link-reference-definition state (raw definition text, no prose to anchor).
@@ -109,29 +120,11 @@ function writePath(root: unknown, path: TBlockPath, value: unknown): boolean {
     return true;
 }
 
-function visitStateTexts(states: TState[], visitor: (state: Extract<TState, { text: string }>) => boolean): boolean {
-    for (const state of states) {
-        if (
-            'text' in state
-            && typeof state.text === 'string'
-            && !NON_COMMENTABLE_TEXT_STATES.has(state.name)
-            && visitor(state as Extract<TState, { text: string }>)
-        ) {
-            return true;
-        }
-
-        if ('children' in state && Array.isArray(state.children) && visitStateTexts(state.children, visitor))
-            return true;
-    }
-
-    return false;
-}
-
 function isCommentableTextState(state: TState): boolean {
     if (!('text' in state) || typeof state.text !== 'string')
         return false;
 
-    return !NON_COMMENTABLE_TEXT_STATES.has(state.name) && !parseCommentMetadataDefinition(state.text);
+    return !NON_COMMENTABLE_TEXT_STATES.has(state.name) && !isCommentMetadataDefinitionText(state.text);
 }
 
 function selectionIntersectsInlineCode(text: string, startOffset: number, endOffset: number): boolean {
@@ -317,7 +310,6 @@ function validateCommentRangeTarget({
 
 export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata {
     const createdAt = input.createdAt ?? new Date().toISOString();
-    const updatedAt = input.updatedAt ?? createdAt;
     const authors = input.author ? [input.author] : undefined;
     const replies = input.body
         ? [{
@@ -328,11 +320,10 @@ export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata
         : [];
 
     return {
-        version: 1,
         status: 'open',
         ...(authors ? { authors } : {}),
         createdAt,
-        updatedAt,
+        ...(input.updatedAt ? { updatedAt: input.updatedAt } : {}),
         replies,
     };
 }
@@ -409,51 +400,154 @@ export function wrapCommentRange({
         }
     }
 
-    states.push({
-        name: 'paragraph',
-        text: serializeCommentMetadataDefinition(id, encodeCommentMetadata(metadata)),
-    });
+    // One paragraph state holding the whole thread block: contiguous lines
+    // are the appendix convention and round-trip byte-identically.
+    states.push({ name: 'paragraph', text: serializeCommentThreadLines(id, metadata).join('\n') });
 
     return states;
 }
 
-export function updateCommentMetadataDefinition(
-    states: TState[],
+// The reconciled shape of one thread's definition lines: which head payload
+// to keep, which reply lines to rewrite in place, what to append after the
+// thread's last line, and which trailing reply slots to delete. Rewrites and
+// appends carry normalized positional indexes; untouched lines keep their
+// bytes (and any stale index labels) so parallel Git edits stay mergeable.
+interface IThreadLinePlan {
+    unchanged: boolean;
+    v1Upgrade: boolean;
+    headPayload: string | null;
+    rewrites: Array<{ slot: number; payload: string }>;
+    appends: string[];
+    deleteFromSlot: number | null;
+}
+
+function planThreadLines(
     id: string,
-    updater: (metadata: ICommentMetadata) => ICommentMetadata,
-): TState[] | null {
-    let updated = false;
-    // Scan each line of a leaf's text, not just leaves whose entire text is a
-    // definition: marked folds a definition that is not blank-line-isolated into
-    // a multi-line paragraph, and it must still be updatable in place.
-    const found = visitStateTexts(states, (state) => {
-        const lines = state.text.split('\n');
-        for (let index = 0; index < lines.length; index += 1) {
-            const definition = parseCommentMetadataDefinition(lines[index]);
-            if (!definition || definition.id !== id)
-                continue;
+    headIsV1: boolean,
+    currentHead: ICommentMetadata,
+    currentLineReplies: ICommentReply[],
+    next: ICommentMetadata,
+): IThreadLinePlan {
+    const current: ICommentMetadata = {
+        ...currentHead,
+        replies: [...currentHead.replies, ...currentLineReplies],
+    };
+    const unchanged
+        = serializeCommentThreadLines(id, current).join('\n') === serializeCommentThreadLines(id, next).join('\n');
+    if (unchanged) {
+        return { unchanged, v1Upgrade: false, headPayload: null, rewrites: [], appends: [], deleteFromSlot: null };
+    }
 
-            let current: ICommentMetadata;
-            try {
-                current = decodeCommentMetadata(definition.dataUri);
-            }
-            catch {
-                continue;
-            }
+    if (headIsV1) {
+        // Any real change to a v1 thread rewrites it as v2 lines (read
+        // forever, written never); untouched v1 threads keep their bytes.
+        return { unchanged, v1Upgrade: true, headPayload: null, rewrites: [], appends: [], deleteFromSlot: null };
+    }
 
-            const parts = splitCommentMetadataLine(lines[index]);
-            if (!parts)
-                continue;
+    const currentHeadPayload = encodeCommentHeadPayload(currentHead);
+    const nextHeadPayload = encodeCommentHeadPayload({ ...next, replies: [] });
+    const oldPayloads = currentLineReplies.map(reply => encodeCommentReplyPayload(reply));
+    const newPayloads = next.replies.map(reply => encodeCommentReplyPayload(reply));
 
-            lines[index] = `${parts.prefix}${encodeCommentMetadata(normalizeCommentMetadata(updater(current)))}${parts.trailing}`;
-            state.text = lines.join('\n');
-            updated = true;
-            return true;
+    const rewrites: IThreadLinePlan['rewrites'] = [];
+    for (let slot = 0; slot < Math.min(oldPayloads.length, newPayloads.length); slot += 1) {
+        if (oldPayloads[slot] !== newPayloads[slot])
+            rewrites.push({ slot, payload: newPayloads[slot] });
+    }
+
+    return {
+        unchanged,
+        v1Upgrade: false,
+        headPayload: nextHeadPayload === currentHeadPayload ? null : nextHeadPayload,
+        rewrites,
+        appends: newPayloads
+            .slice(oldPayloads.length)
+            .map((payload, offset) => serializeCommentReplyDefinition(id, oldPayloads.length + offset, payload)),
+        deleteFromSlot: newPayloads.length < oldPayloads.length ? newPayloads.length : null,
+    };
+}
+
+interface IDecodedThreadLines {
+    head: ICommentSourceMetadataDefinition;
+    headMetadata: ICommentMetadata;
+    headIsV1: boolean;
+    replySlots: Array<{ definition: ICommentSourceMetadataDefinition; reply: ICommentReply }>;
+}
+
+function decodeThreadLines(
+    definitions: ICommentSourceMetadataDefinition[],
+    id: string,
+): { decoded: IDecodedThreadLines | null; corruptError: unknown } {
+    const threadDefinitions = definitions
+        .filter(definition => definition.id === id)
+        .sort((a, b) => a.start - b.start);
+
+    let head: ICommentSourceMetadataDefinition | null = null;
+    let headMetadata: ICommentMetadata | null = null;
+    let corruptError: unknown = null;
+    for (const definition of threadDefinitions) {
+        if (definition.kind !== 'head')
+            continue;
+        try {
+            headMetadata = decodeCommentHeadPayload(definition.payload);
+            head = definition;
+            break;
         }
-        return false;
-    });
+        catch (err) {
+            // A duplicate id may still carry a decodable definition, so keep
+            // scanning; if none decodes, the caller reports the corrupt
+            // payload instead of "no definition found".
+            corruptError = err;
+        }
+    }
+    if (!head || !headMetadata)
+        return { decoded: null, corruptError };
 
-    return found && updated ? states : null;
+    // Malformed reply lines are preserved byte-for-byte and surface as
+    // invalid-reply diagnostics; the reconciled thread covers the decodable
+    // lines only.
+    const replySlots: IDecodedThreadLines['replySlots'] = [];
+    for (const definition of threadDefinitions) {
+        if (definition.kind !== 'reply')
+            continue;
+        try {
+            replySlots.push({ definition, reply: decodeCommentReplyPayload(definition.payload) });
+        }
+        catch {
+            continue;
+        }
+    }
+
+    return {
+        decoded: {
+            head,
+            headMetadata,
+            headIsV1: head.payload.startsWith(COMMENT_METADATA_DATA_URI_PREFIX),
+            replySlots,
+        },
+        corruptError: null,
+    };
+}
+
+function detectLineEnding(markdown: string, afterIndex: number): string {
+    if (markdown.startsWith('\r\n', afterIndex))
+        return '\r\n';
+    if (markdown[afterIndex] === '\n' || markdown[afterIndex] === '\r')
+        return markdown[afterIndex];
+
+    const first = /\r\n|\n|\r/u.exec(markdown);
+    return first ? first[0] : '\n';
+}
+
+// End of the line INCLUDING its terminator, for whole-line deletion.
+function lineSpanWithTerminator(markdown: string, range: { start: number; end: number }): { start: number; end: number } {
+    let { end } = range;
+    if (markdown.startsWith('\r\n', end))
+        end += 2;
+    else if (markdown[end] === '\n' || markdown[end] === '\r')
+        end += 1;
+
+    return { start: range.start, end };
 }
 
 export function updateCommentMetadataInMarkdown(
@@ -462,42 +556,246 @@ export function updateCommentMetadataInMarkdown(
     updater: (metadata: ICommentMetadata) => ICommentMetadata,
 ): string | null {
     const analysis = analyzeMarkdownComments(markdown);
-    let corruptDecodeError: unknown = null;
-    for (const sourceDefinition of analysis.sourceIndex.metadataDefinitions) {
-        if (sourceDefinition.id !== id)
-            continue;
+    const { decoded, corruptError } = decodeThreadLines(analysis.sourceIndex.metadataDefinitions, id);
+    if (!decoded) {
+        if (corruptError != null) {
+            const reason = corruptError instanceof Error ? corruptError.message : String(corruptError);
+            throw new Error(`Metadata for comment "${id}" is corrupt and cannot be decoded: ${reason}`);
+        }
 
-        let current: ICommentMetadata;
+        return null;
+    }
+
+    const { head, headMetadata, headIsV1, replySlots } = decoded;
+    const current: ICommentMetadata = {
+        ...headMetadata,
+        replies: [...headMetadata.replies, ...replySlots.map(slot => slot.reply)],
+    };
+    const next = normalizeCommentMetadata(updater(current));
+    const plan = planThreadLines(id, headIsV1, headMetadata, replySlots.map(slot => slot.reply), next);
+    if (plan.unchanged)
+        return markdown;
+
+    const eol = detectLineEnding(markdown, head.end);
+    const edits: Array<{ start: number; end: number; text: string }> = [];
+
+    if (plan.v1Upgrade) {
+        edits.push({ start: head.start, end: head.end, text: serializeCommentThreadLines(id, next).join(eol) });
+        // The decodable reply lines were folded into the rewrite above.
+        for (const slot of replySlots)
+            edits.push({ ...lineSpanWithTerminator(markdown, slot.definition), text: '' });
+    }
+    else {
+        if (plan.headPayload != null) {
+            const headLine = markdown.slice(head.start, head.end);
+            const parts = splitCommentMetadataLine(headLine);
+            if (!parts)
+                return null;
+            edits.push({ start: head.start, end: head.end, text: `${parts.prefix}${plan.headPayload}${parts.trailing}` });
+        }
+        for (const rewrite of plan.rewrites) {
+            const { definition } = replySlots[rewrite.slot];
+            edits.push({
+                start: definition.start,
+                end: definition.end,
+                text: serializeCommentReplyDefinition(id, rewrite.slot, rewrite.payload),
+            });
+        }
+        if (plan.appends.length > 0) {
+            const anchor = replySlots.length > 0 ? replySlots[replySlots.length - 1].definition : head;
+            edits.push({
+                start: anchor.end,
+                end: anchor.end,
+                text: plan.appends.map(line => `${eol}${line}`).join(''),
+            });
+        }
+        if (plan.deleteFromSlot != null) {
+            for (const slot of replySlots.slice(plan.deleteFromSlot))
+                edits.push({ ...lineSpanWithTerminator(markdown, slot.definition), text: '' });
+        }
+    }
+
+    let result = markdown;
+    for (const edit of edits.sort((a, b) => b.start - a.start))
+        result = `${result.slice(0, edit.start)}${edit.text}${result.slice(edit.end)}`;
+
+    return result;
+}
+
+interface IStateLineSlot {
+    parent: TState[];
+    state: Extract<TState, { text: string }>;
+    lineIndex: number;
+    kind: 'head' | 'reply';
+    payload: string;
+}
+
+function collectStateThreadLines(states: TState[], id: string): IStateLineSlot[] {
+    const slots: IStateLineSlot[] = [];
+    const walk = (nodes: TState[]) => {
+        for (const state of nodes) {
+            if (
+                'text' in state
+                && typeof state.text === 'string'
+                && !NON_COMMENTABLE_TEXT_STATES.has(state.name)
+            ) {
+                const textState = state as Extract<TState, { text: string }>;
+                const lines = textState.text.split('\n');
+                for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+                    const reply = parseCommentReplyDefinition(lines[lineIndex]);
+                    if (reply?.id === id) {
+                        slots.push({ parent: nodes, state: textState, lineIndex, kind: 'reply', payload: reply.payload });
+                        continue;
+                    }
+                    const headDefinition = parseCommentHeadDefinition(lines[lineIndex]);
+                    if (headDefinition?.id === id)
+                        slots.push({ parent: nodes, state: textState, lineIndex, kind: 'head', payload: headDefinition.payload });
+                }
+            }
+
+            if ('children' in state && Array.isArray(state.children))
+                walk(state.children);
+        }
+    };
+    walk(states);
+    return slots;
+}
+
+function rewriteStateLine(slot: IStateLineSlot, text: string): void {
+    const lines = slot.state.text.split('\n');
+    lines[slot.lineIndex] = text;
+    slot.state.text = lines.join('\n');
+}
+
+function deleteStateLine(slot: IStateLineSlot): void {
+    const lines = slot.state.text.split('\n');
+    lines.splice(slot.lineIndex, 1);
+    if (lines.length === 0) {
+        const index = slot.parent.indexOf(slot.state);
+        if (index !== -1)
+            slot.parent.splice(index, 1);
+        return;
+    }
+    slot.state.text = lines.join('\n');
+}
+
+// Insert lines directly after the anchor line WITHIN its state: thread lines
+// are conventionally contiguous, and a sibling paragraph state would
+// serialize with a blank line between it and the anchor.
+function insertLinesAfterSlot(slot: IStateLineSlot, lines: string[]): void {
+    const existing = slot.state.text.split('\n');
+    existing.splice(slot.lineIndex + 1, 0, ...lines);
+    slot.state.text = existing.join('\n');
+}
+
+// State-tree twin of updateCommentMetadataInMarkdown: the same line plan,
+// applied to definition lines living inside paragraph states (one state per
+// line as the parser produces, or folded into a multi-line paragraph).
+export function updateCommentMetadataDefinition(
+    states: TState[],
+    id: string,
+    updater: (metadata: ICommentMetadata) => ICommentMetadata,
+): TState[] | null {
+    const slots = collectStateThreadLines(states, id);
+
+    let headSlot: IStateLineSlot | null = null;
+    let headMetadata: ICommentMetadata | null = null;
+    for (const slot of slots) {
+        if (slot.kind !== 'head')
+            continue;
         try {
-            current = decodeCommentMetadata(sourceDefinition.dataUri);
+            headMetadata = decodeCommentHeadPayload(slot.payload);
+            headSlot = slot;
+            break;
         }
-        catch (err) {
-            // A duplicate id may still carry a decodable definition, so keep
-            // scanning; if none decodes, the error below tells the caller the
-            // truth (corrupt payload) instead of "no definition found".
-            corruptDecodeError = err;
+        catch {
             continue;
         }
+    }
+    if (!headSlot || !headMetadata)
+        return null;
 
-        const sourceLine = markdown.slice(sourceDefinition.start, sourceDefinition.end);
-        const parts = splitCommentMetadataLine(sourceLine);
+    const replySlots: Array<{ slot: IStateLineSlot; reply: ICommentReply }> = [];
+    for (const slot of slots) {
+        if (slot.kind !== 'reply')
+            continue;
+        try {
+            replySlots.push({ slot, reply: decodeCommentReplyPayload(slot.payload) });
+        }
+        catch {
+            continue;
+        }
+    }
+
+    const headIsV1 = headSlot.payload.startsWith(COMMENT_METADATA_DATA_URI_PREFIX);
+    const current: ICommentMetadata = {
+        ...headMetadata,
+        replies: [...headMetadata.replies, ...replySlots.map(entry => entry.reply)],
+    };
+    const next = normalizeCommentMetadata(updater(current));
+    const plan = planThreadLines(id, headIsV1, headMetadata, replySlots.map(entry => entry.reply), next);
+    if (plan.unchanged)
+        return states;
+
+    if (plan.v1Upgrade) {
+        // Rebuild each affected state's lines in ONE pass — the v1 head line
+        // becomes the full v2 thread block, decodable v2 reply lines fold
+        // into it, and per-slot splicing cannot shift later slot indexes.
+        const threadLines = serializeCommentThreadLines(id, next);
+        const dropSlots = new Set(replySlots.map(entry => entry.slot));
+        const affected = new Map<IStateLineSlot['state'], IStateLineSlot[]>();
+        for (const slot of [headSlot, ...replySlots.map(entry => entry.slot)]) {
+            const list = affected.get(slot.state) ?? [];
+            list.push(slot);
+            affected.set(slot.state, list);
+        }
+        for (const [state, stateSlots] of affected) {
+            const dropLines = new Set(
+                stateSlots.filter(slot => dropSlots.has(slot)).map(slot => slot.lineIndex),
+            );
+            const nextLines: string[] = [];
+            state.text.split('\n').forEach((line, lineIndex) => {
+                if (state === headSlot.state && lineIndex === headSlot.lineIndex)
+                    nextLines.push(...threadLines);
+                else if (!dropLines.has(lineIndex))
+                    nextLines.push(line);
+            });
+            if (nextLines.length === 0) {
+                const parent = stateSlots[0].parent;
+                const index = parent.indexOf(state);
+                if (index !== -1)
+                    parent.splice(index, 1);
+            }
+            else {
+                state.text = nextLines.join('\n');
+            }
+        }
+        return states;
+    }
+
+    if (plan.headPayload != null) {
+        const line = headSlot.state.text.split('\n')[headSlot.lineIndex];
+        const parts = splitCommentMetadataLine(line);
         if (!parts)
-            continue;
-
-        const nextDataUri = encodeCommentMetadata(normalizeCommentMetadata(updater(current)));
-        if (nextDataUri === sourceDefinition.dataUri)
-            return markdown;
-
-        const nextLine = `${parts.prefix}${nextDataUri}${parts.trailing}`;
-        return `${markdown.slice(0, sourceDefinition.start)}${nextLine}${markdown.slice(sourceDefinition.end)}`;
+            return null;
+        rewriteStateLine(headSlot, `${parts.prefix}${plan.headPayload}${parts.trailing}`);
+    }
+    for (const rewrite of plan.rewrites) {
+        rewriteStateLine(
+            replySlots[rewrite.slot].slot,
+            serializeCommentReplyDefinition(id, rewrite.slot, rewrite.payload),
+        );
+    }
+    if (plan.appends.length > 0) {
+        const anchor = replySlots.length > 0 ? replySlots[replySlots.length - 1].slot : headSlot;
+        insertLinesAfterSlot(anchor, plan.appends);
+    }
+    if (plan.deleteFromSlot != null) {
+        for (const entry of replySlots.slice(plan.deleteFromSlot).reverse())
+            deleteStateLine(entry.slot);
     }
 
-    if (corruptDecodeError != null) {
-        const reason = corruptDecodeError instanceof Error ? corruptDecodeError.message : String(corruptDecodeError);
-        throw new Error(`Metadata for comment "${id}" is corrupt and cannot be decoded: ${reason}`);
-    }
-
-    return null;
+    return states;
 }
 
 export function mergeCommentMetadataPatch(
@@ -507,23 +805,20 @@ export function mergeCommentMetadataPatch(
     return normalizeCommentMetadata({
         ...metadata,
         ...patch,
-        version: 1,
         replies: patch.replies ?? metadata.replies,
     });
 }
 
+// A pure reply append: head-level fields (status, authors, updatedAt,
+// display) are untouched so the write is exactly one new line — thread
+// updatedAt and participant authors are derived at read time.
 export function appendCommentReplyMetadata(
     metadata: ICommentMetadata,
     reply: ICommentReplyInput,
 ): ICommentMetadata {
     const createdAt = reply.createdAt ?? new Date().toISOString();
-    const authors = metadata.authors ? [...metadata.authors] : [];
-    if (reply.author && !authors.includes(reply.author))
-        authors.push(reply.author);
 
     return mergeCommentMetadataPatch(metadata, {
-        ...(authors.length ? { authors } : {}),
-        updatedAt: createdAt,
         replies: [
             ...metadata.replies,
             {

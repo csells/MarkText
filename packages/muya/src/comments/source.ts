@@ -14,6 +14,7 @@ import {
     COMMENT_MARKER_PATTERN,
     htmlBlockTokenIsParagraph,
     parseCommentMetadataDefinition,
+    parseCommentReplyDefinition,
 } from './syntax';
 
 type TMarkerKind = 'open' | 'close';
@@ -103,9 +104,17 @@ export interface ICommentSourceMarker extends ICommentSourceIndexRange {
     idEnd: number;
 }
 
+// One entry per definition-shaped line. `id` is the THREAD id — for a v2
+// reply line `[MC:cmt_1.0]:` it is `cmt_1`, so per-thread queries (removal
+// ranges, discard, line reconciliation) see head and replies alike. `label`
+// keeps the raw bracket text; labels that are neither a valid id nor `id.N`
+// classify as heads under their raw label, exactly as v1 treated them.
 export interface ICommentSourceMetadataDefinition extends ICommentSourceIndexRange {
     id: string;
-    dataUri: string;
+    label: string;
+    kind: 'head' | 'reply';
+    replyIndex?: number;
+    payload: string;
     idStart: number;
     idEnd: number;
 }
@@ -676,11 +685,15 @@ export function buildCommentSourceIndex(
         if (!metadata)
             continue;
 
+        const reply = parseCommentReplyDefinition(view.stripped);
         const lineStart = view.start + view.delta;
         const idStartInLine = view.stripped.indexOf(`[MC:${metadata.id}]`) + '[MC:'.length;
         metadataDefinitions.push({
-            id: metadata.id,
-            dataUri: metadata.dataUri,
+            id: reply ? reply.id : metadata.id,
+            label: metadata.id,
+            kind: reply ? 'reply' : 'head',
+            ...(reply ? { replyIndex: reply.index } : {}),
+            payload: metadata.payload,
             start: lineStart,
             end: lineStart + view.stripped.length,
             idStart: lineStart + idStartInLine,

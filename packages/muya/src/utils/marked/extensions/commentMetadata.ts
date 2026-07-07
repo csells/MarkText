@@ -40,15 +40,32 @@ export default function commentMetadataExtension(): MarkedExtension {
                 name: 'commentMetadataDefinition',
                 level: 'block' as const,
                 tokenizer(src: string): ICommentMetadataDefinitionToken | undefined {
-                    const lineEnd = src.indexOf('\n');
-                    const line = lineEnd === -1 ? src : src.slice(0, lineEnd);
-                    if (!COMMENT_METADATA_DEFINITION_REGEXP.test(line))
+                    // Consume the whole contiguous RUN of definition lines as
+                    // one token: v2 threads conventionally keep head and reply
+                    // lines adjacent, and one-token-per-line would split them
+                    // into separate paragraphs whose serialization re-inserts
+                    // blank lines — breaking round-trip byte identity.
+                    const lines: string[] = [];
+                    let consumed = 0;
+                    for (;;) {
+                        const lineEnd = src.indexOf('\n', consumed);
+                        const line = lineEnd === -1 ? src.slice(consumed) : src.slice(consumed, lineEnd);
+                        if (!COMMENT_METADATA_DEFINITION_REGEXP.test(line))
+                            break;
+                        lines.push(line);
+                        if (lineEnd === -1) {
+                            consumed = src.length;
+                            break;
+                        }
+                        consumed = lineEnd + 1;
+                    }
+                    if (lines.length === 0)
                         return undefined;
 
                     return {
                         type: 'commentMetadataDefinition',
-                        raw: lineEnd === -1 ? line : src.slice(0, lineEnd + 1),
-                        text: line,
+                        raw: src.slice(0, consumed),
+                        text: lines.join('\n'),
                     };
                 },
             },

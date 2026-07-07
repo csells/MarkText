@@ -6,8 +6,9 @@ import type TreeNode from '../base/treeNode';
 import type { IConstructor, TBlockPath } from '../types';
 import { commentMarkerKindsInTexts } from '../../comments/markerScan';
 import {
+    commentDefinitionLineThreadId,
+    isCommentMetadataDefinitionText,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
-    parseCommentMetadataDefinition,
 } from '../../comments/syntax';
 import { BLOCK_DOM_PROPERTY } from '../../config';
 import { isHTMLElement, isMouseEvent } from '../../utils';
@@ -141,8 +142,20 @@ export class ScrollPage extends Parent {
                 // literal text, not metadata.
                 if (candidate.blockName !== 'paragraph.content')
                     continue;
-                if (parseCommentMetadataDefinition(candidate.text)?.id !== id)
+                if (!isCommentMetadataDefinitionText(candidate.text))
                     continue;
+
+                // A metadata run can interleave several threads' lines: drop
+                // only this thread's head/reply lines, keep the rest.
+                const lines = candidate.text.split('\n');
+                const kept = lines.filter(line => commentDefinitionLineThreadId(line) !== id);
+                if (kept.length === lines.length)
+                    continue;
+                if (kept.length > 0) {
+                    candidate.text = kept.join('\n');
+                    candidate.update();
+                    continue;
+                }
 
                 // Remove only the definition's own paragraph, then any
                 // ancestors the removal emptied — never the whole outermost

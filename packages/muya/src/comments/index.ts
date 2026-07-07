@@ -36,9 +36,13 @@ export {
 } from './markerScan';
 export type { ICommentSearchText } from './markerScan';
 export {
+    decodeCommentHeadPayload,
     decodeCommentMetadata,
-    encodeCommentMetadata,
+    decodeCommentReplyPayload,
+    encodeCommentHeadPayload,
+    encodeCommentReplyPayload,
     normalizeCommentMetadata,
+    serializeCommentThreadLines,
 } from './metadata';
 export {
     buildTextPathIndexes,
@@ -75,18 +79,25 @@ export {
     COMMENT_MARKER_SEARCH_REGEXP,
     COMMENT_METADATA_DATA_URI_PREFIX,
     COMMENT_METADATA_DEFINITION_REGEXP,
+    commentDefinitionLineThreadId,
     commentMarkerRegExpForId,
+    isCommentMetadataDefinitionText,
     isCommentMetadataReference,
     isValidCommentId,
     NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
+    parseCommentHeadDefinition,
     parseCommentMarker,
     parseCommentMetadataDefinition,
+    parseCommentReplyDefinition,
     serializeCommentMarker,
     serializeCommentMetadataDefinition,
+    serializeCommentReplyDefinition,
 } from './syntax';
 export type {
+    IParsedCommentHeadDefinition,
     IParsedCommentMarker,
     IParsedCommentMetadataDefinition,
+    IParsedCommentReplyDefinition,
     TCommentMarkerKind,
 } from './syntax';
 export type {
