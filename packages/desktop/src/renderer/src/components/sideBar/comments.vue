@@ -397,28 +397,17 @@ const setReplyInputRefFor = (id: string) => (input: unknown): void => {
 }
 
 const focusReplyInput = (id: string): void => {
-  const textarea = (): HTMLTextAreaElement | undefined => {
-    const thread = Array.from(
-      document.querySelectorAll<HTMLElement>('.side-bar-comments .thread')
-    ).find(item => item.dataset.commentId === id)
-    return thread?.querySelector<HTMLTextAreaElement>('.reply-box textarea') ?? undefined
-  }
-  const focus = (): void => {
-    // Stop once the thread is no longer composing (submitted/discarded), so a
-    // late retry can't yank focus back from the document after Cmd+Enter.
-    if (!composingThreadIds[id]) return
-    const box = textarea()
-    if (box && document.activeElement !== box) {
-      replyInputs.get(id)?.focus()
-      box.focus()
-    }
-  }
-
-  // Add Comment first re-focuses the editor and edits the document, both of
-  // which can grab focus back; retry across a short window so the compose box
-  // wins, stopping early once it already holds focus.
+  // One deterministic handoff: the card mounts on the nextTick after the
+  // composing state lands, and the engine's own re-render (which used to
+  // steal focus back, forcing a retry barrage here) settles on the following
+  // animation frame — focus once after both.
   nextTick(() => {
-    for (const delay of [0, 80, 200, 400]) setTimeout(focus, delay)
+    requestAnimationFrame(() => {
+      // The thread may have stopped composing (submitted/discarded) before
+      // the frame fired; focusing then would yank focus from the document.
+      if (!composingThreadIds[id]) return
+      replyInputs.get(id)?.focus()
+    })
   })
 }
 
