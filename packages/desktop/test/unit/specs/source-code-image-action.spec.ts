@@ -16,6 +16,7 @@ import {
   activeSourceCommentIds,
   commentMetadataAppendix,
   getSourceCommentCandidate,
+  screenSourceCommentCandidate,
   sourceCommentDiagnosticSyntaxRange,
   sourceCommentIndexRanges
 } from '../../../src/renderer/src/components/editorWithTabs/sourceCommentController'
@@ -46,7 +47,7 @@ interface SetupBindings {
     updater: (metadata: Record<string, unknown>) => Record<string, unknown>
   ) => boolean
   sourceCommentIndexRanges: (markdown: string) => Array<{ id: string; start: number; end: number }>
-  syncSourceCursorState: (cm: StubCM) => void
+  refreshCommentState: (cm: StubCM) => void
   tabId: { value: string | null }
 }
 
@@ -85,6 +86,7 @@ const loadComponent = (deps: Record<string, unknown>) => {
       activeSourceCommentIds: activeSourceCommentIdsForIndexes,
       commentMetadataAppendix, createSourceCommentAnalysis,
       getSourceCommentCandidate: getSourceCommentCandidateForIndexes,
+      screenSourceCommentCandidate: screenSourceCommentCandidateForIndexes,
       sourceCommentDiagnosticSyntaxRange: sourceCommentDiagnosticSyntaxRangeFromAnalysis,
       sourceCommentIndexRanges: sourceCommentIndexRangesFromAnalysis,
       publishSourceAddCommentCapability,
@@ -134,6 +136,7 @@ const makeDeps = (over: Record<string, unknown> = {}) => {
     activeSourceCommentIds,
     commentMetadataAppendix,
     getSourceCommentCandidate,
+    screenSourceCommentCandidate,
     sourceCommentDiagnosticSyntaxRange,
     sourceCommentIndexRanges,
     updateCommentMetadataInMarkdown,
@@ -397,13 +400,16 @@ describe('sourceCode handleImageAction', () => {
       ret.flushSourceEditor()
       focus.ch = 20
       anchor.ch = 20
-      ret.syncSourceCursorState(cm)
+      ret.refreshCommentState(cm)
       focus.ch = 21
       anchor.ch = 21
-      ret.syncSourceCursorState(cm)
+      ret.refreshCommentState(cm)
 
+      // The string-keyed analysis cache is what keeps cursor-only moves
+      // cheap; the store writes receive the SAME cached object each time.
       expect(analyzeMarkdownCommentsSpy).toHaveBeenCalledTimes(1)
-      expect(updateComments).toHaveBeenCalledTimes(1)
+      expect(updateComments).toHaveBeenCalledTimes(3)
+      expect(new Set(updateComments.mock.calls.map((call) => call[0])).size).toBe(1)
       expect(updateActiveComments).toHaveBeenCalledTimes(3)
     } finally {
       window.electron = oldElectron
@@ -445,7 +451,7 @@ describe('sourceCode handleImageAction', () => {
         { line: 0, ch: 20 }
       )
 
-      ret.syncSourceCursorState(cm)
+      ret.refreshCommentState(cm)
 
       expect(analyzeMarkdownCommentsSpy).toHaveBeenCalledWith(
         'A <!--MC:a-->reviewed<!--MC:~a--> line.\n',
@@ -489,7 +495,7 @@ describe('sourceCode handleImageAction', () => {
       )
       const cm = makeCM('A   span\n', { line: 0, ch: 4 }, { line: 0, ch: 1 })
 
-      ret.syncSourceCursorState(cm)
+      ret.refreshCommentState(cm)
 
       expect(editorStore.addCommentEnabled).toBe(false)
       expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
@@ -525,7 +531,7 @@ describe('sourceCode handleImageAction', () => {
       )
       const cm = makeCM('- [ ] task\n', { line: 0, ch: 10 }, { line: 0, ch: 2 })
 
-      ret.syncSourceCursorState(cm)
+      ret.refreshCommentState(cm)
 
       expect(editorStore.addCommentEnabled).toBe(false)
       expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
@@ -574,7 +580,7 @@ describe('sourceCode handleImageAction', () => {
       )
       const cm = makeCM(markdown, focus, anchor)
 
-      ret.syncSourceCursorState(cm)
+      ret.refreshCommentState(cm)
 
       expect(editorStore.addCommentEnabled).toBe(false)
       expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)

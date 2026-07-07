@@ -141,7 +141,10 @@ const blockContentStartIndex = (markdown: string, index: number): number => {
 const insertionDemotesBlock = (markdown: string, index: number): boolean =>
   index < blockContentStartIndex(markdown, index)
 
-export const getSourceCommentCandidate = (
+// The cheap structural screen: runs on every selection tick for menu
+// enablement, so it must not parse a proposed document. The full probe below
+// adds that validation at execution time.
+export const screenSourceCommentCandidate = (
   markdown: string,
   startIndex: number,
   endIndex: number,
@@ -149,7 +152,7 @@ export const getSourceCommentCandidate = (
   analysis = createSourceCommentAnalysis(markdown, parserOptions)
 ): SourceCommentCandidate | null => {
   if (startIndex === endIndex) return null
-  if (startIndex > endIndex) { return getSourceCommentCandidate(markdown, endIndex, startIndex, parserOptions, analysis) }
+  if (startIndex > endIndex) { return screenSourceCommentCandidate(markdown, endIndex, startIndex, parserOptions, analysis) }
   if (markdown.slice(startIndex, endIndex).trim().length === 0) return null
   if (sourceRangesOverlap(startIndex, endIndex, analysis.sourceIndex.ignoredRanges)) return null
   if (
@@ -163,13 +166,28 @@ export const getSourceCommentCandidate = (
     return null
   }
 
-  const id = nextCommentId(analysis.ids)
+  return { id: nextCommentId(analysis.ids), startIndex, endIndex }
+}
+
+export const getSourceCommentCandidate = (
+  markdown: string,
+  startIndex: number,
+  endIndex: number,
+  parserOptions: SourceCommentParserOptions,
+  analysis = createSourceCommentAnalysis(markdown, parserOptions)
+): SourceCommentCandidate | null => {
+  const candidate = screenSourceCommentCandidate(markdown, startIndex, endIndex, parserOptions, analysis)
+  if (!candidate) return null
+
+  // Validate that the proposed wrap parses back as a clean live range —
+  // a full reparse, so execution-time only.
+  const { id, startIndex: from, endIndex: to } = candidate
   const proposedAnalysis = analyzeMarkdownComments(
-    sourceCommentMarkdown(markdown, startIndex, endIndex, id),
+    sourceCommentMarkdown(markdown, from, to, id),
     parserOptions
   )
   if (!proposedAnalysis.comments.ranges.some((commentRange) => commentRange.id === id)) return null
   if (proposedAnalysis.comments.diagnostics.some((diagnostic) => diagnostic.id === id)) return null
 
-  return { id, startIndex, endIndex }
+  return candidate
 }

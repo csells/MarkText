@@ -29,6 +29,7 @@ import {
   commentMetadataAppendix,
   createSourceCommentAnalysis,
   getSourceCommentCandidate as getSourceCommentCandidateForIndexes,
+  screenSourceCommentCandidate as screenSourceCommentCandidateForIndexes,
   sourceCommentDiagnosticSyntaxRange as sourceCommentDiagnosticSyntaxRangeFromAnalysis,
   sourceCommentDiscardRanges,
   sourceCommentIndexRanges as sourceCommentIndexRangesFromAnalysis,
@@ -380,7 +381,10 @@ const activeSourceCommentIds = (
   return activeSourceCommentIdsForIndexes(selectionStart, selectionEnd, analysis)
 }
 
-const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | null => {
+const sourceCommentCandidateVia = (
+  cm: CMInstance,
+  probe: typeof getSourceCommentCandidateForIndexes
+): SourceCommentCandidate | null => {
   const range = getSourceCommentRange(cm)
   if (!range) return null
 
@@ -388,7 +392,7 @@ const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | nul
   const startIndex = cm.indexFromPos(range.start)
   const endIndex = cm.indexFromPos(range.end)
   const analysis = analyzeSourceComments(markdown)
-  const candidate = getSourceCommentCandidateForIndexes(
+  const candidate = probe(
     markdown,
     startIndex,
     endIndex,
@@ -400,8 +404,15 @@ const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | nul
   return { id: candidate.id, range }
 }
 
+// Full probe (validates the proposed wrap with a reparse) — execution time.
+const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | null => {
+  return sourceCommentCandidateVia(cm, getSourceCommentCandidateForIndexes)
+}
+
 const syncSourceAddCommentMenu = (cm: CMInstance): void => {
-  const enabled = !!getSourceCommentCandidate(cm)
+  // Cheap structural screen only: this runs on every selection tick, and the
+  // command gate re-validates with the full probe at execution time.
+  const enabled = !!sourceCommentCandidateVia(cm, screenSourceCommentCandidateForIndexes)
   // The store field is the single renderer copy of the commentability bit;
   // main keeps its per-window map in sync through this IPC.
   editorStore.addCommentEnabled = enabled
@@ -633,14 +644,11 @@ const handleImageAction = (payload: unknown) => {
   }
 }
 
-const saveContent = (cm: CMInstance) => {
+// The content commit feeds save/merge and must never lag a keystroke.
+const commitContent = (cm: CMInstance) => {
   const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(cm)
-  const analysis = analyzeSourceComments(newMarkdown)
   // Attention: the cursor may be `{focus: null, anchor: null}` when press `backspace`
   const wordCount = getWordCount(newMarkdown)
-  editorStore.UPDATE_COMMENTS(analysis.comments)
-  editorStore.UPDATE_ACTIVE_COMMENTS(activeSourceCommentIds(cm, newMarkdown, analysis))
-  syncSourceAddCommentMenu(cm)
   // See "beforeDestroy" note
   if (!viewDestroyed.value) {
     if (tabId.value) {
@@ -657,11 +665,28 @@ const saveContent = (cm: CMInstance) => {
   }
 }
 
-const syncSourceCursorState = (cm: CMInstance): void => {
-  const markdown = cm.getValue()
-  const analysis = analyzeSourceComments(markdown)
-  editorStore.UPDATE_ACTIVE_COMMENTS(activeSourceCommentIds(cm, markdown, analysis))
+// Comment state derivation runs a full-document parse; per keystroke that is
+// pure waste (the sidebar and menu enablement tolerate ~150ms).
+const refreshCommentState = (cm: CMInstance) => {
+  const newMarkdown = cm.getValue()
+  const analysis = analyzeSourceComments(newMarkdown)
+  editorStore.UPDATE_COMMENTS(analysis.comments)
+  editorStore.UPDATE_ACTIVE_COMMENTS(activeSourceCommentIds(cm, newMarkdown, analysis))
   syncSourceAddCommentMenu(cm)
+}
+
+let commentRefreshTimer: ReturnType<typeof setTimeout> | null = null
+const scheduleCommentRefresh = (cm: CMInstance) => {
+  if (commentRefreshTimer !== null) clearTimeout(commentRefreshTimer)
+  commentRefreshTimer = setTimeout(() => {
+    commentRefreshTimer = null
+    if (!viewDestroyed.value) refreshCommentState(cm)
+  }, 150)
+}
+
+const saveContent = (cm: CMInstance) => {
+  commitContent(cm)
+  refreshCommentState(cm)
 }
 
 const flushSourceEditor = (): void => {
@@ -672,10 +697,15 @@ const flushSourceEditor = (): void => {
 
 const listenChange = () => {
   editor.value.on('changes', (cm: CMInstance) => {
-    saveContent(cm)
+    // Commit synchronously; derive comment state on the trailing edge.
+    commitContent(cm)
+    scheduleCommentRefresh(cm)
   })
   editor.value.on('cursorActivity', (cm: CMInstance) => {
-    syncSourceCursorState(cm)
+    // The commentability bit gates command execution, so it must be current
+    // the instant a selection settles; the sidebar refresh can trail.
+    syncSourceAddCommentMenu(cm)
+    scheduleCommentRefresh(cm)
   })
 }
 
@@ -771,6 +801,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   viewDestroyed.value = true
+  if (commentRefreshTimer !== null) {
+    clearTimeout(commentRefreshTimer)
+    commentRefreshTimer = null
+  }
 
   bus.off('file-loaded', handleFileChange)
   bus.off('flush-active-editor', flushSourceEditor)
