@@ -29,10 +29,6 @@ import {
   completeTabSaveFromSnapshot,
   markTabSavedAtCurrentHistory
 } from './editorPersistence'
-import {
-  ADD_COMMENT_CAPABILITY_CHANGED,
-  publishAddCommentCapability
-} from '../review/addCommentCapability'
 import { type ThreeWayMergeConflict } from '../util/threeWayMerge'
 import {
   acceptDirtyExternalMergeConflict,
@@ -186,10 +182,6 @@ export interface EditorState {
 }
 
 const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
-bus.on(ADD_COMMENT_CAPABILITY_CHANGED, (enabled: unknown) => {
-  useEditorStore().addCommentEnabled = enabled === true
-})
 
 const isSameFileSnapshot = (tab: IFileState, data: FileChangePayload['data']): boolean => {
   return data.markdown === tab.markdown && isSamePersistenceSnapshot(tab, data)
@@ -1680,7 +1672,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       const menuState = createApplicationMenuState(changes)
-      publishAddCommentCapability(menuState.canAddComment)
+      this.addCommentEnabled = menuState.canAddComment
 
       const { windowId } = window.marktext?.env ?? { windowId: -1 }
       window.electron.ipcRenderer.send('mt::editor-selection-changed', windowId, menuState)

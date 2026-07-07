@@ -16,6 +16,7 @@ import { isEditorContextAddCommentEnabled } from './addCommentState'
 import { t } from '../../i18n'
 export {
   clearEditorContextAddCommentSelection,
+  editorContextAddCommentEnabled,
   isEditorContextAddCommentEnabled,
   updateEditorContextAddCommentSelection
 } from './addCommentState'

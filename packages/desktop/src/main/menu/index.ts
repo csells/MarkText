@@ -7,7 +7,10 @@ import { isLinux, isOsx, isWindows } from '../config'
 import { updateAddCommentMenu, updateSidebarMenu } from '../menu/actions/edit'
 import { updateFormatMenu } from '../menu/actions/format'
 import { updateSelectionMenus, type SelectionState } from '../menu/actions/paragraph'
-import { updateEditorContextAddCommentSelection } from '../contextMenu/editor'
+import {
+  editorContextAddCommentEnabled,
+  updateEditorContextAddCommentSelection
+} from '../contextMenu/editor'
 import { onInternalChannel } from '../utils/internalIpc'
 import { viewLayoutChanged } from '../menu/actions/view'
 import configureMenu, { configSettingMenu } from '../menu/templates'
@@ -507,15 +510,19 @@ class AppMenu {
         viewLayoutChanged(this.getWindowMenuById(windowId), viewSettings)
       }
     )
+    // The per-window map is the ONLY main-process copy of the Add Comment
+    // commentability bit; the menu item's enabled state derives from it after
+    // every write, so the two IPC channels cannot diverge.
+    const syncAddCommentState = (windowId: number, enabled: boolean): void => {
+      updateEditorContextAddCommentSelection(windowId, enabled)
+      updateAddCommentMenu(this.getWindowMenuById(windowId), editorContextAddCommentEnabled(windowId))
+    }
     ipcMain.on('mt::editor-selection-changed', (_e, windowId: number, changes: SelectionState) => {
       if (!this.has(windowId)) {
         log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)
         return
       }
-      updateEditorContextAddCommentSelection(
-        windowId,
-        !changes.isDisabled && !!changes.canAddComment
-      )
+      syncAddCommentState(windowId, !changes.isDisabled && !!changes.canAddComment)
       updateSelectionMenus(this.getWindowMenuById(windowId), changes)
     })
     ipcMain.on(
@@ -525,8 +532,7 @@ class AppMenu {
           log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)
           return
         }
-        updateEditorContextAddCommentSelection(windowId, enabled)
-        updateAddCommentMenu(this.getWindowMenuById(windowId), enabled)
+        syncAddCommentState(windowId, enabled)
       }
     )
 

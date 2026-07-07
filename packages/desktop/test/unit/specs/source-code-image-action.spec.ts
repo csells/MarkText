@@ -472,13 +472,15 @@ describe('sourceCode handleImageAction', () => {
     window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
 
     try {
+      const editorStore = {
+        LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
+        UPDATE_ACTIVE_COMMENTS: vi.fn(),
+        UPDATE_COMMENTS: vi.fn(),
+        addCommentEnabled: true
+      }
       const deps = makeDeps({
         bus: { on: () => {}, off: () => {}, emit },
-        useEditorStore: () => ({
-          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
-          UPDATE_ACTIVE_COMMENTS: vi.fn(),
-          UPDATE_COMMENTS: vi.fn()
-        })
+        useEditorStore: () => editorStore
       })
       const comp = loadComponent(deps)
       const ret = comp.setup(
@@ -489,7 +491,7 @@ describe('sourceCode handleImageAction', () => {
 
       ret.syncSourceCursorState(cm)
 
-      expect(emit).toHaveBeenCalledWith('editor-add-comment-enabled-changed', false)
+      expect(editorStore.addCommentEnabled).toBe(false)
       expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
     } finally {
       window.electron = oldElectron
@@ -506,13 +508,15 @@ describe('sourceCode handleImageAction', () => {
     window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
 
     try {
+      const editorStore = {
+        LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
+        UPDATE_ACTIVE_COMMENTS: vi.fn(),
+        UPDATE_COMMENTS: vi.fn(),
+        addCommentEnabled: true
+      }
       const deps = makeDeps({
         bus: { on: () => {}, off: () => {}, emit },
-        useEditorStore: () => ({
-          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
-          UPDATE_ACTIVE_COMMENTS: vi.fn(),
-          UPDATE_COMMENTS: vi.fn()
-        })
+        useEditorStore: () => editorStore
       })
       const comp = loadComponent(deps)
       const ret = comp.setup(
@@ -523,7 +527,7 @@ describe('sourceCode handleImageAction', () => {
 
       ret.syncSourceCursorState(cm)
 
-      expect(emit).toHaveBeenCalledWith('editor-add-comment-enabled-changed', false)
+      expect(editorStore.addCommentEnabled).toBe(false)
       expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
     } finally {
       window.electron = oldElectron
@@ -553,13 +557,15 @@ describe('sourceCode handleImageAction', () => {
     window.marktext = { env: { windowId: 12 } } as unknown as typeof window.marktext
 
     try {
+      const editorStore = {
+        LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
+        UPDATE_ACTIVE_COMMENTS: vi.fn(),
+        UPDATE_COMMENTS: vi.fn(),
+        addCommentEnabled: true
+      }
       const deps = makeDeps({
         bus: { on: () => {}, off: () => {}, emit },
-        useEditorStore: () => ({
-          LISTEN_FOR_CONTENT_CHANGE: vi.fn(),
-          UPDATE_ACTIVE_COMMENTS: vi.fn(),
-          UPDATE_COMMENTS: vi.fn()
-        })
+        useEditorStore: () => editorStore
       })
       const comp = loadComponent(deps)
       const ret = comp.setup(
@@ -570,7 +576,7 @@ describe('sourceCode handleImageAction', () => {
 
       ret.syncSourceCursorState(cm)
 
-      expect(emit).toHaveBeenCalledWith('editor-add-comment-enabled-changed', false)
+      expect(editorStore.addCommentEnabled).toBe(false)
       expect(send).toHaveBeenCalledWith('mt::editor-add-comment-selection-changed', 12, false)
     } finally {
       window.electron = oldElectron

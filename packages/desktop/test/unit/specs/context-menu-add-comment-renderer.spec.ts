@@ -38,7 +38,7 @@ describe('renderer context-menu Add Comment gate', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     ;(window.electron.ipcRenderer.on as Mock).mockReset()
-    bus.emit('editor-add-comment-enabled-changed', false)
+    useEditorStore().addCommentEnabled = false
   })
 
   it('ignores stale context-menu IPC while Add Comment is disabled', () => {
@@ -54,7 +54,7 @@ describe('renderer context-menu Add Comment gate', () => {
   it('emits Add Comment when the shared predicate is enabled', () => {
     const store = useEditorStore()
     store.LISTEN_FOR_CONTEXT_MENU()
-    bus.emit('editor-add-comment-enabled-changed', true)
+    store.addCommentEnabled = true
     const emitSpy = vi.spyOn(bus, 'emit')
 
     captureHandler()()

@@ -237,10 +237,6 @@ export const updateSelectionMenus = (
 
   // Reset paragraph menu.
   setParagraphMenuItemStatus(applicationMenu, !isDisabled)
-  const addCommentMenuItem = applicationMenu.getMenuItemById(COMMANDS.REVIEW_ADD_COMMENT)
-  if (addCommentMenuItem) {
-    addCommentMenuItem.enabled = !isDisabled && !!state.canAddComment
-  }
   if (isDisabled) {
     return
   }

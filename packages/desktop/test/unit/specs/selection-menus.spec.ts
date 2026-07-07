@@ -148,20 +148,24 @@ describe('updateSelectionMenus', () => {
     expect(checked).toEqual(['heading1MenuItem'])
   })
 
-  it('enables Add Comment only when the selection state allows it', () => {
+  it('derives the Add Comment menu bit from the per-window map, never from selection menus', async() => {
+    // updateSelectionMenus no longer writes the Add Comment bit — the
+    // per-window map is the single main-process copy and the menu item is
+    // derived from it (menu/index.ts syncAddCommentState).
+    const { editorContextAddCommentEnabled, updateEditorContextAddCommentSelection } = await import(
+      'main_renderer/contextMenu/editor/addCommentState'
+    )
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { p: true }, canAddComment: false })
-    expect(menu.addCommentItem.enabled).toBe(false)
+    updateEditorContextAddCommentSelection(7, true)
+    expect(editorContextAddCommentEnabled(7)).toBe(true)
+    updateEditorContextAddCommentSelection(7, false)
+    expect(editorContextAddCommentEnabled(7)).toBe(false)
 
+    // updateSelectionMenus itself leaves the menu bit alone — the bit derives
+    // from the map in menu/index.ts syncAddCommentState after every write.
+    menu.addCommentItem.enabled = false
     updateSelectionMenus(menu as unknown as Menu, { affiliation: { p: true }, canAddComment: true })
-    expect(menu.addCommentItem.enabled).toBe(true)
-
-    updateSelectionMenus(menu as unknown as Menu, {
-      affiliation: { figure: true },
-      isDisabled: true,
-      canAddComment: true
-    })
     expect(menu.addCommentItem.enabled).toBe(false)
   })
 })

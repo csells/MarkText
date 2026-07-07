@@ -1,6 +1,6 @@
 // List of all static commands that are loaded into command center.
 import bus from '../bus'
-import { isAddCommentCapabilityEnabled } from '@/review/addCommentCapability'
+import { useEditorStore } from '@/store/editor'
 import { delay, isOsx } from '@/util'
 import { isUpdatable } from './utils'
 import getCommandDescriptionById from './descriptions'
@@ -62,7 +62,7 @@ const focusEditorAndExecute = (fn: () => void): void => {
 }
 
 export const isAddCommentCommandEnabled = (): boolean => {
-  return isAddCommentCapabilityEnabled()
+  return useEditorStore().addCommentEnabled
 }
 
 const commands: CommandDescriptor[] = [

@@ -14,6 +14,9 @@ export const clearEditorContextAddCommentSelection = (windowId: number): void =>
   addCommentSelectionByWindowId.delete(windowId)
 }
 
+export const editorContextAddCommentEnabled = (windowId: number): boolean =>
+  addCommentSelectionByWindowId.get(windowId) === true
+
 export const isEditorContextAddCommentEnabled = (
   win: Pick<BrowserWindow, 'id'>,
   hasText: boolean

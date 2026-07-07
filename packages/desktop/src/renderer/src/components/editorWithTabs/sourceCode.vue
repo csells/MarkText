@@ -40,7 +40,6 @@ import { adjustCursor } from '../../util'
 import bus from '../../bus'
 import { codeMirrorThemeFor } from '@/config'
 import { useI18n } from 'vue-i18n'
-import { publishSourceAddCommentCapability } from '@/review/addCommentCapability'
 
 // CodeMirror 5 ships no first-party types; the wrapper in src/renderer/src/
 // codeMirror/index.ts also keeps the surface intentionally loose.
@@ -403,7 +402,11 @@ const getSourceCommentCandidate = (cm: CMInstance): SourceCommentCandidate | nul
 
 const syncSourceAddCommentMenu = (cm: CMInstance): void => {
   const enabled = !!getSourceCommentCandidate(cm)
-  publishSourceAddCommentCapability(enabled)
+  // The store field is the single renderer copy of the commentability bit;
+  // main keeps its per-window map in sync through this IPC.
+  editorStore.addCommentEnabled = enabled
+  const { windowId } = window.marktext?.env ?? { windowId: -1 }
+  window.electron.ipcRenderer.send('mt::editor-add-comment-selection-changed', windowId, enabled)
 }
 
 const showCommentsSidebar = (): void => {
