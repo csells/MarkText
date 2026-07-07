@@ -45,12 +45,16 @@ describe('muya comment API analyzer wiring', () => {
         muya.init();
         hosts.push(muya.domNode);
 
+        // The analysis is cached per document version, so init already ran
+        // the authoritative analyzer; a same-version read must serve the
+        // cache without re-running it.
+        expect(vi.mocked(comments.analyzeMarkdownComments)).toHaveBeenCalled();
         vi.mocked(comments.analyzeMarkdownComments).mockClear();
 
         expect(muya.getComments().ranges).toEqual([
             expect.objectContaining({ id: 'a', preview: 'reviewed' }),
         ]);
-        expect(vi.mocked(comments.analyzeMarkdownComments)).toHaveBeenCalled();
+        expect(vi.mocked(comments.analyzeMarkdownComments)).not.toHaveBeenCalled();
     });
 
     it('derives visible comment highlights through the authoritative analyzer', async () => {

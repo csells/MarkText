@@ -3,7 +3,7 @@
 import type { IParagraphState, TState } from '../../state/types';
 import type { CommentMarkerToken, Token } from '../types';
 import { describe, expect, it, vi } from 'vitest';
-import { encodeCommentMetadata } from '../../comments';
+import { analyzeMarkdownComments, buildTextPathIndexes, encodeCommentMetadata } from '../../comments';
 import InlineRenderer from '../index';
 import { tokenizer } from '../lexer';
 
@@ -112,20 +112,20 @@ describe('markdown comments - render caching', () => {
             path: [index, 'text'],
             text: 'text' in state ? state.text : '',
         }));
-        const getState = vi.fn(() => states);
+        // Per-version reuse lives on the shared Muya comment view now; the
+        // renderer's contract is pure delegation to it.
+        const view = {
+            comments: analyzeMarkdownComments(states).comments,
+            textPathIndexes: buildTextPathIndexes(states),
+        };
+        const commentRenderView = vi.fn(() => view);
         const renderer = Object.create(InlineRenderer.prototype) as {
-            _commentRenderCache: unknown;
             muya: unknown;
             _commentHighlights: (block: unknown) => unknown[];
         };
-        renderer._commentRenderCache = null;
         renderer.muya = {
+            commentRenderView,
             editor: {
-                jsonState: {
-                    flush: () => {},
-                    getState,
-                    version: 1,
-                },
                 scrollPage: {
                     depthFirstTraverse(callback: (node: unknown) => void) {
                         contentNodes.forEach(callback);
@@ -140,7 +140,7 @@ describe('markdown comments - render caching', () => {
         renderer._commentHighlights(contentNodes[0]);
         renderer._commentHighlights(contentNodes[0]);
 
-        expect(getState).toHaveBeenCalledTimes(1);
+        expect(commentRenderView).toHaveBeenCalledTimes(2);
     });
 });
 
@@ -160,12 +160,14 @@ describe('markdown comments - resolved highlights', () => {
             text: 'text' in state ? state.text : '',
         }));
         const renderer = Object.create(InlineRenderer.prototype) as {
-            _commentRenderCache: unknown;
             muya: unknown;
             _commentHighlights: (block: unknown) => unknown[];
         };
-        renderer._commentRenderCache = null;
         renderer.muya = {
+            commentRenderView: () => ({
+                comments: analyzeMarkdownComments(states).comments,
+                textPathIndexes: buildTextPathIndexes(states),
+            }),
             editor: {
                 jsonState: { getState: () => states, version: 1, flush: () => {} },
                 scrollPage: {

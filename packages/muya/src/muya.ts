@@ -270,12 +270,51 @@ export class Muya {
         return this.editor.jsonState.getTOC();
     }
 
+    // One comment analysis per document version, shared by getComments,
+    // getActiveComments, canAddComment, and both change emitters — every
+    // keystroke used to pay multiple whole-document clones and re-parses.
+    private _commentViewCache: Nullable<{
+        version: number;
+        comments: IParsedMarkdownComments;
+        textPathIndexes: Nullable<ReturnType<typeof buildTextPathIndexes>>;
+    }> = null;
+
+    private _commentView() {
+        const { jsonState } = this.editor;
+        const states = jsonState.peekState();
+        const version = jsonState.version;
+        if (this._commentViewCache?.version !== version) {
+            this._commentViewCache = {
+                version,
+                comments: analyzeMarkdownComments(states).comments,
+                textPathIndexes: null,
+            };
+        }
+        return this._commentViewCache;
+    }
+
+    private _commentViewTextPathIndexes() {
+        const view = this._commentView();
+        view.textPathIndexes ??= buildTextPathIndexes(this.editor.jsonState.peekState());
+        return view.textPathIndexes;
+    }
+
+    // Internal: the inline renderer's per-version render model — same cached
+    // analysis the public comment API serves, so highlights and sidebar can
+    // never disagree (and the document is cloned zero times on this path).
+    commentRenderView(): { comments: IParsedMarkdownComments; textPathIndexes: ReturnType<typeof buildTextPathIndexes> } {
+        return {
+            comments: this._commentView().comments,
+            textPathIndexes: this._commentViewTextPathIndexes(),
+        };
+    }
+
     getComments(): IParsedMarkdownComments {
         // Comment derivation runs on every json-change; it must never throw out
         // of the edit pipeline. Surface the failure as a diagnostic so callers
         // do not confuse a parser failure with a comment-free document.
         try {
-            return analyzeMarkdownComments(this.editor.jsonState.getState()).comments;
+            return this._commentView().comments;
         }
         catch (error) {
             console.error('muya.getComments failed:', error);
@@ -304,9 +343,11 @@ export class Muya {
         // parse-error diagnostic, and yields no ranges here — rather than a
         // silent [] that disagrees with the sidebar. The remaining calls
         // (buildTextPathIndexes, selectionIntersectsCommentRange) are throw-free.
-        const states = this.editor.jsonState.getState();
         const comments = this.getComments();
-        const textPathIndexes = buildTextPathIndexes(states);
+        if (comments.ranges.length === 0)
+            return [];
+
+        const textPathIndexes = this._commentViewTextPathIndexes();
         const activeIds: string[] = [];
 
         for (const range of comments.ranges) {
@@ -354,7 +395,7 @@ export class Muya {
             return false;
 
         return canWrapCommentRange({
-            states: this.editor.jsonState.getState(),
+            states: this.editor.jsonState.peekState(),
             path: selection.anchor.path,
             endPath: selection.focus.path,
             startOffset: selection.anchor.offset,

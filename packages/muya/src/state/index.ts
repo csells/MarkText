@@ -232,6 +232,14 @@ class JSONState {
         return deepClone(this._state);
     }
 
+    // Flushed, NON-cloned state for read-only walks (comment analysis, render
+    // models). Callers must not mutate the returned tree — use getState() for
+    // anything that leaves the engine or might be written to.
+    peekState(): TState[] {
+        this.flush();
+        return this._state;
+    }
+
     getMarkdown() {
         return this.getMarkdownFromState(this.getState());
     }

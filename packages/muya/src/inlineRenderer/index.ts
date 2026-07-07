@@ -6,8 +6,7 @@ import type { Muya } from '../muya';
 import type { IRenderCursor } from '../selection/types';
 import type { IParagraphState, TContainerState, TState } from '../state/types';
 import type { IHighlight, Labels } from './types';
-import { analyzeMarkdownComments } from '../comments/analyze';
-import { buildTextPathIndexes, commentPathKey, selectionIntersectsCommentRange } from '../comments/range';
+import { commentPathKey, selectionIntersectsCommentRange } from '../comments/range';
 import { isCommentMetadataReference } from '../comments/syntax';
 import logger from '../utils/logger';
 import { tokenizer } from './lexer';
@@ -31,11 +30,6 @@ interface ICommentRenderModel {
 class InlineRenderer {
     public labels: Labels = new Map();
     public renderer: Renderer;
-    private _commentRenderCache: {
-        version: number;
-        model: ICommentRenderModel;
-    } | null = null;
-
     constructor(public muya: Muya) {
         this.renderer = new Renderer(muya, this);
     }
@@ -167,23 +161,9 @@ class InlineRenderer {
     }
 
     private _commentRenderModel(): ICommentRenderModel {
-        const { jsonState } = this.muya.editor;
-        // Text edits reach jsonState on a deferred rAF flush; a synchronous
-        // re-render between keystroke and flush would otherwise compute
-        // highlight offsets from the PRE-keystroke document.
-        jsonState.flush();
-        const version = jsonState.version;
-        if (this._commentRenderCache?.version === version)
-            return this._commentRenderCache.model;
-
-        const states = jsonState.getState();
-        const model = {
-            comments: analyzeMarkdownComments(states).comments,
-            textPathIndexes: buildTextPathIndexes(states),
-        };
-
-        this._commentRenderCache = { version, model };
-        return model;
+        // Delegates to the Muya-level per-version comment view (which flushes
+        // pending ops first), so highlights and the sidebar read one analysis.
+        return this.muya.commentRenderView();
     }
 
     private _contentBlockIndexes() {

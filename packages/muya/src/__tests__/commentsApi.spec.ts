@@ -870,10 +870,10 @@ describe('muya comment events', () => {
 describe('muya.getComments() resilience', () => {
     it('surfaces a parser diagnostic when derivation throws instead of hiding the review layer', () => {
         const muya = boot('A <!--MC:a-->reviewed<!--MC:~a--> line.\n');
-        const jsonState = (muya as unknown as { editor: { jsonState: { getState: () => unknown } } })
+        const jsonState = (muya as unknown as { editor: { jsonState: { peekState: () => unknown } } })
             .editor
             .jsonState;
-        jsonState.getState = () => {
+        jsonState.peekState = () => {
             throw new Error('boom');
         };
 
