@@ -305,3 +305,35 @@ describe('format Enter handlers — hidden markdown comment markers', () => {
         expect(firstBlockText(muya)).toBe('hello');
     });
 });
+
+// The hidden metadata definition block is a non-mergeable atom: forward-delete
+// at the end of the last visible block (and backspace at the start of a block
+// after it) must not fold the hidden [MC:id] line into visible prose.
+describe('structural merges skip hidden comment metadata blocks', () => {
+    const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+
+    it('forward-delete at the end of the last visible block leaves the metadata intact', () => {
+        const muya = bootMuya(`visible <!--MC:a-->tail<!--MC:~a-->\n\n[MC:a]: ${META}\n`);
+        const content = caretInFirstBlock(muya, 'visible <!--MC:a-->tail<!--MC:~a-->'.length);
+
+        pressDelete(content);
+
+        const markdown = muya.getMarkdown();
+        expect(markdown).toContain(`[MC:a]: ${META}`);
+        expect(markdown).toMatch(/^\[MC:a\]:/mu);
+        expect(content.text).toBe('visible <!--MC:a-->tail<!--MC:~a-->');
+    });
+
+    it('backspace at the start of a block below the metadata does not merge into it', () => {
+        const muya = bootMuya(`first\n\n[MC:a]: ${META}\n\nlast <!--MC:a-->x<!--MC:~a-->\n`);
+        const last = muya.editor.scrollPage!.lastContentInDescendant()! as unknown as Format;
+        muya.editor.activeContentBlock = last as never;
+        last.setCursor(0, 0, true);
+
+        pressBackspace(last);
+
+        const markdown = muya.getMarkdown();
+        expect(markdown).toMatch(/^\[MC:a\]:/mu);
+        expect(markdown).toContain('last <!--MC:a-->x<!--MC:~a-->');
+    });
+});

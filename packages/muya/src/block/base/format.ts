@@ -1688,7 +1688,13 @@ class Format extends Content {
         this.muya.editor.history.markInputBoundary('deleteContentForward', null);
 
         const nextBlock = this.nextContentInContext();
-        if (!nextBlock || nextBlock.blockName !== 'paragraph.content') {
+        if (
+            !nextBlock
+            || nextBlock.blockName !== 'paragraph.content'
+            // The hidden metadata definition block is a non-mergeable atom:
+            // folding it into visible prose would corrupt the comment store.
+            || nextBlock.isCommentMetadataBlock()
+        ) {
             // If the next block is code content or table cell, nothing need to do.
             event.preventDefault();
             return;
