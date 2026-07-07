@@ -604,3 +604,20 @@ describe('markdown-comments CLI — argument honesty', () => {
     expect(stderr).not.toContain('No metadata definition found')
   })
 })
+
+describe('markdown-comments CLI — astral-plane content', () => {
+  it('mutates metadata without disturbing surrogate pairs in the document or reply bodies', () => {
+    const meta = encodeCommentMetadata({ version: 1, status: 'open', authors: ['🦊'], replies: [] })
+    const file = writeMarkdown(`🚀 pre <!--MC:a-->mid 😀<!--MC:~a--> post\n\n[MC:a]: ${meta}\n`)
+
+    runCli('reply', file, 'a', '--author', '🦊 Reviewer', '--body', 'LGTM 🎯 𝕌𝕟𝕚𝕔𝕠𝕕𝕖')
+
+    const written = fs.readFileSync(file, 'utf8')
+    expect(written).toContain('🚀 pre <!--MC:a-->mid 😀<!--MC:~a--> post')
+    const parsed = readMarkdownComments(written)
+    expect(parsed.threads[0].replies.at(-1)).toMatchObject({
+      author: '🦊 Reviewer',
+      body: 'LGTM 🎯 𝕌𝕟𝕚𝕔𝕠𝕕𝕖'
+    })
+  })
+})

@@ -197,10 +197,20 @@ export const waitForMenuItemEnabled = async(
   expected: boolean,
   timeout = 4000
 ): Promise<boolean | null> => {
+  // The value must HOLD for consecutive reads before we accept it: a
+  // negative expectation would otherwise return the stale pre-selection
+  // value before the renderer->main sync lands, passing vacuously.
+  const requiredStreak = 3
   const deadline = Date.now() + timeout
+  let streak = 0
   let last = await menuItemEnabled(app, id)
   while (Date.now() < deadline) {
-    if (last === expected) return last
+    if (last === expected) {
+      streak += 1
+      if (streak >= requiredStreak) return last
+    } else {
+      streak = 0
+    }
     await new Promise((resolve) => setTimeout(resolve, 100))
     last = await menuItemEnabled(app, id)
   }

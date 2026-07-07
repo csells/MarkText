@@ -1046,3 +1046,24 @@ describe('addComment guard — nested inline code', () => {
         expect(muya.addComment({ id: 'nested_link_code' })).toBeNull();
     });
 });
+
+describe('addComment across astral-plane text', () => {
+    it('wraps a selection beginning after emoji without splitting surrogate pairs', () => {
+        const muya = boot('🚀 launch the 😀 rocket now\n');
+        const first = muya.editor.scrollPage!.firstContentInDescendant()!;
+        const start = '🚀 launch the 😀 '.length;
+        const end = start + 'rocket'.length;
+        muya.editor.selection.setSelection(
+            { offset: start, block: first, path: first.path },
+            { offset: end, block: first, path: first.path },
+        );
+
+        expect(muya.addComment({ id: 'astral' })).toBe('astral');
+
+        const markdown = muya.getMarkdown();
+        expect(markdown).toContain('🚀 launch the 😀 <!--MC:astral-->rocket<!--MC:~astral--> now');
+        // The whole document is still well-formed UTF-16 (encoding round-trips).
+        expect(new TextDecoder().decode(new TextEncoder().encode(markdown))).toBe(markdown);
+        expect(muya.getComments().ranges[0].preview).toBe('rocket');
+    });
+});

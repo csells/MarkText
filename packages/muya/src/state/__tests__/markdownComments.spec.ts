@@ -968,3 +968,41 @@ describe('line-leading comment markers stay paragraph content', () => {
         expect(states[0]).toEqual({ name: 'html-block', text: '<!--MC:a--><div>x</div><!--MC:~a-->' });
     });
 });
+
+// Offset-bearing contracts (ranges, previews, wraps) run over UTF-16 string
+// indices; astral-plane characters occupy two units, so an off-by-one in any
+// scanner splits a surrogate pair and corrupts the document.
+describe('astral-plane text in commented ranges', () => {
+    it('round-trips markers around emoji byte-identically', () => {
+        const meta = metadata({ version: 1, status: 'open', replies: [] });
+        const markdown = `🚀 pre <!--MC:a-->mid 😀🎉 tail<!--MC:~a--> post 🧪\n\n[MC:a]: ${meta}\n`;
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('derives the range preview across surrogate pairs without splitting them', () => {
+        const meta = metadata({ version: 1, status: 'open', replies: [] });
+        const markdown = `x <!--MC:a-->a😀b🎉c<!--MC:~a--> y\n\n[MC:a]: ${meta}\n`;
+
+        const { ranges, diagnostics } = readMarkdownComments(markdown);
+
+        expect(diagnostics).toEqual([]);
+        expect(ranges[0].preview).toBe('a😀b🎉c');
+        // Well-formed: no lone surrogates leaked into the preview.
+        expect([...ranges[0].preview].every(ch => !/[\uD800-\uDFFF]/.test(ch) || ch.length === 2)).toBe(true);
+    });
+
+    it('reports metadata replies containing astral characters intact', () => {
+        const meta = metadata({
+            version: 1,
+            status: 'open',
+            replies: [{ author: '🦊 Reviewer', createdAt: '2026-07-07T00:00:00.000Z', body: 'LGTM 🎯 — but check 𝕌𝕟𝕚𝕔𝕠𝕕𝕖' }],
+        });
+        const markdown = `t <!--MC:a-->x<!--MC:~a-->\n\n[MC:a]: ${meta}\n`;
+
+        const { threads } = readMarkdownComments(markdown);
+
+        expect(threads[0].replies[0].body).toBe('LGTM 🎯 — but check 𝕌𝕟𝕚𝕔𝕠𝕕𝕖');
+        expect(threads[0].replies[0].author).toBe('🦊 Reviewer');
+    });
+});
