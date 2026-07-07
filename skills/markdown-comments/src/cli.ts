@@ -16,6 +16,7 @@ interface MarkdownDocument {
   markdown: string
   encoding: string
   hasBOM: boolean
+  originalBytes: Buffer
 }
 
 const BOM_ENCODINGS: Array<{ encoding: string; bytes: number[] }> = [
@@ -140,7 +141,8 @@ function readFile(file: string, requestedEncoding?: string): MarkdownDocument {
 
   return {
     ...encoding,
-    markdown: iconv.decode(bytes, encoding.encoding)
+    markdown: iconv.decode(bytes, encoding.encoding),
+    originalBytes: bytes
   }
 }
 
@@ -148,6 +150,20 @@ function writeFile(file: string, document: MarkdownDocument, markdown: string): 
   fs.writeFileSync(path.resolve(file), iconv.encode(markdown, document.encoding, {
     addBOM: document.hasBOM
   }))
+}
+
+// A mutation touches one ASCII metadata line, but the write re-encodes the
+// whole decoded string. Encodings with duplicate byte sequences (e.g. cp932
+// NEC/IBM rows) canonicalize on that round trip, silently rewriting unrelated
+// bytes — refuse instead of churning the user's file.
+function assertLosslessReencode(document: MarkdownDocument, originalBytes: Buffer): void {
+  const roundTrip = iconv.encode(document.markdown, document.encoding, { addBOM: document.hasBOM })
+  if (!roundTrip.equals(originalBytes)) {
+    throw new Error(
+      `Refusing to write: re-encoding this file as "${document.encoding}" would alter bytes ` +
+      'outside the edited metadata line (lossy or non-canonical source encoding).'
+    )
+  }
 }
 
 function printJson(value: unknown): void {
@@ -189,6 +205,7 @@ function parseReplyIndex(value: string | undefined): number | null {
 }
 
 function writeAndPrint(file: string, document: MarkdownDocument, markdown: string): void {
+  assertLosslessReencode(document, document.originalBytes)
   writeFile(file, document, markdown)
   printJson(readMarkdownComments(markdown))
 }

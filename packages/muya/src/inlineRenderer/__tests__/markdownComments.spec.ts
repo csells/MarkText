@@ -122,6 +122,7 @@ describe('markdown comments - render caching', () => {
         renderer.muya = {
             editor: {
                 jsonState: {
+                    flush: () => {},
                     getState,
                     version: 1,
                 },
@@ -166,7 +167,7 @@ describe('markdown comments - resolved highlights', () => {
         renderer._commentRenderCache = null;
         renderer.muya = {
             editor: {
-                jsonState: { getState: () => states, version: 1 },
+                jsonState: { getState: () => states, version: 1, flush: () => {} },
                 scrollPage: {
                     depthFirstTraverse(callback: (node: unknown) => void) {
                         contentNodes.forEach(callback);

@@ -168,6 +168,10 @@ class InlineRenderer {
 
     private _commentRenderModel(): ICommentRenderModel {
         const { jsonState } = this.muya.editor;
+        // Text edits reach jsonState on a deferred rAF flush; a synchronous
+        // re-render between keystroke and flush would otherwise compute
+        // highlight offsets from the PRE-keystroke document.
+        jsonState.flush();
         const version = jsonState.version;
         if (this._commentRenderCache?.version === version)
             return this._commentRenderCache.model;
