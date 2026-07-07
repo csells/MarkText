@@ -137,16 +137,17 @@ describe('paste — table cell takes text literally (muyajs parity)', () => {
             '',
         ].join('\n'));
 
-        expect(cell.text).toBe('<!--MC:cmt_1-->copied<!--MC:~cmt_1-->');
-        expect(cell.text).not.toContain('[MC:cmt_1]');
-        expect(muya.getMarkdown()).toContain('[MC:cmt_1]: ');
-        expect(muya.getComments()).toMatchObject({
-            diagnostics: [],
-            threads: [
-                { id: 'a', status: 'open' },
-                { id: 'cmt_1', status: 'open' },
-            ],
-        });
+        // The absorption pass rebuilt the tree: re-query the cell. Its
+        // runtime text is CLEAN; the remapped markers live in the model and
+        // materialize on serialization.
+        const freshCell = lastTableCellContent(muya);
+        expect(freshCell.text).toBe('copied');
+        const markdown = muya.getMarkdown();
+        expect(markdown).toContain('<!--MC:cmt_1-->copied<!--MC:~cmt_1-->');
+        expect(markdown).toContain('[MC:cmt_1]: ');
+        const comments = muya.getComments();
+        expect(comments.diagnostics).toEqual([]);
+        expect(comments.threads.map(thread => thread.id).sort()).toEqual(['a', 'cmt_1']);
     });
 
     it('keeps definition-shaped fenced text in the pasted table cell', async () => {

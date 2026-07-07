@@ -12,7 +12,7 @@ import type {
 import { tokenizer } from '../inlineRenderer/lexer';
 import { MarkdownToState } from '../state/markdownToState';
 import { stripRealCommentMarkersFromText } from './markerScan';
-import { decodeCommentHeadPayload, decodeCommentReplyPayload } from './metadata';
+import { decodeCommentHeadPayload, decodeCommentReplyPayload, deriveThreadAuthors, deriveThreadUpdatedAt } from './metadata';
 import { commentPathKey } from './range';
 import {
     LITERAL_COMMENT_TEXT_STATES,
@@ -365,34 +365,11 @@ export function parseMarkdownComments(
             threads.push({
                 id,
                 ...metadata,
-                ...derivedThreadUpdatedAt(metadata),
-                ...derivedThreadAuthors(metadata),
+                ...deriveThreadUpdatedAt(metadata),
+                ...deriveThreadAuthors(metadata),
             });
         }
     }
 
     return { threads, ranges, diagnostics };
-}
-
-// Thread-level updatedAt and authors are derived at read time — appending a
-// reply must write exactly one reply line, so the head only records
-// head-level changes and never accumulates per-reply facts.
-function derivedThreadUpdatedAt(metadata: ICommentMetadata): { updatedAt?: string } {
-    let latest = metadata.updatedAt ?? metadata.createdAt;
-    for (const reply of metadata.replies) {
-        if (latest === undefined || reply.createdAt > latest)
-            latest = reply.createdAt;
-    }
-
-    return latest === undefined ? {} : { updatedAt: latest };
-}
-
-function derivedThreadAuthors(metadata: ICommentMetadata): { authors?: string[] } {
-    const authors: string[] = [];
-    for (const author of [...(metadata.authors ?? []), ...metadata.replies.map(reply => reply.author)]) {
-        if (author && !authors.includes(author))
-            authors.push(author);
-    }
-
-    return authors.length === 0 ? {} : { authors };
 }

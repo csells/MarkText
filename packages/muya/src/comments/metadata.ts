@@ -238,6 +238,29 @@ export function encodeCommentReplyPayload(reply: ICommentReply): string {
     });
 }
 
+// Thread-level updatedAt and authors are derived at read time — appending a
+// reply must write exactly one reply line, so the head only records
+// head-level changes and never accumulates per-reply facts.
+export function deriveThreadUpdatedAt(metadata: ICommentMetadata): { updatedAt?: string } {
+    let latest = metadata.updatedAt ?? metadata.createdAt;
+    for (const reply of metadata.replies) {
+        if (latest === undefined || reply.createdAt > latest)
+            latest = reply.createdAt;
+    }
+
+    return latest === undefined ? {} : { updatedAt: latest };
+}
+
+export function deriveThreadAuthors(metadata: ICommentMetadata): { authors?: string[] } {
+    const authors: string[] = [];
+    for (const author of [...(metadata.authors ?? []), ...metadata.replies.map(reply => reply.author)]) {
+        if (author && !authors.includes(author))
+            authors.push(author);
+    }
+
+    return authors.length === 0 ? {} : { authors };
+}
+
 // The canonical v2 byte form of a whole thread: head line first, then one
 // line per reply with indexes normalized to document position.
 export function serializeCommentThreadLines(id: string, metadata: ICommentMetadata): string[] {

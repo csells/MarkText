@@ -75,13 +75,15 @@ describe('selection-change payload', () => {
         });
 
         muya.editor.selection.setSelection(
-            { offset: 'A <!--'.length, block: first, path: first.path },
-            { offset: 'A <!--MC:a-->reviewed'.length, block: first, path: first.path },
+            { offset: 'A '.length, block: first, path: first.path },
+            { offset: 'A reviewed'.length, block: first, path: first.path },
         );
 
         expect(payload).not.toBeNull();
         expect('canAddComment' in payload!).toBe(false);
-        expect(muya.canAddComment()).toBe(false);
+        // The host-side call works on the same clean selection (overlapping
+        // an existing comment is fine — overlap is a first-class shape).
+        expect(muya.canAddComment()).toBe(true);
     });
 
     it('reports the active inline format when the cursor is inside bold text', () => {

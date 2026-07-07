@@ -1,16 +1,15 @@
 // @vitest-environment happy-dom
 
-import type * as CommentsAnalyze from '../comments/analyze';
-import { Buffer } from 'node:buffer';
+import type * as CommentsModel from '../comments/model';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The facade imports the analyzer module directly, so the spy must live on
-// '../comments/analyze' (the barrel re-export would not intercept it).
-vi.mock('../comments/analyze', async (importOriginal) => {
-    const actual = await importOriginal<typeof CommentsAnalyze>();
+// The facade imports the model module directly, so the spy must live on
+// '../comments/model' (the barrel re-export would not intercept it).
+vi.mock('../comments/model', async (importOriginal) => {
+    const actual = await importOriginal<typeof CommentsModel>();
     return {
         ...actual,
-        analyzeMarkdownComments: vi.fn(actual.analyzeMarkdownComments),
+        commentModelView: vi.fn(actual.commentModelView),
     };
 });
 
@@ -26,41 +25,36 @@ afterEach(() => {
     document.getSelection()?.removeAllRanges();
 });
 
-function metadata(data: Record<string, unknown>) {
-    return `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`;
-}
+const DOC = [
+    'A <!--MC:a-->reviewed<!--MC:~a--> span.',
+    '',
+    '[MC:a]: {"version":2,"status":"open"}',
+    '',
+].join('\n');
 
-describe('muya comment API analyzer wiring', () => {
-    it('derives public comments through the authoritative analyzer', async () => {
-        const comments = await import('../comments/analyze');
+describe('muya comment API model-view wiring', () => {
+    it('derives public comments through the model view, cached per version', async () => {
+        const model = await import('../comments/model');
         const { Muya } = await import('../muya');
         const host = document.createElement('div');
         document.body.appendChild(host);
-        const muya = new Muya(host, {
-            markdown: [
-                'A <!--MC:a-->reviewed<!--MC:~a--> span.',
-                '',
-                `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
-                '',
-            ].join('\n'),
-        } as ConstructorParameters<typeof Muya>[1]);
+        const muya = new Muya(host, { markdown: DOC } as ConstructorParameters<typeof Muya>[1]);
         muya.init();
         hosts.push(muya.domNode);
 
-        // The analysis is cached per document version, so init already ran
-        // the authoritative analyzer; a same-version read must serve the
-        // cache without re-running it.
-        expect(vi.mocked(comments.analyzeMarkdownComments)).toHaveBeenCalled();
-        vi.mocked(comments.analyzeMarkdownComments).mockClear();
+        // Init renders highlights, which already derived the view; a
+        // same-version read must serve the cache without re-deriving.
+        expect(vi.mocked(model.commentModelView)).toHaveBeenCalled();
+        vi.mocked(model.commentModelView).mockClear();
 
         expect(muya.getComments().ranges).toEqual([
             expect.objectContaining({ id: 'a', preview: 'reviewed' }),
         ]);
-        expect(vi.mocked(comments.analyzeMarkdownComments)).not.toHaveBeenCalled();
+        expect(vi.mocked(model.commentModelView)).not.toHaveBeenCalled();
     });
 
-    it('derives visible comment highlights through the authoritative analyzer', async () => {
-        const comments = await import('../comments/analyze');
+    it('derives visible comment highlights through the same model view', async () => {
+        const model = await import('../comments/model');
         const { Muya } = await import('../muya');
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -68,17 +62,18 @@ describe('muya comment API analyzer wiring', () => {
         muya.init();
         hosts.push(muya.domNode);
 
-        vi.mocked(comments.analyzeMarkdownComments).mockClear();
+        vi.mocked(model.commentModelView).mockClear();
 
         muya.setContent([
             'A <!--MC:b-->highlighted<!--MC:~b--> span.',
             '',
-            `[MC:b]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '[MC:b]: {"version":2,"status":"open"}',
             '',
         ].join('\n'));
 
         const highlight = muya.domNode.querySelector<HTMLElement>('.mu-comment-highlight');
+        expect(highlight).not.toBeNull();
         expect(highlight?.textContent).toBe('highlighted');
-        expect(vi.mocked(comments.analyzeMarkdownComments)).toHaveBeenCalled();
+        expect(vi.mocked(model.commentModelView)).toHaveBeenCalled();
     });
 });

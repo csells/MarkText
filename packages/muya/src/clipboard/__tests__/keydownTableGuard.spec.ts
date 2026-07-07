@@ -141,13 +141,12 @@ describe('track C — keydown over a frozen table rect (two-stage, muyajs parity
         expect(md).not.toMatch(/\bb2\b/);
     });
 
-    it('delete over selected commented table cells removes now-unreferenced metadata', async () => {
-        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+    it('delete over selected commented table cells detaches the thread', async () => {
         const muya = bootMuya([
             '| <!--MC:a-->reviewed<!--MC:~a--> | other |',
             '| --- | --- |',
             '',
-            `[MC:a]: ${meta}`,
+            '[MC:a]: {"version":2,"status":"open"}',
             '',
         ].join('\n'));
         const table = firstTable(muya);
@@ -158,8 +157,12 @@ describe('track C — keydown over a frozen table rect (two-stage, muyajs parity
 
         const md = muya.getMarkdown();
         expect(md).toContain('|');
-        expect(md).not.toContain('MC:a');
-        expect(muya.getComments()).toEqual({ threads: [], ranges: [], diagnostics: [] });
+        expect(md).not.toContain('<!--MC:');
+        // Detach visibility: the thread's metadata is never silently dropped.
+        expect(md).toContain('[MC:a]: {"version":2,"status":"open"}');
+        expect(muya.getComments().diagnostics).toContainEqual(
+            expect.objectContaining({ code: 'orphan-metadata', id: 'a' }),
+        );
     });
 
     it('a second Backspace on an emptied PARTIAL rectangle drops the selection without changing the grid', async () => {

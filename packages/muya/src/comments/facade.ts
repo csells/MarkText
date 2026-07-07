@@ -1,3 +1,4 @@
+import type Content from '../block/base/content';
 import type { Muya } from '../muya';
 import type { Nullable } from '../types';
 import type { IAddCommentInput, TUpdateCommentThreadPatch } from './edit';
@@ -6,21 +7,18 @@ import type {
     ICommentReplyInput,
     IParsedMarkdownComments,
 } from './types';
-import { analyzeMarkdownComments } from './analyze';
 import {
     appendCommentReplyMetadata,
     canWrapCommentRange,
     createCommentMetadata,
-
     mergeCommentMetadataPatch,
     nextCommentId,
-
-    updateCommentMetadataDefinition,
-    wrapCommentRange,
 } from './edit';
+import { normalizeCommentMetadata } from './metadata';
+import { cloneCommentModel, commentModelView } from './model';
 import {
     buildTextPathIndexes,
-    locateCommentSyntax,
+    orderTextRange,
     selectionIntersectsCommentRange,
 } from './range';
 
@@ -39,6 +37,24 @@ export class MuyaComments {
         });
         this._muya.eventCenter.on('selection-change', () => {
             this._emitActiveCommentsChange();
+        });
+        // Comment-model swaps (mutations, undo/redo of model entries) move no
+        // document bytes, so no json-change fires; repaint content blocks and
+        // re-emit the sidebar views here.
+        this._muya.eventCenter.on('comment-model-change', () => {
+            this._repaintCommentBlocks();
+            this.emitCommentsChange();
+        });
+    }
+
+    private _repaintCommentBlocks() {
+        const { scrollPage } = this._muya.editor;
+        if (!scrollPage)
+            return;
+
+        scrollPage.breadthFirstTraverse((node) => {
+            if (node.isContent())
+                (node as Content).update();
         });
     }
 
@@ -76,7 +92,7 @@ export class MuyaComments {
         if (this._commentViewCache?.version !== version) {
             this._commentViewCache = {
                 version,
-                comments: analyzeMarkdownComments(states).comments,
+                comments: commentModelView(jsonState.commentModel, states),
                 textPathIndexes: null,
             };
         }
@@ -201,13 +217,24 @@ export class MuyaComments {
         });
     }
 
+    // Install a mutated comment model as one undo boundary; setCommentModel
+    // notifies the render/sidebar paths.
+    private _commitCommentModel(
+        before: ReturnType<typeof cloneCommentModel>,
+        after: ReturnType<typeof cloneCommentModel>,
+    ): void {
+        const { jsonState, history } = this._muya.editor;
+        history.recordCommentModel(before);
+        jsonState.setCommentModel(after);
+    }
+
     // Returns the created thread's id, or null when the selection is not
-    // commentable — the caller needs the id to open the compose flow, and
-    // re-deriving it from a before/after diff costs two extra analyses.
+    // commentable — the caller needs the id to open the compose flow. A pure
+    // model mutation: no text splicing, no document rebuild
+    // (comment-anchors.md §Mutations and undo).
     addComment(input: IAddCommentInput = {}): string | null {
         // Commit any rAF-batched keystroke ops before reading state below —
-        // building the replacement from a stale snapshot would let the pending
-        // op flush onto the replaced document later (the #2938 lost-edit class).
+        // anchors must be created against the flushed document.
         this._muya.flush();
         const selection = this._muya.editor.selection.getSelection();
         if (!selection || selection.isCollapsed)
@@ -217,61 +244,62 @@ export class MuyaComments {
         if (id == null)
             return null;
 
-        const states = this._muya.editor.jsonState.getState();
-        const nextStates = wrapCommentRange({
+        const states = this._muya.editor.jsonState.peekState();
+        if (!canWrapCommentRange({
             states,
             path: selection.anchor.path,
             endPath: selection.focus.path,
             startOffset: selection.anchor.offset,
             endOffset: selection.focus.offset,
             id,
-            metadata: createCommentMetadata(input),
-        });
-
-        if (!nextStates)
+        })) {
             return null;
-
-        const nextRange = analyzeMarkdownComments(nextStates).comments.ranges.find(range => range.id === id);
-        const changed = this._muya.replaceContent(nextStates, selection);
-        if (changed && nextRange) {
-            this._muya.setCursor({
-                anchor: { offset: nextRange.startOffset },
-                focus: { offset: nextRange.endOffset },
-                anchorPath: nextRange.startPath,
-                focusPath: nextRange.endPath,
-            });
         }
 
-        return changed ? id : null;
+        const indexes = buildTextPathIndexes(states);
+        const ordered = orderTextRange(
+            indexes,
+            selection.anchor.path,
+            selection.anchor.offset,
+            selection.focus.path,
+            selection.focus.offset,
+        );
+        if (!ordered)
+            return null;
+
+        const before = cloneCommentModel(this._muya.editor.jsonState.commentModel);
+        const after = cloneCommentModel(before);
+        after.threads.set(id, { id, ...createCommentMetadata(input) });
+        after.anchors.push(
+            { id, kind: 'open', position: [...ordered.startPath, ordered.startOffset] },
+            { id, kind: 'close', position: [...ordered.endPath, ordered.endOffset] },
+        );
+        this._commitCommentModel(before, after);
+
+        this._muya.setCursor({
+            anchor: { offset: ordered.startOffset },
+            focus: { offset: ordered.endOffset },
+            anchorPath: ordered.startPath,
+            focusPath: ordered.endPath,
+        });
+
+        return id;
     }
 
     removeComment(id: string): boolean {
-        // See addComment: commit pending ops before snapshotting the document.
         this._muya.flush();
-        const currentMarkdown = this._muya.getMarkdown();
-        const analysis = analyzeMarkdownComments(currentMarkdown);
-        const sourceMap = analysis.sourceMaps.ranges.find(range => range.id === id);
-        if (!sourceMap)
+        const before = this._muya.editor.jsonState.commentModel;
+        const hasThread = before.threads.has(id);
+        const hasAnchors = before.anchors.some(anchor => anchor.id === id);
+        if (!hasThread && !hasAnchors)
             return false;
 
-        let nextMarkdown = currentMarkdown;
-        for (const range of sourceMap.syntaxRemovalRanges)
-            nextMarkdown = `${nextMarkdown.slice(0, range.start)}${nextMarkdown.slice(range.end)}`;
-        if (nextMarkdown === currentMarkdown)
-            return false;
+        const after = cloneCommentModel(before);
+        after.threads.delete(id);
+        after.anchors = after.anchors.filter(anchor => anchor.id !== id);
+        this._commitCommentModel(cloneCommentModel(before), after);
 
-        // Backstop against index/parser drift: a removal must be COMPLETE.
-        // Applying a partial removal (say, the definition without its
-        // markers) would silently corrupt the document — refuse instead.
-        const residue = analyzeMarkdownComments(nextMarkdown).sourceIndex;
-        if (
-            residue.markers.some(marker => marker.id === id)
-            || residue.metadataDefinitions.some(definition => definition.id === id)
-        ) {
-            return false;
-        }
-
-        return this._muya.replaceContent(nextMarkdown);
+        return true;
     }
 
     updateCommentThread(id: string, patch: TUpdateCommentThreadPatch): boolean {
@@ -292,9 +320,13 @@ export class MuyaComments {
 
     focusComment(id: string): boolean {
         const range = this.getComments().ranges.find(range => range.id === id);
-        // A diagnostic for an orphan/malformed comment has no derived range;
-        // fall back to the raw marker or metadata definition so the click still
-        // navigates instead of being a silent no-op.
+        // An unpaired anchor (orphan-close diagnostics) has no derived range;
+        // collapse the caret onto the surviving anchor so the click still
+        // navigates. Fully detached threads have nothing in the document to
+        // focus — the sidebar presents those distinctly.
+        const anchor = range
+            ? null
+            : this._muya.editor.jsonState.commentModel.anchors.find(entry => entry.id === id);
         const location = range
             ? {
                     startPath: range.startPath,
@@ -302,7 +334,14 @@ export class MuyaComments {
                     endPath: range.endPath,
                     endOffset: range.endOffset,
                 }
-            : locateCommentSyntax(this._muya.editor.jsonState.getState(), id);
+            : anchor
+                ? {
+                        startPath: anchor.position.slice(0, -1),
+                        startOffset: anchor.position[anchor.position.length - 1] as number,
+                        endPath: anchor.position.slice(0, -1),
+                        endOffset: anchor.position[anchor.position.length - 1] as number,
+                    }
+                : null;
         if (!location)
             return false;
 
@@ -326,36 +365,17 @@ export class MuyaComments {
         id: string,
         updater: (metadata: ICommentMetadata) => ICommentMetadata,
     ): boolean {
-        // See addComment: commit pending ops before snapshotting the document.
         this._muya.flush();
-        const nextStates = updateCommentMetadataDefinition(
-            this._muya.editor.jsonState.getState(),
-            id,
-            updater,
-        );
-        if (!nextStates)
+        const before = this._muya.editor.jsonState.commentModel;
+        const thread = before.threads.get(id);
+        if (!thread)
             return false;
 
-        // Only the hidden `[MC:id]:` metadata line changes here — the visible
-        // blocks and their paths are untouched. Preserve the editor's caret
-        // across the rebuild from the CACHED selection (the live DOM selection
-        // is empty while the user is typing in the sidebar), so replying or
-        // resolving never yanks the caret to the document start.
-        const { selection } = this._muya.editor;
-        const preserved
-            = selection.anchor && selection.focus
-                ? {
-                        anchor: { offset: selection.anchor.offset },
-                        focus: { offset: selection.focus.offset },
-                        anchorPath: selection.anchorPath,
-                        focusPath: selection.focusPath,
-                    }
-                : null;
+        const { id: _id, ...metadata } = thread;
+        const after = cloneCommentModel(before);
+        after.threads.set(id, { id, ...normalizeCommentMetadata(updater(metadata)) });
+        this._commitCommentModel(cloneCommentModel(before), after);
 
-        const changed = this._muya.replaceContent(nextStates);
-        if (changed && preserved)
-            this._muya.setCursor(preserved);
-
-        return changed;
+        return true;
     }
 }

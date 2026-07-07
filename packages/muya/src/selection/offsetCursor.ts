@@ -5,8 +5,10 @@
 
 import type Content from '../block/base/content';
 import type { ScrollPage } from '../block/scrollPage';
+import type { ICommentModel } from '../comments/model';
 import type { TState } from '../state/types';
 import type { IPathCursor, ISelection } from './types';
+import { adjustAnchorsForInsertion } from '../comments/model';
 
 /** One end of a source-mode (CodeMirror) selection: a `{ line, ch }` offset. */
 export interface IIndexPosition {
@@ -289,6 +291,39 @@ function _findOffsetInMarkdown(
  * surrounding text). Removes both sentinels from the line/ch accounting: the
  * focus position is corrected for any earlier-occurring anchor sentinel.
  */
+// Mirror of injectStateSentinels for the comment model: shift anchors past
+// each sentinel insertion, applying them in the same order and with the same
+// same-block offset shifting the state injection uses.
+export function adjustedSentinelCommentModel(
+    model: ICommentModel,
+    selection: ISelection,
+): ICommentModel {
+    const anchorPath = selection.anchor.path;
+    const focusPath = selection.focus.path;
+    const anchorOffset = selection.anchor.offset;
+    const focusOffset = selection.focus.offset;
+
+    const sameBlock
+        = anchorPath.length === focusPath.length
+            && anchorPath.every((seg, i) => seg === focusPath[i]);
+
+    if (!sameBlock) {
+        let next = adjustAnchorsForInsertion(model, anchorPath, anchorOffset, ANCHOR_SENTINEL.length);
+        next = adjustAnchorsForInsertion(next, focusPath, focusOffset, FOCUS_SENTINEL.length);
+        return next;
+    }
+
+    if (anchorOffset <= focusOffset) {
+        let next = adjustAnchorsForInsertion(model, anchorPath, anchorOffset, ANCHOR_SENTINEL.length);
+        next = adjustAnchorsForInsertion(next, focusPath, focusOffset + ANCHOR_SENTINEL.length, FOCUS_SENTINEL.length);
+        return next;
+    }
+
+    let next = adjustAnchorsForInsertion(model, focusPath, focusOffset, FOCUS_SENTINEL.length);
+    next = adjustAnchorsForInsertion(next, anchorPath, anchorOffset + FOCUS_SENTINEL.length, ANCHOR_SENTINEL.length);
+    return next;
+}
+
 export function locateSentinelOffsets(markdown: string): IIndexCursor | null {
     const anchorRaw = _findOffsetInMarkdown(markdown, ANCHOR_SENTINEL);
     const focusRaw = _findOffsetInMarkdown(markdown, FOCUS_SENTINEL);

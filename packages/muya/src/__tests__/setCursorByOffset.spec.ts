@@ -39,8 +39,7 @@ function bootMuya(markdown: string): Muya {
     return muya;
 }
 
-const COMMENT_METADATA
-    = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+const COMMENT_METADATA = '{"version":2,"status":"open"}';
 
 describe('muya.setCursorByOffset() (PG2)', () => {
     it('PG2: maps a source-mode {line, ch} cursor onto the matching paragraph block', async () => {
@@ -96,8 +95,11 @@ describe('muya.setCursorByOffset() (PG2)', () => {
 
         await vi.waitFor(() => {
             const sel = muya.editor.selection.getSelection();
-            expect(sel!.anchor.block.text).toBe('A <!--MC:a-->reviewed<!--MC:~a--> span.');
-            expect(sel!.anchor.offset).toBe(offset);
+            // The runtime document is clean: the materialized source offset
+            // (21, counting the open marker) resolves to the clean-text
+            // caret at the end of 'reviewed'.
+            expect(sel!.anchor.block.text).toBe('A reviewed span.');
+            expect(sel!.anchor.offset).toBe('A reviewed'.length);
         });
         expect(muya.getMarkdown()).toBe(markdown);
     });
@@ -123,8 +125,10 @@ describe('muya.setCursorByOffset() (PG2)', () => {
 
         await vi.waitFor(() => {
             const sel = muya.editor.selection.getSelection();
-            expect(sel!.anchor.block.text).toBe(visibleLine);
-            expect(sel!.anchor.offset).toBe(visibleLine.length);
+            // The runtime block holds CLEAN text; the clamp parks the caret
+            // at its visible end.
+            expect(sel!.anchor.block.text).toBe('A reviewed span.');
+            expect(sel!.anchor.offset).toBe('A reviewed span.'.length);
         });
         expect(muya.getMarkdown()).toBe(markdown);
     });

@@ -1,8 +1,15 @@
 import type { Doc, JSONOp, JSONOpList, Path } from 'ot-json1';
+import type { ICommentModel } from '../comments/model';
 import type { Muya } from '../muya';
 import type { TDiff } from '../utils';
 import type { TState } from './types';
 import * as json1 from 'ot-json1';
+import {
+    emptyCommentModel,
+    extractCommentModel,
+    materializeCommentModel,
+    transformCommentAnchors,
+} from '../comments/model';
 import { deepClone } from '../utils';
 import logger from '../utils/logger';
 import { getTOC } from './getTOC';
@@ -23,6 +30,37 @@ export function asDoc(state: TState[] | TState): Doc {
 
 export function asState(doc: unknown): TState[] {
     return doc as TState[];
+}
+
+// A single move-free, fully-invertible op turning `prevState` into
+// `nextState` (per-index replaces, tail inserts, surplus removes — see
+// buildReplaceOp). Exported for boundaries that need an op between two
+// arbitrary snapshots, e.g. the paste comment-absorption boundary.
+export function buildStateReplaceOp(prevState: TState[], nextState: TState[]): JSONOpList {
+    const components: JSONOpList[] = [];
+    const max = Math.max(prevState.length, nextState.length);
+
+    for (let i = 0; i < max; i++) {
+        if (i < prevState.length && i < nextState.length) {
+            if (JSON.stringify(prevState[i]) !== JSON.stringify(nextState[i])) {
+                components.push(
+                    json1.replaceOp([i], asDoc(prevState[i]), asDoc(nextState[i]))!,
+                );
+            }
+        }
+        else if (i < nextState.length) {
+            components.push(json1.insertOp([i], asDoc(nextState[i]))!);
+        }
+    }
+
+    for (let i = prevState.length - 1; i >= nextState.length; i--)
+        components.push(json1.removeOp([i])!);
+
+    let composed: JSONOp = null;
+    for (const component of components)
+        composed = json1.type.compose(composed, component);
+
+    return composed ?? [];
 }
 
 class JSONState {
@@ -54,8 +92,38 @@ class JSONState {
 
     private _state: TState[] = [];
 
+    // The runtime comment representation (comments/model.ts). MC bytes never
+    // live in `_state`; they extract into the model on every content set and
+    // materialize back on every serialization. Owned here because it IS
+    // document state: every op applied below transforms its anchors at this
+    // single choke point (comment-anchors.md invariant 3).
+    private _commentModel: ICommentModel = emptyCommentModel();
+
     constructor(private _muya: Muya, stateOrMarkdown: TState[] | string) {
         this.setContent(stateOrMarkdown);
+    }
+
+    get commentModel(): ICommentModel {
+        return this._commentModel;
+    }
+
+    // Install a new model (comment mutations, undo/redo of model entries,
+    // rebuild boundaries). Bumps the version so every per-version comment
+    // view re-derives, and notifies the render/sidebar paths — a model swap
+    // moves no document bytes, so no json-change fires for it.
+    setCommentModel(model: ICommentModel) {
+        this._commentModel = model;
+        this._version += 1;
+        this._muya.eventCenter.emit('comment-model-change');
+    }
+
+    // Anchors as they were when the most recent op applied — the history
+    // records them per entry, because transformPosition is lossy for anchors
+    // a deletion swallowed (invariant 4 needs snapshots, not re-transforms).
+    private _prevAnchorsBeforeLastApply: ICommentModel['anchors'] = [];
+
+    get prevAnchorsBeforeLastApply(): ICommentModel['anchors'] {
+        return this._prevAnchorsBeforeLastApply;
     }
 
     private _apply(op: JSONOp) {
@@ -64,7 +132,10 @@ class JSONState {
         // the call site can treat `op` as definitely applied.
         if (op === null)
             return;
+        const beforeState = this._state;
+        this._prevAnchorsBeforeLastApply = this._commentModel.anchors;
         this._state = asState(json1.type.apply(asDoc(this._state), op));
+        this._commentModel = transformCommentAnchors(this._commentModel, op, beforeState, this._state);
         this._version += 1;
     }
 
@@ -86,13 +157,14 @@ class JSONState {
     }
 
     private _setState(state: TState[]) {
-        this._state = state;
+        const { states, model } = extractCommentModel(state);
+        this._state = states;
+        this._commentModel = model;
         this._version += 1;
     }
 
     private _setMarkdown(markdown: string) {
-        this._state = this.markdownToState(markdown);
-        this._version += 1;
+        this._setState(this.markdownToState(markdown));
     }
 
     get version() {
@@ -136,50 +208,22 @@ class JSONState {
         op: JSONOpList;
         prevState: TState[];
         nextState: TState[];
+        prevModel: ICommentModel;
+        nextModel: ICommentModel;
     } {
         const prevState = this.getState();
-        const nextState
-            = typeof content === 'string' ? this.markdownToState(content) : deepClone(content);
+        const prevModel = this._commentModel;
+        // The replacement extracts like any other content set: the op targets
+        // CLEAN states, and the caller installs `nextModel` after applying it
+        // (a rebuild boundary swaps the model wholesale rather than
+        // transforming anchors through a whole-document replace).
+        const { states: nextState, model: nextModel } = extractCommentModel(
+            typeof content === 'string' ? this.markdownToState(content) : deepClone(content),
+        );
 
-        const components: JSONOpList[] = [];
-        const max = Math.max(prevState.length, nextState.length);
+        const op = buildStateReplaceOp(prevState, nextState);
 
-        for (let i = 0; i < max; i++) {
-            if (i < prevState.length && i < nextState.length) {
-                if (
-                    JSON.stringify(prevState[i]) !== JSON.stringify(nextState[i])
-                ) {
-                    components.push(
-                        json1.replaceOp(
-                            [i],
-                            asDoc(prevState[i]),
-                            asDoc(nextState[i]),
-                        )!,
-                    );
-                }
-            }
-            else if (i < nextState.length) {
-                components.push(json1.insertOp([i], asDoc(nextState[i]))!);
-            }
-        }
-
-        // Remove surplus trailing blocks from the end so earlier indices stay
-        // stable while composing.
-        for (let i = prevState.length - 1; i >= nextState.length; i--)
-            components.push(json1.removeOp([i])!);
-
-        // Compose the components into one op. `json1.type.compose` returns
-        // `JSONOp` (= null | JSONOpList) and its identity element is `null`
-        // (composing onto `[]` throws "Empty descent"). Start from `null`, then
-        // normalize the final result to the empty op `[]` when nothing changed
-        // (the documents were identical) so callers can rely on `op.length`.
-        let composed: JSONOp = null;
-        for (const component of components)
-            composed = json1.type.compose(composed, component);
-
-        const op: JSONOpList = composed ?? [];
-
-        return { op, prevState, nextState };
+        return { op, prevState, nextState, prevModel, nextModel };
     }
 
     insertOperation(path: Path, state: TState) {
@@ -241,7 +285,12 @@ class JSONState {
     }
 
     getMarkdown() {
-        return this.getMarkdownFromState(this.getState());
+        // Marker bytes and the metadata appendix exist only in serialized
+        // output; materialize them from the model first. State and model
+        // advance together in _apply, so a pending rAF batch leaves BOTH
+        // pre-op — serializing the unflushed pair stays consistent (#2938
+        // callers flush explicitly when they need durability).
+        return this.getMarkdownFromState(materializeCommentModel(this._state, this._commentModel));
     }
 
     getTOC() {

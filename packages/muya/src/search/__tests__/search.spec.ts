@@ -110,7 +110,9 @@ describe('search.search()', () => {
         const search = muya.editor.searchModule;
         search.search('reviewed');
         expect(search.matches).toHaveLength(1);
-        expect(search.matches[0].start).toBe(13);
+        // Clean runtime text: offsets ARE visible offsets (invariant 6) — no
+        // marker-byte arithmetic anywhere.
+        expect(search.matches[0].start).toBe('A '.length);
 
         search.search('MC:a');
         expect(search.matches).toHaveLength(0);
@@ -134,7 +136,7 @@ describe('search.search()', () => {
         expect(search.matches).toHaveLength(1);
         expect(search.matches[0]).toMatchObject({
             start: 0,
-            end: 'A <!--MC:a-->reviewed<!--MC:~a--> span'.length,
+            end: 'A reviewed span'.length,
             match: 'A reviewed span',
         });
     });

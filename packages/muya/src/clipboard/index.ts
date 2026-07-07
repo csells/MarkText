@@ -1,7 +1,9 @@
 import type { Muya } from '../muya';
 import type { IClipboardPayload } from './copyData';
 import Format from '../block/base/format';
+import { cloneCommentModel } from '../comments/model';
 import { SelectionDirection } from '../selection/types';
+import { buildStateReplaceOp } from '../state';
 import { isClipboardEvent, isKeyboardEvent } from '../utils';
 import { getClipboardData, writeClipboardData } from './copyData';
 import { blockedCommentMarkerCut, cutSelection, deleteTableSelection } from './cut';
@@ -181,7 +183,44 @@ class Clipboard {
         rawText?: string,
         rawHtml?: string,
     ): Promise<void> {
-        return pasteSelection(this, event, rawText, rawHtml);
+        const text = rawText ?? event.clipboardData?.getData('text/plain') ?? '';
+        const html = rawHtml ?? event.clipboardData?.getData('text/html') ?? '';
+        return this._pasteAbsorbingComments(
+            `${text}${html}`.includes('MC:'),
+            () => pasteSelection(this, event, rawText, rawHtml),
+        );
+    }
+
+    // A paste whose payload carries MC syntax must land as MODEL comments,
+    // never as literal marker bytes in the runtime document (invariant 1).
+    // The ordinary paste flow runs with history recording suppressed, the
+    // materialize→re-extract pass folds the pasted syntax into the model,
+    // and ONE rebuild boundary from the pre-paste snapshot makes the whole
+    // paste a single undo step.
+    private async _pasteAbsorbingComments(
+        mayCarryComments: boolean,
+        run: () => Promise<void>,
+    ): Promise<void> {
+        if (!mayCarryComments)
+            return run();
+
+        const { jsonState, history, selection } = this.muya.editor;
+        this.muya.flush();
+        const prevState = jsonState.getState();
+        const prevModel = cloneCommentModel(jsonState.commentModel);
+        const boundarySelection = selection.getSelection();
+
+        await history.suppressRecordingWhile(async () => {
+            await run();
+            this.muya.flush();
+            const { op, nextModel } = jsonState.buildReplaceOp(jsonState.getMarkdown());
+            if (op.length > 0)
+                this.muya.editor.rebuildContents(op, selection.getSelection(), 'api');
+            jsonState.setCommentModel(nextModel);
+        });
+
+        const boundaryOp = buildStateReplaceOp(prevState, jsonState.getState());
+        history.recordRebuild(boundaryOp, prevState, boundarySelection, prevModel);
     }
 
     copyAsMarkdown() {
@@ -208,8 +247,12 @@ class Clipboard {
     // clipboard text ourselves and feed it through the paste pipeline.
     async pasteAsPlainText(): Promise<void> {
         const text = await this._readClipboardText();
-        if (text)
-            await pastePlainText(this, text);
+        if (text) {
+            await this._pasteAbsorbingComments(
+                text.includes('MC:'),
+                () => pastePlainText(this, text),
+            );
+        }
     }
 
     // Insert an image at the cursor from an explicit `src` (a saved file path or

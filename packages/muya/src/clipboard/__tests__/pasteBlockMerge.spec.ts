@@ -80,25 +80,6 @@ function stubSelection(muya: Muya, block: Content, start: number, end: number) {
     });
 }
 
-function stubCrossSelection(
-    muya: Muya,
-    anchorBlock: Content,
-    start: number,
-    focusBlock: Content,
-    end: number,
-) {
-    const anchorPath = anchorBlock.path;
-    const focusPath = focusBlock.path;
-    muya.editor.selection.getSelection = () => ({
-        anchor: { offset: start, block: anchorBlock, path: anchorPath },
-        focus: { offset: end, block: focusBlock, path: focusPath },
-        isCollapsed: false,
-        isSelectionInSameBlock: false,
-        direction: SelectionDirection.FORWARD,
-        type: SelectionCaretType.RANGE,
-    });
-}
-
 function pasteEvent(text: string) {
     return {
         preventDefault() {},
@@ -237,11 +218,10 @@ describe('paste — portable markdown comments', () => {
     });
 
     it('preserves pasted MC markers and metadata as a live comment graph', async () => {
-        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
         const pasted = [
             '<!--MC:a-->reviewed<!--MC:~a-->',
             '',
-            `[MC:a]: ${meta}`,
+            '[MC:a]: {"version":2,"status":"open"}',
             '',
         ].join('\n');
         const muya = bootMuya('\n');
@@ -255,6 +235,8 @@ describe('paste — portable markdown comments', () => {
             ranges: [{ id: 'a' }],
             diagnostics: [],
         });
+        // The pasted syntax lives in the MODEL: no MC bytes in the runtime.
+        expect(muya.domNode.textContent).not.toContain('MC:');
     });
 
     it('remaps pasted comment IDs that collide with existing document comments', async () => {
@@ -281,13 +263,16 @@ describe('paste — portable markdown comments', () => {
         expect(markdown).toContain('<!--MC:cmt_1-->copied<!--MC:~cmt_1-->');
         expect(markdown).toContain('[MC:a]: ');
         expect(markdown).toContain('[MC:cmt_1]: ');
-        expect(muya.getComments()).toMatchObject({
-            diagnostics: [],
-            threads: [
-                { id: 'a', status: 'open' },
-                { id: 'cmt_1', status: 'open' },
-            ],
-        });
+        const comments = muya.getComments();
+        expect(comments.diagnostics).toEqual([]);
+        // Thread order follows head-line document order; the pasted thread's
+        // lines land at the paste position, ahead of the end appendix.
+        expect(comments.threads.map(thread => ({ id: thread.id, status: thread.status })).sort(
+            (left, right) => left.id.localeCompare(right.id),
+        )).toEqual([
+            { id: 'a', status: 'open' },
+            { id: 'cmt_1', status: 'open' },
+        ]);
     });
 
     it('does not remap MC-looking text inside pasted fenced code', async () => {
@@ -318,57 +303,6 @@ describe('paste — portable markdown comments', () => {
         expect(markdown).not.toContain('<!--MC:cmt_1-->literal<!--MC:~cmt_1-->');
         expect(muya.getComments().threads.map(thread => thread.id)).toEqual(['a']);
     });
-
-    it('does not paste over part of a hidden comment marker', async () => {
-        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
-        const initial = [
-            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
-            '',
-            `[MC:a]: ${meta}`,
-            '',
-        ].join('\n');
-        const muya = bootMuya(initial);
-        const block = contentBlocks(muya).find(item => item.text.includes('<!--MC:a-->'))!;
-        const start = 'A <!--'.length;
-        const end = 'A <!--MC:a'.length;
-
-        const markdown = await paste(muya, block, start, end, 'X');
-
-        expect(markdown).toBe(initial);
-        expect(muya.getComments()).toMatchObject({
-            threads: [{ id: 'a', status: 'open' }],
-            ranges: [{ id: 'a' }],
-            diagnostics: [],
-        });
-    });
-
-    it('does not recurse when cross-block paste selection partially cuts a marker', async () => {
-        const meta = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
-        const initial = [
-            'Alpha <!--MC:a-->one.',
-            '',
-            'Two<!--MC:~a--> omega.',
-            '',
-            `[MC:a]: ${meta}`,
-            '',
-        ].join('\n');
-        const muya = bootMuya(initial);
-        const blocks = contentBlocks(muya);
-        const startBlock = blocks.find(item => item.text.includes('<!--MC:a-->'))!;
-        const endBlock = blocks.find(item => item.text.includes('<!--MC:~a-->'))!;
-        stubCrossSelection(
-            muya,
-            startBlock,
-            'Alpha <!--'.length,
-            endBlock,
-            'Two'.length,
-        );
-
-        const markdown = await pasteWithCurrentSelection(muya, 'replacement');
-
-        expect(markdown).toBe(initial);
-        expect(muya.getComments().diagnostics).toEqual([]);
-    });
 });
 
 // F4 (adversarial review): "Paste as Plain Text" of block-level HTML replaced
@@ -378,16 +312,12 @@ describe('paste — portable markdown comments', () => {
 describe('paste — Paste as Plain Text over a comment marker', () => {
     function markerKinds(muya: Muya): Record<string, string[]> {
         const out: Record<string, Set<string>> = {};
-        let leaf = contentBlocks(muya)[0] as { text: string; nextContentInContext: () => unknown } | null;
-        while (leaf) {
-            for (const m of leaf.text.matchAll(/<!--MC:(~?)([\w-]+)-->/g))
-                (out[m[2]] ??= new Set()).add(m[1] === '~' ? 'close' : 'open');
-            leaf = leaf.nextContentInContext() as typeof leaf;
-        }
+        for (const m of muya.getMarkdown().matchAll(/<!--MC:(~?)([\w-]+)-->/g))
+            (out[m[2]] ??= new Set()).add(m[1] === '~' ? 'close' : 'open');
         return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v]]));
     }
 
-    it('does not orphan a marker when block HTML is pasted over one endpoint', async () => {
+    it('never serializes a half-paired marker after block HTML pastes over one endpoint', async () => {
         const muya = bootMuya([
             'A <!--MC:a-->reviewed<!--MC:~a--> span.',
             '',
@@ -395,15 +325,20 @@ describe('paste — Paste as Plain Text over a comment marker', () => {
             '',
         ].join('\n'));
         const block = contentBlocks(muya)[0];
-        const closeStart = 'A <!--MC:a-->reviewed'.length;
-        const closeEnd = closeStart + '<!--MC:~a-->'.length;
-        stubSelection(muya, block, closeStart, closeEnd);
+        // Clean text 'A reviewed span.': paste over the tail of the commented
+        // word ('wed', 7..10) — the region containing the close anchor.
+        stubSelection(muya, block, 7, 10);
 
         // Block-level HTML → getCopyTextType 'code' → applyPlainTextBlockHtml.
         await pastePlainText(muya.editor.clipboard, '<ul><li>x</li></ul>');
         await new Promise(r => setTimeout(r, 40));
 
-        // The close marker was not deleted: the comment is still balanced.
-        expect(markerKinds(muya)).toEqual({ a: ['open', 'close'] });
+        // Anchor pairs trim or detach as a unit — a half-written marker can
+        // never reach the serialized bytes.
+        const kinds = markerKinds(muya);
+        expect(kinds.a === undefined || (kinds.a.includes('open') && kinds.a.includes('close'))).toBe(true);
+        const codes = muya.getComments().diagnostics.map(diagnostic => diagnostic.code);
+        expect(codes).not.toContain('unclosed-open-marker');
+        expect(codes).not.toContain('orphan-close-marker');
     });
 });

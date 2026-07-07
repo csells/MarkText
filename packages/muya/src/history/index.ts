@@ -1,9 +1,11 @@
 import type { JSONOpList } from 'ot-json1';
+import type { ICommentModel } from '../comments/model';
 import type { Muya } from '../muya';
 import type { IAnchorFocusInfo, IHistorySelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
 import * as json1 from 'ot-json1';
+import { cloneCommentModel } from '../comments/model';
 import { asDoc } from '../state';
 import { deepClone } from '../utils';
 
@@ -26,6 +28,16 @@ interface IOperation {
     // itself is a normal, fully-invertible ot-json1 op, so compose / transform /
     // invert continue to work unchanged.
     rebuild?: boolean;
+    // The comment model to install after this entry's operation applies.
+    // Rebuild boundaries snapshot the model (a whole-document replace cannot
+    // transform anchors); comment-model mutations are model-only entries
+    // whose operation is empty (comment-anchors.md §Mutations and undo).
+    commentModel?: ICommentModel;
+    commentModelOnly?: boolean;
+    // Anchor snapshot for ordinary edits: transformPosition is lossy for
+    // anchors a deletion swallowed, so undo restores the recorded positions
+    // instead of re-transforming (invariant 4).
+    anchors?: ICommentModel['anchors'];
 }
 
 interface IStack {
@@ -49,10 +61,20 @@ interface ISerializableSelection {
     type: IHistorySelection['type'];
 }
 
+// The comment model with its thread Map flattened to entries.
+interface ISerializableCommentModel {
+    threads: Array<[string, ICommentModel['threads'] extends Map<string, infer T> ? T : never]>;
+    anchors: ICommentModel['anchors'];
+    residue: string[];
+}
+
 interface ISerializableOperation {
     operation: JSONOpList;
     selection: Nullable<ISerializableSelection>;
     rebuild?: boolean;
+    commentModel?: ISerializableCommentModel;
+    commentModelOnly?: boolean;
+    anchors?: ICommentModel['anchors'];
 }
 
 // The public, JSON-serializable shape returned by `getHistory` and accepted by
@@ -150,16 +172,40 @@ class History {
         if (this._stack[source].length === 0)
             return;
 
-        const { operation, selection, rebuild } = this._stack[source].pop()!;
+        const entry = this._stack[source].pop()!;
+        const { operation, selection, rebuild, commentModel, commentModelOnly } = entry;
+        const { jsonState } = this._muya.editor;
+
+        // A model-only entry moves no document bytes: swap the comment model
+        // and mirror the entry into the opposite stack.
+        if (commentModelOnly) {
+            if (!commentModel)
+                throw new Error('A comment-model history entry lost its model snapshot.');
+            this._stack[dest].push({
+                operation: [],
+                selection: this._selection.getSelection(),
+                commentModelOnly: true,
+                commentModel: cloneCommentModel(jsonState.commentModel),
+            });
+            this._lastRecorded = 0;
+            jsonState.setCommentModel(commentModel);
+            this._getLastSelection();
+            return;
+        }
+
         const inverseOperation = json1.type.invertWithDoc(
             operation,
-            asDoc(this._muya.editor.jsonState.getState()),
+            asDoc(jsonState.getState()),
         );
 
+        const preChangeAnchors = deepClone(jsonState.commentModel.anchors);
         this._stack[dest].push({
             operation: inverseOperation as JSONOpList,
             selection: this._selection.getSelection(),
             rebuild,
+            // Crossing a rebuild boundary restores the other side's model
+            // wholesale; the current model is that snapshot for the way back.
+            ...(rebuild ? { commentModel: cloneCommentModel(jsonState.commentModel) } : { anchors: preChangeAnchors }),
         });
 
         this._lastRecorded = 0;
@@ -172,6 +218,20 @@ class History {
         }
         finally {
             this._ignoreChange = false;
+        }
+        if (rebuild) {
+            if (!commentModel)
+                throw new Error('A rebuild history entry lost its comment-model snapshot.');
+            jsonState.setCommentModel(commentModel);
+        }
+        else if (entry.anchors) {
+            // Restore the recorded anchor positions — the transform that just
+            // ran through the inverse op cannot resurrect anchors the forward
+            // op's deletion swallowed.
+            jsonState.setCommentModel({
+                ...jsonState.commentModel,
+                anchors: deepClone(entry.anchors),
+            });
         }
 
         this._getLastSelection();
@@ -213,6 +273,19 @@ class History {
             operation: deepClone(op.operation),
             selection: this._toSerializableSelection(op.selection),
             ...(op.rebuild ? { rebuild: true } : {}),
+            ...(op.commentModelOnly ? { commentModelOnly: true } : {}),
+            ...(op.commentModel
+                ? {
+                        commentModel: {
+                            threads: [...op.commentModel.threads.entries()].map(
+                                ([id, thread]) => [id, deepClone(thread)] as [string, typeof thread],
+                            ),
+                            anchors: deepClone(op.commentModel.anchors),
+                            residue: [...op.commentModel.residue],
+                        },
+                    }
+                : {}),
+            ...(op.anchors ? { anchors: deepClone(op.anchors) } : {}),
         };
     }
 
@@ -221,6 +294,19 @@ class History {
             operation: deepClone(op.operation),
             selection: this._fromSerializableSelection(op.selection),
             ...(op.rebuild ? { rebuild: true } : {}),
+            ...(op.commentModelOnly ? { commentModelOnly: true } : {}),
+            ...(op.commentModel
+                ? {
+                        commentModel: {
+                            threads: new Map(op.commentModel.threads.map(
+                                ([id, thread]) => [id, deepClone(thread)] as const,
+                            )),
+                            anchors: deepClone(op.commentModel.anchors),
+                            residue: [...op.commentModel.residue],
+                        },
+                    }
+                : {}),
+            ...(op.anchors ? { anchors: deepClone(op.anchors) } : {}),
         };
     }
 
@@ -294,16 +380,21 @@ class History {
         let selection = this._getLastSelection();
         this._stack.redo = [];
         let undoOperation = json1.type.invertWithDoc(op, asDoc(doc));
+        let anchors = deepClone(this._muya.editor.jsonState.prevAnchorsBeforeLastApply);
 
         const timestamp = Date.now();
         if (
             this._lastRecorded + this._options.delay > timestamp
             && this._stack.undo.length > 0
         ) {
-            const { operation: lastOperation, selection: lastSelection }
+            const { operation: lastOperation, selection: lastSelection, anchors: lastAnchors }
                 = this._stack.undo.pop()!;
             selection = lastSelection;
             undoOperation = json1.type.compose(undoOperation, lastOperation);
+            // A coalesced burst restores the anchors from BEFORE its first
+            // keystroke, not before its latest one.
+            if (lastAnchors)
+                anchors = lastAnchors;
         }
         else {
             this._lastRecorded = timestamp;
@@ -312,7 +403,11 @@ class History {
         if (!undoOperation || undoOperation.length === 0)
             return;
 
-        this._stack.undo.push({ operation: undoOperation, selection });
+        this._stack.undo.push({
+            operation: undoOperation,
+            selection,
+            anchors,
+        });
 
         if (this._stack.undo.length > this._options.maxStack)
             this._stack.undo.shift();
@@ -329,7 +424,12 @@ class History {
      * with neighbouring edits: `_lastRecorded` is reset so the next ordinary
      * edit also starts its own boundary, and the redo stack is cleared.
      */
-    recordRebuild(op: JSONOpList, prevDoc: TState[], selection: Nullable<IHistorySelection>) {
+    recordRebuild(
+        op: JSONOpList,
+        prevDoc: TState[],
+        selection: Nullable<IHistorySelection>,
+        prevModel: ICommentModel,
+    ) {
         if (op.length === 0)
             return;
 
@@ -339,9 +439,30 @@ class History {
             return;
 
         this._stack.redo = [];
-        this._stack.undo.push({ operation: undoOperation, selection, rebuild: true });
+        this._stack.undo.push({
+            operation: undoOperation,
+            selection,
+            rebuild: true,
+            commentModel: cloneCommentModel(prevModel),
+        });
         // Force the next ordinary edit into its own undo entry — the bulk
         // replacement must not absorb a later keystroke (or vice versa).
+        this._lastRecorded = 0;
+
+        if (this._stack.undo.length > this._options.maxStack)
+            this._stack.undo.shift();
+    }
+
+    // Record a comment-model mutation (add/remove/patch a thread) as its own
+    // undo boundary. No document bytes move; undo/redo swaps the model.
+    recordCommentModel(prevModel: ICommentModel) {
+        this._stack.redo = [];
+        this._stack.undo.push({
+            operation: [],
+            selection: this._selection.getSelection(),
+            commentModelOnly: true,
+            commentModel: cloneCommentModel(prevModel),
+        });
         this._lastRecorded = 0;
 
         if (this._stack.undo.length > this._options.maxStack)
@@ -358,6 +479,19 @@ class History {
         this._ignoreChange = true;
         try {
             fn();
+        }
+        finally {
+            this._ignoreChange = previous;
+        }
+    }
+
+    // Same suppression across an async pipeline (the paste flow awaits
+    // between the ops it dispatches).
+    async suppressRecordingWhile(fn: () => Promise<void>): Promise<void> {
+        const previous = this._ignoreChange;
+        this._ignoreChange = true;
+        try {
+            await fn();
         }
         finally {
             this._ignoreChange = previous;

@@ -18,6 +18,7 @@ import Format from './block/base/format';
 import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replaceBlockByLabel } from './block/blockTransforms';
 import { ScrollPage } from './block/scrollPage';
 import { MuyaComments } from './comments/facade';
+import { commentModelEquals, materializeCommentModel } from './comments/model';
 import emptyStates from './config/emptyStates';
 import {
     CLASS_NAMES,
@@ -30,6 +31,7 @@ import { Editor } from './editor/index';
 import EventCenter from './event/index';
 import I18n from './i18n/index';
 import {
+    adjustedSentinelCommentModel,
     injectSentinels,
     injectStateSentinels,
     locateSentinelOffsets,
@@ -356,21 +358,33 @@ export class Muya {
      */
     replaceContent(content: TState[] | string, recordSelection?: Nullable<IHistorySelection>): boolean {
         const { jsonState, history } = this.editor;
-        const { op, prevState } = jsonState.buildReplaceOp(content);
-
-        if (op.length === 0)
-            return false;
+        const { op, prevState, prevModel, nextModel } = jsonState.buildReplaceOp(content);
 
         const selection = this.editor.selection.getSelection();
         const boundarySelection = recordSelection !== undefined ? recordSelection : selection;
+
+        if (op.length === 0) {
+            // The visible document is unchanged, but the replacement can still
+            // differ in comments alone (e.g. a metadata edit made in source
+            // mode). That is a model-only boundary.
+            if (commentModelEquals(prevModel, nextModel))
+                return false;
+            history.recordCommentModel(prevModel);
+            jsonState.setCommentModel(nextModel);
+            return true;
+        }
+
         // Record the lossless inverse as a standalone rebuild boundary BEFORE
         // applying the forward op, so the recorded `prevState` matches the doc
         // the inverse must restore. The forward apply dispatches a json-change,
         // so suppress History's own recording of it to avoid a duplicate entry.
-        history.recordRebuild(op, prevState, boundarySelection);
+        history.recordRebuild(op, prevState, boundarySelection, prevModel);
         history.suppressRecording(() => {
             this.editor.rebuildContents(op, selection, 'api');
         });
+        // The rebuild op transformed anchors as any op would; a whole-document
+        // replacement swaps the model wholesale instead.
+        jsonState.setCommentModel(nextModel);
 
         return true;
     }
@@ -1184,8 +1198,28 @@ export class Muya {
         this.editor.setContent(cleanMarkdown);
         this.setHistory(savedHistory);
 
+        // A source cursor inside metadata bytes has no clean-document
+        // equivalent: either the sentinel vanished with the extracted
+        // definition line (no cursor), or it resolved into a block that only
+        // existed in the sentinel parse. The defined policy is to clamp to
+        // the end of the last visible block, mirroring what the caret
+        // invariant used to guarantee for hidden syntax.
+        const clampToLastVisible = (): boolean => {
+            const last = this.editor.scrollPage?.lastContentInDescendant();
+            if (!last)
+                return false;
+            last.setCursor(last.text.length, last.text.length, true);
+            return true;
+        };
+
         if (!cursor)
-            return false;
+            return clampToLastVisible();
+
+        const anchorBlockPath = [...cursor.anchorPath];
+        if (anchorBlockPath[anchorBlockPath.length - 1] === 'text')
+            anchorBlockPath.pop();
+        if (!this.editor.scrollPage?.queryBlock(anchorBlockPath))
+            return clampToLastVisible();
 
         this.setCursor(cursor);
 
@@ -1219,8 +1253,16 @@ export class Muya {
         if (!sentinelState)
             return null;
 
-        const sentinelMarkdown
-            = this.editor.jsonState.getMarkdownFromState(sentinelState);
+        // Source-mode offsets are MATERIALIZED-byte offsets: shift the model's
+        // anchors past each injected sentinel (same tie-breaks as the edit
+        // transform), then serialize with markers and appendix in place.
+        const sentinelModel = adjustedSentinelCommentModel(
+            this.editor.jsonState.commentModel,
+            selection,
+        );
+        const sentinelMarkdown = this.editor.jsonState.getMarkdownFromState(
+            materializeCommentModel(sentinelState, sentinelModel),
+        );
 
         return locateSentinelOffsets(sentinelMarkdown);
     }

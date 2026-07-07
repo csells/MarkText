@@ -70,70 +70,6 @@ function pressBackspace(content: Format): Event {
     return event;
 }
 
-function pressDelete(content: Format): KeyboardEvent {
-    const event = new KeyboardEvent('keydown', {
-        key: 'Delete',
-        bubbles: true,
-        cancelable: true,
-    });
-    content.deleteHandler(event);
-    return event;
-}
-
-function pressInput(content: Format, inputType: string, data: string | null): InputEvent {
-    const event = new InputEvent('input', {
-        inputType,
-        data,
-        bubbles: true,
-        cancelable: true,
-    });
-    content.inputHandler(event);
-    return event;
-}
-
-describe('format delete handlers — hidden markdown comment markers', () => {
-    const commented = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
-
-    it('backspace after a hidden close marker deletes through it without corrupting it', () => {
-        const closeStart = commented.indexOf('<!--MC:~a-->');
-        const closeEnd = closeStart + '<!--MC:~a-->'.length;
-        const content = caretInFirstBlock(bootMuya(`${commented}\n`), closeEnd);
-        const event = pressBackspace(content);
-
-        // Transparent deletion: the trailing 'd' of 'reviewed' goes, both
-        // markers stay whole.
-        expect(content.text).toBe('A <!--MC:a-->reviewe<!--MC:~a--> span.');
-        expect(content.getCursor()!.start.offset).toBe(closeStart - 1);
-        expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('delete before a hidden open marker deletes through it without corrupting it', () => {
-        const openStart = commented.indexOf('<!--MC:a-->');
-        const openEnd = openStart + '<!--MC:a-->'.length;
-        const content = caretInFirstBlock(bootMuya(`${commented}\n`), openStart);
-        const event = pressDelete(content);
-
-        // Transparent deletion: the leading 'r' of 'reviewed' goes, both
-        // markers stay whole.
-        expect(content.text).toBe('A <!--MC:a-->eviewed<!--MC:~a--> span.');
-        expect(content.getCursor()!.start.offset).toBe(openEnd);
-        expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('insertText inside a hidden marker restores the marker instead of committing corrupted DOM text', () => {
-        const openStart = commented.indexOf('<!--MC:a-->');
-        const content = caretInFirstBlock(bootMuya(`${commented}\n`), openStart + '<!--MC'.length);
-        const marker = content.domNode!.querySelector<HTMLElement>('.mu-comment-marker')!;
-
-        (marker.firstChild as Text).data = '<!--MC:broken-->';
-        pressInput(content, 'insertText', 'broken');
-
-        expect(content.text).toBe(commented);
-        expect(content.domNode!.querySelector<HTMLElement>('.mu-comment-marker')?.textContent)
-            .toBe('<!--MC:a-->');
-    });
-});
-
 describe('format.backspaceHandler — closing-marker boundary (muya#113)', () => {
     it('just-outside the closing `**`: removes one marker char, no doubled markers', () => {
         // Caret at offset 14, immediately after the whole `**strong**` close.
@@ -260,153 +196,16 @@ function firstBlockText(muya: Muya): string {
     return (muya.editor.scrollPage!.firstContentInDescendant() as unknown as Format).text;
 }
 
-// Document-order marker kinds by id, to detect an orphan (one endpoint only).
-function markerKinds(muya: Muya): Record<string, string[]> {
-    const out: Record<string, Set<string>> = {};
-    let leaf = muya.editor.scrollPage!.firstContentInDescendant() as unknown as { text: string; nextContentInContext: () => unknown } | null;
-    while (leaf) {
-        for (const m of leaf.text.matchAll(/<!--MC:(~?)([\w-]+)-->/g)) {
-            (out[m[2]] ??= new Set()).add(m[1] === '~' ? 'close' : 'open');
-        }
-        leaf = leaf.nextContentInContext() as typeof leaf;
-    }
-    return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v]]));
-}
-
-describe('format Enter handlers — hidden markdown comment markers', () => {
-    const commented = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
-
-    it('enter over a selection covering the close marker does not orphan it', () => {
-        const closeStart = commented.indexOf('<!--MC:~a-->');
-        const closeEnd = closeStart + '<!--MC:~a-->'.length;
-        const muya = bootMuya(`${commented}\n`);
-        const content = selectInFirstBlock(muya, closeStart, closeEnd);
-        const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
-        content.enterHandler(event);
-
-        // Neither marker was deleted: the comment is still balanced.
-        expect(markerKinds(muya)).toEqual({ a: ['open', 'close'] });
-    });
-
-    it('shift+Enter over a selection covering the open marker does not orphan it', () => {
-        const openStart = commented.indexOf('<!--MC:a-->');
-        const openEnd = openStart + '<!--MC:a-->'.length;
-        const muya = bootMuya(`${commented}\n`);
-        const content = selectInFirstBlock(muya, openStart, openEnd);
-        // shiftEnterHandler is protected; the test drives it directly.
-        (content as unknown as { shiftEnterHandler: (event: Event) => void })
-            .shiftEnterHandler(new Event('keydown', { cancelable: true }));
-
-        expect(markerKinds(muya)).toEqual({ a: ['open', 'close'] });
-    });
-
-    it('enter with a collapsed caret still splits normally (no marker involved)', () => {
+// With comments out-of-band there are no hidden markers for Enter to
+// defend (comment-anchors.md §What this deletes); the plain split behavior
+// keeps its pin.
+describe('format Enter handler — plain split', () => {
+    it('enter with a collapsed caret still splits normally', () => {
         const muya = bootMuya('hello world\n');
         const content = selectInFirstBlock(muya, 5, 5);
         content.enterHandler(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
 
         // Split at the caret: first block keeps the head.
         expect(firstBlockText(muya)).toBe('hello');
-    });
-});
-
-// The hidden metadata definition block is a non-mergeable atom: forward-delete
-// at the end of the last visible block (and backspace at the start of a block
-// after it) must not fold the hidden [MC:id] line into visible prose.
-describe('structural merges skip hidden comment metadata blocks', () => {
-    const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
-
-    it('forward-delete at the end of the last visible block leaves the metadata intact', () => {
-        const muya = bootMuya(`visible <!--MC:a-->tail<!--MC:~a-->\n\n[MC:a]: ${META}\n`);
-        const content = caretInFirstBlock(muya, 'visible <!--MC:a-->tail<!--MC:~a-->'.length);
-
-        pressDelete(content);
-
-        const markdown = muya.getMarkdown();
-        expect(markdown).toContain(`[MC:a]: ${META}`);
-        expect(markdown).toMatch(/^\[MC:a\]:/mu);
-        expect(content.text).toBe('visible <!--MC:a-->tail<!--MC:~a-->');
-    });
-
-    it('backspace at the start of a block below the metadata does not merge into it', () => {
-        const muya = bootMuya(`first\n\n[MC:a]: ${META}\n\nlast <!--MC:a-->x<!--MC:~a-->\n`);
-        const last = muya.editor.scrollPage!.lastContentInDescendant()! as unknown as Format;
-        muya.editor.activeContentBlock = last as never;
-        last.setCursor(0, 0, true);
-
-        pressBackspace(last);
-
-        const markdown = muya.getMarkdown();
-        expect(markdown).toMatch(/^\[MC:a\]:/mu);
-        expect(markdown).toContain('last <!--MC:a-->x<!--MC:~a-->');
-    });
-});
-
-// Typing/Enter over a fully selected comment legally removes the marker pair;
-// the hidden definition must go with it or it orphans silently (cut already
-// swept — the sweep lives on ScrollPage now so every editing surface shares it).
-describe('typing a marker-like character at a marker edge', () => {
-    it('keeps a \'<\' typed immediately before an open marker', () => {
-        const muya = bootMuya('a<!--MC:x-->mid<!--MC:~x-->b\n');
-        const content = caretInFirstBlock(muya, 1);
-
-        // The browser inserts '<' at offset 1; prefix/suffix trimming alone
-        // would attribute the edit INSIDE the marker (old[1] is also '<') and
-        // the guard would revert the keystroke.
-        content.domNode!.textContent = 'a<<!--MC:x-->mid<!--MC:~x-->b';
-        document.getSelection()!.collapse(content.domNode!.firstChild!, 2);
-        pressInput(content, 'insertText', '<');
-
-        expect(content.text).toBe('a<<!--MC:x-->mid<!--MC:~x-->b');
-    });
-});
-
-describe('replacing a whole comment sweeps its metadata definition', () => {
-    const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
-
-    it('typing over the fully selected range removes the definition too', () => {
-        const commented = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
-        const muya = bootMuya(`${commented}\n\n[MC:a]: ${META}\n`);
-        const content = caretInFirstBlock(muya, 0);
-        content.setCursor(0, commented.length, true);
-
-        // Simulate the browser having replaced the selection with 'X': the
-        // DOM text is the post-edit content (with the caret after it) when
-        // inputHandler runs.
-        content.domNode!.textContent = 'X';
-        document.getSelection()!.collapse(content.domNode!.firstChild!, 1);
-        pressInput(content, 'insertText', 'X');
-
-        const markdown = muya.getMarkdown();
-        expect(markdown).not.toContain('MC:a');
-        expect(markdown.trim()).toBe('X');
-    });
-});
-
-// Hidden markers are transparent to deletion, not one-press speed bumps: the
-// hop across the zero-width marker and the intended deletion happen in the
-// SAME keypress (both marker edges render at one visual column, so a hop-only
-// press looks like a dead key).
-describe('deletion is transparent across hidden markers', () => {
-    const doc = 'A <!--MC:a-->hi<!--MC:~a--> t\n';
-
-    it('backspace just after the close marker deletes the preceding visible char', () => {
-        const muya = bootMuya(doc);
-        const afterClose = 'A <!--MC:a-->hi<!--MC:~a-->'.length;
-        const content = caretInFirstBlock(muya, afterClose);
-
-        pressBackspace(content);
-
-        expect(content.text).toBe('A <!--MC:a-->h<!--MC:~a--> t');
-    });
-
-    it('forward-delete just before the open marker deletes the following visible char', () => {
-        const muya = bootMuya(doc);
-        const beforeOpen = 'A '.length;
-        const content = caretInFirstBlock(muya, beforeOpen);
-
-        pressDelete(content);
-
-        expect(content.text).toBe('A <!--MC:a-->i<!--MC:~a--> t');
     });
 });

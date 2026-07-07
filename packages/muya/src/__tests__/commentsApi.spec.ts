@@ -55,8 +55,9 @@ describe('muya.getComments()', () => {
             ranges: [
                 {
                     id: 'a',
-                    startOffset: 13,
-                    endOffset: 21,
+                    // Clean-text offsets (invariant 6): 'reviewed' at 2..10.
+                    startOffset: 2,
+                    endOffset: 10,
                     preview: 'reviewed',
                 },
             ],
@@ -98,16 +99,10 @@ describe('muya.getComments()', () => {
 
     it('preserves resolved zero-reply comment syntax through source-mode replacement', () => {
         const original = 'Before source mode.\n';
-        const metadataUri = metadata({
-            version: 1,
-            status: 'resolved',
-            authors: ['Ada'],
-            replies: [],
-        });
         const nextMarkdown = [
             'A <!--MC:a-->reviewed<!--MC:~a--> persisted span.',
             '',
-            `[MC:a]: ${metadataUri}`,
+            '[MC:a]: {"version":2,"status":"resolved","authors":["Ada"]}',
             '',
         ].join('\n');
         const muya = boot(original);
@@ -147,7 +142,7 @@ describe('muya.addComment()', () => {
         expect(muya.addComment({ id: 'whitespace_only' })).toBeNull();
     });
 
-    it('reports marker-overlap selections as not commentable', () => {
+    it('treats selections overlapping an existing range as commentable (overlap is first-class)', () => {
         const muya = boot([
             'A <!--MC:a-->reviewed<!--MC:~a--> span.',
             '',
@@ -156,10 +151,12 @@ describe('muya.addComment()', () => {
         ].join('\n'));
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
-        leaf.setCursor('A <!--'.length, 'A <!--MC:a-->reviewed'.length, true);
+        // Clean text 'A reviewed span.' — select 'review' inside the range.
+        leaf.setCursor(2, 8, true);
 
-        expect(muya.canAddComment({ id: 'bad_marker_overlap' })).toBe(false);
-        expect(muya.addComment({ id: 'bad_marker_overlap' })).toBeNull();
+        expect(muya.canAddComment({ id: 'overlap_ok' })).toBe(true);
+        expect(muya.addComment({ id: 'overlap_ok' })).toBe('overlap_ok');
+        expect(muya.getComments().ranges.map(range => range.id).sort()).toEqual(['a', 'overlap_ok']);
     });
 
     it('wraps a same-leaf selection, appends metadata, and records one undo boundary', () => {
@@ -187,8 +184,8 @@ describe('muya.addComment()', () => {
             ranges: [
                 {
                     id: 'cmt_test',
-                    startOffset: 20,
-                    endOffset: 28,
+                    startOffset: 2,
+                    endOffset: 10,
                     preview: 'reviewed',
                 },
             ],
@@ -207,8 +204,8 @@ describe('muya.addComment()', () => {
             ],
         });
         const selection = muya.getSelection();
-        expect(selection?.anchor.offset).toBe(20);
-        expect(selection?.focus.offset).toBe(28);
+        expect(selection?.anchor.offset).toBe(2);
+        expect(selection?.focus.offset).toBe(10);
         expect(muya.getActiveComments()).toEqual(['cmt_test']);
 
         muya.undo();
@@ -281,23 +278,6 @@ describe('muya.addComment()', () => {
         expect(muya.addComment()).toBeTruthy();
         expect(muya.getMarkdown()).toContain('A <!--MC:cmt_2-->reviewed<!--MC:~cmt_2--> span.');
         expect(muya.getComments().threads.map(thread => thread.id)).toEqual(['cmt_2']);
-    });
-
-    it('rejects selections that intersect existing hidden comment marker syntax', () => {
-        const original = [
-            'A <!--MC:a-->reviewed<!--MC:~a--> span.',
-            '',
-            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
-            '',
-        ].join('\n');
-        const muya = boot(original);
-        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
-
-        leaf.setCursor('A <!--'.length, 'A <!--MC:a-->reviewed'.length, true);
-
-        expect(muya.addComment({ id: 'bad_marker_overlap' })).toBeNull();
-        expect(muya.getMarkdown()).toBe(original);
-        expect(muya.getComments().diagnostics).toEqual([]);
     });
 
     it('wraps a cross-leaf selection with one range and one metadata definition', () => {
@@ -474,7 +454,7 @@ describe('muya comment metadata mutations', () => {
         });
     });
 
-    it('preserves metadata definition spacing around WYSIWYG thread edits', () => {
+    it('normalizes the metadata appendix on WYSIWYG thread edits', () => {
         const muya = boot([
             'A <!--MC:a-->reviewed<!--MC:~a--> span.',
             '',
@@ -484,8 +464,11 @@ describe('muya comment metadata mutations', () => {
 
         expect(muya.resolveComment('a', '2026-06-30T15:00:00.000Z')).toBe(true);
 
-        expect(muya.getMarkdown()).toMatch(
-            /\[MC:a\]: {4}\{"version":2,"status":"resolved","updatedAt":"2026-06-30T15:00:00.000Z"\} {3}\n/u,
+        // Engine mutations serialize the model canonically; byte-exact line
+        // preservation is the string-level editor's contract (source mode,
+        // CLI), pinned by the updateCommentMetadataInMarkdown tests.
+        expect(muya.getMarkdown()).toContain(
+            '[MC:a]: {"version":2,"status":"resolved","updatedAt":"2026-06-30T15:00:00.000Z"}',
         );
     });
 
@@ -631,7 +614,7 @@ describe('muya comment metadata mutations', () => {
         const original = [
             'A <!--MC:a-->reviewed<!--MC:~a--> span.',
             '',
-            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '[MC:a]: {"version":2,"status":"open"}',
             '',
         ].join('\n');
         const muya = boot(original);
@@ -653,7 +636,7 @@ describe('muya comment metadata mutations', () => {
         const original = [
             'A <!--MC:a-->reviewed<!--MC:~a--> span.',
             '',
-            `[MC:a]: ${metadata({ version: 1, status: 'open', replies: [] })}`,
+            '[MC:a]: {"version":2,"status":"open"}',
             '',
         ].join('\n');
         const muya = boot('Before source handoff.\n');
@@ -681,10 +664,10 @@ describe('muya active comment navigation', () => {
         ].join('\n'));
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
-        leaf.setCursor(15, 15, true);
+        leaf.setCursor(5, 5, true);
         expect(muya.getActiveComments()).toEqual(['a']);
 
-        leaf.setCursor(0, 1, true);
+        leaf.setCursor(12, 13, true);
         expect(muya.getActiveComments()).toEqual([]);
     });
 
@@ -702,8 +685,8 @@ describe('muya active comment navigation', () => {
         expect(muya.focusComment('a')).toBe(true);
 
         const selection = muya.getSelection();
-        expect(selection?.anchor.offset).toBe(13);
-        expect(selection?.focus.offset).toBe(21);
+        expect(selection?.anchor.offset).toBe(2);
+        expect(selection?.focus.offset).toBe(10);
         expect(muya.getActiveComments()).toEqual(['a']);
         expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' });
         expect(muya.focusComment('missing')).toBe(false);
@@ -741,7 +724,7 @@ describe('muya active comment navigation', () => {
         ].join('\n'));
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
-        leaf.setCursor(31, 31, true);
+        leaf.setCursor(10, 10, true);
 
         expect(muya.getActiveComments()).toEqual(['a', 'b']);
     });
@@ -758,7 +741,9 @@ describe('muya comment highlights', () => {
 
         const highlight = muya.domNode.querySelector<HTMLElement>('.mu-comment-highlight');
         expect(highlight?.textContent).toBe('reviewed');
-        expect(muya.domNode.querySelector('.mu-comment-marker')?.textContent).toBe('<!--MC:a-->');
+        // No marker bytes exist at runtime, hidden or otherwise.
+        expect(muya.domNode.querySelector('.mu-comment-marker')).toBeNull();
+        expect(muya.domNode.textContent).not.toContain('<!--MC:');
     });
 
     it('uses the active highlight class when the cursor is inside a comment range', () => {
@@ -770,7 +755,7 @@ describe('muya comment highlights', () => {
         ].join('\n'));
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
-        leaf.setCursor(15, 15, true);
+        leaf.setCursor(5, 5, true);
 
         const highlight = muya.domNode.querySelector<HTMLElement>('.mu-comment-highlight-active');
         expect(highlight?.textContent).toBe('reviewed');
@@ -867,8 +852,8 @@ describe('muya comment events', () => {
             events.push(ids);
         });
 
-        leaf.setCursor(15, 15, true);
-        leaf.setCursor(0, 1, true);
+        leaf.setCursor(5, 5, true);
+        leaf.setCursor(12, 13, true);
 
         expect(events).toEqual([['a'], []]);
     });
@@ -907,10 +892,11 @@ describe('muya.focusComment() range-less navigation', () => {
             '',
         ].join('\n'));
 
-        // orphan metadata: a definition with no marker, so there is no range.
+        // Orphan metadata is a DETACHED thread now: nothing in the document
+        // carries its syntax, so there is nothing to focus — the sidebar
+        // presents detached threads distinctly instead.
         expect(muya.getComments().ranges.some(range => range.id === 'orphan')).toBe(false);
-        // The click still navigates instead of silently doing nothing.
-        expect(muya.focusComment('orphan')).toBe(true);
+        expect(muya.focusComment('orphan')).toBe(false);
         expect(muya.focusComment('nonexistent')).toBe(false);
     });
 
@@ -920,19 +906,17 @@ describe('muya.focusComment() range-less navigation', () => {
             '',
         ].join('\n'));
 
-        // Orphan close marker: diagnostic, no derived range → fallback path.
+        // Orphan close marker: extraction keeps the unpaired anchor (its
+        // bytes still serialize) and the focus fallback collapses the caret
+        // onto it.
         expect(muya.getComments().ranges.some(range => range.id === 'o')).toBe(false);
         expect(muya.focusComment('o')).toBe(true);
 
-        // The fallback must actually select the marker (a content-leaf cursor),
-        // which requires the located path to end in 'text'.
         const selection = muya.editor.selection.getSelection();
         expect(selection).not.toBeNull();
-        expect(selection!.isCollapsed).toBe(false);
-        const marker = '<!--MC:~o-->';
-        const start = 'Text with an orphan '.length;
-        expect(selection!.anchor.offset).toBe(start);
-        expect(selection!.focus.offset).toBe(start + marker.length);
+        expect(selection!.isCollapsed).toBe(true);
+        expect(selection!.anchor.offset).toBe('Text with an orphan '.length);
+        expect(muya.getMarkdown()).toContain('orphan <!--MC:~o--> close');
     });
 });
 
@@ -1019,8 +1003,11 @@ describe('muya comment mutations in container context', () => {
 
         expect(muya.resolveComment('a')).toBe(true);
 
+        // The appendix is model-owned and serializes at the document end;
+        // the blockquote that held only the definition line extracts away.
         const markdown = muya.getMarkdown();
-        expect(markdown).toMatch(/^> \[MC:a\]: \{"version":2,"status":"resolved"/mu);
+        expect(markdown).toMatch(/^\[MC:a\]: \{"version":2,"status":"resolved"/mu);
+        expect(markdown).not.toMatch(/^>/mu);
         expect(muya.getComments().threads[0]).toMatchObject({ id: 'a', status: 'resolved' });
     });
 });

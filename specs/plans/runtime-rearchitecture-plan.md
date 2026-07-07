@@ -23,7 +23,58 @@ until the implementation reflects the specs.
   engine-level half of pinned property 2) lands with P3's materialization
   pass — today untouched v1 lines round-trip byte-verbatim and convert on
   their first mutation.
-- P3 (OT anchors) — pending.
+- P3 (OT anchors) — **in progress**. Landed in the working tree (commit
+  pending until the suite is green):
+  - Stage 1 committed: `comments/model.ts` extraction/materialization +
+    `anchorModel.spec.ts` (17 green).
+  - Stages 2–4 implemented: `JSONState` owns the model (extract on set,
+    materialize on `getMarkdown` — which deliberately does NOT flush, see
+    flushPendingOps pin), transforms anchors in `_apply` (code-point
+    conversion both ways; close-anchor insertion absorption via
+    `textInsertionLengthAt`; whole-pair detach on collapse or null;
+    `findReplacePrefix` rescue), `buildReplaceOp` returns prev/next models,
+    `muya.replaceContent` records model on rebuild boundaries and handles
+    model-only replacements, `history` gains rebuild model snapshots +
+    `recordCommentModel` model-only entries + per-entry anchor snapshots
+    (undo restores swallowed anchors) + serializable mappers for all of it,
+    facade reads `commentModelView` and mutates the model directly
+    (`_commitCommentModel`), `comment-model-change` event repaints blocks.
+    `src/__tests__/anchorRuntime.spec.ts` pins all of it (16 green).
+  - Paste needs REBUILT functionality, not just restated tests: pasted
+    markdown carrying MC syntax must extract into the model (id collisions
+    remapped as before — the remap helper lives in paste.ts). Sketch:
+    remap colliding ids in the pasted text up front, let insertion apply,
+    then extract the pasted markers out of the affected leaves into
+    anchors/threads within the same flush (no rebuild boundary — paste must
+    stay one undo step). Failing specs: pasteBlockMerge (5), pasteCellLiteral
+    (1), keydownTableGuard (1 — delete-over-cells sweep expectation, restate
+    to detach).
+  - DONE since the note above: commentMarkerCutGuards rewritten to anchor
+    semantics (3 green), trackCCut restated (30 green), formatBackspace
+    guard describes excised (10 green), history serialization carries
+    models/anchors, getMarkdown no longer flushes (flushPendingOps pin),
+    hiddenSyntaxCaretGuard spec deleted, getCursorOffset materializes with
+    sentinel-adjusted anchors (`adjustedSentinelCommentModel` in
+    offsetCursor.ts + `adjustAnchorsForInsertion` in model.ts),
+    setCursorByOffset clamps metadata-byte cursors to the last visible
+    block (both cursor specs green, 15), search restated to clean offsets
+    (8 green), selectionChange restated (5 green). STILL RED: commentsApi
+    (17), commentsApiAnalyzer (2), paste bucket (7 — needs the pasted-MC
+    extraction functionality sketched above).
+  - REMAINING (stage 5+6): delete the guard families (grep
+    `notifyCommentEditBlocked`, `snapCaretOutOfHiddenSyntax`,
+    `commentMarkerNavSkip`, `removeUnreferencedCommentMetadata`,
+    `editedTextRange` across format.ts, paste.ts, cut.ts, clipboard/index,
+    TextSelection, content.ts, scrollPage, muya.ts, facade) and restate
+    their ~70 failing tests to anchor semantics: commentsApi.spec (17),
+    commentMarkerCutGuards (13), trackCCut (10), formatBackspace (10),
+    pasteBlockMerge (5), getCursorOffset (4), setCursorByOffset (2),
+    hiddenSyntaxCaretGuard (2), search (2 — restate to clean/visible
+    offsets, invariant 6), selectionChange (1 — marker-overlap selections
+    are now commentable), commentsApiAnalyzer (2 — facade no longer calls
+    the byte analyzer), pasteCellLiteral (1), keydownTableGuard (1). Then
+    the muya e2e comment suites and the desktop pass (stage 6: cursor
+    mapping against materialized markdown, sidebar unchanged, e2e sweep).
 - P4 (serialization cache · undo journal · d.ts retirement) — pending.
 - P5 (merge reducer) — pending.
 - P6 (gap-analysis loop) — pending.
