@@ -266,7 +266,7 @@ declare module '@muyajs/core' {
     getTOC(): Array<{ content: string; lvl: number; slug: string; githubSlug: string }>
     getActiveComments(): string[]
     canAddComment(input?: Pick<IAddCommentInput, 'id'>): boolean
-    addComment(input?: IAddCommentInput): boolean
+    addComment(input?: IAddCommentInput): string | null
     removeComment(id: string): boolean
     updateCommentThread(id: string, patch: TUpdateCommentThreadPatch): boolean
     replyToComment(id: string, reply: ICommentReplyInput): boolean

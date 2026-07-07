@@ -1691,21 +1691,15 @@ const handleAddComment = () => {
   }
   if (!editor.value) return
 
-  const beforeIds = new Set(
-    editor.value.getComments().threads.map((thread: ICommentThread) => thread.id)
-  )
-  if (!editor.value.addComment()) {
+  const addedId = editor.value.addComment()
+  if (!addedId) {
     notifyCommentUnavailable(t('sideBar.comments.selectTextHint'))
     return
   }
-  const nextComments = editor.value.getComments()
-  const addedThread = nextComments.threads.find((thread: ICommentThread) => !beforeIds.has(thread.id))
   showCommentsSidebar()
-  editorStore.UPDATE_COMMENTS(nextComments)
+  editorStore.UPDATE_COMMENTS(editor.value.getComments())
   editorStore.UPDATE_ACTIVE_COMMENTS(editor.value.getActiveComments())
-  if (addedThread) {
-    editorStore.SET_COMPOSE_COMMENT_ID(addedThread.id)
-  }
+  editorStore.SET_COMPOSE_COMMENT_ID(addedId)
 }
 
 const handleCommentReply = (payload: unknown) => {

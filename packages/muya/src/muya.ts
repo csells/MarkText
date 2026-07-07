@@ -411,18 +411,21 @@ export class Muya {
         });
     }
 
-    addComment(input: IAddCommentInput = {}): boolean {
+    // Returns the created thread's id, or null when the selection is not
+    // commentable — the caller needs the id to open the compose flow, and
+    // re-deriving it from a before/after diff costs two extra analyses.
+    addComment(input: IAddCommentInput = {}): string | null {
         // Commit any rAF-batched keystroke ops before reading state below —
         // building the replacement from a stale snapshot would let the pending
         // op flush onto the replaced document later (the #2938 lost-edit class).
         this.flush();
         const selection = this.editor.selection.getSelection();
         if (!selection || selection.isCollapsed)
-            return false;
+            return null;
 
         const id = this._reserveCommentId(input);
         if (id == null)
-            return false;
+            return null;
 
         const states = this.editor.jsonState.getState();
         const nextStates = wrapCommentRange({
@@ -436,7 +439,7 @@ export class Muya {
         });
 
         if (!nextStates)
-            return false;
+            return null;
 
         const nextRange = analyzeMarkdownComments(nextStates).comments.ranges.find(range => range.id === id);
         const changed = this.replaceContent(nextStates, selection);
@@ -449,7 +452,7 @@ export class Muya {
             });
         }
 
-        return changed;
+        return changed ? id : null;
     }
 
     removeComment(id: string): boolean {

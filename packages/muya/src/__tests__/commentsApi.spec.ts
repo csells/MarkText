@@ -145,7 +145,7 @@ describe('muya.addComment()', () => {
         leaf.setCursor(1, 4, true);
 
         expect(muya.canAddComment({ id: 'whitespace_only' })).toBe(false);
-        expect(muya.addComment({ id: 'whitespace_only' })).toBe(false);
+        expect(muya.addComment({ id: 'whitespace_only' })).toBeNull();
     });
 
     it('reports marker-overlap selections as not commentable', () => {
@@ -160,7 +160,7 @@ describe('muya.addComment()', () => {
         leaf.setCursor('A <!--'.length, 'A <!--MC:a-->reviewed'.length, true);
 
         expect(muya.canAddComment({ id: 'bad_marker_overlap' })).toBe(false);
-        expect(muya.addComment({ id: 'bad_marker_overlap' })).toBe(false);
+        expect(muya.addComment({ id: 'bad_marker_overlap' })).toBeNull();
     });
 
     it('wraps a same-leaf selection, appends metadata, and records one undo boundary', () => {
@@ -173,7 +173,7 @@ describe('muya.addComment()', () => {
             author: 'Ada',
             body: 'Please check this.',
             createdAt: '2026-06-30T12:00:00.000Z',
-        })).toBe(true);
+        })).toBe('cmt_test');
 
         const markdown = muya.getMarkdown();
         expect(markdown).toContain('A <!--MC:cmt_test-->reviewed<!--MC:~cmt_test--> span.');
@@ -226,10 +226,10 @@ describe('muya.addComment()', () => {
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
         leaf.setCursor(2, 2, true);
-        expect(muya.addComment({ id: 'new_comment' })).toBe(false);
+        expect(muya.addComment({ id: 'new_comment' })).toBeNull();
 
         leaf.setCursor(2, 10, true);
-        expect(muya.addComment({ id: 'existing' })).toBe(false);
+        expect(muya.addComment({ id: 'existing' })).toBeNull();
     });
 
     it('rejects invalid IDs and code-like selections', () => {
@@ -237,14 +237,14 @@ describe('muya.addComment()', () => {
         const invalidLeaf = invalidId.editor.scrollPage!.firstContentInDescendant() as Content;
         invalidLeaf.setCursor(2, 10, true);
 
-        expect(invalidId.addComment({ id: 'bad.id' })).toBe(false);
+        expect(invalidId.addComment({ id: 'bad.id' })).toBeNull();
         expect(invalidId.getMarkdown()).toBe('A reviewed span.\n');
 
         const code = boot('```js\nconst a = 1\n```\n');
         const codeLeaf = code.editor.scrollPage!.lastContentInDescendant() as Content;
         codeLeaf.setCursor(0, 5, true);
 
-        expect(code.addComment({ id: 'code_comment' })).toBe(false);
+        expect(code.addComment({ id: 'code_comment' })).toBeNull();
         expect(code.getMarkdown()).not.toContain('<!--MC:code_comment-->');
     });
 
@@ -253,7 +253,7 @@ describe('muya.addComment()', () => {
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
         leaf.setCursor(3, 11, true);
 
-        expect(muya.addComment({ id: 'inline_code_comment' })).toBe(false);
+        expect(muya.addComment({ id: 'inline_code_comment' })).toBeNull();
         expect(muya.getMarkdown()).toBe('A `reviewed` span.\n');
         expect(muya.getComments()).toEqual({
             diagnostics: [],
@@ -272,9 +272,9 @@ describe('muya.addComment()', () => {
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
         leaf.setCursor(2, 10, true);
-        expect(muya.addComment({ id: 'cmt_1' })).toBe(false);
+        expect(muya.addComment({ id: 'cmt_1' })).toBeNull();
 
-        expect(muya.addComment()).toBe(true);
+        expect(muya.addComment()).toBeTruthy();
         expect(muya.getMarkdown()).toContain('A <!--MC:cmt_2-->reviewed<!--MC:~cmt_2--> span.');
         expect(muya.getComments().threads.map(thread => thread.id)).toEqual(['cmt_2']);
     });
@@ -291,7 +291,7 @@ describe('muya.addComment()', () => {
 
         leaf.setCursor('A <!--'.length, 'A <!--MC:a-->reviewed'.length, true);
 
-        expect(muya.addComment({ id: 'bad_marker_overlap' })).toBe(false);
+        expect(muya.addComment({ id: 'bad_marker_overlap' })).toBeNull();
         expect(muya.getMarkdown()).toBe(original);
         expect(muya.getComments().diagnostics).toEqual([]);
     });
@@ -312,7 +312,7 @@ describe('muya.addComment()', () => {
             author: 'Ada',
             body: 'Review both lines.',
             createdAt: '2026-06-30T12:00:00.000Z',
-        })).toBe(true);
+        })).toBe('cross_leaf');
 
         expect(muya.getMarkdown()).toContain([
             'Alpha <!--MC:cross_leaf-->line.',
@@ -352,7 +352,7 @@ describe('muya.addComment()', () => {
             { offset: 4, block: last, path: [...last.path] },
         );
 
-        expect(muya.addComment({ id: 'cross_inline_code' })).toBe(false);
+        expect(muya.addComment({ id: 'cross_inline_code' })).toBeNull();
         expect(muya.getMarkdown()).toBe(markdown);
         expect(muya.getComments()).toEqual({
             diagnostics: [],
@@ -825,7 +825,7 @@ describe('muya comment events', () => {
         });
 
         leaf.setCursor(2, 10, true);
-        expect(muya.addComment({ id: 'event_comment' })).toBe(true);
+        expect(muya.addComment({ id: 'event_comment' })).toBe('event_comment');
 
         expect(events.at(-1)).toEqual(['event_comment']);
     });
@@ -1030,7 +1030,7 @@ describe('addComment guard — nested inline code', () => {
         );
 
         expect(muya.canAddComment({ id: 'nested_code' })).toBe(false);
-        expect(muya.addComment({ id: 'nested_code' })).toBe(false);
+        expect(muya.addComment({ id: 'nested_code' })).toBeNull();
         expect(muya.getMarkdown()).toBe('plain *em `co de` em* tail\n');
     });
 
@@ -1043,6 +1043,6 @@ describe('addComment guard — nested inline code', () => {
             { offset: start + 'cod'.length, block: first, path: first.path },
         );
 
-        expect(muya.addComment({ id: 'nested_link_code' })).toBe(false);
+        expect(muya.addComment({ id: 'nested_link_code' })).toBeNull();
     });
 });
