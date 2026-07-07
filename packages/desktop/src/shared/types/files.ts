@@ -73,6 +73,11 @@ export interface IFileState {
   pathname: string
   markdown: string
   diskBaseMarkdown?: string
+  // Set when an external auto-merge landed while the tab was in the
+  // background: the pre-merge buffer that seeds the activation undo boundary
+  // (external-merge.md §Background tabs and undo). Session-scoped — not part
+  // of the persisted buffer state.
+  preMergeJournal?: { markdown: string; cursor: unknown; mergedAt: string } | null
   isSaved: boolean
   encoding: FileEncoding
   lineEnding: LineEnding | string

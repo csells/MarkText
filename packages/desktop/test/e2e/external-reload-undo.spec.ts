@@ -27,7 +27,6 @@ type SourceCodeMirrorElement = Element & {
 const isDirty = (page: Page): Promise<boolean> =>
   page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))
 
-
 const openCommentsSidebar = async(page: Page, app: Parameters<typeof sendIpcToRenderer>[0]): Promise<void> => {
   if (!(await page.locator('.side-bar').isVisible())) {
     await clickMenuById(app, 'sideBarMenuItem')

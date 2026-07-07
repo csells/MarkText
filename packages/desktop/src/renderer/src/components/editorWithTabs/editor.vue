@@ -1577,6 +1577,24 @@ const handleFileChange = (payload: unknown) => {
       if (newCursor) {
         applyCursor(editor.value, newCursor)
       }
+    } else if (id && editorStore.tabs.find((t) => t.id === id)?.preMergeJournal) {
+      // Activating a tab that was auto-merged in the BACKGROUND: the engine
+      // never saw the merge, so its per-tab history describes a different
+      // document — discard it (never replay it onto the merged tree) and
+      // seed ONE rebuild-undo boundary from the pre-merge journal, matching
+      // the boundary foreground merges record via replaceContent.
+      const journalTab = editorStore.tabs.find((t) => t.id === id)!
+      const journal = journalTab.preMergeJournal!
+      engineHistoryByTab.delete(id)
+      editor.value.setContent(journal.markdown)
+      editor.value.replaceContent(newMarkdown)
+      journalTab.preMergeJournal = null
+      editorStore.UPDATE_TOC(editor.value.getTOC())
+      syncComments()
+      if (newCursor) {
+        applyCursor(editor.value, newCursor)
+      }
+      getSyntheticHistory(id, editor.value.getMarkdown())
     } else {
       // Tab switch / programmatic content swap: `setContent` replaces the
       // document and clears history, so restore the real engine history (kept
@@ -1659,7 +1677,6 @@ const showCommentsSidebar = () => {
     showSideBar: true
   })
 }
-
 
 const notifyCommentUnavailable = (message: string): void => {
   notice.notify({
@@ -2034,7 +2051,6 @@ onMounted(() => {
       blocks: editor.value.getState()
     })
   })
-
 
   editor.value.on('comments-change', (comments: IParsedMarkdownComments) => {
     editorStore.UPDATE_COMMENTS(comments)

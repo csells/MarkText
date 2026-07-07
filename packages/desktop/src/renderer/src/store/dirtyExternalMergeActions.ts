@@ -51,6 +51,7 @@ export interface MergeConflictState {
 
 interface DirtyExternalMergeStore {
   tabs: IFileState[]
+  currentFile: IFileState | null
   mergeConflict: MergeConflictState | null
   SHOW_TAB_VIEW: (show: boolean) => void
   updateTabIdToIndex: () => void
@@ -211,6 +212,16 @@ export function applyDirtyExternalMerge(
   if (!nextTab) return
 
   nextTab.diskBaseMarkdown = change.data.markdown
+  // A background tab's engine never saw this merge: journal the pre-merge
+  // buffer so activation can seed a rebuild-undo boundary from it. The
+  // foreground path records its boundary directly via replaceContent.
+  if (store.currentFile?.id !== nextTab.id) {
+    nextTab.preMergeJournal = {
+      markdown: localMarkdownBeforeMerge,
+      cursor: nextTab.muyaIndexCursor ?? null,
+      mergedAt: new Date().toISOString()
+    }
+  }
   if (cleanAfterApply) {
     markTabSavedAtCurrentHistory(nextTab)
   } else if (origin === 'accepted') {
