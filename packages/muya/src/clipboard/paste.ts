@@ -491,6 +491,7 @@ function applyParsedPaste(
         isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
             documentCommentMarkerKinds(clipboard))
     ) {
+        clipboard.muya.notifyCommentEditBlocked();
         return;
     }
 
@@ -566,6 +567,7 @@ function applyLiteralPaste(
             isUnsafeCommentMarkerTextEdit(oldCellText, 0, oldCellText.length, () =>
                 documentCommentMarkerKinds(clipboard))
         ) {
+            clipboard.muya.notifyCommentEditBlocked();
             return;
         }
 
@@ -611,6 +613,7 @@ function applyLiteralPaste(
         isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
             documentCommentMarkerKinds(clipboard))
     ) {
+        clipboard.muya.notifyCommentEditBlocked();
         return;
     }
 
@@ -657,6 +660,7 @@ function applyPlainTextBlockHtml(clipboard: Clipboard, ctx: IPasteContext, text:
         isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
             documentCommentMarkerKinds(clipboard))
     ) {
+        clipboard.muya.notifyCommentEditBlocked();
         return;
     }
     const head = content.substring(0, start.offset);

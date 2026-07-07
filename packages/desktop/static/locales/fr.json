@@ -260,6 +260,7 @@
       "resolved": "Résolu",
       "jump": "Aller au commentaire",
       "edit": "Modifier",
+      "editBlocked": "Cette modification casserait un commentaire. Résolvez ou supprimez d'abord le commentaire, ou modifiez son texte en mode source.",
       "resolve": "Résoudre",
       "reopen": "Rouvrir",
       "reply": "Répondre",

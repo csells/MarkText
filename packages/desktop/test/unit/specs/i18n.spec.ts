@@ -113,6 +113,7 @@ describe('desktop locale completeness for markdown comments', () => {
       'defaultAuthor',
       'diagnostics',
       'edit',
+      'editBlocked',
       'editPlaceholder',
       'empty',
       'jump',

@@ -1650,6 +1650,20 @@ const showCommentsSidebar = () => {
   })
 }
 
+// Guard refusals fire per keystroke; one notice per burst is feedback, more
+// is noise.
+let lastCommentEditBlockedNotice = 0
+const notifyCommentEditBlocked = (): void => {
+  const now = performance.now()
+  if (now - lastCommentEditBlockedNotice < 1500) return
+  lastCommentEditBlockedNotice = now
+  notice.notify({
+    title: t('sideBar.comments.title'),
+    type: 'warning',
+    message: t('sideBar.comments.editBlocked')
+  })
+}
+
 const notifyCommentUnavailable = (message: string): void => {
   notice.notify({
     title: t('sideBar.comments.title'),
@@ -2022,6 +2036,8 @@ onMounted(() => {
       blocks: editor.value.getState()
     })
   })
+
+  editor.value.on('comment-edit-blocked', notifyCommentEditBlocked)
 
   editor.value.on('comments-change', (comments: IParsedMarkdownComments) => {
     editorStore.UPDATE_COMMENTS(comments)

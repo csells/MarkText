@@ -309,6 +309,13 @@ export class Muya {
         };
     }
 
+    // Guard refusals (an edit that would corrupt comment syntax) are policy,
+    // not errors — but they must never be SILENT. Every guard funnels its
+    // refusal through here so the host can show feedback.
+    notifyCommentEditBlocked(): void {
+        this.eventCenter.emit('comment-edit-blocked');
+    }
+
     getComments(): IParsedMarkdownComments {
         // Comment derivation runs on every json-change; it must never throw out
         // of the edit pipeline. Surface the failure as a diagnostic so callers

@@ -60,8 +60,10 @@ class Clipboard {
             // A blocked cut must be a full no-op: skipping the copy too keeps
             // the user's existing clipboard instead of silently degrading
             // Ctrl+X to a copy of text that was never removed.
-            if (isCut && blockedCommentMarkerCut(this))
+            if (isCut && blockedCommentMarkerCut(this)) {
+                this.muya.notifyCommentEditBlocked();
                 return;
+            }
 
             this.copyHandler(event);
 
@@ -106,8 +108,10 @@ class Clipboard {
             // A guard-blocked cut leaves the model untouched, so the browser's
             // native edit (a printable key replacing the still-spanning DOM
             // selection) must be suppressed too or DOM and model diverge.
-            if (!this.cutHandler())
+            if (!this.cutHandler()) {
                 event.preventDefault();
+                this.muya.notifyCommentEditBlocked();
+            }
         };
 
         // IME composition over a selection: preventDefault on the 'Process'

@@ -686,6 +686,7 @@ class Format extends Content {
                 commentMarkerKindsInTexts(this._documentContentTexts()))
         ) {
             event.preventDefault();
+            this.muya.notifyCommentEditBlocked();
             const { footnote, superSubScript } = this.muya.options;
             const { labels } = this.inlineRenderer;
             const tokens = tokenizer(this.text, {
@@ -1780,6 +1781,7 @@ class Format extends Content {
         ) {
             return null;
         }
+        this.muya.notifyCommentEditBlocked();
         const tokens = tokenizer(this.text, {
             labels: this.inlineRenderer.labels,
             options: this.muya.options,
