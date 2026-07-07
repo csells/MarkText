@@ -48,16 +48,32 @@ parses options honestly, reports corruption as corruption, and refuses lossy
 re-encodes; afterPack verifies native-module unpackedness; malformed UTF-8
 metadata is a diagnostic; the trailing-newline trim no longer eats '?'.
 
+Structural/UX progress since: the Muya comment facade is extracted
+(comments/facade.ts; muya.ts back within ~60 lines of its pre-branch size);
+one version-keyed comment analysis serves the whole engine (zero document
+clones per keystroke) and the attach-time repaint touches only highlighted
+blocks; the selection module no longer computes the comment predicate; the
+Add Comment bit is one copy per process; guard refusals give localized
+feedback; deletion is transparent across hidden markers; compose focus is a
+deterministic handoff; source mode derives comment state on a trailing
+debounce with a cheap synchronous menu screen; literal-context sets are one
+definition; the CodeMirror overlay recognizes metadata canonically; accepted
+merge resolutions no longer re-offer Undo/Review; addComment returns the
+created id; astral-plane fixtures cover the stack; negative menu waits must
+settle.
+
 Remaining structural queue (confirmed, not yet executed): consolidate the
-per-key hidden-syntax guards into the placement layer fully (the backstop
-exists; per-path guards still duplicate); extract the Muya comment facade
-from muya.ts; decompose store/editor.ts and editor.vue/sourceCode.vue's
-duplicated comment bus-handler blocks; split comments.vue; replace the
-sidebar focus setTimeout barrage with a deterministic handoff; unify the
-four commentability caches; finish retiring muya-core.d.ts by pointing
-typecheck at muya's built types. Remaining UX polish: silent no-op comment
-guards need feedback affordances; remaining test gaps are listed in the
-review result (scratchpad archive).
+per-path hidden-syntax edit guards onto the placement layer fully; decompose
+store/editor.ts; extract the shared comment-command router from
+editor.vue/sourceCode.vue's mirrored bus handlers (the largest remaining
+item — one subscription per event dispatching to an active-surface adapter,
+with discardability/sidebar-opening/failure-toast policy defined once);
+split comments.vue into child components; give the dirty-external-merge
+subsystem an explicit session state machine; align parse.ts's folded-
+definition semantics with the source index; convert the remaining fixed
+waitForTimeout e2e sleeps to condition polls; stop reading WYSIWYG bytes
+through a source-mode round-trip in e2e helpers; point desktop typecheck at
+muya's built types to retire muya-core.d.ts.
 
 ## Hard Requirements
 
