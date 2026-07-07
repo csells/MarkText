@@ -13,7 +13,6 @@ export {
     encodeCommentHeadPayload,
     encodeCommentReplyPayload,
     isCommentMetadataDefinitionText,
-    isUnsafeCommentMarkerTextEdit,
     mergeCommentMetadataPatch,
     nextCommentId,
     parseCommentMetadataDefinition,
@@ -36,6 +35,7 @@ export {
 export type {
     IAddCommentInput,
     ICommentAnalysis,
+    TCommentAnalysisOptions,
     ICommentDiagnostic,
     ICommentDiagnosticSourceMap,
     ICommentMetadata,

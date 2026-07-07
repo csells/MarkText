@@ -260,7 +260,6 @@
       "resolved": "Resuelto",
       "jump": "Ir al comentario",
       "edit": "Editar",
-      "editBlocked": "Esta edición rompería un comentario. Resuelve o elimina el comentario primero, o edita su texto en modo fuente.",
       "resolve": "Resolver",
       "reopen": "Reabrir",
       "reply": "Responder",

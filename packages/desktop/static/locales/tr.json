@@ -260,7 +260,6 @@
       "resolved": "Çözüldü",
       "jump": "Yoruma git",
       "edit": "Düzenle",
-      "editBlocked": "Bu düzenleme bir yorumu bozar. Önce yorumu çözün veya kaldırın ya da metnini kaynak modunda düzenleyin.",
       "resolve": "Çöz",
       "reopen": "Yeniden aç",
       "reply": "Yanıtla",

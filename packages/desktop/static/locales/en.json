@@ -260,7 +260,6 @@
       "resolved": "Resolved",
       "jump": "Jump to comment",
       "edit": "Edit",
-      "editBlocked": "This edit would break a comment. Resolve or remove the comment first, or edit its text in source mode.",
       "resolve": "Resolve",
       "reopen": "Reopen",
       "comment": "Comment",

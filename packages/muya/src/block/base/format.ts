@@ -16,12 +16,6 @@ import type TreeNode from './treeNode';
 import Content from '../../block/base/content';
 import { ScrollPage } from '../../block/scrollPage';
 import {
-    commentMarkerKindsInText,
-    commentMarkerKindsInTexts,
-    isUnsafeCommentMarkerTextEdit,
-    NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
-} from '../../comments';
-import {
     CLASS_NAMES,
     FORMAT_MARKER_MAP,
     FORMAT_TAG_MAP,
@@ -217,47 +211,6 @@ function checkTokenIsInlineFormat(token: Token) {
         return /^(?:u|sub|sup|mark)$/i.test(token.tag);
 
     return false;
-}
-
-// The range in `oldText` that `newText` replaced, found by trimming the common
-// prefix and suffix. inputHandler validates the comment-marker guard against the
-// PRE-edit text, but getCursor() reports a POST-edit offset; at a comment's
-// trailing edge that post-edit offset slides into the (now-stale) closing marker
-// and false-flags a safe insertion, dropping the character. Deriving the real
-// edited range keeps the guard accurate.
-function editedTextRange(
-    oldText: string,
-    newText: string,
-    // Post-edit caret offset: disambiguates repeated characters. Typing '<'
-    // right before '<!--MC:...-->' is textually identical to inserting INSIDE
-    // the marker; only the caret says which happened.
-    postEditCursor?: number,
-): { start: number; end: number } {
-    const oldLen = oldText.length;
-    const newLen = newText.length;
-    let prefix = 0;
-    const maxPrefix = Math.min(oldLen, newLen);
-    while (prefix < maxPrefix && oldText[prefix] === newText[prefix])
-        prefix++;
-    let suffix = 0;
-    const maxSuffix = Math.min(oldLen - prefix, newLen - prefix);
-    while (suffix < maxSuffix && oldText[oldLen - 1 - suffix] === newText[newLen - 1 - suffix])
-        suffix++;
-
-    if (postEditCursor != null && newLen > oldLen && prefix + suffix >= oldLen) {
-        const insertedLength = newLen - oldLen;
-        const anchoredStart = postEditCursor - insertedLength;
-        if (
-            anchoredStart >= 0
-            && anchoredStart < prefix
-            && oldText.slice(0, anchoredStart) === newText.slice(0, anchoredStart)
-            && oldText.slice(anchoredStart) === newText.slice(postEditCursor)
-        ) {
-            return { start: anchoredStart, end: anchoredStart };
-        }
-    }
-
-    return { start: prefix, end: oldLen - suffix };
 }
 
 class Format extends Content {
@@ -556,19 +509,6 @@ class Format extends Content {
             if (!currentCursor)
                 return;
 
-            // A click that lands strictly inside a hidden comment marker leaves
-            // the caret invisible; snap it forward to the comment's text.
-            if (currentCursor.anchor.offset === currentCursor.focus.offset) {
-                const skipped = this._caretOutOfCommentMarker(
-                    currentCursor.anchor.offset,
-                    'forward',
-                );
-                if (skipped !== null) {
-                    this.setCursor(skipped, skipped, true);
-                    return;
-                }
-            }
-
             const cursor = Object.assign({}, currentCursor, {
                 block: this,
             });
@@ -674,37 +614,6 @@ class Format extends Content {
             CLASS_NAMES.MU_MATH_RENDER,
             CLASS_NAMES.MU_RUBY_RENDER,
         ]);
-        // Validate the edit's real range in the pre-edit text, not the post-edit
-        // cursor: at a comment's trailing edge the moved cursor lands inside the
-        // stale closing marker and would wrongly revert a safe character.
-        const edited = editedTextRange(this.text, textContent, start.offset);
-        // A legal edit may replace COMPLETE marker pairs (typing over a fully
-        // selected comment) — their definitions must not be left orphaned.
-        const replacedCommentIds = [...commentMarkerKindsInText(this.text.slice(edited.start, edited.end)).keys()];
-        if (
-            isUnsafeCommentMarkerTextEdit(this.text, edited.start, edited.end, () =>
-                commentMarkerKindsInTexts(this._documentContentTexts()))
-        ) {
-            event.preventDefault();
-            this.muya.notifyCommentEditBlocked();
-            const { footnote, superSubScript } = this.muya.options;
-            const { labels } = this.inlineRenderer;
-            const tokens = tokenizer(this.text, {
-                labels,
-                options: { footnote, superSubScript },
-            });
-            const offset
-                = this._skipCommentMarkerToken(tokens, start.offset, 'forward')
-                    ?? this._skipCommentMarkerToken(tokens, start.offset, 'backward')
-                    ?? start.offset;
-            this.update({
-                block: this,
-                anchor: { offset },
-                focus: { offset },
-            });
-            this.setCursor(offset, offset);
-            return;
-        }
         const isInInlineMath = !!this._checkCursorInTokenType(
             textContent,
             start.offset,
@@ -733,8 +642,6 @@ class Format extends Content {
         this.muya.editor.history.markInputBoundary(inputType, inputData);
 
         this.text = text;
-        if (replacedCommentIds.length)
-            this.scrollPage?.removeUnreferencedCommentMetadata(replacedCommentIds);
 
         const cursor = {
             block: this,
@@ -1414,32 +1321,6 @@ class Format extends Content {
         // `contenteditable=false` inline image; resolve the real offset from the
         // DOM so the scan can match the image token like any other caret.
         const offset = this._caretOffsetOnInlineImage() ?? start.offset;
-        const commentMarkerOffset = this._skipCommentMarkerToken(tokens, offset, 'backward');
-        if (commentMarkerOffset !== null) {
-            event.preventDefault();
-            // The marker is transparent to deletion, not a one-press speed
-            // bump (its edges share one visual column): chain across any
-            // adjacent markers, then delete the preceding visible character
-            // in the same keypress. At the block start there is nothing to
-            // delete — the hop alone places the caret.
-            let transparentOffset = commentMarkerOffset;
-            for (
-                let next = this._skipCommentMarkerToken(tokens, transparentOffset, 'backward');
-                next !== null;
-                next = this._skipCommentMarkerToken(tokens, transparentOffset, 'backward')
-            ) {
-                transparentOffset = next;
-            }
-            if (transparentOffset > 0) {
-                this.text = text.slice(0, transparentOffset - 1) + text.slice(transparentOffset);
-                this.setCursor(transparentOffset - 1, transparentOffset - 1, true);
-            }
-            else {
-                this.setCursor(transparentOffset, transparentOffset, true);
-            }
-            return;
-        }
-
         const { needRender, imageToken, referenceImageToken }
             = this._scanBackspaceTokens(tokens, offset);
 
@@ -1520,135 +1401,6 @@ class Format extends Content {
         return { needRender: false, imageToken: null, referenceImageToken: null };
     }
 
-    // Every parser-scannable content leaf's text, in document order — the
-    // marker-edit guard scans these for a cross-block counterpart marker.
-    private* _documentContentTexts(): Generator<string> {
-        let content: Nullable<Content> = this.scrollPage?.firstContentInDescendant() ?? null;
-        while (content) {
-            // Skip code-like leaves: marker-shaped text there is literal to
-            // the comment parser and must not count as a counterpart.
-            if (!NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(content.blockName))
-                yield content.text;
-            content = content.nextContentInContext();
-        }
-    }
-
-    // Skip a hidden comment marker at `offset` in one step (see
-    // Content.arrowHandler). Reuses the marker-skip scan so the caret clears
-    // the whole `<!--MC:id-->` span at once instead of stepping into its
-    // invisible zero-size text.
-    protected override commentMarkerSkip(
-        offset: number,
-        direction: 'backward' | 'forward',
-    ): number | null {
-        const tokens = tokenizer(this.text, {
-            hasBeginRules: false,
-            options: this.muya.options,
-        });
-
-        return this._skipCommentMarkerToken(tokens, offset, direction);
-    }
-
-    // One-step arrow navigation across a hidden marker. The marker's near and
-    // far boundaries render at the same column, so this fires one column early
-    // (`offset` sits just before the marker in the travel direction) and jumps
-    // to the far edge — the caret clears the whole marker in a single press
-    // instead of stalling on the near boundary.
-    protected override commentMarkerNavSkip(
-        offset: number,
-        direction: 'backward' | 'forward',
-    ): number | null {
-        const tokens = tokenizer(this.text, {
-            hasBeginRules: false,
-            options: this.muya.options,
-        });
-        for (const token of tokens) {
-            if (token.type !== 'comment_marker')
-                continue;
-
-            const { start, end } = token.range;
-            if (direction === 'forward' && offset < end && offset + 1 >= start)
-                return end;
-            if (direction === 'backward' && offset > start && offset - 1 <= end)
-                return start;
-        }
-
-        return null;
-    }
-
-    private _skipCommentMarkerToken(
-        tokens: Token[],
-        offset: number,
-        direction: 'backward' | 'forward',
-    ): number | null {
-        for (const token of tokens) {
-            if (token.type !== 'comment_marker')
-                continue;
-
-            const { start, end } = token.range;
-            if (direction === 'backward' && offset > start && offset <= end)
-                return start;
-
-            if (direction === 'forward' && offset >= start && offset < end)
-                return end;
-        }
-
-        return null;
-    }
-
-    // A collapsed caret can land STRICTLY inside a comment marker, whose raw
-    // `<!--MC:id-->` text renders as a zero-width hidden span — so the caret is
-    // invisible. Returns the marker edge to snap the caret to (in the `prefer`
-    // travel direction), or null when the caret is not inside a marker. Only a
-    // strictly-interior offset matches both directions; an offset resting on a
-    // marker boundary is already at visible text and is left alone.
-    private _caretOutOfCommentMarker(
-        offset: number,
-        prefer: 'backward' | 'forward',
-    ): number | null {
-        const tokens = tokenizer(this.text, {
-            hasBeginRules: false,
-            options: this.muya.options,
-        });
-        const len = this.text.length;
-
-        for (const token of tokens) {
-            if (token.type !== 'comment_marker')
-                continue;
-
-            const { start, end } = token.range;
-            // Caret positions where a hidden marker renders no visible caret:
-            //  - strictly inside the marker's raw text
-            //  - on its start edge when the marker begins the block (offset 0)
-            //  - on its end edge when the marker ends the block (offset === len)
-            // A start/end edge that abuts real text on the far side is visible
-            // (the caret rests against that text) and is left alone.
-            const insideStrict = offset > start && offset < end;
-            const atHiddenStart = offset === start && start === 0;
-            const atHiddenEnd = offset === end && end === len;
-            if (!insideStrict && !atHiddenStart && !atHiddenEnd)
-                continue;
-
-            // Snap to a visible edge — start is visible iff text precedes it,
-            // end iff text follows it — preferring the travel direction.
-            const startVisible = start > 0;
-            const endVisible = end < len;
-            if (prefer === 'backward' && startVisible)
-                return start;
-            if (prefer === 'forward' && endVisible)
-                return end;
-            if (startVisible)
-                return start;
-            if (endVisible)
-                return end;
-
-            // Marker fills the whole block — no visible edge; leave it be.
-            return null;
-        }
-
-        return null;
-    }
-
     // Resolve the real caret offset when the collapsed caret is parked on a
     // trailing inline image, otherwise null. Inline images are
     // `contenteditable=false`, so the browser parks the caret on the wrapper or
@@ -1713,32 +1465,6 @@ class Format extends Content {
     override deleteHandler(event: KeyboardEvent): void {
         const { start, end } = this.getCursor()!;
         const { text } = this;
-        if (start.offset === end.offset) {
-            const { footnote, superSubScript } = this.muya.options;
-            const { labels } = this.inlineRenderer;
-            const tokens = tokenizer(text, {
-                labels,
-                options: { footnote, superSubScript },
-            });
-            const commentMarkerOffset = this._skipCommentMarkerToken(tokens, start.offset, 'forward');
-            if (commentMarkerOffset !== null) {
-                event.preventDefault();
-                // Transparent deletion, mirroring backspace above.
-                let transparentOffset = commentMarkerOffset;
-                for (
-                    let next = this._skipCommentMarkerToken(tokens, transparentOffset, 'forward');
-                    next !== null;
-                    next = this._skipCommentMarkerToken(tokens, transparentOffset, 'forward')
-                ) {
-                    transparentOffset = next;
-                }
-                if (transparentOffset < text.length) {
-                    this.text = text.slice(0, transparentOffset) + text.slice(transparentOffset + 1);
-                }
-                this.setCursor(transparentOffset, transparentOffset, true);
-                return;
-            }
-        }
 
         // Let input handler to handle this case.
         if (start.offset !== end.offset || start.offset !== text.length)
@@ -1750,9 +1476,6 @@ class Format extends Content {
         if (
             !nextBlock
             || nextBlock.blockName !== 'paragraph.content'
-            // The hidden metadata definition block is a non-mergeable atom:
-            // folding it into visible prose would corrupt the comment store.
-            || nextBlock.isCommentMetadataBlock()
         ) {
             // If the next block is code content or table cell, nothing need to do.
             event.preventDefault();
@@ -1797,50 +1520,14 @@ class Format extends Content {
         needRemovedBlock!.remove();
     }
 
-    // A non-collapsed selection that would delete one endpoint of a comment
-    // whose partner survives orphans the comment. Enter/Shift+Enter drop the
-    // selected range, so guard them the same way inputHandler guards typing:
-    // when the edit is unsafe, collapse the caret to a marker-safe offset and
-    // report handled, so the caller performs no destructive split. Returns the
-    // safe collapsed offset, or null when the edit is safe to proceed.
-    private _markerSafeCollapseOffset(startOffset: number, endOffset: number): number | null {
-        if (startOffset === endOffset)
-            return null;
-        if (
-            !isUnsafeCommentMarkerTextEdit(this.text, startOffset, endOffset, () =>
-                commentMarkerKindsInTexts(this._documentContentTexts()))
-        ) {
-            return null;
-        }
-        this.muya.notifyCommentEditBlocked();
-        const tokens = tokenizer(this.text, {
-            labels: this.inlineRenderer.labels,
-            options: this.muya.options,
-        });
-        return (
-            this._skipCommentMarkerToken(tokens, startOffset, 'forward')
-            ?? this._skipCommentMarkerToken(tokens, startOffset, 'backward')
-            ?? startOffset
-        );
-    }
-
     protected shiftEnterHandler(event: Event): void {
         event.preventDefault();
         event.stopPropagation();
 
         const { text: oldText } = this;
         const { start, end } = this.getCursor()!;
-        const safeOffset = this._markerSafeCollapseOffset(start.offset, end.offset);
-        if (safeOffset !== null) {
-            this.update({ block: this, anchor: { offset: safeOffset }, focus: { offset: safeOffset } });
-            this.setCursor(safeOffset, safeOffset, true);
-            return;
-        }
         this.text
             = `${oldText.substring(0, start.offset)}\n${oldText.substring(end.offset)}`;
-        this.scrollPage?.removeUnreferencedCommentMetadata(
-            [...commentMarkerKindsInText(oldText.slice(start.offset, end.offset)).keys()],
-        );
         this.setCursor(start.offset + 1, end.offset + 1, true);
     }
 
@@ -1849,12 +1536,6 @@ class Format extends Content {
         this.muya.editor.history.markInputBoundary('insertParagraph', '\n');
         const { text: oldText, muya, parent } = this;
         const { start, end } = this.getCursor()!;
-        const safeOffset = this._markerSafeCollapseOffset(start.offset, end.offset);
-        if (safeOffset !== null) {
-            this.update({ block: this, anchor: { offset: safeOffset }, focus: { offset: safeOffset } });
-            this.setCursor(safeOffset, safeOffset, true);
-            return;
-        }
         this.text = oldText.substring(0, start.offset);
         const textOfNewNode = oldText.substring(end.offset);
         const newParagraphState = {

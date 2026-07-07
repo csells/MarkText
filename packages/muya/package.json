@@ -48,6 +48,7 @@
         "lint:fix": "eslint src test --fix",
         "lint:css": "stylelint \"src/**/*.css\"",
         "lint:types": "tsc --noEmit",
+        "build:types": "tsc --emitDeclarationOnly --declaration --noEmit false --outDir lib/types",
         "check-circular": "madge --circular src/index.ts",
         "build": "tsc && vite build",
         "test": "vitest run",

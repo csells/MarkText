@@ -137,15 +137,8 @@ class TextSelection {
 
     selectAllContent() {
         const { _scrollPage: scrollPage } = this;
-        // Clamp the ends past hidden comment metadata definition blocks so a
-        // collapse of the select-all range can never drop the caret into that
-        // off-limits syntax (the metadata is typically the trailing block).
-        let aBlock: Nullable<Content> = scrollPage?.firstContentInDescendant();
-        while (aBlock && aBlock.isCommentMetadataBlock())
-            aBlock = aBlock.nextContentInContext();
-        let fBlock: Nullable<Content> = scrollPage?.lastContentInDescendant();
-        while (fBlock && fBlock.isCommentMetadataBlock())
-            fBlock = fBlock.previousContentInContext();
+        const aBlock: Nullable<Content> = scrollPage?.firstContentInDescendant();
+        const fBlock: Nullable<Content> = scrollPage?.lastContentInDescendant();
 
         if (aBlock == null || fBlock == null)
             return;
@@ -326,47 +319,6 @@ class TextSelection {
         eventCenter.attachDOMEvent(domNode, 'mouseup', handleMouseupOrLeave);
         eventCenter.attachDOMEvent(domNode, 'mouseleave', handleMouseupOrLeave);
         eventCenter.attachDOMEvent(domNode, 'click', handleMousemoveOrClick);
-        eventCenter.attachDOMEvent(this._doc, 'selectionchange', () => this.snapCaretOutOfHiddenSyntax());
-    }
-
-    // HARD INVARIANT (specs/vision/review-comment-vision.md): a collapsed caret
-    // must never REST inside hidden comment syntax. Input-path guards (arrow
-    // skips, click snaps, select-all clamps) cannot enumerate every way the
-    // browser can place a caret — e.g. natively collapsing a select-all range
-    // rests the caret at document end, inside the trailing hidden metadata
-    // block. This is the backstop at the placement layer itself: after every
-    // native selection change, an off-limits caret is snapped to the nearest
-    // visible position. Non-collapsed selections may legally SPAN hidden
-    // syntax, so only a resting caret is corrected.
-    snapCaretOutOfHiddenSyntax(): void {
-        const selection = this._doc.getSelection();
-        if (!selection || !selection.isCollapsed || !selection.anchorNode)
-            return;
-
-        const contentDom = findContentDOM(selection.anchorNode);
-        if (!contentDom || !this._muya.domNode.contains(contentDom))
-            return;
-
-        const block = contentDom[BLOCK_DOM_PROPERTY] as Content | undefined;
-        if (!block || !block.domNode?.isConnected || !block.isCommentMetadataBlock())
-            return;
-
-        // Metadata definitions sit at the document tail by convention, so the
-        // nearest visible position is the end of the previous editable block;
-        // a document that STARTS with metadata snaps forward instead. The
-        // snap re-fires selectionchange, which then no-ops on the valid caret.
-        // Skip snap targets whose DOM is mid-replacement (a re-render can fire
-        // selectionchange while the block tree and DOM are being swapped) —
-        // the selectionchange after the render settles handles those.
-        const previous = block.previousEditableContentInContext();
-        if (previous?.domNode?.isConnected) {
-            previous.setCursor(previous.text.length, previous.text.length, false);
-            return;
-        }
-
-        const next = block.nextEditableContentInContext();
-        if (next?.domNode?.isConnected)
-            next.setCursor(0, 0, false);
     }
 
     private _selectRange(range: Range) {

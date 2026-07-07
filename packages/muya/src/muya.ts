@@ -52,7 +52,11 @@ import './assets/styles/prismjs/light.theme.css';
 // arbitrary options object; `init()` instantiates each plugin.
 export interface IMuyaPluginConstructor {
     pluginName: string;
-    new(muya: Muya, options: Record<string, unknown>): unknown;
+    // Plugin option shapes are plugin-owned; the registry stores and
+    // forwards them opaquely, and a constructor parameter is contravariant,
+    // so anything narrower than `any` would reject every real plugin.
+    // eslint-disable-next-line ts/no-explicit-any
+    new(muya: Muya, options?: any): unknown;
 }
 
 interface IPlugin {
@@ -237,10 +241,6 @@ export class Muya {
 
     commentRenderView() {
         return this._comments.commentRenderView();
-    }
-
-    notifyCommentEditBlocked(): void {
-        this._comments.notifyCommentEditBlocked();
     }
 
     getComments(): IParsedMarkdownComments {

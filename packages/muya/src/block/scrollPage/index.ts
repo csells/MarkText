@@ -4,12 +4,6 @@ import type { Nullable } from '../../types';
 import type Content from '../base/content';
 import type TreeNode from '../base/treeNode';
 import type { IConstructor, TBlockPath } from '../types';
-import { commentMarkerKindsInTexts } from '../../comments/markerScan';
-import {
-    commentDefinitionLineThreadId,
-    isCommentMetadataDefinitionText,
-    NON_COMMENT_SCANNABLE_LEAF_BLOCKS,
-} from '../../comments/syntax';
 import { BLOCK_DOM_PROPERTY } from '../../config';
 import { isHTMLElement, isMouseEvent } from '../../utils';
 import logger from '../../utils/logger';
@@ -109,76 +103,6 @@ export class ScrollPage extends Parent {
             }),
         );
         this.updateCommentContent();
-    }
-
-    // Remove the hidden [MC:id] definition paragraphs of comments whose
-    // markers no longer exist anywhere in the document. The document-level
-    // sweep lives here (not in any one editing surface) so cut, paste,
-    // typing, and Enter all share it.
-    removeUnreferencedCommentMetadata(ids: string[]): void {
-        if (ids.length === 0)
-            return;
-
-        const blocks: Content[] = [];
-        let block: Nullable<Content> = this.firstContentInDescendant();
-        while (block) {
-            blocks.push(block);
-            block = block.nextContentInContext();
-        }
-
-        const documentKinds = commentMarkerKindsInTexts(
-            blocks
-                .filter(candidate => !NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(candidate.blockName))
-                .map(candidate => candidate.text),
-        );
-
-        for (const id of ids) {
-            if (documentKinds.has(id))
-                continue;
-
-            for (const candidate of blocks) {
-                // Mirror the comment parser's eligibility: a definition-shaped
-                // line inside a code fence / front matter / html block is
-                // literal text, not metadata.
-                if (candidate.blockName !== 'paragraph.content')
-                    continue;
-                if (!isCommentMetadataDefinitionText(candidate.text))
-                    continue;
-
-                // A metadata run can interleave several threads' lines: drop
-                // only this thread's head/reply lines, keep the rest.
-                const lines = candidate.text.split('\n');
-                const kept = lines.filter(line => commentDefinitionLineThreadId(line) !== id);
-                if (kept.length === lines.length)
-                    continue;
-                if (kept.length > 0) {
-                    candidate.text = kept.join('\n');
-                    candidate.update();
-                    continue;
-                }
-
-                // Remove only the definition's own paragraph, then any
-                // ancestors the removal emptied — never the whole outermost
-                // container, which may hold unrelated content.
-                let node: Nullable<Parent> = candidate.parent;
-                while (node && !node.isScrollPage) {
-                    const parent: Nullable<Parent> = node.parent;
-                    node.remove();
-                    if (!parent || parent.isScrollPage || parent.length() > 0)
-                        break;
-                    node = parent;
-                }
-            }
-        }
-
-        if (this.length() === 0) {
-            const newParagraphBlock = ScrollPage.loadBlock('paragraph').create(
-                this.muya,
-                { name: 'paragraph', text: '' },
-            );
-            this.append(newParagraphBlock, 'user');
-            newParagraphBlock.firstContentInDescendant()?.setCursor(0, 0, true);
-        }
     }
 
     updateCommentContent() {

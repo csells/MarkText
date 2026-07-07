@@ -260,7 +260,6 @@
       "resolved": "Erledigt",
       "jump": "Zum Kommentar springen",
       "edit": "Bearbeiten",
-      "editBlocked": "Diese Änderung würde einen Kommentar beschädigen. Lösen oder entfernen Sie den Kommentar zuerst, oder bearbeiten Sie den Text im Quellmodus.",
       "resolve": "Erledigen",
       "reopen": "Wieder öffnen",
       "reply": "Antworten",

@@ -2,11 +2,10 @@ import type { Muya } from '../muya';
 import type { IClipboardPayload } from './copyData';
 import Format from '../block/base/format';
 import { cloneCommentModel } from '../comments/model';
-import { SelectionDirection } from '../selection/types';
 import { buildStateReplaceOp } from '../state';
 import { isClipboardEvent, isKeyboardEvent } from '../utils';
 import { getClipboardData, writeClipboardData } from './copyData';
-import { blockedCommentMarkerCut, cutSelection, deleteTableSelection } from './cut';
+import { cutSelection, deleteTableSelection } from './cut';
 import { pastePlainText, pasteSelection } from './paste';
 import { pasteImageSrc } from './pasteImage';
 import { CopyType, PasteType } from './types';
@@ -59,14 +58,6 @@ class Clipboard {
 
             const isCut = event.type === 'cut';
 
-            // A blocked cut must be a full no-op: skipping the copy too keeps
-            // the user's existing clipboard instead of silently degrading
-            // Ctrl+X to a copy of text that was never removed.
-            if (isCut && blockedCommentMarkerCut(this)) {
-                this.muya.notifyCommentEditBlocked();
-                return;
-            }
-
             this.copyHandler(event);
 
             if (isCut)
@@ -107,13 +98,11 @@ class Clipboard {
             if (key === 'Backspace' || key === 'Delete')
                 event.preventDefault();
 
-            // A guard-blocked cut leaves the model untouched, so the browser's
-            // native edit (a printable key replacing the still-spanning DOM
+            // A no-op cut leaves the model untouched, so the browser's native
+            // edit (a printable key replacing the still-spanning DOM
             // selection) must be suppressed too or DOM and model diverge.
-            if (!this.cutHandler()) {
+            if (!this.cutHandler())
                 event.preventDefault();
-                this.muya.notifyCommentEditBlocked();
-            }
         };
 
         // IME composition over a selection: preventDefault on the 'Process'
@@ -129,23 +118,9 @@ class Clipboard {
             if (!selection || selection.isCollapsed)
                 return;
 
-            const { anchor, focus, direction } = selection;
-            const startBlock = direction === SelectionDirection.FORWARD ? anchor.block : focus.block;
-            const startOffset = direction === SelectionDirection.FORWARD ? anchor.offset : focus.offset;
-
-            // A composition over a selection covering a comment marker whose
-            // partner survives elsewhere would let the native compose delete
-            // the marker and orphan it — for BOTH same- and cross-block
-            // selections. Collapse to a caret so the composed text inserts
-            // beside the marker instead of over it.
-            if (blockedCommentMarkerCut(this)) {
-                startBlock.setCursor(startOffset, startOffset, true);
-                return;
-            }
-
-            // An unguarded CROSS-block selection still needs the model-driven
-            // cut (the native compose cannot merge blocks correctly); a
-            // same-block one is left to the native compose as usual.
+            // A CROSS-block selection needs the model-driven cut before the
+            // composition (the native compose cannot merge blocks correctly);
+            // a same-block one is left to the native compose as usual.
             if (!selection.isSelectionInSameBlock)
                 this.cutHandler();
         };

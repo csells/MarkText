@@ -295,13 +295,38 @@ class JSONState {
         return this._state;
     }
 
+    // Serialization cache: sidebar reads, saves, word counts, and bridge
+    // reads may all serialize in one tick — only the first per version pays
+    // for materialization + generation. The version covers the comment model
+    // too (setCommentModel bumps it).
+    private _markdownCache: {
+        version: number;
+        // The one serialization-affecting option (setOptions can change it
+        // without a document op).
+        listIndentation: unknown;
+        markdown: string;
+    } | null = null;
+
     getMarkdown() {
         // Marker bytes and the metadata appendix exist only in serialized
         // output; materialize them from the model first. State and model
         // advance together in _apply, so a pending rAF batch leaves BOTH
         // pre-op — serializing the unflushed pair stays consistent (#2938
         // callers flush explicitly when they need durability).
-        return this.getMarkdownFromState(materializeCommentModel(this._state, this._commentModel));
+        const { listIndentation } = this._muya.options;
+        if (
+            this._markdownCache?.version !== this._version
+            || this._markdownCache.listIndentation !== listIndentation
+        ) {
+            this._markdownCache = {
+                version: this._version,
+                listIndentation,
+                markdown: this.getMarkdownFromState(
+                    materializeCommentModel(this._state, this._commentModel),
+                ),
+            };
+        }
+        return this._markdownCache.markdown;
     }
 
     getTOC() {

@@ -32,7 +32,7 @@
     "test:unit": "pnpm --filter marktext test:unit",
     "test:e2e": "pnpm --filter marktext test:e2e",
     "test:skills": "pnpm --filter @marktext/markdown-comments-skill test",
-    "typecheck": "pnpm --filter marktext typecheck",
+    "typecheck": "pnpm --filter @muyajs/core build:types && pnpm --filter marktext typecheck",
     "typecheck:watch": "pnpm --filter marktext typecheck:watch",
     "check": "pnpm lint && pnpm typecheck",
     "gen-third-party": "tsx scripts/generateThirdPartyLicense.ts",

@@ -9,7 +9,7 @@ import {
     parseFenceMarker,
 } from '../utils/markdownBlockRules';
 import { lexBlock } from '../utils/marked';
-import { forEachRealCommentMarker, orphansCounterpart } from './markerScan';
+import { forEachRealCommentMarker } from './markerScan';
 import {
     COMMENT_MARKER_PATTERN,
     htmlBlockTokenIsParagraph,
@@ -26,69 +26,6 @@ export interface IScannedMarkers {
     allKindsById: Map<string, Set<TMarkerKind>>;
     // The edit only partially covers a marker (would leave a broken fragment).
     partial: boolean;
-}
-
-// Scan `text` for comment markers the edit touches, using the real inline
-// tokenizer (so a marker inside an inline-code/inline-math span is not treated
-// as a comment marker). Returns `partial: true` as soon as the edit clips a
-// marker without covering it whole. Exported so the clipboard cut guards scan
-// selections with the SAME tokenizer definition of a marker as everything else.
-export function scanEditedCommentMarkers(text: string, startOffset: number, endOffset: number): IScannedMarkers {
-    const selectedKindsById = new Map<string, Set<TMarkerKind>>();
-    const allKindsById = new Map<string, Set<TMarkerKind>>();
-
-    const markers: Array<{ id: string; kind: TMarkerKind; start: number; end: number }> = [];
-    forEachRealCommentMarker(text, marker => markers.push(marker));
-
-    for (const { id, kind, start, end } of markers) {
-        const allKinds = allKindsById.get(id) ?? new Set<TMarkerKind>();
-        allKinds.add(kind);
-        allKindsById.set(id, allKinds);
-
-        const intersects = startOffset < end && endOffset > start;
-        const cursorInside = startOffset === endOffset && startOffset > start && startOffset < end;
-        if (!intersects && !cursorInside)
-            continue;
-
-        if (startOffset > start || endOffset < end)
-            return { selectedKindsById, allKindsById, partial: true };
-
-        const selectedKinds = selectedKindsById.get(id) ?? new Set<TMarkerKind>();
-        selectedKinds.add(kind);
-        selectedKindsById.set(id, selectedKinds);
-    }
-
-    return { selectedKindsById, allKindsById, partial: false };
-}
-
-export function isUnsafeCommentMarkerTextEdit(
-    text: string,
-    startOffset: number,
-    endOffset: number,
-    // A comment range can open in this block and close in another, so the
-    // counterpart check must consult marker kinds from the whole document,
-    // not just `text`. Lazy because most edits touch no marker at all — the
-    // thunk runs only when the edit fully covers at least one marker.
-    getDocumentKinds?: () => ReadonlyMap<string, ReadonlySet<TMarkerKind>>,
-): boolean {
-    const { selectedKindsById, allKindsById, partial } = scanEditedCommentMarkers(
-        text,
-        startOffset,
-        endOffset,
-    );
-    if (partial)
-        return true;
-    if (selectedKindsById.size === 0)
-        return false;
-
-    const documentKinds = getDocumentKinds?.() ?? allKindsById;
-    for (const [id, selectedKinds] of selectedKindsById) {
-        const counterpartKinds = documentKinds.get(id) ?? allKindsById.get(id) ?? new Set<TMarkerKind>();
-        if (orphansCounterpart(selectedKinds, counterpartKinds))
-            return true;
-    }
-
-    return false;
 }
 
 export interface ICommentSourceIndexRange {

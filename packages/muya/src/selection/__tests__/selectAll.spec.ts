@@ -309,9 +309,9 @@ describe('keyboard Cmd/Ctrl+A', () => {
         expect(selection.focus!.offset).toBe('gamma'.length);
     });
 
-    it('never lands an endpoint on a hidden comment metadata block', () => {
+    it('spans only visible content — metadata never enters the document', () => {
         const muya = bootMuya(
-            'alpha\n\n<!--MC:a-->beta<!--MC:~a-->\n\n[MC:a]: data:application/json;base64,e30=\n',
+            'alpha\n\n<!--MC:a-->beta<!--MC:~a-->\n\n[MC:a]: {"version":2,"status":"open"}\n',
         );
         const sp = muya.editor.scrollPage!;
         const first = sp.firstContentInDescendant()!;
@@ -321,8 +321,10 @@ describe('keyboard Cmd/Ctrl+A', () => {
         pressCtrlA(first);
 
         expect(selection.anchorBlock).toBe(first);
-        expect(selection.focusBlock!.isCommentMetadataBlock()).toBe(false);
+        // The runtime document holds clean text only; the last block IS the
+        // commented paragraph, not a hidden metadata block.
         expect(selection.focusBlock!.text).toContain('beta');
+        expect(selection.focusBlock!.text).not.toContain('[MC:');
     });
 });
 

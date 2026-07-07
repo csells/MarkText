@@ -47,14 +47,31 @@ export class MuyaComments {
     }
 
     private _repaintCommentBlocks() {
-        const { scrollPage } = this._muya.editor;
+        const { scrollPage, selection } = this._muya.editor;
         if (!scrollPage)
             return;
+
+        // Re-rendering a block destroys any DOM selection inside it; restore
+        // the CACHED selection afterwards (the live one may already be gone —
+        // e.g. the user is typing in the sidebar), so replying or resolving
+        // never yanks the caret back to the commented word.
+        const preserved
+            = selection.anchor && selection.focus
+                ? {
+                        anchor: { offset: selection.anchor.offset },
+                        focus: { offset: selection.focus.offset },
+                        anchorPath: selection.anchorPath,
+                        focusPath: selection.focusPath,
+                    }
+                : null;
 
         scrollPage.breadthFirstTraverse((node) => {
             if (node.isContent())
                 (node as Content).update();
         });
+
+        if (preserved)
+            this._muya.setCursor(preserved);
     }
 
     emitCommentsChange() {
@@ -112,13 +129,6 @@ export class MuyaComments {
             comments: this._commentView().comments,
             textPathIndexes: this._commentViewTextPathIndexes(),
         };
-    }
-
-    // Guard refusals (an edit that would corrupt comment syntax) are policy,
-    // not errors — but they must never be SILENT. Every guard funnels its
-    // refusal through here so the host can show feedback.
-    notifyCommentEditBlocked(): void {
-        this._muya.eventCenter.emit('comment-edit-blocked');
     }
 
     getComments(): IParsedMarkdownComments {

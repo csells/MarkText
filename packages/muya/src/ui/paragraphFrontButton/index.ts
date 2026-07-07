@@ -49,6 +49,11 @@ function isOrderOrBulletList(block: Parent): block is OrderList | BulletList {
 }
 
 export class ParagraphFrontButton {
+    // The registry keys plugins by this static; without it the plugin
+    // registered under `undefined` (masked for years by a hand-written
+    // declaration file that claimed the contract was met).
+    static pluginName = 'frontButton';
+
     public name: string = 'mu-front-button';
     private _resizeObserver: ResizeObserver | null = null;
     private _options: IBaseOptions;

@@ -11,7 +11,6 @@ import LangInputContent from '../block/content/langInputContent';
 import { ScrollPage } from '../block/scrollPage';
 import {
     analyzeMarkdownComments,
-    isUnsafeCommentMarkerTextEdit,
     nextCommentId,
 } from '../comments';
 import { URL_REG } from '../config';
@@ -20,7 +19,6 @@ import HtmlToMarkdown from '../state/htmlToMarkdown';
 import { MarkdownToState } from '../state/markdownToState';
 import { isAnyListState, isParagraphState } from '../state/types';
 import { getClipboardImageFile, getCopyTextType, isStandaloneTableHtml, normalizePastedHTML } from '../utils/paste';
-import { commentIdsInText, documentCommentMarkerKinds, removeCommentMetadataForUnreferencedIds } from './cut';
 import { mergePasteIntoHeading } from './mergePasteIntoHeading';
 import { tryPasteImage, tryReplaceSelectedImage } from './pasteImage';
 import { PasteType } from './types';
@@ -487,18 +485,6 @@ function applyParsedPaste(
     if (states.length === 0)
         return;
 
-    if (
-        isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
-            documentCommentMarkerKinds(clipboard))
-    ) {
-        clipboard.muya.notifyCommentEditBlocked();
-        return;
-    }
-
-    // A legal replacement may remove COMPLETE marker pairs; their now-
-    // unreferenced definitions must go with them or they orphan silently.
-    const replacedCommentIds = commentIdsInText(content.substring(start.offset, end.offset));
-
     const head = content.substring(0, start.offset);
     const tail = content.substring(end.offset);
 
@@ -510,15 +496,12 @@ function applyParsedPaste(
     );
     if (remaining !== states) {
         pasteAfterHeading(muya, ctx, remaining, tail);
-        removeCommentMetadataForUnreferencedIds(clipboard, replacedCommentIds);
 
         return;
     }
 
-    if (tryMergeListPaste(clipboard, ctx, states, head, tail)) {
-        removeCommentMetadataForUnreferencedIds(clipboard, replacedCommentIds);
+    if (tryMergeListPaste(clipboard, ctx, states, head, tail))
         return;
-    }
 
     let mergeText = inlineMergeText(states[0], head.length > 0);
 
@@ -535,7 +518,6 @@ function applyParsedPaste(
         pasteInlineMerge(muya, ctx, states, mergeText, head, tail);
     else
         pasteNewline(muya, ctx, states, head, tail);
-    removeCommentMetadataForUnreferencedIds(clipboard, replacedCommentIds);
 }
 
 // `language-input`, `table.cell.content` and `codeblock.content` never parse a
@@ -559,24 +541,11 @@ function applyLiteralPaste(
         if (!isSingleCellSelected(clipboard))
             return;
 
-        // The whole cell text is replaced: mirror the ordinary text path's
-        // marker guard (a lone endpoint whose counterpart lives elsewhere
-        // must not be destroyed) and its unreferenced-metadata sweep.
-        const oldCellText = anchorBlock.text;
-        if (
-            isUnsafeCommentMarkerTextEdit(oldCellText, 0, oldCellText.length, () =>
-                documentCommentMarkerKinds(clipboard))
-        ) {
-            clipboard.muya.notifyCommentEditBlocked();
-            return;
-        }
-
         const split = splitTableCellCommentPaste(clipboard, markdown);
         anchorBlock.text = split.cellMarkdown.trim().replace(/\n/g, '<br/>');
         const offset = anchorBlock.text.length;
         anchorBlock.setCursor(offset, offset, true);
         appendCommentMetadataDefinitions(clipboard, split.metadataDefinitions);
-        removeCommentMetadataForUnreferencedIds(clipboard, commentIdsInText(oldCellText));
         clipboard.selection.table.clear();
 
         return;
@@ -609,23 +578,12 @@ function applyLiteralPaste(
         markdown = markdown.trim().replace(/\n/g, '<br/>');
     }
 
-    if (
-        isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
-            documentCommentMarkerKinds(clipboard))
-    ) {
-        clipboard.muya.notifyCommentEditBlocked();
-        return;
-    }
-
-    const replacedCommentIds = commentIdsInText(content.substring(start.offset, end.offset));
-
     anchorBlock.text
         = content.substring(0, start.offset)
             + markdown
             + content.substring(end.offset);
     const offset = start.offset + markdown.length;
     anchorBlock.setCursor(offset, offset, true);
-    removeCommentMetadataForUnreferencedIds(clipboard, replacedCommentIds);
     appendCommentMetadataDefinitions(clipboard, metadataDefinitions);
     // Update html preview if the out container is `html-block`
     if (
@@ -653,16 +611,6 @@ function applyLiteralPaste(
 // `createBlockP(lines.slice(1).join('\n')) + insertHtmlBlock`.
 function applyPlainTextBlockHtml(clipboard: Clipboard, ctx: IPasteContext, text: string): void {
     const { anchorBlock, start, end, content } = ctx;
-    // Same marker guard as the ordinary text/literal paste paths: replacing a
-    // selection that covers one endpoint of a comment whose partner survives
-    // elsewhere would orphan it. Skip the paste when unsafe.
-    if (
-        isUnsafeCommentMarkerTextEdit(content, start.offset, end.offset, () =>
-            documentCommentMarkerKinds(clipboard))
-    ) {
-        clipboard.muya.notifyCommentEditBlocked();
-        return;
-    }
     const head = content.substring(0, start.offset);
     const tail = content.substring(end.offset);
     const lines = text.trim().split('\n');

@@ -7,7 +7,6 @@ import type Parent from './parent';
 import diff from 'fast-diff';
 import TreeNode from '../../block/base/treeNode';
 import { ScrollPage } from '../../block/scrollPage';
-import { isCommentMetadataDefinitionText } from '../../comments';
 import { BACK_HASH, BRACKET_HASH, EVENT_KEYS, isFirefox } from '../../config';
 import Selection from '../../selection';
 import {
@@ -452,41 +451,13 @@ class Content extends TreeNode {
             event.preventDefault();
     }
 
-    // A hidden comment metadata definition block (`[MC:id]: data:...`) renders
-    // as an all-hidden paragraph. The caret must never enter it (it's off-limits
-    // WYSIWYG syntax), so navigation treats it as non-content.
-    isCommentMetadataBlock(): boolean {
-        return isCommentMetadataDefinitionText(this.text);
-    }
-
-    // Next/previous content block that can actually hold the caret — hidden
-    // comment metadata definition blocks are skipped.
-    nextEditableContentInContext(): Nullable<Content> {
-        let content = this.nextContentInContext();
-        while (content && content.isCommentMetadataBlock())
-            content = content.nextContentInContext();
-
-        return content;
-    }
-
-    previousEditableContentInContext(): Nullable<Content> {
-        let content = this.previousContentInContext();
-        while (content && content.isCommentMetadataBlock())
-            content = content.previousContentInContext();
-
-        return content;
-    }
-
     arrowHandler(event: Event) {
         if (!isKeyboardEvent(event))
             return;
 
-        // `raw*` includes hidden metadata blocks (used only to decide whether a
-        // trailing block exists); `*ContentBlock` is the real caret target and
-        // skips them, so the caret can never land in the hidden trailing syntax.
         const rawNextContentBlock = this.nextContentInContext();
-        const previousContentBlock = this.previousEditableContentInContext();
-        const nextContentBlock = this.nextEditableContentInContext();
+        const previousContentBlock = this.previousContentInContext();
+        const nextContentBlock = rawNextContentBlock;
         const { start, end } = this.getCursor()!;
         const { topOffset, bottomOffset } = Selection.getCursorYOffset(
             this.domNode!,
@@ -511,25 +482,6 @@ class Content extends TreeNode {
         const isRtl = this.domNode?.closest('[dir]')?.getAttribute('dir') === 'rtl';
         const prevKey = isRtl ? EVENT_KEYS.ArrowRight : EVENT_KEYS.ArrowLeft;
         const nextKey = isRtl ? EVENT_KEYS.ArrowLeft : EVENT_KEYS.ArrowRight;
-
-        // Single-step across a hidden comment marker: its two boundary offsets
-        // share one visual column, so a plain Left/Right press would "stall"
-        // crossing it. Jump the whole marker in one keydown so each arrow
-        // advances one visible column.
-        let navDir: 'backward' | 'forward' | null = null;
-        if (event.key === nextKey)
-            navDir = 'forward';
-        else if (event.key === prevKey)
-            navDir = 'backward';
-        if (navDir) {
-            const target = this.commentMarkerNavSkip(start.offset, navDir);
-            if (target !== null) {
-                event.preventDefault();
-                event.stopPropagation();
-                this.setCursor(target, target, true);
-                return;
-            }
-        }
 
         if (
             (event.key === EVENT_KEYS.ArrowUp && topOffset > 0)
@@ -563,9 +515,6 @@ class Content extends TreeNode {
 
             cursorBlock = previousContentBlock;
             offset = previousContentBlock.text.length;
-            // Entering the previous block from its end: if it ends with a
-            // hidden marker, land before it so the caret stays visible.
-            offset = cursorBlock.commentMarkerSkip(offset, 'backward') ?? offset;
         }
         else if (
             event.key === EVENT_KEYS.ArrowDown
@@ -596,9 +545,6 @@ class Content extends TreeNode {
             }
             if (cursorBlock) {
                 offset = adjustOffset(0, cursorBlock, event);
-                // Entering the next block from its start: if it begins with a
-                // hidden marker, land after it so the caret stays visible.
-                offset = cursorBlock.commentMarkerSkip(offset, 'forward') ?? offset;
             }
         }
 
@@ -606,30 +552,6 @@ class Content extends TreeNode {
             this.update();
             cursorBlock.setCursor(offset, offset, true);
         }
-    }
-
-    // The in-line offset to jump to so the caret clears a hidden inline marker
-    // at `offset` in the given travel direction, or null when `offset` isn't
-    // at/inside one. Base content has no inline markers; `Format` overrides
-    // this to skip comment markers (arrowHandler uses it for cross-block
-    // boundary moves).
-    protected commentMarkerSkip(
-        _offset: number,
-        _direction: 'backward' | 'forward',
-    ): number | null {
-        return null;
-    }
-
-    // Like `commentMarkerSkip` but for one-step arrow navigation: a zero-width
-    // marker's two boundary offsets sit at the SAME visual column, so a plain
-    // arrow "freezes" for one press crossing it. This also fires when the caret
-    // sits one column BEFORE the marker (moving toward it), so the whole marker
-    // is cleared in a single press. Base content has no markers.
-    protected commentMarkerNavSkip(
-        _offset: number,
-        _direction: 'backward' | 'forward',
-    ): number | null {
-        return null;
     }
 
     override createDomNode() {
@@ -676,25 +598,6 @@ class Content extends TreeNode {
      * @param {boolean} needUpdate
      */
     setCursor(begin: number, end: number, needUpdate = false) {
-        // HARD INVARIANT: the caret must never rest inside a hidden comment
-        // metadata block — programmatic placement included (cursor restore,
-        // source-mode handoff, comment jump). This primitive is the choke
-        // point every model-driven placement flows through, so redirect to
-        // the nearest visible content here: the end of the previous editable
-        // block (metadata definitions trail the document by convention), else
-        // the start of the next.
-        if (this.isCommentMetadataBlock()) {
-            const previous = this.previousEditableContentInContext();
-            if (previous) {
-                previous.setCursor(previous.text.length, previous.text.length, needUpdate);
-                return;
-            }
-            const next = this.nextEditableContentInContext();
-            if (next)
-                next.setCursor(0, 0, needUpdate);
-            return;
-        }
-
         const anchor = { offset: begin, block: this, path: this.path };
         const focus = { offset: end, block: this, path: this.path };
 

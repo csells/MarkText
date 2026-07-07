@@ -55,7 +55,6 @@ export {
 export type { ICommentSyntaxLocation } from './range';
 export {
     createCommentSourceLineState,
-    isUnsafeCommentMarkerTextEdit,
     prepareCommentSourceLine,
     sourceCommentIgnoredIndexRanges,
     sourceIndexInsideRanges,
