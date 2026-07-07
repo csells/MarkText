@@ -65,7 +65,7 @@ const loadComponent = (deps: Record<string, unknown>) => {
     'module',
     `const { _defineComponent, computed, nextTick, onBeforeUnmount, onMounted,
       reactive, ref, watch, storeToRefs, Aim, Check, Close, EditPen, Plus, Promotion,
-      RefreshLeft, useI18n, bus, useEditorStore, usePreferencesStore } = __deps
+      RefreshLeft, useI18n, bus, useEditorStore, usePreferencesStore, CommentEditBox } = __deps
     ${js}
     return module.exports`
   ) as (deps: Record<string, unknown>, exports: object, module: object) => {
@@ -115,6 +115,7 @@ const makeBindings = (
       composeCommentId: ref(null)
     }),
     Aim: {},
+    CommentEditBox: {},
     Check: {},
     Close: {},
     EditPen: {},

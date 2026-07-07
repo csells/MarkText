@@ -125,37 +125,14 @@
           >
             {{ reply.body }}
           </p>
-          <div
+          <CommentEditBox
             v-else
-            class="edit-box reply-edit-box"
-          >
-            <el-input
-              v-model="editDrafts[replyEditKey(thread.id, index)]"
-              type="textarea"
-              :autosize="{ minRows: 2, maxRows: 4 }"
-              :placeholder="t('sideBar.comments.editPlaceholder')"
-              @keydown.enter="submitOnModEnter($event, () => submitEditReply(thread, index))"
-              @keydown.esc.prevent.stop="cancelEditReply(thread.id, index)"
-            />
-            <div class="edit-actions">
-              <el-button
-                size="small"
-                :icon="Close"
-                @click="cancelEditReply(thread.id, index)"
-              >
-                {{ t('sideBar.comments.cancelEdit') }}
-              </el-button>
-              <el-button
-                size="small"
-                type="primary"
-                :icon="Check"
-                :disabled="!editDrafts[replyEditKey(thread.id, index)]?.trim()"
-                @click="submitEditReply(thread, index)"
-              >
-                {{ t('sideBar.comments.saveEdit') }}
-              </el-button>
-            </div>
-          </div>
+            v-model="editDrafts[replyEditKey(thread.id, index)]"
+            box-class="reply-edit-box"
+            :placeholder="t('sideBar.comments.editPlaceholder')"
+            @cancel="cancelEditReply(thread.id, index)"
+            @save="submitEditReply(thread, index)"
+          />
         </div>
       </div>
 
@@ -200,37 +177,13 @@
         </el-tooltip>
       </div>
 
-      <div
+      <CommentEditBox
         v-if="!thread.replies.length && editingReplies[replyEditKey(thread.id, 0)]"
-        class="edit-box"
-      >
-        <el-input
-          v-model="editDrafts[replyEditKey(thread.id, 0)]"
-          type="textarea"
-          :autosize="{ minRows: 2, maxRows: 4 }"
-          :placeholder="t('sideBar.comments.editPlaceholder')"
-          @keydown.enter="submitOnModEnter($event, () => submitEdit(thread))"
-          @keydown.esc.prevent.stop="cancelEditReply(thread.id, 0)"
-        />
-        <div class="edit-actions">
-          <el-button
-            size="small"
-            :icon="Close"
-            @click="cancelEditReply(thread.id, 0)"
-          >
-            {{ t('sideBar.comments.cancelEdit') }}
-          </el-button>
-          <el-button
-            size="small"
-            type="primary"
-            :icon="Check"
-            :disabled="!editDrafts[replyEditKey(thread.id, 0)]?.trim()"
-            @click="submitEdit(thread)"
-          >
-            {{ t('sideBar.comments.saveEdit') }}
-          </el-button>
-        </div>
-      </div>
+        v-model="editDrafts[replyEditKey(thread.id, 0)]"
+        :placeholder="t('sideBar.comments.editPlaceholder')"
+        @cancel="cancelEditReply(thread.id, 0)"
+        @save="submitEdit(thread)"
+      />
 
       <div class="reply-box">
         <div class="entry-head compose-head">
@@ -279,8 +232,9 @@
 import type { ICommentThread } from '@muyajs/core'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Aim, Check, Close, EditPen, Plus, RefreshLeft } from '@element-plus/icons-vue'
+import { Aim, Check, EditPen, Plus, RefreshLeft } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import CommentEditBox from './commentEditBox.vue'
 import bus from '@/bus'
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
