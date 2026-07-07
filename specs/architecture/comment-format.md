@@ -1,97 +1,134 @@
-# Comment Wire Format
+# Comment Wire Format (v2)
 
 The Markdown file is the sole source of truth. No sidecars, databases, or
 hidden project metadata. Everything below travels inside the `.md` bytes.
 
+Git is the collaboration model, so the format is designed for **line-oriented
+merging and legible diffs**: every reply is its own line, thread status is its
+own line, and appending a reply touches exactly one line. v1's single opaque
+base64 line per thread made any two parallel touches to the same thread an
+unmergeable, unreviewable conflict; v2 makes the common cases (edits to
+different replies, a resolve concurrent with a reply, replies to different
+threads) merge cleanly in plain `git merge`, and makes the remaining
+same-point add/add conflicts human-legible and trivially unionable.
+
 ## Grammar owner
 
-`packages/muya/src/comments/syntax.ts` is the single owner of the MC wire
-format. Every consumer — the base parser, the inline tokenizer, the comment
-analyzer, desktop source mode, and (by byte-compatible contract) the agent
-CLI — derives marker and definition recognition from this module's exported
-patterns and parse/serialize helpers. Hand-built marker strings anywhere else
-are defects.
+`packages/muya/src/comments/syntax.ts` owns the wire format. Every consumer —
+parser extensions, the extraction/materialization layer
+([comment-anchors.md](comment-anchors.md)), the file-level analyzer, desktop
+source mode, and the agent CLI — derives recognition and serialization from
+this module. Hand-built marker or definition strings anywhere else are
+defects.
 
-## Inline range markers
+## Inline range markers (unchanged from v1)
 
 ```md
 This paragraph has <!--MC:cmt_123-->reviewed text<!--MC:~cmt_123--> inside it.
 ```
 
-- `<!--MC:id-->` opens a range; `<!--MC:~id-->` closes that same range.
-- `id` matches `\w[\w-]*` (`COMMENT_ID_PATTERN`). Ids are attribute-selector
-  and regex safe by construction.
-- Close ids are explicit so ranges can overlap arbitrarily; overlap is not
-  tree-shaped and must never be modeled as nesting:
+- `<!--MC:id-->` opens a range; `<!--MC:~id-->` closes it. `id` matches
+  `\w[\w-]*`.
+- Close ids are explicit so ranges can overlap arbitrarily; overlap is never
+  modeled as nesting. Ranges may span blocks.
+
+## Thread metadata (v2)
+
+One **head line** per thread and one line per reply, in the metadata appendix
+(conventionally the end of the file):
 
 ```md
-<!--MC:a-->alpha <!--MC:b-->beta<!--MC:~a--> gamma<!--MC:~b-->
+[MC:cmt_123]: {"version":2,"status":"open","authors":["Ada"],"createdAt":"2026-07-07T09:00:00.000Z"}
+[MC:cmt_123.0]: {"author":"Ada","createdAt":"2026-07-07T09:00:00.000Z","body":"First line\nsecond line"}
+[MC:cmt_123.1]: {"author":"Agent","createdAt":"2026-07-07T09:05:00.000Z","body":"Reply text"}
 ```
 
-- Ranges may span multiple blocks (open and close markers in different leaf
-  blocks).
+- **Head line** `[MC:id]: {json}` — compact single-line JSON (no literal
+  newlines by construction), stable key order
+  (`version,status,authors,createdAt,updatedAt,display`). `replies` never
+  appears on the head line.
+- **Reply line** `[MC:id.N]: {json}` — `N` is the zero-based reply index;
+  stable key order (`author,createdAt,body,display`). Newlines and quotes in
+  bodies are JSON-escaped, keeping every line self-contained.
+- Up to three leading spaces are allowed (CommonMark definition indentation),
+  matched by the same line grammar as v1.
 
-## Metadata definitions
+### Merge-friendliness rules
 
-```md
-[MC:cmt_123]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCAuLi59
-```
+- **Appending a reply writes exactly one new line.** It must not rewrite the
+  head line: thread `updatedAt` is **derived at read time** as
+  `max(head.updatedAt ?? head.createdAt, replies[].createdAt)`. Writers set
+  head `updatedAt` only for head-level changes (status, authors, display).
+- **Reply indexes are positional, not identity.** After a Git merge, indexes
+  may duplicate or gap (`.1` twice, or `.0` then `.2`); readers order replies
+  by document position and treat the numeric suffix as a hint only.
+  Duplicate/gapped indexes are normalized on the next serialization, never
+  diagnosed as errors.
+- **Reply lines attach by id, ordered by position.** They conventionally
+  follow their head line contiguously, but interleaving (a merge artifact)
+  parses fine. A reply line whose id has no head line is an
+  `orphan-reply` diagnostic (the thread data is preserved verbatim).
+- Threads serialize in first-marker document order; a thread's lines
+  serialize head-first then replies in order.
 
-- One reference-style definition line per thread, conventionally at the end
-  of the file, matched by `COMMENT_METADATA_DEFINITION_REGEXP`
-  (`^ {0,3}\[MC:([^\]\s]+)\]:(.*)$`). Up to three leading spaces are allowed,
-  mirroring CommonMark definition indentation.
-- The payload is `data:application/json;base64,` followed by base64 JSON.
-  Base64 decoding is forgiving of embedded ASCII whitespace (`atob`
-  semantics); everything else invalid is a diagnostic, never a silent repair.
-- Malformed payloads and duplicate ids are preserved byte-for-byte through
-  load/save so diagnostics can report them (see parser-integration.md).
+### v1 compatibility
 
-## Payload schema (version 1)
+v1 lines — `[MC:id]: data:application/json;base64,...` with an embedded
+`replies` array — are **read forever, written never**. Any serialization
+(save, CLI mutation, materialization) emits v2. Mixed files (v1 + v2 lines
+for different threads) read correctly; a v1 and v2 definition for the *same*
+id is `duplicate-metadata`, exactly like two v1 lines.
 
-Decoded JSON must match `ICommentMetadata`
-(`packages/muya/src/comments/types.ts`):
+## Payload schema
 
 ```ts
+// Head
 {
-  version: 1,
+  version: 2,
   status: 'open' | 'resolved',
   authors?: string[],
   createdAt?: string,          // ISO-8601
-  updatedAt?: string,          // ISO-8601
-  display?: Record<string, unknown>,
-  replies: Array<{
-    author: string,
-    createdAt: string,         // ISO-8601
-    body: string,
-    display?: Record<string, unknown>
-  }>
+  updatedAt?: string,          // head-level changes only; thread updatedAt derived
+  display?: Record<string, unknown>
+}
+// Reply
+{
+  author: string,
+  createdAt: string,           // ISO-8601
+  body: string,
+  display?: Record<string, unknown>
 }
 ```
 
-- Encoding uses stable key ordering so an edit to one thread does not churn
-  unrelated metadata bytes.
-- The payload must never store anchor offsets, repair coordinates, or
-  alternate anchors. The markers are the anchors.
+- Payloads never store anchor offsets, repair coordinates, or alternate
+  anchors. The markers are the anchors.
+- Malformed JSON on any line is preserved byte-for-byte through load/save and
+  surfaces as `invalid-metadata` (head) or `invalid-reply` (reply line).
 
-## Derived analysis
+## Diagnostics
 
-`analyzeMarkdownComments` produces `IParsedMarkdownComments`:
+The closed set from v1 remains, plus reply-line codes:
+`duplicate-open-marker`, `duplicate-close-marker`, `duplicate-metadata`,
+`invalid-metadata`, `malformed-marker`, `missing-metadata`,
+`orphan-close-marker`, `orphan-metadata`, `parse-error`,
+`unclosed-open-marker`, **`orphan-reply`**, **`invalid-reply`**.
+Diagnostics are visible, never blocking.
 
-- `threads` — decoded metadata joined to its id.
-- `ranges` — derived transiently by scanning open/close marker events over
-  parser/state text coordinates (`TBlockPath` + character offsets). Range
-  coordinates are never persisted.
-- `diagnostics` — the complete closed set of codes
-  (`TCommentDiagnosticCode`): `duplicate-open-marker`,
-  `duplicate-close-marker`, `duplicate-metadata`, `invalid-metadata`,
-  `malformed-marker`, `missing-metadata`, `orphan-close-marker`,
-  `orphan-metadata`, `parse-error`, `unclosed-open-marker`. Diagnostics are
-  visible, never blocking: a malformed document still opens and saves with
-  its bytes intact.
-
-## Literal contexts
+## Literal contexts (unchanged)
 
 Marker- and definition-shaped text inside fenced/indented code, math blocks,
 diagrams, front matter, and true raw HTML blocks is literal text: no ranges,
 no threads, no diagnostics, no mutation by any tool.
+
+## Properties pinned by tests
+
+1. v2 round-trips byte-identically (including duplicate and malformed lines).
+2. v1 documents load with full fidelity and serialize as v2 with identical
+   decoded content.
+3. `git`-style line merge (our own diff3 engine as the oracle): (a) parallel
+   edits to *different* replies of one thread merge cleanly; (b) a
+   status change concurrent with a reply merges cleanly; (c) parallel *new*
+   replies at the same point conflict **legibly** — two readable lines — and
+   the union of both lines parses as a valid two-reply thread.
+4. Appending a reply changes exactly one line of the file (plus a trailing
+   newline if absent).

@@ -42,17 +42,13 @@ tokenizer instead.
 code (backticks win) and before generic HTML tags. Generic HTML comments are
 untouched.
 
-Rendering contracts (`renderer/commentMarker.ts`,
-`renderer/referenceDefinition.ts`):
-
-- Hidden syntax keeps its **raw bytes in DOM text content** — selection
-  offsets, source-cursor mapping, and undo restoration are all computed over
-  rendered text and must agree with the source text lengths.
-- Markers render zero-size (`mu-hide` + marker class) and non-editable;
-  metadata definition lines render as an all-hidden block
-  (`.mu-comment-metadata`).
-- Commented ranges render highlight spans derived from marker events (never
-  from nested DOM structure — overlaps are not trees).
+Runtime note: with the OT-anchor runtime
+([comment-anchors.md](comment-anchors.md)), marker bytes never reach the
+rendered document — the inline `comment_marker` rule and the definition
+tokenizer serve **load-time extraction and file-level analysis only**
+(source mode, the CLI, merge gates, and any consumer of serialized bytes).
+Highlight spans derive from anchors in clean-text offsets, never from marker
+tokens or nested DOM structure (overlaps are not trees).
 
 ## Block classification interplay
 

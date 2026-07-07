@@ -88,13 +88,60 @@ resolving (pathname on hover):
   a dirty untitled recovery tab, then the tab reloads from disk; the reload
   remains undoable back to the local buffer.
 
-## Races
+## The session reducer
 
-An in-flight merge result is dropped (never applied) if by resolution time:
-a newer watcher event superseded it (per-tab request ids — newest disk
-content wins), the tab was closed, the local buffer changed, the tab was
-saved, or the disk base moved. All five guards are locked by unit tests in
-`dirty-external-merge-actions.spec.ts`.
+Per-tab merge lifecycle state is a **pure reducer**, not scattered flags:
+
+```ts
+type MergeSessionState =
+  | { kind: 'idle' }
+  | { kind: 'merging'; requestId: number; base: string; local: string; remote: string }
+  | { kind: 'reviewing'; session: MergeConflictState }
+
+reduce(state, event) -> { state, effects }
+```
+
+Events are everything that can happen to the tab while a merge matters:
+`disk-changed(payload)`, `merge-resolved(requestId, result)`,
+`merge-failed(requestId, error)`, `buffer-edited`, `saved`, `tab-closed`,
+`review-requested`, `accept(result)`, `cancel`, `reload-disk`. Effects are
+declarative instructions the store interprets (`start-merge`, `apply-merge`,
+`open-resolver`, `close-resolver`, `notify`, `create-recovery-tab`,
+`load-disk`) — the reducer itself performs no IO, touches no store, and never
+reads the clock.
+
+All race handling IS the reducer: a `merge-resolved` carrying a stale
+`requestId` is a no-op transition; `disk-changed` while `reviewing`
+supersedes the session (re-derive, stay in review); `saved`/`tab-closed`
+cancel outright; `accept` from a superseded session is unreachable because
+the session it captured no longer exists in the state.
+
+**Property fuzz (the reason for the shape):** random event sequences are
+driven through the reducer and its invariants asserted directly —
+
+1. no effect sequence ever discards the local buffer except downstream of an
+   explicit `accept` or `reload-disk`;
+2. `apply-merge` effects reference only the newest `disk-changed` payload
+   seen (never a superseded remote);
+3. after `tab-closed`, no further effects are emitted;
+4. every terminal state is `idle` or `reviewing` — nothing wedges in
+   `merging` once its `merge-resolved`/`merge-failed` arrives.
+
+The store's actions become a thin interpreter: translate IPC/watcher/UI
+happenings into events, run the reducer, execute effects. Unit tests for the
+decision table target the reducer as a pure function; interpreter tests only
+verify each effect maps to the right store mutation.
+
+## Background tabs and undo
+
+Auto-merging a background tab replaces content the engine never saw, so the
+engine history captured at the tab's last edit describes a different
+document. The tab keeps a **pre-merge journal entry** (`{ markdown, cursor,
+mergedAt }`); when the tab is next activated, the editor seeds a rebuild-undo
+boundary from the journal so the first Cmd+Z after switching back restores
+the pre-merge buffer — the same contract foreground auto-merges already
+honor. Stale engine history is discarded, never replayed onto the merged
+tree.
 
 ## End-to-end coverage
 
