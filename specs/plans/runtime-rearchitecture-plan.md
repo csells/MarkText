@@ -11,9 +11,11 @@ until the implementation reflects the specs.
 
 ## Status
 
-- P0 (specs) — **done** (this commit).
-- P1 (test infrastructure) — pending.
-- P2 (wire format v2) — pending.
+- P0 (specs) — **done**.
+- P1 (test infrastructure) — **done** (real mounts for the three specs; the
+  preload markdown bridge + `getMarkdownContent` rewire; comment e2e clock
+  waits converted to condition waits/`readSettled`).
+- P2 (wire format v2) — in progress.
 - P3 (OT anchors) — pending.
 - P4 (serialization cache · undo journal · d.ts retirement) — pending.
 - P5 (merge reducer) — pending.
