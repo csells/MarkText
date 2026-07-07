@@ -39,7 +39,18 @@ until the implementation reflects the specs.
   muya-core.d.ts deleted — muya `build:types` emits real declarations to
   lib/types, tsconfig.base.json points at them, root typecheck builds them
   first.
-- P5 (merge reducer) — pending.
+- P5 (merge reducer) — **done**. `store/mergeSession.ts` is the pure per-tab
+  reducer (state idle|merging|reviewing|closed carrying monotonic
+  request/session counters; events carry reality snapshots; effects are
+  declarative). `dirtyExternalMergeActions.ts` became the interpreter:
+  reality-drift sync (buffer-edited/saved/tab-closed derived lazily from the
+  tab), effect executors, and the notification closures that translate clicks
+  into review-requested events. The request-id map, global session counter,
+  scattered liveness checks, and the diagnostics escalation gate all folded
+  into the reducer. merge-session-reducer.spec.ts pins the full decision
+  table (29 specs) plus the four fuzz invariants over 150 seeded random
+  event sequences with a model interpreter; the pre-existing
+  dirty-external-merge behavior lock passes unchanged.
 - P6 (gap-analysis loop) — pending.
 
 ## P1 — Test infrastructure first (it gates everything after)
