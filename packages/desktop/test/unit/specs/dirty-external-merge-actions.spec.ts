@@ -352,6 +352,21 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(tab.diskBaseMarkdown).toBe('one\nlocal\nthree\n')
   })
 
+  it('an accepted resolution does not push the auto-merged Undo/Review notification', () => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    openConflictSession(store, tab)
+
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT('one\nresolved\nthree\n')
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe('one\nresolved\nthree\n')
+    expect(tab.isSaved).toBe(false)
+    // The user just resolved this merge by hand; offering to Undo/Review the
+    // merge again is noise.
+    expect(tab.notifications).toEqual([])
+  })
+
   it('a newer disk change supersedes an open session instead of acting beneath it', async() => {
     const store = useEditorStore()
     const tab = makeDirtyTab(store)

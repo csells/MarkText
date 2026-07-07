@@ -69,7 +69,7 @@ interface DirtyExternalMergeStore {
   APPLY_DIRTY_EXTERNAL_MERGE: (
     change: FileChangePayload,
     mergedMarkdown: string,
-    options?: { keepDirty?: boolean }
+    options?: { origin?: 'auto' | 'accepted' }
   ) => void
   HANDLE_DIRTY_EXTERNAL_CHANGE: (
     tab: IFileState,
@@ -194,7 +194,10 @@ export function applyDirtyExternalMerge(
   store: DirtyExternalMergeStore,
   change: FileChangePayload,
   mergedMarkdown: string,
-  options: { keepDirty?: boolean } = {}
+  // 'auto': the watcher merged disjoint edits silently — offer Undo/Review.
+  // 'accepted': the user just resolved this merge in the dialog — a second
+  // notification offering to Undo/Review it again would be noise.
+  options: { origin?: 'auto' | 'accepted' } = {}
 ): void {
   const tab = store.tabs.find((t) => window.fileUtils.isSamePathSync(t.pathname, change.pathname))
   if (!tab) return
@@ -208,7 +211,8 @@ export function applyDirtyExternalMerge(
       markdown: mergedMarkdown
     }
   }
-  const cleanAfterApply = !options.keepDirty && mergedMarkdown === change.data.markdown
+  const origin = options.origin ?? 'auto'
+  const cleanAfterApply = origin === 'auto' && mergedMarkdown === change.data.markdown
   store.loadChange(mergedChange, { preserveDirty: !cleanAfterApply })
 
   const nextTab = store.tabs.find((t) =>
@@ -219,6 +223,10 @@ export function applyDirtyExternalMerge(
   nextTab.diskBaseMarkdown = change.data.markdown
   if (cleanAfterApply) {
     markTabSavedAtCurrentHistory(nextTab)
+  } else if (origin === 'accepted') {
+    nextTab.isSaved = false
+    // The 'resolve the merge to continue' banner served its purpose.
+    clearExclusiveTabNotification(nextTab, 'file_changed')
   } else {
     nextTab.isSaved = false
     store.pushTabNotification({
@@ -401,7 +409,7 @@ export function acceptDirtyExternalMergeConflict(
   }
 
   store.mergeConflict = null
-  store.APPLY_DIRTY_EXTERNAL_MERGE(conflict.fileChange, mergedMarkdown, { keepDirty: true })
+  store.APPLY_DIRTY_EXTERNAL_MERGE(conflict.fileChange, mergedMarkdown, { origin: 'accepted' })
 }
 
 export function reconcileRestoredDiskChanges(store: DirtyExternalMergeStore): void {

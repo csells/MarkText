@@ -1358,7 +1358,7 @@ export const useEditorStore = defineStore('editor', {
     APPLY_DIRTY_EXTERNAL_MERGE(
       change: FileChangePayload,
       mergedMarkdown: string,
-      options: { keepDirty?: boolean } = {}
+      options: { origin?: 'auto' | 'accepted' } = {}
     ): void {
       applyDirtyExternalMerge(this, change, mergedMarkdown, options)
     },
