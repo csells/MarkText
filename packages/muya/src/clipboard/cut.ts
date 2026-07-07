@@ -231,6 +231,48 @@ function selectedCommentMarkersInCrossBlockRange(
     return mergeSelectedCommentMarkers(...selections);
 }
 
+// A removed range can swallow hidden [MC:id] definition paragraphs. Removing
+// a definition whose markers survive outside the range strands the thread
+// (missing-metadata, thread content lost); slicing THROUGH a hidden
+// definition corrupts its bytes. Both block the cut.
+function unsafeCrossBlockDefinitionCut(
+    startBlock: Content,
+    startOffset: number,
+    endBlock: Content,
+    endOffset: number,
+    removedKindsById: ReadonlyMap<string, ReadonlySet<'open' | 'close'>>,
+    documentKinds: ReadonlyMap<string, ReadonlySet<'open' | 'close'>>,
+): boolean {
+    let block: Nullable<Content> = startBlock;
+    while (block) {
+        if (!NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(block.blockName)) {
+            const definition = parseCommentMetadataDefinition(block.text);
+            if (definition) {
+                const from = block === startBlock ? startOffset : 0;
+                const to = block === endBlock ? endOffset : block.text.length;
+                if (to > from) {
+                    if (from !== 0 || to !== block.text.length)
+                        return true;
+
+                    const survivingKinds = documentKinds.get(definition.id);
+                    const removedKinds = removedKindsById.get(definition.id);
+                    if (
+                        survivingKinds
+                        && ![...survivingKinds].every(kind => removedKinds?.has(kind))
+                    ) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if (block === endBlock)
+            break;
+        block = block.nextContentInContext();
+    }
+
+    return false;
+}
+
 function unsafeCrossBlockCommentMarkerCut(
     clipboard: Clipboard,
     startBlock: Content,
@@ -252,6 +294,19 @@ function unsafeCrossBlockCommentMarkerCut(
         const allKinds = documentKinds.get(id);
         if (allKinds && orphansCounterpart(kinds, allKinds))
             return { unsafe: true, removedIds: [] };
+    }
+
+    if (
+        unsafeCrossBlockDefinitionCut(
+            startBlock,
+            startOffset,
+            endBlock,
+            endOffset,
+            selectedMarkers.kindsById,
+            documentKinds,
+        )
+    ) {
+        return { unsafe: true, removedIds: [] };
     }
 
     return { unsafe: false, removedIds: selectedMarkers.ids };

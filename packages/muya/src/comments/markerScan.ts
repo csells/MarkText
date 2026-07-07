@@ -113,6 +113,15 @@ export function createCommentSearchText(text: string): ICommentSearchText {
     return { text: searchText, rawIndexBySearchIndex };
 }
 
+// Identity mapping for literal blocks: every raw index maps to itself, so
+// search consumers use one code path for mapped and unmapped text.
+export function identityCommentSearchText(text: string): ICommentSearchText {
+    const rawIndexBySearchIndex: number[] = [];
+    for (let index = 0; index < text.length; index += 1)
+        rawIndexBySearchIndex.push(index);
+    return { text, rawIndexBySearchIndex };
+}
+
 export function stripRealCommentMarkersFromText(text: string): string {
     let next = '';
     let lastIndex = 0;

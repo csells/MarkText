@@ -451,3 +451,42 @@ describe('iME composition over a guarded cross-block selection', () => {
         expect(muya.getMarkdown()).toBe(before);
     });
 });
+
+describe('cross-block cut guards protect metadata definitions', () => {
+    it('blocks a cut that covers the hidden definition while its markers survive', () => {
+        const muya = bootMuya([
+            'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+            '',
+            'middle paragraph',
+            '',
+            `[MC:a]: ${metadata()}`,
+            '',
+            'tail paragraph',
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+        // From inside "middle paragraph" to inside "tail paragraph" — the
+        // definition paragraph is fully inside the removed range while the
+        // comment markers survive above it.
+        stubSelection(muya, blocks[1], 3, blocks[3], 4);
+
+        expect(blockedCommentMarkerCut(muya.editor.clipboard)).toBe(true);
+    });
+
+    it('allows a cut that removes the definition together with all its markers', () => {
+        const muya = bootMuya([
+            'lead paragraph',
+            '',
+            'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+            '',
+            `[MC:a]: ${metadata()}`,
+            '',
+            'tail paragraph',
+            '',
+        ].join('\n'));
+        const blocks = contentBlocks(muya);
+        stubSelection(muya, blocks[0], 4, blocks[3], 4);
+
+        expect(blockedCommentMarkerCut(muya.editor.clipboard)).toBe(false);
+    });
+});

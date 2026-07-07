@@ -7,6 +7,8 @@ import type { ITableState, TState } from '../state/types';
 import type { Nullable } from '../types';
 import type Clipboard from './index';
 import { stripCommentSyntaxForClipboard } from '../comments/markerScan';
+import { stripCommentSyntaxFromStates } from '../comments/parse';
+import { NON_COMMENT_SCANNABLE_LEAF_BLOCKS } from '../comments/syntax';
 import StateToMarkdown from '../state/stateToMarkdown';
 import { getClipBoardHtml, getSanitizeClipboardHtml } from '../utils/marked';
 import { CopyType } from './types';
@@ -377,7 +379,12 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
         const begin = Math.min(anchor.offset, focus.offset);
         const end = Math.max(anchor.offset, focus.offset);
 
-        const text = stripCommentSyntaxForClipboard(anchorBlock.text.substring(begin, end));
+        // Code/thematic-break content is literal: comment-shaped bytes there
+        // are documentation, not hidden syntax — copy them verbatim.
+        const fragment = anchorBlock.text.substring(begin, end);
+        const text = NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(anchorBlock.blockName)
+            ? fragment
+            : stripCommentSyntaxForClipboard(fragment);
 
         return { html: getClipBoardHtml(text, options), text };
     }
@@ -389,7 +396,10 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
 
     const copyState = collectCopyState(order);
 
-    const text = stripCommentSyntaxForClipboard(new StateToMarkdown().generate(copyState));
+    // Strip comment syntax at the STATE level (the parser's own per-state
+    // rules), never over serialized markdown: a text-level scan has no fence
+    // concept and mangles literal code bytes.
+    const text = new StateToMarkdown().generate(stripCommentSyntaxFromStates(copyState));
     const html = getClipBoardHtml(text, options);
 
     return { html, text };

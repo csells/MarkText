@@ -161,3 +161,50 @@ describe('cross-block copy with markdown comments', () => {
         expect(text).toBe('A reviewed line.\n');
     });
 });
+
+describe('copy keeps literal comment-shaped bytes in code context', () => {
+    const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
+
+    it('same-block copy inside a fenced code block copies marker bytes verbatim', () => {
+        const muya = bootMuya('```\n<!--MC:doc-->example<!--MC:~doc-->\n```\n');
+        const sp = muya.editor.scrollPage!;
+        const code = sp.lastContentInDescendant()!;
+        muya.editor.selection.getSelection = () => ({
+            anchor: { offset: 0, block: code, path: code.path },
+            focus: { offset: code.text.length, block: code, path: code.path },
+            isCollapsed: false,
+            isSelectionInSameBlock: true,
+            direction: SelectionDirection.FORWARD,
+            type: SelectionCaretType.RANGE,
+        });
+
+        const { text } = muya.editor.clipboard.getClipboardData();
+
+        expect(text).toBe('<!--MC:doc-->example<!--MC:~doc-->');
+    });
+
+    it('cross-block copy keeps fenced literal markers and definition-shaped lines', () => {
+        const muya = bootMuya([
+            'lead <!--MC:a-->live<!--MC:~a--> prose',
+            '',
+            '~~~',
+            '<!--MC:doc-->literal<!--MC:~doc-->',
+            `[MC:doc]: ${META}`,
+            '~~~',
+            '',
+            `[MC:a]: ${META}`,
+            '',
+        ].join('\n'));
+        const sp = muya.editor.scrollPage!;
+        const first = sp.firstContentInDescendant()!;
+        const last = sp.lastContentInDescendant()!;
+        stub(muya, first, 0, last, last.text.length);
+
+        const { text } = muya.editor.clipboard.getClipboardData();
+
+        expect(text).toContain('<!--MC:doc-->literal<!--MC:~doc-->');
+        expect(text).toContain(`[MC:doc]: ${META}`);
+        expect(text).toContain('lead live prose');
+        expect(text).not.toContain('MC:a');
+    });
+});

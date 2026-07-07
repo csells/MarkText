@@ -110,6 +110,35 @@ function selectedTextPreview(
     return parts.join(' ').replace(/\s+/gu, ' ').trim();
 }
 
+// Clipboard-facing strip over COPY STATE: markers removed from commentable
+// leaf text, hidden metadata definition lines dropped, and literal contexts
+// (code/html/math/diagram/front matter) left byte-verbatim — the exact same
+// per-state rules this parser applies, so a copy can never mangle a fence.
+export function stripCommentSyntaxFromStates(states: TState[]): TState[] {
+    const out: TState[] = [];
+    for (const state of states) {
+        const next = { ...state } as TState;
+        if (shouldScanInlineText(state)) {
+            if (parseCommentMetadataDefinition(state.text))
+                continue;
+            const lines = stripRealCommentMarkersFromText(state.text)
+                .split('\n')
+                .filter(line => !parseCommentMetadataDefinition(line));
+            if (lines.length === 0)
+                continue;
+            (next as Extract<TState, { text: string }>).text = lines.join('\n');
+        }
+        if ('children' in state && Array.isArray(state.children)) {
+            const children = stripCommentSyntaxFromStates(state.children);
+            if (children.length === 0)
+                continue;
+            (next as { children: TState[] }).children = children;
+        }
+        out.push(next);
+    }
+    return out;
+}
+
 export function parseMarkdownComments(
     markdownOrStates: string | TState[],
     options?: TParseMarkdownCommentOptions,

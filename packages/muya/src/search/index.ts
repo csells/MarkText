@@ -5,8 +5,10 @@ import type { Muya } from '../muya';
 import type { IMatch } from './types';
 import {
     createCommentSearchText,
+    identityCommentSearchText,
     realCommentMarkersInText,
 } from '../comments/markerScan';
+import { NON_COMMENT_SCANNABLE_LEAF_BLOCKS } from '../comments/syntax';
 import { DEFAULT_SEARCH_OPTIONS } from '../config';
 import { buildRegexValue, matchString } from '../utils/search';
 
@@ -222,7 +224,11 @@ export class Search {
                 if (block.isContent()) {
                     const { text } = block;
                     if (text && typeof text === 'string') {
-                        const searchText = createCommentSearchText(text);
+                        // Literal blocks (code, thematic breaks) carry no
+                        // hidden syntax — search their raw bytes unmapped.
+                        const searchText = NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(block.blockName)
+                            ? identityCommentSearchText(text)
+                            : createCommentSearchText(text);
                         const strMatches = matchString(
                             searchText.text,
                             value,
