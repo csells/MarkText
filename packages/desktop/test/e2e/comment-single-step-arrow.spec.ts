@@ -2,25 +2,30 @@
 // A zero-width marker has two caret offsets at the same x; without single-step
 // handling one arrow press "freezes" (same x twice). Measures caret x per press.
 import { expect, test, type Page } from '@playwright/test'
-import { focusEditor, launchWithMarkdown } from './helpers'
+import { focusEditor, launchWithMarkdown, readSettled } from './helpers'
 
 const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119'
+
+const readCaret = (page: Page) => page.evaluate(() => {
+  const sel = document.getSelection()
+  if (!sel || sel.rangeCount === 0) return { x: -1, h: 0 }
+  const r = sel.getRangeAt(0).cloneRange(); r.collapse(true)
+  const rect = r.getClientRects()[0] ?? r.getBoundingClientRect()
+  return { x: rect ? Math.round(rect.left) : -1, h: rect ? Math.round(rect.height) : 0 }
+})
+
+// Each sample must settle (hold across consecutive reads) — the engine's
+// caret snap is async, so a clocked read could sample mid-flight.
+const settledCaret = (page: Page) =>
+  readSettled(() => readCaret(page), { requiredStreak: 2, interval: 40, timeout: 2000 })
 
 async function walk(page: Page, key: string, presses: number) {
   const xs: number[] = []
   const hs: number[] = []
-  const read = () => page.evaluate(() => {
-    const sel = document.getSelection()
-    if (!sel || sel.rangeCount === 0) return { x: -1, h: 0 }
-    const r = sel.getRangeAt(0).cloneRange(); r.collapse(true)
-    const rect = r.getClientRects()[0] ?? r.getBoundingClientRect()
-    return { x: rect ? Math.round(rect.left) : -1, h: rect ? Math.round(rect.height) : 0 }
-  })
-  const first = await read(); xs.push(first.x); hs.push(first.h)
+  const first = await settledCaret(page); xs.push(first.x); hs.push(first.h)
   for (let i = 0; i < presses; i++) {
     await page.keyboard.press(key)
-    await page.waitForTimeout(60)
-    const r = await read(); xs.push(r.x); hs.push(r.h)
+    const r = await settledCaret(page); xs.push(r.x); hs.push(r.h)
   }
   return { xs, hs }
 }
@@ -41,7 +46,7 @@ test('arrowing right across a comment advances one column per press (no frozen s
 
     await page.locator('.mu-paragraph', { hasText: 'word' }).first().click()
     await page.keyboard.press('Home')
-    await page.waitForTimeout(80)
+    await settledCaret(page)
     // Walk right through "ab word cd", then back left to the start.
     const fwd = await walk(page, 'ArrowRight', 10)
     const back = await walk(page, 'ArrowLeft', 10)

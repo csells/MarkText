@@ -3,7 +3,7 @@
 // WYSIWYG: no arrow/Cmd-Down into it, and no way to add content below it. Typing
 // after navigating to the document bottom must never corrupt the metadata line.
 import { expect, test, type Page } from '@playwright/test'
-import { focusEditor, launchWithMarkdown } from './helpers'
+import { focusEditor, launchWithMarkdown, readSettled } from './helpers'
 
 const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119'
 
@@ -46,8 +46,7 @@ test('caret cannot enter or pass the hidden metadata block via keyboard', async(
     await page.keyboard.press('End')
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press('ArrowDown')
-      await page.waitForTimeout(40)
-      const s = await readState(page)
+      const s = await readSettled(() => readState(page), { requiredStreak: 2, interval: 40 })
       expect(s.inMetadata, `ArrowDown #${i + 1} entered metadata`).toBe(false)
       expect(s.anchorIsMetaLine, `ArrowDown #${i + 1} landed on the metadata line`).toBe(false)
     }
@@ -56,8 +55,11 @@ test('caret cannot enter or pass the hidden metadata block via keyboard', async(
     // actually reached the last VISIBLE paragraph — a platform no-op keystroke
     // would otherwise leave the metadata checks trivially green.
     await page.keyboard.press(DOCUMENT_END)
-    await page.waitForTimeout(60)
-    const atEnd = await readState(page)
+    // The jump reaching the last visible paragraph is the positive observable.
+    await expect
+      .poll(async() => (await readState(page)).anchorParaText, { timeout: 5000 })
+      .toContain('tail')
+    const atEnd = await readSettled(() => readState(page), { requiredStreak: 2, interval: 40 })
     expect(atEnd.anchorParaText, 'document-end jump must reach the last visible paragraph').toContain('tail')
     expect(atEnd.inMetadata, 'document-end jump entered metadata').toBe(false)
     expect(atEnd.anchorIsMetaLine, 'document-end jump landed on the metadata line').toBe(false)
@@ -65,8 +67,7 @@ test('caret cannot enter or pass the hidden metadata block via keyboard', async(
     // Typing at the document bottom must not corrupt the metadata or add a
     // paragraph below it.
     await page.keyboard.type('Z')
-    await page.waitForTimeout(80)
-    const after = await readState(page)
+    const after = await readSettled(() => readState(page), { requiredStreak: 3, interval: 40 })
     expect(after.hasIntactMeta, 'metadata line must remain intact after typing').toBe(true)
     expect(after.paragraphCount, 'no new paragraph created below the metadata').toBe(paraCountBefore)
   } finally {
@@ -85,8 +86,7 @@ test('caret cannot enter the hidden metadata block via click or ArrowRight-at-en
     const box = await editor.boundingBox()
     if (box) {
       await page.mouse.click(box.x + box.width / 2, box.y + box.height - 20)
-      await page.waitForTimeout(80)
-      const clicked = await readState(page)
+      const clicked = await readSettled(() => readState(page), { requiredStreak: 2, interval: 40 })
       expect(clicked.inMetadata, 'click at editor bottom entered metadata').toBe(false)
       expect(clicked.anchorIsMetaLine, 'click at editor bottom landed on the metadata line').toBe(false)
     }
@@ -97,8 +97,7 @@ test('caret cannot enter the hidden metadata block via click or ArrowRight-at-en
     await page.keyboard.press('End')
     for (let i = 0; i < 4; i++) {
       await page.keyboard.press('ArrowRight')
-      await page.waitForTimeout(40)
-      const s = await readState(page)
+      const s = await readSettled(() => readState(page), { requiredStreak: 2, interval: 40 })
       expect(s.inMetadata, `ArrowRight #${i + 1} entered metadata`).toBe(false)
       expect(s.anchorIsMetaLine, `ArrowRight #${i + 1} landed on the metadata line`).toBe(false)
     }
@@ -122,20 +121,28 @@ test('Cmd+A then collapse does not rest the caret in the metadata block', async(
     // is a no-op fails here instead of passing the metadata checks vacuously.
     await page.keyboard.press('ControlOrMeta+a')
     await page.keyboard.press('ControlOrMeta+a')
-    await page.waitForTimeout(60)
+    // The whole-document span is the positive observable for the keystrokes.
+    await expect
+      .poll(
+        async() => {
+          const s = await readState(page)
+          return s.selectionText.includes('hello') && s.selectionText.includes('y')
+        },
+        { timeout: 5000 }
+      )
+      .toBe(true)
     const selected = await readState(page)
     expect(selected.selectionCollapsed, 'select-all must produce a real selection').toBe(false)
     expect(selected.selectionText, 'select-all must span the whole document').toContain('hello')
     expect(selected.selectionText, 'select-all must span the whole document').toContain('y')
     // Collapse the select-all range to its focus (document end).
     await page.keyboard.press('ArrowRight')
-    await page.waitForTimeout(60)
-    const s = await readState(page)
+    const s = await readSettled(() => readState(page), { requiredStreak: 2, interval: 40 })
     expect(s.inMetadata, 'select-all collapse rested caret in metadata').toBe(false)
     expect(s.anchorIsMetaLine, 'select-all collapse rested caret on the metadata line').toBe(false)
     await page.keyboard.type('Z')
-    await page.waitForTimeout(60)
-    expect((await readState(page)).hasIntactMeta, 'metadata intact after Cmd+A collapse + type').toBe(true)
+    const typed = await readSettled(() => readState(page), { requiredStreak: 3, interval: 40 })
+    expect(typed.hasIntactMeta, 'metadata intact after Cmd+A collapse + type').toBe(true)
   } finally {
     await app.close()
   }

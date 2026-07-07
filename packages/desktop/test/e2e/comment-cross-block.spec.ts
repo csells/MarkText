@@ -4,6 +4,7 @@
 // menu-enabled-state bug that made "⌘⇧L does nothing" for keyboard selections.
 import { expect, test } from '@playwright/test'
 import { clickMenuById, focusEditor, launchWithMarkdown } from './helpers'
+import { waitForMenuItemEnabled } from './portable-comments-fixtures'
 
 test('adding a comment across two paragraphs wraps the whole range', async() => {
   const md = 'hello world\n\nsecond line\n'
@@ -33,13 +34,17 @@ test('adding a comment across two paragraphs wraps the whole range', async() => 
       sel.addRange(range)
       document.dispatchEvent(new Event('selectionchange'))
     })
-    await page.waitForTimeout(120)
+    // The engine committing the selection is observable as menu enablement.
+    expect(await waitForMenuItemEnabled(app, 'review.add-comment', true)).toBe(true)
     await clickMenuById(app, 'review.add-comment')
-    await page.waitForTimeout(200)
 
     // Both paragraphs should now carry marker syntax (open in p1, close in p2).
-    const texts = await page.evaluate(() =>
+    const readParagraphTexts = () => page.evaluate(() =>
       [...document.querySelectorAll('.mu-paragraph')].map(p => p.textContent ?? ''))
+    await expect
+      .poll(async() => (await readParagraphTexts()).join('\n'), { timeout: 5000 })
+      .toMatch(/<!--MC:[^>]+-->/)
+    const texts = await readParagraphTexts()
     const joined = texts.join('\n')
     expect(joined, `after cross-block comment:\n${joined}`).toMatch(/<!--MC:[^>]+-->/)
     // Open marker in the first paragraph, close marker in the second.

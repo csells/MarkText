@@ -305,6 +305,32 @@ const commitSelection = (collapse: boolean) => {
   return true
 }
 
+// Samples `read` until the value holds for `requiredStreak` consecutive
+// reads (waitForMenuItemEnabled semantics): assertions on engine-adjusted
+// state (caret snaps, debounced selection commits) must settle so they
+// cannot pass by sampling a stale or mid-transition value. Returns the last
+// sample on timeout so the caller's assertion reports the actual state.
+export const readSettled = async<T>(
+  read: () => Promise<T>,
+  { requiredStreak = 3, interval = 50, timeout = 4000 } = {}
+): Promise<T> => {
+  const deadline = Date.now() + timeout
+  let last = await read()
+  let streak = 1
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, interval))
+    const next = await read()
+    if (JSON.stringify(next) === JSON.stringify(last)) {
+      streak += 1
+      if (streak >= requiredStreak) return next
+    } else {
+      streak = 1
+      last = next
+    }
+  }
+  return last
+}
+
 export const focusEditor = async(page: Page): Promise<void> => {
   await page.evaluate(commitSelection, false)
   // Allow muya's selectionchange listener to commit the selection to its model.
@@ -337,7 +363,8 @@ export const selectWorldThenComment = async(
     document.dispatchEvent(new Event('selectionchange'))
   })
   await clickMenuById(app, 'review.add-comment')
-  await page.waitForTimeout(200)
+  // The compose box opening is the postcondition callers rely on.
+  await page.waitForSelector('.reply-box textarea', { state: 'attached', timeout: 10000 })
 }
 
 export const setSourceMarkdown = async(

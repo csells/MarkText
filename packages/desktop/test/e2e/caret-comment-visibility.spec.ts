@@ -32,7 +32,10 @@ test('caret stays visible when arrowing right into a line-start comment', async(
     await page.locator('.mu-paragraph', { hasText: 'one' }).first().click()
     await page.keyboard.press('End')
     await page.keyboard.press('ArrowRight')
-    await page.waitForTimeout(200)
+    // The caret snap is the positive observable; poll it instead of a clock.
+    await expect
+      .poll(async() => (await readSel()).anchorText ?? '', { timeout: 5000 })
+      .toContain('header')
 
     const sel = await readSel()
     expect(sel.inMarker).toBe(false)

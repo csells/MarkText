@@ -4,6 +4,7 @@
 // collapsed caret. (Mouse selection works; keyboard does not.)
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { focusEditor, launchWithMarkdown } from './helpers'
+import { waitForMenuItemEnabled } from './portable-comments-fixtures'
 
 const menuEnabled = (app: ElectronApplication) =>
   app.evaluate(({ Menu }) => {
@@ -28,17 +29,24 @@ test('keyboard Shift+arrow cross-block selection enables Add Comment', async() =
     await page.locator('.mu-paragraph', { hasText: 'hello' }).first().click()
     await page.keyboard.press('Home')
     for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight')
-    await page.waitForTimeout(120)
-    expect(await menuEnabled(app), 'menu disabled for a collapsed caret').toBe(false)
+    // Negative expectation: hold disabled across consecutive reads so it
+    // cannot pass on a stale pre-selection value.
+    expect(
+      await waitForMenuItemEnabled(app, 'review.add-comment', false),
+      'menu disabled for a collapsed caret'
+    ).toBe(false)
 
     // Keyboard-select DOWN into the second paragraph (cross-block).
     await page.keyboard.down('Shift')
     await page.keyboard.press('ArrowDown')
     await page.keyboard.up('Shift')
-    await page.waitForTimeout(150)
+    // The shift-selection landing is observable as a non-collapsed selection.
+    await expect
+      .poll(async() => (await readSel()).isCollapsed, { timeout: 5000 })
+      .toBe(false)
 
     const sel = await readSel()
-    const menu = await menuEnabled(app)
+    const menu = await waitForMenuItemEnabled(app, 'review.add-comment', true)
     // eslint-disable-next-line no-console
     console.log('after Shift+Down:', JSON.stringify(sel), 'menu enabled:', menu)
     expect(sel.isCollapsed, 'DOM selection should span both paragraphs').toBe(false)

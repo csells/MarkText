@@ -10,17 +10,24 @@ test('submitting a reply returns focus to the editor and clears the reply box', 
     await focusEditor(page)
     // Add a comment on "world" and submit the comment body (first reply).
     await selectWorldThenComment(page, app)
+    const replyBoxValue = () => page.evaluate(
+      () => document.querySelector<HTMLTextAreaElement>('.reply-box textarea')?.value ?? null)
     let box = page.locator('.reply-box textarea').first()
     await box.fill('hello!')
     await box.press('Meta+Enter')
-    await page.waitForTimeout(250)
+    // Submit clears the box — the positive transition to wait on.
+    await expect.poll(replyBoxValue, { timeout: 5000 }).toBe('')
 
     // Now reply AGAIN to the same (now non-composing) thread — the scenario.
     box = page.locator('.reply-box textarea').first()
     await box.click()
     await box.fill('greetings')
     await box.press('Meta+Enter')
-    await page.waitForTimeout(300)
+    await expect.poll(replyBoxValue, { timeout: 5000 }).toBe('')
+    await expect
+      .poll(async() => (await page.evaluate(() => document.activeElement?.tagName)) === 'TEXTAREA',
+        { timeout: 5000 })
+      .toBe(false)
 
     const s = await page.evaluate(() => ({
       activeIsTextarea: document.activeElement?.tagName === 'TEXTAREA',
