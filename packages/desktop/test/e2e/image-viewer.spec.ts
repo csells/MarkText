@@ -141,18 +141,16 @@ test.describe('SimpleImageViewer (Space-to-preview + Esc close)', () => {
   })
 
   test('Space on a selected image does NOT insert a literal space into the markdown', async() => {
-    const before = await getMarkdownContent(page, app)
+    const before = await getMarkdownContent(page)
 
     await selectImage(page)
     await page.keyboard.press('Space')
     await expect.poll(() => viewerVisible(page), { timeout: 5000 }).toBe(true)
 
-    // Close the viewer before reading the document so getMarkdownContent's
-    // source-mode toggle is not racing the overlay.
     await page.keyboard.press('Escape')
     await expect.poll(() => viewerVisible(page), { timeout: 5000 }).toBe(false)
 
-    const after = await getMarkdownContent(page, app)
+    const after = await getMarkdownContent(page)
     expect(after.trim()).toBe(before.trim())
     // The original image markdown is intact (no stray space injected).
     expect(after).toContain(`![alt](${SVG_DATA_URI})`)

@@ -26,7 +26,7 @@ test.describe('Editor input and source-mode roundtrip', () => {
   })
 
   test('Initial markdown is loaded into the editor', async() => {
-    const markdown = await getMarkdownContent(page, app)
+    const markdown = await getMarkdownContent(page)
     expect(markdown).toContain('# Hello')
     expect(markdown).toContain('Starting paragraph.')
   })
@@ -51,7 +51,7 @@ test.describe('Editor input and source-mode roundtrip', () => {
     // the last keystroke is the regression case for the lost-trailing-edit
     // flush in editor.vue's sourceCode watch (muya batches ops per animation
     // frame; without the flush the serialize drops the in-flight keystroke).
-    await expect.poll(async() => await getMarkdownContent(page, app)).toContain('typed-token')
+    await expect.poll(async() => await getMarkdownContent(page)).toContain('typed-token')
   })
 })
 
@@ -137,7 +137,7 @@ test.describe('Title-bar word counter (item 24)', () => {
     // The displayed value matches the engine's wordCount over the exact markdown
     // that is now loaded (verifies the title-bar tracks the live document, and
     // that the CJK chars each counted as a word).
-    const markdown = await getMarkdownContent(page, app)
+    const markdown = await getMarkdownContent(page)
     await expect.poll(() => counterValue(page), { timeout: 5000 }).toBe(expectedCount(markdown).word)
   })
 
@@ -148,7 +148,7 @@ test.describe('Title-bar word counter (item 24)', () => {
     await page.waitForTimeout(400)
 
     // Derive the four expected values from the exact markdown that is loaded.
-    const markdown = await getMarkdownContent(page, app)
+    const markdown = await getMarkdownContent(page)
     const expected = expectedCount(markdown)
 
     const counter = page.locator(WORD_COUNT_TEXT)

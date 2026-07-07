@@ -284,6 +284,29 @@ const processShim = {
     Promise.resolve().then(() => fn(...args))
 }
 
+// E2E markdown bridge (specs/architecture/test-infrastructure.md): exists
+// only when the test harness launched the app — presence of the env var is
+// the signal; a value of '0' merely opts out of window hiding. The renderer
+// registers a provider serving the active tab's committed markdown, so specs
+// never round-trip through source mode to read document bytes.
+const testBridgeAPI =
+  bootInfo?.env?.MARKTEXT_TEST_BACKGROUND === undefined
+    ? null
+    : (() => {
+      let tabMarkdownProvider: (() => string) | null = null
+      return {
+        registerTabMarkdownProvider: (provider: () => string): void => {
+          tabMarkdownProvider = provider
+        },
+        getTabMarkdown: (): string => {
+          if (!tabMarkdownProvider) {
+            throw new Error('__marktextTest.getTabMarkdown: no provider registered')
+          }
+          return tabMarkdownProvider()
+        }
+      }
+    })()
+
 try {
   contextBridge.exposeInMainWorld('electron', electronAPI)
   contextBridge.exposeInMainWorld('process', processShim)
@@ -295,6 +318,7 @@ try {
   contextBridge.exposeInMainWorld('ripgrep', ripgrepAPI)
   contextBridge.exposeInMainWorld('uploader', uploaderAPI)
   contextBridge.exposeInMainWorld('fonts', fontsAPI)
+  if (testBridgeAPI) contextBridge.exposeInMainWorld('__marktextTest', testBridgeAPI)
 } catch (error) {
   console.error(error)
 }

@@ -196,7 +196,7 @@ test.describe('Heading creation under zh-CN does not crash the renderer (item 27
 
     // The heading round-trips to `# Hello` in the markdown source — proof the
     // conversion actually produced an ATX heading (not just styled text).
-    const markdown = await getMarkdownContent(page, app)
+    const markdown = await getMarkdownContent(page)
     expect(markdown).toContain('# Hello')
 
     // The whole point of the guard: building HeadingCopyLink via muya.i18n.t
@@ -216,7 +216,7 @@ test.describe('Heading creation under zh-CN does not crash the renderer (item 27
     await expect(h2).toHaveCount(1, { timeout: 5000 })
     await expect(h2.first()).toContainText('H2')
 
-    const markdown = await getMarkdownContent(page, app)
+    const markdown = await getMarkdownContent(page)
     expect(markdown).toContain('## H2')
 
     // A second heading conversion under zh-CN (another HeadingCopyLink + i18n.t)

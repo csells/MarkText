@@ -16,6 +16,7 @@ import i18nPlugin from './i18n'
 // something is wrong here! \/
 import services from './services/index'
 import routes from './router'
+import { initTestBridge } from './testBridge'
 import Main from './Main.vue'
 
 import './assets/styles/index.css'
@@ -49,6 +50,8 @@ const router = createRouter({
 app.use(router)
 app.use(pinia)
 app.use(i18nPlugin)
+
+initTestBridge(pinia)
 
 // Configure axios globally
 app.config.globalProperties.$http = axios

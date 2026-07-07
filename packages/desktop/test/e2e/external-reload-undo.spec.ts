@@ -127,7 +127,7 @@ test.describe('External disk reload — undo restores the pre-change document', 
     await page.waitForTimeout(600)
 
     // The tab now reflects the new on-disk content...
-    expect((await getMarkdownContent(page, app)).trim()).toBe('new content here')
+    expect((await getMarkdownContent(page)).trim()).toBe('new content here')
     // ...and stays clean: the reloaded content matches the file on disk, so the
     // tab must NOT be flagged unsaved (replaceContent fires a json-change that
     // would otherwise mark it dirty against the stale baseline).
@@ -140,7 +140,7 @@ test.describe('External disk reload — undo restores the pre-change document', 
     // document as it was before the reload.
     await undo(app)
     await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page, app)).trim()).toBe('old content here')
+    expect((await getMarkdownContent(page)).trim()).toBe('old content here')
     // The undone document now diverges from on-disk content, so the tab is dirty.
     await expect
       .poll(() => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')))
@@ -176,7 +176,7 @@ test.describe('External disk reload — undo restores the pre-change document', 
 
     await reportExternalChange(app, filePath, after)
 
-    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(after)
+    await expect.poll(() => getMarkdownContent(page), { timeout: 5000 }).toBe(after)
     await expect(page.locator('.mu-comment-highlight')).toHaveText('reviewed')
     await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
     await expect(page.locator('.side-bar-comments .reply p')).toHaveText(
@@ -187,7 +187,7 @@ test.describe('External disk reload — undo restores the pre-change document', 
 
     await undo(app)
 
-    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(before)
+    await expect.poll(() => getMarkdownContent(page), { timeout: 5000 }).toBe(before)
     await expect(page.locator('.mu-comment-highlight')).toHaveCount(0)
     await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
     await expect(page.locator('.side-bar-comments .diagnostic')).toHaveCount(0)
@@ -255,7 +255,7 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
     await reportExternalChange(app, filePath, 'agent content here\n')
     await page.waitForTimeout(600)
 
-    expect(await getMarkdownContent(page, app)).toBe('local dirty content\n')
+    expect(await getMarkdownContent(page)).toBe('local dirty content\n')
     await expectMergeConflictPrompt(page)
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     await app.close()
@@ -294,7 +294,7 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
 
     await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
-    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(
+    await expect.poll(() => getMarkdownContent(page), { timeout: 5000 }).toBe(
       'one\nremote\nthree\n'
     )
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
@@ -319,7 +319,7 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
     // Use Yours resolves the conflict to the local edit: local kept, disk
     // dropped, no leftover conflict scaffolding. (Exact bytes depend on the
     // WYSIWYG paragraph round-trip, so assert the resolution, not the layout.)
-    const yoursResult = await getMarkdownContent(page, app)
+    const yoursResult = await getMarkdownContent(page)
     expect(yoursResult).toContain('local')
     expect(yoursResult).not.toContain('remote')
     expect(yoursResult).not.toContain('MARKTEXT_LOCAL')
@@ -342,7 +342,7 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
 
     await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
     // Use Both keeps local AND disk edits, no leftover conflict scaffolding.
-    const bothResult = await getMarkdownContent(page, app)
+    const bothResult = await getMarkdownContent(page)
     expect(bothResult).toContain('local')
     expect(bothResult).toContain('remote')
     expect(bothResult).not.toContain('MARKTEXT_LOCAL')
@@ -359,7 +359,7 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
 
     await reportExternalChange(app, filePath, 'local content now on disk\n')
 
-    expect(await getMarkdownContent(page, app)).toBe('local content now on disk\n')
+    expect(await getMarkdownContent(page)).toBe('local content now on disk\n')
     await expect(page.locator('.editor-notifications')).toHaveCount(0)
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
     await app.close()
@@ -424,7 +424,7 @@ test.describe('External disk changes — clean auto-merge into a dirty editor (a
     await page.locator('.editor-notifications').getByRole('button', { name: 'Undo' }).click()
     await expect.poll(() => editorText(page), { timeout: 8000 }).not.toContain('MC:agent1')
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
-    expect(await getMarkdownContent(page, app)).toBe(
+    expect(await getMarkdownContent(page)).toBe(
       'alpha start (edited)\n\nbravo middle\n\ncharlie end\n'
     )
     await app.close()
@@ -447,7 +447,7 @@ test.describe('External disk changes — clean auto-merge into a dirty editor (a
     await page.getByRole('button', { name: 'Keep Editing' }).click()
     await expect(page.locator('.merge-conflict-dialog')).toBeHidden()
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
-    expect(await getMarkdownContent(page, app)).toBe(MERGED_DOC)
+    expect(await getMarkdownContent(page)).toBe(MERGED_DOC)
     await app.close()
   })
 
@@ -492,22 +492,22 @@ test.describe('External disk reload — confirmed dirty reloads remain recoverab
     await reloadDiskFromMergeConflict(page)
     await page.waitForTimeout(600)
 
-    expect(await getMarkdownContent(page, app)).toBe('agent content here\n')
+    expect(await getMarkdownContent(page)).toBe('agent content here\n')
     await expect(page.locator('.editor-notifications')).toContainText('kept')
     await expect(page.locator('.editor-tabs li')).toHaveCount(2)
     const recoveryTab = page.locator('.editor-tabs li.unsaved:not(.active)').first()
     await expect(recoveryTab.locator('span').first()).toHaveText(/Untitled-/)
     await recoveryTab.click()
-    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(
+    await expect.poll(() => getMarkdownContent(page), { timeout: 5000 }).toBe(
       'local dirty content\n'
     )
     await page.locator('.editor-tabs li:not(.unsaved)').first().click()
-    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(
+    await expect.poll(() => getMarkdownContent(page), { timeout: 5000 }).toBe(
       'agent content here\n'
     )
     await undo(app)
     await page.waitForTimeout(600)
-    expect(await getMarkdownContent(page, app)).toBe('local dirty content\n')
+    expect(await getMarkdownContent(page)).toBe('local dirty content\n')
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     await app.close()
   })
@@ -610,7 +610,7 @@ test.describe('External disk reload — source-mode scroll position survives a s
     await page.waitForTimeout(600)
 
     // The reload landed (content updated) and CodeMirror is still mounted.
-    expect((await getMarkdownContent(page, app)).trim().endsWith('tail line')).toBe(true)
+    expect((await getMarkdownContent(page)).trim().endsWith('tail line')).toBe(true)
     await enterSourceMode(page, app)
 
     // The scroll position is restored — not reset to the top. The exact pixel
@@ -711,7 +711,7 @@ test.describe('External disk reload — real watcher source-mode sync', () => {
 
     fs.writeFileSync(filePath, after, 'utf-8')
 
-    await expect.poll(() => getMarkdownContent(page, app), { timeout: 12000 }).toBe(after)
+    await expect.poll(() => getMarkdownContent(page), { timeout: 12000 }).toBe(after)
     await expect(page.locator('.mu-comment-highlight')).toHaveText('reviewed')
     await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
     await expect(page.locator('.side-bar-comments .reply p')).toHaveText(
@@ -721,7 +721,7 @@ test.describe('External disk reload — real watcher source-mode sync', () => {
 
     await undo(app)
 
-    await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(before)
+    await expect.poll(() => getMarkdownContent(page), { timeout: 5000 }).toBe(before)
     await expect(page.locator('.mu-comment-highlight')).toHaveCount(0)
     await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
@@ -787,7 +787,7 @@ test.describe('External disk reload — real watcher source-mode sync', () => {
     fs.writeFileSync(filePath, 'agent watcher content\n', 'utf-8')
 
     await expectMergeConflictPrompt(page)
-    expect(await getMarkdownContent(page, app)).toBe('local dirty content\n')
+    expect(await getMarkdownContent(page)).toBe('local dirty content\n')
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     await app.close()
   })

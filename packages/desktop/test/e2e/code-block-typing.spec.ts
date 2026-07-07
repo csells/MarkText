@@ -76,6 +76,6 @@ test.describe('Code block typing — real-keyboard fenced conversion (item 95)',
     await expect(fenced.locator('.mu-codeblock-content').first()).toBeAttached()
 
     // Round-trip: serializes back to a fenced block tagged with the language.
-    await expect.poll(() => getMarkdownContent(page, app)).toContain('```js')
+    await expect.poll(() => getMarkdownContent(page)).toContain('```js')
   })
 })

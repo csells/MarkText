@@ -57,7 +57,7 @@ test.describe('Loose/tight list-item toggle', () => {
     await expect(page.locator('.mu-bullet-list .mu-paragraph-content').first()).toBeAttached()
 
     // Sanity: the list serializes tight before any toggle.
-    const tightBefore = await getMarkdownContent(page, app)
+    const tightBefore = await getMarkdownContent(page)
     expect(tightBefore).toMatch(/- one\n- two/)
 
     // Caret inside the first item, then toggle Loose List Item → loose.
@@ -66,7 +66,7 @@ test.describe('Loose/tight list-item toggle', () => {
 
     // The serialized source now separates the items with a blank line.
     await expect
-      .poll(async() => getMarkdownContent(page, app), { timeout: 5000 })
+      .poll(async() => getMarkdownContent(page), { timeout: 5000 })
       .toMatch(/- one\n\n- two/)
 
     // Toggle again → tight: the blank line between items is removed.
@@ -74,10 +74,10 @@ test.describe('Loose/tight list-item toggle', () => {
     await clickMenuById(app, 'looseListItemMenuItem')
 
     await expect
-      .poll(async() => getMarkdownContent(page, app), { timeout: 5000 })
+      .poll(async() => getMarkdownContent(page), { timeout: 5000 })
       .toMatch(/- one\n- two/)
     // And it is genuinely tight again (no blank line slipped through).
-    const tightAgain = await getMarkdownContent(page, app)
+    const tightAgain = await getMarkdownContent(page)
     expect(tightAgain).not.toMatch(/- one\n\n- two/)
   })
 })

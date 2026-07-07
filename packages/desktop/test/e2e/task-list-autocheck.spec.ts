@@ -97,7 +97,7 @@ test.describe('Checklist 32 — task list autoCheck cascade via a real checkbox 
     await expect.poll(() => checkboxChecked(page, 2)).toBe(true)
 
     // Saved markdown shows the checked marker for all three task items.
-    const md = await getMarkdownContent(page, app)
+    const md = await getMarkdownContent(page)
     const checked = (md.match(/- \[x\]/g) || []).length
     expect(checked).toBe(3)
 
@@ -121,7 +121,7 @@ test.describe('Checklist 32 — task list autoCheck cascade via a real checkbox 
     expect(await checkboxChecked(page, 2)).toBe(false)
 
     // Saved markdown shows exactly one checked marker (the parent).
-    const md = await getMarkdownContent(page, app)
+    const md = await getMarkdownContent(page)
     const checked = (md.match(/- \[x\]/g) || []).length
     expect(checked).toBe(1)
     expect(md).toContain('- [x] parent')

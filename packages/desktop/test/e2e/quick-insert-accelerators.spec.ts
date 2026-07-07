@@ -62,7 +62,7 @@ test.describe('Quick-insert accelerators (item 49)', () => {
     await expect(codeBlock.locator('.mu-codeblock-content').first()).toBeAttached()
 
     // It round-trips to a fenced code block in the serialized markdown.
-    await expect.poll(() => getMarkdownContent(page, app)).toContain('```')
+    await expect.poll(() => getMarkdownContent(page)).toContain('```')
 
     // The blockquote accelerator must NOT have also fired.
     await expect(page.locator('.editor-component blockquote.mu-block-quote')).toHaveCount(0)
@@ -75,7 +75,7 @@ test.describe('Quick-insert accelerators (item 49)', () => {
     await expect(quote).toBeAttached({ timeout: 5000 })
 
     // It round-trips to a `>` blockquote in the serialized markdown.
-    await expect.poll(() => getMarkdownContent(page, app)).toMatch(/^>/m)
+    await expect.poll(() => getMarkdownContent(page)).toMatch(/^>/m)
 
     // The code-block accelerator must NOT have also fired.
     await expect(page.locator('.editor-component pre.mu-code-block')).toHaveCount(0)

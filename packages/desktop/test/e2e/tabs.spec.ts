@@ -149,14 +149,14 @@ test.describe('Tab management', () => {
 
     // The newly-selected tab B shows B's body.
     await expect
-      .poll(async() => (await getMarkdownContent(page, app)).trim(), { timeout: 5000 })
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
       .toBe('second body')
 
     // Switch to index 0 — the editor body must revert to tab A's content and the
     // active tab id must change away from B.
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
     await expect
-      .poll(async() => (await getMarkdownContent(page, app)).trim(), { timeout: 5000 })
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
       .toBe('# Tab base')
     expect(await activeTabId(page)).not.toBe(bId)
 
@@ -166,7 +166,7 @@ test.describe('Tab management', () => {
     expect(bIndex).toBeGreaterThanOrEqual(0)
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', bIndex)
     await expect
-      .poll(async() => (await getMarkdownContent(page, app)).trim(), { timeout: 5000 })
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
       .toBe('second body')
     expect(await activeTabId(page)).toBe(bId)
   })
@@ -238,7 +238,7 @@ test.describe('Tab management', () => {
       await placeCaretInEditor(aPage)
       await typeIntoEditor(aPage, ' MARKERA end')
       await expect
-        .poll(async() => (await getMarkdownContent(aPage, aApp)).trim(), { timeout: 5000 })
+        .poll(async() => (await getMarkdownContent(aPage)).trim(), { timeout: 5000 })
         .toContain('MARKERA')
       await expect.poll(isDirty, { timeout: 5000 }).toBe(true)
       const aTabId = await activeTabId(aPage)
@@ -255,7 +255,7 @@ test.describe('Tab management', () => {
       await placeCaretInEditor(aPage)
       await typeIntoEditor(aPage, ' MARKERB end')
       await expect
-        .poll(async() => (await getMarkdownContent(aPage, aApp)).trim(), { timeout: 5000 })
+        .poll(async() => (await getMarkdownContent(aPage)).trim(), { timeout: 5000 })
         .toContain('MARKERB')
 
       // Switch back to tab A by its id's index.
@@ -264,11 +264,11 @@ test.describe('Tab management', () => {
       expect(aIndex).toBeGreaterThanOrEqual(0)
       await sendIpcToRenderer(aApp, 'mt::switch-tab-by-index', aIndex)
       await expect
-        .poll(async() => (await getMarkdownContent(aPage, aApp)).trim(), { timeout: 5000 })
+        .poll(async() => (await getMarkdownContent(aPage)).trim(), { timeout: 5000 })
         .toContain('MARKERA')
       // A is shown again (its own edit), B's edit never leaked into A, and A is
       // still dirty from its own un-undone edit.
-      expect((await getMarkdownContent(aPage, aApp)).trim()).not.toContain('MARKERB')
+      expect((await getMarkdownContent(aPage)).trim()).not.toContain('MARKERB')
       expect(await activeTabId(aPage)).toBe(aTabId)
       await expect.poll(isDirty, { timeout: 5000 }).toBe(true)
 
@@ -281,17 +281,17 @@ test.describe('Tab management', () => {
       await expect
         .poll(
           async() => {
-            const current = (await getMarkdownContent(aPage, aApp)).trim()
+            const current = (await getMarkdownContent(aPage)).trim()
             if (current === 'alpha') return current
             await sendIpcToRenderer(aApp, 'mt::editor-edit-action', 'undo')
             await aPage.waitForTimeout(300)
-            return (await getMarkdownContent(aPage, aApp)).trim()
+            return (await getMarkdownContent(aPage)).trim()
           },
           { timeout: 8000 }
         )
         .toBe('alpha')
       // It reverted A's edit, NOT B's (B's edit never appears).
-      expect((await getMarkdownContent(aPage, aApp)).trim()).not.toContain('MARKERB')
+      expect((await getMarkdownContent(aPage)).trim()).not.toContain('MARKERB')
       // Undoing back to the exact on-disk content clears A's unsaved indicator.
       await expect.poll(isDirty, { timeout: 5000 }).toBe(false)
     } finally {

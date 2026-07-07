@@ -85,7 +85,7 @@ test.describe('Parity PG14 — first undo after source mode reverts the edit in 
     // Bulk source-mode edit.
     await setSourceMarkdown(page, app, 'base\n\nSOURCE ADDED LINE\n')
     await page.waitForTimeout(500)
-    expect((await getMarkdownContent(page, app)).trim()).toContain('SOURCE ADDED LINE')
+    expect((await getMarkdownContent(page)).trim()).toContain('SOURCE ADDED LINE')
 
     // First undo after the source-mode handoff.
     await undo(app)
@@ -93,7 +93,7 @@ test.describe('Parity PG14 — first undo after source mode reverts the edit in 
 
     // Desired: the document reverts to the exact pre-source-mode content in a
     // single undo step.
-    expect((await getMarkdownContent(page, app)).trim()).toBe('base')
+    expect((await getMarkdownContent(page)).trim()).toBe('base')
     await app.close()
   })
 
@@ -106,12 +106,12 @@ test.describe('Parity PG14 — first undo after source mode reverts the edit in 
 
     await undo(app)
     await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page, app)).trim()).toBe('base')
+    expect((await getMarkdownContent(page)).trim()).toBe('base')
 
     // Redo restores the entire bulk change in one step.
     await redo(app)
     await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page, app)).trim()).toContain('SOURCE ADDED LINE')
+    expect((await getMarkdownContent(page)).trim()).toContain('SOURCE ADDED LINE')
     await app.close()
   })
 
@@ -124,11 +124,11 @@ test.describe('Parity PG14 — first undo after source mode reverts the edit in 
     // could not handle). The single undo must restore the exact paragraph.
     await setSourceMarkdown(page, app, '# hello\n\n- new item\n')
     await page.waitForTimeout(500)
-    expect((await getMarkdownContent(page, app)).trim()).toContain('# hello')
+    expect((await getMarkdownContent(page)).trim()).toContain('# hello')
 
     await undo(app)
     await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page, app)).trim()).toBe('hello')
+    expect((await getMarkdownContent(page)).trim()).toBe('hello')
     await app.close()
   })
 })
@@ -149,13 +149,13 @@ test.describe('Parity PG15 — undo back to on-disk content restores the saved i
 
     // Sanity: the edit dirtied the tab and changed the content.
     expect(await page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))).toBe(true)
-    expect((await getMarkdownContent(page, app)).trim()).toContain('EXTRA')
+    expect((await getMarkdownContent(page)).trim()).toContain('EXTRA')
 
     // Undo back to the on-disk content.
     await undo(app)
     await page.waitForTimeout(600)
     // Content is restored to disk...
-    expect((await getMarkdownContent(page, app)).trim()).toBe('hello world')
+    expect((await getMarkdownContent(page)).trim()).toBe('hello world')
 
     // ...and the saved/clean indicator comes back (tab no longer marked
     // unsaved). Poll: the indicator clears on the undo's async json-change.
@@ -193,7 +193,7 @@ test.describe('Parity PG15 — undo back to on-disk content restores the saved i
     await page.waitForTimeout(500)
 
     // The divergent document must stay dirty (the G6 false-clean regression).
-    const content = (await getMarkdownContent(page, app)).trim()
+    const content = (await getMarkdownContent(page)).trim()
     expect(content).toContain('C')
     expect(content).not.toContain('B')
     const dirty = await page.evaluate(
@@ -280,7 +280,7 @@ test.describe('Item 248 — a real source-mode keystroke dirties the tab dot', (
     await exitSourceMode(page, app)
     await expect.poll(() => isTabDirty(page)).toBe(true)
     await expect
-      .poll(() => getMarkdownContent(page, app).then((md) => md.trim()))
+      .poll(() => getMarkdownContent(page).then((md) => md.trim()))
       .toContain('saved baseline SRCKEY')
     await app.close()
   })
@@ -312,7 +312,7 @@ test.describe('Item 256 — save -> clean -> edit -> dirty -> undo-to-saved cycl
     // Without this the engine groups the later "MORE" type with the EXTRA type
     // into one undo step, so there would be no SAVED state distinct from the
     // on-disk baseline to undo back to.
-    await getMarkdownContent(page, app)
+    await getMarkdownContent(page)
     await page.waitForTimeout(400)
     await expect.poll(() => wysiwygText(page)).toContain('EXTRA')
     // Capture the saved-state text so the undo assertion compares against the

@@ -13,6 +13,9 @@ const ENV_ALLOWLIST = [
   'MARKTEXT_VERSION',
   'MARKTEXT_VERSION_STRING',
   'MARKTEXT_RIPGREP_PATH',
+  // Presence (any value, including '0') marks a test-harness launch; the
+  // preload gates the e2e markdown bridge on it.
+  'MARKTEXT_TEST_BACKGROUND',
   'PATH',
   'HOME'
 ]

@@ -118,7 +118,7 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
     // The engine's serialization of the loaded document equals the on-disk
     // bytes — i.e. the fixture is already in canonical form, so loading it does
     // not silently reformat anything.
-    const serialized = await getMarkdownContent(page, app)
+    const serialized = await getMarkdownContent(page)
     expect(serialized).toBe(original)
   })
 
@@ -138,7 +138,7 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
       await page.waitForTimeout(200)
     }
 
-    const afterToggles = await getMarkdownContent(page, app)
+    const afterToggles = await getMarkdownContent(page)
     expect(afterToggles).toBe(original)
   })
 
@@ -156,7 +156,7 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
     await expect.poll(() => readDisk(), { timeout: 5000 }).toBe(original)
 
     // And the in-editor serialization still matches.
-    expect(await getMarkdownContent(page, app)).toBe(original)
+    expect(await getMarkdownContent(page)).toBe(original)
   })
 
   test('a dirty edit saves through the full IPC path and persists the exact editor serialization', async() => {
@@ -170,7 +170,7 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
     // document (store FILE_SAVE sends currentFile.markdown). Capture it, then
     // save and verify the on-disk bytes match it exactly (the desktop save path
     // does not reformat on top of the editor's serialization).
-    const editorContent = await getMarkdownContent(page, app)
+    const editorContent = await getMarkdownContent(page)
     expect(editorContent).toContain('DIRTY EXTRA PARAGRAPH')
 
     await save(app)

@@ -293,7 +293,7 @@ test.describe('Table source-mode round-trip + modified indicator (item 89)', () 
       .toBe(true)
 
     // The modified content is observable through the source-mode round-trip.
-    const md = await getMarkdownContent(page, app)
+    const md = await getMarkdownContent(page)
     expect(md).toContain('X')
   })
 })

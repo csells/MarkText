@@ -202,6 +202,12 @@ declare global {
       paths?: { ripgrepBinaryPath?: string; [key: string]: unknown }
       [key: string]: unknown
     }
+    // E2E markdown bridge; the preload exposes it only on test-harness
+    // launches (specs/architecture/test-infrastructure.md).
+    __marktextTest?: {
+      registerTabMarkdownProvider(provider: () => string): void
+      getTabMarkdown(): string
+    }
   }
 }
 

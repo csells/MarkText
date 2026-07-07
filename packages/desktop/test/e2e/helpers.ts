@@ -249,22 +249,19 @@ export const exitSourceMode = async(page: Page, app: ElectronApplication): Promi
   })
 }
 
-export const getMarkdownContent = async(
-  page: Page,
-  app: ElectronApplication
-): Promise<string> => {
-  const wasInSource = await page.evaluate(
-    () => !!document.querySelector('.source-code .CodeMirror')
-  )
-  if (!wasInSource) await enterSourceMode(page, app)
-  const value = await page.evaluate(() => {
-    const cm = document.querySelector('.source-code .CodeMirror') as
-      | (Element & { CodeMirror?: { getValue(): string } })
-      | null
-    return cm && cm.CodeMirror ? cm.CodeMirror.getValue() : ''
+// Reads the active tab's committed markdown through the test-mode preload
+// bridge (specs/architecture/test-infrastructure.md) — never by toggling
+// source mode, which would exercise the markdown⇄state conversion under test
+// and mutate undo history. Entering source mode in a spec is only ever an
+// explicit act of testing source mode.
+export const getMarkdownContent = async(page: Page): Promise<string> => {
+  return page.evaluate(() => {
+    const bridge = (
+      window as unknown as { __marktextTest?: { getTabMarkdown(): string } }
+    ).__marktextTest
+    if (!bridge) throw new Error('getMarkdownContent: test bridge missing')
+    return bridge.getTabMarkdown()
   })
-  if (!wasInSource) await exitSourceMode(page, app)
-  return value
 }
 
 export const typeIntoEditor = async(page: Page, text: string): Promise<void> => {

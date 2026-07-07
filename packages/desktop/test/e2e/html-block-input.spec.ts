@@ -89,7 +89,7 @@ test.describe('HTML block typing shortcut and single-image lowering', () => {
     // The block's text content round-trips to the open/blank/close template.
     // (Source-mode serialization appends a trailing newline.)
     await expect
-      .poll(async() => await getMarkdownContent(page, app), { timeout: 5000 })
+      .poll(async() => await getMarkdownContent(page), { timeout: 5000 })
       .toBe('<div>\n\n</div>\n')
 
     // The caret sits BETWEEN the tags (engine offset 6 == `<div>\n`). The full
@@ -125,7 +125,7 @@ test.describe('HTML block typing shortcut and single-image lowering', () => {
     // Content round-trips losslessly back to the raw image markup.
     // (Source-mode serialization appends a trailing newline.)
     await expect
-      .poll(async() => await getMarkdownContent(page, app), { timeout: 5000 })
+      .poll(async() => await getMarkdownContent(page), { timeout: 5000 })
       .toBe('<img src=x>\n')
   })
 })

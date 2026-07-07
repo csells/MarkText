@@ -125,7 +125,7 @@ test.describe('List Tab/Shift-Tab nesting (items 30, 42)', () => {
     // The serialized markdown shows item two nested under item one. With the
     // default `listIndentation: 1` (number mode, count 1) the child list sits at
     // the parent's content column, i.e. the `- ` marker width (2 spaces).
-    const nestedMd = (await getMarkdownContent(page, app)).replace(/\n+$/, '')
+    const nestedMd = (await getMarkdownContent(page)).replace(/\n+$/, '')
     expect(nestedMd).toBe('- item one\n  - item two')
 
     // Shift-Tab unindents item two back to the top level — the nested list is
@@ -143,7 +143,7 @@ test.describe('List Tab/Shift-Tab nesting (items 30, 42)', () => {
     )
     await expect.poll(() => listShape(page)).toEqual({ topLevelItems: 2, nestedItems: 0 })
 
-    const flatMd = (await getMarkdownContent(page, app)).replace(/\n+$/, '')
+    const flatMd = (await getMarkdownContent(page)).replace(/\n+$/, '')
     expect(flatMd).toBe('- item one\n- item two')
   })
 
@@ -190,7 +190,7 @@ test.describe('List Tab/Shift-Tab nesting (items 30, 42)', () => {
 
     // Ordered marker `1. ` is 3 chars wide, so the nested item indents by 3
     // spaces and the nested list restarts its numbering at 1.
-    const md = (await getMarkdownContent(page, app)).replace(/\n+$/, '')
+    const md = (await getMarkdownContent(page)).replace(/\n+$/, '')
     expect(md).toBe('1. alpha\n   1. beta')
   })
 })

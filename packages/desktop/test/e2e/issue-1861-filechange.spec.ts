@@ -34,7 +34,7 @@ test.describe('Issue #1861 — content-identical file change', () => {
 
     // A genuine content change auto-syncs when the tab is clean.
     fs.writeFileSync(filePath, 'hello\nworld\nchanged\n', 'utf-8')
-    await expect.poll(() => getMarkdownContent(page, app), { timeout: 8000 }).toBe(
+    await expect.poll(() => getMarkdownContent(page), { timeout: 8000 }).toBe(
       'hello\nworld\nchanged\n'
     )
     expect(await isDirty(page)).toBe(false)

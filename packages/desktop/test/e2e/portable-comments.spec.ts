@@ -46,7 +46,7 @@ test.describe('Portable markdown comments', () => {
         })
         .toBe('reviewed')
       expect(await page.locator('.mu-comment-marker').first().textContent()).toBe('<!--MC:a-->')
-      expect(await getMarkdownContent(page, app)).toBe(DOC)
+      expect(await getMarkdownContent(page)).toBe(DOC)
     } finally {
       await app.close()
     }
@@ -115,7 +115,7 @@ test.describe('Portable markdown comments', () => {
         await enterSourceMode(page, app)
         expect(await sourceValue(page)).toBe(DOC)
         await exitSourceMode(page, app)
-        expect(await getMarkdownContent(page, app)).toBe(DOC)
+        expect(await getMarkdownContent(page)).toBe(DOC)
       }
     } finally {
       await app.close()
@@ -338,7 +338,7 @@ test.describe('Portable markdown comments', () => {
       await expect(page.locator('.side-bar-comments .reply-box textarea').first()).toBeFocused()
 
       await exitSourceMode(page, app)
-      expect(await getMarkdownContent(page, app)).toContain(
+      expect(await getMarkdownContent(page)).toContain(
         'A <!--MC:cmt_1-->reviewed<!--MC:~cmt_1--> span.'
       )
     } finally {
@@ -370,7 +370,7 @@ test.describe('Portable markdown comments', () => {
       await sendIpcToRenderer(app, 'mt::cm-add-comment')
 
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
-      const markdown = await getMarkdownContent(page, app)
+      const markdown = await getMarkdownContent(page)
       expect(markdown).toContain('<!--MC:cmt_1-->A<!--MC:~cmt_1--> reviewed span.')
       expect(markdown).toContain('[MC:cmt_1]: data:application/json;base64,')
     } finally {
@@ -521,7 +521,7 @@ test.describe('Portable markdown comments', () => {
       await expect(reopenedThread.locator('.status')).toHaveText('Resolved')
       await expect(reopenedThread.locator('.reply p').first()).toHaveText('Persisted source edit')
       await expect(reopenedThread.locator('.reply p').last()).toHaveText('Persisted source reply')
-      expect(await getMarkdownContent(reopened.page, reopened.app)).toBe(savedMarkdown)
+      expect(await getMarkdownContent(reopened.page)).toBe(savedMarkdown)
     } finally {
       await reopened.app.close()
     }
@@ -730,17 +730,17 @@ test.describe('Portable markdown comments', () => {
     try {
       const proseEdited = DOC.replace(' span.', ' span with source edit.')
       await setSourceMarkdown(page, app, proseEdited)
-      expect(await getMarkdownContent(page, app)).toBe(proseEdited)
+      expect(await getMarkdownContent(page)).toBe(proseEdited)
 
       const metadataEdited = proseEdited.replace(META_OPEN, META_RESOLVED)
       await setSourceMarkdown(page, app, metadataEdited)
-      expect(await getMarkdownContent(page, app)).toBe(metadataEdited)
+      expect(await getMarkdownContent(page)).toBe(metadataEdited)
       // Resolving via the metadata edit drops the in-document highlight; the
       // commented text and its markers survive, just unhighlighted.
       await expect
         .poll(() => page.locator('.mu-comment-highlight').count(), { timeout: 10000 })
         .toBe(0)
-      expect(await getMarkdownContent(page, app)).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
+      expect(await getMarkdownContent(page)).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
     } finally {
       await app.close()
     }
@@ -764,7 +764,7 @@ test.describe('Portable markdown comments', () => {
         'unclosed-open-marker',
         'orphan-metadata'
       ])
-      expect(await getMarkdownContent(page, app)).toBe(MALFORMED_DOC)
+      expect(await getMarkdownContent(page)).toBe(MALFORMED_DOC)
     } finally {
       await app.close()
     }
@@ -807,7 +807,7 @@ test.describe('Portable markdown comments', () => {
 
       await thread.locator('.thread-actions button').nth(2).click()
       await expect(thread.locator('.status')).toHaveText('Open')
-      expect(await getMarkdownContent(page, app)).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
+      expect(await getMarkdownContent(page)).toContain('<!--MC:a-->reviewed<!--MC:~a-->')
     } finally {
       await app.close()
     }
@@ -819,7 +819,7 @@ test.describe('Portable markdown comments', () => {
     try {
       await setSourceMarkdown(page, app, expected)
       await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
-      await expect.poll(() => getMarkdownContent(page, app), { timeout: 5000 }).toBe(expected)
+      await expect.poll(() => getMarkdownContent(page), { timeout: 5000 }).toBe(expected)
 
       await save(app)
       await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(false)
@@ -838,7 +838,7 @@ test.describe('Portable markdown comments', () => {
         state: 'attached',
         timeout: 10000
       })
-      expect(await getMarkdownContent(reopened.page, reopened.app)).toBe(expected)
+      expect(await getMarkdownContent(reopened.page)).toBe(expected)
     } finally {
       await reopened.app.close()
     }
@@ -850,7 +850,7 @@ test.describe('Portable markdown comments', () => {
       await focusEditor(page)
       await clickMenuById(app, 'review.add-comment')
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
-      expect(await getMarkdownContent(page, app)).toContain('<!--MC:')
+      expect(await getMarkdownContent(page)).toContain('<!--MC:')
 
       // Cancel the just-composed thread before adding a note → comment:discard.
       await page
@@ -860,7 +860,7 @@ test.describe('Portable markdown comments', () => {
         .click()
 
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(0)
-      expect(await getMarkdownContent(page, app)).not.toContain('<!--MC:')
+      expect(await getMarkdownContent(page)).not.toContain('<!--MC:')
     } finally {
       await app.close()
     }

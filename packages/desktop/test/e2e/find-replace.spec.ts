@@ -93,11 +93,9 @@ const counterText = (page: Page): Promise<string> =>
   page.locator(RESULT_COUNTER).innerText()
 
 // Read the live WYSIWYG editor text (what the engine has rendered into the
-// contenteditable). Verifying replace results this way avoids the source-mode
-// round-trip in getMarkdownContent, which re-parses + rebuilds the document on
-// exit and can clobber an engine text mutation that has not yet synced to the
-// JSON state — a flake that only surfaces when a prior test left pending async
-// in the shared app.
+// contenteditable) — deliberately a different observable from the committed
+// markdown: replace must update the rendered document, not just the state
+// the markdown serializer reads.
 const editorText = (page: Page): Promise<string> =>
   page.evaluate(() => document.querySelector('.editor-component')?.textContent ?? '')
 
