@@ -23,13 +23,23 @@ interface CommentThreadMetadata {
   replies?: Array<{ body?: string }>
 }
 
+// Reads both wire formats: a v1 base64 data-URI head with embedded replies,
+// or a v2 JSON head plus `[MC:id.N]:` reply lines in document order.
 export const readCommentMetadata = (markdown: string, id: string): CommentThreadMetadata => {
-  const line = markdown.split(/\r\n|\n|\r/u).find((value) => value.startsWith(`[MC:${id}]: `))
-  if (!line) throw new Error(`Missing metadata for ${id}`)
-  const dataUri = line.slice(`[MC:${id}]: `.length)
-  return JSON.parse(
-    Buffer.from(dataUri.replace('data:application/json;base64,', ''), 'base64').toString('utf8')
-  ) as CommentThreadMetadata
+  const lines = markdown.split(/\r\n|\n|\r/u)
+  const headLine = lines.find((value) => value.startsWith(`[MC:${id}]: `))
+  if (!headLine) throw new Error(`Missing metadata for ${id}`)
+  const payload = headLine.slice(`[MC:${id}]: `.length)
+  if (payload.startsWith('data:application/json;base64,')) {
+    return JSON.parse(
+      Buffer.from(payload.replace('data:application/json;base64,', ''), 'base64').toString('utf8')
+    ) as CommentThreadMetadata
+  }
+  const head = JSON.parse(payload) as CommentThreadMetadata
+  const replies = lines
+    .filter((value) => new RegExp(`^\\[MC:${id}\\.\\d+\\]: `).test(value))
+    .map((value) => JSON.parse(value.slice(value.indexOf(']: ') + 3)) as { body?: string })
+  return { ...head, replies }
 }
 
 export const META_OPEN =

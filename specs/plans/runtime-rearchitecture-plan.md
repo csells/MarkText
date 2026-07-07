@@ -15,7 +15,14 @@ until the implementation reflects the specs.
 - P1 (test infrastructure) — **done** (real mounts for the three specs; the
   preload markdown bridge + `getMarkdownContent` rewire; comment e2e clock
   waits converted to condition waits/`readSettled`).
-- P2 (wire format v2) — in progress.
+- P2 (wire format v2) — **done**. Grammar/codecs/parse/mutations/CLI all
+  read both and write v2; contiguous definition-line runs tokenize as one
+  block so the appendix round-trips byte-identically; the four merge
+  properties are pinned against the app's diff3 engine. One deliberate
+  handoff: whole-document v1→v2 conversion on a mutation-free save (the
+  engine-level half of pinned property 2) lands with P3's materialization
+  pass — today untouched v1 lines round-trip byte-verbatim and convert on
+  their first mutation.
 - P3 (OT anchors) — pending.
 - P4 (serialization cache · undo journal · d.ts retirement) — pending.
 - P5 (merge reducer) — pending.

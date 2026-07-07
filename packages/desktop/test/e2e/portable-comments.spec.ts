@@ -333,7 +333,7 @@ test.describe('Portable markdown comments', () => {
         .poll(() => sourceValue(page), { timeout: 5000 })
         .toContain('A <!--MC:cmt_1-->reviewed<!--MC:~cmt_1--> span.')
       const markdown = await sourceValue(page)
-      expect(markdown).toContain('[MC:cmt_1]: data:application/json;base64,')
+      expect(markdown).toContain('[MC:cmt_1]: {"version":2,"status":"open"')
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
       await expect(page.locator('.side-bar-comments .reply-box textarea').first()).toBeFocused()
 
@@ -372,7 +372,7 @@ test.describe('Portable markdown comments', () => {
       await expect(page.locator('.side-bar-comments .thread')).toHaveCount(1)
       const markdown = await getMarkdownContent(page)
       expect(markdown).toContain('<!--MC:cmt_1-->A<!--MC:~cmt_1--> reviewed span.')
-      expect(markdown).toContain('[MC:cmt_1]: data:application/json;base64,')
+      expect(markdown).toContain('[MC:cmt_1]: {"version":2,"status":"open"')
     } finally {
       await app.close()
     }
@@ -683,7 +683,9 @@ test.describe('Portable markdown comments', () => {
 
       const updated = await sourceValue(page)
       const metadataLine = updated.split('\n').find((line) => line.includes('[MC:a]:'))
-      expect(metadataLine?.startsWith('   [MC:a]:   data:application/json;base64,')).toBe(true)
+      // The mutation upgraded the v1 line to a v2 head, keeping the line's
+      // own indentation and trailing whitespace.
+      expect(metadataLine?.startsWith('   [MC:a]:   {"version":2')).toBe(true)
       expect(metadataLine?.endsWith('   ')).toBe(true)
     } finally {
       await app.close()
@@ -713,13 +715,9 @@ test.describe('Portable markdown comments', () => {
         .split('\n')
         .filter((line) => line.startsWith('[MC:a]:'))
       expect(metadataLines[0]).toBe(badLine)
-      const updatedDataUri = metadataLines[1].replace('[MC:a]: ', '')
-      const updatedJson = JSON.parse(
-        Buffer.from(updatedDataUri.replace('data:application/json;base64,', ''), 'base64').toString(
-          'utf8'
-        )
-      ) as { status?: string }
-      expect(updatedJson.status).toBe('resolved')
+      // The mutated definition upgraded to a v2 head.
+      expect(metadataLines[1]).toContain('"version":2')
+      expect(metadataLines[1]).toContain('"status":"resolved"')
     } finally {
       await app.close()
     }
