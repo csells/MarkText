@@ -262,7 +262,9 @@ export interface IpcMainEventChannels {
   'mt::rg::progress': [payload: unknown]
   'mt::screenshot-captured': [filePath: string]
   'mt::set-line-ending': [lineEnding: LineEnding]
-  'mt::set-pathname': [payload: { id: string; pathname: string; filename: string }]
+  // `markdown` is present when the path change came from a WRITE (save/save-as):
+  // it is the ground-truth bytes on disk. Pure renames/moves omit it.
+  'mt::set-pathname': [payload: { id: string; pathname: string; filename: string; markdown?: string }]
   'mt::set-view-layout': [layout: unknown]
   'mt::show-command-palette': []
   'mt::show-export-dialog': [type: ExportType]
@@ -272,7 +274,9 @@ export interface IpcMainEventChannels {
   'mt::switch-tab-by-file_path': [filePath: string]
   'mt::switch-tab-by-index': [index: number]
   'mt::tab-save-failure': [tabId: string, message: string]
-  'mt::tab-saved': [tabId: string]
+  // Echoes the markdown main actually wrote — the renderer stamps the merge
+  // base from this ground truth, never from its live buffer.
+  'mt::tab-saved': [tabId: string, savedMarkdown: string]
   'mt::tabs-cycle-left': []
   'mt::tabs-cycle-right': []
   'mt::toggle-view-layout-entry': [entry: string]

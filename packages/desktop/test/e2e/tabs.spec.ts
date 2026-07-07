@@ -378,6 +378,7 @@ test.describe('Tab management', () => {
       // Helper: open `n` extra untitled tabs with distinct content and mark
       // every existing tab SAVED via the real `mt::tab-saved` save-confirm IPC.
       const openSavedTabs = async(bodies: string[]): Promise<void> => {
+        const preexisting = await readTabIds(cPage)
         for (const body of bodies) {
           const before = await cPage.locator(tabSelector).count()
           await sendIpcToRenderer(cApp, 'mt::new-untitled-tab', true, body)
@@ -388,8 +389,15 @@ test.describe('Tab management', () => {
           )
           await cPage.waitForTimeout(150)
         }
+        // mt::tab-saved carries the ground-truth bytes main wrote; simulate
+        // the echo with each tab's exact content (the launch tab is already
+        // clean — it was loaded from disk).
         const ids = await readTabIds(cPage)
-        for (const id of ids) await sendIpcToRenderer(cApp, 'mt::tab-saved', id)
+        const newIds = ids.filter((id) => !preexisting.includes(id as string))
+        expect(newIds.length).toBe(bodies.length)
+        for (const [index, id] of newIds.entries()) {
+          await sendIpcToRenderer(cApp, 'mt::tab-saved', id, bodies[index])
+        }
         await expect
           .poll(
             () => cPage.evaluate(() => !!document.querySelector('.tabs-container > li.unsaved')),

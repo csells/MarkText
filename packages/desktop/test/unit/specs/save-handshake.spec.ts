@@ -1,12 +1,12 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The save handshake must carry ground truth: main echoes only the tab id in
-// mt::tab-saved, so the renderer records WHAT it sent and stamps
-// diskBaseMarkdown (the three-way-merge base) from that snapshot — never from
-// the live buffer, which the user may have kept editing during the async
-// write. Stamping the live buffer corrupted the merge base: local edits made
-// mid-save were treated as already-on-disk and could never merge again.
+// The save handshake carries ground truth: main echoes the markdown it wrote
+// in mt::tab-saved, and the renderer stamps diskBaseMarkdown (the three-way-
+// merge base) from that echo — never from the live buffer, which the user may
+// have kept editing during the async write. Stamping the live buffer
+// corrupted the merge base: local edits made mid-save were treated as
+// already-on-disk and could never merge again.
 
 vi.hoisted(() => {
   const w = globalThis as unknown as {
@@ -99,10 +99,11 @@ describe('save handshake stamps the merge base from the bytes actually written',
     const saveRequest = sent.find((args) => args[0] === 'mt::response-file-save')
     expect(saveRequest?.[4]).toBe('saved content\n')
 
-    // The user keeps typing while the async write is in flight.
+    // The user keeps typing while the async write is in flight; main echoes
+    // the bytes it actually wrote.
     tab.markdown = 'saved content PLUS EDITS\n'
 
-    handlers.get('mt::tab-saved')!(null, 'tab-1')
+    handlers.get('mt::tab-saved')!(null, 'tab-1', 'saved content\n')
 
     expect(tab.diskBaseMarkdown).toBe('saved content\n')
     expect(tab.isSaved).toBe(false)
@@ -116,14 +117,14 @@ describe('save handshake stamps the merge base from the bytes actually written',
 
     store.LISTEN_FOR_SET_PATHNAME()
     store.FILE_SAVE()
-    handlers.get('mt::tab-saved')!(null, 'tab-1')
+    handlers.get('mt::tab-saved')!(null, 'tab-1', 'saved content\n')
 
     expect(tab.diskBaseMarkdown).toBe('saved content\n')
     expect(tab.isSaved).toBe(true)
     expect(tab.lastSavedHistoryId).toBe(7)
   })
 
-  it('a tab-saved echo with no recorded request is refused loudly, not guessed', () => {
+  it('a tab-saved echo without the saved markdown is refused loudly, not guessed', () => {
     const store = useEditorStore()
     const tab = makeTab(store)
     const handlers = captureHandlers()

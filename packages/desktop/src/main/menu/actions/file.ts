@@ -202,10 +202,10 @@ const handleResponseForSave = async(
         ipcMain.emit('menu-add-recently-used', filePath)
 
         const newFilename = path.basename(filePath!)
-        win.webContents.send('mt::set-pathname', { id, pathname: filePath, filename: newFilename })
+        win.webContents.send('mt::set-pathname', { id, pathname: filePath, filename: newFilename, markdown })
       } else {
         ipcMain.emit('window-file-saved', win.id, filePath)
-        win.webContents.send('mt::tab-saved', id)
+        win.webContents.send('mt::tab-saved', id, markdown)
       }
       return id
     })
@@ -370,7 +370,8 @@ ipcMain.on(
             win.webContents.send('mt::set-pathname', {
               id,
               pathname: filePath,
-              filename: newFilename
+              filename: newFilename,
+              markdown
             })
           } else if (pathname !== filePath) {
             // Update window file list and watcher.
@@ -380,11 +381,12 @@ ipcMain.on(
             win.webContents.send('mt::set-pathname', {
               id,
               pathname: filePath,
-              filename: newFilename
+              filename: newFilename,
+              markdown
             })
           } else {
             ipcMain.emit('window-file-saved', win.id, filePath)
-            win.webContents.send('mt::tab-saved', id)
+            win.webContents.send('mt::tab-saved', id, markdown)
           }
         })
         .catch((err: unknown) => {

@@ -27,8 +27,7 @@ import {
   type FileChangePayload,
   isSamePersistenceSnapshot,
   completeTabSaveFromSnapshot,
-  markTabSavedAtCurrentHistory,
-  pendingSaveSnapshots
+  markTabSavedAtCurrentHistory
 } from './editorPersistence'
 import {
   ADD_COMMENT_CAPABILITY_CHANGED,
@@ -584,7 +583,6 @@ export const useEditorStore = defineStore('editor', {
       const options = getOptionsFromState(this.currentFile)
       const defaultPath = getRootFolderFromState(projectStore)
       if (id) {
-        pendingSaveSnapshots.set(id, markdown)
         window.electron.ipcRenderer.send(
           'mt::response-file-save',
           id,
@@ -665,29 +663,26 @@ export const useEditorStore = defineStore('editor', {
         }
         if (tab) {
           Object.assign(tab, { filename, pathname })
-          const savedMarkdown = pendingSaveSnapshots.get(tab.id)
-          pendingSaveSnapshots.delete(tab.id)
+          const savedMarkdown = (fileInfo as { markdown?: unknown }).markdown
           if (typeof savedMarkdown === 'string') {
+            // The path change came from a WRITE (save/save-as): main echoed
+            // the bytes it put on disk.
             completeTabSaveFromSnapshot(tab, savedMarkdown)
-          } else {
-            // Pure path change (rename/move without a content write): the
-            // disk bytes did not change, so the base and dirty state stand.
-            tab.isSaved = true
-            tab.diskBaseMarkdown = tab.markdown
           }
+          // Otherwise a pure rename/move: the disk bytes did not change, so
+          // the base and dirty state stand.
           debouncedSendBufferedState()
         }
       })
 
-      window.electron.ipcRenderer.on('mt::tab-saved', (_, tabId) => {
+      window.electron.ipcRenderer.on('mt::tab-saved', (_, tabId, savedMarkdown) => {
         const tab = this.tabs.find((f) => f.id === tabId)
         if (tab) {
-          const savedMarkdown = pendingSaveSnapshots.get(tab.id)
-          pendingSaveSnapshots.delete(tab.id)
           if (typeof savedMarkdown !== 'string') {
-            // No recorded request means the handshake is broken; guessing a
-            // base (e.g. the live buffer) would corrupt the merge pipeline.
-            console.error(`mt::tab-saved for tab ${tab.id} without a recorded save request`)
+            // Main always echoes the bytes it wrote; anything else is a
+            // broken handshake, and guessing a base (e.g. the live buffer)
+            // would corrupt the merge pipeline.
+            console.error(`mt::tab-saved for tab ${tab.id} did not echo the saved markdown`)
             return
           }
           completeTabSaveFromSnapshot(tab, savedMarkdown)
@@ -701,7 +696,6 @@ export const useEditorStore = defineStore('editor', {
       })
 
       window.electron.ipcRenderer.on('mt::tab-save-failure', (_, tabId, msg) => {
-        pendingSaveSnapshots.delete(tabId as string)
         const tab = this.tabs.find((t) => t.id === tabId)
         if (!tab) {
           notice.notify({
@@ -808,7 +802,6 @@ export const useEditorStore = defineStore('editor', {
       if (!id) return
       if (!pathname) {
         // if current file is a newly created file, just save it!
-        pendingSaveSnapshots.set(id, markdown)
         window.electron.ipcRenderer.send(
           'mt::response-file-save',
           id,
@@ -851,7 +844,6 @@ export const useEditorStore = defineStore('editor', {
       if (!id) return
       if (!pathname) {
         // if current file is a newly created file, just save it!
-        pendingSaveSnapshots.set(id, markdown)
         window.electron.ipcRenderer.send(
           'mt::response-file-save',
           id,
@@ -1649,7 +1641,6 @@ export const useEditorStore = defineStore('editor', {
           // the stale snapshot captured when this timer was armed.
           const markdownToSave =
             typeof latestTab.markdown === 'string' ? latestTab.markdown : markdown
-          pendingSaveSnapshots.set(id, markdownToSave)
           window.electron.ipcRenderer.send(
             'mt::response-file-save',
             id,
