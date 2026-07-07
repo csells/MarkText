@@ -117,23 +117,22 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     })
   })
 
-  it('HANDLE_DIRTY_EXTERNAL_CHANGE rejects a dirty merge without a recorded disk base', async() => {
+  it('HANDLE_DIRTY_EXTERNAL_CHANGE routes a dirty merge without a recorded base to the resolver', async() => {
     const store = useEditorStore()
     const tab = makeDirtyTab(store)
     delete (tab as { diskBaseMarkdown?: string }).diskBaseMarkdown
 
-    await expect(
-      store.HANDLE_DIRTY_EXTERNAL_CHANGE(
-        tab as never,
-        {
-          pathname: '/x/a.md',
-          data: { filename: 'a.md', markdown: 'remote edits' }
-        } as never
-      )
-    ).rejects.toThrow(/diskBaseMarkdown/)
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: 'remote edits' }
+      } as never
+    )
 
     expect(tab.markdown).toBe('local edits')
-    expect(store.mergeConflict).toBeNull()
+    expect(store.mergeConflict).not.toBeNull()
+    expect(store.mergeConflict!.conflicts.length).toBeGreaterThan(0)
   })
 
   it('RECONCILE_RESTORED_DISK_CHANGES re-handles a tab whose restored disk content diverged', () => {
@@ -373,6 +372,30 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(store.mergeConflict!.remoteMarkdown).toBe('one\nshared\nthree NEWER\n')
     expect(store.mergeConflict!.session).not.toBe(firstSession)
     expect(tab.markdown).toBe('one\nlocal\nthree\n')
+  })
+
+  it('a legacy dirty tab with no recorded base opens the whole-file resolver, never auto-applies', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    // Legacy session restore: dirty buffer, no recorded merge base.
+    delete (tab as { diskBaseMarkdown?: string }).diskBaseMarkdown
+    tab.markdown = 'local dirty content\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: 'disk content\n' }
+      } as never
+    )
+
+    expect(tab.markdown).toBe('local dirty content\n')
+    expect(tab.isSaved).toBe(false)
+    expect(store.mergeConflict).not.toBeNull()
+    expect(store.mergeConflict!.conflicts.length).toBeGreaterThan(0)
+    expect(store.mergeConflict!.resultMarkdown).toContain('local dirty content')
+    expect(store.mergeConflict!.resultMarkdown).toContain('disk content')
   })
 
   it('HANDLE_DIRTY_EXTERNAL_CHANGE compares comment diagnostics through the authoritative analyzer', async() => {

@@ -344,17 +344,19 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     }
   )
 
-  it('rejects a dirty change when no merge base is recorded', async() => {
+  it('routes a dirty change with no recorded merge base to the whole-file resolver', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
     tab.isSaved = false
     store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 
-    await expect(fire(captureHandler(), 'hello world')).rejects.toThrow(/diskBaseMarkdown/)
+    await fire(captureHandler(), 'hello world')
 
-    expect(store.mergeConflict).toBeNull()
+    expect(store.mergeConflict).not.toBeNull()
+    expect(store.mergeConflict!.conflicts.length).toBeGreaterThan(0)
     expect(tab.markdown).toBe('hello')
+    expect(tab.isSaved).toBe(false)
   })
 
   it('merges disk changes discovered while restoring an unsaved tab', async() => {

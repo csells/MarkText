@@ -629,7 +629,10 @@ class EditorWindow extends BaseWindow {
                 tab.adjustLineEndingOnSave = rawDocument.adjustLineEndingOnSave
                 tab.trimTrailingNewline = rawDocument.trimTrailingNewline
                 tab.isMixedLineEndings = rawDocument.isMixedLineEndings
-              } else if (rawDocument.markdown !== (tab.diskBaseMarkdown ?? '')) {
+              } else if (
+                typeof tab.diskBaseMarkdown !== 'string' ||
+                rawDocument.markdown !== tab.diskBaseMarkdown
+              ) {
                 tab.restoredDiskDocument = {
                   markdown: rawDocument.markdown,
                   filename: rawDocument.filename,

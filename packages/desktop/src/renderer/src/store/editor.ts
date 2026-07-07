@@ -469,6 +469,13 @@ export const useEditorStore = defineStore('editor', {
           isReload: true,
           preserveDirty: options.preserveDirty === true
         })
+      } else {
+        // A BACKGROUND tab's content was replaced externally: the engine
+        // history captured on its last edit describes a different document.
+        // Restoring it on switch-back would apply pre-merge ops onto the
+        // merged tree — invalidate it (the auto-merge notification's Undo
+        // remains the recovery path).
+        bus.emit('invalidate-engine-history', tab.id)
       }
       debouncedSendBufferedState()
     },
@@ -2168,7 +2175,7 @@ interface BufferedTabState {
   pathname: string
   filename: string
   markdown: string
-  diskBaseMarkdown: string
+  diskBaseMarkdown?: string
   isSaved: boolean
   encoding: IFileState['encoding']
   lineEnding: IFileState['lineEnding']
@@ -2217,12 +2224,11 @@ const createBufferedTabState = (tab: Partial<IFileState> & { id: string }): Buff
     pathname: tab.pathname ?? defaultFileState.pathname,
     filename,
     markdown: typeof tab.markdown === 'string' ? tab.markdown : defaultFileState.markdown,
-    diskBaseMarkdown:
-      typeof tab.diskBaseMarkdown === 'string'
-        ? tab.diskBaseMarkdown
-        : typeof tab.markdown === 'string'
-          ? tab.markdown
-          : defaultFileState.markdown,
+    ...(typeof tab.diskBaseMarkdown === 'string'
+      ? { diskBaseMarkdown: tab.diskBaseMarkdown }
+      : tab.isSaved
+        ? { diskBaseMarkdown: typeof tab.markdown === 'string' ? tab.markdown : defaultFileState.markdown }
+        : {}),
     isSaved: tab.isSaved ?? defaultFileState.isSaved,
     encoding: toSerializableValue(tab.encoding, defaultFileState.encoding),
     lineEnding: tab.lineEnding ?? defaultFileState.lineEnding,

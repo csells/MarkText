@@ -150,10 +150,14 @@ export const createDocumentState = (
   }
 
   return Object.assign(docState, {
-    diskBaseMarkdown:
-      docState.isSaved || typeof src.diskBaseMarkdown !== 'string'
-        ? docState.markdown
-        : src.diskBaseMarkdown,
+    // A clean tab is its own baseline. A DIRTY tab without a recorded base
+    // (legacy session) keeps the base absent — fabricating one from the
+    // dirty buffer would make the merge treat local edits as on-disk truth.
+    diskBaseMarkdown: docState.isSaved
+      ? docState.markdown
+      : typeof src.diskBaseMarkdown === 'string'
+        ? src.diskBaseMarkdown
+        : undefined,
     id,
     // See `getBlankFileState`: the loaded document is its own clean baseline and
     // the engine's baseline undo-stack depth (the synthetic id) is 0.

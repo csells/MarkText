@@ -35,7 +35,7 @@ export interface MergeConflictState {
   // disk base still hold exactly these values (a save, edit, or newer disk
   // change moves them and supersedes the session).
   expectedMarkdown: string
-  expectedDiskBase: string
+  expectedDiskBase: string | undefined
   tabId: string
   pathname: string
   filename: string
@@ -107,7 +107,7 @@ const isLiveMergeConflictSession = (
   )
   if (!tab) return null
   if (tab.markdown !== conflict.expectedMarkdown) return null
-  if (tab.isSaved || requireDiskBaseMarkdown(tab) !== conflict.expectedDiskBase) return null
+  if (tab.isSaved || tab.diskBaseMarkdown !== conflict.expectedDiskBase) return null
   return tab
 }
 
@@ -302,7 +302,7 @@ export function openDirtyExternalMergeConflict(
   const mergeConflict = {
     session: mergeConflictSessionCounter,
     expectedMarkdown: tab.markdown,
-    expectedDiskBase: baseMarkdown,
+    expectedDiskBase: tab.diskBaseMarkdown,
     tabId: tab.id,
     pathname: change.pathname,
     filename: tab.filename,
@@ -367,7 +367,7 @@ export function acceptDirtyExternalMergeConflict(
   if (!liveTab) {
     store.mergeConflict = null
     const tab = store.tabs.find((candidate) => candidate.id === conflict.tabId)
-    if (tab && !tab.isSaved && requireDiskBaseMarkdown(tab) === conflict.expectedDiskBase) {
+    if (tab && !tab.isSaved && tab.diskBaseMarkdown === conflict.expectedDiskBase) {
       store
         .HANDLE_DIRTY_EXTERNAL_CHANGE(tab, conflict.fileChange, { forceReview: true })
         .catch((err) => {
@@ -410,8 +410,12 @@ export function reconcileRestoredDiskChanges(store: DirtyExternalMergeStore): vo
     delete tab.restoredDiskDocument
     if (!restoredDiskDocument || tab.isSaved || !tab.pathname) continue
 
-    const baseMarkdown = requireDiskBaseMarkdown(tab)
-    if (restoredDiskDocument.markdown === baseMarkdown) continue
+    if (
+      typeof tab.diskBaseMarkdown === 'string' &&
+      restoredDiskDocument.markdown === tab.diskBaseMarkdown
+    ) {
+      continue
+    }
 
     store
       .HANDLE_DIRTY_EXTERNAL_CHANGE(tab, {
@@ -526,6 +530,21 @@ export async function handleDirtyExternalChange(
     debouncedSendBufferedState()
     return
   }
+  // A dirty tab without a recorded base (legacy session restore) cannot be
+  // merged; the resolver surfaces the whole-file difference instead of any
+  // side being silently preferred.
+  if (typeof tab.diskBaseMarkdown !== 'string') {
+    const fallback = createWholeFileConflict('', localMarkdown, data.markdown)
+    store.OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
+      tab,
+      change,
+      '',
+      fallback.mergedMarkdown,
+      fallback.conflicts
+    )
+    return
+  }
+
   const baseMarkdown = requireDiskBaseMarkdown(tab)
   if (data.markdown === baseMarkdown) return
 

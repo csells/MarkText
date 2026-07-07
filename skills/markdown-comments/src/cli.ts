@@ -40,12 +40,12 @@ Options:
 // Every option this CLI knows takes a value; per-command allowed sets keep a
 // typo (or an option the command would silently drop) from passing as valid.
 const COMMAND_OPTIONS: Record<string, ReadonlySet<string>> = {
-  'list': new Set(['encoding']),
-  'validate': new Set(['encoding']),
-  'reply': new Set(['encoding', 'author', 'body', 'created-at']),
-  'resolve': new Set(['encoding', 'updated-at']),
-  'reopen': new Set(['encoding', 'updated-at']),
-  'edit': new Set(['encoding', 'status', 'authors', 'updated-at', 'reply-index', 'body', 'author', 'created-at'])
+  list: new Set(['encoding']),
+  validate: new Set(['encoding']),
+  reply: new Set(['encoding', 'author', 'body', 'created-at']),
+  resolve: new Set(['encoding', 'updated-at']),
+  reopen: new Set(['encoding', 'updated-at']),
+  edit: new Set(['encoding', 'status', 'authors', 'updated-at', 'reply-index', 'body', 'author', 'created-at'])
 }
 
 function parseArgs(command: string, args: string[]): ParsedArgs {

@@ -17,7 +17,7 @@ test('adding a comment across two paragraphs wraps the whole range', async() => 
       const textNode = (root: Element, needle: string) => {
         const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
         let n: Node | null
-        // eslint-disable-next-line no-cond-assign
+
         while ((n = w.nextNode())) if ((n.textContent ?? '').includes(needle)) return n
         return null
       }
