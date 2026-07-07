@@ -5,7 +5,14 @@ description: Inspect, validate, and update MarkText portable inline comments sto
 
 # Markdown Comments
 
-Use this skill for MarkText-authored Markdown review comments. The Markdown file is canonical: comment ranges are `<!--MC:id-->...<!--MC:~id-->`, and thread metadata is stored in `[MC:id]: data:application/json;base64,...` reference definitions in the same file.
+Use this skill for MarkText-authored Markdown review comments. The Markdown file is canonical: comment ranges are `<!--MC:id-->...<!--MC:~id-->`, and thread metadata is stored as line-oriented reference definitions in the same file (wire format v2):
+
+```md
+[MC:cmt_1]: {"version":2,"status":"open","authors":["Ada"],"createdAt":"2026-07-07T09:00:00.000Z"}
+[MC:cmt_1.0]: {"author":"Ada","createdAt":"2026-07-07T09:00:00.000Z","body":"Looks good."}
+```
+
+One head line per thread plus one `[MC:id.N]:` line per reply, so parallel Git edits to the same thread merge line-by-line. Reply indexes are positional hints: readers order replies by document position. Thread `updatedAt` and participant `authors` are derived at read time from the head and reply lines. Legacy v1 lines (`[MC:id]: data:application/json;base64,...`) are read forever but never written — the first mutation of a v1 thread rewrites it as v2 lines with identical decoded content.
 
 This skill is intentionally narrow. Use it to inspect, validate, reply to, resolve, reopen, or edit MarkText `MC` comment threads. Do not use it as a general Markdown writer, filesystem sync tool, or merge tool. For ordinary document edits, write the Markdown file directly; MarkText handles loaded-file reloads and on-disk conflict merging in the desktop app.
 
@@ -31,7 +38,6 @@ pnpm exec tsx skills/markdown-comments/src/cli.ts list legacy.md --encoding cp12
   "threads": [
     {
       "id": "cmt_1",
-      "version": 1,
       "status": "open",
       "authors": ["Ada"],
       "updatedAt": "2026-06-30T15:00:00.000Z",
@@ -60,7 +66,7 @@ pnpm exec tsx skills/markdown-comments/src/cli.ts list legacy.md --encoding cp12
 
 `validate` prints only the diagnostics array and exits non-zero when malformed comments are present. Range paths and offsets are Muya parser/state text coordinates for locating comment anchors inside parsed Markdown state. They are not byte offsets and should not be written back as alternate anchors.
 
-Mutation commands rewrite only the target metadata reference definition. They do not move range markers, normalize unrelated Markdown, create sidecar files, or start a server.
+Mutation commands touch only the target thread's lines — appending a reply writes exactly one new `[MC:id.N]:` line, a status change rewrites exactly the head line — and never move range markers, normalize unrelated Markdown, create sidecar files, or start a server.
 
 The CLI auto-detects UTF-8 Markdown files, UTF-8 files with a BOM, and BOM-marked UTF-16 Markdown files. For legacy files without a Unicode BOM, pass `--encoding <name>` with an `iconv-lite` encoding such as `cp1252`, `shiftjis`, `gbk`, or `big5`. When a mutation command edits one metadata definition, it preserves unrelated Markdown bytes as much as practical, including existing line separators, the original BOM, the original or explicitly requested encoding, trailing whitespace on the target metadata line, and whether the file has a final newline.
 
@@ -71,4 +77,4 @@ The CLI auto-detects UTF-8 Markdown files, UTF-8 files with a BOM, and BOM-marke
 - Let normal Markdown edits happen outside this skill. The skill does not arbitrate source edits, reload loaded tabs, or merge editor memory with disk files.
 - Do not invent alternate anchors, sidecars, CRDT documents, or external storage.
 - Treat diagnostics as repair prompts, not as a reason to drop source bytes.
-- Prefer repairing comments by fixing the `<!--MC:id-->...<!--MC:~id-->` markers or the matching `[MC:id]: data:application/json;base64,...` definition directly, then rerun `validate`.
+- Prefer repairing comments by fixing the `<!--MC:id-->...<!--MC:~id-->` markers or the matching `[MC:id]:` head / `[MC:id.N]:` reply lines directly, then rerun `validate`.

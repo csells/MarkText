@@ -165,13 +165,7 @@ vi.mock('@/codeMirror', () => ({
   setTextDirection: setTextDirectionMock
 }))
 
-import {
-  analyzeMarkdownComments,
-  createCommentMetadata,
-  decodeCommentMetadata,
-  encodeCommentMetadata,
-  wordCount
-} from '@muyajs/core'
+import { analyzeMarkdownComments, wordCount } from '@muyajs/core'
 import bus from '@/bus'
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
@@ -463,9 +457,7 @@ describe('sourceCode (mounted)', () => {
   })
 
   it('does not update metadata-looking definitions inside ignored source blocks', () => {
-    const open = encodeCommentMetadata(
-      createCommentMetadata({ author: 'Ada', createdAt: '2026-06-30T10:00:00.000Z' })
-    )
+    const open = '{"version":2,"status":"open","authors":["Ada"],"createdAt":"2026-06-30T10:00:00.000Z"}'
     const markdown = [
       '---',
       `[MC:a]: ${open}`,
@@ -484,7 +476,7 @@ describe('sourceCode (mounted)', () => {
       .getValue()
       .split('\n')
       .filter((line) => line.startsWith('[MC:a]: '))
-      .map((line) => decodeCommentMetadata(line.slice('[MC:a]: '.length)).status)
+      .map((line) => (line.includes('"status":"resolved"') ? 'resolved' : 'open'))
     expect(statuses).toEqual(['open', 'resolved'])
   })
 })

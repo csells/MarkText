@@ -580,7 +580,18 @@ export function updateCommentMetadataInMarkdown(
     const edits: Array<{ start: number; end: number; text: string }> = [];
 
     if (plan.v1Upgrade) {
-        edits.push({ start: head.start, end: head.end, text: serializeCommentThreadLines(id, next).join(eol) });
+        // Preserve the rewritten line's own indentation and trailing
+        // whitespace, exactly like an in-place v2 head rewrite.
+        const headLine = markdown.slice(head.start, head.end);
+        const parts = splitCommentMetadataLine(headLine);
+        if (!parts)
+            return null;
+        const threadLines = serializeCommentThreadLines(id, next);
+        const rebuilt = [
+            `${parts.prefix}${encodeCommentHeadPayload({ ...next, replies: [] })}${parts.trailing}`,
+            ...threadLines.slice(1),
+        ].join(eol);
+        edits.push({ start: head.start, end: head.end, text: rebuilt });
         // The decodable reply lines were folded into the rewrite above.
         for (const slot of replySlots)
             edits.push({ ...lineSpanWithTerminator(markdown, slot.definition), text: '' });
@@ -755,10 +766,23 @@ export function updateCommentMetadataDefinition(
             );
             const nextLines: string[] = [];
             state.text.split('\n').forEach((line, lineIndex) => {
-                if (state === headSlot.state && lineIndex === headSlot.lineIndex)
-                    nextLines.push(...threadLines);
-                else if (!dropLines.has(lineIndex))
+                if (state === headSlot.state && lineIndex === headSlot.lineIndex) {
+                    // Preserve the line's own indentation/trailing bytes,
+                    // like an in-place v2 head rewrite.
+                    const parts = splitCommentMetadataLine(line);
+                    if (parts) {
+                        nextLines.push(
+                            `${parts.prefix}${encodeCommentHeadPayload({ ...next, replies: [] })}${parts.trailing}`,
+                            ...threadLines.slice(1),
+                        );
+                    }
+                    else {
+                        nextLines.push(...threadLines);
+                    }
+                }
+                else if (!dropLines.has(lineIndex)) {
                     nextLines.push(line);
+                }
             });
             if (nextLines.length === 0) {
                 const parent = stateSlots[0].parent;

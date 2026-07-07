@@ -3,11 +3,7 @@ import { tmpdir } from 'os'
 import path from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { loadMarkdownFile, writeMarkdownFile } from 'main_renderer/filesystem/markdown'
-import {
-  analyzeMarkdownComments,
-  encodeCommentMetadata,
-  updateCommentMetadataInMarkdown
-} from '@muyajs/core'
+import { analyzeMarkdownComments, updateCommentMetadataInMarkdown } from '@muyajs/core'
 
 // A CRLF file edited in source mode holds LF internally (CodeMirror normalizes
 // line endings), so byte preservation depends on the save layer restoring CRLF
@@ -52,11 +48,10 @@ describe('writeMarkdownFile — line-ending preservation across a source edit', 
 
   it('preserves UTF-16LE BOM and portable comment syntax across a metadata edit', async() => {
     const target = path.join(tempDir(), 'commented.md')
-    const metadata = encodeCommentMetadata({
-      version: 1,
-      status: 'open',
-      replies: []
-    })
+    // A legacy v1 line: read-compat is part of what this pins.
+    const metadata = `data:application/json;base64,${Buffer.from(
+      JSON.stringify({ version: 1, status: 'open', replies: [] })
+    ).toString('base64')}`
     const markdown = [
       'A <!--MC:a-->reviewed<!--MC:~a--> line.',
       '',

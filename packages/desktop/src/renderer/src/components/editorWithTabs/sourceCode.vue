@@ -485,18 +485,51 @@ const replaceSourceCommentMetadata = (
     return true
   }
 
-  const beforeParts = markdown.split(/(\r\n|\n|\r)/u)
-  const afterParts = nextMarkdown.split(/(\r\n|\n|\r)/u)
-  for (let index = 0; index < beforeParts.length; index += 2) {
-    if (beforeParts[index] === afterParts[index]) continue
-
-    const line = index / 2
-    cm.replaceRange(afterParts[index], { line, ch: 0 }, { line, ch: beforeParts[index].length })
-    saveContent(cm)
-    return true
+  // Splice only the changed line window into CodeMirror so undo history and
+  // the cursor survive. v2 metadata edits can insert or delete whole lines
+  // (reply append, v1 upgrade), so diff by common prefix/suffix rather than
+  // assuming a single same-index rewrite.
+  const beforeLines = markdown.split(/\r\n|\n|\r/u)
+  const afterLines = nextMarkdown.split(/\r\n|\n|\r/u)
+  let prefix = 0
+  while (
+    prefix < beforeLines.length &&
+    prefix < afterLines.length &&
+    beforeLines[prefix] === afterLines[prefix]
+  ) {
+    prefix += 1
   }
+  let suffix = 0
+  while (
+    suffix < beforeLines.length - prefix &&
+    suffix < afterLines.length - prefix &&
+    beforeLines[beforeLines.length - 1 - suffix] === afterLines[afterLines.length - 1 - suffix]
+  ) {
+    suffix += 1
+  }
+  const replacement = afterLines.slice(prefix, afterLines.length - suffix)
+  const lastChangedBefore = beforeLines.length - 1 - suffix
+  if (lastChangedBefore < prefix && replacement.length === 0) return false
 
-  return false
+  if (lastChangedBefore < prefix) {
+    // Pure insertion: splice the new lines in at the prefix boundary.
+    cm.replaceRange(
+      `${replacement.join('\n')}\n`,
+      { line: prefix, ch: 0 },
+      { line: prefix, ch: 0 }
+    )
+  } else if (replacement.length === 0) {
+    // Pure deletion of whole lines.
+    cm.replaceRange('', { line: prefix, ch: 0 }, { line: lastChangedBefore + 1, ch: 0 })
+  } else {
+    cm.replaceRange(
+      replacement.join('\n'),
+      { line: prefix, ch: 0 },
+      { line: lastChangedBefore, ch: beforeLines[lastChangedBefore].length }
+    )
+  }
+  saveContent(cm)
+  return true
 }
 
 const patchSourceCommentMetadata = (

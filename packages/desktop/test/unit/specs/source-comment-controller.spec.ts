@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analyzeMarkdownComments, encodeCommentMetadata } from '@muyajs/core'
+import { analyzeMarkdownComments } from '@muyajs/core'
 import {
   createSourceCommentAnalysis,
   getSourceCommentCandidate,
@@ -29,7 +29,7 @@ describe('source comment controller', () => {
     const nextMarkdown = sourceCommentMarkdown(markdown, start, end, candidate.id)
     const comments = analyzeMarkdownComments(nextMarkdown, parserOptions).comments
     expect(comments.ranges).toEqual([expect.objectContaining({ id: 'cmt_1', preview: 'reviewed' })])
-    expect(nextMarkdown).toContain('[MC:cmt_1]: data:application/json;base64,')
+    expect(nextMarkdown).toContain('[MC:cmt_1]: {"version":2,"status":"open"')
   })
 
   it('rejects selections that are not valid comment ranges', () => {
@@ -81,21 +81,10 @@ describe('source comment controller', () => {
       analysis.sourceMaps.ranges[0].syntaxRemovalRanges
     )
 
-    const repliedMetadata = encodeCommentMetadata({
-      version: 1,
-      status: 'open',
-      replies: [
-        {
-          author: 'A',
-          createdAt: '2026-01-01T00:00:00.000Z',
-          body: 'Note'
-        }
-      ]
-    })
-    const replied = sourceCommentMarkdown('A reviewed span.\n', 2, 10, 'cmt_1').replace(
-      /data:application\/json;base64,\S+/u,
-      repliedMetadata
-    )
+    // A thread with a reply line is not discardable.
+    const replied =
+      `${sourceCommentMarkdown('A reviewed span.\n', 2, 10, 'cmt_1')
+      }[MC:cmt_1.0]: {"author":"A","createdAt":"2026-01-01T00:00:00.000Z","body":"Note"}\n`
     expect(sourceCommentDiscardRanges(createSourceCommentAnalysis(replied, parserOptions), 'cmt_1'))
       .toEqual([])
   })

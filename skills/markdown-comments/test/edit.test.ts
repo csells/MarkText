@@ -1,8 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { encodeCommentMetadata } from '@muyajs/core/comments'
 import { editCommentReply, patchCommentMetadata, replyToComment, setCommentStatus } from '../src/edit'
 import { readMarkdownComments, stableJson } from '../src/parse'
+
+// Fixtures deliberately stay v1 (read forever, written never); build the
+// legacy data URI locally since the engine no longer exports a v1 writer.
+const encodeCommentMetadata = (data: Record<string, unknown>): string =>
+  `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`
 
 const metadata = encodeCommentMetadata({
   version: 1,
@@ -97,15 +101,10 @@ describe('markdown-comments skill helpers', () => {
     const metadataLines = next.split('\n').filter(line => line.startsWith('[MC:a]:'))
     expect(metadataLines[0]).toBe(badLine)
 
-    const updatedDataUri = metadataLines[1].replace('[MC:a]: ', '')
-    const updatedMetadata = JSON.parse(
-      Buffer.from(updatedDataUri.replace('data:application/json;base64,', ''), 'base64')
-        .toString('utf8')
-    ) as { status?: string; updatedAt?: string }
-    expect(updatedMetadata).toMatchObject({
-      status: 'resolved',
-      updatedAt: '2026-06-30T16:00:00.000Z'
-    })
+    // The mutated line upgraded to a v2 head.
+    expect(metadataLines[1]).toContain('"version":2')
+    expect(metadataLines[1]).toContain('"status":"resolved"')
+    expect(metadataLines[1]).toContain('"updatedAt":"2026-06-30T16:00:00.000Z"')
   })
 
   it('skips metadata-looking definitions in ignored Markdown blocks', () => {
@@ -135,13 +134,18 @@ describe('markdown-comments skill helpers', () => {
       .split('\n')
       .filter(line => line.trimStart().startsWith('[MC:a]: '))
       .map((line) => {
-        const dataUri = line.trim().replace('[MC:a]: ', '')
-        return JSON.parse(
-          Buffer.from(dataUri.replace('data:application/json;base64,', ''), 'base64')
-            .toString('utf8')
-        ) as { status?: string }
+        // Untouched fixtures stay v1 data URIs; only the mutated canonical
+        // line rewrites as a v2 head.
+        if (line.includes('data:application/json;base64,')) {
+          const dataUri = line.trim().replace('[MC:a]: ', '')
+          const decoded = JSON.parse(
+            Buffer.from(dataUri.replace('data:application/json;base64,', ''), 'base64')
+              .toString('utf8')
+          ) as { status?: string }
+          return decoded.status
+        }
+        return line.includes('"status":"resolved"') ? 'resolved' : 'open'
       })
-      .map(thread => thread.status)
 
     expect(statuses).toEqual(['open', 'open', 'open', 'open', 'resolved'])
   })

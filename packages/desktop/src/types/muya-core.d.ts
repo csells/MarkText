@@ -57,8 +57,9 @@ declare module '@muyajs/core' {
     createdAt?: string
   }
 
+  // Wire version tags (1 = base64 data URI, 2 = line-oriented JSON) live in
+  // the codecs only; decoded objects are version-less.
   export interface ICommentMetadata {
-    version: 1
     status: 'open' | 'resolved'
     authors?: string[]
     createdAt?: string
@@ -92,6 +93,8 @@ declare module '@muyajs/core' {
       | 'orphan-metadata'
       | 'parse-error'
       | 'unclosed-open-marker'
+      | 'orphan-reply'
+      | 'invalid-reply'
     id: string
     message: string
   }
@@ -126,7 +129,10 @@ declare module '@muyajs/core' {
 
   export interface ICommentSourceMetadataDefinition extends ICommentSourceIndexRange {
     id: string
-    dataUri: string
+    label: string
+    kind: 'head' | 'reply'
+    replyIndex?: number
+    payload: string
     idStart: number
     idEnd: number
   }
@@ -179,9 +185,15 @@ declare module '@muyajs/core' {
     openParagraph: boolean
   }
 
+  export interface IParsedCommentReplyDefinition {
+    id: string
+    index: number
+    payload: string
+  }
+
   export interface IParsedCommentMetadataDefinition {
     id: string
-    dataUri: string
+    payload: string
   }
 
   export interface IAddCommentInput {
@@ -197,7 +209,7 @@ declare module '@muyajs/core' {
     math?: boolean
   }
 
-  export type TUpdateCommentThreadPatch = Partial<Omit<ICommentMetadata, 'version'>>
+  export type TUpdateCommentThreadPatch = Partial<ICommentMetadata>
 
   export const COMMENT_METADATA_DATA_URI_PREFIX: string
   export const COMMENT_MARKER_PATTERN: string
@@ -220,7 +232,14 @@ declare module '@muyajs/core' {
   export function createCommentMetadata(input: IAddCommentInput): ICommentMetadata
   export function createCommentSourceLineState(): ICommentSourceLineState
   export function decodeCommentMetadata(dataUri: string): ICommentMetadata
-  export function encodeCommentMetadata(metadata: ICommentMetadata): string
+  export function decodeCommentHeadPayload(payload: string): ICommentMetadata
+  export function decodeCommentReplyPayload(payload: string): ICommentReply
+  export function encodeCommentHeadPayload(metadata: ICommentMetadata): string
+  export function encodeCommentReplyPayload(reply: ICommentReply): string
+  export function serializeCommentThreadLines(id: string, metadata: ICommentMetadata): string[]
+  export function serializeCommentReplyDefinition(id: string, index: number, payload: string): string
+  export function parseCommentReplyDefinition(text: string): IParsedCommentReplyDefinition | null
+  export function isCommentMetadataDefinitionText(text: string): boolean
   export function nextCommentId(existingIds: Iterable<string>): string
   export function parseCommentMetadataDefinition(
     text: string

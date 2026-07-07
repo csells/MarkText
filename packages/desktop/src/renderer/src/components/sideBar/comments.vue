@@ -462,11 +462,11 @@ const submitEditReply = (thread: ICommentThread, replyIndex: number): void => {
     ? thread.replies.map((reply, index) => (index === replyIndex ? { ...reply, body } : reply))
     : [{ author, createdAt: updatedAt, body }]
 
+  // Reply-level change only: thread updatedAt and participant authors are
+  // derived at read time, so the patch must not rewrite the head line.
   bus.emit('comment:edit', {
     id: thread.id,
     patch: {
-      authors: thread.authors?.length ? thread.authors : [author],
-      updatedAt,
       replies
     }
   })

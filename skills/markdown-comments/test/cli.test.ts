@@ -5,8 +5,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import iconv from 'iconv-lite'
-import { encodeCommentMetadata } from '@muyajs/core/comments'
 import { readMarkdownComments } from '../src/parse'
+
+// Fixtures deliberately stay v1 (read forever, written never); build the
+// legacy data URI locally since the engine no longer exports a v1 writer.
+const encodeCommentMetadata = (data: Record<string, unknown>): string =>
+  `data:application/json;base64,${Buffer.from(JSON.stringify(data)).toString('base64')}`
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(currentDir, '../../..')

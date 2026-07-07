@@ -1,10 +1,9 @@
 import {
   analyzeMarkdownComments,
   createCommentMetadata,
-  encodeCommentMetadata,
   nextCommentId,
   serializeCommentMarker,
-  serializeCommentMetadataDefinition,
+  serializeCommentThreadLines,
   sourceRangesOverlap,
   type ICommentAnalysis,
   type ICommentSourceIndex,
@@ -103,8 +102,8 @@ export const commentMetadataAppendix = (markdown: string, id: string): string =>
   const lineEnding = sourceLineEnding(markdown)
   const separator =
     markdown.endsWith('\n') || markdown.endsWith('\r') ? lineEnding : `${lineEnding}${lineEnding}`
-  const metadata = encodeCommentMetadata(createCommentMetadata({}))
-  return `${separator}${serializeCommentMetadataDefinition(id, metadata)}${lineEnding}`
+  const threadLines = serializeCommentThreadLines(id, createCommentMetadata({}))
+  return `${separator}${threadLines.join(lineEnding)}${lineEnding}`
 }
 
 export const sourceCommentMarkdown = (
