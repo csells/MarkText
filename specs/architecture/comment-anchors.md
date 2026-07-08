@@ -22,8 +22,10 @@ through operations is the problem those libraries exist to solve
 
 ## The model
 
-The engine owns one `CommentModel` per document (held by the `MuyaComments`
-facade):
+`JSONState` owns one `CommentModel` per document — it IS document state:
+every op applied to the state transforms its positions at that single choke
+point. The `MuyaComments` facade reads it through the state and presents the
+public API.
 
 ```ts
 interface ICommentAnchor {
@@ -31,12 +33,27 @@ interface ICommentAnchor {
     kind: 'open' | 'close';
     // json1 position: [...blockPath, 'text', characterOffset] into the
     // CLEAN (marker-free) document state.
-    position: TJson1Path;
+    position: TBlockPath;
+}
+
+// One contiguous run of definition lines as the file laid them out: thread
+// items re-serialize their (possibly mutated) thread head-first; residue
+// items re-emit verbatim lines that did not decode (duplicates, malformed
+// payloads, orphan replies), so a damaged file round-trips without silent
+// data loss.
+interface ICommentDefinitionRun {
+    // Block position for a run that was its own block, [...path, 'text',
+    // offset] for lines embedded in a surviving leaf, null for the trailing
+    // appendix (detached, or created at runtime).
+    position: TBlockPath | null;
+    edge: 'before' | 'after';
+    items: Array<{ kind: 'thread', id } | { kind: 'residue', line }>;
 }
 
 interface ICommentModel {
     threads: Map<string, ICommentThread>;   // decoded metadata, wire-format agnostic
     anchors: ICommentAnchor[];              // document order not guaranteed; derive on read
+    runs: ICommentDefinitionRun[];          // definition-line layout in document order
 }
 ```
 
@@ -46,6 +63,9 @@ interface ICommentModel {
   gone.
 - Ranges are derived on read by pairing open/close anchors per id (overlap
   stays non-tree-shaped, exactly as in the wire format).
+- Placement runs make definition blocks position-stable: a mid-document
+  `[MC:]` block stays where the file put it through load, edits, and
+  serialization instead of migrating to the end of the file.
 
 ## Lifecycle
 
@@ -61,26 +81,32 @@ analyzer remains the authority for anything operating on serialized bytes
 
 **Serialize (state + model → markdown).** Materialization is the exact
 inverse: clone the state tree, splice marker bytes into leaf text at anchor
-offsets (descending order per leaf), append the metadata appendix per
-[comment-format.md](comment-format.md), then run the ordinary serializer.
+offsets (descending order per leaf), re-emit each definition run at its
+recorded position (threads head-first per
+[comment-format.md](comment-format.md); runtime-created threads join the
+trailing appendix run so it stays one contiguous block), then run the
+ordinary serializer.
 `getMarkdown()` output is byte-for-byte what v-next of the wire format
 defines — source mode, save, copy-as-source, and the CLI all see materialized
 bytes and are unchanged in kind.
 
 **Edit (operations).** Every operation that reaches the document state —
 typing, paste, block insert/remove/replace, undo, redo — transforms every
-anchor through `json1.type.transformPosition` at the **single choke point
-where ops are applied to `JSONState`**. No editing surface knows comments
-exist:
+anchor AND every run position through `json1.type.transformPosition` at the
+**single choke point where ops are applied to `JSONState`**. No editing
+surface knows comments exist:
 
 - Text edits shift or swallow offsets (a deletion spanning an anchor
   collapses it to the deletion point — Google-Docs semantics).
 - Block insert/remove shifts paths; `null` (the anchor's container was
-  deleted) triggers the **detach policy** below.
-- Subtree `replaceOp` (e.g. paragraph→heading conversion) also yields
-  `null`; before detaching, materialize a **rescue attempt**: re-anchor at
-  the same path with the offset clamped into the replacement's text when the
-  replacement is a commentable text leaf.
+  deleted) triggers the **detach policy** below. A run whose position nulls
+  falls back to the trailing appendix.
+- A TRUE subtree replace (remove + insert at one path, e.g.
+  paragraph→heading conversion) also yields `null`; before detaching,
+  materialize a **rescue attempt**: re-anchor at the same path with the
+  offset clamped into the replacement's text when the replacement is a
+  commentable text leaf. A bare remove never rescues — the sibling that
+  shifts into the removed index is unrelated content, so deletion detaches.
 
 **Detach policy.** A thread whose anchors are lost keeps its metadata
 (`threads` entry) with no range. It serializes as metadata-only definitions —
@@ -100,24 +126,30 @@ history entry** in muya's single undo timeline:
 - `removeComment` → entry whose inverse restores them.
 - metadata patches → entry carrying before/after metadata.
 
-Document ops and comment-model entries interleave in one history. Undoing a
-document op transforms anchors through the inverted op at the same choke
-point (transform through an op and its inverse is identity, modulo
-tie-breaking at insertion boundaries — pinned by tests). Whole-document
-rebuild entries (`replaceContent`, source-mode return, external reload)
-snapshot the model alongside the rebuild and restore it on undo across that
-boundary.
+Document ops and comment-model entries interleave in one history. Every
+ordinary history entry snapshots the pre-op anchors and run positions, and
+undo restores the snapshot after applying the inverse op —
+`transformPosition` is lossy for positions a deletion swallowed, so
+snapshots, not re-transforms, are what make undo exact (invariant 4).
+Whole-document rebuild entries (`replaceContent`, source-mode return,
+external reload) snapshot the model wholesale and restore it on undo across
+that boundary.
 
 ## Rendering and analysis
 
 - Highlights derive from anchors: for each block, the intersection of paired
   anchor ranges with that block, in clean-text offsets. No tokenizer
-  involvement; the `comment_marker` inline token and `mu-comment-marker`/
-  `mu-comment-metadata` DOM classes have no runtime occurrences (the
-  tokenizer rules remain for file-level scanning only).
-- `getComments()` reads the model directly — O(threads + anchors) per call,
-  no document scan, no cache invalidation protocol. **Incremental analysis
-  falls out**: nothing document-sized happens per keystroke.
+  involvement, and the live renderer does no hiding: marker- or
+  definition-shaped bytes a user TYPES render as visible literal text (the
+  `comment_marker` token and tokenizer rules remain for file-level scanning
+  and serialized-bytes consumers only).
+- `getComments()` reads the model through a per-version view
+  (`commentModelView`): ranges pair anchors, previews and document order
+  derive from one walk over the clean state, and the result is cached on the
+  `JSONState` version — one derivation per version regardless of caller
+  count, nothing document-sized per keystroke beyond it.
+- `getCleanMarkdown()` serializes the clean state without materialization —
+  the word-count input, cached per version like `getMarkdown()`.
 - Diagnostics at runtime are model-level (detached threads, id collisions on
   paste-materialized text). File-level diagnostics (malformed payloads,
   duplicate definitions) surface at load and remain visible in the sidebar.
@@ -143,8 +175,10 @@ this architecture (their regression tests convert to anchor-semantics tests):
 1. **No MC bytes at runtime**: no state leaf text and no rendered DOM ever
    contains `<!--MC:` or a metadata definition after load.
 2. **Round-trip fidelity**: load → (no edits) → serialize is byte-identical
-   for well-formed documents (modulo the pre-existing serializer
-   normalizations and wire-format version upgrades).
+   for well-formed documents — including mid-document definition blocks,
+   which stay in place (modulo the pre-existing serializer normalizations,
+   wire-format version upgrades, and the two comment canonicalizations named
+   in [editing-invariants.md](editing-invariants.md) §Round-trip).
 3. **Transform totality**: every op applied to `JSONState` transforms every
    anchor exactly once; an anchor is never stale relative to the state
    version.

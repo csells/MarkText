@@ -27,8 +27,9 @@ compositions of those same ops.
 
 - Deleting part of a commented range shrinks the range (anchors transform
   through the deletion).
-- Deleting a whole range collapses it to a caret-width range at the deletion
-  point; the thread survives.
+- Deleting a whole range detaches the thread: an invisible empty marker pair
+  helps no one, so both anchors drop and the thread survives as detached
+  metadata (undo restores the pair from the history snapshot).
 - Deleting the block(s) containing a range detaches the thread — kept as
   metadata, surfaced as detached, never silently dropped
   ([comment-anchors.md](comment-anchors.md) detach policy).
@@ -40,9 +41,12 @@ compositions of those same ops.
 - Copy/cut produce exactly the visible text (there is nothing hidden to
   strip). Cutting or deleting the last range of a thread follows the
   deletion semantics above.
-- Pasting text that *contains* MC syntax pastes it as literal text — wire
-  syntax enters the model only through load/materialization, so paste cannot
-  inject ranges or collide ids.
+- Pasting text that *contains* MC syntax absorbs it into the comment model
+  (materialize → re-extract as one rebuild undo boundary): pasted wire
+  syntax lands as model comments — matching what saving and reopening would
+  produce — and colliding ids are remapped, so paste cannot corrupt the
+  model or collide ids. Literal MC bytes in state text exist only when the
+  user *types* them.
 - Search operates over the same clean text the user sees.
 
 ## Select-all semantics (unchanged)
@@ -58,8 +62,13 @@ Pinned by `packages/muya/src/selection/__tests__/selectAll.spec.ts` and
 ## Round-trip data preservation
 
 `markdownToState` → extraction → materialization → `stateToMarkdown` is
-byte-identical for well-formed documents (modulo pre-existing serializer
-normalizations and wire-format v1→v2 upgrades). Source-mode round trips
+byte-identical for well-formed documents: definition blocks stay at their
+document position (placement runs — [comment-anchors.md](comment-anchors.md))
+and blank lines between definition blocks survive. Source-mode round trips
 (WYSIWYG → source → WYSIWYG without edits) preserve materialized bytes.
-Acceptable normalizations are exactly the pre-existing, test-locked ones —
-never comment-specific.
+Acceptable normalizations are the pre-existing, test-locked serializer ones,
+wire-format v1→v2 upgrades, and exactly two comment-specific
+canonicalizations: a thread whose lines were interleaved with another
+thread's re-serializes as one contiguous head-first block, and a container
+that held only definition lines (e.g. a blockquote-wrapped appendix)
+re-emits as a plain paragraph at the same position.

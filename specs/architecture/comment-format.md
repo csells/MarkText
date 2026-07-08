@@ -68,8 +68,10 @@ One **head line** per thread and one line per reply, in the metadata appendix
   follow their head line contiguously, but interleaving (a merge artifact)
   parses fine. A reply line whose id has no head line is an
   `orphan-reply` diagnostic (the thread data is preserved verbatim).
-- Threads serialize in first-marker document order; a thread's lines
-  serialize head-first then replies in order.
+- A thread's lines serialize head-first then replies in order, as one
+  contiguous block at the thread's definition-run position (the placement
+  recorded at load — [comment-anchors.md](comment-anchors.md)); threads
+  created at runtime append to the trailing appendix in creation order.
 
 ### v1 compatibility
 
@@ -130,5 +132,6 @@ no threads, no diagnostics, no mutation by any tool.
    status change concurrent with a reply merges cleanly; (c) parallel *new*
    replies at the same point conflict **legibly** — two readable lines — and
    the union of both lines parses as a valid two-reply thread.
-4. Appending a reply changes exactly one line of the file (plus a trailing
-   newline if absent).
+4. Appending a reply changes exactly one line of the file; appending to a
+   file without a final newline also terminates it, so the next append no
+   longer churns the last line.

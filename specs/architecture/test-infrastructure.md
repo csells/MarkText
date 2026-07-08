@@ -37,10 +37,14 @@ assertions were partially self-referential.
 
 Contract: in test mode (`MARKTEXT_TEST_BACKGROUND`), the preload exposes a
 read-only bridge — `window.__marktextTest.getTabMarkdown()` returning the
-active tab's committed markdown (post engine flush). `getMarkdownContent` in
-the e2e helpers uses the bridge; entering source mode in a test is only ever
-an explicit act of testing source mode. The bridge does not exist outside
-test mode.
+active tab's committed markdown (post engine flush), and
+`getEngineSelection()` returning the engine's committed selection so
+arrangement helpers wait on the selectionchange pipeline instead of
+sleeping. `getMarkdownContent` in the e2e helpers uses the bridge; READING
+document bytes through a source-mode round-trip is banned. Entering source
+mode to ARRANGE content (`setSourceMarkdown` — a fast deterministic reset
+without relaunching Electron) is sanctioned; reads still go through the
+bridge. The bridge does not exist outside test mode.
 
 ## Waits assert conditions, not clocks
 

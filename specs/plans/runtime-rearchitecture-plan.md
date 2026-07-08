@@ -51,7 +51,21 @@ until the implementation reflects the specs.
   table (29 specs) plus the four fuzz invariants over 150 seeded random
   event sequences with a model interpreter; the pre-existing
   dirty-external-merge behavior lock passes unchanged.
-- P6 (gap-analysis loop) — pending.
+- P6 (gap-analysis loop) — **in progress**. Round 1: a 7-analyzer /
+  per-finding adversarial-verifier workflow over every specs/architecture/
+  doc confirmed 32 gaps (6 must-fix, 13 minor, 13 spec-stale; 2 claims
+  refuted). All code gaps fixed red/green in six batches: merge-apply fixes
+  (accept crash on no-base sessions, reducer-owned markClean + notification,
+  order-preservation fuzz); definition-line placement runs (mid-document
+  byte fidelity through the runtime) + reply-append file termination; guard
+  machinery deletion (table refusals, copy/search stripping, live-renderer
+  hiding) which exposed and fixed a replace-rescue transform bug; word count
+  over getCleanMarkdown; test-infra conversions (real mounts for
+  search-prefill/command-palette, sleep→condition waits, portable chords,
+  selection bridge); CLI head-rewrite fix, --footnote parity flag, grammar
+  prefixes derived from syntax.ts. All six architecture docs updated to the
+  delivered design. Next: re-run the gap analysis until clean; full
+  certification sweep.
 
 ## P1 — Test infrastructure first (it gates everything after)
 

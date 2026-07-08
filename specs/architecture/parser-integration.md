@@ -26,14 +26,19 @@ link definition into deletion. The extension guarantees:
   a paragraph run keeps folding into the paragraph (lazy continuation),
   which is also the analyzer's view of such lines.
 
-The dependency direction is one-way and enforced by muya's CI-level
-`check-circular` gate: the parser imports only `comments/syntax.ts` (the
-grammar owner); the comment analysis layer builds on parser output. The
-parser must never call up into `comments/analyze` or `comments/parse` — the
-one time it did (a post-hoc "restore dropped definitions" repair pass), it
-created a dependency cycle, a mutual-recursion hazard, and two silent data
-bugs. Repair passes over parser output are a design smell here: fix the
-tokenizer instead.
+The dependency direction is one-way: the parser imports only
+`comments/syntax.ts` (the grammar owner); the comment analysis layer builds
+on parser output. It is enforced by the import-graph test
+(`src/__tests__/commentsDependencyBoundaries.spec.ts`), which asserts over
+the transitive runtime imports of `markdownToState` and the marked setup
+that no comments module beyond `comments/syntax.ts` is reachable; muya's
+CI-level `check-circular` gate additionally catches the cyclic violations
+(e.g. `comments/parse`, which imports the parser). The parser must never
+call up into `comments/analyze` or `comments/parse` — the one time it did
+(a post-hoc "restore dropped definitions" repair pass), it created a
+dependency cycle, a mutual-recursion hazard, and two silent data bugs.
+Repair passes over parser output are a design smell here: fix the tokenizer
+instead.
 
 ## Inline level: range markers
 
@@ -44,18 +49,25 @@ untouched.
 
 Runtime note: with the OT-anchor runtime
 ([comment-anchors.md](comment-anchors.md)), marker bytes never reach the
-rendered document — the inline `comment_marker` rule and the definition
-tokenizer serve **load-time extraction and file-level analysis only**
+rendered document at load — the inline `comment_marker` rule and the
+definition tokenizer serve **load-time extraction and file-level analysis**
 (source mode, the CLI, merge gates, and any consumer of serialized bytes).
-Highlight spans derive from anchors in clean-text offsets, never from marker
-tokens or nested DOM structure (overlaps are not trees).
+Marker-shaped bytes a user TYPES are literal text and render visibly — the
+live renderer does no comment-specific hiding. Highlight spans derive from
+anchors in clean-text offsets, never from marker tokens or nested DOM
+structure (overlaps are not trees).
 
 ## Block classification interplay
 
 A paragraph whose text begins with MC markers followed by non-HTML prose must
 classify as a paragraph even though marked's html-block rule matches the
-leading `<!--` (`shouldTreatHtmlAsParagraph` in `markdownToState`). True raw
-HTML wrapped in markers stays an html-block and yields no ranges.
+leading `<!--`. Two layers deliver it: the block tokenizer's `html` override
+declines marker-led non-HTML lines before they become html tokens, and
+`markdownToState` reclassifies via `htmlBlockTokenIsParagraph` — the shared
+predicate living in `comments/syntax.ts` (the grammar owner) so the
+tokenizer override, state lowering, and the comment source index cannot
+drift. True raw HTML wrapped in markers stays an html-block and yields no
+ranges.
 
 ## Consumers that must not re-implement the grammar
 

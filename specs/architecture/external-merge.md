@@ -11,8 +11,11 @@ Every path-backed tab carries `diskBaseMarkdown` (typed on the shared
 `IFileState` contract): the exact Markdown from the last successful open,
 save, clean reload, or accepted external merge. It is the merge base and is
 advanced **only** by those events. Dirty-state math never infers a base from
-the undo stack; a dirty merge without a recorded base fails loudly
-(`requireDiskBaseMarkdown`).
+the undo stack. A dirty external change with no recorded base (legacy
+session restore) cannot be merged: it opens the whole-file resolver so no
+side is silently preferred, and Accept applies the hand-resolved result.
+The auto-merge notification path is the one place a recorded base is a hard
+requirement (`requireDiskBaseMarkdown` — it feeds the Review panes).
 
 ## Decision table (watcher reports disk content `remote` for a tab)
 
@@ -31,12 +34,17 @@ tab.
 ## Merge engine — settled (do not re-litigate)
 
 `node-diff3` performs the line-oriented merge, off the UI thread in a Web
-Worker. Correctness is defined by engine-independent properties, fuzzed
-directly (no git oracle; git byte-parity is an explicit non-goal):
+Worker, behind a positional fast path: equal-line-count triples merge
+index-by-index first (`mergeAlignedLineEdits` — node-diff3 needlessly
+conflicts some of them), and everything else falls through to diff3.
+Correctness is defined by engine-independent properties, fuzzed directly
+(no git oracle; git byte-parity is an explicit non-goal):
 
 1. **No data loss** — a clean auto-merge never drops a line both sides kept.
 2. **No fabrication** — a clean auto-merge never invents content.
-3. **Order preservation** — output is order-consistent with both sides.
+3. **Order preservation** — lines whose relative order base, local, and
+   remote all agree on keep that order in every clean output (when one side
+   deliberately reorders, no output can agree with both sides at once).
 
 `mergeViolatesDataPreservation` rejects any clean node-diff3 output violating
 the count bounds and escalates it to a whole-file conflict. Documents past
@@ -62,6 +70,12 @@ your unsaved edits in …") with two real buttons:
 - **Undo** — restores the pre-merge local buffer (still dirty).
 - **Review** — opens the resolver on the merge (zero conflict rows) for
   inspection; an explicit review request never silently auto-applies.
+
+When the merge output is byte-identical to the disk content (the remote
+subsumed the local edits) the tab is truthfully marked clean — the buffer
+equals disk — but the buffer still visibly changed, so the notification is
+pushed all the same and Undo restores the pre-merge dirty buffer. That
+decision (`markClean`) is the reducer's, carried on the apply-merge effect.
 
 **Escalation gate:** a clean merge whose output introduces comment
 diagnostics that neither `local` nor `remote` had (offset-independent
@@ -90,47 +104,58 @@ resolving (pathname on hover):
 
 ## The session reducer
 
-Per-tab merge lifecycle state is a **pure reducer**, not scattered flags:
+Per-tab merge lifecycle state is a **pure reducer**
+(`store/mergeSession.ts`), not scattered flags:
 
 ```ts
 type MergeSessionState =
   | { kind: 'idle' }
-  | { kind: 'merging'; requestId: number; base: string; local: string; remote: string }
-  | { kind: 'reviewing'; session: MergeConflictState }
+  | { kind: 'merging'; requestId; base; local; remote; forceReview; fileChange }
+  | { kind: 'reviewing'; session: MergeReviewSession; currentLocal; baseSuperseded }
+  | { kind: 'closed' }
+// every variant also carries monotonic requestCounter/sessionCounter, so an
+// abandoned request can never collide with a later one
 
 reduce(state, event) -> { state, effects }
 ```
 
 Events are everything that can happen to the tab while a merge matters:
-`disk-changed(payload)`, `merge-resolved(requestId, result)`,
-`merge-failed(requestId, error)`, `buffer-edited`, `saved`, `tab-closed`,
-`review-requested`, `accept(result)`, `cancel`, `reload-disk`. Effects are
-declarative instructions the store interprets (`start-merge`, `apply-merge`,
-`open-resolver`, `close-resolver`, `notify`, `create-recovery-tab`,
-`load-disk`) — the reducer itself performs no IO, touches no store, and never
-reads the clock.
+`disk-changed`, `merge-resolved(requestId, …)`, `merge-failed(requestId)`,
+`buffer-edited`, `saved`, `tab-closed`, `review-requested`, `accept`,
+`cancel`, `reload-disk`. Events carry the reality snapshots the interpreter
+reads at dispatch time (buffer, base, persistence equality) — the reducer
+performs no IO, touches no store, and never reads the clock. Effects are
+declarative instructions the store interprets: `start-merge`,
+`apply-merge` (carrying `origin`, `markClean`, and the pre-merge
+base/local snapshots), `open-resolver` (with a `withNotification` flag —
+notification *pushing* is interpreter work), `close-resolver`,
+`validation-error`, `create-recovery-tab`, `load-disk`.
 
 All race handling IS the reducer: a `merge-resolved` carrying a stale
 `requestId` is a no-op transition; `disk-changed` while `reviewing`
-supersedes the session (re-derive, stay in review); `saved`/`tab-closed`
-cancel outright; `accept` from a superseded session is unreachable because
-the session it captured no longer exists in the state.
+supersedes the session (close, re-derive, stay headed for review);
+`tab-closed` goes to `closed`, which is permanently silent; `saved` while
+reviewing marks the session's base superseded, so a later `accept` closes
+the dead session instead of applying stale content, and a moved buffer
+re-derives against current reality.
 
 **Property fuzz (the reason for the shape):** random event sequences are
-driven through the reducer and its invariants asserted directly —
+driven through the reducer with a model interpreter and its invariants
+asserted directly —
 
 1. no effect sequence ever discards the local buffer except downstream of an
    explicit `accept` or `reload-disk`;
 2. `apply-merge` effects reference only the newest `disk-changed` payload
    seen (never a superseded remote);
 3. after `tab-closed`, no further effects are emitted;
-4. every terminal state is `idle` or `reviewing` — nothing wedges in
-   `merging` once its `merge-resolved`/`merge-failed` arrives.
+4. every terminal state is `idle`, `reviewing`, or `closed` — nothing wedges
+   in `merging` once its `merge-resolved`/`merge-failed` arrives.
 
-The store's actions become a thin interpreter: translate IPC/watcher/UI
-happenings into events, run the reducer, execute effects. Unit tests for the
-decision table target the reducer as a pure function; interpreter tests only
-verify each effect maps to the right store mutation.
+The store's actions are a thin interpreter (`dirtyExternalMergeActions.ts`):
+translate IPC/watcher/UI happenings into events, reconcile reality drift
+lazily at each decision point (typing, saves, and tab closes do not dispatch
+merge events of their own), run the reducer, execute effects. Unit tests for
+the decision table target the reducer as a pure function.
 
 ## Background tabs and undo
 
