@@ -3,7 +3,8 @@ import type { ElectronApplication, Page } from 'playwright'
 import {
   launchWithMarkdown,
   setSourceMarkdown,
-  getMarkdownContent
+  getMarkdownContent,
+  readSettled
 } from './helpers'
 
 // ---------------------------------------------------------------------------
@@ -162,9 +163,15 @@ test.describe('List Tab/Shift-Tab nesting (items 30, 42)', () => {
     // _canIndentListItem requires a previous sibling list-item).
     await placeCaretInContentSpan(page, 0)
     await page.keyboard.press('Tab')
-    await page.waitForTimeout(300)
 
-    expect(await page.locator('.editor-component ul li ul li').count()).toBe(0)
+    // Negative must settle: zero nested items must hold across consecutive
+    // reads spanning the re-render window — a single early sample could pass
+    // before a slow (wrong) indent lands.
+    const nested = await readSettled(
+      () => page.locator('.editor-component ul li ul li').count(),
+      { requiredStreak: 5, interval: 120 }
+    )
+    expect(nested).toBe(0)
     await expect.poll(() => listShape(page)).toEqual({ topLevelItems: 2, nestedItems: 0 })
   })
 

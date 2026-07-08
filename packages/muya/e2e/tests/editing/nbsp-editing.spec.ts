@@ -32,15 +32,14 @@ test('placing the caret inside &nbsp; brings the literal back into flow (editabl
     w.muya.editor.activeContentBlock = block
     block.setCursor(4, 4, true)
   })
-  await page.waitForTimeout(50)
-
   // caret inside: the literal is back in normal flow → visible + editable
-  expect(
-    await page.evaluate(() => {
+  // (the re-render is async — poll the computed style).
+  await expect
+    .poll(() => page.evaluate(() => {
       const m = document.querySelector('.mu-html-escape-marker') as HTMLElement
       return getComputedStyle(m).position
-    })
-  ).toBe('static')
+    }), { timeout: 5000 })
+    .toBe('static')
 })
 
 test('the &nbsp; literal is editable when the caret is inside it', async ({ page }) => {

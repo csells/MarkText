@@ -130,12 +130,12 @@ test.describe('Parity G8 — language switch refreshes inline hints', () => {
     // locale from the event payload, not from the still-stale `language.value`.
     await sendIpcToRenderer(app, 'language-changed', 'zh-CN')
     await sendIpcToRenderer(app, 'mt::user-preference', { language: 'zh-CN' })
-    await page.waitForTimeout(400)
 
+    // The re-render rides the async locale reload — poll the hint until it
+    // changes language instead of sleeping past it.
+    await expect.poll(hintFor, { timeout: 5000 }).not.toBe(enHint)
     const zhHint = await hintFor()
     expect(zhHint).toBeTruthy()
-    // The rendered hint changed language without re-typing/reloading.
-    expect(zhHint).not.toBe(enHint)
 
     await app.close()
   })

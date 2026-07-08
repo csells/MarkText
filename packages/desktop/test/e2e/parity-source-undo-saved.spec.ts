@@ -194,7 +194,11 @@ test.describe('Parity PG15 — undo back to on-disk content restores the saved i
     // `lastSavedHistoryId` and clears the dirty flag).
     await placeCaretInEditor(page)
     await typeIntoEditor(page, ' B')
-    await page.waitForTimeout(500)
+    // The save must record the post-B history id — wait for the B edit to
+    // commit (json-change advances content and the synthetic id together).
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toContain('B')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect
       .poll(() => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')))
@@ -203,18 +207,23 @@ test.describe('Parity PG15 — undo back to on-disk content restores the saved i
     // Undo B (back to 'A', dirty), then make a DIFFERENT edit C. The engine undo
     // depth returns to the saved depth, but the document is A + C != saved A + B.
     await undo(app)
-    await page.waitForTimeout(400)
+    // Wait on the undo landing (B gone) before typing the divergent edit —
+    // a poll, not a sleep, so the C keystroke cannot race the undo.
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .not.toContain('B')
     await typeIntoEditor(page, ' C')
-    await page.waitForTimeout(500)
 
     // The divergent document must stay dirty (the G6 false-clean regression).
-    const content = (await getMarkdownContent(page)).trim()
-    expect(content).toContain('C')
-    expect(content).not.toContain('B')
-    const dirty = await page.evaluate(
-      () => !!document.querySelector('.editor-tabs li.unsaved')
-    )
-    expect(dirty).toBe(true)
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toContain('C')
+    expect((await getMarkdownContent(page)).trim()).not.toContain('B')
+    await expect
+      .poll(() => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')), {
+        timeout: 5000
+      })
+      .toBe(true)
     await app.close()
   })
 })
