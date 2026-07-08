@@ -479,6 +479,47 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(tab.diskBaseMarkdown).toBe(remote)
   })
 
+  // Regression (round-7 gap analysis): the markClean apply sets isSaved
+  // without any save. The reviewing-liveness check must not read that flag
+  // as "the base moved" — a Review session opened from the markClean
+  // notification was stillborn: Accept Merge closed the resolver via the
+  // dead-session branch and silently discarded the hand-edited result.
+  it('markClean → Review → Accept applies the hand-edited result instead of silently closing', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nshared\nthree\nlocal tail\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    const remote = 'one\nshared REMOTE\nthree\nlocal tail\n'
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: remote }
+      } as never
+    )
+    expect(tab.isSaved).toBe(true)
+
+    const notifications = tab.notifications as {
+      exclusiveType?: string
+      action?: (status: boolean | 'secondary') => void
+    }[]
+    const notification = notifications.find((n) => n.exclusiveType === 'file_changed')
+    if (!notification?.action) throw new Error('expected the Undo/Review notification')
+
+    notification.action('secondary')
+    expect(store.mergeConflict).not.toBeNull()
+
+    const edited = 'one\nshared REMOTE hand-edited\nthree\nlocal tail\n'
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT(edited)
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe(edited)
+    expect(tab.isSaved).toBe(false)
+    expect(tab.diskBaseMarkdown).toBe(remote)
+  })
+
   // Drive the real watcher listener: LISTEN_FOR_FILE_CHANGE registers the
   // mt::update-file handler on the mocked ipcRenderer; tests retrieve and
   // invoke it with a byte-identical echo payload.

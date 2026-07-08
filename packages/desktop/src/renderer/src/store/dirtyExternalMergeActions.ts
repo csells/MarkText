@@ -180,12 +180,15 @@ const syncReality = (store: DirtyExternalMergeStore, tabId: string): IFileState 
   }
 
   state = sessionStateFor(store, tabId)
+  // Disk truth is read off the base itself, never off `isSaved`: every real
+  // save advances diskBaseMarkdown to the written bytes, while the markClean
+  // apply sets isSaved with the base deliberately unmoved — reading the flag
+  // here killed the live Review session that apply had just offered.
   const baseMoved =
     state.kind === 'merging'
-      ? tab.isSaved || tab.diskBaseMarkdown !== state.base
+      ? tab.diskBaseMarkdown !== state.base
       : state.kind === 'reviewing'
-        ? tab.isSaved ||
-          tab.diskBaseMarkdown !== state.session.expectedDiskBase ||
+        ? tab.diskBaseMarkdown !== state.session.expectedDiskBase ||
           !window.fileUtils.isSamePathSync(tab.pathname, state.session.fileChange.pathname)
         : false
   if (baseMoved) {
