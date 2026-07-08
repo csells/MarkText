@@ -86,12 +86,17 @@ export interface ICommentSourceLineState {
 export interface ICommentSourceIndexOptions {
     frontMatter?: boolean;
     math?: boolean;
+    // Footnote parsing changes block context: with it on, an indented
+    // definition line inside a footnote is metadata, not code. Callers
+    // matching a footnote-enabled editor must pass true (engine default off).
+    footnote?: boolean;
 }
 
 const SOURCE_COMMENT_MARKER_START_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u');
 const DEFAULT_SOURCE_INDEX_OPTIONS = {
     frontMatter: true,
     math: true,
+    footnote: false,
 } as const;
 
 function normalizeSourceIndexOptions(options: ICommentSourceIndexOptions = {}): Required<ICommentSourceIndexOptions> {
@@ -323,7 +328,7 @@ export function buildCommentSourceLineViews(
     }
 
     const tokens = lexBlock(markdown, {
-        footnote: false,
+        footnote: normalized.footnote,
         math: normalized.math,
         frontMatter: normalized.frontMatter,
         isGitlabCompatibilityEnabled: false,

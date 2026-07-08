@@ -1,6 +1,6 @@
 import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
-import type { ICommentSourceMetadataDefinition } from './analyze';
+import type { ICommentSourceMetadataDefinition, TCommentAnalysisOptions } from './analyze';
 import type { ICommentMetadata, ICommentReply, ICommentReplyInput } from './types';
 import { analyzeMarkdownComments } from './analyze';
 import { inlineCodeRangesInText, realCommentMarkersInText } from './markerScan';
@@ -546,8 +546,12 @@ export function updateCommentMetadataInMarkdown(
     markdown: string,
     id: string,
     updater: (metadata: ICommentMetadata) => ICommentMetadata,
+    // Locating the definition is analysis: a caller matching an editor whose
+    // parse options differ from the engine defaults (footnote block context)
+    // must pass the same options here or the definition is invisible to it.
+    options?: TCommentAnalysisOptions,
 ): string | null {
-    const analysis = analyzeMarkdownComments(markdown);
+    const analysis = analyzeMarkdownComments(markdown, options);
     const { decoded, corruptError } = decodeThreadLines(analysis.sourceIndex.metadataDefinitions, id);
     if (!decoded) {
         if (corruptError != null) {

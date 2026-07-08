@@ -7,6 +7,7 @@ import type {
   ICommentMetadata,
   ICommentReply,
   ICommentReplyInput,
+  TCommentAnalysisOptions,
   TCommentStatus,
   TUpdateCommentThreadPatch
 } from '@muyajs/core/comments'
@@ -14,9 +15,10 @@ import type {
 export function replaceCommentMetadata(
   markdown: string,
   id: string,
-  updater: (metadata: ICommentMetadata) => ICommentMetadata
+  updater: (metadata: ICommentMetadata) => ICommentMetadata,
+  options?: TCommentAnalysisOptions
 ): string {
-  const updated = updateCommentMetadataInMarkdown(markdown, id, updater)
+  const updated = updateCommentMetadataInMarkdown(markdown, id, updater, options)
   if (!updated) {
     throw new Error(`No metadata definition found for comment "${id}".`)
   }
@@ -27,13 +29,29 @@ export function replaceCommentMetadata(
 export function patchCommentMetadata(
   markdown: string,
   id: string,
-  patch: TUpdateCommentThreadPatch
+  patch: TUpdateCommentThreadPatch,
+  options?: TCommentAnalysisOptions
 ): string {
-  return replaceCommentMetadata(markdown, id, metadata => mergeCommentMetadataPatch(metadata, patch))
+  return replaceCommentMetadata(
+    markdown,
+    id,
+    metadata => mergeCommentMetadataPatch(metadata, patch),
+    options
+  )
 }
 
-export function replyToComment(markdown: string, id: string, reply: ICommentReplyInput): string {
-  return replaceCommentMetadata(markdown, id, metadata => appendCommentReplyMetadata(metadata, reply))
+export function replyToComment(
+  markdown: string,
+  id: string,
+  reply: ICommentReplyInput,
+  options?: TCommentAnalysisOptions
+): string {
+  return replaceCommentMetadata(
+    markdown,
+    id,
+    metadata => appendCommentReplyMetadata(metadata, reply),
+    options
+  )
 }
 
 export interface IEditCommentReplyPatch {
@@ -47,7 +65,8 @@ export function editCommentReply(
   markdown: string,
   id: string,
   replyIndex: number,
-  patch: IEditCommentReplyPatch
+  patch: IEditCommentReplyPatch,
+  options?: TCommentAnalysisOptions
 ): string {
   if (!Number.isInteger(replyIndex) || replyIndex < 0) {
     throw new Error('--reply-index must be a zero-based non-negative integer.')
@@ -79,14 +98,15 @@ export function editCommentReply(
       ...(patch.updatedAt ? { updatedAt: patch.updatedAt } : {}),
       replies
     })
-  })
+  }, options)
 }
 
 export function setCommentStatus(
   markdown: string,
   id: string,
   status: TCommentStatus,
-  updatedAt = new Date().toISOString()
+  updatedAt = new Date().toISOString(),
+  options?: TCommentAnalysisOptions
 ): string {
-  return patchCommentMetadata(markdown, id, { status, updatedAt })
+  return patchCommentMetadata(markdown, id, { status, updatedAt }, options)
 }

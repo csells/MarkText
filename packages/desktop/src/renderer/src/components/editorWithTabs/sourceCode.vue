@@ -478,7 +478,15 @@ const replaceSourceCommentMetadata = (
   updater: (metadata: ICommentMetadata) => ICommentMetadata
 ): boolean => {
   const markdown = cm.getValue()
-  const nextMarkdown = updateCommentMetadataInMarkdown(markdown, id, updater)
+  // Locate the definition with the SAME parser options the source-mode
+  // analysis uses — a footnote-context definition this pane renders as a
+  // comment must be mutable from this pane too.
+  const nextMarkdown = updateCommentMetadataInMarkdown(
+    markdown,
+    id,
+    updater,
+    sourceCommentParserOptions()
+  )
   if (!nextMarkdown) return false
 
   if (nextMarkdown === markdown) {

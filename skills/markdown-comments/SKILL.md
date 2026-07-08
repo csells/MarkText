@@ -33,8 +33,11 @@ pnpm exec tsx skills/markdown-comments/src/cli.ts list path/to/file.md --footnot
 ```
 
 `--footnote true` analyzes with footnote parsing on — use it when the target
-project edits with MarkText's footnote preference enabled, so `list` and
-`validate` see the same block structure the editor does.
+project edits with MarkText's footnote preference enabled. Every command
+accepts it: `list`/`validate` see the same block structure the editor does,
+and the mutation commands locate metadata definitions through the same
+analysis, so a definition in footnote block context is mutable only with the
+flag that makes it visible.
 
 `list` prints deterministic JSON with this shape:
 

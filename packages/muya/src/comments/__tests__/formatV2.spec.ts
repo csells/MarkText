@@ -305,6 +305,32 @@ describe('v2 mutation line discipline', () => {
         expect(next).toBe(v2Doc(HEAD, REPLY_0));
     });
 
+    // Mutation locates the definition through the analyzer, so it must accept
+    // the same analysis options a differently-configured editor parses with:
+    // a footnote-context definition is invisible to the default lex (the
+    // indented line reads as code) but mutable when footnote parsing is on.
+    it('honors analysis options: a footnote-context definition is found and rewritten', () => {
+        const doc = [
+            'A <!--MC:cmt_1-->reviewed<!--MC:~cmt_1--> line.',
+            '',
+            '[^note]: footnote text',
+            '    [MC:cmt_1]: {"version":2,"status":"open"}',
+            '',
+        ].join('\n');
+
+        expect(updateCommentMetadataInMarkdown(doc, 'cmt_1', metadata => ({
+            ...metadata,
+            status: 'resolved',
+        }))).toBeNull();
+
+        const next = updateCommentMetadataInMarkdown(doc, 'cmt_1', metadata => ({
+            ...metadata,
+            status: 'resolved',
+        }), { footnote: true });
+
+        expect(next).toBe(doc.replace('"status":"open"', '"status":"resolved"'));
+    });
+
     it('mutating a v1 thread rewrites it as v2 lines with identical decoded content', () => {
         const v1Line = `[MC:cmt_1]: ${v1DataUri(
             '{"version":1,"status":"open","authors":["Ada"],"createdAt":"2026-07-07T09:00:00.000Z","replies":['

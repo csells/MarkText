@@ -432,6 +432,40 @@ describe('markdown-comments CLI', () => {
     expect(defaultRead.diagnostics).not.toEqual([])
   })
 
+  // Mutation is analysis-dependent (it locates the definition through the
+  // same analyzer), so the parity --footnote buys for reading must hold for
+  // the four mutation commands too: a footnote-enabled editor can mutate
+  // this thread, and the CLI must be able to match it.
+  it('mutation commands honor --footnote for definitions in footnote block context', () => {
+    const doc = [
+      'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+      '',
+      '[^note]: footnote text',
+      '    [MC:a]: {"version":2,"status":"open"}',
+      ''
+    ].join('\n')
+    const file = writeMarkdown(doc)
+
+    runCli('resolve', file, 'a', '--footnote', 'true', '--updated-at', '2026-06-30T15:00:00.000Z')
+
+    const updated = fs.readFileSync(file, 'utf8')
+    expect(readMarkdownComments(updated, { footnote: true }).threads[0]).toMatchObject({
+      id: 'a',
+      status: 'resolved'
+    })
+    // Only the head line moved; the footnote wrapper and indentation stay.
+    expect(updated).toContain('[^note]: footnote text')
+    expect(updated).toContain('    [MC:a]: ')
+
+    runCli(
+      'reply', file, 'a', '--footnote', 'true',
+      '--author', 'Ada', '--body', 'Done.', '--created-at', '2026-06-30T16:00:00.000Z'
+    )
+    expect(
+      readMarkdownComments(fs.readFileSync(file, 'utf8'), { footnote: true }).threads[0].replies
+    ).toMatchObject([{ author: 'Ada', body: 'Done.' }])
+  })
+
   it('does not resolve metadata-looking definitions inside fenced code', () => {
     const metadata = encodeCommentMetadata({
       version: 1,

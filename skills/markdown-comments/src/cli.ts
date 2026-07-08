@@ -5,7 +5,11 @@ import { TextDecoder } from 'node:util'
 import iconv from 'iconv-lite'
 import { editCommentReply, patchCommentMetadata, replyToComment, setCommentStatus } from './edit'
 import { readMarkdownComments, stableJson } from './parse'
-import type { TCommentStatus, TUpdateCommentThreadPatch } from '@muyajs/core/comments'
+import type {
+  TCommentAnalysisOptions,
+  TCommentStatus,
+  TUpdateCommentThreadPatch
+} from '@muyajs/core/comments'
 
 interface ParsedArgs {
   positional: string[]
@@ -28,11 +32,11 @@ const BOM_ENCODINGS: Array<{ encoding: string; bytes: number[] }> = [
 const usage = `Usage:
   markdown-comments list <file> [--footnote true|false]
   markdown-comments validate <file> [--footnote true|false]
-  markdown-comments reply <file> <id> --author <name> --body <text> [--created-at <iso>]
-  markdown-comments resolve <file> <id> [--updated-at <iso>]
-  markdown-comments reopen <file> <id> [--updated-at <iso>]
-  markdown-comments edit <file> <id> [--status open|resolved] [--authors Ada,Grace] [--updated-at <iso>]
-  markdown-comments edit <file> <id> --reply-index <zero-based-index> [--body <text>] [--author <name>] [--created-at <iso>] [--updated-at <iso>]
+  markdown-comments reply <file> <id> --author <name> --body <text> [--created-at <iso>] [--footnote true|false]
+  markdown-comments resolve <file> <id> [--updated-at <iso>] [--footnote true|false]
+  markdown-comments reopen <file> <id> [--updated-at <iso>] [--footnote true|false]
+  markdown-comments edit <file> <id> [--status open|resolved] [--authors Ada,Grace] [--updated-at <iso>] [--footnote true|false]
+  markdown-comments edit <file> <id> --reply-index <zero-based-index> [--body <text>] [--author <name>] [--created-at <iso>] [--updated-at <iso>] [--footnote true|false]
 
 Options:
   --encoding <name> Decode and write a non-BOM legacy file with an iconv-lite encoding such as cp1252 or shiftjis.
@@ -44,10 +48,10 @@ Options:
 const COMMAND_OPTIONS: Record<string, ReadonlySet<string>> = {
   list: new Set(['encoding', 'footnote']),
   validate: new Set(['encoding', 'footnote']),
-  reply: new Set(['encoding', 'author', 'body', 'created-at']),
-  resolve: new Set(['encoding', 'updated-at']),
-  reopen: new Set(['encoding', 'updated-at']),
-  edit: new Set(['encoding', 'status', 'authors', 'updated-at', 'reply-index', 'body', 'author', 'created-at'])
+  reply: new Set(['encoding', 'footnote', 'author', 'body', 'created-at']),
+  resolve: new Set(['encoding', 'footnote', 'updated-at']),
+  reopen: new Set(['encoding', 'footnote', 'updated-at']),
+  edit: new Set(['encoding', 'footnote', 'status', 'authors', 'updated-at', 'reply-index', 'body', 'author', 'created-at'])
 }
 
 function parseArgs(command: string, args: string[]): ParsedArgs {
@@ -215,10 +219,15 @@ function parseReplyIndex(value: string | undefined): number | null {
   return Number(value)
 }
 
-function writeAndPrint(file: string, document: MarkdownDocument, markdown: string): void {
+function writeAndPrint(
+  file: string,
+  document: MarkdownDocument,
+  markdown: string,
+  options?: TCommentAnalysisOptions
+): void {
   assertLosslessReencode(document, document.originalBytes)
   writeFile(file, document, markdown)
-  printJson(readMarkdownComments(markdown))
+  printJson(readMarkdownComments(markdown, options))
 }
 
 function main(): void {
@@ -235,14 +244,15 @@ function main(): void {
 
   const document = readFile(file, normalizeEncodingOption(options.encoding))
   const { markdown } = document
+  const analysisOptions = parseFootnoteOption(options.footnote)
 
   if (command === 'list') {
-    printJson(readMarkdownComments(markdown, parseFootnoteOption(options.footnote)))
+    printJson(readMarkdownComments(markdown, analysisOptions))
     return
   }
 
   if (command === 'validate') {
-    const parsed = readMarkdownComments(markdown, parseFootnoteOption(options.footnote))
+    const parsed = readMarkdownComments(markdown, analysisOptions)
     printJson(parsed.diagnostics)
     process.exitCode = parsed.diagnostics.length ? 1 : 0
     return
@@ -255,7 +265,7 @@ function main(): void {
       author: requireValue(options.author, '--author'),
       body: requireValue(options.body, '--body'),
       createdAt: options['created-at']
-    }))
+    }, analysisOptions), analysisOptions)
     return
   }
 
@@ -263,7 +273,14 @@ function main(): void {
     writeAndPrint(
       file,
       document,
-      setCommentStatus(markdown, id, command === 'resolve' ? 'resolved' : 'open', options['updated-at'])
+      setCommentStatus(
+        markdown,
+        id,
+        command === 'resolve' ? 'resolved' : 'open',
+        options['updated-at'],
+        analysisOptions
+      ),
+      analysisOptions
     )
     return
   }
@@ -283,11 +300,16 @@ function main(): void {
         body: options.body,
         createdAt: options['created-at'],
         updatedAt: options['updated-at']
-      }))
+      }, analysisOptions), analysisOptions)
       return
     }
 
-    writeAndPrint(file, document, patchCommentMetadata(markdown, id, buildPatch(options)))
+    writeAndPrint(
+      file,
+      document,
+      patchCommentMetadata(markdown, id, buildPatch(options), analysisOptions),
+      analysisOptions
+    )
     return
   }
 
