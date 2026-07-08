@@ -88,9 +88,10 @@ recorded position (threads head-first per
 [comment-format.md](comment-format.md); runtime-created threads join the
 trailing appendix run so it stays one contiguous block), then run the
 ordinary serializer.
-`getMarkdown()` output is byte-for-byte what v-next of the wire format
-defines — source mode, save, copy-as-source, and the CLI all see materialized
-bytes and are unchanged in kind.
+`getMarkdown()` output is byte-for-byte what the v2 wire format
+([comment-format.md](comment-format.md)) defines — source mode, save,
+copy-as-source, and the CLI all see materialized bytes and are unchanged in
+kind.
 
 **Edit (operations).** Every operation that reaches the document state —
 typing, paste, block insert/remove/replace, undo, redo — transforms every
@@ -163,9 +164,12 @@ that boundary.
   count, nothing document-sized per keystroke beyond it.
 - `getCleanMarkdown()` serializes the clean state without materialization —
   the word-count input, cached per version like `getMarkdown()`.
-- Diagnostics at runtime are model-level (detached threads, id collisions on
-  paste-materialized text). File-level diagnostics (malformed payloads,
-  duplicate definitions) surface at load and remain visible in the sidebar.
+- Diagnostics at runtime are model-level (detached threads — e.g. a range
+  whose text was deleted, surfacing as orphan-metadata; paste cannot produce
+  id collisions because colliding pasted ids are remapped before absorption,
+  see [editing-invariants.md](editing-invariants.md) §Clipboard and search).
+  File-level diagnostics (malformed payloads, duplicate definitions) surface
+  at load and remain visible in the sidebar.
 
 ## What this deletes
 

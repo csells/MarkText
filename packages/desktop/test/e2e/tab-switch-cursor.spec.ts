@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, sendIpcToRenderer, waitForMenuReady } from './helpers'
+import { getMarkdownContent, launchWithMarkdown, sendIpcToRenderer, waitForMenuReady } from './helpers'
 
 const tabSelector = '.tabs-container > li'
 
@@ -95,7 +95,19 @@ test.describe('Tab switch restores the per-tab caret', () => {
       tabSelector,
       { timeout: 5000 }
     )
-    await page.waitForTimeout(200)
+    // The new tab's content must have rendered (the switch-away stash of
+    // tab A rides the same activation) before switching back.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              document.querySelector('.editor-component span.mu-paragraph-content')
+                ?.textContent ?? ''
+          ),
+        { timeout: 5000 }
+      )
+      .toBe('other tab body')
 
     // Switch back to tab A (index 0).
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
@@ -154,8 +166,12 @@ test.describe('Tab switch restores the per-tab undo history', () => {
     await placeCaretAt(0, 5)
     await page.keyboard.type(' AEDIT', { delay: 0 })
     await expect.poll(() => paragraphText(0)).toBe('alpha AEDIT')
-    // Let the trailing async `json-change` stash A's full snapshot + history.
-    await page.waitForTimeout(300)
+    // The trailing async `json-change` stashes A's full snapshot + history
+    // in the store — the bridge read flushes the active editor and returns
+    // the stashed markdown, so poll it instead of sleeping.
+    await expect
+      .poll(() => getMarkdownContent(page), { timeout: 5000 })
+      .toContain('alpha AEDIT')
 
     // Open tab B (auto-selected) with its own body, then build B's history.
     await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, 'beta\n')
@@ -170,10 +186,13 @@ test.describe('Tab switch restores the per-tab undo history', () => {
     await placeCaretAt(0, 4)
     await page.keyboard.type(' BEDIT', { delay: 0 })
     await expect.poll(() => paragraphText(0)).toBe('beta BEDIT')
-    // The engine's `json-change` (which stashes the per-tab markdown + history)
-    // is async and may trail the last keystroke — let it land before switching
-    // away, or the stashed snapshot loses the final character.
-    await page.waitForTimeout(300)
+    // The engine's `json-change` (which stashes the per-tab markdown +
+    // history) is async and may trail the last keystroke — poll the stashed
+    // markdown through the bridge (its read flushes the active editor) so
+    // the snapshot provably holds the final character before switching away.
+    await expect
+      .poll(() => getMarkdownContent(page), { timeout: 5000 })
+      .toContain('beta BEDIT')
 
     // Switch back to tab A (index 0). Its engine history must be restored.
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)

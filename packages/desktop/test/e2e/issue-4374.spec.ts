@@ -27,7 +27,7 @@ import {
 } from './helpers'
 
 const placeCaretInSpanContaining = async(page: Page, needle: string) => {
-  await page.evaluate((text) => {
+  const placed = await page.evaluate((text) => {
     const spans = document.querySelectorAll('.editor-component span.mu-paragraph-content')
     let target: HTMLElement | null = null
     for (const span of spans) {
@@ -36,16 +36,35 @@ const placeCaretInSpanContaining = async(page: Page, needle: string) => {
         break
       }
     }
-    if (!target) return
+    if (!target) return false
     const range = document.createRange()
     range.selectNodeContents(target)
     range.collapse(false) // caret at end
     const sel = window.getSelection()
-    sel?.removeAllRanges()
-    sel?.addRange(range)
+    if (!sel) return false
+    sel.removeAllRanges()
+    sel.addRange(range)
     document.dispatchEvent(new Event('selectionchange'))
+    return true
   }, needle)
-  await page.waitForTimeout(150)
+  // Fail loudly — a silently missing span would turn every keystroke below
+  // into a no-op and the no-crash assertion into a vacuous pass.
+  if (!placed) throw new Error(`placeCaretInSpanContaining: no span containing "${needle}"`)
+  // Wait for the engine to COMMIT a collapsed caret (bridge read) instead of
+  // sleeping past the debounced selectionchange pipeline.
+  await page.waitForFunction(() => {
+    const selection = window.__marktextTest?.getEngineSelection() as {
+      anchor?: { offset: number } | null
+      focus?: { offset: number } | null
+      anchorPath?: Array<string | number>
+      focusPath?: Array<string | number>
+    } | null
+    if (!selection?.anchorPath?.length || !selection?.focusPath?.length) return false
+    return (
+      selection.anchorPath.join('/') === selection.focusPath.join('/') &&
+      selection.anchor?.offset === selection.focus?.offset
+    )
+  })
 }
 
 test.describe('Issue #4374: enterHandler chopBlockByCursor nextSibling crash', () => {
