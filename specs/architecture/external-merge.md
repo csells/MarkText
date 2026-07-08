@@ -8,9 +8,11 @@ merge surface.
 ## Base tracking
 
 Every path-backed tab carries `diskBaseMarkdown` (typed on the shared
-`IFileState` contract): the exact Markdown from the last successful open,
-save, clean reload, or accepted external merge. It is the merge base and is
-advanced **only** by those events. Dirty-state math never infers a base from
+`IFileState` contract): the exact Markdown last known to be on disk. It is
+the merge base and advances **only** when disk truth genuinely moves under
+the tab: open, save, clean reload, an applied external merge (auto or
+accepted — the base advances to the remote content), the byte-identical
+absorb row, and the `local == remote` clean-sync row. Dirty-state math never infers a base from
 the undo stack. A dirty external change with no recorded base (legacy
 session restore) cannot be merged: it opens the whole-file resolver so no
 side is silently preferred, and Accept applies the hand-resolved result.

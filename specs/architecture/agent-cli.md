@@ -45,7 +45,9 @@ never on Electron-tainted desktop modules.
 
 A command that mutates one metadata definition preserves every unrelated
 byte: UTF-8 BOM, mixed line separators, the target line's trailing
-whitespace, and no-final-newline policy. Stable-key metadata encoding keeps
+whitespace, and no-final-newline policy — with one deliberate exception:
+appending a reply to a file without a final newline terminates the file,
+so the next append no longer churns the last line in diff terms. Stable-key metadata encoding keeps
 the definition's own churn minimal. Errors surface loudly — a corrupt
 metadata payload is reported, not skipped.
 

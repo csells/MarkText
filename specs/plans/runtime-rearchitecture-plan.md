@@ -77,8 +77,17 @@ until the implementation reflects the specs.
   strengthening with mutants verified dying, the strip/getCleanMarkdown
   byte agreement (cross-mode word count), strict setHistory, lint:css
   gated + warning ratchets, canonicalization pins, and the final doc
-  alignments. Next: round-4 analysis to verify convergence; final
-  certification sweep.
+  alignments. Round 4 (9 confirmed, 0 must-fix/major) fixed: invariant-1
+  scoping, decision-table absorb row, canonicalization count, redo/burst
+  history pins, byte-payload re-serialization pins, marker-fixture
+  whitespace, and remaining doc drift. Round 5 (4 confirmed, 0 refuted,
+  ZERO implementation-behavior divergences) fixed: the base-tracking
+  advancement enumeration (spec-stale), the MC-paste single-undo-boundary
+  pin (verified biting against a no-boundary mutant), the last four
+  sleep-then-assert e2e reads converted to polls/settled streaks, and the
+  agent-cli byte-preservation exception wording. Severity trajectory
+  32→10→7→9→4 with rounds 4–5 free of behavior gaps. Next: round-6
+  analysis as convergence confirmation; final certification sweep.
 
 ## P1 — Test infrastructure first (it gates everything after)
 
