@@ -79,10 +79,3 @@ export const isSamePersistenceSnapshot = (
   tab: IFileState,
   data: FileChangePayload['data']
 ): boolean => equal(filePersistenceSnapshot(data), filePersistenceSnapshot(tab))
-
-export const requireDiskBaseMarkdown = (tab: IFileState): string => {
-  if (typeof tab.diskBaseMarkdown !== 'string') {
-    throw new Error(`dirty external merge requires diskBaseMarkdown for tab ${tab.id}`)
-  }
-  return tab.diskBaseMarkdown
-}

@@ -1348,14 +1348,6 @@ export const useEditorStore = defineStore('editor', {
       return createDirtyReloadRecoveryTab(this, sourceTab)
     },
 
-    APPLY_DIRTY_EXTERNAL_MERGE(
-      change: FileChangePayload,
-      mergedMarkdown: string,
-      options: { origin?: 'auto' | 'accepted' } = {}
-    ): void {
-      applyDirtyExternalMerge(this, change, mergedMarkdown, options)
-    },
-
     OPEN_DIRTY_EXTERNAL_MERGE_CONFLICT(
       tab: IFileState,
       change: FileChangePayload,

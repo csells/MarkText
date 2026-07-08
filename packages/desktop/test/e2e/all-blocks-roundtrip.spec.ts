@@ -8,6 +8,7 @@ import {
   enterSourceMode,
   exitSourceMode,
   getMarkdownContent,
+  readSettled,
   setSourceMarkdown,
   sendIpcToRenderer
 } from './helpers'
@@ -67,8 +68,9 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
     app = launched.app
     page = launched.page
     await waitForMenuReady(app)
-    // Let muya finish the initial render of every block.
-    await page.waitForTimeout(800)
+    // The initial render is done when the bridge serialization settles on
+    // the fixture bytes (the bridge flushes the engine before reading).
+    await expect.poll(() => getMarkdownContent(page), { timeout: 10000 }).toBe(original)
   })
 
   test.afterAll(async() => {
@@ -135,7 +137,14 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
       })
       expect(inSource).toBe(original)
       await exitSourceMode(page, app)
-      await page.waitForTimeout(200)
+      // The expected value IS the steady state, so a single early read could
+      // pass on staleness — require the byte-equality to hold for
+      // consecutive reads (readSettled semantics).
+      const afterToggle = await readSettled(() => getMarkdownContent(page), {
+        requiredStreak: 3,
+        interval: 50
+      })
+      expect(afterToggle).toBe(original)
     }
 
     const afterToggles = await getMarkdownContent(page)

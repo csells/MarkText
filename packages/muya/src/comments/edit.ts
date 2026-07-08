@@ -15,6 +15,7 @@ import {
 import { buildTextPathIndexes, commentPathKey, orderTextRange } from './range';
 import {
     COMMENT_METADATA_DATA_URI_PREFIX,
+    COMMENT_METADATA_LINE_PREFIX_REGEXP,
     isCommentMetadataDefinitionText,
     isValidCommentId,
     LITERAL_COMMENT_TEXT_STATES,
@@ -63,15 +64,6 @@ const NON_COMMENTABLE_TEXT_STATES = new Set<string>([
     ...LITERAL_COMMENT_TEXT_STATES,
     'link-reference-definition',
 ]);
-
-// Must accept every line the parser's COMMENT_METADATA_DEFINITION_REGEXP
-// accepts (any payload tail; decode validates it), or a thread the parser
-// surfaces becomes silently un-editable — e.g. a base64 payload containing
-// whitespace, which forgiving-base64 decodes but a \S*-only matcher rejects.
-// Matches only the `[MC:id]: ` label prefix (with its trailing spaces); the
-// payload and trailing whitespace are split off arithmetically to avoid a
-// backtracking-prone `(.*?)(\s*)$` tail.
-const COMMENT_METADATA_LINE_PREFIX_REGEXP = /^ {0,3}\[MC:[^\]\s]+\]:[^\S\n]*/;
 
 // Split a metadata-definition line into its rewriteable pieces: the label
 // prefix (kept verbatim) and any trailing whitespace (preserved), leaving the

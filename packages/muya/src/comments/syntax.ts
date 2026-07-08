@@ -10,7 +10,21 @@ export const COMMENT_MARKER_PATTERN = `${COMMENT_MARKER_OPEN_PREFIX}(~?)(${COMME
 const COMMENT_MARKER_LIKE_REGEXP = new RegExp(`^${COMMENT_MARKER_OPEN_PREFIX}(~?)(.*?)-->`);
 export const COMMENT_MARKER_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`);
 export const COMMENT_MARKER_SEARCH_REGEXP = new RegExp(COMMENT_MARKER_PATTERN);
-export const COMMENT_METADATA_DEFINITION_REGEXP = /^ {0,3}\[MC:([^\]\s]+)\]:(.*)$/u;
+const COMMENT_DEFINITION_INDENT_PATTERN = ' {0,3}';
+const COMMENT_DEFINITION_LABEL_BODY_PATTERN = '[^\\]\\s]+';
+export const COMMENT_METADATA_DEFINITION_REGEXP = new RegExp(
+    `^${COMMENT_DEFINITION_INDENT_PATTERN}${escapeRegExp(COMMENT_DEFINITION_LABEL_PREFIX)}(${COMMENT_DEFINITION_LABEL_BODY_PATTERN})\\]:(.*)$`,
+    'u',
+);
+// The definition-line label prefix through the colon and its trailing spaces
+// (`  [MC:id]:  `) — the mutation layer splits lines on it. Built from the
+// same fragments as the definition regexp so the two can never drift. Must
+// accept every line the definition regexp accepts (any payload tail; decode
+// validates it) or a thread the parser surfaces becomes silently
+// un-editable.
+export const COMMENT_METADATA_LINE_PREFIX_REGEXP = new RegExp(
+    `^${COMMENT_DEFINITION_INDENT_PATTERN}${escapeRegExp(COMMENT_DEFINITION_LABEL_PREFIX)}${COMMENT_DEFINITION_LABEL_BODY_PATTERN}\\]:[^\\S\\n]*`,
+);
 
 export type TCommentMarkerKind = 'open' | 'close';
 

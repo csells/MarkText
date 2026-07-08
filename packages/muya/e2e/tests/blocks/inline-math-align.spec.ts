@@ -10,7 +10,11 @@ import { expect, test } from '../fixtures/muya'
 
 async function renderVsTextTop(page, md: string): Promise<number> {
   await page.evaluate((m) => window.muya!.setContent(m), md)
-  await page.waitForTimeout(150)
+  // KaTeX render done = the math render span exists with laid-out geometry.
+  await page.waitForFunction(() => {
+    const render = document.querySelector('.mu-math > .mu-math-render')
+    return !!render && render.getBoundingClientRect().height > 0
+  })
   return page.evaluate(() => {
     const render = document.querySelector('.mu-math > .mu-math-render') as HTMLElement
     const p = document.querySelector('.mu-paragraph') as HTMLElement
@@ -31,7 +35,10 @@ test('a hidden inline-math parse error sits on the surrounding text baseline', a
 test('a long hidden inline math stays scrollable, not truncated', async ({ page }) => {
   const longMath = `$${Array.from({ length: 40 }, (_, i) => `x_{${i}}`).join('+')}$`
   await page.evaluate((m) => window.muya!.setContent(`text ${m} end`), longMath)
-  await page.waitForTimeout(250)
+  await page.waitForFunction(() => {
+    const render = document.querySelector('.mu-math > .mu-math-render')
+    return !!render && render.scrollWidth > 0
+  })
   const r = await page.evaluate(() => {
     const render = document.querySelector('.mu-math > .mu-math-render') as HTMLElement
     return {
@@ -47,7 +54,7 @@ test('a long hidden inline math stays scrollable, not truncated', async ({ page 
 
 test('the inline-math scrollbar is thin (6px, matching code blocks)', async ({ page }) => {
   await page.evaluate(() => window.muya!.setContent('x'))
-  await page.waitForTimeout(100)
+  await page.waitForFunction(() => !!document.querySelector('.mu-paragraph'))
   // The ::-webkit-scrollbar height rule is what thins the bar; assert it is wired.
   const height = await page.evaluate(() => {
     const sheets = [...document.styleSheets]

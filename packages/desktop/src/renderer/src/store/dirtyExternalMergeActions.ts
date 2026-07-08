@@ -19,8 +19,7 @@ import {
   type FileChangePayload,
   isSamePersistenceSnapshot,
   markTabSavedAtCurrentHistory,
-  type PushTabNotificationPayload,
-  requireDiskBaseMarkdown
+  type PushTabNotificationPayload
 } from './editorPersistence'
 
 // The dirty-buffer + external-file-change reconciliation subsystem. All
@@ -61,11 +60,6 @@ interface DirtyExternalMergeStore {
   updateTabIdToIndex: () => void
   pushTabNotification: (payload: PushTabNotificationPayload) => void
   loadChange: (change: FileChangePayload, options?: { preserveDirty?: boolean }) => void
-  APPLY_DIRTY_EXTERNAL_MERGE: (
-    change: FileChangePayload,
-    mergedMarkdown: string,
-    options?: { origin?: 'auto' | 'accepted' }
-  ) => void
   HANDLE_DIRTY_EXTERNAL_CHANGE: (
     tab: IFileState,
     change: FileChangePayload,
@@ -393,28 +387,24 @@ export function applyDirtyExternalMerge(
   store: DirtyExternalMergeStore,
   change: FileChangePayload,
   mergedMarkdown: string,
-  // 'auto': the watcher merged disjoint edits silently — offer Undo/Review.
-  // 'accepted': the user just resolved this merge in the dialog — a second
-  // notification offering to Undo/Review it again would be noise.
-  // markClean/base/local arrive on the reducer's apply-merge effect; direct
-  // store-action callers omit them and get the same values re-derived here.
+  // The reducer's apply-merge effect payload: 'auto' offers Undo/Review
+  // ('accepted' means the user just resolved this merge in the dialog — a
+  // second notification would be noise); markClean is the reducer's
+  // decision; base/local are the pre-merge snapshots the notification's
+  // Review panes present. The reducer is the only decider — nothing is
+  // re-derived here.
   options: {
-    origin?: 'auto' | 'accepted'
-    markClean?: boolean
-    base?: string
-    local?: string
-  } = {}
+    origin: 'auto' | 'accepted'
+    markClean: boolean
+    base: string
+    local: string
+  }
 ): void {
   const tab = store.tabs.find((t) => window.fileUtils.isSamePathSync(t.pathname, change.pathname))
   if (!tab) return
 
-  const origin = options.origin ?? 'auto'
-  // The base is only consumed by the auto-merge notification's Review panes.
-  // Accept must work on the whole-file session a no-base tab opens, where no
-  // recorded base exists to require.
-  const baseMarkdownBeforeMerge =
-    origin === 'auto' ? (options.base ?? requireDiskBaseMarkdown(tab)) : undefined
-  const localMarkdownBeforeMerge = options.local ?? tab.markdown
+  const { origin, markClean, base: baseMarkdownBeforeMerge, local: localMarkdownBeforeMerge } =
+    options
   const mergedChange: FileChangePayload = {
     ...change,
     data: {
@@ -422,8 +412,6 @@ export function applyDirtyExternalMerge(
       markdown: mergedMarkdown
     }
   }
-  const markClean =
-    options.markClean ?? (origin === 'auto' && mergedMarkdown === change.data.markdown)
   store.loadChange(mergedChange, { preserveDirty: !markClean })
 
   const nextTab = store.tabs.find((t) =>

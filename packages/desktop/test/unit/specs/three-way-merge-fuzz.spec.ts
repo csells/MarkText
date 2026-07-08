@@ -12,9 +12,10 @@ const rng = (seed: number) => () => {
 
 // Small alphabet with deliberate repeats and blank lines — the exact conditions
 // that triggered the false-clean data-loss bug (Finding 1).
-// Includes repeated code-fence and thematic-break lines so the git-oracle
-// cross-check exercises the fence-corruption topology (a repeated line spliced
-// into a code block) the position-blind reconciliation used to produce.
+// Includes repeated code-fence and thematic-break lines so the count-bounds
+// fuzz exercises the fence-corruption topology (a repeated line spliced into
+// a code block) the position-blind reconciliation used to produce. There is
+// no git oracle: correctness is the engine-independent properties below.
 // The MC marker/metadata lines, CRLF/CR endings, and non-ASCII text are the
 // payloads this merge exists for — agent edits to comment-bearing documents.
 const MC_DEF = '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119\n'

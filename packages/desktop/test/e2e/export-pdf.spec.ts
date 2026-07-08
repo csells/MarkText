@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
 import {
   launchWithMarkdown,
+  readSettled,
   waitForMenuReady,
   sendIpcToRenderer
 } from './helpers'
@@ -189,12 +190,19 @@ test.describe('PDF export to a real file (item 231)', () => {
 
     await triggerPdfExportViaDialog(app, page)
 
-    // Give main a generous window to (not) write the file.
+    // Give main a generous window to (not) write the file, then require the
+    // negative to hold across consecutive reads so a slow write cannot slip
+    // past a single early sample.
     await page.waitForTimeout(2000)
-
-    expect(fs.existsSync(out)).toBe(false)
-    const successes = await getExportSuccesses(page)
-    expect(successes.find((s) => s.filePath === out)).toBeFalsy()
+    const settled = await readSettled(
+      async() => ({
+        exists: fs.existsSync(out),
+        succeeded: !!(await getExportSuccesses(page)).find((s) => s.filePath === out)
+      }),
+      { requiredStreak: 3, interval: 150 }
+    )
+    expect(settled.exists).toBe(false)
+    expect(settled.succeeded).toBe(false)
   })
 
   test('the renderer EXPORT path round-trips a second export to a fresh path', async() => {

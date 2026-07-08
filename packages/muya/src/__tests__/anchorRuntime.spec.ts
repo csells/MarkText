@@ -314,4 +314,79 @@ describe('anchor runtime — mutations and undo across the cutover', () => {
         expect(muya.getComments().ranges[0].startOffset).toBe('Hello '.length);
         expect(muya.getMarkdown()).toBe(DOC);
     });
+
+    // Invariant 4's other direction: comment mutations REDO in the same
+    // timeline (the commentModelOnly mirror entry), and redoing a document
+    // op re-applies the recorded anchor snapshots.
+    it('redo re-applies a comment mutation after undo', () => {
+        const muya = boot('A reviewed span.\n');
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        leaf.setCursor(2, 10, true);
+        muya.addComment({
+            id: 'cmt_test',
+            author: 'Ada',
+            body: 'Please check this.',
+            createdAt: '2026-06-30T12:00:00.000Z',
+        });
+
+        muya.undo();
+        expect(muya.getComments().threads).toEqual([]);
+
+        muya.redo();
+        const redone = muya.getComments();
+        expect(redone.threads[0]?.id).toBe('cmt_test');
+        expect(redone.ranges[0]?.preview).toBe('reviewed');
+        expect(muya.getMarkdown()).toContain('<!--MC:cmt_test-->');
+    });
+
+    it('redo re-removes a comment after undoing removeComment', () => {
+        const muya = boot(DOC);
+
+        muya.removeComment('a');
+        muya.undo();
+        expect(muya.getComments().threads[0]?.id).toBe('a');
+
+        muya.redo();
+        expect(muya.getComments().threads).toEqual([]);
+        expect(muya.getMarkdown()).not.toContain('MC:');
+    });
+
+    it('redo re-applies a range-swallowing deletion (anchors detach again)', () => {
+        const muya = boot(DOC);
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.text = 'Hello  world.';
+        muya.flush();
+        muya.undo();
+        expect(muya.getComments().ranges[0]?.preview).toBe('reviewed');
+
+        muya.redo();
+        expect(muya.getComments().ranges).toEqual([]);
+        // The thread survives detached, exactly as the forward edit left it.
+        expect(muya.getMarkdown()).toContain('[MC:a]:');
+        expect(muya.getMarkdown()).not.toContain('<!--MC:a-->');
+    });
+
+    // The serializable history round-trip (desktop tab switching) carries
+    // comment entries: threads Map, anchors, and definition runs survive
+    // getHistory → setHistory, and undo/redo still work afterwards.
+    it('comment history entries survive a getHistory/setHistory round-trip', () => {
+        const muya = boot('A reviewed span.\n');
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        leaf.setCursor(2, 10, true);
+        muya.addComment({
+            id: 'cmt_test',
+            author: 'Ada',
+            body: 'Please check this.',
+            createdAt: '2026-06-30T12:00:00.000Z',
+        });
+
+        muya.setHistory(JSON.parse(JSON.stringify(muya.getHistory())));
+
+        muya.undo();
+        expect(muya.getComments().threads).toEqual([]);
+        muya.redo();
+        expect(muya.getComments().threads[0]?.id).toBe('cmt_test');
+        expect(muya.getMarkdown()).toContain('[MC:cmt_test]:');
+    });
 });

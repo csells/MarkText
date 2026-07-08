@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, expectNoRendererErrors } from './helpers'
+import { launchWithMarkdown, expectNoRendererErrors, readSettled } from './helpers'
 
 // ---------------------------------------------------------------------------
 // Coverage backfill (checklist item 236). The store-level
@@ -123,10 +123,11 @@ test.describe('In-document anchor link click scrolls the editor (item 236)', () 
     // meaningful distance toward the off-screen heading.
     await expect.poll(() => scrollTop(page), { timeout: 8000 }).toBeGreaterThan(100)
 
-    // Settle to the final position, then assert the heading is parked near the
-    // top of the viewport (STANDAR_Y = 320 offset), proving the jump landed on
-    // the right element and not at some arbitrary scroll offset.
-    await page.waitForTimeout(500)
+    // Settle to the final position (scrollTop stable across consecutive
+    // reads), then assert the heading is parked near the top of the viewport
+    // (STANDAR_Y = 320 offset), proving the jump landed on the right element
+    // and not at some arbitrary scroll offset.
+    await readSettled(() => scrollTop(page), { requiredStreak: 4, interval: 80 })
     const headingTop = await page.evaluate(() => {
       const heading = document.querySelector('.mu-container > h2')
       return heading ? heading.getBoundingClientRect().top : null
@@ -156,9 +157,12 @@ test.describe('In-document anchor link click scrolls the editor (item 236)', () 
     }, LINK_WRAPPER)
     expect(clicked).toBe(true)
 
-    // Give any (incorrect) scroll animation time to start; it must not.
+    // Give any (incorrect) scroll animation time to start; it must not —
+    // and the zero reading must hold for consecutive samples so a slow
+    // animation cannot slip past a single early read.
     await page.waitForTimeout(600)
-    expect(await scrollTop(page)).toBe(0)
+    const settled = await readSettled(() => scrollTop(page), { requiredStreak: 4, interval: 80 })
+    expect(settled).toBe(0)
 
     await expectNoRendererErrors(app)
   })

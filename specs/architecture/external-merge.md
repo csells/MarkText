@@ -14,8 +14,9 @@ advanced **only** by those events. Dirty-state math never infers a base from
 the undo stack. A dirty external change with no recorded base (legacy
 session restore) cannot be merged: it opens the whole-file resolver so no
 side is silently preferred, and Accept applies the hand-resolved result.
-The auto-merge notification path is the one place a recorded base is a hard
-requirement (`requireDiskBaseMarkdown` — it feeds the Review panes).
+The reducer enforces this structurally — a merge only ever starts from a
+recorded string base, and the pre-merge base/local snapshots travel on the
+apply-merge effect to the notification's Review panes.
 
 ## Decision table (watcher reports disk content `remote` for a tab)
 

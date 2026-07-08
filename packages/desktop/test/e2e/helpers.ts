@@ -83,12 +83,15 @@ export const launchElectron = async(
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   env.PERF_TESTING = 'true'
-  // On macOS every launch would otherwise activate the app and steal focus —
-  // with each spec launching its own MarkText instance, a full run makes the
-  // machine unusable. Background test mode (src/main/config.ts) keeps windows
-  // hidden and unfocused; export MARKTEXT_TEST_BACKGROUND=0 to watch the app
-  // while debugging a spec. Linux CI runs under xvfb, so it stays as-is.
-  if (isBackgroundTestRun) env.MARKTEXT_TEST_BACKGROUND = '1'
+  // PRESENCE of MARKTEXT_TEST_BACKGROUND signals test mode (the preload
+  // exposes the __marktextTest bridge on it), so every launch sets it; the
+  // VALUE picks window behavior. On macOS every launch would otherwise
+  // activate the app and steal focus — with each spec launching its own
+  // MarkText instance, a full run makes the machine unusable, so background
+  // mode ('1') keeps windows hidden and unfocused. Linux CI runs under xvfb
+  // and stays visible ('0'); export MARKTEXT_TEST_BACKGROUND=0 to watch the
+  // app while debugging a spec.
+  env.MARKTEXT_TEST_BACKGROUND = isBackgroundTestRun ? '1' : '0'
   if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
   const app = await _electron.launch({
     executablePath,

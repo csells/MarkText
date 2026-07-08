@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, clickMenuById, waitForEditor } from './helpers'
+import { launchWithMarkdown, clickMenuById, readSettled, waitForEditor } from './helpers'
 
 // Build a long document with many top-level headings so the editor content
 // overflows its scroll container. Each heading title is unique so the sidebar
@@ -164,15 +164,21 @@ test.describe('TOC sidebar click scrolls the live editor', () => {
     await expect
       .poll(() => isHeadingInViewport(page, targetIndex), { timeout: 8000 })
       .toBe(true)
-    const firstScroll = await getScrollTop(page)
+    const firstScroll = await readSettled(() => getScrollTop(page), {
+      requiredStreak: 4,
+      interval: 80
+    })
 
     // Click again — should land on (essentially) the same scroll position.
     await label.click()
-    await page.waitForTimeout(500)
     await expect
       .poll(() => isHeadingInViewport(page, targetIndex), { timeout: 8000 })
       .toBe(true)
-    const secondScroll = await getScrollTop(page)
+    // Sample until the scroll animation settles before comparing positions.
+    const secondScroll = await readSettled(() => getScrollTop(page), {
+      requiredStreak: 4,
+      interval: 80
+    })
     expect(Math.abs(secondScroll - firstScroll)).toBeLessThanOrEqual(5)
   })
 })

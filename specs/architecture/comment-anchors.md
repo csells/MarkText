@@ -43,8 +43,10 @@ interface ICommentAnchor {
 // data loss.
 interface ICommentDefinitionRun {
     // Block position for a run that was its own block, [...path, 'text',
-    // offset] for lines embedded in a surviving leaf, null for the trailing
-    // appendix (detached, or created at runtime).
+    // offset] for lines embedded in a surviving leaf, null when detached
+    // (an edit removed the surrounding structure): the run re-emits in the
+    // trailing appendix. Threads created at runtime carry no run at all —
+    // they join the trailing appendix at serialization.
     position: TBlockPath | null;
     edge: 'before' | 'after';
     items: Array<{ kind: 'thread', id } | { kind: 'residue', line }>;

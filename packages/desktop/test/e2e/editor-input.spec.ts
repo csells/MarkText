@@ -145,9 +145,10 @@ test.describe('Title-bar word counter (item 24)', () => {
     // Seed a deterministic two-paragraph document via source mode so each mode
     // reads a known value independent of earlier typing in this shared app.
     await setSourceMarkdown(page, app, 'alpha beta\n\ngamma 字数\n')
-    await page.waitForTimeout(400)
 
-    // Derive the four expected values from the exact markdown that is loaded.
+    // Derive the four expected values from the exact markdown that is loaded
+    // (the bridge read flushes the engine; the counter polls below absorb
+    // the async json-change propagation).
     const markdown = await getMarkdownContent(page)
     const expected = expectedCount(markdown)
 

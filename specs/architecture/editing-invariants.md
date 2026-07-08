@@ -67,8 +67,10 @@ document position (placement runs — [comment-anchors.md](comment-anchors.md))
 and blank lines between definition blocks survive. Source-mode round trips
 (WYSIWYG → source → WYSIWYG without edits) preserve materialized bytes.
 Acceptable normalizations are the pre-existing, test-locked serializer ones,
-wire-format v1→v2 upgrades, and exactly two comment-specific
-canonicalizations: a thread whose lines were interleaved with another
-thread's re-serializes as one contiguous head-first block, and a container
-that held only definition lines (e.g. a blockquote-wrapped appendix)
-re-emits as a plain paragraph at the same position.
+wire-format v1→v2 upgrades, and the comment-format.md merge-friendliness
+canonicalizations: a thread's definition lines — interleaved with another
+thread's, or its own lines separated or out of order — re-serialize as one
+contiguous head-first block at the thread's run position; duplicate or
+gapped reply indexes renormalize to `0..n-1`; and a container that held only
+definition lines (e.g. a blockquote-wrapped appendix) re-emits as a plain
+paragraph at the same position.
