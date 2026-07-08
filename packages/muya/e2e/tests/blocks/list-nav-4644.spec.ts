@@ -52,7 +52,15 @@ async function runSequence(page: import('@playwright/test').Page) {
     await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(100);
+    // The engine batches ops per animation frame; the sequence has landed
+    // once the state is identical across two consecutive frames.
+    await page.waitForFunction(() => {
+        const w = window as unknown as { __listNavStateProbe?: string };
+        const current = JSON.stringify(window.muya!.getState());
+        const settled = w.__listNavStateProbe === current;
+        w.__listNavStateProbe = current;
+        return settled;
+    });
 }
 
 test('list edit sequence never leaves an empty list item', async ({ page }) => {
@@ -78,9 +86,9 @@ test('Up arrow still moves the caret up after the list edit sequence', async ({ 
 
     const before = await caretProbe(page);
     await page.keyboard.press('ArrowUp');
-    await page.waitForTimeout(100);
-    const after = await caretProbe(page);
 
     // The caret must land on an earlier content block, not stay put.
-    expect(after.activeIndex).toBeLessThan(before.activeIndex);
+    await expect
+        .poll(async () => (await caretProbe(page)).activeIndex)
+        .toBeLessThan(before.activeIndex);
 });

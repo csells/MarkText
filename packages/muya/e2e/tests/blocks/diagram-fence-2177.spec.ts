@@ -19,7 +19,9 @@ async function typeFenceAndEnter(page: import('@playwright/test').Page, lang: st
         await page.keyboard.press('Backspace');
     await slowType(page, `\`\`\`${lang}`);
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(200);
+    // The conversion lands on the engine's next op flush — wait for the
+    // paragraph to leave the state instead of sleeping past the frame.
+    await page.waitForFunction(() => window.muya!.getState()[0]?.name !== 'paragraph');
     return page.evaluate(() => window.muya!.getState()[0] as { name: string; meta?: { type?: string; lang?: string } });
 }
 

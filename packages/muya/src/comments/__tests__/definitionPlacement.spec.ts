@@ -316,6 +316,21 @@ describe('definition placement — documented canonicalizations (round-trip norm
         ].join('\n'));
     });
 
+    it('a document-leading definition gains the block separator before directly-following prose', () => {
+        const markdown = [
+            '[MC:a]: {"version":2,"status":"open"}',
+            'prose <!--MC:a-->x<!--MC:~a--> here',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe([
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+            'prose <!--MC:a-->x<!--MC:~a--> here',
+            '',
+        ].join('\n'));
+    });
+
     it('re-emits a mid-document blockquote-wrapped definition as a plain paragraph in place', () => {
         const markdown = [
             'alpha <!--MC:a-->x<!--MC:~a-->',

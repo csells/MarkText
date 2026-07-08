@@ -42,9 +42,23 @@ const placeCaretInContentSpan = async(page: Page, index: number): Promise<void> 
     const spans = root.querySelectorAll('span.mu-paragraph-content')
     const target = spans[idx]
     if (!target) return
+    // Anchor in the span's LAST TEXT NODE (a real caret is text-anchored):
+    // an element-anchored collapse commits a child-index, not a text offset,
+    // and the engine would record the caret at the wrong position.
+    const lastText = (node: Node): Text | null => {
+      for (let i = node.childNodes.length - 1; i >= 0; i -= 1) {
+        const child = node.childNodes[i]
+        if (child.nodeType === Node.TEXT_NODE) return child as Text
+        const nested = lastText(child)
+        if (nested) return nested
+      }
+      return null
+    }
+    const textNode = lastText(target)
+    if (!textNode) return
     const range = document.createRange()
-    range.selectNodeContents(target)
-    range.collapse(false)
+    range.setStart(textNode, textNode.length)
+    range.collapse(true)
     const sel = window.getSelection()
     if (!sel) return
     sel.removeAllRanges()
@@ -54,7 +68,32 @@ const placeCaretInContentSpan = async(page: Page, index: number): Promise<void> 
       new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true, cancelable: true })
     )
   }, index)
-  await page.waitForTimeout(150)
+  // Wait until the engine COMMITS the caret (collapsed, at the target span's
+  // end offset) — the selectionchange pipeline is async and a keystroke fired
+  // before the commit would act on the previous caret.
+  await page.waitForFunction(
+    (idx) => {
+      const bridge = window.__marktextTest
+      if (!bridge) throw new Error('placeCaretInContentSpan: test bridge missing')
+      const spans = document.querySelectorAll('span.mu-paragraph-content')
+      const target = spans[idx]
+      if (!target) return false
+      const selection = bridge.getEngineSelection() as {
+        anchor?: { offset: number } | null
+        focus?: { offset: number } | null
+        anchorPath?: Array<string | number>
+        focusPath?: Array<string | number>
+      } | null
+      if (!selection?.anchorPath?.length || !selection?.focusPath?.length) return false
+      return (
+        selection.anchorPath.join('/') === selection.focusPath.join('/') &&
+        selection.anchor?.offset === (target.textContent ?? '').length &&
+        selection.focus?.offset === selection.anchor?.offset
+      )
+    },
+    index,
+    { timeout: 5000 }
+  )
 }
 
 // Count how many top-level list items exist (li that are NOT inside a nested

@@ -309,6 +309,38 @@ describe('markdown-comments CLI', () => {
     })
   })
 
+  it('reply-append to a file without a final newline terminates the file (the one deliberate exception)', () => {
+    // A reply is a NEW line after the last line; leaving the file
+    // unterminated would glue the next append onto the reply and churn it
+    // in diff terms, so this one mutation adds the final newline.
+    const body = 'A <!--MC:a-->reviewed<!--MC:~a--> line.\n\n[MC:a]: {"version":2,"status":"open"}'
+    const file = writeMarkdownBuffer(Buffer.from(body, 'utf8'))
+
+    runCli(
+      'reply',
+      file,
+      'a',
+      '--author',
+      'Ada',
+      '--body',
+      'Looks good.',
+      '--created-at',
+      '2026-06-30T14:00:00.000Z'
+    )
+
+    const updated = fs.readFileSync(file, 'utf8')
+    expect(updated.startsWith(body)).toBe(true)
+    expect(updated.endsWith('\n')).toBe(true)
+    expect(updated).toContain('[MC:a.0]:')
+    expect(readMarkdownComments(updated).threads[0].replies).toEqual([
+      {
+        author: 'Ada',
+        body: 'Looks good.',
+        createdAt: '2026-06-30T14:00:00.000Z'
+      }
+    ])
+  })
+
   it('edits an existing reply through the CLI', () => {
     const metadata = encodeCommentMetadata({
       version: 1,
