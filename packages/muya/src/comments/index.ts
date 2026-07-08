@@ -24,17 +24,10 @@ export type {
     TUpdateCommentThreadPatch,
 } from './edit';
 export {
-    commentMarkerKindsInText,
-    commentMarkerKindsInTexts,
-    createCommentSearchText,
     forEachRealCommentMarker,
-    orphansCounterpart,
     realCommentMarkersInText,
-    removalOrphansCommentMarker,
-    stripCommentSyntaxForClipboard,
     stripRealCommentMarkersFromText,
 } from './markerScan';
-export type { ICommentSearchText } from './markerScan';
 export {
     decodeCommentHeadPayload,
     decodeCommentMetadata,

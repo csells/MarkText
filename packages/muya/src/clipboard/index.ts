@@ -147,8 +147,6 @@ class Clipboard {
         writeClipboardData(this, event);
     }
 
-    // False when a comment-marker guard blocked the cut (document untouched);
-    // callers must then suppress any accompanying native edit.
     cutHandler(): boolean {
         return cutSelection(this);
     }

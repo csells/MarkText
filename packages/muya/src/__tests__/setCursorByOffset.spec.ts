@@ -104,11 +104,11 @@ describe('muya.setCursorByOffset() (PG2)', () => {
         expect(muya.getMarkdown()).toBe(markdown);
     });
 
-    it('PG2: clamps a source cursor inside hidden comment metadata to visible content', async () => {
+    it('PG2: clamps a source cursor inside comment metadata bytes to visible content', async () => {
         // HARD INVARIANT (vision): a source-mode caret parked inside an
-        // [MC:id]: line must NOT restore into the hidden metadata block on the
-        // WYSIWYG side — programmatic cursor restore clamps to the end of the
-        // last visible block instead.
+        // [MC:id]: line has no clean-document equivalent on the WYSIWYG side
+        // (the definition extracted into the model) — programmatic cursor
+        // restore clamps to the end of the last visible block instead.
         const visibleLine = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
         const markdown = [
             visibleLine,

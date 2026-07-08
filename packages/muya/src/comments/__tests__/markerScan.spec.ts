@@ -1,29 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
-    createCommentSearchText,
-    stripCommentSyntaxForClipboard,
+    realCommentMarkersInText,
+    stripRealCommentMarkersFromText,
 } from '../markerScan';
 
-describe('tokenizer-backed comment marker text projection', () => {
-    it('hides real markers from search while preserving marker-looking inline code', () => {
+// The marker scan backs load-time extraction and the file-level analyzer's
+// previews. It uses the real inline tokenizer, so marker-looking bytes inside
+// inline code are literal text, never markers.
+describe('tokenizer-backed comment marker scan', () => {
+    it('finds real markers but not marker-looking inline code', () => {
         const text = 'A <!--MC:real-->visible<!--MC:~real--> `<!--MC:code-->literal<!--MC:~code-->` tail';
 
-        expect(createCommentSearchText(text).text)
-            .toBe('A visible `<!--MC:code-->literal<!--MC:~code-->` tail');
+        expect(realCommentMarkersInText(text).map(marker => `${marker.kind}:${marker.id}`))
+            .toEqual(['open:real', 'close:real']);
     });
 
-    it('maps search result offsets back to raw text around real markers only', () => {
-        const text = 'A <!--MC:real-->visible<!--MC:~real--> tail';
-        const search = createCommentSearchText(text);
-        const visibleIndex = search.text.indexOf('tail');
-
-        expect(text.slice(search.rawIndexBySearchIndex[visibleIndex])).toBe('tail');
-    });
-
-    it('strips real markers from clipboard text while preserving marker-looking inline code', () => {
+    it('strips real markers from analyzer previews while preserving marker-looking inline code', () => {
         const text = 'A <!--MC:real-->visible<!--MC:~real--> `<!--MC:code-->literal<!--MC:~code-->` tail';
 
-        expect(stripCommentSyntaxForClipboard(text))
+        expect(stripRealCommentMarkersFromText(text))
             .toBe('A visible `<!--MC:code-->literal<!--MC:~code-->` tail');
     });
 });

@@ -678,10 +678,14 @@ function codePointsToUtf16(text: string, codePointOffset: number): number {
     return utf16;
 }
 
-// The deepest replace ('r') component in `op` whose path prefixes `path` —
-// the rescue hook for subtree replacements (paragraph→heading conversion):
-// the anchor's container was replaced, not deleted, so it re-anchors into
-// the replacement's text leaf instead of detaching.
+// The deepest TRUE-replace component ('r' AND 'i' at one path — remove plus
+// insert) in `op` whose path prefixes `path` — the rescue hook for subtree
+// replacements (paragraph→heading conversion): the anchor's container was
+// replaced, not deleted, so it re-anchors into the replacement's text leaf
+// instead of detaching. A bare remove ('r' alone) must NOT rescue: after a
+// deletion the sibling that shifts into the removed index is unrelated
+// content, and re-anchoring into it would silently move the comment
+// (deletion detaches — editing-invariants.md §Deletion semantics).
 function findReplacePrefix(op: JSONOp, path: Array<string | number>): Array<string | number> | null {
     let result: Array<string | number> | null = null;
 
@@ -702,7 +706,11 @@ function findReplacePrefix(op: JSONOp, path: Array<string | number>): Array<stri
                 walk(item, pre);
                 continue;
             }
-            if (item && typeof item === 'object' && 'r' in (item as Record<string, unknown>)) {
+            if (
+                item && typeof item === 'object'
+                && 'r' in (item as Record<string, unknown>)
+                && 'i' in (item as Record<string, unknown>)
+            ) {
                 if (!result || pre.length > result.length)
                     result = [...pre];
             }

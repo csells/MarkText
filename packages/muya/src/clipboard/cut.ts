@@ -342,10 +342,10 @@ function cutTableStructure(clipboard: Clipboard): boolean {
     return removeEmptyTableStructure(clipboard);
 }
 
-// Returns false when a comment-marker guard blocked the cut — the document
-// was left untouched, so the caller must also suppress the browser's native
-// edit (e.g. a printable key replacing a cross-block selection) or the DOM
-// would diverge from the model.
+// Always returns true today: every selection shape is cuttable (edits are
+// never refused on account of comments — editing-invariants.md). The boolean
+// stays because callers suppress the browser's native edit only after a
+// performed cut, and a future non-comment refusal would reuse it.
 export function cutSelection(clipboard: Clipboard): boolean {
     // Cut a selected image: the copy half wrote its raw markdown; remove it here.
     const selectedImage = clipboard.selection.image;

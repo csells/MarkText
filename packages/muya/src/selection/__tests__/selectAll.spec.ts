@@ -285,8 +285,8 @@ describe('selection.selectAll code / language blocks', () => {
 });
 
 describe('keyboard Cmd/Ctrl+A', () => {
-    // Native select-all semantics: ONE press spans the whole document (clamped
-    // past hidden comment metadata). The progressive block-first escalation
+    // Native select-all semantics: ONE press spans the whole document. The
+    // progressive block-first escalation
     // above belongs to the menu/toolbar-driven selectAll() only — routing the
     // keyboard through it once regressed Ctrl+A to selecting a single block
     // (muya/e2e/tests/editing/selection.spec.ts is the e2e twin of this pin).

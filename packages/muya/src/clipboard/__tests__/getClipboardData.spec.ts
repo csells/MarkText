@@ -140,35 +140,31 @@ describe('clipboard.getClipboardData — single table-cell copy keeps the cell t
     });
 });
 
-describe('clipboard.getClipboardData — markdown comment syntax stays hidden in WYSIWYG copy', () => {
-    it('strips hidden comment markers from a same-block copy', () => {
+// One coordinate space (editing-invariants.md §Clipboard and search): block
+// text is CLEAN text under the anchor runtime, so copy produces exactly the
+// visible bytes — nothing hidden exists to strip. Marker-shaped bytes in
+// block text are literal typed text and copy verbatim. (These replaced the
+// guard-era "comment syntax stays hidden in WYSIWYG copy" strip pins.)
+describe('clipboard.getClipboardData — copy produces exactly the visible text', () => {
+    it('copies typed marker-shaped bytes verbatim from a same-block copy', () => {
         const source = 'A <!--MC:a-->reviewed<!--MC:~a--> span.';
         const clipboard = makeClipboard(source, 0, source.length);
 
         const { text } = clipboard.getClipboardData();
 
-        expect(text).toBe('A reviewed span.');
+        expect(text).toBe(source);
     });
 
-    it('preserves marker-looking inline code while stripping real hidden markers', () => {
-        const source = 'A <!--MC:a-->reviewed<!--MC:~a--> `<!--MC:code-->literal<!--MC:~code-->`.';
-        const clipboard = makeClipboard(source, 0, source.length);
-
-        const { text } = clipboard.getClipboardData();
-
-        expect(text).toBe('A reviewed `<!--MC:code-->literal<!--MC:~code-->`.');
-    });
-
-    it('does not copy hidden comment metadata definitions as visible text', () => {
+    it('copies typed definition-shaped bytes verbatim', () => {
         const source = '[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
         const clipboard = makeClipboard(source, 0, source.length);
 
         const { text } = clipboard.getClipboardData();
 
-        expect(text).toBe('');
+        expect(text).toBe(source);
     });
 
-    it('strips hidden comment markers from a frozen single-cell table copy', () => {
+    it('copies a frozen single-cell table selection as the cell\'s exact text', () => {
         const clipboard = makeClipboardWithTableState({
             name: 'table',
             children: [
@@ -178,7 +174,7 @@ describe('clipboard.getClipboardData — markdown comment syntax stays hidden in
                         {
                             name: 'table.cell',
                             meta: { align: 'none' },
-                            text: 'A <!--MC:a-->reviewed<!--MC:~a--> cell.',
+                            text: 'A literal <!--MC:a--> cell.',
                         },
                     ],
                 },
@@ -187,10 +183,10 @@ describe('clipboard.getClipboardData — markdown comment syntax stays hidden in
 
         const { text } = clipboard.getClipboardData();
 
-        expect(text).toBe('A reviewed cell.');
+        expect(text).toBe('A literal <!--MC:a--> cell.');
     });
 
-    it('strips hidden comment markers from a frozen rectangular table copy', () => {
+    it('serializes a frozen rectangular table copy from the cells\' exact text', () => {
         const clipboard = makeClipboardWithTableState({
             name: 'table',
             aligns: [],
@@ -201,7 +197,7 @@ describe('clipboard.getClipboardData — markdown comment syntax stays hidden in
                         {
                             name: 'table.cell',
                             meta: { align: 'none' },
-                            text: 'A <!--MC:a-->reviewed<!--MC:~a--> cell',
+                            text: 'A reviewed cell',
                         },
                         {
                             name: 'table.cell',
@@ -230,8 +226,7 @@ describe('clipboard.getClipboardData — markdown comment syntax stays hidden in
 
         const { text } = clipboard.getClipboardData();
 
-        expect(text).not.toContain('<!--MC:a-->');
-        expect(text).not.toContain('<!--MC:~a-->');
         expect(text).toContain('A reviewed cell');
+        expect(text).toContain('done');
     });
 });

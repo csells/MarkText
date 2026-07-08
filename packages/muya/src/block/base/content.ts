@@ -455,9 +455,8 @@ class Content extends TreeNode {
         if (!isKeyboardEvent(event))
             return;
 
-        const rawNextContentBlock = this.nextContentInContext();
+        const nextContentBlock = this.nextContentInContext();
         const previousContentBlock = this.previousContentInContext();
-        const nextContentBlock = rawNextContentBlock;
         const { start, end } = this.getCursor()!;
         const { topOffset, bottomOffset } = Selection.getCursorYOffset(
             this.domNode!,
@@ -465,8 +464,7 @@ class Content extends TreeNode {
 
         // Just do nothing if the cursor is not collapsed or a modifier is
         // held: Shift extends a selection; Cmd/Alt/Ctrl arrows are word/line/
-        // document jumps whose native motion must run (the cursor-placement
-        // layer snaps any landing inside hidden syntax).
+        // document jumps whose native motion must run.
         if (
             start.offset !== end.offset
             || event.shiftKey
@@ -525,13 +523,11 @@ class Content extends TreeNode {
             if (nextContentBlock) {
                 cursorBlock = nextContentBlock;
             }
-            // Only append a trailing paragraph when this is genuinely the last
-            // block — never when hidden comment metadata follows (checking the
-            // RAW next block), which would push a paragraph BELOW that off-limits
-            // syntax. ArrowDown at the last visible block then simply stays put.
-            // Otherwise ArrowDown in an already-empty last paragraph would keep
-            // creating empty paragraphs on every keypress (#3520).
-            else if (!rawNextContentBlock && this.text.length > 0) {
+            // Only append a trailing paragraph when this is genuinely the
+            // last block. Otherwise ArrowDown in an already-empty last
+            // paragraph would keep creating empty paragraphs on every
+            // keypress (#3520).
+            else if (!nextContentBlock && this.text.length > 0) {
                 const newNodeState = {
                     name: 'paragraph',
                     text: '',
@@ -732,11 +728,9 @@ class Content extends TreeNode {
             return;
 
         // Cmd/Ctrl+A: whole-document select-all in ONE press (native
-        // semantics), but through muya's own path, which stops at the last
-        // EDITABLE block so a following collapse can never drop the caret into
-        // the hidden trailing comment metadata. preventDefault stops the
-        // browser's native select-all, which would otherwise reach that block.
-        // (The progressive block-first selectAll() is the menu/toolbar path.)
+        // semantics), through muya's own path so the selection model stays in
+        // sync. (The progressive block-first selectAll() is the menu/toolbar
+        // path.)
         if (
             (event.metaKey || event.ctrlKey)
             && !event.shiftKey

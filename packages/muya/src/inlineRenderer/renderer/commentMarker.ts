@@ -1,33 +1,16 @@
 import type { CommentMarkerToken, ISyntaxRenderOptions } from '../types';
 import type Renderer from './index';
-import { CLASS_NAMES } from '../../config';
 
+// Marker-shaped bytes in LIVE block text are literal text the user typed —
+// clean state means real markers never reach the renderer (they live as
+// anchors). One coordinate space (editing-invariants.md): typed bytes render
+// visibly, exactly like any other text. The token type itself stays for the
+// serialized-bytes consumers (file-level analysis, source mode).
 export default function commentMarker(
     this: Renderer,
-    { h, token }: ISyntaxRenderOptions & { token: CommentMarkerToken },
+    { h, block, token }: ISyntaxRenderOptions & { token: CommentMarkerToken },
 ) {
-    return [
-        h(
-            `span.${CLASS_NAMES.MU_HIDE}.${CLASS_NAMES.MU_REMOVE}.${CLASS_NAMES.MU_COMMENT_MARKER}`,
-            {
-                attrs: {
-                    spellcheck: 'false',
-                    // Atomic, non-editable island: the browser cannot place a
-                    // caret inside the hidden marker, so native arrow
-                    // navigation steps straight past its zero-size
-                    // `<!--MC:id-->` text instead of parking an invisible caret
-                    // there. Timing-independent (no reliance on cancelling the
-                    // key's default action). Cross-block placement lands past
-                    // the marker via arrowHandler's boundary clamp; the marker
-                    // text still counts toward block offsets.
-                    contenteditable: 'false',
-                },
-                dataset: {
-                    id: token.markerId,
-                    kind: token.markerKind,
-                },
-            },
-            token.raw,
-        ),
-    ];
+    const { start, end } = token.range;
+
+    return [h('span.mu-plain-text', this.highlight(h, block, start, end, token))];
 }

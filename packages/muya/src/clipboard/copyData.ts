@@ -3,12 +3,9 @@ import type Parent from '../block/base/parent';
 import type TreeNode from '../block/base/treeNode';
 import type { Muya } from '../muya';
 import type { ISelection } from '../selection/types';
-import type { ITableState, TState } from '../state/types';
+import type { TState } from '../state/types';
 import type { Nullable } from '../types';
 import type Clipboard from './index';
-import { stripCommentSyntaxForClipboard } from '../comments/markerScan';
-import { stripCommentSyntaxFromStates } from '../comments/parse';
-import { NON_COMMENT_SCANNABLE_LEAF_BLOCKS } from '../comments/syntax';
 import StateToMarkdown from '../state/stateToMarkdown';
 import { getClipBoardHtml, getSanitizeClipboardHtml } from '../utils/marked';
 import { CopyType } from './types';
@@ -46,24 +43,12 @@ function buildHtmlOptions(options: Muya['options']) {
     return { footnote, frontMatter, math, isGitlabCompatibilityEnabled, superSubScript };
 }
 
-function stripCommentSyntaxFromTableState(state: ITableState): ITableState {
-    return {
-        ...state,
-        children: state.children.map(row => ({
-            ...row,
-            children: row.children.map(cell => ({
-                ...cell,
-                text: stripCommentSyntaxForClipboard(cell.text),
-            })),
-        })),
-    };
-}
-
 /**
  * Clipboard payload for a frozen cross-cell table selection, or `null` when
  * none is active. A single selected cell with text yields its plain text and
  * no HTML (so a paste lands as literal text, matching legacy
  * `docCopyHandler`); a larger rectangle serialises to GFM table markdown.
+ * Cell text is clean text — copy produces exactly the visible bytes.
  */
 function getTableSelectionClipboardData(
     clipboard: Clipboard,
@@ -72,14 +57,13 @@ function getTableSelectionClipboardData(
     if (state == null)
         return null;
 
-    const visibleState = stripCommentSyntaxFromTableState(state);
     const isSingleCell
-        = visibleState.children.length === 1 && visibleState.children[0].children.length === 1;
+        = state.children.length === 1 && state.children[0].children.length === 1;
     if (isSingleCell) {
-        return { html: '', text: visibleState.children[0].children[0].text };
+        return { html: '', text: state.children[0].children[0].text };
     }
 
-    const text = new StateToMarkdown().generate([visibleState]);
+    const text = new StateToMarkdown().generate([state]);
     const html = getClipBoardHtml(text, buildHtmlOptions(clipboard.muya.options));
 
     return { html, text };
@@ -374,17 +358,12 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
 
     const options = buildHtmlOptions(clipboard.muya.options);
 
-    // Handler copy/cut in one block.
+    // Handler copy/cut in one block. Block text is clean text — copy
+    // produces exactly the visible bytes (nothing hidden exists to strip).
     if (isSelectionInSameBlock) {
         const begin = Math.min(anchor.offset, focus.offset);
         const end = Math.max(anchor.offset, focus.offset);
-
-        // Code/thematic-break content is literal: comment-shaped bytes there
-        // are documentation, not hidden syntax — copy them verbatim.
-        const fragment = anchorBlock.text.substring(begin, end);
-        const text = NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(anchorBlock.blockName)
-            ? fragment
-            : stripCommentSyntaxForClipboard(fragment);
+        const text = anchorBlock.text.substring(begin, end);
 
         return { html: getClipBoardHtml(text, options), text };
     }
@@ -396,10 +375,7 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
 
     const copyState = collectCopyState(order);
 
-    // Strip comment syntax at the STATE level (the parser's own per-state
-    // rules), never over serialized markdown: a text-level scan has no fence
-    // concept and mangles literal code bytes.
-    const text = new StateToMarkdown().generate(stripCommentSyntaxFromStates(copyState));
+    const text = new StateToMarkdown().generate(copyState);
     const html = getClipBoardHtml(text, options);
 
     return { html, text };

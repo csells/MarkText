@@ -29,11 +29,6 @@
     white-space: nowrap;
 }
 
-.mu-comment-marker,
-.mu-comment-metadata {
-    user-select: none;
-}
-
 .mu-comment-highlight {
     color: inherit;
 

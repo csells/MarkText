@@ -181,9 +181,8 @@ class Selection {
     }
 
     // Keyboard Cmd/Ctrl+A: native select-all semantics — ONE press spans the
-    // whole document (clamped past hidden comment metadata blocks). The
-    // progressive block-first escalation in selectAll() belongs to the
-    // menu/toolbar path only.
+    // whole document. The progressive block-first escalation in selectAll()
+    // belongs to the menu/toolbar path only.
     selectWholeDocument(): void {
         if (this._table.hasSelection)
             this._table.clear();

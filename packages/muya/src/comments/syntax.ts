@@ -124,15 +124,6 @@ export const NON_COMMENT_SCANNABLE_LEAF_BLOCKS: ReadonlySet<string> = new Set([
     'thematicbreak.content',
 ]);
 
-// Would removing `removedTexts` while `survivingTexts` remain leave a comment
-// with only one of its paired markers? A removed open marker whose close still
-// survives (or vice versa) orphans the range. When both endpoints are in the
-// removed set the comment is fully gone — safe. `removalOrphansCommentMarker`
-// and `commentMarkerKindsInTexts` moved to `./markerScan`, which detects
-// markers with the real inline tokenizer (correctly ignoring marker-looking
-// text inside inline-code/inline-math) — a dependency this low-level module
-// cannot take without a cycle (the tokenizer imports from here).
-
 export function parseMalformedCommentMarker(src: string): IParsedCommentMarker | null {
     const match = COMMENT_MARKER_LIKE_REGEXP.exec(src);
     if (!match || isValidCommentId(match[2]))

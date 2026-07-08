@@ -3,51 +3,8 @@ import type TreeNode from '../block/base/treeNode';
 import type { IHighlight } from '../inlineRenderer/types';
 import type { Muya } from '../muya';
 import type { IMatch } from './types';
-import {
-    createCommentSearchText,
-    identityCommentSearchText,
-    realCommentMarkersInText,
-} from '../comments/markerScan';
-import { NON_COMMENT_SCANNABLE_LEAF_BLOCKS } from '../comments/syntax';
 import { DEFAULT_SEARCH_OPTIONS } from '../config';
 import { buildRegexValue, matchString } from '../utils/search';
-
-function rawRangeForSearchMatch(rawIndexBySearchIndex: number[], index: number, length: number) {
-    const start = rawIndexBySearchIndex[index];
-    const end = rawIndexBySearchIndex[index + length - 1];
-
-    if (start == null || end == null)
-        return null;
-
-    return { start, end: end + 1 };
-}
-
-function replaceVisibleTextPreservingCommentMarkers(rawText: string, replacement: string): string {
-    const markers: Array<{ raw: string; visibleOffset: number }> = [];
-    let visibleOffset = 0;
-    let lastIndex = 0;
-
-    for (const marker of realCommentMarkersInText(rawText)) {
-        visibleOffset += marker.start - lastIndex;
-        markers.push({
-            raw: rawText.slice(marker.start, marker.end),
-            visibleOffset,
-        });
-        lastIndex = marker.end;
-    }
-    if (markers.length === 0)
-        return replacement;
-
-    let result = replacement;
-    let insertedLength = 0;
-    for (const marker of markers) {
-        const offset = Math.min(marker.visibleOffset, replacement.length) + insertedLength;
-        result = `${result.slice(0, offset)}${marker.raw}${result.slice(offset)}`;
-        insertedLength += marker.raw.length;
-    }
-
-    return result;
-}
 
 export class Search {
     private _value: string = '';
@@ -126,10 +83,7 @@ export class Search {
             }
 
             tempText += block.text.substring(lastEnd, start);
-            tempText += replaceVisibleTextPreservingCommentMarkers(
-                block.text.substring(start, end),
-                value,
-            );
+            tempText += value;
             lastEnd = end;
         }
 
@@ -220,38 +174,21 @@ export class Search {
 
         // Highlight current search.
         if (value) {
+            // Block text IS the visible text (one coordinate space): no
+            // raw↔visible mapping exists to apply.
             this._scrollPage?.depthFirstTraverse((block: TreeNode) => {
                 if (block.isContent()) {
                     const { text } = block;
                     if (text && typeof text === 'string') {
-                        // Literal blocks (code, thematic breaks) carry no
-                        // hidden syntax — search their raw bytes unmapped.
-                        const searchText = NON_COMMENT_SCANNABLE_LEAF_BLOCKS.has(block.blockName)
-                            ? identityCommentSearchText(text)
-                            : createCommentSearchText(text);
-                        const strMatches = matchString(
-                            searchText.text,
-                            value,
-                            options,
-                        );
+                        const strMatches = matchString(text, value, options);
                         matches.push(
-                            ...strMatches.map(({ index, match, subMatches }) => {
-                                const range = rawRangeForSearchMatch(
-                                    searchText.rawIndexBySearchIndex,
-                                    index,
-                                    match.length,
-                                );
-                                if (!range)
-                                    return null;
-
-                                return {
-                                    block,
-                                    start: range.start,
-                                    end: range.end,
-                                    match,
-                                    subMatches,
-                                };
-                            }).filter((match): match is IMatch => !!match),
+                            ...strMatches.map(({ index, match, subMatches }): IMatch => ({
+                                block,
+                                start: index,
+                                end: index + match.length,
+                                match,
+                                subMatches,
+                            })),
                         );
                     }
                 }
