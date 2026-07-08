@@ -58,9 +58,13 @@ test.describe('Code block typing — real-keyboard fenced conversion (item 95)',
     // the language token before Enter is what lets the picker capture 'js' and
     // apply it on selection.
     await page.keyboard.type('```js', { delay: 30 })
-    // Let the `content-change` -> fuse search -> picker render settle so the
-    // picker's activeItem is set before Enter routes through it.
-    await page.waitForTimeout(300)
+    // Enter routes through the language picker's keydown handler
+    // (selectItem(activeItem)), so wait for the picker to RENDER its active
+    // item — the observable form of "fuse search finished" — not a clock.
+    await page.waitForSelector('.mu-list-picker li.item.active', {
+      state: 'attached',
+      timeout: 5000
+    })
     await page.keyboard.press('Enter')
 
     // A fenced code block appears: <pre.mu-code-block.mu-fenced-code>.

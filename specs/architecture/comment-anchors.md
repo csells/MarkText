@@ -99,7 +99,15 @@ anchor AND every run position through `json1.type.transformPosition` at the
 surface knows comments exist:
 
 - Text edits shift or swallow offsets (a deletion spanning an anchor
-  collapses it to the deletion point — Google-Docs semantics).
+  collapses it to the deletion point — Google-Docs semantics), with one
+  deliberate override of raw `transformPosition` output: text inserted
+  exactly at a range's CLOSE offset lands INSIDE the range (the close
+  anchor shifts right by the insertion length; `transformPosition` alone
+  would keep the equal-offset anchor left of the insertion and typing at
+  the end of a highlight would fall outside it). A deletion that collapses
+  a range's two anchors onto one point detaches the pair — see
+  [editing-invariants.md](editing-invariants.md) §Deletion semantics; the
+  raw transform would leave an invisible empty marker pair instead.
 - Block insert/remove shifts paths; `null` (the anchor's container was
   deleted) triggers the **detach policy** below. A run whose position nulls
   falls back to the trailing appendix.

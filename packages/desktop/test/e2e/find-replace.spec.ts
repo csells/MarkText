@@ -8,7 +8,8 @@ import {
   enterSourceMode,
   exitSourceMode,
   expectNoRendererErrors,
-  readSettled
+  readSettled,
+  getMarkdownContent
 } from './helpers'
 
 test.describe('Find bar', () => {
@@ -127,7 +128,11 @@ const seedDocClean = async(
 ): Promise<void> => {
   await closeAndReset(page)
   await setSourceMarkdown(page, app, markdown)
-  await page.waitForTimeout(400)
+  // The save must snapshot the seeded content — wait for the buffer to hold
+  // it (bridge read), not a clock.
+  await expect
+    .poll(() => getMarkdownContent(page), { timeout: 5000 })
+    .toBe(markdown)
   // Real save handshake: renderer request -> main writes the temp file ->
   // mt::tab-saved echoes the written bytes (the tab is path-backed).
   await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
