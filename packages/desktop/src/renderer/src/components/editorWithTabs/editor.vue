@@ -1654,6 +1654,19 @@ const flushActiveEditor = () => {
   editor.value?.flush()
 }
 
+// Test-bridge read (test-infrastructure.md): the engine's committed
+// selection, serialized like the persisted cursor, so e2e arrangement
+// helpers can wait on the selectionchange pipeline instead of sleeping.
+// The mitt bus is untyped (single unknown payload), so the reply callback
+// arrives as unknown and a non-function payload is a caller bug.
+const readActiveEditorSelection = (reply: unknown) => {
+  if (typeof reply !== 'function') {
+    throw new TypeError('read-active-editor-selection expects a reply callback')
+  }
+  const ed = editor.value
+  reply(ed ? serializeCursor(ed.getSelection()) : null)
+}
+
 const focusEditor = () => {
   const ed = editor.value
   if (!ed) return
@@ -2001,6 +2014,7 @@ onMounted(() => {
   bus.on('file-changed', handleFileChange)
   bus.on('invalidate-engine-history', handleInvalidateEngineHistory)
   bus.on('flush-active-editor', flushActiveEditor)
+  bus.on('read-active-editor-selection', readActiveEditorSelection)
   bus.on('editor-blur', blurEditor)
   bus.on('editor-focus', focusEditor)
   bus.on('copyAsRich', handleCopyPaste)
@@ -2042,7 +2056,9 @@ onMounted(() => {
     editorStore.LISTEN_FOR_CONTENT_CHANGE({
       id,
       markdown,
-      wordCount: muyaWordCount(markdown),
+      // Word count measures the same clean text the user sees — never the
+      // wire bytes (marker syntax + metadata appendix) the store tracks.
+      wordCount: muyaWordCount(editor.value.getCleanMarkdown()),
       cursor: serializeCursor(editor.value.getSelection()),
       // Synthetic, desktop-shaped history so the store's save/dirty tracking
       // keeps working (the engine history shape is incompatible).
@@ -2165,6 +2181,7 @@ onBeforeUnmount(() => {
   bus.off('file-changed', handleFileChange)
   bus.off('invalidate-engine-history', handleInvalidateEngineHistory)
   bus.off('flush-active-editor', flushActiveEditor)
+  bus.off('read-active-editor-selection', readActiveEditorSelection)
   bus.off('editor-blur', blurEditor)
   bus.off('editor-focus', focusEditor)
   bus.off('copyAsRich', handleCopyPaste)

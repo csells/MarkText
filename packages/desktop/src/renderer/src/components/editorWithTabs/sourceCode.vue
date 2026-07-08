@@ -18,6 +18,7 @@ import {
   appendCommentReplyMetadata,
   mergeCommentMetadataPatch,
   serializeCommentMarker,
+  stripAnalyzedCommentSyntaxFromMarkdown,
   updateCommentMetadataInMarkdown,
   wordCount as getWordCount,
   type ICommentMetadata,
@@ -699,7 +700,9 @@ const handleImageAction = (payload: unknown) => {
 const commitContent = (cm: CMInstance) => {
   const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(cm)
   // Attention: the cursor may be `{focus: null, anchor: null}` when press `backspace`
-  const wordCount = getWordCount(newMarkdown)
+  // Count over the document's prose, not the comment wire bytes, so the
+  // title-bar counter agrees with WYSIWYG mode for the same document.
+  const wordCount = getWordCount(stripAnalyzedCommentSyntaxFromMarkdown(newMarkdown))
   // See "beforeDestroy" note
   if (!viewDestroyed.value) {
     if (tabId.value) {

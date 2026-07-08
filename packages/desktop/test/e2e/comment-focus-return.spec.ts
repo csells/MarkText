@@ -36,7 +36,7 @@ test('dismissing the comment box does not clobber the editor selection the user 
     // Now submit the comment from the box.
     const box = page.locator('.reply-box textarea').first()
     await box.fill('a note')
-    await box.press('Meta+Enter')
+    await box.press('ControlOrMeta+Enter')
     // Focus leaving the box is the positive transition submit performs.
     await expect
       .poll(async() => (await state(page)).activeIsTextarea, { timeout: 5000 })

@@ -100,7 +100,14 @@ export const launchElectron = async(
   if (options.suppressErrorDialog) await installRendererErrorCounter(app)
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
-  await new Promise((resolve) => setTimeout(resolve, 500))
+  // Ready = the Vue app has mounted (empty launches render no editor
+  // surface, so #app gaining children is the readiness signal), not a fixed
+  // boot pause.
+  await page.waitForFunction(
+    () => (document.querySelector('#app')?.children.length ?? 0) > 0,
+    undefined,
+    { timeout: 15000 }
+  )
   return { app, page }
 }
 
@@ -331,15 +338,42 @@ export const readSettled = async<T>(
   return last
 }
 
+// Wait until muya's selectionchange pipeline has committed a selection to
+// its model (read through the test bridge) — a condition, not a clock
+// (test-infrastructure.md §Waits assert conditions).
+const waitForEngineSelection = async(page: Page, collapsed: boolean): Promise<void> => {
+  await page.waitForFunction(
+    (wantCollapsed) => {
+      const bridge = window.__marktextTest
+      if (!bridge) throw new Error('waitForEngineSelection: test bridge missing')
+      // Shape: editor.vue serializeCursor — { anchor: {offset}, focus:
+      // {offset}, anchorPath, focusPath }.
+      const selection = bridge.getEngineSelection() as {
+        anchor?: { offset: number } | null
+        focus?: { offset: number } | null
+        anchorPath?: Array<string | number>
+        focusPath?: Array<string | number>
+      } | null
+      if (!selection?.anchorPath?.length || !selection?.focusPath?.length) return false
+      if (!wantCollapsed) return true
+      return (
+        selection.anchorPath.join('/') === selection.focusPath.join('/') &&
+        selection.anchor?.offset === selection.focus?.offset
+      )
+    },
+    collapsed,
+    { timeout: 5000 }
+  )
+}
+
 export const focusEditor = async(page: Page): Promise<void> => {
   await page.evaluate(commitSelection, false)
-  // Allow muya's selectionchange listener to commit the selection to its model.
-  await page.waitForTimeout(150)
+  await waitForEngineSelection(page, false)
 }
 
 export const placeCaretInEditor = async(page: Page): Promise<void> => {
   await page.evaluate(commitSelection, true)
-  await page.waitForTimeout(150)
+  await waitForEngineSelection(page, true)
 }
 
 // Select the word "world" in the first paragraph of a "hello world" document

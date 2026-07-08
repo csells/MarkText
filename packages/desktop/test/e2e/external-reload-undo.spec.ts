@@ -121,10 +121,11 @@ test.describe('External disk reload — undo restores the pre-change document', 
     await waitForMenuReady(app)
 
     await reportExternalChange(app, filePath, 'new content here\n')
-    await page.waitForTimeout(600)
 
     // The tab now reflects the new on-disk content...
-    expect((await getMarkdownContent(page)).trim()).toBe('new content here')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toBe('new content here')
     // ...and stays clean: the reloaded content matches the file on disk, so the
     // tab must NOT be flagged unsaved (replaceContent fires a json-change that
     // would otherwise mark it dirty against the stale baseline).
@@ -136,8 +137,9 @@ test.describe('External disk reload — undo restores the pre-change document', 
     // The first undo reverts the external change in one step, back to the
     // document as it was before the reload.
     await undo(app)
-    await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page)).trim()).toBe('old content here')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toBe('old content here')
     // The undone document now diverges from on-disk content, so the tab is dirty.
     await expect
       .poll(() => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')))
@@ -230,10 +232,11 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
 
     await reportExternalChange(app, filePath, 'agent content here\n')
-    await page.waitForTimeout(600)
 
-    expect(await getMarkdownContent(page)).toBe('local dirty content\n')
+    // The prompt is the observable settle signal; the buffer must still be
+    // untouched once it shows.
     await expectMergeConflictPrompt(page)
+    expect(await getMarkdownContent(page)).toBe('local dirty content\n')
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     await app.close()
   })
@@ -247,10 +250,9 @@ test.describe('External disk reload — dirty buffers are not overwritten', () =
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
 
     await reportExternalChange(app, filePath, 'agent source content here\n')
-    await page.waitForTimeout(600)
 
-    expect(await sourceValue(page)).toBe('local source dirty content\n')
     await expectMergeConflictPrompt(page)
+    expect(await sourceValue(page)).toBe('local source dirty content\n')
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     await app.close()
   })
@@ -466,9 +468,10 @@ test.describe('External disk reload — confirmed dirty reloads remain recoverab
     await reportExternalChange(app, filePath, 'agent content here\n')
     await expectMergeConflictPrompt(page)
     await reloadDiskFromMergeConflict(page)
-    await page.waitForTimeout(600)
 
-    expect(await getMarkdownContent(page)).toBe('agent content here\n')
+    await expect
+      .poll(() => getMarkdownContent(page), { timeout: 5000 })
+      .toBe('agent content here\n')
     await expect(page.locator('.editor-notifications')).toContainText('kept')
     await expect(page.locator('.editor-tabs li')).toHaveCount(2)
     const recoveryTab = page.locator('.editor-tabs li.unsaved:not(.active)').first()
@@ -482,8 +485,9 @@ test.describe('External disk reload — confirmed dirty reloads remain recoverab
       'agent content here\n'
     )
     await undo(app)
-    await page.waitForTimeout(600)
-    expect(await getMarkdownContent(page)).toBe('local dirty content\n')
+    await expect
+      .poll(() => getMarkdownContent(page), { timeout: 5000 })
+      .toBe('local dirty content\n')
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     await app.close()
   })
@@ -499,9 +503,10 @@ test.describe('External disk reload — confirmed dirty reloads remain recoverab
     await reportExternalChange(app, filePath, 'agent source content here\n')
     await expectMergeConflictPrompt(page)
     await reloadDiskFromMergeConflict(page)
-    await page.waitForTimeout(600)
 
-    expect(await sourceValue(page)).toBe('agent source content here\n')
+    await expect
+      .poll(() => sourceValue(page), { timeout: 5000 })
+      .toBe('agent source content here\n')
     const recoveryTab = page.locator('.editor-tabs li.unsaved:not(.active)').first()
     await expect(recoveryTab.locator('span').first()).toHaveText(/Untitled-/)
     await recoveryTab.click()
@@ -509,8 +514,9 @@ test.describe('External disk reload — confirmed dirty reloads remain recoverab
     await page.locator('.editor-tabs li:not(.unsaved)').first().click()
     await expect.poll(() => sourceValue(page), { timeout: 5000 }).toBe('agent source content here\n')
     await undo(app)
-    await page.waitForTimeout(600)
-    expect(await sourceValue(page)).toBe('local source dirty content\n')
+    await expect
+      .poll(() => sourceValue(page), { timeout: 5000 })
+      .toBe('local source dirty content\n')
     await expect.poll(() => isDirty(page), { timeout: 5000 }).toBe(true)
     await app.close()
   })
@@ -583,10 +589,13 @@ test.describe('External disk reload — source-mode scroll position survives a s
     // the reload applies silently.
     const reloadedBody = longBody + 'tail line\n'
     await reportExternalChange(app, filePath, reloadedBody)
-    await page.waitForTimeout(600)
 
     // The reload landed (content updated) and CodeMirror is still mounted.
-    expect((await getMarkdownContent(page)).trim().endsWith('tail line')).toBe(true)
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim().endsWith('tail line'), {
+        timeout: 5000
+      })
+      .toBe(true)
     await enterSourceMode(page, app)
 
     // The scroll position is restored — not reset to the top. The exact pixel

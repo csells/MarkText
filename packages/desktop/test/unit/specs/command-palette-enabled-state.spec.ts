@@ -1,13 +1,36 @@
-import { describe, it, expect, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
-import { parse, compileScript } from 'vue/compiler-sfc'
-import ts from 'typescript'
-import { computed, nextTick, onBeforeUnmount, onBeforeUpdate, onMounted, ref } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import { mount, type VueWrapper } from '@vue/test-utils'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const vuePath = resolve(here, '../../../src/renderer/src/components/commandPalette/index.vue')
+// Real-mount component spec per specs/architecture/test-infrastructure.md:
+// commandPalette/index.vue is mounted with @vue/test-utils and opened the way
+// the app opens it (the 'show-command-palette' bus event); the enabled-state
+// contract is asserted on the rendered command list.
+
+vi.hoisted(() => {
+  const w = globalThis as unknown as {
+    window?: {
+      path?: { sep: string; dirname: (p: string) => string }
+      electron?: { ipcRenderer: { send: (...a: unknown[]) => void; on: (...a: unknown[]) => void } }
+    }
+  }
+  w.window ??= {}
+  w.window.path ??= { sep: '/', dirname: (p: string) => p }
+  w.window.electron ??= { ipcRenderer: { send: () => {}, on: () => {} } }
+})
+
+vi.mock('electron-log', () => ({ default: { error: vi.fn() } }))
+vi.mock(import('vue-i18n'), async(importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    useI18n: (() => ({ t: (key: string) => key })) as unknown as typeof actual.useI18n
+  }
+})
+
+import CommandPalette from '@/components/commandPalette/index.vue'
+import bus from '@/bus'
 
 interface CommandItem {
   id: string
@@ -17,62 +40,34 @@ interface CommandItem {
   isEnabled?: () => boolean
 }
 
-interface SetupBindings {
-  availableCommands: { value: CommandItem[] }
-  handleShow: (command?: CommandItem) => void
-  query: { value: string }
-  updateCommands: () => void
+const mountPalette = (): VueWrapper => {
+  setActivePinia(createPinia())
+  return mount(CommandPalette, {
+    global: {
+      stubs: {
+        // Third-party UI boundary: el-dialog owns overlay/teleport concerns;
+        // the palette's own DOM (input + command list) renders through the
+        // title slot, which this stub passes through unconditionally.
+        'el-dialog': {
+          template: '<div class="dialog-stub"><slot name="title" /><slot /></div>'
+        }
+      }
+    },
+    attachTo: document.body
+  })
 }
 
-const loadComponent = (deps: Record<string, unknown>) => {
-  const src = readFileSync(vuePath, 'utf8')
-  const { descriptor } = parse(src)
-  const compiled = compileScript(descriptor, { id: 'test' })
-  const noImports = compiled.content.replace(
-    /^\s*import[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm,
-    ''
-  )
-  const js = ts.transpileModule(noImports, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
-  }).outputText
-  // eslint-disable-next-line no-new-func
-  const factory = new Function(
-    '__deps',
-    'exports',
-    'module',
-    `const { _defineComponent, ref, onMounted, onBeforeUnmount, nextTick,
-      onBeforeUpdate, computed, useCommandCenterStore, log, bus, loading,
-      useI18n } = __deps
-    ${js}
-    return module.exports`
-  ) as (deps: Record<string, unknown>, exports: object, module: object) => {
-    default: { setup: (props: unknown, ctx: { expose: () => void }) => SetupBindings }
-  }
-
-  const m = { exports: {} as Record<string, unknown> }
-  return factory(deps, m.exports, m).default
-}
-
-const makeBindings = (rootCommand: CommandItem) => {
-  const deps = {
-    _defineComponent: (o: unknown) => o,
-    ref,
-    onMounted,
-    onBeforeUnmount,
-    nextTick,
-    onBeforeUpdate,
-    computed,
-    useCommandCenterStore: () => ({ rootCommand }),
-    log: { error: vi.fn() },
-    bus: { on: () => {}, off: () => {}, emit: vi.fn() },
-    loading: {},
-    useI18n: () => ({ t: (key: string) => key })
-  }
-  const comp = loadComponent(deps)
-  return comp.setup({}, { expose: () => {} })
-}
+const listedCommands = (wrapper: VueWrapper): string[] =>
+  wrapper.findAll('.commands li').map((item) => item.text())
 
 describe('command palette enabled state', () => {
+  let wrapper: VueWrapper | null = null
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
   it('does not offer disabled commands from the root command list', async() => {
     const rootCommand: CommandItem = {
       id: '#',
@@ -89,16 +84,22 @@ describe('command palette enabled state', () => {
         }
       ]
     }
-    const bindings = makeBindings(rootCommand)
+    wrapper = mountPalette()
 
-    bindings.handleShow(rootCommand)
+    bus.emit('show-command-palette', rootCommand)
     await Promise.resolve()
     await nextTick()
 
-    expect(bindings.availableCommands.value.map(command => command.id)).toEqual(['file.save'])
+    expect(listedCommands(wrapper)).toHaveLength(1)
+    expect(listedCommands(wrapper)[0]).toContain('Save')
+    expect(wrapper.text()).not.toContain('Add Comment')
 
-    bindings.query.value = 'add'
-    bindings.updateCommands()
-    expect(bindings.availableCommands.value).toEqual([])
+    // Filtering by query must not resurrect the disabled command.
+    const input = wrapper.find('input.search')
+    await input.setValue('add')
+    await input.trigger('keyup')
+    await nextTick()
+
+    expect(listedCommands(wrapper)).toHaveLength(0)
   })
 })

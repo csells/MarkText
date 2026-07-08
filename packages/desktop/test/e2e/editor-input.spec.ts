@@ -179,6 +179,46 @@ test.describe('Title-bar word counter (item 24)', () => {
   })
 })
 
+// One coordinate space (editing-invariants.md): word count measures the same
+// clean text the user sees — never the comment wire bytes. A commented
+// document must count exactly like the identical document without comments.
+test.describe('Title-bar word counter measures clean text (comments excluded)', () => {
+  test('a commented document counts its clean text, never the wire bytes', async() => {
+    const commentedDoc = [
+      'Hello <!--MC:a-->reviewed<!--MC:~a--> world.',
+      '',
+      'Second paragraph here.',
+      '',
+      '[MC:a]: {"version":2,"status":"open","authors":["Ada"],"createdAt":"2026-07-07T09:00:00.000Z"}',
+      '[MC:a.0]: {"author":"Ada","createdAt":"2026-07-07T09:00:00.000Z","body":"A fifty word reply would inflate the count"}',
+      ''
+    ].join('\n')
+    // Fixture-specific clean-text projection: drop definition lines, strip
+    // markers. The wire bytes count far higher (the appendix JSON alone adds
+    // words), so an exact match proves the counter measures clean text.
+    const cleanOf = (markdown: string): string =>
+      markdown
+        .replace(/^\[MC:[^\n]*\n?/gm, '')
+        .replace(/<!--MC:~?[\w-]+-->/g, '')
+        .replace(/\n{3,}$/g, '\n')
+    const { app, page } = await launchWithMarkdown(commentedDoc)
+    try {
+      await expect(page.locator(WORD_COUNT_TEXT)).toBeVisible({ timeout: 5000 })
+      await expect.poll(() => counterText(page)).toMatch(/^W\s/)
+      // The counter populates on the first json-change — drive one keystroke.
+      await placeCaretInEditor(page)
+      await typeIntoEditor(page, 'Z')
+      const markdown = await getMarkdownContent(page)
+      expect(markdown).toContain('[MC:a]:')
+      await expect
+        .poll(() => counterValue(page), { timeout: 5000 })
+        .toBe(expectedCount(cleanOf(markdown)).word)
+    } finally {
+      await app.close()
+    }
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Coverage backfill (checklist item 169). Edit > Select All flows through
 // `mt::editor-edit-action` ('selectAll') -> store/listenForMain.ts

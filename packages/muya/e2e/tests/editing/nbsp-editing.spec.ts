@@ -55,10 +55,9 @@ test('the &nbsp; literal is editable when the caret is inside it', async ({ page
     w.muya.domNode.focus()
   })
   await page.keyboard.press('Backspace')
-  await page.waitForTimeout(50)
+  await expect.poll(() => getMarkdown(page), { timeout: 5000 }).not.toBe(before)
 
   const after = await getMarkdown(page)
-  expect(after).not.toBe(before)
   expect(after.replace(/\n+$/, '').length).toBeLessThan(before.replace(/\n+$/, '').length)
 })
 
@@ -72,8 +71,7 @@ test('typing right after a &nbsp; lands at the correct offset', async ({ page })
     w.muya.domNode.focus()
   })
   await page.keyboard.type('Z')
-  await page.waitForTimeout(50)
-  expect(await getMarkdown(page)).toContain('a&nbsp;bZ')
+  await expect.poll(() => getMarkdown(page), { timeout: 5000 }).toContain('a&nbsp;bZ')
 })
 
 test('copying a selection across &nbsp; preserves the entity', async ({ browserName, context, page }) => {
@@ -100,7 +98,9 @@ test('cutting a selection across &nbsp; removes it and keeps the entity on the c
   })
   await page.keyboard.press(`${metaKey()}+a`)
   await page.keyboard.press(`${metaKey()}+x`)
-  await page.waitForTimeout(50)
+  await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
+      .toContain('&nbsp;')
   const clip = await page.evaluate(() => navigator.clipboard.readText())
   expect(clip).toContain('&nbsp;')
   expect((await getMarkdown(page)).replace(/\n+$/, '')).toBe('')

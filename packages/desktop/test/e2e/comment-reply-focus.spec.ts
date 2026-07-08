@@ -14,7 +14,7 @@ test('submitting a reply returns focus to the editor and clears the reply box', 
       () => document.querySelector<HTMLTextAreaElement>('.reply-box textarea')?.value ?? null)
     let box = page.locator('.reply-box textarea').first()
     await box.fill('hello!')
-    await box.press('Meta+Enter')
+    await box.press('ControlOrMeta+Enter')
     // Submit clears the box — the positive transition to wait on.
     await expect.poll(replyBoxValue, { timeout: 5000 }).toBe('')
 
@@ -22,7 +22,7 @@ test('submitting a reply returns focus to the editor and clears the reply box', 
     box = page.locator('.reply-box textarea').first()
     await box.click()
     await box.fill('greetings')
-    await box.press('Meta+Enter')
+    await box.press('ControlOrMeta+Enter')
     await expect.poll(replyBoxValue, { timeout: 5000 }).toBe('')
     await expect
       .poll(async() => (await page.evaluate(() => document.activeElement?.tagName)) === 'TEXTAREA',

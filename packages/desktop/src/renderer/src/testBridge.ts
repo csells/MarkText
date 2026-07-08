@@ -18,4 +18,15 @@ export const initTestBridge = (pinia: Pinia): void => {
     if (!tab) throw new Error('getTabMarkdown: no active tab')
     return tab.markdown
   })
+
+  // The engine's committed selection, read synchronously through the bus
+  // (handlers run inline). Arrangement helpers poll this until the engine
+  // has processed a selectionchange instead of sleeping past it.
+  bridge.registerSelectionProvider(() => {
+    let selection: unknown
+    bus.emit('read-active-editor-selection', (value: unknown) => {
+      selection = value
+    })
+    return selection ?? null
+  })
 }

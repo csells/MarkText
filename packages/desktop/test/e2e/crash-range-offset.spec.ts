@@ -52,7 +52,11 @@ test.describe('Crash: setStart Range offset', () => {
     // mixed inline DOM the paragraph now contains. ControlOrMeta+A maps to
     // Cmd+A on macOS and Ctrl+A elsewhere (Select All on both).
     await page.keyboard.press('ControlOrMeta+A')
-    await page.waitForTimeout(50)
+    // Positive check that the chord took — a platform no-op select-all would
+    // leave the crash provocation below vacuously green.
+    await expect
+      .poll(() => page.evaluate(() => document.getSelection()?.toString() ?? ''), { timeout: 5000 })
+      .not.toBe('')
     await page.keyboard.press('ArrowRight')
     await page.waitForTimeout(50)
     await page.keyboard.press('Home')
@@ -183,7 +187,10 @@ test.describe('Crash: setStart Range offset', () => {
     await clearRendererErrors(app)
 
     await page.keyboard.press('ControlOrMeta+A')
-    await page.waitForTimeout(50)
+    // Positive check that the chord took before the destructive provocation.
+    await expect
+      .poll(() => page.evaluate(() => document.getSelection()?.toString() ?? ''), { timeout: 5000 })
+      .not.toBe('')
     await page.keyboard.press('Delete')
     await page.waitForTimeout(100)
     await page.keyboard.type('replacement', { delay: 10 })

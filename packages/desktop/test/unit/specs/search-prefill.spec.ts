@@ -1,121 +1,131 @@
-import { describe, it, expect, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
-import { parse, compileScript } from 'vue/compiler-sfc'
-import ts from 'typescript'
-import { ref, computed, watch, nextTick } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import { mount, type VueWrapper } from '@vue/test-utils'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 
-// Regression guard for the find-bar prefill race (issue: the input showed a
-// stale single char like "T" instead of the selection). The bug lives entirely
-// in search/index.vue's reactive logic: `watch(searchMatches)` mirrors the
-// editor selection into the input, but when the find bar opens it steals focus
-// and the engine emits a spurious selection-change pointing at the document
-// start, which clobbers the just-prefilled value.
+// Real-mount component spec per specs/architecture/test-infrastructure.md:
+// search/index.vue is mounted with @vue/test-utils, store state is arranged
+// through real Pinia, the find bar opens the way the app opens it (the
+// 'find' bus event), and the regression is asserted on the rendered input.
 //
-// The desktop unit runner ships no @vitejs/plugin-vue / @vue/test-utils, so we
-// compile the real <script setup> at runtime, swap its imports for injected
-// stubs (but keep Vue's *real* ref/computed/watch/nextTick), run setup() to grab
-// the live bindings, and drive the actual reactive code. This mirrors the
-// approach in source-code-image-action.spec.ts.
+// The regression: the find-bar prefill race (the input showed a stale single
+// char like "T" instead of the selection). `watch(searchMatches)` mirrors the
+// editor selection into the input, but when the find bar opens it steals
+// focus and the engine emits a spurious selection-change pointing at the
+// document start, which used to clobber the just-prefilled value.
 
-const here = dirname(fileURLToPath(import.meta.url))
-const vuePath = resolve(here, '../../../src/renderer/src/components/search/index.vue')
-
-interface Bindings {
-  searchValue: { value: string }
-  showSearch: { value: boolean }
-  listenFind: () => void
-}
-
-const loadComponent = (deps: Record<string, unknown>) => {
-  const src = readFileSync(vuePath, 'utf8')
-  const { descriptor } = parse(src)
-  const compiled = compileScript(descriptor, { id: 'test' })
-  const noImports = compiled.content
-    .split('\n')
-    .filter((l) => !/^\s*import\s/.test(l))
-    .join('\n')
-  const js = ts.transpileModule(noImports, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
-  }).outputText
-  // eslint-disable-next-line no-new-func
-  const factory = new Function(
-    '__deps',
-    'exports',
-    'module',
-    `const { _defineComponent, ref, computed, watch, onMounted, onBeforeUnmount,
-      nextTick, bus, FindCaseIcon, FindWordIcon, FindRegexIcon, useEditorStore,
-      storeToRefs, useI18n, debounce, ArrowDown, ArrowUp, RefreshRight, Switch } = __deps
-    ${js}
-    return module.exports`
-  ) as (deps: Record<string, unknown>, exports: object, module: object) => {
-    default: { setup: (props: unknown, ctx: { expose: () => void }) => Bindings }
+vi.hoisted(() => {
+  const w = globalThis as unknown as {
+    window?: {
+      path?: { sep: string; dirname: (p: string) => string }
+      fileUtils?: { isSamePathSync: (a: string, b: string) => boolean }
+      electron?: { ipcRenderer: { send: (...a: unknown[]) => void; on: (...a: unknown[]) => void } }
+    }
   }
-  const m = { exports: {} as Record<string, unknown> }
-  return factory(deps, m.exports, m).default
-}
+  w.window ??= {}
+  w.window.path ??= { sep: '/', dirname: (p: string) => p }
+  w.window.fileUtils ??= { isSamePathSync: (a, b) => a === b }
+  w.window.electron ??= { ipcRenderer: { send: () => {}, on: () => {} } }
+})
 
-const makeBindings = () => {
-  // currentFile.searchMatches is the channel SELECTION_CHANGE writes the
-  // selected text into; storeToRefs hands the component a ref to it.
-  const currentFile = ref<{ searchMatches: { matches: unknown[]; index: number; value: string } } | null>({
+vi.mock('@/services/notification', () => ({ default: { notify: vi.fn(), name: 'notify' } }))
+vi.mock('@/store/bufferedState', () => ({
+  debouncedSendBufferedState: vi.fn(),
+  sendBufferedState: vi.fn(() => Promise.resolve(true))
+}))
+vi.mock(import('vue-i18n'), async(importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    useI18n: (() => ({ t: (key: string) => key })) as unknown as typeof actual.useI18n
+  }
+})
+
+import SearchBar from '@/components/search/index.vue'
+import bus from '@/bus'
+import { useEditorStore } from '@/store/editor'
+
+type SearchMatches = { matches: unknown[]; index: number; value: string }
+
+const mountSearchBar = () => {
+  setActivePinia(createPinia())
+  const editorStore = useEditorStore()
+  editorStore.currentFile = {
+    id: 'tab-1',
     searchMatches: { matches: [], index: -1, value: '' }
+  } as unknown as typeof editorStore.currentFile
+
+  const wrapper = mount(SearchBar, {
+    global: {
+      stubs: {
+        // Third-party UI boundary: element-plus renders its own DOM; the
+        // behaviors under test live in the input and the v-show state.
+        'el-icon': { template: '<i><slot /></i>' },
+        'el-tooltip': { template: '<span><slot /></span>' },
+        'el-button': { template: '<button><slot /></button>' }
+      }
+    },
+    attachTo: document.body
   })
-  const deps = {
-    _defineComponent: (o: unknown) => o,
-    ref,
-    computed,
-    watch,
-    nextTick,
-    onMounted: () => {},
-    onBeforeUnmount: () => {},
-    bus: { on: () => {}, off: () => {}, emit: vi.fn() },
-    FindCaseIcon: {},
-    FindWordIcon: {},
-    FindRegexIcon: {},
-    ArrowDown: {},
-    ArrowUp: {},
-    RefreshRight: {},
-    Switch: {},
-    useEditorStore: () => new Proxy({}, { get: () => () => {} }),
-    storeToRefs: () => ({ currentFile }),
-    useI18n: () => ({ t: (k: string) => k }),
-    debounce: (fn: (...a: unknown[]) => unknown) => fn
+
+  const setSelection = async(value: string) => {
+    const file = editorStore.currentFile as unknown as { searchMatches: SearchMatches }
+    file.searchMatches = { matches: [], index: -1, value }
+    await nextTick()
   }
-  const comp = loadComponent(deps)
-  const ret = comp.setup({}, { expose: () => {} })
-  const setSelection = (value: string) => {
-    currentFile.value = { searchMatches: { matches: [], index: -1, value } }
-  }
-  return { ret, setSelection }
+
+  return { wrapper, setSelection }
 }
+
+const searchInput = (wrapper: VueWrapper): HTMLInputElement =>
+  wrapper.find('input[type="text"]').element as HTMLInputElement
 
 describe('find-bar prefill from selection', () => {
+  let wrapper: VueWrapper | null = null
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
   it('prefills the input with the selected text when the bar opens', async() => {
-    const { ret, setSelection } = makeBindings()
-    setSelection('fox')
+    const mounted = mountSearchBar()
+    wrapper = mounted.wrapper
+
+    await mounted.setSelection('fox')
+    bus.emit('find')
     await nextTick()
-    ret.listenFind()
-    await nextTick()
-    expect(ret.searchValue.value).toBe('fox')
+
+    expect(searchInput(mounted.wrapper).value).toBe('fox')
+    expect((mounted.wrapper.find('.search-bar').element as HTMLElement).style.display).not.toBe(
+      'none'
+    )
   })
 
   it('does not let the focus-steal selection-change clobber the prefill', async() => {
-    const { ret, setSelection } = makeBindings()
+    const mounted = mountSearchBar()
+    wrapper = mounted.wrapper
+
     // User selects a word in the editor.
-    setSelection('fox')
-    await nextTick()
+    await mounted.setSelection('fox')
     // Find bar opens (prefills "fox") and steals focus.
-    ret.listenFind()
+    bus.emit('find')
     await nextTick()
-    expect(ret.searchValue.value).toBe('fox')
+    expect(searchInput(mounted.wrapper).value).toBe('fox')
+
     // Opening the bar steals editor focus → the engine emits a spurious
     // selection-change pointing at the document start ("T"). It must NOT
     // overwrite the prefilled query now that the bar owns it.
-    setSelection('T')
+    await mounted.setSelection('T')
     await nextTick()
-    expect(ret.showSearch.value).toBe(true)
-    expect(ret.searchValue.value).toBe('fox')
+
+    expect(
+      (mounted.wrapper.find('.search-bar').element as HTMLElement).style.display
+    ).not.toBe('none')
+    expect(searchInput(mounted.wrapper).value).toBe('fox')
   })
 })

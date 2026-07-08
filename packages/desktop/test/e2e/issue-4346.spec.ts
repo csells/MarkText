@@ -5,7 +5,7 @@
 // original stack lives in (Muya.dispatchChange -> getMarkdown ->
 // ExportMarkdown.generate). The bug surface is list/backspace mutation in
 // packages/muyajs/lib/contentState/ + packages/muyajs/lib/utils/exportMarkdown.js.
-import { test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
   launchWithMarkdown,
@@ -37,7 +37,11 @@ test.describe('Issue #4346: list-block null guards', () => {
     await placeCaretInEditor(page)
     await clearRendererErrors(app)
     await page.keyboard.press('ControlOrMeta+A')
-    await page.waitForTimeout(50)
+    // Positive check that the chord took — a platform no-op select-all would
+    // leave the crash provocation below vacuously green.
+    await expect
+      .poll(() => page.evaluate(() => document.getSelection()?.toString() ?? ''), { timeout: 5000 })
+      .not.toBe('')
     await page.keyboard.press('Delete')
     await page.waitForTimeout(200)
     await page.keyboard.type(' ', { delay: 10 })

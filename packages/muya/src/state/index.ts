@@ -336,6 +336,30 @@ class JSONState {
         return this._markdownCache.markdown;
     }
 
+    private _cleanMarkdownCache: {
+        version: number;
+        listIndentation: unknown;
+        markdown: string;
+    } | null = null;
+
+    // The CLEAN document — no marker bytes, no metadata appendix. Word count
+    // (and any consumer measuring what the user sees) reads this; the wire
+    // serialization above is for disk, exports, and the bridge.
+    getCleanMarkdown() {
+        const { listIndentation } = this._muya.options;
+        if (
+            this._cleanMarkdownCache?.version !== this._version
+            || this._cleanMarkdownCache.listIndentation !== listIndentation
+        ) {
+            this._cleanMarkdownCache = {
+                version: this._version,
+                listIndentation,
+                markdown: this.getMarkdownFromState(this._state),
+            };
+        }
+        return this._cleanMarkdownCache.markdown;
+    }
+
     getTOC() {
         return getTOC(this._muya);
     }

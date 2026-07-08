@@ -227,6 +227,12 @@ export class Muya {
         return this.editor.jsonState.getMarkdown();
     }
 
+    // The clean document — no comment marker bytes, no metadata appendix.
+    // Word count and any consumer measuring what the user sees reads this.
+    getCleanMarkdown() {
+        return this.editor.jsonState.getCleanMarkdown();
+    }
+
     // Flush queued edits synchronously; call before swapping the document out
     // (e.g. a tab switch) so a same-frame keystroke isn't lost (#2938).
     flush() {
@@ -1202,8 +1208,7 @@ export class Muya {
         // equivalent: either the sentinel vanished with the extracted
         // definition line (no cursor), or it resolved into a block that only
         // existed in the sentinel parse. The defined policy is to clamp to
-        // the end of the last visible block, mirroring what the caret
-        // invariant used to guarantee for hidden syntax.
+        // the end of the last visible block.
         const clampToLastVisible = (): boolean => {
             const last = this.editor.scrollPage?.lastContentInDescendant();
             if (!last)

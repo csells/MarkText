@@ -294,6 +294,7 @@ const testBridgeAPI =
     ? null
     : (() => {
       let tabMarkdownProvider: (() => string) | null = null
+      let selectionProvider: (() => unknown) | null = null
       return {
         registerTabMarkdownProvider: (provider: () => string): void => {
           tabMarkdownProvider = provider
@@ -303,6 +304,18 @@ const testBridgeAPI =
             throw new Error('__marktextTest.getTabMarkdown: no provider registered')
           }
           return tabMarkdownProvider()
+        },
+        // The engine's committed selection (read-only): arrangement helpers
+        // wait on this instead of sleeping past the selectionchange pipeline
+        // (test-infrastructure.md — waits assert conditions, not clocks).
+        registerSelectionProvider: (provider: () => unknown): void => {
+          selectionProvider = provider
+        },
+        getEngineSelection: (): unknown => {
+          if (!selectionProvider) {
+            throw new Error('__marktextTest.getEngineSelection: no provider registered')
+          }
+          return selectionProvider()
         }
       }
     })()

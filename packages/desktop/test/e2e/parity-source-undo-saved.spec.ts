@@ -47,25 +47,26 @@ test.describe('Parity PG2 — WYSIWYG caret restored after a source-mode edit', 
       cm.setCursor({ line: 4, ch: 6 })
       cm.focus()
     })
-    await page.waitForTimeout(200)
     await exitSourceMode(page, app)
-    await page.waitForTimeout(500)
 
-    const enclosingText = await page.evaluate(() => {
-      const sel = window.getSelection()
-      if (!sel || sel.rangeCount === 0) return ''
-      let node: Node | null = sel.getRangeAt(0).startContainer
-      while (node && node !== document.body) {
-        if (node instanceof HTMLElement && node.matches('p, h1, h2, h3, li')) {
-          return node.textContent || ''
+    // The caret restore lands on the engine's async cursor-restore pass;
+    // sample until it settles instead of sleeping past it.
+    const readEnclosingText = (): Promise<string> =>
+      page.evaluate(() => {
+        const sel = window.getSelection()
+        if (!sel || sel.rangeCount === 0) return ''
+        let node: Node | null = sel.getRangeAt(0).startContainer
+        while (node && node !== document.body) {
+          if (node instanceof HTMLElement && node.matches('p, h1, h2, h3, li')) {
+            return node.textContent || ''
+          }
+          node = node.parentNode
         }
-        node = node.parentNode
-      }
-      return ''
-    })
+        return ''
+      })
 
     // Desired: the caret is restored into the "third para here" block.
-    expect(enclosingText).toContain('third para')
+    await expect.poll(readEnclosingText, { timeout: 5000 }).toContain('third para')
     await app.close()
   })
 })
@@ -84,16 +85,18 @@ test.describe('Parity PG14 — first undo after source mode reverts the edit in 
 
     // Bulk source-mode edit.
     await setSourceMarkdown(page, app, 'base\n\nSOURCE ADDED LINE\n')
-    await page.waitForTimeout(500)
-    expect((await getMarkdownContent(page)).trim()).toContain('SOURCE ADDED LINE')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toContain('SOURCE ADDED LINE')
 
     // First undo after the source-mode handoff.
     await undo(app)
-    await page.waitForTimeout(600)
 
     // Desired: the document reverts to the exact pre-source-mode content in a
     // single undo step.
-    expect((await getMarkdownContent(page)).trim()).toBe('base')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toBe('base')
     await app.close()
   })
 
@@ -102,16 +105,20 @@ test.describe('Parity PG14 — first undo after source mode reverts the edit in 
     await waitForMenuReady(app)
 
     await setSourceMarkdown(page, app, 'base\n\nSOURCE ADDED LINE\n')
-    await page.waitForTimeout(500)
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toContain('SOURCE ADDED LINE')
 
     await undo(app)
-    await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page)).trim()).toBe('base')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toBe('base')
 
     // Redo restores the entire bulk change in one step.
     await redo(app)
-    await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page)).trim()).toContain('SOURCE ADDED LINE')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toContain('SOURCE ADDED LINE')
     await app.close()
   })
 
@@ -123,12 +130,14 @@ test.describe('Parity PG14 — first undo after source mode reverts the edit in 
     // whole-document change (the corruption-risk surface the incremental walker
     // could not handle). The single undo must restore the exact paragraph.
     await setSourceMarkdown(page, app, '# hello\n\n- new item\n')
-    await page.waitForTimeout(500)
-    expect((await getMarkdownContent(page)).trim()).toContain('# hello')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toContain('# hello')
 
     await undo(app)
-    await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page)).trim()).toBe('hello')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toBe('hello')
     await app.close()
   })
 })
@@ -145,17 +154,23 @@ test.describe('Parity PG15 — undo back to on-disk content restores the saved i
 
     await placeCaretInEditor(page)
     await typeIntoEditor(page, ' EXTRA')
-    await page.waitForTimeout(500)
 
     // Sanity: the edit dirtied the tab and changed the content.
-    expect(await page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))).toBe(true)
-    expect((await getMarkdownContent(page)).trim()).toContain('EXTRA')
+    await expect
+      .poll(() => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')), {
+        timeout: 5000
+      })
+      .toBe(true)
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toContain('EXTRA')
 
     // Undo back to the on-disk content.
     await undo(app)
-    await page.waitForTimeout(600)
     // Content is restored to disk...
-    expect((await getMarkdownContent(page)).trim()).toBe('hello world')
+    await expect
+      .poll(async() => (await getMarkdownContent(page)).trim(), { timeout: 5000 })
+      .toBe('hello world')
 
     // ...and the saved/clean indicator comes back (tab no longer marked
     // unsaved). Poll: the indicator clears on the undo's async json-change.
@@ -212,10 +227,9 @@ const activeTabId = (page: Page): Promise<string | null> =>
     () => document.querySelector('.editor-tabs li.active')?.getAttribute('data-id') ?? null
   )
 
-// Read the live WYSIWYG document text WITHOUT toggling source mode. Toggling
-// into/out of source mode (as getMarkdownContent does) pushes extra
-// `replaceContent` undo boundaries, which would desync an undo-count assertion;
-// reading the rendered paragraphs directly keeps the engine undo stack clean.
+// Read the live WYSIWYG document text straight from the rendered paragraphs
+// — the engine's exact rendered form, which the undo assertions below compare
+// against (the bridge's serialized markdown is a different normalization).
 const wysiwygText = (page: Page): Promise<string> =>
   page.evaluate(() =>
     Array.from(document.querySelectorAll('.editor-component span.mu-paragraph-content'))
@@ -307,11 +321,12 @@ test.describe('Item 256 — save -> clean -> edit -> dirty -> undo-to-saved cycl
     await expect.poll(() => isTabDirty(page)).toBe(true)
     await page.waitForTimeout(400)
 
-    // Seal the EXTRA edit as a distinct committed undo boundary by round-tripping
-    // through source mode (the handoff records a single replaceContent boundary).
-    // Without this the engine groups the later "MORE" type with the EXTRA type
-    // into one undo step, so there would be no SAVED state distinct from the
-    // on-disk baseline to undo back to.
+    // Seal the EXTRA edit as a distinct committed undo boundary: the bridge
+    // read flushes the active editor (flush-active-editor → editor.flush()),
+    // committing the pending keystroke batch. Without this the engine groups
+    // the later "MORE" type with the EXTRA type into one undo step, so there
+    // would be no SAVED state distinct from the on-disk baseline to undo
+    // back to.
     await getMarkdownContent(page)
     await page.waitForTimeout(400)
     await expect.poll(() => wysiwygText(page)).toContain('EXTRA')

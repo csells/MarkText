@@ -207,6 +207,8 @@ declare global {
     __marktextTest?: {
       registerTabMarkdownProvider(provider: () => string): void
       getTabMarkdown(): string
+      registerSelectionProvider(provider: () => unknown): void
+      getEngineSelection(): unknown
     }
   }
 }
