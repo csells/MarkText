@@ -25,8 +25,11 @@ apply-merge effect to the notification's Review panes.
 Rows are evaluated in this order (byte-equality outranks the clean-tab
 reload: a byte-identical change is ignored or absorbed, never reloaded —
 the #1861 behavior). Rows 3–5 are reducer rows, which only DIRTY tabs
-reach: a clean tab short-circuits to the reload row before the reducer is
-consulted, so a clean tab whose disk bytes match but whose persistence
+reach — with one exception: a clean tab with an OPEN resolver session
+(reachable: markClean → Review) also routes to the reducer, so the
+supersede closes and re-derives instead of reloading beneath the modal.
+Otherwise a clean tab short-circuits to the reload row before the reducer
+is consulted, so a clean tab whose disk bytes match but whose persistence
 snapshot differs reloads and stays clean (there is nothing dirty to
 preserve):
 

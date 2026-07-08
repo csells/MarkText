@@ -40,8 +40,9 @@ options): the CLI defaults to the engine defaults and accepts
 `--footnote true|false` on every command — mutation locates the definition
 through the same analyzer, so the flag gates writing exactly as it gates
 reading — letting an agent match an editor whose footnote preference is
-enabled. The skill package depends on `@muyajs/core` only —
-never on Electron-tainted desktop modules.
+enabled. The skill package depends on `@muyajs/core` (plus
+`iconv-lite`, for the legacy-encoding support this spec mandates) — never on
+Electron-tainted desktop modules.
 
 ## Byte preservation on mutation
 

@@ -26,9 +26,23 @@ test('typing at the end of a comment keeps the character (inside the comment)', 
       sel.removeAllRanges()
       sel.addRange(range)
     })
-    // Fixed sleep to provoke the engine's debounced selection commit before
-    // the keystroke; the assertion below waits on its own observable.
-    await page.waitForTimeout(60)
+    // Wait for the engine to COMMIT the caret (bridge read) — the debounced
+    // selectionchange pipeline is async, and typing before the commit would
+    // land the keystroke at the previous caret.
+    await page.waitForFunction(() => {
+      const selection = window.__marktextTest?.getEngineSelection() as {
+        anchor?: { offset: number } | null
+        focus?: { offset: number } | null
+        anchorPath?: Array<string | number>
+        focusPath?: Array<string | number>
+      } | null
+      if (!selection?.anchorPath?.length || !selection?.focusPath?.length) return false
+      return (
+        selection.anchorPath.join('/') === selection.focusPath.join('/') &&
+        selection.anchor?.offset === 'commented'.length &&
+        selection.focus?.offset === 'commented'.length
+      )
+    })
     await page.keyboard.type('Z')
 
     // The rendered text is clean; the char's position relative to the range

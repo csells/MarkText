@@ -9,8 +9,13 @@ itself — block-level and inline — not by side-scans layered on top of it.
 marked block extension in `lexBlock` (unconditionally — MC is core syntax,
 not an option) that tokenizes `[MC:id]: …` lines **ahead of marked's generic
 reference-definition rule** and emits `commentMetadataDefinition` tokens.
-`markdownToState` lowers the token to a paragraph state node carrying the raw
-line, exactly like `def`.
+One token consumes a whole CONTIGUOUS RUN of definition lines (not one
+token per line): a v2 thread is a head line plus reply lines, and
+per-line tokens would lower to separate paragraphs whose serialization
+re-inserts blank lines between them, breaking the byte-identical
+round-trip the wire format pins. `markdownToState` lowers the run token
+to a single (possibly multi-line) paragraph state node carrying the raw
+lines — the same shape `def` uses for its single line.
 
 Why this must stay tokenizer-level: marked's generic def rule registers
 definition labels case-insensitively and drops duplicates. Routed through it,
