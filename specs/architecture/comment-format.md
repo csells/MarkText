@@ -62,8 +62,13 @@ One **head line** per thread and one line per reply, in the metadata appendix
 - **Reply indexes are positional, not identity.** After a Git merge, indexes
   may duplicate or gap (`.1` twice, or `.0` then `.2`); readers order replies
   by document position and treat the numeric suffix as a hint only.
-  Duplicate/gapped indexes are normalized on the next serialization, never
-  diagnosed as errors.
+  Duplicate/gapped indexes are normalized whenever a thread's lines are
+  fully re-serialized (materialization on save, a v1 upgrade, a new-thread
+  insertion), never diagnosed as errors. Surgical mutations
+  (`updateCommentMetadataInMarkdown`, the CLI) deliberately keep untouched
+  lines byte-for-byte — stale index labels included — so parallel Git edits
+  stay mergeable; indexes are positional hints, so both behaviors read
+  identically
 - **Reply lines attach by id, ordered by position.** They conventionally
   follow their head line contiguously, but interleaving (a merge artifact)
   parses fine. A reply line whose id has no head line is an
@@ -124,7 +129,11 @@ no threads, no diagnostics, no mutation by any tool.
 
 ## Properties pinned by tests
 
-1. v2 round-trips byte-identically (including duplicate and malformed lines).
+1. v2 round-trips byte-identically for canonical-byte lines (including
+   duplicate and malformed lines, which survive verbatim). Decodable
+   payloads re-serialize in canonical form — compact single-line JSON,
+   stable key order, unescaped non-ASCII, unindented label — so
+   non-canonical-but-decodable bytes normalize on the first save.
 2. v1 documents load with full fidelity and serialize as v2 with identical
    decoded content.
 3. `git`-style line merge (our own diff3 engine as the oracle): (a) parallel

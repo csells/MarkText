@@ -7,7 +7,8 @@ import {
   setSourceMarkdown,
   enterSourceMode,
   exitSourceMode,
-  expectNoRendererErrors
+  expectNoRendererErrors,
+  readSettled
 } from './helpers'
 
 test.describe('Find bar', () => {
@@ -506,8 +507,14 @@ test.describe('Find bar — suppressed in source-code mode (item 194)', () => {
     // The find action is forwarded but the WYSIWYG `.search-bar` is `v-if`-gated
     // off in source mode, so it must not be present in the DOM.
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
+    // Negative must settle: the absent bar has to hold across consecutive
+    // reads so a slow mount cannot slip past a single early sample.
     await page.waitForTimeout(300)
-    await expect(page.locator(SEARCH_BAR)).toHaveCount(0)
+    const counts = await readSettled(
+      () => page.locator(SEARCH_BAR).count(),
+      { requiredStreak: 3, interval: 100 }
+    )
+    expect(counts).toBe(0)
 
     await expectNoRendererErrors(app)
     await exitSourceMode(page, app)

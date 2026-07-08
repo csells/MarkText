@@ -20,11 +20,15 @@ apply-merge effect to the notification's Review panes.
 
 ## Decision table (watcher reports disk content `remote` for a tab)
 
+Rows are evaluated in this order (byte-equality outranks the clean-tab
+reload: a byte-identical change is ignored or absorbed, never reloaded —
+the #1861 behavior):
+
 | Condition | Action |
 | --- | --- |
+| disk bytes == tab bytes and persistence snapshot equal | ignore (an open resolver session for the tab is closed via the reducer instead — its content no longer differs) |
+| `local == remote`, persistence differs or tab dirty | mark clean, advance base (persistence-only diffs keep dirty); the auto-merge Undo/Review notification is kept |
 | tab clean | reload from disk (regardless of Auto Save) |
-| disk bytes == tab bytes and persistence snapshot equal | ignore |
-| `local == remote` | mark clean, advance base (persistence-only diffs keep dirty) |
 | `remote == base` | ignore — disk has nothing new relative to the edit base |
 | otherwise | three-way merge (`base`, `local`, `remote`) |
 

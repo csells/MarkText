@@ -479,6 +479,87 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(tab.diskBaseMarkdown).toBe(remote)
   })
 
+  // Drive the real watcher listener: LISTEN_FOR_FILE_CHANGE registers the
+  // mt::update-file handler on the mocked ipcRenderer; tests retrieve and
+  // invoke it with a byte-identical echo payload.
+  const invokeFileChange = async(
+    store: ReturnType<typeof useEditorStore>,
+    tab: ReturnType<typeof makeDirtyTab>,
+    markdown: string
+  ) => {
+    store.LISTEN_FOR_FILE_CHANGE()
+    const onMock = window.electron.ipcRenderer.on as unknown as {
+      mock: { calls: Array<[string, (e: unknown, payload: unknown) => Promise<void>]> }
+    }
+    const entry = onMock.mock.calls.find(([channel]) => channel === 'mt::update-file')
+    if (!entry) throw new Error('mt::update-file handler not registered')
+    // Mirror the tab's live persistence fields so isSameFileSnapshot sees a
+    // genuinely byte-identical echo (loadChange may have rewritten them).
+    const live = tab as unknown as Record<string, unknown>
+    await entry[1](null, {
+      type: 'change',
+      change: {
+        pathname: tab.pathname,
+        data: {
+          filename: tab.filename,
+          pathname: tab.pathname,
+          markdown,
+          encoding: live.encoding,
+          lineEnding: live.lineEnding,
+          adjustLineEndingOnSave: live.adjustLineEndingOnSave,
+          trimTrailingNewline: live.trimTrailingNewline,
+          isMixedLineEndings: live.isMixedLineEndings
+        }
+      }
+    })
+  }
+
+  // A byte-identical watcher echo after a clean-subsumed (markClean) merge
+  // must NOT remove the Undo/Review notification — it is the only path back
+  // to the pre-merge dirty buffer.
+  it('a byte-identical watcher echo keeps the auto-merge Undo/Review notification', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nshared\nthree\nlocal tail\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    const remote = 'one\nshared REMOTE\nthree\nlocal tail\n'
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: remote }
+      } as never
+    )
+    expect(tab.markdown).toBe(remote)
+    const hasNotification = () =>
+      (tab.notifications as { exclusiveType?: string }[]).some(
+        (n) => n.exclusiveType === 'file_changed'
+      )
+    expect(hasNotification()).toBe(true)
+
+    await invokeFileChange(store, tab, remote)
+
+    expect(hasNotification()).toBe(true)
+    expect(tab.markdown).toBe(remote)
+  })
+
+  // A disk change that converges to the user's exact buffer while the
+  // resolver is open must close the dead session (via the reducer), not
+  // leave stale panes up.
+  it('a converging byte-identical disk change closes an open resolver session', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    openConflictSession(store, tab)
+    expect(store.mergeConflict).not.toBeNull()
+
+    await invokeFileChange(store, tab, tab.markdown)
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe('one\nlocal\nthree\n')
+  })
+
   it('HANDLE_DIRTY_EXTERNAL_CHANGE compares comment diagnostics through the authoritative analyzer', async() => {
     const store = useEditorStore()
     const tab = makeDirtyTab(store)

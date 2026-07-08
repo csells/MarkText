@@ -179,7 +179,7 @@ this architecture (their regression tests convert to anchor-semantics tests):
 2. **Round-trip fidelity**: load → (no edits) → serialize is byte-identical
    for well-formed documents — including mid-document definition blocks,
    which stay in place (modulo the pre-existing serializer normalizations,
-   wire-format version upgrades, and the two comment canonicalizations named
+   wire-format version upgrades, and the comment canonicalizations named
    in [editing-invariants.md](editing-invariants.md) §Round-trip).
 3. **Transform totality**: every op applied to `JSONState` transforms every
    anchor exactly once; an anchor is never stale relative to the state

@@ -3,7 +3,7 @@
 // zero-height caret). muya jumps the whole marker in one keydown step. Guards
 // the same-line case from both travel directions ("hello [world]" commented).
 import { expect, test, type Page } from '@playwright/test'
-import { focusEditor, launchWithMarkdown } from './helpers'
+import { focusEditor, launchWithMarkdown, readSettled } from './helpers'
 
 const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119'
 
@@ -32,8 +32,8 @@ test('caret stays visible arrowing right across a same-line comment marker', asy
     // Walk to the marker boundary (end of "hello "), then cross it.
     for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight')
     await page.keyboard.press('ArrowRight')
-    await page.waitForTimeout(120)
-    const sel = await readSel(page)
+    // The engine's caret adjustment is async: sample until it settles.
+    const sel = await readSettled(() => readSel(page), { requiredStreak: 3, interval: 40 })
     expect(sel.inMarker, 'caret must not land inside the hidden marker').toBe(false)
     expect(sel.h, `caret must stay visible (h>0), got ${sel.h}`).toBeGreaterThan(0)
     expect(sel.txt).toContain('world')
@@ -53,8 +53,7 @@ test('caret stays visible arrowing left across a same-line comment marker', asyn
     await page.keyboard.press('End')
     // "world end" → walk left to the space before "end", then across the word.
     for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowLeft')
-    await page.waitForTimeout(120)
-    const sel = await readSel(page)
+    const sel = await readSettled(() => readSel(page), { requiredStreak: 3, interval: 40 })
     expect(sel.inMarker, 'caret must not land inside the hidden marker').toBe(false)
     expect(sel.h, `caret must stay visible (h>0), got ${sel.h}`).toBeGreaterThan(0)
   } finally {

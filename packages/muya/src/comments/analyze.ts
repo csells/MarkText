@@ -217,8 +217,29 @@ export function stripAnalyzedCommentSyntaxFromMarkdown(
     const syntaxRanges = [...analysis.sourceIndex.syntaxRanges].sort((a, b) => b.start - a.start);
     let next = markdown;
 
-    for (const range of syntaxRanges)
-        next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
+    for (const range of syntaxRanges) {
+        let start = range.start;
+        let end = range.end;
+        const atLineStart = start === 0 || next[start - 1] === '\n';
+        const atLineEnd = end === next.length || next[end] === '\n';
+        if (atLineStart && atLineEnd) {
+            // Whole-line syntax (a definition line): consume the line's
+            // newline so the removal leaves no blank residue — the stripped
+            // text must equal the clean serialization byte-for-byte (word
+            // counting and exports both read this projection).
+            if (end < next.length)
+                end += 1;
+            else if (start > 0)
+                start -= 1;
+            // A definition block standing between blank-separated blocks
+            // leaves an empty slot: collapse the leftover separator too.
+            const blankBefore = start >= 2 && next[start - 1] === '\n' && next[start - 2] === '\n';
+            const newlineAfter = end >= next.length || next[end] === '\n';
+            if (blankBefore && newlineAfter)
+                start -= 1;
+        }
+        next = `${next.slice(0, start)}${next.slice(end)}`;
+    }
 
     return next;
 }

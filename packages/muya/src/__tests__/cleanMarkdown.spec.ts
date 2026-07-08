@@ -47,6 +47,42 @@ describe('getCleanMarkdown', () => {
         expect(muya.getCleanMarkdown()).toBe(muya.getMarkdown());
     });
 
+    // The source-mode word count strips the wire bytes from the materialized
+    // markdown; the WYSIWYG count reads the clean serialization. The two
+    // projections must agree byte-for-byte for word counting to agree across
+    // modes — a strip that leaves residual newlines where definition lines
+    // sat diverges in the 'all' display mode.
+    it('the analyzer strip of the wire bytes equals the clean serialization', async () => {
+        const { stripAnalyzedCommentSyntaxFromMarkdown } = await import('../comments');
+        const muya = boot([
+            'Hello <!--MC:a-->reviewed<!--MC:~a--> world.',
+            '',
+            'Second paragraph here.',
+            '',
+            '[MC:a]: {"version":2,"status":"open","authors":["Ada"],"createdAt":"2026-07-07T09:00:00.000Z"}',
+            '[MC:a.0]: {"author":"Ada","createdAt":"2026-07-07T09:00:00.000Z","body":"A reply"}',
+            '',
+        ].join('\n'));
+
+        const stripped = stripAnalyzedCommentSyntaxFromMarkdown(muya.getMarkdown());
+
+        expect(stripped).toBe(muya.getCleanMarkdown());
+    });
+
+    // A never-invalidating cache would serve stale text after an edit; the
+    // per-version contract needs an edit between reads to be enforced.
+    it('re-serializes clean text after a document edit', () => {
+        const muya = boot(DOC);
+        const before = muya.getCleanMarkdown();
+
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant()!;
+        leaf.text = `ZZ${leaf.text}`;
+        muya.flush();
+
+        expect(before).toBe('Hello reviewed world.\n');
+        expect(muya.getCleanMarkdown()).toBe('ZZHello reviewed world.\n');
+    });
+
     it('serializes once per document version regardless of caller count', () => {
         const muya = boot(DOC);
         const generate = vi.spyOn(StateToMarkdown.prototype, 'generate');

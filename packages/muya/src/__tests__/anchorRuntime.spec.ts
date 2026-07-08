@@ -367,6 +367,28 @@ describe('anchor runtime — mutations and undo across the cutover', () => {
         expect(muya.getMarkdown()).not.toContain('<!--MC:a-->');
     });
 
+    it('setHistory rejects a comment-model entry missing its definition runs', () => {
+        const muya = boot('A reviewed span.\n');
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        leaf.setCursor(2, 10, true);
+        muya.addComment({
+            id: 'cmt_test',
+            author: 'Ada',
+            body: 'Please check this.',
+            createdAt: '2026-06-30T12:00:00.000Z',
+        });
+
+        const history = JSON.parse(JSON.stringify(muya.getHistory()));
+        for (const entry of history.stack.undo) {
+            if (entry.commentModel)
+                delete entry.commentModel.runs;
+        }
+
+        // Accepting a runs-less snapshot would silently migrate placed
+        // definition blocks to the appendix on undo — fail loudly instead.
+        expect(() => muya.setHistory(history)).toThrow(/definition runs/);
+    });
+
     // The serializable history round-trip (desktop tab switching) carries
     // comment entries: threads Map, anchors, and definition runs survive
     // getHistory → setHistory, and undo/redo still work afterwards.

@@ -221,7 +221,16 @@ export function parseMarkdownComments(
         if (hasMetadataLine && lines.length === 1)
             return;
 
-        for (const token of commentSyntaxTokens(text)) {
+        // Definition lines are wire metadata: marker-shaped text inside a
+        // payload is data, never a live marker. Blank them (same length, so
+        // every token offset stays valid) before the marker scan.
+        const scanTarget = hasMetadataLine
+            ? lines
+                    .map(line => (parseCommentMetadataDefinition(line) ? ' '.repeat(line.length) : line))
+                    .join('\n')
+            : text;
+
+        for (const token of commentSyntaxTokens(scanTarget)) {
             if (!isCommentMarkerToken(token)) {
                 const malformed = parseMalformedCommentMarker(token.raw);
                 if (malformed) {

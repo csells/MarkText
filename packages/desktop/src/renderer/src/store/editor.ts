@@ -1827,8 +1827,24 @@ export const useEditorStore = defineStore('editor', {
               // reload and no reason to warn the user (#1861).
               const changeData = (change as unknown as FileChangePayload).data
               if (changeData && isSameFileSnapshot(tab, changeData)) {
+                // An open resolver for this tab is reviewing content that no
+                // longer differs from disk: route through the merge pipeline
+                // so the reducer closes the dead session and syncs clean.
+                if (this.mergeConflict?.tabId === tab.id) {
+                  await this.HANDLE_DIRTY_EXTERNAL_CHANGE(
+                    tab,
+                    change as unknown as FileChangePayload
+                  )
+                  debouncedSendBufferedState()
+                  break
+                }
                 markTabSavedAtCurrentHistory(tab)
-                clearExclusiveTabNotification(tab, 'file_changed')
+                // Deliberately NOT clearing the file_changed notification: a
+                // clean-subsumed auto-merge leaves buffer == disk, and the
+                // watcher then echoes the very bytes the merge wrote —
+                // clearing here would silently remove the Undo/Review
+                // affordance. A genuinely stale notification's own liveness
+                // guard already no-ops it.
                 debouncedSendBufferedState()
                 break
               }

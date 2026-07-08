@@ -133,6 +133,34 @@ describe('muya.setCursorByOffset() (PG2)', () => {
         expect(muya.getMarkdown()).toBe(markdown);
     });
 
+    it('clamps a source cursor inside a MID-DOCUMENT definition line (sentinel breaks the definition shape)', async () => {
+        // ch=2 splits the '[MC:' prefix, so the sentinel-bearing line is no
+        // longer definition-shaped: the sentinel parse keeps it as a
+        // paragraph while the clean rebuild extracts it — the stale path
+        // must clamp, never land in the block that shifted into the index.
+        const markdown = [
+            'alpha <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+            'omega here',
+            '',
+        ].join('\n');
+        const muya = bootMuya(markdown);
+
+        expect(muya.setCursorByOffset({
+            anchor: { line: 2, ch: 2 },
+            focus: { line: 2, ch: 2 },
+        })).toBe(true);
+
+        await vi.waitFor(() => {
+            const sel = muya.editor.selection.getSelection();
+            expect(sel!.anchor.block.text).toBe('omega here');
+            expect(sel!.anchor.offset).toBe('omega here'.length);
+        });
+        expect(muya.getMarkdown()).toBe(markdown);
+    });
+
     it('PG2: resolves a non-collapsed selection within a block to the right offsets', () => {
         // Asserted at the resolver level: happy-dom does not preserve a
         // non-collapsed DOM range across the contenteditable re-render, so the

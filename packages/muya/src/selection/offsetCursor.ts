@@ -31,6 +31,13 @@ export interface IIndexCursor {
 const ANCHOR_SENTINEL = 'mUyAcUrSoRzZqAnChOr9x7kPvWb';
 const FOCUS_SENTINEL = 'mUyAcUrSoRzZqFoCuS4t2nDhGj';
 
+// Remove injected sentinel strings from text — callers comparing a
+// sentinel-parse block against its clean-parse counterpart use this to get
+// comparable bytes.
+export function stripSentinels(text: string): string {
+    return text.split(ANCHOR_SENTINEL).join('').split(FOCUS_SENTINEL).join('');
+}
+
 function _clampOffset(offset: number, length: number): number {
     if (!Number.isInteger(offset))
         return 0;

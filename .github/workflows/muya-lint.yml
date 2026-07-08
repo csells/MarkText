@@ -26,3 +26,5 @@ jobs:
 
       - name: Run TypeScript typecheck (muya)
         run: pnpm -C packages/muya lint:types
+      - name: Stylelint
+        run: pnpm -C packages/muya lint:css

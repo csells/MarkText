@@ -71,6 +71,11 @@ wire-format v1→v2 upgrades, and the comment-format.md merge-friendliness
 canonicalizations: a thread's definition lines — interleaved with another
 thread's, or its own lines separated or out of order — re-serialize as one
 contiguous head-first block at the thread's run position; duplicate or
-gapped reply indexes renormalize to `0..n-1`; and a container that held only
+gapped reply indexes renormalize to `0..n-1`; a container that held only
 definition lines (e.g. a blockquote-wrapped appendix) re-emits as a plain
-paragraph at the same position.
+paragraph at the same position; decodable definition lines re-emit in
+canonical form (unindented, compact stable-key JSON, unescaped non-ASCII —
+malformed residue lines keep their exact bytes); and a definition line at
+the very start of a document gains the serializer's block separator before
+directly-following prose (a parse-level block-boundary normalization that
+predates the comment runtime).

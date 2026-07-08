@@ -4,6 +4,26 @@ import { analyzeMarkdownComments } from '../analyze';
 const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119';
 
 describe('analyzeMarkdownComments', () => {
+    // Definition lines are wire metadata: marker-shaped text inside a legal
+    // JSON body must never create ranges or diagnostics — including in the
+    // CONVENTIONAL contiguous head+reply layout, which tokenizes as one
+    // multi-line state.
+    it('does not scan definition-line payloads for markers in a contiguous head+reply run', () => {
+        const markdown = [
+            'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '[MC:a.0]: {"author":"Ada","createdAt":"t","body":"see <!--MC:b-->this<!--MC:~b--> marker"}',
+            '',
+        ].join('\n');
+
+        const { comments } = analyzeMarkdownComments(markdown);
+
+        expect(comments.ranges.map(range => range.id)).toEqual(['a']);
+        expect(comments.diagnostics).toEqual([]);
+        expect(comments.threads[0]?.replies[0]?.body).toContain('<!--MC:b-->');
+    });
+
     it('links parsed comment ranges to source offsets and syntax nodes', () => {
         const markdown = `A <!--MC:a-->reviewed<!--MC:~a--> span.\n\n[MC:a]: ${META}\n`;
 

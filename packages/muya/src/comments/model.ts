@@ -288,27 +288,6 @@ function commentPathKeyOf(position: TBlockPath): string {
     return commentPathKey(position.slice(0, -1));
 }
 
-// Splice marker bytes back into a leaf's text. Descending offset order, and
-// at equal offsets the later-recorded marker splices first so the earlier
-// one ends up leftmost — reproducing the original byte order of adjacent
-// markers.
-function materializeLeafText(text: string, leafAnchors: ICommentAnchor[]): string {
-    const insertions = leafAnchors
-        .map((anchor, index) => ({
-            offset: anchor.position[anchor.position.length - 1] as number,
-            bytes: serializeCommentMarker(anchor.id, anchor.kind),
-            index,
-        }))
-        .sort((a, b) => (b.offset - a.offset) || (b.index - a.index));
-
-    let next = text;
-    for (const insertion of insertions) {
-        const offset = Math.max(0, Math.min(insertion.offset, next.length));
-        next = `${next.slice(0, offset)}${insertion.bytes}${next.slice(offset)}`;
-    }
-    return next;
-}
-
 function readLeaf(states: TState[], position: TBlockPath): TTextState | null {
     let current: unknown = states;
     for (const segment of position.slice(0, -2)) {
@@ -385,25 +364,6 @@ function resolveParentArray(states: TState[], position: TBlockPath): TState[] {
 export function materializeCommentModel(states: TState[], model: ICommentModel): TState[] {
     const next = structuredClone(states);
 
-    const anchorsByLeaf = new Map<string, ICommentAnchor[]>();
-    for (const anchor of model.anchors) {
-        const key = commentPathKeyOf(anchor.position);
-        const list = anchorsByLeaf.get(key) ?? [];
-        list.push(anchor);
-        anchorsByLeaf.set(key, list);
-    }
-
-    for (const leafAnchors of anchorsByLeaf.values()) {
-        const leaf = readLeaf(next, leafAnchors[0].position);
-        if (!leaf) {
-            // An anchor pointing at a non-leaf is a stale-anchor bug at the
-            // transform layer; fail loudly rather than serialize a document
-            // missing marker bytes.
-            throw new Error(`Comment anchor points at a missing leaf: ${leafAnchors[0].position.join('/')}`);
-        }
-        leaf.text = materializeLeafText(leaf.text, leafAnchors);
-    }
-
     const placedThreadIds = new Set<string>();
     for (const run of model.runs) {
         for (const item of run.items) {
@@ -412,35 +372,82 @@ export function materializeCommentModel(states: TState[], model: ICommentModel):
         }
     }
 
-    // Text-embedded runs splice into their leaf AFTER markers are back (the
-    // marker pass reads leaf offsets; block insertions below would shift
-    // every deeper path, so they come last, in descending document order).
-    const textRuns: Array<{ run: ICommentDefinitionRun; lines: string[] }> = [];
     const blockRuns: Array<{ run: ICommentDefinitionRun; lines: string[]; order: number }> = [];
     const appendixLines: string[] = [];
+    // Marker bytes and text-embedded definition runs can share ONE leaf (a
+    // definition line lazy-continues into the preceding paragraph), and both
+    // carry CLEAN-text offsets — so they must splice together in one
+    // descending pass per leaf. Splicing them in separate passes corrupts
+    // whichever bytes the second pass lands inside.
+    interface ILeafInsertion {
+        offset: number;
+        bytes: string;
+        // Final left-to-right order at equal offsets: before-run (0) <
+        // markers (1) < after-run (2). Descending splice puts the FIRST
+        // spliced entry rightmost, so sort priority descending.
+        priority: 0 | 1 | 2;
+        seq: number;
+    }
+    const insertionsByLeaf = new Map<string, { position: TBlockPath; entries: ILeafInsertion[] }>();
+    const leafEntries = (position: TBlockPath): ILeafInsertion[] => {
+        const key = commentPathKeyOf(position);
+        let bucket = insertionsByLeaf.get(key);
+        if (!bucket) {
+            bucket = { position, entries: [] };
+            insertionsByLeaf.set(key, bucket);
+        }
+        return bucket.entries;
+    };
+
+    model.anchors.forEach((anchor, seq) => {
+        leafEntries(anchor.position).push({
+            offset: anchor.position[anchor.position.length - 1] as number,
+            bytes: serializeCommentMarker(anchor.id, anchor.kind),
+            priority: 1,
+            seq,
+        });
+    });
+
     model.runs.forEach((run, order) => {
         const lines = runLines(model, run);
         if (lines.length === 0)
             return;
-        if (run.position === null)
+        if (run.position === null) {
             appendixLines.push(...lines);
-        else if (isTextPosition(run.position))
-            textRuns.push({ run, lines });
-        else
+        }
+        else if (isTextPosition(run.position)) {
+            const block = lines.join('\n');
+            leafEntries(run.position).push({
+                offset: run.position[run.position.length - 1] as number,
+                bytes: run.edge === 'after' ? `\n${block}` : `${block}\n`,
+                priority: run.edge === 'after' ? 2 : 0,
+                seq: order,
+            });
+        }
+        else {
             blockRuns.push({ run, lines, order });
+        }
     });
 
-    textRuns.sort((a, b) => comparePositions(b.run.position!, a.run.position!));
-    for (const { run, lines } of textRuns) {
-        const position = run.position!;
+    for (const { position, entries } of insertionsByLeaf.values()) {
         const leaf = readLeaf(next, position);
-        if (!leaf)
-            throw new Error(`Comment definition run points at a missing leaf: ${position.join('/')}`);
-        const offset = Math.max(0, Math.min(position[position.length - 1] as number, leaf.text.length));
-        const block = lines.join('\n');
-        leaf.text = run.edge === 'after'
-            ? `${leaf.text.slice(0, offset)}\n${block}${leaf.text.slice(offset)}`
-            : `${leaf.text.slice(0, offset)}${block}\n${leaf.text.slice(offset)}`;
+        if (!leaf) {
+            // A position pointing at a non-leaf is a stale-position bug at
+            // the transform layer; fail loudly rather than serialize a
+            // document missing comment bytes.
+            throw new Error(`Comment position points at a missing leaf: ${position.join('/')}`);
+        }
+        // Descending offset; at equal offsets higher priority splices first
+        // (ends up rightmost); within a priority the later-recorded entry
+        // splices first so the earlier one ends up leftmost.
+        entries.sort((a, b) =>
+            (b.offset - a.offset) || (b.priority - a.priority) || (b.seq - a.seq));
+        let text = leaf.text;
+        for (const entry of entries) {
+            const offset = Math.max(0, Math.min(entry.offset, text.length));
+            text = `${text.slice(0, offset)}${entry.bytes}${text.slice(offset)}`;
+        }
+        leaf.text = text;
     }
 
     // A run anchored at (or past) the root end is the trailing appendix

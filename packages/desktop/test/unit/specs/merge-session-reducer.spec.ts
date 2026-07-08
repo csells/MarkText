@@ -652,7 +652,14 @@ describe('merge-session reducer — property fuzz', () => {
           expect(next.kind).toBe('closed')
         }
 
-        if (event.type === 'disk-changed' && effects.length > 0) {
+        // Newest tracking is EVENT-content based, never effect based: a
+        // reducer that wrongly ignores a merge-relevant disk change must
+        // not thereby exempt itself from invariant 2.
+        if (
+          event.type === 'disk-changed' &&
+          event.fileChange.data.markdown !== event.local &&
+          (event.base === undefined || event.fileChange.data.markdown !== event.base)
+        ) {
           newestEnteredPayload = event.fileChange
         }
 
@@ -671,15 +678,28 @@ describe('merge-session reducer — property fuzz', () => {
               if (effect.origin === 'accepted') {
                 expect(event.type, `accepted apply from ${event.type} (seed ${seed})`).toBe('accept')
               }
-              // Invariant 2: applies reference only the newest entered remote.
-              expect(effect.fileChange, `superseded payload applied (seed ${seed})`).toBe(
-                newestEnteredPayload
-              )
+              // Invariant 2: an AUTO apply references only the newest
+              // merge-relevant payload seen (accepted applies are pinned to
+              // their session's content above; the reducer supersedes
+              // sessions on newer disk changes).
+              if (effect.origin === 'auto') {
+                expect(effect.fileChange, `superseded payload applied (seed ${seed})`).toBe(
+                  newestEnteredPayload
+                )
+              }
               // The clean-after-apply decision is the reducer's, carried on
               // the effect; the model just executes it.
               expect(effect.markClean).toBe(
                 effect.origin === 'auto' && effect.merged === effect.fileChange.data.markdown
               )
+              // Content pin: an apply must carry exactly the content the
+              // triggering event delivered — a reducer substituting raw
+              // disk bytes (or anything else) for the merge output fails.
+              if (event.type === 'merge-resolved') {
+                expect(effect.merged, `apply content @seed ${seed}`).toBe(event.merged)
+              } else if (event.type === 'accept') {
+                expect(effect.merged, `accepted content @seed ${seed}`).toBe(event.result)
+              }
               tabMarkdown = effect.merged
               tabBase = effect.fileChange.data.markdown
               if (effect.origin === 'auto') {

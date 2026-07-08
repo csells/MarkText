@@ -92,6 +92,12 @@ export interface ISerializedHistory {
     selectionStack: (Nullable<ISerializableSelection>)[];
 }
 
+function requireRuns(model: ISerializableCommentModel): ICommentModel['runs'] {
+    if (!Array.isArray(model.runs))
+        throw new TypeError('A serialized comment-model history entry is missing its definition runs.');
+    return model.runs;
+}
+
 enum HistoryAction {
     UNDO = 'undo',
     REDO = 'redo',
@@ -312,7 +318,11 @@ class History {
                                 ([id, thread]) => [id, deepClone(thread)] as const,
                             )),
                             anchors: deepClone(op.commentModel.anchors),
-                            runs: cloneCommentRuns(op.commentModel.runs ?? []),
+                            // No producer emits runs-less snapshots (history
+                            // never persists across builds); accepting one
+                            // would silently migrate placed definition blocks
+                            // to the appendix on undo.
+                            runs: cloneCommentRuns(requireRuns(op.commentModel)),
                         },
                     }
                 : {}),

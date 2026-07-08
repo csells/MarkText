@@ -36,6 +36,7 @@ import {
     injectStateSentinels,
     locateSentinelOffsets,
     resolveSentinelCursor,
+    stripSentinels,
 } from './selection/offsetCursor';
 import { isAnyListState, isAtxHeadingState, isCodeBlockState } from './state/types';
 import { Ui } from './ui/ui';
@@ -137,6 +138,20 @@ function endpointPair(
     focus: Nullable<Parent>,
 ): { anchor: Parent; focus: Parent } | null {
     return anchor && focus ? { anchor, focus } : null;
+}
+
+// The text of a block's first content descendant (a queryBlock result may be
+// a Parent whose text lives on its content child), or null when there is no
+// content text to read.
+function blockContentText(block: unknown): string | null {
+    if (!block || typeof block !== 'object')
+        return null;
+    const direct = (block as { text?: unknown }).text;
+    if (typeof direct === 'string')
+        return direct;
+    const first = (block as { firstContentInDescendant?: () => unknown }).firstContentInDescendant?.();
+    const text = (first as { text?: unknown } | undefined)?.text;
+    return typeof text === 'string' ? text : null;
 }
 
 export class Muya {
@@ -1201,6 +1216,19 @@ export class Muya {
 
         this.editor.setContent(sentinelMarkdown);
         const cursor = resolveSentinelCursor(this.editor.scrollPage!);
+        // Capture the sentinel-parse block's sentinel-free text: the clean
+        // rebuild must hold the SAME text at the resolved path, or the path
+        // is stale (e.g. a sentinel split a definition line's shape, so the
+        // sentinel parse kept a paragraph the clean parse extracts).
+        let sentinelBlockText: string | null = null;
+        if (cursor) {
+            const sentinelBlockPath = [...cursor.anchorPath];
+            if (sentinelBlockPath[sentinelBlockPath.length - 1] === 'text')
+                sentinelBlockPath.pop();
+            const text = blockContentText(this.editor.scrollPage?.queryBlock(sentinelBlockPath));
+            if (text !== null)
+                sentinelBlockText = stripSentinels(text);
+        }
         this.editor.setContent(cleanMarkdown);
         this.setHistory(savedHistory);
 
@@ -1223,8 +1251,18 @@ export class Muya {
         const anchorBlockPath = [...cursor.anchorPath];
         if (anchorBlockPath[anchorBlockPath.length - 1] === 'text')
             anchorBlockPath.pop();
-        if (!this.editor.scrollPage?.queryBlock(anchorBlockPath))
+        const cleanBlock = this.editor.scrollPage?.queryBlock(anchorBlockPath);
+        if (!cleanBlock)
             return clampToLastVisible();
+        // The resolved path must denote the SAME block in the clean tree —
+        // a text mismatch means the sentinel parse kept a block the clean
+        // parse removed, and the stale path now points at whatever shifted
+        // into its index.
+        const cleanBlockText = blockContentText(cleanBlock);
+        if (cleanBlockText !== null && sentinelBlockText !== null
+            && cleanBlockText !== sentinelBlockText) {
+            return clampToLastVisible();
+        }
 
         this.setCursor(cursor);
 

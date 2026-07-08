@@ -13,8 +13,13 @@ const runFixture = (name: string, relativePath: string, assertion: FixtureAssert
       const launched = await launchWithDoc(relativePath)
       app = launched.app
       page = launched.page
-      // Allow Muya to finish rendering blocks.
-      await page.waitForTimeout(800)
+      // Rendered = the editor surface holds at least one content block
+      // (.mu-content is the universal content-leaf class — paragraphs,
+      // table cells, code lines all carry it).
+      await page.waitForSelector('.editor-component .mu-content', {
+        state: 'attached',
+        timeout: 15000
+      })
     })
 
     test.afterAll(async() => {

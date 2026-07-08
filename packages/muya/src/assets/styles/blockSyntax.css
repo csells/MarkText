@@ -249,10 +249,6 @@
     width: 3px;
 }
 
-.mu-code-block .mu-content {
-    white-space: inherit;
-}
-
 .mu-code-copy {
     position: absolute;
     top: 0.5em;
@@ -935,6 +931,10 @@ pre.mu-active.mu-fenced-code::after {
     overflow-wrap: break-word;
 
     outline: none;
+}
+
+.mu-code-block .mu-content {
+    white-space: inherit;
 }
 
 .mu-content:empty::after {

@@ -173,6 +173,131 @@ describe('definition placement — runtime threads without a recorded position',
     });
 });
 
+describe('definition placement — text-embedded runs sharing a leaf with markers', () => {
+    // The definition tokenizer deliberately has no start hook, so a
+    // definition line lazy-continues into the preceding paragraph: markers
+    // and the definition run then live in ONE leaf, and materialization
+    // must splice both without corrupting either.
+    it('round-trips a definition line directly after commented prose (after-edge run)', () => {
+        const markdown = 'A <!--MC:a-->x<!--MC:~a--> line.\n[MC:a]: {"version":2,"status":"open"}\n';
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('round-trips a definition line between commented prose lines (before-edge run)', () => {
+        const markdown = [
+            'alpha <!--MC:a-->x<!--MC:~a-->',
+            '[MC:a]: {"version":2,"status":"open"}',
+            'zeta',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+
+    it('round-trips markers AFTER the embedded definition line in the same leaf', () => {
+        const markdown = [
+            'plain prose',
+            '[MC:a]: {"version":2,"status":"open"}',
+            'tail <!--MC:a-->x<!--MC:~a--> here',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe(markdown);
+    });
+});
+
+describe('definition placement — documented canonicalizations (round-trip normalizations)', () => {
+    // editing-invariants.md §Round-trip names these exactly; each is pinned
+    // through the runtime extraction→materialization chain so a regression
+    // in run-item resolution or thread re-serialization cannot silently
+    // change what a no-edit save rewrites.
+    it('renormalizes duplicate/gapped reply indexes to 0..n-1', () => {
+        const markdown = [
+            'text <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '[MC:a.7]: {"author":"Ada","createdAt":"t","body":"first"}',
+            '[MC:a.7]: {"author":"Bob","createdAt":"t","body":"second"}',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe([
+            'text <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '[MC:a.0]: {"author":"Ada","createdAt":"t","body":"first"}',
+            '[MC:a.1]: {"author":"Bob","createdAt":"t","body":"second"}',
+            '',
+        ].join('\n'));
+    });
+
+    it('canonicalizes interleaved thread lines into contiguous head-first blocks', () => {
+        const markdown = [
+            'text <!--MC:a-->x<!--MC:~a--> and <!--MC:b-->y<!--MC:~b-->.',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '[MC:b]: {"version":2,"status":"open"}',
+            '[MC:a.0]: {"author":"Ada","createdAt":"t","body":"on a"}',
+            '[MC:b.0]: {"author":"Bob","createdAt":"t","body":"on b"}',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe([
+            'text <!--MC:a-->x<!--MC:~a--> and <!--MC:b-->y<!--MC:~b-->.',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '[MC:a.0]: {"author":"Ada","createdAt":"t","body":"on a"}',
+            '[MC:b]: {"version":2,"status":"open"}',
+            '[MC:b.0]: {"author":"Bob","createdAt":"t","body":"on b"}',
+            '',
+        ].join('\n'));
+    });
+
+    it('canonicalizes a thread\'s own separated lines into one block at the head\'s run', () => {
+        const markdown = [
+            'text <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+            'middle prose',
+            '',
+            '[MC:a.0]: {"author":"Ada","createdAt":"t","body":"far reply"}',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe([
+            'text <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '[MC:a.0]: {"author":"Ada","createdAt":"t","body":"far reply"}',
+            '',
+            'middle prose',
+            '',
+        ].join('\n'));
+    });
+
+    it('re-emits a mid-document blockquote-wrapped definition as a plain paragraph in place', () => {
+        const markdown = [
+            'alpha <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '> [MC:a]: {"version":2,"status":"open"}',
+            '',
+            'omega',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe([
+            'alpha <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+            'omega',
+            '',
+        ].join('\n'));
+    });
+});
+
 describe('definition placement — transform through document ops', () => {
     const DOC = [
         'alpha <!--MC:a-->x<!--MC:~a-->',

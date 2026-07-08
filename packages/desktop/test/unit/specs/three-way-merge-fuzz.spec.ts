@@ -127,8 +127,16 @@ describe('mergeMarkdownThreeWay fuzz — data preservation (no loss / no fabrica
 
       const lines = new Set([...splitLines(local), ...splitLines(remote)])
       for (const line of lines) {
-        const lo = Math.min(countLineIn(local, line), countLineIn(remote, line))
-        const hi = countLineIn(local, line) + countLineIn(remote, line)
+        const inLocal = countLineIn(local, line)
+        const inRemote = countLineIn(remote, line)
+        const inBase = countLineIn(base, line)
+        const lo = Math.min(inLocal, inRemote)
+        // Upper bound: hunk arithmetic gives local + remote - base copies;
+        // agreeing hunks can dedup down toward max(local, remote), never up
+        // past the arithmetic — so a merge duplicating a line both sides
+        // hold once (arithmetic 1) is fabrication even though the old
+        // local+remote bound (2) would have allowed it.
+        const hi = Math.max(Math.max(inLocal, inRemote), inLocal + inRemote - inBase)
         const merged = countLineIn(mine.mergedMarkdown, line)
         expect(merged, `data loss @${iter} line=${JSON.stringify(line)}`).toBeGreaterThanOrEqual(lo)
         expect(merged, `fabrication @${iter} line=${JSON.stringify(line)}`).toBeLessThanOrEqual(hi)
@@ -148,17 +156,18 @@ describe('mergeMarkdownThreeWay fuzz — data preservation (no loss / no fabrica
 // agree on, the output keeps that order. Restricted to lines appearing
 // exactly once everywhere (repeated lines have no well-defined position).
 describe('mergeMarkdownThreeWay fuzz — order preservation', () => {
-  const uniqueLinePositions = (text: string): Map<string, number> => {
-    const counts = new Map<string, number>()
-    const positions = new Map<string, number>()
+  // First-occurrence position + count per line: repeated lines participate
+  // in the order check through their first occurrence (restricted to lines
+  // whose COUNT is equal in all four texts), so relocating a copy of a
+  // repeated line — blank lines, list bullets, fences — is caught too.
+  const lineProfile = (text: string): Map<string, { first: number; count: number }> => {
+    const profile = new Map<string, { first: number; count: number }>()
     splitLines(text).forEach((line, index) => {
-      counts.set(line, (counts.get(line) ?? 0) + 1)
-      positions.set(line, index)
+      const entry = profile.get(line)
+      if (entry) entry.count += 1
+      else profile.set(line, { first: index, count: 1 })
     })
-    for (const [line, count] of counts) {
-      if (count > 1) positions.delete(line)
-    }
-    return positions
+    return profile
   }
 
   it('lines whose order all three inputs agree on keep that order in a clean merge', () => {
@@ -175,23 +184,30 @@ describe('mergeMarkdownThreeWay fuzz — order preservation', () => {
       if (mine.conflicts.length !== 0) continue
       checked += 1
 
-      const inBase = uniqueLinePositions(base)
-      const inLocal = uniqueLinePositions(local)
-      const inRemote = uniqueLinePositions(remote)
-      const inMerged = uniqueLinePositions(mine.mergedMarkdown)
-      const everywhere = [...inBase.keys()].filter(
-        (line) => inLocal.has(line) && inRemote.has(line) && inMerged.has(line)
-      )
+      const inBase = lineProfile(base)
+      const inLocal = lineProfile(local)
+      const inRemote = lineProfile(remote)
+      const inMerged = lineProfile(mine.mergedMarkdown)
+      // Lines whose count agrees in all four texts participate via their
+      // first occurrence; unique lines are the count===1 special case.
+      const everywhere = [...inBase.keys()].filter((line) => {
+        const b = inBase.get(line)!
+        const l = inLocal.get(line)
+        const r = inRemote.get(line)
+        const m = inMerged.get(line)
+        return !!l && !!r && !!m &&
+          l.count === b.count && r.count === b.count && m.count === b.count
+      })
       for (let i = 0; i < everywhere.length; i += 1) {
         for (let j = i + 1; j < everywhere.length; j += 1) {
           const a = everywhere[i]
           const b = everywhere[j]
-          const baseSays = inBase.get(a)! < inBase.get(b)!
-          if (inLocal.get(a)! < inLocal.get(b)! !== baseSays) continue
-          if (inRemote.get(a)! < inRemote.get(b)! !== baseSays) continue
+          const baseSays = inBase.get(a)!.first < inBase.get(b)!.first
+          if (inLocal.get(a)!.first < inLocal.get(b)!.first !== baseSays) continue
+          if (inRemote.get(a)!.first < inRemote.get(b)!.first !== baseSays) continue
           pairsChecked += 1
           expect(
-            inMerged.get(a)! < inMerged.get(b)!,
+            inMerged.get(a)!.first < inMerged.get(b)!.first,
             `order flip @${iter}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`
           ).toBe(baseSays)
         }

@@ -185,8 +185,11 @@ test.describe('Title-bar word counter (item 24)', () => {
 // document must count exactly like the identical document without comments.
 test.describe('Title-bar word counter measures clean text (comments excluded)', () => {
   test('a commented document counts its clean text, never the wire bytes', async() => {
+    // The markers stand whitespace-separated so an unstripped marker would
+    // add a TOKEN — a clean projection that kept markers changes the word
+    // count, not just the character count.
     const commentedDoc = [
-      'Hello <!--MC:a-->reviewed<!--MC:~a--> world.',
+      'Hello <!--MC:a--> reviewed <!--MC:~a--> world.',
       '',
       'Second paragraph here.',
       '',
@@ -297,17 +300,17 @@ test.describe('Edit > Select All (item 169)', () => {
       .toBe('INPUT')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'selectAll')
-    await page.waitForTimeout(200)
 
     // The input's own field selection is what got selected (its full value),
     // and the editor document selection was not touched (focus is in the input,
     // so window.getSelection reflects the input, not the contenteditable).
-    const inputSelection = await page.evaluate(() => {
-      const el = document.activeElement as HTMLInputElement | null
-      if (!el || el.nodeName !== 'INPUT') return null
-      return el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0)
-    })
-    expect(inputSelection).toBe('beta')
+    await expect
+      .poll(() => page.evaluate(() => {
+        const el = document.activeElement as HTMLInputElement | null
+        if (!el || el.nodeName !== 'INPUT') return null
+        return el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0)
+      }), { timeout: 5000 })
+      .toBe('beta')
 
     // Tear down the find bar so the shared app is left clean.
     await page.keyboard.press('Escape')
