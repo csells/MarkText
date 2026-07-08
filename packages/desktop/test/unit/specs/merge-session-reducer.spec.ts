@@ -532,8 +532,14 @@ describe('merge-session reducer — decision table', () => {
     expect(asMerging(state).forceReview).toBe(true)
   })
 
-  it('review-requested while a re-derivation is in flight is a no-op', () => {
+  it('review-requested while a re-derivation is in flight forces its result into review', () => {
+    // The user clicked Review on an earlier notification while a newer merge
+    // is in flight. The click must not be discarded: the in-flight merge is
+    // upgraded to forceReview so even a clean resolution opens the resolver
+    // ("an explicit review request never silently auto-applies").
     const merging = toMerging()
+    expect(merging.forceReview).toBe(false)
+
     const { state, effects } = reduce(merging, {
       type: 'review-requested',
       paneBase: BASE,
@@ -548,8 +554,16 @@ describe('merge-session reducer — decision table', () => {
       persistenceEqual: true
     })
 
-    expect(state).toBe(merging)
     expect(effects).toEqual([])
+    const upgraded = asMerging(state)
+    expect(upgraded.forceReview).toBe(true)
+    expect(upgraded.requestId).toBe(merging.requestId)
+
+    const done = reduce(upgraded, resolved(upgraded.requestId, REMOTE))
+    expect(effectTypes(done.effects)).not.toContain('apply-merge')
+    const open = only(done.effects, 'open-resolver')
+    expect(open.session.conflicts).toEqual([])
+    expect(done.state.kind).toBe('reviewing')
   })
 
   it('tab-closed closes any open resolver and goes permanently dead', () => {

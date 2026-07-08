@@ -384,10 +384,11 @@ const onReviewRequested = (
   state: MergeSessionState,
   event: Extract<MergeSessionEvent, { type: 'review-requested' }>
 ): MergeSessionTransition => {
-  // A re-derivation is already in flight; its result will surface the
-  // resolver on its own.
+  // A re-derivation is already in flight; carry the explicit review intent
+  // onto it so even a clean resolution opens the resolver — dropping the
+  // click here would let a forceReview-less merge silently auto-apply.
   if (state.kind === 'merging') {
-    return { state, effects: [] }
+    return { state: { ...state, forceReview: true }, effects: [] }
   }
 
   // The captured session no longer describes the buffer — re-derive against

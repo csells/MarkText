@@ -141,6 +141,9 @@ notification *pushing* is interpreter work), `close-resolver`,
 All race handling IS the reducer: a `merge-resolved` carrying a stale
 `requestId` is a no-op transition; `disk-changed` while `reviewing`
 supersedes the session (close, re-derive, stay headed for review);
+`review-requested` while `merging` upgrades the in-flight merge to
+forceReview so its resolution opens the resolver (the click is never
+dropped and a clean result never silently auto-applies);
 `tab-closed` goes to `closed`, which is permanently silent; `saved` while
 reviewing marks the session's base superseded, so a later `accept` closes
 the dead session instead of applying stale content, and a moved buffer

@@ -57,4 +57,18 @@ describe('mergeDirtyExternalMarkdown', () => {
 
     await expect(mergeDirtyExternalMarkdown(INPUT)).rejects.toThrow(/malformed/i)
   })
+
+  it('rejects a success envelope missing its merge result instead of resolving undefined', async() => {
+    // { ok: true } with no result is "another shape" too — resolving it
+    // would surface later as a TypeError far from this boundary.
+    globalThis.Worker = workerReplying({ ok: true })
+
+    await expect(mergeDirtyExternalMarkdown(INPUT)).rejects.toThrow(/malformed/i)
+  })
+
+  it('rejects a success envelope whose result is not a merge result', async() => {
+    globalThis.Worker = workerReplying({ ok: true, result: { mergedMarkdown: 42, conflicts: [] } })
+
+    await expect(mergeDirtyExternalMarkdown(INPUT)).rejects.toThrow(/malformed/i)
+  })
 })
