@@ -219,6 +219,32 @@ describe('anchor runtime — typing moves anchors (transform hook)', () => {
         expect(muya.getMarkdown()).toContain('<!--MC:a-->reviewedZZ<!--MC:~a-->');
     });
 
+    // Detachment is scoped to DELETIONS that collapse a pair
+    // (comment-anchors.md §Edit): a zero-width pair loaded from a file is
+    // already collapsed, so an edit elsewhere must leave it untouched — the
+    // old post-transform-only check detached it on the first op anywhere.
+    it('an edit elsewhere leaves a loaded zero-width pair attached', () => {
+        const muya = boot([
+            'alpha <!--MC:e--><!--MC:~e-->omega',
+            '',
+            'second paragraph',
+            '',
+            '[MC:e]: {"version":2,"status":"open"}',
+            '',
+        ].join('\n'));
+        const before = muya.getMarkdown();
+
+        const second = muya.editor.scrollPage!
+            .firstContentInDescendant()!
+            .nextContentInContext()! as Content;
+        second.text = `ZZ${second.text}`;
+        muya.flush();
+
+        expect(muya.editor.jsonState.commentModel.anchors).toHaveLength(2);
+        expect(muya.getComments().diagnostics).toEqual([]);
+        expect(muya.getMarkdown()).toBe(before.replace('second paragraph', 'ZZsecond paragraph'));
+    });
+
     it('deleting a whole commented range detaches the thread instead of dropping it', () => {
         const muya = boot(DOC);
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;

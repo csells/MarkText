@@ -895,7 +895,25 @@ export function transformCommentAnchors(
 
     // A deletion that swallowed the whole range collapses both anchors onto
     // one point; an invisible empty marker pair helps no one, so the pair
-    // detaches (undo restores it from the history snapshot).
+    // detaches (undo restores it from the history snapshot). Detachment is
+    // scoped to the COLLAPSING op: a pair that was already zero-width before
+    // the transform (loaded from a file) is untouched content, not a
+    // deletion casualty — detaching it would degrade the document on the
+    // first unrelated edit.
+    const collapsedBefore = new Set<string>();
+    const beforeById = new Map<string, ICommentAnchor[]>();
+    for (const anchor of model.anchors) {
+        const list = beforeById.get(anchor.id) ?? [];
+        list.push(anchor);
+        beforeById.set(anchor.id, list);
+    }
+    for (const [id, pair] of beforeById) {
+        const open = pair.find(anchor => anchor.kind === 'open');
+        const close = pair.find(anchor => anchor.kind === 'close');
+        if (open && close && commentPathKey(open.position) === commentPathKey(close.position))
+            collapsedBefore.add(id);
+    }
+
     const byId = new Map<string, ICommentAnchor[]>();
     for (const anchor of transformed) {
         const list = byId.get(anchor.id) ?? [];
@@ -903,6 +921,8 @@ export function transformCommentAnchors(
         byId.set(anchor.id, list);
     }
     for (const [id, pair] of byId) {
+        if (collapsedBefore.has(id))
+            continue;
         const open = pair.find(anchor => anchor.kind === 'open');
         const close = pair.find(anchor => anchor.kind === 'close');
         if (open && close && commentPathKey(open.position) === commentPathKey(close.position))
