@@ -65,6 +65,14 @@ export const editorSelectAll = (win: Win): void => {
   edit(win, 'selectAll')
 }
 
+// The Cmd/Ctrl+A accelerator (registered window-wide, so muya's own keydown
+// handler never sees it). Keyboard select-all is ONE press = whole document
+// (editing-invariants.md §Select-all semantics); the progressive escalation
+// in editorSelectAll belongs to the menu click only.
+export const editorSelectAllWholeDocument = (win: Win): void => {
+  edit(win, 'selectAllWholeDocument')
+}
+
 export const editorDuplicate = (win: Win): void => {
   edit(win, 'duplicate')
 }
@@ -170,7 +178,7 @@ export const loadEditCommands = (commandManager: CommandManager): void => {
   commandManager.add(COMMANDS.EDIT_REDO, editorRedo)
   commandManager.add(COMMANDS.EDIT_REPLACE, editorReplace)
   commandManager.add(COMMANDS.EDIT_SCREENSHOT, screenshot)
-  commandManager.add(COMMANDS.EDIT_SELECT_ALL, editorSelectAll)
+  commandManager.add(COMMANDS.EDIT_SELECT_ALL, editorSelectAllWholeDocument)
   commandManager.add(COMMANDS.EDIT_UNDO, editorUndo)
 }
 

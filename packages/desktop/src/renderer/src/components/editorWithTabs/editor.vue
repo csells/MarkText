@@ -1099,13 +1099,32 @@ const handleSelectAll = () => {
   if (editor.value && editor.value.hasFocus()) {
     editor.value.selectAll()
   } else {
-    const activeElement = document.activeElement as HTMLElement | null
-    const nodeName = activeElement?.nodeName
-    if (nodeName === 'INPUT' || nodeName === 'TEXTAREA') {
-      const selectable = activeElement as HTMLInputElement | HTMLTextAreaElement | null
-      if (selectable && typeof selectable.select === 'function') {
-        selectable.select()
-      }
+    selectFocusedNativeInput()
+  }
+}
+
+// Keyboard Cmd/Ctrl+A (intercepted in main, delivered as its own action):
+// one press spans the whole document — the progressive escalation above is
+// the menu path only (editing-invariants.md §Select-all semantics).
+const handleSelectAllWholeDocument = () => {
+  if (sourceCode.value) {
+    return
+  }
+
+  if (editor.value && editor.value.hasFocus()) {
+    editor.value.selectWholeDocument()
+  } else {
+    selectFocusedNativeInput()
+  }
+}
+
+const selectFocusedNativeInput = () => {
+  const activeElement = document.activeElement as HTMLElement | null
+  const nodeName = activeElement?.nodeName
+  if (nodeName === 'INPUT' || nodeName === 'TEXTAREA') {
+    const selectable = activeElement as HTMLInputElement | HTMLTextAreaElement | null
+    if (selectable && typeof selectable.select === 'function') {
+      selectable.select()
     }
   }
 }
@@ -2002,6 +2021,7 @@ onMounted(() => {
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
   bus.on('selectAll', handleSelectAll)
+  bus.on('selectAllWholeDocument', handleSelectAllWholeDocument)
   bus.on('export', handleExport)
   bus.on('print-service-clearup', handlePrintServiceClearup)
   bus.on('paragraph', handleEditParagraph)
@@ -2169,6 +2189,7 @@ onBeforeUnmount(() => {
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
   bus.off('selectAll', handleSelectAll)
+  bus.off('selectAllWholeDocument', handleSelectAllWholeDocument)
   bus.off('export', handleExport)
   bus.off('print-service-clearup', handlePrintServiceClearup)
   bus.off('paragraph', handleEditParagraph)

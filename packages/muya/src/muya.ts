@@ -478,6 +478,13 @@ export class Muya {
         this.editor.selection.selectAll();
     }
 
+    // Keyboard Cmd/Ctrl+A semantics: ONE press spans the whole document.
+    // Hosts that intercept the accelerator (the desktop app) must call this,
+    // not selectAll() — the progressive escalation is the menu path only.
+    selectWholeDocument() {
+        this.editor.selection.selectWholeDocument();
+    }
+
     format(type: string) {
         const { selection } = this.editor;
 
