@@ -128,13 +128,19 @@ class JSONState {
         });
     }
 
-    // Anchors as they were when the most recent op applied — the history
-    // records them per entry, because transformPosition is lossy for anchors
-    // a deletion swallowed (invariant 4 needs snapshots, not re-transforms).
+    // Anchors and definition-run positions as they were when the most recent
+    // op applied — the history records them per entry, because
+    // transformPosition is lossy for positions a deletion swallowed
+    // (invariant 4 needs snapshots, not re-transforms).
     private _prevAnchorsBeforeLastApply: ICommentModel['anchors'] = [];
+    private _prevRunsBeforeLastApply: ICommentModel['runs'] = [];
 
     get prevAnchorsBeforeLastApply(): ICommentModel['anchors'] {
         return this._prevAnchorsBeforeLastApply;
+    }
+
+    get prevRunsBeforeLastApply(): ICommentModel['runs'] {
+        return this._prevRunsBeforeLastApply;
     }
 
     private _apply(op: JSONOp) {
@@ -145,6 +151,7 @@ class JSONState {
             return;
         const beforeState = this._state;
         this._prevAnchorsBeforeLastApply = this._commentModel.anchors;
+        this._prevRunsBeforeLastApply = this._commentModel.runs;
         this._state = asState(json1.type.apply(asDoc(this._state), op));
         this._commentModel = transformCommentAnchors(this._commentModel, op, beforeState, this._state);
         this._version += 1;

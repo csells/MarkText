@@ -257,6 +257,23 @@ describe('v2 mutation line discipline', () => {
         expect(next).toBe(v2Doc(HEAD, REPLY_0, REPLY_1, REPLY_2));
     });
 
+    // The pinned property's parenthetical: "(plus a trailing newline if
+    // absent)". Appending to an unterminated file terminates it, so the
+    // NEXT append no longer churns the last line in diff terms.
+    it('appending to a file without a final newline adds the reply line and terminates the file', () => {
+        const doc = [BODY_LINE, '', HEAD, REPLY_0].join('\n');
+        const appended = '[MC:cmt_1.1]: {"author":"Zoe","createdAt":"2026-07-07T09:10:00.000Z","body":"Appended"}';
+
+        const next = updateCommentMetadataInMarkdown(doc, 'cmt_1', metadata =>
+            appendCommentReplyMetadata(metadata, {
+                author: 'Zoe',
+                body: 'Appended',
+                createdAt: '2026-07-07T09:10:00.000Z',
+            }));
+
+        expect(next).toBe(`${doc}\n${appended}\n`);
+    });
+
     it('a status change rewrites exactly the head line', () => {
         const doc = v2Doc(HEAD, REPLY_0, REPLY_1);
         const next = updateCommentMetadataInMarkdown(doc, 'cmt_1', metadata => ({

@@ -35,7 +35,6 @@ export {
 export type {
     IAddCommentInput,
     ICommentAnalysis,
-    TCommentAnalysisOptions,
     ICommentDiagnostic,
     ICommentDiagnosticSourceMap,
     ICommentMetadata,
@@ -52,6 +51,7 @@ export type {
     ICommentSourceRange,
     ICommentThread,
     IParsedMarkdownComments,
+    TCommentAnalysisOptions,
     TCommentDiagnosticCode,
     TCommentDisplayMetadata,
     TCommentStatus,

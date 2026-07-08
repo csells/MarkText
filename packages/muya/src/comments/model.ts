@@ -35,14 +35,44 @@ export interface ICommentAnchor {
     position: TBlockPath;
 }
 
+export type TCommentDefinitionItem
+    = | { kind: 'thread'; id: string }
+        | { kind: 'residue'; line: string };
+
+// One contiguous run of definition lines as the file laid them out. A thread
+// item re-serializes its (possibly mutated) thread head-first; a residue item
+// re-emits its line verbatim. Positions ride the OT transform like anchors,
+// so a definition block lives where the file put it — not wherever
+// serialization finds convenient (byte round-trip fidelity, invariant 2).
+export interface ICommentDefinitionRun {
+    // Insertion point in clean-state coordinates: a block position for a run
+    // that was its own block, [...statePath, 'text', offset] for lines
+    // embedded in a surviving leaf. null → the trailing appendix (detached
+    // by an edit that removed the surrounding structure).
+    position: TBlockPath | null;
+    // Text-position runs only: 'before' preceded the content at the offset
+    // (splices as `lines\n`), 'after' trailed the leaf (splices as `\nlines`).
+    edge: 'before' | 'after';
+    items: TCommentDefinitionItem[];
+}
+
 export interface ICommentModel {
     // Insertion order is head-line document order.
     threads: Map<string, ICommentThread>;
     // Walk order — document order at extraction time; transforms may reorder
     // offsets within a leaf, so derive ordering on read where it matters.
     anchors: ICommentAnchor[];
-    // Verbatim definition lines re-emitted after the thread blocks.
-    residue: string[];
+    // Definition-line layout in document order. Threads created at runtime
+    // have no run; they append to the trailing appendix at serialization.
+    runs: ICommentDefinitionRun[];
+}
+
+// The verbatim lines that did not decode, in document order — the read side
+// derives diagnostics from these.
+export function commentModelResidue(model: ICommentModel): string[] {
+    return model.runs.flatMap(run =>
+        run.items.flatMap(item => (item.kind === 'residue' ? [item.line] : [])),
+    );
 }
 
 export interface IExtractedCommentModel {
@@ -58,20 +88,29 @@ function isCommentableLeaf(state: TState): state is TTextState {
 
 interface IDefinitionLineRecord {
     line: string;
-    order: number;
+}
+
+// A definition run as the leaf walk finds it; `position`/`edge` follow the
+// run shape, records resolve into items once every line is classified.
+interface IPendingRun {
+    position: TBlockPath | null;
+    edge: 'before' | 'after';
+    records: IDefinitionLineRecord[];
 }
 
 // Strip real markers from `text`, recording each as an anchor at its
 // clean-text offset. Offsets are UTF-16 code units — the same coordinate
 // space as state text, DOM selection, and highlights (invariant 6).
+// `mapOffset` translates a pre-strip offset into clean-text coordinates for
+// the definition runs recorded against this leaf.
 function extractAnchorsFromText(
     text: string,
     statePath: TBlockPath,
     anchors: ICommentAnchor[],
-): string {
+): { clean: string; mapOffset: (offset: number) => number } {
     const markers = realCommentMarkersInText(text);
     if (markers.length === 0)
-        return text;
+        return { clean: text, mapOffset: offset => offset };
 
     let clean = '';
     let consumed = 0;
@@ -85,48 +124,96 @@ function extractAnchorsFromText(
         consumed = marker.end;
     }
     clean += text.slice(consumed);
-    return clean;
+
+    const mapOffset = (offset: number): number => {
+        let removed = 0;
+        for (const marker of markers) {
+            if (marker.end <= offset)
+                removed += marker.end - marker.start;
+        }
+        return offset - removed;
+    };
+    return { clean, mapOffset };
 }
 
 export function extractCommentModel(states: TState[]): IExtractedCommentModel {
     const anchors: ICommentAnchor[] = [];
-    const definitionLines: IDefinitionLineRecord[] = [];
-    let order = 0;
+    const pendingRuns: IPendingRun[] = [];
 
     const visit = (nodes: TState[], path: TBlockPath): TState[] => {
         const out: TState[] = [];
-        for (const [index, state] of nodes.entries()) {
+        for (const state of nodes) {
             const statePath = [...path, out.length];
-            void index;
             const next: TState = { ...state };
+            const runsBeforeState = pendingRuns.length;
 
             if (isCommentableLeaf(state)) {
                 // Definition-shaped lines leave the document entirely; the
-                // model owns them from here on.
+                // model owns them (and their placement) from here on.
                 const kept: string[] = [];
+                const leafRuns: Array<IPendingRun & { keptCountBefore: number }> = [];
+                let current: (IPendingRun & { keptCountBefore: number }) | null = null;
                 for (const line of state.text.split('\n')) {
-                    if (parseCommentMetadataDefinition(line))
-                        definitionLines.push({ line, order: order++ });
-                    else
+                    if (parseCommentMetadataDefinition(line)) {
+                        if (!current) {
+                            current = { position: null, edge: 'before', records: [], keptCountBefore: kept.length };
+                            leafRuns.push(current);
+                        }
+                        current.records.push({ line });
+                    }
+                    else {
+                        current = null;
                         kept.push(line);
+                    }
                 }
-                if (kept.length === 0)
-                    continue;
 
-                (next as TTextState).text = extractAnchorsFromText(
+                if (kept.length === 0) {
+                    // The whole leaf was definition lines: one run at the
+                    // block position this leaf would have occupied.
+                    for (const run of leafRuns) {
+                        run.position = statePath;
+                        pendingRuns.push(run);
+                    }
+                    continue;
+                }
+
+                const { clean, mapOffset } = extractAnchorsFromText(
                     kept.join('\n'),
                     statePath,
                     anchors,
                 );
+                (next as TTextState).text = clean;
+
+                for (const run of leafRuns) {
+                    if (run.keptCountBefore === kept.length) {
+                        // Trailing run: anchor to the end of the clean text.
+                        run.edge = 'after';
+                        run.position = [...statePath, 'text', clean.length];
+                    }
+                    else {
+                        const keptOffset = run.keptCountBefore === 0
+                            ? 0
+                            : kept.slice(0, run.keptCountBefore).join('\n').length + 1;
+                        run.position = [...statePath, 'text', mapOffset(keptOffset)];
+                    }
+                    pendingRuns.push(run);
+                }
             }
 
             if ('children' in state && Array.isArray(state.children)) {
                 const children = visit(state.children, [...statePath, 'children']);
                 // A container that held only definition lines (e.g. a
                 // blockquote wrapping the appendix) empties out; drop it
-                // rather than serialize a bare container shell.
-                if (children.length === 0 && !('text' in next))
+                // rather than serialize a bare container shell. Runs recorded
+                // inside it re-anchor to the container's own block position
+                // (the wrapper normalizes away; the location survives).
+                if (children.length === 0 && !('text' in next)) {
+                    for (let i = runsBeforeState; i < pendingRuns.length; i += 1) {
+                        pendingRuns[i].position = statePath;
+                        pendingRuns[i].edge = 'before';
+                    }
                     continue;
+                }
                 (next as { children: TState[] }).children = children;
             }
 
@@ -139,47 +226,62 @@ export function extractCommentModel(states: TState[]): IExtractedCommentModel {
 
     // Resolve definition lines exactly like the file-level analyzer: first
     // decodable head per id wins, replies attach by id in document order,
-    // everything else survives verbatim as residue.
+    // everything else survives verbatim as residue. Each record resolves to
+    // its run item — a decoded reply contributes no item of its own (its
+    // bytes re-emit inside the thread block at the head's run).
     const threads = new Map<string, ICommentThread>();
-    const residue: string[] = [];
+    const itemByRecord = new Map<IDefinitionLineRecord, TCommentDefinitionItem | null>();
     const replyRecords: Array<{ record: IDefinitionLineRecord; id: string; payload: string }> = [];
 
-    for (const record of definitionLines) {
-        const reply = parseCommentReplyDefinition(record.line);
-        if (reply) {
-            replyRecords.push({ record, id: reply.id, payload: reply.payload });
-            continue;
-        }
-
-        const head = parseCommentHeadDefinition(record.line);
-        if (head && !threads.has(head.id)) {
-            try {
-                threads.set(head.id, { id: head.id, ...decodeCommentHeadPayload(head.payload) });
+    for (const run of pendingRuns) {
+        for (const record of run.records) {
+            const reply = parseCommentReplyDefinition(record.line);
+            if (reply) {
+                replyRecords.push({ record, id: reply.id, payload: reply.payload });
                 continue;
             }
-            catch {
-                // Undecodable head: fall through to residue.
-            }
-        }
 
-        residue.push(record.line);
+            const head = parseCommentHeadDefinition(record.line);
+            if (head && !threads.has(head.id)) {
+                try {
+                    threads.set(head.id, { id: head.id, ...decodeCommentHeadPayload(head.payload) });
+                    itemByRecord.set(record, { kind: 'thread', id: head.id });
+                    continue;
+                }
+                catch {
+                    // Undecodable head: fall through to residue.
+                }
+            }
+
+            itemByRecord.set(record, { kind: 'residue', line: record.line });
+        }
     }
 
     for (const { record, id, payload } of replyRecords) {
         const thread = threads.get(id);
         if (!thread) {
-            residue.push(record.line);
+            itemByRecord.set(record, { kind: 'residue', line: record.line });
             continue;
         }
         try {
             thread.replies.push(decodeCommentReplyPayload(payload));
+            itemByRecord.set(record, null);
         }
         catch {
-            residue.push(record.line);
+            itemByRecord.set(record, { kind: 'residue', line: record.line });
         }
     }
 
-    return { states: cleanStates, model: { threads, anchors, residue } };
+    const runs: ICommentDefinitionRun[] = pendingRuns.map(run => ({
+        position: run.position,
+        edge: run.edge,
+        items: run.records.flatMap((record) => {
+            const item = itemByRecord.get(record);
+            return item ? [item] : [];
+        }),
+    }));
+
+    return { states: cleanStates, model: { threads, anchors, runs } };
 }
 
 function commentPathKeyOf(position: TBlockPath): string {
@@ -226,6 +328,60 @@ function readLeaf(states: TState[], position: TBlockPath): TTextState | null {
     return leaf && isCommentableLeaf(leaf) ? leaf : null;
 }
 
+function serializeThreadBlock(model: ICommentModel, id: string): string[] {
+    const thread = model.threads.get(id);
+    if (!thread)
+        return [];
+    const { id: _id, ...metadata } = thread;
+    return serializeCommentThreadLines(id, metadata);
+}
+
+function runLines(model: ICommentModel, run: ICommentDefinitionRun): string[] {
+    return run.items.flatMap(item =>
+        item.kind === 'residue' ? [item.line] : serializeThreadBlock(model, item.id),
+    );
+}
+
+// Compare two clean-state positions in document order.
+function comparePositions(a: TBlockPath, b: TBlockPath): number {
+    const length = Math.min(a.length, b.length);
+    for (let i = 0; i < length; i += 1) {
+        if (a[i] === b[i])
+            continue;
+        if (typeof a[i] === 'number' && typeof b[i] === 'number')
+            return (a[i] as number) - (b[i] as number);
+        return String(a[i]) < String(b[i]) ? -1 : 1;
+    }
+    return a.length - b.length;
+}
+
+function isTextPosition(position: TBlockPath): boolean {
+    return position.length >= 2 && position[position.length - 2] === 'text';
+}
+
+function resolveParentArray(states: TState[], position: TBlockPath): TState[] {
+    let current: unknown = states;
+    for (const segment of position.slice(0, -1)) {
+        if (typeof segment === 'number') {
+            if (!Array.isArray(current))
+                break;
+            current = current[segment];
+        }
+        else {
+            if (typeof current !== 'object' || current == null)
+                break;
+            current = (current as Record<string, unknown>)[segment];
+        }
+    }
+    if (!Array.isArray(current)) {
+        // A run position pointing at a non-array parent is a stale-position
+        // bug at the transform layer; fail loudly rather than lose the
+        // definition lines' placement silently.
+        throw new TypeError(`Comment definition run points at a missing parent: ${position.join('/')}`);
+    }
+    return current as TState[];
+}
+
 export function materializeCommentModel(states: TState[], model: ICommentModel): TState[] {
     const next = structuredClone(states);
 
@@ -248,14 +404,73 @@ export function materializeCommentModel(states: TState[], model: ICommentModel):
         leaf.text = materializeLeafText(leaf.text, leafAnchors);
     }
 
-    // The metadata appendix: one contiguous block — thread lines in map
-    // (head-line document) order, then residue lines verbatim.
-    const appendixLines: string[] = [];
-    for (const [id, thread] of model.threads) {
-        const { id: _id, ...metadata } = thread;
-        appendixLines.push(...serializeCommentThreadLines(id, metadata));
+    const placedThreadIds = new Set<string>();
+    for (const run of model.runs) {
+        for (const item of run.items) {
+            if (item.kind === 'thread')
+                placedThreadIds.add(item.id);
+        }
     }
-    appendixLines.push(...model.residue);
+
+    // Text-embedded runs splice into their leaf AFTER markers are back (the
+    // marker pass reads leaf offsets; block insertions below would shift
+    // every deeper path, so they come last, in descending document order).
+    const textRuns: Array<{ run: ICommentDefinitionRun; lines: string[] }> = [];
+    const blockRuns: Array<{ run: ICommentDefinitionRun; lines: string[]; order: number }> = [];
+    const appendixLines: string[] = [];
+    model.runs.forEach((run, order) => {
+        const lines = runLines(model, run);
+        if (lines.length === 0)
+            return;
+        if (run.position === null)
+            appendixLines.push(...lines);
+        else if (isTextPosition(run.position))
+            textRuns.push({ run, lines });
+        else
+            blockRuns.push({ run, lines, order });
+    });
+
+    textRuns.sort((a, b) => comparePositions(b.run.position!, a.run.position!));
+    for (const { run, lines } of textRuns) {
+        const position = run.position!;
+        const leaf = readLeaf(next, position);
+        if (!leaf)
+            throw new Error(`Comment definition run points at a missing leaf: ${position.join('/')}`);
+        const offset = Math.max(0, Math.min(position[position.length - 1] as number, leaf.text.length));
+        const block = lines.join('\n');
+        leaf.text = run.edge === 'after'
+            ? `${leaf.text.slice(0, offset)}\n${block}${leaf.text.slice(offset)}`
+            : `${leaf.text.slice(0, offset)}${block}\n${leaf.text.slice(offset)}`;
+    }
+
+    // A run anchored at (or past) the root end is the trailing appendix
+    // block: runtime-created threads (no run of their own) join it so the
+    // appendix stays one contiguous block.
+    const terminal = [...blockRuns].reverse().find(({ run }) => {
+        const position = run.position!;
+        return position.length === 1 && (position[0] as number) >= next.length;
+    });
+    const unplacedThreadLines: string[] = [];
+    for (const id of model.threads.keys()) {
+        if (!placedThreadIds.has(id))
+            unplacedThreadLines.push(...serializeThreadBlock(model, id));
+    }
+    if (terminal)
+        terminal.lines.push(...unplacedThreadLines);
+    else
+        appendixLines.push(...unplacedThreadLines);
+
+    // Descending document order so earlier insertions cannot shift later
+    // positions; ties keep run order (the later run inserts first and ends
+    // up after the earlier one).
+    blockRuns.sort((a, b) =>
+        comparePositions(b.run.position!, a.run.position!) || (b.order - a.order));
+    for (const { run, lines } of blockRuns) {
+        const position = run.position!;
+        const parent = resolveParentArray(next, position);
+        const index = Math.max(0, Math.min(position[position.length - 1] as number, parent.length));
+        parent.splice(index, 0, { name: 'paragraph', text: lines.join('\n') });
+    }
 
     if (appendixLines.length > 0)
         next.push({ name: 'paragraph', text: appendixLines.join('\n') });
@@ -415,22 +630,30 @@ export function commentModelView(model: ICommentModel, states: TState[]): IParse
             diagnostics.push(diagnostic('missing-metadata', id, `Comment "${id}" has markers but no metadata definition.`));
     }
 
-    for (const line of model.residue)
+    for (const line of commentModelResidue(model))
         diagnostics.push(residueDiagnostic(line, model.threads));
 
     return { threads, ranges, diagnostics };
 }
 
 export function emptyCommentModel(): ICommentModel {
-    return { threads: new Map(), anchors: [], residue: [] };
+    return { threads: new Map(), anchors: [], runs: [] };
 }
 
 export function cloneCommentModel(model: ICommentModel): ICommentModel {
     return {
         threads: new Map([...model.threads].map(([id, thread]) => [id, structuredClone(thread)])),
         anchors: model.anchors.map(anchor => ({ ...anchor, position: [...anchor.position] })),
-        residue: [...model.residue],
+        runs: cloneCommentRuns(model.runs),
     };
+}
+
+export function cloneCommentRuns(runs: ICommentDefinitionRun[]): ICommentDefinitionRun[] {
+    return runs.map(run => ({
+        position: run.position ? [...run.position] : null,
+        edge: run.edge,
+        items: run.items.map(item => ({ ...item })),
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -597,6 +820,36 @@ function transformAnchorPosition(
     ];
 }
 
+// Move a definition run's position through `op`. Text-embedded runs reuse
+// the anchor transform (a 'before' run behaves like an open anchor, an
+// 'after' run like a close — trailing runs absorb insertions at the leaf
+// end); block runs go through transformPosition directly. null → the run
+// detaches to the trailing appendix.
+function transformRunPosition(
+    run: ICommentDefinitionRun,
+    op: JSONOp,
+    beforeStates: TState[],
+    afterStates: TState[],
+): TBlockPath | null {
+    const position = run.position;
+    if (position === null)
+        return null;
+
+    if (isTextPosition(position)) {
+        return transformAnchorPosition(
+            { id: '', kind: run.edge === 'after' ? 'close' : 'open', position },
+            op,
+            beforeStates,
+            afterStates,
+        );
+    }
+
+    return json1.type.transformPosition(
+        position as Parameters<typeof json1.type.transformPosition>[0],
+        op,
+    ) as TBlockPath | null;
+}
+
 // Detachment is thread-level: a range that lost either endpoint keeps its
 // thread (metadata-only, visible as orphan-metadata) but drops BOTH anchors,
 // so serialization never writes a half-paired marker (invariant 5).
@@ -606,8 +859,14 @@ export function transformCommentAnchors(
     beforeStates: TState[],
     afterStates: TState[],
 ): ICommentModel {
-    if (model.anchors.length === 0 || op == null)
+    if (op == null)
         return model;
+    if (model.anchors.length === 0 && !model.runs.some(run => run.position !== null))
+        return model;
+
+    const runs = model.runs.map(run => run.position === null
+        ? run
+        : { ...run, position: transformRunPosition(run, op, beforeStates, afterStates) });
 
     const transformed: ICommentAnchor[] = [];
     const detachedIds = new Set<string>();
@@ -637,6 +896,7 @@ export function transformCommentAnchors(
 
     return {
         ...model,
+        runs,
         anchors: detachedIds.size === 0
             ? transformed
             : transformed.filter(anchor => !detachedIds.has(anchor.id)),
@@ -649,7 +909,7 @@ export function commentModelEquals(a: ICommentModel, b: ICommentModel): boolean 
     const key = (model: ICommentModel) => JSON.stringify({
         threads: [...model.threads.entries()],
         anchors: model.anchors,
-        residue: model.residue,
+        runs: model.runs,
     });
     return key(a) === key(b);
 }
@@ -657,6 +917,8 @@ export function commentModelEquals(a: ICommentModel, b: ICommentModel): boolean 
 // Shift anchors for a raw text insertion into one leaf (UTF-16 units) —
 // the same tie-breaks the transform hook applies: an insertion at an
 // anchor's own offset lands inside the range (close shifts, open stays).
+// Text-embedded definition runs in the same leaf shift with the same rules
+// ('after' behaves like close, 'before' like open).
 export function adjustAnchorsForInsertion(
     model: ICommentModel,
     leafPath: TBlockPath,
@@ -664,20 +926,31 @@ export function adjustAnchorsForInsertion(
     length: number,
 ): ICommentModel {
     const leafKey = commentPathKey(leafPath);
+    const shiftPosition = (position: TBlockPath, closeLike: boolean): TBlockPath => {
+        const positionOffset = position[position.length - 1] as number;
+        const shifted = positionOffset > offset || (positionOffset === offset && closeLike);
+        return shifted
+            ? [...position.slice(0, -1), positionOffset + length]
+            : position;
+    };
     return {
         ...model,
         anchors: model.anchors.map((anchor) => {
             if (commentPathKey(anchor.position.slice(0, -1)) !== leafKey)
                 return anchor;
-            const anchorOffset = anchor.position[anchor.position.length - 1] as number;
-            const shifted = anchorOffset > offset
-                || (anchorOffset === offset && anchor.kind === 'close');
-            if (!shifted)
-                return anchor;
-            return {
-                ...anchor,
-                position: [...anchor.position.slice(0, -1), anchorOffset + length],
-            };
+            const position = shiftPosition(anchor.position, anchor.kind === 'close');
+            return position === anchor.position ? anchor : { ...anchor, position };
+        }),
+        runs: model.runs.map((run) => {
+            if (
+                run.position === null
+                || !isTextPosition(run.position)
+                || commentPathKey(run.position.slice(0, -1)) !== leafKey
+            ) {
+                return run;
+            }
+            const position = shiftPosition(run.position, run.edge === 'after');
+            return position === run.position ? run : { ...run, position };
         }),
     };
 }

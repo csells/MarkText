@@ -86,6 +86,45 @@ describe('anchor runtime — serialization (invariant 2)', () => {
         expect(muya.getMarkdown()).toBe(DOC);
     });
 
+    it('keeps a mid-document definition block at its position through the runtime', () => {
+        const midDoc = [
+            'alpha <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+            'omega',
+            '',
+        ].join('\n');
+        const muya = boot(midDoc);
+
+        expect(muya.getMarkdown()).toBe(midDoc);
+    });
+
+    it('an edit elsewhere leaves a mid-document definition block in place', () => {
+        const midDoc = [
+            'alpha <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+            'omega',
+            '',
+        ].join('\n');
+        const muya = boot(midDoc);
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.text = `ZZ${leaf.text}`;
+        muya.flush();
+
+        expect(muya.getMarkdown()).toBe([
+            'ZZalpha <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+            'omega',
+            '',
+        ].join('\n'));
+    });
+
     it('serializes a v1 document as v2 with identical decoded content', () => {
         const v1 = 'Hello <!--MC:a-->x<!--MC:~a--> world.\n\n[MC:a]: data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuIiwicmVwbGllcyI6W119\n';
         const muya = boot(v1);

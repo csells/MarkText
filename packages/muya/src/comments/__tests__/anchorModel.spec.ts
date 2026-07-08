@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { MarkdownToState } from '../../state/markdownToState';
 import ExportMarkdown from '../../state/stateToMarkdown';
-import { extractCommentModel, materializeCommentModel } from '../model';
+import { commentModelResidue, extractCommentModel, materializeCommentModel } from '../model';
 
 // P3 stage 1 (specs/architecture/comment-anchors.md): at runtime comments
 // live out-of-band as OT anchors into CLEAN text. Extraction strips every
@@ -145,7 +145,7 @@ describe('extractCommentModel', () => {
         const { model } = extractCommentModel(parse(markdown));
 
         expect(model.threads.size).toBe(1);
-        expect(model.residue).toEqual([
+        expect(commentModelResidue(model)).toEqual([
             HEAD,
             '[MC:a.0]: {not json',
             '[MC:ghost.0]: {"author":"A","createdAt":"t","body":"orphan"}',

@@ -5,7 +5,7 @@ import type { IAnchorFocusInfo, IHistorySelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
 import * as json1 from 'ot-json1';
-import { cloneCommentModel } from '../comments/model';
+import { cloneCommentModel, cloneCommentRuns } from '../comments/model';
 import { asDoc } from '../state';
 import { deepClone } from '../utils';
 
@@ -34,10 +34,12 @@ interface IOperation {
     // whose operation is empty (comment-anchors.md §Mutations and undo).
     commentModel?: ICommentModel;
     commentModelOnly?: boolean;
-    // Anchor snapshot for ordinary edits: transformPosition is lossy for
-    // anchors a deletion swallowed, so undo restores the recorded positions
-    // instead of re-transforming (invariant 4).
+    // Anchor and definition-run snapshots for ordinary edits:
+    // transformPosition is lossy for positions a deletion swallowed, so undo
+    // restores the recorded positions instead of re-transforming
+    // (invariant 4).
     anchors?: ICommentModel['anchors'];
+    definitionRuns?: ICommentModel['runs'];
 }
 
 interface IStack {
@@ -65,7 +67,7 @@ interface ISerializableSelection {
 interface ISerializableCommentModel {
     threads: Array<[string, ICommentModel['threads'] extends Map<string, infer T> ? T : never]>;
     anchors: ICommentModel['anchors'];
-    residue: string[];
+    runs: ICommentModel['runs'];
 }
 
 interface ISerializableOperation {
@@ -75,6 +77,7 @@ interface ISerializableOperation {
     commentModel?: ISerializableCommentModel;
     commentModelOnly?: boolean;
     anchors?: ICommentModel['anchors'];
+    definitionRuns?: ICommentModel['runs'];
 }
 
 // The public, JSON-serializable shape returned by `getHistory` and accepted by
@@ -199,13 +202,16 @@ class History {
         );
 
         const preChangeAnchors = deepClone(jsonState.commentModel.anchors);
+        const preChangeRuns = cloneCommentRuns(jsonState.commentModel.runs);
         this._stack[dest].push({
             operation: inverseOperation as JSONOpList,
             selection: this._selection.getSelection(),
             rebuild,
             // Crossing a rebuild boundary restores the other side's model
             // wholesale; the current model is that snapshot for the way back.
-            ...(rebuild ? { commentModel: cloneCommentModel(jsonState.commentModel) } : { anchors: preChangeAnchors }),
+            ...(rebuild
+                ? { commentModel: cloneCommentModel(jsonState.commentModel) }
+                : { anchors: preChangeAnchors, definitionRuns: preChangeRuns }),
         });
 
         this._lastRecorded = 0;
@@ -225,12 +231,15 @@ class History {
             jsonState.setCommentModel(commentModel);
         }
         else if (entry.anchors) {
-            // Restore the recorded anchor positions — the transform that just
-            // ran through the inverse op cannot resurrect anchors the forward
-            // op's deletion swallowed.
+            // Restore the recorded anchor and run positions — the transform
+            // that just ran through the inverse op cannot resurrect positions
+            // the forward op's deletion swallowed.
             jsonState.setCommentModel({
                 ...jsonState.commentModel,
                 anchors: deepClone(entry.anchors),
+                ...(entry.definitionRuns
+                    ? { runs: cloneCommentRuns(entry.definitionRuns) }
+                    : {}),
             });
         }
 
@@ -281,11 +290,12 @@ class History {
                                 ([id, thread]) => [id, deepClone(thread)] as [string, typeof thread],
                             ),
                             anchors: deepClone(op.commentModel.anchors),
-                            residue: [...op.commentModel.residue],
+                            runs: cloneCommentRuns(op.commentModel.runs),
                         },
                     }
                 : {}),
             ...(op.anchors ? { anchors: deepClone(op.anchors) } : {}),
+            ...(op.definitionRuns ? { definitionRuns: cloneCommentRuns(op.definitionRuns) } : {}),
         };
     }
 
@@ -302,11 +312,12 @@ class History {
                                 ([id, thread]) => [id, deepClone(thread)] as const,
                             )),
                             anchors: deepClone(op.commentModel.anchors),
-                            residue: [...op.commentModel.residue],
+                            runs: cloneCommentRuns(op.commentModel.runs ?? []),
                         },
                     }
                 : {}),
             ...(op.anchors ? { anchors: deepClone(op.anchors) } : {}),
+            ...(op.definitionRuns ? { definitionRuns: cloneCommentRuns(op.definitionRuns) } : {}),
         };
     }
 
@@ -381,20 +392,27 @@ class History {
         this._stack.redo = [];
         let undoOperation = json1.type.invertWithDoc(op, asDoc(doc));
         let anchors = deepClone(this._muya.editor.jsonState.prevAnchorsBeforeLastApply);
+        let definitionRuns = cloneCommentRuns(this._muya.editor.jsonState.prevRunsBeforeLastApply);
 
         const timestamp = Date.now();
         if (
             this._lastRecorded + this._options.delay > timestamp
             && this._stack.undo.length > 0
         ) {
-            const { operation: lastOperation, selection: lastSelection, anchors: lastAnchors }
-                = this._stack.undo.pop()!;
+            const {
+                operation: lastOperation,
+                selection: lastSelection,
+                anchors: lastAnchors,
+                definitionRuns: lastRuns,
+            } = this._stack.undo.pop()!;
             selection = lastSelection;
             undoOperation = json1.type.compose(undoOperation, lastOperation);
-            // A coalesced burst restores the anchors from BEFORE its first
+            // A coalesced burst restores the positions from BEFORE its first
             // keystroke, not before its latest one.
             if (lastAnchors)
                 anchors = lastAnchors;
+            if (lastRuns)
+                definitionRuns = lastRuns;
         }
         else {
             this._lastRecorded = timestamp;
@@ -407,6 +425,7 @@ class History {
             operation: undoOperation,
             selection,
             anchors,
+            definitionRuns,
         });
 
         if (this._stack.undo.length > this._options.maxStack)

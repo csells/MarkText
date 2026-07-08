@@ -614,10 +614,14 @@ export function updateCommentMetadataInMarkdown(
         }
         if (plan.appends.length > 0) {
             const anchor = replySlots.length > 0 ? replySlots[replySlots.length - 1].definition : head;
+            // Appending at the end of an unterminated file terminates it —
+            // "exactly one line (plus a trailing newline if absent)" — so the
+            // next append no longer churns the last line in diff terms.
+            const terminator = anchor.end === markdown.length ? eol : '';
             edits.push({
                 start: anchor.end,
                 end: anchor.end,
-                text: plan.appends.map(line => `${eol}${line}`).join(''),
+                text: `${plan.appends.map(line => `${eol}${line}`).join('')}${terminator}`,
             });
         }
         if (plan.deleteFromSlot != null) {
