@@ -120,8 +120,19 @@ until the implementation reflects the specs.
   consecutive reads; the last two sleep-then-assert e2e sites
   (scroll-up-arrow, parity G7) converted to polls/settled reads with G7
   waiting on the bridge-committed engine selection. Severity trajectory
-  32→10→7→9→4→6→4→4 with rounds 5, 8 at zero behavior divergences. Next:
-  round-9 analysis; final certification sweep.
+  32→10→7→9→4→6→4→4 with rounds 5, 8 at zero behavior divergences.
+  Round 9 (3 confirmed: 1 must-fix, 2 spec-stale; 1 refuted) fixed: the
+  keyboard select-all divergence — the window-wide accelerator
+  interception made muya's Cmd/Ctrl+A handler unreachable in the desktop,
+  so one press selected only the current block; the keyboard command now
+  routes to the new muya.selectWholeDocument() while the menu click stays
+  progressive, pinned through the REAL interception path via
+  webContents.sendInputEvent after proving Playwright's CDP input
+  bypasses before-input-event (the pre-existing hedged e2e was a false
+  green); the decision-table effective row order and the third
+  literal-MC-bytes case documented. Severity trajectory
+  32→10→7→9→4→6→4→4→3. Next: round-10 analysis; final certification
+  sweep.
 
 ## P1 — Test infrastructure first (it gates everything after)
 
