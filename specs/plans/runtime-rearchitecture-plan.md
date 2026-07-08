@@ -138,8 +138,24 @@ until the implementation reflects the specs.
   arrangement sleeps (language-picker settle, find-replace seed) became
   condition waits; the close-anchor insertion tie-break documented in
   §Edit. Severity trajectory 32→10→7→9→4→6→4→4→3→3, nothing above minor
-  in rounds 8 and 10. Next: round-11 analysis; final certification
-  sweep.
+  in rounds 8 and 10. Round 11 (12 findings across two resumed halves —
+  session limits killed 7 agents mid-run twice; empty results were treated
+  as failures and the run resumed, never as clean) fixed: review intent now
+  survives a supersede (onDiskChanged inherits the merging state's
+  forceReview — a Review click could be dropped when a second write
+  superseded the in-flight merge); background Reload Disk journals the
+  pre-reload buffer so activation undo works (was foreground-only);
+  collapse-detachment scoped to the collapsing op (a loaded zero-width
+  pair was detached by the first op anywhere); the run-consumption
+  tokenizer design documented in parser-integration; decision-table
+  open-resolver carve-out; agent-cli iconv-lite dependency named;
+  comment-anchors "v-next"→v2 and the impossible paste-collision
+  diagnostic example replaced; the final sleep-then-assert sites
+  (comment-edge-typing, tab-switch-cursor, issue-4374 — whose caret
+  helper also silently no-opped on a missing span, making its no-crash
+  assertions vacuous) converted to bridge waits/fail-loud arrangement.
+  Severity trajectory 32→10→7→9→4→6→4→4→3→3→12(minor). Next: round-12
+  analysis; final certification sweep.
 
 ## P1 — Test infrastructure first (it gates everything after)
 
