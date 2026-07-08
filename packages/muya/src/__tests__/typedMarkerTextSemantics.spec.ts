@@ -90,6 +90,30 @@ describe('typed marker-shaped text is literal visible text', () => {
     });
 });
 
+describe('malformed marker shapes from a loaded file are literal residue', () => {
+    // Invariant 1's second residue (comment-anchors.md): extraction strips
+    // only tokenizer-recognized well-formed markers. A malformed shape (an
+    // invalid id) cannot be anchored without guessing and must not be
+    // destroyed — it stays verbatim in leaf text and round-trips.
+    const DOC = 'A <!--MC:bad.id-->kept<!--MC:~bad.id--> and <!--MC:ok-->reviewed<!--MC:~ok--> line.\n\n[MC:ok]: {"version":2,"status":"open"}\n';
+
+    it('load keeps malformed marker bytes in leaf text while extracting the valid thread', () => {
+        const muya = boot(DOC);
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        expect(leaf.text).toContain('<!--MC:bad.id-->kept<!--MC:~bad.id-->');
+        expect(leaf.text).not.toContain('<!--MC:ok-->');
+        expect(muya.editor.jsonState.commentModel.threads.has('ok')).toBe(true);
+        expect(muya.editor.jsonState.commentModel.threads.has('bad.id')).toBe(false);
+    });
+
+    it('the malformed residue round-trips byte-identically through getMarkdown', () => {
+        const muya = boot(DOC);
+
+        expect(muya.getMarkdown()).toBe(DOC);
+    });
+});
+
 describe('structural deletes detach comments instead of refusing (table ops)', () => {
     const TABLE_DOC = [
         'before <!--MC:t-->range starts here.',

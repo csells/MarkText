@@ -45,8 +45,12 @@ compositions of those same ops.
   (materialize → re-extract as one rebuild undo boundary): pasted wire
   syntax lands as model comments — matching what saving and reopening would
   produce — and colliding ids are remapped, so paste cannot corrupt the
-  model or collide ids. Literal MC bytes in state text exist only when the
-  user *types* them.
+  model or collide ids. Literal MC bytes in state text exist in exactly two
+  cases: marker-shaped text the user *types*, and MALFORMED marker shapes
+  (invalid ids) from a loaded or pasted document — extraction folds only
+  well-formed markers into the model; malformed shapes cannot be anchored
+  without guessing and are kept verbatim as visible literal text
+  (comment-anchors.md invariant 1 names the same residue).
 - Search operates over the same clean text the user sees.
 
 ## Select-all semantics (unchanged)

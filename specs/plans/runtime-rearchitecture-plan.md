@@ -110,8 +110,18 @@ until the implementation reflects the specs.
   invariant 1 rewritten with the malformed-marker residue carve-out; the
   comment_marker "file-level only" clause corrected (the token is
   load-bearing in the live tokenizer for typed-marker visibility).
-  Severity trajectory 32→10→7→9→4→6→4. Next: round-8 analysis; final
-  certification sweep.
+  Severity trajectory 32→10→7→9→4→6→4. Round 8 (4 confirmed, 0 refuted —
+  ZERO implementation-behavior divergences; two of the four were fallout
+  from round 7's own invariant-1 rewrite) fixed: the malformed-marker
+  loaded-file residue pinned through the real extraction/runtime path
+  (leaf-text verbatim + byte round-trip); the editing-invariants "literal
+  MC bytes only when typed" sentence extended with the malformed residue;
+  expectNoRendererErrors settles its cumulative-sink negative across
+  consecutive reads; the last two sleep-then-assert e2e sites
+  (scroll-up-arrow, parity G7) converted to polls/settled reads with G7
+  waiting on the bridge-committed engine selection. Severity trajectory
+  32→10→7→9→4→6→4→4 with rounds 5, 8 at zero behavior divergences. Next:
+  round-9 analysis; final certification sweep.
 
 ## P1 — Test infrastructure first (it gates everything after)
 

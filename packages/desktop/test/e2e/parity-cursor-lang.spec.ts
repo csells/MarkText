@@ -95,17 +95,31 @@ test.describe('Parity G7 — WYSIWYG -> source caret sync', () => {
   })
 
   test('G7: source mode opens at the line/column the WYSIWYG caret was on', async() => {
-    // Caret after "third " (offset 6) in the third paragraph.
+    // Caret after "third " (offset 6) in the third paragraph. Wait for the
+    // engine to COMMIT that caret (bridge read), not a clock — entering
+    // source mode reads the committed selection.
     expect(await placeCaretInParagraph(page, 2, 6)).toBe(true)
-    await page.waitForTimeout(200)
+    await page.waitForFunction(() => {
+      const selection = window.__marktextTest?.getEngineSelection() as {
+        anchor?: { offset: number } | null
+        focus?: { offset: number } | null
+        anchorPath?: Array<string | number>
+        focusPath?: Array<string | number>
+      } | null
+      if (!selection?.anchorPath?.length || !selection?.focusPath?.length) return false
+      return (
+        selection.anchorPath.join('/') === selection.focusPath.join('/') &&
+        selection.anchorPath[0] === 2 &&
+        selection.anchor?.offset === 6 &&
+        selection.focus?.offset === 6
+      )
+    })
 
     await enterSourceMode(page, app)
-    await page.waitForTimeout(300)
 
-    const cursor = await getCmCursor(page)
     // Lines: 0 "first para", 1 blank, 2 "second para", 3 blank,
-    // 4 "third para here".
-    expect(cursor).toEqual({ line: 4, ch: 6 })
+    // 4 "third para here". CodeMirror mounts async — poll the cursor.
+    await expect.poll(() => getCmCursor(page)).toEqual({ line: 4, ch: 6 })
   })
 })
 

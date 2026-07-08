@@ -156,8 +156,15 @@ export const clearRendererErrors = async(app: ElectronApplication): Promise<void
 
 // Assert that no renderer-process error has been captured since the last clear.
 // On failure, prints the captured stacks so the spec output is actionable.
+// The sink fills via async IPC, so the NEGATIVE must settle: empty across
+// consecutive reads spanning the delivery window — a single immediate read
+// could pass before a late error lands (readSettled re-settles on the error
+// list if one arrives mid-check, so the failure path still reports it).
 export const expectNoRendererErrors = async(app: ElectronApplication): Promise<void> => {
-  const errors = await getRendererErrors(app)
+  const errors = await readSettled(() => getRendererErrors(app), {
+    requiredStreak: 3,
+    interval: 100
+  })
   if (errors.length > 0) {
     const summary = errors.map((e) => `- ${e.name ?? 'Error'}: ${e.message}\n${e.stack ?? ''}`).join('\n\n')
     throw new Error(`Expected no renderer errors, captured ${errors.length}:\n\n${summary}`)
