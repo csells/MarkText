@@ -131,7 +131,14 @@ until the implementation reflects the specs.
   bypasses before-input-event (the pre-existing hedged e2e was a false
   green); the decision-table effective row order and the third
   literal-MC-bytes case documented. Severity trajectory
-  32→10→7→9→4→6→4→4→3. Next: round-10 analysis; final certification
+  32→10→7→9→4→6→4→4→3. Round 10 (3 confirmed: 0 must-fix, 2 minor, 1
+  spec-stale; 1 refuted) fixed: the clean-tab reload no longer runs
+  underneath an open resolver (the reducer supersede now sees the
+  disk-change; pinned through the real watcher handler); the last two
+  arrangement sleeps (language-picker settle, find-replace seed) became
+  condition waits; the close-anchor insertion tie-break documented in
+  §Edit. Severity trajectory 32→10→7→9→4→6→4→4→3→3, nothing above minor
+  in rounds 8 and 10. Next: round-11 analysis; final certification
   sweep.
 
 ## P1 — Test infrastructure first (it gates everything after)
