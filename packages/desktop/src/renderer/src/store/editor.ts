@@ -1855,7 +1855,12 @@ export const useEditorStore = defineStore('editor', {
                 autoSaveTimers.delete(id)
               }
 
-              if (isSaved) {
+              // A clean tab normally reloads, but not underneath an open
+              // resolver (reachable clean: markClean → Review): the reducer
+              // owns the supersede — close, re-derive against the new
+              // remote, stay headed for review — and a silent reload would
+              // wedge the dialog on panes whose remote no longer exists.
+              if (isSaved && this.mergeConflict?.tabId !== tab.id) {
                 this.loadChange(change as unknown as FileChangePayload)
                 return
               }

@@ -555,6 +555,48 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     })
   }
 
+  // Regression (round-10 gap analysis): a byte-DIFFERENT disk change for a
+  // CLEAN tab with an open resolver (reachable: markClean → Review) must
+  // supersede the session through the reducer — close, re-derive against the
+  // new remote, stay headed for review — not silently reload underneath the
+  // dialog and leave it wedged on stale panes.
+  it('a new disk change for a clean tab supersedes its open review session', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nshared\nthree\nlocal tail\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    const remote = 'one\nshared REMOTE\nthree\nlocal tail\n'
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: remote }
+      } as never
+    )
+    expect(tab.isSaved).toBe(true)
+
+    const notifications = tab.notifications as {
+      exclusiveType?: string
+      action?: (status: boolean | 'secondary') => void
+    }[]
+    const notification = notifications.find((n) => n.exclusiveType === 'file_changed')
+    if (!notification?.action) throw new Error('expected the Undo/Review notification')
+    notification.action('secondary')
+    expect(store.mergeConflict).not.toBeNull()
+
+    const remote2 = 'one\nshared REMOTE AGAIN\nthree\nlocal tail\n'
+    await invokeFileChange(store, tab, remote2)
+
+    // The session re-derived against the new remote (clean tab: base ==
+    // buffer, so the merge output IS remote2) and stayed headed for review.
+    const superseded = store.mergeConflict
+    if (!superseded) throw new Error('expected the re-derived resolver session')
+    expect(superseded.resultMarkdown).toBe(remote2)
+    expect(superseded.remoteMarkdown).toBe(remote2)
+  })
+
   // A byte-identical watcher echo after a clean-subsumed (markClean) merge
   // must NOT remove the Undo/Review notification — it is the only path back
   // to the pre-merge dirty buffer.
