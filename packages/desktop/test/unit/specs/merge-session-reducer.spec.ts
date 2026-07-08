@@ -214,10 +214,26 @@ describe('merge-session reducer — decision table', () => {
       origin: 'auto',
       merged: MERGED,
       base: BASE,
-      local: LOCAL
+      local: LOCAL,
+      markClean: false
     })
     expect(only(effects, 'apply-merge').fileChange.data.markdown).toBe(REMOTE)
     expect(effectTypes(effects)).not.toContain('open-resolver')
+  })
+
+  // The remote subsumed the local edits: the merge output equals the disk
+  // bytes, so the tab is truthfully clean after the apply. The reducer owns
+  // that decision — the interpreter must not re-derive it.
+  it('a clean resolution whose output equals the disk content applies markClean', () => {
+    const merging = toMerging()
+    const { state, effects } = reduce(merging, resolved(merging.requestId, REMOTE))
+
+    expect(state.kind).toBe('idle')
+    expect(only(effects, 'apply-merge')).toMatchObject({
+      origin: 'auto',
+      merged: REMOTE,
+      markClean: true
+    })
   })
 
   it('a clean resolution under forceReview opens the resolver with zero conflict rows', () => {
@@ -347,7 +363,9 @@ describe('merge-session reducer — decision table', () => {
     expect(effectTypes(effects)).toEqual(['close-resolver', 'apply-merge'])
     expect(only(effects, 'apply-merge')).toMatchObject({
       origin: 'accepted',
-      merged: correctedResult
+      merged: correctedResult,
+      // Accept keeps the tab dirty even when the result matches disk.
+      markClean: false
     })
     expect(state.kind).toBe('idle')
   })
@@ -607,7 +625,6 @@ describe('merge-session reducer — property fuzz', () => {
       let state = initialMergeSessionState()
       let tabMarkdown = LOCAL
       let tabBase: string | undefined = BASE
-      let tabSaved = false
       let closedSeen = false
       // Mutated from inside dispatch(); an object property (unlike a `let`)
       // is re-narrowed at every read, so the loop below sees the updates.
@@ -658,13 +675,16 @@ describe('merge-session reducer — property fuzz', () => {
               expect(effect.fileChange, `superseded payload applied (seed ${seed})`).toBe(
                 newestEnteredPayload
               )
+              // The clean-after-apply decision is the reducer's, carried on
+              // the effect; the model just executes it.
+              expect(effect.markClean).toBe(
+                effect.origin === 'auto' && effect.merged === effect.fileChange.data.markdown
+              )
               tabMarkdown = effect.merged
               tabBase = effect.fileChange.data.markdown
-              if (effect.origin === 'auto' && effect.merged === effect.fileChange.data.markdown) {
-                tabSaved = true
-                ui.notification = null
-              } else if (effect.origin === 'auto') {
-                tabSaved = false
+              if (effect.origin === 'auto') {
+                // The buffer visibly changed (local === remote never reaches
+                // apply-merge), so Undo/Review is offered even when markClean.
                 ui.notification = {
                   kind: 'auto',
                   paneBase: effect.base,
@@ -673,7 +693,6 @@ describe('merge-session reducer — property fuzz', () => {
                   fileChange: effect.fileChange
                 }
               } else {
-                tabSaved = false
                 ui.notification = null
               }
               break
@@ -694,7 +713,6 @@ describe('merge-session reducer — property fuzz', () => {
               }
               tabMarkdown = effect.fileChange.data.markdown
               tabBase = effect.fileChange.data.markdown
-              tabSaved = !effect.preserveDirty
               if (effect.reason === 'reload-disk') ui.notification = null
               break
             case 'open-resolver':
@@ -754,11 +772,9 @@ describe('merge-session reducer — property fuzz', () => {
           }
         } else if (roll < 0.6) {
           tabMarkdown = randomDoc(rnd)
-          tabSaved = false
           dispatch({ type: 'buffer-edited', local: tabMarkdown })
         } else if (roll < 0.68) {
           tabBase = tabMarkdown
-          tabSaved = true
           dispatch({ type: 'saved' })
         } else if (roll < 0.72 && !closedSeen) {
           dispatch({ type: 'tab-closed' })
@@ -767,10 +783,11 @@ describe('merge-session reducer — property fuzz', () => {
           const slot = ui.notification
           ui.notification = null
           if (slot.kind === 'auto') {
+            // Mirrors the interpreter's notification guard: buffer and base
+            // still hold the merge outcome. isSaved is deliberately absent —
+            // a markClean apply sets it, and Undo must stay live there.
             const guardHolds =
-              tabMarkdown === slot.merged &&
-              tabBase === slot.fileChange.data.markdown &&
-              !tabSaved
+              tabMarkdown === slot.merged && tabBase === slot.fileChange.data.markdown
             if (guardHolds) {
               dispatch({
                 type: 'review-requested',

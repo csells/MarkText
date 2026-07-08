@@ -139,3 +139,64 @@ describe('mergeMarkdownThreeWay fuzz — data preservation (no loss / no fabrica
     expect(mcChecked).toBeGreaterThan(0)
   }, 30_000)
 })
+
+// Property 3 (external-merge.md §Merge engine): order preservation — a clean
+// auto-merge never scrambles content. When one side deliberately reorders
+// lines the output cannot agree with BOTH sides at once, so the sound
+// formulation is: for lines whose relative order base, local, and remote all
+// agree on, the output keeps that order. Restricted to lines appearing
+// exactly once everywhere (repeated lines have no well-defined position).
+describe('mergeMarkdownThreeWay fuzz — order preservation', () => {
+  const uniqueLinePositions = (text: string): Map<string, number> => {
+    const counts = new Map<string, number>()
+    const positions = new Map<string, number>()
+    splitLines(text).forEach((line, index) => {
+      counts.set(line, (counts.get(line) ?? 0) + 1)
+      positions.set(line, index)
+    })
+    for (const [line, count] of counts) {
+      if (count > 1) positions.delete(line)
+    }
+    return positions
+  }
+
+  it('lines whose order all three inputs agree on keep that order in a clean merge', () => {
+    const next = rng(0x0d3e40e5)
+    let checked = 0
+    let pairsChecked = 0
+    for (let iter = 0; iter < 5000; iter += 1) {
+      const base = randomDoc(next, 12, PRESERVE_LINES)
+      const local = editDoc(next, base, PRESERVE_LINES)
+      const remote = editDoc(next, base, PRESERVE_LINES)
+      if (local === remote || local === base || remote === base) continue
+
+      const mine = mergeMarkdownThreeWay({ base, local, remote })
+      if (mine.conflicts.length !== 0) continue
+      checked += 1
+
+      const inBase = uniqueLinePositions(base)
+      const inLocal = uniqueLinePositions(local)
+      const inRemote = uniqueLinePositions(remote)
+      const inMerged = uniqueLinePositions(mine.mergedMarkdown)
+      const everywhere = [...inBase.keys()].filter(
+        (line) => inLocal.has(line) && inRemote.has(line) && inMerged.has(line)
+      )
+      for (let i = 0; i < everywhere.length; i += 1) {
+        for (let j = i + 1; j < everywhere.length; j += 1) {
+          const a = everywhere[i]
+          const b = everywhere[j]
+          const baseSays = inBase.get(a)! < inBase.get(b)!
+          if (inLocal.get(a)! < inLocal.get(b)! !== baseSays) continue
+          if (inRemote.get(a)! < inRemote.get(b)! !== baseSays) continue
+          pairsChecked += 1
+          expect(
+            inMerged.get(a)! < inMerged.get(b)!,
+            `order flip @${iter}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`
+          ).toBe(baseSays)
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0)
+    expect(pairsChecked).toBeGreaterThan(0)
+  }, 30_000)
+})

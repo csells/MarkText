@@ -120,7 +120,10 @@ const dispatchAndExecute = (
         break
       case 'apply-merge':
         applyDirtyExternalMerge(store, effect.fileChange, effect.merged, {
-          origin: effect.origin
+          origin: effect.origin,
+          markClean: effect.markClean,
+          base: effect.base,
+          local: effect.local
         })
         break
       case 'open-resolver':
@@ -393,13 +396,25 @@ export function applyDirtyExternalMerge(
   // 'auto': the watcher merged disjoint edits silently — offer Undo/Review.
   // 'accepted': the user just resolved this merge in the dialog — a second
   // notification offering to Undo/Review it again would be noise.
-  options: { origin?: 'auto' | 'accepted' } = {}
+  // markClean/base/local arrive on the reducer's apply-merge effect; direct
+  // store-action callers omit them and get the same values re-derived here.
+  options: {
+    origin?: 'auto' | 'accepted'
+    markClean?: boolean
+    base?: string
+    local?: string
+  } = {}
 ): void {
   const tab = store.tabs.find((t) => window.fileUtils.isSamePathSync(t.pathname, change.pathname))
   if (!tab) return
 
-  const baseMarkdownBeforeMerge = requireDiskBaseMarkdown(tab)
-  const localMarkdownBeforeMerge = tab.markdown
+  const origin = options.origin ?? 'auto'
+  // The base is only consumed by the auto-merge notification's Review panes.
+  // Accept must work on the whole-file session a no-base tab opens, where no
+  // recorded base exists to require.
+  const baseMarkdownBeforeMerge =
+    origin === 'auto' ? (options.base ?? requireDiskBaseMarkdown(tab)) : undefined
+  const localMarkdownBeforeMerge = options.local ?? tab.markdown
   const mergedChange: FileChangePayload = {
     ...change,
     data: {
@@ -407,9 +422,9 @@ export function applyDirtyExternalMerge(
       markdown: mergedMarkdown
     }
   }
-  const origin = options.origin ?? 'auto'
-  const cleanAfterApply = origin === 'auto' && mergedMarkdown === change.data.markdown
-  store.loadChange(mergedChange, { preserveDirty: !cleanAfterApply })
+  const markClean =
+    options.markClean ?? (origin === 'auto' && mergedMarkdown === change.data.markdown)
+  store.loadChange(mergedChange, { preserveDirty: !markClean })
 
   const nextTab = store.tabs.find((t) =>
     window.fileUtils.isSamePathSync(t.pathname, change.pathname)
@@ -427,14 +442,22 @@ export function applyDirtyExternalMerge(
       mergedAt: new Date().toISOString()
     }
   }
-  if (cleanAfterApply) {
+  if (markClean) {
     markTabSavedAtCurrentHistory(nextTab)
-  } else if (origin === 'accepted') {
+  } else {
     nextTab.isSaved = false
+  }
+  if (origin === 'accepted') {
     // The 'resolve the merge to continue' banner served its purpose.
     clearExclusiveTabNotification(nextTab, 'file_changed')
   } else {
-    nextTab.isSaved = false
+    if (baseMarkdownBeforeMerge === undefined) {
+      throw new Error('unreachable: auto-merge notification without a captured base')
+    }
+    const paneBase: string = baseMarkdownBeforeMerge
+    // The buffer visibly changed (local === remote never reaches the apply
+    // path), so Undo/Review is offered even when the merge left the tab
+    // clean against disk.
     store.pushTabNotification({
       tabId: nextTab.id,
       msg: t('store.editor.fileChangedOnDiskAutoMerged', { name: nextTab.filename }),
@@ -449,8 +472,11 @@ export function applyDirtyExternalMerge(
           (t) => t.id === nextTab.id && window.fileUtils.isSamePathSync(t.pathname, change.pathname)
         )
         if (!actionTab) return
+        // Liveness: buffer and base must still hold the merge outcome. A
+        // save is caught by these too (it moves the base off the remote for
+        // any dirty buffer), and a markClean apply sets isSaved by design —
+        // checking isSaved here would falsely kill Undo for that case.
         if (
-          actionTab.isSaved ||
           actionTab.markdown !== mergedMarkdown ||
           actionTab.diskBaseMarkdown !== change.data.markdown
         ) {
@@ -461,7 +487,7 @@ export function applyDirtyExternalMerge(
           syncReality(store, actionTab.id)
           dispatchAndExecute(store, actionTab.id, {
             type: 'review-requested',
-            paneBase: baseMarkdownBeforeMerge,
+            paneBase,
             paneLocal: localMarkdownBeforeMerge,
             expectedLocal: mergedMarkdown,
             expectedDiskBase: change.data.markdown,

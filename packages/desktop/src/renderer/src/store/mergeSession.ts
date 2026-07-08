@@ -118,6 +118,10 @@ export type MergeSessionEffect =
       // Pre-merge snapshots for the auto-merge notification's Undo/Review.
     base: string
     local: string
+      // True when the merged output is byte-identical to the disk content
+      // (the remote subsumed the local edits): the tab is truthfully clean
+      // after the apply. Accept always keeps the tab dirty.
+    markClean: boolean
   }
   | { type: 'open-resolver'; session: MergeReviewSession; withNotification: boolean }
   | { type: 'close-resolver' }
@@ -328,7 +332,8 @@ const onMergeResolved = (
           merged: event.merged,
           origin: 'auto',
           base: state.base,
-          local: state.local
+          local: state.local,
+          markClean: event.merged === state.remote
         }
       ]
     }
@@ -475,7 +480,8 @@ const onAccept = (
         merged: event.result,
         origin: 'accepted',
         base: session.paneBase,
-        local: session.paneLocal
+        local: session.paneLocal,
+        markClean: false
       }
     ]
   }

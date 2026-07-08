@@ -413,6 +413,72 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(store.mergeConflict!.resultMarkdown).toContain('disk content')
   })
 
+  // Regression: accepting the whole-file session a no-base tab opens used to
+  // throw (requireDiskBaseMarkdown ran unconditionally on the apply path)
+  // AFTER the resolver had already closed — silently discarding the user's
+  // hand-resolved result.
+  it('ACCEPT applies a hand-resolved result for a no-base whole-file session', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    delete (tab as { diskBaseMarkdown?: string }).diskBaseMarkdown
+    tab.markdown = 'local dirty content\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: 'disk content\n' }
+      } as never
+    )
+    expect(store.mergeConflict).not.toBeNull()
+
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT('local dirty content\ndisk content\n')
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe('local dirty content\ndisk content\n')
+    expect(tab.isSaved).toBe(false)
+    expect(tab.diskBaseMarkdown).toBe('disk content\n')
+  })
+
+  // When the clean merge's output is byte-identical to the disk content (the
+  // remote subsumed the local edits) the tab is truthfully clean — but the
+  // buffer still visibly changed, so the Undo/Review notification must be
+  // offered, and Undo must restore the pre-merge dirty buffer.
+  it('a clean merge equal to disk marks the tab clean but still offers Undo back to the dirty buffer', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    tab.markdown = 'one\nshared\nthree\nlocal tail\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    // The remote contains the local addition plus its own edit: the merge
+    // output equals the remote bytes exactly.
+    const remote = 'one\nshared REMOTE\nthree\nlocal tail\n'
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: remote }
+      } as never
+    )
+
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe(remote)
+    expect(tab.isSaved).toBe(true)
+    const notifications = tab.notifications as {
+      exclusiveType?: string
+      action?: (status: boolean | 'secondary') => void
+    }[]
+    const notification = notifications.find((n) => n.exclusiveType === 'file_changed')
+    if (!notification?.action) throw new Error('expected the Undo/Review notification')
+
+    notification.action(true)
+    expect(tab.markdown).toBe('one\nshared\nthree\nlocal tail\n')
+    expect(tab.isSaved).toBe(false)
+    expect(tab.diskBaseMarkdown).toBe(remote)
+  })
+
   it('HANDLE_DIRTY_EXTERNAL_CHANGE compares comment diagnostics through the authoritative analyzer', async() => {
     const store = useEditorStore()
     const tab = makeDirtyTab(store)
