@@ -26,8 +26,8 @@ const BOM_ENCODINGS: Array<{ encoding: string; bytes: number[] }> = [
 ]
 
 const usage = `Usage:
-  markdown-comments list <file>
-  markdown-comments validate <file>
+  markdown-comments list <file> [--footnote true|false]
+  markdown-comments validate <file> [--footnote true|false]
   markdown-comments reply <file> <id> --author <name> --body <text> [--created-at <iso>]
   markdown-comments resolve <file> <id> [--updated-at <iso>]
   markdown-comments reopen <file> <id> [--updated-at <iso>]
@@ -36,13 +36,14 @@ const usage = `Usage:
 
 Options:
   --encoding <name> Decode and write a non-BOM legacy file with an iconv-lite encoding such as cp1252 or shiftjis.
+  --footnote <bool> Analyze with footnote parsing on, matching an editor whose footnote preference is enabled (default false, the engine default).
 `
 
 // Every option this CLI knows takes a value; per-command allowed sets keep a
 // typo (or an option the command would silently drop) from passing as valid.
 const COMMAND_OPTIONS: Record<string, ReadonlySet<string>> = {
-  list: new Set(['encoding']),
-  validate: new Set(['encoding']),
+  list: new Set(['encoding', 'footnote']),
+  validate: new Set(['encoding', 'footnote']),
   reply: new Set(['encoding', 'author', 'body', 'created-at']),
   resolve: new Set(['encoding', 'updated-at']),
   reopen: new Set(['encoding', 'updated-at']),
@@ -196,6 +197,16 @@ function buildPatch(options: Record<string, string>): TUpdateCommentThreadPatch 
   return patch
 }
 
+// The analyzer's footnote option mirrors the editor preference; anything but
+// an explicit true/false is a typo, not a default to guess at.
+function parseFootnoteOption(value: string | undefined): { footnote: boolean } | undefined {
+  if (value == null) return undefined
+  if (value !== 'true' && value !== 'false') {
+    throw new Error('--footnote must be "true" or "false".')
+  }
+  return { footnote: value === 'true' }
+}
+
 function parseReplyIndex(value: string | undefined): number | null {
   if (value == null) return null
   if (!/^\d+$/u.test(value)) {
@@ -226,12 +237,12 @@ function main(): void {
   const { markdown } = document
 
   if (command === 'list') {
-    printJson(readMarkdownComments(markdown))
+    printJson(readMarkdownComments(markdown, parseFootnoteOption(options.footnote)))
     return
   }
 
   if (command === 'validate') {
-    const parsed = readMarkdownComments(markdown)
+    const parsed = readMarkdownComments(markdown, parseFootnoteOption(options.footnote))
     printJson(parsed.diagnostics)
     process.exitCode = parsed.diagnostics.length ? 1 : 0
     return

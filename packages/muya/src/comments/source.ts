@@ -11,6 +11,8 @@ import {
 import { lexBlock } from '../utils/marked';
 import { forEachRealCommentMarker } from './markerScan';
 import {
+    COMMENT_DEFINITION_LABEL_PREFIX,
+    COMMENT_MARKER_OPEN_PREFIX,
     COMMENT_MARKER_PATTERN,
     htmlBlockTokenIsParagraph,
     parseCommentMetadataDefinition,
@@ -589,7 +591,7 @@ export function buildCommentSourceIndex(
         const lineStart = view.start + view.delta;
         forEachRealCommentMarker(view.stripped, (scanned) => {
             const markerStart = lineStart + scanned.start;
-            const idStart = markerStart + '<!--MC:'.length + (scanned.kind === 'close' ? 1 : 0);
+            const idStart = markerStart + COMMENT_MARKER_OPEN_PREFIX.length + (scanned.kind === 'close' ? 1 : 0);
             const marker: ICommentSourceMarker = {
                 id: scanned.id,
                 kind: scanned.kind,
@@ -624,7 +626,9 @@ export function buildCommentSourceIndex(
 
         const reply = parseCommentReplyDefinition(view.stripped);
         const lineStart = view.start + view.delta;
-        const idStartInLine = view.stripped.indexOf(`[MC:${metadata.id}]`) + '[MC:'.length;
+        const idStartInLine
+            = view.stripped.indexOf(`${COMMENT_DEFINITION_LABEL_PREFIX}${metadata.id}]`)
+                + COMMENT_DEFINITION_LABEL_PREFIX.length;
         metadataDefinitions.push({
             id: reply ? reply.id : metadata.id,
             label: metadata.id,

@@ -355,6 +355,51 @@ describe('markdown-comments CLI', () => {
     })
   })
 
+  // Head-level fields record head-level changes only (comment-format.md):
+  // editing a reply — even with a new author — rewrites exactly that reply
+  // line. Thread authors are derived at read time.
+  it('a reply edit with a new author rewrites only the reply line', () => {
+    const head = '[MC:a]: {"version":2,"status":"open","authors":["Ada"],"createdAt":"2026-06-30T12:00:00.000Z"}'
+    const reply = '[MC:a.0]: {"author":"Ada","createdAt":"2026-06-30T12:00:00.000Z","body":"First note."}'
+    const file = writeMarkdown([
+      'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+      '',
+      head,
+      reply,
+      ''
+    ].join('\n'))
+
+    runCli('edit', file, 'a', '--reply-index', '0', '--author', 'Zoe')
+
+    const updated = fs.readFileSync(file, 'utf8')
+    // The head line is byte-identical: no authors push, no rewrite.
+    expect(updated).toContain(head)
+    expect(updated).toContain('"author":"Zoe"')
+    // The thread's authors are derived at read and include the reply author.
+    expect(readMarkdownComments(updated).threads[0].authors).toContain('Zoe')
+  })
+
+  // The CLI reads with the same authoritative analyzer the desktop uses; a
+  // footnote-enabled editor parses an indented definition inside a footnote
+  // block as metadata, so the CLI accepts --footnote to match it.
+  it('list --footnote true matches a footnote-enabled editor\'s analysis', () => {
+    const doc = [
+      'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+      '',
+      '[^note]: footnote text',
+      '    [MC:a]: {"version":2,"status":"open"}',
+      ''
+    ].join('\n')
+    const file = writeMarkdown(doc)
+
+    const withFootnote = JSON.parse(runCli('list', file, '--footnote', 'true'))
+    expect(withFootnote.threads).toMatchObject([{ id: 'a' }])
+    expect(withFootnote.diagnostics).toEqual([])
+
+    const defaultRead = JSON.parse(runCli('list', file))
+    expect(defaultRead.diagnostics).not.toEqual([])
+  })
+
   it('does not resolve metadata-looking definitions inside fenced code', () => {
     const metadata = encodeCommentMetadata({
       version: 1,

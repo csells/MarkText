@@ -1,4 +1,4 @@
-import { analyzeMarkdownComments } from '@muyajs/core/comments'
+import { analyzeMarkdownComments, type TCommentAnalysisOptions } from '@muyajs/core/comments'
 import type {
   ICommentDiagnostic,
   ICommentRange,
@@ -37,8 +37,11 @@ const compareDiagnostics = (a: ICommentDiagnostic, b: ICommentDiagnostic): numbe
 
 const compareThreads = (a: ICommentThread, b: ICommentThread): number => compareStrings(a.id, b.id)
 
-export function readMarkdownComments(markdown: string): IParsedMarkdownComments {
-  const parsed = analyzeMarkdownComments(markdown).comments
+export function readMarkdownComments(
+  markdown: string,
+  options?: TCommentAnalysisOptions
+): IParsedMarkdownComments {
+  const parsed = analyzeMarkdownComments(markdown, options).comments
   return {
     threads: [...parsed.threads].sort(compareThreads),
     ranges: [...parsed.ranges].sort(compareRanges),

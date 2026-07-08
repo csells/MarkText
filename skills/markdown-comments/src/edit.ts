@@ -71,13 +71,11 @@ export function editCommentReply(
       ...(patch.createdAt != null ? { createdAt: patch.createdAt } : {})
     }
     const replies = metadata.replies.map((item, index) => (index === replyIndex ? nextReply : item))
-    const authors = metadata.authors ? [...metadata.authors] : []
-    if (patch.author && !authors.includes(patch.author)) {
-      authors.push(patch.author)
-    }
 
+    // Head-level fields record head-level changes only (comment-format.md):
+    // a reply-level edit never rewrites the head line. Thread authors are
+    // derived from the head plus every reply at read time.
     return mergeCommentMetadataPatch(metadata, {
-      ...(authors.length ? { authors } : {}),
       ...(patch.updatedAt ? { updatedAt: patch.updatedAt } : {}),
       replies
     })

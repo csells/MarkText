@@ -1,9 +1,13 @@
 import { escapeRegExp } from '../utils';
 
 export const COMMENT_METADATA_DATA_URI_PREFIX = 'data:application/json;base64,';
+// The two wire-format prefixes, exported so consumers doing id-offset
+// arithmetic derive from the grammar owner instead of hand-building them.
+export const COMMENT_MARKER_OPEN_PREFIX = '<!--MC:';
+export const COMMENT_DEFINITION_LABEL_PREFIX = '[MC:';
 export const COMMENT_ID_PATTERN = '\\w[\\w-]*';
-export const COMMENT_MARKER_PATTERN = `<!--MC:(~?)(${COMMENT_ID_PATTERN})-->`;
-const COMMENT_MARKER_LIKE_REGEXP = /^<!--MC:(~?)(.*?)-->/;
+export const COMMENT_MARKER_PATTERN = `${COMMENT_MARKER_OPEN_PREFIX}(~?)(${COMMENT_ID_PATTERN})-->`;
+const COMMENT_MARKER_LIKE_REGEXP = new RegExp(`^${COMMENT_MARKER_OPEN_PREFIX}(~?)(.*?)-->`);
 export const COMMENT_MARKER_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`);
 export const COMMENT_MARKER_SEARCH_REGEXP = new RegExp(COMMENT_MARKER_PATTERN);
 export const COMMENT_METADATA_DEFINITION_REGEXP = /^ {0,3}\[MC:([^\]\s]+)\]:(.*)$/u;

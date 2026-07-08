@@ -29,7 +29,12 @@ pnpm exec tsx skills/markdown-comments/src/cli.ts reopen path/to/file.md cmt_1
 pnpm exec tsx skills/markdown-comments/src/cli.ts edit path/to/file.md cmt_1 --status resolved --authors "Ada,Grace"
 pnpm exec tsx skills/markdown-comments/src/cli.ts edit path/to/file.md cmt_1 --reply-index 0 --body "Updated reply."
 pnpm exec tsx skills/markdown-comments/src/cli.ts list legacy.md --encoding cp1252
+pnpm exec tsx skills/markdown-comments/src/cli.ts list path/to/file.md --footnote true
 ```
+
+`--footnote true` analyzes with footnote parsing on — use it when the target
+project edits with MarkText's footnote preference enabled, so `list` and
+`validate` see the same block structure the editor does.
 
 `list` prints deterministic JSON with this shape:
 
