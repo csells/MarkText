@@ -24,13 +24,17 @@ apply-merge effect to the notification's Review panes.
 
 Rows are evaluated in this order (byte-equality outranks the clean-tab
 reload: a byte-identical change is ignored or absorbed, never reloaded —
-the #1861 behavior):
+the #1861 behavior). Rows 3–5 are reducer rows, which only DIRTY tabs
+reach: a clean tab short-circuits to the reload row before the reducer is
+consulted, so a clean tab whose disk bytes match but whose persistence
+snapshot differs reloads and stays clean (there is nothing dirty to
+preserve):
 
 | Condition | Action |
 | --- | --- |
 | disk bytes == tab bytes and persistence snapshot equal | absorb: mark the tab clean and advance the base (no reload, no notification churn); an open resolver session for the tab is closed via the reducer instead — its content no longer differs |
-| `local == remote`, persistence differs or tab dirty | mark clean, advance base (persistence-only diffs keep dirty); the auto-merge Undo/Review notification is kept |
 | tab clean | reload from disk (regardless of Auto Save) |
+| `local == remote` (dirty tab) | mark clean, advance base (persistence-only diffs keep dirty); the auto-merge Undo/Review notification is kept |
 | `remote == base` | ignore — disk has nothing new relative to the edit base |
 | otherwise | three-way merge (`base`, `local`, `remote`) |
 

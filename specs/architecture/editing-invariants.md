@@ -45,12 +45,15 @@ compositions of those same ops.
   (materialize → re-extract as one rebuild undo boundary): pasted wire
   syntax lands as model comments — matching what saving and reopening would
   produce — and colliding ids are remapped, so paste cannot corrupt the
-  model or collide ids. Literal MC bytes in state text exist in exactly two
-  cases: marker-shaped text the user *types*, and MALFORMED marker shapes
-  (invalid ids) from a loaded or pasted document — extraction folds only
-  well-formed markers into the model; malformed shapes cannot be anchored
-  without guessing and are kept verbatim as visible literal text
-  (comment-anchors.md invariant 1 names the same residue).
+  model or collide ids. Literal MC bytes in state text exist in exactly
+  three cases: marker-shaped text the user *types*; MALFORMED marker
+  shapes (invalid ids) from a loaded or pasted document — extraction folds
+  only well-formed markers into the model, and malformed shapes cannot be
+  anchored without guessing so they stay verbatim as visible literal text;
+  and literal contexts (code fences, inline code, and the other
+  non-commentable leaves), where even well-formed marker bytes are
+  documentation, not comments (comment-anchors.md invariant 1 names the
+  same carve-outs).
 - Search operates over the same clean text the user sees.
 
 ## Select-all semantics (unchanged)
@@ -60,8 +63,13 @@ compositions of those same ops.
 - Menu/toolbar `selectAll()`: progressive — block first, then document, with
   table cell→table→document escalation.
 
-Pinned by `packages/muya/src/selection/__tests__/selectAll.spec.ts` and
-`packages/muya/e2e/tests/editing/selection.spec.ts`.
+Pinned by `packages/muya/src/selection/__tests__/selectAll.spec.ts`,
+`packages/muya/e2e/tests/editing/selection.spec.ts`, and — through the
+desktop's real accelerator interception (`sendInputEvent`, since CDP-injected
+test input bypasses `before-input-event`) —
+`packages/desktop/test/e2e/select-all-keyboard.spec.ts`: the intercepted
+keyboard press routes to `selectWholeDocument()`; the menu click stays
+progressive.
 
 ## Round-trip data preservation
 
