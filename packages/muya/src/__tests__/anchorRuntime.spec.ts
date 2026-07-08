@@ -367,6 +367,25 @@ describe('anchor runtime — mutations and undo across the cutover', () => {
         expect(muya.getMarkdown()).not.toContain('<!--MC:a-->');
     });
 
+    // A fast typed burst coalesces into ONE history entry; that entry must
+    // carry the anchors/runs from BEFORE the burst's FIRST keystroke, so a
+    // single undo restores the pre-burst positions (invariant 4 for
+    // sequences, not just single edits).
+    it('one undo restores pre-burst anchors after a coalesced typed burst', () => {
+        const muya = boot(DOC);
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+
+        leaf.text = `XX${leaf.text}`;
+        muya.flush();
+        leaf.text = `YY${leaf.text}`;
+        muya.flush();
+        expect(muya.getComments().ranges[0].startOffset).toBe('YYXXHello '.length);
+
+        muya.undo();
+        expect(muya.getComments().ranges[0].startOffset).toBe('Hello '.length);
+        expect(muya.getMarkdown()).toBe(DOC);
+    });
+
     it('setHistory rejects a comment-model entry missing its definition runs', () => {
         const muya = boot('A reviewed span.\n');
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;

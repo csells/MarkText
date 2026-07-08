@@ -84,9 +84,9 @@ test.describe('Tab switch restores the per-tab caret', () => {
   test('caret returns to its original block after switching away and back', async() => {
     // Caret after "gamma " (offset 6) in the third paragraph of tab A.
     expect(await placeCaretInParagraph(page, 2, 6)).toBe(true)
-    await page.waitForTimeout(200)
-    // Sanity: the caret is where we put it before any tab switch.
-    expect(await readCaret(page)).toEqual({ index: 2, offset: 6 })
+    // Sanity: the caret is where we put it before any tab switch (the
+    // engine commits the selection asynchronously — poll, don't sleep).
+    await expect.poll(() => readCaret(page), { timeout: 5000 }).toEqual({ index: 2, offset: 6 })
 
     // Open a second, auto-selected tab — this switches away from tab A.
     await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, 'other tab body\n')
@@ -99,9 +99,10 @@ test.describe('Tab switch restores the per-tab caret', () => {
 
     // Switch back to tab A (index 0).
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
-    await page.waitForTimeout(300)
 
-    // The caret must be restored to the third paragraph at offset 6.
+    // The caret must be restored to the third paragraph at offset 6 (the
+    // restore rides the async tab-switch rebuild — poll it).
+    await expect.poll(() => readCaret(page), { timeout: 5000 }).toEqual({ index: 2, offset: 6 })
     const caret = await readCaret(page)
     expect(caret).toEqual({ index: 2, offset: 6 })
   })

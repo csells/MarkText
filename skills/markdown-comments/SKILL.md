@@ -73,7 +73,7 @@ project edits with MarkText's footnote preference enabled, so `list` and
 
 Mutation commands touch only the target thread's lines — appending a reply writes exactly one new `[MC:id.N]:` line, a status change rewrites exactly the head line — and never move range markers, normalize unrelated Markdown, create sidecar files, or start a server.
 
-The CLI auto-detects UTF-8 Markdown files, UTF-8 files with a BOM, and BOM-marked UTF-16 Markdown files. For legacy files without a Unicode BOM, pass `--encoding <name>` with an `iconv-lite` encoding such as `cp1252`, `shiftjis`, `gbk`, or `big5`. When a mutation command edits one metadata definition, it preserves unrelated Markdown bytes as much as practical, including existing line separators, the original BOM, the original or explicitly requested encoding, trailing whitespace on the target metadata line, and whether the file has a final newline.
+The CLI auto-detects UTF-8 Markdown files, UTF-8 files with a BOM, and BOM-marked UTF-16 Markdown files. For legacy files without a Unicode BOM, pass `--encoding <name>` with an `iconv-lite` encoding such as `cp1252`, `shiftjis`, `gbk`, or `big5`. When a mutation command edits one metadata definition, it preserves unrelated Markdown bytes as much as practical, including existing line separators, the original BOM, the original or explicitly requested encoding, trailing whitespace on the target metadata line, and whether the file has a final newline — with one deliberate exception: appending a reply to a file without a final newline terminates the file, so the next append no longer churns the last line in diff terms.
 
 ## Rules
 

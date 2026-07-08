@@ -64,7 +64,20 @@ until the implementation reflects the specs.
   search-prefill/command-palette, sleep→condition waits, portable chords,
   selection bridge); CLI head-rewrite fix, --footnote parity flag, grammar
   prefixes derived from syntax.ts. All six architecture docs updated to the
-  delivered design. Next: re-run the gap analysis until clean; full
+  delivered design. Round 2 (10 confirmed: 1 must-fix, 7 minor, 2
+  spec-stale) fixed: the Linux-CI test-bridge gating, rescue/redo pins,
+  grammar-owner prefix regexp, dead apply fallback path, residual e2e
+  sleeps, run-position parenthetical. Round 3 (7 confirmed, 0 must-fix)
+  plus a five-verifier adversarial review (mutation testing, independent
+  byte-fidelity probes) fixed: the same-leaf marker+definition
+  serialization corruption (BLOCKER — markers and text-embedded runs now
+  splice in one per-leaf pass, pinned), the mid-doc-definition cursor
+  clamp, payload marker scanning (CLI rejected its own output), the
+  byte-equal watcher-echo notification/resolver behavior, fuzz
+  strengthening with mutants verified dying, the strip/getCleanMarkdown
+  byte agreement (cross-mode word count), strict setHistory, lint:css
+  gated + warning ratchets, canonicalization pins, and the final doc
+  alignments. Next: round-4 analysis to verify convergence; final
   certification sweep.
 
 ## P1 — Test infrastructure first (it gates everything after)

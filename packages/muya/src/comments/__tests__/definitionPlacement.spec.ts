@@ -173,6 +173,45 @@ describe('definition placement — runtime threads without a recorded position',
     });
 });
 
+describe('definition placement — canonical payload re-serialization on save', () => {
+    // comment-format.md pinned property 1: decodable payloads re-serialize
+    // in canonical form. Each non-canonical-but-decodable input normalizes
+    // on the first save (the byte round-trip is deliberately NOT identical).
+    it('compacts interior whitespace and reorders keys to the stable order', () => {
+        const markdown = [
+            'text <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: { "status": "open", "version": 2 }',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe([
+            'text <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+        ].join('\n'));
+    });
+
+    it('unescapes non-ASCII escapes and strips label indentation', () => {
+        const markdown = [
+            'text <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '  [MC:a]: {"version":2,"status":"open"}',
+            '  [MC:a.0]: {"author":"Ada","createdAt":"t","body":"caf\\u00e9"}',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(markdown)).toBe([
+            'text <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '[MC:a.0]: {"author":"Ada","createdAt":"t","body":"café"}',
+            '',
+        ].join('\n'));
+    });
+});
+
 describe('definition placement — text-embedded runs sharing a leaf with markers', () => {
     // The definition tokenizer deliberately has no start hook, so a
     // definition line lazy-continues into the preceding paragraph: markers

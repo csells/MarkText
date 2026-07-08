@@ -174,8 +174,11 @@ this architecture (their regression tests convert to anchor-semantics tests):
 
 ## Invariants (each pinned by tests)
 
-1. **No MC bytes at runtime**: no state leaf text and no rendered DOM ever
-   contains `<!--MC:` or a metadata definition after load.
+1. **No MC bytes at runtime**: after load, no commentable state leaf text
+   and no rendered comment machinery contains `<!--MC:` or a metadata
+   definition. Literal contexts (code fences, inline code) keep their bytes
+   as documentation, and marker-shaped text the user TYPES is literal
+   visible text until the next load re-extracts it.
 2. **Round-trip fidelity**: load → (no edits) → serialize is byte-identical
    for well-formed documents — including mid-document definition blocks,
    which stay in place (modulo the pre-existing serializer normalizations,

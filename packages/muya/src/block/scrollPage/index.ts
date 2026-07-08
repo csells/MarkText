@@ -108,9 +108,9 @@ export class ScrollPage extends Parent {
     updateCommentContent() {
         // Blocks render DETACHED during updateState's append, and the
         // highlight step skips detached blocks — so highlight-bearing blocks
-        // need one repaint after attach. Marker/definition HIDING has no
-        // cross-block dependency and is correct on the first render, so only
-        // blocks the (cached) render model actually highlights re-render.
+        // need one repaint after attach. Highlights are the only comment
+        // rendering (anchors → ranges; nothing is hidden), so only blocks
+        // the (cached) render model actually highlights re-render.
         const { comments } = this.muya.commentRenderView();
         if (comments.ranges.length === 0)
             return;

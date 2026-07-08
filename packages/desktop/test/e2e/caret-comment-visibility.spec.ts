@@ -1,7 +1,8 @@
-// Arrowing the caret into a comment must leave a VISIBLE caret. Comment markers
-// render as hidden zero-width spans, so a caret landing at/inside one has a
-// zero-height (invisible) rect. Regression guard for that: the caret must snap
-// into the visible commented text.
+// Arrowing the caret into a comment must leave a VISIBLE caret. Under the
+// anchor runtime (comment-anchors.md) marker bytes never reach the DOM —
+// commented text is ordinary visible text with a highlight — so the caret
+// must always have a real (non-zero-height) rect and never sit inside any
+// marker element (the inMarker probe pins that no such element exists).
 import { expect, test } from '@playwright/test'
 import { focusEditor, launchWithMarkdown, placeCaretInEditor } from './helpers'
 

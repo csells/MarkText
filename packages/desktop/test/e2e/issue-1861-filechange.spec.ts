@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import fs from 'fs'
-import { getMarkdownContent, launchWithMarkdown, waitForMenuReady } from './helpers'
+import { getMarkdownContent, launchWithMarkdown, readSettled, waitForMenuReady } from './helpers'
 
 // #1861 — rewriting the open file on disk with byte-identical content (e.g. a
 // git checkout that left it unchanged) fires a watcher 'change', but must NOT
@@ -24,13 +24,16 @@ test.describe('Issue #1861 — content-identical file change', () => {
   test('an identical on-disk rewrite stays clean; a real clean change auto-syncs', async() => {
     const { app, page, filePath } = await launchWithMarkdown('hello\nworld\n')
     await waitForMenuReady(app)
-    await page.waitForTimeout(500)
-    expect(await isDirty(page)).toBe(false)
+    // Negative expectations settle across consecutive reads so a late
+    // watcher event cannot slip past a single early sample.
+    expect(await readSettled(() => isDirty(page), { requiredStreak: 4, interval: 120 })).toBe(false)
 
     // Identical bytes — the watcher fires, but the tab must stay clean.
+    // The fixed sleep PROVOKES the debounced watcher (macOS awaitWriteFinish
+    // stabilityThreshold ~1s); the settled read then holds the negative.
     fs.writeFileSync(filePath, 'hello\nworld\n', 'utf-8')
     await page.waitForTimeout(WATCH_SETTLE)
-    expect(await isDirty(page)).toBe(false)
+    expect(await readSettled(() => isDirty(page), { requiredStreak: 4, interval: 120 })).toBe(false)
 
     // A genuine content change auto-syncs when the tab is clean.
     fs.writeFileSync(filePath, 'hello\nworld\nchanged\n', 'utf-8')

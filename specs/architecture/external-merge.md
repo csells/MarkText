@@ -26,7 +26,7 @@ the #1861 behavior):
 
 | Condition | Action |
 | --- | --- |
-| disk bytes == tab bytes and persistence snapshot equal | ignore (an open resolver session for the tab is closed via the reducer instead — its content no longer differs) |
+| disk bytes == tab bytes and persistence snapshot equal | absorb: mark the tab clean and advance the base (no reload, no notification churn); an open resolver session for the tab is closed via the reducer instead — its content no longer differs |
 | `local == remote`, persistence differs or tab dirty | mark clean, advance base (persistence-only diffs keep dirty); the auto-merge Undo/Review notification is kept |
 | tab clean | reload from disk (regardless of Auto Save) |
 | `remote == base` | ignore — disk has nothing new relative to the edit base |
