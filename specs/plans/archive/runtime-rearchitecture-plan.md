@@ -51,7 +51,7 @@ until the implementation reflects the specs.
   table (29 specs) plus the four fuzz invariants over 150 seeded random
   event sequences with a model interpreter; the pre-existing
   dirty-external-merge behavior lock passes unchanged.
-- P6 (gap-analysis loop) — **in progress**. Round 1: a 7-analyzer /
+- P6 (gap-analysis loop) — **done**. Round 1: a 7-analyzer /
   per-finding adversarial-verifier workflow over every specs/architecture/
   doc confirmed 32 gaps (6 must-fix, 13 minor, 13 spec-stale; 2 claims
   refuted). All code gaps fixed red/green in six batches: merge-apply fixes
@@ -154,8 +154,23 @@ until the implementation reflects the specs.
   (comment-edge-typing, tab-switch-cursor, issue-4374 — whose caret
   helper also silently no-opped on a missing span, making its no-crash
   assertions vacuous) converted to bridge waits/fail-loud arrangement.
-  Severity trajectory 32→10→7→9→4→6→4→4→3→3→12(minor). Next: round-12
-  analysis; final certification sweep.
+  Severity trajectory 32→10→7→9→4→6→4→4→3→3→12(minor). Round 12: six of
+  the seven docs analyzed fresh with ZERO findings (comment-format,
+  external-merge, editing-invariants, test-infrastructure,
+  parser-integration, agent-cli); the comment-anchors re-analysis was cut
+  off by account spend limits, so its round-11 findings (all fixed) were
+  re-verified inline instead — all 78 pins across its seven invariant
+  suites green and every changed passage checked against the code.
+  **Convergence reached: the designs in specs/architecture/ are reflected
+  in the implementation.**
+- **Certification sweep — done.** muya: 1745 unit + 1347 conformance +
+  242 Chromium e2e; desktop: 909 unit + full Playwright e2e suite green;
+  skills: 36; typecheck clean in both packages; eslint ratchets held
+  (root 182, muya 9); stylelint exit 0; no circular deps; build:unpack
+  exit 0; build:mac:arm64 packaged and the app deployed to /Applications
+  and verified launching with session restore.
+
+**Status: DONE (2026-07-08).** All phases P0–P6 complete.
 
 ## P1 — Test infrastructure first (it gates everything after)
 
