@@ -142,9 +142,12 @@ that boundary.
 - Highlights derive from anchors: for each block, the intersection of paired
   anchor ranges with that block, in clean-text offsets. No tokenizer
   involvement, and the live renderer does no hiding: marker- or
-  definition-shaped bytes a user TYPES render as visible literal text (the
-  `comment_marker` token and tokenizer rules remain for file-level scanning
-  and serialized-bytes consumers only).
+  definition-shaped bytes a user TYPES render as visible literal text. The
+  `comment_marker` token stays in the LIVE tokenizer to make that so — it is
+  what routes marker-shaped bytes to a visible plain-text vnode instead of
+  inline-HTML handling — and doubles as the file-level scanning primitive
+  for serialized-bytes consumers. Removing it from the live pipeline would
+  regress the pinned visible-text semantics.
 - `getComments()` reads the model through a per-version view
   (`commentModelView`): ranges pair anchors, previews and document order
   derive from one walk over the clean state, and the result is cached on the
@@ -175,10 +178,16 @@ this architecture (their regression tests convert to anchor-semantics tests):
 ## Invariants (each pinned by tests)
 
 1. **No MC bytes at runtime**: after load, no commentable state leaf text
-   and no rendered comment machinery contains `<!--MC:` or a metadata
-   definition. Literal contexts (code fences, inline code) keep their bytes
-   as documentation, and marker-shaped text the user TYPES is literal
-   visible text until the next load re-extracts it.
+   and no rendered comment machinery contains a well-formed `<!--MC:`
+   marker or metadata definition. Literal contexts (code fences, inline
+   code) keep their bytes as documentation. Two deliberate residues remain
+   in leaf text as visible literal bytes: marker-shaped text the user
+   TYPES (well-formed shapes fold into the model on the next load), and
+   MALFORMED marker shapes from a loaded file (e.g. an invalid id) — these
+   cannot be anchored without guessing and must not be destroyed, so they
+   stay verbatim; the byte-level analyzer reports them as
+   `malformed-marker` diagnostics to file-level consumers (source mode,
+   CLI), which is where repair happens.
 2. **Round-trip fidelity**: load → (no edits) → serialize is byte-identical
    for well-formed documents — including mid-document definition blocks,
    which stay in place (modulo the pre-existing serializer normalizations,

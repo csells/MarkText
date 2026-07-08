@@ -37,8 +37,10 @@ same authoritative code the desktop uses — so an agent and the editor can
 never disagree about how a comment's bytes change. Analysis is
 parse-option-sensitive at the margins (block context depends on parser
 options): the CLI defaults to the engine defaults and accepts
-`--footnote true|false` so an agent can match an editor whose footnote
-preference is enabled. The skill package depends on `@muyajs/core` only —
+`--footnote true|false` on every command — mutation locates the definition
+through the same analyzer, so the flag gates writing exactly as it gates
+reading — letting an agent match an editor whose footnote preference is
+enabled. The skill package depends on `@muyajs/core` only —
 never on Electron-tainted desktop modules.
 
 ## Byte preservation on mutation

@@ -85,9 +85,33 @@ until the implementation reflects the specs.
   advancement enumeration (spec-stale), the MC-paste single-undo-boundary
   pin (verified biting against a no-boundary mutant), the last four
   sleep-then-assert e2e reads converted to polls/settled streaks, and the
-  agent-cli byte-preservation exception wording. Severity trajectory
-  32→10→7→9→4 with rounds 4–5 free of behavior gaps. Next: round-6
-  analysis as convergence confirmation; final certification sweep.
+  agent-cli byte-preservation exception wording. Round 6 (6 confirmed —
+  all minor — 2 refuted) caught two real behavior divergences the earlier
+  rounds missed and four coverage/infra residuals, all fixed red/green:
+  review-requested during an in-flight merge now upgrades it to
+  forceReview instead of discarding the click; the merge-worker bridge
+  field-validates the success envelope arm (a `{ ok: true }` reply with a
+  missing/malformed result rejects loudly instead of resolving undefined
+  and stranding the session); the document-leading-definition
+  canonicalization pinned; the skills suite pins the reply-append
+  termination exception; the muya-e2e diagram/list-nav sleeps and the
+  list-indent caret-arrangement sleep converted to engine-condition waits
+  (the arrangement now text-anchors the caret and waits on the committed
+  engine selection). Severity trajectory 32→10→7→9→4→6 with nothing above
+  minor since round 3. Round 7 (4 confirmed, 0 refuted: 1 must-fix, 1
+  minor, 2 spec-stale) fixed red/green: the markClean→Review→Accept
+  stillborn session (syncReality read the markClean isSaved flag as "base
+  moved" and Accept silently discarded the hand-edited result — liveness
+  now reads the base itself); --footnote plumbed through the mutation
+  path end-to-end (ICommentSourceIndexOptions gained footnote, the source
+  index lex no longer hardcodes it off, updateCommentMetadataInMarkdown
+  takes analysis options, all four CLI mutation commands accept the flag,
+  and desktop source-mode mutation passes its own parser options);
+  invariant 1 rewritten with the malformed-marker residue carve-out; the
+  comment_marker "file-level only" clause corrected (the token is
+  load-bearing in the live tokenizer for typed-marker visibility).
+  Severity trajectory 32→10→7→9→4→6→4. Next: round-8 analysis; final
+  certification sweep.
 
 ## P1 — Test infrastructure first (it gates everything after)
 
