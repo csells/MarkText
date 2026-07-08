@@ -566,6 +566,39 @@ describe('merge-session reducer — decision table', () => {
     expect(done.state.kind).toBe('reviewing')
   })
 
+  it('a supersede preserves the upgraded review intent of the in-flight merge', () => {
+    // Review clicked while merge #1 is in flight (upgrades forceReview),
+    // then agent write #2 supersedes before #1 resolves. The explicit
+    // review click must survive onto merge #2 — "an explicit review
+    // request never silently auto-applies".
+    const merging = toMerging()
+    const upgraded = asMerging(
+      reduce(merging, {
+        type: 'review-requested',
+        paneBase: BASE,
+        paneLocal: LOCAL,
+        expectedLocal: LOCAL,
+        expectedDiskBase: BASE,
+        result: MERGED,
+        conflicts: [],
+        fileChange: change(REMOTE),
+        currentLocal: LOCAL,
+        currentBase: BASE,
+        persistenceEqual: true
+      }).state
+    )
+    expect(upgraded.forceReview).toBe(true)
+
+    const remote2 = 'one\nshared\nTHREE AGAIN\n'
+    const superseded = asMerging(reduce(upgraded, diskChanged(remote2)).state)
+    expect(superseded.forceReview).toBe(true)
+
+    const done = reduce(superseded, resolved(superseded.requestId, remote2))
+    expect(effectTypes(done.effects)).not.toContain('apply-merge')
+    only(done.effects, 'open-resolver')
+    expect(done.state.kind).toBe('reviewing')
+  })
+
   it('tab-closed closes any open resolver and goes permanently dead', () => {
     const reviewing = toReviewing()
     const closed = reduce(reviewing, { type: 'tab-closed' })

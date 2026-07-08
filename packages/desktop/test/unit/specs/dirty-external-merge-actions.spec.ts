@@ -555,6 +555,39 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     })
   }
 
+  // Reload Disk on a BACKGROUND tab: loadChange invalidates the tab's engine
+  // history (pre-reload ops describe a different document), so undoability
+  // must come from the journal — the same mechanism background apply-merge
+  // uses. Without it the spec's "the reload remains undoable back to the
+  // local buffer" holds only for the foreground tab.
+  it('reload-disk on a background tab journals the pre-reload buffer for activation undo', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    tab.markdown = 'one\nlocal\nthree\n'
+    tab.diskBaseMarkdown = 'one\nshared\nthree\n'
+    // Background: the current file is a different tab.
+    store.currentFile = { id: 'other-tab' } as unknown as typeof store.currentFile
+
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: 'one\nremote\nthree\n' }
+      } as never
+    )
+    expect(store.mergeConflict).not.toBeNull()
+
+    store.RELOAD_DISK_FROM_MERGE_CONFLICT()
+    await vi.waitFor(() => {
+      expect(store.mergeConflict).toBeNull()
+    })
+
+    const journal = (tab as unknown as { preMergeJournal?: { markdown: string } | null })
+      .preMergeJournal
+    if (!journal) throw new Error('expected the pre-reload buffer journaled for activation undo')
+    expect(journal.markdown).toBe('one\nlocal\nthree\n')
+  })
+
   // Regression (round-10 gap analysis): a byte-DIFFERENT disk change for a
   // CLEAN tab with an open resolver (reachable: markClean → Review) must
   // supersede the session through the reducer — close, re-derive against the

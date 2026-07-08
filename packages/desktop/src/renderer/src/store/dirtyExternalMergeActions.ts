@@ -339,6 +339,21 @@ const executeReloadFromDisk = (
   store: DirtyExternalMergeStore,
   effect: Extract<MergeSessionEffect, { type: 'load-disk' }>
 ): void => {
+  // A background tab's engine history is invalidated by the reload (its ops
+  // describe the pre-reload document), so undoability must come from the
+  // journal — the same mechanism background apply-merge uses: activation
+  // seeds a rebuild-undo boundary back to the pre-reload local buffer. The
+  // foreground path records its boundary directly via replaceContent.
+  const tab = store.tabs.find((candidate) =>
+    window.fileUtils.isSamePathSync(candidate.pathname, effect.fileChange.pathname)
+  )
+  if (tab && store.currentFile?.id !== tab.id) {
+    tab.preMergeJournal = {
+      markdown: tab.markdown,
+      cursor: tab.muyaIndexCursor ?? null,
+      mergedAt: new Date().toISOString()
+    }
+  }
   sendBufferedState()
     .catch((err) => {
       console.error('Failed to flush dirty reload recovery tab:', err)

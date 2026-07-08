@@ -234,7 +234,12 @@ const onDiskChanged = (
 ): MergeSessionTransition => {
   const effects: MergeSessionEffect[] = []
   let working = state
-  let forceReview = event.forceReview === true
+  // Review intent is sticky across supersedes: a Review click carried on an
+  // in-flight merge (or an open session) must survive onto the re-derived
+  // merge — dropping it would let the new merge's clean result silently
+  // auto-apply past the user's explicit request.
+  let forceReview =
+    event.forceReview === true || (state.kind === 'merging' && state.forceReview)
 
   // A newer change for a tab with an open review SUPERSEDES that session:
   // never auto-apply beneath the modal or leave stale panes up. Re-derive
