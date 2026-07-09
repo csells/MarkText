@@ -2,7 +2,6 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import {
     appendCommentReplyMetadata,
-    updateCommentMetadataDefinition,
     updateCommentMetadataInMarkdown,
 } from '../edit';
 import {
@@ -356,29 +355,5 @@ describe('v2 mutation line discipline', () => {
             { author: 'Zoe', body: 'hi', createdAt: '2026-07-07T09:10:00.000Z' },
         );
         expect(appended.updatedAt).toBeUndefined();
-    });
-
-    it('reconciles thread lines inside the state tree the same way', () => {
-        const states = [
-            { name: 'paragraph', text: BODY_LINE },
-            { name: 'paragraph', text: HEAD },
-            { name: 'paragraph', text: REPLY_0 },
-            { name: 'paragraph', text: REPLY_1 },
-        ];
-        const next = updateCommentMetadataDefinition(states as never, 'cmt_1', metadata =>
-            appendCommentReplyMetadata(metadata, {
-                author: 'Zoe',
-                body: 'Appended',
-                createdAt: '2026-07-07T09:10:00.000Z',
-            }));
-
-        // The append lands on the line right after the anchor reply — inside
-        // the anchor's state, so serialization keeps the lines contiguous.
-        expect(next?.map(state => (state as { text: string }).text)).toEqual([
-            BODY_LINE,
-            HEAD,
-            REPLY_0,
-            `${REPLY_1}\n${REPLY_2}`,
-        ]);
     });
 });

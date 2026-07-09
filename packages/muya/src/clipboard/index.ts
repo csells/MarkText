@@ -2,6 +2,7 @@ import type { Muya } from '../muya';
 import type { IClipboardPayload } from './copyData';
 import Format from '../block/base/format';
 import { cloneCommentModel } from '../comments/model';
+import { mayContainCommentSyntax } from '../comments/syntax';
 import { buildStateReplaceOp } from '../state';
 import { isClipboardEvent, isKeyboardEvent } from '../utils';
 import { getClipboardData, writeClipboardData } from './copyData';
@@ -159,7 +160,7 @@ class Clipboard {
         const text = rawText ?? event.clipboardData?.getData('text/plain') ?? '';
         const html = rawHtml ?? event.clipboardData?.getData('text/html') ?? '';
         return this._pasteAbsorbingComments(
-            `${text}${html}`.includes('MC:'),
+            `${text}${html}`,
             () => pasteSelection(this, event, rawText, rawHtml),
         );
     }
@@ -171,10 +172,10 @@ class Clipboard {
     // and ONE rebuild boundary from the pre-paste snapshot makes the whole
     // paste a single undo step.
     private async _pasteAbsorbingComments(
-        mayCarryComments: boolean,
+        payload: string,
         run: () => Promise<void>,
     ): Promise<void> {
-        if (!mayCarryComments)
+        if (!mayContainCommentSyntax(payload))
             return run();
 
         const { jsonState, history, selection } = this.muya.editor;
@@ -222,7 +223,7 @@ class Clipboard {
         const text = await this._readClipboardText();
         if (text) {
             await this._pasteAbsorbingComments(
-                text.includes('MC:'),
+                text,
                 () => pastePlainText(this, text),
             );
         }

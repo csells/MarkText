@@ -1,5 +1,6 @@
 import type { JSONOpList } from 'ot-json1';
 import type { ICommentModel } from '../comments/model';
+import type { ICommentThread } from '../comments/types';
 import type { Muya } from '../muya';
 import type { IAnchorFocusInfo, IHistorySelection } from '../selection/types';
 import type { TState } from '../state/types';
@@ -68,7 +69,7 @@ interface ISerializableSelection {
 
 // The comment model with its thread Map flattened to entries.
 interface ISerializableCommentModel {
-    threads: Array<[string, ICommentModel['threads'] extends Map<string, infer T> ? T : never]>;
+    threads: Array<[string, ICommentThread]>;
     anchors: ICommentModel['anchors'];
     runs: ICommentModel['runs'];
 }

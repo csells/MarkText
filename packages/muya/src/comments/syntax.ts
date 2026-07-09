@@ -142,6 +142,13 @@ export const NON_COMMENT_SCANNABLE_LEAF_BLOCKS: ReadonlySet<string> = new Set([
     'thematicbreak.content',
 ]);
 
+// The cheap pre-filter every consumer shares: both marker and definition
+// prefixes contain 'MC:', and no comment syntax can exist without it. Owned
+// here with the grammar so a prefix change updates one place.
+export function mayContainCommentSyntax(text: string): boolean {
+    return text.includes('MC:');
+}
+
 export function parseMalformedCommentMarker(src: string): IParsedCommentMarker | null {
     const match = COMMENT_MARKER_LIKE_REGEXP.exec(src);
     if (!match || isValidCommentId(match[2]))

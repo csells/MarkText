@@ -1212,8 +1212,8 @@ export class Muya {
         if (!scrollPage)
             return false;
 
-        const cleanMarkdown = this.getMarkdown();
-        const sentinelMarkdown = injectSentinels(cleanMarkdown, indexCursor);
+        const materializedMarkdown = this.getMarkdown();
+        const sentinelMarkdown = injectSentinels(materializedMarkdown, indexCursor);
         if (sentinelMarkdown == null)
             return false;
 
@@ -1236,7 +1236,7 @@ export class Muya {
             if (text !== null)
                 sentinelBlockText = stripSentinels(text);
         }
-        this.editor.setContent(cleanMarkdown);
+        this.editor.setContent(materializedMarkdown);
         this.setHistory(savedHistory);
 
         // A source cursor inside metadata bytes has no clean-document

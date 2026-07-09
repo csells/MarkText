@@ -15,7 +15,6 @@ export {
     createCommentMetadata,
     mergeCommentMetadataPatch,
     nextCommentId,
-    updateCommentMetadataDefinition,
     updateCommentMetadataInMarkdown,
     wrapCommentRange,
 } from './edit';

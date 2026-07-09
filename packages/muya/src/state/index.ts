@@ -1,6 +1,7 @@
 import type { Doc, JSONOp, JSONOpList, Path } from 'ot-json1';
 import type { ICommentModel } from '../comments/model';
 import type { Muya } from '../muya';
+import type { IMuyaOptions } from '../types';
 import type { TDiff } from '../utils';
 import type { TState } from './types';
 import * as json1 from 'ot-json1';
@@ -63,6 +64,12 @@ export function buildStateReplaceOp(prevState: TState[], nextState: TState[]): J
 
     return composed ?? [];
 }
+
+type ISerializeCache = {
+    version: number;
+    listIndentation: IMuyaOptions['listIndentation'];
+    markdown: string;
+} | null;
 
 class JSONState {
     static invert(op: JSONOpList) {
@@ -316,13 +323,26 @@ class JSONState {
     // reads may all serialize in one tick — only the first per version pays
     // for materialization + generation. The version covers the comment model
     // too (setCommentModel bumps it).
-    private _markdownCache: {
-        version: number;
-        // The one serialization-affecting option (setOptions can change it
-        // without a document op).
-        listIndentation: unknown;
-        markdown: string;
-    } | null = null;
+    // One serialize per (document version, listIndentation) — listIndentation
+    // is the one serialization-affecting option setOptions can change without
+    // a document op, so it joins the version in the cache key.
+    private _markdownCache: ISerializeCache = null;
+    private _cleanMarkdownCache: ISerializeCache = null;
+
+    private _serializeCached(
+        cache: ISerializeCache,
+        states: () => TState[],
+    ): { cache: ISerializeCache; markdown: string } {
+        const listIndentation = this._muya.options.listIndentation;
+        if (cache?.version === this._version && cache.listIndentation === listIndentation)
+            return { cache, markdown: cache.markdown };
+        const next = {
+            version: this._version,
+            listIndentation,
+            markdown: this.getMarkdownFromState(states()),
+        };
+        return { cache: next, markdown: next.markdown };
+    }
 
     getMarkdown() {
         // Marker bytes and the metadata appendix exist only in serialized
@@ -330,44 +350,19 @@ class JSONState {
         // advance together in _apply, so a pending rAF batch leaves BOTH
         // pre-op — serializing the unflushed pair stays consistent (#2938
         // callers flush explicitly when they need durability).
-        const { listIndentation } = this._muya.options;
-        if (
-            this._markdownCache?.version !== this._version
-            || this._markdownCache.listIndentation !== listIndentation
-        ) {
-            this._markdownCache = {
-                version: this._version,
-                listIndentation,
-                markdown: this.getMarkdownFromState(
-                    materializeCommentModel(this._state, this._commentModel),
-                ),
-            };
-        }
-        return this._markdownCache.markdown;
+        const result = this._serializeCached(this._markdownCache, () =>
+            materializeCommentModel(this._state, this._commentModel));
+        this._markdownCache = result.cache;
+        return result.markdown;
     }
-
-    private _cleanMarkdownCache: {
-        version: number;
-        listIndentation: unknown;
-        markdown: string;
-    } | null = null;
 
     // The CLEAN document — no marker bytes, no metadata appendix. Word count
     // (and any consumer measuring what the user sees) reads this; the wire
     // serialization above is for disk, exports, and the bridge.
     getCleanMarkdown() {
-        const { listIndentation } = this._muya.options;
-        if (
-            this._cleanMarkdownCache?.version !== this._version
-            || this._cleanMarkdownCache.listIndentation !== listIndentation
-        ) {
-            this._cleanMarkdownCache = {
-                version: this._version,
-                listIndentation,
-                markdown: this.getMarkdownFromState(this._state),
-            };
-        }
-        return this._cleanMarkdownCache.markdown;
+        const result = this._serializeCached(this._cleanMarkdownCache, () => this._state);
+        this._cleanMarkdownCache = result.cache;
+        return result.markdown;
     }
 
     getTOC() {

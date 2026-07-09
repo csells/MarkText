@@ -3,6 +3,7 @@ import type { TState } from '../state/types';
 import type { IParsedMarkdownComments } from './types';
 import { MarkdownToState } from '../state/markdownToState';
 import { commentModelView, extractCommentModel } from './model';
+import { mayContainCommentSyntax } from './syntax';
 
 type TParseMarkdownCommentOptions = Partial<IMarkdownToStateOptions>;
 
@@ -22,7 +23,7 @@ export function parseMarkdownComments(
     // (`[MC:`) contains the literal `MC:`, and no diagnostic can arise without
     // one of them. A document lacking `MC:` has no comments, so skip the
     // expensive full-document re-parse this would otherwise run on every load.
-    if (typeof markdownOrStates === 'string' && !markdownOrStates.includes('MC:'))
+    if (typeof markdownOrStates === 'string' && !mayContainCommentSyntax(markdownOrStates))
         return { threads: [], ranges: [], diagnostics: [] };
 
     // ONE owner of comment semantics: the byte-level analyzer IS the runtime

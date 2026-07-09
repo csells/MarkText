@@ -1,6 +1,6 @@
 import type { Token } from '../inlineRenderer/types';
 import { tokenizer } from '../inlineRenderer/lexer';
-import { parseMalformedCommentMarker } from './syntax';
+import { mayContainCommentSyntax, parseMalformedCommentMarker } from './syntax';
 
 type TCommentMarkerKind = 'open' | 'close';
 
@@ -101,7 +101,7 @@ export interface IScannedMalformedMarker {
 // documentation, not a diagnostic. The live view and the byte-level
 // analyzer share this one definition.
 export function malformedCommentMarkersInText(text: string): IScannedMalformedMarker[] {
-    if (!text.includes('MC:'))
+    if (!mayContainCommentSyntax(text))
         return [];
 
     const out: IScannedMalformedMarker[] = [];

@@ -291,13 +291,6 @@ function _findOffsetInMarkdown(
     return _lineColAt(markdown, idx);
 }
 
-/**
- * Read the sentinel positions back out of the serialized (sentinel-bearing)
- * `markdown` into an `{ line, ch }` index cursor. Returns `null` when a
- * sentinel that was injected cannot be found (e.g. a serializer dropped the
- * surrounding text). Removes both sentinels from the line/ch accounting: the
- * focus position is corrected for any earlier-occurring anchor sentinel.
- */
 // Mirror of injectStateSentinels for the comment model: shift anchors past
 // each sentinel insertion, applying them in the same order and with the same
 // same-block offset shifting the state injection uses.
@@ -331,6 +324,13 @@ export function adjustedSentinelCommentModel(
     return next;
 }
 
+/**
+ * Read the sentinel positions back out of the serialized (sentinel-bearing)
+ * `markdown` into an `{ line, ch }` index cursor. Returns `null` when a
+ * sentinel that was injected cannot be found (e.g. a serializer dropped the
+ * surrounding text). Removes both sentinels from the line/ch accounting: the
+ * focus position is corrected for any earlier-occurring anchor sentinel.
+ */
 export function locateSentinelOffsets(markdown: string): IIndexCursor | null {
     const anchorRaw = _findOffsetInMarkdown(markdown, ANCHOR_SENTINEL);
     const focusRaw = _findOffsetInMarkdown(markdown, FOCUS_SENTINEL);

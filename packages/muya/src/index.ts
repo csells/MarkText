@@ -24,7 +24,6 @@ export {
     sourceCommentIgnoredIndexRanges,
     sourceRangesOverlap,
     stripAnalyzedCommentSyntaxFromMarkdown,
-    updateCommentMetadataDefinition,
     updateCommentMetadataInMarkdown,
     validateCommentGraph,
     wrapCommentRange,
