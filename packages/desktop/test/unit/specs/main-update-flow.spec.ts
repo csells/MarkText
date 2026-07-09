@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The auto-update flow must never cost the user their work or their update
-// button: a downloaded update runs every window's NORMAL close guard (the
-// unsaved-changes save dance) instead of force-quitting over open documents,
-// and a transient updater error must not permanently disable "Check for
-// Updates" for the rest of the session.
+// The auto-update flow must never cost the user their work, their update
+// button, OR a running app: a downloaded update runs every window's NORMAL
+// close guard (the unsaved-changes save dance) and installs only once the
+// windows that were open when the update downloaded have all ACTUALLY closed
+// and no window remains. A transient updater error must not permanently
+// disable "Check for Updates". And a canceled update-close must never arm a
+// force-quit on some later, unrelated window-all-closed.
 
 const { updaterHandlers, appHandlers, quitAndInstall, checkForUpdates, getAllWindows } =
   vi.hoisted(() => ({
@@ -43,7 +45,24 @@ vi.mock('main_renderer/config', () => ({ isOsx: false }))
 
 const { checkUpdates } = await import('main_renderer/menu/actions/marktext')
 
-const makeWin = () => ({ close: vi.fn(), webContents: { send: vi.fn() } })
+interface FakeWin {
+  close: ReturnType<typeof vi.fn>
+  once: ReturnType<typeof vi.fn>
+  fireClosed: () => void
+  webContents: { send: ReturnType<typeof vi.fn> }
+}
+
+const makeWin = (): FakeWin => {
+  const closedListeners: Array<() => void> = []
+  return {
+    close: vi.fn(),
+    once: vi.fn((event: string, cb: () => void) => {
+      if (event === 'closed') closedListeners.push(cb)
+    }),
+    fireClosed: () => closedListeners.forEach((cb) => cb()),
+    webContents: { send: vi.fn() }
+  }
+}
 
 const fireUpdater = (event: string, ...args: unknown[]): void => {
   const handler = updaterHandlers.get(event)
@@ -71,7 +90,7 @@ describe('auto-update flow', () => {
     expect(checkForUpdates).toHaveBeenCalledTimes(2)
   })
 
-  it('update-downloaded runs the window close guards instead of force-quitting', async() => {
+  it('runs the window close guards, then installs once every open window has actually closed', async() => {
     const winA = makeWin()
     const winB = makeWin()
     getAllWindows.mockReturnValue([winA, winB])
@@ -84,19 +103,52 @@ describe('auto-update flow', () => {
     expect(winA.close).toHaveBeenCalledTimes(1)
     expect(winB.close).toHaveBeenCalledTimes(1)
 
-    // Once every window has actually closed (saves confirmed), install.
-    const allClosed = appHandlers.get('window-all-closed')
-    if (!allClosed) throw new Error('window-all-closed handler was not registered')
-    allClosed()
+    // Both windows actually close (saves confirmed) and no window remains.
+    getAllWindows.mockReturnValue([])
+    winA.fireClosed()
+    winB.fireClosed()
     await settle()
     expect(quitAndInstall).toHaveBeenCalledTimes(1)
   })
 
-  it('window-all-closed without a pending update never installs', async() => {
-    const allClosed = appHandlers.get('window-all-closed')
-    if (!allClosed) throw new Error('window-all-closed handler was not registered')
-    allClosed()
+  it('installs immediately when no window is open at update time', async() => {
+    getAllWindows.mockReturnValue([])
+    fireUpdater('update-downloaded', {})
     await settle()
+    expect(quitAndInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('a canceled update-close never force-quits on a later, unrelated window-all-closed', async() => {
+    const win = makeWin()
+    getAllWindows.mockReturnValue([win])
+
+    fireUpdater('update-downloaded', {})
+    await settle()
+    expect(quitAndInstall).not.toHaveBeenCalled()
+
+    // The user cancels the close and keeps working — the window never fires
+    // 'closed'. MUCH later they close all windows in a normal quit unrelated
+    // to the update. That must NOT force an install/restart.
+    getAllWindows.mockReturnValue([])
+    const allClosed = appHandlers.get('window-all-closed')
+    if (allClosed) allClosed()
+    await settle()
+
+    expect(quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('does not force-quit if a window remains after the targeted windows close (user reopened work)', async() => {
+    const win = makeWin()
+    getAllWindows.mockReturnValue([win])
+    fireUpdater('update-downloaded', {})
+    await settle()
+
+    // The targeted window closes, but a new window is open now (the user kept
+    // working) — defer to autoInstallOnAppQuit rather than force-quitting.
+    getAllWindows.mockReturnValue([makeWin()])
+    win.fireClosed()
+    await settle()
+
     expect(quitAndInstall).not.toHaveBeenCalled()
   })
 })
