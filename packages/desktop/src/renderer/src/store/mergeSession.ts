@@ -318,9 +318,17 @@ const onDiskChanged = (
     return { state: idleFrom(working), effects }
   }
 
-  // Disk has nothing new relative to the edit base; an in-flight merge (if
-  // any) keeps running against the identical remote content.
+  // Disk matches the edit base. With NO merge in flight this is a genuine
+  // no-op echo. But a merge only starts when state.remote !== base (the
+  // start-merge guard below), so if one IS in flight, disk has REVERTED off
+  // that remote — the merge is now stale. Abandon it to a plain dirty tab
+  // (buffer over base, nothing external to merge) rather than let it resolve
+  // and auto-apply a remote no longer on disk, which would resurrect the
+  // reverted content and advance diskBaseMarkdown off the real disk bytes.
   if (remote === event.base) {
+    if (working.kind === 'merging') {
+      return { state: idleFrom(working), effects }
+    }
     return { state: working, effects }
   }
 

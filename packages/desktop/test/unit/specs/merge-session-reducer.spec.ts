@@ -212,16 +212,27 @@ describe('merge-session reducer — decision table', () => {
     expect(asReviewing(state).session).toBe(open.session)
   })
 
-  it('remote === base is ignored: disk has nothing new relative to the edit base', () => {
+  it('remote === base with no merge in flight is a genuine no-op echo', () => {
     const idle = reduce(initialMergeSessionState(), diskChanged(BASE))
     expect(idle.state.kind).toBe('idle')
     expect(idle.effects).toEqual([])
+  })
 
-    // While merging, a base-echo does not supersede the in-flight request.
+  it('a disk revert to base mid-merge abandons the now-stale merge, never auto-applies it', () => {
+    // The in-flight merge targets state.remote, which the start guard forces
+    // to differ from base. So a disk-changed carrying `remote === base` means
+    // disk has REVERTED off that remote (e.g. an agent wrote then undid its
+    // edit): the in-flight merge is stale and must be abandoned to a plain
+    // dirty tab, not kept running toward an auto-apply of a remote no longer
+    // on disk (which would resurrect the reverted content and poison the base).
     const merging = toMerging()
-    const echoed = reduce(merging, diskChanged(BASE))
-    expect(asMerging(echoed.state).requestId).toBe(merging.requestId)
-    expect(echoed.effects).toEqual([])
+    const reverted = reduce(merging, diskChanged(BASE))
+    expect(reverted.state.kind).toBe('idle')
+    expect(reverted.effects).toEqual([])
+
+    // The stale resolution that lands afterward must apply nothing.
+    const afterResolve = reduce(reverted.state, resolved(merging.requestId, MERGED, []))
+    expect(afterResolve.effects).toEqual([])
   })
 
   it('a genuinely new remote starts a three-way merge', () => {
@@ -797,12 +808,14 @@ describe('merge-session reducer — property fuzz', () => {
         }
 
         // Newest tracking is EVENT-content based, never effect based: a
-        // reducer that wrongly ignores a merge-relevant disk change must
-        // not thereby exempt itself from invariant 2.
+        // reducer that wrongly ignores a merge-relevant disk change must not
+        // thereby exempt itself from invariant 2. A disk change carrying
+        // `markdown === base` IS merge-relevant when a merge is in flight (it
+        // reverts disk off the in-flight remote), so it counts as newest too —
+        // a reducer that then auto-applies the OLD remote is caught here.
         if (
           event.type === 'disk-changed' &&
-          event.fileChange.data.markdown !== event.local &&
-          (event.base === undefined || event.fileChange.data.markdown !== event.base)
+          event.fileChange.data.markdown !== event.local
         ) {
           newestEnteredPayload = event.fileChange
         }
