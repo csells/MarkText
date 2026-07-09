@@ -88,6 +88,34 @@ validate findings before acting).
     forge-payload-then-repair dances (clean sync, apply-merge, undo-restore)
     into a single call each. Landed with F4(b) as planned.
 
+## Closing re-review — COMPLETE (f7fb65a1)
+
+The mandated fresh-from-zero thermo-nuclear re-review ran as a 4-slice
+workflow (comment parser, merge subsystem, renderer UI, integration breadth),
+each reviewer blind to this plan, every finding adversarially verified against
+the code before it counted. Outcome: 3 slices approve, 1 block; **4 confirmed
+worth-fixing findings, all fixed** (f7fb65a1); the rest refuted or ROI-waived.
+
+- **CORRECTNESS — a regression the collapse (F4b) introduced:** routing clean
+  tabs through onDiskChanged meant a persistence-only external change (e.g. an
+  external LF→CRLF re-encode, identical text) hit the local===remote branch's
+  hardcoded preserveDirty:true and spuriously dirtied a CLEAN tab. The reducer
+  can't derive true dirtiness from local vs base (edit-then-revert ⇒ flag-dirty
+  with local===base), so the tab's own isSaved is now threaded through the
+  disk-changed event as `dirty` and preserved exactly. Red-green, both
+  directions. **This is why the closing re-review is mandatory — the fix loop
+  itself introduced a subtle merge regression that only a fresh pass caught.**
+- **DEAD CODE:** deleted markdownBlockRules.ts (zero importers, lying "cannot
+  drift apart" header), the source-mode bypass wrappers stripCommentSyntax /
+  removeCommentSyntax (superseded), and two unconsumed syntax exports
+  (commentDefinitionLineThreadId, NON_COMMENT_SCANNABLE_LEAF_BLOCKS).
+
+- **Refuted / ROI-waived (independently reconfirms this plan's own waivers):**
+  model.ts at 1188 lines (extraction ⇒ CI-rejected madge cycle — matches F6);
+  openDirtyExternalMergeConflict (a deterministic test seam, not dead code);
+  the undo/redo/selectAll mode guards (out of the comment-surface scope,
+  asymmetric surfaces — F8 was correctly scoped to the 8 comment commands).
+
 ## The headline question (context for the fixes)
 
 Is comment parsing fully pushed into the markdown parser? **Half yes.**
