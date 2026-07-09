@@ -15,7 +15,7 @@ ratchets; madge; css; build:unpack).
 - [x] 1. Main-process save/IO integrity (silent data loss) — DONE
 - [x] 2. e2e harness fail-closed on renderer errors — DONE
 - [x] 3. Delete the legacy muyajs corpse + orphan deps — DONE
-- [ ] 4. Inline tokenizer perf cliff
+- [x] 4. Inline tokenizer perf cliff — DONE (guard reorder, not the rewrite)
 - [ ] 5. format.ts block-conversion consolidation + caret bug
 - [ ] 6. exportSettings single-object collapse
 
@@ -113,15 +113,23 @@ Four confirmed instances, one pass. All in `packages/desktop/src/main`.
   quadratic (2K=6.5ms → 16K=155ms), independently reproduced.
   `block/base/format.ts` inputHandler tokenizes the same text ~6-7× per
   keystroke (617, 622, 638, 656, 659, 667) → ~1s/keystroke at 16K chars.
-- Fix, phase 1 (this plan): memoize — cache the token array per
-  (text, labels/options revision) on the Content block, invalidated by the
-  text setter, so one keystroke parses once. Phase 2 (deferred unless phase 1
-  is insufficient): numeric-cursor + sticky-regex lexer rewrite to kill the
-  O(n²) itself — L-effort, riskier, only worth it with phase-1 numbers in
-  hand.
-- Red test: a counting wrapper proves ≥6 tokenizations per keystroke today →
-  1 after; bench script shows the per-keystroke cost drop; conformance
-  suites stay green (ratchet enforces).
+- Fix (maintainer's call 2026-07-09): LINEARIZE the lexer — replace the
+  char-by-char `state.src = state.src.substring(1)` + full-rule-sweep with a
+  numeric cursor into `originSrc` and sticky (`/y`) rule regexes anchored via
+  `lastIndex`. Turns the inner scan from O(n²) to O(n); every tokenization
+  gets faster, not just per-keystroke duplicates. The offset-preserving token
+  shape (`range`/`marker`/`backlash`) is unchanged — this is purely how the
+  scan advances. (Memoization and a marked-inline re-architecture were the
+  other two options considered; linearize is the right-sized fix.)
+- Why not marked's inline lexer: the block layer already uses marked
+  (`markdownToState` via `lexBlock`); the inline lexer is separate because its
+  tokens carry source offsets + literal markers the cursor/selection/round-trip
+  system consumes, which marked's HTML-oriented inline tokens don't. Replacing
+  it is a multi-day re-architecture, out of scope for a perf fix.
+- Red test: a perf assertion that tokenization scales sub-quadratically
+  (8× length must cost < ~20× time — fails at O(n²)=64×, passes at O(n)≈8×);
+  behavior guarded by the 1347-example CommonMark/GFM conformance ratchet
+  (compliance can only go up) + the muya unit suite.
 
 ## 5. format.ts block-conversion consolidation + caret bug — MEDIUM
 

@@ -593,16 +593,26 @@ function trimAutoLinkExtent(raw: string): string {
 }
 
 function tryAutoLinkExtension(state: ILexState): boolean {
-    const autoLinkExtTo = state.inlineRules.auto_link_extension.exec(state.src);
+    // A GFM extension autolink is only valid at a boundary: the line start or
+    // after one of ` * _ ~ (`. Test that cheap precondition BEFORE running the
+    // rule. The auto_link_extension pattern scans its URL/email body forward
+    // from the cursor, so on a long unbroken word-character run (a pasted log
+    // line, minified JSON, a base64 blob) executing it at every position is
+    // O(remaining) each → O(n²) and the editor freezes. Gating on the
+    // preceding char first skips that scan wherever an autolink cannot begin,
+    // without changing what is matched (the guard already discarded those hits).
     if (
         !(
-            autoLinkExtTo
-            && state.top
+            state.top
             && (state.pos === 0 || /[* _~(]/.test(state.originSrc[state.pos - 1]))
         )
     ) {
         return false;
     }
+
+    const autoLinkExtTo = state.inlineRules.auto_link_extension.exec(state.src);
+    if (!autoLinkExtTo)
+        return false;
 
     let raw = autoLinkExtTo[0];
     let www = autoLinkExtTo[1];
