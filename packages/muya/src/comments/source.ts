@@ -712,8 +712,11 @@ function definitionRemovalRange(
 // descending so a caller can splice them out left-to-right without shifting
 // later offsets. Shared by removeCommentSyntaxFromMarkdown and the source-mode
 // discard action.
-export function commentSyntaxRangesForId(markdown: string, id: string): ICommentSourceIndexRange[] {
-    const index = buildCommentSourceIndex(markdown);
+export function commentSyntaxRangesForId(
+    markdown: string,
+    id: string,
+    index: ICommentSourceIndex = buildCommentSourceIndex(markdown),
+): ICommentSourceIndexRange[] {
     const ranges: ICommentSourceIndexRange[] = index.markers
         .filter(marker => marker.id === id)
         .map(marker => ({ start: marker.start, end: marker.end }));

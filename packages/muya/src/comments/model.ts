@@ -3,7 +3,7 @@ import type { TBlockPath } from '../block/types';
 import type { TState } from '../state/types';
 import type { ICommentDiagnostic, ICommentRange, ICommentThread, IParsedMarkdownComments } from './types';
 import * as json1 from 'ot-json1';
-import { realCommentMarkersInText } from './markerScan';
+import { malformedCommentMarkersInText, realCommentMarkersInText } from './markerScan';
 import {
     decodeCommentHeadPayload,
     decodeCommentReplyPayload,
@@ -13,7 +13,6 @@ import {
 } from './metadata';
 import { commentPathKey } from './range';
 import {
-    isValidCommentId,
     LITERAL_COMMENT_TEXT_STATES,
     parseCommentHeadDefinition,
     parseCommentMetadataDefinition,
@@ -36,8 +35,8 @@ export interface ICommentAnchor {
 }
 
 export type TCommentDefinitionItem
-    = | { kind: 'thread'; id: string }
-        | { kind: 'residue'; line: string };
+    = | { kind: 'thread'; id: string; diagnostics?: ICommentDiagnostic[] }
+        | { kind: 'residue'; line: string; diagnostics?: ICommentDiagnostic[] };
 
 // One contiguous run of definition lines as the file laid them out. A thread
 // item re-serializes its (possibly mutated) thread head-first; a residue item
@@ -224,14 +223,28 @@ export function extractCommentModel(states: TState[]): IExtractedCommentModel {
 
     const cleanStates = visit(states, []);
 
-    // Resolve definition lines exactly like the file-level analyzer: first
-    // decodable head per id wins, replies attach by id in document order,
-    // everything else survives verbatim as residue. Each record resolves to
-    // its run item — a decoded reply contributes no item of its own (its
-    // bytes re-emit inside the thread block at the head's run).
+    const { threads, runs } = resolveDefinitionRuns(pendingRuns);
+
+    return { states: cleanStates, model: { threads, anchors, runs } };
+}
+
+// Resolve definition lines exactly like the file-level analyzer: first
+// decodable head per id wins, replies attach by id in document order,
+// everything else survives verbatim as residue carrying its exact
+// diagnostic. Each record resolves to its run item — a decoded reply
+// contributes no item of its own (its bytes re-emit inside the thread
+// block at the head's run).
+function resolveDefinitionRuns(pendingRuns: IPendingRun[]): {
+    threads: ICommentModel['threads'];
+    runs: ICommentDefinitionRun[];
+} {
     const threads = new Map<string, ICommentThread>();
     const itemByRecord = new Map<IDefinitionLineRecord, TCommentDefinitionItem | null>();
     const replyRecords: Array<{ record: IDefinitionLineRecord; id: string; payload: string }> = [];
+    // Head lines already seen per id (decodable or not) — the analyzer
+    // diagnoses every repeat as duplicate-metadata, even the repeat that
+    // ends up winning first-decodable-head-wins.
+    const seenHeadIds = new Set<string>();
 
     for (const run of pendingRuns) {
         for (const record of run.records) {
@@ -242,33 +255,88 @@ export function extractCommentModel(states: TState[]): IExtractedCommentModel {
             }
 
             const head = parseCommentHeadDefinition(record.line);
-            if (head && !threads.has(head.id)) {
-                try {
-                    threads.set(head.id, { id: head.id, ...decodeCommentHeadPayload(head.payload) });
-                    itemByRecord.set(record, { kind: 'thread', id: head.id });
-                    continue;
+            const lineDiagnostics: ICommentDiagnostic[] = [];
+            if (head) {
+                if (seenHeadIds.has(head.id)) {
+                    lineDiagnostics.push({
+                        code: 'duplicate-metadata',
+                        id: head.id,
+                        message: `Found duplicate metadata definition for comment "${head.id}".`,
+                    });
                 }
-                catch {
-                    // Undecodable head: fall through to residue.
+                seenHeadIds.add(head.id);
+            }
+            if (head) {
+                try {
+                    const decoded = decodeCommentHeadPayload(head.payload);
+                    if (!threads.has(head.id)) {
+                        threads.set(head.id, { id: head.id, ...decoded });
+                        itemByRecord.set(record, {
+                            kind: 'thread',
+                            id: head.id,
+                            ...(lineDiagnostics.length ? { diagnostics: lineDiagnostics } : {}),
+                        });
+                        continue;
+                    }
+                }
+                catch (error) {
+                    lineDiagnostics.push({
+                        code: 'invalid-metadata',
+                        id: head.id,
+                        message: error instanceof Error
+                            ? error.message
+                            : `Metadata for comment "${head.id}" is invalid.`,
+                    });
                 }
             }
+            else {
+                const definition = parseCommentMetadataDefinition(record.line);
+                const id = definition?.id ?? '__unknown__';
+                lineDiagnostics.push({
+                    code: 'invalid-metadata',
+                    id,
+                    message: `Metadata for comment "${id}" is invalid.`,
+                });
+            }
 
-            itemByRecord.set(record, { kind: 'residue', line: record.line });
+            itemByRecord.set(record, {
+                kind: 'residue',
+                line: record.line,
+                diagnostics: lineDiagnostics,
+            });
         }
     }
 
     for (const { record, id, payload } of replyRecords) {
         const thread = threads.get(id);
         if (!thread) {
-            itemByRecord.set(record, { kind: 'residue', line: record.line });
+            itemByRecord.set(record, {
+                kind: 'residue',
+                line: record.line,
+                diagnostics: [{
+                    code: 'orphan-reply',
+                    id,
+                    message: `Found reply line for comment "${id}" without a head metadata line.`,
+                }],
+            });
             continue;
         }
         try {
             thread.replies.push(decodeCommentReplyPayload(payload));
             itemByRecord.set(record, null);
         }
-        catch {
-            itemByRecord.set(record, { kind: 'residue', line: record.line });
+        catch (error) {
+            itemByRecord.set(record, {
+                kind: 'residue',
+                line: record.line,
+                diagnostics: [{
+                    code: 'invalid-reply',
+                    id,
+                    message: error instanceof Error
+                        ? error.message
+                        : `A reply line for comment "${id}" is invalid.`,
+                }],
+            });
         }
     }
 
@@ -281,7 +349,7 @@ export function extractCommentModel(states: TState[]): IExtractedCommentModel {
         }),
     }));
 
-    return { states: cleanStates, model: { threads, anchors, runs } };
+    return { threads, runs };
 }
 
 function commentPathKeyOf(position: TBlockPath): string {
@@ -495,6 +563,7 @@ interface ITextEntry {
     key: string;
     text: string;
     index: number;
+    name: string;
 }
 
 function collectTextEntries(states: TState[]): Map<string, ITextEntry> {
@@ -505,7 +574,7 @@ function collectTextEntries(states: TState[]): Map<string, ITextEntry> {
             const statePath = [...path, i];
             if ('text' in state && typeof state.text === 'string') {
                 const key = commentPathKey([...statePath, 'text']);
-                entries.set(key, { key, text: state.text, index: index++ });
+                entries.set(key, { key, text: state.text, index: index++, name: state.name });
             }
             if ('children' in state && Array.isArray(state.children))
                 walk(state.children, [...statePath, 'children']);
@@ -550,21 +619,23 @@ function diagnostic(code: ICommentDiagnostic['code'], id: string, message: strin
     return { code, id, message };
 }
 
-// Residue lines re-derive the byte-level diagnostic they carried at load, so
-// the sidebar keeps showing what is wrong with a damaged file.
-function residueDiagnostic(line: string, threads: ICommentModel['threads']): ICommentDiagnostic {
-    const reply = parseCommentReplyDefinition(line);
-    if (reply) {
-        if (!threads.has(reply.id))
-            return diagnostic('orphan-reply', reply.id, `Found reply line for comment "${reply.id}" without a head metadata line.`);
-        return diagnostic('invalid-reply', reply.id, `A reply line for comment "${reply.id}" is invalid.`);
+// Definition-line diagnostics are recorded once, at extraction, where the
+// exact failure (decode error message, duplicate, orphan) is known — the
+// view repeats them verbatim instead of re-deriving lossy approximations.
+function carriedItemDiagnostics(model: ICommentModel): ICommentDiagnostic[] {
+    const out: ICommentDiagnostic[] = [];
+    for (const run of model.runs) {
+        for (const item of run.items) {
+            if (item.kind === 'residue' && !item.diagnostics) {
+                // No producer emits diagnostic-less residue; accepting one
+                // would silently hide what is wrong with a damaged file.
+                throw new Error('A residue definition item is missing its extraction diagnostics.');
+            }
+            if (item.diagnostics)
+                out.push(...item.diagnostics);
+        }
     }
-
-    const definition = parseCommentMetadataDefinition(line);
-    const id = definition?.id ?? '__unknown__';
-    if (definition && isValidCommentId(definition.id) && threads.has(definition.id))
-        return diagnostic('duplicate-metadata', id, `Found duplicate metadata definition for comment "${id}".`);
-    return diagnostic('invalid-metadata', id, `Metadata for comment "${id}" is invalid.`);
+    return out;
 }
 
 export function commentModelView(model: ICommentModel, states: TState[]): IParsedMarkdownComments {
@@ -583,39 +654,77 @@ export function commentModelView(model: ICommentModel, states: TState[]): IParse
         })
         .map(({ anchor }) => anchor);
 
-    const opens = new Map<string, ICommentAnchor>();
-    const closes = new Map<string, ICommentAnchor>();
+    // Pairing is a document-order walk with the analyzer's exact semantics:
+    // a duplicate open is diagnosed once and its own matching close is
+    // consumed silently; a close after a completed range is duplicate-close;
+    // a close with no open anywhere is orphan-close.
+    const openByIds = new Map<string, ICommentAnchor>();
+    const ignoredDuplicateOpens = new Map<string, number>();
+    const rangeIds = new Set<string>();
     for (const anchor of ordered) {
-        const bucket = anchor.kind === 'open' ? opens : closes;
-        if (bucket.has(anchor.id)) {
-            diagnostics.push(anchor.kind === 'open'
-                ? diagnostic('duplicate-open-marker', anchor.id, `Found duplicate opening marker for comment "${anchor.id}".`)
-                : diagnostic('duplicate-close-marker', anchor.id, `Found duplicate closing marker for comment "${anchor.id}".`));
+        if (anchor.kind === 'open') {
+            if (openByIds.has(anchor.id) || rangeIds.has(anchor.id)) {
+                diagnostics.push(diagnostic('duplicate-open-marker', anchor.id, `Found duplicate opening marker for comment "${anchor.id}".`));
+                ignoredDuplicateOpens.set(anchor.id, (ignoredDuplicateOpens.get(anchor.id) ?? 0) + 1);
+                continue;
+            }
+            openByIds.set(anchor.id, anchor);
             continue;
         }
-        bucket.set(anchor.id, anchor);
+
+        const open = openByIds.get(anchor.id);
+        if (!open) {
+            const ignoredCount = ignoredDuplicateOpens.get(anchor.id) ?? 0;
+            if (ignoredCount > 0) {
+                if (ignoredCount === 1)
+                    ignoredDuplicateOpens.delete(anchor.id);
+                else
+                    ignoredDuplicateOpens.set(anchor.id, ignoredCount - 1);
+                continue;
+            }
+            diagnostics.push(rangeIds.has(anchor.id)
+                ? diagnostic('duplicate-close-marker', anchor.id, `Found duplicate closing marker for comment "${anchor.id}".`)
+                : diagnostic('orphan-close-marker', anchor.id, `Found closing comment marker for "${anchor.id}" without a matching open marker.`));
+            continue;
+        }
+
+        ranges.push({
+            id: anchor.id,
+            startPath: open.position.slice(0, -1),
+            endPath: anchor.position.slice(0, -1),
+            startOffset: anchorOffset(open),
+            endOffset: anchorOffset(anchor),
+            preview: rangePreview(entries, open, anchor),
+        });
+        rangeIds.add(anchor.id);
+        openByIds.delete(anchor.id);
+    }
+    for (const id of openByIds.keys())
+        diagnostics.push(diagnostic('unclosed-open-marker', id, `Found opening comment marker for "${id}" without a matching close marker.`));
+
+    // Malformed marker SHAPES survive in leaf text as literal residue
+    // (invariant 1); diagnose them here so every reader sees them. Literal
+    // contexts (code blocks etc.) keep their bytes as documentation.
+    for (const entry of entries.values()) {
+        if (LITERAL_COMMENT_TEXT_STATES.has(entry.name))
+            continue;
+        for (const malformed of malformedCommentMarkersInText(entry.text)) {
+            diagnostics.push(diagnostic(
+                'malformed-marker',
+                malformed.id,
+                `Found malformed comment ${malformed.kind} marker "${malformed.raw}".`,
+            ));
+        }
     }
 
-    const rangeIds = new Set<string>();
-    for (const [id, open] of opens) {
-        const close = closes.get(id);
-        if (!close) {
-            diagnostics.push(diagnostic('unclosed-open-marker', id, `Found opening comment marker for "${id}" without a matching close marker.`));
-            continue;
-        }
-        ranges.push({
-            id,
-            startPath: open.position.slice(0, -1),
-            endPath: close.position.slice(0, -1),
-            startOffset: anchorOffset(open),
-            endOffset: anchorOffset(close),
-            preview: rangePreview(entries, open, close),
-        });
-        rangeIds.add(id);
-    }
-    for (const id of closes.keys()) {
-        if (!opens.has(id))
-            diagnostics.push(diagnostic('orphan-close-marker', id, `Found closing comment marker for "${id}" without a matching open marker.`));
+    // Diagnostic order mirrors the analyzer's walk: marker diagnostics,
+    // then the definition-line diagnostics recorded at extraction, then the
+    // cross-referencing passes (missing before orphan).
+    diagnostics.push(...carriedItemDiagnostics(model));
+
+    for (const id of rangeIds) {
+        if (!model.threads.has(id))
+            diagnostics.push(diagnostic('missing-metadata', id, `Comment "${id}" has markers but no metadata definition.`));
     }
 
     const threads: ICommentThread[] = [];
@@ -631,14 +740,6 @@ export function commentModelView(model: ICommentModel, states: TState[]): IParse
             diagnostics.push(diagnostic('orphan-metadata', id, `Comment "${id}" has metadata but no marker range.`));
         }
     }
-
-    for (const id of rangeIds) {
-        if (!model.threads.has(id))
-            diagnostics.push(diagnostic('missing-metadata', id, `Comment "${id}" has markers but no metadata definition.`));
-    }
-
-    for (const line of commentModelResidue(model))
-        diagnostics.push(residueDiagnostic(line, model.threads));
 
     return { threads, ranges, diagnostics };
 }

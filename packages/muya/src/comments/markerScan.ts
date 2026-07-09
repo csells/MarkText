@@ -1,5 +1,6 @@
 import type { Token } from '../inlineRenderer/types';
 import { tokenizer } from '../inlineRenderer/lexer';
+import { parseMalformedCommentMarker } from './syntax';
 
 type TCommentMarkerKind = 'open' | 'close';
 
@@ -86,4 +87,35 @@ export function stripRealCommentMarkersFromText(text: string): string {
     }
 
     return next + text.slice(lastIndex);
+}
+
+export interface IScannedMalformedMarker {
+    id: string;
+    kind: string;
+    raw: string;
+}
+
+// Malformed marker SHAPES (`<!--MC:` candidates the tokenizer refused —
+// e.g. an invalid id) in a text, via the same canonical tokenization:
+// inline-code/math absorb their content, so a shape inside a code span is
+// documentation, not a diagnostic. The live view and the byte-level
+// analyzer share this one definition.
+export function malformedCommentMarkersInText(text: string): IScannedMalformedMarker[] {
+    if (!text.includes('MC:'))
+        return [];
+
+    const out: IScannedMalformedMarker[] = [];
+    const walk = (tokens: Token[]): void => {
+        for (const token of tokens) {
+            if (token.type === 'html_tag') {
+                const malformed = parseMalformedCommentMarker(token.raw);
+                if (malformed)
+                    out.push({ id: malformed.id, kind: malformed.kind, raw: malformed.raw });
+            }
+            if ('children' in token && token.children && Array.isArray(token.children))
+                walk(token.children);
+        }
+    };
+    walk(tokenizer(text, COMMENT_TOKENIZER_OPTIONS));
+    return out;
 }

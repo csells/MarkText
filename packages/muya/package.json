@@ -44,7 +44,7 @@
         "npm": ">=8.0.0"
     },
     "scripts": {
-        "lint": "eslint --max-warnings 9 src test",
+        "lint": "eslint --max-warnings 8 src test",
         "lint:fix": "eslint src test --fix",
         "lint:css": "stylelint \"src/**/*.css\"",
         "lint:types": "tsc --noEmit",

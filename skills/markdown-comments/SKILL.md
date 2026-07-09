@@ -72,7 +72,7 @@ flag that makes it visible.
 }
 ```
 
-`validate` prints only the diagnostics array and exits non-zero when malformed comments are present. Range paths and offsets are Muya parser/state text coordinates for locating comment anchors inside parsed Markdown state. They are not byte offsets and should not be written back as alternate anchors.
+`validate` prints only the diagnostics array and exits non-zero when malformed comments are present. Range paths and offsets are CLEAN-text coordinates: offsets into the document text with all comment syntax (markers and definition lines) removed — identical to what the live editor reports for the same document. They are not byte offsets and should not be written back as alternate anchors.
 
 Mutation commands touch only the target thread's lines — appending a reply writes exactly one new `[MC:id.N]:` line, a status change rewrites exactly the head line — and never move range markers, normalize unrelated Markdown, create sidecar files, or start a server.
 

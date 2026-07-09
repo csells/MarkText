@@ -14,7 +14,7 @@ import type {
     IParsedMarkdownComments,
 } from './types';
 import { parseMarkdownComments } from './parse';
-import { buildCommentSourceIndex } from './source';
+import { buildCommentSourceIndex, commentSyntaxRangesForId } from './source';
 
 export type TCommentAnalysisOptions = Partial<IMarkdownToStateOptions> & ICommentSourceIndexOptions;
 
@@ -84,48 +84,11 @@ function sourceRangeForDiagnostic(
     );
 }
 
-function definitionRemovalRange(
-    markdown: string,
-    range: ICommentSourceIndexRange,
-): ICommentSourceIndexRange {
-    let { start } = range;
-    let { end } = range;
-
-    if (markdown[end] === '\r')
-        end += markdown[end + 1] === '\n' ? 2 : 1;
-    else if (markdown[end] === '\n')
-        end += 1;
-
-    if (end >= markdown.length && (markdown[start - 1] === '\n' || markdown[start - 1] === '\r')) {
-        const separatorStart = markdown[start - 1] === '\n' && markdown[start - 2] === '\r'
-            ? start - 2
-            : start - 1;
-        if (markdown[separatorStart - 1] === '\n' || markdown[separatorStart - 1] === '\r')
-            start = separatorStart;
-    }
-
-    return { start, end };
-}
-
-function syntaxRemovalRangesForId(
+function buildSourceMaps(
     markdown: string | null,
+    comments: IParsedMarkdownComments,
     sourceIndex: ICommentSourceIndex,
-    id: string,
-): ICommentSourceIndexRange[] {
-    const ranges: ICommentSourceIndexRange[] = sourceIndex.markers
-        .filter(marker => marker.id === id)
-        .map(marker => ({ start: marker.start, end: marker.end }));
-
-    for (const definition of sourceIndex.metadataDefinitions) {
-        if (definition.id === id) {
-            ranges.push(markdown == null ? definition : definitionRemovalRange(markdown, definition));
-        }
-    }
-
-    return ranges.sort((a, b) => b.start - a.start);
-}
-
-function buildSourceMaps(comments: IParsedMarkdownComments, sourceIndex: ICommentSourceIndex): ICommentAnalysis['sourceMaps'] {
+): ICommentAnalysis['sourceMaps'] {
     return {
         ranges: comments.ranges.map(range => ({
             id: range.id,
@@ -134,7 +97,12 @@ function buildSourceMaps(comments: IParsedMarkdownComments, sourceIndex: ICommen
             openMarker: firstMarker(sourceIndex.markers, range.id, 'open'),
             closeMarker: firstMarker(sourceIndex.markers, range.id, 'close'),
             metadataDefinition: firstMetadataDefinition(sourceIndex.metadataDefinitions, range.id),
-            syntaxRemovalRanges: syntaxRemovalRangesForId(null, sourceIndex, range.id),
+            // A states-only analysis has an empty index, so this is [] there;
+            // for markdown input the ranges come from the single owner in
+            // source.ts (trailing-separator handling included).
+            syntaxRemovalRanges: markdown == null
+                ? []
+                : commentSyntaxRangesForId(markdown, range.id, sourceIndex),
         })),
         diagnostics: comments.diagnostics.map(diagnostic => ({
             id: diagnostic.id,
@@ -199,12 +167,7 @@ export function analyzeMarkdownComments(
     }
 
     function sourceMaps(): ICommentAnalysis['sourceMaps'] {
-        analysisSourceMaps ??= buildSourceMaps(comments(), sourceIndex);
-        if (markdown != null) {
-            for (const range of analysisSourceMaps.ranges)
-                range.syntaxRemovalRanges = syntaxRemovalRangesForId(markdown, sourceIndex, range.id);
-        }
-
+        analysisSourceMaps ??= buildSourceMaps(markdown, comments(), sourceIndex);
         return analysisSourceMaps;
     }
 }

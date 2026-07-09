@@ -74,6 +74,20 @@ tokenizer override, state lowering, and the comment source index cannot
 drift. True raw HTML wrapped in markers stays an html-block and yields no
 ranges.
 
+## One owner of comment semantics
+
+Above token recognition sits exactly one implementation of comment
+SEMANTICS (marker pairing, head/reply resolution, diagnostics):
+`parseMarkdownComments` is defined as
+`commentModelView(extractCommentModel(states))` — the byte-level analyzer
+IS the runtime model pipeline. Extraction records the exact diagnostic for
+every definition line it turns into residue (decode error message,
+duplicate, orphan) so the view repeats it verbatim; the view owns marker
+pairing (a duplicate open is diagnosed once and its own close consumed
+silently) and the malformed-marker scan over non-literal leaves. Range
+paths/offsets are CLEAN-text coordinates everywhere — the analyzer and the
+live editor report identical ranges for the same document.
+
 ## Consumers that must not re-implement the grammar
 
 Desktop source mode (CodeMirror overlay mode), the source-mode comment
