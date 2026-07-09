@@ -152,6 +152,18 @@ function readFile(file: string, requestedEncoding?: string): MarkdownDocument {
 }
 
 function writeFile(file: string, document: MarkdownDocument, markdown: string): void {
+  // iconv silently maps characters not representable in the target encoding to
+  // '?'. The mutated content (an agent's reply/edit body) may introduce such
+  // characters on a legacy-encoding file — verify it round-trips and refuse to
+  // write rather than corrupt it. (The BOM is a byte-order artifact, not
+  // content, so representability is checked without it.)
+  const decoded = iconv.decode(iconv.encode(markdown, document.encoding), document.encoding)
+  if (decoded !== markdown) {
+    throw new Error(
+      `Refusing to write: the new content contains characters that cannot be represented ` +
+      `in "${document.encoding}" and would be corrupted. Re-encode the file as UTF-8 to keep them.`
+    )
+  }
   fs.writeFileSync(path.resolve(file), iconv.encode(markdown, document.encoding, {
     addBOM: document.hasBOM
   }))

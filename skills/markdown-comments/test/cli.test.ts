@@ -288,6 +288,61 @@ describe('markdown-comments CLI', () => {
     })
   })
 
+  it('refuses to write reply text the target encoding cannot represent (no silent ? corruption)', () => {
+    const metadata = encodeCommentMetadata({ version: 1, status: 'open', replies: [] })
+    const markdown = [
+      'Cafe <!--MC:a-->x<!--MC:~a--> end',
+      '',
+      `[MC:a]: ${metadata}`,
+      ''
+    ].join('\n')
+    const original = iconv.encode(markdown, 'cp1252')
+    const file = writeMarkdownBuffer(original)
+
+    // 日本語 has no cp1252 representation — iconv would silently map it to '?'.
+    const result = spawnSync(
+      tsxPath,
+      [
+        cliPath, 'reply', file, 'a',
+        '--encoding', 'cp1252',
+        '--author', 'Ada',
+        '--body', '日本語レビュー',
+        '--created-at', '2026-06-30T12:00:00.000Z'
+      ],
+      { cwd: repoRoot, encoding: 'utf8' }
+    )
+
+    // Must FAIL LOUDLY, not exit 0 having written '?' to disk.
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toMatch(/cannot be represented|Refusing to write/i)
+    // The file is left byte-identical — no partial or corrupt write.
+    expect(fs.readFileSync(file).equals(original)).toBe(true)
+  })
+
+  it('still writes reply text that IS representable in the target encoding', () => {
+    // Control: é and ë are in cp1252 — the write must succeed and round-trip.
+    const metadata = encodeCommentMetadata({ version: 1, status: 'open', replies: [] })
+    const markdown = [
+      'Cafe <!--MC:a-->x<!--MC:~a--> end',
+      '',
+      `[MC:a]: ${metadata}`,
+      ''
+    ].join('\n')
+    const file = writeMarkdownBuffer(iconv.encode(markdown, 'cp1252'))
+
+    runCli(
+      'reply', file, 'a',
+      '--encoding', 'cp1252',
+      '--author', 'Zoë',
+      '--body', 'café review',
+      '--created-at', '2026-06-30T12:00:00.000Z'
+    )
+
+    const updated = iconv.decode(fs.readFileSync(file), 'cp1252')
+    expect(updated).toContain('café review')
+    expect(updated).toContain('Zoë')
+  })
+
   it('preserves unrelated bytes, mixed line endings, trailing metadata whitespace, and missing final newline', () => {
     const metadata = encodeCommentMetadata({
       version: 1,
