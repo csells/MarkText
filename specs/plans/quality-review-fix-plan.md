@@ -14,7 +14,7 @@ validate findings before acting).
 
 ## Status
 
-- **Fixed (12 of 15 findings + all nits), verified in the real artifact:**
+- **Fixed (13 of 15 findings + all nits + F4(a)), verified in the real artifact:**
   - **F1 + F10** — one comment-semantics owner: parseMarkdownComments =
     commentModelView∘extractCommentModel; analyze.ts copies + null mode
     deleted (08a139bb).
@@ -55,18 +55,34 @@ validate findings before acting).
 
 - **Open — the merge-subsystem cluster (needs a product decision, then a
   cohesive careful pass):**
-  - **F4** — move all watcher routing into the reducer decision table. Four
-    sub-parts; three are mechanical, but one is a genuine UX decision: a
-    save while a resolver is open currently closes it immediately
-    (editor.ts:689), whereas the reducer's saved-while-reviewing rule keeps
-    it open (baseSuperseded, close on next accept — pinned by
-    merge-session-reducer.spec:430). Both are defensible; the direction
-    must be chosen, not guessed, before unifying. Deferred to avoid
-    guessing on data-integrity-critical code under the fix loop.
-  - **F13** — loadChange { diskBase } option to collapse the three
-    forge-payload-then-repair dances. Mechanical, but it modifies the merge
-    base-setting path (the value the whole staleness logic keys on); best
-    done as part of the F4 cohesive pass rather than piecemeal.
+  - **F4(a) — DONE (c13ab6b6):** the mt::tab-saved handler no longer nulls
+    the resolver behind the reducer's back; it calls reconcileTabSaved and
+    the reducer decides (baseSuperseded, close on next Accept — this turned
+    out to be spec-conformance per external-merge.md §The session reducer,
+    not a UX choice). Pinned red-green.
+  - **F4(b) — open:** collapse the LISTEN_FOR_FILE_CHANGE watcher ladder
+    (byte-identical absorb / clean-tab reload / resolver reroute / dirty
+    path) into a single disk-changed dispatch with all rows in the reducer
+    decision table. The real judo, but a big-bang on the entry point for
+    ALL external file changes (data-integrity-critical) — warrants a
+    focused pass with full re-verification, not the tail of a marathon.
+  - **F4(c) — ROI-waived:** the markClean interpreter override
+    (`markClean && nextTab.markdown === change.data.markdown`) needs the
+    POST-loadChange engine serialization (the appendix re-sticks to EOF),
+    which the reducer cannot have — it decides before the apply. Routing it
+    back through a post-apply reality event adds a round-trip for layering
+    purity with no correctness gain; the buffer-truth check genuinely
+    belongs in the interpreter (added deliberately in the round-8 fix).
+  - **F4(d) — ROI-borderline:** the auto-merge notification's Review half
+    already dispatches review-requested through the reducer; only the Undo
+    half does a direct loadChange. Modeling that one-shot buffer restore as
+    a reducer 'undo-merge' event (the reducer is idle at that point, with no
+    session to transition) is questionable — the duplicated liveness check
+    is a smaller smell than forcing a non-session action into the session
+    machine.
+  - **F13 — open:** loadChange { diskBase } option to collapse the three
+    forge-payload-then-repair dances; best done as part of the F4(b) pass
+    since it modifies the same merge base-setting path.
 
 ## The headline question (context for the fixes)
 
