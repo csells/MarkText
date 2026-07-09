@@ -264,6 +264,7 @@
       "reopen": "Reopen",
       "comment": "Comment",
       "reply": "Reply",
+      "send": "Send",
       "saveEdit": "Save",
       "cancelEdit": "Cancel",
       "editPlaceholder": "Edit this reply...",

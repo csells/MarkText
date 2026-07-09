@@ -124,6 +124,7 @@ describe('desktop locale completeness for markdown comments', () => {
       'resolved',
       'saveEdit',
       'selectTextHint',
+      'send',
       'summary',
       'title',
       'updateFailed'

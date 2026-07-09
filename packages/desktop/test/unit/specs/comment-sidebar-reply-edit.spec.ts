@@ -194,6 +194,8 @@ describe('comments sidebar (mounted)', () => {
     store.comments = makeComments(threads) as never
     mountSidebar()
 
+    await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.reply').trigger('click')
+    await buttonWithText(thread('cmt_2') as never, 'sideBar.comments.reply').trigger('click')
     await replyBox('cmt_1').setValue('live')
     await replyBox('cmt_2').setValue('stale')
 
@@ -205,6 +207,7 @@ describe('comments sidebar (mounted)', () => {
     await nextTick()
 
     expect((replyBox('cmt_1').element as HTMLTextAreaElement).value).toBe('live')
+    await buttonWithText(thread('cmt_2') as never, 'sideBar.comments.reply').trigger('click')
     expect((replyBox('cmt_2').element as HTMLTextAreaElement).value).toBe('')
   })
 
@@ -246,6 +249,31 @@ describe('comments sidebar (mounted)', () => {
     expect(visibleIds()).toEqual(['open1'])
   })
 
+  // A settled thread must not render a pending compose entry (it reads as a
+  // phantom reply the user never started) — the box appears only after an
+  // explicit Reply click, and hides again on submit.
+  it('the reply compose box is hidden until Reply is clicked and hides after submit', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments([
+      { id: 'cmt_1', status: 'open', replies: [reply('Ada', 't1', 'first')] }
+    ]) as never
+    mountSidebar()
+
+    expect(replyBox('cmt_1').exists()).toBe(false)
+
+    await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.reply').trigger('click')
+    expect(replyBox('cmt_1').exists()).toBe(true)
+
+    await replyBox('cmt_1').setValue('Looks good')
+    await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.send').trigger('click')
+
+    expect(emit).toHaveBeenCalledWith('comment:reply', {
+      id: 'cmt_1',
+      reply: expect.objectContaining({ body: 'Looks good' })
+    })
+    expect(replyBox('cmt_1').exists()).toBe(false)
+  })
+
   it('uses the configured comment author for new replies and returns focus to the document', async() => {
     const store = useEditorStore()
     const preferences = usePreferencesStore()
@@ -255,8 +283,9 @@ describe('comments sidebar (mounted)', () => {
     ]) as never
     mountSidebar()
 
-    await replyBox('cmt_1').setValue('Looks good')
     await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.reply').trigger('click')
+    await replyBox('cmt_1').setValue('Looks good')
+    await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.send').trigger('click')
 
     expect(emit).toHaveBeenCalledWith('comment:reply', {
       id: 'cmt_1',
@@ -277,8 +306,9 @@ describe('comments sidebar (mounted)', () => {
       ]) as never
       mountSidebar()
 
-      await replyBox('cmt_1').setValue('Nice')
       await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.reply').trigger('click')
+      await replyBox('cmt_1').setValue('Nice')
+      await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.send').trigger('click')
 
       expect(emit).toHaveBeenCalledWith('comment:reply', {
         id: 'cmt_1',
@@ -333,7 +363,8 @@ describe('comments sidebar (mounted)', () => {
     await buttonWithText(thread('cmt_1') as never, 'sideBar.comments.cancelEdit').trigger('click')
 
     expect(emit).toHaveBeenCalledWith('comment:discard', 'cmt_1')
-    expect((replyBox('cmt_1').element as HTMLTextAreaElement).value).toBe('')
+    // Composing ended: the box unmounts rather than lingering empty.
+    expect(replyBox('cmt_1').exists()).toBe(false)
   })
 
   it('emits diagnostic focus requests by id', async() => {

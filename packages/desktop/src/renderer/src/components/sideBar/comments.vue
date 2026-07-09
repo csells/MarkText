@@ -185,7 +185,19 @@
         @save="submitEdit(thread)"
       />
 
-      <div class="reply-box">
+      <el-button
+        v-if="!showReplyBox(thread)"
+        class="reply-toggle"
+        size="small"
+        @click="beginReply(thread.id)"
+      >
+        {{ t('sideBar.comments.reply') }}
+      </el-button>
+
+      <div
+        v-else
+        class="reply-box"
+      >
         <div class="entry-head compose-head">
           <span
             class="avatar"
@@ -213,13 +225,20 @@
             {{ t('sideBar.comments.cancelEdit') }}
           </el-button>
           <el-button
+            v-else
+            size="small"
+            @click="cancelReply(thread.id)"
+          >
+            {{ t('sideBar.comments.cancelEdit') }}
+          </el-button>
+          <el-button
             size="small"
             type="primary"
             :disabled="!replyDrafts[thread.id]?.trim()"
             @click="submitReply(thread.id)"
           >
             {{ thread.replies.length
-              ? t('sideBar.comments.reply')
+              ? t('sideBar.comments.send')
               : t('sideBar.comments.comment') }}
           </el-button>
         </div>
@@ -247,6 +266,10 @@ const replyDrafts = reactive<Record<string, string>>({})
 const editDrafts = reactive<Record<string, string>>({})
 const editingReplies = reactive<Record<string, boolean>>({})
 const composingThreadIds = reactive<Record<string, boolean>>({})
+// Threads whose reply box the user explicitly opened (Reply click). The box
+// never renders unbidden: a settled thread showing a pending compose entry
+// reads as a phantom reply the user never started.
+const replyingThreadIds = reactive<Record<string, boolean>>({})
 // createdAt of the reply an open edit box targets, so a submit can detect that
 // the reply array shifted underneath (index-based identity would otherwise
 // overwrite a different reply).
@@ -314,6 +337,9 @@ watch(
     for (const key of Object.keys(composingThreadIds)) {
       if (!live.has(key)) delete composingThreadIds[key]
     }
+    for (const key of Object.keys(replyingThreadIds)) {
+      if (!live.has(key)) delete replyingThreadIds[key]
+    }
     for (const key of Object.keys(editDrafts)) {
       if (!live.has(threadIdOf(key))) delete editDrafts[key]
     }
@@ -359,10 +385,25 @@ const focusReplyInput = (id: string): void => {
     requestAnimationFrame(() => {
       // The thread may have stopped composing (submitted/discarded) before
       // the frame fired; focusing then would yank focus from the document.
-      if (!composingThreadIds[id]) return
+      if (!composingThreadIds[id] && !replyingThreadIds[id]) return
       replyInputs.get(id)?.focus()
     })
   })
+}
+
+const showReplyBox = (thread: ICommentThread): boolean =>
+  !!composingThreadIds[thread.id] || !!replyingThreadIds[thread.id]
+
+const beginReply = (id: string): void => {
+  replyingThreadIds[id] = true
+  replyDrafts[id] = replyDrafts[id] ?? ''
+  focusReplyInput(id)
+}
+
+const cancelReply = (id: string): void => {
+  delete replyingThreadIds[id]
+  replyDrafts[id] = ''
+  bus.emit('editor-focus')
 }
 
 const handleComposeComment = (id: unknown): void => {
@@ -498,6 +539,7 @@ const submitReply = (id: string): void => {
   })
   replyDrafts[id] = ''
   delete composingThreadIds[id]
+  delete replyingThreadIds[id]
   // Posting a comment is a punctuation mark on editing, not the start of a
   // commenting session — hand focus back to the document.
   bus.emit('editor-focus')
@@ -523,6 +565,7 @@ const composeEscape = (id: string): void => {
   }
   replyDrafts[id] = ''
   delete composingThreadIds[id]
+  delete replyingThreadIds[id]
   bus.emit('editor-focus')
 }
 

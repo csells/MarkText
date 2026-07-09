@@ -444,8 +444,12 @@ test.describe('Portable markdown comments', () => {
       await thread.getByRole('button', { name: 'Save' }).click()
       await expect(thread.locator('.reply p').first()).toHaveText('Edited in source')
 
+      // Park the mouse away first: the hover tooltip of the last-clicked
+      // thread action lingers over the toggle's spot and intercepts the click.
+      await page.mouse.move(0, 0)
+      await thread.locator('.reply-toggle').click()
       await thread.locator('.reply-box textarea').fill('Source reply')
-      await thread.getByRole('button', { name: 'Reply' }).click()
+      await thread.getByRole('button', { name: 'Send' }).click()
       await expect(thread.locator('.reply p').last()).toHaveText('Source reply')
 
       await thread.locator('.thread-actions button').nth(2).click()
@@ -473,8 +477,12 @@ test.describe('Portable markdown comments', () => {
       await thread.getByRole('button', { name: 'Save' }).click()
       await expect(thread.locator('.reply p').first()).toHaveText('Persisted source edit')
 
+      // Park the mouse away first: the hover tooltip of the last-clicked
+      // thread action lingers over the toggle's spot and intercepts the click.
+      await page.mouse.move(0, 0)
+      await thread.locator('.reply-toggle').click()
       await thread.locator('.reply-box textarea').fill('Persisted source reply')
-      await thread.getByRole('button', { name: 'Reply' }).click()
+      await thread.getByRole('button', { name: 'Send' }).click()
       await expect(thread.locator('.reply p').last()).toHaveText('Persisted source reply')
 
       await thread.locator('.thread-actions button').nth(2).click()
@@ -788,8 +796,12 @@ test.describe('Portable markdown comments', () => {
       await thread.getByRole('button', { name: 'Save' }).click()
       await expect(thread.locator('.reply p').first()).toHaveText('Edited first note')
 
+      // Park the mouse away first: the hover tooltip of the last-clicked
+      // thread action lingers over the toggle's spot and intercepts the click.
+      await page.mouse.move(0, 0)
+      await thread.locator('.reply-toggle').click()
       await thread.locator('.reply-box textarea').fill('Second reply')
-      await thread.getByRole('button', { name: 'Reply' }).click()
+      await thread.getByRole('button', { name: 'Send' }).click()
       await expect(thread.locator('.reply p').last()).toHaveText('Second reply')
 
       await thread.locator('.thread-actions button').nth(2).click()

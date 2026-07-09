@@ -263,6 +263,7 @@
       "resolve": "Resolver",
       "reopen": "Reabrir",
       "reply": "Responder",
+      "send": "Enviar",
       "saveEdit": "Guardar",
       "cancelEdit": "Cancelar",
       "editPlaceholder": "Editar esta respuesta...",

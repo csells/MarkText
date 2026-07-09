@@ -15,15 +15,18 @@ test('submitting a reply returns focus to the editor and clears the reply box', 
     let box = page.locator('.reply-box textarea').first()
     await box.fill('hello!')
     await box.press('ControlOrMeta+Enter')
-    // Submit clears the box — the positive transition to wait on.
-    await expect.poll(replyBoxValue, { timeout: 5000 }).toBe('')
+    // Submit ends the compose: the box unmounts (null) rather than
+    // lingering empty — the positive transition to wait on.
+    await expect.poll(replyBoxValue, { timeout: 5000 }).toBe(null)
 
     // Now reply AGAIN to the same (now non-composing) thread — the scenario.
+    // The box is hidden on a settled thread; the Reply toggle reveals it.
+    await page.locator('.side-bar-comments .thread .reply-toggle').first().click()
     box = page.locator('.reply-box textarea').first()
     await box.click()
     await box.fill('greetings')
     await box.press('ControlOrMeta+Enter')
-    await expect.poll(replyBoxValue, { timeout: 5000 }).toBe('')
+    await expect.poll(replyBoxValue, { timeout: 5000 }).toBe(null)
     await expect
       .poll(async() => (await page.evaluate(() => document.activeElement?.tagName)) === 'TEXTAREA',
         { timeout: 5000 })
@@ -40,7 +43,7 @@ test('submitting a reply returns focus to the editor and clears the reply box', 
     }))
     expect(s.activeIsTextarea, 'focus should return to the editor, not stay in the reply box').toBe(false)
     expect(s.inEditor, 'the caret should be in the editor').toBe(true)
-    expect(s.replyBoxText, 'the reply box should be cleared after submit').toBe('')
+    expect(s.replyBoxText, 'the reply box should be gone after submit').toBe(null)
   } finally {
     await app.close()
   }
