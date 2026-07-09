@@ -35,11 +35,6 @@ export interface MergeConflictState {
   // Globally monotonic (not the reducer's per-tab id) because the store has
   // a single dialog slot shared by every tab.
   session: number
-  // Liveness snapshot: the session may act only while the tab's buffer and
-  // disk base still hold exactly these values (a save, edit, or newer disk
-  // change moves them and supersedes the session).
-  expectedMarkdown: string
-  expectedDiskBase: string | undefined
   tabId: string
   pathname: string
   filename: string
@@ -239,8 +234,6 @@ const executeOpenResolver = (
   mergeConflictMaterializationCounter += 1
   store.mergeConflict = {
     session: mergeConflictMaterializationCounter,
-    expectedMarkdown: session.expectedLocal,
-    expectedDiskBase: session.expectedDiskBase,
     tabId,
     pathname: session.fileChange.pathname,
     filename: tab.filename,

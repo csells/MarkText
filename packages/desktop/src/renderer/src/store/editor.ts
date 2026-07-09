@@ -1825,16 +1825,12 @@ export const useEditorStore = defineStore('editor', {
               // Only the file's metadata changed on disk (e.g. a git checkout
               // that left the content byte-identical) — there is nothing to
               // reload and no reason to warn the user (#1861).
-              const changeData = (change as unknown as FileChangePayload).data
-              if (changeData && isSameFileSnapshot(tab, changeData)) {
+              if (isSameFileSnapshot(tab, change.data)) {
                 // An open resolver for this tab is reviewing content that no
                 // longer differs from disk: route through the merge pipeline
                 // so the reducer closes the dead session and syncs clean.
                 if (this.mergeConflict?.tabId === tab.id) {
-                  await this.HANDLE_DIRTY_EXTERNAL_CHANGE(
-                    tab,
-                    change as unknown as FileChangePayload
-                  )
+                  await this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, change)
                   debouncedSendBufferedState()
                   break
                 }
@@ -1861,11 +1857,11 @@ export const useEditorStore = defineStore('editor', {
               // remote, stay headed for review — and a silent reload would
               // wedge the dialog on panes whose remote no longer exists.
               if (isSaved && this.mergeConflict?.tabId !== tab.id) {
-                this.loadChange(change as unknown as FileChangePayload)
+                this.loadChange(change)
                 return
               }
 
-              await this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, change as unknown as FileChangePayload)
+              await this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, change)
               debouncedSendBufferedState()
               break
             }
@@ -1923,7 +1919,7 @@ export const useEditorStore = defineStore('editor', {
       })
       window.electron.ipcRenderer.on('mt::cm-add-comment', () => {
         if (!this.addCommentEnabled) return
-        bus.emit('addComment')
+        bus.emit('comment:add')
       })
 
       // Spelling

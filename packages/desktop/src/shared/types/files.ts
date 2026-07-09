@@ -135,6 +135,14 @@ export interface FileChangeDetail {
   [key: string]: unknown
 }
 
+// A file-content change the watcher reports (and the merge pipeline consumes):
+// the path plus the loaded document. Lives here (not in a renderer store) so
+// the typed IPC contract can name it.
+export interface FileChangePayload {
+  pathname: string
+  data: FileDocumentPayload
+}
+
 export interface TabOptions {
   selected?: boolean
   [key: string]: unknown

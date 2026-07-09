@@ -361,7 +361,7 @@ const formatDate = (value?: string): string => {
 const addComment = (): void => {
   if (!canAddComment.value) return
 
-  bus.emit('addComment')
+  bus.emit('comment:add')
 }
 
 const setReplyInputRef = (id: string, input: unknown): void => {

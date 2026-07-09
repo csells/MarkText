@@ -101,7 +101,7 @@ export const editorAddComment = (win: Win): void => {
   if (!isAddCommentMenuEnabled()) {
     return
   }
-  edit(win, 'addComment')
+  edit(win, 'comment:add')
 }
 
 export const isAddCommentMenuEnabled = (applicationMenu: Menu | null = Menu.getApplicationMenu()): boolean => {

@@ -52,7 +52,7 @@ describe('main Add Comment command gating', () => {
 
     editorAddComment(win)
 
-    expect(send).toHaveBeenCalledWith('mt::editor-edit-action', 'addComment')
+    expect(send).toHaveBeenCalledWith('mt::editor-edit-action', 'comment:add')
   })
 
   it('builds Add Comment disabled until renderer selection state enables it', () => {

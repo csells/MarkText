@@ -48,7 +48,7 @@ describe('renderer context-menu Add Comment gate', () => {
 
     captureHandler()()
 
-    expect(emitSpy).not.toHaveBeenCalledWith('addComment')
+    expect(emitSpy).not.toHaveBeenCalledWith('comment:add')
   })
 
   it('emits Add Comment when the shared predicate is enabled', () => {
@@ -59,6 +59,6 @@ describe('renderer context-menu Add Comment gate', () => {
 
     captureHandler()()
 
-    expect(emitSpy).toHaveBeenCalledWith('addComment')
+    expect(emitSpy).toHaveBeenCalledWith('comment:add')
   })
 })

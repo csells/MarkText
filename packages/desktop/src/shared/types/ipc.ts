@@ -27,7 +27,7 @@ import type {
   SaveOptions,
   SerializedStat,
   LineEnding,
-  FileChangeDetail,
+  FileChangePayload,
   UnsavedFile
 } from './files'
 import type { BufferedState as BufferedStateType } from './bufferedState'
@@ -281,7 +281,7 @@ export interface IpcMainEventChannels {
   'mt::tabs-cycle-right': []
   'mt::toggle-view-layout-entry': [entry: string]
   'mt::toggle-view-mode-entry': [entry: string]
-  'mt::update-file': [payload: { type: 'add' | 'change' | 'unlink'; change: FileChangeDetail }]
+  'mt::update-file': [payload: { type: 'add' | 'change' | 'unlink'; change: FileChangePayload }]
   'mt::update-object-tree': [payload: unknown]
   'mt::user-preference': [partial: unknown]
   'mt::window-active-status': [active: boolean]

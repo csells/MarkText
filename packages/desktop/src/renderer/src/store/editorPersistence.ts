@@ -1,10 +1,7 @@
 import equal from 'deep-equal'
-import type { FileDocumentPayload, FileNotification, IFileState } from '@shared/types/files'
+import type { FileChangePayload, FileNotification, IFileState } from '@shared/types/files'
 
-export interface FileChangePayload {
-  pathname: string
-  data: FileDocumentPayload
-}
+export type { FileChangePayload }
 
 // Complete a save against the ground truth main echoed back: the disk base
 // advances to the WRITTEN bytes; the tab is clean only if the buffer still

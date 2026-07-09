@@ -240,7 +240,7 @@ const commands: CommandDescriptor[] = [
     isEnabled: isAddCommentCommandEnabled,
     execute: async() => {
       if (!isAddCommentCommandEnabled()) return
-      focusEditorAndExecute(() => bus.emit('addComment'))
+      focusEditorAndExecute(() => bus.emit('comment:add'))
     }
   },
   {

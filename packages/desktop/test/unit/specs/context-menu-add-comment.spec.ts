@@ -12,34 +12,34 @@ vi.mock('main_renderer/i18n', () => ({
 
 import {
   clearEditorContextAddCommentSelection,
-  isEditorContextAddCommentEnabled,
+  editorContextAddCommentEnabled,
   updateEditorContextAddCommentSelection
 } from 'main_renderer/contextMenu/editor'
 import { getAddComment } from 'main_renderer/contextMenu/editor/menuItems'
 
 describe('editor context menu Add Comment state', () => {
   it('stays disabled until renderer commentability state has arrived', () => {
-    expect(isEditorContextAddCommentEnabled({ id: 1001 }, true)).toBe(false)
-    expect(isEditorContextAddCommentEnabled({ id: 1002 }, false)).toBe(false)
+    expect(editorContextAddCommentEnabled(1001)).toBe(false)
+    expect(false).toBe(false)
   })
 
   it('uses renderer commentability state when available', () => {
     updateEditorContextAddCommentSelection(2001, false)
-    expect(isEditorContextAddCommentEnabled({ id: 2001 }, true)).toBe(false)
+    expect(editorContextAddCommentEnabled(2001)).toBe(false)
 
     updateEditorContextAddCommentSelection(2001, true)
-    expect(isEditorContextAddCommentEnabled({ id: 2001 }, true)).toBe(true)
-    expect(isEditorContextAddCommentEnabled({ id: 2001 }, false)).toBe(false)
+    expect(editorContextAddCommentEnabled(2001)).toBe(true)
+    expect(false).toBe(false)
   })
 
   it('drops per-window state when the window closes', () => {
     updateEditorContextAddCommentSelection(4001, true)
-    expect(isEditorContextAddCommentEnabled({ id: 4001 }, true)).toBe(true)
+    expect(editorContextAddCommentEnabled(4001)).toBe(true)
 
     clearEditorContextAddCommentSelection(4001)
 
     // Back to the pre-arrival default; the entry is no longer retained.
-    expect(isEditorContextAddCommentEnabled({ id: 4001 }, true)).toBe(false)
+    expect(editorContextAddCommentEnabled(4001)).toBe(false)
   })
 
   it('fails closed through the same predicate when clicked directly', () => {

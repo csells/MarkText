@@ -38,7 +38,7 @@ export const initCommentCommandRouter = (): void => {
   if (initialized) return
   initialized = true
 
-  bus.on('addComment', () => active()?.addComment())
+  bus.on('comment:add', () => active()?.addComment())
   bus.on('comment:reply', (payload: unknown) => active()?.reply(payload))
   bus.on('comment:discard', (id: unknown) => active()?.discard(id))
   bus.on('comment:edit', (payload: unknown) => active()?.edit(payload))

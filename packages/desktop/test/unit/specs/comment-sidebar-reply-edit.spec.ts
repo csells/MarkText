@@ -219,13 +219,13 @@ describe('comments sidebar (mounted)', () => {
     const addButton = buttonWithText(wrapper!, 'sideBar.comments.add')
     expect(addButton.attributes('disabled')).toBeDefined()
     await addButton.trigger('click')
-    expect(emit).not.toHaveBeenCalledWith('addComment')
+    expect(emit).not.toHaveBeenCalledWith('comment:add')
 
     store.addCommentEnabled = true
     await nextTick()
     expect(addButton.attributes('disabled')).toBeUndefined()
     await addButton.trigger('click')
-    expect(emit).toHaveBeenCalledWith('addComment')
+    expect(emit).toHaveBeenCalledWith('comment:add')
   })
 
   it('filters visible threads by open and resolved status', async() => {

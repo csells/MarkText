@@ -24,11 +24,13 @@ class FakeStream {
   skipToEnd() { this.pos = this.string.length }
 }
 
-const captureOverlay = (getDecorations: () => ISourceLineDecoration[]) => {
-  let overlay: {
-    startState(): { line: number }
-    token(stream: FakeStream, state: { line: number }): string | null
-  } | null = null
+type Overlay = {
+  startState(): { line: number }
+  token(stream: FakeStream, state: { line: number }): string | null
+}
+
+const captureOverlay = (getDecorations: () => ISourceLineDecoration[]): Overlay => {
+  let overlay: Overlay | null = null
   const CodeMirror = {
     modes: {},
     defineMode(_name: string, factory: (config: unknown, opts: unknown) => unknown) {

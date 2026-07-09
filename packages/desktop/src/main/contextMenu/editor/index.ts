@@ -12,12 +12,12 @@ import {
   getInsertAfter
 } from './menuItems'
 import spellcheckMenuBuilder from './spellcheck'
-import { isEditorContextAddCommentEnabled } from './addCommentState'
+import { editorContextAddCommentEnabled } from './addCommentState'
+
 import { t } from '../../i18n'
 export {
   clearEditorContextAddCommentSelection,
   editorContextAddCommentEnabled,
-  isEditorContextAddCommentEnabled,
   updateEditorContextAddCommentSelection
 } from './addCommentState'
 
@@ -121,7 +121,7 @@ export const showEditorContextMenu = (
     ])
     contextItems.forEach((item) => {
       if (item.id === 'addCommentMenuItem') {
-        item.enabled = isEditorContextAddCommentEnabled(win, hasText)
+        item.enabled = hasText && editorContextAddCommentEnabled(win.id)
       } else if (item.id && copyItemIds.has(item.id)) {
         item.enabled = canCopy
       }
