@@ -953,6 +953,50 @@ function textInsertionLengthAt(op: JSONOp, leafPath: Array<string | number>, cpO
     return result;
 }
 
+// A paragraph split (Enter) emits a SUFFIX delete of block b's text composed
+// with an insert of a new block b+1 holding that exact suffix. transformPosition
+// treats the deleted suffix as gone, collapsing anchors that sat in it onto the
+// split point, and the deletion policy then drops the whole thread while the
+// commented text survives in the new block (comment-anchors.md invariant 5).
+// Detect the split deterministically from the states — block b is now a strict
+// prefix of its old text, and block b+1 is EXACTLY the removed suffix — and
+// carry an anchor that sat in the moved suffix into the new block at the same
+// relative offset. Anchors before the split stay put (null → the normal
+// transform handles them). Units are utf16 throughout, matching the anchor.
+function findSplitTarget(
+    anchor: ICommentAnchor,
+    beforeLeaf: TTextState,
+    afterStates: TState[],
+): TBlockPath | null {
+    const { position } = anchor;
+    const blockKey = position[position.length - 3];
+    if (typeof blockKey !== 'number')
+        return null;
+    const container = position.slice(0, -3);
+
+    const head = readLeaf(afterStates, position); // block b after the split
+    const newBlock = readLeaf(afterStates, [...container, blockKey + 1, 'text', 0]);
+    if (!head || !newBlock)
+        return null;
+
+    // The split signature: block b shrank to a strict prefix and block b+1 is
+    // its removed suffix, verbatim. A non-split op (a bare shrink, an unrelated
+    // sibling) fails one of these exact-equality checks and is left alone.
+    if (head.text.length >= beforeLeaf.text.length)
+        return null;
+    if (!beforeLeaf.text.startsWith(head.text))
+        return null;
+    const suffix = beforeLeaf.text.slice(head.text.length);
+    if (newBlock.text !== suffix)
+        return null;
+
+    const utf16 = position[position.length - 1] as number;
+    if (utf16 < head.text.length)
+        return null; // anchor is in the head — it stays in block b
+
+    return [...container, blockKey + 1, 'text', utf16 - head.text.length];
+}
+
 function transformAnchorPosition(
     anchor: ICommentAnchor,
     op: JSONOp,
@@ -962,6 +1006,12 @@ function transformAnchorPosition(
     const beforeLeaf = readLeaf(beforeStates, anchor.position);
     if (!beforeLeaf)
         return null;
+
+    // A paragraph split carries the moved suffix (and any anchor in it) into
+    // the new block before transformPosition can collapse it onto the break.
+    const splitTarget = findSplitTarget(anchor, beforeLeaf, afterStates);
+    if (splitTarget)
+        return splitTarget;
 
     const utf16 = anchor.position[anchor.position.length - 1] as number;
     const codePointPosition = [
