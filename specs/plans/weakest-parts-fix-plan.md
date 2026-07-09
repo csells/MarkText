@@ -16,7 +16,7 @@ ratchets; madge; css; build:unpack).
 - [x] 2. e2e harness fail-closed on renderer errors — DONE
 - [x] 3. Delete the legacy muyajs corpse + orphan deps — DONE
 - [x] 4. Inline tokenizer perf cliff — DONE (guard reorder, not the rewrite)
-- [ ] 5. format.ts block-conversion consolidation + caret bug
+- [x] 5. format.ts block-conversion consolidation + caret bug — DONE (caret math unified)
 - [ ] 6. exportSettings single-object collapse
 
 ## 1. Main-process save/IO integrity — CRITICAL, silent data loss

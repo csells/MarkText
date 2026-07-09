@@ -213,6 +213,27 @@ function checkTokenIsInlineFormat(token: Token) {
     return false;
 }
 
+// Remap a caret offset when a soft-wrapped paragraph line is converted to a
+// thematic break / ATX heading / block quote. The conversion moves the caret's
+// text into a new block after (a) splitting the preceding lines off into their
+// own paragraph and (b) stripping any leading marker (`> ` for a quote). Both
+// shrink the text before the caret, so both must be subtracted — thematic
+// break and ATX heading pass no marker (0), block quote passes the stripped
+// `> ` length. Clamped at 0. (Consolidates three hand-rolled variants, one of
+// which — block quote — omitted the preceding-lines term and dropped the caret
+// past the end of the quote content.)
+export function remapOffsetAfterSplit(
+    offset: number,
+    preParagraphLines: string[],
+    markerDelta = 0,
+): number {
+    const preParagraphTextLength = preParagraphLines.reduce(
+        (acc, line) => acc + line.length + 1, // + 1 for the joining `\n`
+        0,
+    );
+    return Math.max(0, offset - preParagraphTextLength - markerDelta);
+}
+
 class Format extends Content {
     static override blockName = 'format';
 
@@ -811,14 +832,11 @@ class Format extends Content {
 
         if (hasSelection) {
             const thematicBreakContent = thematicBlock.children.head;
-            const preParagraphTextLength = preParagraphLines.reduce(
-                (acc, i) => acc + i.length + 1,
-                0,
-            ); // Add one, because the `\n`
-            const startOffset = Math.max(0, start.offset - preParagraphTextLength);
-            const endOffset = Math.max(0, end.offset - preParagraphTextLength);
-
-            thematicBreakContent.setCursor(startOffset, endOffset, true);
+            thematicBreakContent.setCursor(
+                remapOffsetAfterSplit(start.offset, preParagraphLines),
+                remapOffsetAfterSplit(end.offset, preParagraphLines),
+                true,
+            );
         }
     }
 
@@ -1065,13 +1083,11 @@ class Format extends Content {
 
         if (hasSelection) {
             const atxHeadingContent = atxHeadingBlock.children.head;
-            const preParagraphTextLength = preParagraphLines.reduce(
-                (acc, i) => acc + i.length + 1,
-                0,
-            ); // Add one, because the `\n`
-            const startOffset = Math.max(0, start.offset - preParagraphTextLength);
-            const endOffset = Math.max(0, end.offset - preParagraphTextLength);
-            atxHeadingContent.setCursor(startOffset, endOffset, true);
+            atxHeadingContent.setCursor(
+                remapOffsetAfterSplit(start.offset, preParagraphLines),
+                remapOffsetAfterSplit(end.offset, preParagraphLines),
+                true,
+            );
         }
     }
 
@@ -1212,8 +1228,8 @@ class Format extends Content {
             // TODO: USE `firstContentInDescendant`
             const cursorBlock = quoteBlock.children.head.children.head;
             cursorBlock.setCursor(
-                Math.max(0, start.offset - delta),
-                Math.max(0, end.offset - delta),
+                remapOffsetAfterSplit(start.offset, preParagraphLines, delta),
+                remapOffsetAfterSplit(end.offset, preParagraphLines, delta),
                 true,
             );
         }
