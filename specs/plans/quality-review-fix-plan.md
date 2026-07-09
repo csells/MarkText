@@ -14,14 +14,59 @@ validate findings before acting).
 
 ## Status
 
-- **In progress.** Fixed: F1 + F10 (one comment-semantics owner —
-  parseMarkdownComments = commentModelView∘extractCommentModel; analyze.ts
-  copies + null mode deleted) — commit 08a139bb. F2 + F3 (one
-  literal-context grammar — batch-driven CodeMirror overlay, tokenizer
-  inline-code over paragraph text; streaming classifier + per-line backtick
-  scanner deleted; overlay eol-guarded against stale decorations) — commit
-  f82fe345. Remaining: F4, F5/F6, F7/F8/F9/F12, F11/F13/F14/F15 + nits, then
-  the closing full-gate sweep and fresh from-zero re-review.
+- **Fixed (12 of 15 findings + all nits), verified in the real artifact:**
+  - **F1 + F10** — one comment-semantics owner: parseMarkdownComments =
+    commentModelView∘extractCommentModel; analyze.ts copies + null mode
+    deleted (08a139bb).
+  - **F2 + F3** — one literal-context grammar: batch-driven CodeMirror
+    overlay, tokenizer inline-code over paragraph text; streaming
+    classifier + per-line backtick scanner deleted; overlay eol-guarded
+    against stale decorations (f82fe345).
+  - **F11 + muya nits** — dead state-twin deleted; one _serializeCached
+    memoizer; mayContainCommentSyntax owner; history infer→ICommentThread;
+    materializedMarkdown rename; JSDoc move (muya ratchet 9→6).
+  - **F14 + F15 + nits** — typed mt::update-file (4 casts gone); dead
+    MergeConflictState fields; addComment→comment:add; one
+    addCommentState getter (6d35ea7c).
+  - **F8 + F9** — ICommentSurface honestly typed + narrowed once at the bus
+    edge; router IS the mode (16 dead guards deleted); editor-focus via the
+    surface; explicit isSourceHandoff flag replaces the field-shape sniff
+    (6ed76ae1).
+  - **F7** — sidebar's six parallel reactive records → one
+    Record<threadId, IThreadUi>; composite-key parsing and the six-armed GC
+    sweep gone (8f964dc0).
+  - **F5** — one prevModelBeforeLastApply snapshot (three lockstep fields
+    gone); the ordinary-edit history entry carries one modelBefore; shared
+    model (de)serialize helper (f9e397cd).
+  Full certification green at each step: muya 1744 unit + 1347 conformance
+  + 242 e2e, desktop 913 unit + full e2e, skills 36, both typechecks,
+  ratchets (root 182 / muya 6), stylelint, madge, build:unpack.
+
+- **ROI-deferred (waivable per the review's own 1000-line clause):**
+  - **F6** — split the transform block out of comments/model.ts (1188
+    lines): isTextPosition/comparePositions straddle the
+    extract/materialize/transform boundary, so a clean split needs a third
+    shared module or risks a cycle, and the file is clearly
+    section-organized.
+  - **F12** — extract the WYSIWYG comment surface from editor.vue: the file
+    was 2102 lines at the merge base, so the ~120-line extraction does not
+    get it under the bar; it trades inline handlers for a wide-signature
+    (8-dependency) composable without a net simplification.
+
+- **Open — the merge-subsystem cluster (needs a product decision, then a
+  cohesive careful pass):**
+  - **F4** — move all watcher routing into the reducer decision table. Four
+    sub-parts; three are mechanical, but one is a genuine UX decision: a
+    save while a resolver is open currently closes it immediately
+    (editor.ts:689), whereas the reducer's saved-while-reviewing rule keeps
+    it open (baseSuperseded, close on next accept — pinned by
+    merge-session-reducer.spec:430). Both are defensible; the direction
+    must be chosen, not guessed, before unifying. Deferred to avoid
+    guessing on data-integrity-critical code under the fix loop.
+  - **F13** — loadChange { diskBase } option to collapse the three
+    forge-payload-then-repair dances. Mechanical, but it modifies the merge
+    base-setting path (the value the whole staleness logic keys on); best
+    done as part of the F4 cohesive pass rather than piecemeal.
 
 ## The headline question (context for the fixes)
 
