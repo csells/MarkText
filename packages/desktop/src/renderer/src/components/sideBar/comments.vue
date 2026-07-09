@@ -120,14 +120,14 @@
             </el-tooltip>
           </div>
           <p
-            v-if="!editingReplies[replyEditKey(thread.id, index)]"
+            v-if="!isEditing(thread.id, index)"
             class="entry-body"
           >
             {{ reply.body }}
           </p>
           <CommentEditBox
             v-else
-            v-model="editDrafts[replyEditKey(thread.id, index)]"
+            v-model="editFor(thread.id, index).draft"
             box-class="reply-edit-box"
             :placeholder="t('sideBar.comments.editPlaceholder')"
             @cancel="cancelEditReply(thread.id, index)"
@@ -178,8 +178,8 @@
       </div>
 
       <CommentEditBox
-        v-if="!thread.replies.length && editingReplies[replyEditKey(thread.id, 0)]"
-        v-model="editDrafts[replyEditKey(thread.id, 0)]"
+        v-if="!thread.replies.length && isEditing(thread.id, 0)"
+        v-model="editFor(thread.id, 0).draft"
         :placeholder="t('sideBar.comments.editPlaceholder')"
         @cancel="cancelEditReply(thread.id, 0)"
         @save="submitEdit(thread)"
@@ -207,7 +207,7 @@
         </div>
         <el-input
           :ref="setReplyInputRefFor(thread.id)"
-          v-model="replyDrafts[thread.id]"
+          v-model="uiFor(thread.id).replyDraft"
           type="textarea"
           :autosize="{ minRows: 2, maxRows: 4 }"
           :placeholder="thread.replies.length
@@ -218,7 +218,7 @@
         />
         <div class="compose-actions">
           <el-button
-            v-if="composingThreadIds[thread.id] && !thread.replies.length"
+            v-if="isComposing(thread.id) && !thread.replies.length"
             size="small"
             @click="discardComposedThread(thread.id)"
           >
@@ -234,7 +234,7 @@
           <el-button
             size="small"
             type="primary"
-            :disabled="!replyDrafts[thread.id]?.trim()"
+            :disabled="!uiFor(thread.id).replyDraft.trim()"
             @click="submitReply(thread.id)"
           >
             {{ thread.replies.length
@@ -262,18 +262,45 @@ const { t } = useI18n()
 const editorStore = useEditorStore()
 const preferencesStore = usePreferencesStore()
 const { comments, activeCommentIds, addCommentEnabled: canAddComment, composeCommentId } = storeToRefs(editorStore)
-const replyDrafts = reactive<Record<string, string>>({})
-const editDrafts = reactive<Record<string, string>>({})
-const editingReplies = reactive<Record<string, boolean>>({})
-const composingThreadIds = reactive<Record<string, boolean>>({})
-// Threads whose reply box the user explicitly opened (Reply click). The box
-// never renders unbidden: a settled thread showing a pending compose entry
-// reads as a phantom reply the user never started.
-const replyingThreadIds = reactive<Record<string, boolean>>({})
-// createdAt of the reply an open edit box targets, so a submit can detect that
-// the reply array shifted underneath (index-based identity would otherwise
-// overwrite a different reply).
-const editReplyAnchors = reactive<Record<string, string>>({})
+// Per-thread transient UI state, one entry per thread id — replaces the
+// six parallel dictionaries (and the composite `id:index` key parsing) the
+// sidebar used to keep. `edits` is keyed by reply index; an entry EXISTS iff
+// that reply's edit box is open (its `anchorCreatedAt` is the reply's
+// createdAt at open time, so a submit detects the reply array shifting
+// underneath). `composing` is the initial-comment composer; `replying` is a
+// reply box the user explicitly opened (never rendered unbidden).
+interface IThreadEditUi {
+  draft: string
+  anchorCreatedAt: string
+}
+interface IThreadUi {
+  replyDraft: string
+  composing: boolean
+  replying: boolean
+  edits: Record<number, IThreadEditUi>
+}
+const threadUi = reactive<Record<string, IThreadUi>>({})
+
+const uiFor = (id: string): IThreadUi => {
+  let entry = threadUi[id]
+  if (!entry) {
+    entry = { replyDraft: '', composing: false, replying: false, edits: {} }
+    threadUi[id] = entry
+  }
+  return entry
+}
+const isComposing = (id: string): boolean => !!threadUi[id]?.composing
+const isReplying = (id: string): boolean => !!threadUi[id]?.replying
+const isEditing = (id: string, replyIndex: number): boolean => threadUi[id]?.edits[replyIndex] != null
+const editFor = (id: string, replyIndex: number): IThreadEditUi => {
+  const ui = uiFor(id)
+  let edit = ui.edits[replyIndex]
+  if (!edit) {
+    edit = { draft: '', anchorCreatedAt: '' }
+    ui.edits[replyIndex] = edit
+  }
+  return edit
+}
 const replyInputs = new Map<string, { focus: () => void }>()
 type CommentFilter = 'all' | 'open' | 'resolved'
 const commentFilter = ref<CommentFilter>('open')
@@ -295,7 +322,7 @@ const visibleThreads = computed(() => {
   // strands the compose flow (its input never mounts) and persists an empty
   // thread.
   return comments.value.threads.filter(
-    thread => thread.status === commentFilter.value || composingThreadIds[thread.id]
+    thread => thread.status === commentFilter.value || isComposing(thread.id)
   )
 })
 
@@ -330,24 +357,8 @@ watch(
   () => comments.value.threads.map(thread => thread.id),
   (ids) => {
     const live = new Set(ids)
-    const threadIdOf = (key: string): string => key.slice(0, key.lastIndexOf(':')) || key
-    for (const key of Object.keys(replyDrafts)) {
-      if (!live.has(key)) delete replyDrafts[key]
-    }
-    for (const key of Object.keys(composingThreadIds)) {
-      if (!live.has(key)) delete composingThreadIds[key]
-    }
-    for (const key of Object.keys(replyingThreadIds)) {
-      if (!live.has(key)) delete replyingThreadIds[key]
-    }
-    for (const key of Object.keys(editDrafts)) {
-      if (!live.has(threadIdOf(key))) delete editDrafts[key]
-    }
-    for (const key of Object.keys(editingReplies)) {
-      if (!live.has(threadIdOf(key))) delete editingReplies[key]
-    }
-    for (const key of Object.keys(editReplyAnchors)) {
-      if (!live.has(threadIdOf(key))) delete editReplyAnchors[key]
+    for (const id of Object.keys(threadUi)) {
+      if (!live.has(id)) delete threadUi[id]
     }
   }
 )
@@ -385,32 +396,31 @@ const focusReplyInput = (id: string): void => {
     requestAnimationFrame(() => {
       // The thread may have stopped composing (submitted/discarded) before
       // the frame fired; focusing then would yank focus from the document.
-      if (!composingThreadIds[id] && !replyingThreadIds[id]) return
+      if (!isComposing(id) && !isReplying(id)) return
       replyInputs.get(id)?.focus()
     })
   })
 }
 
 const showReplyBox = (thread: ICommentThread): boolean =>
-  !!composingThreadIds[thread.id] || !!replyingThreadIds[thread.id]
+  isComposing(thread.id) || isReplying(thread.id)
 
 const beginReply = (id: string): void => {
-  replyingThreadIds[id] = true
-  replyDrafts[id] = replyDrafts[id] ?? ''
+  uiFor(id).replying = true
   focusReplyInput(id)
 }
 
 const cancelReply = (id: string): void => {
-  delete replyingThreadIds[id]
-  replyDrafts[id] = ''
+  const ui = uiFor(id)
+  ui.replying = false
+  ui.replyDraft = ''
   bus.emit('editor-focus')
 }
 
 const handleComposeComment = (id: unknown): void => {
   if (typeof id !== 'string') return
 
-  composingThreadIds[id] = true
-  replyDrafts[id] = replyDrafts[id] ?? ''
+  uiFor(id).composing = true
   focusReplyInput(id)
 }
 
@@ -456,15 +466,12 @@ const reopenComment = (id: string): void => {
   bus.emit('comment:reopen', id)
 }
 
-const replyEditKey = (id: string, replyIndex: number): string => `${id}:${replyIndex}`
-
 const beginEditReply = (thread: ICommentThread, replyIndex: number): void => {
   if (!Number.isInteger(replyIndex) || replyIndex < 0) return
 
-  const key = replyEditKey(thread.id, replyIndex)
-  editingReplies[key] = true
-  editDrafts[key] = thread.replies[replyIndex]?.body ?? ''
-  editReplyAnchors[key] = thread.replies[replyIndex]?.createdAt ?? ''
+  const edit = editFor(thread.id, replyIndex)
+  edit.draft = thread.replies[replyIndex]?.body ?? ''
+  edit.anchorCreatedAt = thread.replies[replyIndex]?.createdAt ?? ''
 }
 
 const beginEdit = (thread: ICommentThread): void => {
@@ -472,10 +479,8 @@ const beginEdit = (thread: ICommentThread): void => {
 }
 
 const cancelEditReply = (id: string, replyIndex: number): void => {
-  const key = replyEditKey(id, replyIndex)
-  editingReplies[key] = false
-  editDrafts[key] = ''
-  delete editReplyAnchors[key]
+  const edits = threadUi[id]?.edits
+  if (edits) delete edits[replyIndex]
   // Cancelling an edit returns focus (and the caret) to the document.
   bus.emit('editor-focus')
 }
@@ -483,8 +488,7 @@ const cancelEditReply = (id: string, replyIndex: number): void => {
 const submitEditReply = (thread: ICommentThread, replyIndex: number): void => {
   if (!Number.isInteger(replyIndex) || replyIndex < 0) return
 
-  const key = replyEditKey(thread.id, replyIndex)
-  const body = editDrafts[key]?.trim()
+  const body = threadUi[thread.id]?.edits[replyIndex]?.draft.trim()
   if (!body) return
 
   const updatedAt = new Date().toISOString()
@@ -492,7 +496,7 @@ const submitEditReply = (thread: ICommentThread, replyIndex: number): void => {
   if (!existingReply && (replyIndex !== 0 || thread.replies.length > 0)) return
   // The reply array shifted while the edit box was open — the index now points
   // at a different reply, so abort rather than overwrite the wrong one.
-  const anchor = editReplyAnchors[key]
+  const anchor = threadUi[thread.id]?.edits[replyIndex]?.anchorCreatedAt
   if (existingReply && anchor && existingReply.createdAt !== anchor) {
     cancelEditReply(thread.id, replyIndex)
     return
@@ -527,7 +531,7 @@ const submitOnModEnter = (event: KeyboardEvent, submit: () => void): void => {
 }
 
 const submitReply = (id: string): void => {
-  const body = replyDrafts[id]?.trim()
+  const body = threadUi[id]?.replyDraft.trim()
   if (!body) return
 
   bus.emit('comment:reply', {
@@ -537,19 +541,16 @@ const submitReply = (id: string): void => {
       body
     }
   })
-  replyDrafts[id] = ''
-  delete composingThreadIds[id]
-  delete replyingThreadIds[id]
+  delete threadUi[id]
   // Posting a comment is a punctuation mark on editing, not the start of a
   // commenting session — hand focus back to the document.
   bus.emit('editor-focus')
 }
 
 const discardComposedThread = (id: string): void => {
-  if (!composingThreadIds[id]) return
+  if (!isComposing(id)) return
 
-  delete replyDrafts[id]
-  delete composingThreadIds[id]
+  delete threadUi[id]
   bus.emit('comment:discard', id)
   // Cancelling a just-added comment hands focus (and the caret) back to the doc.
   bus.emit('editor-focus')
@@ -559,21 +560,20 @@ const discardComposedThread = (id: string): void => {
 // close a reply, and return focus to the editor either way.
 const composeEscape = (id: string): void => {
   const thread = comments.value.threads.find(item => item.id === id)
-  if (thread && composingThreadIds[id] && !thread.replies.length) {
+  if (thread && isComposing(id) && !thread.replies.length) {
     discardComposedThread(id)
     return
   }
-  replyDrafts[id] = ''
-  delete composingThreadIds[id]
-  delete replyingThreadIds[id]
+  delete threadUi[id]
   bus.emit('editor-focus')
 }
 
 const discardEmptyComposedThreads = (): void => {
   const threadsById = new Map(comments.value.threads.map(thread => [thread.id, thread]))
-  for (const id of Object.keys(composingThreadIds)) {
+  for (const id of Object.keys(threadUi)) {
+    if (!isComposing(id)) continue
     const thread = threadsById.get(id)
-    if (!thread || thread.replies.length || replyDrafts[id]?.trim()) continue
+    if (!thread || thread.replies.length || threadUi[id]?.replyDraft.trim()) continue
     discardComposedThread(id)
   }
 }
