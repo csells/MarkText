@@ -168,6 +168,34 @@ Four confirmed instances, one pass. All in `packages/desktop/src/main`.
 → 3 (muyajs deletion) → 4 (tokenizer) → 5 (format.ts) → 6 (exportSettings).
 Gates green after each item; narrowest suite first, full sweep at close.
 
+## COMPLETE — closing gate sweep green (2026-07-09)
+
+All 6 fixes landed red-green, each verified in the real artifact:
+- **1** (b2bbf3e1): discriminated SaveResult + resurrected keep-open dialog;
+  atomic writes via write-file-atomic; rename/move/import notify + fs.move;
+  update flow saves before quitAndInstall + resets runningUpdate.
+- **2** (ee3de610): launchElectron installs the renderer-error counter
+  unconditionally + close-time guard; suppressErrorDialog → allowErrors
+  opt-out; full e2e green under the guard (no latent errors were hidden).
+- **3** (4ccf86bd): deleted packages/muyajs (47,962 lines / 405 files) + all
+  scaffolding + 16 orphan deps; diagram/math/export/theme e2e prove the paths
+  route through @muyajs/core.
+- **4** (a48e7b15): the actual O(n²) was the GFM auto_link_extension scan, not
+  the substring loop (finding's stated cause refuted by measurement); fixed by
+  a ~6-line guard reorder; the broad sticky rewrite was prototyped and reverted
+  (broke 28 edge cases for no gain).
+- **5** (72cb1ebd): one remapOffsetAfterSplit for the three block conversions;
+  fixes the block-quote caret landing past the quote content.
+- **6** (4b5402be): export dialog dispatch de-duped onto the canonical registry
+  and fails loudly on unknown keys instead of silently dropping writes.
+
+Full sweep green: muya 1752 unit + 1347 conformance + 242 chromium e2e +
+types/lint/css/madge clean; desktop 938 unit + 285 e2e + typecheck + lint
+clean; skills 36; build:unpack. (A first e2e run showed one failure —
+issue-1861 — traced to running build:unpack concurrently, which regenerated
+out/renderer mid-load; a clean isolated re-run and a clean full re-run both
+pass 285.)
+
 ## Explicitly out of scope (ROI-filtered by the sweep, kept for the record)
 
 Renderer-path validation on filesystem IPC (sandbox boundary is the deliberate
