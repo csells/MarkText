@@ -72,9 +72,6 @@ importers:
       '@marktext/file-icons':
         specifier: ^1.0.6
         version: 1.0.6
-      '@marktext/muyajs':
-        specifier: workspace:*
-        version: link:../muyajs
       '@muyajs/core':
         specifier: workspace:*
         version: link:../muya
@@ -129,15 +126,6 @@ importers:
       element-plus:
         specifier: ^2.14.2
         version: 2.14.2(vue@3.5.38(typescript@6.0.3))
-      element-resize-detector:
-        specifier: ^1.2.4
-        version: 1.2.4
-      execall:
-        specifier: ^3.0.0
-        version: 3.0.0
-      flowchart.js:
-        specifier: ^1.18.0
-        version: 1.18.0
       font-list:
         specifier: ^2.1.0
         version: 2.1.0
@@ -147,30 +135,15 @@ importers:
       fuzzaldrin:
         specifier: ^2.1.0
         version: 2.1.0
-      github-markdown-css:
-        specifier: ^5.9.0
-        version: 5.9.0
-      html-tags:
-        specifier: ^5.1.0
-        version: 5.1.0
       iso-639-1:
         specifier: ^3.1.5
         version: 3.1.5
-      joplin-turndown-plugin-gfm:
-        specifier: ^1.0.12
-        version: 1.0.12
-      katex:
-        specifier: ^0.17.0
-        version: 0.17.0
       keytar:
         specifier: ^7.9.0
         version: 7.9.0
       lodash:
         specifier: ^4.18.1
         version: 4.18.1
-      mermaid:
-        specifier: ^11.15.0
-        version: 11.15.0
       mitt:
         specifier: ^3.0.1
         version: 3.0.1
@@ -180,9 +153,6 @@ importers:
       node-diff3:
         specifier: 3.2.1
         version: 3.2.1
-      pako:
-        specifier: ^2.1.0
-        version: 2.1.0
       pathe:
         specifier: ^2.0.3
         version: 2.0.3
@@ -195,33 +165,12 @@ importers:
       prismjs:
         specifier: ^1.30.0
         version: 1.30.0
-      snabbdom:
-        specifier: ^3.6.4
-        version: 3.6.4
-      snabbdom-to-html:
-        specifier: ^7.1.0
-        version: 7.1.0
-      snapsvg-cjs:
-        specifier: ^0.0.6
-        version: 0.0.6(eve@0.5.4)
-      turndown:
-        specifier: ^7.2.4
-        version: 7.2.4
-      underscore:
-        specifier: ^1.13.8
-        version: 1.13.8
-      vega-embed:
-        specifier: ^7.1.0
-        version: 7.1.0(vega-lite@6.4.3(vega@6.2.0))(vega@6.2.0)
       vue-i18n:
         specifier: ^11.4.6
         version: 11.4.6(vue@3.5.38(typescript@6.0.3))
       vue-router:
         specifier: ^4.6.4
         version: 4.6.4(vue@3.5.38(typescript@6.0.3))
-      webfontloader:
-        specifier: ^1.6.28
-        version: 1.6.28
       write-file-atomic:
         specifier: ^8.0.0
         version: 8.0.0
@@ -514,72 +463,6 @@ importers:
       intl-segmenter-polyfill:
         specifier: ^0.4.4
         version: 0.4.4
-
-  packages/muyajs:
-    dependencies:
-      '@marktext/file-icons':
-        specifier: ^1.0.6
-        version: 1.0.6
-      dompurify:
-        specifier: ^3.4.11
-        version: 3.4.11
-      element-resize-detector:
-        specifier: ^1.2.4
-        version: 1.2.4
-      execall:
-        specifier: ^3.0.0
-        version: 3.0.0
-      flowchart.js:
-        specifier: ^1.18.0
-        version: 1.18.0
-      fuzzaldrin:
-        specifier: ^2.1.0
-        version: 2.1.0
-      github-markdown-css:
-        specifier: ^5.9.0
-        version: 5.9.0
-      html-tags:
-        specifier: ^5.1.0
-        version: 5.1.0
-      joplin-turndown-plugin-gfm:
-        specifier: ^1.0.12
-        version: 1.0.12
-      katex:
-        specifier: ^0.17.0
-        version: 0.17.0
-      mermaid:
-        specifier: ^11.15.0
-        version: 11.15.0
-      pako:
-        specifier: ^2.1.0
-        version: 2.1.0
-      pathe:
-        specifier: ^2.0.3
-        version: 2.0.3
-      prismjs:
-        specifier: ^1.30.0
-        version: 1.30.0
-      snabbdom:
-        specifier: ^3.6.4
-        version: 3.6.4
-      snabbdom-to-html:
-        specifier: ^7.1.0
-        version: 7.1.0
-      snapsvg-cjs:
-        specifier: ^0.0.6
-        version: 0.0.6(eve@0.5.4)
-      turndown:
-        specifier: ^7.2.4
-        version: 7.2.4
-      underscore:
-        specifier: ^1.13.8
-        version: 1.13.8
-      vega-embed:
-        specifier: ^7.1.0
-        version: 7.1.0(vega-lite@6.4.3(vega@6.2.0))(vega@6.2.0)
-      webfontloader:
-        specifier: ^1.6.28
-        version: 1.6.28
 
   packages/website:
     dependencies:
@@ -4338,9 +4221,6 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  batch-processor@1.0.0:
-    resolution: {integrity: sha512-xoLQD8gmmR32MeuBHgH0Tzd5PuSZx71ZsbhVxOCRbgktZEPe4SQy7s9Z50uPp0F/f7iw2XmkHN2xkgbMfckMDA==}
-
   bidi-js@1.0.3:
     resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
 
@@ -5265,9 +5145,6 @@ packages:
     resolution: {integrity: sha512-eNH9uP3wQoNqieEIHXiNvIVv+zO5sZDU0CAZq5b0zqSN06DD0/V9xIq1R/qm3rw5k3nBTM1JvpxhCfRbaFLzDQ==}
     peerDependencies:
       vue: ^3.3.7
-
-  element-resize-detector@1.2.4:
-    resolution: {integrity: sha512-Fl5Ftk6WwXE0wqCgNoseKWndjzZlDCwuPTcoVZfCP9R3EHQF8qUtr3YUPNETegRBOKqQKPW3n4kiIWngGi8tKg==}
 
   emoji-regex-xs@1.0.0:
     resolution: {integrity: sha512-LRlerrMYoIDrT6jgpeZ2YYl/L8EulRTt5hQcYjy5AInh7HWXKimpqx68aknBFpGL2+/IcogTcaydJEgaTmOpDg==}
@@ -7607,9 +7484,6 @@ packages:
 
   package-manager-detector@1.6.0:
     resolution: {integrity: sha512-61A5ThoTiDG/C8s8UMZwSorAGwMJ0ERVGj2OjoW5pAalsNOg15+iQiPzrLJ4jhZ1HJzmC2PIHT2oEiH3R5fzNA==}
-
-  pako@2.1.0:
-    resolution: {integrity: sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==}
 
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
@@ -13594,8 +13468,6 @@ snapshots:
 
   baseline-browser-mapping@2.10.38: {}
 
-  batch-processor@1.0.0: {}
-
   bidi-js@1.0.3:
     dependencies:
       require-from-string: 2.0.2
@@ -14658,10 +14530,6 @@ snapshots:
       normalize-wheel-es: 1.2.0
       vue: 3.5.38(typescript@6.0.3)
       vue-component-type-helpers: 3.3.5
-
-  element-resize-detector@1.2.4:
-    dependencies:
-      batch-processor: 1.0.0
 
   emoji-regex-xs@1.0.0: {}
 
@@ -17700,8 +17568,6 @@ snapshots:
   package-json-from-dist@1.0.1: {}
 
   package-manager-detector@1.6.0: {}
-
-  pako@2.1.0: {}
 
   parent-module@1.0.1:
     dependencies:

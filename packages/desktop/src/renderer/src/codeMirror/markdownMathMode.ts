@@ -16,7 +16,7 @@ import 'codemirror/mode/gfm/gfm'
 import 'codemirror/mode/stex/stex'
 
 // Open guard for inline `$…$`. Mirrors Muya's `inline_math` rule
-// (`src/muya/lib/parser/rules.js`): require non-empty content with no inner
+// (the inline-math grammar in @muyajs/core): require non-empty content with no inner
 // `$`, last char before the closer not being `\`, and the closing `$` not
 // followed by another `$` (which would be block math). This stops a single
 // stray `$` (e.g. "$5 owed") from flipping the inner mode on forever and keeps
