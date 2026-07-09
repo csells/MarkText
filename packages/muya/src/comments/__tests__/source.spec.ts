@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildCommentSourceIndex,
+    buildSourceLineDecorations,
     collectSourceCommentIds,
-    createCommentSourceLineState,
-    prepareCommentSourceLine,
 } from '../source';
 
 describe('comment source index', () => {
@@ -93,34 +92,34 @@ describe('comment source index', () => {
         expect(collectSourceCommentIds(markdown)).toEqual(new Set(['a']));
     });
 
-    it('lets source decoration recover after an unclosed front matter-looking opener', () => {
-        const state = createCommentSourceLineState();
+    it('decorates a marker on the line after an unterminated leading --- (mid-edit)', () => {
+        // A bare unterminated `---` is not front matter to the parser, so a
+        // marker on a later line is live and the batch decorations mark it.
+        const markdown = [
+            '---',
+            'not actually closed front matter',
+            '',
+            'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+        ].join('\n');
+        const decorations = buildSourceLineDecorations(markdown);
 
-        prepareCommentSourceLine(state, '---');
-        expect(state.ignoreLine).toBe(true);
-        prepareCommentSourceLine(state, 'not actually closed front matter');
-        expect(state.ignoreLine).toBe(true);
-        prepareCommentSourceLine(state, '');
-        prepareCommentSourceLine(state, 'A <!--MC:a-->reviewed<!--MC:~a--> line.');
-
-        expect(state.ignoreLine).toBe(false);
+        expect(decorations[3].ignored).toBe(false);
+        expect(decorations[3].spans.some(span => span.token === 'marker')).toBe(true);
     });
 
-    it.each([
-        [';;;', ';;;'],
-        ['{', '}'],
-    ])('lets source decoration skip %s front matter', (open, close) => {
-        const state = createCommentSourceLineState();
+    it('does not decorate markers inside a valid terminated front-matter block', () => {
+        const markdown = [
+            '---',
+            'title: <!--MC:fm-->x<!--MC:~fm-->',
+            '---',
+            '',
+            'A <!--MC:a-->reviewed<!--MC:~a--> line.',
+        ].join('\n');
+        const decorations = buildSourceLineDecorations(markdown);
 
-        prepareCommentSourceLine(state, open);
-        expect(state.ignoreLine).toBe(true);
-        prepareCommentSourceLine(state, '<!--MC:json-->ignored<!--MC:~json-->');
-        expect(state.ignoreLine).toBe(true);
-        prepareCommentSourceLine(state, close);
-        expect(state.ignoreLine).toBe(true);
-        prepareCommentSourceLine(state, 'A <!--MC:a-->reviewed<!--MC:~a--> line.');
-
-        expect(state.ignoreLine).toBe(false);
+        // The front-matter line is ignored context; the prose marker is live.
+        expect(decorations[1].ignored).toBe(true);
+        expect(decorations[4].spans.some(span => span.token === 'marker')).toBe(true);
     });
 
     it('ignores MC-looking markers inside true raw HTML blocks', () => {

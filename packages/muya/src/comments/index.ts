@@ -47,22 +47,20 @@ export {
 } from './range';
 export type { ICommentSyntaxLocation } from './range';
 export {
-    createCommentSourceLineState,
-    prepareCommentSourceLine,
+    buildSourceLineDecorations,
     sourceCommentIgnoredIndexRanges,
     sourceIndexInsideRanges,
-    sourceInlineCodeRanges,
-    sourceLinePositionInsideInlineCode,
     sourceRangesOverlap,
 } from './source';
 export type {
     ICommentSourceIndex,
     ICommentSourceIndexOptions,
     ICommentSourceIndexRange,
-    ICommentSourceLineState,
     ICommentSourceMarker,
     ICommentSourceMetadataDefinition,
     ICommentSourceRange,
+    ISourceLineDecoration,
+    ISourceLineDecorationSpan,
 } from './source';
 export {
     COMMENT_ID_PATTERN,

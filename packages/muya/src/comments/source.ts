@@ -1,19 +1,9 @@
 import type { TLexedToken } from '../utils/marked/types';
-import { escapeRegExp } from '../utils';
-import {
-    FRONT_MATTER_OPEN_REGEXP,
-    frontMatterCloseMarker,
-    INDENTED_CODE_REGEXP,
-    isFenceClose,
-    MATH_BLOCK_DELIM_REGEXP,
-    parseFenceMarker,
-} from '../utils/markdownBlockRules';
 import { lexBlock } from '../utils/marked';
-import { forEachRealCommentMarker } from './markerScan';
+import { forEachRealCommentMarker, inlineCodeRangesInText } from './markerScan';
 import {
     COMMENT_DEFINITION_LABEL_PREFIX,
     COMMENT_MARKER_OPEN_PREFIX,
-    COMMENT_MARKER_PATTERN,
     htmlBlockTokenIsParagraph,
     parseCommentMetadataDefinition,
     parseCommentReplyDefinition,
@@ -70,19 +60,6 @@ export interface ICommentSourceIndex {
     syntaxRanges: ICommentSourceIndexRange[];
 }
 
-export interface ICommentSourceLineState {
-    seenFirstLine: boolean;
-    frontMatterMarker: string | null;
-    fence: { char: '`' | '~'; length: number } | null;
-    inMathBlock: boolean;
-    htmlClosing: RegExp | null;
-    ignoreLine: boolean;
-    // An indented line only starts an indented code block when it does NOT
-    // continue a paragraph. Tracks whether the previous non-ignored line was
-    // paragraph text (CommonMark lazy-continuation rule).
-    openParagraph: boolean;
-}
-
 export interface ICommentSourceIndexOptions {
     frontMatter?: boolean;
     math?: boolean;
@@ -92,7 +69,6 @@ export interface ICommentSourceIndexOptions {
     footnote?: boolean;
 }
 
-const SOURCE_COMMENT_MARKER_START_REGEXP = new RegExp(`^${COMMENT_MARKER_PATTERN}`, 'u');
 const DEFAULT_SOURCE_INDEX_OPTIONS = {
     frontMatter: true,
     math: true,
@@ -364,203 +340,91 @@ function sourceBlockIgnoredIndexRanges(
     return ranges;
 }
 
-function sourceInlineCodeIndexRanges(
-    views: ICommentSourceLineView[],
-): ICommentSourceIndexRange[] {
-    const ranges: ICommentSourceIndexRange[] = [];
-
-    for (const view of views) {
-        if (view.ignored)
+// Live comment markers with their source-byte offsets, scanned over
+// PARAGRAPH text (contiguous non-ignored, non-empty lines joined) rather
+// than per line — so a code span opening on one soft-wrapped line and
+// closing on the next masks its markers exactly as the block-path parser's
+// leaf tokenization does. One tokenizer authority (markerScan), no second
+// backtick grammar.
+function paragraphCommentMarkers(views: ICommentSourceLineView[]): ICommentSourceMarker[] {
+    const markers: ICommentSourceMarker[] = [];
+    let i = 0;
+    while (i < views.length) {
+        if (views[i].ignored || views[i].stripped.length === 0) {
+            i += 1;
             continue;
-
-        for (const range of sourceInlineCodeRanges(view.stripped)) {
-            ranges.push({
-                start: view.start + view.delta + range.start,
-                end: view.start + view.delta + range.end,
+        }
+        const group: ICommentSourceLineView[] = [];
+        while (i < views.length && !views[i].ignored && views[i].stripped.length > 0) {
+            group.push(views[i]);
+            i += 1;
+        }
+        const joined = group.map(view => view.stripped).join('\n');
+        const lineStartInJoined: number[] = [];
+        let cursor = 0;
+        for (const view of group) {
+            lineStartInJoined.push(cursor);
+            cursor += view.stripped.length + 1;
+        }
+        forEachRealCommentMarker(joined, (scanned) => {
+            // A marker never spans a line; locate its line to map back to bytes.
+            let li = 0;
+            while (li + 1 < group.length && lineStartInJoined[li + 1] <= scanned.start)
+                li += 1;
+            const view = group[li];
+            const offset = scanned.start - lineStartInJoined[li];
+            const lineStart = view.start + view.delta;
+            const markerStart = lineStart + offset;
+            const idStart = markerStart + COMMENT_MARKER_OPEN_PREFIX.length + (scanned.kind === 'close' ? 1 : 0);
+            markers.push({
+                id: scanned.id,
+                kind: scanned.kind,
+                raw: view.stripped.slice(offset, offset + (scanned.end - scanned.start)),
+                start: markerStart,
+                end: lineStart + offset + (scanned.end - scanned.start),
+                idStart,
+                idEnd: idStart + scanned.id.length,
             });
-        }
+        });
     }
-
-    return ranges;
+    return markers;
 }
 
-export function sourceInlineCodeRanges(line: string): ICommentSourceIndexRange[] {
+// Inline-code char ranges over PARAGRAPH text (same grouping as the marker
+// scan), tokenizer-derived so a multi-line span masks its content exactly
+// as the parser sees it. Feeds the ignored-range set the source index and
+// CodeMirror overlay consult.
+function paragraphInlineCodeRanges(views: ICommentSourceLineView[]): ICommentSourceIndexRange[] {
     const ranges: ICommentSourceIndexRange[] = [];
-    let cursor = 0;
-
-    while (cursor < line.length) {
-        if (line[cursor] !== '`') {
-            cursor += 1;
+    let i = 0;
+    while (i < views.length) {
+        if (views[i].ignored || views[i].stripped.length === 0) {
+            i += 1;
             continue;
         }
-
-        let openLen = 1;
-        while (line[cursor + openLen] === '`')
-            openLen += 1;
-        const openStart = cursor;
-        let scan = cursor + openLen;
-        let closeStart = -1;
-        while (scan < line.length) {
-            if (line[scan] !== '`') {
-                scan += 1;
-                continue;
-            }
-            let closeLen = 1;
-            while (line[scan + closeLen] === '`')
-                closeLen += 1;
-            if (closeLen === openLen) {
-                closeStart = scan;
-                break;
-            }
-            scan += closeLen;
+        const group: ICommentSourceLineView[] = [];
+        while (i < views.length && !views[i].ignored && views[i].stripped.length > 0) {
+            group.push(views[i]);
+            i += 1;
         }
-
-        if (closeStart < 0) {
-            cursor = openStart + openLen;
-            continue;
+        const joined = group.map(view => view.stripped).join('\n');
+        const lineStartInJoined: number[] = [];
+        let cursor = 0;
+        for (const view of group) {
+            lineStartInJoined.push(cursor);
+            cursor += view.stripped.length + 1;
         }
-
-        ranges.push({ start: openStart, end: closeStart + openLen });
-        cursor = closeStart + openLen;
+        const byteOf = (joinedOffset: number): number => {
+            let li = 0;
+            while (li + 1 < group.length && lineStartInJoined[li + 1] <= joinedOffset)
+                li += 1;
+            const view = group[li];
+            return view.start + view.delta + (joinedOffset - lineStartInJoined[li]);
+        };
+        for (const range of inlineCodeRangesInText(joined))
+            ranges.push({ start: byteOf(range.start), end: byteOf(range.end - 1) + 1 });
     }
-
     return ranges;
-}
-
-export function sourceLinePositionInsideInlineCode(line: string, position: number): boolean {
-    return sourceInlineCodeRanges(line).some(range => position >= range.start && position < range.end);
-}
-
-export function createCommentSourceLineState(): ICommentSourceLineState {
-    return {
-        seenFirstLine: false,
-        frontMatterMarker: null,
-        fence: null,
-        inMathBlock: false,
-        htmlClosing: null,
-        ignoreLine: false,
-        openParagraph: false,
-    };
-}
-
-export function prepareCommentSourceLine(
-    state: ICommentSourceLineState,
-    line: string,
-    options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
-): void {
-    const { math } = normalizeSourceIndexOptions(options);
-    const trimmed = line.trim();
-    state.ignoreLine = false;
-
-    if (!state.seenFirstLine) {
-        state.seenFirstLine = true;
-        const frontMatter = FRONT_MATTER_OPEN_REGEXP.exec(line);
-        if (frontMatter) {
-            state.frontMatterMarker = frontMatterCloseMarker(frontMatter[1]);
-            state.ignoreLine = true;
-            state.openParagraph = false;
-            return;
-        }
-    }
-
-    if (state.frontMatterMarker) {
-        state.openParagraph = false;
-        if (trimmed === state.frontMatterMarker) {
-            state.frontMatterMarker = null;
-        }
-        else if (trimmed === '') {
-            state.frontMatterMarker = null;
-            state.ignoreLine = false;
-            return;
-        }
-        state.ignoreLine = true;
-        return;
-    }
-
-    if (state.fence) {
-        state.ignoreLine = true;
-        state.openParagraph = false;
-        if (isFenceClose(line, state.fence))
-            state.fence = null;
-        return;
-    }
-
-    const openingFence = parseFenceMarker(line);
-    if (openingFence) {
-        state.fence = openingFence;
-        state.ignoreLine = true;
-        state.openParagraph = false;
-        return;
-    }
-
-    if (math && state.inMathBlock) {
-        state.ignoreLine = true;
-        state.openParagraph = false;
-        if (MATH_BLOCK_DELIM_REGEXP.test(line))
-            state.inMathBlock = false;
-        return;
-    }
-
-    if (math && MATH_BLOCK_DELIM_REGEXP.test(line)) {
-        state.inMathBlock = true;
-        state.ignoreLine = true;
-        state.openParagraph = false;
-        return;
-    }
-
-    if (state.htmlClosing) {
-        state.ignoreLine = true;
-        state.openParagraph = false;
-        if (!trimmed || state.htmlClosing.test(trimmed))
-            state.htmlClosing = null;
-        return;
-    }
-
-    // A blank line ends any open paragraph; the next indented line then starts
-    // an indented code block instead of continuing the paragraph.
-    if (trimmed === '') {
-        state.openParagraph = false;
-        return;
-    }
-
-    if (INDENTED_CODE_REGEXP.test(line) && !state.openParagraph) {
-        state.ignoreLine = true;
-        return;
-    }
-
-    const htmlClosing = getHtmlBlockClosing(line);
-    if (htmlClosing) {
-        state.ignoreLine = true;
-        state.openParagraph = false;
-        state.htmlClosing = htmlClosing === 'single-line' ? null : htmlClosing;
-        return;
-    }
-
-    state.openParagraph = true;
-}
-
-function getHtmlBlockClosing(line: string): 'single-line' | RegExp | null {
-    let trimmed = line.trim();
-    for (
-        let marker = SOURCE_COMMENT_MARKER_START_REGEXP.exec(trimmed);
-        marker;
-        marker = SOURCE_COMMENT_MARKER_START_REGEXP.exec(trimmed)
-    ) {
-        trimmed = trimmed.slice(marker[0].length).trimStart();
-    }
-    if (!trimmed)
-        return null;
-
-    if (trimmed.startsWith('<!--'))
-        return /-->/u.test(trimmed) ? 'single-line' : /-->/u;
-
-    const tag = /^<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s|>|\/>)/u.exec(trimmed);
-    if (!tag)
-        return null;
-    if (new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu').test(trimmed) || /\/>\s*$/u.test(trimmed))
-        return 'single-line';
-
-    return new RegExp(`</${escapeRegExp(tag[1])}\\s*>`, 'iu');
 }
 
 export function sourceCommentIgnoredIndexRanges(
@@ -570,7 +434,7 @@ export function sourceCommentIgnoredIndexRanges(
     const views = buildCommentSourceLineViews(markdown, options);
     return [
         ...sourceBlockIgnoredIndexRanges(views),
-        ...sourceInlineCodeIndexRanges(views),
+        ...paragraphInlineCodeRanges(views),
     ];
 }
 
@@ -582,43 +446,24 @@ export function buildCommentSourceIndex(
     const blockIgnoredRanges = sourceBlockIgnoredIndexRanges(views);
     const ignoredRanges = [
         ...blockIgnoredRanges,
-        ...sourceInlineCodeIndexRanges(views),
+        ...paragraphInlineCodeRanges(views),
     ];
-    const markers: ICommentSourceMarker[] = [];
     const metadataDefinitions: ICommentSourceMetadataDefinition[] = [];
     const commentRanges: ICommentSourceRange[] = [];
     const openMarkers = new Map<string, number>();
 
-    for (const view of views) {
-        if (view.ignored)
-            continue;
-
-        const lineStart = view.start + view.delta;
-        forEachRealCommentMarker(view.stripped, (scanned) => {
-            const markerStart = lineStart + scanned.start;
-            const idStart = markerStart + COMMENT_MARKER_OPEN_PREFIX.length + (scanned.kind === 'close' ? 1 : 0);
-            const marker: ICommentSourceMarker = {
-                id: scanned.id,
-                kind: scanned.kind,
-                raw: view.stripped.slice(scanned.start, scanned.end),
-                start: markerStart,
-                end: lineStart + scanned.end,
-                idStart,
-                idEnd: idStart + scanned.id.length,
-            };
-            markers.push(marker);
-
-            if (marker.kind === 'close') {
-                const start = openMarkers.get(marker.id);
-                if (start != null) {
-                    commentRanges.push({ id: marker.id, start, end: marker.start });
-                    openMarkers.delete(marker.id);
-                }
+    const markers = paragraphCommentMarkers(views);
+    for (const marker of markers) {
+        if (marker.kind === 'close') {
+            const start = openMarkers.get(marker.id);
+            if (start != null) {
+                commentRanges.push({ id: marker.id, start, end: marker.start });
+                openMarkers.delete(marker.id);
             }
-            else if (!openMarkers.has(marker.id)) {
-                openMarkers.set(marker.id, marker.end);
-            }
-        });
+        }
+        else if (!openMarkers.has(marker.id)) {
+            openMarkers.set(marker.id, marker.end);
+        }
     }
 
     for (const view of views) {
@@ -736,4 +581,47 @@ export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): s
         next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
 
     return next;
+}
+
+export interface ISourceLineDecorationSpan {
+    // Column offsets within the raw line (container prefixes excluded).
+    start: number;
+    end: number;
+    token: 'marker' | 'metadata';
+}
+
+export interface ISourceLineDecoration {
+    ignored: boolean;
+    spans: ISourceLineDecorationSpan[];
+}
+
+// Per-line comment decorations for the source-mode CodeMirror overlay,
+// derived entirely from the batch index (the real parser's block/inline
+// tokenization). The overlay tracks its line number and looks each line up
+// here — there is no second streaming grammar. Marker/metadata char spans
+// are clipped to their line; `ignored` lines (code/front-matter/html blocks)
+// carry no comment decoration.
+export function buildSourceLineDecorations(
+    markdown: string,
+    options: ICommentSourceIndexOptions = DEFAULT_SOURCE_INDEX_OPTIONS,
+): ISourceLineDecoration[] {
+    const views = buildCommentSourceLineViews(markdown, options);
+    const index = buildCommentSourceIndex(markdown, options);
+    return views.map((view) => {
+        const lineStart = view.start;
+        const lineEnd = view.start + view.rawLength;
+        const spans: ISourceLineDecorationSpan[] = [];
+        const clip = (start: number, end: number, token: 'marker' | 'metadata') => {
+            const from = Math.max(start, lineStart) - lineStart;
+            const to = Math.min(end, lineEnd) - lineStart;
+            if (to > from)
+                spans.push({ start: from, end: to, token });
+        };
+        for (const marker of index.markers)
+            clip(marker.start, marker.end, 'marker');
+        for (const definition of index.metadataDefinitions)
+            clip(definition.start, definition.end, 'metadata');
+        spans.sort((a, b) => a.start - b.start);
+        return { ignored: view.ignored, spans };
+    });
 }

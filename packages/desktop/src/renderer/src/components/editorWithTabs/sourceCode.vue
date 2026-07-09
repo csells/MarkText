@@ -17,12 +17,14 @@ import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMi
 import {
   appendCommentReplyMetadata,
   mergeCommentMetadataPatch,
+  buildSourceLineDecorations,
   serializeCommentMarker,
   stripAnalyzedCommentSyntaxFromMarkdown,
   updateCommentMetadataInMarkdown,
   wordCount as getWordCount,
   type ICommentMetadata,
   type ICommentReplyInput,
+  type ISourceLineDecoration,
   type TUpdateCommentThreadPatch
 } from '@muyajs/core'
 import {
@@ -338,6 +340,14 @@ const getSourceCommentRange = (cm: CMInstance): SourceCommentRange | null => {
 }
 
 let sourceCommentAnalysis: SourceCommentAnalysis | null = null
+// The source-mode CodeMirror overlay reads its per-line comment decorations
+// from here — recomputed from the batch index (the real parser) on every
+// content change, synchronously before the display re-tokenizes.
+let currentSourceDecorations: ISourceLineDecoration[] = []
+
+const refreshSourceDecorations = (markdown: string): void => {
+  currentSourceDecorations = buildSourceLineDecorations(markdown, sourceCommentParserOptions())
+}
 
 const sourceCommentParserOptions = (): SourceCommentParserOptions => ({
   footnote: !!preferencesStore.footnote,
@@ -707,6 +717,8 @@ const handleImageAction = (payload: unknown) => {
 // The content commit feeds save/merge and must never lag a keystroke.
 const commitContent = (cm: CMInstance) => {
   const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(cm)
+  // Keep the overlay's decorations current before the display re-tokenizes.
+  refreshSourceDecorations(newMarkdown)
   // Attention: the cursor may be `{focus: null, anchor: null}` when press `backspace`
   // Count over the document's prose, not the comment wire bytes, so the
   // title-bar counter agrees with WYSIWYG mode for the same document.
@@ -834,8 +846,13 @@ onMounted(() => {
   // See https://github.com/codemirror/codemirror5/issues/6886 - hence, we need to use a local variable first.
   const codeMirrorInstance = codeMirror(container, codeMirrorConfig)
 
-  // `markdown-comments` adds MC syntax decoration over the math-aware Markdown mode.
-  codeMirrorInstance.setOption('mode', 'markdown-comments')
+  // `markdown-comments` adds MC syntax decoration over the math-aware Markdown
+  // mode, driven entirely by the batch decorations (no second grammar).
+  refreshSourceDecorations(codeMirrorInstance.getValue())
+  codeMirrorInstance.setOption('mode', {
+    name: 'markdown-comments',
+    getDecorations: () => currentSourceDecorations
+  })
 
   codeMirrorInstance.on('contextmenu', (_cm: CMInstance, event: Event) => {
     event.preventDefault()

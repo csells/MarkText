@@ -1,20 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildCommentSourceIndex,
-    createCommentSourceLineState,
-    prepareCommentSourceLine,
     sourceCommentIgnoredIndexRanges,
     sourceIndexInsideRanges,
 } from '../source';
 
-// Characterization + equivalence suite for the source-mode block classifier.
-// The batch `sourceCommentIgnoredIndexRanges` and the streaming
-// `prepareCommentSourceLine` used to duplicate the fence/math/indent/html rules
-// and had drifted (streaming wrongly ignored indented paragraph continuations).
-// These lock the batch's per-line "ignored" decision across every construct and
-// assert the streaming classifier agrees line-for-line on the same inputs
-// (except front matter, where the streaming lexer is intentionally forgiving so
-// live typing under an unclosed `---` does not grey out the whole document).
+// Characterization suite for the source-mode block classifier. The batch
+// `sourceCommentIgnoredIndexRanges` (from the real parser's block tokens) is
+// the single authority for which lines are literal context; the CodeMirror
+// overlay consumes it directly (no second streaming grammar). These lock the
+// per-line "ignored" decision across every construct.
 
 // True if the byte offset at the START of each line falls inside an ignored
 // range — the property every consumer actually checks (marker/metadata at that
@@ -30,18 +25,6 @@ function batchLineIgnored(markdown: string): boolean[] {
         // inside a block ignored range (inline-code ranges start mid-line).
         result.push(sourceIndexInsideRanges(offset, ranges));
         offset += line.length;
-    }
-    return result;
-}
-
-function streamLineIgnored(markdown: string): boolean[] {
-    const state = createCommentSourceLineState();
-    const result: boolean[] = [];
-    for (const line of markdown.split(/(?<=\n)/)) {
-        if (line === '')
-            break;
-        prepareCommentSourceLine(state, line.replace(/(?:\r\n|\n|\r)$/u, ''));
-        result.push(state.ignoreLine);
     }
     return result;
 }
@@ -89,10 +72,6 @@ describe('source-mode block classifier — batch behaviour', () => {
     for (const { name, markdown, ignored } of cases) {
         it(`batch classifies: ${name}`, () => {
             expect(batchLineIgnored(markdown)).toEqual(ignored);
-        });
-
-        it(`streaming agrees with batch: ${name}`, () => {
-            expect(streamLineIgnored(markdown)).toEqual(ignored);
         });
     }
 

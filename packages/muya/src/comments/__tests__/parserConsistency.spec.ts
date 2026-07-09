@@ -41,6 +41,14 @@ const CASES: Array<{ name: string; markdown: string }> = [
         markdown: `Live <!--MC:a-->x<!--MC:~a--> then $<!--MC:math-->y<!--MC:~math-->$\n\n${meta('a')}\n`,
     },
     {
+        // A code span opening on one soft-wrapped line and closing on the
+        // next: the parser tokenizes the whole paragraph leaf (one closed
+        // span → marker literal), so the char index must too, not scan the
+        // unclosed backtick per line.
+        name: 'markers inside multi-line inline code are ignored by both',
+        markdown: `Live <!--MC:a-->x<!--MC:~a--> then \`o<!--MC:code-->\nc<!--MC:~code-->\` done\n\n${meta('a')}\n`,
+    },
+    {
         name: 'markers inside a fenced code block are ignored by both',
         markdown: `<!--MC:a-->real<!--MC:~a-->\n\n\`\`\`\n<!--MC:fenced-->nope<!--MC:~fenced-->\n\`\`\`\n\n${meta('a')}\n`,
     },

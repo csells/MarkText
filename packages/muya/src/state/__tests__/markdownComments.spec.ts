@@ -123,9 +123,10 @@ describe('markdown comments - state round-trip', () => {
         const result = readMarkdownComments(markdown);
 
         expect(result.diagnostics).toEqual([]);
+        // CLEAN-text offsets (marker bytes excluded): 'alpha beta gamma'.
         expect(result.ranges.map(r => [r.id, r.startOffset, r.endOffset])).toEqual([
-            ['a', 11, 32],
-            ['b', 28, 50],
+            ['a', 0, 10],
+            ['b', 6, 16],
         ]);
         expect(result.threads.map(t => [t.id, t.status])).toEqual([
             ['a', 'open'],
@@ -201,11 +202,16 @@ describe('markdown comments - state round-trip', () => {
         ]);
         expect(output).toContain(`<!--MC:a-->\n\nreviewed paragraph\n\n<!--MC:~a-->\n\n[MC:a]: ${meta}`);
         expect(result.diagnostics).toEqual([]);
+        // CLEAN-space range: the marker-only paragraphs are empty leaves,
+        // so the range runs from the start of leaf 0 to the start of leaf 2.
         expect(result.ranges).toEqual([
             expect.objectContaining({
                 id: 'a',
-                startOffset: '<!--MC:a-->'.length,
+                startPath: [0, 'text'],
+                startOffset: 0,
+                endPath: [2, 'text'],
                 endOffset: 0,
+                preview: 'reviewed paragraph',
             }),
         ]);
     });
