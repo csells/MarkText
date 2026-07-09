@@ -577,8 +577,9 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     }
     const entry = onMock.mock.calls.find(([channel]) => channel === 'mt::update-file')
     if (!entry) throw new Error('mt::update-file handler not registered')
-    // Mirror the tab's live persistence fields so isSameFileSnapshot sees a
-    // genuinely byte-identical echo (loadChange may have rewritten them).
+    // Mirror the tab's live persistence fields so the reducer sees a
+    // genuinely byte + persistence identical echo — its absorb row — rather
+    // than a persistence diff (loadChange may have rewritten them).
     const live = tab as unknown as Record<string, unknown>
     await entry[1](null, {
       type: 'change',

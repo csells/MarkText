@@ -134,8 +134,11 @@ export type MergeSessionEffect =
     type: 'load-disk'
     fileChange: FileChangePayload
     preserveDirty: boolean
-    reason: 'local-matches-remote' | 'reload-disk'
+    reason: 'local-matches-remote' | 'reload-disk' | 'clean-tab-reload'
   }
+  // Byte + persistence identical: mark the tab clean without reloading — the
+  // engine already holds this exact content, so a reload is pure churn (#1861).
+  | { type: 'absorb'; fileChange: FileChangePayload }
   | { type: 'create-recovery-tab' }
 
 export interface MergeSessionTransition {
@@ -253,12 +256,19 @@ const onDiskChanged = (
   const remote = event.fileChange.data.markdown
 
   if (event.local === remote) {
-    effects.push({
-      type: 'load-disk',
-      fileChange: event.fileChange,
-      preserveDirty: !event.persistenceEqual,
-      reason: 'local-matches-remote'
-    })
+    // Byte-identical AND persistence-identical: absorb (mark clean, no reload).
+    // Byte-identical but a persistence diff (encoding/line-ending) still needs
+    // a reload to pick it up, and must not silently clear a dirty tab.
+    if (event.persistenceEqual) {
+      effects.push({ type: 'absorb', fileChange: event.fileChange })
+    } else {
+      effects.push({
+        type: 'load-disk',
+        fileChange: event.fileChange,
+        preserveDirty: true,
+        reason: 'local-matches-remote'
+      })
+    }
     return { state: idleFrom(working), effects }
   }
 
@@ -282,6 +292,22 @@ const onDiskChanged = (
       true,
       effects
     )
+  }
+
+  // A clean tab (buffer == base — no local edits vs disk) has nothing to
+  // merge: a disk change is a plain reload, not a three-way merge. But NOT
+  // under an explicit review intent carried from a superseded session — a
+  // silent reload would drop the user's Review click. There the change falls
+  // through to the merge path so its (trivially clean) result surfaces the
+  // resolver instead of auto-applying.
+  if (event.local === event.base && !forceReview) {
+    effects.push({
+      type: 'load-disk',
+      fileChange: event.fileChange,
+      preserveDirty: false,
+      reason: 'clean-tab-reload'
+    })
+    return { state: idleFrom(working), effects }
   }
 
   // Disk has nothing new relative to the edit base; an in-flight merge (if

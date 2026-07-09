@@ -116,19 +116,57 @@ const toReviewing = (): Extract<MergeSessionState, { kind: 'reviewing' }> => {
 }
 
 describe('merge-session reducer — decision table', () => {
-  it('local === remote syncs from disk and stays idle; persistence diffs keep the tab dirty', () => {
-    const clean = reduce(initialMergeSessionState(), diskChanged(LOCAL, { local: LOCAL }))
-    expect(clean.state.kind).toBe('idle')
-    expect(only(clean.effects, 'load-disk')).toMatchObject({
-      reason: 'local-matches-remote',
-      preserveDirty: false
+  it('byte + persistence identical is absorbed (mark clean, no reload); a persistence diff reloads dirty', () => {
+    // The reducer now owns the #1861 absorb decision the watcher used to make:
+    // when the incoming disk content is byte-identical to the buffer AND the
+    // persistence snapshot matches, mark the tab clean without churning the
+    // engine (no reload).
+    const absorbed = reduce(initialMergeSessionState(), diskChanged(LOCAL, { local: LOCAL }))
+    expect(absorbed.state.kind).toBe('idle')
+    expect(only(absorbed.effects, 'absorb')).toMatchObject({
+      fileChange: { data: { markdown: LOCAL } }
     })
 
+    // Byte-identical but a persistence diff (encoding/line-ending) is not a
+    // no-op: reload to pick it up, and a byte-affecting persistence change
+    // must not silently clear a dirty tab.
     const persistenceDiff = reduce(
       initialMergeSessionState(),
       diskChanged(LOCAL, { local: LOCAL, persistenceEqual: false })
     )
-    expect(only(persistenceDiff.effects, 'load-disk').preserveDirty).toBe(true)
+    expect(only(persistenceDiff.effects, 'load-disk')).toMatchObject({
+      reason: 'local-matches-remote',
+      preserveDirty: true
+    })
+  })
+
+  it('a clean tab (buffer == base, no local edits) reloads the disk change, never merges', () => {
+    // The watcher used to pre-filter clean tabs to a plain loadChange; the
+    // reducer now owns it: no local divergence from the base means a disk
+    // change is a reload, not a three-way merge.
+    const { state, effects } = reduce(
+      initialMergeSessionState(),
+      diskChanged(REMOTE, { local: BASE })
+    )
+    expect(state.kind).toBe('idle')
+    expect(effectTypes(effects)).not.toContain('start-merge')
+    expect(only(effects, 'load-disk')).toMatchObject({
+      reason: 'clean-tab-reload',
+      preserveDirty: false
+    })
+  })
+
+  it('a clean tab under an explicit review intent merges into a review, never a silent reload', () => {
+    // The user clicked Review on a prior session (forceReview carried across a
+    // supersede). A clean tab would normally reload, but that would drop the
+    // Review click — the change must instead surface the resolver.
+    const { state, effects } = reduce(
+      initialMergeSessionState(),
+      diskChanged(REMOTE, { local: BASE, forceReview: true })
+    )
+    expect(effectTypes(effects)).not.toContain('load-disk')
+    expect(asMerging(state).forceReview).toBe(true)
+    expect(only(effects, 'start-merge')).toMatchObject({ base: BASE, local: BASE, remote: REMOTE })
   })
 
   it('a dirty tab without a recorded base opens the whole-file resolver, never auto-applies', () => {
@@ -343,11 +381,13 @@ describe('merge-session reducer — decision table', () => {
     expect(open.session.remote).toBe(newerRemote)
   })
 
-  it('a disk change matching the buffer closes the session and syncs clean', () => {
+  it('a disk change matching the buffer closes the session and absorbs clean (no reload)', () => {
     const reviewing = toReviewing()
     const { state, effects } = reduce(reviewing, diskChanged(LOCAL, { local: LOCAL }))
 
-    expect(effectTypes(effects)).toEqual(['close-resolver', 'load-disk'])
+    // Byte + persistence identical: supersede the dead session and mark clean
+    // without churning the engine — the buffer already holds this content.
+    expect(effectTypes(effects)).toEqual(['close-resolver', 'absorb'])
     expect(state.kind).toBe('idle')
   })
 
@@ -765,7 +805,11 @@ describe('merge-session reducer — property fuzz', () => {
               break
             }
             case 'load-disk':
-              // Invariant 1: only an explicit reload-disk discards the buffer.
+              // Invariant 1: only an explicit reload-disk discards a DIRTY
+              // buffer (recovery tab first). A clean-tab-reload also replaces
+              // the buffer with different disk content, but safely — it fires
+              // only when the buffer was clean (=== base), so nothing unsaved
+              // is lost. local-matches-remote never discards: buffer === disk.
               if (effect.reason === 'reload-disk') {
                 expect(event.type, `reload without reload-disk event (seed ${seed})`).toBe(
                   'reload-disk'
@@ -774,13 +818,24 @@ describe('merge-session reducer — property fuzz', () => {
                   effectTypes(effects).indexOf('create-recovery-tab'),
                   `reload without a preceding recovery tab (seed ${seed})`
                 ).toBeLessThan(effectTypes(effects).indexOf('load-disk'))
+              } else if (effect.reason === 'clean-tab-reload') {
+                expect(
+                  tabMarkdown,
+                  `clean-tab-reload discarded unsaved edits (seed ${seed})`
+                ).toBe(tabBase)
               } else {
-                // The clean sync never discards anything: buffer === disk.
                 expect(tabMarkdown).toBe(effect.fileChange.data.markdown)
               }
               tabMarkdown = effect.fileChange.data.markdown
               tabBase = effect.fileChange.data.markdown
               if (effect.reason === 'reload-disk') ui.notification = null
+              break
+            case 'absorb':
+              // Byte + persistence identical: mark clean without reloading.
+              // The buffer already equals the incoming disk content, and any
+              // standing notification is deliberately preserved.
+              expect(tabMarkdown).toBe(effect.fileChange.data.markdown)
+              tabBase = effect.fileChange.data.markdown
               break
             case 'open-resolver':
               expect(

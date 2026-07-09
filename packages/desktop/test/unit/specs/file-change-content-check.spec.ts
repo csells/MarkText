@@ -56,7 +56,10 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
       filename: 'a.md',
       pathname: '/x/a.md',
       markdown: 'hello',
-      diskBaseMarkdown: undefined as string | undefined,
+      // A clean tab is its own baseline (createDocumentState sets this on
+      // open). base === undefined models only a DIRTY legacy-restore tab, so
+      // tests that want that state override isSaved AND diskBaseMarkdown.
+      diskBaseMarkdown: 'hello' as string | undefined,
       isSaved: true,
       encoding: { encoding: 'utf8', isBom: false },
       lineEnding: 'lf',
@@ -347,7 +350,9 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
   it('routes a dirty change with no recorded merge base to the whole-file resolver', async() => {
     const store = useEditorStore()
     const tab = makeSavedTab(store)
+    // The legacy-restore state this test targets: dirty AND no recorded base.
     tab.isSaved = false
+    tab.diskBaseMarkdown = undefined
     store.currentFile = tab as unknown as typeof store.currentFile
     store.LISTEN_FOR_FILE_CHANGE()
 

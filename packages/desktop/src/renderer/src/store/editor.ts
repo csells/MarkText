@@ -25,9 +25,7 @@ import { debouncedSendBufferedState, sendBufferedState } from './bufferedState'
 import {
   clearExclusiveTabNotification,
   type FileChangePayload,
-  isSamePersistenceSnapshot,
   completeTabSaveFromSnapshot,
-  markTabSavedAtCurrentHistory,
   type PushTabNotificationPayload
 } from './editorPersistence'
 import { type ThreeWayMergeConflict } from '../util/threeWayMerge'
@@ -84,6 +82,11 @@ interface RestoreWarning {
 
 interface LoadChangeOptions {
   preserveDirty?: boolean
+  // The disk content to record as the merge base, when it differs from the
+  // markdown being loaded into the engine — a merge loads the merged buffer,
+  // but its base is the disk copy the next merge diffs against. Defaults to
+  // the loaded markdown (a plain reload IS its own base).
+  diskBase?: string
 }
 
 interface FormatLinkClickPayload {
@@ -173,10 +176,6 @@ export interface EditorState {
 }
 
 const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
-const isSameFileSnapshot = (tab: IFileState, data: FileChangePayload['data']): boolean => {
-  return data.markdown === tab.markdown && isSamePersistenceSnapshot(tab, data)
-}
 
 export const useEditorStore = defineStore('editor', {
   state: (): EditorState => ({
@@ -424,7 +423,12 @@ export const useEditorStore = defineStore('editor', {
       tab.id = oldId
       tab.notifications = oldNotifications
       tab.scrollTop = oldScrollTop
-      tab.diskBaseMarkdown = markdown
+      tab.diskBaseMarkdown = options.diskBase ?? markdown
+      // preserveDirty means the tab stays dirty after this load — own the flag
+      // here so callers don't re-find the tab just to flip it back off.
+      if (options.preserveDirty === true) {
+        tab.isSaved = false
+      }
       if (oldHistory) {
         tab.history = oldHistory
       }
@@ -1821,47 +1825,20 @@ export const useEditorStore = defineStore('editor', {
             }
             case 'add':
             case 'change': {
+              // Flush pending editor input into the buffer FIRST so the
+              // reducer compares against the live document, not a stale one.
               bus.emit('flush-active-editor')
-              const { id, isSaved } = tab
-              // Only the file's metadata changed on disk (e.g. a git checkout
-              // that left the content byte-identical) — there is nothing to
-              // reload and no reason to warn the user (#1861).
-              if (isSameFileSnapshot(tab, change.data)) {
-                // An open resolver for this tab is reviewing content that no
-                // longer differs from disk: route through the merge pipeline
-                // so the reducer closes the dead session and syncs clean.
-                if (this.mergeConflict?.tabId === tab.id) {
-                  await this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, change)
-                  debouncedSendBufferedState()
-                  break
-                }
-                markTabSavedAtCurrentHistory(tab)
-                // Deliberately NOT clearing the file_changed notification: a
-                // clean-subsumed auto-merge leaves buffer == disk, and the
-                // watcher then echoes the very bytes the merge wrote —
-                // clearing here would silently remove the Undo/Review
-                // affordance. A genuinely stale notification's own liveness
-                // guard already no-ops it.
-                debouncedSendBufferedState()
-                break
-              }
-
+              const { id } = tab
               if (autoSaveTimers.has(id)) {
                 const timer = autoSaveTimers.get(id)
                 if (timer) clearTimeout(timer)
                 autoSaveTimers.delete(id)
               }
-
-              // A clean tab normally reloads, but not underneath an open
-              // resolver (reachable clean: markClean → Review): the reducer
-              // owns the supersede — close, re-derive against the new
-              // remote, stay headed for review — and a silent reload would
-              // wedge the dialog on panes whose remote no longer exists.
-              if (isSaved && this.mergeConflict?.tabId !== tab.id) {
-                this.loadChange(change)
-                return
-              }
-
+              // One entry point: the merge-session reducer's decision table
+              // owns every external-change outcome — absorb a byte-identical
+              // change (#1861), reload a clean tab, three-way merge a dirty
+              // tab, supersede an open resolver. The watcher no longer
+              // pre-selects the row.
               await this.HANDLE_DIRTY_EXTERNAL_CHANGE(tab, change)
               debouncedSendBufferedState()
               break

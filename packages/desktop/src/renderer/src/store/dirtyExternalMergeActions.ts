@@ -54,7 +54,10 @@ interface DirtyExternalMergeStore {
   SHOW_TAB_VIEW: (show: boolean) => void
   updateTabIdToIndex: () => void
   pushTabNotification: (payload: PushTabNotificationPayload) => void
-  loadChange: (change: FileChangePayload, options?: { preserveDirty?: boolean }) => void
+  loadChange: (
+    change: FileChangePayload,
+    options?: { preserveDirty?: boolean; diskBase?: string }
+  ) => void
   HANDLE_DIRTY_EXTERNAL_CHANGE: (
     tab: IFileState,
     change: FileChangePayload,
@@ -133,6 +136,9 @@ const dispatchAndExecute = (
         } else {
           executeCleanSync(store, effect)
         }
+        break
+      case 'absorb':
+        executeAbsorb(store, effect)
         break
       case 'create-recovery-tab':
         executeCreateRecoveryTab(store, tabId)
@@ -301,15 +307,10 @@ const executeCleanSync = (
   store: DirtyExternalMergeStore,
   effect: Extract<MergeSessionEffect, { type: 'load-disk' }>
 ): void => {
-  store.loadChange(effect.fileChange, effect.preserveDirty ? { preserveDirty: true } : undefined)
-  const nextTab = store.tabs.find((candidate) =>
-    window.fileUtils.isSamePathSync(candidate.pathname, effect.fileChange.pathname)
-  )
-  if (!nextTab) return
-
-  nextTab.diskBaseMarkdown = effect.fileChange.data.markdown
-  if (effect.preserveDirty) nextTab.isSaved = false
-  debouncedSendBufferedState()
+  // The loaded disk copy IS the new base, and preserveDirty (a persistence
+  // diff) keeps the tab dirty — loadChange owns both, so there is no re-find
+  // and patch here.
+  store.loadChange(effect.fileChange, { preserveDirty: effect.preserveDirty })
 }
 
 const executeCreateRecoveryTab = (store: DirtyExternalMergeStore, tabId: string): void => {
@@ -326,6 +327,23 @@ const executeCreateRecoveryTab = (store: DirtyExternalMergeStore, tabId: string)
     showConfirm: false,
     exclusiveType: 'file_changed_recovery'
   })
+}
+
+// Byte + persistence identical: the engine already holds this exact content,
+// so mark the tab clean at its current history without reloading (#1861 —
+// don't churn the engine when nothing changed). Any file_changed notification
+// is deliberately left standing: this fires when the watcher echoes a just-
+// applied clean auto-merge, and the user should still see that it happened.
+const executeAbsorb = (
+  store: DirtyExternalMergeStore,
+  effect: Extract<MergeSessionEffect, { type: 'absorb' }>
+): void => {
+  const tab = store.tabs.find((candidate) =>
+    window.fileUtils.isSamePathSync(candidate.pathname, effect.fileChange.pathname)
+  )
+  if (!tab) return
+  markTabSavedAtCurrentHistory(tab)
+  debouncedSendBufferedState()
 }
 
 const executeReloadFromDisk = (
@@ -423,14 +441,15 @@ export function applyDirtyExternalMerge(
       markdown: mergedMarkdown
     }
   }
-  store.loadChange(mergedChange, { preserveDirty: !markClean })
+  // The buffer takes the merged content, but the base is the disk copy the
+  // next merge diffs against (they differ whenever the merge kept local edits).
+  store.loadChange(mergedChange, { preserveDirty: !markClean, diskBase: change.data.markdown })
 
   const nextTab = store.tabs.find((t) =>
     window.fileUtils.isSamePathSync(t.pathname, change.pathname)
   )
   if (!nextTab) return
 
-  nextTab.diskBaseMarkdown = change.data.markdown
   // A background tab's engine never saw this merge: journal the pre-merge
   // buffer so activation can seed a rebuild-undo boundary from it. The
   // foreground path records its boundary directly via replaceContent.
@@ -507,6 +526,8 @@ export function applyDirtyExternalMerge(
           return
         }
 
+        // Undo the auto-merge: restore the pre-merge buffer, keep the disk
+        // copy as the base, stay dirty. loadChange owns base + dirty flag.
         store.loadChange(
           {
             ...change,
@@ -515,17 +536,8 @@ export function applyDirtyExternalMerge(
               markdown: localMarkdownBeforeMerge
             }
           },
-          { preserveDirty: true }
+          { preserveDirty: true, diskBase: change.data.markdown }
         )
-
-        const restoredTab = store.tabs.find((t) =>
-          window.fileUtils.isSamePathSync(t.pathname, change.pathname)
-        )
-        if (!restoredTab) return
-
-        restoredTab.diskBaseMarkdown = change.data.markdown
-        restoredTab.isSaved = false
-        debouncedSendBufferedState()
       }
     })
   }
