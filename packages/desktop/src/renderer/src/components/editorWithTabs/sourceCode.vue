@@ -829,6 +829,13 @@ onMounted(() => {
   bus.on('invalidate-image-cache', handleInvalidateImageCache)
   bus.on('file-changed', handleFileChange)
   bus.on('selectAll', handleSelectAll)
+  // The keyboard accelerator emits 'selectAllWholeDocument' (one-press
+  // whole-document select); CodeMirror's execCommand('selectAll') already
+  // selects the entire document — there is no progressive escalation in
+  // source mode — so the same handler is correct. Without this, Cmd/Ctrl+A
+  // selected nothing in source-code mode (editor.vue ignores the event when
+  // sourceCode is active).
+  bus.on('selectAllWholeDocument', handleSelectAll)
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
   // The overlay mounts only in source mode: pushing here shadows the
@@ -880,6 +887,7 @@ onBeforeUnmount(() => {
   bus.off('invalidate-image-cache', handleInvalidateImageCache)
   bus.off('file-changed', handleFileChange)
   bus.off('selectAll', handleSelectAll)
+  bus.off('selectAllWholeDocument', handleSelectAll)
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
   popCommentSurface(sourceCommentSurface)
