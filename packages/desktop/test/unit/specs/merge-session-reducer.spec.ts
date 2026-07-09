@@ -73,6 +73,9 @@ const diskChanged = (
   local: LOCAL,
   base: BASE,
   persistenceEqual: true,
+  // Default local (LOCAL) !== base (BASE): a dirty tab. Clean-tab cases
+  // override both base and dirty.
+  dirty: true,
   ...overrides
 })
 
@@ -138,6 +141,29 @@ describe('merge-session reducer — decision table', () => {
       reason: 'local-matches-remote',
       preserveDirty: true
     })
+  })
+
+  it('a persistence-only change on a CLEAN tab reloads clean — it must not spuriously dirty', () => {
+    // Clean tab (buffer == base == disk text) whose disk copy was re-encoded
+    // externally (e.g. LF -> CRLF, same text). The user made no edit, so the
+    // tab adopts the new persistence and stays clean; marking it dirty would
+    // be a phantom unsaved-changes flag.
+    const clean = reduce(
+      initialMergeSessionState(),
+      diskChanged(LOCAL, { local: LOCAL, base: LOCAL, persistenceEqual: false, dirty: false })
+    )
+    expect(only(clean.effects, 'load-disk')).toMatchObject({
+      reason: 'local-matches-remote',
+      preserveDirty: false
+    })
+
+    // The flip side: a flag-dirty tab whose buffer matches the base (an
+    // edit-then-revert) must STAY dirty through the same persistence change.
+    const flagDirty = reduce(
+      initialMergeSessionState(),
+      diskChanged(LOCAL, { local: LOCAL, base: LOCAL, persistenceEqual: false, dirty: true })
+    )
+    expect(only(flagDirty.effects, 'load-disk').preserveDirty).toBe(true)
   })
 
   it('a clean tab (buffer == base, no local edits) reloads the disk change, never merges', () => {
@@ -875,7 +901,10 @@ describe('merge-session reducer — property fuzz', () => {
             fileChange: change(randomDoc(rnd)),
             local: tabMarkdown,
             base: tabBase,
-            persistenceEqual: rnd() < 0.8
+            persistenceEqual: rnd() < 0.8,
+            // This model never forges an edit-then-revert, so content
+            // divergence is the tab's dirtiness.
+            dirty: tabMarkdown !== tabBase
           }))
         } else if (roll < 0.5 && outstanding.length > 0) {
           // Resolve or fail a random (possibly superseded) request.

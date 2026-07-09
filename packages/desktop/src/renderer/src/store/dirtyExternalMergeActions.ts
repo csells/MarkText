@@ -689,6 +689,7 @@ export async function handleDirtyExternalChange(
     local: liveTab.markdown,
     base: liveTab.diskBaseMarkdown,
     persistenceEqual: isSamePersistenceSnapshot(liveTab, change.data),
+    dirty: liveTab.isSaved === false,
     forceReview: options.forceReview === true
   })
 }

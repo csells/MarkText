@@ -116,12 +116,22 @@ describe('source index — front matter matches the parser, not the forgiving st
     });
 });
 
-// Quality review ③: removeCommentSyntaxFromMarkdown and the source-mode
-// discard handler both computed a comment's syntax ranges from the index by
-// hand. Lock the shared computation.
+// Splice a comment's syntax ranges out of the raw source, left-to-right —
+// exactly what the source-mode discard (via analyze.ts's syntaxRemovalRanges)
+// does with commentSyntaxRangesForId.
+function spliceRanges(markdown: string, ranges: { start: number; end: number }[]): string {
+    let next = markdown;
+    for (const range of ranges)
+        next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
+    return next;
+}
+
+// Quality review ③: the source-mode discard handler computes a comment's
+// syntax ranges from the index via commentSyntaxRangesForId. Lock that shared
+// computation.
 describe('commentSyntaxRangesForId', () => {
     it('returns a comment id\'s marker + metadata ranges, descending, empty for others', async () => {
-        const { commentSyntaxRangesForId, removeCommentSyntaxFromMarkdown } = await import('../source');
+        const { commentSyntaxRangesForId } = await import('../source');
         const meta = 'data:text/plain,note';
         const md = `a <!--MC:x-->b<!--MC:~x--> c\n\n[MC:x]: ${meta}\n`;
 
@@ -132,29 +142,26 @@ describe('commentSyntaxRangesForId', () => {
             expect(ranges[i - 1].start).toBeGreaterThanOrEqual(ranges[i].start);
         expect(commentSyntaxRangesForId(md, 'missing')).toEqual([]);
 
-        // Splicing the ranges reproduces removeCommentSyntaxFromMarkdown.
-        let spliced = md;
-        for (const r of ranges)
-            spliced = `${spliced.slice(0, r.start)}${spliced.slice(r.end)}`;
-        expect(spliced).toBe(removeCommentSyntaxFromMarkdown(md, 'x'));
+        // Splicing the ranges strips the comment markers AND its metadata def.
+        expect(spliceRanges(md, ranges)).toBe('a b c\n');
     });
 });
 
 // Discarding a comment must not leave the blank lines the metadata appendix
-// introduced. removeCommentSyntaxFromMarkdown (and the source-mode discard that
-// shares its per-id ranges) should restore the pre-comment bytes.
-describe('removeCommentSyntaxFromMarkdown — no leftover blank lines', () => {
+// introduced: splicing commentSyntaxRangesForId (the source-mode discard's
+// per-id ranges) should restore the pre-comment bytes.
+describe('commentSyntaxRangesForId — no leftover blank lines', () => {
     it('restores the exact prose when discarding a comment whose def is at EOF', async () => {
-        const { removeCommentSyntaxFromMarkdown } = await import('../source');
+        const { commentSyntaxRangesForId } = await import('../source');
         const meta = 'data:text/plain,note';
         const md = `A <!--MC:a-->reviewed<!--MC:~a--> span.\n\n[MC:a]: ${meta}\n`;
-        expect(removeCommentSyntaxFromMarkdown(md, 'a')).toBe('A reviewed span.\n');
+        expect(spliceRanges(md, commentSyntaxRangesForId(md, 'a'))).toBe('A reviewed span.\n');
     });
 
     it('keeps the blank separator for sibling definitions when removing one', async () => {
-        const { removeCommentSyntaxFromMarkdown } = await import('../source');
+        const { commentSyntaxRangesForId } = await import('../source');
         const md = 'c.\n\n[MC:a]: data:text/plain,A\n[MC:b]: data:text/plain,B\n';
-        expect(removeCommentSyntaxFromMarkdown(md, 'a')).toBe('c.\n\n[MC:b]: data:text/plain,B\n');
-        expect(removeCommentSyntaxFromMarkdown(md, 'b')).toBe('c.\n\n[MC:a]: data:text/plain,A\n');
+        expect(spliceRanges(md, commentSyntaxRangesForId(md, 'a'))).toBe('c.\n\n[MC:b]: data:text/plain,B\n');
+        expect(spliceRanges(md, commentSyntaxRangesForId(md, 'b'))).toBe('c.\n\n[MC:a]: data:text/plain,A\n');
     });
 });

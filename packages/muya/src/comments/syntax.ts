@@ -115,18 +115,10 @@ export function isValidCommentId(id: string): boolean {
     return new RegExp(`^${COMMENT_ID_PATTERN}$`).test(id);
 }
 
-// Content-leaf block names whose text the comment parser never scans (code
-// fences and the code-like containers — frontmatter/math/html/diagram — all
-// render through these leaves, plus thematic breaks): marker-shaped text
-// there is LITERAL. Document walks that feed the guards below must skip
-// these leaves, mirroring parse.ts's NON_INLINE_COMMENT_TEXT_STATES at the
-// block level, or a fence containing "<!--MC:~id-->" as documentation would
-// count as a real counterpart and falsely block edits.
 // State names whose text is LITERAL for the comment grammar — markers and
 // definition-shaped lines inside them are documentation, never syntax. The
 // single source for every state-space derivation (parse's inline scan,
-// edit's commentability check); NON_COMMENT_SCANNABLE_LEAF_BLOCKS below is
-// the same fact in block-name space.
+// edit's commentability check).
 export const LITERAL_COMMENT_TEXT_STATES: ReadonlySet<string> = new Set([
     'code-block',
     'diagram',
@@ -134,12 +126,6 @@ export const LITERAL_COMMENT_TEXT_STATES: ReadonlySet<string> = new Set([
     'html-block',
     'math-block',
     'thematic-break',
-]);
-
-export const NON_COMMENT_SCANNABLE_LEAF_BLOCKS: ReadonlySet<string> = new Set([
-    'codeblock.content',
-    'language-input',
-    'thematicbreak.content',
 ]);
 
 // The cheap pre-filter every consumer shares: both marker and definition
@@ -208,17 +194,6 @@ export function serializeCommentReplyDefinition(id: string, index: number, paylo
 
 export function isCommentMetadataReference(label: string): boolean {
     return /^MC:[^\]\s]+$/.test(label);
-}
-
-// The thread a definition-shaped line belongs to: the id itself for head
-// lines, the id before the `.N` suffix for reply lines, the raw label for
-// anything else (damaged files keep the v1 semantics: label = id).
-export function commentDefinitionLineThreadId(line: string): string | null {
-    const reply = parseCommentReplyDefinition(line);
-    if (reply)
-        return reply.id;
-
-    return parseCommentMetadataDefinition(line)?.id ?? null;
 }
 
 // The shape of a metadata block: EVERY line is a definition-shaped line.

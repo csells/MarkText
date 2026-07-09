@@ -75,6 +75,11 @@ export type MergeSessionEvent =
     local: string
     base: string | undefined
     persistenceEqual: boolean
+    // The tab's own unsaved-changes flag (!isSaved). It can diverge from
+    // local !== base: an edit-then-revert leaves a tab flagged dirty while
+    // its buffer matches the base. A persistence-only change must preserve
+    // this flag exactly — neither clear a dirty tab nor dirty a clean one.
+    dirty: boolean
     forceReview?: boolean
   }
   | {
@@ -257,15 +262,18 @@ const onDiskChanged = (
 
   if (event.local === remote) {
     // Byte-identical AND persistence-identical: absorb (mark clean, no reload).
-    // Byte-identical but a persistence diff (encoding/line-ending) still needs
-    // a reload to pick it up, and must not silently clear a dirty tab.
+    // Byte-identical but a persistence diff (encoding/line-ending) needs a
+    // reload to adopt it, preserving the tab's dirtiness exactly: a dirty tab
+    // stays dirty so the persistence change can't silently clear it; a clean
+    // tab stays clean — the user made no edit, so adopting the new
+    // persistence must not fabricate unsaved changes.
     if (event.persistenceEqual) {
       effects.push({ type: 'absorb', fileChange: event.fileChange })
     } else {
       effects.push({
         type: 'load-disk',
         fileChange: event.fileChange,
-        preserveDirty: true,
+        preserveDirty: event.dirty,
         reason: 'local-matches-remote'
       })
     }
@@ -431,6 +439,7 @@ const onReviewRequested = (
       local: event.currentLocal,
       base: event.currentBase,
       persistenceEqual: event.persistenceEqual,
+      dirty: event.currentLocal !== event.currentBase,
       forceReview: true
     })
   }
@@ -476,6 +485,7 @@ const onAccept = (
       local: state.currentLocal,
       base: session.expectedDiskBase,
       persistenceEqual: event.persistenceEqual,
+      dirty: state.currentLocal !== session.expectedDiskBase,
       forceReview: true
     })
     return {

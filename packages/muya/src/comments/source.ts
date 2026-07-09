@@ -512,17 +512,6 @@ export function collectSourceCommentIds(markdown: string): Set<string> {
     ]);
 }
 
-export function stripCommentSyntaxFromMarkdown(markdown: string): string {
-    const index = buildCommentSourceIndex(markdown);
-    const syntaxRanges = [...index.syntaxRanges].sort((a, b) => b.start - a.start);
-    let next = markdown;
-
-    for (const range of syntaxRanges)
-        next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
-
-    return next;
-}
-
 // A metadata definition occupies its own line, set off from the document body
 // by the blank-line separator the metadata appendix introduced. Removing the
 // definition text alone would leave that blank line behind (so discarding a
@@ -555,8 +544,8 @@ function definitionRemovalRange(
 
 // A single comment's marker + metadata-definition removal ranges, sorted
 // descending so a caller can splice them out left-to-right without shifting
-// later offsets. Shared by removeCommentSyntaxFromMarkdown and the source-mode
-// discard action.
+// later offsets. The source-mode discard action (via analyze.ts's
+// syntaxRemovalRanges) splices these to strip one comment from the raw source.
 export function commentSyntaxRangesForId(
     markdown: string,
     id: string,
@@ -572,15 +561,6 @@ export function commentSyntaxRangesForId(
     }
 
     return ranges.sort((a, b) => b.start - a.start);
-}
-
-export function removeCommentSyntaxFromMarkdown(markdown: string, id: string): string {
-    let next = markdown;
-
-    for (const range of commentSyntaxRangesForId(markdown, id))
-        next = `${next.slice(0, range.start)}${next.slice(range.end)}`;
-
-    return next;
 }
 
 export interface ISourceLineDecorationSpan {

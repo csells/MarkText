@@ -47,8 +47,6 @@ describe('public comment exports', () => {
             'collectSourceCommentIds',
             'commentSyntaxRangesForId',
             'parseMarkdownComments',
-            'removeCommentSyntaxFromMarkdown',
-            'stripCommentSyntaxFromMarkdown',
         ];
 
         for (const name of legacyBypassExports) {

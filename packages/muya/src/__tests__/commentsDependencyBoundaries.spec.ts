@@ -79,12 +79,12 @@ describe('comment feature dependency boundaries', () => {
         expect(source).not.toContain('buildCommentSourceIndex');
     });
 
-    it('keeps HTML export stripping on analyzer source maps instead of the raw strip helper', () => {
+    it('keeps HTML export stripping on the analyzer-backed helper', () => {
         const asyncExportSource = readFileSync(new URL('../state/markdownToHtml.ts', import.meta.url), 'utf8');
         const staticExportSource = readFileSync(new URL('../state/renderToStaticHTML.ts', import.meta.url), 'utf8');
 
-        expect(asyncExportSource).not.toContain('stripCommentSyntaxFromMarkdown');
-        expect(staticExportSource).not.toContain('stripCommentSyntaxFromMarkdown');
+        expect(asyncExportSource).toContain('stripAnalyzedCommentSyntaxFromMarkdown');
+        expect(staticExportSource).toContain('stripAnalyzedCommentSyntaxFromMarkdown');
     });
 
     it('keeps paste id remapping on analyzer source maps instead of raw id/source-index helpers', () => {
