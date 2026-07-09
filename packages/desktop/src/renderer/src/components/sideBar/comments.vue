@@ -495,9 +495,14 @@ const submitEditReply = (thread: ICommentThread, replyIndex: number): void => {
   const existingReply = thread.replies[replyIndex]
   if (!existingReply && (replyIndex !== 0 || thread.replies.length > 0)) return
   // The reply array shifted while the edit box was open — the index now points
-  // at a different reply, so abort rather than overwrite the wrong one.
-  const anchor = threadUi[thread.id]?.edits[replyIndex]?.anchorCreatedAt
-  if (existingReply && anchor && existingReply.createdAt !== anchor) {
+  // at a different reply, so abort rather than overwrite the wrong one. The
+  // anchor is the edited reply's createdAt, or the empty sentinel when the box
+  // was opened against a reply-LESS thread (head edit). Comparing against the
+  // sentinel too catches a reply APPEARING at the index (no-reply → has-reply):
+  // without it an empty anchor made the guard vacuous and the new reply was
+  // clobbered by the head draft.
+  const anchor = threadUi[thread.id]?.edits[replyIndex]?.anchorCreatedAt ?? ''
+  if (existingReply && existingReply.createdAt !== anchor) {
     cancelEditReply(thread.id, replyIndex)
     return
   }

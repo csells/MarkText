@@ -185,6 +185,34 @@ describe('comments sidebar (mounted)', () => {
     expect(emit).not.toHaveBeenCalledWith('comment:edit', expect.anything())
   })
 
+  it('does not clobber a reply that appears at index 0 while the empty-thread head edit box is open', async() => {
+    const store = useEditorStore()
+    store.comments = makeComments([
+      { id: 'cmt_1', status: 'open', replies: [] }
+    ]) as never
+    mountSidebar()
+
+    // Open the head (thread-level) edit box via the edit-pen action, type a
+    // draft. The anchor for a reply-less thread is the empty sentinel.
+    await thread('cmt_1').find('.thread-actions').findAll('button')[1].trigger('click')
+    await thread('cmt_1').find('.edit-box textarea').setValue('my head draft')
+
+    // A reply lands at index 0 from elsewhere (another surface / the file).
+    store.comments = makeComments([
+      {
+        id: 'cmt_1',
+        status: 'open',
+        replies: [reply('Zoe', '2026-06-30T12:00:00.000Z', 'external reply')]
+      }
+    ]) as never
+    await nextTick()
+    emit.mockClear()
+    await buttonWithText(thread('cmt_1') as never, 'saveEdit').trigger('click')
+
+    // Save must ABORT — the external reply must not be overwritten by the draft.
+    expect(emit).not.toHaveBeenCalledWith('comment:edit', expect.anything())
+  })
+
   it('prunes drafts for a comment id that disappears, so a recycled id starts clean', async() => {
     const store = useEditorStore()
     const threads: CommentThread[] = [
