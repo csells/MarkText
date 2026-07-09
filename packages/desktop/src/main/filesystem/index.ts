@@ -1,5 +1,5 @@
 import { readlinkSync, ensureDir, type WriteFileOptions } from 'fs-extra'
-import { realpath } from 'fs/promises'
+import { realpath, stat, writeFile as fsWriteFile } from 'fs/promises'
 import path from 'path'
 import writeFileAtomic from 'write-file-atomic'
 import { isDirectory, isFile, isSymbolicLink } from 'common/filesystem'
@@ -41,21 +41,48 @@ export const writeFile = async(
 
   // An atomic rename over a symlink would replace the LINK with a regular
   // file; write through to the link target instead, like the previous
-  // in-place write did. ENOENT means a brand-new file — the given path IS
-  // the target.
+  // in-place write did. ENOENT means either a brand-new file (the given path
+  // IS the target) OR a symlink whose target was deleted (dangling).
   let target = pathname
+  let danglingSymlink = false
   try {
     target = await realpath(pathname)
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw err
     }
+    danglingSymlink = isSymbolicLink(pathname)
   }
 
-  // Temp file + fsync + rename (write-file-atomic): an interrupted save —
-  // crash, ENOSPC, power loss — can no longer truncate the existing document.
-  // The old bytes stay on disk until the new ones are durable, and the
-  // existing file's mode/ownership are preserved across the swap.
+  // The atomic temp+rename creates a NEW inode, which would silently diverge
+  // two cases the previous in-place write handled correctly:
+  //   - a HARD-LINKED file (nlink > 1): the rename leaves the other name
+  //     frozen at the old content, severing the link;
+  //   - a DANGLING symlink: the rename drops a regular file where the link
+  //     was, instead of writing through to recreate its target.
+  // Write in place for exactly those, following the symlink for the dangling
+  // case; keep the crash-safe atomic rename for every ordinary file/dir/valid
+  // symlink (mode + ownership preserved across the swap).
+  let hardLinked = false
+  if (!danglingSymlink) {
+    try {
+      hardLinked = (await stat(target)).nlink > 1
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err
+      }
+      // target vanished between realpath and stat — treat as a new file.
+    }
+  }
+
   const encoding = typeof options === 'string' ? options : options?.encoding
+  if (hardLinked || danglingSymlink) {
+    await fsWriteFile(
+      danglingSymlink ? pathname : target,
+      content,
+      encoding ? { encoding: encoding as BufferEncoding } : undefined
+    )
+    return
+  }
   await writeFileAtomic(target, content, encoding ? { encoding } : {})
 }

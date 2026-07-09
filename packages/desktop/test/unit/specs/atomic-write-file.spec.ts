@@ -88,6 +88,39 @@ describe('writeFile — atomic document saves', () => {
     expect(fs.readFileSync(target, 'utf8')).toBe('still secret')
   })
 
+  it('preserves a hard link — the other name sees the new content, not stale bytes', async() => {
+    // A note hard-linked to a second path (nlink > 1). An atomic temp+rename
+    // would give `a` a fresh inode and freeze `b` at the old content, silently
+    // severing the link. Writing through the shared inode keeps them in sync.
+    const a = path.join(dir, 'a.md')
+    const b = path.join(dir, 'b.md')
+    fs.writeFileSync(a, 'original')
+    fs.linkSync(a, b)
+    expect(fs.statSync(a).nlink).toBe(2)
+
+    await writeFile(a, 'edited', '.md', undefined)
+
+    expect(fs.readFileSync(a, 'utf8')).toBe('edited')
+    expect(fs.readFileSync(b, 'utf8'), 'the hard-linked name must see the edit').toBe('edited')
+    expect(fs.statSync(a).ino).toBe(fs.statSync(b).ino)
+    expect(fs.statSync(a).nlink).toBe(2)
+  })
+
+  it('writes through a dangling symlink to (re)create its target, not replace the link', async() => {
+    // A symlink whose target was deleted. The old in-place write followed the
+    // link and recreated the target; an atomic rename would drop a regular
+    // file where the symlink was.
+    const missingTarget = path.join(dir, 'target.md')
+    const link = path.join(dir, 'link.md')
+    fs.symlinkSync(missingTarget, link)
+    expect(fs.existsSync(missingTarget)).toBe(false)
+
+    await writeFile(link, 'content', '.md', undefined)
+
+    expect(fs.lstatSync(link).isSymbolicLink(), 'the link must stay a symlink').toBe(true)
+    expect(fs.readFileSync(missingTarget, 'utf8')).toBe('content')
+  })
+
   it('propagates write failures instead of swallowing them', async() => {
     // A parent path component that is a FILE makes directory creation (and
     // the write) impossible — the failure must surface to the caller.
