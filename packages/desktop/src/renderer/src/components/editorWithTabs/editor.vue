@@ -110,16 +110,16 @@ import {
   zhCN,
   zhTW,
   type ICommentThread,
-  type ICommentReplyInput,
   type IParsedMarkdownComments,
   type ILocale,
-  type TUpdateCommentThreadPatch
 } from '@muyajs/core'
 import { exportStyledHTML, type HeaderFooterPart } from '@/util/exportHtml'
 import { applyCursor, isIndexCursor } from '@/util/cursor'
 import EditorSearch from '../search/index.vue'
 import bus from '@/bus'
 import {
+  type ICommentEditCommand,
+  type ICommentReplyCommand,
   type ICommentSurface,
   initCommentCommandRouter,
   popCommentSurface,
@@ -1518,6 +1518,7 @@ interface FileChangePayload {
   muyaIndexCursor?: unknown
   blocks?: unknown
   isReload?: boolean
+  isSourceHandoff?: boolean
   preserveDirty?: boolean
 }
 
@@ -1528,9 +1529,9 @@ const handleFileChange = (payload: unknown) => {
     markdown: newMarkdown,
     cursor: newCursor,
     muyaIndexCursor,
-    history: payloadHistory,
     scrollTop,
     isReload,
+    isSourceHandoff,
     preserveDirty
   } = (payload ?? {}) as FileChangePayload
   if (!editor.value) return
@@ -1549,16 +1550,10 @@ const handleFileChange = (payload: unknown) => {
     // incremental pick/drop walker), so arbitrary block-type changes round-trip
     // safely.
     //
-    // Detection: only sourceCode.vue's onBeforeUnmount emits `file-changed` with
-    // a source-mode index cursor AND no block-key `cursor` AND no `history`
-    // (see sourceCode.vue ~L368). Every tab-switch / file-reload emitter in
-    // editor.ts carries both `cursor` and `history` alongside, so requiring
-    // those absent reliably isolates the WYSIWYG<-source handoff from a tab
-    // activation that merely replays a tab's persisted `muyaIndexCursor`.
-    const isSourceModeHandoff =
-      isIndexCursor(muyaIndexCursor) && !newCursor && payloadHistory == null
-
-    if (isSourceModeHandoff) {
+    // The source->WYSIWYG handoff is flagged explicitly by its emitter
+    // (sourceCode.vue's onBeforeUnmount), not sniffed from the absence of
+    // cursor/history.
+    if (isSourceHandoff) {
       // Record the bulk source-mode edit as a single undo boundary. When the
       // document is unchanged this is a no-op (returns false) and the existing
       // history/content already match — either way the caret still needs
@@ -1732,9 +1727,6 @@ const notifyCommentUpdateFailed = (): void => {
 }
 
 const handleAddComment = () => {
-  if (sourceCode.value) {
-    return
-  }
   if (!editor.value) return
 
   const addedId = editor.value.addComment()
@@ -1748,19 +1740,17 @@ const handleAddComment = () => {
   editorStore.SET_COMPOSE_COMMENT_ID(addedId)
 }
 
-const handleCommentReply = (payload: unknown) => {
-  if (sourceCode.value || !editor.value) return
-  const { id, reply } = (payload ?? {}) as { id?: string; reply?: ICommentReplyInput }
-  if (!id || !reply?.body) return
-  if (!editor.value.replyToComment(id, reply)) {
+const handleCommentReply = (command: ICommentReplyCommand) => {
+  if (!editor.value) return
+  if (!editor.value.replyToComment(command.id, command.reply)) {
     notifyCommentUpdateFailed()
     return
   }
   syncComments()
 }
 
-const handleCommentDiscard = (id: unknown) => {
-  if (sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentDiscard = (id: string) => {
+  if (!editor.value) return
 
   const thread = editor.value.getComments().threads.find((item: ICommentThread) => item.id === id)
   if (!thread || thread.status !== 'open' || thread.replies.length) return
@@ -1771,19 +1761,17 @@ const handleCommentDiscard = (id: unknown) => {
   syncComments()
 }
 
-const handleCommentEdit = (payload: unknown) => {
-  if (sourceCode.value || !editor.value) return
-  const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
-  if (!id || !patch) return
-  if (!editor.value.updateCommentThread(id, patch)) {
+const handleCommentEdit = (command: ICommentEditCommand) => {
+  if (!editor.value) return
+  if (!editor.value.updateCommentThread(command.id, command.patch)) {
     notifyCommentUpdateFailed()
     return
   }
   syncComments()
 }
 
-const handleCommentResolve = (id: unknown) => {
-  if (sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentResolve = (id: string) => {
+  if (!editor.value) return
   if (!editor.value.resolveComment(id)) {
     notifyCommentUpdateFailed()
     return
@@ -1791,8 +1779,8 @@ const handleCommentResolve = (id: unknown) => {
   syncComments()
 }
 
-const handleCommentReopen = (id: unknown) => {
-  if (sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentReopen = (id: string) => {
+  if (!editor.value) return
   if (!editor.value.reopenComment(id)) {
     notifyCommentUpdateFailed()
     return
@@ -1813,11 +1801,12 @@ const wysiwygCommentSurface: ICommentSurface = {
   resolve: (id) => handleCommentResolve(id),
   reopen: (id) => handleCommentReopen(id),
   focus: (id) => handleCommentFocus(id),
-  focusDiagnostic: (id) => handleCommentFocus(id)
+  focusDiagnostic: (id) => handleCommentFocus(id),
+  focusEditor: () => focusEditor()
 }
 
-const handleCommentFocus = (id: unknown) => {
-  if (sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentFocus = (id: string) => {
+  if (!editor.value) return
   if (editor.value.focusComment(id)) {
     showCommentsSidebar()
     syncComments()
@@ -2036,7 +2025,6 @@ onMounted(() => {
   bus.on('flush-active-editor', flushActiveEditor)
   bus.on('read-active-editor-selection', readActiveEditorSelection)
   bus.on('editor-blur', blurEditor)
-  bus.on('editor-focus', focusEditor)
   bus.on('copyAsRich', handleCopyPaste)
   bus.on('copyAsHtml', handleCopyPaste)
   bus.on('pasteAsPlainText', handleCopyPaste)
@@ -2204,7 +2192,6 @@ onBeforeUnmount(() => {
   bus.off('flush-active-editor', flushActiveEditor)
   bus.off('read-active-editor-selection', readActiveEditorSelection)
   bus.off('editor-blur', blurEditor)
-  bus.off('editor-focus', focusEditor)
   bus.off('copyAsRich', handleCopyPaste)
   bus.off('copyAsHtml', handleCopyPaste)
   bus.off('pasteAsPlainText', handleCopyPaste)

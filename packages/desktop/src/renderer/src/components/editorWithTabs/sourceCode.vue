@@ -23,7 +23,6 @@ import {
   updateCommentMetadataInMarkdown,
   wordCount as getWordCount,
   type ICommentMetadata,
-  type ICommentReplyInput,
   type ISourceLineDecoration,
   type TUpdateCommentThreadPatch
 } from '@muyajs/core'
@@ -43,6 +42,8 @@ import {
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
 import {
+  type ICommentEditCommand,
+  type ICommentReplyCommand,
   type ICommentSurface,
   popCommentSurface,
   pushCommentSurface
@@ -453,11 +454,12 @@ const sourceCommentSurface: ICommentSurface = {
   resolve: (id) => handleCommentResolve(id),
   reopen: (id) => handleCommentReopen(id),
   focus: (id) => handleCommentFocus(id),
-  focusDiagnostic: (id) => handleCommentDiagnosticFocus(id)
+  focusDiagnostic: (id) => handleCommentDiagnosticFocus(id),
+  focusEditor: () => handleEditorFocus()
 }
 
 const handleAddComment = (): void => {
-  if (!sourceCode.value || !editor.value) return
+  if (!editor.value) return
 
   const cm = editor.value
   const candidate = getSourceCommentCandidate(cm)
@@ -560,20 +562,17 @@ const patchSourceCommentMetadata = (
   // editing surfaces produce identical portable metadata.
   replaceSourceCommentMetadata(cm, id, (metadata) => mergeCommentMetadataPatch(metadata, patch))
 
-const handleCommentReply = (payload: unknown): void => {
-  if (!sourceCode.value || !editor.value) return
-  const { id, reply } = (payload ?? {}) as { id?: string; reply?: ICommentReplyInput }
-  if (!id || !reply?.body) return
-
+const handleCommentReply = (command: ICommentReplyCommand): void => {
+  if (!editor.value) return
   notifyCommentUpdate(
-    replaceSourceCommentMetadata(editor.value, id, (metadata) =>
-      appendCommentReplyMetadata(metadata, reply)
+    replaceSourceCommentMetadata(editor.value, command.id, (metadata) =>
+      appendCommentReplyMetadata(metadata, command.reply)
     )
   )
 }
 
-const handleCommentDiscard = (id: unknown): void => {
-  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentDiscard = (id: string): void => {
+  if (!editor.value) return
 
   const cm = editor.value
   const markdown = cm.getValue()
@@ -593,16 +592,13 @@ const handleCommentDiscard = (id: unknown): void => {
   saveContent(cm)
 }
 
-const handleCommentEdit = (payload: unknown): void => {
-  if (!sourceCode.value || !editor.value) return
-  const { id, patch } = (payload ?? {}) as { id?: string; patch?: TUpdateCommentThreadPatch }
-  if (!id || !patch) return
-
-  notifyCommentUpdate(patchSourceCommentMetadata(editor.value, id, patch))
+const handleCommentEdit = (command: ICommentEditCommand): void => {
+  if (!editor.value) return
+  notifyCommentUpdate(patchSourceCommentMetadata(editor.value, command.id, command.patch))
 }
 
-const handleCommentResolve = (id: unknown): void => {
-  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentResolve = (id: string): void => {
+  if (!editor.value) return
 
   notifyCommentUpdate(
     patchSourceCommentMetadata(editor.value, id, {
@@ -612,8 +608,8 @@ const handleCommentResolve = (id: unknown): void => {
   )
 }
 
-const handleCommentReopen = (id: unknown): void => {
-  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentReopen = (id: string): void => {
+  if (!editor.value) return
 
   notifyCommentUpdate(
     patchSourceCommentMetadata(editor.value, id, {
@@ -626,12 +622,12 @@ const handleCommentReopen = (id: unknown): void => {
 // Return focus to the source editor (e.g. after posting a comment from the
 // sidebar). No-op unless source mode is the active editor.
 const handleEditorFocus = (): void => {
-  if (!sourceCode.value || !editor.value) return
+  if (!editor.value) return
   editor.value.focus()
 }
 
-const handleCommentFocus = (id: unknown): void => {
-  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentFocus = (id: string): void => {
+  if (!editor.value) return
 
   const cm = editor.value
   const markdown = cm.getValue()
@@ -643,8 +639,8 @@ const handleCommentFocus = (id: unknown): void => {
   editorStore.UPDATE_ACTIVE_COMMENTS([id])
 }
 
-const handleCommentDiagnosticFocus = (id: unknown): void => {
-  if (!sourceCode.value || !editor.value || typeof id !== 'string') return
+const handleCommentDiagnosticFocus = (id: string): void => {
+  if (!editor.value) return
 
   const cm = editor.value
   const range = sourceCommentDiagnosticSyntaxRange(cm.getValue(), id)
@@ -835,7 +831,6 @@ onMounted(() => {
   bus.on('selectAll', handleSelectAll)
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
-  bus.on('editor-focus', handleEditorFocus)
   // The overlay mounts only in source mode: pushing here shadows the
   // WYSIWYG surface until unmount.
   pushCommentSurface(sourceCommentSurface)
@@ -887,7 +882,6 @@ onBeforeUnmount(() => {
   bus.off('selectAll', handleSelectAll)
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
-  bus.off('editor-focus', handleEditorFocus)
   popCommentSurface(sourceCommentSurface)
   bus.off('image-action', handleImageAction)
   bus.off('scroll-to-header', handleScrollToHeader)
@@ -897,7 +891,11 @@ onBeforeUnmount(() => {
     id: tabId.value,
     markdown: newMarkdown,
     muyaIndexCursor: cursor,
-    renderCursor: true
+    renderCursor: true,
+    // Explicit discriminant: this is the source->WYSIWYG handoff, recorded
+    // as a single undo boundary. editor.vue branches on this flag instead of
+    // sniffing the absence of cursor/history (mirrors isReload).
+    isSourceHandoff: true
   })
 })
 </script>
