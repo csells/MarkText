@@ -108,26 +108,28 @@ Four confirmed instances, one pass. All in `packages/desktop/src/main`.
 
 ## 4. Inline tokenizer perf cliff — MEDIUM severity, core-editor feel
 
-- Evidence: `muya/src/inlineRenderer/lexer.ts:855-871` — char-by-char
-  `state.src.substring(1)` + full 17-rule sweep per position; bench-measured
-  quadratic (2K=6.5ms → 16K=155ms), independently reproduced.
-  `block/base/format.ts` inputHandler tokenizes the same text ~6-7× per
-  keystroke (617, 622, 638, 656, 659, 667) → ~1s/keystroke at 16K chars.
-- Fix (maintainer's call 2026-07-09): LINEARIZE the lexer — replace the
-  char-by-char `state.src = state.src.substring(1)` + full-rule-sweep with a
-  numeric cursor into `originSrc` and sticky (`/y`) rule regexes anchored via
-  `lastIndex`. Turns the inner scan from O(n²) to O(n); every tokenization
-  gets faster, not just per-keystroke duplicates. The offset-preserving token
-  shape (`range`/`marker`/`backlash`) is unchanged — this is purely how the
-  scan advances. (Memoization and a marked-inline re-architecture were the
-  other two options considered; linearize is the right-sized fix.)
-- Why not marked's inline lexer: the block layer already uses marked
-  (`markdownToState` via `lexBlock`); the inline lexer is separate because its
-  tokens carry source offsets + literal markers the cursor/selection/round-trip
-  system consumes, which marked's HTML-oriented inline tokens don't. Replacing
-  it is a multi-day re-architecture, out of scope for a perf fix.
+- Original evidence (finding [8]): claimed the char-by-char
+  `state.src.substring(1)` main scan loop was O(n²). DIRECT MEASUREMENT
+  refuted this: the plain-text scan is linear on current V8 (a SlicedString
+  whose anchored rules fail at char 0 is not re-flattened). CPU profiling of
+  the real cliff pinned it to ONE rule: the GFM `auto_link_extension` regex
+  (`inlineRenderer/lexer.ts` tryAutoLinkExtension), whose email/URL body scans
+  forward from the cursor — run at every offset over a long word-char run
+  (email-charclass, no whitespace/boundary), that is O(n²) (49.5× for 8×).
+- Fix DONE (a48e7b15): move tryAutoLinkExtension's cheap preceding-char guard
+  (autolink valid only at line start or after ` * _ ~ (`) BEFORE the rule
+  exec instead of after. Skips the O(remaining) scan wherever an autolink
+  cannot begin; byte-identical behavior (the guard already discarded those
+  hits). ~6 lines; the emphasis/strong path and every other rule untouched.
+- NOT done (deliberately reverted): the broad sticky-`/y` rewrite of the whole
+  scan the maintainer originally greenlit. Prototyped, conformance-green, but
+  it broke 28 emphasis edge-case unit tests — the recursion decouples
+  scan-position (content-relative) from range-offset (absolute), which merging
+  into one `originSrc`+`pos` corrupts — for no gain over the guard reorder on
+  realistic input. Right call: the small surgical fix, not the rewrite of the
+  most conformance-critical file.
 - Red test: a perf assertion that tokenization scales sub-quadratically
-  (8× length must cost < ~20× time — fails at O(n²)=64×, passes at O(n)≈8×);
+  (8× length must cost < 24× time — 49.5× on the pre-fix lexer, ~8× after);
   behavior guarded by the 1347-example CommonMark/GFM conformance ratchet
   (compliance can only go up) + the muya unit suite.
 
