@@ -14,7 +14,7 @@ validate findings before acting).
 
 ## Status
 
-- **Fixed (13 of 15 findings + all nits + F4(a)), verified in the real artifact:**
+- **Fixed (15 of 15 findings + all nits), verified in the real artifact:**
   - **F1 + F10** — one comment-semantics owner: parseMarkdownComments =
     commentModelView∘extractCommentModel; analyze.ts copies + null mode
     deleted (08a139bb).
@@ -53,19 +53,22 @@ validate findings before acting).
     get it under the bar; it trades inline handlers for a wide-signature
     (8-dependency) composable without a net simplification.
 
-- **Open — the merge-subsystem cluster (needs a product decision, then a
-  cohesive careful pass):**
+- **The merge-subsystem cluster:**
   - **F4(a) — DONE (c13ab6b6):** the mt::tab-saved handler no longer nulls
     the resolver behind the reducer's back; it calls reconcileTabSaved and
     the reducer decides (baseSuperseded, close on next Accept — this turned
     out to be spec-conformance per external-merge.md §The session reducer,
     not a UX choice). Pinned red-green.
-  - **F4(b) — open:** collapse the LISTEN_FOR_FILE_CHANGE watcher ladder
+  - **F4(b) — DONE (3b97aa88):** the LISTEN_FOR_FILE_CHANGE watcher ladder
     (byte-identical absorb / clean-tab reload / resolver reroute / dirty
-    path) into a single disk-changed dispatch with all rows in the reducer
-    decision table. The real judo, but a big-bang on the entry point for
-    ALL external file changes (data-integrity-critical) — warrants a
-    focused pass with full re-verification, not the tail of a marathon.
+    path) collapsed into a single HANDLE_DIRTY_EXTERNAL_CHANGE dispatch;
+    onDiskChanged now owns every row via a new `absorb` effect and a
+    `clean-tab-reload` load-disk reason (guarded by carried review intent so
+    a superseded Review click still re-derives). isSameFileSnapshot deleted
+    (decomposed into local===remote && persistenceEqual). The reducer's
+    reliance on clean-tab base===buffer is guaranteed by createDocumentState;
+    base===undefined is now exclusively the dirty legacy-restore case. New
+    reducer rows + fuzz invariant pinned red-green (desktop 916 unit).
   - **F4(c) — ROI-waived:** the markClean interpreter override
     (`markClean && nextTab.markdown === change.data.markdown`) needs the
     POST-loadChange engine serialization (the appendix re-sticks to EOF),
@@ -80,9 +83,10 @@ validate findings before acting).
     session to transition) is questionable — the duplicated liveness check
     is a smaller smell than forcing a non-session action into the session
     machine.
-  - **F13 — open:** loadChange { diskBase } option to collapse the three
-    forge-payload-then-repair dances; best done as part of the F4(b) pass
-    since it modifies the same merge base-setting path.
+  - **F13 — DONE (3b97aa88):** loadChange gained a { diskBase } option and
+    now owns preserveDirty→isSaved, collapsing the three
+    forge-payload-then-repair dances (clean sync, apply-merge, undo-restore)
+    into a single call each. Landed with F4(b) as planned.
 
 ## The headline question (context for the fixes)
 
