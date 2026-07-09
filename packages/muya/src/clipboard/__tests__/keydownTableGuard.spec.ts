@@ -141,7 +141,7 @@ describe('track C — keydown over a frozen table rect (two-stage, muyajs parity
         expect(md).not.toMatch(/\bb2\b/);
     });
 
-    it('delete over selected commented table cells detaches the thread', async () => {
+    it('delete over every commented table cell deletes the thread with the text', async () => {
         const muya = bootMuya([
             '| <!--MC:a-->reviewed<!--MC:~a--> | other |',
             '| --- | --- |',
@@ -158,11 +158,10 @@ describe('track C — keydown over a frozen table rect (two-stage, muyajs parity
         const md = muya.getMarkdown();
         expect(md).toContain('|');
         expect(md).not.toContain('<!--MC:');
-        // Detach visibility: the thread's metadata is never silently dropped.
-        expect(md).toContain('[MC:a]: {"version":2,"status":"open"}');
-        expect(muya.getComments().diagnostics).toContainEqual(
-            expect.objectContaining({ code: 'orphan-metadata', id: 'a' }),
-        );
+        // The commented text is fully gone, so the thread goes with it.
+        expect(md).not.toContain('[MC:a]');
+        expect(muya.getComments().threads).toEqual([]);
+        expect(muya.getComments().diagnostics).toEqual([]);
     });
 
     it('a second Backspace on an emptied PARTIAL rectangle drops the selection without changing the grid', async () => {

@@ -5,7 +5,7 @@ import type { IAnchorFocusInfo, IHistorySelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
 import * as json1 from 'ot-json1';
-import { cloneCommentModel, cloneCommentRuns } from '../comments/model';
+import { cloneCommentModel, cloneCommentRuns, cloneCommentThreads } from '../comments/model';
 import { asDoc } from '../state';
 import { deepClone } from '../utils';
 
@@ -37,9 +37,12 @@ interface IOperation {
     // Anchor and definition-run snapshots for ordinary edits:
     // transformPosition is lossy for positions a deletion swallowed, so undo
     // restores the recorded positions instead of re-transforming
-    // (invariant 4).
+    // (invariant 4). Threads ride along because a full-range deletion
+    // deletes its THREAD — restoring anchors without the thread would
+    // resurrect a range that points at nothing.
     anchors?: ICommentModel['anchors'];
     definitionRuns?: ICommentModel['runs'];
+    threads?: ICommentModel['threads'];
 }
 
 interface IStack {
@@ -78,6 +81,7 @@ interface ISerializableOperation {
     commentModelOnly?: boolean;
     anchors?: ICommentModel['anchors'];
     definitionRuns?: ICommentModel['runs'];
+    threads?: ISerializableCommentModel['threads'];
 }
 
 // The public, JSON-serializable shape returned by `getHistory` and accepted by
@@ -209,6 +213,7 @@ class History {
 
         const preChangeAnchors = deepClone(jsonState.commentModel.anchors);
         const preChangeRuns = cloneCommentRuns(jsonState.commentModel.runs);
+        const preChangeThreads = cloneCommentThreads(jsonState.commentModel.threads);
         this._stack[dest].push({
             operation: inverseOperation as JSONOpList,
             selection: this._selection.getSelection(),
@@ -217,7 +222,11 @@ class History {
             // wholesale; the current model is that snapshot for the way back.
             ...(rebuild
                 ? { commentModel: cloneCommentModel(jsonState.commentModel) }
-                : { anchors: preChangeAnchors, definitionRuns: preChangeRuns }),
+                : {
+                        anchors: preChangeAnchors,
+                        definitionRuns: preChangeRuns,
+                        threads: preChangeThreads,
+                    }),
         });
 
         this._lastRecorded = 0;
@@ -239,12 +248,17 @@ class History {
         else if (entry.anchors) {
             // Restore the recorded anchor and run positions — the transform
             // that just ran through the inverse op cannot resurrect positions
-            // the forward op's deletion swallowed.
+            // the forward op's deletion swallowed. Threads restore with them:
+            // the forward op may have deleted whole threads (full-range
+            // deletion).
             jsonState.setCommentModel({
                 ...jsonState.commentModel,
                 anchors: deepClone(entry.anchors),
                 ...(entry.definitionRuns
                     ? { runs: cloneCommentRuns(entry.definitionRuns) }
+                    : {}),
+                ...(entry.threads
+                    ? { threads: cloneCommentThreads(entry.threads) }
                     : {}),
             });
         }
@@ -302,6 +316,13 @@ class History {
                 : {}),
             ...(op.anchors ? { anchors: deepClone(op.anchors) } : {}),
             ...(op.definitionRuns ? { definitionRuns: cloneCommentRuns(op.definitionRuns) } : {}),
+            ...(op.threads
+                ? {
+                        threads: [...op.threads.entries()].map(
+                            ([id, thread]) => [id, deepClone(thread)] as [string, typeof thread],
+                        ),
+                    }
+                : {}),
         };
     }
 
@@ -328,6 +349,13 @@ class History {
                 : {}),
             ...(op.anchors ? { anchors: deepClone(op.anchors) } : {}),
             ...(op.definitionRuns ? { definitionRuns: cloneCommentRuns(op.definitionRuns) } : {}),
+            ...(op.threads
+                ? {
+                        threads: new Map(op.threads.map(
+                            ([id, thread]) => [id, deepClone(thread)] as const,
+                        )),
+                    }
+                : {}),
         };
     }
 
@@ -403,6 +431,7 @@ class History {
         let undoOperation = json1.type.invertWithDoc(op, asDoc(doc));
         let anchors = deepClone(this._muya.editor.jsonState.prevAnchorsBeforeLastApply);
         let definitionRuns = cloneCommentRuns(this._muya.editor.jsonState.prevRunsBeforeLastApply);
+        let threads = cloneCommentThreads(this._muya.editor.jsonState.prevThreadsBeforeLastApply);
 
         const timestamp = Date.now();
         if (
@@ -414,6 +443,7 @@ class History {
                 selection: lastSelection,
                 anchors: lastAnchors,
                 definitionRuns: lastRuns,
+                threads: lastThreads,
             } = this._stack.undo.pop()!;
             selection = lastSelection;
             undoOperation = json1.type.compose(undoOperation, lastOperation);
@@ -423,6 +453,8 @@ class History {
                 anchors = lastAnchors;
             if (lastRuns)
                 definitionRuns = lastRuns;
+            if (lastThreads)
+                threads = lastThreads;
         }
         else {
             this._lastRecorded = timestamp;
@@ -436,6 +468,7 @@ class History {
             selection,
             anchors,
             definitionRuns,
+            threads,
         });
 
         if (this._stack.undo.length > this._options.maxStack)

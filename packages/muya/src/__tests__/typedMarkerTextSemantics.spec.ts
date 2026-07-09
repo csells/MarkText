@@ -12,7 +12,8 @@ import { Muya } from '../muya';
 // guard-era regression tests (removalOrphansCommentMarker, search/copy
 // marker stripping) when the guard machinery was deleted: under the anchor
 // runtime, clean state means there is nothing to guard, and structural
-// deletes DETACH threads instead of being refused.
+// deletes DELETE the affected threads instead of being refused (undo
+// restores them).
 
 const hosts: HTMLElement[] = [];
 
@@ -114,7 +115,7 @@ describe('malformed marker shapes from a loaded file are literal residue', () =>
     });
 });
 
-describe('structural deletes detach comments instead of refusing (table ops)', () => {
+describe('structural deletes delete affected comments instead of refusing (table ops)', () => {
     const TABLE_DOC = [
         'before <!--MC:t-->range starts here.',
         '',
@@ -127,7 +128,7 @@ describe('structural deletes detach comments instead of refusing (table ops)', (
         '',
     ].join('\n');
 
-    it('removeRow removes a row containing a comment endpoint and detaches the thread', () => {
+    it('removeRow removes a row containing a comment endpoint and deletes the thread', () => {
         const muya = boot(TABLE_DOC);
         const table = findTable(muya);
 
@@ -137,16 +138,15 @@ describe('structural deletes detach comments instead of refusing (table ops)', (
         expect(survivor).not.toBeNull();
         const markdown = muya.getMarkdown();
         expect(markdown).not.toContain('| a1');
-        // The thread survives detached — metadata kept, no markers anywhere.
-        expect(markdown).toContain('[MC:t]: {"version":2,"status":"open"}');
+        // The range cannot survive the endpoint loss, so the thread goes
+        // with it — no orphaned metadata left in the document.
+        expect(markdown).not.toContain('[MC:t]');
         expect(markdown).not.toContain('<!--MC:t-->');
-        expect(muya.getComments().diagnostics).toContainEqual(expect.objectContaining({
-            code: 'orphan-metadata',
-            id: 't',
-        }));
+        expect(muya.getComments().threads).toEqual([]);
+        expect(muya.getComments().diagnostics).toEqual([]);
     });
 
-    it('removeColumn removes a column containing a comment endpoint and detaches the thread', () => {
+    it('removeColumn removes a column containing a comment endpoint and deletes the thread', () => {
         const muya = boot(TABLE_DOC);
         const table = findTable(muya);
 
@@ -156,11 +156,9 @@ describe('structural deletes detach comments instead of refusing (table ops)', (
         expect(survivor).not.toBeNull();
         const markdown = muya.getMarkdown();
         expect(markdown).not.toContain('a1');
-        expect(markdown).toContain('[MC:t]: {"version":2,"status":"open"}');
+        expect(markdown).not.toContain('[MC:t]');
         expect(markdown).not.toContain('<!--MC:~t-->');
-        expect(muya.getComments().diagnostics).toContainEqual(expect.objectContaining({
-            code: 'orphan-metadata',
-            id: 't',
-        }));
+        expect(muya.getComments().threads).toEqual([]);
+        expect(muya.getComments().diagnostics).toEqual([]);
     });
 });

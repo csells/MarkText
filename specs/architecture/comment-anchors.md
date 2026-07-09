@@ -88,6 +88,19 @@ recorded position (threads head-first per
 [comment-format.md](comment-format.md); runtime-created threads join the
 trailing appendix run so it stays one contiguous block), then run the
 ordinary serializer.
+
+**The trailing appendix is sticky to end-of-document.** The appendix is
+plumbing, not content: content appended to the FILE below it (an agent
+writing to EOF) lands above it once the editor picks up the change. A
+whole-document replace (`buildReplaceOp` — the external-merge apply,
+reloads, and paste absorption all route through it) re-extracts the model
+from the new bytes, then RE-STICKS the appendix: a re-extracted run whose
+items all lived in the previous model's terminal appendix retargets to the
+new document's end, so the next serialization floats it back to EOF (the
+buffer then differs from disk and the tab reads dirty until saved).
+Deliberately mid-document definition runs are content and keep their
+extracted positions byte-faithfully — the re-stick only moves what was
+already terminal.
 `getMarkdown()` output is byte-for-byte what the v2 wire format
 ([comment-format.md](comment-format.md)) defines — source mode, save,
 copy-as-source, and the CLI all see materialized bytes and are unchanged in
@@ -106,25 +119,34 @@ surface knows comments exist:
   anchor shifts right by the insertion length; `transformPosition` alone
   would keep the equal-offset anchor left of the insertion and typing at
   the end of a highlight would fall outside it). A deletion that collapses
-  a range's two anchors onto one point detaches the pair — see
-  [editing-invariants.md](editing-invariants.md) §Deletion semantics; the
-  raw transform would leave an invisible empty marker pair instead.
+  a range's two anchors onto one point DELETES the thread — see
+  [editing-invariants.md](editing-invariants.md) §Deletion semantics and
+  the deletion policy below; the raw transform would leave an invisible
+  empty marker pair instead.
 - Block insert/remove shifts paths; `null` (the anchor's container was
-  deleted) triggers the **detach policy** below. A run whose position nulls
-  falls back to the trailing appendix.
+  deleted) triggers the **deletion policy** below. A run whose position
+  nulls falls back to the trailing appendix.
 - A TRUE subtree replace (remove + insert at one path, e.g.
   paragraph→heading conversion) also yields `null`; before detaching,
   materialize a **rescue attempt**: re-anchor at the same path with the
   offset clamped into the replacement's text when the replacement is a
   commentable text leaf. A bare remove never rescues — the sibling that
-  shifts into the removed index is unrelated content, so deletion detaches.
+  shifts into the removed index is unrelated content, so the deletion
+  policy applies.
 
-**Detach policy.** A thread whose anchors are lost keeps its metadata
-(`threads` entry) with no range. It serializes as metadata-only definitions —
-visible to every reader as the existing `orphan-metadata` diagnostic, never
-silently dropped. Deleting the text of a whole range therefore deletes the
-highlight but not the thread's words. (The sidebar presents detached threads
-distinctly; re-anchoring is a future affordance, not guessed at.)
+**Deletion policy.** A deletion that destroys a range — the pair collapsed
+(its text fully swallowed) or an endpoint's container deleted (the range
+can no longer bracket text) — deletes the THREAD with it: anchors, the
+`threads` entry, and its definition-run items all go, so the document
+never accumulates orphaned metadata for text that no longer exists. This
+is a product decision superseding the earlier detach-to-orphan policy: a
+comment's text is its subject, and the user deleting the subject deletes
+the comment. It is not silent loss — the deletion is the user's own edit,
+and undo restores thread and range together (ordinary history entries
+snapshot threads alongside anchors and runs). Detached (metadata-only)
+threads still exist, but only as FILE-level truth: a loaded document whose
+definitions have no markers surfaces `orphan-metadata` diagnostics, and
+those lines round-trip verbatim.
 
 ## Mutations and undo
 
@@ -164,10 +186,11 @@ that boundary.
   count, nothing document-sized per keystroke beyond it.
 - `getCleanMarkdown()` serializes the clean state without materialization —
   the word-count input, cached per version like `getMarkdown()`.
-- Diagnostics at runtime are model-level (detached threads — e.g. a range
-  whose text was deleted, surfacing as orphan-metadata; paste cannot produce
-  id collisions because colliding pasted ids are remapped before absorption,
-  see [editing-invariants.md](editing-invariants.md) §Clipboard and search).
+- Diagnostics at runtime are model-level (a deleted range deletes its
+  thread, so the runtime's only orphan-metadata sources are loaded files
+  whose definitions have no markers; paste cannot produce id collisions
+  because colliding pasted ids are remapped before absorption, see
+  [editing-invariants.md](editing-invariants.md) §Clipboard and search).
   File-level diagnostics (malformed payloads, duplicate definitions) surface
   at load and remain visible in the sidebar.
 
@@ -211,7 +234,10 @@ this architecture (their regression tests convert to anchor-semantics tests):
 4. **Undo symmetry**: any sequence of edits followed by the same number of
    undos restores both text and anchors; comment mutations undo/redo in the
    same timeline.
-5. **Detach visibility**: no code path silently drops a thread; losing a
-   range produces a detached thread that serializes as metadata.
+5. **No half-pairs, no silent loss**: serialization never writes a
+   half-paired marker. A deletion that destroys a range deletes its thread
+   as the user's own undoable edit (deletion policy); outside that, no
+   code path drops a thread — loaded metadata-only definitions serialize
+   verbatim with their diagnostics.
 6. **Selection unity**: selection offsets, highlight offsets, and anchor
    offsets are the same coordinate space (no mapping layer).

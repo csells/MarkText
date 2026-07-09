@@ -136,6 +136,43 @@ describe('anchor runtime — serialization (invariant 2)', () => {
     });
 });
 
+describe('anchor runtime — the trailing appendix is sticky across replaces', () => {
+    // An agent appends prose to the file BELOW the metadata appendix; the
+    // external merge replaces the buffer with those bytes. The appendix is
+    // metadata plumbing, not content — it stays at EOF, so the appended
+    // prose lands above it on the next serialization.
+    it('content appended below the appendix lands above it after replaceContent', () => {
+        const muya = boot('prose here\n\n[MC:a]: {"version":2,"status":"open"}\n');
+
+        muya.replaceContent(
+            'prose here\n\n[MC:a]: {"version":2,"status":"open"}\n\nagent appended prose\n',
+        );
+
+        expect(muya.getMarkdown()).toBe(
+            'prose here\n\nagent appended prose\n\n[MC:a]: {"version":2,"status":"open"}\n',
+        );
+    });
+
+    // Deliberately mid-document definitions are NOT appendix: their placement
+    // is content and survives the same replace byte-faithfully.
+    it('a mid-document definition block stays in place through the same replace', () => {
+        const midDoc = [
+            'alpha <!--MC:a-->x<!--MC:~a-->',
+            '',
+            '[MC:a]: {"version":2,"status":"open"}',
+            '',
+            'omega',
+            '',
+        ].join('\n');
+        const muya = boot(midDoc);
+        const appended = `${midDoc}\nagent appended prose\n`;
+
+        muya.replaceContent(appended);
+
+        expect(muya.getMarkdown()).toBe(appended);
+    });
+});
+
 describe('anchor runtime — model reads', () => {
     it('getComments serves threads and clean-offset ranges from the model', () => {
         const muya = boot(DOC);
@@ -245,21 +282,27 @@ describe('anchor runtime — typing moves anchors (transform hook)', () => {
         expect(muya.getMarkdown()).toBe(before.replace('second paragraph', 'ZZsecond paragraph'));
     });
 
-    it('deleting a whole commented range detaches the thread instead of dropping it', () => {
+    it('deleting a whole commented range deletes the thread with it', () => {
         const muya = boot(DOC);
+        const before = muya.getMarkdown();
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
         leaf.text = 'Hello  world.';
         muya.flush();
 
+        // The comment's text is gone, so the comment goes with it — no
+        // orphaned metadata left behind in the document.
         const comments = muya.getComments();
         expect(comments.ranges).toEqual([]);
-        expect(comments.diagnostics).toContainEqual(expect.objectContaining({
-            code: 'orphan-metadata',
-            id: 'a',
-        }));
-        // The thread's words survive in the serialized metadata.
-        expect(muya.getMarkdown()).toContain('"body":"First"');
+        expect(comments.threads).toEqual([]);
+        expect(comments.diagnostics).toEqual([]);
+        expect(muya.getMarkdown()).not.toContain('[MC:a]');
+
+        // Undo restores the text AND the thread.
+        muya.undo();
+        expect(muya.getMarkdown()).toBe(before);
+        expect(muya.getComments().threads).toHaveLength(1);
+        expect(muya.getComments().ranges).toHaveLength(1);
     });
 });
 
@@ -377,7 +420,7 @@ describe('anchor runtime — mutations and undo across the cutover', () => {
         expect(muya.getMarkdown()).not.toContain('MC:');
     });
 
-    it('redo re-applies a range-swallowing deletion (anchors detach again)', () => {
+    it('redo re-applies a range-swallowing deletion (the thread deletes again)', () => {
         const muya = boot(DOC);
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
@@ -387,10 +430,10 @@ describe('anchor runtime — mutations and undo across the cutover', () => {
         expect(muya.getComments().ranges[0]?.preview).toBe('reviewed');
 
         muya.redo();
+        // Exactly as the forward edit left it: text and thread both gone.
         expect(muya.getComments().ranges).toEqual([]);
-        // The thread survives detached, exactly as the forward edit left it.
-        expect(muya.getMarkdown()).toContain('[MC:a]:');
-        expect(muya.getMarkdown()).not.toContain('<!--MC:a-->');
+        expect(muya.getComments().threads).toEqual([]);
+        expect(muya.getMarkdown()).not.toContain('[MC:a]');
     });
 
     // A fast typed burst coalesces into ONE history entry; that entry must

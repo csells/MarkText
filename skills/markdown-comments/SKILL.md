@@ -82,7 +82,7 @@ The CLI auto-detects UTF-8 Markdown files, UTF-8 files with a BOM, and BOM-marke
 
 - Preserve the Markdown file as the source of truth.
 - Use the CLI for metadata-only changes when possible; it imports the same Muya parser and metadata codec used by the desktop editor.
-- Let normal Markdown edits happen outside this skill. The skill does not arbitrate source edits, reload loaded tabs, or merge editor memory with disk files.
+- Let normal Markdown edits happen outside this skill. The skill does not arbitrate source edits, reload loaded tabs, or merge editor memory with disk files. Appending content to the end of a file below the `[MC:]` definition block is fine: MarkText treats the trailing metadata appendix as sticky and floats it back to the end of the document on its next save.
 - Do not invent alternate anchors, sidecars, CRDT documents, or external storage.
 - Treat diagnostics as repair prompts, not as a reason to drop source bytes.
 - Prefer repairing comments by fixing the `<!--MC:id-->...<!--MC:~id-->` markers or the matching `[MC:id]:` head / `[MC:id.N]:` reply lines directly, then rerun `validate`.

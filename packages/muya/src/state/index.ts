@@ -8,6 +8,7 @@ import {
     emptyCommentModel,
     extractCommentModel,
     materializeCommentModel,
+    restickTerminalAppendix,
     transformCommentAnchors,
 } from '../comments/model';
 import { deepClone } from '../utils';
@@ -134,6 +135,7 @@ class JSONState {
     // (invariant 4 needs snapshots, not re-transforms).
     private _prevAnchorsBeforeLastApply: ICommentModel['anchors'] = [];
     private _prevRunsBeforeLastApply: ICommentModel['runs'] = [];
+    private _prevThreadsBeforeLastApply: ICommentModel['threads'] = new Map();
 
     get prevAnchorsBeforeLastApply(): ICommentModel['anchors'] {
         return this._prevAnchorsBeforeLastApply;
@@ -141,6 +143,12 @@ class JSONState {
 
     get prevRunsBeforeLastApply(): ICommentModel['runs'] {
         return this._prevRunsBeforeLastApply;
+    }
+
+    // A deletion op can delete whole THREADS (full-range deletions); undo
+    // restores them from this pre-apply snapshot alongside anchors and runs.
+    get prevThreadsBeforeLastApply(): ICommentModel['threads'] {
+        return this._prevThreadsBeforeLastApply;
     }
 
     private _apply(op: JSONOp) {
@@ -152,6 +160,7 @@ class JSONState {
         const beforeState = this._state;
         this._prevAnchorsBeforeLastApply = this._commentModel.anchors;
         this._prevRunsBeforeLastApply = this._commentModel.runs;
+        this._prevThreadsBeforeLastApply = this._commentModel.threads;
         this._state = asState(json1.type.apply(asDoc(this._state), op));
         this._commentModel = transformCommentAnchors(this._commentModel, op, beforeState, this._state);
         this._version += 1;
@@ -235,9 +244,10 @@ class JSONState {
         // CLEAN states, and the caller installs `nextModel` after applying it
         // (a rebuild boundary swaps the model wholesale rather than
         // transforming anchors through a whole-document replace).
-        const { states: nextState, model: nextModel } = extractCommentModel(
+        const { states: nextState, model: rawNextModel } = extractCommentModel(
             typeof content === 'string' ? this.markdownToState(content) : deepClone(content),
         );
+        const nextModel = restickTerminalAppendix(prevModel, prevState, rawNextModel, nextState);
 
         const op = buildStateReplaceOp(prevState, nextState);
 

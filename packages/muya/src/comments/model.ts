@@ -647,6 +647,73 @@ export function emptyCommentModel(): ICommentModel {
     return { threads: new Map(), anchors: [], runs: [] };
 }
 
+// A run is TERMINAL when it serializes at end-of-document: position null
+// (detached/runtime appendix) or a block position at/past the clean tree's
+// end. A thread with no run item at all is also appendix-bound.
+function isTerminalRun(run: ICommentDefinitionRun, cleanLength: number): boolean {
+    if (run.position === null)
+        return true;
+    return run.position.length === 1
+        && typeof run.position[0] === 'number'
+        && run.position[0] >= cleanLength;
+}
+
+// The trailing metadata appendix is plumbing, not content: content appended
+// to the FILE below it (an agent writing to EOF) must land above it on the
+// next serialization. A whole-document replace re-extracts the model from
+// the new bytes, which would demote the appendix to a positioned
+// mid-document run — so re-stick it: any next-model run whose items ALL
+// lived in the previous model's terminal appendix (threads by id, residue
+// lines verbatim; threads with no run are appendix-bound too) is retargeted
+// to the new document's end. Runs with any genuinely mid-document item keep
+// their extracted position — deliberate mid-document placement is content
+// and stays byte-faithful.
+export function restickTerminalAppendix(
+    prevModel: ICommentModel,
+    prevStates: TState[],
+    nextModel: ICommentModel,
+    nextStates: TState[],
+): ICommentModel {
+    const terminalThreadIds = new Set<string>();
+    const terminalResidues = new Set<string>();
+    const placedThreadIds = new Set<string>();
+    for (const run of prevModel.runs) {
+        const terminal = isTerminalRun(run, prevStates.length);
+        for (const item of run.items) {
+            if (item.kind === 'thread') {
+                placedThreadIds.add(item.id);
+                if (terminal)
+                    terminalThreadIds.add(item.id);
+            }
+            else if (terminal) {
+                terminalResidues.add(item.line);
+            }
+        }
+    }
+    for (const id of prevModel.threads.keys()) {
+        if (!placedThreadIds.has(id))
+            terminalThreadIds.add(id);
+    }
+    if (terminalThreadIds.size === 0 && terminalResidues.size === 0)
+        return nextModel;
+
+    const runs = nextModel.runs.map((run) => {
+        if (isTerminalRun(run, nextStates.length))
+            return run;
+        const allTerminalBefore = run.items.every(item => item.kind === 'thread'
+            ? terminalThreadIds.has(item.id)
+            : terminalResidues.has(item.line));
+        return allTerminalBefore
+            ? { ...run, position: [nextStates.length] as TBlockPath, edge: 'before' as const }
+            : run;
+    });
+    return { ...nextModel, runs };
+}
+
+export function cloneCommentThreads(threads: ICommentModel['threads']): ICommentModel['threads'] {
+    return new Map([...threads].map(([id, thread]) => [id, structuredClone(thread)]));
+}
+
 export function cloneCommentModel(model: ICommentModel): ICommentModel {
     return {
         threads: new Map([...model.threads].map(([id, thread]) => [id, structuredClone(thread)])),
@@ -865,9 +932,11 @@ function transformRunPosition(
     ) as TBlockPath | null;
 }
 
-// Detachment is thread-level: a range that lost either endpoint keeps its
-// thread (metadata-only, visible as orphan-metadata) but drops BOTH anchors,
-// so serialization never writes a half-paired marker (invariant 5).
+// Range destruction is thread-level: a deletion that collapses the pair or
+// removes either endpoint's container deletes BOTH anchors AND the thread
+// (undo restores them from the history snapshot), so serialization never
+// writes a half-paired marker (invariant 5) and never leaves orphaned
+// metadata behind for text that no longer exists.
 export function transformCommentAnchors(
     model: ICommentModel,
     op: JSONOp,
@@ -884,13 +953,13 @@ export function transformCommentAnchors(
         : { ...run, position: transformRunPosition(run, op, beforeStates, afterStates) });
 
     const transformed: ICommentAnchor[] = [];
-    const detachedIds = new Set<string>();
+    const deletedIds = new Set<string>();
     for (const anchor of model.anchors) {
         const position = transformAnchorPosition(anchor, op, beforeStates, afterStates);
         if (position)
             transformed.push({ ...anchor, position });
         else
-            detachedIds.add(anchor.id);
+            deletedIds.add(anchor.id);
     }
 
     // A deletion that swallowed the whole range collapses both anchors onto
@@ -920,21 +989,48 @@ export function transformCommentAnchors(
         list.push(anchor);
         byId.set(anchor.id, list);
     }
+    // A deletion that DESTROYS the range deletes the THREAD, not just the
+    // anchors: whether the pair collapsed (its text fully swallowed) or an
+    // endpoint's container was deleted (the range can no longer bracket
+    // text), leaving orphaned metadata behind would litter the document
+    // with a comment on nothing — undo restores thread and range together
+    // from the history snapshot. Shrinks (both endpoints survive) keep the
+    // comment; rescue handles true replaces before it comes to this.
     for (const [id, pair] of byId) {
         if (collapsedBefore.has(id))
             continue;
         const open = pair.find(anchor => anchor.kind === 'open');
         const close = pair.find(anchor => anchor.kind === 'close');
         if (open && close && commentPathKey(open.position) === commentPathKey(close.position))
-            detachedIds.add(id);
+            deletedIds.add(id);
     }
+
+    return pruneDeletedThreads(model, transformed, runs, deletedIds);
+}
+
+// Drop every trace of the deleted threads: anchors, the threads entries, and
+// their definition-run items (a run left empty disappears with them).
+function pruneDeletedThreads(
+    model: ICommentModel,
+    anchors: ICommentAnchor[],
+    runs: ICommentDefinitionRun[],
+    deletedIds: Set<string>,
+): ICommentModel {
+    if (deletedIds.size === 0)
+        return { ...model, runs, anchors };
 
     return {
         ...model,
-        runs,
-        anchors: detachedIds.size === 0
-            ? transformed
-            : transformed.filter(anchor => !detachedIds.has(anchor.id)),
+        threads: new Map([...model.threads].filter(([id]) => !deletedIds.has(id))),
+        runs: runs
+            .map(run => ({
+                ...run,
+                items: run.items.filter(
+                    item => !(item.kind === 'thread' && deletedIds.has(item.id)),
+                ),
+            }))
+            .filter(run => run.items.length > 0),
+        anchors: anchors.filter(anchor => !deletedIds.has(anchor.id)),
     };
 }
 

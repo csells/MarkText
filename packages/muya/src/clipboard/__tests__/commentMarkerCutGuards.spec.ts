@@ -108,7 +108,7 @@ describe('cut over commented text — anchor semantics', () => {
         expect(muya.getComments().ranges[0]?.preview).toBe('ta');
     });
 
-    it('a cut covering the whole range detaches the thread, never dropping it', async () => {
+    it('a cut covering the whole range deletes the thread with it', async () => {
         const muya = bootMuya(`alpha <!--MC:a-->beta<!--MC:~a--> gamma\n\n${HEAD}\n`);
         const blocks = contentBlocks(muya);
         // Cut 'alpha beta' (0..10) — swallows the entire range.
@@ -118,12 +118,10 @@ describe('cut over commented text — anchor semantics', () => {
         const markdown = await settle(muya);
         expect(markdown).toContain(' gamma');
         expect(markdown).not.toContain('<!--MC:');
-        // Detach visibility: the thread's metadata survives serialization.
-        expect(markdown).toContain('[MC:a]: {"version":2,"status":"open"}');
-        expect(muya.getComments().diagnostics).toContainEqual(expect.objectContaining({
-            code: 'orphan-metadata',
-            id: 'a',
-        }));
+        // The commented text is fully gone, so the thread goes with it.
+        expect(markdown).not.toContain('[MC:a]');
+        expect(muya.getComments().threads).toEqual([]);
+        expect(muya.getComments().diagnostics).toEqual([]);
     });
 
     it('a cross-block cut through a cross-block range is never blocked', async () => {

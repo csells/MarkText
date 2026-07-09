@@ -55,7 +55,7 @@ describe('anchor transform — replace rescue', () => {
         expect(view.diagnostics).toEqual([]);
     });
 
-    it('a bare remove never rescues: the pair detaches instead of re-anchoring into the shifted-in sibling', () => {
+    it('a bare remove never rescues: deleting the whole range deletes the thread', () => {
         const { states, model } = extractCommentModel(parse(DOC));
 
         const op = json1.removeOp([0]);
@@ -63,13 +63,11 @@ describe('anchor transform — replace rescue', () => {
         const nextModel = transformCommentAnchors(model, op, states, nextStates);
 
         // 'second paragraph' shifted into index 0 — the anchors must NOT
-        // land in it.
+        // land in it, and with the whole range deleted the thread goes too.
         expect(nextModel.anchors).toEqual([]);
+        expect(nextModel.threads.has('a')).toBe(false);
         const view = commentModelView(nextModel, nextStates);
         expect(view.ranges).toEqual([]);
-        expect(view.diagnostics).toContainEqual(expect.objectContaining({
-            code: 'orphan-metadata',
-            id: 'a',
-        }));
+        expect(view.diagnostics).toEqual([]);
     });
 });

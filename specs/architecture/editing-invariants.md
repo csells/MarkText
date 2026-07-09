@@ -27,12 +27,13 @@ compositions of those same ops.
 
 - Deleting part of a commented range shrinks the range (anchors transform
   through the deletion).
-- Deleting a whole range detaches the thread: an invisible empty marker pair
-  helps no one, so both anchors drop and the thread survives as detached
-  metadata (undo restores the pair from the history snapshot).
-- Deleting the block(s) containing a range detaches the thread — kept as
-  metadata, surfaced as detached, never silently dropped
-  ([comment-anchors.md](comment-anchors.md) detach policy).
+- Deleting a whole range deletes the thread with it: the comment's text is
+  its subject, so orphaned metadata never accumulates for text that no
+  longer exists (undo restores text and thread together from the history
+  snapshot).
+- Deleting the block(s) containing either endpoint likewise deletes the
+  thread — the range can no longer bracket text
+  ([comment-anchors.md](comment-anchors.md) deletion policy).
 - No deletion, paste, cut, Enter, or table operation is ever *refused* on
   account of comments.
 

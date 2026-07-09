@@ -448,7 +448,12 @@ export function applyDirtyExternalMerge(
       mergedAt: new Date().toISOString()
     }
   }
-  if (markClean) {
+  // markClean is the reducer's byte decision (merge output == remote), but
+  // cleanliness is buffer truth: the engine's re-extraction can re-serialize
+  // differently (the metadata appendix re-sticks to EOF past agent-appended
+  // prose), and a tab whose serialization differs from disk must read dirty
+  // — the same rule completeTabSaveFromSnapshot applies after a save.
+  if (markClean && nextTab.markdown === change.data.markdown) {
     markTabSavedAtCurrentHistory(nextTab)
   } else {
     nextTab.isSaved = false

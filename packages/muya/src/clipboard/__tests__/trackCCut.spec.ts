@@ -174,7 +174,7 @@ describe('track C — cross-block cut keeps both endpoint tails (leaf merge)', (
         expect(await cutAndRead(muya)).toBe('almma\n');
     });
 
-    it('detaches a comment range wholly inside a deleted middle block, keeping its thread', async () => {
+    it('a comment range wholly inside a deleted middle block is deleted with it', async () => {
         const muya = bootMuya([
             'Alpha start',
             '',
@@ -190,14 +190,13 @@ describe('track C — cross-block cut keeps both endpoint tails (leaf merge)', (
         stubSelection(muya, blocks[0], 'Alp'.length, blocks[2], 'Omega'.length);
         const markdown = await cutAndRead(muya);
 
-        // Detach visibility: the range is gone but the thread's metadata is
-        // never silently dropped (comment-anchors.md invariant 5).
+        // The commented text is fully gone, so the thread goes with it
+        // (undo restores both from the history snapshot).
         expect(markdown).toContain('Alp end');
         expect(markdown).not.toContain('<!--MC:');
-        expect(markdown).toContain('[MC:a]: {"version":2,"status":"open"}');
-        expect(muya.getComments().diagnostics).toContainEqual(
-            expect.objectContaining({ code: 'orphan-metadata', id: 'a' }),
-        );
+        expect(markdown).not.toContain('[MC:a]');
+        expect(muya.getComments().threads).toEqual([]);
+        expect(muya.getComments().diagnostics).toEqual([]);
     });
 
     it('cut is the engine behind typing-replace on a cross-block selection', async () => {
@@ -209,7 +208,7 @@ describe('track C — cross-block cut keeps both endpoint tails (leaf merge)', (
         expect(await cutAndRead(muya)).toBe('fr\n');
     });
 
-    it('cutting the whole visible text of a comment detaches the thread', async () => {
+    it('cutting the whole visible text of a comment deletes the thread', async () => {
         const muya = bootMuya([
             'A <!--MC:a-->reviewed<!--MC:~a--> span.',
             '',
@@ -226,11 +225,12 @@ describe('track C — cross-block cut keeps both endpoint tails (leaf merge)', (
 
         expect(markdown).toContain('A  span.');
         expect(markdown).not.toContain('<!--MC:');
-        expect(markdown).toContain('[MC:a]: {"version":2,"status":"open"}');
+        expect(markdown).not.toContain('[MC:a]');
         expect(muya.getComments().ranges).toEqual([]);
+        expect(muya.getComments().threads).toEqual([]);
     });
 
-    it('cutting the whole visible text of a cross-leaf comment detaches the thread', async () => {
+    it('cutting the whole visible text of a cross-leaf comment deletes the thread', async () => {
         const muya = bootMuya([
             'Alpha <!--MC:a-->line.',
             '',
@@ -250,8 +250,9 @@ describe('track C — cross-block cut keeps both endpoint tails (leaf merge)', (
 
         expect(markdown).toContain('Alpha  tail.');
         expect(markdown).not.toContain('<!--MC:');
-        expect(markdown).toContain('[MC:a]: {"version":2,"status":"open"}');
+        expect(markdown).not.toContain('[MC:a]');
         expect(muya.getComments().ranges).toEqual([]);
+        expect(muya.getComments().threads).toEqual([]);
     });
 
     it('paragraph -> table cell: grid is preserved, spanned cells emptied', async () => {
@@ -483,7 +484,7 @@ describe('track C — empty table row/column/whole-table cut is structural', () 
         expect(comments.ranges).toHaveLength(1);
     });
 
-    it('cutting a whole table with a comment detaches its thread', async () => {
+    it('cutting a whole table with a comment deletes its thread', async () => {
         const muya = bootMuya([
             '| <!--MC:a-->reviewed<!--MC:~a--> | other |',
             '| --- | --- |',
@@ -498,8 +499,9 @@ describe('track C — empty table row/column/whole-table cut is structural', () 
 
         expect(md).not.toContain('reviewed');
         expect(md).not.toContain('<!--MC:');
-        // The thread's metadata is never silently dropped.
-        expect(md).toContain('[MC:a]: {"version":2,"status":"open"}');
+        // The commented text is fully gone, so the thread goes with it.
+        expect(md).not.toContain('[MC:a]');
+        expect(muya.getComments().threads).toEqual([]);
     });
 });
 

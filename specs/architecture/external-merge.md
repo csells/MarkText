@@ -74,6 +74,17 @@ definitions, CRLF and bare-CR endings, non-ASCII and astral text.
 any other shape loudly; a shape mismatch means worker and bridge are out of
 sync and must never be guessed around.
 
+## The metadata appendix across merges
+
+An agent that appends prose to EOF writes it below the `[MC:]` metadata
+appendix. The merge applies those bytes verbatim, but the engine's
+replace-and-re-extract pass re-sticks the appendix to end-of-document
+([comment-anchors.md](comment-anchors.md) §Serialize), so the appended
+prose lands above the metadata in the editor and the next save writes the
+canonical layout. The buffer's serialization then differs from the disk
+bytes, so the tab reads dirty even when the merge output equaled the
+remote.
+
 ## Clean-merge outcomes
 
 A conflict-free merge auto-applies into the live editor (WYSIWYG or source
