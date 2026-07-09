@@ -598,6 +598,37 @@ describe('merge-session reducer — decision table', () => {
     expect(asMerging(state).forceReview).toBe(true)
   })
 
+  it('review-requested after a save (base moved) dissolves the dead session, never reopens a phantom', () => {
+    // Sequence: conflict → user cancels (keeps editing) → user SAVES. The save
+    // moves the disk base off the bytes the captured session was resolving, so
+    // that session is dead and its "on disk" remote is gone. Clicking the
+    // persistent banner must NOT reopen the stale panes (whose Accept the
+    // base-superseded guard would then silently discard) — it must dissolve.
+    const reviewing = toReviewing()
+    const cancelled = reduce(reviewing, { type: 'cancel' }).state
+    const { session } = reviewing
+    const savedContent = session.expectedLocal // buffer, now also the saved disk base
+
+    const { state, effects } = reduce(cancelled, {
+      type: 'review-requested',
+      paneBase: session.paneBase,
+      paneLocal: session.paneLocal,
+      expectedLocal: session.expectedLocal,
+      expectedDiskBase: session.expectedDiskBase,
+      result: session.result,
+      conflicts: session.conflicts,
+      fileChange: session.fileChange,
+      currentLocal: savedContent,
+      currentBase: savedContent, // base MOVED off expectedDiskBase — a save happened
+      persistenceEqual: true
+    })
+
+    expect(state.kind).toBe('idle')
+    expect(effectTypes(effects)).not.toContain('open-resolver')
+    expect(effectTypes(effects)).not.toContain('start-merge')
+    expect(effectTypes(effects)).toContain('close-resolver')
+  })
+
   it('review-requested while a re-derivation is in flight forces its result into review', () => {
     // The user clicked Review on an earlier notification while a newer merge
     // is in flight. The click must not be discarded: the in-flight merge is

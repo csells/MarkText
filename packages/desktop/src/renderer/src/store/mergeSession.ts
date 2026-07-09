@@ -430,6 +430,18 @@ const onReviewRequested = (
     return { state: { ...state, forceReview: true }, effects: [] }
   }
 
+  // The disk base moved since the session was captured — a save (or reload)
+  // replaced the bytes this session was resolving, so the session is dead and
+  // its captured "on disk" remote no longer exists. Dissolve it rather than
+  // reopen a resolver whose remote pane is stale (whose Accept the
+  // base-superseded guard at onAccept would then silently discard, dropping
+  // the user's hand-resolution with no feedback). A genuinely new external
+  // change re-arrives as its own disk-changed event carrying the real remote.
+  // This mirrors onAccept's base-superseded handling — the two must agree.
+  if (event.currentBase !== event.expectedDiskBase) {
+    return { state: idleFrom(state), effects: [{ type: 'close-resolver' }] }
+  }
+
   // The captured session no longer describes the buffer — re-derive against
   // current reality instead of resurrecting stale panes.
   if (event.currentLocal !== event.expectedLocal) {
