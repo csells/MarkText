@@ -140,22 +140,14 @@ class JSONState {
     // op applied — the history records them per entry, because
     // transformPosition is lossy for positions a deletion swallowed
     // (invariant 4 needs snapshots, not re-transforms).
-    private _prevAnchorsBeforeLastApply: ICommentModel['anchors'] = [];
-    private _prevRunsBeforeLastApply: ICommentModel['runs'] = [];
-    private _prevThreadsBeforeLastApply: ICommentModel['threads'] = new Map();
+    // The comment model as it stood BEFORE the last applied op. undo restores
+    // from this snapshot because transformPosition is lossy for positions a
+    // deletion swallowed (invariant 4) and an op can delete whole threads
+    // (full-range deletions). One snapshot, not three lockstep fields.
+    private _prevModelBeforeLastApply: ICommentModel = emptyCommentModel();
 
-    get prevAnchorsBeforeLastApply(): ICommentModel['anchors'] {
-        return this._prevAnchorsBeforeLastApply;
-    }
-
-    get prevRunsBeforeLastApply(): ICommentModel['runs'] {
-        return this._prevRunsBeforeLastApply;
-    }
-
-    // A deletion op can delete whole THREADS (full-range deletions); undo
-    // restores them from this pre-apply snapshot alongside anchors and runs.
-    get prevThreadsBeforeLastApply(): ICommentModel['threads'] {
-        return this._prevThreadsBeforeLastApply;
+    get prevModelBeforeLastApply(): ICommentModel {
+        return this._prevModelBeforeLastApply;
     }
 
     private _apply(op: JSONOp) {
@@ -165,9 +157,7 @@ class JSONState {
         if (op === null)
             return;
         const beforeState = this._state;
-        this._prevAnchorsBeforeLastApply = this._commentModel.anchors;
-        this._prevRunsBeforeLastApply = this._commentModel.runs;
-        this._prevThreadsBeforeLastApply = this._commentModel.threads;
+        this._prevModelBeforeLastApply = this._commentModel;
         this._state = asState(json1.type.apply(asDoc(this._state), op));
         this._commentModel = transformCommentAnchors(this._commentModel, op, beforeState, this._state);
         this._version += 1;
