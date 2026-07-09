@@ -40,6 +40,7 @@ import {
   type MergeConflictState,
   openDirtyExternalMergeConflict,
   reconcileRestoredDiskChanges,
+  reconcileTabSaved,
   reloadDiskFromMergeConflict,
   resolveMergeConflictMarker
 } from './dirtyExternalMergeActions'
@@ -684,11 +685,11 @@ export const useEditorStore = defineStore('editor', {
             return
           }
           completeTabSaveFromSnapshot(tab, savedMarkdown)
-          // A save advances the merge base, so any open conflict session for
-          // this tab is resolving disk content that no longer exists.
-          if (this.mergeConflict?.tabId === tab.id) {
-            this.mergeConflict = null
-          }
+          // A save advances the merge base; let the reducer decide what that
+          // does to any open resolver (base-superseded, closed on the next
+          // Accept) — the store no longer closes it eagerly behind the
+          // reducer's back.
+          reconcileTabSaved(this, tab.id)
           debouncedSendBufferedState()
         }
       })

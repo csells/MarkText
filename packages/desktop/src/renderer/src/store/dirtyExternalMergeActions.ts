@@ -613,6 +613,16 @@ export function reconcileRestoredDiskChanges(store: DirtyExternalMergeStore): vo
   }
 }
 
+// A save advances the tab's disk base to the written bytes. Report that to
+// the reducer (via the lazy reality sync) instead of the store closing an
+// open resolver behind its back: the reducer's rule is that a `saved` while
+// reviewing marks the session base-superseded, so a later Accept closes the
+// dead session rather than applying stale disk content (external-merge.md
+// §The session reducer). The single decider stays the reducer.
+export function reconcileTabSaved(store: DirtyExternalMergeStore, tabId: string): void {
+  syncReality(store, tabId)
+}
+
 export function reloadDiskFromMergeConflict(store: DirtyExternalMergeStore): void {
   const conflict = store.mergeConflict
   if (!conflict) return

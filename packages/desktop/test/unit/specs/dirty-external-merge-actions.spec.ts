@@ -413,6 +413,49 @@ describe('dirty-external-merge store actions — behavior lock', () => {
     expect(store.mergeConflict!.resultMarkdown).toContain('disk content')
   })
 
+  // F4(a): a save while a resolver is open must go through the REDUCER, not
+  // close the dialog behind its back. external-merge.md §The session reducer:
+  // `saved` while reviewing marks the session base-superseded, so the dialog
+  // stays open and the next Accept closes the dead session rather than
+  // applying disk content that no longer exists.
+  it('a save while reviewing supersedes the session; the next Accept closes without applying', async() => {
+    const store = useEditorStore()
+    const tab = makeDirtyTab(store)
+    delete (tab as { diskBaseMarkdown?: string }).diskBaseMarkdown
+    tab.markdown = 'local dirty content\n'
+    store.currentFile = tab as unknown as typeof store.currentFile
+
+    await store.HANDLE_DIRTY_EXTERNAL_CHANGE(
+      tab as never,
+      {
+        pathname: '/x/a.md',
+        data: { filename: 'a.md', pathname: '/x/a.md', markdown: 'disk content\n' }
+      } as never
+    )
+    expect(store.mergeConflict).not.toBeNull()
+
+    // The user saves their buffer while the resolver is open — main echoes the
+    // written bytes on mt::tab-saved.
+    store.LISTEN_FOR_SET_PATHNAME()
+    const onMock = window.electron.ipcRenderer.on as unknown as {
+      mock: { calls: Array<[string, (e: unknown, ...args: unknown[]) => void]> }
+    }
+    const saved = onMock.mock.calls.find(([channel]) => channel === 'mt::tab-saved')
+    if (!saved) throw new Error('mt::tab-saved handler not registered')
+    saved[1](null, tab.id, 'local dirty content\n')
+
+    // The base advanced and the tab is clean, but the resolver stays open
+    // (base-superseded) — it did NOT close eagerly.
+    expect(tab.diskBaseMarkdown).toBe('local dirty content\n')
+    expect(store.mergeConflict).not.toBeNull()
+
+    // Accept on the superseded session closes it WITHOUT applying stale disk
+    // content over the saved buffer.
+    store.ACCEPT_DIRTY_EXTERNAL_MERGE_CONFLICT('disk content\n')
+    expect(store.mergeConflict).toBeNull()
+    expect(tab.markdown).toBe('local dirty content\n')
+  })
+
   // Regression: accepting the whole-file session a no-base tab opens used to
   // throw (requireDiskBaseMarkdown ran unconditionally on the apply path)
   // AFTER the resolver had already closed — silently discarding the user's
