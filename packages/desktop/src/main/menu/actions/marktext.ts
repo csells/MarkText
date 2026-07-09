@@ -1,10 +1,14 @@
 import { autoUpdater } from 'electron-updater'
-import { BrowserWindow, Menu, ipcMain } from 'electron'
+import { app, BrowserWindow, Menu, ipcMain } from 'electron'
 import { COMMANDS } from '../../commands'
 import type { CommandManager } from '../../commands'
 import { isOsx } from '../../config'
 
 let runningUpdate = false
+// Set when a downloaded update is waiting for the windows to finish their
+// guarded close (the unsaved-changes save dance); the install runs only once
+// the last window is actually gone.
+let updatePendingInstall = false
 let win: BrowserWindow | null = null
 
 autoUpdater.autoDownload = false
@@ -19,6 +23,9 @@ autoUpdater.on('error', (error: Error) => {
       err === null ? 'Error: unknown' : (err.message || err).toString()
     )
   }
+  // A transient failure (offline, server hiccup) must not permanently
+  // disable "Check for Updates" for the rest of the session.
+  runningUpdate = false
 })
 
 autoUpdater.on('update-available', (_info) => {
@@ -39,16 +46,29 @@ autoUpdater.on('update-not-available', (_info) => {
 })
 
 autoUpdater.on('update-downloaded', (_event) => {
-  // TODO: We should ask the user, so that the user can save all documents and
-  // not just force close the application.
-
   if (win) {
     win.webContents.send(
       'mt::UPDATE_DOWNLOADED',
       'Update downloaded, application will be quit for update...'
     )
   }
-  setImmediate(() => autoUpdater.quitAndInstall())
+  // Run every window's NORMAL close guard (mt::ask-for-close → the
+  // unsaved-changes save dance) instead of force-quitting over the user's
+  // open documents. The install fires from 'window-all-closed' once the last
+  // window is really gone; if the user cancels a close, the update simply
+  // installs on the next regular quit (electron-updater's
+  // autoInstallOnAppQuit default).
+  updatePendingInstall = true
+  for (const openWindow of BrowserWindow.getAllWindows()) {
+    openWindow.close()
+  }
+})
+
+app.on('window-all-closed', () => {
+  if (updatePendingInstall) {
+    updatePendingInstall = false
+    setImmediate(() => autoUpdater.quitAndInstall())
+  }
 })
 
 ipcMain.on('mt::NEED_UPDATE', (_e, { needUpdate }: { needUpdate: boolean }) => {

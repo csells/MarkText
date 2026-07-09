@@ -1,5 +1,7 @@
-import { readlinkSync, outputFile, type WriteFileOptions } from 'fs-extra'
+import { readlinkSync, ensureDir, type WriteFileOptions } from 'fs-extra'
+import { realpath } from 'fs/promises'
 import path from 'path'
+import writeFileAtomic from 'write-file-atomic'
 import { isDirectory, isFile, isSymbolicLink } from 'common/filesystem'
 
 /**
@@ -21,19 +23,39 @@ export const normalizeAndResolvePath = (pathname: string): string => {
   return path.resolve(pathname)
 }
 
-export const writeFile = (
+export const writeFile = async(
   pathname: string,
   content: string | Buffer,
   extension?: string,
   options: WriteFileOptions | undefined = 'utf-8'
 ): Promise<void> => {
   if (!pathname) {
-    return Promise.reject(new Error('[ERROR] Cannot save file without path.'))
+    throw new Error('[ERROR] Cannot save file without path.')
   }
   pathname = !extension || pathname.endsWith(extension) ? pathname : `${pathname}${extension}`
 
-  // `outputFile` creates any missing parent directories before writing, so a
-  // save whose folder was moved/deleted recreates it and still succeeds —
-  // matching VS Code, and keeping (auto)save from ever silently failing (#3509).
-  return outputFile(pathname, content, options)
+  // Create any missing parent directories before writing, so a save whose
+  // folder was moved/deleted recreates it and still succeeds — matching
+  // VS Code, and keeping (auto)save from ever silently failing (#3509).
+  await ensureDir(path.dirname(pathname))
+
+  // An atomic rename over a symlink would replace the LINK with a regular
+  // file; write through to the link target instead, like the previous
+  // in-place write did. ENOENT means a brand-new file — the given path IS
+  // the target.
+  let target = pathname
+  try {
+    target = await realpath(pathname)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw err
+    }
+  }
+
+  // Temp file + fsync + rename (write-file-atomic): an interrupted save —
+  // crash, ENOSPC, power loss — can no longer truncate the existing document.
+  // The old bytes stay on disk until the new ones are durable, and the
+  // existing file's mode/ownership are preserved across the swap.
+  const encoding = typeof options === 'string' ? options : options?.encoding
+  await writeFileAtomic(target, content, encoding ? { encoding } : {})
 }

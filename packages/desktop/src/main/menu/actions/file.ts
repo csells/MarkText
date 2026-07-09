@@ -1,4 +1,4 @@
-import { rename as fsRename } from 'fs-extra'
+import { move } from 'fs-extra'
 import path from 'path'
 import {
   BrowserWindow,
@@ -146,6 +146,14 @@ const handleResponseForPrint = async(e: IpcMainEvent): Promise<void> => {
   })
 }
 
+// The save outcome, made explicit so close/quit flows can refuse to destroy
+// a window whose disk write did not verifiably succeed. `canceled` covers the
+// user backing out of the Save-As dialog — "wait", not "discard".
+type SaveResult =
+  | { status: 'saved'; id: string }
+  | { status: 'canceled'; id: string }
+  | { status: 'failed'; id: string; error: string }
+
 const handleResponseForSave = async(
   e: IpcMainEvent,
   id: string,
@@ -154,10 +162,10 @@ const handleResponseForSave = async(
   markdown: string,
   options: UnsavedFile['options'],
   defaultPath?: string
-): Promise<string | void> => {
+): Promise<SaveResult> => {
   const win = BrowserWindow.fromWebContents(e.sender)
   if (!win) {
-    return Promise.resolve()
+    return { status: 'failed', id, error: 'The window is no longer available.' }
   }
   let recommendFilename = getRecommendTitleFromMarkdownString(markdown)
   if (!recommendFilename) {
@@ -183,7 +191,7 @@ const handleResponseForSave = async(
 
   // Save dialog canceled by user - no error.
   if (!filePath) {
-    return Promise.resolve()
+    return { status: 'canceled', id }
   }
 
   filePath = path.resolve(filePath)
@@ -207,12 +215,13 @@ const handleResponseForSave = async(
         ipcMain.emit('window-file-saved', win.id, filePath)
         win.webContents.send('mt::tab-saved', id, markdown)
       }
-      return id
+      return { status: 'saved', id } as const
     })
-    .catch((err: unknown) => {
+    .catch((err: unknown): SaveResult => {
       log.error('Error while saving:', err)
       const msg = err instanceof Error ? err.message : String(err)
       win.webContents.send('mt::tab-save-failure', id, msg)
+      return { status: 'failed', id, error: msg }
     })
 }
 
@@ -264,6 +273,16 @@ const openPandocFile = async(windowId: number, pathname: string): Promise<void> 
     ipcMain.emit('app-open-markdown-by-id', windowId, data)
   } catch (err) {
     log.error('Error while converting file:', err)
+    // A failed import must reach the user — silently producing nothing reads
+    // as "the app ignored me".
+    const win = BrowserWindow.fromId(windowId)
+    if (win) {
+      win.webContents.send('mt::show-notification', {
+        title: 'Import failure',
+        type: 'error',
+        message: (err instanceof Error && err.message) || `Error while converting "${pathname}".`
+      })
+    }
   }
 }
 
@@ -315,8 +334,11 @@ ipcMain.on('mt::save-and-close-tabs', async(e, unsavedFiles: UnsavedFile[]) => {
         )
       )
     )
-      .then((arr) => {
-        const tabIds = arr.filter((id): id is string => id != null)
+      .then((results) => {
+        // Close only the tabs whose save verifiably succeeded; failed and
+        // canceled tabs stay open (their failure notification already went
+        // to the renderer from handleResponseForSave).
+        const tabIds = results.filter((r) => r.status === 'saved').map((r) => r.id)
         win.webContents.send('mt::force-close-tabs-by-id', tabIds)
       })
       .catch((err: unknown) => {
@@ -410,7 +432,12 @@ ipcMain.on('mt::close-window-confirm', async(e, unsavedFiles: UnsavedFile[]) => 
 
   const { needSave } = userResult
   if (needSave) {
-    Promise.all(
+    // The window may be destroyed ONLY when every save verifiably succeeded.
+    // handleResponseForSave never rejects — each outcome comes back as an
+    // explicit result, so a failed disk write or a canceled Save-As can never
+    // slip through a resolved Promise.all and close the window over unsaved
+    // work (the old code did exactly that, leaving its failure dialog dead).
+    const results = await Promise.all(
       unsavedFiles.map((file) =>
         handleResponseForSave(
           e,
@@ -423,27 +450,29 @@ ipcMain.on('mt::close-window-confirm', async(e, unsavedFiles: UnsavedFile[]) => 
         )
       )
     )
-      .then(() => {
-        ipcMain.emit('window-close-by-id', win.id)
-      })
-      .catch((err: unknown) => {
-        log.error('Error while saving before quit:', err)
 
-        const msg = err instanceof Error ? err.message : String(err)
-        // Notify user about the problem.
-        dialog
-          .showMessageBox(win, {
-            type: 'error',
-            buttons: [t('dialog.close'), t('dialog.keepOpen')],
-            message: t('dialog.saveFailure'),
-            detail: msg
-          })
-          .then(({ response }) => {
-            if (win.id && response === 0) {
-              ipcMain.emit('window-close-by-id', win.id)
-            }
-          })
+    const failed = results.filter((r) => r.status === 'failed')
+    if (failed.length > 0) {
+      log.error('Error while saving before close:', failed.map((f) => f.error).join('; '))
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'error',
+        buttons: [t('dialog.close'), t('dialog.keepOpen')],
+        message: t('dialog.saveFailure'),
+        detail: failed.map((f) => f.error).join('\n')
       })
+      if (win.id && response === 0) {
+        ipcMain.emit('window-close-by-id', win.id)
+      }
+      return
+    }
+
+    // A canceled Save-As means "wait, don't close" — keep the window with no
+    // further prompt; the user backed out of the close deliberately.
+    if (results.some((r) => r.status === 'canceled')) {
+      return
+    }
+
+    ipcMain.emit('window-close-by-id', win.id)
   } else {
     ipcMain.emit('window-close-by-id', win.id)
   }
@@ -492,24 +521,33 @@ ipcMain.on('mt::rename', async(e, { id, pathname, newPathname }: RenamePayload) 
     return
   }
 
-  const doRename = (): void => {
-    fsRename(pathname, newPathname, (err: NodeJS.ErrnoException | null) => {
-      if (err) {
-        log.error(`mt::rename: Cannot rename "${pathname}" to "${newPathname}".\n${err.stack}`)
-        return
-      }
-
-      ipcMain.emit('window-change-file-path', win.id, newPathname, pathname)
-      e.sender.send('mt::set-pathname', {
-        id,
-        pathname: newPathname,
-        filename: path.basename(newPathname)
+  const doRename = async(): Promise<void> => {
+    try {
+      // `move` handles the cross-volume (EXDEV) case a bare rename cannot;
+      // overwrite matches the old rename semantics — the exists-check below
+      // already made the user confirm any replacement.
+      await move(pathname, newPathname, { overwrite: true })
+    } catch (err) {
+      log.error(`mt::rename: Cannot rename "${pathname}" to "${newPathname}".`, err)
+      win.webContents.send('mt::show-notification', {
+        title: 'Rename failure',
+        type: 'error',
+        message:
+          (err instanceof Error && err.message) || `Cannot rename "${pathname}" to "${newPathname}".`
       })
+      return
+    }
+
+    ipcMain.emit('window-change-file-path', win.id, newPathname, pathname)
+    e.sender.send('mt::set-pathname', {
+      id,
+      pathname: newPathname,
+      filename: path.basename(newPathname)
     })
   }
 
   if (!(await exists(newPathname))) {
-    doRename()
+    await doRename()
   } else {
     const { response } = await dialog.showMessageBox(win, {
       type: 'warning',
@@ -521,7 +559,7 @@ ipcMain.on('mt::rename', async(e, { id, pathname, newPathname }: RenamePayload) 
     })
 
     if (response === 0) {
-      doRename()
+      await doRename()
     }
   }
 })
@@ -540,18 +578,26 @@ ipcMain.on(
     })
 
     if (filePath && !canceled) {
-      fsRename(pathname, filePath, (err: NodeJS.ErrnoException | null) => {
-        if (err) {
-          log.error(`mt::rename: Cannot rename "${pathname}" to "${filePath}".\n${err.stack}`)
-          return
-        }
-
-        ipcMain.emit('window-change-file-path', win.id, filePath, pathname)
-        e.sender.send('mt::set-pathname', {
-          id,
-          pathname: filePath,
-          filename: path.basename(filePath)
+      try {
+        // `move` copies+unlinks across volumes where a bare rename fails
+        // EXDEV — moving to another drive silently did nothing before.
+        await move(pathname, filePath)
+      } catch (err) {
+        log.error(`mt::move-to: Cannot move "${pathname}" to "${filePath}".`, err)
+        win.webContents.send('mt::show-notification', {
+          title: 'Move failure',
+          type: 'error',
+          message:
+            (err instanceof Error && err.message) || `Cannot move "${pathname}" to "${filePath}".`
         })
+        return
+      }
+
+      ipcMain.emit('window-change-file-path', win.id, filePath, pathname)
+      e.sender.send('mt::set-pathname', {
+        id,
+        pathname: filePath,
+        filename: path.basename(filePath)
       })
     }
   }
