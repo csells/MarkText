@@ -290,6 +290,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, type Ref } from 'vue'
 import bus from '../../bus'
+import { applyExportSetting } from './applySetting'
 import { loadExportSettings, saveExportSettings } from './persistence'
 import Bool from '@/prefComponents/common/bool/index.vue'
 import CurSelect from '@/prefComponents/common/select/index.vue'
@@ -485,35 +486,11 @@ const handleClicked = () => {
   bus.emit('export', options)
 }
 
+// Dispatch through the single canonical registry (persistableSettings) rather
+// than a second hand-maintained copy, and fail loudly on an unregistered key
+// instead of silently dropping the write.
 const onSelectChange = (key: string, value: unknown) => {
-  const state: Record<string, Ref<unknown>> = {
-    htmlTitle,
-    pageSize,
-    isLandscape,
-    fontSettingsOverwrite,
-    fontFamily,
-    fontSize,
-    lineHeight,
-    autoNumberingHeadings,
-    showFrontMatter,
-    theme,
-    headerType,
-    headerTextLeft,
-    headerTextCenter,
-    headerTextRight,
-    footerType,
-    footerTextLeft,
-    footerTextCenter,
-    footerTextRight,
-    headerFooterCustomize,
-    headerFooterStyled,
-    headerFooterFontSize,
-    tocIncludeTopHeading,
-    tocTitle
-  }
-  if (key in state) {
-    state[key]!.value = value
-  }
+  applyExportSetting(persistableSettings, key, value)
 }
 
 const loadThemesFromDisk = async () => {

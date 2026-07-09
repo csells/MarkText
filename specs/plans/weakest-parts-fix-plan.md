@@ -17,7 +17,7 @@ ratchets; madge; css; build:unpack).
 - [x] 3. Delete the legacy muyajs corpse + orphan deps — DONE
 - [x] 4. Inline tokenizer perf cliff — DONE (guard reorder, not the rewrite)
 - [x] 5. format.ts block-conversion consolidation + caret bug — DONE (caret math unified)
-- [ ] 6. exportSettings single-object collapse
+- [x] 6. exportSettings single-object collapse — DONE (dispatch fail-loud + de-duped; full collapse ROI-deferred)
 
 ## 1. Main-process save/IO integrity — CRITICAL, silent data loss
 
