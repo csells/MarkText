@@ -8,7 +8,7 @@ import { waitForMenuItemEnabled } from './portable-comments-fixtures'
 
 test('adding a comment across two paragraphs wraps the whole range', async() => {
   const md = 'hello world\n\nsecond line\n'
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     // Select from inside "hello world" (para 1) through inside "second line"

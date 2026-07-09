@@ -14,7 +14,7 @@ const menuEnabled = (app: ElectronApplication) =>
 
 test('keyboard Shift+arrow cross-block selection enables Add Comment', async() => {
   const md = 'hello world\n\nsecond line\n'
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     const readSel = () => page.evaluate(() => {

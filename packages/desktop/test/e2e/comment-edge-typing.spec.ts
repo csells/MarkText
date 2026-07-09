@@ -10,7 +10,7 @@ const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuI
 
 test('typing at the end of a comment keeps the character (inside the comment)', async() => {
   const md = `<!--MC:a-->commented<!--MC:~a--> tail\n\n[MC:a]: ${META}\n`
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     // Put the caret at the END of the visible commented word "commented"

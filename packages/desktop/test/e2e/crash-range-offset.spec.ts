@@ -31,7 +31,7 @@ test.describe('Crash: setStart Range offset', () => {
   let page: Page
 
   test.beforeEach(async() => {
-    const launched = await launchWithMarkdown('# Repro\n\nSeed.\n', { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown('# Repro\n\nSeed.\n')
     app = launched.app
     page = launched.page
     await placeCaretInEditor(page)
@@ -208,7 +208,7 @@ test.describe('Crash: paste-induced setCursorRange', () => {
   let page: Page
 
   test.beforeEach(async() => {
-    const launched = await launchWithMarkdown('# Doc\n\nEdit here.\n', { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown('# Doc\n\nEdit here.\n')
     app = launched.app
     page = launched.page
     await placeCaretInEditor(page)
@@ -282,7 +282,7 @@ test.describe('Crash: paste-induced setCursorRange', () => {
 // helper would always pass.
 test.describe('Crash counter sanity', () => {
   test('Forced throw in renderer is captured by getRendererErrors', async() => {
-    const { app, page } = await launchWithMarkdown('# Sanity\n', { suppressErrorDialog: true })
+    const { app, page } = await launchWithMarkdown('# Sanity\n', { allowErrors: true })
     try {
       await page.evaluate(() => {
         setTimeout(() => {

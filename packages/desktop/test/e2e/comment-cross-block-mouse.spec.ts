@@ -6,7 +6,7 @@ import { waitForMenuItemEnabled } from './portable-comments-fixtures'
 
 test('mouse-dragging a selection across two paragraphs then commenting wraps it', async() => {
   const md = 'hello world\n\nsecond line\n'
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     const p1 = page.locator('.mu-paragraph', { hasText: 'hello' }).first()

@@ -53,7 +53,7 @@ test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown(DOC, { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown(DOC)
     app = launched.app
     page = launched.page
     // The heading + its copy affordance render once the document parses.

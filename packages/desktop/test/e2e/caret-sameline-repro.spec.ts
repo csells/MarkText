@@ -24,7 +24,7 @@ const readSel = (page: Page) => page.evaluate(() => {
 
 test('caret stays visible arrowing right across a same-line comment marker', async() => {
   const md = `hello <!--MC:a-->world<!--MC:~a-->\n\n[MC:a]: ${META}\n`
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     await page.locator('.mu-paragraph', { hasText: 'hello' }).first().click()
@@ -44,7 +44,7 @@ test('caret stays visible arrowing right across a same-line comment marker', asy
 
 test('caret stays visible arrowing left across a same-line comment marker', async() => {
   const md = `hello <!--MC:a-->world<!--MC:~a--> end\n\n[MC:a]: ${META}\n`
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     // Start at the start of " end" (just past the closing marker) and arrow

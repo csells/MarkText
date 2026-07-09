@@ -13,7 +13,7 @@ ratchets; madge; css; build:unpack).
 ## Status
 
 - [x] 1. Main-process save/IO integrity (silent data loss) — DONE
-- [ ] 2. e2e harness fail-closed on renderer errors
+- [x] 2. e2e harness fail-closed on renderer errors — DONE
 - [ ] 3. Delete the legacy muyajs corpse + orphan deps
 - [ ] 4. Inline tokenizer perf cliff
 - [ ] 5. format.ts block-conversion consolidation + caret bug

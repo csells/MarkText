@@ -62,9 +62,7 @@ test.describe('SimpleImageViewer (Space-to-preview + Esc close)', () => {
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown(`![alt](${SVG_DATA_URI})\n`, {
-      suppressErrorDialog: true
-    })
+    const launched = await launchWithMarkdown(`![alt](${SVG_DATA_URI})\n`)
     app = launched.app
     page = launched.page
     // The data-URI <img> mounts via the async loadImageAsync path; wait for the

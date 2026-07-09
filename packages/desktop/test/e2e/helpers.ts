@@ -62,13 +62,21 @@ export interface LaunchResult {
 }
 
 export interface LaunchOptions {
-  // When true, sets MARKTEXT_ERROR_INTERACTION=1 in the launch env so
-  // src/main/exceptionHandler.ts suppresses the modal "Unexpected error"
-  // dialog. Only crash-guard specs that explicitly call expectNoRendererErrors
-  // should opt in — otherwise existing specs would silently ignore renderer
-  // exceptions that previously surfaced as a dialog (a hidden regression risk).
-  suppressErrorDialog?: boolean
+  // Opt OUT of the fail-closed renderer-error guard for a launch that
+  // DELIBERATELY provokes a renderer error (e.g. the forced-throw sanity
+  // checks). Every other launch is guarded automatically: app.close() asserts
+  // no renderer error was captured, so an uncaught renderer exception fails
+  // the run without the spec having to opt in. A spec that expects an error
+  // must set this AND assert the error itself via getRendererErrors /
+  // waitForRendererError.
+  allowErrors?: boolean
 }
+
+// Apps launched via launchElectron, so the close-time guard can find them.
+// app.close is wrapped (below) to remove the app on close, so this only ever
+// holds live apps.
+const guardedApps = new WeakSet<ElectronApplication>()
+const allowErrorApps = new WeakSet<ElectronApplication>()
 
 export const launchElectron = async(
   userArgs?: string[],
@@ -92,7 +100,10 @@ export const launchElectron = async(
   // and stays visible ('0'); export MARKTEXT_TEST_BACKGROUND=0 to watch the
   // app while debugging a spec.
   env.MARKTEXT_TEST_BACKGROUND = isBackgroundTestRun ? '1' : '0'
-  if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
+  // The harness owns renderer-error handling: suppress the in-app modal (it
+  // would hang under background mode / block on CI) and capture errors in the
+  // IPC sink for the close-time guard. Unconditional — no spec can run blind.
+  env.MARKTEXT_ERROR_INTERACTION = '1'
   const app = await _electron.launch({
     executablePath,
     args,
@@ -100,7 +111,8 @@ export const launchElectron = async(
     env,
     timeout: 30000
   })
-  if (options.suppressErrorDialog) await installRendererErrorCounter(app)
+  await installRendererErrorCounter(app)
+  guardRendererErrorsOnClose(app, options.allowErrors === true)
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
   // Ready = the Vue app has mounted (empty launches render no editor
@@ -119,6 +131,29 @@ export const launchElectron = async(
 // (`mt::handle-renderer-error`) that exceptionHandler.ts listens on, and
 // accumulate the count in a shared global so specs can read it back via
 // `getRendererErrors`. Multiple listeners are allowed on ipcMain.
+// Fail closed: wrap app.close so that — unless the launch opted into
+// allowErrors — closing first asserts no renderer error was captured during
+// this app's life. A spec that forgets to check is still protected; a spec
+// that deliberately errors sets allowErrors and asserts the error itself.
+// Idempotent and safe against double-close: the guard runs once, before the
+// first real close.
+const guardRendererErrorsOnClose = (app: ElectronApplication, allowErrors: boolean): void => {
+  guardedApps.add(app)
+  if (allowErrors) allowErrorApps.add(app)
+  const realClose = app.close.bind(app)
+  let guarded = false
+  app.close = async(...args: Parameters<ElectronApplication['close']>): Promise<void> => {
+    if (!guarded) {
+      guarded = true
+      if (!allowErrorApps.has(app)) {
+        // Runs while the app is still alive so the IPC sink is readable.
+        await expectNoRendererErrors(app)
+      }
+    }
+    return realClose(...args)
+  }
+}
+
 const installRendererErrorCounter = async(app: ElectronApplication): Promise<void> => {
   await app.evaluate(({ ipcMain }) => {
     const g = global as unknown as {

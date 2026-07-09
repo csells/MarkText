@@ -18,7 +18,7 @@ const readState = (page: Page) => page.evaluate(() => {
 
 test('metadata never renders, and bottom navigation stays in visible content', async() => {
   const md = `hello world\n\n<!--MC:a-->commented<!--MC:~a--> tail\n\n${HEAD}\n`
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     const before = await readState(page)
@@ -47,7 +47,7 @@ test('metadata never renders, and bottom navigation stays in visible content', a
 
 test('select-all and collapse stay within visible content', async() => {
   const md = `hello\n\n<!--MC:a-->x<!--MC:~a--> y\n\n${HEAD}\n`
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     await page.locator('.mu-paragraph', { hasText: 'hello' }).first().click()

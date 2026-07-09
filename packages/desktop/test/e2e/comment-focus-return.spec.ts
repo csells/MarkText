@@ -19,7 +19,7 @@ const state = (page: Page) => page.evaluate(() => {
 })
 
 test('dismissing the comment box does not clobber the editor selection the user moved to', async() => {
-  const { app, page } = await launchWithMarkdown('hello world\n\nsecond line\n', { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown('hello world\n\nsecond line\n')
   try {
     await focusEditor(page)
     await selectWorldThenComment(page, app)
@@ -54,7 +54,7 @@ test('dismissing the comment box does not clobber the editor selection the user 
 })
 
 test('Esc closes the compose box, discards the new comment, and returns focus to the editor', async() => {
-  const { app, page } = await launchWithMarkdown('hello world\n\nsecond line\n', { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown('hello world\n\nsecond line\n')
   try {
     await focusEditor(page)
     await selectWorldThenComment(page, app)

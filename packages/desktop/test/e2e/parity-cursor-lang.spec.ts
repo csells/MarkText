@@ -171,8 +171,8 @@ test.describe('Parity G8 — language switch refreshes inline hints', () => {
 // routes through editor.vue handleLanguageChanged -> muya.locale(zhCN) and
 // re-renders the block tree), then drive the live "type `# x`" input path and
 // confirm the heading renders with the right text and the renderer does NOT
-// crash. Launch with suppressErrorDialog so the renderer-error counter is
-// installed and expectNoRendererErrors is meaningful.
+// crash. The harness installs the renderer-error counter on every launch and
+// asserts it at close, so this crash guard is enforced automatically.
 // ---------------------------------------------------------------------------
 
 test.describe('Heading creation under zh-CN does not crash the renderer (item 270)', () => {
@@ -180,7 +180,7 @@ test.describe('Heading creation under zh-CN does not crash the renderer (item 27
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown('\n', { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown('\n')
     app = launched.app
     page = launched.page
     await waitForMenuReady(app)

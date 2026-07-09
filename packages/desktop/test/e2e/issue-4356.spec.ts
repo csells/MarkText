@@ -31,9 +31,7 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
   })
 
   test('popover offers only unlink and the renderer does not crash', async() => {
-    const launched = await launchWithMarkdown(CUSTOM_PROTOCOL_DOC, {
-      suppressErrorDialog: true
-    })
+    const launched = await launchWithMarkdown(CUSTOM_PROTOCOL_DOC)
     app = launched.app
     page = launched.page
     await clearRendererErrors(app)
@@ -51,9 +49,7 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
   })
 
   test('anchor links still offer jump and clicking it does not crash', async() => {
-    const launched = await launchWithMarkdown(ANCHOR_LINK_DOC, {
-      suppressErrorDialog: true
-    })
+    const launched = await launchWithMarkdown(ANCHOR_LINK_DOC)
     app = launched.app
     page = launched.page
     await clearRendererErrors(app)

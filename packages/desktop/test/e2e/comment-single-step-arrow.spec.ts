@@ -32,7 +32,7 @@ async function walk(page: Page, key: string, presses: number) {
 
 test('arrowing right across a comment advances one column per press (no frozen step)', async() => {
   const md = `ab <!--MC:a-->word<!--MC:~a--> cd\n\n[MC:a]: ${META}\n`
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   try {
     await focusEditor(page)
     const countFrozen = (xs: number[]) => {

@@ -67,7 +67,7 @@ test.describe('Checklist 32 — task list autoCheck cascade via a real checkbox 
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown(NESTED_TASKS, { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown(NESTED_TASKS)
     app = launched.app
     page = launched.page
     await waitForMenuReady(app)

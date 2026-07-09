@@ -494,8 +494,7 @@ test.describe('Find bar — suppressed in source-code mode (item 194)', () => {
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown(
-      '# Source mode\n\nfind me in source mode if you can.\n',
-      { suppressErrorDialog: true }
+      '# Source mode\n\nfind me in source mode if you can.\n'
     )
     app = launched.app
     page = launched.page

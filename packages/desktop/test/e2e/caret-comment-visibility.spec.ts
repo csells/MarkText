@@ -10,7 +10,7 @@ const META = 'data:application/json;base64,eyJ2ZXJzaW9uIjoxLCJzdGF0dXMiOiJvcGVuI
 
 test('caret stays visible when arrowing right into a line-start comment', async() => {
   const md = `one\n\n<!--MC:a-->header<!--MC:~a--> ddd\n\n[MC:a]: ${META}\n`
-  const { app, page } = await launchWithMarkdown(md, { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown(md)
   const readSel = () => page.evaluate(() => {
     const sel = document.getSelection()
     if (!sel || sel.rangeCount === 0) return { inMarker: true, caretHeight: 0, anchorText: null }

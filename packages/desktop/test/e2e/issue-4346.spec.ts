@@ -20,7 +20,7 @@ test.describe('Issue #4346: list-block null guards', () => {
   let page: Page
 
   test.beforeEach(async() => {
-    const launched = await launchWithMarkdown('# Repro\n\n', { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown('# Repro\n\n')
     app = launched.app
     page = launched.page
     await placeCaretInEditor(page)

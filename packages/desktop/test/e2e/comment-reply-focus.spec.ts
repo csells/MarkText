@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 import { focusEditor, launchWithMarkdown, selectWorldThenComment } from './helpers'
 
 test('submitting a reply returns focus to the editor and clears the reply box', async() => {
-  const { app, page } = await launchWithMarkdown('hello world\n\nsecond line\n', { suppressErrorDialog: true })
+  const { app, page } = await launchWithMarkdown('hello world\n\nsecond line\n')
   try {
     await focusEditor(page)
     // Add a comment on "world" and submit the comment body (first reply).
