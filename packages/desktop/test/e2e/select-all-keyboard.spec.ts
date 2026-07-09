@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 import { enterSourceMode, focusEditor, launchWithMarkdown } from './helpers'
 
-const sourceSelection = (page: import('@playwright/test').Page) =>
+const sourceSelection = (page: Page) =>
   page.evaluate(() => {
     const cm = (document.querySelector('.source-code .CodeMirror') as
       | (Element & { CodeMirror?: { getSelection(): string } })

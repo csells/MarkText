@@ -160,7 +160,7 @@ function writeFile(file: string, document: MarkdownDocument, markdown: string): 
   const decoded = iconv.decode(iconv.encode(markdown, document.encoding), document.encoding)
   if (decoded !== markdown) {
     throw new Error(
-      `Refusing to write: the new content contains characters that cannot be represented ` +
+      'Refusing to write: the new content contains characters that cannot be represented ' +
       `in "${document.encoding}" and would be corrupted. Re-encode the file as UTF-8 to keep them.`
     )
   }
