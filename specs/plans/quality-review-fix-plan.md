@@ -14,7 +14,14 @@ validate findings before acting).
 
 ## Status
 
-- **Open.** No findings fixed yet.
+- **In progress.** Fixed: F1 + F10 (one comment-semantics owner —
+  parseMarkdownComments = commentModelView∘extractCommentModel; analyze.ts
+  copies + null mode deleted) — commit 08a139bb. F2 + F3 (one
+  literal-context grammar — batch-driven CodeMirror overlay, tokenizer
+  inline-code over paragraph text; streaming classifier + per-line backtick
+  scanner deleted; overlay eol-guarded against stale decorations) — commit
+  f82fe345. Remaining: F4, F5/F6, F7/F8/F9/F12, F11/F13/F14/F15 + nits, then
+  the closing full-gate sweep and fresh from-zero re-review.
 
 ## The headline question (context for the fixes)
 
