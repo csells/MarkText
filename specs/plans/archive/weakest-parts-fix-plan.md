@@ -206,3 +206,30 @@ updateContents stripped-diagnostic nit; preferences-store stringly mutations
 working); the spellchecker watcher null-deref (verifier: overstated — needs a
 repro before it earns work); model.ts / editor.vue file sizes (documented
 waivers in the archived quality-review plan).
+
+## Follow-up — third sweep (2026-07-09): the on-axis remainder
+
+A third /weakest-parts sweep (adversarial self-review of this session's changes
++ never-examined areas) surfaced three findings on the comments/merge/save
+axis, fixed red-green here:
+
+- **A** (e3faa68a): the update-install flow's sticky `updatePendingInstall`
+  flag made a canceled update-close force-quit the app on the next unrelated
+  window-all-closed (macOS: quits an app meant to stay running). Scoped the
+  install to the windows open at download time via one-shot `closed` listeners;
+  removed the sticky flag + global handler. (A regression from this session's
+  Fix 1d.)
+- **B** (d87c5d2d): the atomic save (write-file-atomic = new inode) silently
+  severed hard links and replaced dangling symlinks with a regular file. Write
+  in place for nlink>1 / dangling-symlink; keep the atomic rename otherwise. (A
+  regression from this session's Fix 1b.)
+- **C** (be537854): the merge resolver's reopen banner ignored a disk-base
+  move, reopening a phantom conflict whose Accept the base-superseded guard
+  silently discarded. onReviewRequested now dissolves the dead session on a
+  base move, symmetric with onAccept.
+
+(The sweep's website findings — canonical tag, dead link, host redirect — are
+orthogonal to the editor/comments/merge core and left for the docs-site owner;
+the low-ROI middleware + tautological-test nits were dropped.)
+
+Gates: desktop 943 unit + merge/save e2e 31 green, typecheck + lint clean.
