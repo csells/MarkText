@@ -233,3 +233,28 @@ orthogonal to the editor/comments/merge core and left for the docs-site owner;
 the low-ROI middleware + tautological-test nits were dropped.)
 
 Gates: desktop 943 unit + merge/save e2e 31 green, typecheck + lint clean.
+
+## Follow-up — adversarial review (2026-07-09): 5 confirmed findings fixed
+
+A focused adversarial review of merge-handling, comment support, and agent
+support (5 attackers re-running the tests + re-deriving from the architecture
+specs, then a refuter per finding; 47 attacks withstood, 1 refuted) surfaced 5
+reproduced findings — all fixed red-green here:
+
+- **BLOCKER** (0bca1abf): pressing Enter to split a paragraph at/before a
+  commented span silently deleted the whole thread while the text survived. A
+  state-based split-rescue in transformCommentAnchors carries the anchors into
+  the new block (verified by a real-keystroke e2e).
+- **MAJOR** (50189b07): the agent CLI silently corrupted reply/edit text a
+  legacy --encoding could not represent (→ '?') yet reported success. writeFile
+  now validates the mutated output round-trips and refuses otherwise.
+- **MAJOR** (bdf28c23): an in-flight merge auto-applied a reverted remote when
+  disk returned to base mid-merge, poisoning diskBaseMarkdown. The reducer now
+  abandons the stale merge; the fuzz newest-tracker de-blinded.
+- **MAJOR** (cb37bf63): Cmd/Ctrl+A selected nothing in source-code mode —
+  sourceCode.vue now binds 'selectAllWholeDocument' (real-accelerator e2e).
+- **MINOR** (b5eb680f): the sidebar head-edit guard was vacuous for a reply-less
+  thread; it now aborts when a reply appears at the index.
+
+Gates: muya 1754 unit + 1347 conformance + 242 e2e; desktop 945 unit + 287 e2e;
+skills 38; both typechecks + lint ratchets + madge + css; build:unpack.
