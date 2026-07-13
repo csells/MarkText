@@ -12,6 +12,7 @@ import {
 } from './menuItems'
 import spellcheckMenuBuilder from './spellcheck'
 import { t } from '../../i18n'
+import { presentationPolicy } from '../../presentationPolicy'
 
 // Electron's ContextMenuParams shape we rely on. Kept narrow — the renderer
 // supplies the full surface so we only annotate the fields we use.
@@ -120,6 +121,6 @@ export const showEditorContextMenu = (
     // (event, params) shape.
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     event
-    menu.popup({ window: win, x: params.x, y: params.y })
+    presentationPolicy.popupMenu(menu, { window: win, x: params.x, y: params.y })
   }
 }

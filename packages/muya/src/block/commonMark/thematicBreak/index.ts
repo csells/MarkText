@@ -35,10 +35,10 @@ class ThematicBreak extends Parent {
     }
 
     override getState(): IThematicBreakState {
-        return {
+        return this.withStateSourceTrivia({
             name: 'thematic-break',
             text: (this.children.head as ThematicBreakContent).text,
-        };
+        });
     }
 }
 

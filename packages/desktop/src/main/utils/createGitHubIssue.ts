@@ -1,5 +1,5 @@
-import { shell } from 'electron'
 import { GITHUB_REPO_URL } from '../config'
+import { presentationPolicy } from '../presentationPolicy'
 
 export const createGitHubIssueUrl = (title?: string, msg?: string): string => {
   const issueUrl = new URL(`${GITHUB_REPO_URL}/issues/new`)
@@ -13,5 +13,5 @@ export const createGitHubIssueUrl = (title?: string, msg?: string): string => {
 }
 
 export const createAndOpenGitHubIssueUrl = (title?: string, msg?: string): void => {
-  shell.openExternal(createGitHubIssueUrl(title, msg))
+  presentationPolicy.openExternal(createGitHubIssueUrl(title, msg))
 }

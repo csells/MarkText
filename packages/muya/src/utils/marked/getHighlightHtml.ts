@@ -1,8 +1,14 @@
+import type { CriticMarkupAnalysis } from '../../criticMarkup/analysis';
 import type { ILexOption } from './types';
 import { Marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import Prism from 'prismjs';
+import {
+    criticMarkupParserProfile,
+    projectCriticMarkupMarkdown,
+} from './criticMarkupDocument';
 import cjkEmStrongExtension from './extensions/cjkEmStrong';
+import criticMarkupDocumentExtension from './extensions/criticMarkupDocument';
 import emojiExtension from './extensions/emoji';
 import footnoteExtension from './extensions/footnote';
 import mathExtension from './extensions/math';
@@ -35,10 +41,21 @@ function highlight(code: string, lang: string) {
     return Prism.highlight(code, grammar, lang);
 }
 
-export function getHighlightHtml(src: string, options: ILexOption = {}) {
+export function getHighlightHtml(
+    src: string,
+    options: ILexOption = {},
+    preparedAnalysis?: CriticMarkupAnalysis,
+) {
     options = Object.assign({}, DEFAULT_OPTIONS, options);
-    const { footnote, frontMatter, math, isGitlabCompatibilityEnabled, superSubScript }
-        = options;
+    const {
+        criticMarkup,
+        criticMarkupProjection,
+        footnote,
+        frontMatter,
+        math,
+        isGitlabCompatibilityEnabled,
+        superSubScript,
+    } = options;
 
     // Build a fresh Marked instance per call. `Marked.use({ walkTokens })`
     // chains rather than replaces, so reusing a module-level singleton would
@@ -73,16 +90,66 @@ export function getHighlightHtml(src: string, options: ILexOption = {}) {
         marked.use(footnoteExtension());
 
     let html = '';
+    const canonicalSource = src;
+    let parserSourceOffset = 0;
+
+    // Projection owns the full canonical document. Stripping front matter
+    // first would let a body-leading `---` block masquerade as a second
+    // document header and hide its CriticMarkup from the real context model.
+    if (criticMarkup && criticMarkupProjection !== 'marked') {
+        if (preparedAnalysis) {
+            if (preparedAnalysis.source !== src) {
+                throw new TypeError(
+                    'Prepared CriticMarkup analysis belongs to different export Markdown.',
+                );
+            }
+            preparedAnalysis.assertParserProfile(
+                criticMarkupParserProfile(options),
+            );
+            if (preparedAnalysis.hasCandidateOpener)
+                preparedAnalysis.assertContextCoverage('complete');
+            src = preparedAnalysis.project(
+                criticMarkupProjection ?? 'marked',
+            );
+        }
+        else {
+            src = projectCriticMarkupMarkdown(
+                src,
+                criticMarkupProjection ?? 'marked',
+                options,
+            );
+        }
+    }
 
     if (frontMatter) {
         const { token, src: newSrc } = fm(src);
         if (token) {
             html = frontMatterRender(token);
+            parserSourceOffset = token.raw.length;
             src = newSrc;
         }
     }
 
-    html += marked.parse(src);
+    if (criticMarkup && criticMarkupProjection === 'marked') {
+        marked.use(criticMarkupDocumentExtension(src, {
+            parserOptions: options,
+            analysis: preparedAnalysis,
+            ...(parserSourceOffset
+                ? {
+                        sourceBinding: {
+                            source: canonicalSource,
+                            parserOffset: parserSourceOffset,
+                            literalRanges: [{
+                                start: 0,
+                                end: parserSourceOffset,
+                            }],
+                        },
+                    }
+                : {}),
+        }));
+    }
+
+    html += marked.parse(src, options);
 
     return html;
 }

@@ -3,23 +3,26 @@ import type { ITaskListMeta, ITaskListState } from '../../../state/types';
 import type TaskListItem from '../taskListItem';
 import { CLASS_NAMES } from '../../../config';
 import { mixins } from '../../../utils';
+import { appendCreatedChildren } from '../../appendCreatedChildren';
 import Parent from '../../base/parent';
 import IContainerQueryBlock from '../../mixins/containerQueryBlock';
 import { ScrollPage } from '../../scrollPage';
 
 @mixins(IContainerQueryBlock)
-class TaskList extends Parent {
-    public meta: ITaskListMeta;
+class TaskList extends Parent<Parent> {
+    get meta(): Readonly<ITaskListMeta> {
+        return this.readBlockMeta<ITaskListMeta>();
+    }
 
     static override blockName = 'task-list';
 
     static create(muya: Muya, state: ITaskListState) {
         const taskList = new TaskList(muya, state);
 
-        taskList.append(
-            ...state.children.map(child =>
-                ScrollPage.loadBlock(child.name).create(muya, child),
-            ),
+        appendCreatedChildren(
+            state.children,
+            child => ScrollPage.createStateBlock(muya, child),
+            child => taskList.append(child),
         );
 
         return taskList;
@@ -35,7 +38,7 @@ class TaskList extends Parent {
     constructor(muya: Muya, { meta }: ITaskListState) {
         super(muya);
         this.tagName = 'ul';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.datasets = {
             marker: meta.marker,
         };
@@ -82,7 +85,7 @@ class TaskList extends Parent {
             children: this.children.map(child => (child as TaskListItem).getState()),
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

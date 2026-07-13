@@ -107,6 +107,17 @@ export const CLASS_NAMES = genUpper2LowerKeyHash([
     'MU_CONTAINER_ICON',
     'MU_COPY_HEADER_LINK',
     'MU_COPY_REMOVE',
+    'MU_CRITIC_ADDITION',
+    'MU_CRITIC_COMMENT',
+    'MU_CRITIC_COMMENT_INDICATOR',
+    'MU_CRITIC_COMMENT_TEXT',
+    'MU_CRITIC_DELETION',
+    'MU_CRITIC_HIGHLIGHT',
+    'MU_CRITIC_MARKER',
+    'MU_CRITIC_MARKUP',
+    'MU_CRITIC_NEW',
+    'MU_CRITIC_OLD',
+    'MU_CRITIC_SUBSTITUTION',
     'MU_DISABLE_HTML_RENDER',
     'MU_EMOJI_MARKED_TEXT',
     'MU_EMOJI_MARKER',
@@ -341,6 +352,8 @@ export const MUYA_DEFAULT_OPTIONS = {
     // of `spellcheckEnabled`.
     spellcheckHideMarks: false,
     // Markdown extensions
+    criticMarkupTrackChanges: false,
+    criticMarkupProjection: 'marked' as const,
     frontMatter: true, // Whether to support frontmatter.
     superSubScript: true,
     footnote: false,
@@ -426,7 +439,20 @@ export const PREVIEW_DOMPURIFY_CONFIG = {
 export const EXPORT_DOMPURIFY_CONFIG = {
     FORBID_ATTR: ['contenteditable'],
     ALLOW_DATA_ATTR: false,
-    ADD_ATTR: ['data-align'],
+    // Mermaid uses SVG foreignObject for HTML node labels. Keep the container;
+    // DOMPurify still sanitizes every descendant and URI inside it.
+    ADD_TAGS: ['foreignObject'],
+    ADD_ATTR: [
+        'data-align',
+        'data-critic-id',
+        'data-critic-role',
+        'data-critic-type',
+        'data-markdown-diagnostic',
+        'data-markdown-depth',
+        'data-markdown-depth-limit',
+        'data-start',
+        'data-end',
+    ],
     USE_PROFILES: {
         html: true,
         svg: true,

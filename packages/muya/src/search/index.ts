@@ -2,12 +2,33 @@ import type Content from '../block/base/content';
 import type TreeNode from '../block/base/treeNode';
 import type { IHighlight } from '../inlineRenderer/types';
 import type { Muya } from '../muya';
-import type { IMatch } from './types';
+import type {
+    IMatch,
+    IReplaceOption,
+    ISearchOption,
+} from './types';
 import { DEFAULT_SEARCH_OPTIONS } from '../config';
 import { buildRegexValue, matchString } from '../utils/search';
 
+type TSearchSemantics = Pick<
+    Required<ISearchOption>,
+    'isCaseSensitive' | 'isWholeWord' | 'isRegexp'
+>;
+
+interface ISearchCheckpoint {
+    value: string;
+    index: number;
+    options: TSearchSemantics;
+}
+
 export class Search {
     private _value: string = '';
+    private _options: TSearchSemantics = {
+        isCaseSensitive: DEFAULT_SEARCH_OPTIONS.isCaseSensitive,
+        isWholeWord: DEFAULT_SEARCH_OPTIONS.isWholeWord,
+        isRegexp: DEFAULT_SEARCH_OPTIONS.isRegexp,
+    };
+
     public matches: IMatch[] = [];
     public index: number = -1;
 
@@ -21,10 +42,34 @@ export class Search {
 
     constructor(private _muya: Muya) {}
 
+    checkpoint(): ISearchCheckpoint {
+        return {
+            value: this._value,
+            index: this.index,
+            options: { ...this._options },
+        };
+    }
+
+    restore(checkpoint: ISearchCheckpoint): void {
+        if (!checkpoint.value) {
+            this.reset();
+            return;
+        }
+        this.search(checkpoint.value, {
+            ...checkpoint.options,
+            highlightIndex: checkpoint.index,
+        });
+    }
+
     // Drop match state when the document is replaced (e.g. a tab switch), so
     // stale matches don't reference the previous document's blocks (#1932).
     reset() {
         this._value = '';
+        this._options = {
+            isCaseSensitive: DEFAULT_SEARCH_OPTIONS.isCaseSensitive,
+            isWholeWord: DEFAULT_SEARCH_OPTIONS.isWholeWord,
+            isRegexp: DEFAULT_SEARCH_OPTIONS.isRegexp,
+        };
         this.matches = [];
         this.index = -1;
     }
@@ -90,7 +135,10 @@ export class Search {
         lastBlock.text = tempText + lastBlock.text.substring(lastEnd);
     }
 
-    replace(replaceValue: string, opt = { isSingle: true, isRegexp: false }) {
+    replace(
+        replaceValue: string,
+        opt: IReplaceOption = { isSingle: true, isRegexp: false },
+    ) {
         const { isSingle, isRegexp, ...rest } = opt;
         const options = Object.assign({}, DEFAULT_SEARCH_OPTIONS, rest);
         const { matches, index } = this;
@@ -100,13 +148,33 @@ export class Search {
             if (isRegexp)
                 replaceValue = buildRegexValue(matches[index], replaceValue);
 
-            if (isSingle) {
+            if (isSingle || matches.length === 1) {
                 // replace one
-                this._innerReplace([matches[index]], replaceValue);
+                const match = matches[index];
+                this._muya.editor.mutationGateway.run(
+                    { kind: 'user-command' },
+                    () => this._innerReplace([match], replaceValue),
+                    {
+                        path: [...match.block.path],
+                        start: match.start,
+                        end: match.end,
+                        inserted: replaceValue,
+                    },
+                );
             }
             else {
-                // replace all
-                this._innerReplace(matches, replaceValue);
+                this._muya.editor.mutationGateway.run(
+                    { kind: 'user-command' },
+                    () => this._innerReplace(matches, replaceValue),
+                    matches.map(
+                        match => ({
+                            path: [...match.block.path],
+                            start: match.start,
+                            end: match.end,
+                            inserted: replaceValue,
+                        }),
+                    ),
+                );
             }
             const highlightIndex = index < matches.length - 1 ? index : index - 1;
 
@@ -152,7 +220,7 @@ export class Search {
      * @param {string} value
      * @param {object} opts
      */
-    search(value: string, opts = {}) {
+    search(value: string, opts: ISearchOption = {}) {
         const matches: IMatch[] = [];
         const options = Object.assign({}, DEFAULT_SEARCH_OPTIONS, opts);
         const { highlightIndex, selectHighlight } = options;
@@ -173,32 +241,39 @@ export class Search {
                     const { text } = block;
                     if (text && typeof text === 'string') {
                         const strMatches = matchString(text, value, options);
-                        matches.push(
-                            ...strMatches.map(({ index, match, subMatches }) => {
-                                return {
-                                    block,
-                                    start: index,
-                                    end: index + match.length,
-                                    match,
-                                    subMatches,
-                                };
-                            }),
-                        );
+                        for (const { index, match, subMatches } of strMatches) {
+                            matches.push({
+                                block,
+                                start: index,
+                                end: index + match.length,
+                                match,
+                                subMatches,
+                            });
+                        }
                     }
                 }
             });
         }
 
-        if (highlightIndex !== -1) {
+        if (highlightIndex !== -1 && matches.length) {
             // If set the highlight index, then highlight the highlighIndex
-            index = highlightIndex;
+            index = Math.max(0, Math.min(highlightIndex, matches.length - 1));
         }
         else if (matches.length) {
             // highlight the first word that matches.
             index = 0;
         }
 
-        Object.assign(this, { _value: value, matches, index });
+        Object.assign(this, {
+            _value: value,
+            _options: {
+                isCaseSensitive: options.isCaseSensitive,
+                isWholeWord: options.isWholeWord,
+                isRegexp: options.isRegexp,
+            },
+            matches,
+            index,
+        });
 
         this._updateMatches();
 

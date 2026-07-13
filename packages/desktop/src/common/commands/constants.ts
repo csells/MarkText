@@ -1,3 +1,5 @@
+import { REVIEW_COMMAND_CONSTANTS } from './review'
+
 const COMMANDS = Object.freeze({
   EDIT_COPY: 'edit.copy',
   EDIT_COPY_AS_HTML: 'edit.copy-as-html',
@@ -50,6 +52,8 @@ const COMMANDS = Object.freeze({
   FORMAT_SUBSCRIPT: 'format.subscript',
   FORMAT_SUPERSCRIPT: 'format.superscript',
   FORMAT_UNDERLINE: 'format.underline',
+
+  ...REVIEW_COMMAND_CONSTANTS,
 
   MT_HIDE: 'mt.hide',
   MT_HIDE_OTHERS: 'mt.hide-others',

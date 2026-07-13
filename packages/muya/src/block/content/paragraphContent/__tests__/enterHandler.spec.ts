@@ -2,6 +2,7 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommand } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // ENTER-SPLIT GUARD — pressing Enter mid-paragraph splits the block in two.
@@ -76,7 +77,7 @@ function enterAt(muya: Muya, content: Content, offset: number): { preventDefault
         shiftKey: false,
         key: 'Enter',
     } as unknown as KeyboardEvent & { preventDefault: ReturnType<typeof vi.fn> };
-    content.enterHandler(event);
+    runUserCommand(muya, () => content.enterHandler(event));
     return event;
 }
 

@@ -42,12 +42,12 @@ for (const name of Object.keys(languages)) {
             });
         }
         else if (Array.isArray(lang.alias)) {
-            langs.push(
-                ...lang.alias.map((a: string) => ({
-                    name: a,
+            for (const alias of lang.alias) {
+                langs.push({
+                    name: alias,
                     ...lang,
-                })),
-            );
+                });
+            }
         }
     }
 }

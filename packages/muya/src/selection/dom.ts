@@ -2,6 +2,11 @@
 import { CLASS_NAMES } from '../config';
 import { isElement } from '../utils';
 
+const SOURCE_TEXT_BLACKLIST = [
+    CLASS_NAMES.MU_MATH_RENDER,
+    CLASS_NAMES.MU_RUBY_RENDER,
+];
+
 export function isContentDOM(element: HTMLElement) {
     return (
         element
@@ -81,6 +86,28 @@ export function getTextContent(node: Node, blackList: string[] = []) {
     return text;
 }
 
+/**
+ * Translate a native Range endpoint offset into a text offset within `node`.
+ *
+ * DOM Range offsets are character offsets for Text nodes but child indexes for
+ * Element nodes. Treating an element endpoint as a character offset truncates
+ * selections at the number of rendered inline wrappers (for example Critic
+ * semantic fragments) instead of the source-text length they contain.
+ */
+export function getTextOffset(node: Node, domOffset: number): number {
+    const legalOffset = getLegalOffset(node, domOffset);
+    if (node.nodeType === Node.TEXT_NODE)
+        return legalOffset;
+
+    let textOffset = 0;
+    for (let index = 0; index < legalOffset; index++) {
+        const child = node.childNodes[index];
+        if (child)
+            textOffset += getTextContent(child, SOURCE_TEXT_BLACKLIST).length;
+    }
+    return textOffset;
+}
+
 export function getOffsetOfParagraph(node: Node, paragraph: HTMLElement): number {
     let offset = 0;
     let preSibling: Node | null = node;
@@ -91,10 +118,7 @@ export function getOffsetOfParagraph(node: Node, paragraph: HTMLElement): number
     do {
         preSibling = preSibling.previousSibling;
         if (preSibling) {
-            offset += getTextContent(preSibling, [
-                CLASS_NAMES.MU_MATH_RENDER,
-                CLASS_NAMES.MU_RUBY_RENDER,
-            ]).length;
+            offset += getTextContent(preSibling, SOURCE_TEXT_BLACKLIST).length;
         }
     } while (preSibling);
 
@@ -121,10 +145,7 @@ export function getNodeAndOffset(
 
     for (i = 0; i < len; i++) {
         const child = childNodes[i];
-        const textContent = getTextContent(child, [
-            CLASS_NAMES.MU_MATH_RENDER,
-            CLASS_NAMES.MU_RUBY_RENDER,
-        ]);
+        const textContent = getTextContent(child, SOURCE_TEXT_BLACKLIST);
         const textLength = textContent.length;
 
         // Fix #1460 - put the cursor at the next text node or element if it can be put at the last of /^\n$/ or the next text node/element.

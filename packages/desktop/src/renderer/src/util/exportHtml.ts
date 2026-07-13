@@ -10,7 +10,7 @@
 // engine output so the export result stays equivalent to the legacy engine.
 
 import type { Muya } from '@muyajs/core'
-import { MarkdownToHtml } from '@muyajs/core'
+import { MarkdownToHtml, sanitizeExportHtml } from '@muyajs/core'
 import { sanitize, EXPORT_DOMPURIFY_CONFIG } from './dompurify'
 import { resolveLocalImageSrc } from './resolveImageSrc'
 import { resolveLocalLinkHref } from './resolveLinkHref'
@@ -81,10 +81,9 @@ const styledClass = (value: boolean | undefined): string => {
   return value ? ' styled' : ' simple'
 }
 
-// Header/footer left/center/right are user-supplied, so sanitize them here.
-// The article body is NOT sanitized again (it was already sanitized by the
-// engine during render); re-sanitizing it strips diagram <foreignObject>
-// labels and drops mermaid content from the export (#3359).
+// Header/footer left/center/right are user-supplied, so sanitize them here as
+// an early boundary. The complete body is sanitized again after every diagram,
+// TOC, path, and header/footer augmentation.
 const hf = (value: string): string => sanitize(value, EXPORT_DOMPURIFY_CONFIG) as string
 
 const createTableHeader = (header: HeaderFooterPart, headerFooterStyled?: boolean): string => {
@@ -229,6 +228,11 @@ export const exportStyledHTML = async(
     bodyHtml = output
   }
 
-  // Re-emit the engine document shell with the (possibly augmented) body.
+  // This is the final shared HTML/PDF/print trust boundary. The export config
+  // preserves Mermaid foreignObject labels while removing unsafe descendants,
+  // event attributes, and URI schemes introduced by any earlier renderer.
+  bodyHtml = sanitizeExportHtml(bodyHtml)
+
+  // Re-emit the engine document shell with the sanitized augmented body.
   return fullDoc.replace(/<body>[\s\S]*<\/body>/, `<body>\n  ${bodyHtml}\n</body>`)
 }

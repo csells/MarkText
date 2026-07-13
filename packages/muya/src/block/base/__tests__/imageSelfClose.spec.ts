@@ -2,6 +2,7 @@
 
 import type Format from '../format';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runUserCommand } from '../../../__tests__/helpers/mutation';
 import { Muya } from '../../../muya';
 import { getImageInfo } from '../../../utils/image';
 
@@ -54,7 +55,9 @@ describe('#2505 — aligned/edited images emit a self-closing <img/> (JSX-safe)'
         expect(imageEl).not.toBeNull();
 
         const imageInfo = getImageInfo(imageEl!);
-        block.updateImage(imageInfo, 'data-align', 'center');
+        runUserCommand(muya, () => {
+            block.updateImage(imageInfo, 'data-align', 'center');
+        });
 
         expect(block.text).toMatch(/<img\b[^>]*\/>/);
         // and never an unterminated open tag
@@ -68,7 +71,13 @@ describe('#2505 — aligned/edited images emit a self-closing <img/> (JSX-safe)'
         expect(imageEl).not.toBeNull();
 
         const imageInfo = getImageInfo(imageEl!);
-        block.replaceImage(imageInfo, { alt: 'b', src: 'https://example.com/b.png', title: '' });
+        runUserCommand(muya, () => {
+            block.replaceImage(imageInfo, {
+                alt: 'b',
+                src: 'https://example.com/b.png',
+                title: '',
+            });
+        });
 
         expect(block.text).toMatch(/<img\b[^>]*\/>/);
         expect(block.text).not.toMatch(/<img\b[^>]*[^/]>/);

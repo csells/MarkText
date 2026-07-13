@@ -1,9 +1,12 @@
+import type { TCriticMarkupProjection } from '../criticMarkup/project';
 import { EXPORT_DOMPURIFY_CONFIG } from '../config';
 import { sanitize } from '../utils';
 import { getHighlightHtml } from '../utils/marked';
 import { transformFootnotes } from './transformFootnotes';
 
 export interface IRenderToStaticHTMLOptions {
+    criticMarkup?: boolean;
+    criticMarkupProjection?: TCriticMarkupProjection;
     footnote?: boolean;
     math?: boolean;
     isGitlabCompatibilityEnabled?: boolean;
@@ -50,6 +53,8 @@ export function renderToStaticHTML(
     const footnote = options.footnote ?? false;
 
     let html = getHighlightHtml(markdown, {
+        criticMarkup: options.criticMarkup ?? true,
+        criticMarkupProjection: options.criticMarkupProjection ?? 'marked',
         footnote,
         math: options.math ?? true,
         isGitlabCompatibilityEnabled: options.isGitlabCompatibilityEnabled ?? true,

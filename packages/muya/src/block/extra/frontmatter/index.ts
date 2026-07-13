@@ -26,7 +26,9 @@ function delimiters(meta: IFrontmatterMeta): [string, string] {
 }
 
 class Frontmatter extends Parent {
-    public meta: IFrontmatterMeta;
+    get meta(): Readonly<IFrontmatterMeta> {
+        return this.readBlockMeta<IFrontmatterMeta>();
+    }
 
     static override blockName = 'frontmatter';
 
@@ -48,7 +50,26 @@ class Frontmatter extends Parent {
     }
 
     set lang(value) {
-        this.meta.lang = value;
+        const oldValue = this.meta.lang;
+        const isLive = this.isAttachedToLiveTree;
+
+        if (oldValue !== value) {
+            this.replaceBlockMetaForDocumentEdit(
+                { ...this.meta, lang: value },
+                'Frontmatter language mutation',
+            );
+            const [start, end] = delimiters(this.meta);
+            this.attributes.frontMatterStart = start;
+            this.attributes.frontMatterEnd = end;
+            this.domNode!.setAttribute('frontMatterStart', start);
+            this.domNode!.setAttribute('frontMatterEnd', end);
+
+            if (isLive) {
+                const path = this.path;
+                path.push('meta', 'lang');
+                this.jsonState.replaceOperation(path, oldValue, value);
+            }
+        }
 
         !!value
         && loadLanguage(value)
@@ -79,7 +100,7 @@ class Frontmatter extends Parent {
     constructor(muya: Muya, { meta }: IFrontmatterState) {
         super(muya);
         this.tagName = 'pre';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.classList = ['mu-frontmatter'];
         const [start, end] = delimiters(meta);
         this.attributes.frontMatterStart = start;
@@ -112,7 +133,7 @@ class Frontmatter extends Parent {
             text: this.lastContentInDescendant()?.text ?? '',
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

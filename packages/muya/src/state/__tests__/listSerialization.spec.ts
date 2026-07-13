@@ -211,6 +211,18 @@ describe('stateToMarkdown — nested empty list items', () => {
 // paragraph indent" (marker width) and "nested list indent" (configurable),
 // so this round-trips the same fixtures end-to-end.
 describe('stateToMarkdown — list indentation round-trip (marktext 02841ffd)', () => {
+    it('preserves parser-owned leading indentation and marker padding independently of the preference', () => {
+        const md = [
+            '  10)   outer',
+            '         7.  inner',
+            '             continuation',
+            '',
+        ].join('\n');
+
+        expect(roundTrip(md, 1)).toBe(md);
+        expect(roundTrip(md, 4)).toBe(md);
+    });
+
     it('indent by 1 space — round-trips marktext fixture', () => {
         const md = `start
 
@@ -344,6 +356,12 @@ sep
 
 - bar
 `;
+        expect(roundTrip(md, 1)).toBe(md);
+    });
+
+    it('preserves parser-owned blank lines for individual loose items', () => {
+        const md = '- one\n\n- two\n- three\n';
+
         expect(roundTrip(md, 1)).toBe(md);
     });
 
@@ -559,19 +577,20 @@ describe('stateToMarkdown — list looseness (preferLooseListItem)', () => {
     });
 });
 
-// Ordered-list start number is preserved through the markdown round-trip, and
-// the per-item number is computed by incrementing `meta.start` (see
-// stateToMarkdown.ts `serializeListItem`). The delimiter (`.` or `)`) likewise
-// comes from `meta.delimiter`, which a real boot seeds from
-// `muya.options.orderListDelimiter`.
+// Ordered-list start/delimiter semantics live on the parent. Parser-captured
+// item markers retain source ordinals when present; newly-created state still
+// derives sequential markers from the parent meta.
 describe('stateToMarkdown — ordered list start + delimiter', () => {
     function serialize(states: TState[]): string {
         return new ExportMarkdown({ listIndentation: 1 }).generate(states);
     }
 
     it('keeps a non-1 start number through the round-trip', () => {
-        // The parser stores start=3; the serializer renders 3., 4. (start + i).
         expect(roundTrip('3. one\n4. two\n')).toBe('3. one\n4. two\n');
+    });
+
+    it('preserves parser-owned nonsequential item ordinals', () => {
+        expect(roundTrip('3) one\n7) two\n')).toBe('3) one\n7) two\n');
     });
 
     it('parses the start number into order-list meta.start', () => {

@@ -466,8 +466,8 @@ test.describe('Find bar — Escape clears highlights and restores the cursor (it
   test('Escape after a query clears every highlight and selects the active match', async() => {
     await openFind(app, page)
     await page.locator(FIND_INPUT).fill('needleAlpha')
+    await expect.poll(() => page.locator('.mu-highlight').allTextContents()).toEqual(['needleAlpha'])
     await expect.poll(() => counterText(page)).toContain('1 / 1')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
 
     await page.keyboard.press('Escape')
     await expect(page.locator(SEARCH_BAR)).toBeHidden({ timeout: 5000 })
@@ -491,8 +491,7 @@ test.describe('Find bar — suppressed in source-code mode (item 194)', () => {
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown(
-      '# Source mode\n\nfind me in source mode if you can.\n',
-      { suppressErrorDialog: true }
+      '# Source mode\n\nfind me in source mode if you can.\n'
     )
     app = launched.app
     page = launched.page

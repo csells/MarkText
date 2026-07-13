@@ -22,9 +22,7 @@ test.describe('Crash: selectionChange null cursor', () => {
   let page: Page
 
   test.beforeEach(async() => {
-    const launched = await launchWithMarkdown('# Doc\n\nSome text with **bold**.\n', {
-      suppressErrorDialog: true
-    })
+    const launched = await launchWithMarkdown('# Doc\n\nSome text with **bold**.\n')
     app = launched.app
     page = launched.page
     await waitForMenuReady(app)

@@ -4,7 +4,7 @@ import type TableBodyCell from '../cell';
 import type Table from '../index';
 import type TableRow from '../row';
 import type TableInner from '../table';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya } from '../../../../muya';
 
 // Coverage for `Table.alignColumn`. The migration audit noted the insert /
@@ -68,6 +68,18 @@ function flush(): Promise<void> {
     return new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 }
 
+function alignColumn(
+    muya: Muya,
+    table: Table,
+    offset: number,
+    value: string,
+): void {
+    muya.editor.mutationGateway.run(
+        { kind: 'user-command' },
+        () => table.alignColumn(offset, value),
+    );
+}
+
 // Collect every cell in a given column (header + body) off the live block tree.
 function cellsInColumn(table: Table, column: number): TableBodyCell[] {
     const inner = table.firstChild as TableInner;
@@ -83,11 +95,28 @@ function cellsInColumn(table: Table, column: number): TableBodyCell[] {
 const PLAIN_TABLE = '| a | b |\n| --- | --- |\n| 1 | 2 |\n';
 
 describe('table.alignColumn', () => {
+    it('emits each cell alignment operation exactly once', () => {
+        const muya = bootMuya(PLAIN_TABLE);
+        const table = findTable(muya);
+        const editOperation = vi.spyOn(
+            muya.editor.jsonState,
+            'editOperation',
+        );
+
+        alignColumn(muya, table, 0, 'center');
+
+        expect(editOperation).toHaveBeenCalledTimes(2);
+
+        editOperation.mockClear();
+        muya.undo();
+        expect(editOperation).not.toHaveBeenCalled();
+    });
+
     it('sets meta.align and the data-align attribute on every cell in the column', async () => {
         const muya = bootMuya(PLAIN_TABLE);
         const table = findTable(muya);
 
-        table.alignColumn(0, 'center');
+        alignColumn(muya, table, 0, 'center');
 
         await flush();
         for (const cell of cellsInColumn(table, 0)) {
@@ -104,7 +133,7 @@ describe('table.alignColumn', () => {
         const muya = bootMuya(PLAIN_TABLE);
         const table = findTable(muya);
 
-        table.alignColumn(0, 'center');
+        alignColumn(muya, table, 0, 'center');
 
         await flush();
         const state = table.getState();
@@ -116,7 +145,7 @@ describe('table.alignColumn', () => {
         const muya = bootMuya(PLAIN_TABLE);
         const table = findTable(muya);
 
-        table.alignColumn(0, 'center');
+        alignColumn(muya, table, 0, 'center');
 
         await flush();
         const md = muya.getMarkdown();
@@ -127,12 +156,12 @@ describe('table.alignColumn', () => {
         const muya = bootMuya(PLAIN_TABLE);
         const table = findTable(muya);
 
-        table.alignColumn(0, 'center');
+        alignColumn(muya, table, 0, 'center');
         await flush();
         expect(md(muya)).toContain(':---:');
 
         // Calling again with the same value toggles back to 'none'.
-        table.alignColumn(0, 'center');
+        alignColumn(muya, table, 0, 'center');
         await flush();
 
         for (const cell of cellsInColumn(table, 0)) {
@@ -149,7 +178,7 @@ describe('table.alignColumn', () => {
         const muya = bootMuya(PLAIN_TABLE);
         const table = findTable(muya);
 
-        table.alignColumn(1, 'right');
+        alignColumn(muya, table, 1, 'right');
 
         await flush();
         for (const cell of cellsInColumn(table, 1))
@@ -165,7 +194,7 @@ describe('table.alignColumn', () => {
         const muya = bootMuya(PLAIN_TABLE);
         const table = findTable(muya);
 
-        table.alignColumn(0, 'left');
+        alignColumn(muya, table, 0, 'left');
 
         await flush();
         for (const cell of cellsInColumn(table, 0))
@@ -178,10 +207,10 @@ describe('table.alignColumn', () => {
         const muya = bootMuya(PLAIN_TABLE);
         const table = findTable(muya);
 
-        table.alignColumn(0, 'center');
+        alignColumn(muya, table, 0, 'center');
         await flush();
         // A different value than the current one — should set it, not toggle.
-        table.alignColumn(0, 'right');
+        alignColumn(muya, table, 0, 'right');
         await flush();
 
         for (const cell of cellsInColumn(table, 0))

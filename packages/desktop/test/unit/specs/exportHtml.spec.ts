@@ -41,6 +41,18 @@ import { getHtmlToc, type TocEntry } from '@/util/pdf'
 // calls `new MarkdownToHtml(md).generate(...)` with no muya.
 const NO_MUYA = null as unknown as Parameters<typeof exportStyledHTML>[0]
 
+const muyaWithCriticProjection = (
+  projection: 'marked' | 'original' | 'revised'
+): Parameters<typeof exportStyledHTML>[0] => ({
+  options: {
+    criticMarkupProjection: projection,
+    footnote: false,
+    isGitlabCompatibilityEnabled: true,
+    math: true,
+    superSubScript: true
+  }
+} as unknown as Parameters<typeof exportStyledHTML>[0])
+
 describe('exportStyledHTML — wrapper parity', () => {
   it('emits a self-contained document: inline <style> blocks, no CDN <link>', async() => {
     const out = await exportStyledHTML(NO_MUYA, '# Hi\n\ntext', {})
@@ -70,6 +82,43 @@ describe('exportStyledHTML — wrapper parity', () => {
     const body = /<body>([\s\S]*)<\/body>/.exec(out)![1]
     expect(body).toContain('<article class="markdown-body">')
     expect(body).not.toContain('<body>')
+  })
+})
+
+describe('exportStyledHTML — CriticMarkup PDF/print sink policy', () => {
+  const source = '{++new++} {--old--} {~~before~>after~~} {==focus==}{>>note<<}'
+
+  it.each([
+    ['original', ' old before focus', ['new', 'after', 'note']],
+    ['revised', 'new  after focus', ['old', 'before', 'note']]
+  ] as const)(
+    'renders the active %s projection used by styled HTML, PDF, and print',
+    async(projection, visible, absent) => {
+      const out = await exportStyledHTML(
+        muyaWithCriticProjection(projection),
+        source,
+        { printOptimization: true }
+      )
+      const article = /<article class="markdown-body">([\s\S]*?)<\/article>/.exec(out)?.[1] ?? ''
+
+      expect(article).toContain(`<p>${visible}</p>`)
+      for (const text of absent) expect(article).not.toContain(text)
+      expect(article).not.toContain('data-critic-id')
+    }
+  )
+
+  it('keeps semantic review markup in the marked export', async() => {
+    const out = await exportStyledHTML(
+      muyaWithCriticProjection('marked'),
+      source,
+      { printOptimization: true }
+    )
+
+    expect(out).toContain('data-critic-type="addition"')
+    expect(out).toContain('data-critic-type="deletion"')
+    expect(out).toContain('data-critic-type="substitution"')
+    expect(out).toContain('data-critic-type="highlight"')
+    expect(out).toContain('data-critic-type="comment"')
   })
 })
 

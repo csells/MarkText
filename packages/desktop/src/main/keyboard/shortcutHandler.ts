@@ -1,4 +1,4 @@
-import { shell, type BrowserWindow } from 'electron'
+import { type BrowserWindow } from 'electron'
 import fs from 'fs'
 import fsPromises from 'fs/promises'
 import path from 'path'
@@ -13,6 +13,7 @@ import keybindingsLinux from './keybindingsLinux'
 import keybindingsWindows from './keybindingsWindows'
 import type { CommandManager } from '../commands'
 import type { AppEnvironment } from '../app/env'
+import { presentationPolicy } from '../presentationPolicy'
 
 type ShortcutCallback = (win: BrowserWindow) => void
 
@@ -91,7 +92,7 @@ class Keybindings {
     if (!isFile2(configPath)) {
       fs.writeFileSync(configPath, '{\n\n\n}\n', 'utf-8')
     }
-    shell.openPath(configPath).catch((err: unknown) => console.error(err))
+    presentationPolicy.openPath(configPath).catch((err: unknown) => console.error(err))
   }
 
   getDefaultKeybindings(): Map<string, string> {

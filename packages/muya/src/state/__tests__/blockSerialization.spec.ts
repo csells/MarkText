@@ -248,13 +248,12 @@ describe('codeBlock — setting lang promotes an indented block to fenced', () =
 
         codeBlock.lang = 'js';
 
-        // The live block object reflects both the new type and language
-        // synchronously (the setter mutates `this.meta` directly).
+        // The gateway commits synchronously, so the live block reflects both
+        // the new type and language when the public setter returns.
         expect(codeBlock.meta.type).toBe('fenced');
         expect(codeBlock.meta.lang).toBe('js');
 
-        // The `meta.type` change is dispatched as an OT op, so it reaches the
-        // serialized JSON state after the rAF flush.
+        // The same atomic operation reaches canonical JSON state.
         await vi.waitFor(() => {
             const state = muya.getState()[0];
             expect(state.name).toBe('code-block');
@@ -277,35 +276,29 @@ describe('codeBlock — setting lang promotes an indented block to fenced', () =
         expect(node.classList.contains('mu-fenced-code')).toBe(true);
     });
 
-    it('emits a fenced block from getMarkdown (CHARACTERIZATION: drops the language tag — see suspectedBugs)', async () => {
+    it('persists the language tag in canonical fenced Markdown', async () => {
         const muya = bootMuya('    code\n');
         const codeBlock = findCodeBlock(muya);
 
         codeBlock.lang = 'js';
 
-        // The setter dispatches an OT op ONLY for `meta.type`, never for
-        // `meta.lang`. So the serialized JSON state ends up `fenced` but with
-        // an EMPTY language: getMarkdown opens a bare ``` fence and the `js`
-        // info string is lost. This pins the actual current behaviour.
+        // Both promotion and the language are committed through the mutation
+        // gateway, so the canonical serializer sees one coherent update.
         await vi.waitFor(() => {
             const md = muya.getMarkdown();
-            expect(md).toContain('```');
-            expect(md).toContain('code');
+            expect(md).toBe('```js\ncode\n```\n');
         });
 
         const md = muya.getMarkdown();
         // No longer the indented 4-space form.
         expect(md.startsWith('    ')).toBe(false);
-        // Bug: the language tag never reaches the serializer.
-        expect(md).not.toContain('```js');
-        expect(md).toBe('```\ncode\n```\n');
+        expect(md).toBe('```js\ncode\n```\n');
 
-        // The JSON state confirms the language was dropped while the live
-        // block still holds it.
+        // Canonical JSON and the live code block agree on the language.
         const state = muya.getState()[0];
         if (state.name !== 'code-block')
             throw new Error('expected a code-block state');
-        expect(state.meta.lang).toBe('');
+        expect(state.meta.lang).toBe('js');
         expect(codeBlock.meta.lang).toBe('js');
     });
 });

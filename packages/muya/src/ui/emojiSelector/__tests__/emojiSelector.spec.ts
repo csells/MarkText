@@ -30,6 +30,14 @@ function makeFakeMuya(t: (s: string) => string = (s: string) => s): { muya: Muya
     const muya = {
         domNode: editorDomNode,
         eventCenter,
+        editor: {
+            mutationGateway: {
+                run: (_request: unknown, mutate: () => void) => {
+                    mutate();
+                    return 'untracked';
+                },
+            },
+        },
         i18n: { t },
         ui: { shownFloat },
         options: {},

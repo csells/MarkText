@@ -3,6 +3,7 @@
 import type TaskListItem from '../../taskListItem';
 import type TaskListCheckbox from '../index';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommand } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // PARITY SCOREBOARD — gap PG3 (file PG03).
@@ -100,6 +101,25 @@ function checkedFlags(muya: Muya): boolean[] {
 }
 
 describe('parity PG3: autoCheck task-list cascade', () => {
+    it('emits one checked-state operation for one direct toggle', () => {
+        const muya = bootMuya(NESTED_TASKS, { autoCheck: false });
+        const [parent] = taskItems(muya);
+        const replaceOperation = vi.spyOn(
+            muya.editor.jsonState,
+            'replaceOperation',
+        );
+
+        runUserCommand(muya, () => {
+            checkboxOf(parent).update(true);
+        });
+
+        expect(replaceOperation).toHaveBeenCalledOnce();
+
+        replaceOperation.mockClear();
+        muya.undo();
+        expect(replaceOperation).not.toHaveBeenCalled();
+    });
+
     it(
         'PG3: autoCheck cascades the toggle to descendant task items',
         async () => {
@@ -108,8 +128,10 @@ describe('parity PG3: autoCheck task-list cascade', () => {
             expect(checkedFlags(muya)).toEqual([false, false, false]);
 
             // Equivalent to clicking the parent checkbox (the real DOM handler
-            // calls `update(checked, 'user')`).
-            checkboxOf(parent).update(true, 'user');
+            // calls `update(checked)`).
+            runUserCommand(muya, () => {
+                checkboxOf(parent).update(true);
+            });
 
             // Desired: checking the parent cascades to both children.
             await vi.waitFor(() => {
@@ -125,8 +147,10 @@ describe('parity PG3: autoCheck task-list cascade', () => {
             const [, child1, child2] = taskItems(muya);
             expect(checkedFlags(muya)).toEqual([false, false, false]);
 
-            checkboxOf(child1).update(true, 'user');
-            checkboxOf(child2).update(true, 'user');
+            runUserCommand(muya, () => {
+                checkboxOf(child1).update(true);
+                checkboxOf(child2).update(true);
+            });
 
             // Desired: when every child is checked, the parent becomes checked.
             await vi.waitFor(() => {
@@ -142,11 +166,12 @@ describe('parity PG3: autoCheck task-list cascade', () => {
             const [parent] = taskItems(muya);
             expect(checkedFlags(muya)).toEqual([false, false, false]);
 
-            // The DOM click handler invokes `update(checked, 'user')`. With
-            // `autoCheck` disabled, the cascade guard (`source !== 'api' &&
-            // this.muya.options.autoCheck`) is false, so only the toggled item
+            // The DOM click handler invokes `update(checked)`. With
+            // `autoCheck` disabled, the cascade guard is false, so only the toggled item
             // changes — descendants stay unchecked.
-            checkboxOf(parent).update(true, 'user');
+            runUserCommand(muya, () => {
+                checkboxOf(parent).update(true);
+            });
 
             await vi.waitFor(() => {
                 expect(checkedFlags(muya)).toEqual([true, false, false]);
@@ -160,7 +185,9 @@ describe('parity PG3: autoCheck task-list cascade', () => {
             const muya = bootMuya(NESTED_TASKS, { autoCheck: false });
             const [parent] = taskItems(muya);
 
-            checkboxOf(parent).update(true, 'user');
+            runUserCommand(muya, () => {
+                checkboxOf(parent).update(true);
+            });
 
             await vi.waitFor(() => {
                 expect(checkedFlags(muya)).toEqual([true, false, false]);

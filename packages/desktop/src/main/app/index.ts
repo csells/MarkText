@@ -1,9 +1,8 @@
 import path from 'path'
 import fsPromises from 'fs/promises'
-import { exec } from 'child_process'
 import dayjs from 'dayjs'
 import log from 'electron-log'
-import { app, BrowserWindow, clipboard, dialog, nativeTheme, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, nativeTheme, shell, ipcMain } from 'electron'
 import type { BrowserWindowConstructorOptions } from 'electron'
 import { isChildOfDirectory } from 'common/filesystem/paths'
 import type { IUserPreferences } from '@shared/types/preferences'
@@ -24,6 +23,7 @@ import { setLanguage } from '../i18n'
 import { getNativeThemeSource, isDarkApplicationTheme } from './nativeTheme'
 import type Accessor from './accessor'
 import type WindowManager from './windowManager'
+import { presentationPolicy } from '../presentationPolicy'
 
 interface CliArgs {
   _: string[]
@@ -33,6 +33,10 @@ interface CliArgs {
 interface PathInfo {
   isDir: boolean
   path: string
+}
+
+function appendValues<T>(target: T[], values: readonly T[]): void {
+  for (const value of values) target.push(value)
 }
 
 class App {
@@ -94,7 +98,7 @@ class App {
         return
       }
 
-      _openFilesCache.push(...buf)
+      appendValues(_openFilesCache, buf)
       if (_openFilesCache.length) {
         this._openFilesToOpen()
       } else {
@@ -552,7 +556,7 @@ class App {
     // Discard all directories except first one and add files.
     if (openFilesInSameWindow) {
       if (directoriesToOpen.length) {
-        directoriesToOpen[0].fileList.push(...filesToOpen)
+        appendValues(directoriesToOpen[0].fileList, filesToOpen)
         directoriesToOpen.length = 1
       } else {
         directoriesToOpen.push({ rootDirectory: null, fileList: [...filesToOpen] })
@@ -573,7 +577,7 @@ class App {
           const pathname = filesToOpen[j]
           if (isChildOfDirectory(rootDirectory ?? '', pathname)) {
             if (isFirstWindow) {
-              fileList.push(...filesToOpen)
+              appendValues(fileList, filesToOpen)
               filesToOpen.length = 0
               breakOuterLoop = true
               break
@@ -592,7 +596,7 @@ class App {
       // Find for the remaining files the best window to open the files in.
       if (isFirstWindow && directoriesToOpen.length && filesToOpen.length) {
         const { fileList } = directoriesToOpen[0]
-        fileList.push(...filesToOpen)
+        appendValues(fileList, filesToOpen)
         filesToOpen.length = 0
       } else {
         const windowList = _windowManager.findBestWindowToOpenIn(filesToOpen)
@@ -645,11 +649,10 @@ class App {
       // A setting window is already created
       const browserSettingWindow = settingWins[0].win.browserWindow!
       browserSettingWindow.webContents.send('settings::change-tab', category)
-      if (isLinux) {
-        browserSettingWindow.focus()
-      } else {
-        browserSettingWindow.moveTop()
-      }
+      presentationPolicy.activateExistingWindow(
+        browserSettingWindow,
+        isLinux ? 'focus' : 'move-top'
+      )
       return
     }
     this._createSettingWindow(category)
@@ -673,7 +676,7 @@ class App {
       if (isOsx) {
         // Use macOs `screencapture` command line when in macOs system.
         const screenshotFileName = await this.getScreenshotFileName()
-        exec('screencapture -i -c', async(err) => {
+        presentationPolicy.captureMacOsScreen(async(err) => {
           if (err) {
             log.error(err)
             return
@@ -789,7 +792,7 @@ class App {
       const win = BrowserWindow.fromWebContents(e.sender)
       if (!win) return
 
-      const { filePaths } = await dialog.showOpenDialog(win, {
+      const { filePaths } = await presentationPolicy.showOpenDialog(win, {
         defaultPath: defaultDirectoryToOpen,
         properties: ['openDirectory', 'createDirectory']
       })

@@ -5,7 +5,9 @@ import Parent from '../../base/parent';
 import { ScrollPage } from '../../scrollPage';
 
 class MathBlock extends Parent {
-    public meta: IMathMeta;
+    get meta(): Readonly<IMathMeta> {
+        return this.readBlockMeta<IMathMeta>();
+    }
 
     static override blockName = 'math-block';
 
@@ -37,7 +39,7 @@ class MathBlock extends Parent {
     constructor(muya: Muya, { meta }: IMathBlockState) {
         super(muya);
         this.tagName = 'figure';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.classList = ['mu-math-block'];
         this.createDomNode();
     }
@@ -55,11 +57,11 @@ class MathBlock extends Parent {
         if (text == null)
             throw new Error('text is null when getState in math block.');
 
-        return {
+        return this.withStateSourceTrivia({
             name: 'math-block',
             text,
-            meta,
-        };
+            meta: { ...meta },
+        });
     }
 }
 

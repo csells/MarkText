@@ -1,4 +1,5 @@
 import debounce from 'lodash/debounce'
+import { reportAsyncFailure } from '@muyajs/core'
 import { useEditorStore } from './editor'
 import { useProjectStore } from './project'
 import { useLayoutStore } from './layout'
@@ -40,17 +41,17 @@ export const createBufferedState = (): Record<string, unknown> | null => {
   }
 }
 
-export const sendBufferedState = (): Promise<unknown> => {
+export const sendBufferedState = async(): Promise<unknown> => {
   const snapshot = createBufferedState()
   if (snapshot) {
     return window.electron.ipcRenderer.invoke('update-buffer-state', snapshot)
   }
 
-  return Promise.resolve(false)
+  return false
 }
 
 export const debouncedSendBufferedState = debounce(() => {
-  sendBufferedState().catch((err) => {
-    console.error('Failed to update buffered state', err)
+  sendBufferedState().catch((cause: unknown) => {
+    reportAsyncFailure(cause, 'Buffered state persistence')
   })
 }, BUFFERED_STATE_DEBOUNCE_MS)

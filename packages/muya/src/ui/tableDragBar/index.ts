@@ -1,5 +1,6 @@
 import type Table from '../../block/gfm/table';
 import type TableBodyCell from '../../block/gfm/table/cell';
+import type TableRow from '../../block/gfm/table/row';
 import type TableInner from '../../block/gfm/table/table';
 import type { Muya } from '../../index';
 
@@ -64,7 +65,8 @@ function getDragCells(tableBlock: Table, barType: BarType, index: number) {
 
     if (barType === 'right') {
         const row = [...table.querySelectorAll('tr')][index];
-        dragCells.push(...row.children);
+        for (const cell of row.children)
+            dragCells.push(cell);
     }
     else {
         const rows = [...table.querySelectorAll('tr')];
@@ -433,6 +435,13 @@ export class TableDragBar extends BaseFloat {
     };
 
     private _switchTableData = () => {
+        this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            this._switchTableDataDirect,
+        );
+    };
+
+    private _switchTableDataDirect = () => {
         if (!this._dragInfo)
             return;
 
@@ -505,17 +514,22 @@ export class TableDragBar extends BaseFloat {
             tableState.children.splice(curIndex, 0, rowState);
         }
 
-        const newTable = ScrollPage.loadBlock('table').create(
+        const newTable = ScrollPage.createStateBlock(
             this.muya,
             tableState,
-        );
+        ) as Table;
         table.replaceWith(newTable);
 
         if (cursorRowOffset !== null && cursorColumnOffset !== null) {
-            const cursorBlock = newTable.firstChild
-                .find(cursorRowOffset)
-                .find(cursorColumnOffset)
-                .firstContentInDescendant();
+            const tableInner = newTable.firstChild;
+            const row = tableInner?.find(cursorRowOffset) as TableRow | null;
+            const cell = row?.find(cursorColumnOffset) as TableBodyCell | null;
+            const cursorBlock = cell?.firstContentInDescendant();
+            if (!cursorBlock) {
+                throw new TypeError(
+                    'A reordered table must preserve the dragged cursor cell.',
+                );
+            }
             cursorBlock.setCursor(startOffset, endOffset, true);
         }
     };

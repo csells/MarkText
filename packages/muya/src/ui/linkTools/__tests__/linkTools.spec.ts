@@ -50,6 +50,14 @@ function makeFakeMuya(): { muya: Muya; domNode: HTMLElement } {
     const muya = {
         eventCenter,
         domNode,
+        editor: {
+            mutationGateway: {
+                run: (_request: unknown, mutate: () => void) => {
+                    mutate();
+                    return 'untracked';
+                },
+            },
+        },
     } as unknown as Muya;
     return { muya, domNode };
 }

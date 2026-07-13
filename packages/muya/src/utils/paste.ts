@@ -28,7 +28,11 @@ function expandTableColspans(table: HTMLTableElement) {
                 );
             }
 
-            cell.after(...placeholders);
+            let insertionPoint: Element = cell;
+            for (const placeholder of placeholders) {
+                insertionPoint.after(placeholder);
+                insertionPoint = placeholder;
+            }
         }
     }
 }
@@ -285,7 +289,10 @@ function bufferToDataURL(mimeType: string) {
         let binary = '';
         for (let i = 0; i < bytes.length; i += CHUNK) {
             const chunk = bytes.subarray(i, i + CHUNK);
-            binary += String.fromCharCode(...chunk);
+            binary += Array.from(
+                chunk,
+                byte => String.fromCharCode(byte),
+            ).join('');
         }
         return `data:${mimeType};base64,${btoa(binary)}`;
     };

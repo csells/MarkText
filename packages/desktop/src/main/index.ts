@@ -1,6 +1,6 @@
 import './globalSetting'
 import path from 'path'
-import { app, dialog, crashReporter } from 'electron'
+import { app, crashReporter } from 'electron'
 import log from 'electron-log'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 
@@ -13,6 +13,8 @@ import Accessor from './app/accessor'
 import App from './app'
 import { t } from './i18n'
 import { registerSandboxIpcHandlers } from './ipc'
+import { presentationPolicy } from './presentationPolicy'
+import { exceptionReporter } from './exceptionReporting'
 
 // Set version strings into global and process.versions
 process.env.MARKTEXT_VERSION = MARKTEXT_VERSION
@@ -57,18 +59,14 @@ crashReporter.start({
   uploadToServer: false, // collect locally
   compress: true
 })
-process.on('uncaughtException', (err: Error) => {
-  log.error('Main uncaughtException:', err.stack)
-})
-process.on('unhandledRejection', (reason) => {
-  log.error('Main unhandledRejection:', reason)
-})
 
 // -----------------------------------------------
 // Disable GPU if requested
 if (args['--disable-gpu']) {
   app.disableHardwareAcceleration()
 }
+
+presentationPolicy.configureApplication(app)
 
 // Single instance lock (except macOS & development)
 if (!process.mas && process.env.NODE_ENV !== 'development') {
@@ -103,12 +101,16 @@ try {
 
   const EXIT_ON_ERROR = !!process.env.MARKTEXT_EXIT_ON_ERROR
   const SHOW_ERROR_DIALOG = !process.env.MARKTEXT_ERROR_INTERACTION
-  if (!EXIT_ON_ERROR && SHOW_ERROR_DIALOG) {
-    dialog.showErrorBox(
-      t('error.startupError'),
-      `${msgHint}${errorObj.message}\n\n${errorObj.stack ?? ''}`
-    )
-  }
+  exceptionReporter.handle('startup', errorObj, () => {
+    if (!EXIT_ON_ERROR && SHOW_ERROR_DIALOG) {
+      presentationPolicy.showErrorBox(
+        t('error.startupError'),
+        `${msgHint}${errorObj.message}\n\n${errorObj.stack ?? ''}`
+      )
+    }
+  }).catch((handlerError) => {
+    log.error('Failed to process the startup error through presentation policy.', handlerError)
+  })
   process.exit(1)
 }
 const appController = new App(accessor, args as unknown as { _: string[] })

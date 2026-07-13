@@ -22,6 +22,7 @@ describe('GFM 0.29-gfm spec conformance', () => {
         `GFM 0.29 §$section #$number`,
         (example) => {
             const actual = renderToStaticHTML(example.markdown, {
+                criticMarkup: false,
                 footnote: false,
                 math: false,
                 superSubScript: false,

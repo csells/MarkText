@@ -3,24 +3,22 @@ import type { IBulletListState } from '../../../state/types';
 import type ListItem from '../listItem';
 import { CLASS_NAMES } from '../../../config';
 import { mixins } from '../../../utils';
-import { LinkedList } from '../../base/linkedList/linkedList';
+import { appendCreatedChildren } from '../../appendCreatedChildren';
 import Parent from '../../base/parent';
 import IContainerQueryBlock from '../../mixins/containerQueryBlock';
 import { ScrollPage } from '../../scrollPage';
 
 @mixins(IContainerQueryBlock)
-class BulletList extends Parent {
-    public override children: LinkedList<Parent> = new LinkedList();
-
+class BulletList extends Parent<Parent> {
     static override blockName = 'bullet-list';
 
     static create(muya: Muya, state: IBulletListState) {
         const bulletList = new BulletList(muya, state);
 
-        bulletList.append(
-            ...state.children.map(child =>
-                ScrollPage.loadBlock(child.name).create(muya, child),
-            ),
+        appendCreatedChildren(
+            state.children,
+            child => ScrollPage.createStateBlock(muya, child),
+            child => bulletList.append(child),
         );
 
         return bulletList;
@@ -33,12 +31,14 @@ class BulletList extends Parent {
         return [...pPath, offset, 'children'];
     }
 
-    public meta: IBulletListState['meta'];
+    get meta(): Readonly<IBulletListState['meta']> {
+        return this.readBlockMeta<IBulletListState['meta']>();
+    }
 
     constructor(muya: Muya, { meta }: IBulletListState) {
         super(muya);
         this.tagName = 'ul';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.datasets = {
             marker: meta.marker,
         };
@@ -56,7 +56,7 @@ class BulletList extends Parent {
             children: this.children.map(child => (child as ListItem).getState()),
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

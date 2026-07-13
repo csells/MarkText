@@ -1,13 +1,23 @@
 import type { Doc, JSONOp, JSONOpList, Path } from 'ot-json1';
+import type { IMutationAuthority } from '../mutation/authority';
 import type { Muya } from '../muya';
 import type { TDiff } from '../utils';
+import type { ICapturedStateMutation } from './mutationCapture';
+import type { ICriticMarkupStateBindingGraph } from './markdownToState';
 import type { TState } from './types';
+import type { CriticMarkupAnalysis } from '../criticMarkup/analysis';
 import * as json1 from 'ot-json1';
+import {
+    analyzeCriticMarkupMarkdownState,
+} from '../criticMarkup/markdownState';
 import { deepClone } from '../utils';
 import logger from '../utils/logger';
-import { getTOC } from './getTOC';
 
-import { MarkdownToState } from './markdownToState';
+import {
+    snapshotCriticMarkupParserOptions,
+} from '../utils/marked/criticMarkupDocument';
+import { getTOC } from './getTOC';
+import { StateMutationCapture } from './mutationCapture';
 import StateToMarkdown from './stateToMarkdown';
 
 const debug = logger('jsonState:');
@@ -23,6 +33,26 @@ export function asDoc(state: TState[] | TState): Doc {
 
 export function asState(doc: unknown): TState[] {
     return doc as TState[];
+}
+
+export interface IPreparedJSONChange {
+    op: JSONOp;
+    source: string;
+    prevDoc: TState[];
+    doc: TState[];
+    previousRevision: number;
+    revision: number;
+}
+
+export interface IJSONStateResetCheckpoint {
+    readonly state: TState[];
+    readonly revision: number;
+}
+
+/** Parser-owned semantic and state-binding views for one exact source revision. */
+export interface IJSONStateParserArtifact {
+    readonly analysis: CriticMarkupAnalysis;
+    readonly bindings: ICriticMarkupStateBindingGraph;
 }
 
 class JSONState {
@@ -51,9 +81,20 @@ class JSONState {
     private _rafId: number | null = null;
 
     private _state: TState[] = [];
+    private _parsedCriticMarkupArtifact: IJSONStateParserArtifact | null = null;
+    private _liveRevision = 0;
+    // Monotonic cache invalidation token. Unlike the durable revision, this is
+    // never rewound: a failed prepared state must not share a cache key with a
+    // later retry that happens to reach the same revision number.
+    private _documentVersion = 0;
+    private _capture: StateMutationCapture | null = null;
 
-    constructor(private _muya: Muya, stateOrMarkdown: TState[] | string) {
-        this.setContent(stateOrMarkdown);
+    constructor(
+        private _muya: Muya,
+        stateOrMarkdown: TState[] | string,
+        private readonly _mutationAuthority: IMutationAuthority,
+    ) {
+        this._setContent(stateOrMarkdown);
     }
 
     private _apply(op: JSONOp) {
@@ -63,9 +104,44 @@ class JSONState {
         if (op === null)
             return;
         this._state = asState(json1.type.apply(asDoc(this._state), op));
+        this._invalidateParserArtifact();
+    }
+
+    private _invalidateParserArtifact(): void {
+        this._parsedCriticMarkupArtifact = null;
     }
 
     setContent(content: TState[] | string) {
+        this._mutationAuthority.assertActive('JSON document reset');
+        this._setContent(content);
+    }
+
+    checkpointReset(): IJSONStateResetCheckpoint {
+        this._mutationAuthority.assertActive('JSON document reset checkpoint');
+        if (this._operationCache.length || this._rafId !== null) {
+            throw new TypeError(
+                'JSON document reset requires pending operations to be flushed.',
+            );
+        }
+        return Object.freeze({
+            state: this.getState(),
+            revision: this._liveRevision,
+        });
+    }
+
+    restoreReset(checkpoint: IJSONStateResetCheckpoint): void {
+        this._mutationAuthority.assertActive('JSON document reset rollback');
+        if (this._rafId !== null)
+            cancelAnimationFrame(this._rafId);
+        this._rafId = null;
+        this._operationCache = [];
+        this._state = deepClone(checkpoint.state);
+        this._invalidateParserArtifact();
+        this._liveRevision = checkpoint.revision;
+        this._documentVersion++;
+    }
+
+    private _setContent(content: TState[] | string) {
         // A pending deferred-op batch belongs to the OUTGOING document. Applying
         // it to the new content would corrupt it (or throw and leave the flush
         // guard stuck, freezing all future edits). Drop the batch and cancel its
@@ -80,35 +156,65 @@ class JSONState {
             this._setState(content);
         else
             this._setMarkdown(content);
+        this._liveRevision++;
+        this._documentVersion++;
     }
 
     private _setState(state: TState[]) {
         this._state = state;
+        this._invalidateParserArtifact();
     }
 
     private _setMarkdown(markdown: string) {
-        this._state = this.markdownToState(markdown);
+        const parsed = this._analyzeMarkdownState(markdown);
+        this._state = parsed.states;
+        this._parsedCriticMarkupArtifact = parsed.analysis?.source
+            === parsed.source
+            ? Object.freeze({
+                    analysis: parsed.analysis,
+                    bindings: parsed.bindings,
+                })
+            : null;
     }
 
     // Parse markdown into a block-state array with the editor's current
     // render-affecting options, WITHOUT mutating `this._state`. Used by
     // `buildReplaceOp` to compute the target state for a bulk replacement.
     markdownToState(markdown: string): TState[] {
+        return this._analyzeMarkdownState(markdown).states;
+    }
+
+    private _analyzeMarkdownState(markdown: string) {
         const {
             footnote,
             isGitlabCompatibilityEnabled,
             trimUnnecessaryCodeBlockEmptyLines,
             frontMatter,
             math,
+            superSubScript,
+            listIndentation,
         } = this._muya.options;
 
-        return new MarkdownToState({
-            footnote,
-            isGitlabCompatibilityEnabled,
+        return analyzeCriticMarkupMarkdownState(markdown, {
+            listIndentation,
             trimUnnecessaryCodeBlockEmptyLines,
-            frontMatter,
-            math,
-        }).generate(markdown);
+            lex: snapshotCriticMarkupParserOptions({
+                footnote,
+                isGitlabCompatibilityEnabled,
+                frontMatter,
+                math,
+                superSubScript,
+            }),
+        });
+    }
+
+    parserArtifactForSource(source: string): IJSONStateParserArtifact | null {
+        const artifact = this._parsedCriticMarkupArtifact;
+        return artifact?.analysis.source === source ? artifact : null;
+    }
+
+    parserAnalysisForSource(source: string): CriticMarkupAnalysis | null {
+        return this.parserArtifactForSource(source)?.analysis ?? null;
     }
 
     /**
@@ -174,53 +280,190 @@ class JSONState {
     }
 
     insertOperation(path: Path, state: TState) {
+        this._mutationAuthority.assertActive('JSON state insertion');
         const operation = json1.insertOp(path, asDoc(state))!;
 
+        if (this._capture) {
+            this._capture.recordInsert(path, asDoc(state), operation);
+            return;
+        }
+
         this._operationCache.push(operation);
+        this._invalidateParserArtifact();
+        this._liveRevision++;
+        this._documentVersion++;
 
         this._emitStateChange();
     }
 
     removeOperation(path: Path) {
+        this._mutationAuthority.assertActive('JSON state removal');
         const operation = json1.removeOp(path)!;
 
+        if (this._capture) {
+            this._capture.recordRemove(path, operation);
+            return;
+        }
+
         this._operationCache.push(operation);
+        this._invalidateParserArtifact();
+        this._liveRevision++;
+        this._documentVersion++;
 
         this._emitStateChange();
     }
 
     editOperation(path: Path, diff: TDiff[]) {
+        this._mutationAuthority.assertActive('JSON state text edit');
         const operation = json1.editOp(path, 'text-unicode', diff)!;
 
+        if (this._capture) {
+            this._capture.recordText(path, diff, operation);
+            return;
+        }
+
         this._operationCache.push(operation);
+        this._invalidateParserArtifact();
+        this._liveRevision++;
+        this._documentVersion++;
 
         this._emitStateChange();
     }
 
     replaceOperation(path: Path, oldValue: Doc, newValue: Doc) {
+        this._mutationAuthority.assertActive('JSON state replacement');
         const operation = json1.replaceOp(path, oldValue, newValue)!;
 
+        if (this._capture) {
+            this._capture.recordReplace(
+                path,
+                oldValue,
+                newValue,
+                operation,
+            );
+            return;
+        }
+
         this._operationCache.push(operation);
+        this._invalidateParserArtifact();
+        this._liveRevision++;
+        this._documentVersion++;
 
         this._emitStateChange();
     }
 
-    dispatch(op: JSONOp, source = 'user' /* user, api */) {
+    /** Apply without observation so the live tree can validate first. */
+    applySilently(op: JSONOp, source = 'user'): IPreparedJSONChange {
+        this._mutationAuthority.assertActive('Prepared JSON commit');
+        if (this._operationCache.length || this._rafId !== null) {
+            throw new TypeError(
+                'Prepared JSON changes require pending operations to be flushed.',
+            );
+        }
         const prevDoc = this.getState();
+        const previousRevision = this._liveRevision;
         this._apply(op);
-        // TODO: remove doc in future
+        if (op !== null) {
+            this._liveRevision++;
+            this._documentVersion++;
+        }
         const doc = this.getState();
         debug.log(JSON.stringify(op));
-        this._muya.eventCenter.emit('json-change', {
+
+        return {
             op,
             source,
             prevDoc,
             doc,
+            previousRevision,
+            revision: this._liveRevision,
+        };
+    }
+
+    restoreSilently(change: IPreparedJSONChange): void {
+        if (this._liveRevision !== change.revision) {
+            throw new TypeError(
+                'Cannot roll back a prepared JSON change after another revision.',
+            );
+        }
+        this._state = deepClone(change.prevDoc);
+        this._invalidateParserArtifact();
+        this._liveRevision = change.previousRevision;
+        this._documentVersion++;
+    }
+
+    publish(change: IPreparedJSONChange): void {
+        this._muya.eventCenter.emit('json-change', {
+            op: change.op,
+            source: change.source,
+            prevDoc: change.prevDoc,
+            doc: change.doc,
         });
     }
 
     getState(): TState[] {
         return deepClone(this._state);
+    }
+
+    get liveRevision(): number {
+        return this._liveRevision;
+    }
+
+    get documentVersion(): number {
+        return this._documentVersion;
+    }
+
+    get isCapturing(): boolean {
+        return this._capture !== null;
+    }
+
+    /**
+     * Snapshot the document exactly as the live block tree currently sees it,
+     * including edits queued for the next animation-frame batch. Unlike
+     * `flush()`, this is read-only: it neither mutates the durable JSON state
+     * nor emits `json-change`.
+     */
+    getLiveState(): TState[] {
+        if (this._capture)
+            return this._capture.draft;
+
+        let state = this.getState();
+
+        for (const operation of this._operationCache) {
+            if (operation !== null) {
+                state = asState(json1.type.apply(
+                    asDoc(state),
+                    operation,
+                ));
+            }
+        }
+
+        return state;
+    }
+
+    /**
+     * Run a synchronous proposal against an isolated draft. Canonical state,
+     * pending ops, revisions, animation frames, and events remain untouched.
+     */
+    capture<T>(mutate: () => T): ICapturedStateMutation<T> {
+        this._mutationAuthority.assertActive('JSON state mutation capture');
+        if (this._capture) {
+            throw new TypeError(
+                'Nested state mutation capture must join through the outer gateway.',
+            );
+        }
+
+        const capture = new StateMutationCapture(
+            this._liveRevision,
+            this.getLiveState(),
+        );
+        this._capture = capture;
+        try {
+            return capture.finish(mutate());
+        }
+        finally {
+            this._capture = null;
+        }
     }
 
     getMarkdown() {
@@ -240,6 +483,14 @@ class JSONState {
         });
 
         return mdGenerator.generate(state);
+    }
+
+    getMappedMarkdownFromState(state: TState[]) {
+        const mdGenerator = new StateToMarkdown({
+            listIndentation: this._muya.options.listIndentation,
+        });
+
+        return mdGenerator.generateMapped(state);
     }
 
     private _emitStateChange() {
@@ -278,23 +529,14 @@ class JSONState {
         const op = this._operationCache.reduce(
             (acc, curr) => json1.type.compose(acc, curr) as JSONOpList,
         );
-        const prevDoc = this.getState();
-        this._apply(op);
-        // TODO: remove doc in future
-        const doc = this.getState();
         // Clear before emitting: a listener that edits synchronously then starts
         // a fresh batch instead of mutating the one being flushed.
         this._operationCache = [];
 
         if (op === null)
             return;
-
-        this._muya.eventCenter.emit('json-change', {
-            op,
-            source: 'user',
-            prevDoc,
-            doc,
-        });
+        this._mutationAuthority.run(() =>
+            this._muya.editor.commitPendingContents(op, 'user'));
     }
 }
 

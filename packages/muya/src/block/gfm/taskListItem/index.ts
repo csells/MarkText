@@ -3,16 +3,16 @@ import type { ITaskListItemMeta, ITaskListItemState } from '../../../state/types
 import type { TBlockPath } from '../../types';
 import { CLASS_NAMES } from '../../../config';
 import { mixins } from '../../../utils';
-import { LinkedList } from '../../base/linkedList/linkedList';
+import { appendCreatedChildren } from '../../appendCreatedChildren';
 import Parent from '../../base/parent';
 import IContainerQueryBlock from '../../mixins/containerQueryBlock';
 import { ScrollPage } from '../../scrollPage';
 
 @mixins(IContainerQueryBlock)
-class TaskListItem extends Parent {
-    override children: LinkedList<Parent> = new LinkedList();
-
-    meta: ITaskListItemMeta;
+class TaskListItem extends Parent<Parent> {
+    get meta(): Readonly<ITaskListItemMeta> {
+        return this.readBlockMeta<ITaskListItemMeta>();
+    }
 
     static override blockName = 'task-list-item';
 
@@ -23,10 +23,10 @@ class TaskListItem extends Parent {
             ScrollPage.loadBlock('task-list-checkbox').create(muya, state.meta),
         );
 
-        listItem.append(
-            ...state.children.map(child =>
-                ScrollPage.loadBlock(child.name).create(muya, child),
-            ),
+        appendCreatedChildren(
+            state.children,
+            child => ScrollPage.createStateBlock(muya, child),
+            child => listItem.append(child),
         );
 
         return listItem;
@@ -47,7 +47,10 @@ class TaskListItem extends Parent {
         const oldCheckStatus = this.meta.checked;
 
         if (checked !== oldCheckStatus) {
-            this.meta.checked = checked;
+            this.replaceBlockMetaForDocumentEdit(
+                { ...this.meta, checked },
+                'Task-list checked mutation',
+            );
             const { path } = this;
             path.pop();
             path.push('meta', 'checked');
@@ -56,10 +59,18 @@ class TaskListItem extends Parent {
         }
     }
 
+    /** Update the live mirror after JSONState already applied the operation. */
+    applyCheckedFromState(checked: boolean): void {
+        this.replaceBlockMetaFromPreparedState(
+            { ...this.meta, checked },
+            'Prepared task-list item checked application',
+        );
+    }
+
     constructor(muya: Muya, { meta }: ITaskListItemState) {
         super(muya);
         this.tagName = 'li';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.classList = [CLASS_NAMES.MU_TASK_LIST_ITEM];
         this.createDomNode();
     }
@@ -71,7 +82,7 @@ class TaskListItem extends Parent {
             children: this.children.map(child => child.getState()),
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

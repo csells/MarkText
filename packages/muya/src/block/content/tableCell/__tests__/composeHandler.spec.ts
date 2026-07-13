@@ -2,6 +2,7 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserEdit } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // `TableCellContent.composeHandler` (tableCell/index.ts) guards an empty cell
@@ -124,9 +125,10 @@ describe('tableCellContent.composeHandler — empty-cell ZWSP guard', () => {
         // tableCell strip branch: stub inputHandler (covered elsewhere, and
         // depends on real-browser composition) and present the synced text.
         vi.spyOn(cell, 'inputHandler').mockImplementation(() => {});
-        cell.text = `你好${ZWSP}`;
-
-        cell.composeHandler(composeEvent('compositionend'));
+        runUserEdit(muya, () => {
+            cell.text = `你好${ZWSP}`;
+            cell.composeHandler(composeEvent('compositionend'));
+        });
 
         expect(cell.text).toBe('你好');
         expect(cell.text).not.toContain(ZWSP);

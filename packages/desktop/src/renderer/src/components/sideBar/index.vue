@@ -11,9 +11,17 @@
           v-for="(c, index) of sideBarIcons"
           :key="index"
           :class="{ active: c.id === rightColumn }"
+          :title="c.name()"
+          :aria-label="c.name()"
           @click="handleLeftIconClick(c.id)"
         >
           <component :is="c.icon" />
+          <span
+            v-if="c.id === 'review' && reviewCount > 0"
+            class="review-count"
+          >
+            {{ reviewBadgeText }}
+          </span>
         </li>
       </ul>
       <ul class="bottom">
@@ -38,6 +46,7 @@
       />
       <side-bar-search v-else-if="rightColumn === 'search'" />
       <toc v-else-if="rightColumn === 'toc'" />
+      <review v-else-if="rightColumn === 'review'" />
     </div>
     <div
       v-show="rightColumn"
@@ -52,17 +61,20 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useLayoutStore } from '@/store/layout'
 import { useProjectStore } from '@/store/project'
 import { useEditorStore } from '@/store/editor'
+import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
 
 import { sideBarIcons, sideBarBottomIcons } from './help'
 import Tree from './tree.vue'
 import SideBarSearch from './search.vue'
 import Toc from './toc.vue'
+import Review from './review.vue'
 import { storeToRefs } from 'pinia'
 import type { TabDescriptor } from './types'
 
 const layoutStore = useLayoutStore()
 const projectStore = useProjectStore()
 const editorStore = useEditorStore()
+const criticMarkupReviewStore = useCriticMarkupReviewStore()
 
 const sideBar = ref<HTMLDivElement | null>(null)
 const dragBar = ref<HTMLDivElement | null>(null)
@@ -74,6 +86,10 @@ const { rightColumn, showSideBar, sideBarWidth } = storeToRefs(layoutStore)
 
 const { projectTree } = storeToRefs(projectStore)
 const { tabs } = storeToRefs(editorStore)
+const { snapshot: criticMarkupReview } = storeToRefs(criticMarkupReviewStore)
+
+const reviewCount = computed(() => criticMarkupReview.value.items.length)
+const reviewBadgeText = computed(() => reviewCount.value > 99 ? '99+' : `${reviewCount.value}`)
 
 const finalSideBarWidth = computed<number>(() => {
   if (!showSideBar.value) return 0
@@ -189,6 +205,24 @@ const handleLeftBottomClick = (name: string): void => {
   justify-content: space-around;
   align-items: center;
   cursor: pointer;
+  position: relative;
+}
+
+.review-count {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 7px;
+  background: var(--themeColor);
+  color: var(--sideBarBgColor);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
 }
 
 .left-column ul > li > svg {

@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import keytar from 'keytar'
 import schema from './schema.json'
 import Store, { type Schema } from 'electron-store'
@@ -8,6 +8,7 @@ import log from 'electron-log'
 import { ensureDirSync } from 'common/filesystem'
 import { IMAGE_EXTENSIONS } from 'common/filesystem/paths'
 import { TypedEmitter } from '@shared/types/typedEmitter'
+import { presentationPolicy } from '../presentationPolicy'
 
 const DATA_CENTER_NAME = 'dataCenter'
 
@@ -175,7 +176,7 @@ class DataCenter extends TypedEmitter<DataCenterEvents> {
       if (!imagePath) {
         const win = BrowserWindow.fromWebContents(e.sender)
         if (!win) return
-        const { filePaths } = await dialog.showOpenDialog(win, {
+        const { filePaths } = await presentationPolicy.showOpenDialog(win, {
           properties: ['openDirectory', 'createDirectory']
         })
         if (filePaths && filePaths[0]) {
@@ -194,7 +195,7 @@ class DataCenter extends TypedEmitter<DataCenterEvents> {
     ipcMain.handle('mt::ask-for-image-path', async(e) => {
       const win = BrowserWindow.fromWebContents(e.sender)
       if (!win) return ''
-      const { filePaths } = await dialog.showOpenDialog(win, {
+      const { filePaths } = await presentationPolicy.showOpenDialog(win, {
         properties: ['openFile'],
         filters: [
           {

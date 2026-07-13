@@ -2,7 +2,12 @@ import type Content from '../block/base/content';
 import type Parent from '../block/base/parent';
 import type TreeNode from '../block/base/treeNode';
 import type { Muya } from '../muya';
-import type { TState } from '../state/types';
+import type {
+    IBulletListState,
+    IOrderListState,
+    ITaskListState,
+    TState,
+} from '../state/types';
 import type { Nullable } from '../types';
 import type Clipboard from './index';
 import CodeBlockContent from '../block/content/codeBlockContent';
@@ -12,8 +17,15 @@ import { URL_REG } from '../config';
 import { tokenizer } from '../inlineRenderer/lexer';
 import HtmlToMarkdown from '../state/htmlToMarkdown';
 import { MarkdownToState } from '../state/markdownToState';
-import { isAnyListState, isParagraphState } from '../state/types';
+import {
+    isAnyListState,
+    isListItemState,
+    isParagraphState,
+    isTaskListItemState,
+} from '../state/types';
+import { replaceArrayRange } from '../utils/arrayMutation';
 import { getClipboardImageFile, getCopyTextType, isStandaloneTableHtml, normalizePastedHTML } from '../utils/paste';
+import { cutSelection } from './cut';
 import { mergePasteIntoHeading } from './mergePasteIntoHeading';
 import { tryPasteImage, tryReplaceSelectedImage } from './pasteImage';
 import { PasteType } from './types';
@@ -75,7 +87,7 @@ function insertStatesAfter(
 ): Nullable<Parent> {
     let wb = wrapperBlock;
     for (const state of states) {
-        const newBlock = ScrollPage.loadBlock(state.name).create(muya, state);
+        const newBlock = ScrollPage.createStateBlock(muya, state);
         wb?.parent?.insertAfter(newBlock, wb);
         wb = newBlock;
     }
@@ -116,7 +128,15 @@ function canPlainUrlFallbackAutoLink(
             + text
             + content.substring(end.offset);
 
-    return tokenizer(candidate, { hasBeginRules: false }).some(token =>
+    return tokenizer(candidate, {
+        hasBeginRules: false,
+        options: {
+            criticMarkup: false,
+            criticMarkupDocumentFragments: [],
+            footnote: false,
+            superSubScript: true,
+        },
+    }).some(token =>
         token.type === 'auto_link_extension'
         && token.linkType === 'url'
         && token.range.start === start.offset
@@ -334,7 +354,12 @@ function tryMergeListPaste(
     if (canFold) {
         anchorPara.text = head + pastedFirst.text;
         currentItem.children = [...currentItem.children, ...pastedItems[0].children.slice(1)];
-        mergedChildren.splice(itemIndex + 1, 0, ...pastedItems.slice(1));
+        replaceArrayRange(
+            mergedChildren,
+            itemIndex + 1,
+            0,
+            pastedItems.slice(1),
+        );
         // The whole paste folded into `anchorPara` (no extra blocks/items): the
         // caret stays in that paragraph at the seam.
         foldedOnly
@@ -344,23 +369,49 @@ function tryMergeListPaste(
     }
     else {
         anchorPara.text = head;
-        mergedChildren.splice(itemIndex + 1, 0, ...pastedItems);
+        replaceArrayRange(mergedChildren, itemIndex + 1, 0, pastedItems);
     }
 
     const loose = listState.meta.loose || firstState.meta.loose;
-    const mergedListState = {
-        ...listState,
-        meta: { ...listState.meta, loose },
-        children: mergedChildren,
-    };
+    let mergedListState: IBulletListState | IOrderListState | ITaskListState;
+    if (listState.name === 'task-list') {
+        if (!mergedChildren.every(isTaskListItemState)) {
+            throw new TypeError(
+                'A merged task list must contain only task-list-item state.',
+            );
+        }
+        mergedListState = {
+            ...listState,
+            meta: { ...listState.meta, loose },
+            children: mergedChildren,
+        };
+    }
+    else {
+        if (!mergedChildren.every(isListItemState)) {
+            throw new TypeError(
+                'A merged bullet or order list must contain only list-item state.',
+            );
+        }
+        mergedListState = listState.name === 'order-list'
+            ? {
+                    ...listState,
+                    meta: { ...listState.meta, loose },
+                    children: mergedChildren,
+                }
+            : {
+                    ...listState,
+                    meta: { ...listState.meta, loose },
+                    children: mergedChildren,
+                };
+    }
 
-    const newList = ScrollPage.loadBlock(mergedListState.name).create(
+    const newList = ScrollPage.createStateBlock(
         clipboard.muya,
         mergedListState,
     );
     listBlock.replaceWith(newList);
 
-    seatListMergeCursor(clipboard.muya, newList as Parent, {
+    seatListMergeCursor(clipboard.muya, newList, {
         foldedOnly,
         itemIndex,
         paraIndex,
@@ -540,8 +591,11 @@ function applyPlainTextBlockHtml(clipboard: Clipboard, ctx: IPasteContext, text:
     if (lines.length === 1)
         return;
 
-    const htmlState = { name: 'html-block', text: lines.slice(1).join('\n') };
-    const newBlock = ScrollPage.loadBlock(htmlState.name).create(clipboard.muya, htmlState);
+    const htmlState: TState = {
+        name: 'html-block',
+        text: lines.slice(1).join('\n'),
+    };
+    const newBlock = ScrollPage.createStateBlock(clipboard.muya, htmlState);
     ctx.wrapperBlock?.parent?.insertAfter(newBlock, ctx.wrapperBlock);
 }
 
@@ -555,18 +609,18 @@ function applyHtmlBlockPaste(
 ): void {
     const { muya } = clipboard;
     const { wrapperBlock, originWrapperBlock } = ctx;
-    const state = {
+    const state: TState = {
         name: 'html-block',
         text: text.trim(),
     };
-    const newBlock = ScrollPage.loadBlock(state.name).create(muya, state);
+    const newBlock = ScrollPage.createStateBlock(muya, state);
     wrapperBlock?.parent?.insertAfter(newBlock, wrapperBlock);
 
     // Drop the empty wrapper the html-block replaced.
     removeEmptyOriginWrapper(originWrapperBlock);
 
     const offset = state.text.length;
-    newBlock.lastContentInDescendant().setCursor(offset, offset, true);
+    newBlock.lastContentInDescendant()!.setCursor(offset, offset, true);
 }
 
 // Everything the paste pipeline needs, snapshotted up front so it survives the
@@ -599,7 +653,7 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
     if (!selection)
         return;
 
-    const { isSelectionInSameBlock, anchor } = selection;
+    const { anchor } = selection;
     const anchorBlock = anchor.block;
 
     if (!anchorBlock)
@@ -612,12 +666,6 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
     // Normalize Windows CRLF / lone CR to LF so every downstream `split('\n')`
     // and offset calculation sees one newline convention (muyajs strips \r).
     const text = data.text.replace(/\r\n?/g, '\n');
-
-    if (!isSelectionInSameBlock) {
-        clipboard.cutHandler();
-
-        return applyPaste(clipboard, data);
-    }
 
     // When the clipboard holds an image — either a file resolved to a path
     // or an in-memory bitmap — insert it as an inline image
@@ -649,49 +697,80 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
                 cursorBeforeNormalize.end,
             ),
     });
-    const copyType = getCopyTextType(html, text, pasteType);
+    const applyPreparedPaste = () => {
+        let currentSelection = clipboard.selection.getSelection();
+        if (!currentSelection)
+            return;
 
-    const { start, end } = anchorBlock.getCursor()!;
-    const { text: content } = anchorBlock;
-    const wrapperBlock = anchorBlock.getAnchor();
-    const ctx: IPasteContext = {
-        anchorBlock,
-        wrapperBlock,
-        originWrapperBlock: wrapperBlock,
-        start,
-        end,
-        content,
+        // A cross-block selection replacement is one semantic paste. Collapse
+        // it only after all async clipboard normalization has completed, inside
+        // the same captured mutation that inserts the prepared payload.
+        if (!currentSelection.isSelectionInSameBlock) {
+            cutSelection(clipboard);
+            currentSelection = clipboard.selection.getSelection();
+        }
+        if (!currentSelection || !currentSelection.isSelectionInSameBlock)
+            return;
+
+        const currentAnchorBlock = currentSelection.anchor.block;
+        const cursor = currentAnchorBlock.getCursor();
+        if (!cursor)
+            return;
+        const { start, end } = cursor;
+        const { text: content } = currentAnchorBlock;
+        const wrapperBlock = currentAnchorBlock.getAnchor();
+        const ctx: IPasteContext = {
+            anchorBlock: currentAnchorBlock,
+            wrapperBlock,
+            originWrapperBlock: wrapperBlock,
+            start,
+            end,
+            content,
+        };
+        const copyType = getCopyTextType(html, text, pasteType);
+
+        if (/html|text/.test(copyType)) {
+            const markdown
+                = copyType === 'html'
+                    && currentAnchorBlock.blockName !== 'codeblock.content'
+                    ? new HtmlToMarkdown({ bulletListMarker }).generate(html)
+                    : text;
+
+            // Every non-literal anchor always parses through `MarkdownToState`,
+            // regardless of line count, so a single line of `# heading` / `- list`
+            // / a one-row table becomes real structure.
+            const isLiteralAnchor
+                = currentAnchorBlock.blockName === 'language-input'
+                    || currentAnchorBlock.blockName === 'table.cell.content'
+                    || currentAnchorBlock.blockName === 'codeblock.content';
+
+            const isPlainInlineSpaces = /^ +$/.test(text);
+
+            if (isLiteralAnchor || isPlainInlineSpaces) {
+                applyLiteralPaste(
+                    clipboard,
+                    ctx,
+                    isPlainInlineSpaces ? text : markdown,
+                );
+            }
+            else {
+                applyParsedPaste(clipboard, ctx, markdown);
+            }
+        }
+        else if (pasteType === PasteType.PASTE_AS_PLAIN_TEXT) {
+            // Paste as Plain Text inserts block-level HTML as literal text, not a
+            // live html-block (muyajs `pasteAsPlainText` copyAsHtml branch).
+            applyPlainTextBlockHtml(clipboard, ctx, text);
+        }
+        else {
+            applyHtmlBlockPaste(clipboard, ctx, text);
+        }
     };
-
-    if (/html|text/.test(copyType)) {
-        const markdown
-            = copyType === 'html' && anchorBlock.blockName !== 'codeblock.content'
-                ? new HtmlToMarkdown({ bulletListMarker }).generate(html)
-                : text;
-
-        // Every non-literal anchor always parses through `MarkdownToState`,
-        // regardless of line count, so a single line of `# heading` / `- list`
-        // / a one-row table becomes real structure.
-        const isLiteralAnchor
-            = anchorBlock.blockName === 'language-input'
-                || anchorBlock.blockName === 'table.cell.content'
-                || anchorBlock.blockName === 'codeblock.content';
-
-        const isPlainInlineSpaces = /^ +$/.test(text);
-
-        if (isLiteralAnchor || isPlainInlineSpaces)
-            applyLiteralPaste(clipboard, ctx, isPlainInlineSpaces ? text : markdown);
-        else
-            applyParsedPaste(clipboard, ctx, markdown);
-    }
-    else if (pasteType === PasteType.PASTE_AS_PLAIN_TEXT) {
-        // Paste as Plain Text inserts block-level HTML as literal text, not a
-        // live html-block (muyajs `pasteAsPlainText` copyAsHtml branch).
-        applyPlainTextBlockHtml(clipboard, ctx, text);
-    }
-    else {
-        applyHtmlBlockPaste(clipboard, ctx, text);
-    }
+    const mutationGateway = clipboard.muya.editor.mutationGateway;
+    mutationGateway.run(
+        { kind: 'user-command' },
+        applyPreparedPaste,
+    );
 }
 
 // Entry for a trusted DOM `paste` event (native Cmd/Ctrl+V).

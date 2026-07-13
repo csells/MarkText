@@ -1,4 +1,14 @@
-import type { Lexer, MarkedExtension, Tokens } from 'marked';
+import type {
+    Lexer,
+    MarkedExtension,
+    MarkedSourceView,
+    Tokens,
+} from 'marked';
+import { markedViewOffset, MarkedSourceView as SourceView } from 'marked';
+import {
+    footnoteBodySourceSlices,
+    normalizeFootnoteBody,
+} from './footnoteBody';
 
 // marked's `tokenizer`/`renderer` hooks are bound to a context object that
 // exposes the active `lexer` (for nested block tokenisation) and `parser`
@@ -6,7 +16,9 @@ import type { Lexer, MarkedExtension, Tokens } from 'marked';
 // `TokenizerThis` types don't surface those fields, so we declare narrow
 // structural views and narrow `this` once per hook.
 interface IFootnoteTokenizerThis {
-    lexer: Lexer;
+    lexer: Lexer & {
+        readonly currentSourceView: MarkedSourceView<object> | null;
+    };
 }
 interface IFootnoteRendererThis {
     parser?: { parse: (toks: Tokens.Generic[]) => string };
@@ -59,12 +71,7 @@ export default function footnoteExtension(): MarkedExtension {
                     // to a preceding `\n`; without that strip an indented-
                     // continuation body (`[^id]:\n    text`) lexes as an
                     // indented code block instead of a paragraph.
-                    const cleaned = rest
-                        .replace(/^[ \t]*/, '')
-                        .replace(/^\n+/, '')
-                        .replace(/^ {4}/, '')
-                        .replace(/\n {4}(?=\S)/g, '\n')
-                        .replace(/\n+$/, '');
+                    const cleaned = normalizeFootnoteBody(rest);
 
                     // Use the bound lexer so nested content is parsed with the
                     // same Marked instance + extensions (math, etc.). A bare
@@ -76,8 +83,28 @@ export default function footnoteExtension(): MarkedExtension {
                     // parsing. Project this context once per hook.
                     // eslint-disable-next-line no-restricted-syntax
                     const { lexer } = this as unknown as IFootnoteTokenizerThis;
+                    const rootSource = lexer.currentSourceView;
+                    const restStart = raw.length - rest.length;
+                    const bodySource = rootSource
+                        ? SourceView.concat(
+                                footnoteBodySourceSlices(rest).map(slice =>
+                                    rootSource.slice(
+                                        markedViewOffset(restStart + slice.start),
+                                        markedViewOffset(restStart + slice.end),
+                                    )),
+                                rootSource.document,
+                            )
+                        : null;
+                    if (bodySource && bodySource.text !== cleaned) {
+                        throw new TypeError(
+                            'Marked footnote body differs from its mapped source.',
+                        );
+                    }
                     const tokens = cleaned
-                        ? (lexer.blockTokens(cleaned, []) as Tokens.Generic[])
+                        ? (lexer.blockTokens(
+                                bodySource ?? cleaned,
+                                [],
+                            ) as Tokens.Generic[])
                         : [];
 
                     return {

@@ -53,7 +53,7 @@ test.describe('Issue #4374: enterHandler chopBlockByCursor nextSibling crash', (
   let page: Page
 
   test.beforeEach(async() => {
-    const launched = await launchWithMarkdown('# Repro\n\n', { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown('# Repro\n\n')
     app = launched.app
     page = launched.page
     await placeCaretInEditor(page)

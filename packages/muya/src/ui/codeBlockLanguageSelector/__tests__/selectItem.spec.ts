@@ -24,21 +24,49 @@ function selectLanguage(fakeThis: unknown, name: string) {
     );
 }
 
+function fakeMuya() {
+    return {
+        editor: {
+            mutationGateway: {
+                run: (_request: unknown, mutate: () => void) => {
+                    mutate();
+                    return 'untracked';
+                },
+            },
+        },
+    };
+}
+
 describe('codeBlockLanguageSelector.selectItem', () => {
     it('applies the language to the parent code block when attached', () => {
         const lastContent = { setCursor: vi.fn() };
+        let block: {
+            blockName: string;
+            text: string;
+            parent: unknown;
+            outMostBlock: unknown;
+            update: () => void;
+        };
+        let language = '';
         const parent = {
-            lang: '',
+            get lang() {
+                return language;
+            },
+            set lang(value: string) {
+                language = value;
+                block.text = value;
+                block.update();
+            },
             lastContentInDescendant: vi.fn(() => lastContent),
         };
-        const block = {
+        block = {
             blockName: 'language-input',
             text: '',
             parent,
             outMostBlock: parent, // truthy => attached to the document
             update: vi.fn(),
         };
-        const fakeThis = { _block: block, muya: {}, hide: vi.fn() };
+        const fakeThis = { _block: block, muya: fakeMuya(), hide: vi.fn() };
 
         selectLanguage(fakeThis, 'python');
 
@@ -61,7 +89,7 @@ describe('codeBlockLanguageSelector.selectItem', () => {
             outMostBlock: null, // ...an ancestor is detached from the root
             update: vi.fn(),
         };
-        const fakeThis = { _block: block, muya: {}, hide: vi.fn() };
+        const fakeThis = { _block: block, muya: fakeMuya(), hide: vi.fn() };
 
         expect(() => selectLanguage(fakeThis, 'javascript')).not.toThrow();
         expect(block.text).toBe('');

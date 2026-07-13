@@ -36,10 +36,13 @@ afterEach(() => {
         delete (window as Partial<Window>).MUYA_VERSION;
 });
 
-function bootMuya(markdown: string): Muya {
+function bootMuya(
+    markdown: string,
+    options: ConstructorParameters<typeof Muya>[1] = {},
+): Muya {
     const host = document.createElement('div');
     document.body.appendChild(host);
-    const muya = new Muya(host, { markdown } as ConstructorParameters<typeof Muya>[1]);
+    const muya = new Muya(host, { ...options, markdown });
     muya.init();
     bootedHosts.push(muya.domNode);
     return muya;
@@ -55,6 +58,37 @@ function placeCursorAt(muya: Muya, offset: number): Content {
 }
 
 describe('muya.replaceCurrentWordInlineUnsafe()', () => {
+    it('tracks a spellcheck replacement as one native substitution', async () => {
+        const source = 'teh quick brown fox\n';
+        const muya = bootMuya(source, {
+            criticMarkupTrackChanges: true,
+        });
+        placeCursorAt(muya, 1);
+
+        expect(muya.replaceCurrentWordInlineUnsafe('teh', 'the')).toBe(true);
+        expect(muya.getMarkdown())
+            .toBe('{~~teh~>the~~} quick brown fox\n');
+        expect(muya.getCriticMarkupItems()).toMatchObject([{
+            type: 'substitution',
+            oldContent: 'teh',
+            newContent: 'the',
+        }]);
+
+        muya.undo();
+        await vi.waitFor(() => expect(muya.getMarkdown()).toBe(source));
+    });
+
+    it('fails closed for a spellcheck replacement in inline code', () => {
+        const source = '`teh` quick\n';
+        const muya = bootMuya(source, {
+            criticMarkupTrackChanges: true,
+        });
+        placeCursorAt(muya, 2);
+
+        expect(muya.replaceCurrentWordInlineUnsafe('teh', 'the')).toBe(false);
+        expect(muya.getMarkdown()).toBe(source);
+    });
+
     it('replaces the misspelled word at the cursor and updates markdown', async () => {
         const muya = bootMuya('teh quick brown fox\n');
         // Cursor sits inside `teh`.

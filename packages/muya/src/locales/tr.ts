@@ -90,6 +90,9 @@ export const tr = {
         'full mode': 'tam mod',
         // preview block
         'Loading...': 'Yükleniyor...',
+        'Accept': 'Kabul Et',
+        'Reject': 'Reddet',
+        'Remove': 'Kaldır',
         'Invalid Diagram Code': 'Geçersiz Diyagram Kodu',
         'Empty Diagram': 'Boş Diyagram',
         'Input Mathematical Formula...': 'Matematiksel Formülü girin...',

@@ -53,7 +53,12 @@ interface IMockMuya {
         imageAction?: (state: { src: string; alt: string; title: string }) => Promise<string>;
         getPathForFile?: (file: File) => string;
     };
-    editor: { inlineRenderer: { renderer: { urlMap: Map<string, string> } } };
+    editor: {
+        inlineRenderer: { renderer: { urlMap: Map<string, string> } };
+        mutationGateway: {
+            run: (request: unknown, mutate: () => void) => string;
+        };
+    };
 }
 
 // Build a fake outermost anchor block whose `parent.insertBefore/insertAfter`
@@ -102,7 +107,15 @@ function makeMuya(options: IMockMuya['options'] = {}): IMockMuya {
         eventCenter: new EventCenter(),
         domNode,
         options,
-        editor: { inlineRenderer: { renderer: { urlMap: new Map() } } },
+        editor: {
+            inlineRenderer: { renderer: { urlMap: new Map() } },
+            mutationGateway: {
+                run: (_request: unknown, mutate: () => void) => {
+                    mutate();
+                    return 'untracked';
+                },
+            },
+        },
     };
 }
 
@@ -117,6 +130,7 @@ function dropEvent(target: HTMLElement, dataTransfer: DataTransfer): DragEvent {
 afterEach(() => {
     createdBlocks.length = 0;
     document.body.innerHTML = '';
+    vi.unstubAllGlobals();
 });
 
 describe('attachDragDropImageHandlers — local image FILE', () => {
@@ -165,6 +179,30 @@ describe('attachDragDropImageHandlers — local image FILE', () => {
         // Raw path is used verbatim — no permanent `loading-*` alt is left.
         expect(createdBlocks).toHaveLength(1);
         expect(createdBlocks[0].text).toBe('![shot.png](/abs/shot.png)');
+    });
+
+    it('reports a rejected imageAction through the contextual async boundary', async () => {
+        const cause = new Error('upload failed');
+        const reportError = vi.fn();
+        vi.stubGlobal('reportError', reportError);
+        const muya = makeMuya({
+            imageAction: vi.fn().mockRejectedValue(cause),
+            getPathForFile: vi.fn().mockReturnValue('/abs/shot.png'),
+        });
+        const contentDom = makeDropTarget(muya);
+        attachDragDropImageHandlers(muya as unknown as Muya);
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['x'], 'shot.png', { type: 'image/png' }));
+
+        muya.domNode.dispatchEvent(dropEvent(contentDom, transfer));
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(reportError).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Dropped image persistence failed.',
+            cause,
+        }));
     });
 
     it('does nothing when getPathForFile yields no path', () => {

@@ -29,6 +29,9 @@ afterEach(() => {
 // touches: an `i18n` with `.t(key)` and `options` with the diagram themes.
 function makeFakeMuya(locale = en): { muya: Muya; i18n: I18n } {
     const muya = {
+        editor: {
+            scrollPage: null,
+        },
         options: {
             mermaidTheme: 'default',
             vegaTheme: 'default',

@@ -136,6 +136,25 @@
       "hyperlink": "Köprü",
       "clearFormat": "Biçimlendirmeyi Temizle"
     },
+    "review": {
+      "review": "İnceleme",
+      "trackChanges": "Değişiklikleri izle",
+      "markAddition": "Ekleme olarak işaretle",
+      "markDeletion": "Silme olarak işaretle",
+      "suggestReplacement": "Değişiklik öner…",
+      "highlight": "İnceleme için vurgula",
+      "addComment": "Yorum ekle…",
+      "previous": "Önceki değişiklik",
+      "next": "Sonraki değişiklik",
+      "acceptCurrent": "Değişikliği kabul et",
+      "rejectCurrent": "Değişikliği reddet",
+      "acceptAll": "Tüm değişiklikleri kabul et",
+      "rejectAll": "Tüm değişiklikleri reddet",
+      "display": "Görünüm",
+      "showMarked": "İşaretlemeler",
+      "showOriginal": "Özgün",
+      "showRevised": "Düzeltilmiş"
+    },
     "theme": {
       "theme": "&Tema",
       "dark": "Koyu",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "İçindekiler"
     },
+    "review": {
+      "title": "İnceleme",
+      "summary": "{count} inceleme öğesi",
+      "trackChanges": "Değişiklikleri izle",
+      "unavailable": "İnceleme bu görünümde kullanılamıyor.",
+      "empty": "İncelenecek öğe yok",
+      "removeComment": "Yorumu kaldır",
+      "removeHighlight": "Vurguyu kaldır",
+      "types": {
+        "addition": "Ekleme",
+        "deletion": "Silme",
+        "substitution": "Değişiklik",
+        "highlight": "Vurgu",
+        "comment": "Yorum"
+      }
+    },
     "icons": {
       "files": "Dosyalar",
       "search": "Ara",
       "toc": "İçindekiler",
+      "review": "İnceleme",
       "settings": "Ayarlar"
     }
   },
@@ -820,6 +856,23 @@
       "image": "Görsel",
       "clearFormat": "Biçimlendirmeyi Temizle"
     },
+    "review": {
+      "trackChanges": "Değişiklikleri izle",
+      "markAddition": "Ekleme olarak işaretle",
+      "markDeletion": "Silme olarak işaretle",
+      "suggestReplacement": "Değişiklik öner",
+      "highlight": "İnceleme için vurgula",
+      "addComment": "Yorum ekle",
+      "previous": "Önceki değişiklik",
+      "next": "Sonraki değişiklik",
+      "acceptCurrent": "Değişikliği kabul et",
+      "rejectCurrent": "Değişikliği reddet",
+      "acceptAll": "Tüm değişiklikleri kabul et",
+      "rejectAll": "Tüm değişiklikleri reddet",
+      "showMarked": "İşaretlemeleri göster",
+      "showOriginal": "Özgün metni göster",
+      "showRevised": "Düzeltilmiş metni göster"
+    },
     "window": {
       "minimize": "Simge Durumuna Küçült",
       "close": "Kapat",
@@ -933,6 +986,12 @@
     "unexpectedError": "Beklenmeyen yazım denetleyici hatası"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "Yorum ekle",
+      "commentPlaceholder": "İnceleme yorumu girin",
+      "replacementTitle": "Değişiklik öner",
+      "replacementPlaceholder": "Yeni metni girin"
+    },
     "export": {
       "error": "Dışa aktarma hatası",
       "errorExporting": "{type} dosyası dışa aktarılırken hata",

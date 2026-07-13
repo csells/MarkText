@@ -5,6 +5,7 @@ import type {
     ICodeBlockState,
     IDiagramState,
     IFrontmatterState,
+    IParagraphState,
 } from '../../../state/types';
 import type Code from '../../commonMark/codeBlock/code';
 import type HTMLPreview from '../../commonMark/html/htmlPreview';
@@ -87,7 +88,13 @@ function hasStateMeta(
 
 class CodeBlockContent extends Content {
     private _initialLang: string;
-    public override parent: Code | null = null;
+    override get parent(): Code | null {
+        return super.parent as Code | null;
+    }
+
+    override set parent(value: Code | null) {
+        super.parent = value;
+    }
 
     static override blockName = 'codeblock.content';
 
@@ -269,19 +276,19 @@ class CodeBlockContent extends Content {
                 cursorBlock = nextContentBlock;
             }
             else {
-                const newNodeState = {
+                const newNodeState: IParagraphState = {
                     name: 'paragraph',
                     text: '',
                 };
-                const newNode = ScrollPage.loadBlock(newNodeState.name).create(
+                const newNode = ScrollPage.createStateBlock(
                     this.muya,
                     newNodeState,
                 );
                 this.scrollPage?.append(newNode, 'user');
-                cursorBlock = newNode.firstChild;
+                cursorBlock = newNode.firstContentInDescendant();
             }
-            const offset = adjustOffset(0, cursorBlock, event);
-            cursorBlock.setCursor(offset, offset, true);
+            const offset = adjustOffset(0, cursorBlock!, event);
+            cursorBlock!.setCursor(offset, offset, true);
 
             return;
         }
@@ -389,13 +396,13 @@ class CodeBlockContent extends Content {
         if (start.offset === end.offset && start.offset === 0) {
             event.preventDefault();
             const { text, muya } = this;
-            const state = {
+            const state: IParagraphState = {
                 name: 'paragraph',
                 text,
             };
-            const newNode = ScrollPage.loadBlock(state.name).create(muya, state);
+            const newNode = ScrollPage.createStateBlock(muya, state);
             this.outContainer!.replaceWith(newNode);
-            const cursorBlock = newNode.lastContentInDescendant();
+            const cursorBlock = newNode.lastContentInDescendant()!;
 
             return cursorBlock.setCursor(0, 0, true);
         }

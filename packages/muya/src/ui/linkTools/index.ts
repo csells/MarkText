@@ -161,10 +161,14 @@ class LinkTools extends BaseFloat {
                 const block = this._linkBlock;
                 const linkInfo = this._linkInfo;
                 if (block && linkInfo && linkInfo.range) {
-                    block.unlink({
-                        range: linkInfo.range,
-                        text: linkInfo.text ?? '',
-                    });
+                    const range = linkInfo.range;
+                    this.muya.editor.mutationGateway.run(
+                        { kind: 'user-command' },
+                        () => block.unlink({
+                            range,
+                            text: linkInfo.text ?? '',
+                        }),
+                    );
                 }
                 this.hide();
                 break;

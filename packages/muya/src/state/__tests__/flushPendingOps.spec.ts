@@ -2,6 +2,7 @@
 
 import type Content from '../../block/base/content';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runDeferredDirectMutation } from '../../__tests__/helpers/mutation';
 import { Muya } from '../../muya';
 
 // #2938 part 2: `muya.flush()` makes a same-frame edit durable before the
@@ -34,6 +35,27 @@ function nextFrame(): Promise<void> {
 }
 
 describe('muya.flush() — make pending edits durable synchronously (#2938)', () => {
+    it('can snapshot queued edits without flushing or emitting a change', () => {
+        const muya = boot('hello\n');
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
+        let changes = 0;
+        muya.eventCenter.on('json-change', () => {
+            changes += 1;
+        });
+
+        runDeferredDirectMutation(muya, () => {
+            leaf.text = 'hello pending';
+        });
+
+        expect(muya.editor.jsonState.getLiveState()).toEqual([
+            { name: 'paragraph', text: 'hello pending' },
+        ]);
+        expect(muya.getState()).toEqual([
+            { name: 'paragraph', text: 'hello' },
+        ]);
+        expect(changes).toBe(0);
+    });
+
     it('applies a queued edit and emits json-change synchronously', () => {
         const muya = boot('hello\n');
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
@@ -43,7 +65,9 @@ describe('muya.flush() — make pending edits durable synchronously (#2938)', ()
             changes += 1;
         });
 
-        leaf.text = 'hello world'; // queued, not yet applied
+        runDeferredDirectMutation(muya, () => {
+            leaf.text = 'hello world'; // queued, not yet applied
+        });
         expect(muya.getMarkdown().trim()).toBe('hello');
         expect(changes).toBe(0);
 
@@ -64,7 +88,9 @@ describe('muya.flush() — make pending edits durable synchronously (#2938)', ()
             captured.push(muya.getMarkdown().trim());
         });
 
-        leaf.text = 'hello world'; // pending
+        runDeferredDirectMutation(muya, () => {
+            leaf.text = 'hello world'; // pending
+        });
 
         // Tab-switch sequence: flush the outgoing doc FIRST, then swap.
         muya.flush();
@@ -97,13 +123,17 @@ describe('muya.flush() — make pending edits durable synchronously (#2938)', ()
         const muya = boot('hello\n');
         const leaf = muya.editor.scrollPage!.firstContentInDescendant() as Content;
 
-        leaf.text = 'one';
+        runDeferredDirectMutation(muya, () => {
+            leaf.text = 'one';
+        });
         muya.flush();
         expect(muya.getMarkdown().trim()).toBe('one');
 
         // A subsequent edit still batches + flushes on its own frame.
         const leaf2 = muya.editor.scrollPage!.firstContentInDescendant() as Content;
-        leaf2.text = 'two';
+        runDeferredDirectMutation(muya, () => {
+            leaf2.text = 'two';
+        });
         expect(muya.getMarkdown().trim()).toBe('one'); // still deferred
         await nextFrame();
         expect(muya.getMarkdown().trim()).toBe('two');

@@ -56,7 +56,12 @@ export function getTOC(muya: Muya): ITocItem[] {
         const content = tokensToPlainText(
             tokenizer(source, {
                 hasBeginRules: false,
-                options: { superSubScript, footnote },
+                options: {
+                    superSubScript,
+                    footnote,
+                    criticMarkup: false,
+                    criticMarkupDocumentFragments: [],
+                },
             }),
         ).trim();
 

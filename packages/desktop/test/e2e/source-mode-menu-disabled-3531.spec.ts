@@ -25,7 +25,7 @@ test.describe('paragraph/format menus disabled in source mode (#3531)', () => {
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown('# Doc\n\nhello world\n', { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown('# Doc\n\nhello world\n')
     app = launched.app
     page = launched.page
     await focusEditor(page)
@@ -57,9 +57,7 @@ test.describe('menus reflect cursor context after exiting source mode (#3531)', 
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown('```js\nconst x = 1\n```\n\n# Heading\n', {
-      suppressErrorDialog: true
-    })
+    const launched = await launchWithMarkdown('```js\nconst x = 1\n```\n\n# Heading\n')
     app = launched.app
     page = launched.page
     await focusEditor(page)

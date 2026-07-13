@@ -14,6 +14,14 @@ import type { MenuTemplate, MenuPopupPosition } from '@shared/types/menu'
 import type { SerializedStat } from '@shared/types/files'
 
 declare global {
+  // eslint-disable-next-line camelcase
+  var __mt_captured_errors__: Array<{
+    source: 'main' | 'renderer' | 'startup' | 'crash'
+    name: string
+    message: string
+    stack?: string
+  }> | undefined
+
   // ---- Build-time defines (electron-vite `define`) ----
   const MARKTEXT_VERSION: string
   const MARKTEXT_VERSION_STRING: string
@@ -175,6 +183,11 @@ declare global {
     nextTick: (fn: (...args: unknown[]) => void, ...args: unknown[]) => void
   }
 
+  interface MarkTextE2EReadOnlyBridge {
+    /** Read the active Muya document without entering source mode or mutating it. */
+    readCanonicalMarkdown(): string
+  }
+
   interface Window {
     electron: ElectronAPI
     fileUtils: FileUtilsAPI
@@ -188,6 +201,8 @@ declare global {
     rgPath: string
     // Set by the legacy editor store at runtime; consumed by muya internals.
     DIRNAME: string
+    /** Present only when the explicit E2E read-only bridge flag is enabled. */
+    __marktextE2EReadOnly?: MarkTextE2EReadOnlyBridge
     marktext?: {
       env?: { windowId: number; [key: string]: unknown }
       initialState?: {

@@ -2,6 +2,7 @@ import { Menu, ipcMain, type BrowserWindow } from 'electron'
 import { isOsx } from '../../config'
 import { COMMANDS } from '../../commands'
 import { zoomIn, zoomOut } from '../../windows/utils'
+import { presentationPolicy } from '../../presentationPolicy'
 import type { CommandManager } from '../../commands'
 
 export const minimizeWindow = (win: BrowserWindow | null | undefined): void => {
@@ -22,7 +23,7 @@ export const toggleAlwaysOnTop = (win: BrowserWindow | null | undefined): void =
 
 export const toggleFullScreen = (win: BrowserWindow | null | undefined): void => {
   if (win) {
-    win.setFullScreen(!win.isFullScreen())
+    presentationPolicy.setWindowFullScreen(win, !win.isFullScreen())
   }
 }
 

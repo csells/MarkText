@@ -63,5 +63,39 @@ describe('eventCenter', () => {
             expect(onceFn).toHaveBeenCalledTimes(1);
             expect(regFn).toHaveBeenCalledTimes(2);
         });
+
+        it('runs later listeners and removes once listeners when one throws', () => {
+            const ec = new EventCenter();
+            const later = vi.fn();
+            ec.once('foo', () => {
+                throw new Error('listener failed');
+            });
+            ec.on('foo', later);
+
+            expect(() => ec.emit('foo')).toThrowError('listener failed');
+            expect(later).toHaveBeenCalledTimes(1);
+
+            expect(() => ec.emit('foo')).not.toThrow();
+            expect(later).toHaveBeenCalledTimes(2);
+        });
+    });
+
+    describe('buffer().replay()', () => {
+        it('delivers later prepared events before surfacing observer errors', () => {
+            const ec = new EventCenter();
+            const later = vi.fn();
+            ec.on('first', () => {
+                throw new Error('first observer failed');
+            });
+            ec.on('second', later);
+            const prepared = ec.buffer(() => {
+                ec.emit('first');
+                ec.emit('second');
+            });
+
+            expect(() => prepared.replay())
+                .toThrowError('first observer failed');
+            expect(later).toHaveBeenCalledTimes(1);
+        });
     });
 });

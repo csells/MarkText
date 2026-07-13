@@ -2,6 +2,7 @@
 
 import type Format from '../format';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommandResult } from '../../../__tests__/helpers/mutation';
 import { Muya } from '../../../muya';
 import { InlineFormatToolbar } from '../../../ui/inlineFormatToolbar';
 
@@ -56,6 +57,15 @@ function caretInFirstBlock(muya: Muya, offset: number): Format {
     const content = muya.editor.scrollPage!.firstContentInDescendant() as unknown as Format;
     muya.editor.activeContentBlock = content as never;
     content.setCursor(offset, offset, true);
+    return routeFormatThroughGateway(muya, content);
+}
+
+function routeFormatThroughGateway(muya: Muya, content: Format): Format {
+    const format = content.format.bind(content);
+    content.format = type => runUserCommandResult(
+        muya,
+        () => format(type),
+    );
     return content;
 }
 
@@ -82,7 +92,7 @@ function selectInFirstBlock(muya: Muya, start: number, end: number): Format {
         direction: 'forward',
         type: start === end ? 'Caret' : 'Range',
     });
-    return content;
+    return routeFormatThroughGateway(muya, content);
 }
 
 describe('format.format() toggle-off with the caret inside the formatted run', () => {

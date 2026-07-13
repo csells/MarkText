@@ -8,7 +8,9 @@ import { ScrollPage } from '../../scrollPage';
 
 @mixins(LeafQueryBlock)
 class SetextHeading extends Parent {
-    public meta: ISetextHeadingState['meta'];
+    get meta(): Readonly<ISetextHeadingState['meta']> {
+        return this.readBlockMeta<ISetextHeadingState['meta']>();
+    }
 
     static override blockName = 'setext-heading';
 
@@ -36,17 +38,17 @@ class SetextHeading extends Parent {
     constructor(muya: Muya, { meta }: ISetextHeadingState) {
         super(muya);
         this.tagName = `h${meta.level}`;
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.classList = ['mu-setext-heading'];
         this.createDomNode();
     }
 
     override getState(): ISetextHeadingState {
-        return {
+        return this.withStateSourceTrivia({
             name: 'setext-heading',
-            meta: this.meta,
+            meta: { ...this.meta },
             text: (this.children.head as SetextHeadingContent).text,
-        };
+        });
     }
 }
 

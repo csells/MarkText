@@ -5,14 +5,28 @@ import type { Muya } from '../muya';
 import type { ISelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
+import type { ICriticMarkupClipboardContext } from '../utils/marked/getClipboardHtml';
+import type { TSourceRange } from '../mappedText';
 import type Clipboard from './index';
+import { hasCriticMarkupOpener } from '../criticMarkup/parser';
+import { localOffset, sourceRange } from '../mappedText';
+import { markdownStatePath } from '../state/markdownSourceMap';
 import StateToMarkdown from '../state/stateToMarkdown';
-import { getClipBoardHtml, getSanitizeClipboardHtml } from '../utils/marked';
+import {
+    getClipBoardHtml,
+    getSanitizeClipboardHtml,
+    sanitizeClipboardHtml,
+} from '../utils/marked';
+import { projectCriticMarkupMarkdown } from '../utils/marked/criticMarkupDocument';
 import { CopyType } from './types';
 
 export interface IClipboardPayload {
     html: string;
     text: string;
+    /** Visible projection prepared together with rich HTML from one analysis. */
+    projectedText?: string;
+    /** Exact live-document context for selections containing Critic openers. */
+    criticMarkupContext?: ICriticMarkupClipboardContext;
 }
 
 // Document-order resolution of a cross-block selection: the start/end outmost
@@ -33,6 +47,7 @@ interface ICopyOrder {
 
 function buildHtmlOptions(options: Muya['options']) {
     const {
+        criticMarkupProjection,
         footnote,
         frontMatter = true,
         math,
@@ -40,7 +55,174 @@ function buildHtmlOptions(options: Muya['options']) {
         superSubScript,
     } = options;
 
-    return { footnote, frontMatter, math, isGitlabCompatibilityEnabled, superSubScript };
+    return {
+        criticMarkup: true,
+        criticMarkupProjection,
+        footnote,
+        frontMatter,
+        math,
+        isGitlabCompatibilityEnabled,
+        superSubScript,
+    };
+}
+
+type TClipboardHtmlOptions = ReturnType<typeof buildHtmlOptions>;
+
+function richClipboardPayload(
+    text: string,
+    options: TClipboardHtmlOptions,
+    criticMarkupContext?: ICriticMarkupClipboardContext,
+): IClipboardPayload {
+    const projection = options.criticMarkupProjection ?? 'marked';
+    const projectedText = criticMarkupContext
+        ? `${criticMarkupContext.leadingMarkdown}${criticMarkupContext.document.projectSourceRange(
+            criticMarkupContext.sourceRange,
+            projection,
+        )}${criticMarkupContext.trailingMarkdown}`
+        : projectCriticMarkupMarkdown(
+                text,
+                projection,
+                options,
+            );
+    const html = getClipBoardHtml(
+        projection === 'marked' ? text : projectedText,
+        projection === 'marked'
+            ? options
+            : {
+                    ...options,
+                    criticMarkup: false,
+                    criticMarkupProjection: 'marked',
+                },
+        projection === 'marked' ? criticMarkupContext : undefined,
+    );
+
+    return { html, text, projectedText, criticMarkupContext };
+}
+
+function clipboardPayloadForSink(
+    text: string,
+    copyType: CopyType,
+    options: TClipboardHtmlOptions,
+    criticMarkupContext?: ICriticMarkupClipboardContext,
+): IClipboardPayload {
+    return copyType === CopyType.COPY_AS_RICH
+        ? richClipboardPayload(text, options, criticMarkupContext)
+        : { html: '', text, criticMarkupContext };
+}
+
+function sinkUsesCriticMarkupProjection(
+    copyType: CopyType,
+    options: TClipboardHtmlOptions,
+): boolean {
+    return copyType === CopyType.COPY_AS_HTML
+        || copyType === CopyType.COPY_AS_RICH
+        || (
+            copyType === CopyType.NORMAL
+            && options.criticMarkupProjection !== undefined
+            && options.criticMarkupProjection !== 'marked'
+        );
+}
+
+function criticMarkupContextForSelection(
+    clipboard: Clipboard,
+    start: Pick<ISelection['anchor'], 'path' | 'offset'>,
+    end: Pick<ISelection['focus'], 'path' | 'offset'>,
+    text: string,
+    parserRange: TSourceRange,
+    options: TClipboardHtmlOptions,
+): ICriticMarkupClipboardContext | undefined {
+    if (
+        !sinkUsesCriticMarkupProjection(clipboard.copyType, options)
+        || !hasCriticMarkupOpener(text)
+    ) {
+        return undefined;
+    }
+
+    const document = clipboard.muya.editor.criticMarkupDocument.get();
+    const sourceRange = document.sourceRangeForLocalEndpoints(
+        {
+            path: markdownStatePath(start.path),
+            offset: localOffset(start.offset),
+        },
+        {
+            path: markdownStatePath(end.path),
+            offset: localOffset(end.offset),
+        },
+    );
+    const canonical = document.markdown.slice(
+        sourceRange.start,
+        sourceRange.end,
+    );
+    if (text.slice(parserRange.start, parserRange.end) !== canonical) {
+        throw new RangeError(
+            'Clipboard selection mapping differs from its canonical Markdown source range.',
+        );
+    }
+    const leadingMarkdown = text.slice(0, parserRange.start);
+    const trailingMarkdown = text.slice(parserRange.end);
+
+    return Object.freeze({
+        document,
+        sourceRange,
+        leadingMarkdown,
+        trailingMarkdown,
+    });
+}
+
+function projectedClipboardText(
+    payload: IClipboardPayload,
+    projection: TClipboardHtmlOptions['criticMarkupProjection'],
+    options: TClipboardHtmlOptions,
+): string {
+    return payload.criticMarkupContext
+        ? `${payload.criticMarkupContext.leadingMarkdown}${payload.criticMarkupContext.document.projectSourceRange(
+            payload.criticMarkupContext.sourceRange,
+            projection ?? 'marked',
+        )}${payload.criticMarkupContext.trailingMarkdown}`
+        : projectCriticMarkupMarkdown(
+                payload.text,
+                projection ?? 'marked',
+                options,
+            );
+}
+
+function completeRichClipboardPayload(
+    payload: IClipboardPayload,
+    options: TClipboardHtmlOptions,
+): IClipboardPayload & { projectedText: string } {
+    if (payload.projectedText !== undefined) {
+        return {
+            ...payload,
+            projectedText: payload.projectedText,
+        };
+    }
+
+    if (payload.html) {
+        return {
+            ...payload,
+            projectedText: projectedClipboardText(
+                payload,
+                options.criticMarkupProjection,
+                options,
+            ),
+        };
+    }
+
+    const rich = richClipboardPayload(
+        payload.text,
+        options,
+        payload.criticMarkupContext,
+    );
+    if (rich.projectedText === undefined) {
+        throw new TypeError(
+            'Rich clipboard payload has no visible projection.',
+        );
+    }
+
+    return {
+        ...rich,
+        projectedText: rich.projectedText,
+    };
 }
 
 /**
@@ -63,9 +245,11 @@ function getTableSelectionClipboardData(
     }
 
     const text = new StateToMarkdown().generate([state]);
-    const html = getClipBoardHtml(text, buildHtmlOptions(clipboard.muya.options));
-
-    return { html, text };
+    return clipboardPayloadForSink(
+        text,
+        clipboard.copyType,
+        buildHtmlOptions(clipboard.muya.options),
+    );
 }
 
 // Returns `null` when the outmost-block offsets can't be read (e.g. no scroll page).
@@ -363,8 +547,21 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
         const end = Math.max(anchor.offset, focus.offset);
 
         const text = anchorBlock.text.substring(begin, end);
+        const criticMarkupContext = criticMarkupContextForSelection(
+            clipboard,
+            { path: anchor.path, offset: begin },
+            { path: anchor.path, offset: end },
+            text,
+            sourceRange(0, text.length),
+            options,
+        );
 
-        return { html: getClipBoardHtml(text, options), text };
+        return clipboardPayloadForSink(
+            text,
+            copyType,
+            options,
+            criticMarkupContext,
+        );
     }
 
     // Handle select multiple blocks.
@@ -374,10 +571,29 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
 
     const copyState = collectCopyState(order);
 
-    const text = new StateToMarkdown().generate(copyState);
-    const html = getClipBoardHtml(text, options);
-
-    return { html, text };
+    const tracked = new StateToMarkdown({
+        listIndentation: clipboard.muya.options.listIndentation,
+    }).generateMapped(copyState);
+    const text = tracked.text;
+    const firstSpan = tracked.sourceMap.spans[0];
+    const lastSpan = tracked.sourceMap.spans.at(-1);
+    const parserRange = firstSpan && lastSpan
+        ? sourceRange(firstSpan.sourceStart, lastSpan.sourceEnd)
+        : sourceRange(0, text.length);
+    const criticMarkupContext = criticMarkupContextForSelection(
+        clipboard,
+        { path: order.startBlock.path, offset: order.startOffset },
+        { path: order.endBlock.path, offset: order.endOffset },
+        text,
+        parserRange,
+        options,
+    );
+    return clipboardPayloadForSink(
+        text,
+        copyType,
+        options,
+        criticMarkupContext,
+    );
 }
 
 export function writeClipboardData(
@@ -387,43 +603,50 @@ export function writeClipboardData(
     if (!event.clipboardData)
         return;
 
-    // A selected inline image copies its raw `![alt](src)` markdown
-    // verbatim, short-circuiting the text-selection clipboard data.
+    const options = buildHtmlOptions(clipboard.muya.options ?? {});
+
+    // A selected inline image supplies source to the same projection/mode/
+    // sanitizer dispatcher as a text selection. It must not become a second
+    // clipboard policy path: image alternatives can contain hostile HTML and
+    // CriticMarkup whose visible value depends on the active projection.
     const selectedImage = clipboard.muya.editor?.selection?.image;
-    if (selectedImage) {
-        const { raw } = selectedImage.token;
-        if (raw.length > 0) {
-            event.clipboardData.setData('text/html', raw);
-            event.clipboardData.setData('text/plain', raw);
-        }
-        return;
-    }
+    const selectedImageSource = selectedImage?.token.raw ?? '';
 
     const { copyType } = clipboard;
 
-    const { html, text } = clipboard.getClipboardData();
+    const payload = selectedImageSource.length > 0
+        ? clipboardPayloadForSink(selectedImageSource, copyType, options)
+        : clipboard.getClipboardData();
+    const { text } = payload;
 
     // Mirror native copy behavior: leave the system clipboard untouched
     // when the selection has nothing to contribute, so a previous copy
     // from another app isn't silently clobbered (marktext #3130).
+    if (text.length === 0)
+        return;
+
     switch (copyType) {
         case CopyType.NORMAL: {
-            if (text.length === 0)
-                return;
+            const projection
+                = clipboard.muya.options?.criticMarkupProjection ?? 'marked';
+            const visibleText = projectedClipboardText(
+                payload,
+                projection,
+                options,
+            );
             event.clipboardData.setData('text/html', '');
-            event.clipboardData.setData('text/plain', text);
+            event.clipboardData.setData('text/plain', visibleText);
             break;
         }
 
         case CopyType.COPY_AS_HTML: {
-            if (text.length === 0)
-                return;
             event.clipboardData.setData('text/html', '');
             event.clipboardData.setData(
                 'text/plain',
                 getSanitizeClipboardHtml(
                     text,
-                    buildHtmlOptions(clipboard.muya.options ?? {}),
+                    options,
+                    payload.criticMarkupContext,
                 ),
             );
             break;
@@ -435,24 +658,25 @@ export function writeClipboardData(
         // the `normal` branch; `copyAsHtml` instead blanks text/html and
         // drops the markup into text/plain as literal source.
         case CopyType.COPY_AS_RICH: {
-            if (text.length === 0)
-                return;
-            event.clipboardData.setData('text/html', html);
-            event.clipboardData.setData('text/plain', text);
+            const rich = completeRichClipboardPayload(payload, options);
+            event.clipboardData.setData(
+                'text/html',
+                sanitizeClipboardHtml(rich.html),
+            );
+            event.clipboardData.setData(
+                'text/plain',
+                rich.projectedText,
+            );
             break;
         }
 
         case CopyType.COPY_AS_MARKDOWN: {
-            if (text.length === 0)
-                return;
             event.clipboardData.setData('text/html', '');
             event.clipboardData.setData('text/plain', text);
             break;
         }
 
         case CopyType.COPY_CODE_CONTENT: {
-            if (text.length === 0)
-                return;
             event.clipboardData.setData('text/html', '');
             event.clipboardData.setData('text/plain', text);
             break;

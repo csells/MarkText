@@ -1,4 +1,5 @@
 import equal from 'deep-equal'
+import { reportAsyncFailure } from '@muyajs/core'
 import bus from '../bus'
 import { getUniqueId, deepClone } from '../util'
 import listToTree, { type ListItem, type TreeNode } from '../util/listToTree'
@@ -40,6 +41,11 @@ interface TocItem extends ListItem {
   githubSlug?: string
   content?: string
   lvl: number | null
+}
+
+interface ImagePathSuggestion {
+  file: string
+  type: string
 }
 
 type TocTreeNode = TreeNode<TocItem>
@@ -438,12 +444,12 @@ export const useEditorStore = defineStore('editor', {
     },
 
     // image path auto complement
-    ASK_FOR_IMAGE_AUTO_PATH(src: string): Promise<string[]> {
+    ASK_FOR_IMAGE_AUTO_PATH(src: string): Promise<ImagePathSuggestion[]> {
       if (!this.currentFile) return Promise.resolve([])
       const { pathname } = this.currentFile
       if (pathname) {
-        let rs: (value: string[]) => void = () => {}
-        const promise = new Promise<string[]>((resolve) => {
+        let rs: (value: ImagePathSuggestion[]) => void = () => {}
+        const promise = new Promise<ImagePathSuggestion[]>((resolve) => {
           rs = resolve
         })
         const id = getUniqueId()
@@ -451,9 +457,9 @@ export const useEditorStore = defineStore('editor', {
         ;(
           window.electron.ipcRenderer.once as (
             channel: string,
-            listener: (event: unknown, files: string[]) => void
+            listener: (event: unknown, files: ImagePathSuggestion[]) => void
           ) => void
-        )(`mt::response-of-image-path-${id}`, (_: unknown, files: string[]) => {
+        )(`mt::response-of-image-path-${id}`, (_: unknown, files: ImagePathSuggestion[]) => {
           rs(files)
         })
         window.electron.ipcRenderer.send('mt::ask-for-image-auto-path', {
@@ -647,8 +653,8 @@ export const useEditorStore = defineStore('editor', {
       const preferencesStore = usePreferencesStore()
       window.electron.ipcRenderer.on('mt::ask-for-close', () => {
         sendBufferedState()
-          .catch((err) => {
-            console.error('Failed to update buffered state before closing', err)
+          .catch((cause: unknown) => {
+            reportAsyncFailure(cause, 'Buffered state persistence before closing')
           })
           .then(() => {
             const unsavedFiles = this.tabs
@@ -1385,6 +1391,21 @@ export const useEditorStore = defineStore('editor', {
       this.toc = listToTree<TocItem>(toc ?? [])
     },
 
+    /**
+     * Recomputes the active tab's word-count snapshot after an engine load.
+     *
+     * Muya does not emit `json-change` for `setContent`, so load and tab-switch
+     * paths cannot use `LISTEN_FOR_CONTENT_CHANGE`: besides being skipped, that
+     * action also owns dirty/save/history bookkeeping. This seed updates only
+     * the derived counter and deliberately leaves document state untouched.
+     */
+    UPDATE_WORD_COUNT(wordCount: IFileState['wordCount']): void {
+      if (!this.currentFile) {
+        throw new Error('Cannot update word count without an active file.')
+      }
+      this.currentFile.wordCount = wordCount
+    },
+
     // Content change from realtime preview editor and source code editor
     // There is a chance that this event is fired AFTER the tab is switched.
     LISTEN_FOR_CONTENT_CHANGE({
@@ -1717,7 +1738,7 @@ export const useEditorStore = defineStore('editor', {
       })
     },
 
-    ASK_FOR_IMAGE_PATH(): Promise<string[]> {
+    ASK_FOR_IMAGE_PATH(): Promise<string> {
       return window.electron.ipcRenderer.invoke('mt::ask-for-image-path')
     },
 

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "upstream": {
+    "repository": "https://github.com/markedjs/marked.git",
+    "tag": "v18.0.5",
+    "commit": "4063c638cb621c09091d41b26f323ff074416bb9",
+    "rootTree": "560c79fb2d4974f82d07a80e4920a39adfbe4a0c",
+    "sourceTree": "9041f66b4ef9752f787d4f9ef8f9175c847b32a4",
+    "licenseBlob": "4bd2d4a084987ab634893a29f72ff6d1a67bf658",
+    "packageJsonBlob": "4527f223c5196c8b8db037d2c6f29f4b303c7d71"
+  },
+  "fork": {
+    "version": "18.0.5-marktext.1",
+    "canonicalPatch": "patches/v18.0.5-marktext.1.patch",
+    "files": [
+      "FORK_MANIFEST.json",
+      "LICENSE",
+      "UPSTREAM.md",
+      "package.json",
+      "patches/v18.0.5-marktext.1.patch",
+      "scripts/verify-fork.mjs",
+      "src/Hooks.ts",
+      "src/Instance.ts",
+      "src/Lexer.ts",
+      "src/MarkedOptions.ts",
+      "src/Parser.ts",
+      "src/Renderer.ts",
+      "src/SourceProvenance.ts",
+      "src/TextRenderer.ts",
+      "src/TokenGraphAuthority.ts",
+      "src/Tokenizer.ts",
+      "src/Tokens.ts",
+      "src/defaults.ts",
+      "src/helpers.ts",
+      "src/marked.ts",
+      "src/rules.ts"
+    ],
+    "surface": {
+      "modified": [
+        "package.json",
+        "src/Lexer.ts",
+        "src/MarkedOptions.ts",
+        "src/Parser.ts",
+        "src/Renderer.ts",
+        "src/Tokenizer.ts",
+        "src/Tokens.ts",
+        "src/defaults.ts",
+        "src/helpers.ts",
+        "src/marked.ts"
+      ],
+      "added": [
+        "UPSTREAM.md",
+        "src/SourceProvenance.ts",
+        "src/TokenGraphAuthority.ts"
+      ],
+      "unchanged": [
+        "LICENSE",
+        "src/Hooks.ts",
+        "src/Instance.ts",
+        "src/TextRenderer.ts",
+        "src/rules.ts"
+      ]
+    }
+  },
+  "consumers": {
+    "muyaMarkedSpecifier": "workspace:*",
+    "commonmarkSpecVersion": "0.31.2"
+  }
+}

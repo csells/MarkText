@@ -2,6 +2,7 @@
 
 import type Format from '../format';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommandResult } from '../../../__tests__/helpers/mutation';
 import { Muya } from '../../../muya';
 import Selection from '../../../selection';
 
@@ -72,6 +73,11 @@ function selectInFirstBlock(muya: Muya, start: number, end: number): Format {
         direction: 'forward',
         type: start === end ? 'Caret' : 'Range',
     });
+    const format = content.format.bind(content);
+    content.format = type => runUserCommandResult(
+        muya,
+        () => format(type),
+    );
     return content;
 }
 

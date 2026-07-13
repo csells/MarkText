@@ -3,25 +3,26 @@ import type { IOrderListState } from '../../../state/types';
 import type ListItem from '../listItem';
 import { CLASS_NAMES } from '../../../config';
 import { mixins } from '../../../utils';
-import { LinkedList } from '../../base/linkedList/linkedList';
+import { appendCreatedChildren } from '../../appendCreatedChildren';
 import Parent from '../../base/parent';
 import IContainerQueryBlock from '../../mixins/containerQueryBlock';
 import { ScrollPage } from '../../scrollPage';
 
 @mixins(IContainerQueryBlock)
-class OrderList extends Parent {
-    public override children: LinkedList<Parent> = new LinkedList();
-    public meta: IOrderListState['meta'];
+class OrderList extends Parent<Parent> {
+    get meta(): Readonly<IOrderListState['meta']> {
+        return this.readBlockMeta<IOrderListState['meta']>();
+    }
 
     static override blockName = 'order-list';
 
     static create(muya: Muya, state: IOrderListState) {
         const orderList = new OrderList(muya, state);
 
-        orderList.append(
-            ...state.children.map(child =>
-                ScrollPage.loadBlock(child.name).create(muya, child),
-            ),
+        appendCreatedChildren(
+            state.children,
+            child => ScrollPage.createStateBlock(muya, child),
+            child => orderList.append(child),
         );
 
         return orderList;
@@ -37,7 +38,7 @@ class OrderList extends Parent {
     constructor(muya: Muya, { meta }: IOrderListState) {
         super(muya);
         this.tagName = 'ol';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.attributes = { start: String(meta.start) };
         this.datasets = { delimiter: meta.delimiter };
         this.classList = [CLASS_NAMES.MU_ORDER_LIST];
@@ -54,7 +55,7 @@ class OrderList extends Parent {
             children: this.children.map(child => (child as ListItem).getState()),
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

@@ -2,6 +2,10 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    runUserCommand,
+    runUserEdit,
+} from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // CHARACTERIZATION — codeBlockContent enter / backspace handlers.
@@ -91,7 +95,7 @@ describe('codeBlockContent.backspaceHandler — offset-0 converts to paragraph',
 
         const original = content.text;
         const event = keyEvent({ key: 'Backspace' });
-        content.backspaceHandler(event);
+        runUserCommand(muya, () => content.backspaceHandler(event));
 
         await flush();
         const state = muya.getState();
@@ -107,7 +111,9 @@ describe('codeBlockContent.backspaceHandler — offset-0 converts to paragraph',
         muya.editor.activeContentBlock = content;
         content.setCursor(0, 0, true);
 
-        content.backspaceHandler(keyEvent({ key: 'Backspace' }));
+        runUserCommand(muya, () => {
+            content.backspaceHandler(keyEvent({ key: 'Backspace' }));
+        });
 
         await flush();
         const newContent = muya.editor.activeContentBlock!;
@@ -125,7 +131,7 @@ describe('codeBlockContent.backspaceHandler — offset-0 converts to paragraph',
         content.setCursor(1, 1, true);
 
         const event = keyEvent({ key: 'Backspace' });
-        content.backspaceHandler(event);
+        runUserCommand(muya, () => content.backspaceHandler(event));
 
         await flush();
         const state = muya.getState();
@@ -142,12 +148,14 @@ describe('codeBlockContent.enterHandler — plain Enter inserts newline + indent
         // Drive the indent logic on a known single-line text without depending
         // on the parser-produced text shape: the handler reads `this.text` and
         // the caret offset, then rewrites `this.text` in place.
-        content.text = '  foo';
+        runUserEdit(muya, () => {
+            content.text = '  foo';
+        });
         muya.editor.activeContentBlock = content;
         content.setCursor(5, 5, true);
 
         const event = keyEvent({ key: 'Enter' });
-        content.enterHandler(event);
+        runUserCommand(muya, () => content.enterHandler(event));
 
         // indent = leading whitespace `  `; no auto-indent pair at the caret.
         expect(content.text).toBe('  foo\n  ');
@@ -161,12 +169,16 @@ describe('codeBlockContent.enterHandler — plain Enter inserts newline + indent
         const muya = bootMuya('```js\nfoo\n```\n');
         const content = codeContent(muya);
         // Two lines: line 0 has no indent, line 1 is indented 4 spaces.
-        content.text = 'def foo():\n    bar()';
+        runUserEdit(muya, () => {
+            content.text = 'def foo():\n    bar()';
+        });
         muya.editor.activeContentBlock = content;
         const offset = content.text.length; // caret at end of the indented 2nd line
         content.setCursor(offset, offset, true);
 
-        content.enterHandler(keyEvent({ key: 'Enter' }));
+        runUserCommand(muya, () => {
+            content.enterHandler(keyEvent({ key: 'Enter' }));
+        });
 
         // The new line must inherit line 1's 4-space indent, not line 0's empty indent.
         expect(content.text).toBe('def foo():\n    bar()\n    ');
@@ -178,11 +190,15 @@ describe('codeBlockContent.enterHandler — plain Enter inserts newline + indent
         const muya = bootMuya('```js\nfoo\n```\n');
         const content = codeContent(muya);
         // Caret between `{` and `}` → checkAutoIndent true; default tabSize 4.
-        content.text = '{}';
+        runUserEdit(muya, () => {
+            content.text = '{}';
+        });
         muya.editor.activeContentBlock = content;
         content.setCursor(1, 1, true);
 
-        content.enterHandler(keyEvent({ key: 'Enter' }));
+        runUserCommand(muya, () => {
+            content.enterHandler(keyEvent({ key: 'Enter' }));
+        });
 
         // `{` + \n + (indent + 4 spaces) + \n + (indent) + `}`; indent is '' here.
         expect(content.text).toBe('{\n    \n}');
@@ -203,7 +219,7 @@ describe('codeBlockContent.enterHandler — Shift+Enter jumps out of the code bl
 
         const before = muya.getState().length;
         const event = keyEvent({ key: 'Enter', shiftKey: true });
-        content.enterHandler(event);
+        runUserCommand(muya, () => content.enterHandler(event));
 
         await flush();
         const state = muya.getState();
@@ -223,7 +239,9 @@ describe('codeBlockContent.enterHandler — Shift+Enter jumps out of the code bl
         content.setCursor(content.text.length, content.text.length, true);
 
         const before = muya.getState().length;
-        content.enterHandler(keyEvent({ key: 'Enter', shiftKey: true }));
+        runUserCommand(muya, () => {
+            content.enterHandler(keyEvent({ key: 'Enter', shiftKey: true }));
+        });
 
         await flush();
         const state = muya.getState();

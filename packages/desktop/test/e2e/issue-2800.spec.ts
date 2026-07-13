@@ -22,7 +22,7 @@ test.describe('Issue #2800: typing <pre>...</pre> does not crash', () => {
   let page: Page
 
   test.beforeEach(async() => {
-    const launched = await launchWithMarkdown('# R\n\n', { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown('# R\n\n')
     app = launched.app
     page = launched.page
     await placeCaretInEditor(page)

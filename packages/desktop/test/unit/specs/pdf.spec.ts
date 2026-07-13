@@ -84,6 +84,24 @@ describe('getCssForOptions', () => {
     expect(isFile).toHaveBeenCalledWith('/userData/themes/export/mytheme')
   })
 
+  it('fails with theme-path context when a custom theme cannot be read', async() => {
+    const cause = new Error('permission denied')
+    const w = globalThis as unknown as {
+      window: { fileUtils: { isFile: () => Promise<boolean>, readFile: () => Promise<unknown> } }
+    }
+    w.window.fileUtils = {
+      isFile: async() => true,
+      readFile: async() => { throw cause }
+    }
+
+    const { getCssForOptions } = await loadPdf()
+
+    await expect(getCssForOptions({ theme: 'mytheme' })).rejects.toMatchObject({
+      message: 'Failed to read custom export theme "/userData/themes/export/mytheme".',
+      cause
+    })
+  })
+
   it('omits the disk theme CSS when the theme file is absent', async() => {
     const w = globalThis as unknown as {
       window: { fileUtils: { isFile: () => Promise<boolean>, readFile: () => Promise<unknown> } }

@@ -42,11 +42,18 @@ function resetToEmptyParagraph(clipboard: Clipboard): void {
     if (scrollPage == null)
         return;
 
+    // The outgoing active/selected leaves are about to be detached. Blur the
+    // active leaf and clear cached endpoints while their parent paths are still
+    // valid so focusing the replacement paragraph cannot render a detached
+    // heading/list/table leaf.
+    clipboard.muya.editor.activeContentBlock = null;
+    clipboard.selection.clear();
+
     scrollPage.forEach((child) => {
         (child as Parent).remove();
     });
 
-    const newParagraphBlock = ScrollPage.loadBlock('paragraph').create(
+    const newParagraphBlock = ScrollPage.createStateBlock(
         clipboard.muya,
         { name: 'paragraph', text: '' },
     );
@@ -441,7 +448,7 @@ function collapseLanguageInputCut(
 
     removeBlocks(startBlock, endBlock);
 
-    const paragraph = ScrollPage.loadBlock('paragraph').create(clipboard.muya, {
+    const paragraph = ScrollPage.createStateBlock(clipboard.muya, {
         name: 'paragraph',
         text: mergedText,
     });

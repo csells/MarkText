@@ -4,6 +4,7 @@ import type Content from '../block/base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { de, en, es, fr, ja, ko, pt, zhCN, zhTW } from '../locales';
 import { Muya } from '../muya';
+import { runUserEdit } from './helpers/mutation';
 
 // REGRESSION GUARD — #4424 / #4427 (Phase-G migration crash).
 //
@@ -83,9 +84,11 @@ function typeHeading(muya: Muya, raw: string): void {
     muya.editor.activeContentBlock = content;
     content.domNode!.textContent = raw;
     content.setCursor(raw.length, raw.length);
-    content.inputHandler(
-        new InputEvent('input', { bubbles: true, inputType: 'insertText' }),
-    );
+    runUserEdit(muya, () => {
+        content.inputHandler(
+            new InputEvent('input', { bubbles: true, inputType: 'insertText' }),
+        );
+    });
 }
 
 function flush(): Promise<void> {

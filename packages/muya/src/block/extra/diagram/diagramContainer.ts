@@ -7,7 +7,10 @@ import { ScrollPage } from '../../scrollPage';
 const debug = logger('diagramContainer:');
 
 class DiagramContainer extends Parent {
-    public meta: IDiagramMeta;
+    get meta(): Readonly<IDiagramMeta> {
+        return this.readBlockMeta<IDiagramMeta>();
+    }
+
     static override blockName = 'diagram-container';
 
     static create(muya: Muya, state: IDiagramState) {
@@ -33,7 +36,7 @@ class DiagramContainer extends Parent {
     constructor(muya: Muya, { meta }: IDiagramState) {
         super(muya);
         this.tagName = 'pre';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.classList = ['mu-diagram-container'];
         this.createDomNode();
     }

@@ -6,9 +6,13 @@ import { createPinia, setActivePinia } from 'pinia'
 // module load). Stub the contextBridge surfaces before the hoisted imports run
 // so the store graph can load.
 vi.hoisted(() => {
-  const w = globalThis as unknown as { window?: { path?: { sep: string } } }
+  const w = globalThis as unknown as {
+    window?: { path?: { sep: string } }
+    localStorage?: { getItem: () => null; setItem: () => void }
+  }
   w.window ??= {}
   w.window.path ??= { sep: '/' }
+  w.localStorage ??= { getItem: () => null, setItem: () => {} }
 })
 
 import { useListenForMainStore } from '@/store/listenForMain'

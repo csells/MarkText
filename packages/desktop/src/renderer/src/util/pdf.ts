@@ -78,8 +78,8 @@ export const getCssForOptions = async(options: PdfCssOptions): Promise<string> =
           const themeCSS =
             buf instanceof Uint8Array ? new TextDecoder('utf-8').decode(buf) : String(buf)
           output += themeCSS
-        } catch (_) {
-          // No-op
+        } catch (cause) {
+          throw new Error(`Failed to read custom export theme "${themePath}".`, { cause })
         }
       }
     }
@@ -121,7 +121,6 @@ export interface TocEntry {
   lvl: number
   content: string
   slug?: string
-  [key: string]: unknown
 }
 
 export interface HtmlTocOptions {

@@ -2,6 +2,7 @@
 
 import type Format from '../../block/base/format';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserEdit } from '../../__tests__/helpers/mutation';
 import { Muya } from '../../muya';
 
 const bootedHosts: HTMLElement[] = [];
@@ -41,8 +42,10 @@ function ignoreChange(muya: Muya): boolean {
 
 async function editText(muya: Muya, text: string): Promise<void> {
     const content = firstContent(muya) as unknown as { text: string; checkInlineUpdate: () => void };
-    content.text = text;
-    content.checkInlineUpdate();
+    runUserEdit(muya, () => {
+        content.text = text;
+        content.checkInlineUpdate();
+    });
     await vi.waitFor(() => {
         expect(muya.getMarkdown()).toContain(text);
     });

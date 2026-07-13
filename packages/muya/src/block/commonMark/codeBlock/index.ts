@@ -12,7 +12,10 @@ import { ScrollPage } from '../../scrollPage';
 const debug = logger('codeblock:');
 
 class CodeBlock extends Parent {
-    public meta: ICodeBlockState['meta'];
+    get meta(): Readonly<ICodeBlockState['meta']> {
+        return this.readBlockMeta<ICodeBlockState['meta']>();
+    }
+
     static override blockName = 'code-block';
 
     static create(muya: Muya, state: ICodeBlockState) {
@@ -45,7 +48,12 @@ class CodeBlock extends Parent {
 
         if (lang) {
             requestAnimationFrame(() => {
-                codeBlock.lang = lang;
+                // Parsed state already owns the canonical language. Initial
+                // construction only needs to load Prism and refresh the code
+                // presentation; sending this through the mutation gateway
+                // would turn rendering a clean/revised projection into an
+                // attempted document edit.
+                codeBlock._refreshLanguage(lang);
             });
         }
 
@@ -57,10 +65,43 @@ class CodeBlock extends Parent {
     }
 
     set lang(value) {
-        this.meta.lang = value;
+        // `lang` is a public document-editing surface (plugins and tests use it
+        // directly), so it must obey the same Direct/Tracked/ReadOnly policy as
+        // toolbar and keyboard commands. Calls made from LangInputContent or
+        // the language selector join their already-running gateway operation.
+        this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => this._setLanguage(value),
+        );
+    }
+
+    private _setLanguage(value: string) {
+        this.assertMutationAuthorized('Code-block language mutation');
+        const languageInput = this.firstChild;
+        if (
+            !languageInput
+            || !languageInput.isContent()
+            || languageInput.blockName !== 'language-input'
+        ) {
+            throw new TypeError(
+                'A code block language mutation requires its language-input child.',
+            );
+        }
+
+        // The language input's Content.text setter is the canonical producer
+        // of the `meta.lang` JSON operation. When this setter is nested under a
+        // language-input edit or selector command, its text already equals the
+        // requested value, so no duplicate operation is emitted. A direct
+        // external assignment updates that child here and therefore persists
+        // the same single canonical operation.
+        if (languageInput.text !== value) {
+            languageInput.text = value;
+            languageInput.update();
+        }
+        let nextMeta = { ...this.meta, lang: value };
 
         if (this.meta.type !== 'fenced') {
-            this.meta.type = 'fenced';
+            nextMeta = { ...nextMeta, type: 'fenced' };
             // dispatch change to modify json state
             const diffs = diff('indented', 'fenced');
             const { path } = this;
@@ -71,7 +112,31 @@ class CodeBlock extends Parent {
             operateClassName(this.domNode!, 'remove', 'mu-indented-code');
             operateClassName(this.domNode!, 'add', 'mu-fenced-code');
         }
+        this.replaceBlockMetaForDocumentEdit(
+            nextMeta,
+            'Code-block metadata mutation',
+        );
 
+        this._refreshLanguage(value);
+    }
+
+    /** Apply JSONState's already-committed language mirror. */
+    applyLanguageFromState(value: string): void {
+        this.replaceBlockMetaFromPreparedState(
+            { ...this.meta, lang: value },
+            'Prepared code-block language application',
+        );
+    }
+
+    /** Apply JSONState's already-committed block type. */
+    applyTypeFromState(value: string): void {
+        this.replaceBlockMetaFromPreparedState(
+            { ...this.meta, type: value },
+            'Prepared code-block type application',
+        );
+    }
+
+    private _refreshLanguage(value: string) {
         // `value` is the full info string; load Prism for its first word only.
         const language = firstWordOfInfo(value);
         !!language
@@ -103,7 +168,7 @@ class CodeBlock extends Parent {
     constructor(muya: Muya, { meta }: ICodeBlockState) {
         super(muya);
         this.tagName = 'pre';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.classList = ['mu-code-block', `mu-${meta.type}-code`];
         if (muya.options.codeBlockLineNumbers)
             this.classList.push('mu-line-numbers');
@@ -131,7 +196,7 @@ class CodeBlock extends Parent {
             text: this.lastContentInDescendant()!.text,
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

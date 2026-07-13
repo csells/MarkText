@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pasteImageSrc } from '../clipboard/pasteImage';
 import { tokenizer } from '../inlineRenderer/lexer';
 import { Muya } from '../muya';
+import { runUserCommand } from './helpers/mutation';
 
 // Item 132 — the image-src escape rule (space -> %20, '#' -> %23) is duplicated
 // across three insert paths:
@@ -104,7 +105,9 @@ async function viaReplaceImage(): Promise<string> {
     const block = placeCursorOnFirstBlock(muya, 0);
     const token = tokenizer(block.text)[0];
     const imageInfo = { token, imageId: 'id' } as unknown as IImageInfo;
-    block.replaceImage(imageInfo, { alt: 'pic', src: RAW_SRC, title: '' });
+    runUserCommand(muya, () => {
+        block.replaceImage(imageInfo, { alt: 'pic', src: RAW_SRC, title: '' });
+    });
     let src = '';
     await vi.waitFor(() => {
         src = srcFromMarkdown(muya.getMarkdown());

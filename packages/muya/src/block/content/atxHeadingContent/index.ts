@@ -1,12 +1,19 @@
 import type { Muya } from '../../../muya';
 import type { IRenderCursor } from '../../../selection/types';
+import type { IParagraphState } from '../../../state/types';
 import type AtxHeading from '../../commonMark/atxHeading';
 import { isKeyboardEvent } from '../../../utils';
 import Format from '../../base/format';
 import { ScrollPage } from '../../scrollPage';
 
 class AtxHeadingContent extends Format {
-    public override parent: AtxHeading | null = null;
+    override get parent(): AtxHeading | null {
+        return super.parent as AtxHeading | null;
+    }
+
+    override set parent(value: AtxHeading | null) {
+        super.parent = value;
+    }
 
     static override blockName = 'atxheading.content';
 
@@ -44,12 +51,12 @@ class AtxHeadingContent extends Format {
             event.preventDefault();
             event.stopPropagation();
 
-            const newNodeState = {
+            const newNodeState: IParagraphState = {
                 name: 'paragraph',
                 text: '',
             };
 
-            const newParagraphBlock = ScrollPage.loadBlock(newNodeState.name).create(
+            const newParagraphBlock = ScrollPage.createStateBlock(
                 this.muya,
                 newNodeState,
             );

@@ -130,17 +130,24 @@ export class FootnoteTool extends BaseFloat {
         if (!scrollPage)
             return;
 
-        const state: IFootnoteBlockState = {
-            name: 'footnote',
-            meta: { identifier: this._identifier },
-            children: [{ name: 'paragraph', text: '' }],
-        };
-        const newBlock = ScrollPage.loadBlock('footnote').create(this.muya, state) as Parent;
-        // 'user' source dispatches the corresponding ot-json1 insert through
-        // jsonState, so history + collaborative transport see the change.
-        scrollPage.append(newBlock, 'user');
-        const content = newBlock.firstContentInDescendant() as Content | null;
-        content?.setCursor(0, 0, true);
+        this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => {
+                const state: IFootnoteBlockState = {
+                    name: 'footnote',
+                    meta: { identifier: this._identifier },
+                    children: [{ name: 'paragraph', text: '' }],
+                };
+                const newBlock = ScrollPage.createStateBlock(
+                    this.muya,
+                    state,
+                ) as Parent;
+                // 'user' source dispatches the corresponding ot-json1 insert.
+                scrollPage.append(newBlock, 'user');
+                const content = newBlock.firstContentInDescendant() as Content | null;
+                content?.setCursor(0, 0, true);
+            },
+        );
     }
 }
 

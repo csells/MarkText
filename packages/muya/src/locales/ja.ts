@@ -90,6 +90,9 @@ export const ja = {
         'full mode': 'フルモード',
         // preview block
         'Loading...': 'ロード中...',
+        'Accept': '承認',
+        'Reject': '拒否',
+        'Remove': '削除',
         'Invalid Diagram Code': 'グラフのレンダリングが失敗しました',
         'Empty Diagram': 'グラフがありません',
         'Input Mathematical Formula...': '数式を入力する...',

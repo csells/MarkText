@@ -10,6 +10,7 @@ import HTMLBlock from './commonMark/html';
 import HTMLContainer from './commonMark/html/htmlContainer';
 import HTMLPreview from './commonMark/html/htmlPreview';
 import ListItem from './commonMark/listItem';
+import MarkdownParserResidue from './commonMark/markdownParserResidue';
 import OrderList from './commonMark/orderList';
 // leaf block
 import Paragraph from './commonMark/paragraph';
@@ -18,6 +19,7 @@ import ThematicBreak from './commonMark/thematicBreak';
 import AtxHeadingContent from './content/atxHeadingContent';
 import CodeBlockContent from './content/codeBlockContent';
 import LangInputContent from './content/langInputContent';
+import MarkdownParserResidueContent from './content/markdownParserResidueContent';
 // content
 import ParagraphContent from './content/paragraphContent';
 import SetextHeadingContent from './content/setextHeadingContent';
@@ -45,6 +47,8 @@ export function registerBlocks() {
     ScrollPage.register(ScrollPage);
     ScrollPage.register(Paragraph);
     ScrollPage.register(ParagraphContent);
+    ScrollPage.register(MarkdownParserResidue);
+    ScrollPage.register(MarkdownParserResidueContent);
     ScrollPage.register(AtxHeading);
     ScrollPage.register(AtxHeadingContent);
     ScrollPage.register(SetextHeading);

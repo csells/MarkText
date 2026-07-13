@@ -136,6 +136,25 @@
       "hyperlink": "Hipervínculo",
       "clearFormat": "Limpiar Formato"
     },
+    "review": {
+      "review": "Revisar",
+      "trackChanges": "Control de cambios",
+      "markAddition": "Marcar como adición",
+      "markDeletion": "Marcar como eliminación",
+      "suggestReplacement": "Sugerir reemplazo…",
+      "highlight": "Resaltar para revisión",
+      "addComment": "Añadir comentario…",
+      "previous": "Cambio anterior",
+      "next": "Cambio siguiente",
+      "acceptCurrent": "Aceptar cambio",
+      "rejectCurrent": "Rechazar cambio",
+      "acceptAll": "Aceptar todos los cambios",
+      "rejectAll": "Rechazar todos los cambios",
+      "display": "Mostrar",
+      "showMarked": "Marcas",
+      "showOriginal": "Original",
+      "showRevised": "Revisado"
+    },
     "theme": {
       "theme": "&Tema",
       "dark": "Oscuro",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "Tabla de Contenidos"
     },
+    "review": {
+      "title": "Revisar",
+      "summary": "{count} elementos para revisar",
+      "trackChanges": "Control de cambios",
+      "unavailable": "La revisión no está disponible en esta vista.",
+      "empty": "No hay elementos para revisar",
+      "removeComment": "Quitar comentario",
+      "removeHighlight": "Quitar resaltado",
+      "types": {
+        "addition": "Adición",
+        "deletion": "Eliminación",
+        "substitution": "Reemplazo",
+        "highlight": "Resaltado",
+        "comment": "Comentario"
+      }
+    },
     "icons": {
       "files": "Archivos",
       "search": "Buscar",
       "toc": "Tabla de Contenidos",
+      "review": "Revisar",
       "settings": "Configuración"
     }
   },
@@ -820,6 +856,23 @@
       "image": "Imagen",
       "clearFormat": "Limpiar Formato"
     },
+    "review": {
+      "trackChanges": "Control de cambios",
+      "markAddition": "Marcar como adición",
+      "markDeletion": "Marcar como eliminación",
+      "suggestReplacement": "Sugerir reemplazo",
+      "highlight": "Resaltar para revisión",
+      "addComment": "Añadir comentario",
+      "previous": "Cambio anterior",
+      "next": "Cambio siguiente",
+      "acceptCurrent": "Aceptar cambio",
+      "rejectCurrent": "Rechazar cambio",
+      "acceptAll": "Aceptar todos los cambios",
+      "rejectAll": "Rechazar todos los cambios",
+      "showMarked": "Mostrar marcas",
+      "showOriginal": "Mostrar original",
+      "showRevised": "Mostrar revisado"
+    },
     "window": {
       "minimize": "Minimizar",
       "toggleAlwaysOnTop": "Alternar Siempre Encima",
@@ -933,6 +986,12 @@
     "unexpectedError": "Error inesperado del corrector ortográfico"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "Añadir comentario",
+      "commentPlaceholder": "Escribe un comentario de revisión",
+      "replacementTitle": "Sugerir reemplazo",
+      "replacementPlaceholder": "Escribe el texto de reemplazo"
+    },
     "export": {
       "error": "Error de exportación",
       "errorExporting": "Error al exportar archivo {type}",

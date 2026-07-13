@@ -9,7 +9,10 @@ import { ScrollPage } from '../../scrollPage';
 const debug = logger('diagram:');
 
 class DiagramBlock extends Parent {
-    public meta: IDiagramMeta;
+    get meta(): Readonly<IDiagramMeta> {
+        return this.readBlockMeta<IDiagramMeta>();
+    }
+
     static override blockName = 'diagram';
 
     static create(muya: Muya, state: IDiagramState) {
@@ -58,7 +61,7 @@ class DiagramBlock extends Parent {
     constructor(muya: Muya, { meta }: IDiagramState) {
         super(muya);
         this.tagName = 'figure';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.classList = ['mu-diagram-block'];
         this.createDomNode();
     }
@@ -76,11 +79,11 @@ class DiagramBlock extends Parent {
         if (text == null)
             throw new Error('text is null when getState in diagram block.');
 
-        return {
+        return this.withStateSourceTrivia({
             name: 'diagram',
             text,
-            meta,
-        };
+            meta: { ...meta },
+        });
     }
 }
 

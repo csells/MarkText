@@ -90,6 +90,9 @@ export const zhCN = {
         'full mode': '完整模式',
         // preview block
         'Loading...': '加载中...',
+        'Accept': '接受',
+        'Reject': '拒绝',
+        'Remove': '移除',
         'Invalid Diagram Code': '图表渲染失败',
         'Empty Diagram': '空图表',
         'Input Mathematical Formula...': '输入数学公式...',

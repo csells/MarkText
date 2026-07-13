@@ -1,5 +1,6 @@
 import type { Muya } from '../../../muya';
 import type { IRenderCursor } from '../../../selection/types';
+import type { IParagraphState } from '../../../state/types';
 import { isKeyboardEvent } from '../../../utils';
 import Format from '../../base/format';
 import { ScrollPage } from '../../scrollPage';
@@ -37,11 +38,11 @@ class ThematicBreakContent extends Format {
         if (start.offset === end.offset && start.offset === 0) {
             event.preventDefault();
             event.stopPropagation();
-            const newState = {
+            const newState: IParagraphState = {
                 name: 'paragraph',
                 text: '',
             };
-            const emptyParagraph = ScrollPage.loadBlock(newState.name).create(
+            const emptyParagraph = ScrollPage.createStateBlock(
                 muya,
                 newState,
             );

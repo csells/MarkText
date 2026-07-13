@@ -1,6 +1,9 @@
-import type { MarkedToken, Tokens } from 'marked';
+import type { MarkedOptions, MarkedToken, Tokens } from 'marked';
+import type { TCriticMarkupProjection } from '../../criticMarkup/project';
 
-export interface ILexOption {
+export interface ILexOption extends MarkedOptions {
+    criticMarkup?: boolean;
+    criticMarkupProjection?: TCriticMarkupProjection;
     footnote?: boolean;
     math?: boolean;
     isGitlabCompatibilityEnabled?: boolean;
@@ -8,17 +11,17 @@ export interface ILexOption {
     superSubScript?: boolean;
 }
 
-export type Heading = Tokens.Heading & {
+export type Heading = Tokens.Heading & Tokens.CriticMarkupBoundaryCarrier & {
     headingStyle: 'setext' | 'atx';
     marker: string;
 };
 
-export type ListItemToken = Tokens.ListItem & {
+export type ListItemToken = Tokens.ListItem & Tokens.CriticMarkupBoundaryCarrier & {
     listItemType: 'order' | 'bullet' | 'task';
     bulletMarkerOrDelimiter: '.' | ')' | '*' | '+' | '-' | '';
 };
 
-export type ListToken = Tokens.List & {
+export type ListToken = Tokens.List & Tokens.CriticMarkupBoundaryCarrier & {
     listType: 'order' | 'bullet' | 'task';
     items: ListItemToken[];
 };
@@ -54,6 +57,19 @@ export interface IBlockEndToken {
     tokenType: 'blockquote' | 'list' | 'list-item' | 'footnote';
 }
 
+export interface ICriticMarkupFragmentEndToken {
+    type: 'critic-fragment-end';
+    fragment: Tokens.CriticMarkupFragment;
+    startIndex: number;
+}
+
+export interface ICriticMarkupBoundaryEndToken {
+    type: 'critic-boundary-end';
+    startIndex: number;
+    before: readonly Tokens.CriticMarkupBoundaryAttachment[];
+    after: readonly Tokens.CriticMarkupBoundaryAttachment[];
+}
+
 // Tokens the lexer (lexBlock) emits. Replace marked's default
 // heading/list/list-item with their muya-extended counterparts so the
 // switch in `markdownToState` narrows to the extension fields directly.
@@ -72,4 +88,8 @@ export type TLexedToken
 
 // The working token stream `markdownToState` walks: lexer output plus the
 // synthetic `block-end` markers it injects to pop the parent stack.
-export type TBlockToken = TLexedToken | IBlockEndToken;
+export type TBlockToken
+    = | TLexedToken
+        | IBlockEndToken
+        | ICriticMarkupFragmentEndToken
+        | ICriticMarkupBoundaryEndToken;

@@ -1,5 +1,6 @@
 import log from 'electron-log/renderer'
 import RendererPaths from './node/paths'
+import { createRendererErrorHandler } from './rendererError'
 
 let exceptionLogger: (s: unknown) => void = (s) => console.error(s)
 
@@ -74,29 +75,13 @@ const isCodeMirrorRaceCondition = (error: Error | null | undefined): boolean => 
   return isMapOnUndefined && isInPrepareMeasure && isInCoordsChar
 }
 
-const handleRendererError = (event: ErrorEvent | PromiseRejectionEvent | Event): void => {
-  const errorEvent = event as ErrorEvent
-  if (errorEvent.error) {
-    if (isCodeMirrorRaceCondition(errorEvent.error)) {
-      console.warn('Suppressed non-fatal CodeMirror race condition:', errorEvent.error.message)
-      return
-    }
-
-    const { message, name, stack } = errorEvent.error
-    const copy = {
-      message,
-      name,
-      stack
-    }
-
-    exceptionLogger(errorEvent.error)
-
-    // Pass exception to main process exception handler to show a error dialog.
-    window.electron.ipcRenderer.send('mt::handle-renderer-error', copy)
-  } else {
-    console.error(event)
-  }
-}
+const handleRendererError = createRendererErrorHandler({
+  shouldSuppress: isCodeMirrorRaceCondition,
+  log: error => exceptionLogger(error),
+  send: payload => window.electron.ipcRenderer.send('mt::handle-renderer-error', payload),
+  warn: error => console.warn('Suppressed non-fatal CodeMirror race condition:', error.message),
+  fallback: event => console.error(event)
+})
 
 const bootstrapRenderer = (): void => {
   // Register renderer exception handler

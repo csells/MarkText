@@ -127,17 +127,22 @@ export class PreviewToolBar extends BaseFloat {
             }
 
             case 'delete': {
-                const state = {
-                    name: 'paragraph',
-                    text: '',
-                };
+                this.muya.editor.mutationGateway.run(
+                    { kind: 'user-command' },
+                    () => {
+                        const state = {
+                            name: 'paragraph',
+                            text: '',
+                        } as const;
 
-                const newBlock = ScrollPage.loadBlock('paragraph').create(
-                    this.muya,
-                    state,
+                        const newBlock = ScrollPage.createStateBlock(
+                            this.muya,
+                            state,
+                        );
+                        block!.replaceWith(newBlock);
+                        cursorBlock = newBlock.firstContentInDescendant();
+                    },
                 );
-                block!.replaceWith(newBlock);
-                cursorBlock = newBlock.firstContentInDescendant();
                 break;
             }
         }

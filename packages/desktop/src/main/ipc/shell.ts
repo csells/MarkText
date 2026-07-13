@@ -1,11 +1,12 @@
-import { ipcMain, shell, clipboard } from 'electron'
+import { ipcMain, clipboard } from 'electron'
 import log from 'electron-log'
 import * as plist from 'plist'
+import { presentationPolicy } from '../presentationPolicy'
 
 export const registerShellHandlers = (): void => {
   ipcMain.handle('mt::shell::open-external', async(_e, url: string) => {
     try {
-      await shell.openExternal(url)
+      await presentationPolicy.openExternal(url)
       return true
     } catch (err) {
       log.error('shell.openExternal failed:', err)
@@ -13,18 +14,19 @@ export const registerShellHandlers = (): void => {
     }
   })
   ipcMain.on('mt::shell::open-external', (_e, url: string) => {
-    shell.openExternal(url).catch((err) => log.error('shell.openExternal failed:', err))
+    presentationPolicy.openExternal(url)
+      .catch((err) => log.error('shell.openExternal failed:', err))
   })
   ipcMain.on('mt::shell::show-item', (_e, fullPath: string) => {
     try {
-      shell.showItemInFolder(fullPath)
+      presentationPolicy.showItemInFolder(fullPath)
     } catch (err) {
       log.error('shell.showItemInFolder failed:', err)
     }
   })
   ipcMain.handle('mt::shell::open-path', async(_e, fullPath: string) => {
     try {
-      return await shell.openPath(fullPath)
+      return await presentationPolicy.openPath(fullPath)
     } catch (err) {
       log.error('shell.openPath failed:', err)
       return String(err instanceof Error ? err.message : err)

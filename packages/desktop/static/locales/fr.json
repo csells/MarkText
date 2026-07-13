@@ -136,6 +136,25 @@
       "hyperlink": "Hyperlien",
       "clearFormat": "Effacer le format"
     },
+    "review": {
+      "review": "Révision",
+      "trackChanges": "Suivi des modifications",
+      "markAddition": "Marquer comme ajout",
+      "markDeletion": "Marquer comme suppression",
+      "suggestReplacement": "Suggérer un remplacement…",
+      "highlight": "Surligner pour révision",
+      "addComment": "Ajouter un commentaire…",
+      "previous": "Modification précédente",
+      "next": "Modification suivante",
+      "acceptCurrent": "Accepter la modification",
+      "rejectCurrent": "Refuser la modification",
+      "acceptAll": "Accepter toutes les modifications",
+      "rejectAll": "Refuser toutes les modifications",
+      "display": "Affichage",
+      "showMarked": "Annotations",
+      "showOriginal": "Original",
+      "showRevised": "Révisé"
+    },
     "theme": {
       "theme": "Thème (&T)",
       "dark": "Sombre",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "Table des matières"
     },
+    "review": {
+      "title": "Révision",
+      "summary": "{count} éléments à réviser",
+      "trackChanges": "Suivi des modifications",
+      "unavailable": "La révision n’est pas disponible dans cet affichage.",
+      "empty": "Aucun élément à réviser",
+      "removeComment": "Supprimer le commentaire",
+      "removeHighlight": "Supprimer le surlignage",
+      "types": {
+        "addition": "Ajout",
+        "deletion": "Suppression",
+        "substitution": "Remplacement",
+        "highlight": "Surlignage",
+        "comment": "Commentaire"
+      }
+    },
     "icons": {
       "files": "Fichiers",
       "search": "Rechercher",
       "toc": "Table des matières",
+      "review": "Révision",
       "settings": "Paramètres"
     }
   },
@@ -820,6 +856,23 @@
       "image": "Image",
       "clearFormat": "Effacer le format"
     },
+    "review": {
+      "trackChanges": "Suivi des modifications",
+      "markAddition": "Marquer comme ajout",
+      "markDeletion": "Marquer comme suppression",
+      "suggestReplacement": "Suggérer un remplacement",
+      "highlight": "Surligner pour révision",
+      "addComment": "Ajouter un commentaire",
+      "previous": "Modification précédente",
+      "next": "Modification suivante",
+      "acceptCurrent": "Accepter la modification",
+      "rejectCurrent": "Refuser la modification",
+      "acceptAll": "Accepter toutes les modifications",
+      "rejectAll": "Refuser toutes les modifications",
+      "showMarked": "Afficher les annotations",
+      "showOriginal": "Afficher l’original",
+      "showRevised": "Afficher la version révisée"
+    },
     "window": {
       "minimize": "Réduire",
       "toggleAlwaysOnTop": "Basculer toujours au premier plan",
@@ -933,6 +986,12 @@
     "unexpectedError": "Erreur inattendue du correcteur orthographique"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "Ajouter un commentaire",
+      "commentPlaceholder": "Saisissez un commentaire de révision",
+      "replacementTitle": "Suggérer un remplacement",
+      "replacementPlaceholder": "Saisissez le texte de remplacement"
+    },
     "export": {
       "error": "Erreur d'exportation",
       "errorExporting": "Erreur lors de l'exportation du fichier",

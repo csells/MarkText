@@ -49,6 +49,7 @@ function isOrderOrBulletList(block: Parent): block is OrderList | BulletList {
 }
 
 export class ParagraphFrontButton {
+    static pluginName = 'frontButton';
     public name: string = 'mu-front-button';
     private _resizeObserver: ResizeObserver | null = null;
     private _options: IBaseOptions;
@@ -236,17 +237,24 @@ export class ParagraphFrontButton {
                 return;
             }
 
-            if (position === 'up')
-                block.insertInto(block.parent!, target);
-            else
-                block.insertInto(block.parent!, target.next);
+            const result = this.muya.editor.mutationGateway.run(
+                { kind: 'user-command' },
+                () => {
+                    if (position === 'up')
+                        block.insertInto(block.parent!, target);
+                    else
+                        block.insertInto(block.parent!, target.next);
+                },
+            );
 
             // TODO: @JOCS, remove use this.selection directly.
             const { anchorBlock, anchor, focus, isSelectionInSameBlock }
                 = block.muya.editor.selection ?? {};
 
             if (
-                isSelectionInSameBlock
+                result === 'untracked'
+                && block.domNode?.isConnected
+                && isSelectionInSameBlock
                 && anchorBlock
                 && anchorBlock.isInBlock(block)
             ) {

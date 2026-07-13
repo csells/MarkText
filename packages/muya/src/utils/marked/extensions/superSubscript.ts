@@ -36,7 +36,8 @@ function getExtension(name: 'superscript' | 'subscript') {
             if (!match)
                 return;
 
-            const index = (match.index || 0) + match[1].length;
+            const markerInMatch = match[0].lastIndexOf(match[1]);
+            const index = (match.index ?? 0) + markerInMatch;
             const possibleSubSup = src.substring(index);
 
             if (SUP_REG.test(possibleSubSup) || SUB_REG.test(possibleSubSup))

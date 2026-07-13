@@ -1,3 +1,4 @@
+import type { TCriticMarkupProjection } from './criticMarkup/project';
 import type { TState } from './state/types';
 
 export interface IMuyaOptions {
@@ -29,6 +30,8 @@ export interface IMuyaOptions {
     autoCheck: boolean;
     spellcheckEnabled: boolean;
     spellcheckHideMarks: boolean;
+    criticMarkupTrackChanges: boolean;
+    criticMarkupProjection: TCriticMarkupProjection;
     superSubScript: boolean;
     footnote: boolean;
     math: boolean;

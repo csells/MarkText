@@ -136,6 +136,25 @@
       "hyperlink": "超連結",
       "clearFormat": "清除格式"
     },
+    "review": {
+      "review": "檢閱",
+      "trackChanges": "追蹤修訂",
+      "markAddition": "標記為新增",
+      "markDeletion": "標記為刪除",
+      "suggestReplacement": "建議取代…",
+      "highlight": "醒目標示以供檢閱",
+      "addComment": "新增註解…",
+      "previous": "上一項變更",
+      "next": "下一項變更",
+      "acceptCurrent": "接受變更",
+      "rejectCurrent": "拒絕變更",
+      "acceptAll": "接受所有變更",
+      "rejectAll": "拒絕所有變更",
+      "display": "顯示",
+      "showMarked": "標記",
+      "showOriginal": "原文",
+      "showRevised": "修訂稿"
+    },
     "theme": {
       "theme": "主題(&T)",
       "dark": "深色",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "目錄"
     },
+    "review": {
+      "title": "檢閱",
+      "summary": "{count} 個檢閱項目",
+      "trackChanges": "追蹤修訂",
+      "unavailable": "此檢視無法使用檢閱功能。",
+      "empty": "沒有檢閱項目",
+      "removeComment": "移除註解",
+      "removeHighlight": "移除醒目標示",
+      "types": {
+        "addition": "新增",
+        "deletion": "刪除",
+        "substitution": "取代",
+        "highlight": "醒目標示",
+        "comment": "註解"
+      }
+    },
     "icons": {
       "files": "檔案",
       "search": "搜尋",
       "toc": "目錄",
+      "review": "檢閱",
       "settings": "設定"
     }
   },
@@ -820,6 +856,23 @@
       "image": "圖片",
       "clearFormat": "清除格式"
     },
+    "review": {
+      "trackChanges": "追蹤修訂",
+      "markAddition": "標記為新增",
+      "markDeletion": "標記為刪除",
+      "suggestReplacement": "建議取代",
+      "highlight": "醒目標示以供檢閱",
+      "addComment": "新增註解",
+      "previous": "上一項變更",
+      "next": "下一項變更",
+      "acceptCurrent": "接受變更",
+      "rejectCurrent": "拒絕變更",
+      "acceptAll": "接受所有變更",
+      "rejectAll": "拒絕所有變更",
+      "showMarked": "顯示標記",
+      "showOriginal": "顯示原文",
+      "showRevised": "顯示修訂稿"
+    },
     "window": {
       "minimize": "最小化",
       "toggleAlwaysOnTop": "切換總是在最上層",
@@ -933,6 +986,12 @@
     "unexpectedError": "意外的拼字檢查錯誤"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "新增註解",
+      "commentPlaceholder": "輸入檢閱註解",
+      "replacementTitle": "建議取代",
+      "replacementPlaceholder": "輸入取代文字"
+    },
     "export": {
       "error": "匯出錯誤",
       "errorExporting": "匯出檔案時發生錯誤",

@@ -8,61 +8,73 @@ import { getUniqueId } from '../utils';
 import { encodeImageSrc, getImageInfo } from '../utils/image';
 import { readFileAsDataURL, resolveClipboardImagePath } from '../utils/paste';
 
-/**
- * Splice `![alt](src)` into the anchor block at the current selection and
- * return the exact text inserted.
- *
- * Inline images in muya are plain markdown text (`![](src)`) on a content
- * block; rendering turns the token into an image. We replace any
- * collapsed/expanded range and place the cursor after it. The src is
- * escaped via {@link encodeImageSrc} so spaces, `#`, and parentheses
- * survive in the path.
- */
-function insertImageText(anchorBlock: Content, src: string, alt = ''): string {
-    const cursor = anchorBlock.getCursor();
-    if (!cursor)
-        return '';
-
-    const { start, end } = cursor;
-    const { text: content } = anchorBlock;
-    const escapedSrc = encodeImageSrc(src);
-    const imageText = `![${alt}](${escapedSrc})`;
-
-    anchorBlock.text
-        = content.substring(0, start.offset)
-            + imageText
-            + content.substring(end.offset);
-
-    const offset = start.offset + imageText.length;
-    anchorBlock.setCursor(offset, offset, true);
-
-    return imageText;
+interface IAppliedImageText {
+    path: readonly (string | number)[];
+    start: number;
+    text: string;
 }
 
-/**
- * Replace the `loading-<id>` placeholder image previously inserted by
- * {@link insertImageText} with the final `![](src)`, once `imageAction`
- * resolved. The cursor is seated right after the swapped image.
- */
-function replacePlaceholderImage(
-    anchorBlock: Content,
-    placeholderText: string,
+function imageMarkdown(src: string, alt = ''): string {
+    return `![${alt}](${encodeImageSrc(src)})`;
+}
+
+function spliceImageThroughGateway(
+    clipboard: Clipboard,
+    block: Content,
+    range: { start: number; end: number },
     src: string,
-): void {
-    const index = anchorBlock.text.indexOf(placeholderText);
+    alt = '',
+): IAppliedImageText | null {
+    const path = [...block.path];
+    const text = imageMarkdown(src, alt);
+    const result = clipboard.muya.editor.mutationGateway.run(
+        { kind: 'user-command' },
+        () => spliceImageText(block, range, src, alt),
+        {
+            path,
+            start: range.start,
+            end: range.end,
+            inserted: text,
+        },
+    );
+
+    return result === 'rejected'
+        ? null
+        : { path, start: range.start, text };
+}
+
+function resolveContentBlock(
+    clipboard: Clipboard,
+    applied: IAppliedImageText,
+    fallback: Content,
+): Content | null {
+    const current = clipboard.muya.editor.scrollPage?.queryBlock([
+        ...applied.path,
+    ]);
+    if (current?.isContent())
+        return current;
+
+    // Direct-mode unit hosts may use a standalone content block without a
+    // ScrollPage. A tracked real editor always resolves the rebuilt block.
+    return fallback.text.includes(applied.text) ? fallback : null;
+}
+
+function replacePlaceholderThroughGateway(
+    clipboard: Clipboard,
+    block: Content,
+    placeholder: IAppliedImageText,
+    src: string,
+): IAppliedImageText | null {
+    const index = block.text.indexOf(placeholder.text);
     if (index === -1)
-        return;
+        return null;
 
-    const escapedSrc = encodeImageSrc(src);
-    const imageText = `![](${escapedSrc})`;
-
-    anchorBlock.text
-        = anchorBlock.text.substring(0, index)
-            + imageText
-            + anchorBlock.text.substring(index + placeholderText.length);
-
-    const offset = index + imageText.length;
-    anchorBlock.setCursor(offset, offset, true);
+    return spliceImageThroughGateway(
+        clipboard,
+        block,
+        { start: index, end: index + placeholder.text.length },
+        src,
+    );
 }
 
 /**
@@ -83,24 +95,47 @@ async function insertImageSrc(
     src: string,
 ): Promise<void> {
     const { imageAction } = clipboard.muya.options;
+    const cursor = anchorBlock.getCursor();
+    if (!cursor)
+        return;
+    const range = {
+        start: cursor.start.offset,
+        end: cursor.end.offset,
+    };
 
     // No async insert preference: write the final image directly, no
     // placeholder (there is nothing to wait for).
     if (!imageAction) {
-        insertImageText(anchorBlock, src);
+        spliceImageThroughGateway(clipboard, anchorBlock, range, src);
 
         return;
     }
 
     const id = `loading-${getUniqueId()}`;
-    const placeholderText = insertImageText(anchorBlock, src, id);
+    const placeholder = spliceImageThroughGateway(
+        clipboard,
+        anchorBlock,
+        range,
+        src,
+        id,
+    );
+    if (!placeholder)
+        return;
 
     let finalSrc = src;
     const resolved = await imageAction({ src, alt: '', title: '' });
     if (resolved)
         finalSrc = resolved;
 
-    replacePlaceholderImage(anchorBlock, placeholderText, finalSrc);
+    const current = resolveContentBlock(clipboard, placeholder, anchorBlock);
+    if (current) {
+        replacePlaceholderThroughGateway(
+            clipboard,
+            current,
+            placeholder,
+            finalSrc,
+        );
+    }
 }
 
 // Resolve a pasted image to an `src`: a clipboard FILE path (via the
@@ -183,8 +218,7 @@ function spliceImageText(
     src: string,
     alt = '',
 ): string {
-    const escapedSrc = encodeImageSrc(src);
-    const imageText = `![${alt}](${escapedSrc})`;
+    const imageText = imageMarkdown(src, alt);
 
     block.text
         = block.text.substring(0, range.start)
@@ -283,22 +317,51 @@ async function replaceImageAt(
     const { imageAction } = clipboard.muya.options;
 
     if (!imageAction) {
-        spliceImageText(block, range, src);
-        reselectImageAt(clipboard, block, range.start);
+        const applied = spliceImageThroughGateway(
+            clipboard,
+            block,
+            range,
+            src,
+        );
+        if (applied) {
+            const current = resolveContentBlock(clipboard, applied, block);
+            if (current)
+                reselectImageAt(clipboard, current as Format, applied.start);
+        }
 
         return;
     }
 
     const id = `loading-${getUniqueId()}`;
-    const placeholderText = spliceImageText(block, range, src, id);
+    const placeholder = spliceImageThroughGateway(
+        clipboard,
+        block,
+        range,
+        src,
+        id,
+    );
+    if (!placeholder)
+        return;
 
     let finalSrc = src;
     const resolved = await imageAction({ src, alt: '', title: '' });
     if (resolved)
         finalSrc = resolved;
 
-    replacePlaceholderImage(block, placeholderText, finalSrc);
-    reselectImageAt(clipboard, block, range.start);
+    const current = resolveContentBlock(clipboard, placeholder, block);
+    if (!current)
+        return;
+    const applied = replacePlaceholderThroughGateway(
+        clipboard,
+        current,
+        placeholder,
+        finalSrc,
+    );
+    if (!applied)
+        return;
+    const finalBlock = resolveContentBlock(clipboard, applied, current);
+    if (finalBlock)
+        reselectImageAt(clipboard, finalBlock as Format, applied.start);
 }
 
 /**

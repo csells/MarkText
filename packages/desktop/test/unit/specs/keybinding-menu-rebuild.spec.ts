@@ -8,10 +8,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const { buildFromTemplate, setApplicationMenu, configureMenu, configSettingMenu } = vi.hoisted(
   () => ({
-    buildFromTemplate: vi.fn((template: unknown) => ({
-      template,
-      getMenuItemById: () => ({ checked: false, enabled: true })
-    })),
+    buildFromTemplate: vi.fn((template: unknown) => {
+      const items = new Map<string, { checked: boolean; enabled: boolean }>()
+      return {
+        template,
+        getMenuItemById: (id: string) => {
+          if (!items.has(id)) items.set(id, { checked: false, enabled: true })
+          return items.get(id)
+        }
+      }
+    }),
     setApplicationMenu: vi.fn(),
     configureMenu: vi.fn(() => ['EDITOR_TEMPLATE']),
     configSettingMenu: vi.fn(() => ['SETTINGS_TEMPLATE'])
@@ -89,5 +95,36 @@ describe('AppMenu.updateKeybindings rebuilds menus after a keybinding change (#3
     appMenu.updateKeybindings()
 
     expect(configSettingMenu).toHaveBeenCalled()
+  })
+
+  it('preserves Review capability, display, and projection state while rebuilding', () => {
+    const appMenu = makeAppMenu()
+    const editorWin = { id: 3 } as never
+    appMenu.addEditorMenu(editorWin)
+
+    const oldMenu = appMenu.getWindowMenuById(3)
+    const deletion = oldMenu.getMenuItemById('reviewMarkDeletionMenuItem')
+    const trackChanges = oldMenu.getMenuItemById('reviewTrackChangesMenuItem')
+    const display = oldMenu.getMenuItemById('reviewDisplayMenuItem')
+    const marked = oldMenu.getMenuItemById('reviewShowMarkedMenuItem')
+    const revised = oldMenu.getMenuItemById('reviewShowRevisedMenuItem')
+    if (!deletion || !trackChanges || !display || !marked || !revised) {
+      throw new TypeError('Review menu fixture is incomplete.')
+    }
+    deletion.enabled = false
+    trackChanges.checked = true
+    display.enabled = false
+    marked.checked = false
+    revised.checked = true
+
+    appMenu.updateKeybindings()
+
+    const rebuilt = appMenu.getWindowMenuById(3)
+    expect(rebuilt).not.toBe(oldMenu)
+    expect(rebuilt.getMenuItemById('reviewMarkDeletionMenuItem')?.enabled).toBe(false)
+    expect(rebuilt.getMenuItemById('reviewTrackChangesMenuItem')?.checked).toBe(true)
+    expect(rebuilt.getMenuItemById('reviewDisplayMenuItem')?.enabled).toBe(false)
+    expect(rebuilt.getMenuItemById('reviewShowMarkedMenuItem')?.checked).toBe(false)
+    expect(rebuilt.getMenuItemById('reviewShowRevisedMenuItem')?.checked).toBe(true)
   })
 })

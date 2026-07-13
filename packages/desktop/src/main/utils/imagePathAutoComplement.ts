@@ -90,8 +90,9 @@ const watchDirectory = (directory: string): void => {
 
 export const searchFilesAndDir = (directory: string, key: string): Promise<DirOrImageEntry[]> => {
   let result: DirOrImageEntry[] = []
-  if (IMAGE_PATH.has(directory)) {
-    result = filter(IMAGE_PATH.get(directory), key, { key: 'file' })
+  const cached = IMAGE_PATH.get(directory)
+  if (cached) {
+    result = filter(cached, key, { key: 'file' })
     return Promise.resolve(result)
   } else {
     return new Promise((resolve, reject) => {

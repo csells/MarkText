@@ -3,8 +3,13 @@ import { _electron, type ElectronApplication, type Page } from 'playwright'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { assertCurrentBackgroundBuildFresh } from './backgroundBuild'
 
 const projectRoot = path.resolve(__dirname, '../..')
+
+const assertBackgroundCapableBuild = (): void => {
+  assertCurrentBackgroundBuildFresh(projectRoot)
+}
 
 const getDateAsFilename = (): string => {
   const date = new Date()
@@ -47,24 +52,26 @@ process.on('exit', () => {
   }
 })
 
+const interactiveTestRun = process.env.MARKTEXT_TEST_INTERACTIVE === '1'
+const backgroundExplicitlyDisabled = process.env.MARKTEXT_TEST_BACKGROUND === '0'
+if (interactiveTestRun !== backgroundExplicitlyDisabled) {
+  throw new Error(
+    'Foreground Electron tests require both MARKTEXT_TEST_INTERACTIVE=1 and ' +
+    'MARKTEXT_TEST_BACKGROUND=0. Automated E2E runs are background-only.'
+  )
+}
+
+export const isBackgroundTestRun: boolean = !interactiveTestRun
+
 export interface LaunchResult {
   app: ElectronApplication
   page: Page
 }
 
-export interface LaunchOptions {
-  // When true, sets MARKTEXT_ERROR_INTERACTION=1 in the launch env so
-  // src/main/exceptionHandler.ts suppresses the modal "Unexpected error"
-  // dialog. Only crash-guard specs that explicitly call expectNoRendererErrors
-  // should opt in — otherwise existing specs would silently ignore renderer
-  // exceptions that previously surfaced as a dialog (a hidden regression risk).
-  suppressErrorDialog?: boolean
-}
-
 export const launchElectron = async(
-  userArgs?: string[],
-  options: LaunchOptions = {}
+  userArgs?: string[]
 ): Promise<LaunchResult> => {
+  if (isBackgroundTestRun) assertBackgroundCapableBuild()
   userArgs = userArgs || []
   const executablePath = getElectronPath()
   // Pass project root as entry so Electron reads package.json and getAppPath() returns project root.
@@ -74,7 +81,12 @@ export const launchElectron = async(
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   env.PERF_TESTING = 'true'
-  if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
+  env.MARKTEXT_E2E_READONLY_BRIDGE = '1'
+  // Automated runs default to a hidden, non-activating Electron instance on
+  // every platform. Every launch sets the value explicitly so parent-shell
+  // state cannot make visibility ambiguous.
+  env.MARKTEXT_TEST_BACKGROUND = isBackgroundTestRun ? '1' : '0'
+  env.MARKTEXT_ERROR_INTERACTION = '1'
   const app = await _electron.launch({
     executablePath,
     args,
@@ -82,25 +94,94 @@ export const launchElectron = async(
     env,
     timeout: 30000
   })
-  if (options.suppressErrorDialog) await installRendererErrorCounter(app)
+  await installRendererErrorCounter(app)
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
   await new Promise((resolve) => setTimeout(resolve, 500))
+  const startupRendererErrors = await getRendererErrors(app)
+  if (startupRendererErrors.length > 0) {
+    await app.close()
+    throw new Error(
+      `Electron captured renderer errors during launch: ${JSON.stringify(startupRendererErrors)}`
+    )
+  }
+  if (isBackgroundTestRun) {
+    try {
+      await assertBackgroundRuntimePolicy(app)
+    } catch (error) {
+      await app.close()
+      throw error
+    }
+  }
   return { app, page }
 }
 
-// Capture renderer-process errors that would otherwise pop the "Unexpected
-// error" dialog. We attach a parallel listener to the same IPC channel
-// (`mt::handle-renderer-error`) that exceptionHandler.ts listens on, and
-// accumulate the count in a shared global so specs can read it back via
-// `getRendererErrors`. Multiple listeners are allowed on ipcMain.
+export const assertBackgroundRuntimePolicy = async(
+  app: ElectronApplication
+): Promise<void> => {
+  const state = await app.evaluate(({ app: electronApp, BrowserWindow }) => {
+    const capturedErrors = ((global as unknown as {
+      __mt_captured_errors__?: Array<{
+        source?: string
+        name?: string
+        message?: string
+        stack?: string
+      }>
+    }).__mt_captured_errors__ ?? []).slice()
+    const getActivationPolicy = (
+      electronApp as unknown as { getActivationPolicy?: () => string }
+    ).getActivationPolicy
+    const activationPolicy = getActivationPolicy?.call(electronApp) ?? null
+    const canInspectActivationPolicy = typeof getActivationPolicy === 'function'
+    const windows = BrowserWindow.getAllWindows().map((window) => ({
+      id: window.id,
+      visible: window.isVisible(),
+      focused: window.isFocused()
+    }))
+    return { activationPolicy, canInspectActivationPolicy, windows, capturedErrors }
+  })
+
+  if (
+    process.platform === 'darwin' &&
+    state.canInspectActivationPolicy &&
+    state.activationPolicy !== 'accessory'
+  ) {
+    throw new Error(
+      `Background Electron activation policy is ${String(state.activationPolicy)}, not accessory.`
+    )
+  }
+  const presented = state.windows.filter((window) => window.visible || window.focused)
+  if (presented.length > 0) {
+    throw new Error(
+      `Background Electron exposed visible/focused windows: ${JSON.stringify(presented)}`
+    )
+  }
+  if (state.capturedErrors.length > 0) {
+    throw new Error(
+      `Background Electron captured startup errors: ${JSON.stringify(state.capturedErrors)}`
+    )
+  }
+}
+
+// Capture renderer-process errors for every automated launch. Include errors
+// the production policy observed before this listener was installed, then
+// attach to the same IPC channel for the rest of the run.
 const installRendererErrorCounter = async(app: ElectronApplication): Promise<void> => {
   await app.evaluate(({ ipcMain }) => {
     const g = global as unknown as {
       __mt_renderer_errors__?: Array<{ message?: string; name?: string; stack?: string }>
+      __mt_captured_errors__?: Array<{
+        source?: string
+        message?: string
+        name?: string
+        stack?: string
+      }>
     }
     if (!g.__mt_renderer_errors__) {
-      const sink: Array<{ message?: string; name?: string; stack?: string }> = []
+      const sink: Array<{ message?: string; name?: string; stack?: string }> =
+        (g.__mt_captured_errors__ ?? [])
+          .filter((error) => error.source === 'renderer')
+          .map(({ message, name, stack }) => ({ message, name, stack }))
       g.__mt_renderer_errors__ = sink
       ipcMain.on('mt::handle-renderer-error', (_e, error) => {
         sink.push(error)
@@ -127,6 +208,51 @@ export const clearRendererErrors = async(app: ElectronApplication): Promise<void
     }
     if (g.__mt_renderer_errors__) g.__mt_renderer_errors__.length = 0
   })
+}
+
+export interface CapturedApplicationError {
+  source?: string
+  message?: string
+  name?: string
+  stack?: string
+}
+
+export const getCapturedErrors = async(
+  app: ElectronApplication
+): Promise<CapturedApplicationError[]> => {
+  return await app.evaluate(() => {
+    const g = global as unknown as {
+      __mt_captured_errors__?: CapturedApplicationError[]
+    }
+    return (g.__mt_captured_errors__ ?? []).map((error) => ({ ...error }))
+  })
+}
+
+export const clearCapturedErrors = async(app: ElectronApplication): Promise<void> => {
+  await app.evaluate(() => {
+    const g = global as unknown as {
+      __mt_captured_errors__?: unknown[]
+      __mt_renderer_errors__?: unknown[]
+    }
+    if (g.__mt_captured_errors__) g.__mt_captured_errors__.length = 0
+    if (g.__mt_renderer_errors__) g.__mt_renderer_errors__.length = 0
+  })
+}
+
+export const expectNoCapturedErrors = async(app: ElectronApplication): Promise<void> => {
+  const errors = await getCapturedErrors(app)
+  if (errors.length > 0) {
+    const summary = errors
+      .map((error) =>
+        `- ${error.source ?? 'unknown'} / ${error.name ?? 'Error'}: ${error.message}\n` +
+        `${error.stack ?? ''}`)
+      .join('\n\n')
+    throw new Error(
+      `Expected no captured main/renderer errors, captured ${errors.length}:\n\n${summary}`
+    )
+  }
+  expect(errors.length).toBe(0)
+  if (isBackgroundTestRun) await assertBackgroundRuntimePolicy(app)
 }
 
 // Assert that no renderer-process error has been captured since the last clear.
@@ -252,6 +378,26 @@ export const getMarkdownContent = async(
   return value
 }
 
+/**
+ * Read the active engine's canonical Markdown through the E2E-only immutable
+ * bridge. Unlike getMarkdownContent, this never enters source mode or performs
+ * a WYSIWYG/source handoff.
+ */
+export const readCanonicalMarkdown = async(page: Page): Promise<string> => {
+  return await page.evaluate(() => {
+    if (document.querySelector('.source-code')) {
+      throw new TypeError('Read-only canonical Markdown bridge was called from source mode.')
+    }
+    const bridge = window.__marktextE2EReadOnly
+    if (!bridge) throw new TypeError('E2E read-only canonical Markdown bridge is unavailable.')
+    const markdown = bridge.readCanonicalMarkdown()
+    if (document.querySelector('.source-code')) {
+      throw new TypeError('Read-only canonical Markdown bridge entered source mode.')
+    }
+    return markdown
+  })
+}
+
 export const typeIntoEditor = async(page: Page, text: string): Promise<void> => {
   await page.click('.editor-component', { timeout: 5000 })
   await page.keyboard.type(text, { delay: 0 })
@@ -328,10 +474,9 @@ const writeTempMarkdown = (content: string): string => {
 }
 
 export const launchWithDoc = async(
-  relativeFixture: string,
-  options: LaunchOptions = {}
+  relativeFixture: string
 ): Promise<LaunchResult> => {
-  const { app, page } = await launchElectron([relativeFixture], options)
+  const { app, page } = await launchElectron([relativeFixture])
   await waitForEditor(page)
   await waitForMenuReady(app)
   return { app, page }
@@ -342,11 +487,10 @@ export interface LaunchWithMarkdownResult extends LaunchResult {
 }
 
 export const launchWithMarkdown = async(
-  markdown = '',
-  options: LaunchOptions = {}
+  markdown = ''
 ): Promise<LaunchWithMarkdownResult> => {
   const filePath = writeTempMarkdown(markdown)
-  const { app, page } = await launchElectron([filePath], options)
+  const { app, page } = await launchElectron([filePath])
   await waitForEditor(page)
   await waitForMenuReady(app)
   return { app, page, filePath }

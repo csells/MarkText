@@ -31,6 +31,7 @@ const Clipboard = (await import('../index')).default;
 function makeAnchorBlock(initialText = '', cursor = 0) {
     const block = {
         text: initialText,
+        path: [0, 'text'],
         blockName: 'paragraph.content',
         getCursor: () => ({
             start: { offset: cursor },
@@ -43,7 +44,18 @@ function makeAnchorBlock(initialText = '', cursor = 0) {
 }
 
 function makeClipboard(options: Record<string, unknown>, anchorBlock: Content) {
-    const clipboard = new Clipboard({ options } as unknown as Muya);
+    const clipboard = new Clipboard({
+        options,
+        editor: {
+            mutationGateway: {
+                run: (_request: unknown, mutate: () => void) => {
+                    mutate();
+                    return 'untracked';
+                },
+            },
+            scrollPage: null,
+        },
+    } as unknown as Muya);
     Object.defineProperty(clipboard, 'selection', {
         get: () => ({
             getSelection: () => ({

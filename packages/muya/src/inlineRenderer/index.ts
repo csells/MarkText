@@ -2,9 +2,14 @@ import type Format from '../block/base/format';
 import type ParagraphContent from '../block/content/paragraphContent';
 import type { Muya } from '../muya';
 import type { IRenderCursor } from '../selection/types';
+import type { TMarkdownStatePath } from '../state/markdownSourceMap';
 import type { IParagraphState, TContainerState, TState } from '../state/types';
 import type { IHighlight, Labels } from './types';
+import { MappedPathIndex } from '../mapped-range';
+import { localRange } from '../mappedText';
+import { markdownStatePath } from '../state/markdownSourceMap';
 import logger from '../utils/logger';
+import { criticMarkupFragmentsForPath } from './criticMarkupFragments';
 import { tokenizer } from './lexer';
 import Renderer from './renderer';
 import { beginRules } from './rules';
@@ -14,6 +19,8 @@ const debug = logger('inlineRenderer:');
 class InlineRenderer {
     public labels: Labels = new Map();
     public renderer: Renderer;
+
+    private _criticMarkupFragmentPaths = new MappedPathIndex<TMarkdownStatePath, true>();
 
     constructor(public muya: Muya) {
         this.renderer = new Renderer(muya, this);
@@ -32,7 +39,31 @@ class InlineRenderer {
                 block.blockName,
             );
 
-        return tokenizer(text, { hasBeginRules, labels, options, highlights });
+        const criticMarkupDocumentFragments = criticMarkupFragmentsForPath(
+            this.muya,
+            block.path,
+        );
+        const criticMarkupDocument = this.muya.editor.criticMarkupDocument.get();
+
+        return tokenizer(text, {
+            hasBeginRules,
+            labels,
+            options: {
+                ...options,
+                criticMarkupDocumentFragments,
+                criticMarkupProjectLocalRange:
+                    options.criticMarkupProjection === 'marked'
+                    && criticMarkupDocumentFragments.length > 0
+                        ? (start, end, projection) =>
+                                criticMarkupDocument.projectLocalRange(
+                                    markdownStatePath(block.path),
+                                    localRange(start, end),
+                                    projection,
+                                )
+                        : undefined,
+            },
+            highlights,
+        });
     }
 
     /**
@@ -57,6 +88,72 @@ class InlineRenderer {
             if (node.isContent())
                 node.update();
         });
+    }
+
+    refreshCriticMarkupDocumentFragments() {
+        const { editor } = this.muya;
+        const { scrollPage } = editor;
+        if (!scrollPage)
+            return;
+        this._refreshStructuralCriticMarkupNodes();
+        const nextPaths = new MappedPathIndex<TMarkdownStatePath, true>();
+        if (this.muya.options.criticMarkupProjection === 'marked') {
+            for (const path of editor.criticMarkupDocument.get().pathsWithFragments())
+                nextPaths.set(path, true);
+        }
+        const affectedPaths = new MappedPathIndex<TMarkdownStatePath, true>();
+        for (const path of this._criticMarkupFragmentPaths.paths())
+            affectedPaths.set(path, true);
+        for (const path of nextPaths.paths())
+            affectedPaths.set(path, true);
+        this._criticMarkupFragmentPaths = nextPaths;
+        if (!affectedPaths.size)
+            return;
+
+        const selection = editor.selection.getSelection();
+        let renderedSelectionEndpoint = false;
+        scrollPage.breadthFirstTraverse((node) => {
+            if (
+                !node.isContent()
+                || !affectedPaths.has(markdownStatePath(node.path))
+            ) {
+                return;
+            }
+
+            const cursor = selection?.isSelectionInSameBlock
+                && selection.anchor.block === node
+                ? {
+                        anchor: selection.anchor,
+                        focus: selection.focus,
+                        block: node,
+                    }
+                : undefined;
+            if (
+                selection
+                && (selection.anchor.block === node || selection.focus.block === node)
+            ) {
+                renderedSelectionEndpoint = true;
+            }
+            node.update(cursor);
+        });
+        if (selection && renderedSelectionEndpoint) {
+            editor.selection.setSelection(
+                selection.anchor,
+                selection.focus,
+            );
+        }
+    }
+
+    private _refreshStructuralCriticMarkupNodes(): void {
+        const { editor } = this.muya;
+        const { scrollPage } = editor;
+        if (!scrollPage)
+            return;
+        scrollPage.bindCriticMarkupDocument(
+            this.muya.options.criticMarkupProjection === 'marked'
+                ? editor.criticMarkupDocument.get()
+                : null,
+        );
     }
 
     patch(block: Format, cursor?: IRenderCursor, highlights: IHighlight[] = []) {

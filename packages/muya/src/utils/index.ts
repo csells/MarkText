@@ -222,8 +222,8 @@ export function getParagraphReference(ele: HTMLElement, id: string) {
     };
 }
 
-function visibleLength(str: string) {
-    return [...new Intl.Segmenter().segment(str)].length;
+function codePointLength(str: string) {
+    return [...str].length;
 }
 
 export type TDiff = (string | number | { d: string });
@@ -242,7 +242,7 @@ export function diffToTextOp(diffs: Diff[]) {
                 break;
 
             case 0:
-                op.push(visibleLength(diff[1]));
+                op.push(codePointLength(diff[1]));
                 break;
 
             case 1:

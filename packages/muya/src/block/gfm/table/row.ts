@@ -2,24 +2,22 @@ import type { Muya } from '../../../muya';
 import type { ITableRowState } from '../../../state/types';
 import type TableBodyCell from './cell';
 import { mixins } from '../../../utils';
-import { LinkedList } from '../../base/linkedList/linkedList';
+import { appendCreatedChildren } from '../../appendCreatedChildren';
 import Parent from '../../base/parent';
 import IContainerQueryBlock from '../../mixins/containerQueryBlock';
 import { ScrollPage } from '../../scrollPage';
 
 @mixins(IContainerQueryBlock)
-class TableRow extends Parent {
-    override children: LinkedList<TableBodyCell> = new LinkedList();
-
+class TableRow extends Parent<TableBodyCell> {
     static override blockName = 'table.row';
 
     static create(muya: Muya, state: ITableRowState) {
         const row = new TableRow(muya);
 
-        row.append(
-            ...state.children.map(child =>
-                ScrollPage.loadBlock('table.cell').create(muya, child),
-            ),
+        appendCreatedChildren(
+            state.children,
+            child => ScrollPage.createStateBlock(muya, child) as TableBodyCell,
+            child => row.append(child),
         );
 
         return row;
@@ -46,7 +44,7 @@ class TableRow extends Parent {
             children: this.map(node => (node as TableBodyCell).getState()),
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

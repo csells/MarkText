@@ -43,7 +43,14 @@ function renderCopyButton(i18n: I18n) {
 }
 
 class Code extends Parent {
-    public override parent: Nullable<CodeBlock> = null;
+    override get parent(): Nullable<CodeBlock> {
+        return super.parent as Nullable<CodeBlock>;
+    }
+
+    override set parent(value: Nullable<CodeBlock>) {
+        super.parent = value;
+    }
+
     // Line numbers only apply to real code blocks (`code-block`). Frontmatter,
     // math, diagram, and html containers all reuse `Code` but must not show
     // a gutter — so we gate creation on the state name, not just the option.

@@ -17,7 +17,6 @@ export interface IImagePathSuggestion {
     text: string;
     iconClass?: string;
     type?: string;
-    [key: string]: unknown;
 }
 
 /** Payload of the `muya-image-picker` event the ImageEditTool dispatches. */

@@ -90,6 +90,9 @@ export const de = {
         'full mode': 'vollständiger Modus',
         // preview block
         'Loading...': 'Wird geladen...',
+        'Accept': 'Akzeptieren',
+        'Reject': 'Ablehnen',
+        'Remove': 'Entfernen',
         'Invalid Diagram Code': 'Ungültiger Diagramm-Code',
         'Empty Diagram': 'Leeres Diagramm',
         'Input Mathematical Formula...': 'Mathematische Formel eingeben...',

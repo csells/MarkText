@@ -1,16 +1,36 @@
+export type {
+    ICriticMarkupItem,
+} from './criticMarkup/commands';
+export type {
+    ICriticMarkupCommandState,
+    ICriticMarkupReviewActions,
+    ICriticMarkupReviewEditor,
+    ICriticMarkupReviewItem,
+    ICriticMarkupReviewOptions,
+    ICriticMarkupReviewSnapshot,
+    ICriticMarkupTarget,
+    TCriticMarkupAuthorInput,
+    TCriticMarkupAuthorType,
+    TCriticMarkupDecision,
+    TCriticMarkupFocusTarget,
+    TCriticMarkupNavigationDirection,
+    TCriticMarkupProjection,
+    TCriticMarkupType,
+} from './criticMarkup/reviewContract';
 export type { ILocale } from './i18n/types';
 export { de, en, es, fr, ja, ko, pt, tr, zhCN, zhTW } from './locales';
-
 export { Muya } from './muya';
 export type { ITocItem } from './state/getTOC';
 export { MarkdownToHtml } from './state/markdownToHtml';
+export { sanitizeExportHtml } from './state/sanitizeExportHtml';
 export { renderToStaticHTML } from './state/renderToStaticHTML';
 export type { IRenderToStaticHTMLOptions } from './state/renderToStaticHTML';
 export type { TState } from './state/types';
 export type { IMuyaOptions } from './types';
 
-export { CodeBlockLanguageSelector } from './ui/codeBlockLanguageSelector';
 // Export ui tools.
+export { CodeBlockLanguageSelector } from './ui/codeBlockLanguageSelector';
+export { CriticMarkupReviewTool } from './ui/criticMarkupReviewTool';
 export { EmojiSelector } from './ui/emojiSelector';
 export { FootnoteTool } from './ui/footnoteTool';
 export { ImageEditTool } from './ui/imageEditTool';
@@ -28,6 +48,11 @@ export { default as TableChessboard } from './ui/tableChessboard';
 export { TableColumnToolbar } from './ui/tableColumnToolbar';
 export { TableDragBar } from './ui/tableDragBar';
 export { TableRowColumMenu } from './ui/tableRowColumMenu';
+export {
+    AsyncTaskError,
+    reportAsyncFailure,
+    reportAsyncTask,
+} from './utils/asyncTask';
 export type { IImageInfo } from './utils/image';
 export { getImageInfo } from './utils/image';
 export { escapeHTML, sanitize, unescapeHTML, wordCount } from './utils/index';

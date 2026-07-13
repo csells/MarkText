@@ -1,6 +1,7 @@
 import type { IHighlight } from '../../inlineRenderer/types';
 import type { Muya } from '../../muya';
 import type { IContentCursor, INodeOffset, IRenderCursor } from '../../selection/types';
+import type { IParagraphState } from '../../state/types';
 import type { Nullable } from '../../types';
 import type { TBlockPath } from '../types';
 import type Parent from './parent';
@@ -366,6 +367,8 @@ class Content extends TreeNode {
 
     set text(text) {
         const oldText = this._text;
+        if (oldText !== text)
+            this.assertMutationAuthorized('Content text mutation');
         this._text = text;
         const { path } = this;
         if (this.blockName === 'language-input') {
@@ -517,16 +520,23 @@ class Content extends TreeNode {
             // Otherwise ArrowDown in an already-empty last paragraph would keep
             // creating empty paragraphs on every keypress (#3520).
             else if (this.text.length > 0) {
-                const newNodeState = {
-                    name: 'paragraph',
-                    text: '',
-                };
-                const newNode = ScrollPage.loadBlock(newNodeState.name).create(
-                    muya,
-                    newNodeState,
+                const result = muya.editor.mutationGateway.run(
+                    { kind: 'user-command' },
+                    () => {
+                        const newNodeState: IParagraphState = {
+                            name: 'paragraph',
+                            text: '',
+                        };
+                        const newNode = ScrollPage.createStateBlock(
+                            muya,
+                            newNodeState,
+                        );
+                        this.scrollPage?.append(newNode, 'user');
+                        cursorBlock = newNode.firstContentInDescendant();
+                    },
                 );
-                this.scrollPage?.append(newNode, 'user');
-                cursorBlock = newNode.children.head;
+                if (result !== 'untracked')
+                    return;
             }
             if (cursorBlock)
                 offset = adjustOffset(0, cursorBlock, event);
@@ -668,6 +678,25 @@ class Content extends TreeNode {
     }
 
     /**
+     * Return the exact local source range of `word` at the current cursor.
+     * This lets parser-aware callers preserve the user's whole-word operation
+     * even when the old and replacement spellings share a prefix or suffix.
+     */
+    getCurrentWordRangeInlineUnsafe(
+        word: string,
+    ): { start: number; end: number } | null {
+        const cursor = this.getCursor();
+        if (cursor == null)
+            return null;
+
+        const wordInfo = extractWord(this.text, cursor.start.offset);
+        if (wordInfo == null || wordInfo.word !== word)
+            return null;
+
+        return { start: wordInfo.left, end: wordInfo.right };
+    }
+
+    /**
      * Replace the word at/around the current cursor with `replacement`.
      *
      * Used by the desktop spell checker: right
@@ -684,25 +713,19 @@ class Content extends TreeNode {
      * @returns True when the replacement was applied.
      */
     replaceCurrentWordInlineUnsafe(word: string, replacement: string): boolean {
-        const cursor = this.getCursor();
-        if (cursor == null)
+        const range = this.getCurrentWordRangeInlineUnsafe(word);
+        if (range == null)
             return false;
 
         const { text } = this;
-        // Use the start offset of the (possibly whole-word) selection as the
-        // probe point.
-        const wordInfo = extractWord(text, cursor.start.offset);
-        if (wordInfo == null)
-            return false;
-
-        const { left, right, word: selectedWord } = wordInfo;
-        if (selectedWord !== word)
-            return false;
+        const { start, end } = range;
 
         // Reuse the text setter so the change dispatches a json edit op.
-        this.text = text.substring(0, left) + replacement + text.substring(right);
+        this.text = text.substring(0, start)
+            + replacement
+            + text.substring(end);
 
-        const offset = left + replacement.length;
+        const offset = start + replacement.length;
         this.setCursor(offset, offset, true);
 
         return true;
@@ -781,14 +804,24 @@ class Content extends TreeNode {
         const { start, end } = cursor;
         const selectedText = this.text.substring(start.offset, end.offset);
         const wrappedText = `${pair.open}${selectedText}${pair.close}`;
-        this.text
-            = this.text.substring(0, start.offset)
-                + wrappedText
-                + this.text.substring(end.offset);
-
         const selectionStart = start.offset + pair.open.length;
         const selectionEnd = selectionStart + selectedText.length;
-        this.setCursor(selectionStart, selectionEnd, true);
+        this.muya.editor.mutationGateway.run(
+            { kind: 'user-edit' },
+            () => {
+                this.text
+                    = this.text.substring(0, start.offset)
+                        + wrappedText
+                        + this.text.substring(end.offset);
+                this.setCursor(selectionStart, selectionEnd, true);
+            },
+            {
+                path: [...this.path],
+                start: start.offset,
+                end: end.offset,
+                inserted: wrappedText,
+            },
+        );
 
         return true;
     }

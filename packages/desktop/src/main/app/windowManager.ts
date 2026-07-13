@@ -12,6 +12,7 @@ import type Preference from '../preferences'
 import { WindowType } from '../windows/base'
 import type { WindowTypeValue } from '../windows/base'
 import type EditorWindow from '../windows/editor'
+import { presentationPolicy } from '../presentationPolicy'
 
 class WindowActivityList {
   // Oldest             Newest
@@ -412,8 +413,9 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
       const win = BrowserWindow.fromWebContents(e.sender)
       if (!win) return
       const flag = !win.isAlwaysOnTop()
-      win.setAlwaysOnTop(flag)
-      this._appMenu.updateAlwaysOnTopMenu(win.id, flag)
+      if (presentationPolicy.setWindowAlwaysOnTop(win, flag)) {
+        this._appMenu.updateAlwaysOnTopMenu(win.id, flag)
+      }
     })
 
     // --- local events ---------------
@@ -471,8 +473,9 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
     })
     onInternalChannel('window-toggle-always-on-top', (win: IBrowserWindow) => {
       const flag = !win.isAlwaysOnTop()
-      win.setAlwaysOnTop(flag)
-      this._appMenu.updateAlwaysOnTopMenu(win.id, flag)
+      if (presentationPolicy.setWindowAlwaysOnTop(win, flag)) {
+        this._appMenu.updateAlwaysOnTopMenu(win.id, flag)
+      }
     })
 
     onInternalChannel('broadcast-preferences-changed', (prefs: Record<string, unknown>) => {

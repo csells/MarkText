@@ -72,7 +72,7 @@ test.describe('In-document anchor link click scrolls the editor (item 236)', () 
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown(DOC, { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown(DOC)
     app = launched.app
     page = launched.page
     // The markdown link renders to its preview `span.mu-link` wrapper once the

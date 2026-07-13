@@ -87,4 +87,32 @@ describe('#4812: mermaid syntax error must not abort export', () => {
         expect(mermaidRun).toHaveBeenCalledTimes(2);
         expect(html).toContain('&lt; Invalid Diagram &gt;');
     });
+
+    it('sanitizes diagram DOM mutations at the final styled-export boundary', async () => {
+        mermaidRun.mockImplementation(async ({ nodes }: { nodes: HTMLElement[] }) => {
+            nodes[0].innerHTML = [
+                '<svg>',
+                '<script>globalThis.__postRenderScript = true</script>',
+                '<image href="javascript:globalThis.__postRenderUrl = true"',
+                ' onerror="globalThis.__postRenderEvent = true"></image>',
+                '<text>Safe diagram label</text>',
+                '</svg>',
+            ].join('');
+        });
+
+        const html = await new MarkdownToHtml([
+            '```mermaid',
+            'graph LR; A-->B',
+            '```',
+            '',
+        ].join('\n')).renderHtml();
+        const root = document.createElement('div');
+        root.innerHTML = html;
+
+        expect(root.textContent).toContain('Safe diagram label');
+        expect(root.querySelector('script')).toBeNull();
+        expect(root.querySelector('[onerror], [onload]')).toBeNull();
+        expect(root.querySelector('image')?.getAttribute('href') ?? null)
+            .toBeNull();
+    });
 });

@@ -51,7 +51,7 @@ export function insertFrontMatterAtStart(muya: Muya): boolean {
     const fmState = deepClone(emptyStates.frontmatter);
     Object.assign(fmState.meta, frontmatterMeta(muya.options.frontmatterType));
 
-    const frontmatter = ScrollPage.loadBlock('frontmatter').create(muya, fmState);
+    const frontmatter = ScrollPage.createStateBlock(muya, fmState);
     scrollPage.insertBefore(frontmatter, firstBlock);
     frontmatter.firstContentInDescendant()?.setCursor(0, 0, true);
 
@@ -105,17 +105,17 @@ function buildLeafBlock(label: TLeafReplacementLabel, muya: Muya, text: string) 
             inner.text = text;
     }
 
-    return ScrollPage.loadBlock(label).create(muya, cloned);
+    return ScrollPage.createStateBlock(muya, cloned);
 }
 
 function buildHeadingBlock(label: string, muya: Muya, text: string) {
     const headingState = deepClone(emptyStates['atx-heading']);
 
-    const [blockName, level] = label.split(' ');
+    const [, level] = label.split(' ');
     headingState.meta.level = +level;
     headingState.text = `${'#'.repeat(+level)} ${text}`;
 
-    return ScrollPage.loadBlock(blockName).create(muya, headingState);
+    return ScrollPage.createStateBlock(muya, headingState);
 }
 
 function buildOrderListBlock(muya: Muya, text: string) {
@@ -127,7 +127,7 @@ function buildOrderListBlock(muya: Muya, text: string) {
     if (text && isParagraphState(firstChild))
         firstChild.text = text;
 
-    return ScrollPage.loadBlock('order-list').create(muya, orderState);
+    return ScrollPage.createStateBlock(muya, orderState);
 }
 
 function buildListBlock(label: 'bullet-list' | 'task-list', muya: Muya, text: string) {
@@ -139,13 +139,13 @@ function buildListBlock(label: 'bullet-list' | 'task-list', muya: Muya, text: st
     if (text && isParagraphState(firstChild))
         firstChild.text = text;
 
-    return ScrollPage.loadBlock(label).create(muya, listState);
+    return ScrollPage.createStateBlock(muya, listState);
 }
 
 function buildDiagramBlock(label: string, muya: Muya) {
     const diagramState = deepClone(emptyStates.diagram);
 
-    const [name, type] = label.split(' ');
+    const [, type] = label.split(' ');
     if (
         type === 'mermaid'
         || type === 'plantuml'
@@ -157,7 +157,7 @@ function buildDiagramBlock(label: string, muya: Muya) {
         diagramState.meta.lang = type === 'vega-lite' ? 'json' : 'yaml';
     }
 
-    return ScrollPage.loadBlock(name).create(muya, diagramState);
+    return ScrollPage.createStateBlock(muya, diagramState);
 }
 
 export function buildReplacementBlock(label: string, muya: Muya, text: string) {
@@ -233,6 +233,8 @@ export function replaceBlockByLabel({ block, muya, label, text = '' }: {
     }
 
     const newBlock = buildReplacementBlock(label, muya, text);
+    if (!newBlock)
+        return;
 
     block.replaceWith(newBlock);
     finishInsertedBlock(newBlock, muya, label);
@@ -244,7 +246,7 @@ export function replaceBlockByLabel({ block, muya, label, text = '' }: {
 // the new block.
 function finishInsertedBlock(newBlock: Parent, muya: Muya, label: string) {
     if (label === 'thematic-break') {
-        const nextParagraphBlock = ScrollPage.loadBlock('paragraph').create(
+        const nextParagraphBlock = ScrollPage.createStateBlock(
             muya,
             deepClone(emptyStates.paragraph),
         );

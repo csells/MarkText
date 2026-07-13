@@ -136,6 +136,25 @@
       "hyperlink": "超链接",
       "clearFormat": "清除格式"
     },
+    "review": {
+      "review": "审阅",
+      "trackChanges": "跟踪更改",
+      "markAddition": "标记为新增",
+      "markDeletion": "标记为删除",
+      "suggestReplacement": "建议替换…",
+      "highlight": "突出显示以供审阅",
+      "addComment": "添加批注…",
+      "previous": "上一处更改",
+      "next": "下一处更改",
+      "acceptCurrent": "接受更改",
+      "rejectCurrent": "拒绝更改",
+      "acceptAll": "接受所有更改",
+      "rejectAll": "拒绝所有更改",
+      "display": "显示",
+      "showMarked": "标记",
+      "showOriginal": "原文",
+      "showRevised": "修订稿"
+    },
     "theme": {
       "theme": "主题(&T)",
       "dark": "深色",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "目录"
     },
+    "review": {
+      "title": "审阅",
+      "summary": "{count} 个审阅项目",
+      "trackChanges": "跟踪更改",
+      "unavailable": "此视图无法使用审阅功能。",
+      "empty": "没有审阅项目",
+      "removeComment": "删除批注",
+      "removeHighlight": "移除突出显示",
+      "types": {
+        "addition": "新增",
+        "deletion": "删除",
+        "substitution": "替换",
+        "highlight": "突出显示",
+        "comment": "批注"
+      }
+    },
     "icons": {
       "files": "文件",
       "search": "搜索",
       "toc": "目录",
+      "review": "审阅",
       "settings": "设置"
     }
   },
@@ -820,6 +856,23 @@
       "image": "图片",
       "clearFormat": "清除格式"
     },
+    "review": {
+      "trackChanges": "修订",
+      "markAddition": "标记为新增",
+      "markDeletion": "标记为删除",
+      "suggestReplacement": "建议替换",
+      "highlight": "突出显示以供审阅",
+      "addComment": "添加批注",
+      "previous": "上一处更改",
+      "next": "下一处更改",
+      "acceptCurrent": "接受更改",
+      "rejectCurrent": "拒绝更改",
+      "acceptAll": "接受所有更改",
+      "rejectAll": "拒绝所有更改",
+      "showMarked": "显示标记",
+      "showOriginal": "显示原文",
+      "showRevised": "显示修订稿"
+    },
     "window": {
       "minimize": "最小化",
       "close": "关闭",
@@ -933,6 +986,12 @@
     "unexpectedError": "意外的拼写检查器错误"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "添加批注",
+      "commentPlaceholder": "输入审阅批注",
+      "replacementTitle": "建议替换",
+      "replacementPlaceholder": "输入替换文本"
+    },
     "insertTable": {
       "title": "插入表格",
       "rows": "行",

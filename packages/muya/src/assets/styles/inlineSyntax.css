@@ -56,6 +56,58 @@ em.mu-inline-rule {
     color: var(--em-color, inherit);
 }
 
+/* CriticMarkup is rendered as native inline syntax. The raw delimiters use
+   Muya's normal reveal-on-caret behavior; the semantic content stays visible. */
+.mu-critic-markup {
+    display: inline;
+}
+
+.mu-critic-addition > ins,
+.mu-critic-new {
+    text-decoration: none;
+
+    background: color-mix(in srgb, var(--theme-color) 18%, transparent);
+}
+
+.mu-critic-deletion > del,
+.mu-critic-old {
+    color: var(--editor-color-50);
+    text-decoration-color: var(--delete-color);
+}
+
+.mu-critic-highlight > mark {
+    color: inherit;
+
+    background: var(--selection-color);
+}
+
+.mu-critic-comment-indicator {
+    display: inline-block;
+    width: 0.55em;
+    height: 0.55em;
+    margin-left: 0.12em;
+
+    vertical-align: super;
+
+    background: var(--theme-color);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.mu-critic-comment-indicator:focus-visible {
+    outline: 1px solid var(--theme-color);
+    outline-offset: 2px;
+}
+
+/* An over-budget nested subtree stays as editable literal Markdown. The
+   warning treatment and title explain why this one region is not semantic. */
+.mu-critic-render-limit {
+    color: var(--delete-color);
+    text-decoration: underline dotted;
+    text-decoration-color: var(--delete-color);
+    text-underline-offset: 0.14em;
+}
+
 /* inline code */
 code.mu-inline-rule {
     margin: 0;

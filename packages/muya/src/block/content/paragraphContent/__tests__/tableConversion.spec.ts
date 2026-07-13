@@ -3,6 +3,10 @@
 import type Content from '../../../base/content';
 import type Table from '../../../gfm/table';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    runUserCommand,
+    runUserEdit,
+} from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // Enter-to-table conversion in a plain paragraph.
@@ -75,7 +79,9 @@ function findTable(muya: Muya): Table | null {
 // Enter through its handler exactly like the keydown listener does.
 function enterWithText(muya: Muya, text: string): Content {
     const content = firstContent(muya);
-    content.text = text;
+    runUserEdit(muya, () => {
+        content.text = text;
+    });
     muya.editor.activeContentBlock = content;
     const offset = content.text.length;
     content.setCursor(offset, offset, true);
@@ -85,7 +91,7 @@ function enterWithText(muya: Muya, text: string): Content {
         key: 'Enter',
         shiftKey: false,
     } as unknown as KeyboardEvent;
-    content.enterHandler(event);
+    runUserCommand(muya, () => content.enterHandler(event));
     return content;
 }
 

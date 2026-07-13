@@ -121,7 +121,15 @@ function makeClipboard(
 ) {
     const clipboard = new Clipboard({
         options: { bulletListMarker: '-', frontMatter: true, ...options },
-        editor: {},
+        editor: {
+            mutationGateway: {
+                run: (_request: unknown, mutate: () => void) => {
+                    mutate();
+                    return 'untracked';
+                },
+            },
+            scrollPage: null,
+        },
     } as unknown as Muya);
     Object.defineProperty(clipboard, 'selection', {
         get: () => ({

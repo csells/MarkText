@@ -23,6 +23,7 @@ describe('CommonMark 0.31 spec conformance', () => {
         `CM 0.31 §$section #$number`,
         (example) => {
             const actual = renderToStaticHTML(example.markdown, {
+                criticMarkup: false,
                 footnote: false,
                 math: false,
                 superSubScript: false,

@@ -2,6 +2,10 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    runUserCommand,
+    runUserEdit,
+} from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // #2276 — inside a list item, typing `$$` then Enter should convert the item's
@@ -58,11 +62,16 @@ function flush(): Promise<void> {
 async function enterDollarsInList(token: string): Promise<{ listChildren: number; itemBlockNames: string[] }> {
     const muya = bootMuya('1. x\n');
     const content = muya.editor.scrollPage!.firstContentInDescendant() as unknown as Content;
-    content.text = token;
+    runUserEdit(muya, () => {
+        content.text = token;
+    });
     muya.editor.activeContentBlock = content as never;
     content.setCursor(token.length, token.length, true);
 
-    content.enterHandler(keyEvent({ key: 'Enter' }));
+    runUserCommand(
+        muya,
+        () => content.enterHandler(keyEvent({ key: 'Enter' })),
+    );
     await flush();
 
     const state = muya.getState() as Array<{ name: string; children?: Array<{ name: string; children?: Array<{ name: string }> }> }>;

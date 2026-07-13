@@ -1,12 +1,34 @@
 import type Content from './block/base/content';
 import type Parent from './block/base/parent';
-import type { TBlockPath } from './block/types';
+import type {
+    ICriticMarkupCommandState,
+    ICriticMarkupItem,
+    ICriticMarkupTarget,
+    TCriticMarkupAuthorInput,
+    TCriticMarkupAuthorType,
+    TCriticMarkupFocusTarget,
+    TCriticMarkupNavigationDirection,
+} from './criticMarkup/commands';
+import type { TCriticMarkupDecision } from './criticMarkup/project';
+import type { ICriticMarkupReviewEditor } from './criticMarkup/reviewContract';
+import type { ICriticMarkupReviewSnapshot } from './criticMarkup/reviewSnapshot';
 import type { Listener } from './event/types';
 import type { ILocale } from './i18n/types';
+import type { IReplaceOption, ISearchOption } from './search/types';
 import type { IIndexCursor } from './selection/offsetCursor';
 import type { IHistorySelection, IPublicCursorInput } from './selection/types';
 import type { ITocItem } from './state/getTOC';
-import type { IBulletListState, IOrderListState, ITableState, ITaskListState, TState } from './state/types';
+import type {
+    IBlockQuoteState,
+    IBulletListState,
+    ICodeBlockState,
+    IListItemState,
+    IOrderListState,
+    ITableState,
+    ITaskListItemState,
+    ITaskListState,
+    TState,
+} from './state/types';
 import type { IMuyaOptions, Nullable } from './types';
 import Format from './block/base/format';
 import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replaceBlockByLabel } from './block/blockTransforms';
@@ -18,16 +40,14 @@ import {
     MUYA_DEFAULT_OPTIONS,
     URL_REG,
 } from './config/index';
+import { MuyaCriticMarkup } from './criticMarkup/commands';
 
 import { Editor } from './editor/index';
 import EventCenter from './event/index';
 import I18n from './i18n/index';
-import {
-    injectSentinels,
-    injectStateSentinels,
-    locateSentinelOffsets,
-    resolveSentinelCursor,
-} from './selection/offsetCursor';
+import { MutationCommandDispatcher } from './mutation/commandDispatcher';
+import { replaceDocumentContent } from './mutation/documentReplacement';
+import { CursorController } from './selection/cursorController';
 import { isAnyListState, isAtxHeadingState, isCodeBlockState } from './state/types';
 import { Ui } from './ui/ui';
 import { deepClone } from './utils';
@@ -41,14 +61,14 @@ import './assets/styles/prismjs/light.theme.css';
 // shape: a class with a static `pluginName` and a constructor that takes
 // `(muya: Muya, options: object)`. `Muya.use` records the constructor + an
 // arbitrary options object; `init()` instantiates each plugin.
-export interface IMuyaPluginConstructor {
+export interface IMuyaPluginConstructor<TOptions = undefined> {
     pluginName: string;
-    new(muya: Muya, options: Record<string, unknown>): unknown;
+    new(muya: Muya, options?: TOptions): unknown;
 }
 
 interface IPlugin {
-    plugin: IMuyaPluginConstructor;
-    options: Record<string, unknown>;
+    pluginName: string;
+    create: (muya: Muya) => unknown;
 }
 
 // A selection reduced to document paths + offsets, with block references
@@ -126,13 +146,17 @@ function endpointPair(
     return anchor && focus ? { anchor, focus } : null;
 }
 
-export class Muya {
+export class Muya implements ICriticMarkupReviewEditor {
     static plugins: IPlugin[] = [];
 
-    static use(plugin: IMuyaPluginConstructor, options: Record<string, unknown> = {}) {
+    static use<TOptions>(
+        plugin: IMuyaPluginConstructor<TOptions>,
+        options?: TOptions,
+    ) {
+        const Plugin = plugin;
         this.plugins.push({
-            plugin,
-            options,
+            pluginName: plugin.pluginName,
+            create: muya => new Plugin(muya, options),
         });
     }
 
@@ -145,6 +169,9 @@ export class Muya {
     public i18n: I18n;
 
     private _uiPlugins: Record<string, unknown> = {};
+    private _criticMarkup: MuyaCriticMarkup;
+    private _mutationCommands: MutationCommandDispatcher;
+    private _cursorController: CursorController;
 
     constructor(element: HTMLElement, options?: Partial<IMuyaOptions>) {
         this.options = Object.assign({}, MUYA_DEFAULT_OPTIONS, options ?? {});
@@ -154,7 +181,13 @@ export class Muya {
         this.editor = new Editor(this);
         this.ui = new Ui(this);
         this.i18n = new I18n(this, this.options.locale);
+        this._criticMarkup = new MuyaCriticMarkup(this);
+        this._mutationCommands = new MutationCommandDispatcher(
+            this.editor.mutationGateway,
+        );
+        this._cursorController = new CursorController(this);
         this._bindFocusBlurEvents();
+        this._bindCriticMarkupReviewEvents();
     }
 
     private _bindFocusBlurEvents() {
@@ -166,13 +199,26 @@ export class Muya {
         });
     }
 
+    private _bindCriticMarkupReviewEvents() {
+        const publish = () => this._emitCriticMarkupReviewChange();
+        this.eventCenter.on('selection-change', publish);
+        this.eventCenter.on('json-change', publish);
+    }
+
+    private _emitCriticMarkupReviewChange() {
+        this.eventCenter.emit(
+            'critic-markup-review-change',
+            this.getCriticMarkupReviewSnapshot(),
+        );
+    }
+
     init() {
         this.editor.init();
 
         // UI plugins
         if (Muya.plugins.length) {
-            for (const { plugin: Plugin, options: opts } of Muya.plugins)
-                this._uiPlugins[Plugin.pluginName] = new Plugin(this, opts);
+            for (const { pluginName, create } of Muya.plugins)
+                this._uiPlugins[pluginName] = create(this);
         }
     }
 
@@ -222,11 +268,17 @@ export class Muya {
     }
 
     undo() {
-        this.editor.history.undo();
+        this._mutationCommands.run(
+            { kind: 'history-command' },
+            () => this.editor.history.undo(),
+        );
     }
 
     redo() {
-        this.editor.history.redo();
+        this._mutationCommands.run(
+            { kind: 'history-command' },
+            () => this.editor.history.redo(),
+        );
     }
 
     getHistory() {
@@ -249,7 +301,7 @@ export class Muya {
      * @param {string} value
      * @param {object} opts
      */
-    search(value: string, opts = {}) {
+    search(value: string, opts: ISearchOption = {}) {
         return this.editor.searchModule.search(value, opts);
     }
 
@@ -261,62 +313,100 @@ export class Muya {
         return this.editor.searchModule.find(action);
     }
 
-    replace(replaceValue: string, opt = { isSingle: true, isRegexp: false }) {
+    replace(
+        replaceValue: string,
+        opt: IReplaceOption = { isSingle: true, isRegexp: false },
+    ) {
         return this.editor.searchModule.replace(replaceValue, opt);
     }
 
     setContent(content: TState[] | string, autoFocus = false) {
         this.editor.setContent(content, autoFocus);
+        this._emitCriticMarkupReviewChange();
     }
 
-    /**
-     * Replace the whole document with `content` (markdown or a state array) as a
-     * SINGLE undo boundary — the first subsequent `undo()` reverts the entire
-     * replacement in one step. Unlike `setContent`, the existing undo/redo
-     * history is preserved and a new boundary is pushed on top of it.
-     *
-     * Used by the desktop shell when handing a tab back from source-code mode:
-     * the bulk source-mode edit becomes one undo step. The change is recorded
-     * as a `rebuild` history entry, so undo /
-     * redo re-create the block tree wholesale (`ScrollPage.updateState`) rather
-     * than walking it incrementally — making arbitrary block-type changes
-     * (paragraph<->heading, list/table/code/frontmatter, multi-block reorder…)
-     * safe to round-trip. No-op when `content` is identical to the current
-     * document.
-     *
-     * `recordSelection` overrides the caret stored on the rebuild boundary (the
-     * one the first `undo()` restores). Pass it when the live DOM selection no
-     * longer points into the muya tree at call time — notably the source-mode
-     * handoff, where focus has moved to CodeMirror, so the desktop shell hands
-     * back the caret captured when the user switched INTO source mode. Omitted,
-     * it falls back to the current live selection.
-     *
-     * @returns `true` if a boundary was recorded, `false` if nothing changed.
-     */
     replaceContent(content: TState[] | string, recordSelection?: Nullable<IHistorySelection>): boolean {
-        const { jsonState, history } = this.editor;
-        const { op, prevState } = jsonState.buildReplaceOp(content);
+        return this._mutationCommands.runBoolean(
+            { kind: 'document-replace' },
+            () => this._replaceContentCommand(content, recordSelection),
+        );
+    }
 
-        if (op.length === 0)
-            return false;
+    /** Commit a prepared replacement only if its exact target selection exists. */
+    replaceContentWithSelection(
+        content: TState[] | string,
+        recordSelection: Nullable<IHistorySelection>,
+        nextSelection: IHistorySelection,
+    ): boolean {
+        return this._mutationCommands.runBoolean(
+            { kind: 'document-replace' },
+            () => this._replaceContentCommand(
+                content,
+                recordSelection,
+                nextSelection,
+            ),
+        );
+    }
 
-        const selection = this.editor.selection.getSelection();
-        const boundarySelection = recordSelection !== undefined ? recordSelection : selection;
-        // Record the lossless inverse as a standalone rebuild boundary BEFORE
-        // applying the forward op, so the recorded `prevState` matches the doc
-        // the inverse must restore. The forward apply dispatches a json-change,
-        // so suppress History's own recording of it to avoid a duplicate entry.
-        history.recordRebuild(op, prevState, boundarySelection);
-        history.suppressRecording(() => {
-            this.editor.rebuildContents(op, selection, 'api');
-        });
-
-        return true;
+    private _replaceContentCommand(
+        content: TState[] | string,
+        recordSelection?: Nullable<IHistorySelection>,
+        nextSelection?: IHistorySelection,
+    ): boolean {
+        return replaceDocumentContent(
+            this,
+            content,
+            recordSelection,
+            nextSelection,
+        );
     }
 
     setOptions(options: Partial<IMuyaOptions>, forceRender = false) {
-        Object.assign(this.options, options);
+        const previousOptions = { ...this.options };
+        const projectionChanged
+            = options.criticMarkupProjection !== undefined
+                && options.criticMarkupProjection
+                !== this.options.criticMarkupProjection;
+        const trackChangesChanged
+            = options.criticMarkupTrackChanges !== undefined
+                && options.criticMarkupTrackChanges
+                !== this.options.criticMarkupTrackChanges;
+        if (projectionChanged || trackChangesChanged)
+            this.flush();
+        const render = forceRender || projectionChanged;
+        const parseAffecting = render
+            && Object.keys(options).some(key =>
+                PARSE_AFFECTING_OPTIONS.has(key as keyof IMuyaOptions));
+        const markdown = parseAffecting ? this.getMarkdown() : null;
 
+        try {
+            Object.assign(this.options, options);
+
+            if (parseAffecting) {
+                const { jsonState } = this.editor;
+                this._mutationCommands.run(
+                    { kind: 'document-reset' },
+                    () => this.editor.reparseContent(
+                        jsonState.markdownToState(markdown!),
+                        !projectionChanged,
+                    ),
+                );
+            }
+            else if (render) {
+                this._forceRender(!projectionChanged);
+            }
+
+            this._applyOptionEffects(options);
+            if (projectionChanged || trackChangesChanged)
+                this._emitCriticMarkupReviewChange();
+        }
+        catch (error) {
+            this.options = previousOptions;
+            throw error;
+        }
+    }
+
+    private _applyOptionEffects(options: Partial<IMuyaOptions>): void {
         if ('spellcheckEnabled' in options)
             this.domNode.setAttribute('spellcheck', options.spellcheckEnabled ? 'true' : 'false');
 
@@ -335,29 +425,13 @@ export class Muya {
         }
 
         applyAppearance(this.domNode, options);
-
-        if (!forceRender)
-            return;
-
-        if (Object.keys(options).some(key => PARSE_AFFECTING_OPTIONS.has(key as keyof IMuyaOptions))) {
-            const { jsonState } = this.editor;
-            jsonState.setContent(jsonState.markdownToState(this.getMarkdown()));
-        }
-
-        this._forceRender();
     }
 
-    private _forceRender() {
-        const selection = this.editor.selection.getSelection();
-        this.editor.scrollPage?.updateState(this.getState());
-
-        if (selection && selection.isSelectionInSameBlock) {
-            const begin = Math.min(selection.anchor.offset, selection.focus.offset);
-            const end = Math.max(selection.anchor.offset, selection.focus.offset);
-            const cursorBlock = this.editor.scrollPage?.queryBlock(selection.anchor.path);
-            if (cursorBlock && cursorBlock.isContent())
-                cursorBlock.setCursor(begin, end, true);
-        }
+    private _forceRender(preserveSelection = true) {
+        const selection = preserveSelection
+            ? this.editor.selection.getSelection()
+            : null;
+        this.editor.renderCurrentProjection(selection);
     }
 
     /** Update list indentation and re-render so it takes effect. */
@@ -383,6 +457,13 @@ export class Muya {
     }
 
     format(type: string) {
+        this._mutationCommands.run(
+            { kind: 'user-command' },
+            () => this._formatCommand(type),
+        );
+    }
+
+    private _formatCommand(type: string) {
         const { selection } = this.editor;
 
         // Cross-leaf selection: apply to each formattable leaf in range. The
@@ -424,6 +505,62 @@ export class Muya {
         );
 
         anchorBlock.format(type);
+    }
+
+    canCreateCriticMarkup(type: TCriticMarkupAuthorType): boolean {
+        return this._criticMarkup.canCreate(type);
+    }
+
+    createCriticMarkup(input: TCriticMarkupAuthorInput): boolean {
+        return this._mutationCommands.runBoolean(
+            { kind: 'review-command' },
+            () => this._criticMarkup.create(input),
+        );
+    }
+
+    getCriticMarkupItems(): ICriticMarkupItem[] {
+        return this._criticMarkup.getItems();
+    }
+
+    getCriticMarkupCommandState(): ICriticMarkupCommandState {
+        return this._criticMarkup.getCommandState();
+    }
+
+    getCriticMarkupReviewSnapshot(): ICriticMarkupReviewSnapshot {
+        return this._criticMarkup.getReviewSnapshot();
+    }
+
+    getCurrentCriticMarkupItem(): ICriticMarkupItem | null {
+        return this._criticMarkup.getCurrentItem();
+    }
+
+    focusCriticMarkup(
+        target: TCriticMarkupFocusTarget,
+    ): ICriticMarkupItem | null {
+        return this._criticMarkup.focus(target);
+    }
+
+    navigateCriticMarkup(
+        direction: TCriticMarkupNavigationDirection,
+    ): ICriticMarkupItem | null {
+        return this._criticMarkup.navigate(direction);
+    }
+
+    resolveCriticMarkup(
+        decision: TCriticMarkupDecision,
+        target?: ICriticMarkupTarget,
+    ): boolean {
+        return this._mutationCommands.runBoolean(
+            { kind: 'review-command' },
+            () => this._criticMarkup.resolve(decision, target),
+        );
+    }
+
+    resolveAllCriticMarkup(decision: TCriticMarkupDecision): number {
+        return this._mutationCommands.runCount(
+            { kind: 'review-command' },
+            () => this._criticMarkup.resolveAll(decision),
+        );
     }
 
     private _formatAcrossBlocks(type: string) {
@@ -492,12 +629,6 @@ export class Muya {
         };
     }
 
-    /**
-     * Apply `type` to one leaf over [start, end], skipping non-formattable
-     * leaves and a heading's leading `# ` marker. Returns the leaf's selection
-     * range AFTER formatting (offsets shift past inserted markers), or null when
-     * the leaf was skipped.
-     */
     private _formatLeafInRange(type: string, leaf: Content, start: number, end: number): { start: number; end: number } | null {
         if (!(leaf instanceof Format))
             return null;
@@ -530,50 +661,36 @@ export class Muya {
         return /^ {0,3}#{1,6}(?:\s+|$)/.exec(leaf.text)?.[0].length ?? 0;
     }
 
-    /**
-     * Replace the word at the current cursor with `replacement`, then place the
-     * cursor after the replacement.
-     *
-     * The desktop spell checker calls this when the user picks a suggestion
-     * from the misspelled-word
-     * context menu (Chromium has already selected the whole word). Unsafe: the
-     * call is a no-op unless the word at the cursor matches `word`.
-     *
-     * @param word The expected (misspelled) word at the cursor.
-     * @param replacement The replacement word.
-     * @returns True when the replacement was applied.
-     */
     replaceCurrentWordInlineUnsafe(word: string, replacement: string): boolean {
         const block = this.editor.activeContentBlock;
         if (!block)
             return false;
+        const range = block.getCurrentWordRangeInlineUnsafe(word);
+        if (!range)
+            return false;
 
-        return block.replaceCurrentWordInlineUnsafe(word, replacement);
+        return this._mutationCommands.runBoolean(
+            { kind: 'user-command' },
+            () => block.replaceCurrentWordInlineUnsafe(word, replacement),
+            {
+                path: [...block.path],
+                start: range.start,
+                end: range.end,
+                inserted: replacement,
+            },
+        );
     }
 
-    /**
-     * Return the current selection, or null when the editor has no selection.
-     */
     getSelection() {
         return this.editor.selection.getSelection();
     }
 
-    /**
-     * Whether the editor (or one of its descendants) currently holds focus.
-     */
     hasFocus() {
         const { activeElement } = document;
 
         return this.domNode === activeElement || this.domNode.contains(activeElement);
     }
 
-    /**
-     * Blur the editor. Always hides every floating tool and blurs the
-     * contenteditable node.
-     * @param isRemoveAllRange Remove all native selection ranges.
-     * @param unSelect Clear the selected inline image so its toolbar/resize
-     * bar do not linger after the editor is blurred.
-     */
     blur(isRemoveAllRange = false, unSelect = false) {
         if (isRemoveAllRange)
             document.getSelection()?.removeAllRanges();
@@ -593,22 +710,10 @@ export class Muya {
         this.ui.hideAllFloatTools();
     }
 
-    /**
-     * Flush every cached inline image and force them to reload.
-     *
-     * The renderer memoises loaded images, so an image whose file changed on
-     * disk would otherwise keep showing the stale bitmap. Desktop calls this
-     * after a watched image file changes or on the `mt::invalidate-image-cache`
-     * IPC; it clears the image caches and re-renders all content blocks so the
-     * images load afresh.
-     */
     invalidateImageCache() {
         this.editor.inlineRenderer.invalidateImageCache();
     }
 
-    /**
-     * Copy the current document as Markdown to the clipboard.
-     */
     copyAsMarkdown() {
         this.editor.clipboard.copyAsMarkdown();
     }
@@ -795,7 +900,7 @@ export class Muya {
      * handleListMenu / handleQuoteMenu / handleCodeBlockMenu multi-block branches).
      */
     private _wrapSelectedBlocks(
-        buildState: (blocks: Parent[]) => { name: string } & Record<string, unknown>,
+        buildState: (blocks: Parent[]) => TState,
         place: (container: Parent) => void,
     ) {
         const blocks = this._selectedOutmostBlocks();
@@ -803,7 +908,10 @@ export class Muya {
             return;
 
         const state = buildState(blocks);
-        const container = ScrollPage.loadBlock(state.name).create(this, state as never);
+        const container = ScrollPage.createStateBlock(
+            this,
+            state,
+        );
         const parent = blocks[0].parent!;
         parent.insertBefore(container, blocks[0]);
         for (const b of blocks)
@@ -815,19 +923,53 @@ export class Muya {
     /** Wrap the selected outmost blocks as items of a new list of `label`. */
     private _wrapSelectedBlocksInList(label: 'bullet-list' | 'order-list' | 'task-list') {
         const { bulletListMarker, orderListDelimiter, preferLooseListItem } = this.options;
-        const itemName = label === 'task-list' ? 'task-list-item' : 'list-item';
-        const meta: Record<string, unknown> = label === 'order-list'
-            ? { loose: preferLooseListItem, delimiter: orderListDelimiter, start: 1 }
-            : { loose: preferLooseListItem, marker: bulletListMarker };
 
         this._wrapSelectedBlocks(
-            blocks => ({
-                name: label,
-                meta,
-                children: blocks.map(b => label === 'task-list'
-                    ? { name: itemName, meta: { checked: false }, children: [b.getState()] }
-                    : { name: itemName, children: [b.getState()] }),
-            }),
+            (blocks) => {
+                if (label === 'task-list') {
+                    const children: ITaskListItemState[] = blocks.map(b => ({
+                        name: 'task-list-item',
+                        meta: { checked: false },
+                        children: [b.getState()],
+                    }));
+                    const state: ITaskListState = {
+                        name: 'task-list',
+                        meta: {
+                            loose: preferLooseListItem,
+                            marker: bulletListMarker,
+                        },
+                        children,
+                    };
+                    return state;
+                }
+
+                const children: IListItemState[] = blocks.map(b => ({
+                    name: 'list-item',
+                    children: [b.getState()],
+                }));
+                if (label === 'order-list') {
+                    const state: IOrderListState = {
+                        name: 'order-list',
+                        meta: {
+                            loose: preferLooseListItem,
+                            delimiter: orderListDelimiter,
+                            start: 1,
+                        },
+                        children,
+                    };
+                    return state;
+                }
+
+                const state: IBulletListState = {
+                    name: 'bullet-list',
+                    meta: {
+                        loose: preferLooseListItem,
+                        marker: bulletListMarker,
+                    },
+                    children,
+                };
+                return state;
+            },
             container => this._selectWrappedContent(container),
         );
     }
@@ -835,7 +977,13 @@ export class Muya {
     /** Wrap the selected outmost blocks into a single block-quote. */
     private _wrapSelectedBlocksInQuote() {
         this._wrapSelectedBlocks(
-            blocks => ({ name: 'block-quote', children: blocks.map(b => b.getState()) }),
+            (blocks) => {
+                const state: IBlockQuoteState = {
+                    name: 'block-quote',
+                    children: blocks.map(b => b.getState()),
+                };
+                return state;
+            },
             container => this._selectWrappedContent(container),
         );
     }
@@ -843,13 +991,16 @@ export class Muya {
     /** Join the selected outmost blocks' text into a single fenced code block. */
     private _wrapSelectedBlocksInCodeBlock() {
         this._wrapSelectedBlocks(
-            blocks => ({
-                name: 'code-block',
-                meta: { type: 'fenced', lang: '' },
-                text: this.editor.jsonState
-                    .getMarkdownFromState(blocks.map(b => b.getState()))
-                    .replace(/\n+$/, ''),
-            }),
+            (blocks) => {
+                const state: ICodeBlockState = {
+                    name: 'code-block',
+                    meta: { type: 'fenced', lang: '' },
+                    text: this.editor.jsonState
+                        .getMarkdownFromState(blocks.map(b => b.getState()))
+                        .replace(/\n+$/, ''),
+                };
+                return state;
+            },
             container => container.firstContentInDescendant()?.setCursor(0, 0, true),
         );
     }
@@ -859,12 +1010,19 @@ export class Muya {
      * copy. No-op when there is no current block.
      */
     duplicate() {
+        this._mutationCommands.run(
+            { kind: 'user-command' },
+            () => this._duplicateCommand(),
+        );
+    }
+
+    private _duplicateCommand() {
         const block = this._outmostBlockAtCursor();
         if (!block)
             return;
 
         const state = deepClone(block.getState());
-        const dupBlock = ScrollPage.loadBlock(state.name).create(this, state);
+        const dupBlock = ScrollPage.createStateBlock(this, state);
         block.parent!.insertAfter(dupBlock, block);
         dupBlock.lastContentInDescendant()?.setCursor(0, 0, true);
     }
@@ -880,6 +1038,17 @@ export class Muya {
      *   context-menu "Insert Paragraph Before/After" behaviour.
      */
     insertParagraph(location: 'before' | 'after' = 'after', text = '', outMost = false) {
+        this._mutationCommands.run(
+            { kind: 'user-command' },
+            () => this._insertParagraphCommand(location, text, outMost),
+        );
+    }
+
+    private _insertParagraphCommand(
+        location: 'before' | 'after',
+        text: string,
+        outMost: boolean,
+    ) {
         const block = outMost
             ? this._outmostBlockAtCursor()
             : this._immediateBlockAtCursor();
@@ -888,7 +1057,7 @@ export class Muya {
 
         const state = deepClone(emptyStates.paragraph);
         state.text = text;
-        const newBlock = ScrollPage.loadBlock('paragraph').create(this, state);
+        const newBlock = ScrollPage.createStateBlock(this, state);
         if (location === 'before')
             block.parent!.insertBefore(newBlock, block);
         else
@@ -902,6 +1071,13 @@ export class Muya {
      * block, or to a fresh empty paragraph when it was the only block.
      */
     deleteParagraph() {
+        this._mutationCommands.run(
+            { kind: 'user-command' },
+            () => this._deleteParagraphCommand(),
+        );
+    }
+
+    private _deleteParagraphCommand() {
         const block = this._outmostBlockAtCursor();
         if (!block)
             return;
@@ -914,7 +1090,7 @@ export class Muya {
             cursorBlock = block.next.firstContentInDescendant();
         }
         else {
-            const newBlock = ScrollPage.loadBlock('paragraph').create(
+            const newBlock = ScrollPage.createStateBlock(
                 this,
                 deepClone(emptyStates.paragraph),
             );
@@ -927,6 +1103,16 @@ export class Muya {
     }
 
     createTable({ rows, columns }: { rows: number; columns: number }, { replace = false }: { replace?: boolean } = {}) {
+        this._mutationCommands.run(
+            { kind: 'user-command' },
+            () => this._createTableCommand({ rows, columns }, { replace }),
+        );
+    }
+
+    private _createTableCommand(
+        { rows, columns }: { rows: number; columns: number },
+        { replace }: { replace: boolean },
+    ) {
         const block = this._immediateBlockAtCursor();
         if (!block)
             return;
@@ -948,7 +1134,7 @@ export class Muya {
             children: Array.from({ length: safeRows }, makeRow),
         };
 
-        const newTable = ScrollPage.loadBlock('table').create(this, state);
+        const newTable = ScrollPage.createStateBlock(this, state);
 
         // An empty block is disposable, so replace it in place; a block with
         // real content is kept and the table goes directly below it. The picker
@@ -970,6 +1156,13 @@ export class Muya {
      * or with no cursor.
      */
     insertImage({ src = '', alt = '' }: { src?: string; alt?: string }) {
+        this._mutationCommands.run(
+            { kind: 'user-command' },
+            () => this._insertImageCommand({ src, alt }),
+        );
+    }
+
+    private _insertImageCommand({ src, alt }: { src: string; alt: string }) {
         const block = this.editor.activeContentBlock ?? this.editor.selection.anchorBlock;
         if (!(block instanceof Format))
             return;
@@ -1009,170 +1202,26 @@ export class Muya {
         block.setCursor(start.offset + 2, start.offset + 2 + imageAlt.length, true);
     }
 
-    /**
-     * Set the cursor programmatically. The desktop passes a cursor like
-     * `{ anchor, focus, anchorPath, focusPath }` (and may use `{ start, end }`
-     * / `block` / `path`). Resolves the target block(s) by path on the live tree
-     * and restores the selection the same way `Editor.updateContents` does —
-     * `block.setCursor` for the same-block case, `selection.setSelection` with
-     * resolved block instances for the cross-block case. Passing bare paths to
-     * `setSelection` does not work (it needs a block's `domNode`), so we always
-     * resolve and pass the block instance. No-op when the target can't be
-     * resolved.
-     */
     setCursor(cursor: IPublicCursorInput) {
-        const { scrollPage } = this.editor;
-        if (!scrollPage)
-            return;
-
-        const { anchor, focus, anchorPath, focusPath }
-            = this._normalizeCursorEndpoints(cursor);
-
-        if (!anchor || !focus)
-            return;
-
-        const { anchorBlock, focusBlock } = this._resolveCursorBlocks(
-            cursor,
-            scrollPage,
-            anchorPath,
-            focusPath,
-        );
-
-        if (anchorBlock == null || !anchorBlock.isContent())
-            return;
-
-        if (anchorBlock === focusBlock || focusBlock == null) {
-            const begin = Math.min(anchor.offset, focus.offset);
-            const last = Math.max(anchor.offset, focus.offset);
-            anchorBlock.setCursor(begin, last, true);
-            return;
-        }
-
-        if (!focusBlock.isContent())
-            return;
-
-        this.editor.selection.setSelection(
-            { offset: anchor.offset, block: anchorBlock, path: anchorBlock.path },
-            { offset: focus.offset, block: focusBlock, path: focusBlock.path },
-        );
+        this._cursorController.set(cursor);
     }
 
-    // Accept both the `{ anchor, focus, anchorPath, focusPath }` and the
-    // `{ start, end, path }`/`block` shapes of IPublicCursorInput.
-    private _normalizeCursorEndpoints(cursor: IPublicCursorInput) {
-        const anchor = cursor.anchor ?? cursor.start ?? null;
-        const focus = cursor.focus ?? cursor.end ?? anchor;
-        const anchorPath = cursor.anchorPath ?? cursor.path;
-        const focusPath = cursor.focusPath ?? cursor.path ?? anchorPath;
-
-        return { anchor, focus, anchorPath, focusPath };
-    }
-
-    private _resolveCursorBlocks(
-        cursor: IPublicCursorInput,
-        scrollPage: ScrollPage,
-        anchorPath: TBlockPath | undefined,
-        focusPath: TBlockPath | undefined,
-    ) {
-        // queryBlock mutates its path argument (path.shift()) — pass copies.
-        const anchorBlock
-            = cursor.anchorBlock
-                ?? cursor.block
-                ?? (anchorPath ? scrollPage.queryBlock([...anchorPath]) : null);
-        const focusBlock
-            = cursor.focusBlock
-                ?? cursor.block
-                ?? (focusPath ? scrollPage.queryBlock([...focusPath]) : null);
-
-        return { anchorBlock, focusBlock };
-    }
-
-    /**
-     * Restore the WYSIWYG caret from a source-mode (CodeMirror) `{ line, ch }`
-     * index cursor. The block tree has no source-line mapping, so the offsets
-     * are resolved as follows: inject sentinel
-     * strings into the current markdown at the line/ch positions, rebuild the
-     * tree (sentinels embed as literal text), find which content blocks they
-     * landed in, then rebuild the clean document and set the cursor by the
-     * resolved block paths + offsets. The sentinel-bearing tree is transient —
-     * both `setContent` calls run synchronously within this task, so no
-     * intermediate paint happens.
-     *
-     * `Editor.setContent` clears the undo history, so this method snapshots the
-     * history before its internal rebuild and restores it afterwards — the undo
-     * stack is preserved, leaving only the caret changed. No-op (returns
-     * `false`) when the cursor is stale / unresolvable, letting the caller fall
-     * back to its default.
-     */
     setCursorByOffset(indexCursor: IIndexCursor): boolean {
-        const { scrollPage } = this.editor;
-        if (!scrollPage)
-            return false;
-
-        const cleanMarkdown = this.getMarkdown();
-        const sentinelMarkdown = injectSentinels(cleanMarkdown, indexCursor);
-        if (sentinelMarkdown == null)
-            return false;
-
-        // Preserve the undo history across the internal setContent rebuild
-        // (setContent clears it) so this stays a caret-only operation.
-        const savedHistory = this.getHistory();
-
-        this.editor.setContent(sentinelMarkdown);
-        const cursor = resolveSentinelCursor(this.editor.scrollPage!);
-        this.editor.setContent(cleanMarkdown);
-        this.setHistory(savedHistory);
-
-        if (!cursor)
-            return false;
-
-        this.setCursor(cursor);
-
-        return true;
+        return this._cursorController.setByOffset(indexCursor);
     }
 
-    /**
-     * Read the current WYSIWYG caret as a source-mode (CodeMirror) `{ line, ch }`
-     * index cursor — the INVERSE of `setCursorByOffset`. The desktop emits this
-     * on every change so toggling WYSIWYG -> source
-     * opens CodeMirror at the same caret.
-     *
-     * The block tree has no source-line mapping, so the offset is recovered the
-     * same way `setCursorByOffset` resolves the reverse: clone the current
-     * state, splice sentinel strings into the selected block's text at the
-     * anchor/focus offsets, serialize that clone to markdown (identical to what
-     * source mode shows), then read each sentinel's line/column back out. The
-     * live document and undo history are untouched — only a throwaway clone is
-     * mutated. Returns `null` when there is no selection or the caret can't be
-     * located (the caller then falls back to its default cursor placement).
-     */
     getCursorOffset(): IIndexCursor | null {
-        const selection = this.editor.selection.getSelection();
-        if (!selection)
-            return null;
-
-        const sentinelState = injectStateSentinels(
-            this.editor.jsonState.getState(),
-            selection,
-        );
-        if (!sentinelState)
-            return null;
-
-        const sentinelMarkdown
-            = this.editor.jsonState.getMarkdownFromState(sentinelState);
-
-        return locateSentinelOffsets(sentinelMarkdown);
+        return this._cursorController.getOffset();
     }
 
-    /**
-     * Convert the block at the cursor to another type. `type` uses the
-     * paragraph-menu
-     * vocabulary: `paragraph`, `heading 1`–`heading 6`, `upgrade heading`,
-     * `degrade heading`, `blockquote`, `pre`, `mathblock`, `html`, `hr`,
-     * `table`, `front-matter`, `ul-bullet`/`ol-order`/`ul-task`,
-     * `loose-list-item`, `reset-to-paragraph`, and the diagram types.
-     */
     updateParagraph(type: string) {
+        this._mutationCommands.run(
+            { kind: 'user-command' },
+            () => this._updateParagraphCommand(type),
+        );
+    }
+
+    private _updateParagraphCommand(type: string) {
         const block = this._outmostBlockAtCursor();
         if (!block)
             return;
@@ -1393,6 +1442,13 @@ export class Muya {
      * block).
      */
     resetToParagraph(block: Parent) {
+        this._mutationCommands.run(
+            { kind: 'user-command' },
+            () => this._resetToParagraphCommand(block),
+        );
+    }
+
+    private _resetToParagraphCommand(block: Parent) {
         if (block.blockName === 'table')
             return;
 
@@ -1464,7 +1520,7 @@ export class Muya {
         let ref: Parent = block;
         let firstNew: Parent | null = null;
         for (const childState of inner) {
-            const newBlock = ScrollPage.loadBlock(childState.name).create(this, childState);
+            const newBlock = ScrollPage.createStateBlock(this, childState);
             parent.insertAfter(newBlock, ref);
             ref = newBlock;
             firstNew ??= newBlock;
@@ -1524,7 +1580,7 @@ export class Muya {
 
         const newState = deepClone(state);
         newState.meta.loose = !newState.meta.loose;
-        const newBlock = ScrollPage.loadBlock(newState.name).create(this, newState);
+        const newBlock = ScrollPage.createStateBlock(this, newState);
         block.replaceWith(newBlock);
 
         if (!this._restoreSelection(snapshot))
@@ -1631,7 +1687,7 @@ export class Muya {
             };
         }
 
-        const newBlock = ScrollPage.loadBlock(label).create(this, newState);
+        const newBlock = ScrollPage.createStateBlock(this, newState);
         block.replaceWith(newBlock);
         newBlock.firstContentInDescendant()?.setCursor(0, 0, true);
     }

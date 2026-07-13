@@ -1,4 +1,5 @@
 import type { VNode } from 'snabbdom';
+import type Content from '../../block/base/content';
 import type TableBodyCell from '../../block/gfm/table/cell';
 import type TableInner from '../../block/gfm/table/table';
 
@@ -103,33 +104,45 @@ export class TableRowColumMenu extends BaseFloat {
         const rowCount = (table.firstChild as TableInner).offset(row);
         const columnCount = row.offset(this._block!);
         const { location, action, target } = item;
+        const outcome: { cursorBlock: Content | null } = {
+            cursorBlock: null,
+        };
 
-        if (action === 'insert') {
-            let cursorBlock = null;
+        const result = this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => {
+                if (action === 'insert') {
+                    if (target === 'row') {
+                        const offset = location === 'previous'
+                            ? rowCount
+                            : rowCount + 1;
+                        outcome.cursorBlock = table.insertRow(offset) ?? null;
+                    }
+                    else {
+                        const offset = location === 'left'
+                            ? columnCount
+                            : columnCount + 1;
+                        outcome.cursorBlock
+                            = table.insertColumn(offset) ?? null;
+                    }
+                }
+                else {
+                    // The table mutators return a surviving neighbour (or an
+                    // outside block when the whole table disappears).
+                    outcome.cursorBlock = (target === 'row'
+                        ? table.removeRow(rowCount)
+                        : table.removeColumn(columnCount)) ?? null;
+                }
+            },
+        );
 
-            if (target === 'row') {
-                const offset = location === 'previous' ? rowCount : rowCount + 1;
-                cursorBlock = table.insertRow(offset);
-            }
-            else {
-                const offset = location === 'left' ? columnCount : columnCount + 1;
-                cursorBlock = table.insertColumn(offset);
-            }
-
-            if (cursorBlock)
-                cursorBlock.setCursor(0, 0);
-        }
-        else {
-            // After a row/column delete, the caret used to live inside a
-            // now-detached cell. The table
-            // mutators now return a surviving neighbour cell's content so we
-            // can re-anchor the caret on a still-attached cell.
-            const cursorBlock = target === 'row'
-                ? table.removeRow(rowCount)
-                : table.removeColumn(columnCount);
-
-            if (cursorBlock)
-                cursorBlock.setCursor(0, 0);
+        // Tracked/rejected mutations restore or replace the speculative tree.
+        // Only direct edits leave this returned cursor block attached.
+        if (
+            result === 'untracked'
+            && outcome.cursorBlock?.domNode?.isConnected
+        ) {
+            outcome.cursorBlock.setCursor(0, 0);
         }
 
         this.hide();

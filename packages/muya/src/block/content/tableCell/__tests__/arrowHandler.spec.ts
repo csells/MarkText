@@ -2,6 +2,7 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommand } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // ArrowUp / ArrowDown navigation inside a table cell — `TableCellContent.arrowHandler`.
@@ -70,7 +71,7 @@ function arrowAtStart(muya: Muya, cell: Content, key: 'ArrowUp' | 'ArrowDown'): 
         stopPropagation: vi.fn(),
         key,
     } as unknown as KeyboardEvent;
-    cell.arrowHandler(event);
+    runUserCommand(muya, () => cell.arrowHandler(event));
 }
 
 function flush(): Promise<void> {

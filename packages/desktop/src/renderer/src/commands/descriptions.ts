@@ -1,4 +1,5 @@
 import { t } from '../i18n'
+import { REVIEW_COMMAND_DESCRIPTORS } from '../../../common/commands/review'
 
 const COMMAND_KEY_MAP: Record<string, string> = {
   // ============================================
@@ -139,6 +140,14 @@ const COMMAND_KEY_MAP: Record<string, string> = {
 
   // Format clearing
   'format.clear-format': 'commands.format.clearFormat',
+
+  // ============================================
+  // # CriticMarkup Review
+  // ============================================
+  ...Object.fromEntries(REVIEW_COMMAND_DESCRIPTORS.map((descriptor) => [
+    descriptor.id,
+    descriptor.descriptionKey
+  ])),
 
   // ============================================
   // # Window Management

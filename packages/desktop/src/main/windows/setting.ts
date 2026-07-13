@@ -5,8 +5,15 @@ import { electronLocalshortcut } from '@hfelix/electron-localshortcut'
 import BaseWindow, { WindowLifecycle, WindowType, type EnvLike, type PreferenceLike } from './base'
 import type Accessor from '../app/accessor'
 import { centerWindowOptions } from './utils'
-import { TITLE_BAR_HEIGHT, preferencesWinOptions, isLinux, isOsx } from '../config'
+import {
+  TITLE_BAR_HEIGHT,
+  isLinux,
+  isOsx,
+  preferencesWinOptions
+} from '../config'
 import log from 'electron-log'
+import { presentationPolicy } from '../presentationPolicy'
+import { exceptionReporter } from '../exceptionReporting'
 
 class SettingWindow extends BaseWindow {
   /**
@@ -24,7 +31,9 @@ class SettingWindow extends BaseWindow {
    */
   createWindow(category: string | null = null): BrowserWindow {
     const { menu: appMenu, env, keybindings, preferences } = this._accessor
-    const winOptions: BrowserWindowConstructorOptions = Object.assign({}, preferencesWinOptions)
+    const winOptions = presentationPolicy.deriveWindowOptions<BrowserWindowConstructorOptions>(
+      Object.assign({}, preferencesWinOptions)
+    )
     centerWindowOptions(
       winOptions as BrowserWindowConstructorOptions & {
         width: number
@@ -57,10 +66,20 @@ class SettingWindow extends BaseWindow {
     let win: BrowserWindow | null = (this.browserWindow = new BrowserWindow(winOptions))
 
     win.webContents.on('did-fail-load', (_event, code, desc, url) => {
-      log.error(`did-fail-load ${code} ${desc} @ ${url}`)
+      const message = `did-fail-load ${code} ${desc} @ ${url}`
+      log.error(message)
+      exceptionReporter.handle('crash', new Error(message), async() => {})
+        .catch((handlerError) => {
+          log.error('Failed to process settings load error through presentation policy.', handlerError)
+        })
     })
     win.webContents.on('render-process-gone', (_event, details) => {
-      log.error(`render-process-gone: ${details.reason} (${details.exitCode})`)
+      const message = `render-process-gone: ${details.reason} (${details.exitCode})`
+      log.error(message)
+      exceptionReporter.handle('crash', new Error(message), async() => {})
+        .catch((handlerError) => {
+          log.error('Failed to process settings crash through presentation policy.', handlerError)
+        })
     })
 
     this.id = win.id

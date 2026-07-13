@@ -78,7 +78,7 @@ test.describe('Format -> Image edit tool wiring', () => {
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown('\n', { suppressErrorDialog: true })
+    const launched = await launchWithMarkdown('\n')
     app = launched.app
     page = launched.page
   })

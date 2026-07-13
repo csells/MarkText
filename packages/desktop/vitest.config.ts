@@ -9,6 +9,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['test/unit/specs/**/*.spec.ts'],
+    setupFiles: ['./test/unit/setup.ts'],
+    // Verification runs under macOS background task policy by design. Leave
+    // enough headroom for first-import transforms without weakening assertions.
+    testTimeout: 15_000,
     globals: true
   },
   resolve: {

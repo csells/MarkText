@@ -5,6 +5,7 @@ import type Parent from '../block/base/parent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya } from '../muya';
 import { ParagraphFrontMenu } from '../ui/paragraphFrontMenu';
+import { runUserCommand } from './helpers/mutation';
 
 // Resetting a list/blockquote to paragraphs must preserve every item/line.
 // `resetToParagraph` is the shared engine path used both by the command
@@ -94,6 +95,23 @@ describe('paragraph front menu — clicking the active list type unwraps the lis
             const state = muya.getState();
             expect(state.length).toBe(3);
             expect(state.every(b => b.name === 'paragraph')).toBe(true);
+        });
+    });
+
+    it('rejects a direct menu mutation while a clean projection is active', async () => {
+        const source = '{++hello++}\n';
+        const muya = bootMuya(source);
+        muya.setOptions({ criticMarkupProjection: 'revised' }, true);
+        const paragraph = firstOutmostBlock(muya);
+        const menu = new ParagraphFrontMenu(muya, {});
+        (menu as unknown as { _block: Parent })._block = paragraph;
+
+        menu.selectItem(new Event('click'), { label: 'duplicate' });
+
+        expect(muya.editor.scrollPage!.length()).toBe(1);
+        await vi.waitFor(() => {
+            expect(muya.getMarkdown()).toBe(source);
+            expect(muya.getState()).toHaveLength(1);
         });
     });
 });
@@ -192,7 +210,9 @@ describe('muya.resetToParagraph(block) — detached block (#4686)', () => {
     it('is a no-op on a list already removed from the document', () => {
         const muya = bootMuya('- one\n- two\n');
         const list = firstOutmostBlock(muya);
-        list.remove(); // detach: parent -> null, children left intact
+        runUserCommand(muya, () => {
+            list.remove(); // detach: parent -> null, children left intact
+        });
 
         expect(() => muya.resetToParagraph(list)).not.toThrow();
     });

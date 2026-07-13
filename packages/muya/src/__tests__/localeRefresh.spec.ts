@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { en, zhCN } from '../locales';
 import { Muya } from '../muya';
+import { runUserEdit } from './helpers/mutation';
 
 // PARITY (Phase G — G8): switching the UI language mid-session must refresh the
 // inline placeholder hints (quick-insert "Type / to insert…", code-block
@@ -84,7 +85,9 @@ describe('muya.locale() refreshes rendered hints (Phase G — G8)', () => {
         const first = muya.editor.scrollPage!.firstContentInDescendant()!;
         first.setCursor(5, 5, true);
         muya.editor.activeContentBlock = first;
-        first.text = 'alpha beta';
+        runUserEdit(muya, () => {
+            first.text = 'alpha beta';
+        });
         await vi.waitFor(() => {
             expect(muya.getHistory().stack.undo.length).toBeGreaterThan(0);
         });

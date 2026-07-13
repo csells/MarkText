@@ -4,6 +4,7 @@ import type { Muya } from '../../../muya';
 import type SetextHeading from '../../commonMark/setextHeading';
 import type Format from '../format';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserEdit } from '../../../__tests__/helpers/mutation';
 import { Muya as MuyaClass } from '../../../muya';
 
 // Typing a setext underline must produce the CommonMark level: `===` → level 1
@@ -44,8 +45,10 @@ function bootMuya(markdown: string): Muya {
 function convertViaUnderline(underline: string): SetextHeading {
     const muya = bootMuya('hello world\n');
     const content = muya.editor.scrollPage!.firstContentInDescendant() as Format;
-    content.text = `hello world\n${underline}`;
-    content.checkInlineUpdate();
+    runUserEdit(muya, () => {
+        content.text = `hello world\n${underline}`;
+        content.checkInlineUpdate();
+    });
 
     return muya.editor.scrollPage!.firstChild as unknown as SetextHeading;
 }

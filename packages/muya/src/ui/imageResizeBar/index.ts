@@ -24,6 +24,7 @@ export class ImageResizeBar {
     private _movingAnchor: string | null = null;
     private _status: boolean = false;
     private _width: number | null = null;
+    private _originalWidth: string | null = null;
     private _eventId: string[] = [];
     private _lastScrollTop: number | null = null;
     private _resizing: boolean = false;
@@ -134,6 +135,9 @@ export class ImageResizeBar {
         const target = event.target;
         const { eventCenter } = this.muya;
         this._movingAnchor = target.getAttribute('data-position');
+        this._originalWidth = this._reference
+            ?.querySelector('img')
+            ?.getAttribute('width') ?? null;
         const mouseMoveId = eventCenter.attachDOMEvent(
             document.body,
             'mousemove',
@@ -196,12 +200,26 @@ export class ImageResizeBar {
             this._eventId = [];
         }
 
-        if (typeof this._width === 'number' && this._block && this._imageInfo) {
-            this._block.updateImage(this._imageInfo, 'width', String(this._width));
+        const { _block: block, _imageInfo: imageInfo, _width: width } = this;
+        if (typeof width === 'number' && block && imageInfo) {
+            const result = this.muya.editor.mutationGateway.run(
+                { kind: 'user-command' },
+                () => block.updateImage(imageInfo, 'width', String(width)),
+            );
+            if (result === 'rejected') {
+                const image = this._reference?.querySelector('img');
+                if (image) {
+                    if (this._originalWidth === null)
+                        image.removeAttribute('width');
+                    else
+                        image.setAttribute('width', this._originalWidth);
+                }
+            }
             this.hide();
         }
 
         this._width = null;
+        this._originalWidth = null;
         this._resizing = false;
         this._movingAnchor = null;
     };

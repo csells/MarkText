@@ -1,11 +1,19 @@
-import type { Token } from 'marked';
+import type { Token, Tokens } from 'marked';
 import type { ListItemToken, ListToken } from './types';
+import { replaceArrayRange } from '../arrayMutation';
 
 function isListToken(token: Token | ListToken): token is ListToken {
     return token.type === 'list';
 }
 
-const BULL_REG = /^ {0,3}([*+-]|\d{1,9}(?:\.|\)))/;
+function normalizeChildTokens<T extends Token | ListToken | ListItemToken>(
+    tokens: T[],
+): T[] {
+    const normalized = compatibleTaskList(tokens) as T[];
+    replaceArrayRange(tokens, 0, tokens.length, normalized);
+    return tokens;
+}
+
 const EMPTY_TASK_REG = /^ {0,3}[*+-][ \t]+\[([ x])\][ \t]*$/i;
 const TASK_MARKER_PREFIX_REG = /^ {0,3}[*+-][ \t]+\[([ x])\][ \t]+/i;
 
@@ -101,10 +109,11 @@ function compatibleTaskList(tokens: (Token | ListToken | ListItemToken)[] = []) 
             if (token.ordered === true) {
                 token.listType = 'order';
                 for (const item of token.items) {
-                    item.tokens = compatibleTaskList(item.tokens);
+                    item.tokens = normalizeChildTokens(item.tokens);
                     item.listItemType = 'order';
-                    const matches = BULL_REG.exec(item.raw);
-                    item.bulletMarkerOrDelimiter = matches ? matches[1].slice(-1) as ListItemToken['bulletMarkerOrDelimiter'] : '';
+                    item.bulletMarkerOrDelimiter = (
+                        item.marker.slice(-1)
+                    ) as ListItemToken['bulletMarkerOrDelimiter'];
                 }
                 results.push(token);
             }
@@ -118,17 +127,22 @@ function compatibleTaskList(tokens: (Token | ListToken | ListItemToken)[] = []) 
                     start: '';
                     loose: boolean;
                     items: ListItemToken[];
+                    suppressBlockSeparatorAfter?: true;
+                    criticMarkupBefore?: readonly Tokens.CriticMarkupBoundaryAttachment[];
+                    criticMarkupAfter?: readonly Tokens.CriticMarkupBoundaryAttachment[];
                 } | null = null;
+                let firstSplit = true;
 
                 for (const item of token.items) {
-                    item.tokens = compatibleTaskList(item.tokens);
+                    item.tokens = normalizeChildTokens(item.tokens);
                     normalizeEmptyTaskItem(item);
                     const listItemType = item.task ? 'task' : 'bullet';
                     item.listItemType = listItemType;
                     if (item.task)
                         stripTaskMarker(item);
-                    const matches = BULL_REG.exec(item.raw);
-                    item.bulletMarkerOrDelimiter = matches ? matches[1] as ListItemToken['bulletMarkerOrDelimiter'] : '';
+                    item.bulletMarkerOrDelimiter = (
+                        item.marker
+                    ) as ListItemToken['bulletMarkerOrDelimiter'];
 
                     if (!cache) {
                         cache = {
@@ -139,7 +153,11 @@ function compatibleTaskList(tokens: (Token | ListToken | ListItemToken)[] = []) 
                             loose,
                             listType: listItemType,
                             items: [item],
+                            ...(firstSplit && token.criticMarkupBefore
+                                ? { criticMarkupBefore: token.criticMarkupBefore }
+                                : {}),
                         };
+                        firstSplit = false;
                     }
                     else {
                         if (listItemType === cache.listType) {
@@ -160,12 +178,18 @@ function compatibleTaskList(tokens: (Token | ListToken | ListItemToken)[] = []) 
                     }
                 }
 
+                if (cache && token.suppressBlockSeparatorAfter)
+                    cache.suppressBlockSeparatorAfter = true;
+                if (cache && token.criticMarkupAfter)
+                    cache.criticMarkupAfter = token.criticMarkupAfter;
                 if (cache)
                     results.push(cache);
             }
         }
         else if (token.type === 'blockquote') {
-            token.tokens = compatibleTaskList(token.tokens);
+            const childTokens = token.tokens;
+            if (childTokens)
+                token.tokens = normalizeChildTokens(childTokens);
             results.push(token);
         }
         else if (token.type === 'footnote') {
@@ -175,7 +199,20 @@ function compatibleTaskList(tokens: (Token | ListToken | ListItemToken)[] = []) 
             // never receives a `listType`, and markdownToState produces
             // `undefined-list` for the child state.
             const ft = token as { tokens?: (Token | ListToken | ListItemToken)[] };
-            ft.tokens = compatibleTaskList(ft.tokens);
+            const footnoteTokens = ft.tokens;
+            if (footnoteTokens)
+                ft.tokens = normalizeChildTokens(footnoteTokens);
+            results.push(token);
+        }
+        else if (
+            token.type === 'critic_addition'
+            || token.type === 'critic_deletion'
+            || token.type === 'critic_substitution'
+            || token.type === 'critic_highlight'
+            || token.type === 'critic_comment'
+        ) {
+            const fragment = token as Tokens.CriticMarkupFragment;
+            fragment.tokens = normalizeChildTokens(fragment.tokens);
             results.push(token);
         }
         else {

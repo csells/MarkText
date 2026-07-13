@@ -1,4 +1,4 @@
-import { shell, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
 import log from 'electron-log'
 import EventEmitter from 'events'
 import fsPromises from 'fs/promises'
@@ -11,6 +11,7 @@ import {
 } from 'native-keymap'
 import os from 'os'
 import path from 'path'
+import { presentationPolicy } from '../presentationPolicy'
 
 export interface KeyboardInfo {
   layout: IKeyboardLayoutInfo
@@ -93,7 +94,7 @@ export const registerKeyboardListeners = (): void => {
     fsPromises
       .writeFile(dumpPath, content, 'utf8')
       .then(() => {
-        shell.openPath(dumpPath)
+        presentationPolicy.openPath(dumpPath)
       })
       .catch((error: unknown) => {
         log.error('Error dumping keyboard information:', error)

@@ -1,6 +1,7 @@
 import type { JSONOp, JSONOpComponent, JSONOpList } from 'ot-json1';
 import type Content from '../block/base/content';
 import type Format from '../block/base/format';
+import type { IMutationAuthority } from '../mutation/authority';
 import type { Muya } from '../muya';
 import type { IHistorySelection } from '../selection/types';
 import type { TState } from '../state/types';
@@ -11,12 +12,18 @@ import { registerBlocks } from '../block';
 import { ScrollPage } from '../block/scrollPage';
 import Clipboard from '../clipboard';
 import { CLASS_NAMES, isFirefox } from '../config';
+import { CriticMarkupDocumentService } from '../criticMarkup/documentService';
 import History from '../history';
 import InlineRenderer from '../inlineRenderer';
+import { createMutationAuthority } from '../mutation/authority';
+import { PostCommitNotificationError } from '../mutation/errors';
+import { MutationGateway } from '../mutation/gateway';
 import { Search } from '../search';
 import Selection from '../selection';
 import JSONState from '../state';
-import { hasPick, isHTMLElement } from '../utils';
+import { statesEqual } from '../state/stateEquality';
+import { hasPick, isHTMLElement, isKeyboardEvent } from '../utils';
+import { CollectedError } from '../utils/collectedError';
 import { getBlock } from '../utils/dom';
 import logger from '../utils/logger';
 import { attachDragDropImageHandlers } from './dragDropImage';
@@ -38,6 +45,10 @@ type BlockNode = {
     insertBefore?: (newBlock: BlockNode, ref: BlockNode, source: string) => void;
     append?: (newBlock: BlockNode, source: string) => void;
     update?: (value?: unknown, source?: string) => void;
+    applyCheckedFromState?: (checked: boolean) => void;
+    applyAlignmentFromState?: (value: string) => void;
+    applyLanguageFromState?: (value: string) => void;
+    applyTypeFromState?: (value: string) => void;
     blockName?: string;
     align?: string;
     _text?: string;
@@ -151,21 +162,40 @@ function drop(root: BlockNode, descent: JSONOpList, muya: Muya): BlockNode {
         const cur = container as BlockNode;
         const ref = cur?.find?.(key);
         if (typeof key === 'number') {
-            const insertedState = comp.i as { name: string };
-            const newBlock = ScrollPage.loadBlock(insertedState.name).create(muya, insertedState) as BlockNode;
-            if (cur && newBlock) {
+            const insertedState = comp.i as TState;
+            const newBlock = ScrollPage.createStateBlock(
+                muya,
+                insertedState,
+            );
+            // createStateBlock always returns a live Parent. The OT walker uses
+            // a deliberately loose structural view whose callback parameter
+            // variance prevents direct assignment even though Parent provides
+            // the required runtime methods.
+            // eslint-disable-next-line no-restricted-syntax
+            const newBlockNode = newBlock as unknown as BlockNode;
+            if (cur && newBlockNode) {
                 if (ref)
-                    cur.insertBefore?.(newBlock, ref, 'api');
+                    cur.insertBefore?.(newBlockNode, ref, 'api');
                 else
-                    cur.append?.(newBlock, 'api');
+                    cur.append?.(newBlockNode, 'api');
             }
 
-            subDoc = newBlock;
+            subDoc = newBlockNode;
         }
         else {
             switch (key) {
                 case 'checked': {
-                    ref?.update?.(comp.i, 'api');
+                    if (typeof comp.i !== 'boolean') {
+                        throw new TypeError(
+                            'Prepared task-list checked value must be boolean.',
+                        );
+                    }
+                    if (!ref?.applyCheckedFromState) {
+                        throw new TypeError(
+                            'Prepared task-list operation has no checkbox applier.',
+                        );
+                    }
+                    ref.applyCheckedFromState(comp.i);
                     break;
                 }
 
@@ -185,18 +215,36 @@ function drop(root: BlockNode, descent: JSONOpList, muya: Muya): BlockNode {
         mut();
         const sd = subDoc!;
         if (sd.blockName === 'table.cell') {
-            sd.align = otText.type.apply(sd.align ?? '', es) as string;
+            if (!sd.applyAlignmentFromState) {
+                throw new TypeError(
+                    'Prepared table operation has no alignment applier.',
+                );
+            }
+            sd.applyAlignmentFromState(
+                otText.type.apply(sd.align ?? '', es) as string,
+            );
         }
         else if (sd.blockName === 'language-input') {
-            sd._text = otText.type.apply(sd.text ?? '', es) as string;
-            if (sd.parent?.meta)
-                sd.parent.meta.lang = sd.text;
+            const nextText = otText.type.apply(sd.text ?? '', es) as string;
+            sd._text = nextText;
+            if (!sd.parent?.applyLanguageFromState) {
+                throw new TypeError(
+                    'Prepared language input has no code-block applier.',
+                );
+            }
+            sd.parent.applyLanguageFromState(nextText);
             sd.update?.();
         }
         else if (sd.blockName === 'code-block') {
             // Handle modify code block type.
-            if (sd.meta)
-                sd.meta.type = otText.type.apply(sd.meta.type ?? '', es) as string;
+            if (!sd.applyTypeFromState) {
+                throw new TypeError(
+                    'Prepared code block has no type applier.',
+                );
+            }
+            sd.applyTypeFromState(
+                otText.type.apply(sd.meta?.type ?? '', es) as string,
+            );
         }
         else {
             sd._text = otText.type.apply(sd.text ?? '', es) as string;
@@ -242,19 +290,27 @@ export class Editor {
     searchModule: Search;
     clipboard: Clipboard;
     history: History;
+    criticMarkupDocument: CriticMarkupDocumentService;
+    mutationGateway: MutationGateway;
     scrollPage: Nullable<ScrollPage> = null;
 
     private _activeContentBlock: Nullable<Content> = null;
+    private readonly _mutationAuthority: IMutationAuthority;
+    private _treeRebuildDepth = 0;
 
     constructor(private _muya: Muya) {
         const state = _muya.options.json || _muya.options.markdown || '';
+        const mutationAuthority = createMutationAuthority();
+        this._mutationAuthority = mutationAuthority;
 
-        this.jsonState = new JSONState(_muya, state);
+        this.jsonState = new JSONState(_muya, state, mutationAuthority);
+        this.criticMarkupDocument = new CriticMarkupDocumentService(_muya);
         this.inlineRenderer = new InlineRenderer(_muya);
         this.selection = new Selection(_muya);
         this.searchModule = new Search(_muya);
         this.clipboard = Clipboard.create(_muya);
         this.history = new History(_muya);
+        this.mutationGateway = new MutationGateway(_muya, mutationAuthority);
     }
 
     get activeContentBlock() {
@@ -265,7 +321,7 @@ export class Editor {
         const { activeContentBlock: oldActiveContentBlock } = this;
         if (block !== oldActiveContentBlock) {
             this._activeContentBlock = block;
-            if (oldActiveContentBlock)
+            if (oldActiveContentBlock?.domNode?.isConnected)
                 oldActiveContentBlock.blurHandler();
 
             if (block)
@@ -273,13 +329,54 @@ export class Editor {
         }
     }
 
+    /** Attached-tree writers require either a mutation or private rebuild scope. */
+    assertTreeMutationAuthorized(operation: string): void {
+        if (this._treeRebuildDepth === 0)
+            this.mutationGateway.assertActive(operation);
+    }
+
+    private _isCanonicalProjection() {
+        return this._muya.options.criticMarkupProjection === 'marked';
+    }
+
+    private _stateForCurrentProjection(): TState[] {
+        const projection = this._muya.options.criticMarkupProjection;
+        if (projection === 'marked')
+            return this.jsonState.getState();
+
+        return this.jsonState.markdownToState(
+            this.criticMarkupDocument.get().project(projection),
+        );
+    }
+
+    private _syncProjectionAttributes() {
+        const projection = this._muya.options.criticMarkupProjection;
+        const readOnly = projection !== 'marked';
+        this._muya.domNode.setAttribute('data-critic-projection', projection);
+        if (readOnly)
+            this._muya.domNode.setAttribute('aria-readonly', 'true');
+        else
+            this._muya.domNode.removeAttribute('aria-readonly');
+
+        this.scrollPage?.breadthFirstTraverse((node) => {
+            if (node.isContent()) {
+                node.domNode?.setAttribute(
+                    'contenteditable',
+                    readOnly ? 'false' : 'true',
+                );
+            }
+        });
+    }
+
     init() {
         registerBlocks();
 
         const muya = this._muya;
-        const state = this.jsonState.getState();
+        const state = this._stateForCurrentProjection();
 
         this.scrollPage = ScrollPage.create(muya, state);
+        this.inlineRenderer.refreshCriticMarkupDocumentFragments();
+        this._syncProjectionAttributes();
 
         this._dispatchEvents();
         // Hovering a rendered link wrapper dispatches `muya-link-tools` so the
@@ -290,7 +387,8 @@ export class Editor {
         // as a new `![](src)` block. Cleanup is likewise handled by
         // `detachAllDomEvents`.
         attachDragDropImageHandlers(muya);
-        this.focus();
+        if (this._isCanonicalProjection())
+            this.focus();
     }
 
     private _dispatchEvents() {
@@ -325,20 +423,41 @@ export class Editor {
                     break;
                 }
                 case 'input': {
-                    anchorBlock.inputHandler(event);
+                    this.mutationGateway.run(
+                        { kind: 'user-edit' },
+                        () => anchorBlock.inputHandler(event),
+                    );
                     break;
                 }
                 case 'keydown': {
-                    anchorBlock.keydownHandler(event);
+                    const mutation = () => anchorBlock.keydownHandler(event);
+                    if (
+                        isKeyboardEvent(event)
+                        && ['Backspace', 'Delete', 'Enter', 'Tab'].includes(event.key)
+                    ) {
+                        this.mutationGateway.run(
+                            { kind: 'user-command' },
+                            mutation,
+                        );
+                    }
+                    else {
+                        mutation();
+                    }
                     break;
                 }
                 case 'keyup': {
                     anchorBlock.keyupHandler(event);
                     break;
                 }
-                case 'compositionend':
                 case 'compositionstart': {
                     anchorBlock.composeHandler(event);
+                    break;
+                }
+                case 'compositionend': {
+                    this.mutationGateway.run(
+                        { kind: 'user-edit' },
+                        () => anchorBlock.composeHandler(event),
+                    );
                     break;
                 }
             }
@@ -355,6 +474,9 @@ export class Editor {
     }
 
     focus() {
+        if (!this._isCanonicalProjection())
+            return;
+
         const { selection, scrollPage } = this;
         const { anchorBlock, anchorPath, anchor, focus } = selection;
 
@@ -396,31 +518,73 @@ export class Editor {
         firstLeafBlock.setCursor(0, 0, needUpdated);
     }
 
-    updateContents(operations: JSONOp, selection: Nullable<IHistorySelection>, source: string) {
+    updateContents(
+        operations: JSONOp,
+        selection: Nullable<IHistorySelection>,
+        source: string,
+        beforePublish?: () => void,
+    ) {
         const muya = this._muya;
         // ot-json1 no-op (`null`) is forwarded to dispatch — JSONState
         // short-circuits internally so listeners still see a json-change
         // event for the no-op.
-        this.jsonState.dispatch(operations, source);
+        this._commitContents(operations, source, () => {
+            // Codes below are copied from `ot-json1.apply` and modified.
+            if (operations === null)
+                return;
 
-        // Codes bellow are copy from `ot-json1.apply` and modified.
-        if (operations === null)
-            return;
+            if (!this._isCanonicalProjection()) {
+                this.renderCurrentProjection();
+                return;
+            }
 
+            try {
+                const snapshot = pick(this.scrollPage as BlockNode, operations);
+
+                drop(snapshot, operations, muya);
+
+                this._restoreSelection(selection);
+                this.inlineRenderer.refreshCriticMarkupDocumentFragments();
+            }
+            catch (error) {
+                // The incremental walk left the live tree half-applied (pick
+                // removed blocks drop never re-inserted). Rebuild from the
+                // prepared JSON state before allowing the change to publish.
+                debug.error(`updateContents incremental apply failed; rebuilding from state: ${String(error)}`);
+                this._rebuildScrollPage(this.jsonState.getState());
+                this._restoreSelection(selection, true);
+            }
+        }, beforePublish);
+    }
+
+    private _rebuildScrollPage(state: TState[]) {
+        // A whole-tree replacement invalidates every cached block reference.
+        // Clear native and cached selections while the outgoing tree is still
+        // attached, then drop the active leaf without asking it to blur or
+        // render after its parent hierarchy has been detached.
+        this.searchModule.reset();
+        this.selection.clear();
+        this._activeContentBlock = null;
+        this._treeRebuildDepth++;
         try {
-            const snapshot = pick(this.scrollPage as BlockNode, operations);
-
-            drop(snapshot, operations, muya);
-
-            this._restoreSelection(selection);
+            this.scrollPage!.updateState(state);
         }
-        catch (error) {
-            // The incremental walk left the live tree half-applied (pick removed
-            // blocks drop never re-inserted). The json state is authoritative and
-            // already up to date — rebuild from it instead of leaving an empty doc.
-            debug.error(`updateContents incremental apply failed; rebuilding from state: ${String(error)}`);
-            this.scrollPage!.updateState(this.jsonState.getState());
-            this._restoreSelection(selection, true);
+        finally {
+            this._treeRebuildDepth--;
+        }
+        this.inlineRenderer.refreshCriticMarkupDocumentFragments();
+        this._syncProjectionAttributes();
+    }
+
+    renderCurrentProjection(
+        selection: Nullable<IHistorySelection> = null,
+    ) {
+        this._rebuildScrollPage(this._stateForCurrentProjection());
+        if (this._isCanonicalProjection()) {
+            if (selection)
+                this._restoreSelection(selection, true);
+            else
+                this.focus();
         }
     }
 
@@ -482,26 +646,195 @@ export class Editor {
      * shapes the incremental pick/drop walker cannot apply without desyncing the
      * DOM from the json state.
      */
-    rebuildContents(operations: JSONOp, selection: Nullable<IHistorySelection>, source: string) {
-        this.jsonState.dispatch(operations, source);
+    rebuildContents(
+        operations: JSONOp,
+        selection: Nullable<IHistorySelection>,
+        source: string,
+        beforePublish?: () => void,
+    ) {
+        this._commitContents(operations, source, () => {
+            this._rebuildScrollPage(this._stateForCurrentProjection());
 
-        const state = this.jsonState.getState();
-        this.scrollPage!.updateState(state);
+            // The tree was rebuilt wholesale, so the selection's cached block
+            // references are stale — resolve the caret from paths instead.
+            if (this._isCanonicalProjection())
+                this._restoreSelection(selection, true);
+        }, beforePublish);
+    }
 
-        // The tree was rebuilt wholesale, so the selection's cached block
-        // references are stale — resolve the caret from paths instead.
-        this._restoreSelection(selection, true);
+    /** Commit operations whose live block-tree mutation already succeeded. */
+    getLiveBlockState(): TState[] {
+        return this.scrollPage!.children.map((node) => {
+            if (!node.isParent()) {
+                throw new TypeError(
+                    'A top-level editor block must be a parent node.',
+                );
+            }
+            return node.getState();
+        });
+    }
+
+    commitPendingContents(operations: JSONOp, source: string): void {
+        this._commitContents(operations, source, () => {
+            const liveState = this.getLiveBlockState();
+            if (!statesEqual(liveState, this.jsonState.getState())) {
+                throw new TypeError(
+                    'Live block tree does not match its prepared JSON state.',
+                );
+            }
+            this.inlineRenderer.refreshCriticMarkupDocumentFragments();
+        });
+    }
+
+    /**
+     * Sole prepared state/tree commit protocol. JSON remains unobservable until
+     * the live tree, selection, search state, and caller-supplied publication
+     * preparation have all succeeded. Any preparation failure restores the
+     * previous JSON revision and reconstructs the previous live view.
+     */
+    private _commitContents(
+        operations: JSONOp,
+        source: string,
+        prepareTree: () => void,
+        beforePublish?: () => void,
+    ): void {
+        this._mutationAuthority.assertActive('Prepared editor commit');
+        const previousSelection = this.selection.getSelection();
+        const previousSearch = this.searchModule.checkpoint();
+        const change = this.jsonState.applySilently(operations, source);
+        let replayPreparedEvents: (() => void) | null = null;
+
+        try {
+            const prepared = this._muya.eventCenter.buffer(() => {
+                prepareTree();
+                beforePublish?.();
+            });
+            replayPreparedEvents = prepared.replay;
+        }
+        catch (error) {
+            const rollbackErrors: unknown[] = [];
+            try {
+                this.jsonState.restoreSilently(change);
+            }
+            catch (rollbackError) {
+                rollbackErrors.push(rollbackError);
+            }
+            try {
+                this._muya.eventCenter.suppress(() => {
+                    this._rebuildScrollPage(this._stateForCurrentProjection());
+                    this.searchModule.restore(previousSearch);
+                    if (this._isCanonicalProjection())
+                        this._restoreSelection(previousSelection, true);
+                });
+            }
+            catch (rollbackError) {
+                rollbackErrors.push(rollbackError);
+            }
+
+            if (rollbackErrors.length) {
+                throw new CollectedError(
+                    [error, ...rollbackErrors],
+                    'Prepared rebuild and its rollback both failed.',
+                );
+            }
+            throw error;
+        }
+
+        const notificationErrors: unknown[] = [];
+        this._mutationAuthority.suspend(() => {
+            try {
+                this.jsonState.publish(change);
+            }
+            catch (error) {
+                notificationErrors.push(error);
+            }
+            try {
+                replayPreparedEvents?.();
+            }
+            catch (error) {
+                notificationErrors.push(error);
+            }
+        });
+        if (notificationErrors.length)
+            throw new PostCommitNotificationError(notificationErrors);
     }
 
     setContent(content: TState[] | string, autoFocus = false) {
-        this.jsonState.setContent(content);
-        const state = this.jsonState.getState();
+        this._muya.flush();
+        const result = this.mutationGateway.run(
+            { kind: 'document-reset' },
+            () => this._resetDocument(content, {
+                autoFocus,
+                clearHistory: true,
+                preserveSelection: false,
+            }),
+        );
+        if (result === 'rejected') {
+            throw new TypeError('A document reset cannot be rejected by projection policy.');
+        }
+    }
 
-        this.scrollPage!.updateState(state);
-        this.history.clear();
-        this.searchModule.reset();
+    reparseContent(
+        content: TState[] | string,
+        preserveSelection = true,
+    ): void {
+        this._resetDocument(content, {
+            autoFocus: false,
+            clearHistory: false,
+            preserveSelection,
+        });
+    }
 
-        if (autoFocus)
-            this.focus();
+    private _resetDocument(
+        content: TState[] | string,
+        options: {
+            readonly autoFocus: boolean;
+            readonly clearHistory: boolean;
+            readonly preserveSelection: boolean;
+        },
+    ): void {
+        const checkpoint = this.jsonState.checkpointReset();
+        const history = this.history.getHistory();
+        const search = this.searchModule.checkpoint();
+        const selection = this.selection.getSelection();
+
+        try {
+            this.jsonState.setContent(content);
+            this._rebuildScrollPage(this._stateForCurrentProjection());
+            if (options.clearHistory)
+                this.history.clear();
+            if (options.preserveSelection && this._isCanonicalProjection())
+                this._restoreSelection(selection, true);
+            else if (options.autoFocus && this._isCanonicalProjection())
+                this.focus();
+        }
+        catch (error) {
+            const rollbackErrors: unknown[] = [];
+            try {
+                this.jsonState.restoreReset(checkpoint);
+            }
+            catch (rollbackError) {
+                rollbackErrors.push(rollbackError);
+            }
+            try {
+                this._muya.eventCenter.suppress(() => {
+                    this._rebuildScrollPage(this._stateForCurrentProjection());
+                    this.history.setHistory(history);
+                    this.searchModule.restore(search);
+                    if (this._isCanonicalProjection())
+                        this._restoreSelection(selection, true);
+                });
+            }
+            catch (rollbackError) {
+                rollbackErrors.push(rollbackError);
+            }
+            if (rollbackErrors.length) {
+                throw new CollectedError(
+                    [error, ...rollbackErrors],
+                    'Document reset and its rollback both failed.',
+                );
+            }
+            throw error;
+        }
     }
 }

@@ -1,9 +1,10 @@
 import path from 'path'
-import { shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import { isFile } from 'common/filesystem'
 import * as actions from '../actions/help'
 import { checkUpdates } from '../actions/marktext'
 import { t } from '../../i18n'
+import { presentationPolicy } from '../../presentationPolicy'
 
 /// Check whether the package is updatable at runtime.
 const isUpdatable = (): boolean => {
@@ -33,7 +34,7 @@ export default function(): MenuItemConstructorOptions {
     {
       label: t('menu.help.markdownReference'),
       click() {
-        shell.openExternal(
+        presentationPolicy.openExternal(
           'https://marktext.me/docs/markdown-syntax'
         )
       }
@@ -41,7 +42,7 @@ export default function(): MenuItemConstructorOptions {
     {
       label: t('menu.help.changelog'),
       click() {
-        shell.openExternal('https://github.com/marktext/marktext/releases')
+        presentationPolicy.openExternal('https://github.com/marktext/marktext/releases')
       }
     },
     {
@@ -50,13 +51,13 @@ export default function(): MenuItemConstructorOptions {
     {
       label: t('menu.help.followUs'),
       click() {
-        shell.openExternal('https://twitter.com/marktextapp')
+        presentationPolicy.openExternal('https://twitter.com/marktextapp')
       }
     },
     {
       label: t('menu.help.support'),
       click() {
-        shell.openExternal('https://github.com/sponsors/marktext')
+        presentationPolicy.openExternal('https://github.com/sponsors/marktext')
       }
     },
     {
@@ -65,19 +66,19 @@ export default function(): MenuItemConstructorOptions {
     {
       label: t('menu.help.askQuestion'),
       click() {
-        shell.openExternal('https://github.com/marktext/marktext/discussions')
+        presentationPolicy.openExternal('https://github.com/marktext/marktext/discussions')
       }
     },
     {
       label: t('menu.help.reportBug'),
       click() {
-        shell.openExternal('https://github.com/marktext/marktext/issues')
+        presentationPolicy.openExternal('https://github.com/marktext/marktext/issues')
       }
     },
     {
       label: t('menu.help.viewSource'),
       click() {
-        shell.openExternal('https://github.com/marktext/marktext')
+        presentationPolicy.openExternal('https://github.com/marktext/marktext')
       }
     },
     {
@@ -86,7 +87,9 @@ export default function(): MenuItemConstructorOptions {
     {
       label: t('menu.help.license'),
       click() {
-        shell.openExternal('https://github.com/marktext/marktext/blob/develop/LICENSE')
+        presentationPolicy.openExternal(
+          'https://github.com/marktext/marktext/blob/develop/LICENSE'
+        )
       }
     }
   ]

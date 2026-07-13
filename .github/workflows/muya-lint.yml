@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - 'packages/marked/**'
       - 'packages/muya/**'
       - '!packages/muya/examples/**'
       - '!packages/muya/e2e/**'

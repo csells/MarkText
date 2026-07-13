@@ -2,6 +2,7 @@
 
 import type Format from '../../block/base/format';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserEdit } from '../../__tests__/helpers/mutation';
 import { Muya } from '../../muya';
 
 const bootedHosts: HTMLElement[] = [];
@@ -49,15 +50,19 @@ describe('undo/redo of a coalesced paragraph→list + text edit', () => {
         const muya = bootMuya('# anchor\n\nseed\n');
 
         const para = secondBlockContent(muya);
-        para.text = '- ';
-        para.checkInlineUpdate();
+        runUserEdit(muya, () => {
+            para.text = '- ';
+            para.checkInlineUpdate();
+        });
         await vi.waitFor(() => {
             expect(muya.getMarkdown()).toContain('- ');
             expect(undoDepth(muya)).toBe(1);
         });
 
         const listContent = secondBlockContent(muya);
-        listContent.text = 'foo';
+        runUserEdit(muya, () => {
+            listContent.text = 'foo';
+        });
         await vi.waitFor(() => {
             expect(muya.getMarkdown()).toContain('foo');
         });
@@ -84,15 +89,19 @@ describe('undo/redo of a coalesced paragraph→list + text edit', () => {
 
         const para = secondBlockContent(muya);
         para.setCursor(0, 0, true);
-        para.text = '- ';
-        para.checkInlineUpdate();
+        runUserEdit(muya, () => {
+            para.text = '- ';
+            para.checkInlineUpdate();
+        });
         await vi.waitFor(() => {
             expect(muya.getMarkdown()).toContain('- ');
         });
 
         const listContent = secondBlockContent(muya);
         listContent.setCursor(0, 0, true);
-        listContent.text = 'foo';
+        runUserEdit(muya, () => {
+            listContent.text = 'foo';
+        });
         await vi.waitFor(() => {
             expect(muya.getMarkdown()).toContain('foo');
         });
@@ -100,7 +109,9 @@ describe('undo/redo of a coalesced paragraph→list + text edit', () => {
         muya.editor.history.cutoff();
         const listContent2 = secondBlockContent(muya);
         listContent2.setCursor(3, 3, true);
-        listContent2.text = 'foo bar';
+        runUserEdit(muya, () => {
+            listContent2.text = 'foo bar';
+        });
         await vi.waitFor(() => {
             expect(muya.getMarkdown()).toContain('foo bar');
         });

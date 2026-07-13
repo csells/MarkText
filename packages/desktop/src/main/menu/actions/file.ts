@@ -3,8 +3,6 @@ import path from 'path'
 import {
   BrowserWindow,
   app,
-  dialog,
-  shell,
   ipcMain,
   type IpcMainEvent,
   type MenuItem
@@ -23,6 +21,7 @@ import { getPath, getRecommendTitleFromMarkdownString } from '../../utils'
 import pandoc from '../../utils/pandoc'
 import { t } from '../../i18n'
 import type { UnsavedFile } from '@shared/types/files'
+import { presentationPolicy } from '../../presentationPolicy'
 
 type Win = BrowserWindow | null | undefined
 
@@ -98,7 +97,7 @@ const handleResponseForExport = async(e: IpcMainEvent, payload: ExportPayload): 
   }
 
   const defaultPath = path.join(dirname, `${nakedFilename}${extension}`)
-  const { filePath, canceled } = await dialog.showSaveDialog(win, {
+  const { filePath, canceled } = await presentationPolicy.showSaveDialog(win, {
     defaultPath,
     filters: getExportExtensionFilter(type)
   })
@@ -149,9 +148,11 @@ const handleResponseForPrint = async(e: IpcMainEvent): Promise<void> => {
   if (!win) {
     return
   }
-  win.webContents.print({ printBackground: true }, () => {
-    removePrintServiceFromWindow(win)
-  })
+  presentationPolicy.printWebContents(
+    win.webContents,
+    { printBackground: true },
+    () => removePrintServiceFromWindow(win)
+  )
 }
 
 const handleResponseForSave = async(
@@ -180,7 +181,7 @@ const handleResponseForSave = async(
   let filePath = pathname
 
   if (!filePath) {
-    const { filePath: dialogPath, canceled } = await dialog.showSaveDialog(win, {
+    const { filePath: dialogPath, canceled } = await presentationPolicy.showSaveDialog(win, {
       defaultPath: path.join(defaultPath || getPath('documents'), `${recommendFilename}.md`)
     })
 
@@ -228,7 +229,7 @@ const showUnsavedFilesMessage = async(
   win: BrowserWindow,
   files: UnsavedFile[]
 ): Promise<{ needSave: boolean } | null> => {
-  const { response } = await dialog.showMessageBox(win, {
+  const { response } = await presentationPolicy.showMessageBox(win, {
     type: 'warning',
     buttons: [t('dialog.save'), t('dialog.dontSave'), t('dialog.cancel')],
     defaultId: 0,
@@ -361,7 +362,7 @@ ipcMain.on(
     // on disk nevertheless but is already tracked by MarkText.
     const alreadyExistOnDisk = !!pathname
 
-    let { filePath, canceled } = await dialog.showSaveDialog(win, {
+    let { filePath, canceled } = await presentationPolicy.showSaveDialog(win, {
       defaultPath:
         pathname || path.join(defaultPath || getPath('documents'), `${recommendFilename}.md`)
     })
@@ -437,7 +438,7 @@ ipcMain.on('mt::close-window-confirm', async(e, unsavedFiles: UnsavedFile[]) => 
 
         const msg = err instanceof Error ? err.message : String(err)
         // Notify user about the problem.
-        dialog
+        presentationPolicy
           .showMessageBox(win, {
             type: 'error',
             buttons: [t('dialog.close'), t('dialog.keepOpen')],
@@ -517,7 +518,7 @@ ipcMain.on('mt::rename', async(e, { id, pathname, newPathname }: RenamePayload) 
   if (!(await exists(newPathname))) {
     doRename()
   } else {
-    const { response } = await dialog.showMessageBox(win, {
+    const { response } = await presentationPolicy.showMessageBox(win, {
       type: 'warning',
       buttons: [t('dialog.replace'), t('dialog.cancel')],
       defaultId: 1,
@@ -539,7 +540,7 @@ ipcMain.on(
     if (!win) {
       return
     }
-    const { filePath, canceled } = await dialog.showSaveDialog(win, {
+    const { filePath, canceled } = await presentationPolicy.showSaveDialog(win, {
       buttonLabel: 'Move to',
       nameFieldLabel: 'Filename:',
       defaultPath: pathname
@@ -568,7 +569,7 @@ ipcMain.on('mt::ask-for-open-project-in-sidebar', async(e) => {
   if (!win) {
     return
   }
-  const { filePaths } = await dialog.showOpenDialog(win, {
+  const { filePaths } = await presentationPolicy.showOpenDialog(win, {
     properties: ['openDirectory', 'createDirectory']
   })
 
@@ -608,7 +609,7 @@ ipcMain.on('mt::format-link-click', async(e, { data, dirname }: FormatLinkPayloa
   }
 
   if (URL_REG.test(urlCandidate)) {
-    shell.openExternal(urlCandidate)
+    presentationPolicy.openExternal(urlCandidate)
     return
   } else if (/^[a-z0-9]+:\/\//i.test(urlCandidate)) {
     // Prevent other URLs.
@@ -632,7 +633,7 @@ ipcMain.on('mt::format-link-click', async(e, { data, dirname }: FormatLinkPayloa
       // A link in an untrusted document could point at a co-located script or
       // executable; opening it via the OS shell would run code silently (#3575).
       if (isDangerousExecutableFile(pathname)) {
-        const { response } = await dialog.showMessageBox(win, {
+        const { response } = await presentationPolicy.showMessageBox(win, {
           type: 'warning',
           buttons: [t('dialog.cancel'), t('dialog.openAnyway')],
           defaultId: 0,
@@ -646,7 +647,7 @@ ipcMain.on('mt::format-link-click', async(e, { data, dirname }: FormatLinkPayloa
           return
         }
       }
-      shell.openPath(pathname)
+      presentationPolicy.openPath(pathname)
     }
   }
 })
@@ -700,7 +701,7 @@ export const importFile = async(win: BrowserWindow | null): Promise<void> => {
     return
   }
 
-  const { filePaths } = await dialog.showOpenDialog(win, {
+  const { filePaths } = await presentationPolicy.showOpenDialog(win, {
     properties: ['openFile'],
     filters: [
       {
@@ -725,7 +726,7 @@ export const openFile = async(win: BrowserWindow | null): Promise<void> => {
   if (!win) {
     return
   }
-  const { filePaths } = await dialog.showOpenDialog(win, {
+  const { filePaths } = await presentationPolicy.showOpenDialog(win, {
     properties: ['openFile', 'multiSelections'],
     filters: [
       {
@@ -744,7 +745,7 @@ export const openFolder = async(win: BrowserWindow | null): Promise<void> => {
   if (!win) {
     return
   }
-  const { filePaths } = await dialog.showOpenDialog(win, {
+  const { filePaths } = await presentationPolicy.showOpenDialog(win, {
     properties: ['openDirectory', 'createDirectory']
   })
 

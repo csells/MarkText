@@ -136,6 +136,25 @@
       "hyperlink": "ハイパーリンク",
       "clearFormat": "書式をクリア"
     },
+    "review": {
+      "review": "レビュー",
+      "trackChanges": "変更履歴",
+      "markAddition": "追加としてマーク",
+      "markDeletion": "削除としてマーク",
+      "suggestReplacement": "置換を提案…",
+      "highlight": "レビュー用にハイライト",
+      "addComment": "コメントを追加…",
+      "previous": "前の変更",
+      "next": "次の変更",
+      "acceptCurrent": "変更を承認",
+      "rejectCurrent": "変更を却下",
+      "acceptAll": "すべての変更を承認",
+      "rejectAll": "すべての変更を却下",
+      "display": "表示",
+      "showMarked": "マークアップ",
+      "showOriginal": "元の文書",
+      "showRevised": "改訂版"
+    },
     "theme": {
       "theme": "テーマ (&T)",
       "dark": "ダーク",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "目次"
     },
+    "review": {
+      "title": "レビュー",
+      "summary": "レビュー項目：{count}件",
+      "trackChanges": "変更履歴",
+      "unavailable": "この表示ではレビューを利用できません。",
+      "empty": "レビュー項目はありません",
+      "removeComment": "コメントを削除",
+      "removeHighlight": "ハイライトを削除",
+      "types": {
+        "addition": "追加",
+        "deletion": "削除",
+        "substitution": "置換",
+        "highlight": "ハイライト",
+        "comment": "コメント"
+      }
+    },
     "icons": {
       "files": "ファイル",
       "search": "検索",
       "toc": "目次",
+      "review": "レビュー",
       "settings": "設定"
     }
   },
@@ -820,6 +856,23 @@
       "image": "画像",
       "clearFormat": "書式をクリア"
     },
+    "review": {
+      "trackChanges": "変更履歴を記録",
+      "markAddition": "追加としてマーク",
+      "markDeletion": "削除としてマーク",
+      "suggestReplacement": "置換を提案",
+      "highlight": "レビュー用にハイライト",
+      "addComment": "コメントを追加",
+      "previous": "前の変更",
+      "next": "次の変更",
+      "acceptCurrent": "変更を承認",
+      "rejectCurrent": "変更を却下",
+      "acceptAll": "すべての変更を承認",
+      "rejectAll": "すべての変更を却下",
+      "showMarked": "マークアップを表示",
+      "showOriginal": "元の文書を表示",
+      "showRevised": "改訂版を表示"
+    },
     "window": {
       "minimize": "最小化",
       "toggleAlwaysOnTop": "常に最前面を切り替え",
@@ -933,6 +986,12 @@
     "unexpectedError": "予期しないスペルチェックエラー"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "コメントを追加",
+      "commentPlaceholder": "レビューコメントを入力",
+      "replacementTitle": "置換を提案",
+      "replacementPlaceholder": "置換テキストを入力"
+    },
     "export": {
       "error": "エクスポートエラー",
       "errorExporting": "ファイルのエクスポート中にエラーが発生しました",

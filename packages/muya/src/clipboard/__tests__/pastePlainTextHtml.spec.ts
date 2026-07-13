@@ -57,6 +57,39 @@ function firstContent(muya: Muya): Content {
 }
 
 describe('paste as plain text — block-level HTML is literal (A8, muyajs parity)', () => {
+    it('propagates an Electron clipboard bridge failure', async () => {
+        const failure = new Error('native clipboard unavailable');
+        const muya = bootMuya('foo\n', {
+            clipboardText: () => Promise.reject(failure),
+        });
+
+        await expect(muya.editor.clipboard.pasteAsPlainText())
+            .rejects
+            .toBe(failure);
+    });
+
+    it('propagates an async Clipboard API failure', async () => {
+        const failure = new Error('clipboard permission denied');
+        const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { readText: () => Promise.reject(failure) },
+        });
+        const muya = bootMuya('foo\n');
+
+        try {
+            await expect(muya.editor.clipboard.pasteAsPlainText())
+                .rejects
+                .toBe(failure);
+        }
+        finally {
+            if (original)
+                Object.defineProperty(navigator, 'clipboard', original);
+            else
+                Reflect.deleteProperty(navigator, 'clipboard');
+        }
+    });
+
     it('inserts <ul>...</ul> as literal text rather than a live html-block', async () => {
         const html = '<ul><li>a</li><li>b</li></ul>';
         const muya = bootMuya('foo\n', { clipboardText: () => html });

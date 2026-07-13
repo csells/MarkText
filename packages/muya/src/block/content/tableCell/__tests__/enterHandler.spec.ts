@@ -2,6 +2,7 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommand } from '../../../../__tests__/helpers/mutation';
 import { isOsx } from '../../../../config';
 import { Muya } from '../../../../muya';
 
@@ -88,7 +89,9 @@ function enterAt(
 ): void {
     muya.editor.activeContentBlock = cell;
     cell.setCursor(offset, offset, true);
-    cell.enterHandler(makeEnterEvent(modifiers));
+    runUserCommand(muya, () => {
+        cell.enterHandler(makeEnterEvent(modifiers));
+    });
 }
 
 function flush(): Promise<void> {

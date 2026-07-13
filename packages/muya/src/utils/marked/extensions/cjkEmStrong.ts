@@ -1,4 +1,10 @@
-import type { MarkedExtension, TokenizerObject, Tokens } from 'marked';
+import type {
+    MarkedExtension,
+    MarkedSourceView,
+    TokenizerObject,
+    Tokens,
+} from 'marked';
+import { markedViewOffset } from 'marked';
 
 // NON-STANDARD EXTENSION — a deliberate divergence from CommonMark.
 //
@@ -101,7 +107,12 @@ interface ITokenizerThis {
         inline: IEmStrongRules;
         other: { unicodeAlphaNumeric: RegExp };
     };
-    lexer: { inlineTokens: (src: string) => Tokens.Generic[] };
+    lexer: {
+        readonly currentSourceView: MarkedSourceView<object> | null;
+        inlineTokens: (
+            src: string | MarkedSourceView<object>,
+        ) => Tokens.Generic[];
+    };
 }
 
 // The right-delimiter scan + CommonMark "rule of 3" balancing, lifted out of
@@ -173,20 +184,28 @@ function scanEmphasisRun(
 
         if (Math.min(lLength, rLength) % 2) {
             const text = raw.slice(1, -1);
+            const textSource = lexer.currentSourceView?.slice(
+                markedViewOffset(1),
+                markedViewOffset(raw.length - 1),
+            ) ?? text;
             return {
                 type: 'em',
                 raw,
                 text,
-                tokens: lexer.inlineTokens(text),
+                tokens: lexer.inlineTokens(textSource),
             } as Tokens.Em;
         }
 
         const text = raw.slice(2, -2);
+        const textSource = lexer.currentSourceView?.slice(
+            markedViewOffset(2),
+            markedViewOffset(raw.length - 2),
+        ) ?? text;
         return {
             type: 'strong',
             raw,
             text,
-            tokens: lexer.inlineTokens(text),
+            tokens: lexer.inlineTokens(textSource),
         } as Tokens.Strong;
     }
 

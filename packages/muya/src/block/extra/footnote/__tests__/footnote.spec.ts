@@ -61,14 +61,18 @@ describe('footnote block — class API', () => {
         expect(block.getState()).toEqual(baseState);
     });
 
-    it('mutating meta.identifier is reflected in subsequent getState()', () => {
+    it('exposes immutable metadata without changing serialized state', () => {
         const muya = makeFakeMuya();
         const block = Footnote.create(muya, baseState);
-        block.meta.identifier = 'renamed';
+
+        expect(() => {
+            // Runtime immutability must protect JavaScript callers too; the
+            // readonly TypeScript surface alone is not an authority boundary.
+            (block.meta as { identifier: string }).identifier = 'renamed';
+        }).toThrow(TypeError);
+
         const next = block.getState();
-        expect(next.meta.identifier).toBe('renamed');
-        // children stay intact when only meta changes.
-        expect(next.children).toEqual(baseState.children);
+        expect(next).toEqual(baseState);
     });
 
     it('remove("api") detaches the block DOM and clears its parent link', () => {
@@ -79,7 +83,7 @@ describe('footnote block — class API', () => {
         // Plug into a minimal fake Parent so remove('api') walks the tree
         // without dispatching ot-json1 operations against a real editor.
         block.parent = {
-            children: { remove: () => {} },
+            detachLinkedChild: () => {},
             domNode: parentDom,
         } as never;
 

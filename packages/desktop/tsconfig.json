@@ -15,6 +15,7 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/renderer/**/*.ts",
+    "../muya/src/types/**/*.d.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",
     "vitest.config.ts"

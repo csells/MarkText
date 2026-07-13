@@ -27,6 +27,7 @@ vi.mock('@/services/notification', () => ({
 }))
 
 import { useEditorStore } from '@/store/editor'
+import { getBlankFileState } from '@/store/help'
 import { resolveTocHeadingElement } from '@/util/tocNavigation'
 
 describe('useEditorStore UPDATE_TOC', () => {
@@ -69,6 +70,26 @@ describe('useEditorStore UPDATE_TOC', () => {
     store.UPDATE_TOC(undefined as unknown as never)
     expect(store.listToc).toEqual([])
     expect(store.toc).toEqual([])
+  })
+})
+
+describe('useEditorStore UPDATE_WORD_COUNT', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('seeds the active tab without changing its clean or history state', () => {
+    const store = useEditorStore()
+    const tab = getBlankFileState([])
+    const history = tab.history
+    store.tabs.push(tab)
+    store.currentFile = tab
+
+    store.UPDATE_WORD_COUNT({ paragraph: 2, word: 7, character: 31, all: 38 })
+
+    expect(tab.wordCount).toEqual({ paragraph: 2, word: 7, character: 31, all: 38 })
+    expect(tab.isSaved).toBe(true)
+    expect(tab.history).toBe(history)
   })
 })
 

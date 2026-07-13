@@ -1,5 +1,5 @@
 import path from 'path'
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import type { BrowserWindowConstructorOptions } from 'electron'
 import log from 'electron-log'
 import windowStateKeeper from 'electron-window-state'
@@ -7,11 +7,18 @@ import { isChildOfDirectory, isSamePathSync } from 'common/filesystem/paths'
 import BaseWindow, { WindowLifecycle, WindowType } from './base'
 import type Accessor from '../app/accessor'
 import { ensureWindowPosition, zoomIn, zoomOut } from './utils'
-import { TITLE_BAR_HEIGHT, editorWinOptions, isLinux, isOsx } from '../config'
+import {
+  TITLE_BAR_HEIGHT,
+  editorWinOptions,
+  isLinux,
+  isOsx
+} from '../config'
 import { showEditorContextMenu } from '../contextMenu/editor'
 import { loadMarkdownFile } from '../filesystem/markdown'
 import { switchLanguage } from '../spellchecker'
 import fs from 'fs'
+import { presentationPolicy } from '../presentationPolicy'
+import { exceptionReporter } from '../exceptionReporting'
 
 type RawMarkdownDocument = Awaited<ReturnType<typeof loadMarkdownFile>>
 
@@ -99,10 +106,12 @@ class EditorWindow extends BaseWindow {
     })
 
     const { x, y, width, height } = ensureWindowPosition(mainWindowState)
-    const winOptions: BrowserWindowConstructorOptions = Object.assign(
-      { x, y, width, height },
-      editorWinOptions,
-      options
+    const winOptions = presentationPolicy.deriveWindowOptions<BrowserWindowConstructorOptions>(
+      Object.assign(
+        { x, y, width, height },
+        editorWinOptions,
+        options
+      )
     )
     if (isLinux) {
       winOptions.icon = path.join(process.cwd(), 'static', 'logo-96px.png')
@@ -133,7 +142,6 @@ class EditorWindow extends BaseWindow {
       // winOptions.webPreferences is set by editorWinOptions spread above
       ;(winOptions.webPreferences as { spellcheck: boolean }).spellcheck = false
     }
-
     let win: BrowserWindow | null = (this.browserWindow = new BrowserWindow(winOptions))
 
     // Give every editor window a stable id for session buffer persistence.
@@ -198,9 +206,13 @@ class EditorWindow extends BaseWindow {
     })
 
     win.webContents.once('did-fail-load', (_event, errorCode, errorDescription, url) => {
-      log.error(
+      const message =
         `The window failed to load or was cancelled: ${errorCode}; ${errorDescription}; @ ${url}`
-      )
+      log.error(message)
+      exceptionReporter.handle('crash', new Error(message), async() => {})
+        .catch((handlerError) => {
+          log.error('Failed to process window load error through presentation policy.', handlerError)
+        })
     })
 
     win.webContents.once('render-process-gone', async(_event, { reason }) => {
@@ -210,20 +222,26 @@ class EditorWindow extends BaseWindow {
 
       const msg = `The renderer process has crashed unexpected or is killed (${reason}).`
       log.error(msg)
+      const error = new Error(msg)
 
       if (reason === 'abnormal-exit') {
+        await exceptionReporter.handle('crash', error, async() => {})
         return
       }
 
-      const { response } = await dialog.showMessageBox(win!, {
-        type: 'warning',
-        buttons: ['Close', 'Reload', 'Keep It Open'],
-        message: 'MarkText has crashed',
-        detail: msg
+      const response: { value: number | null } = { value: null }
+      const disposition = await exceptionReporter.handle('crash', error, async() => {
+        response.value = (await presentationPolicy.showMessageBox(win!, {
+          type: 'warning',
+          buttons: ['Close', 'Reload', 'Keep It Open'],
+          message: 'MarkText has crashed',
+          detail: msg
+        })).response
       })
 
+      if (disposition === 'captured') return this.destroy()
       if (win!.id) {
-        switch (response) {
+        switch (response.value) {
           case 0:
             return this.destroy()
           case 1:

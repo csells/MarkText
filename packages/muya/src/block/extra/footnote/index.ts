@@ -8,7 +8,9 @@ import { ScrollPage } from '../../scrollPage';
 
 @mixins(IContainerQueryBlock)
 class Footnote extends Parent {
-    public meta: IFootnoteBlockMeta;
+    get meta(): Readonly<IFootnoteBlockMeta> {
+        return this.readBlockMeta<IFootnoteBlockMeta>();
+    }
 
     static override blockName = 'footnote';
 
@@ -26,7 +28,7 @@ class Footnote extends Parent {
         footnote.domNode!.appendChild(label);
 
         for (const child of state.children)
-            footnote.append(ScrollPage.loadBlock(child.name).create(muya, child));
+            footnote.append(ScrollPage.createStateBlock(muya, child));
 
         // Backlink arrow in the bottom-right of the figure. Clicking it
         // scrolls back up to the first inline `<sup id="noteref-{id}">`
@@ -65,17 +67,17 @@ class Footnote extends Parent {
     constructor(muya: Muya, { meta }: IFootnoteBlockState) {
         super(muya);
         this.tagName = 'figure';
-        this.meta = { identifier: meta.identifier };
+        this.initializeBlockMeta({ identifier: meta.identifier });
         this.classList = [CLASS_NAMES.MU_FOOTNOTE];
         this.createDomNode();
     }
 
     override getState(): IFootnoteBlockState {
-        return {
+        return this.withStateSourceTrivia({
             name: 'footnote',
             meta: { identifier: this.meta.identifier },
             children: this.children.map(child => (child as Parent).getState()),
-        };
+        });
     }
 }
 

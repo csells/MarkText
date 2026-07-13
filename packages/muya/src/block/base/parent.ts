@@ -1,3 +1,4 @@
+import type { Muya } from '../../muya';
 import type { TState } from '../../state/types';
 import type { Nullable } from '../../types';
 import type { TBlockPath } from '../types';
@@ -9,17 +10,42 @@ import logger from '../../utils/logger';
 
 const debug = logger('parent:');
 
-class Parent extends TreeNode {
+class Parent<Child extends TreeNode = TreeNode> extends TreeNode {
     // Used to store icon, checkbox(span) etc. these blocks are not in children properties in json state.
-    attachments: LinkedList<Parent> = new LinkedList();
+    readonly #attachments = new LinkedList<TreeNode>();
+    readonly #children = new LinkedList<Child>();
+    readonly #attachmentView = this.#attachments.readonlyView();
+    readonly #childView = this.#children.readonlyView();
 
-    children: LinkedList<TreeNode> = new LinkedList();
+    get attachments() {
+        return this.#attachmentView;
+    }
 
-    override prev: Nullable<Parent> = null;
+    get children() {
+        return this.#childView;
+    }
 
-    override next: Nullable<Parent> = null;
+    override get prev(): Nullable<Parent> {
+        return super.prev as Nullable<Parent>;
+    }
+
+    override set prev(value: Nullable<Parent>) {
+        super.prev = value;
+    }
+
+    override get next(): Nullable<Parent> {
+        return super.next as Nullable<Parent>;
+    }
+
+    override set next(value: Nullable<Parent>) {
+        super.next = value;
+    }
 
     private _active: boolean = false;
+
+    constructor(muya: Muya) {
+        super(muya);
+    }
 
     get active() {
         return this._active;
@@ -82,8 +108,9 @@ class Parent extends TreeNode {
     clone() {
         const state = this.getState();
         const { muya } = this;
-
-        return this.static.create(muya, state);
+        const clone = this.static.create(muya, state);
+        clone.initializeStateSourceTrivia(state.sourceTrivia);
+        return clone;
     }
 
     /**
@@ -93,35 +120,68 @@ class Parent extends TreeNode {
         return this.reduce((acc: number) => acc + 1, 0);
     }
 
-    offset(node: TreeNode) {
-        return this.children.offset(node);
+    offset(node: Child) {
+        return this.#children.offset(node);
     }
 
     find(offset: number) {
         return this.children.find(offset);
     }
 
+    private _assertChildMutationAuthorized(
+        source: string,
+        operation: string,
+        children: readonly Child[],
+    ): void {
+        if (source === 'user') {
+            this.assertMutationAuthorized(operation);
+            return;
+        }
+        if (
+            this.isAttachedToLiveTree
+            || children.some(child => child.isAttachedToLiveTree)
+        ) {
+            this.assertTreeMutationAuthorized(operation);
+        }
+    }
+
     /**
      * Append node in linkedList, mounted it into the DOM tree, dispatch operation if necessary.
      * @param  {...any} args
      */
-    append(...childrenAndSource: [...Parent[], string]): void;
-    append(...children: Parent[]): void;
+    append(...childrenAndSource: [...Child[], string]): void;
+    append(...children: Child[]): void;
     append(...args: unknown[]) {
-        const source
-            = typeof args[args.length - 1] === 'string' ? args.pop() : 'api';
+        const sourceValue = args[args.length - 1];
+        let source = 'api';
+        if (typeof sourceValue === 'string') {
+            args.pop();
+            source = sourceValue;
+        }
+        const children = args as Child[];
+        this._assertChildMutationAuthorized(
+            source,
+            'Block append',
+            children,
+        );
 
-        (args as Parent[]).forEach((node) => {
+        children.forEach((node) => {
             node.parent = this;
             const { domNode } = node;
             this.domNode!.appendChild(domNode!);
         });
 
-        this.children.append(...(args as Parent[]));
+        for (const child of children)
+            this.#children.append(child);
 
         // push operations
         if (source === 'user') {
-            (args as Parent[]).forEach((node) => {
+            children.forEach((node) => {
+                if (!node.isParent()) {
+                    throw new TypeError(
+                        'A user block append requires a serializable parent node.',
+                    );
+                }
                 const path = node._getJsonPath();
                 const state = node.getState();
                 this.jsonState.insertOperation(path, state);
@@ -133,34 +193,35 @@ class Parent extends TreeNode {
      * This method will only be used when initialization.
      * @param  {...any} nodes attachment blocks
      */
-    protected appendAttachment(...nodes: Parent[]) {
+    protected appendAttachment(...nodes: TreeNode[]) {
         nodes.forEach((node) => {
             node.parent = this;
             const { domNode } = node;
             this.domNode!.appendChild(domNode!);
         });
 
-        this.attachments.append(...nodes);
+        for (const node of nodes)
+            this.#attachments.append(node);
     }
 
     forEachAt(
         index: number,
         length: number = this.length(),
-        callback: (cur: TreeNode, i: number) => void,
+        callback: (cur: Child, i: number) => void,
     ) {
         return this.children.forEachAt(index, length, callback);
     }
 
-    forEach(callback: (cur: TreeNode, i: number) => void) {
+    forEach(callback: (cur: Child, i: number) => void) {
         return this.children.forEach(callback);
     }
 
-    map<M>(callback: (cur: TreeNode, i: number) => M): M[] {
+    map<M>(callback: (cur: Child, i: number) => M): M[] {
         return this.children.map(callback);
     }
 
     reduce<M>(
-        callback: (memo: M, cur: TreeNode, i: number) => M,
+        callback: (memo: M, cur: Child, i: number) => M,
         initialValue: M,
     ): M {
         return this.children.reduce<M>(callback, initialValue);
@@ -185,18 +246,28 @@ class Parent extends TreeNode {
     }
 
     insertBefore(
-        newNode: Parent,
-        refNode: Nullable<Parent> = null,
+        newNode: Child,
+        refNode: Nullable<Child> = null,
         source = 'user',
     ) {
+        this._assertChildMutationAuthorized(
+            source,
+            'Block insertion',
+            [newNode],
+        );
         newNode.parent = this;
-        this.children.insertBefore(newNode, refNode);
+        this.#children.insertBefore(newNode, refNode);
         this.domNode!.insertBefore(
             newNode.domNode!,
             refNode ? refNode.domNode! : null,
         );
 
         if (source === 'user') {
+            if (!newNode.isParent()) {
+                throw new TypeError(
+                    'A user block insertion requires a serializable parent node.',
+                );
+            }
             // dispatch json1 operation
             const path = newNode._getJsonPath();
             const state = newNode.getState();
@@ -206,13 +277,19 @@ class Parent extends TreeNode {
         return newNode;
     }
 
-    insertAfter(newNode: Parent, refNode: Nullable<Parent> = null, source = 'user') {
-        this.insertBefore(newNode, refNode ? refNode.next : null, source);
+    insertAfter(newNode: Child, refNode: Nullable<Child> = null, source = 'user') {
+        // Children in one linked list share this parent's Child domain.
+        const next = refNode?.next as Nullable<Child>;
+        this.insertBefore(newNode, next, source);
 
         return newNode;
     }
 
     override remove(source = 'user') {
+        if (source === 'user')
+            this.assertMutationAuthorized('Block removal');
+        else if (this.isAttachedToLiveTree)
+            this.assertTreeMutationAuthorized('Block removal');
         if (source === 'user') {
             // dispatch json1 operation
             const path = this._getJsonPath();
@@ -230,8 +307,8 @@ class Parent extends TreeNode {
         });
     }
 
-    removeChild(node: TreeNode, source = 'user') {
-        if (!this.children.contains(node)) {
+    removeChild(node: Child, source = 'user') {
+        if (!this.#children.contains(node)) {
             debug.warn(
                 'Can not removeChild(node), because node is not child of this block',
             );
@@ -243,6 +320,21 @@ class Parent extends TreeNode {
             node.remove();
 
         return node;
+    }
+
+    /** Internal unlink step used after TreeNode has asserted mutation authority. */
+    detachLinkedChild(node: TreeNode): void {
+        if (this.isAttachedToLiveTree)
+            this.assertTreeMutationAuthorized('Linked child detachment');
+        // The identity membership check proves the generic relationship that
+        // TypeScript cannot recover from a base TreeNode reference.
+        const child = node as Child;
+        if (!this.#children.contains(child)) {
+            throw new TypeError(
+                'Cannot detach a node that is not a child of this parent.',
+            );
+        }
+        this.#children.remove(child);
     }
 
     /**

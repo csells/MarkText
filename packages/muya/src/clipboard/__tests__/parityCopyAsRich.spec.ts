@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+// @vitest-environment jsdom
 
 import type { Muya } from '../../muya';
 import { describe, expect, it, vi } from 'vitest';

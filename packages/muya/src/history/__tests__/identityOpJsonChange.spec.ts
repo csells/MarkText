@@ -44,7 +44,10 @@ describe('identity (null) op via json-change — #4806', () => {
 
         // `Editor.updateContents` deliberately forwards the identity op to
         // `dispatch`, which emits a `json-change` carrying `op: null`.
-        expect(() => muya.editor.updateContents(null, null, 'user')).not.toThrow();
+        expect(() => muya.editor.mutationGateway.run(
+            { kind: 'history-command' },
+            () => muya.editor.updateContents(null, null, 'user'),
+        )).not.toThrow();
 
         expect(muya.getMarkdown().trim()).toBe('hello');
         expect(undoDepth(muya)).toBe(0);

@@ -9,7 +9,9 @@ import { ScrollPage } from '../../scrollPage';
 
 @mixins(LeafQueryBlock)
 class AtxHeading extends Parent {
-    public meta: IAtxHeadingState['meta'];
+    get meta(): Readonly<IAtxHeadingState['meta']> {
+        return this.readBlockMeta<IAtxHeadingState['meta']>();
+    }
 
     static override blockName = 'atx-heading';
 
@@ -37,17 +39,17 @@ class AtxHeading extends Parent {
     constructor(muya: Muya, { meta }: IAtxHeadingState) {
         super(muya);
         this.tagName = `h${meta.level}`;
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.classList = ['mu-atx-heading'];
         this.createDomNode();
     }
 
     override getState(): IAtxHeadingState {
-        return {
+        return this.withStateSourceTrivia({
             name: 'atx-heading',
-            meta: this.meta,
+            meta: { ...this.meta },
             text: (this.children.head as Content).text,
-        };
+        });
     }
 }
 

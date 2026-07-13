@@ -4,6 +4,10 @@ import { delay, isOsx } from '@/util'
 import { isUpdatable } from './utils'
 import getCommandDescriptionById from './descriptions'
 import { t } from '../i18n'
+import {
+  REVIEW_COMMAND_DESCRIPTORS,
+  type CriticMarkupReviewAction
+} from '../../../common/commands/review'
 
 export { default as FileEncodingCommand } from './fileEncoding'
 export { default as LineEndingCommand } from './lineEnding'
@@ -56,6 +60,13 @@ export class RootCommand {
 const focusEditorAndExecute = (fn: () => void): void => {
   setTimeout(() => bus.emit('editor-focus'), 10)
   setTimeout(() => fn(), 150)
+}
+
+const executeReviewAction = (action: CriticMarkupReviewAction): void => {
+  // Review actions are document-scoped. Capture their target in the
+  // controller before a delayed callback could observe a different active tab.
+  bus.emit('editor-focus')
+  bus.emit('critic-markup-review', action)
 }
 
 const commands: CommandDescriptor[] = [
@@ -443,6 +454,14 @@ const commands: CommandDescriptor[] = [
       focusEditorAndExecute(() => bus.emit('format', 'clear'))
     }
   },
+
+  // --------------------------------------------------------------------------
+  // CriticMarkup Review
+
+  ...REVIEW_COMMAND_DESCRIPTORS.map(({ id, action }) => ({
+    id,
+    execute: async() => executeReviewAction(action)
+  })),
 
   // --------------------------------------------------------------------------
   // Window

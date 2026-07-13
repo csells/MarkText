@@ -3,6 +3,8 @@
 // NOTE: Avoid pure `Option` aka `Alt` shortcuts on macOS because these are used to produce alternative characters on all letters and digits.
 //       Our current key manager will forbid the usage of these key combinations too.
 
+import { REVIEW_COMMAND_DESCRIPTORS } from '../../common/commands/review'
+
 const keybindings: Map<string, string> = new Map([
   // MarkText menu
   ['mt.hide', 'Command+H'],
@@ -81,6 +83,12 @@ const keybindings: Map<string, string> = new Map([
   ['format.hyperlink', 'Command+L'],
   ['format.image', 'Command+Shift+I'],
   ['format.clear-format', 'Shift+Command+R'],
+
+  // Review menu (user-assignable; no conflict-prone defaults)
+  ...REVIEW_COMMAND_DESCRIPTORS.map(({ id, defaultKeybinding }) => [
+    id,
+    defaultKeybinding
+  ] as [string, string]),
 
   // Window menu
   ['window.minimize', 'Command+M'],

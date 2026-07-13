@@ -1,4 +1,5 @@
 import type { IEvent, IListeners, Listener } from './types';
+import { CollectedError } from '../utils/collectedError';
 
 // TODO: @Jocs use the same name function in utils.
 function* uniqueIdGenerator() {
@@ -10,9 +11,16 @@ function* uniqueIdGenerator() {
 const PREFIX = 'event-';
 const idIterator = uniqueIdGenerator();
 
+interface IBufferedEvent {
+    event: string;
+    data: unknown[];
+}
+
 class EventCenter {
     public events: IEvent[] = [];
     public listeners: IListeners = {};
+    private _suppressionDepth = 0;
+    private _eventBuffers: IBufferedEvent[][] = [];
 
     private get _eventId() {
         return `${PREFIX}${idIterator.next().value}`;
@@ -117,18 +125,127 @@ class EventCenter {
      * emit custom event
      */
     emit(event: string, ...data: unknown[]) {
+        if (this._suppressionDepth > 0)
+            return;
+
+        const buffer = this._eventBuffers.at(-1);
+        if (buffer) {
+            buffer.push({ event, data });
+            return;
+        }
+
         const eventListener = this.listeners[event];
 
         if (eventListener && Array.isArray(eventListener)) {
             // Snapshot before iterating: a once-listener removes itself via
             // off() during emit, which mutates the same array and causes
             // forEach to skip the adjacent element. Iterate a copy instead.
+            const errors: unknown[] = [];
             eventListener.slice().forEach(({ listener, once }) => {
-                listener(...data);
-                if (once)
-                    this.off(event, listener);
+                try {
+                    listener(...data);
+                }
+                catch (error) {
+                    errors.push(error);
+                }
+                finally {
+                    if (once)
+                        this.off(event, listener);
+                }
             });
+            if (errors.length === 1)
+                throw errors[0];
+            if (errors.length > 1) {
+                throw new CollectedError(
+                    errors,
+                    `Multiple ${event} listeners failed.`,
+                );
+            }
         }
+    }
+
+    /** Drop speculative events while a mutation proposal is being prepared. */
+    suppress<T>(operation: () => T): T {
+        this._suppressionDepth++;
+        try {
+            return operation();
+        }
+        finally {
+            this._suppressionDepth--;
+        }
+    }
+
+    /**
+     * Capture speculative events and return a one-shot replay boundary. If the
+     * operation throws, its buffer is discarded automatically. This lets a
+     * prepared state/tree change remain completely unobservable until commit.
+     */
+    buffer<T>(operation: () => T): { value: T; replay: () => void } {
+        const events: IBufferedEvent[] = [];
+        this._eventBuffers.push(events);
+        let value: T | undefined;
+        let operationError: unknown;
+        let operationFailed = false;
+        try {
+            value = operation();
+        }
+        catch (error) {
+            operationFailed = true;
+            operationError = error;
+        }
+        const removed = this._eventBuffers.pop();
+        if (removed !== events) {
+            const corruption = new TypeError('Event buffer stack was corrupted.');
+            if (operationFailed) {
+                throw new CollectedError(
+                    [operationError, corruption],
+                    'Buffered operation failed and corrupted the event stack.',
+                );
+            }
+            throw corruption;
+        }
+        if (operationFailed)
+            throw operationError;
+
+        let replayed = false;
+        return {
+            value: value as T,
+            replay: () => {
+                if (replayed)
+                    throw new TypeError('Prepared events can only be replayed once.');
+                replayed = true;
+                const errors: unknown[] = [];
+                let lastSelection = -1;
+                for (let index = events.length - 1; index >= 0; index--) {
+                    if (events[index].event === 'selection-change') {
+                        lastSelection = index;
+                        break;
+                    }
+                }
+                for (const [index, prepared] of events.entries()) {
+                    if (
+                        prepared.event === 'selection-change'
+                        && index !== lastSelection
+                    ) {
+                        continue;
+                    }
+                    try {
+                        this.emit(prepared.event, ...prepared.data);
+                    }
+                    catch (error) {
+                        errors.push(error);
+                    }
+                }
+                if (errors.length === 1)
+                    throw errors[0];
+                if (errors.length > 1) {
+                    throw new CollectedError(
+                        errors,
+                        'Multiple prepared event notifications failed.',
+                    );
+                }
+            },
+        };
     }
 
     /**

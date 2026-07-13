@@ -88,6 +88,10 @@ export const en = {
         'Paste web image or local image path. Use': 'Paste web image or local image path. Use',
         'simple mode': 'simple mode',
         'full mode': 'full mode',
+        // CriticMarkup review
+        'Accept': 'Accept',
+        'Reject': 'Reject',
+        'Remove': 'Remove',
         // preview block
         'Loading...': 'Loading...',
         'Invalid Diagram Code': 'Invalid Diagram Code',

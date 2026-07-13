@@ -32,7 +32,7 @@ import {
 const launchAndReady = async(
   seed: string
 ): Promise<{ app: ElectronApplication; page: Page }> => {
-  const launched = await launchWithMarkdown(seed, { suppressErrorDialog: true })
+  const launched = await launchWithMarkdown(seed)
   await waitForMenuReady(launched.app)
   await placeCaretInEditor(launched.page)
   await clearRendererErrors(launched.app)

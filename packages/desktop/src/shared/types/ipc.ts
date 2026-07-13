@@ -31,6 +31,7 @@ import type {
   UnsavedFile
 } from './files'
 import type { BufferedState as BufferedStateType } from './bufferedState'
+import type { CriticMarkupReviewMenuState } from './criticMarkup'
 import type { MenuTemplate, MenuPopupPosition } from './menu'
 
 // =================================================================
@@ -38,7 +39,7 @@ import type { MenuTemplate, MenuPopupPosition } from './menu'
 // =================================================================
 
 export interface IpcInvokeChannels {
-  'mt::ask-for-image-path': { args: []; ret: string[] }
+  'mt::ask-for-image-path': { args: []; ret: string }
   'mt::boot-info-async': { args: []; ret: BootInfo }
   'mt::clipboard::guess-file-path': { args: []; ret: string | null }
   'mt::clipboard::read-text': { args: []; ret: string }
@@ -133,6 +134,7 @@ export interface IpcSendChannels {
   'mt::rename': [payload: { id: string; pathname: string; newPathname: string; currentFile?: unknown }]
   'mt::request-keybindings': []
   'mt::set-editor-format-menus-enabled': [windowId: number, enabled: boolean]
+  'mt::update-review-menu': [state: CriticMarkupReviewMenuState]
   'mt::response-export': [
     payload: {
       type: ExportType

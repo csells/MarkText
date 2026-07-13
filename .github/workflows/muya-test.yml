@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - 'packages/marked/**'
       - 'packages/muya/src/**'
       - 'packages/muya/test/**'
       - 'packages/muya/package.json'

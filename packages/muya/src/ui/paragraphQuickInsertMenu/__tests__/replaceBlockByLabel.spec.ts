@@ -3,6 +3,7 @@ import type Parent from '../../../block/base/parent';
 import type { IConstructor } from '../../../block/types';
 import type { Muya } from '../../../index';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommand } from '../../../__tests__/helpers/mutation';
 import { replaceBlockByLabel } from '../../../block/blockTransforms';
 import { ScrollPage } from '../../../block/scrollPage';
 import { Muya as MuyaClass } from '../../../muya';
@@ -455,7 +456,9 @@ describe('replaceBlockByLabel — quick-insert frontmatter serializes the right 
             const muya = bootMuya(c.type);
             const block = muya.editor.scrollPage!.firstContentInDescendant()!.outMostBlock! as unknown as Parent;
 
-            replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+            runUserCommand(muya, () => {
+                replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+            });
 
             await vi.waitFor(() => {
                 expect((muya.getState()[0] as { name: string }).name).toBe('frontmatter');
@@ -473,7 +476,9 @@ describe('replaceBlockByLabel — quick-insert frontmatter serializes the right 
         const muya = bootMuya('+');
         const block = muya.editor.scrollPage!.firstContentInDescendant()!.outMostBlock! as unknown as Parent;
 
-        replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+        runUserCommand(muya, () => {
+            replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+        });
 
         await vi.waitFor(() => {
             const fm = muya.getState()[0] as { name: string; meta: { lang: string; style: string } };

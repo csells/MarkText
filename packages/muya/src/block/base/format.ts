@@ -5,7 +5,18 @@ import type {
     Token,
 } from '../../inlineRenderer/types';
 import type { IContentCursor, IRenderCursor } from '../../selection/types';
-import type { IBulletListState, IListItemState, IOrderListState, IParagraphState } from '../../state/types';
+import type {
+    IAtxHeadingState,
+    IBlockQuoteState,
+    IBulletListState,
+    ICodeBlockState,
+    IListItemState,
+    IOrderListState,
+    IParagraphState,
+    ISetextHeadingState,
+    ITaskListState,
+    IThematicBreakState,
+} from '../../state/types';
 import type { Nullable } from '../../types';
 import type { IImageInfo } from '../../utils/image';
 import type AtxHeading from '../commonMark/atxHeading';
@@ -23,11 +34,14 @@ import {
     PARAGRAPH_STATE,
     THEMATIC_BREAK_STATE,
 } from '../../config';
+import { criticMarkupFragmentsForPath } from '../../inlineRenderer/criticMarkupFragments';
 import { generator, tokenizer } from '../../inlineRenderer/lexer';
+import { tokenChildGroups } from '../../inlineRenderer/tokenChildren';
 import Selection, { getCursorReference } from '../../selection';
 import { getTextContent } from '../../selection/dom';
 import { isListItemState } from '../../state/types';
 import { conflict, isHTMLElement, isMouseEvent } from '../../utils';
+import { replaceArrayRange } from '../../utils/arrayMutation';
 import { correctImageSrc, encodeImageSrc, getImageInfo } from '../../utils/image';
 import logger from '../../utils/logger';
 
@@ -147,7 +161,7 @@ function clearFormat(token: Token, cursor: IContentCursor) {
             // underline, sub, sup
             const { parent, children } = token;
             const index = parent.indexOf(token);
-            parent.splice(index, 1, ...(children as Token[]));
+            replaceArrayRange(parent, index, 1, children as Token[]);
 
             break;
         }
@@ -227,7 +241,13 @@ class Format extends Content {
     ): Nullable<Token> {
         const tokens = tokenizer(text, {
             hasBeginRules: false,
-            options: this.muya.options,
+            options: {
+                ...this.muya.options,
+                criticMarkupDocumentFragments: criticMarkupFragmentsForPath(
+                    this.muya,
+                    this.path,
+                ),
+            },
         });
 
         let result = null;
@@ -245,8 +265,8 @@ class Format extends Content {
                     result = token;
                     break;
                 }
-                else if ('children' in token && Array.isArray(token.children)) {
-                    travel(token.children);
+                else {
+                    tokenChildGroups(token).forEach(travel);
                 }
             }
         };
@@ -259,10 +279,18 @@ class Format extends Content {
     private _checkNotSameToken(oldText: string, text: string) {
         const { options } = this.muya;
         const oldTokens = tokenizer(oldText, {
-            options,
+            options: {
+                ...options,
+                criticMarkup: false,
+                criticMarkupDocumentFragments: [],
+            },
         });
         const tokens = tokenizer(text, {
-            options,
+            options: {
+                ...options,
+                criticMarkup: false,
+                criticMarkupDocumentFragments: [],
+            },
         });
 
         const oldCache: Record<string, number> = {};
@@ -306,7 +334,13 @@ class Format extends Content {
 
         for (const token of tokenizer(text, {
             labels,
-            options: this.muya.options,
+            options: {
+                ...this.muya.options,
+                criticMarkupDocumentFragments: criticMarkupFragmentsForPath(
+                    this.muya,
+                    this.path,
+                ),
+            },
         })) {
             if (NO_NEED_TOKEN_REG.test(token.type))
                 continue;
@@ -641,7 +675,16 @@ class Format extends Content {
         const inputData = 'data' in event && typeof event.data === 'string' ? event.data : null;
         this.muya.editor.history.markInputBoundary(inputType, inputData);
 
-        this.text = text;
+        if (this.text !== text) {
+            const result = this.muya.editor.mutationGateway.run(
+                { kind: 'user-edit' },
+                () => {
+                    this.text = text;
+                },
+            );
+            if (result !== 'untracked')
+                return;
+        }
 
         const cursor = {
             block: this,
@@ -778,31 +821,36 @@ class Format extends Content {
             }
         }
 
-        const newNodeState = Object.assign({}, THEMATIC_BREAK_STATE, {
+        const newNodeState: IThematicBreakState = Object.assign({}, THEMATIC_BREAK_STATE, {
+            name: 'thematic-break' as const,
             text: thematicLine,
         });
 
         if (preParagraphLines.length) {
-            const preParagraphState = Object.assign({}, PARAGRAPH_STATE, {
+            const preParagraphState: IParagraphState = Object.assign({}, PARAGRAPH_STATE, {
+                name: 'paragraph' as const,
                 text: preParagraphLines.join('\n'),
             });
-            const preParagraphBlock = ScrollPage.loadBlock(
-                preParagraphState.name,
-            ).create(muya, preParagraphState);
+            const preParagraphBlock = ScrollPage.createStateBlock(
+                muya,
+                preParagraphState,
+            );
             this.parent!.parent!.insertBefore(preParagraphBlock, this.parent);
         }
 
         if (postParagraphLines.length) {
-            const postParagraphState = Object.assign({}, PARAGRAPH_STATE, {
+            const postParagraphState: IParagraphState = Object.assign({}, PARAGRAPH_STATE, {
+                name: 'paragraph' as const,
                 text: postParagraphLines.join('\n'),
             });
-            const postParagraphBlock = ScrollPage.loadBlock(
-                postParagraphState.name,
-            ).create(muya, postParagraphState);
+            const postParagraphBlock = ScrollPage.createStateBlock(
+                muya,
+                postParagraphState,
+            );
             this.parent!.parent!.insertAfter(postParagraphBlock, this.parent);
         }
 
-        const thematicBlock = ScrollPage.loadBlock(newNodeState.name).create(
+        const thematicBlock = ScrollPage.createStateBlock(
             muya,
             newNodeState,
         );
@@ -810,7 +858,8 @@ class Format extends Content {
         this.parent!.replaceWith(thematicBlock);
 
         if (hasSelection) {
-            const thematicBreakContent = thematicBlock.children.head;
+            const thematicBreakContent
+                = thematicBlock.firstContentInDescendant()!;
             const preParagraphTextLength = preParagraphLines.reduce(
                 (acc, i) => acc + i.length + 1,
                 0,
@@ -839,7 +888,7 @@ class Format extends Content {
                 name: 'paragraph',
                 text: matches![1].trim(),
             };
-            const paragraph = ScrollPage.loadBlock(paragraphState.name).create(
+            const paragraph = ScrollPage.createStateBlock(
                 muya,
                 paragraphState,
             );
@@ -877,10 +926,15 @@ class Format extends Content {
                     children,
                 };
 
-        const list = ScrollPage.loadBlock(listState.name).create(muya, listState);
+        const list = ScrollPage.createStateBlock(muya, listState);
         parent!.replaceWith(list);
 
         const firstContent = list.firstContentInDescendant();
+        if (!(firstContent instanceof Format)) {
+            throw new TypeError(
+                'A newly-created list must contain formattable content.',
+            );
+        }
 
         if (hasSelection)
             firstContent.setCursor(0, 0, true);
@@ -907,7 +961,7 @@ class Format extends Content {
             return;
         }
 
-        const listState = {
+        const listState: ITaskListState = {
             name: 'task-list',
             meta: {
                 loose: preferLooseListItem,
@@ -940,7 +994,7 @@ class Format extends Content {
             ],
         };
 
-        const newTaskList = ScrollPage.loadBlock(listState.name).create(
+        const newTaskList = ScrollPage.createStateBlock(
             muya,
             listState,
         );
@@ -979,19 +1033,19 @@ class Format extends Content {
                     node.remove();
                 });
 
-                const bulletList = ScrollPage.loadBlock(bulletListState.name).create(
+                const bulletList = ScrollPage.createStateBlock(
                     muya,
                     bulletListState,
                 );
                 list.parent!.insertAfter(newTaskList, list);
-                newTaskList.parent.insertAfter(bulletList, newTaskList);
+                newTaskList.parent!.insertAfter(bulletList, newTaskList);
                 listItem.remove();
                 break;
             }
         }
 
         if (hasSelection)
-            newTaskList.firstContentInDescendant().setCursor(0, 0, true);
+            newTaskList.firstContentInDescendant()!.setCursor(0, 0, true);
     }
 
     // ATX Heading
@@ -1027,28 +1081,30 @@ class Format extends Content {
         }
 
         if (preParagraphLines.length) {
-            const preParagraphState = {
+            const preParagraphState: IParagraphState = {
                 name: 'paragraph',
                 text: preParagraphLines.join('\n'),
             };
-            const preParagraphBlock = ScrollPage.loadBlock(
-                preParagraphState.name,
-            ).create(muya, preParagraphState);
+            const preParagraphBlock = ScrollPage.createStateBlock(
+                muya,
+                preParagraphState,
+            );
             this.parent!.parent!.insertBefore(preParagraphBlock, this.parent);
         }
 
         if (postParagraphLines.length) {
-            const postParagraphState = {
+            const postParagraphState: IParagraphState = {
                 name: 'paragraph',
                 text: postParagraphLines.join('\n'),
             };
-            const postParagraphBlock = ScrollPage.loadBlock(
-                postParagraphState.name,
-            ).create(muya, postParagraphState);
+            const postParagraphBlock = ScrollPage.createStateBlock(
+                muya,
+                postParagraphState,
+            );
             this.parent!.parent!.insertAfter(postParagraphBlock, this.parent);
         }
 
-        const newNodeState = {
+        const newNodeState: IAtxHeadingState = {
             name: 'atx-heading',
             meta: {
                 level,
@@ -1056,7 +1112,7 @@ class Format extends Content {
             text: atxLine,
         };
 
-        const atxHeadingBlock = ScrollPage.loadBlock(newNodeState.name).create(
+        const atxHeadingBlock = ScrollPage.createStateBlock(
             muya,
             newNodeState,
         );
@@ -1064,7 +1120,8 @@ class Format extends Content {
         this.parent!.replaceWith(atxHeadingBlock);
 
         if (hasSelection) {
-            const atxHeadingContent = atxHeadingBlock.children.head;
+            const atxHeadingContent
+                = atxHeadingBlock.firstContentInDescendant()!;
             const preParagraphTextLength = preParagraphLines.reduce(
                 (acc, i) => acc + i.length + 1,
                 0,
@@ -1101,7 +1158,7 @@ class Format extends Content {
                 postParagraphLines.push(l);
         }
 
-        const newNodeState = {
+        const newNodeState: ISetextHeadingState = {
             name: 'setext-heading',
             meta: {
                 level,
@@ -1110,7 +1167,7 @@ class Format extends Content {
             text: setextLines.join('\n'),
         };
 
-        const setextHeadingBlock = ScrollPage.loadBlock(newNodeState.name).create(
+        const setextHeadingBlock = ScrollPage.createStateBlock(
             muya,
             newNodeState,
         );
@@ -1118,21 +1175,22 @@ class Format extends Content {
         this.parent!.replaceWith(setextHeadingBlock);
 
         if (postParagraphLines.length) {
-            const postParagraphState = {
+            const postParagraphState: IParagraphState = {
                 name: 'paragraph',
                 text: postParagraphLines.join('\n'),
             };
-            const postParagraphBlock = ScrollPage.loadBlock(
-                postParagraphState.name,
-            ).create(muya, postParagraphState);
-            setextHeadingBlock.parent.insertAfter(
+            const postParagraphBlock = ScrollPage.createStateBlock(
+                muya,
+                postParagraphState,
+            );
+            setextHeadingBlock.parent!.insertAfter(
                 postParagraphBlock,
                 setextHeadingBlock,
             );
         }
 
         if (hasSelection) {
-            const cursorBlock = setextHeadingBlock.children.head;
+            const cursorBlock = setextHeadingBlock.firstContentInDescendant()!;
             const offset = cursorBlock.text.length;
             cursorBlock.setCursor(offset, offset, true);
         }
@@ -1163,7 +1221,10 @@ class Format extends Content {
             }
         }
 
-        let quoteParagraphState;
+        let quoteParagraphState:
+            | ISetextHeadingState
+            | IAtxHeadingState
+            | IParagraphState;
         if (this.blockName === 'setextheading.content') {
             quoteParagraphState = {
                 name: 'setext-heading',
@@ -1185,12 +1246,12 @@ class Format extends Content {
             };
         }
 
-        const newNodeState = {
+        const newNodeState: IBlockQuoteState = {
             name: 'block-quote',
             children: [quoteParagraphState],
         };
 
-        const quoteBlock = ScrollPage.loadBlock(newNodeState.name).create(
+        const quoteBlock = ScrollPage.createStateBlock(
             muya,
             newNodeState,
         );
@@ -1198,19 +1259,20 @@ class Format extends Content {
         this.parent!.replaceWith(quoteBlock);
 
         if (preParagraphLines.length) {
-            const preParagraphState = {
+            const preParagraphState: IParagraphState = {
                 name: 'paragraph',
                 text: preParagraphLines.join('\n'),
             };
-            const preParagraphBlock = ScrollPage.loadBlock(
-                preParagraphState.name,
-            ).create(muya, preParagraphState);
-            quoteBlock.parent.insertBefore(preParagraphBlock, quoteBlock);
+            const preParagraphBlock = ScrollPage.createStateBlock(
+                muya,
+                preParagraphState,
+            );
+            quoteBlock.parent!.insertBefore(preParagraphBlock, quoteBlock);
         }
 
         if (hasSelection) {
             // TODO: USE `firstContentInDescendant`
-            const cursorBlock = quoteBlock.children.head.children.head;
+            const cursorBlock = quoteBlock.firstContentInDescendant()!;
             cursorBlock.setCursor(
                 Math.max(0, start.offset - delta),
                 Math.max(0, end.offset - delta),
@@ -1237,7 +1299,7 @@ class Format extends Content {
             }
         }
 
-        const codeState = {
+        const codeState: ICodeBlockState = {
             name: 'code-block',
             meta: {
                 lang: '',
@@ -1246,26 +1308,26 @@ class Format extends Content {
             text: codeLines.join('\n'),
         };
 
-        const codeBlock = ScrollPage.loadBlock(codeState.name).create(
+        const codeBlock = ScrollPage.createStateBlock(
             muya,
             codeState,
         );
         this.parent!.replaceWith(codeBlock);
 
         if (paragraphLines.length > 0) {
-            const paragraphState = {
+            const paragraphState: IParagraphState = {
                 name: 'paragraph',
                 text: paragraphLines.join('\n'),
             };
-            const paragraphBlock = ScrollPage.loadBlock(paragraphState.name).create(
+            const paragraphBlock = ScrollPage.createStateBlock(
                 muya,
                 paragraphState,
             );
-            codeBlock.parent.insertAfter(paragraphBlock, codeBlock);
+            codeBlock.parent!.insertAfter(paragraphBlock, codeBlock);
         }
 
         if (hasSelection) {
-            const cursorBlock = codeBlock.lastContentInDescendant();
+            const cursorBlock = codeBlock.lastContentInDescendant()!;
             cursorBlock.setCursor(0, 0);
         }
     }
@@ -1283,12 +1345,12 @@ class Format extends Content {
         const { text, muya, hasSelection } = this;
         const { start, end } = this.getCursor()!;
 
-        const newNodeState = {
+        const newNodeState: IParagraphState = {
             name: 'paragraph',
             text,
         };
 
-        const paragraphBlock = ScrollPage.loadBlock(newNodeState.name).create(
+        const paragraphBlock = ScrollPage.createStateBlock(
             muya,
             newNodeState,
         );
@@ -1296,7 +1358,7 @@ class Format extends Content {
         this.parent!.replaceWith(paragraphBlock);
 
         if (hasSelection) {
-            const cursorBlock = paragraphBlock.children.head;
+            const cursorBlock = paragraphBlock.firstContentInDescendant()!;
             cursorBlock.setCursor(start.offset, end.offset, true);
         }
     }
@@ -1315,12 +1377,17 @@ class Format extends Content {
         const { labels } = this.inlineRenderer;
         const tokens = tokenizer(text, {
             labels,
-            options: { footnote, superSubScript },
+            options: {
+                footnote,
+                superSubScript,
+                criticMarkup: false,
+                criticMarkupDocumentFragments: [],
+            },
         });
         // The caret offset is unreliable when it is parked on a
         // `contenteditable=false` inline image; resolve the real offset from the
         // DOM so the scan can match the image token like any other caret.
-        const offset = this._caretOffsetOnInlineImage() ?? start.offset;
+        const offset = this.caretOffsetOnInlineImage() ?? start.offset;
         const { needRender, imageToken, referenceImageToken }
             = this._scanBackspaceTokens(tokens, offset);
 
@@ -1410,7 +1477,7 @@ class Format extends Content {
     // scan treats it like any other caret-after-image. When other content
     // follows the image the caret lands in that content (a reliable offset), so
     // this returns null and the raw caret offset is used.
-    private _caretOffsetOnInlineImage(): number | null {
+    protected caretOffsetOnInlineImage(): number | null {
         const selection = document.getSelection();
         if (!selection || selection.rangeCount === 0 || !selection.isCollapsed)
             return null;
@@ -1534,12 +1601,12 @@ class Format extends Content {
         const { start, end } = this.getCursor()!;
         this.text = oldText.substring(0, start.offset);
         const textOfNewNode = oldText.substring(end.offset);
-        const newParagraphState = {
+        const newParagraphState: IParagraphState = {
             name: 'paragraph',
             text: textOfNewNode,
         };
 
-        const newNode = ScrollPage.loadBlock(newParagraphState.name).create(
+        const newNode = ScrollPage.createStateBlock(
             muya,
             newParagraphState,
         );
@@ -1547,7 +1614,7 @@ class Format extends Content {
         parent!.parent!.insertAfter(newNode, parent);
 
         this.update();
-        const cursorBlock = newNode.firstContentInDescendant();
+        const cursorBlock = newNode.firstContentInDescendant()!;
         cursorBlock.setCursor(0, 0, true);
     }
 
@@ -1561,7 +1628,13 @@ class Format extends Content {
         const formats = [];
         const neighbors = [];
         const tokens = tokenizer(text, {
-            options: this.muya.options,
+            options: {
+                ...this.muya.options,
+                criticMarkupDocumentFragments: criticMarkupFragmentsForPath(
+                    this.muya,
+                    this.path,
+                ),
+            },
         });
 
         (function iterator(tks) {
@@ -1586,8 +1659,7 @@ class Format extends Content {
                     neighbors.push(token);
                 }
 
-                if ('children' in token && Array.isArray(token.children))
-                    iterator(token.children);
+                tokenChildGroups(token).forEach(iterator);
             }
         })(tokens);
 

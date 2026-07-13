@@ -23,6 +23,27 @@
     color: var(--editor-color);
 }
 
+/* Whole-node CriticMarkup keeps native block semantics (notably ul > li)
+   while exposing the same review affordance as inline changes. */
+.mu-critic-structural {
+    border-radius: 3px;
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--theme-color) 70%, transparent);
+}
+
+.mu-critic-structural.mu-critic-addition,
+.mu-critic-structural[data-critic-role~='new'] {
+    background: color-mix(in srgb, var(--theme-color) 12%, transparent);
+}
+
+.mu-critic-structural.mu-critic-deletion,
+.mu-critic-structural[data-critic-role~='old'] {
+    background: color-mix(in srgb, var(--delete-color) 10%, transparent);
+}
+
+.mu-critic-structural-multiple {
+    background: color-mix(in srgb, var(--theme-color) 7%, transparent);
+}
+
 .mu-container p,
 .mu-container blockquote,
 .mu-container ul,
@@ -1073,4 +1094,16 @@ pre.mu-active.mu-fenced-code::after {
 
 .mu-container figure.mu-footnote > i.mu-footnote-backlink:hover {
     color: var(--theme-color);
+}
+
+.mu-markdown-parser-residue {
+    border-left: 3px solid var(--theme-color);
+    padding: 0.5em 0.75em;
+    background: var(--editor-color-04);
+    white-space: pre-wrap;
+}
+
+.mu-markdown-parser-residue-content {
+    font-family: var(--mu-code-font-family, monospace);
+    white-space: pre-wrap;
 }

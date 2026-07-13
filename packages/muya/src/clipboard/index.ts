@@ -2,6 +2,7 @@ import type { Muya } from '../muya';
 import type { IClipboardPayload } from './copyData';
 import Format from '../block/base/format';
 import { isClipboardEvent, isKeyboardEvent } from '../utils';
+import { reportAsyncTask } from '../utils/asyncTask';
 import { getClipboardData, writeClipboardData } from './copyData';
 import { cutSelection, deleteTableSelection } from './cut';
 import { pastePlainText, pasteSelection } from './paste';
@@ -70,7 +71,10 @@ class Clipboard {
             if (this.selection.table.hasSelection) {
                 if (!metaKey && (key === 'Backspace' || key === 'Delete')) {
                     event.preventDefault();
-                    deleteTableSelection(this);
+                    this.muya.editor.mutationGateway.run(
+                        { kind: 'user-command' },
+                        () => deleteTableSelection(this),
+                    );
                 }
                 return;
             }
@@ -86,10 +90,15 @@ class Clipboard {
             // Enter and mirror the same-block path — delete then split (#2443).
             if (key === 'Enter') {
                 event.preventDefault();
-                this.cutHandler();
-                const block = this.muya.editor.activeContentBlock;
-                if (!event.shiftKey && block instanceof Format)
-                    block.enterHandler(event);
+                this.muya.editor.mutationGateway.run(
+                    { kind: 'user-command' },
+                    () => {
+                        cutSelection(this);
+                        const block = this.muya.editor.activeContentBlock;
+                        if (!event.shiftKey && block instanceof Format)
+                            block.enterHandler(event);
+                    },
+                );
                 return;
             }
 
@@ -100,8 +109,12 @@ class Clipboard {
         };
 
         const pasteHandler = (event: Event) => {
-            if (ownsEvent() && isClipboardEvent(event))
-                this.pasteHandler(event);
+            if (ownsEvent() && isClipboardEvent(event)) {
+                reportAsyncTask(
+                    this.pasteHandler(event),
+                    'Clipboard paste',
+                );
+            }
         };
 
         const { eventCenter } = this.muya;
@@ -121,7 +134,10 @@ class Clipboard {
     }
 
     cutHandler(): void {
-        cutSelection(this);
+        this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => cutSelection(this),
+        );
     }
 
     pasteHandler(
@@ -174,23 +190,11 @@ class Clipboard {
         // Electron's native `clipboard`). Fall back to the async Clipboard API
         // for standalone (browser) use.
         const reader = this.muya.options.clipboardText;
-        if (typeof reader === 'function') {
-            try {
-                return await reader();
-            }
-            catch {
-                return '';
-            }
-        }
+        if (typeof reader === 'function')
+            return await reader();
 
-        if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
-            try {
-                return await navigator.clipboard.readText();
-            }
-            catch {
-                return '';
-            }
-        }
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.readText)
+            return await navigator.clipboard.readText();
 
         return '';
     }

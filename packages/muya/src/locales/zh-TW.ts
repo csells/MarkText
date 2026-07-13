@@ -90,6 +90,9 @@ export const zhTW = {
         'full mode': '完整模式',
         // preview block
         'Loading...': '載入中...',
+        'Accept': '接受',
+        'Reject': '拒絕',
+        'Remove': '移除',
         'Invalid Diagram Code': '圖表渲染失敗',
         'Empty Diagram': '空圖表',
         'Input Mathematical Formula...': '輸入數學公式...',

@@ -1,19 +1,488 @@
 import type { Muya } from '../../muya';
+import type { ICriticMarkupStructuralFragmentInput } from '../../criticMarkup/document';
+import type {
+    ICriticMarkupStateMarker,
+    IStateSourceTrivia,
+    IStateSourceTriviaCarrier,
+    ITableSourceSyntax,
+} from '../../state/types';
 import type { Nullable } from '../../types';
 import type { IAttributes, IDatasets } from '../../utils/types';
 import type { IConstructor } from '../types';
 import type Content from './content';
 import type { ILinkedNode } from './linkedList/linkedNode';
 import type Parent from './parent';
-import { BLOCK_DOM_PROPERTY } from '../../config';
+import { BLOCK_DOM_PROPERTY, CLASS_NAMES } from '../../config';
+import { criticMarkupMarkerRaw } from '../../criticMarkup/parser';
 import { createDomNode } from '../../utils/dom';
 
+type TBlockMetaValue = boolean | number | string | null | undefined;
+
+function isBlockMetaValue(value: unknown): value is TBlockMetaValue {
+    return value == null
+        || ['boolean', 'number', 'string', 'undefined'].includes(typeof value);
+}
+
+const CRITIC_MARKUP_TYPES = new Set([
+    'addition',
+    'deletion',
+    'substitution',
+    'highlight',
+    'comment',
+]);
+const CRITIC_MARKUP_MARKERS = new Set([
+    'open',
+    'separator',
+    'close',
+]);
+const STRUCTURAL_TYPE_CLASSES = {
+    addition: CLASS_NAMES.MU_CRITIC_ADDITION,
+    deletion: CLASS_NAMES.MU_CRITIC_DELETION,
+    substitution: CLASS_NAMES.MU_CRITIC_SUBSTITUTION,
+    highlight: CLASS_NAMES.MU_CRITIC_HIGHLIGHT,
+    comment: CLASS_NAMES.MU_CRITIC_COMMENT,
+} as const;
+const EMPTY_STRUCTURAL_FRAGMENTS = Object.freeze(
+    [] as ICriticMarkupStructuralFragmentInput[],
+);
+
+function assertPlainDataObject(
+    value: unknown,
+    label: string,
+): asserts value is Record<string, unknown> {
+    if (value === null || typeof value !== 'object' || Array.isArray(value))
+        throw new TypeError(`${label} must be a plain data object.`);
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null)
+        throw new TypeError(`${label} must be a plain data object.`);
+}
+
+function dataProperties(
+    value: Record<string, unknown>,
+    allowed: ReadonlySet<string>,
+    label: string,
+): Map<string, unknown> {
+    const result = new Map<string, unknown>();
+    for (const key of Reflect.ownKeys(value)) {
+        if (typeof key !== 'string' || !allowed.has(key))
+            throw new TypeError(`${label} contains an unsupported property.`);
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) {
+            throw new TypeError(
+                `${label} property "${key}" must be an enumerable data property.`,
+            );
+        }
+        result.set(key, descriptor.value);
+    }
+    return result;
+}
+
+function freezeCriticMarkupMarker(
+    value: unknown,
+    label: string,
+): Readonly<ICriticMarkupStateMarker> {
+    assertPlainDataObject(value, label);
+    const properties = dataProperties(
+        value,
+        new Set(['type', 'marker', 'raw', 'sourceOffset']),
+        label,
+    );
+    const type = properties.get('type');
+    const marker = properties.get('marker');
+    const raw = properties.get('raw');
+    const sourceOffset = properties.get('sourceOffset');
+    if (
+        typeof type !== 'string'
+        || !CRITIC_MARKUP_TYPES.has(type)
+        || typeof marker !== 'string'
+        || !CRITIC_MARKUP_MARKERS.has(marker)
+        || typeof raw !== 'string'
+        || raw.length === 0
+        || (
+            sourceOffset !== undefined
+            && (
+                typeof sourceOffset !== 'number'
+                || !Number.isSafeInteger(sourceOffset)
+                || sourceOffset < 0
+            )
+        )
+    ) {
+        throw new TypeError(`${label} is not a valid CriticMarkup marker.`);
+    }
+    const canonicalRaw = criticMarkupMarkerRaw(
+        type as ICriticMarkupStateMarker['type'],
+        marker as ICriticMarkupStateMarker['marker'],
+    );
+    if (raw !== canonicalRaw) {
+        throw new TypeError(
+            `${label} does not use the grammar-owned marker spelling.`,
+        );
+    }
+
+    return Object.freeze({
+        type: type as ICriticMarkupStateMarker['type'],
+        marker: marker as ICriticMarkupStateMarker['marker'],
+        raw,
+        ...(typeof sourceOffset === 'number' ? { sourceOffset } : {}),
+    });
+}
+
+function freezeCriticMarkupMarkers(
+    value: unknown,
+    label: string,
+): readonly Readonly<ICriticMarkupStateMarker>[] {
+    if (!Array.isArray(value))
+        throw new TypeError(`${label} must be an array.`);
+
+    const markers: Readonly<ICriticMarkupStateMarker>[] = [];
+    for (let index = 0; index < value.length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, index);
+        if (!descriptor || !('value' in descriptor)) {
+            throw new TypeError(`${label} must be a dense data array.`);
+        }
+        markers.push(freezeCriticMarkupMarker(
+            descriptor.value,
+            `${label}[${index}]`,
+        ));
+    }
+    return Object.freeze(markers);
+}
+
+function freezeListItemContinuationPrefixes(
+    value: unknown,
+): readonly string[] {
+    if (!Array.isArray(value)) {
+        throw new TypeError(
+            'State source trivia listItemContinuationPrefixes must be an array.',
+        );
+    }
+    const prefixes: string[] = [];
+    for (let index = 0; index < value.length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, index);
+        if (
+            !descriptor
+            || !('value' in descriptor)
+            || typeof descriptor.value !== 'string'
+            || !/^[ \t]*$/.test(descriptor.value)
+        ) {
+            throw new TypeError(
+                'State source trivia listItemContinuationPrefixes must contain dense whitespace strings.',
+            );
+        }
+        prefixes.push(descriptor.value);
+    }
+    return Object.freeze(prefixes);
+}
+
+function freezeDenseStrings(value: unknown, label: string): readonly string[] {
+    if (!Array.isArray(value))
+        throw new TypeError(`${label} must be an array.`);
+    const strings: string[] = [];
+    for (let index = 0; index < value.length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, index);
+        if (
+            !descriptor
+            || !('value' in descriptor)
+            || typeof descriptor.value !== 'string'
+        ) {
+            throw new TypeError(`${label} must contain dense strings.`);
+        }
+        strings.push(descriptor.value);
+    }
+    return Object.freeze(strings);
+}
+
+function freezeTableRowSourceSyntax(
+    value: unknown,
+    label: string,
+): ITableSourceSyntax['header'] {
+    assertPlainDataObject(value, label);
+    const properties = dataProperties(
+        value,
+        new Set(['cells', 'segments']),
+        label,
+    );
+    const cells = freezeDenseStrings(
+        properties.get('cells'),
+        `${label} cells`,
+    );
+    const segments = freezeDenseStrings(
+        properties.get('segments'),
+        `${label} segments`,
+    );
+    if (segments.length !== cells.length + 1) {
+        throw new TypeError(
+            `${label} must have exactly one more segment than cells.`,
+        );
+    }
+    return Object.freeze({ cells, segments });
+}
+
+function freezeTableSourceSyntax(value: unknown): ITableSourceSyntax {
+    const label = 'State source trivia tableSourceSyntax';
+    assertPlainDataObject(value, label);
+    const properties = dataProperties(
+        value,
+        new Set(['header', 'delimiter', 'rows', 'alignments']),
+        label,
+    );
+    const header = freezeTableRowSourceSyntax(
+        properties.get('header'),
+        `${label} header`,
+    );
+    const delimiter = freezeTableRowSourceSyntax(
+        properties.get('delimiter'),
+        `${label} delimiter`,
+    );
+    const rowValues = properties.get('rows');
+    if (!Array.isArray(rowValues))
+        throw new TypeError(`${label} rows must be an array.`);
+    const rows: ITableSourceSyntax['rows'][number][] = [];
+    for (let index = 0; index < rowValues.length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(rowValues, index);
+        if (!descriptor || !('value' in descriptor)) {
+            throw new TypeError(`${label} rows must be a dense array.`);
+        }
+        rows.push(freezeTableRowSourceSyntax(
+            descriptor.value,
+            `${label} rows[${index}]`,
+        ));
+    }
+    const alignments = freezeDenseStrings(
+        properties.get('alignments'),
+        `${label} alignments`,
+    );
+    if (alignments.some(align =>
+        !['none', 'left', 'center', 'right'].includes(align))) {
+        throw new TypeError(`${label} contains an invalid alignment.`);
+    }
+    if (
+        header.cells.length !== delimiter.cells.length
+        || header.cells.length !== alignments.length
+        || rows.some(row => row.cells.length !== header.cells.length)
+    ) {
+        throw new TypeError(`${label} row column counts must agree.`);
+    }
+    return Object.freeze({
+        header,
+        delimiter,
+        rows: Object.freeze(rows),
+        alignments: alignments as ITableSourceSyntax['alignments'],
+    });
+}
+
+function freezeSourceTrivia(
+    value: unknown,
+): Readonly<IStateSourceTrivia> {
+    assertPlainDataObject(value, 'State source trivia');
+    const properties = dataProperties(
+        value,
+        new Set([
+            'criticBefore',
+            'criticAfter',
+            'criticAfterPrefix',
+            'blockPrefix',
+            'blockSeparatorAfter',
+            'terminalLineEnding',
+            'tableSourceSyntax',
+            'listItemLeadingPrefix',
+            'listItemMarker',
+            'listItemMarkerPadding',
+            'listItemTrailingBlankLines',
+            'listItemContinuationPrefixes',
+        ]),
+        'State source trivia',
+    );
+    const criticBefore = properties.has('criticBefore')
+        ? freezeCriticMarkupMarkers(
+                properties.get('criticBefore'),
+                'State source trivia criticBefore',
+            )
+        : undefined;
+    const criticAfter = properties.has('criticAfter')
+        ? freezeCriticMarkupMarkers(
+                properties.get('criticAfter'),
+                'State source trivia criticAfter',
+            )
+        : undefined;
+    const criticAfterPrefix = properties.get('criticAfterPrefix');
+    if (
+        criticAfterPrefix !== undefined
+        && (
+            typeof criticAfterPrefix !== 'string'
+            || !/^[ \t\r\n]*$/.test(criticAfterPrefix)
+        )
+    ) {
+        throw new TypeError(
+            'State source trivia criticAfterPrefix must be whitespace.',
+        );
+    }
+    const blockPrefix = properties.get('blockPrefix');
+    if (
+        blockPrefix !== undefined
+        && (
+            typeof blockPrefix !== 'string'
+            || !/^[ \t\r\n]*$/.test(blockPrefix)
+        )
+    ) {
+        throw new TypeError(
+            'State source trivia blockPrefix must be whitespace.',
+        );
+    }
+    const blockSeparatorAfter = properties.get('blockSeparatorAfter');
+    if (
+        blockSeparatorAfter !== undefined
+        && (
+            typeof blockSeparatorAfter !== 'string'
+            || !/^[ \t\r\n]*$/.test(blockSeparatorAfter)
+        )
+    ) {
+        throw new TypeError(
+            'State source trivia blockSeparatorAfter must be whitespace.',
+        );
+    }
+    const terminalLineEnding = properties.get('terminalLineEnding');
+    if (
+        terminalLineEnding !== undefined
+        && terminalLineEnding !== ''
+        && terminalLineEnding !== '\n'
+        && terminalLineEnding !== '\r\n'
+    ) {
+        throw new TypeError(
+            'State source trivia terminalLineEnding must be empty, LF, or CRLF.',
+        );
+    }
+    const tableSourceSyntax = properties.has('tableSourceSyntax')
+        ? freezeTableSourceSyntax(properties.get('tableSourceSyntax'))
+        : undefined;
+    const listItemLeadingPrefix = properties.get('listItemLeadingPrefix');
+    if (
+        listItemLeadingPrefix !== undefined
+        && (
+            typeof listItemLeadingPrefix !== 'string'
+            || !/^[ \t]*$/.test(listItemLeadingPrefix)
+        )
+    ) {
+        throw new TypeError(
+            'State source trivia listItemLeadingPrefix must be whitespace.',
+        );
+    }
+    const listItemMarker = properties.get('listItemMarker');
+    if (
+        listItemMarker !== undefined
+        && (
+            typeof listItemMarker !== 'string'
+            || !/^(?:[*+-]|\d{1,9}[.)])$/.test(listItemMarker)
+        )
+    ) {
+        throw new TypeError(
+            'State source trivia listItemMarker is not a CommonMark list marker.',
+        );
+    }
+    const listItemMarkerPadding = properties.get('listItemMarkerPadding');
+    if (
+        listItemMarkerPadding !== undefined
+        && (
+            typeof listItemMarkerPadding !== 'string'
+            || !/^[ \t]*$/.test(listItemMarkerPadding)
+        )
+    ) {
+        throw new TypeError(
+            'State source trivia listItemMarkerPadding must be whitespace.',
+        );
+    }
+    const listItemTrailingBlankLines = properties.get(
+        'listItemTrailingBlankLines',
+    );
+    if (
+        listItemTrailingBlankLines !== undefined
+        && (
+            typeof listItemTrailingBlankLines !== 'number'
+            ||
+            !Number.isSafeInteger(listItemTrailingBlankLines)
+            || listItemTrailingBlankLines < 0
+        )
+    ) {
+        throw new TypeError(
+            'State source trivia listItemTrailingBlankLines must be a nonnegative safe integer.',
+        );
+    }
+    const listItemContinuationPrefixes = properties.has(
+        'listItemContinuationPrefixes',
+    )
+        ? freezeListItemContinuationPrefixes(
+                properties.get('listItemContinuationPrefixes'),
+            )
+        : undefined;
+
+    return Object.freeze({
+        ...(criticBefore ? { criticBefore } : {}),
+        ...(criticAfter ? { criticAfter } : {}),
+        ...(typeof criticAfterPrefix === 'string'
+            ? { criticAfterPrefix }
+            : {}),
+        ...(typeof blockPrefix === 'string' ? { blockPrefix } : {}),
+        ...(typeof blockSeparatorAfter === 'string'
+            ? { blockSeparatorAfter }
+            : {}),
+        ...(typeof terminalLineEnding === 'string'
+            ? { terminalLineEnding: terminalLineEnding as '' | '\n' | '\r\n' }
+            : {}),
+        ...(tableSourceSyntax ? { tableSourceSyntax } : {}),
+        ...(typeof listItemLeadingPrefix === 'string'
+            ? { listItemLeadingPrefix }
+            : {}),
+        ...(typeof listItemMarker === 'string' ? { listItemMarker } : {}),
+        ...(typeof listItemMarkerPadding === 'string'
+            ? { listItemMarkerPadding }
+            : {}),
+        ...(typeof listItemTrailingBlankLines === 'number'
+            ? { listItemTrailingBlankLines }
+            : {}),
+        ...(listItemContinuationPrefixes
+            ? { listItemContinuationPrefixes }
+            : {}),
+    });
+}
+
 class TreeNode implements ILinkedNode {
-    prev: Nullable<TreeNode> = null;
+    #prev: Nullable<TreeNode> = null;
+    #next: Nullable<TreeNode> = null;
+    #parent: Nullable<Parent> = null;
+    #blockMeta: Readonly<object> | null = null;
+    #sourceTrivia: Readonly<IStateSourceTrivia> | null = null;
+    #sourceTriviaInitialized = false;
+    #criticMarkupStructuralFragments:
+        readonly ICriticMarkupStructuralFragmentInput[]
+        = EMPTY_STRUCTURAL_FRAGMENTS;
 
-    next: Nullable<TreeNode> = null;
+    get prev(): Nullable<TreeNode> {
+        return this.#prev;
+    }
 
-    parent: Nullable<Parent> = null;
+    set prev(value: Nullable<TreeNode>) {
+        this.#assertTopologyAssignment(value, 'Previous sibling assignment');
+        this.#prev = value;
+    }
+
+    get next(): Nullable<TreeNode> {
+        return this.#next;
+    }
+
+    set next(value: Nullable<TreeNode>) {
+        this.#assertTopologyAssignment(value, 'Next sibling assignment');
+        this.#next = value;
+    }
+
+    get parent(): Nullable<Parent> {
+        return this.#parent;
+    }
+
+    set parent(value: Nullable<Parent>) {
+        this.#assertTopologyAssignment(value, 'Parent assignment');
+        this.#parent = value;
+    }
 
     domNode: Nullable<HTMLElement> = null;
 
@@ -47,6 +516,156 @@ class TreeNode implements ILinkedNode {
         return this.muya.editor.scrollPage;
     }
 
+    protected assertMutationAuthorized(operation: string): void {
+        this.muya.editor.mutationGateway.assertActive(operation);
+    }
+
+    protected assertTreeMutationAuthorized(operation: string): void {
+        this.muya.editor.assertTreeMutationAuthorized(operation);
+    }
+
+    /** Bind parser-owned source trivia during centralized state construction. */
+    initializeStateSourceTrivia(
+        sourceTrivia: unknown,
+    ): void {
+        if (this.#sourceTriviaInitialized) {
+            throw new TypeError(
+                'Block source trivia is already initialized.',
+            );
+        }
+        this.#sourceTriviaInitialized = true;
+        this.#sourceTrivia = sourceTrivia
+            ? freezeSourceTrivia(sourceTrivia)
+            : null;
+    }
+
+    /** Reattach the block's immutable source trivia to its native state. */
+    protected withStateSourceTrivia<State extends object>(
+        state: State,
+    ): State & IStateSourceTriviaCarrier {
+        return {
+            ...state,
+            ...(this.#sourceTrivia
+                ? { sourceTrivia: this.#sourceTrivia }
+                : {}),
+        };
+    }
+
+    /** Initialize a block's serialized metadata as an isolated frozen value. */
+    protected initializeBlockMeta<
+        Meta extends Partial<Record<keyof Meta, TBlockMetaValue>>,
+    >(
+        meta: Meta,
+    ): void {
+        if (this.#blockMeta !== null)
+            throw new TypeError('Block metadata is already initialized.');
+        this.#setBlockMeta(meta);
+    }
+
+    /** Read the runtime-private immutable metadata owned by this block. */
+    protected readBlockMeta<
+        Meta extends Partial<Record<keyof Meta, TBlockMetaValue>>,
+    >(): Readonly<Meta> {
+        if (this.#blockMeta === null)
+            throw new TypeError('Block metadata is not initialized.');
+        // initializeBlockMeta and both replacement paths clone a value of the
+        // subclass-selected metadata type before it enters private storage.
+        return this.#blockMeta as Readonly<Meta>;
+    }
+
+    /** Replace live metadata as part of a mutation-gateway document edit. */
+    protected replaceBlockMetaForDocumentEdit<
+        Meta extends Partial<Record<keyof Meta, TBlockMetaValue>>,
+    >(
+        meta: Meta,
+        operation: string,
+    ): void {
+        if (this.isAttachedToLiveTree)
+            this.assertMutationAuthorized(operation);
+        this.#replaceBlockMeta(meta);
+    }
+
+    /** Mirror metadata after JSONState committed it in a private rebuild. */
+    protected replaceBlockMetaFromPreparedState<
+        Meta extends Partial<Record<keyof Meta, TBlockMetaValue>>,
+    >(
+        meta: Meta,
+        operation: string,
+    ): void {
+        if (this.isAttachedToLiveTree)
+            this.assertTreeMutationAuthorized(operation);
+        this.#replaceBlockMeta(meta);
+    }
+
+    #replaceBlockMeta<
+        Meta extends Partial<Record<keyof Meta, TBlockMetaValue>>,
+    >(
+        meta: Meta,
+    ): void {
+        if (this.#blockMeta === null)
+            throw new TypeError('Block metadata is not initialized.');
+        this.#setBlockMeta(meta);
+    }
+
+    #setBlockMeta<
+        Meta extends Partial<Record<keyof Meta, TBlockMetaValue>>,
+    >(
+        meta: Meta,
+    ): void {
+        const entries: Array<[string, TBlockMetaValue]> = [];
+        for (const key of Reflect.ownKeys(meta)) {
+            const descriptor = Object.getOwnPropertyDescriptor(meta, key);
+            if (!descriptor?.enumerable)
+                continue;
+            if (typeof key !== 'string') {
+                throw new TypeError(
+                    'Block metadata keys must be strings.',
+                );
+            }
+            if (!('value' in descriptor)) {
+                throw new TypeError(
+                    `Block metadata property "${key}" must be a data property.`,
+                );
+            }
+            const { value } = descriptor;
+            if (!isBlockMetaValue(value)) {
+                throw new TypeError(
+                    `Block metadata property "${key}" must be scalar.`,
+                );
+            }
+            if (typeof value === 'number' && !Number.isFinite(value)) {
+                throw new TypeError(
+                    `Block metadata property "${key}" must be finite.`,
+                );
+            }
+            entries.push([key, value]);
+        }
+        this.#blockMeta = Object.freeze(Object.fromEntries(entries));
+    }
+
+    /** Whether this node currently belongs to the editor's published tree. */
+    get isAttachedToLiveTree(): boolean {
+        const liveRoot = this.muya.editor.scrollPage;
+        if (!liveRoot)
+            return false;
+        if (this === (liveRoot as TreeNode))
+            return true;
+
+        return this.outMostBlock?.parent === liveRoot;
+    }
+
+    #assertTopologyAssignment(
+        related: Nullable<TreeNode>,
+        operation: string,
+    ): void {
+        if (
+            this.isAttachedToLiveTree
+            || related?.isAttachedToLiveTree
+        ) {
+            this.assertTreeMutationAuthorized(operation);
+        }
+    }
+
     get isScrollPage() {
         return this.blockName === 'scrollpage';
     }
@@ -73,6 +692,87 @@ class TreeNode implements ILinkedNode {
     }
 
     constructor(public muya: Muya) {}
+
+    get criticMarkupStructuralFragments():
+        readonly ICriticMarkupStructuralFragmentInput[] {
+        return this.#criticMarkupStructuralFragments;
+    }
+
+    /** Bind one canonical document revision to this native semantic block. */
+    replaceCriticMarkupStructuralFragments(
+        fragments: readonly ICriticMarkupStructuralFragmentInput[],
+    ): void {
+        this.#criticMarkupStructuralFragments = fragments.length
+            ? Object.freeze([...fragments])
+            : EMPTY_STRUCTURAL_FRAGMENTS;
+        this.#syncCriticMarkupStructuralDom();
+    }
+
+    #syncCriticMarkupStructuralDom(): void {
+        const { domNode } = this;
+        if (!domNode)
+            return;
+        domNode.classList.remove(
+            'mu-critic-structural',
+            'mu-critic-structural-multiple',
+            ...Object.values(STRUCTURAL_TYPE_CLASSES),
+        );
+        for (const attribute of [
+            'data-critic-id',
+            'data-critic-structural-id',
+            'data-critic-structural-count',
+            'data-critic-type',
+            'data-critic-role',
+            'data-critic-boundary',
+            'data-start',
+            'data-end',
+        ]) {
+            domNode.removeAttribute(attribute);
+        }
+
+        const fragments = this.#criticMarkupStructuralFragments;
+        if (!fragments.length)
+            return;
+        const items = [...new Map(fragments.map(entry => [
+            entry.item.id,
+            entry.item,
+        ])).values()];
+        const roles = [...new Set(fragments.map(({ item, fragment }) =>
+            fragment.kind === 'boundary'
+                ? 'boundary'
+                : item.syntax.type === 'substitution'
+                    ? fragment.arm
+                    : fragment.role))];
+        const types = [...new Set(items.map(item => item.syntax.type))];
+
+        domNode.classList.add('mu-critic-structural');
+        domNode.setAttribute(
+            'data-critic-id',
+            items.map(item => item.id).join(' '),
+        );
+        domNode.setAttribute(
+            'data-critic-structural-count',
+            String(items.length),
+        );
+        domNode.setAttribute('data-critic-type', types.join(' '));
+        domNode.setAttribute('data-critic-role', roles.join(' '));
+
+        if (items.length > 1) {
+            domNode.classList.add('mu-critic-structural-multiple');
+            return;
+        }
+
+        const [item] = items;
+        domNode.classList.add(STRUCTURAL_TYPE_CLASSES[item.syntax.type]);
+        domNode.setAttribute('data-critic-structural-id', item.id);
+        domNode.setAttribute('data-start', String(item.syntax.range.start));
+        domNode.setAttribute('data-end', String(item.syntax.range.end));
+        const boundaryEdges = [...new Set(fragments.flatMap(({ fragment }) =>
+            fragment.kind === 'boundary' ? [fragment.edge] : []))];
+        if (boundaryEdges.length === 1) {
+            domNode.setAttribute('data-critic-boundary', boundaryEdges[0]);
+        }
+    }
 
     /**
      * check this is a Content block?
@@ -111,6 +811,7 @@ class TreeNode implements ILinkedNode {
         domNode[BLOCK_DOM_PROPERTY] = this as unknown as Parent | Content;
 
         this.domNode = domNode;
+        this.#syncCriticMarkupStructuralDom();
     }
 
     // Get previous content block in block tree.
@@ -264,7 +965,10 @@ class TreeNode implements ILinkedNode {
         if (!this.parent)
             return;
 
-        this.parent.children.remove(this);
+        if (this.isAttachedToLiveTree)
+            this.assertTreeMutationAuthorized('Block removal');
+
+        this.parent.detachLinkedChild(this);
         this.parent = null;
         this.domNode?.remove();
 

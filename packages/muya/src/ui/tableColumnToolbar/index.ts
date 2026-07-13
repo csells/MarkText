@@ -1,4 +1,5 @@
 import type { VNode } from 'snabbdom';
+import type Content from '../../block/base/content';
 import type CellBlock from '../../block/gfm/table/cell';
 import type { Muya } from '../../index';
 import type { TableColumnToolIcon } from './config';
@@ -150,37 +151,58 @@ export class TableColumnToolbar extends BaseFloat {
         const offset = block.parent.offset(block);
         const { table, row } = block;
         const columnCount = row.offset(this._block!);
+        const outcome: { cursorBlock: Content | null } = {
+            cursorBlock: null,
+        };
 
-        switch (item.type) {
-            case 'remove': {
-                // removeColumn returns a content block to re-anchor the caret
-                // on (inside the table
-                // if columns remain, outside the table if the whole table was
-                // removed). Without this setCursor the caret stays in the
-                // detached cell.
-                const cursorBlock = block.table.removeColumn(offset);
-                if (cursorBlock)
-                    cursorBlock.setCursor(0, 0);
+        const result = this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => {
+                switch (item.type) {
+                    case 'remove':
+                        // removeColumn returns a content block to re-anchor
+                        // the caret on (inside the table if columns remain,
+                        // outside it if the whole table was removed).
+                        outcome.cursorBlock
+                            = block.table.removeColumn(offset) ?? null;
+                        break;
 
-                return this.hide();
-            }
+                    case 'insert left':
+                        // fall through
+                    case 'insert right': {
+                        const insertOffset = item.type === 'insert left'
+                            ? columnCount
+                            : columnCount + 1;
+                        outcome.cursorBlock
+                            = table.insertColumn(insertOffset) ?? null;
+                        break;
+                    }
 
-            case 'insert left':
-                // fall through
-            case 'insert right': {
-                const offset
-                    = item.type === 'insert left' ? columnCount : columnCount + 1;
-                const cursorBlock = table.insertColumn(offset);
-                if (cursorBlock)
-                    cursorBlock.setCursor(0, 0);
+                    default:
+                        block.table.alignColumn(offset, item.type);
+                }
+            },
+        );
 
-                return this.hide();
-            }
-
-            default:
-                block.table.alignColumn(offset, item.type);
-
-                return this.render();
+        // A tracked proposal is rendered on a fresh tree before run()
+        // returns. Never move the caret through a block from that detached
+        // speculative tree (the no-op tracked path also reports untracked).
+        if (
+            result === 'untracked'
+            && outcome.cursorBlock?.domNode?.isConnected
+        ) {
+            outcome.cursorBlock.setCursor(0, 0);
         }
+
+        if (
+            item.type !== 'remove'
+            && item.type !== 'insert left'
+            && item.type !== 'insert right'
+            && result === 'untracked'
+        ) {
+            return this.render();
+        }
+
+        return this.hide();
     }
 }

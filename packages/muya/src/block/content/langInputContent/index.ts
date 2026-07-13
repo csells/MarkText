@@ -7,7 +7,13 @@ import Content from '../../base/content';
 import { escapeLangInputInnerHtml } from './escape';
 
 class LangInputContent extends Content {
-    public override parent: CodeBlock | null = null;
+    override get parent(): CodeBlock | null {
+        return super.parent as CodeBlock | null;
+    }
+
+    override set parent(value: CodeBlock | null) {
+        super.parent = value;
+    }
 
     static override blockName = 'language-input';
 
@@ -38,10 +44,20 @@ class LangInputContent extends Content {
      */
     private _updateLanguage(lang: string) {
         const { start, end } = this.getCursor()!;
-        this.text = lang;
         this.parent!.lang = lang;
-        const startOffset = Math.min(lang.length, start.offset);
-        const endOffset = Math.min(lang.length, end.offset);
+
+        // CodeBlock.lang owns the canonical language-input text operation. A
+        // direct call can be rejected by the gateway (clean/revised view), or a
+        // tracked call can rebuild and detach this proposal block before the
+        // setter returns. In either case there is no live cursor to restore.
+        if (!this.outMostBlock || this.text !== lang) {
+            if (this.outMostBlock)
+                this.update();
+            return;
+        }
+
+        const startOffset = Math.min(this.text.length, start.offset);
+        const endOffset = Math.min(this.text.length, end.offset);
         this.setCursor(startOffset, endOffset, true);
         this.muya.eventCenter.emit('content-change', { block: this });
     }

@@ -12,7 +12,14 @@ export function getImageInfo(image: HTMLElement): IImageInfo {
     const paragraph = findContentDOM(image)!;
     const raw = image.getAttribute('data-raw')!;
     const offset = getOffsetOfParagraph(image, paragraph);
-    const tokens = tokenizer(raw);
+    const tokens = tokenizer(raw, {
+        options: {
+            criticMarkup: false,
+            criticMarkupDocumentFragments: [],
+            footnote: false,
+            superSubScript: true,
+        },
+    });
     const token = tokens[0] as ImageToken;
     token.range = {
         start: offset,

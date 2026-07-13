@@ -6,9 +6,7 @@ declare module 'flowchart.js'
 declare module 'joplin-turndown-plugin-gfm'
 declare module 'snapsvg-cjs'
 declare module '@hfelix/electron-localshortcut'
-declare module 'execall'
 declare module 'iso-639-1'
-declare module 'fuzzaldrin'
 declare module 'underscore' {
   export function debounce<T extends (...args: never[]) => unknown>(
     fn: T,
@@ -42,6 +40,8 @@ declare module '@marktext/file-icons' {
   interface FileIcons {
     matchName(name: string): FileIcon | null
     matchLanguage(lang: string): FileIcon | null
+    getClassByName(name: string): string | null
+    getClassByLanguage(lang: string): string | null
   }
   const fileIcons: FileIcons
   export default fileIcons

@@ -6,6 +6,7 @@ import type { IFrontmatterState } from '../state/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { replaceBlockByLabel } from '../block/blockTransforms';
 import { Muya } from '../muya';
+import { runUserCommand } from './helpers/mutation';
 
 // Coverage for the two front-matter entry points — the desktop Paragraph >
 // Front Matter menu item (`muya.updateParagraph('front-matter')`) and the
@@ -176,7 +177,9 @@ describe('quick-insert front matter (replaceBlockByLabel)', () => {
         // Quick-insert is triggered on the SECOND paragraph (mid-document). The
         // menu passes the leaf block at the cursor as `block`.
         const block = leafAt(muya, 1);
-        replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+        runUserCommand(muya, () => {
+            replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+        });
 
         await vi.waitFor(() => {
             const state = muya.getState();
@@ -200,7 +203,9 @@ describe('quick-insert front matter (replaceBlockByLabel)', () => {
         const muya = bootMuya('---\ntitle: hi\n---\n\nbody\n');
         expect(muya.getState()[0].name).toBe('frontmatter');
         const block = leafAt(muya, 1);
-        replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+        runUserCommand(muya, () => {
+            replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+        });
 
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
@@ -213,7 +218,9 @@ describe('quick-insert front matter (replaceBlockByLabel)', () => {
     it('honors frontmatterType when inserting via quick-insert (+ -> toml)', async () => {
         const muya = bootMuya('body\n', '+');
         const block = leafAt(muya, 0);
-        replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+        runUserCommand(muya, () => {
+            replaceBlockByLabel({ block, muya, label: 'frontmatter' });
+        });
 
         await vi.waitFor(() => {
             expect(muya.getState()[0].name).toBe('frontmatter');

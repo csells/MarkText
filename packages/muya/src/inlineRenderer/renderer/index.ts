@@ -13,6 +13,8 @@ import autoLinkExtension from './autoLinkExtension';
 import backlash from './backlash';
 import backlashInToken from './backlashInToken';
 import codeFence from './codeFence';
+import criticDocumentFragment from './criticDocumentFragment';
+import criticMarkupRenderLimit from './criticMarkupRenderLimit';
 import del from './del';
 import delEmStrongFac from './delEmStrongFactory';
 import em from './em';
@@ -52,6 +54,8 @@ const inlineSyntaxRenderer = {
     hardLineBreak,
     softLineBreak,
     codeFence,
+    criticDocumentFragment,
+    criticMarkupRenderLimit,
     inlineMath,
     autoLink,
     autoLinkExtension,

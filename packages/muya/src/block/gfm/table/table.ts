@@ -2,24 +2,22 @@ import type { Muya } from '../../../muya';
 import type { ITableState } from '../../../state/types';
 import type TableRow from './row';
 import { mixins } from '../../../utils';
-import { LinkedList } from '../../base/linkedList/linkedList';
+import { appendCreatedChildren } from '../../appendCreatedChildren';
 import Parent from '../../base/parent';
 import IContainerQueryBlock from '../../mixins/containerQueryBlock';
 import { ScrollPage } from '../../scrollPage';
 
 @mixins(IContainerQueryBlock)
-class TableInner extends Parent {
-    override children: LinkedList<TableRow> = new LinkedList();
-
+class TableInner extends Parent<TableRow> {
     static override blockName = 'table.inner';
 
     static create(muya: Muya, state: ITableState) {
         const table = new TableInner(muya, state);
 
-        table.append(
-            ...state.children.map(child =>
-                ScrollPage.loadBlock('table.row').create(muya, child),
-            ),
+        appendCreatedChildren(
+            state.children,
+            child => ScrollPage.createStateBlock(muya, child) as TableRow,
+            child => table.append(child),
         );
 
         return table;
@@ -43,7 +41,7 @@ class TableInner extends Parent {
             children: this.map(node => (node as TableRow).getState()),
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

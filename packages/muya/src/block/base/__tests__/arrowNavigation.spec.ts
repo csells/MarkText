@@ -247,6 +247,17 @@ describe('content arrowHandler — cross-block navigation down', () => {
 });
 
 describe('content arrowHandler — trailing-paragraph creation at document end', () => {
+    it('does not append a trailing paragraph in a clean projection', () => {
+        const muya = bootMuya('{++beta++}\n');
+        muya.setOptions({ criticMarkupProjection: 'revised' }, true);
+        const beta = contentByText(muya, 'beta');
+
+        arrowAt(muya, beta, 'ArrowDown', beta.text.length);
+
+        expect(muya.editor.scrollPage!.length()).toBe(1);
+        expect(muya.getMarkdown()).toBe('{++beta++}\n');
+    });
+
     it('arrowDown at the end of the LAST block appends a new empty paragraph and lands the caret in it', async () => {
         const muya = bootMuya('alpha\n\nbeta\n');
         const beta = contentByText(muya, 'beta');

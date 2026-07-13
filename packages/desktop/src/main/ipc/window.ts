@@ -8,6 +8,8 @@ import {
 } from 'electron'
 import log from 'electron-log'
 import type { MenuTemplate, MenuTemplateItem, MenuPopupPosition } from '@shared/types/menu'
+import { presentationPolicy } from '../presentationPolicy'
+import { exceptionReporter } from '../exceptionReporting'
 
 const windowFromEvent = (event: IpcMainEvent): BrowserWindow | null =>
   BrowserWindow.fromWebContents(event.sender)
@@ -16,6 +18,20 @@ interface PopupEntry {
   sender: WebContents
 }
 const popups = new Map<number, PopupEntry>()
+
+const reportPopupError = (message: string, reason: unknown): void => {
+  const error = reason instanceof Error ? reason : new Error(String(reason))
+  log.error(message, error)
+  exceptionReporter.handle('main', error, async() => {})
+    .then(() => {
+      if (exceptionReporter.requiresTermination('main', true)) {
+        process.exit(1)
+      }
+    })
+    .catch((handlerError) => {
+      log.error('Failed to process popup error through presentation policy.', handlerError)
+    })
+}
 
 const buildMenu = (template: MenuTemplate | undefined, windowId: number): Menu => {
   const menu = new Menu()
@@ -55,16 +71,15 @@ export const registerWindowHandlers = (): void => {
   ipcMain.on('mt::win::toggle-maximize', (event) => {
     const win = windowFromEvent(event)
     if (!win) return
-    if (win.isMaximized()) win.unmaximize()
-    else win.maximize()
+    presentationPolicy.setWindowMaximized(win, !win.isMaximized())
   })
   ipcMain.on('mt::win::maximize', (event) => {
     const win = windowFromEvent(event)
-    if (win) win.maximize()
+    if (win) presentationPolicy.setWindowMaximized(win, true)
   })
   ipcMain.on('mt::win::unmaximize', (event) => {
     const win = windowFromEvent(event)
-    if (win) win.unmaximize()
+    if (win) presentationPolicy.setWindowMaximized(win, false)
   })
   ipcMain.on('mt::win::close', (event) => {
     const win = windowFromEvent(event)
@@ -72,11 +87,11 @@ export const registerWindowHandlers = (): void => {
   })
   ipcMain.on('mt::win::set-fullscreen', (event, flag: boolean) => {
     const win = windowFromEvent(event)
-    if (win) win.setFullScreen(!!flag)
+    if (win) presentationPolicy.setWindowFullScreen(win, !!flag)
   })
   ipcMain.on('mt::win::toggle-fullscreen', (event) => {
     const win = windowFromEvent(event)
-    if (win) win.setFullScreen(!win.isFullScreen())
+    if (win) presentationPolicy.setWindowFullScreen(win, !win.isFullScreen())
   })
   ipcMain.handle('mt::win::is-maximized', (event) => {
     const win = windowFromEvent(event as unknown as IpcMainEvent)
@@ -97,7 +112,7 @@ export const registerWindowHandlers = (): void => {
     popups.set(win.id, { sender: event.sender })
     try {
       const menu = buildMenu(template, win.id)
-      menu.popup({
+      presentationPolicy.popupMenu(menu, {
         window: win,
         x: position?.x,
         y: position?.y,
@@ -112,7 +127,7 @@ export const registerWindowHandlers = (): void => {
       })
     } catch (err) {
       popups.delete(win.id)
-      log.error('menu popup failed:', err)
+      reportPopupError('menu popup failed:', err)
     }
   })
 
@@ -122,9 +137,9 @@ export const registerWindowHandlers = (): void => {
     try {
       const appMenu = Menu.getApplicationMenu()
       if (!appMenu) return
-      appMenu.popup({ window: win, x: position?.x, y: position?.y })
+      presentationPolicy.popupMenu(appMenu, { window: win, x: position?.x, y: position?.y })
     } catch (err) {
-      log.error('application menu popup failed:', err)
+      reportPopupError('application menu popup failed:', err)
     }
   })
 }

@@ -94,16 +94,15 @@ export const getBlankFileState = (
 ): IFileState => {
   const fileState = deepClone(defaultFileStateWithoutId) as Omit<IFileState, 'id'>
   const defaultFilenamePrefix = defaultFileStateWithoutId.filename.split('-')[0]
-  let untitleId = Math.max(
-    ...tabs.map((f) => {
-      if (f.pathname === '') {
-        return +f.filename.split('-')[1]
-      } else {
-        return 0
-      }
-    }),
-    0
-  )
+  let untitleId = 0
+  for (const file of tabs) {
+    if (file.pathname === '') {
+      untitleId = Math.max(
+        untitleId,
+        +file.filename.split('-')[1]
+      )
+    }
+  }
 
   const id = getUniqueId()
 

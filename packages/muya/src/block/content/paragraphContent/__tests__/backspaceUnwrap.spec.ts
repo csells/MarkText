@@ -2,6 +2,7 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommand } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // DATA-LOSS GUARD — backspace-at-offset-0 block surgery.
@@ -75,7 +76,7 @@ function backspaceAtStart(muya: Muya, content: Content): void {
         stopPropagation: vi.fn(),
         key: 'Backspace',
     } as unknown as KeyboardEvent;
-    content.backspaceHandler(event);
+    runUserCommand(muya, () => content.backspaceHandler(event));
 }
 
 function flush(): Promise<void> {

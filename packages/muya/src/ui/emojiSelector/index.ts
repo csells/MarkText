@@ -41,9 +41,10 @@ export class EmojiSelector extends BaseScrollFloat {
     set renderObj(obj: Record<string, EmojiType[]>) {
         this._renderObj = obj;
         const renderArray: EmojiType[] = [];
-        Object.keys(obj).forEach((key) => {
-            renderArray.push(...obj[key]);
-        });
+        for (const key of Object.keys(obj)) {
+            for (const emoji of obj[key])
+                renderArray.push(emoji);
+        }
         this.renderArray = renderArray;
         if (this.renderArray.length > 0) {
             this.activeItem = this.renderArray[0];
@@ -63,8 +64,12 @@ export class EmojiSelector extends BaseScrollFloat {
             if (text) {
                 this.renderObj = this._emoji.search(text);
                 const cb: (item: EmojiType) => void = (item) => {
-                    if (block && block.setEmoji)
-                        block.setEmoji(item.aliases[0]);
+                    if (block && block.setEmoji) {
+                        this.muya.editor.mutationGateway.run(
+                            { kind: 'user-command' },
+                            () => block.setEmoji(item.aliases[0]),
+                        );
+                    }
                 };
 
                 if (this.renderArray.length) {

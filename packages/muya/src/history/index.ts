@@ -65,6 +65,7 @@ export interface ISerializedHistory {
     };
     lastRecorded: number;
     selectionStack: (Nullable<ISerializableSelection>)[];
+    lastInputKind: Nullable<TInputKind>;
 }
 
 enum HistoryAction {
@@ -157,37 +158,59 @@ class History {
         if (this._stack[source].length === 0)
             return;
 
-        const { operation, selection, rebuild } = this._stack[source].pop()!;
-        const inverseOperation = json1.type.invertWithDoc(
-            operation,
-            asDoc(this._muya.editor.jsonState.getState()),
-        );
-
-        this._stack[dest].push({
-            operation: inverseOperation as JSONOpList,
-            selection: this._selection.getSelection(),
-            rebuild,
-        });
-
-        this._lastRecorded = 0;
-        this._ignoreChange = true;
+        const checkpoint = this.getHistory();
+        const previousRevision = this._muya.editor.jsonState.liveRevision;
         try {
-            if (rebuild)
-                this._muya.editor.rebuildContents(operation, selection, 'user');
-            else
-                this._muya.editor.updateContents(operation, selection, 'user');
+            const { operation, selection, rebuild }
+                = this._stack[source].pop()!;
+            const inverseOperation = json1.type.invertWithDoc(
+                operation,
+                asDoc(this._muya.editor.jsonState.getState()),
+            );
+
+            this._stack[dest].push({
+                operation: inverseOperation as JSONOpList,
+                selection: this._selection.getSelection(),
+                rebuild,
+            });
+
+            this._lastRecorded = 0;
+            this._ignoreChange = true;
+            if (rebuild) {
+                this._muya.editor.rebuildContents(
+                    operation,
+                    selection,
+                    'user',
+                    () => this._getLastSelection(),
+                );
+            }
+            else {
+                this._muya.editor.updateContents(
+                    operation,
+                    selection,
+                    'user',
+                    () => this._getLastSelection(),
+                );
+            }
+        }
+        catch (error) {
+            // A prepared editor failure restores its JSON revision. Only roll
+            // the stacks back in that case; an observer throwing after the
+            // commit event cannot make the already-published document unchange.
+            if (this._muya.editor.jsonState.liveRevision === previousRevision)
+                this.setHistory(checkpoint);
+            throw error;
         }
         finally {
             this._ignoreChange = false;
         }
-
-        this._getLastSelection();
     }
 
     clear() {
         this._stack = { undo: [], redo: [] };
         this._selectionStack = [];
         this._lastRecorded = 0;
+        this._lastInputKind = null;
         this._ignoreChange = false;
     }
 
@@ -201,6 +224,7 @@ class History {
             selectionStack: this._selectionStack.map(sel =>
                 this._toSerializableSelection(sel),
             ),
+            lastInputKind: this._lastInputKind,
         };
     }
 
@@ -213,6 +237,7 @@ class History {
         this._selectionStack = (history.selectionStack ?? []).map(sel =>
             this._fromSerializableSelection(sel),
         );
+        this._lastInputKind = history.lastInputKind ?? null;
     }
 
     private _toSerializableOperation(op: IOperation): ISerializableOperation {
@@ -274,6 +299,35 @@ class History {
 
     cutoff() {
         this._lastRecorded = 0;
+    }
+
+    /**
+     * Run synchronous editor mutations as one undo boundary, isolated from
+     * typing on either side and seeded with the pre-command selection.
+     */
+    runTransaction<T>(
+        boundarySelection: Nullable<IHistorySelection>,
+        mutate: () => T,
+    ): T {
+        this._muya.flush();
+        this.cutoff();
+
+        const previousSelectionStack = this._selectionStack;
+        const previousUndoDepth = this._stack.undo.length;
+        this._selectionStack = [boundarySelection];
+
+        try {
+            return mutate();
+        }
+        finally {
+            // Content.text edits are deferred to the next animation frame.
+            // Flush while this transaction's selection seed is still active.
+            this._muya.flush();
+            this.cutoff();
+
+            if (this._stack.undo.length === previousUndoDepth)
+                this._selectionStack = previousSelectionStack;
+        }
     }
 
     markInputBoundary(inputType: string, data: Nullable<string>): void {

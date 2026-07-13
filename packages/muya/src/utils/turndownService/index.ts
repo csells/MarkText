@@ -5,6 +5,13 @@ import { identity, isHTMLElement, isHTMLInputElement } from '../../utils';
 
 const DEFAULT_KEEPS: Filter = ['u', 'mark', 'ruby', 'rt', 'sub', 'sup'];
 
+export function longestLineLength(content: string): number {
+    let maximum = 0;
+    for (const line of content.split('\n'))
+        maximum = Math.max(maximum, line.length);
+    return maximum;
+}
+
 function inlineStyleValue(node: Node, name: keyof CSSStyleDeclaration): string {
     return isHTMLElement(node) ? String(node.style[name]).trim().toLowerCase() : '';
 }
@@ -188,9 +195,7 @@ export function usePluginsAddRules(turndownService: TurndownService) {
                 (options.headingStyle === 'setext' || /\n/.test(content))
                 && hLevel < 3
             ) {
-                const markerLength = Math.max(
-                    ...content.split('\n').map(l => l.length),
-                );
+                const markerLength = longestLineLength(content);
                 const underline = (hLevel === 1 ? '=' : '-').repeat(markerLength);
 
                 return `\n\n${content}\n${underline}\n\n`;

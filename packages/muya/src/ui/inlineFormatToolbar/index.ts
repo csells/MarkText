@@ -63,9 +63,6 @@ export class InlineFormatToolbar extends BaseFloat {
     /** Previous virtual node for patching */
     private _oldVNode: VNode | null = null;
 
-    /** The block containing the selected text */
-    private _block: Format | null = null;
-
     /** Currently applied formats in the selection */
     private _formats: Token[] = [];
 
@@ -102,7 +99,6 @@ export class InlineFormatToolbar extends BaseFloat {
 
         eventCenter.subscribe('muya-format-picker', ({ reference, block }) => {
             if (reference) {
-                this._block = block;
                 this._formats = block.getFormatsInRange().formats;
                 requestAnimationFrame(() => {
                     this.show(reference);
@@ -158,7 +154,7 @@ export class InlineFormatToolbar extends BaseFloat {
         }
 
         // Handle format shortcuts
-        this._handleFormatShortcut(event, key, shiftKey, anchorBlock);
+        this._handleFormatShortcut(event, key, shiftKey);
     }
 
     /**
@@ -182,20 +178,18 @@ export class InlineFormatToolbar extends BaseFloat {
      * @param event - Keyboard event
      * @param key - Key name
      * @param shiftKey - Shift key state
-     * @param anchorBlock - Anchor block
      */
     private _handleFormatShortcut(
         event: KeyboardEvent,
         key: string,
         shiftKey: boolean,
-        anchorBlock: Format,
     ) {
         const shortcuts = shiftKey ? FORMAT_SHORTCUTS_SHIFT : FORMAT_SHORTCUTS;
         const formatType = shortcuts[key as keyof typeof shortcuts];
 
         if (formatType) {
             event.preventDefault();
-            anchorBlock.format(formatType);
+            this.muya.format(formatType);
         }
     }
 
@@ -277,14 +271,17 @@ export class InlineFormatToolbar extends BaseFloat {
             { offset: focus.offset, block: focusBlock, path: focusPath },
         );
 
-        this._block!.format(item.type);
+        this.muya.format(item.type);
 
         // Hide toolbar for link and image, re-render for other formats
         if (/link|image/.test(item.type)) {
             this.hide();
         }
         else {
-            this._formats = this._block!.getFormatsInRange().formats;
+            const current = this.muya.editor.selection.anchorBlock;
+            this._formats = current instanceof Format
+                ? current.getFormatsInRange().formats
+                : [];
             this._render();
         }
     }

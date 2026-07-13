@@ -36,10 +36,10 @@ class Paragraph extends Parent {
     }
 
     override getState(): IParagraphState {
-        return {
+        return this.withStateSourceTrivia({
             name: 'paragraph',
             text: (this.children.head as ParagraphContent).text,
-        };
+        });
     }
 }
 

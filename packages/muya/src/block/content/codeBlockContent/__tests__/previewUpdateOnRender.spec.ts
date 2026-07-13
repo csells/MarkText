@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runUserEdit } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // #1632 — re-rendering a math/diagram/html block via update() (the path taken
@@ -45,8 +46,10 @@ describe('math block preview refresh on update() (#1632)', () => {
 
         // Simulate what undo does: mutate the text and re-render via update()
         // WITHOUT going through inputHandler/backspaceHandler.
-        content.text = 'omega';
-        content.update();
+        runUserEdit(muya, () => {
+            content.text = 'omega';
+            content.update();
+        });
 
         // The preview must reflect the new formula, not the stale one.
         expect(preview.textContent).toContain('omega');

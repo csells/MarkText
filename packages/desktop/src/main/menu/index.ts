@@ -1,11 +1,12 @@
 import fs from 'fs'
 import path from 'path'
-import { app, Menu, ipcMain, type BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu, ipcMain } from 'electron'
 import log from 'electron-log'
 import { ensureDirSync, isDirectory2, isFile2 } from 'common/filesystem'
 import { isLinux, isOsx, isWindows } from '../config'
 import { updateSidebarMenu } from '../menu/actions/edit'
 import { updateFormatMenu } from '../menu/actions/format'
+import { updateReviewMenu } from '../menu/actions/review'
 import { updateSelectionMenus, type SelectionState } from '../menu/actions/paragraph'
 import { onInternalChannel } from '../utils/internalIpc'
 import { viewLayoutChanged } from '../menu/actions/view'
@@ -14,9 +15,15 @@ import { setLanguage } from '../i18n.js'
 import type Preference from '../preferences'
 import type Keybindings from '../keyboard/shortcutHandler'
 import type { IUserPreferences } from '@shared/types/preferences'
+import type { CriticMarkupReviewMenuState } from '@shared/types/criticMarkup'
+import { REVIEW_COMMAND_DESCRIPTORS } from '../../common/commands/review'
 
 const RECENTLY_USED_DOCUMENTS_FILE_NAME = 'recently-used-documents.json'
 const MAX_RECENTLY_USED_DOCUMENTS = 12
+const REVIEW_STATE_MENU_IDS = [
+  ...REVIEW_COMMAND_DESCRIPTORS.map((descriptor) => descriptor.menuId),
+  'reviewDisplayMenuItem'
+]
 
 export const MenuType = {
   DEFAULT: 0,
@@ -298,6 +305,7 @@ class AppMenu {
       updateMenuItem(oldMenu, newMenu, 'focusModeMenuItem')
       updateMenuItem(oldMenu, newMenu, 'sideBarMenuItem')
       updateMenuItem(oldMenu, newMenu, 'tabBarMenuItem')
+      REVIEW_STATE_MENU_IDS.forEach((id) => updateMenuItem(oldMenu, newMenu, id))
 
       // update window menu
       value.menu = newMenu
@@ -330,6 +338,7 @@ class AppMenu {
         updateMenuItem(oldMenu, rebuilt, 'focusModeMenuItem')
         updateMenuItem(oldMenu, rebuilt, 'sideBarMenuItem')
         updateMenuItem(oldMenu, rebuilt, 'tabBarMenuItem')
+        REVIEW_STATE_MENU_IDS.forEach((id) => updateMenuItem(oldMenu, rebuilt, id))
         newMenu = rebuilt
       } else if (type === MenuType.SETTINGS) {
         newMenu = this._buildSettingMenu().menu
@@ -494,6 +503,17 @@ class AppMenu {
       updateSidebarMenu(this.getWindowMenuById(windowId), value)
     })
     ipcMain.on(
+      'mt::update-review-menu',
+      (event, state: CriticMarkupReviewMenuState) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender)
+        if (!senderWindow || !this.has(senderWindow.id)) {
+          log.error('Review menu update rejected: sender has no live window menu.')
+          return
+        }
+        updateReviewMenu(this.getWindowMenuById(senderWindow.id), state)
+      }
+    )
+    ipcMain.on(
       'mt::view-layout-changed',
       (_e, windowId: number, viewSettings: Record<string, unknown>) => {
         if (!this.has(windowId)) {
@@ -517,7 +537,7 @@ class AppMenu {
     ipcMain.on('mt::set-editor-format-menus-enabled', (_e, windowId: number, enabled: boolean) => {
       if (!this.has(windowId)) return
       const menu = this.getWindowMenuById(windowId)
-      for (const id of ['paragraphMenuEntry', 'formatMenuItem']) {
+      for (const id of ['paragraphMenuEntry', 'formatMenuItem', 'reviewMenuItem']) {
         const entry = menu.getMenuItemById(id)
         entry?.submenu?.items.forEach((item) => (item.enabled = enabled))
       }
@@ -551,6 +571,7 @@ const updateMenuItem = (oldMenus: Menu, newMenus: Menu, id: string): void => {
   const newItem = newMenus.getMenuItemById(id)
   if (oldItem && newItem) {
     newItem.checked = oldItem.checked
+    newItem.enabled = oldItem.enabled
   }
 }
 

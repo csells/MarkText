@@ -133,6 +133,11 @@ test.describe('Tab switch restores the per-tab undo history', () => {
   // a new undo boundary at the intended position.
   const placeCaretAt = async(paragraph: number, offset: number): Promise<void> => {
     await expect.poll(() => placeCaretInParagraph(page, paragraph, offset)).toBe(true)
+    // The synthetic keyup above establishes Muya's active block, but a newly
+    // activated tab can briefly route it through the quick-insert palette.
+    // Dismiss that transient overlay after the active-block nudge; otherwise
+    // the DOM caret can be correct while typed keys are intercepted.
+    await page.keyboard.press('Escape')
     await expect.poll(() => readCaret(page)).toEqual({ index: paragraph, offset })
   }
 

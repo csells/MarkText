@@ -136,6 +136,25 @@
       "hyperlink": "Hyperlink",
       "clearFormat": "Clear Formatting"
     },
+    "review": {
+      "review": "Review",
+      "trackChanges": "Track Changes",
+      "markAddition": "Mark as Addition",
+      "markDeletion": "Mark as Deletion",
+      "suggestReplacement": "Suggest Replacement…",
+      "highlight": "Highlight for Review",
+      "addComment": "Add Comment…",
+      "previous": "Previous Change",
+      "next": "Next Change",
+      "acceptCurrent": "Accept Change",
+      "rejectCurrent": "Reject Change",
+      "acceptAll": "Accept All Changes",
+      "rejectAll": "Reject All Changes",
+      "display": "Display",
+      "showMarked": "Markup",
+      "showOriginal": "Original",
+      "showRevised": "Revised"
+    },
     "theme": {
       "theme": "&Theme",
       "dark": "Dark",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "Table Of Contents"
     },
+    "review": {
+      "title": "Review",
+      "summary": "{count} review items",
+      "trackChanges": "Track Changes",
+      "unavailable": "Review is unavailable in this view.",
+      "empty": "No review items",
+      "removeComment": "Remove comment",
+      "removeHighlight": "Remove highlight",
+      "types": {
+        "addition": "Addition",
+        "deletion": "Deletion",
+        "substitution": "Substitution",
+        "highlight": "Highlight",
+        "comment": "Comment"
+      }
+    },
     "icons": {
       "files": "Files",
       "search": "Search",
       "toc": "Table of Contents",
+      "review": "Review",
       "settings": "Settings"
     }
   },
@@ -820,6 +856,23 @@
       "image": "Image",
       "clearFormat": "Clear Format"
     },
+    "review": {
+      "trackChanges": "Track Changes",
+      "markAddition": "Mark as Addition",
+      "markDeletion": "Mark as Deletion",
+      "suggestReplacement": "Suggest Replacement",
+      "highlight": "Highlight for Review",
+      "addComment": "Add Comment",
+      "previous": "Previous Change",
+      "next": "Next Change",
+      "acceptCurrent": "Accept Change",
+      "rejectCurrent": "Reject Change",
+      "acceptAll": "Accept All Changes",
+      "rejectAll": "Reject All Changes",
+      "showMarked": "Show Markup",
+      "showOriginal": "Show Original",
+      "showRevised": "Show Revised"
+    },
     "window": {
       "minimize": "Minimize",
       "close": "Close",
@@ -933,6 +986,12 @@
     "unexpectedError": "Unexpected spellchecker error"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "Add Comment",
+      "commentPlaceholder": "Enter a review comment",
+      "replacementTitle": "Suggest Replacement",
+      "replacementPlaceholder": "Enter replacement text"
+    },
     "export": {
       "error": "Export error",
       "errorExporting": "Error exporting {type} file",

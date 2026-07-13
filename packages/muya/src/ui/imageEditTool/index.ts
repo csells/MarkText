@@ -5,9 +5,10 @@ import type { ImageToken } from '../../inlineRenderer/types';
 import type { IImagePathSuggestion } from '../imagePicker';
 import type { IBaseOptions } from '../types';
 import { EVENT_KEYS, isWin, URL_REG } from '../../config';
-import { getUniqueId, isHTMLInputElement, isKeyboardEvent } from '../../utils';
+import { findContentDOM } from '../../selection/dom';
 
-import { query } from '../../utils/dom';
+import { getUniqueId, isHTMLInputElement, isKeyboardEvent } from '../../utils';
+import { getBlock, query } from '../../utils/dom';
 import { getImageInfo, getImageSrc } from '../../utils/image';
 import { h, patch } from '../../utils/snabbdom';
 import BaseFloat from '../baseFloat';
@@ -29,7 +30,7 @@ interface IState {
 /**
  * Image edit tool options
  */
-type Options = {
+interface IImageEditToolHooks {
     /** Custom image path picker function (one-shot native file dialog) */
     imagePathPicker?: () => Promise<string>;
     /**
@@ -41,7 +42,10 @@ type Options = {
     imagePathAutoComplete?: (src: string) => Promise<IImagePathSuggestion[]>;
     /** Image upload action handler */
     imageAction?: (state: IState) => Promise<string>;
-} & IBaseOptions;
+}
+
+type Options = IImageEditToolHooks & IBaseOptions;
+type InputOptions = IImageEditToolHooks & Partial<IBaseOptions>;
 
 /** Default float options for image edit tool */
 const defaultOptions = {
@@ -105,7 +109,7 @@ export class ImageEditTool extends BaseFloat {
      * @param muya - Muya editor instance
      * @param options - Tool options including image picker and upload handler
      */
-    constructor(muya: Muya, options: Options = { ...defaultOptions }) {
+    constructor(muya: Muya, options: InputOptions = {}) {
         const name = 'mu-image-selector';
         super(muya, name, Object.assign({}, defaultOptions, options));
         this.options = Object.assign({}, defaultOptions, options);
@@ -382,7 +386,11 @@ export class ImageEditTool extends BaseFloat {
 
         // Only update if something changed
         if (alt !== oldAlt || src !== oldSrc || title !== oldTitle) {
-            this._block!.replaceImage(this._imageInfo!, { alt, src, title });
+            this._replaceImageThroughGateway(
+                this._block!,
+                this._imageInfo!,
+                { alt, src, title },
+            );
         }
 
         this.hide();
@@ -397,11 +405,11 @@ export class ImageEditTool extends BaseFloat {
         const loadingId = `loading-${getUniqueId()}`;
 
         // Show loading state
-        this._block!.replaceImage(this._imageInfo!, {
-            alt: loadingId,
-            src,
-            title,
-        });
+        this._replaceImageThroughGateway(
+            this._block!,
+            this._imageInfo!,
+            { alt: loadingId, src, title },
+        );
         this.hide();
 
         // Upload image and get new URL
@@ -421,12 +429,26 @@ export class ImageEditTool extends BaseFloat {
 
         if (imageWrapper) {
             const imageInfo = getImageInfo(imageWrapper);
-            this._block!.replaceImage(imageInfo, {
-                alt,
-                src: uploadedSrc,
-                title,
-            });
+            const block = getBlock(findContentDOM(imageWrapper));
+            if (block?.isContent()) {
+                this._replaceImageThroughGateway(
+                    block as Format,
+                    imageInfo,
+                    { alt, src: uploadedSrc, title },
+                );
+            }
         }
+    }
+
+    private _replaceImageThroughGateway(
+        block: Format,
+        imageInfo: { token: ImageToken; imageId: string },
+        state: IState,
+    ): void {
+        this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => block.replaceImage(imageInfo, state),
+        );
     }
 
     /**

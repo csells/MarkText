@@ -1,4 +1,5 @@
 import {
+  DocumentChecked as ReviewIcon,
   Folder as FilesIcon,
   Search as SearchIcon,
   Memo as TocIcon,
@@ -27,6 +28,11 @@ export const sideBarIcons: SideBarIconEntry[] = [
     id: 'toc',
     name: () => t('sideBar.icons.toc'),
     icon: TocIcon
+  },
+  {
+    id: 'review',
+    name: () => t('sideBar.icons.review'),
+    icon: ReviewIcon
   }
 ]
 

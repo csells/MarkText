@@ -1,5 +1,7 @@
 import type { ITableCellState, ITableRowState, ITableState } from '../types';
 import { describe, expect, it } from 'vitest';
+import { localOffset } from '../../mappedText';
+import { markdownStatePath } from '../markdownSourceMap';
 import { MarkdownToState } from '../markdownToState';
 import ExportMarkdown from '../stateToMarkdown';
 
@@ -32,6 +34,21 @@ function table(rows: ITableRowState[]): ITableState {
 //   TypeError: Cannot read properties of undefined (reading 'length')
 // when a body row had fewer cells than the header.
 describe('serializeTable — row width mismatch', () => {
+    it('maps a cell wider than the engine argument limit without crashing', () => {
+        const cellLength = 200_000;
+        const text = 'x'.repeat(cellLength);
+        const state = table([row([cell(text)])]);
+
+        const mapped = new ExportMarkdown().generateMapped([state]);
+
+        expect(mapped.text).toContain(text);
+        expect(mapped.sourceMap.spans).toHaveLength(1);
+        expect(mapped.sourceMap.localToSource(
+            markdownStatePath([0, 'children', 0, 'children', 0, 'text']),
+            localOffset(cellLength - 1),
+        )).not.toBeNull();
+    }, 60_000);
+
     it('does not crash when a body row has more cells than the header', () => {
         const state = table([
             row([cell('a'), cell('b')]),
@@ -110,6 +127,46 @@ describe('serializeTable — visual column width (#1983)', () => {
     });
 });
 
+describe('serializeTable — source-local cell edits', () => {
+    it('preserves a narrow parser-owned delimiter with CriticMarkup cell text', () => {
+        const source = [
+            '| a | before {++x++} after |',
+            '| --- | --- |',
+            '',
+        ].join('\n');
+
+        expect(new ExportMarkdown().generate(gen(source))).toBe(source);
+    });
+
+    it('does not rewrite other rows or the delimiter when one cell grows or shrinks', () => {
+        const parsed = gen([
+            '| head        | second          |',
+            '| ----------- | --------------- |',
+            '| x           | edited-row-peer |',
+            '| stable-tail | untouched       |',
+            '',
+        ].join('\n'));
+        const parsedTable = parsed[0];
+        if (parsedTable?.name !== 'table')
+            throw new Error('expected a parsed table');
+        const editedCell = parsedTable.children[1].children[0];
+        const serialize = () => new ExportMarkdown().generate(parsed).split('\n');
+
+        const short = serialize();
+        editedCell.text = 'a-very-wide-cell-value';
+        const wide = serialize();
+        editedCell.text = 'y';
+        const shortAgain = serialize();
+        const untouchedLineIndexes = [0, 1, 3, 4];
+
+        expect(untouchedLineIndexes.map(index => wide[index]))
+            .toEqual(untouchedLineIndexes.map(index => short[index]));
+        expect(untouchedLineIndexes.map(index => shortAgain[index]))
+            .toEqual(untouchedLineIndexes.map(index => wide[index]));
+        expect(wide[2]).not.toBe(short[2]);
+    });
+});
+
 // `align` lives on every cell's `meta.align` ('none' | 'left' | 'center' |
 // 'right'). The serializer renders the delimiter row from the *header* row's
 // cell aligns: left → ':---', center → ':---:', right → '---:', none → '---'.
@@ -166,9 +223,9 @@ describe('serializeTable — column alignment', () => {
         const firstPass = new ExportMarkdown().generate(gen(md));
         const secondPass = new ExportMarkdown().generate(gen(firstPass));
 
-        // The parsed aligns survive serialization with the expected markers.
+        // Parser-owned delimiter spacing survives serialization exactly.
         const delimiterRow = firstPass.split('\n')[1];
-        expect(delimiterRow).toBe('|:--- |:---:| ---:|');
+        expect(delimiterRow).toBe('| :--- | :---: | ---: |');
         expect(delimiterRow).toContain(':---');
         expect(delimiterRow).toContain(':---:');
         expect(delimiterRow).toContain('---:');

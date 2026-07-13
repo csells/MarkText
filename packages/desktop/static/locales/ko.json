@@ -136,6 +136,25 @@
       "hyperlink": "하이퍼링크",
       "clearFormat": "서식 지우기"
     },
+    "review": {
+      "review": "검토",
+      "trackChanges": "변경 내용 추적",
+      "markAddition": "추가로 표시",
+      "markDeletion": "삭제로 표시",
+      "suggestReplacement": "대체 제안…",
+      "highlight": "검토용 강조",
+      "addComment": "댓글 추가…",
+      "previous": "이전 변경",
+      "next": "다음 변경",
+      "acceptCurrent": "변경 수락",
+      "rejectCurrent": "변경 거부",
+      "acceptAll": "모든 변경 수락",
+      "rejectAll": "모든 변경 거부",
+      "display": "표시",
+      "showMarked": "마크업",
+      "showOriginal": "원본",
+      "showRevised": "수정본"
+    },
     "theme": {
       "theme": "&테마",
       "dark": "어둡게",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "목차"
     },
+    "review": {
+      "title": "검토",
+      "summary": "검토 항목 {count}개",
+      "trackChanges": "변경 내용 추적",
+      "unavailable": "이 보기에서는 검토를 사용할 수 없습니다.",
+      "empty": "검토 항목 없음",
+      "removeComment": "댓글 제거",
+      "removeHighlight": "강조 제거",
+      "types": {
+        "addition": "추가",
+        "deletion": "삭제",
+        "substitution": "대체",
+        "highlight": "강조",
+        "comment": "댓글"
+      }
+    },
     "icons": {
       "files": "파일",
       "search": "검색",
       "toc": "목차",
+      "review": "검토",
       "settings": "설정"
     }
   },
@@ -820,6 +856,23 @@
       "image": "이미지",
       "clearFormat": "서식 지우기"
     },
+    "review": {
+      "trackChanges": "변경 내용 추적",
+      "markAddition": "추가로 표시",
+      "markDeletion": "삭제로 표시",
+      "suggestReplacement": "대체 제안",
+      "highlight": "검토용 강조",
+      "addComment": "댓글 추가",
+      "previous": "이전 변경",
+      "next": "다음 변경",
+      "acceptCurrent": "변경 수락",
+      "rejectCurrent": "변경 거부",
+      "acceptAll": "모든 변경 수락",
+      "rejectAll": "모든 변경 거부",
+      "showMarked": "마크업 표시",
+      "showOriginal": "원본 표시",
+      "showRevised": "수정본 표시"
+    },
     "window": {
       "minimize": "최소화",
       "toggleAlwaysOnTop": "항상 위에 토글",
@@ -933,6 +986,12 @@
     "unexpectedError": "예상치 못한 맞춤법 검사 오류"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "댓글 추가",
+      "commentPlaceholder": "검토 댓글 입력",
+      "replacementTitle": "대체 제안",
+      "replacementPlaceholder": "대체 텍스트 입력"
+    },
     "export": {
       "error": "내보내기 오류",
       "errorExporting": "파일 내보내기 오류",

@@ -1,5 +1,7 @@
 // Key bindings for Linux.
 
+import { REVIEW_COMMAND_DESCRIPTORS } from '../../common/commands/review'
+
 // NOTE: Avoid `Ctrl+Alt` and `Alt` shortcuts on Linux because Ubuntu based OSs have reserved system shortcuts (see GH#2370).
 //       Binding shortcuts to these modifiers will result in odd behavior on Ubuntu.
 // NOTE: Don't use `Ctrl+Shift+U` because it's used IBus for unicode support.
@@ -85,6 +87,12 @@ const keybindings: Map<string, string> = new Map([
   ['format.hyperlink', 'Ctrl+L'],
   ['format.image', 'Ctrl+Shift+I'],
   ['format.clear-format', 'Ctrl+Shift+R'],
+
+  // Review menu (user-assignable; no conflict-prone defaults)
+  ...REVIEW_COMMAND_DESCRIPTORS.map(({ id, defaultKeybinding }) => [
+    id,
+    defaultKeybinding
+  ] as [string, string]),
 
   // Window menu
   ['window.minimize', 'Ctrl+M'],

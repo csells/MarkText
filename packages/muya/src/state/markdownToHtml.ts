@@ -10,6 +10,7 @@ import loadRenderer from '../utils/diagram';
 import { getHighlightHtml } from '../utils/marked';
 import { generateGithubSlug } from '../utils/slug';
 import { transformFootnotes } from './transformFootnotes';
+import { sanitizeExportHtml } from './sanitizeExportHtml';
 
 // The core stylesheets (github-markdown-css, katex, prism) are inlined into the
 // exported document so the output is fully self-contained and renders offline /
@@ -182,13 +183,27 @@ export class MarkdownToHtml {
     // render pure html by marked
     async renderHtml() {
         const footnote = this._muya?.options?.footnote ?? false;
-        let html = getHighlightHtml(this.markdown, {
+        const parserOptions = {
+            criticMarkup: true,
+            criticMarkupProjection:
+                this._muya?.options?.criticMarkupProjection ?? 'marked',
             superSubScript: this._muya?.options?.superSubScript ?? true,
             footnote,
+            frontMatter: this._muya?.options?.frontMatter ?? true,
             isGitlabCompatibilityEnabled:
         this._muya?.options?.isGitlabCompatibilityEnabled ?? true,
             math: this._muya?.options?.math ?? true,
-        });
+        };
+        const liveDocument = this._muya?.editor?.criticMarkupDocument?.get();
+        const preparedAnalysis
+            = liveDocument?.markdown === this.markdown
+                ? liveDocument.analysis
+                : undefined;
+        let html = getHighlightHtml(
+            this.markdown,
+            parserOptions,
+            preparedAnalysis,
+        );
 
         // Post-process footnotes into the standard GFM / pandoc shape (inline
         // numbered <sup> refs + bottom <section class="footnotes"> with
@@ -229,6 +244,11 @@ export class MarkdownToHtml {
 
             return `${def}${str}`;
         });
+
+        // Diagram renderers and the legacy marker repair mutate HTML after the
+        // initial Markdown sanitizer. This is the authoritative export trust
+        // boundary: nothing can add markup after this pass.
+        result = sanitizeExportHtml(result);
 
         this._exportContainer = null;
 

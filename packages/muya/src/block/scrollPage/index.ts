@@ -1,4 +1,5 @@
 import type { Muya } from '../../muya';
+import type { CriticMarkupDocument } from '../../criticMarkup/document';
 import type { TState } from '../../state/types';
 import type { Nullable } from '../../types';
 import type Content from '../base/content';
@@ -7,6 +8,10 @@ import type { IConstructor, TBlockPath } from '../types';
 import { BLOCK_DOM_PROPERTY } from '../../config';
 import { isHTMLElement, isMouseEvent } from '../../utils';
 import logger from '../../utils/logger';
+import {
+    appendCreatedChildren,
+    createChildren,
+} from '../appendCreatedChildren';
 import Parent from '../base/parent';
 
 const debug = logger('scrollpage:');
@@ -16,8 +21,9 @@ interface IBlurFocus {
     focus: Nullable<Content>;
 }
 
-export class ScrollPage extends Parent {
+export class ScrollPage extends Parent<Parent> {
     private _blurFocus: IBlurFocus = { blur: null, focus: null };
+    private readonly _criticMarkupStructuralBlocks = new Set<TreeNode>();
 
     static override blockName = 'scrollpage';
 
@@ -48,13 +54,37 @@ export class ScrollPage extends Parent {
         return block as IConstructor<Parent>;
     }
 
+    /** Create one serializable block and bind its parser-owned source trivia. */
+    static createStateBlock(muya: Muya, state: TState): Parent {
+        const block = this.loadBlock(state.name).create(muya, state);
+        const descriptor = Object.getOwnPropertyDescriptor(
+            state,
+            'sourceTrivia',
+        );
+        if (
+            descriptor
+            && (!descriptor.enumerable || !('value' in descriptor))
+        ) {
+            throw new TypeError(
+                'State sourceTrivia must be an enumerable data property.',
+            );
+        }
+        if (!descriptor && 'sourceTrivia' in state) {
+            throw new TypeError(
+                'State sourceTrivia must be an own data property.',
+            );
+        }
+        block.initializeStateSourceTrivia(descriptor?.value);
+        return block;
+    }
+
     static create(muya: Muya, state: TState[]) {
         const scrollPage = new ScrollPage(muya);
 
-        scrollPage.append(
-            ...state.map((block) => {
-                return this.loadBlock(block.name).create(muya, block);
-            }),
+        appendCreatedChildren(
+            state,
+            block => this.createStateBlock(muya, block),
+            child => scrollPage.append(child),
         );
 
         scrollPage.parent!.domNode!.appendChild(scrollPage.domNode!);
@@ -86,6 +116,28 @@ export class ScrollPage extends Parent {
         return {} as TState;
     }
 
+    /** Bind all structural fragments from one canonical document revision. */
+    bindCriticMarkupDocument(document: CriticMarkupDocument | null): void {
+        for (const block of this._criticMarkupStructuralBlocks)
+            block.replaceCriticMarkupStructuralFragments([]);
+        this._criticMarkupStructuralBlocks.clear();
+        if (!document)
+            return;
+
+        for (const path of document.pathsWithStructuralFragments()) {
+            const block = this.queryBlock([...path]);
+            if (!block) {
+                throw new TypeError(
+                    'Structural CriticMarkup path has no live native block.',
+                );
+            }
+            block.replaceCriticMarkupStructuralFragments(
+                document.structuralFragmentsForPath(path),
+            );
+            this._criticMarkupStructuralBlocks.add(block);
+        }
+    }
+
     private _listenDomEvent() {
         const { eventCenter } = this.muya;
         const { domNode } = this;
@@ -95,13 +147,14 @@ export class ScrollPage extends Parent {
 
     updateState(state: TState[]) {
         const { muya } = this;
+        const children = createChildren(
+            state,
+            block => ScrollPage.createStateBlock(muya, block),
+        );
         // Empty scrollPage dom
         this.empty();
-        this.append(
-            ...state.map((block) => {
-                return ScrollPage.loadBlock(block.name).create(muya, block);
-            }),
-        );
+        for (const child of children)
+            this.append(child);
     }
 
     /**
@@ -201,17 +254,27 @@ export class ScrollPage extends Parent {
                     lastContentBlock.setCursor(0, 0);
                 }
                 else {
-                    const state = {
-                        name: 'paragraph',
-                        text: '',
+                    const outcome: { cursorBlock: Content | null } = {
+                        cursorBlock: null,
                     };
-                    const newNode = ScrollPage.loadBlock(state.name).create(
-                        this.muya,
-                        state,
+                    const result = this.muya.editor.mutationGateway.run(
+                        { kind: 'user-command' },
+                        () => {
+                            const state: TState = {
+                                name: 'paragraph',
+                                text: '',
+                            };
+                            const newNode = ScrollPage.createStateBlock(
+                                this.muya,
+                                state,
+                            );
+                            this.append(newNode, 'user');
+                            outcome.cursorBlock
+                                = newNode.lastContentInDescendant();
+                        },
                     );
-                    this.append(newNode, 'user');
-                    const cursorBlock = newNode.lastContentInDescendant();
-                    cursorBlock.setCursor(0, 0, true);
+                    if (result === 'untracked')
+                        outcome.cursorBlock?.setCursor(0, 0, true);
                 }
             }
         }

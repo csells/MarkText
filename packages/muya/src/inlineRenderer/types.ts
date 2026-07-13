@@ -1,5 +1,15 @@
 import type { h } from 'snabbdom';
 import type Format from '../block/base/format';
+import type {
+    ICriticMarkupDocumentFragmentInput,
+    TCriticMarkupDocumentToken,
+} from '../criticMarkup/document';
+import type { TCriticMarkupProjection } from '../criticMarkup/project';
+import type {
+    ICriticMarkupRenderFragment,
+    ICriticMarkupRenderSequence,
+} from '../criticMarkup/renderPlan';
+import type { ICriticMarkupRenderLimitDiagnostic } from '../criticMarkup/renderPolicy';
 import type { IRenderCursor } from '../selection/types';
 
 export type H = typeof h;
@@ -31,7 +41,21 @@ export type Rules = Record<string, RegExp>;
 export interface ITokenizerFacOptions {
     superSubScript: boolean;
     footnote: boolean;
+    math?: boolean;
+    /** Internal context pass: false prevents recursive CriticMarkup discovery. */
+    criticMarkup?: boolean;
+    criticMarkupDocumentFragments?: readonly ICriticMarkupDocumentFragmentInput[];
+    /** Canonical child sequence for this recursive Markdown tokenizer. */
+    criticMarkupRenderSequence?: ICriticMarkupRenderSequence;
+    /** Canonical document projection; renderers/tokenizers must never rescan. */
+    criticMarkupProjectLocalRange?: (
+        start: number,
+        end: number,
+        projection: TCriticMarkupProjection,
+    ) => string;
 }
+
+export type { ICriticMarkupDocumentFragmentInput } from '../criticMarkup/document';
 
 export interface ITokenizerOptions {
     highlights?: IHighlight[];
@@ -50,6 +74,8 @@ export type Token
         | ReferenceDefinitionToken
         | TextToken
         | BacklashToken
+        | CriticMarkupDocumentFragmentToken
+        | CriticMarkupRenderLimitToken
         | StrongEmToken
         | CodeEmojiMathToken
         | DelToken
@@ -105,6 +131,33 @@ export type BacklashToken = IBaseToken & {
     type: 'backlash';
     marker: string;
     content: string;
+};
+
+export type TCriticMarkupRenderSegment
+    = | Extract<ICriticMarkupRenderFragment['segments'][number], {
+        kind: 'marker';
+    }>
+    | (Extract<ICriticMarkupRenderFragment['segments'][number], {
+        kind: 'content';
+    }> & { children: Token[] });
+
+export type CriticMarkupDocumentFragmentToken = IBaseToken & {
+    type: 'critic_document_fragment';
+    itemId: string;
+    parentId: string | null;
+    depth: number;
+    criticType: TCriticMarkupDocumentToken['type'];
+    role: ICriticMarkupRenderFragment['role'];
+    fragment: ICriticMarkupRenderFragment;
+    critic: TCriticMarkupDocumentToken;
+    segments: TCriticMarkupRenderSegment[];
+};
+
+/** Literal, lossless fallback emitted at the final renderer's depth budget. */
+export type CriticMarkupRenderLimitToken = IBaseToken & {
+    type: 'critic_markup_render_limit';
+    content: string;
+    diagnostic: ICriticMarkupRenderLimitDiagnostic;
 };
 
 export type StrongEmToken = IBaseToken & {

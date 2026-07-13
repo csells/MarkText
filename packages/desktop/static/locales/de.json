@@ -136,6 +136,25 @@
       "hyperlink": "Hyperlink",
       "clearFormat": "Format löschen"
     },
+    "review": {
+      "review": "Überprüfen",
+      "trackChanges": "Änderungen nachverfolgen",
+      "markAddition": "Als Einfügung markieren",
+      "markDeletion": "Als Löschung markieren",
+      "suggestReplacement": "Ersetzung vorschlagen…",
+      "highlight": "Zur Überprüfung hervorheben",
+      "addComment": "Kommentar hinzufügen…",
+      "previous": "Vorherige Änderung",
+      "next": "Nächste Änderung",
+      "acceptCurrent": "Änderung annehmen",
+      "rejectCurrent": "Änderung ablehnen",
+      "acceptAll": "Alle Änderungen annehmen",
+      "rejectAll": "Alle Änderungen ablehnen",
+      "display": "Anzeige",
+      "showMarked": "Markierungen",
+      "showOriginal": "Original",
+      "showRevised": "Überarbeitet"
+    },
     "theme": {
       "theme": "Design (&T)",
       "dark": "Dunkel",
@@ -243,10 +262,27 @@
     "toc": {
       "title": "Inhaltsverzeichnis"
     },
+    "review": {
+      "title": "Überprüfen",
+      "summary": "{count} Überprüfungselemente",
+      "trackChanges": "Änderungen nachverfolgen",
+      "unavailable": "Die Überprüfung ist in dieser Ansicht nicht verfügbar.",
+      "empty": "Keine Überprüfungselemente",
+      "removeComment": "Kommentar entfernen",
+      "removeHighlight": "Hervorhebung entfernen",
+      "types": {
+        "addition": "Einfügung",
+        "deletion": "Löschung",
+        "substitution": "Ersetzung",
+        "highlight": "Hervorhebung",
+        "comment": "Kommentar"
+      }
+    },
     "icons": {
       "files": "Dateien",
       "search": "Suchen",
       "toc": "Inhaltsverzeichnis",
+      "review": "Überprüfen",
       "settings": "Einstellungen"
     }
   },
@@ -820,6 +856,23 @@
       "image": "Bild",
       "clearFormat": "Format löschen"
     },
+    "review": {
+      "trackChanges": "Änderungen nachverfolgen",
+      "markAddition": "Als Einfügung markieren",
+      "markDeletion": "Als Löschung markieren",
+      "suggestReplacement": "Ersetzung vorschlagen",
+      "highlight": "Zur Überprüfung hervorheben",
+      "addComment": "Kommentar hinzufügen",
+      "previous": "Vorherige Änderung",
+      "next": "Nächste Änderung",
+      "acceptCurrent": "Änderung annehmen",
+      "rejectCurrent": "Änderung ablehnen",
+      "acceptAll": "Alle Änderungen annehmen",
+      "rejectAll": "Alle Änderungen ablehnen",
+      "showMarked": "Markierungen anzeigen",
+      "showOriginal": "Original anzeigen",
+      "showRevised": "Überarbeitete Fassung anzeigen"
+    },
     "window": {
       "minimize": "Minimieren",
       "toggleAlwaysOnTop": "Immer im Vordergrund umschalten",
@@ -933,6 +986,12 @@
     "unexpectedError": "Unerwarteter Rechtschreibprüfungsfehler"
   },
   "editor": {
+    "criticMarkup": {
+      "commentTitle": "Kommentar hinzufügen",
+      "commentPlaceholder": "Prüfkommentar eingeben",
+      "replacementTitle": "Ersetzung vorschlagen",
+      "replacementPlaceholder": "Ersatztext eingeben"
+    },
     "export": {
       "error": "Export-Fehler",
       "errorExporting": "Fehler beim Exportieren der {type}-Datei",

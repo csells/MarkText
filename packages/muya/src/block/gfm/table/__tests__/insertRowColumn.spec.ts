@@ -3,6 +3,7 @@
 import type TreeNode from '../../../base/treeNode';
 import type Table from '../index';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runUserCommandResult } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // Coverage for `Table.insertRow` / `Table.insertColumn`. The migration audit
@@ -71,7 +72,7 @@ describe('table.insertRow', () => {
         const table = findTable(muya);
         expect(table.rowCount).toBe(2);
 
-        table.insertRow(1);
+        runUserCommandResult(muya, () => table.insertRow(1));
 
         await flush();
         expect(table.rowCount).toBe(3);
@@ -86,7 +87,7 @@ describe('table.insertRow', () => {
         const muya = bootMuya(ALIGNED_TABLE);
         const table = findTable(muya);
 
-        table.insertRow(1);
+        runUserCommandResult(muya, () => table.insertRow(1));
 
         await flush();
         const state = table.getState();
@@ -101,7 +102,10 @@ describe('table.insertRow', () => {
         const muya = bootMuya(ALIGNED_TABLE);
         const table = findTable(muya);
 
-        const caretCell = table.insertRow(1);
+        const caretCell = runUserCommandResult(
+            muya,
+            () => table.insertRow(1),
+        );
 
         expect(caretCell).toBeTruthy();
         expect((caretCell.constructor as { blockName?: string }).blockName).toBe('table.cell.content');
@@ -110,7 +114,7 @@ describe('table.insertRow', () => {
 
     it('round-trips the alignment delimiter row after the insert', async () => {
         const muya = bootMuya(ALIGNED_TABLE);
-        findTable(muya).insertRow(1);
+        runUserCommandResult(muya, () => findTable(muya).insertRow(1));
 
         await flush();
         const md = muya.getMarkdown();
@@ -126,7 +130,7 @@ describe('table.insertColumn', () => {
         const table = findTable(muya);
         expect(table.columnCount).toBe(2);
 
-        table.insertColumn(1, 'center');
+        runUserCommandResult(muya, () => table.insertColumn(1, 'center'));
 
         await flush();
         expect(table.columnCount).toBe(3);
@@ -140,7 +144,7 @@ describe('table.insertColumn', () => {
         const muya = bootMuya(ALIGNED_TABLE);
         const table = findTable(muya);
 
-        table.insertColumn(1, 'center');
+        runUserCommandResult(muya, () => table.insertColumn(1, 'center'));
 
         await flush();
         const state = table.getState();
@@ -153,7 +157,10 @@ describe('table.insertColumn', () => {
         const muya = bootMuya(ALIGNED_TABLE);
         const table = findTable(muya);
 
-        const caretCell = table.insertColumn(1, 'center');
+        const caretCell = runUserCommandResult(
+            muya,
+            () => table.insertColumn(1, 'center'),
+        );
 
         expect(caretCell).toBeTruthy();
         expect((caretCell.constructor as { blockName?: string }).blockName).toBe('table.cell.content');
@@ -162,7 +169,10 @@ describe('table.insertColumn', () => {
 
     it('serializes the new center column as a :---: delimiter between the existing ones', async () => {
         const muya = bootMuya(ALIGNED_TABLE);
-        findTable(muya).insertColumn(1, 'center');
+        runUserCommandResult(
+            muya,
+            () => findTable(muya).insertColumn(1, 'center'),
+        );
 
         await flush();
         const md = muya.getMarkdown();

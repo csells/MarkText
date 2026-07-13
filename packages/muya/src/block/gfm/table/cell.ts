@@ -4,17 +4,17 @@ import type { ITableCellMeta, ITableCellState } from '../../../state/types';
 import type TableCellContent from '../../content/tableCell';
 import type Row from './row';
 import type TableInner from './table';
-import { mixins } from '../../../utils';
-import { LinkedList } from '../../base/linkedList/linkedList';
+import diff from 'fast-diff';
+import { diffToTextOp, mixins } from '../../../utils';
 import Parent from '../../base/parent';
 import LeafQueryBlock from '../../mixins/leafQueryBlock';
 import { ScrollPage } from '../../scrollPage';
 
 @mixins(LeafQueryBlock)
-class TableBodyCell extends Parent {
-    override children: LinkedList<TableCellContent> = new LinkedList();
-
-    public meta: ITableCellMeta;
+class TableBodyCell extends Parent<TableCellContent> {
+    get meta(): Readonly<ITableCellMeta> {
+        return this.readBlockMeta<ITableCellMeta>();
+    }
 
     static override blockName = 'table.cell';
 
@@ -56,14 +56,47 @@ class TableBodyCell extends Parent {
     }
 
     set align(value) {
+        const oldValue = this.meta.align;
+        if (oldValue === value)
+            return;
+        this.#applyAlignment(value, 'document-edit');
+        const path = this.path;
+        path.push('meta', 'align');
+        this.jsonState.editOperation(
+            path,
+            diffToTextOp(diff(oldValue, value)),
+        );
+    }
+
+    /** Apply an already-committed JSON alignment during incremental rebuild. */
+    applyAlignmentFromState(value: string): void {
+        this.#applyAlignment(value, 'prepared-state');
+    }
+
+    #applyAlignment(
+        value: string,
+        source: 'document-edit' | 'prepared-state',
+    ): void {
+        const nextMeta = { ...this.meta, align: value };
+        if (source === 'document-edit') {
+            this.replaceBlockMetaForDocumentEdit(
+                nextMeta,
+                'Table cell alignment mutation',
+            );
+        }
+        else {
+            this.replaceBlockMetaFromPreparedState(
+                nextMeta,
+                'Prepared table cell alignment application',
+            );
+        }
         this.domNode!.dataset.align = value;
-        this.meta.align = value;
     }
 
     constructor(muya: Muya, { meta }: ITableCellState) {
         super(muya);
         this.tagName = 'td';
-        this.meta = meta;
+        this.initializeBlockMeta(meta);
         this.datasets = {
             align: meta.align,
         };
@@ -78,7 +111,7 @@ class TableBodyCell extends Parent {
             text: (this.firstChild as TableCellContent).text,
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

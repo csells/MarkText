@@ -2,6 +2,7 @@
 import type { IMuyaOptions, TState } from '@muyajs/core';
 import {
     CodeBlockLanguageSelector,
+    CriticMarkupReviewTool,
     de,
     EmojiSelector,
     en,
@@ -64,6 +65,7 @@ Muya.use(ImageEditTool, { imagePathPicker, imageAction });
 Muya.use(ImageToolBar);
 Muya.use(ImageResizeBar);
 Muya.use(CodeBlockLanguageSelector);
+Muya.use(CriticMarkupReviewTool);
 Muya.use(LinkTools, {
     jumpClick: (linkInfo: { href?: string } | null) => {
         const href = linkInfo?.href;

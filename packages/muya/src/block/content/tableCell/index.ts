@@ -1,5 +1,6 @@
 import type { Muya } from '../../../muya';
 import type { IRenderCursor } from '../../../selection/types';
+import type { IParagraphState } from '../../../state/types';
 import type Table from '../../gfm/table';
 import type Cell from '../../gfm/table/cell';
 import type Row from '../../gfm/table/row';
@@ -103,12 +104,12 @@ class TableCellContent extends Format {
                 cursorBlock = nextContent;
             }
             else {
-                const state = {
+                const state: IParagraphState = {
                     name: 'paragraph',
                     text: '',
                 };
 
-                const newParagraphBlock = ScrollPage.loadBlock('paragraph').create(
+                const newParagraphBlock = ScrollPage.createStateBlock(
                     this.muya,
                     state,
                 );
@@ -117,7 +118,7 @@ class TableCellContent extends Format {
             }
         }
 
-        cursorBlock.setCursor(0, 0, true);
+        cursorBlock!.setCursor(0, 0, true);
     }
 
     override enterHandler(event: Event) {
@@ -180,12 +181,12 @@ class TableCellContent extends Format {
                     cursorBlock = tableNextContent;
                 }
                 else {
-                    const state = {
+                    const state: IParagraphState = {
                         name: 'paragraph',
                         text: '',
                     };
 
-                    const newParagraphBlock = ScrollPage.loadBlock('paragraph').create(
+                    const newParagraphBlock = ScrollPage.createStateBlock(
                         this.muya,
                         state,
                     );
@@ -193,7 +194,7 @@ class TableCellContent extends Format {
                     cursorBlock = newParagraphBlock.firstContentInDescendant();
                 }
 
-                cursorBlock.setCursor(0, 0, true);
+                cursorBlock!.setCursor(0, 0, true);
             }
         }
         else {
@@ -216,16 +217,16 @@ class TableCellContent extends Format {
             || (previousContentBlock.blockName !== 'table.cell.content'
                 && this.table.isEmpty())
         ) {
-            const state = {
+            const state: IParagraphState = {
                 name: 'paragraph',
                 text: '',
             };
-            const newParagraphBlock = ScrollPage.loadBlock('paragraph').create(
+            const newParagraphBlock = ScrollPage.createStateBlock(
                 this.muya,
                 state,
             );
             this.table.replaceWith(newParagraphBlock);
-            newParagraphBlock.firstChild.setCursor(0, 0);
+            newParagraphBlock.firstContentInDescendant()!.setCursor(0, 0);
         }
         else {
             const offset = previousContentBlock.text.length;

@@ -13,7 +13,7 @@ class BlockQuote extends Parent {
         const blockQuote = new BlockQuote(muya);
 
         for (const child of state.children)
-            blockQuote.append(ScrollPage.loadBlock(child.name).create(muya, child));
+            blockQuote.append(ScrollPage.createStateBlock(muya, child));
 
         return blockQuote;
     }
@@ -38,7 +38,7 @@ class BlockQuote extends Parent {
             children: this.children.map(child => (child as Parent).getState()),
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

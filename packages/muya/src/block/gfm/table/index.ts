@@ -1,5 +1,9 @@
 import type { Muya } from '../../../muya';
-import type { ITableRowState, ITableState } from '../../../state/types';
+import type {
+    ITableCellState,
+    ITableRowState,
+    ITableState,
+} from '../../../state/types';
 import type { Nullable } from '../../../types';
 import type Content from '../../base/content';
 import type TableCellContent from '../../content/tableCell';
@@ -7,19 +11,14 @@ import type { TBlockPath } from '../../types';
 import type TableBodyCell from './cell';
 import type TableRow from './row';
 import type TableInner from './table';
-import diff from 'fast-diff';
 import { fromEvent } from 'rxjs';
-import { diffToTextOp } from '../../../utils';
 import logger from '../../../utils/logger';
-import { LinkedList } from '../../base/linkedList/linkedList';
 import Parent from '../../base/parent';
 import { ScrollPage } from '../../scrollPage';
 
 const debug = logger('table:');
 
-class Table extends Parent {
-    override children: LinkedList<TableInner> = new LinkedList();
-
+class Table extends Parent<TableInner> {
     static override blockName = 'table';
 
     static create(muya: Muya, state: ITableState) {
@@ -112,7 +111,12 @@ class Table extends Parent {
     queryBlock(path: TBlockPath) {
         // Table's only child at runtime is `TableInner` (the body wrapper),
         // which extends the queryBlock mixin and is always present.
-        return (this.firstChild as Parent & { queryBlock: (p: TBlockPath) => Parent | Content | undefined }).queryBlock(path);
+        // The decorator installs queryBlock at runtime; TypeScript cannot
+        // express mixin-added members on TableInner.
+        // eslint-disable-next-line no-restricted-syntax
+        return (this.firstChild as unknown as Parent & {
+            queryBlock: (p: TBlockPath) => Parent | Content | undefined;
+        }).queryBlock(path);
     }
 
     protected override empty() {
@@ -137,7 +141,7 @@ class Table extends Parent {
             = offset > 0
                 ? (this.firstChild as TableInner).find(offset - 1)
                 : (this.firstChild as TableInner).find(offset);
-        const state = {
+        const state: ITableRowState = {
             name: 'table.row',
             // eslint-disable-next-line unicorn/no-new-array
             children: [...new Array(columnCount)].map((_, i) => {
@@ -151,14 +155,24 @@ class Table extends Parent {
             }),
         };
 
-        const rowBlock = ScrollPage.loadBlock('table.row').create(this.muya, state);
+        const rowBlock = ScrollPage.createStateBlock(
+            this.muya,
+            state,
+        ) as TableRow;
 
         if (offset > 0)
             (this.firstChild as TableInner).insertAfter(rowBlock, currentRow as TableRow);
         else
             (this.firstChild as TableInner).insertBefore(rowBlock, currentRow as TableRow);
 
-        return rowBlock.firstContentInDescendant();
+        const firstContent = rowBlock.firstContentInDescendant();
+        if (!firstContent) {
+            throw new TypeError(
+                'A newly-created table row must contain a content cell.',
+            );
+        }
+
+        return firstContent;
     }
 
     insertColumn(offset: number, align = 'none') {
@@ -166,12 +180,15 @@ class Table extends Parent {
         let firstCellInNewColumn: Nullable<TableBodyCell> = null;
 
         tableInner.forEach((row) => {
-            const state = {
+            const state: ITableCellState = {
                 name: 'table.cell',
                 meta: { align },
                 text: '',
             };
-            const cell = ScrollPage.loadBlock('table.cell').create(this.muya, state);
+            const cell = ScrollPage.createStateBlock(
+                this.muya,
+                state,
+            ) as TableBodyCell;
             const ref = (row as TableRow).find(offset);
 
             (row as TableRow).insertBefore(cell, ref as TableBodyCell);
@@ -217,7 +234,6 @@ class Table extends Parent {
             debug.warn(`column at ${offset} is not existed.`);
             return;
         }
-
         const table = this.firstChild as TableInner;
         if (this.columnCount === 1) {
             // Same outside-of-table fallback as removeRow when the whole
@@ -261,12 +277,6 @@ class Table extends Parent {
             if (cell) {
                 const { align: oldValue } = cell;
                 cell.align = oldValue === value ? 'none' : value;
-                // dispatch change to modify json state
-                const diffs = diff(oldValue, cell.align);
-                const { path } = cell;
-                path.push('meta', 'align');
-
-                this.jsonState.editOperation(path, diffToTextOp(diffs));
             }
         });
     }
@@ -320,7 +330,9 @@ class Table extends Parent {
     }
 
     override getState(): ITableState {
-        return (this.firstChild as TableInner).getState();
+        return this.withStateSourceTrivia(
+            (this.firstChild as TableInner).getState(),
+        );
     }
 }
 

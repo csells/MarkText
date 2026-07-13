@@ -1,4 +1,5 @@
 import type { VNode } from 'snabbdom';
+import type Parent from '../../block/base/parent';
 import type { Muya } from '../../index';
 import type {
     IQuickInsertMenuItem,
@@ -102,11 +103,10 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
                 const label = getLabelFromEvent(event);
                 if (label) {
                     event.preventDefault();
-                    replaceBlockByLabel({
+                    this._replaceBlockByLabel(
                         label,
-                        block: anchorBlock.parent!,
-                        muya: this.muya,
-                    });
+                        anchorBlock.parent ?? null,
+                    );
                 }
             }
         };
@@ -230,14 +230,31 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
     }
 
     override selectItem({ label }: IQuickInsertMenuItem['children'][number]) {
-        const { _block: block, muya } = this;
-        replaceBlockByLabel({
-            label,
-            block: block!.parent!,
-            muya,
-        });
+        const { _block: block } = this;
+        this._replaceBlockByLabel(label, block?.parent ?? null);
         // delay hide to avoid dispatch enter handler
         setTimeout(this.hide.bind(this));
+    }
+
+    private _replaceBlockByLabel(
+        label: string,
+        block: Parent | null | undefined,
+    ) {
+        if (!block)
+            return;
+
+        // "table" only opens the dimension picker. Its callback enters the
+        // gateway through Muya.createTable once the user chooses a size; do
+        // not suppress this nonmutating UI event as a tracked proposal.
+        if (label === 'table') {
+            replaceBlockByLabel({ label, block, muya: this.muya });
+            return;
+        }
+
+        this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => replaceBlockByLabel({ label, block, muya: this.muya }),
+        );
     }
 
     getItemElement(item: IQuickInsertMenuItem['children'][number]) {

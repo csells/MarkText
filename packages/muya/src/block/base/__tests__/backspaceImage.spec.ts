@@ -58,11 +58,18 @@ function flush(): Promise<void> {
 }
 
 function backspace(content: Content): void {
-    content.backspaceHandler({
-        preventDefault: vi.fn(),
-        stopPropagation: vi.fn(),
-        key: 'Backspace',
-    } as unknown as KeyboardEvent);
+    const result = content.muya.editor.mutationGateway.run(
+        { kind: 'user-command' },
+        () => {
+            content.backspaceHandler({
+                preventDefault: vi.fn(),
+                stopPropagation: vi.fn(),
+                key: 'Backspace',
+            } as unknown as KeyboardEvent);
+        },
+    );
+    if (result === 'tracked')
+        throw new TypeError('Image selection must not produce a tracked mutation.');
 }
 
 // Inject the loaded <img> the renderer would have produced, then park the caret
@@ -90,6 +97,21 @@ function caretAfterInlineImage(muya: Muya): Content {
 }
 
 describe('backspace deletes a whole image', () => {
+    it('does not delete the selected image in a clean projection', () => {
+        const source = '![alt](https://example.com/a.png)';
+        const muya = bootMuya(source);
+        muya.setOptions({ criticMarkupProjection: 'revised' }, true);
+        const content = caretAfterInlineImage(muya);
+
+        backspace(content);
+        document.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
+        );
+
+        expect(firstContent(muya).text).toContain('![alt]');
+        expect(muya.getMarkdown()).toContain('![alt]');
+    });
+
     it('a markdown image: first Backspace selects, second deletes', async () => {
         const muya = bootMuya('![alt](https://example.com/a.png)');
         const content = caretAfterInlineImage(muya);

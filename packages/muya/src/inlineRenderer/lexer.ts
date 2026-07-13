@@ -1,3 +1,4 @@
+import type { ICriticMarkupRenderSequence } from '../criticMarkup/renderPlan';
 import type { BeginRules, InlineRules } from './rules';
 import type {
     ITokenizerFacOptions,
@@ -5,9 +6,16 @@ import type {
     Labels,
     Token,
 } from './types';
-import escapeCharactersMap from '../config/escapeCharacter';
-import { isLengthEven, union } from '../utils';
+import {
+    activeCriticMarkupRenderNode,
+    buildCriticMarkupRenderPlan,
+    criticMarkupRenderCursor,
+} from '../criticMarkup/renderPlan';
+import { localRange, sourceRange } from '../mappedText';
+import { isLengthEven } from '../utils';
+import { consumeBeginRules } from './beginRuleTokenizer';
 import { beginRules, inlineRules, linkValidateRules, validateRules } from './rules';
+import { applyHighlights } from './tokenOutput';
 import {
     correctUrl,
     getAttributes,
@@ -16,6 +24,7 @@ import {
     validateEmphasize,
 } from './utils';
 
+export { generator, tokensToPlainText } from './tokenOutput';
 // const CAN_NEST_RULES = ['strong', 'em', 'link', 'del', 'a_link', 'reference_link', 'html_tag']
 // disallowed html tags in https://github.github.com/gfm/#raw-html
 const disallowedHtmlTag
@@ -26,6 +35,7 @@ const disallowedHtmlTag
 // accumulate plain text between matched tokens; `tokens` collects the output.
 interface ILexState {
     originSrc: string;
+    originOffset: number;
     src: string;
     pos: number;
     pending: string;
@@ -37,6 +47,8 @@ interface ILexState {
     top: boolean;
     superSubScript: boolean;
     footnote: boolean;
+    criticMarkupRenderSequence: ICriticMarkupRenderSequence;
+    criticMarkupRenderCursor: number;
 }
 
 function pushPending(state: ILexState) {
@@ -55,64 +67,6 @@ function pushPending(state: ILexState) {
 
     state.pendingStartPos = state.pos;
     state.pending = '';
-}
-
-function consumeBeginRules(state: ILexState, beginRules: BeginRules) {
-    const beginRuleKeys = [
-        'header',
-        'hr',
-        'code_fence',
-        'multiple_math',
-    ] as const;
-
-    for (const ruleName of beginRuleKeys) {
-        const to = beginRules[ruleName].exec(state.src);
-
-        if (to) {
-            const token = {
-                type: ruleName,
-                raw: to[0],
-                parent: state.tokens,
-                marker: to[1],
-                content: to[2] || '',
-                backlash: to[3] || '',
-                range: {
-                    start: state.pos,
-                    end: state.pos + to[0].length,
-                },
-            };
-            state.tokens.push(token);
-            state.src = state.src.substring(to[0].length);
-            state.pos = state.pos + to[0].length;
-            break;
-        }
-    }
-    const def = beginRules.reference_definition.exec(state.src);
-    if (def && isLengthEven(def[3])) {
-        const token = {
-            type: 'reference_definition' as const,
-            parent: state.tokens,
-            leftBracket: def[1],
-            label: def[2],
-            backlash: def[3] || '',
-            rightBracket: def[4],
-            leftHrefMarker: def[5] || '',
-            href: def[6],
-            rightHrefMarker: def[7] || '',
-            leftTitleSpace: def[8],
-            titleMarker: def[9] || '',
-            title: def[10] || '',
-            rightTitleSpace: def[11] || '',
-            raw: def[0],
-            range: {
-                start: state.pos,
-                end: state.pos + def[0].length,
-            },
-        };
-        state.tokens.push(token);
-        state.src = state.src.substring(def[0].length);
-        state.pos = state.pos + def[0].length;
-    }
 }
 
 function tryBacklash(state: ILexState): boolean {
@@ -136,6 +90,133 @@ function tryBacklash(state: ILexState): boolean {
     state.pendingStartPos = state.pos + backTo[1].length;
     state.src = state.src.substring(backTo[0].length);
     state.pos = state.pos + backTo[0].length;
+
+    return true;
+}
+
+function tryCriticMarkupDocumentFragment(state: ILexState): boolean {
+    const { nodes } = state.criticMarkupRenderSequence;
+    while (
+        state.criticMarkupRenderCursor < nodes.length
+        && nodes[state.criticMarkupRenderCursor]
+            .fragment
+            .localRange
+            .end <= state.pos
+    ) {
+        state.criticMarkupRenderCursor++;
+    }
+    const renderNode = activeCriticMarkupRenderNode(
+        state.criticMarkupRenderSequence,
+        state.criticMarkupRenderCursor,
+        state.pos,
+    );
+    if (!renderNode)
+        return false;
+
+    const { item, fragment: inputFragment } = renderNode;
+    const start = state.pos;
+    const end = inputFragment.localRange.end;
+    if (end <= start || end - start > state.src.length) {
+        throw new RangeError(
+            `CriticMarkup document fragment ${item.id} exceeds its inline source.`,
+        );
+    }
+
+    if (renderNode.presentation === 'literal-depth-limit') {
+        pushPending(state);
+        const raw = state.originSrc.slice(
+            start - state.originOffset,
+            end - state.originOffset,
+        );
+        state.tokens.push({
+            type: 'critic_markup_render_limit',
+            raw,
+            content: raw,
+            range: { start, end },
+            parent: state.tokens,
+            diagnostic: renderNode.diagnostic!,
+        });
+        state.src = state.src.substring(end - start);
+        state.pos = end;
+        state.pendingStartPos = end;
+        return true;
+    }
+
+    pushPending(state);
+    const segments = renderNode.segments.flatMap((segment) => {
+        const segmentStart = Math.max(start, segment.localRange.start);
+        const segmentEnd = Math.min(end, segment.localRange.end);
+        if (segmentStart >= segmentEnd)
+            return [];
+
+        const sourceDelta = segmentStart - segment.localRange.start;
+        return [{
+            ...segment,
+            localRange: localRange(segmentStart, segmentEnd),
+            sourceRange: sourceRange(
+                segment.sourceRange.start + sourceDelta,
+                segment.sourceRange.start + sourceDelta
+                + segmentEnd - segmentStart,
+            ),
+        }];
+    });
+    const fragment = {
+        ...inputFragment,
+        localRange: localRange(start, end),
+        sourceRange: sourceRange(
+            segments[0]?.sourceRange.start
+            ?? inputFragment.sourceRange.start,
+            segments.at(-1)?.sourceRange.end
+            ?? inputFragment.sourceRange.end,
+        ),
+        segments,
+    };
+    const renderSegments = segments.map((segment) => {
+        if (segment.kind === 'content' && segment.arm !== 'comment') {
+            const relativeStart = segment.localRange.start - state.originOffset;
+            const relativeEnd = segment.localRange.end - state.originOffset;
+            return {
+                ...segment,
+                children: tokenizerFac(
+                    state.originSrc.slice(relativeStart, relativeEnd),
+                    null,
+                    state.inlineRules,
+                    segment.localRange.start,
+                    false,
+                    state.labels,
+                    {
+                        ...state.options,
+                        criticMarkupRenderSequence: segment.children,
+                    },
+                ),
+            };
+        }
+
+        return segment.kind === 'content'
+            ? { ...segment, children: [] }
+            : segment;
+    });
+    const raw = state.originSrc.slice(
+        start - state.originOffset,
+        end - state.originOffset,
+    );
+    state.tokens.push({
+        type: 'critic_document_fragment',
+        raw,
+        range: { start, end },
+        parent: state.tokens,
+        itemId: item.id,
+        parentId: item.parentId,
+        depth: item.depth,
+        criticType: item.syntax.type,
+        role: fragment.role,
+        fragment,
+        critic: item.syntax,
+        segments: renderSegments,
+    });
+    state.src = state.src.substring(end - start);
+    state.pos = end;
+    state.pendingStartPos = end;
 
     return true;
 }
@@ -189,12 +270,11 @@ function tryStrongEm(state: ILexState): boolean {
 
     return false;
 }
-
-// emoji | inline_code | del | inline_math
 function tryChunks(state: ILexState): boolean {
     const chunks = ['inline_code', 'del', 'emoji', 'inline_math'] as const;
-
     for (const rule of chunks) {
+        if (rule === 'inline_math' && state.options.math === false)
+            continue;
         const to = state.inlineRules[rule].exec(state.src);
         if (to && isLengthEven(to[3])) {
             if (rule === 'emoji') {
@@ -319,6 +399,12 @@ function tryImage(state: ILexState): boolean {
         return false;
 
     const { src: imageSrc, title } = parseSrcAndTitle(imageTo[4]);
+    const altStart = state.pos + imageTo[1].length;
+    const projectedAlt = state.options.criticMarkupProjectLocalRange?.(
+        altStart,
+        altStart + imageTo[2].length,
+        'revised',
+    ) ?? imageTo[2];
     pushPending(state);
     state.tokens.push({
         type: 'image',
@@ -329,7 +415,7 @@ function tryImage(state: ILexState): boolean {
         attrs: {
             src: imageSrc + encodeURI(imageTo[5]),
             title,
-            alt: imageTo[2] + encodeURI(imageTo[3]),
+            alt: projectedAlt + encodeURI(imageTo[3]),
         },
         src: imageSrc,
         title,
@@ -338,7 +424,7 @@ function tryImage(state: ILexState): boolean {
             start: state.pos,
             end: state.pos + imageTo[0].length,
         },
-        alt: imageTo[2],
+        alt: projectedAlt,
         backlash: {
             first: imageTo[3],
             second: imageTo[5],
@@ -469,12 +555,19 @@ function tryReferenceImage(state: ILexState): boolean {
 
     pushPending(state);
 
+    const altStart = state.pos + 2;
+    const projectedAlt = state.options.criticMarkupProjectLocalRange?.(
+        altStart,
+        altStart + rImageTo[1].length,
+        'revised',
+    ) ?? rImageTo[1];
+
     state.tokens.push({
         type: 'reference_image',
         raw: rImageTo[0],
         isFullLink: !!rImageTo[3],
         parent: state.tokens,
-        alt: rImageTo[1],
+        alt: projectedAlt,
         backlash: {
             first: rImageTo[2],
             second: rImageTo[4] || '',
@@ -791,6 +884,7 @@ function tryTailHeader(state: ILexState): boolean {
 // iterates. This array order IS the rule-precedence contract.
 const INLINE_HANDLERS: ReadonlyArray<(state: ILexState) => boolean> = [
     tryBacklash,
+    tryCriticMarkupDocumentFragment,
     tryStrongEm,
     tryChunks,
     trySuperSubScript,
@@ -810,8 +904,11 @@ const INLINE_HANDLERS: ReadonlyArray<(state: ILexState) => boolean> = [
 
 function tokenizerFac(src: string, beginRules: BeginRules | null, inlineRules: InlineRules, pos = 0, top: boolean, labels: Labels, options: ITokenizerFacOptions) {
     const { superSubScript, footnote } = options;
+    const criticMarkupRenderSequence = options.criticMarkupRenderSequence
+        ?? buildCriticMarkupRenderPlan([]).roots;
     const state: ILexState = {
         originSrc: src,
+        originOffset: pos,
         src,
         pos,
         pending: '',
@@ -823,6 +920,11 @@ function tokenizerFac(src: string, beginRules: BeginRules | null, inlineRules: I
         top,
         superSubScript,
         footnote,
+        criticMarkupRenderSequence,
+        criticMarkupRenderCursor: criticMarkupRenderCursor(
+            criticMarkupRenderSequence,
+            pos,
+        ),
     };
 
     if (beginRules && state.pos === 0)
@@ -858,8 +960,28 @@ export function tokenizer(src: string, {
     options = {
         superSubScript: true,
         footnote: false,
+        criticMarkup: false,
+        criticMarkupDocumentFragments: [],
     },
 }: ITokenizerOptions = {} as ITokenizerOptions) {
+    if (
+        options.criticMarkup === true
+        && options.criticMarkupDocumentFragments === undefined
+    ) {
+        throw new TypeError(
+            'CriticMarkup tokenization requires canonical document fragments or explicit disablement.',
+        );
+    }
+
+    const preparedOptions = options.criticMarkupRenderSequence
+        ? options
+        : {
+                ...options,
+                criticMarkupRenderSequence: buildCriticMarkupRenderPlan(
+                    options.criticMarkupDocumentFragments ?? [],
+                ).roots,
+            };
+
     const tokens = tokenizerFac(
         src,
         hasBeginRules ? beginRules : null,
@@ -867,137 +989,11 @@ export function tokenizer(src: string, {
         0,
         true,
         labels,
-        options,
+        preparedOptions,
     );
 
-    const postTokenizer = (tokens: Token[]) => {
-        for (const token of tokens) {
-            for (const light of highlights) {
-                const highlight = union(token.range, light);
-                if (highlight) {
-                    if (token.highlights && Array.isArray(token.highlights))
-                        token.highlights.push(highlight);
-                    else
-                        token.highlights = [highlight];
-                }
-            }
-
-            if ('children' in token && token.children && Array.isArray(token.children))
-                postTokenizer(token.children);
-        }
-    };
-
     if (highlights.length)
-        postTokenizer(tokens);
+        applyHighlights(tokens, highlights);
 
     return tokens;
-}
-
-// transform `tokens` to text ignore the range of token
-// the opposite of tokenizer
-// Rebuild a marker-wrapped token from its children instead of its stale cached
-// `raw` (#2063). Link/image keep their stored raw.
-function rebuildWrapperToken(token: Token): string {
-    switch (token.type) {
-        case 'strong':
-        case 'em':
-        case 'del':
-            return token.marker + generator(token.children, true) + token.marker;
-
-        case 'html_tag':
-            if (token.openTag != null && token.closeTag != null && token.children != null)
-                return token.openTag + generator(token.children, true) + token.closeTag;
-
-            return token.raw;
-
-        default:
-            return token.raw;
-    }
-}
-
-// `rebuildWrappers` is opt-in: only `format()` mutates a wrapper's children;
-// `backspaceHandler` trims a marker off `raw` and needs it echoed verbatim.
-export function generator(tokens: Token[], rebuildWrappers = false) {
-    let result = '';
-
-    for (const token of tokens)
-        result += rebuildWrappers ? rebuildWrapperToken(token) : token.raw;
-
-    return result;
-}
-
-// The reader-facing text of inline tokens with every marker, delimiter, URL and
-// tag dropped — `**bold**` → `bold`, `[text](url)` → `text`, `![alt](src)` →
-// `alt`. Mirrors the visible `textContent` a rendered heading yields, so a slug
-// derived from this matches the anchor id the HTML export injects
-// (state/markdownToHtml.ts injects ids from `heading.textContent`). The TOC uses
-// it to show and slug headings by their rendered text instead of raw source
-// (#4811).
-export function tokensToPlainText(tokens: Token[]): string {
-    let result = '';
-
-    for (const token of tokens) {
-        switch (token.type) {
-            case 'text':
-            case 'inline_code':
-            case 'inline_math':
-            case 'emoji':
-            case 'super_sub_script':
-            case 'footnote_identifier':
-                result += token.content;
-                break;
-
-            case 'strong':
-            case 'em':
-            case 'del':
-            case 'link':
-            case 'reference_link':
-                result += tokensToPlainText(token.children);
-                break;
-
-            case 'image':
-            case 'reference_image':
-                result += token.alt;
-                break;
-
-            case 'html_tag':
-                if (token.children)
-                    result += tokensToPlainText(token.children);
-                else if (token.content)
-                    result += token.content;
-                break;
-
-            case 'backlash':
-                // `content` is empty; the escaped char is `raw` minus its leading `\`.
-                result += token.raw.replace(/^\\/, '');
-                break;
-
-            case 'html_escape':
-                result += escapeCharactersMap[token.escapeCharacter] ?? token.raw;
-                break;
-
-            case 'auto_link':
-                // `<http://x>` / `<foo@bar.com>` show verbatim between the
-                // angle brackets — `href` may carry an added `mailto:` scheme.
-                result += token.raw.replace(/^<|>$/g, '');
-                break;
-
-            case 'auto_link_extension':
-                result += token.raw;
-                break;
-
-            case 'soft_line_break':
-            case 'hard_line_break':
-                result += ' ';
-                break;
-
-            // header / hr / code_fence / multiple_math begin markers, the
-            // reference_definition line, and an atx heading's tail `#`s carry no
-            // reader-facing text.
-            default:
-                break;
-        }
-    }
-
-    return result;
 }

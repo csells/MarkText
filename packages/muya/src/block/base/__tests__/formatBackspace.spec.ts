@@ -2,6 +2,7 @@
 
 import type Format from '../format';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runUserCommandResult } from '../../../__tests__/helpers/mutation';
 import { Muya } from '../../../muya';
 
 // Coverage for `Format.backspaceHandler` — the Firefox-compatibility fix for
@@ -66,7 +67,7 @@ function caretInFirstBlock(muya: Muya, offset: number): Format {
 
 function pressBackspace(content: Format): Event {
     const event = new Event('keydown', { cancelable: true });
-    content.backspaceHandler(event);
+    runUserCommandResult(content.muya, () => content.backspaceHandler(event));
     return event;
 }
 

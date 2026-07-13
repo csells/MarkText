@@ -57,8 +57,12 @@ class ImageSelection {
         if (/^(?:Backspace|Delete|Enter)$/.test(key)) {
             event.preventDefault();
             const { block, ...imageInfo } = selected;
-            block.deleteImage(imageInfo);
-            this._selection.activate(SelectionType.TEXT);
+            const result = this._muya.editor.mutationGateway.run(
+                { kind: 'user-command' },
+                () => block.deleteImage(imageInfo),
+            );
+            if (result !== 'rejected')
+                this._selection.activate(SelectionType.TEXT);
         }
     };
 
@@ -97,7 +101,10 @@ class ImageSelection {
         const contentBlock = contentDom[BLOCK_DOM_PROPERTY] as Format;
 
         if (deleteContainer) {
-            contentBlock.deleteImage(imageInfo);
+            this._muya.editor.mutationGateway.run(
+                { kind: 'user-command' },
+                () => contentBlock.deleteImage(imageInfo),
+            );
 
             return;
         }

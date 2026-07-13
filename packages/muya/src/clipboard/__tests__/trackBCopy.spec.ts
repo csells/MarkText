@@ -3,6 +3,8 @@
 import type { ImageToken } from '../../inlineRenderer/types';
 import type { Muya } from '../../muya';
 import { describe, expect, it, vi } from 'vitest';
+import { HOSTILE_CRITIC_MARKUP_CORPUS } from '../../criticMarkup/__tests__/sharedCorpus';
+import { getClipBoardHtml } from '../../utils/marked/getClipboardHtml';
 import { CopyType } from '../types';
 
 // Track B — Copy (clipboard chain step 1). Ports `packages/muyajs`
@@ -12,7 +14,8 @@ import { CopyType } from '../types';
 //      branch losslessly and external pastes land as markdown source.
 //   2. `copyAsHtml` writes the DOMPurify-sanitized rendered HTML into
 //      text/plain and blanks text/html, with the empty-guard keyed on `text`.
-//   3. A selected inline image copies its raw `![alt](src)` markdown.
+//   3. A selected inline image supplies raw `![alt](src)` source to the same
+//      mode/projection/sanitizer dispatcher as every other selection.
 
 // The clipboard module pulls in CodeBlockContent → utils/prism which touches
 // `window` at import time. Stub the prism shim (same stub as the sibling
@@ -41,6 +44,65 @@ function makeEvent() {
 function dataFor(setData: ReturnType<typeof vi.fn>, format: string) {
     const call = setData.mock.calls.find(([f]) => f === format);
     return call ? call[1] : undefined;
+}
+
+const URL_ATTRIBUTES = new Set([
+    'action',
+    'formaction',
+    'href',
+    'poster',
+    'src',
+    'xlink:href',
+]);
+
+function expectInertHtml(html: string): HTMLElement {
+    const root = document.createElement('div');
+    root.innerHTML = html;
+
+    expect(root.querySelector('script')).toBeNull();
+    for (const element of root.querySelectorAll('*')) {
+        for (const attribute of element.attributes) {
+            expect(attribute.name.toLowerCase()).not.toMatch(/^on/);
+            expect(attribute.name.toLowerCase()).not.toBe('srcdoc');
+            if (URL_ATTRIBUTES.has(attribute.name.toLowerCase())) {
+                const compactValue = attribute.value
+                    .split('')
+                    .filter(character => character.charCodeAt(0) > 0x20)
+                    .join('')
+                    .toLowerCase();
+                expect(compactValue)
+                    .not
+                    .toMatch(/^(?:javascript|vbscript|data):/);
+            }
+        }
+    }
+
+    return root;
+}
+
+function expectSemanticReviewItems(
+    root: HTMLElement,
+    expectedTypes: readonly string[],
+) {
+    const byId = new Map<string, { type: string; start: number }>();
+    for (const element of root.querySelectorAll<HTMLElement>(
+        '[data-critic-id]',
+    )) {
+        expect(element.dataset.criticId).toMatch(/^critic-\d+-\d+$/);
+        expect(element.dataset.criticRole)
+            .toMatch(/^(?:only|start|middle|end)$/);
+        expect(element.dataset.start).toMatch(/^\d+$/);
+        expect(element.dataset.end).toMatch(/^\d+$/);
+        byId.set(element.dataset.criticId!, {
+            type: element.dataset.criticType!,
+            start: Number(element.dataset.start),
+        });
+    }
+
+    expect([...byId.values()]
+        .sort((left, right) => left.start - right.start)
+        .map(item => item.type))
+        .toEqual(expectedTypes);
 }
 
 function fakeMuya(overrides: Partial<Muya> = {}) {
@@ -89,6 +151,50 @@ describe('track B — normal copy writes only text/plain', () => {
         expect(dataFor(setData, 'text/html')).toBe('');
         expect(dataFor(setData, 'text/plain')).toBe(markdown);
     });
+
+    it('copies the visible revised projection while leaving Copy as Markdown raw', () => {
+        const markdown = '{++new++} {--old--}';
+        const muya = fakeMuya({
+            options: {
+                frontMatter: true,
+                criticMarkupProjection: 'revised',
+            },
+        } as unknown as Partial<Muya>);
+        const clipboard = clipboardWithData('<p>new </p>', markdown, muya);
+        const normal = makeEvent();
+
+        clipboard.copyHandler(normal.event);
+        expect(dataFor(normal.setData, 'text/plain')).toBe('new ');
+
+        clipboard.copyType = CopyType.COPY_AS_MARKDOWN;
+        const raw = makeEvent();
+        clipboard.copyHandler(raw.event);
+        expect(dataFor(raw.setData, 'text/plain')).toBe(markdown);
+    });
+
+    it.each([
+        ['marked', '{++new++} {--old--}'],
+        ['original', ' old'],
+        ['revised', 'new '],
+    ] as const)(
+        'pins the %s normal-copy plain-text sink policy',
+        (projection, expected) => {
+            const markdown = '{++new++} {--old--}';
+            const muya = fakeMuya({
+                options: {
+                    frontMatter: true,
+                    criticMarkupProjection: projection,
+                },
+            } as unknown as Partial<Muya>);
+            const clipboard = clipboardWithData('<p>review</p>', markdown, muya);
+            const { event, setData } = makeEvent();
+
+            clipboard.copyHandler(event);
+
+            expect(dataFor(setData, 'text/plain')).toBe(expected);
+            expect(dataFor(setData, 'text/html')).toBe('');
+        },
+    );
 });
 
 describe('track B — copyAsRich still writes both slots', () => {
@@ -102,6 +208,25 @@ describe('track B — copyAsRich still writes both slots', () => {
         expect(dataFor(setData, 'text/html')).toBe('<p>hi</p>');
         expect(dataFor(setData, 'text/plain')).toBe('hi');
     });
+
+    it.each(HOSTILE_CRITIC_MARKUP_CORPUS)(
+        'sanitizes $id before writing the rich HTML slot',
+        (row) => {
+            const clipboard = clipboardWithData(
+                getClipBoardHtml(row.source),
+                row.source,
+            );
+            clipboard.copyType = CopyType.COPY_AS_RICH;
+            const { event, setData } = makeEvent();
+
+            clipboard.copyHandler(event);
+
+            const html = dataFor(setData, 'text/html') as string;
+            expect(row.expected.mustBeInert).toBe(true);
+            const root = expectInertHtml(html);
+            expectSemanticReviewItems(root, row.expected.itemTypes);
+        },
+    );
 });
 
 describe('track B — copyAsHtml is sanitized and text-guarded', () => {
@@ -158,12 +283,12 @@ describe('track B — copyAsHtml is sanitized and text-guarded', () => {
     });
 });
 
-describe('track B — selected inline image copies its raw markdown', () => {
+describe('track B — selected inline image uses normal-copy sink policy', () => {
     function imageToken(raw: string): ImageToken {
         return { type: 'image', raw } as unknown as ImageToken;
     }
 
-    it('writes `![alt](src)` to both slots and short-circuits', () => {
+    it('writes raw Markdown only to text/plain and skips text-selection extraction', () => {
         const raw = '![alt](https://e.com/x.png)';
         const muya = fakeMuya({
             editor: {
@@ -177,7 +302,7 @@ describe('track B — selected inline image copies its raw markdown', () => {
 
         clipboard.copyHandler(event);
 
-        expect(dataFor(setData, 'text/html')).toBe(raw);
+        expect(dataFor(setData, 'text/html')).toBe('');
         expect(dataFor(setData, 'text/plain')).toBe(raw);
         expect(getData).not.toHaveBeenCalled();
     });

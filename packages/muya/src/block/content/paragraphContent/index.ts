@@ -4,8 +4,12 @@ import type { IRenderCursor } from '../../../selection/types';
 import type {
     IBlockQuoteState,
     IBulletListState,
+    ICodeBlockState,
+    IDiagramState,
     IDiagramMeta,
+    IHtmlBlockState,
     IListItemState,
+    IMathBlockState,
     IOrderListState,
     IParagraphState,
     ITaskListItemState,
@@ -186,7 +190,13 @@ function parseTableHeader(text: string) {
  * ParagraphContent
  */
 class ParagraphContent extends Format {
-    public override parent: Nullable<Paragraph> = null;
+    override get parent(): Nullable<Paragraph> {
+        return super.parent as Nullable<Paragraph>;
+    }
+
+    override set parent(value: Nullable<Paragraph>) {
+        super.parent = value;
+    }
 
     static override blockName = 'paragraph.content';
 
@@ -212,7 +222,7 @@ class ParagraphContent extends Format {
         this.inlineRenderer.patch(this, cursor, highlights);
         const { label } = this.inlineRenderer.getLabelInfo(this);
 
-        if (this.scrollPage && label)
+        if (this.isAttachedToLiveTree && this.scrollPage && label)
             this.scrollPage.updateRefLinkAndImage(label);
     }
 
@@ -220,7 +230,11 @@ class ParagraphContent extends Format {
         const { start, end } = this.getCursor()!;
         const { eventCenter } = this.muya;
 
-        if (start.offset !== 0 || end.offset !== 0) {
+        if (
+            start.offset !== 0
+            || end.offset !== 0
+            || this.caretOffsetOnInlineImage() !== null
+        ) {
             super.backspaceHandler(event);
             eventCenter.emit('content-change', { block: this });
             return;
@@ -263,19 +277,19 @@ class ParagraphContent extends Format {
 
         switch (match.kind) {
             case 'math': {
-                const state = {
+                const state: IMathBlockState = {
                     name: 'math-block',
                     text: '',
                     meta: {
                         mathStyle: '',
                     },
                 };
-                const mathBlock = ScrollPage.loadBlock('math-block').create(
+                const mathBlock = ScrollPage.createStateBlock(
                     this.muya,
                     state,
                 );
                 this.parent!.replaceWith(mathBlock);
-                mathBlock.firstContentInDescendant().setCursor(0, 0);
+                mathBlock.firstContentInDescendant()!.setCursor(0, 0);
                 break;
             }
 
@@ -287,7 +301,7 @@ class ParagraphContent extends Format {
                 const diagramMatch = /^(?:mermaid|vega-lite|plantuml|flowchart|sequence)$/.exec(lang);
                 if (diagramMatch) {
                     const type = lang as IDiagramMeta['type'];
-                    const state = {
+                    const state: IDiagramState = {
                         name: 'diagram',
                         text: '',
                         meta: {
@@ -295,17 +309,17 @@ class ParagraphContent extends Format {
                             lang: type === 'vega-lite' ? 'json' : 'yaml',
                         },
                     };
-                    const diagramBlock = ScrollPage.loadBlock(state.name).create(
+                    const diagramBlock = ScrollPage.createStateBlock(
                         this.muya,
                         state,
                     );
 
                     this.parent!.replaceWith(diagramBlock);
 
-                    diagramBlock.firstContentInDescendant().setCursor(0, 0, true);
+                    diagramBlock.firstContentInDescendant()!.setCursor(0, 0, true);
                 }
                 else {
-                    const state = {
+                    const state: ICodeBlockState = {
                         name: 'code-block',
                         meta: {
                             lang,
@@ -313,14 +327,14 @@ class ParagraphContent extends Format {
                         },
                         text: '',
                     };
-                    const codeBlock = ScrollPage.loadBlock(state.name).create(
+                    const codeBlock = ScrollPage.createStateBlock(
                         this.muya,
                         state,
                     );
 
                     this.parent!.replaceWith(codeBlock);
 
-                    codeBlock.lastContentInDescendant().setCursor(0, 0);
+                    codeBlock.lastContentInDescendant()!.setCursor(0, 0);
                 }
                 break;
             }
@@ -351,17 +365,17 @@ class ParagraphContent extends Format {
 
             case 'html': {
                 const { tagName } = match;
-                const state = {
+                const state: IHtmlBlockState = {
                     name: 'html-block',
                     text: `<${tagName}>\n\n</${tagName}>`,
                 };
-                const htmlBlock = ScrollPage.loadBlock('html-block').create(
+                const htmlBlock = ScrollPage.createStateBlock(
                     this.muya,
                     state,
                 );
                 this.parent!.replaceWith(htmlBlock);
                 const offset = tagName.length + 3;
-                htmlBlock.firstContentInDescendant().setCursor(offset, offset);
+                htmlBlock.firstContentInDescendant()!.setCursor(offset, offset);
                 break;
             }
         }
@@ -409,7 +423,7 @@ class ParagraphContent extends Format {
                         newBlockState.children.push(node.getState());
                     node.remove();
                 });
-                const newBlockQuote = ScrollPage.loadBlock(newBlockState.name).create(
+                const newBlockQuote = ScrollPage.createStateBlock(
                     this.muya,
                     newBlockState,
                 );
@@ -480,7 +494,7 @@ class ParagraphContent extends Format {
                             }
                             node.remove();
                         });
-                        const newList = ScrollPage.loadBlock(newListState.name).create(
+                        const newList = ScrollPage.createStateBlock(
                             this.muya,
                             newListState,
                         );
@@ -509,13 +523,13 @@ class ParagraphContent extends Format {
                     node.remove();
                 });
 
-                const newListItem = ScrollPage.loadBlock(newListItemState.name).create(
+                const newListItem = ScrollPage.createStateBlock(
                     this.muya,
                     newListItemState,
                 );
                 list.insertAfter(newListItem, listItem);
 
-                newListItem.firstContentInDescendant().setCursor(0, 0);
+                newListItem.firstContentInDescendant()!.setCursor(0, 0);
             }
         }
         else {
@@ -530,7 +544,7 @@ class ParagraphContent extends Format {
                         ? { name: 'task-list-item', meta: { checked: false }, children: [paragraphChild] }
                         : { name: 'list-item', children: [paragraphChild] };
 
-                const newListItem = ScrollPage.loadBlock(newNodeState.name).create(
+                const newListItem = ScrollPage.createStateBlock(
                     muya,
                     newNodeState,
                 );
@@ -538,7 +552,7 @@ class ParagraphContent extends Format {
                 list.insertAfter(newListItem, listItem);
 
                 this.update();
-                newListItem.firstContentInDescendant().setCursor(0, 0, true);
+                newListItem.firstContentInDescendant()!.setCursor(0, 0, true);
             }
             else {
                 super.enterHandler(event);
@@ -766,12 +780,25 @@ class ParagraphContent extends Format {
                 (listItem.next || list.next)
                 && newListItem.lastChild!.blockName !== list.blockName
             ) {
-                const state = {
-                    name: list.blockName,
-                    meta: { ...listAsList.meta },
-                    children: [],
-                };
-                const childList = ScrollPage.loadBlock(state.name).create(
+                const state: IBulletListState | IOrderListState | ITaskListState
+                    = listAsList instanceof TaskList
+                        ? {
+                                name: 'task-list',
+                                meta: { ...listAsList.meta },
+                                children: [],
+                            }
+                        : listAsList instanceof OrderList
+                            ? {
+                                    name: 'order-list',
+                                    meta: { ...listAsList.meta },
+                                    children: [],
+                                }
+                            : {
+                                    name: 'bullet-list',
+                                    meta: { ...listAsList.meta },
+                                    children: [],
+                                };
+                const childList = ScrollPage.createStateBlock(
                     this.muya,
                     state,
                 );
@@ -840,12 +867,40 @@ class ParagraphContent extends Format {
         let newList = prevListItem?.lastChild;
 
         if (!newList || !/ol|ul/.test(newList.tagName)) {
-            const state = {
-                name: list.blockName,
-                meta: { ...(list as TListBlock).meta },
-                children: [listItem.getState()],
-            };
-            newList = ScrollPage.loadBlock(state.name).create(muya, state);
+            const listAsList = list as TListBlock;
+            const listItemState = listItem.getState();
+            let state: IBulletListState | IOrderListState | ITaskListState;
+            if (listAsList instanceof TaskList) {
+                if (!isTaskListItemState(listItemState)) {
+                    throw new TypeError(
+                        'A task list must contain task-list-item state.',
+                    );
+                }
+                state = {
+                    name: 'task-list',
+                    meta: { ...listAsList.meta },
+                    children: [listItemState],
+                };
+            }
+            else {
+                if (!isListItemState(listItemState)) {
+                    throw new TypeError(
+                        'A bullet or order list must contain list-item state.',
+                    );
+                }
+                state = listAsList instanceof OrderList
+                    ? {
+                            name: 'order-list',
+                            meta: { ...listAsList.meta },
+                            children: [listItemState],
+                        }
+                    : {
+                            name: 'bullet-list',
+                            meta: { ...listAsList.meta },
+                            children: [listItemState],
+                        };
+            }
+            newList = ScrollPage.createStateBlock(muya, state);
             prevListItem!.append(newList as Parent, 'user');
         }
         else {
@@ -886,7 +941,11 @@ class ParagraphContent extends Format {
         const { muya, text } = this;
         const tokens = tokenizer(text, {
             hasBeginRules: false,
-            options: muya.options,
+            options: {
+                ...muya.options,
+                criticMarkup: false,
+                criticMarkupDocumentFragments: [],
+            },
         });
         let result = null;
 

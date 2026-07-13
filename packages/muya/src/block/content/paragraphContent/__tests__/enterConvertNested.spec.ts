@@ -2,6 +2,10 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    runUserCommand,
+    runUserEdit,
+} from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // ENTER-CONVERT INSIDE CONTAINERS — pressing Enter on a paragraph whose text is
@@ -63,8 +67,10 @@ function contentByText(muya: Muya, text: string): Content {
 
 function enterWithText(muya: Muya, content: Content, text: string): { preventDefault: ReturnType<typeof vi.fn> } {
     muya.editor.activeContentBlock = content;
-    content.text = text;
-    content.update();
+    runUserEdit(muya, () => {
+        content.text = text;
+        content.update();
+    });
     const offset = content.text.length;
     content.setCursor(offset, offset, true);
     const event = {
@@ -73,7 +79,7 @@ function enterWithText(muya: Muya, content: Content, text: string): { preventDef
         shiftKey: false,
         key: 'Enter',
     } as unknown as KeyboardEvent & { preventDefault: ReturnType<typeof vi.fn> };
-    content.enterHandler(event);
+    runUserCommand(muya, () => content.enterHandler(event));
     return event;
 }
 

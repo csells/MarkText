@@ -1,9 +1,17 @@
 // @vitest-environment happy-dom
 
+import type { IMutationAuthority } from '../../mutation/authority';
 import type { Muya } from '../../muya';
 import type { TState } from '../types';
 import { describe, expect, it } from 'vitest';
+import { createMutationAuthority } from '../../mutation/authority';
 import JSONState from '../index';
+
+const authorityByState = new WeakMap<JSONState, IMutationAuthority>();
+
+function authorize(state: JSONState, mutate: () => void): void {
+    authorityByState.get(state)!.run(mutate);
+}
 
 // #2938: switching files (setContent) within the same frame as a pending edit
 // left the previous document's deferred op batch in the cache. The scheduled
@@ -13,6 +21,7 @@ import JSONState from '../index';
 // scheduled flush.
 
 function makeState(blocks: TState[]): JSONState {
+    let state: JSONState;
     const muya = {
         options: {
             footnote: false,
@@ -23,8 +32,17 @@ function makeState(blocks: TState[]): JSONState {
             listIndentation: 1,
         },
         eventCenter: { emit: () => {} },
+        editor: {
+            commitPendingContents: (operation: Parameters<JSONState['applySilently']>[0], source: string) => {
+                const change = state.applySilently(operation, source);
+                state.publish(change);
+            },
+        },
     } as unknown as Muya;
-    return new JSONState(muya, blocks);
+    const authority = createMutationAuthority();
+    state = new JSONState(muya, blocks, authority);
+    authorityByState.set(state, authority);
+    return state;
 }
 
 function nextFrame(): Promise<void> {
@@ -36,13 +54,14 @@ describe('setContent drops the previous document pending op batch (#2938)', () =
         const state = makeState([{ name: 'paragraph', text: 'A' }]);
 
         // Pending edit against doc A (insert a block at index 1), not yet flushed.
-        state.insertOperation([1], { name: 'paragraph', text: 'STALE' });
+        authorize(state, () =>
+            state.insertOperation([1], { name: 'paragraph', text: 'STALE' }));
 
         // Switch to doc B within the same frame.
-        state.setContent([
+        authorize(state, () => state.setContent([
             { name: 'paragraph', text: 'B1' },
             { name: 'paragraph', text: 'B2' },
-        ]);
+        ]));
 
         // Let the (cancelled) rAF window elapse.
         await nextFrame();
@@ -55,12 +74,15 @@ describe('setContent drops the previous document pending op batch (#2938)', () =
 
     it('edits after a setContent still flush normally', async () => {
         const state = makeState([{ name: 'paragraph', text: 'A' }]);
-        state.insertOperation([1], { name: 'paragraph', text: 'STALE' });
-        state.setContent([{ name: 'paragraph', text: 'B' }]);
+        authorize(state, () =>
+            state.insertOperation([1], { name: 'paragraph', text: 'STALE' }));
+        authorize(state, () =>
+            state.setContent([{ name: 'paragraph', text: 'B' }]));
         await nextFrame();
 
         // A fresh op against doc B applies cleanly (not frozen by a stuck _isGoing).
-        state.insertOperation([1], { name: 'paragraph', text: 'C' });
+        authorize(state, () =>
+            state.insertOperation([1], { name: 'paragraph', text: 'C' }));
         await nextFrame();
         await nextFrame();
 

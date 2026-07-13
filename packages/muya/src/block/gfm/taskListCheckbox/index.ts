@@ -1,7 +1,6 @@
 import type { Muya } from '../../../muya';
 import type { ITaskListItemMeta } from '../../../state/types';
 import type { Nullable } from '../../../types';
-import type Parent from '../../base/parent';
 import type TaskList from '../taskList';
 import type TaskListItem from '../taskListItem';
 import { CLASS_NAMES, isFirefox } from '../../../config';
@@ -29,24 +28,12 @@ function isCheckbox(node: TreeNode): node is TaskListCheckbox {
 // Find the `task-list-checkbox` attachment of a `task-list-item`.
 function checkboxOf(item: TaskListItem): TaskListCheckbox | null {
     let found: TaskListCheckbox | null = null;
-    item.attachments.forEach((attachment: Parent) => {
+    item.attachments.forEach((attachment: TreeNode) => {
         if (isCheckbox(attachment))
             found = attachment;
     });
 
     return found;
-}
-
-// Set a task item's checked state, dispatching the OT op (`TaskListItem.checked`
-// setter) and syncing its checkbox DOM. No-op when already in the target state.
-function setItemChecked(item: TaskListItem, checked: boolean): void {
-    if (item.checked === checked)
-        return;
-
-    item.checked = checked;
-    const checkbox = checkboxOf(item);
-    if (checkbox)
-        checkbox.syncDom(checked);
 }
 
 // The nested `task-list` directly under a `task-list-item`, if any. A task item
@@ -71,7 +58,7 @@ function cascadeToDescendants(item: TaskListItem, checked: boolean): void {
         if (!isTaskListItem(child))
             return;
 
-        setItemChecked(child, checked);
+        TaskListCheckbox.setItemChecked(child, checked);
         cascadeToDescendants(child, checked);
     });
 }
@@ -101,7 +88,7 @@ function rederiveAncestors(item: TaskListItem): void {
         if (ancestor.checked === computed)
             return;
 
-        setItemChecked(ancestor, computed);
+        TaskListCheckbox.setItemChecked(ancestor, computed);
         list = ancestor.parent;
     }
 }
@@ -122,6 +109,19 @@ class TaskListCheckbox extends TreeNode {
         const checkbox = new TaskListCheckbox(muya, meta);
 
         return checkbox;
+    }
+
+    // Canonical checked-state writer used by direct toggles and autoCheck.
+    // The TaskListItem setter asserts gateway authority and emits the OT op
+    // before the private presentation state is synchronized.
+    static setItemChecked(item: TaskListItem, checked: boolean): void {
+        if (item.checked === checked)
+            return;
+
+        item.checked = checked;
+        const checkbox = checkboxOf(item);
+        if (checkbox)
+            checkbox.#syncDom(checked);
     }
 
     get path() {
@@ -164,38 +164,44 @@ class TaskListCheckbox extends TreeNode {
 
             event.stopPropagation();
 
-            if (isFirefox) {
-                this._checked = !this._checked;
-
-                this.update(this._checked, 'user');
-            }
-            else if (isHTMLInputElement(event.target)) {
-                const { checked } = event.target;
-                this._checked = checked;
-                this.update(checked, 'user');
-            }
+            const checked = isFirefox
+                ? !this._checked
+                : isHTMLInputElement(event.target)
+                    ? event.target.checked
+                    : null;
+            if (checked === null)
+                return;
+            const result = muya.editor.mutationGateway.run(
+                { kind: 'user-command' },
+                () => {
+                    this._checked = checked;
+                    this.update(checked);
+                },
+            );
+            if (result === 'rejected')
+                this.#syncDom((this.parent as TaskListItem).checked);
         };
 
         const eventIds = [
             eventCenter.attachDOMEvent(domNode!, 'click', clickHandler),
         ];
 
-        this._eventIds.push(...eventIds);
+        for (const eventId of eventIds)
+            this._eventIds.push(eventId);
     }
 
-    update = (checked: boolean, source = 'api') => {
+    update = (checked: boolean) => {
+        this.assertMutationAuthorized('Task-list checkbox update');
         const taskListItem = this.parent as TaskListItem;
         const taskList = taskListItem!.parent as TaskList;
 
-        this._applyChecked(checked, source);
+        TaskListCheckbox.setItemChecked(taskListItem, checked);
 
         // marktext `clickCtrl.js#listItemCheckBoxClick` cascaded a user toggle
         // through `muya.options.autoCheck`: checking/unchecking an item set the
         // same state on every descendant task item, then re-derived each
-        // ancestor (checked iff all its siblings are checked). `source === 'api'`
-        // is the silent, OT-free path used by the cascade itself, so it never
-        // recurses.
-        if (source !== 'api' && this.muya.options.autoCheck) {
+        // ancestor (checked iff all its siblings are checked).
+        if (this.muya.options.autoCheck) {
             cascadeToDescendants(taskListItem, checked);
             rederiveAncestors(taskListItem);
         }
@@ -203,25 +209,20 @@ class TaskListCheckbox extends TreeNode {
         taskList.orderIfNecessary();
     };
 
-    // Reflect `checked` onto this checkbox's DOM and onto its task-list-item
-    // state. A `user` source dispatches the OT `replace` op (via the
-    // `TaskListItem.checked` setter); an `api` source mutates the state
-    // silently so the cascade can update many items without op spam.
-    private _applyChecked(checked: boolean, source: string) {
-        this.syncDom(checked);
-
+    /** Apply an already-committed checked value during incremental rebuild. */
+    applyCheckedFromState(checked: boolean): void {
+        this.assertTreeMutationAuthorized(
+            'Prepared task-list checked application',
+        );
         const taskListItem = this.parent as TaskListItem;
-        if (source === 'api')
-            taskListItem.meta.checked = checked;
-        else
-            taskListItem.checked = checked;
+        taskListItem.applyCheckedFromState(checked);
+        this.#syncDom(checked);
     }
 
-    // Sync only this checkbox's DOM + internal flag to `checked`. Used by the
-    // autoCheck cascade, which has already mutated the owning item's state (and
-    // dispatched the OT op) via the `TaskListItem.checked` setter, so this must
-    // not touch state again.
-    syncDom(checked: boolean) {
+    // Sync only this checkbox's derived presentation state. Keeping this a
+    // runtime-private method prevents callers from manufacturing a visual/
+    // internal state that disagrees with the canonical task-list item.
+    #syncDom(checked: boolean) {
         this._checked = checked;
         operateClassName(
             this.domNode!,

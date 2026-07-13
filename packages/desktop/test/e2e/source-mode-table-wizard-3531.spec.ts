@@ -20,9 +20,7 @@ test.describe('paragraph edit commands are suppressed in source mode (#3531)', (
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown('# Doc\n\nsome text\n', {
-      suppressErrorDialog: true
-    })
+    const launched = await launchWithMarkdown('# Doc\n\nsome text\n')
     app = launched.app
     page = launched.page
     await focusEditor(page)

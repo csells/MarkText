@@ -1,6 +1,89 @@
+import type {
+    TCriticMarkupMarkerName,
+    TCriticMarkupType,
+} from '../criticMarkup/reviewContract';
+
+export interface ICriticMarkupStateMarker {
+    readonly type: TCriticMarkupType;
+    readonly marker: TCriticMarkupMarkerName;
+    readonly raw: string;
+    /** Canonical parser source offset used to order co-located markers. */
+    readonly sourceOffset?: number;
+}
+
+export interface ITableRowSourceSyntax {
+    readonly cells: readonly string[];
+    readonly segments: readonly string[];
+}
+
+export interface ITableSourceSyntax {
+    readonly header: ITableRowSourceSyntax;
+    readonly delimiter: ITableRowSourceSyntax;
+    readonly rows: readonly ITableRowSourceSyntax[];
+    readonly alignments: readonly ('none' | 'left' | 'center' | 'right')[];
+}
+
+export interface IStateSourceTrivia {
+    readonly criticBefore?: readonly ICriticMarkupStateMarker[];
+    readonly criticAfter?: readonly ICriticMarkupStateMarker[];
+    /** Parser whitespace after before-markers and before their native block. */
+    readonly criticBeforeSuffix?: string;
+    /** Parser whitespace immediately before after-markers on this native block. */
+    readonly criticAfterPrefix?: string;
+    /** Parser whitespace immediately after after-markers on this native block. */
+    readonly criticAfterSuffix?: string;
+    /** Parser-view whitespace before this block within its parent sequence. */
+    readonly blockPrefix?: string;
+    /**
+     * Parser-view whitespace after this block's serializer-owned terminal LF.
+     * This is emitted outside the block's source-mapped node range.
+     */
+    readonly blockSeparatorAfter?: string;
+    /** Exact terminal EOL owned by the final top-level parser state. */
+    readonly terminalLineEnding?: '' | '\n' | '\r\n';
+    /** Atomic parser-owned GFM table row and delimiter layout. */
+    readonly tableSourceSyntax?: ITableSourceSyntax;
+    /** Exact parser-view whitespace preceding this list item's marker. */
+    readonly listItemLeadingPrefix?: string;
+    /** Exact parser-captured list marker, without indentation or whitespace. */
+    readonly listItemMarker?: string;
+    /** Parser-view whitespace consumed after the marker on its first line. */
+    readonly listItemMarkerPadding?: string;
+    /** Blank lines after this item, excluding the item's terminal EOL. */
+    readonly listItemTrailingBlankLines?: number;
+    /** Prefix consumed at this parser recursion level for each continuation. */
+    readonly listItemContinuationPrefixes?: readonly string[];
+}
+
+export interface IStateSourceTriviaCarrier {
+    readonly sourceTrivia?: IStateSourceTrivia;
+}
+
+export type IMarkdownParserDiagnostic
+    = | {
+        code: 'marked-block-nesting-limit';
+        depth: number;
+        limit: number;
+        message: string;
+    }
+    | {
+        code: 'critic-markup-structural-residue';
+        message: string;
+    };
+
 export interface IParagraphState {
     name: 'paragraph';
     text: string;
+}
+
+export interface IMarkdownParserResidueState {
+    name: 'markdown-parser-residue';
+    text: string;
+    meta: {
+        parserDiagnostic: IMarkdownParserDiagnostic;
+        /** Whether the parser-owned source envelope ended in one LF byte. */
+        trailingNewline: boolean;
+    };
 }
 
 export interface IAtxHeadingState {
@@ -34,6 +117,8 @@ export interface ICodeBlockState {
         // first word — derive via `firstWordOfInfo()`, never assume a single word.
         lang: string;
         fenceLength?: number;
+        /** False preserves an EOF-terminated fenced block without inventing a close. */
+        fenceClosed?: false;
     };
     text: string;
 }
@@ -61,7 +146,7 @@ export interface IBlockQuoteState {
     children: TState[];
 }
 
-export interface IListItemState {
+export interface IListItemState extends IStateSourceTriviaCarrier {
     name: 'list-item';
     children: TState[];
 }
@@ -100,7 +185,7 @@ export interface ITableCellState {
     text: string;
 }
 
-export interface ITableState {
+export interface ITableState extends IStateSourceTriviaCarrier {
     name: 'table';
     children: ITableRowState[];
 }
@@ -109,7 +194,7 @@ export interface ITaskListItemMeta {
     checked: boolean;
 }
 
-export interface ITaskListItemState {
+export interface ITaskListItemState extends IStateSourceTriviaCarrier {
     name: 'task-list-item';
     meta: ITaskListItemMeta;
     children: TState[];
@@ -170,6 +255,7 @@ export interface IFootnoteBlockState {
 
 export type TLeafState
     = | IParagraphState
+        | IMarkdownParserResidueState
         | IAtxHeadingState
         | ISetextHeadingState
         | IThematicBreakState
@@ -192,7 +278,7 @@ export type TContainerState
         | ITableRowState
         | IFootnoteBlockState;
 
-export type TState = TLeafState | TContainerState;
+export type TState = (TLeafState | TContainerState) & IStateSourceTriviaCarrier;
 
 export type CodeContentState = ICodeBlockState | IHtmlBlockState | IDiagramState | IMathBlockState | IFrontmatterState;
 

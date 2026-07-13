@@ -2,24 +2,22 @@ import type { Muya } from '../../../muya';
 import type { IListItemState } from '../../../state/types';
 import { CLASS_NAMES } from '../../../config';
 import { mixins } from '../../../utils';
-import { LinkedList } from '../../base/linkedList/linkedList';
+import { appendCreatedChildren } from '../../appendCreatedChildren';
 import Parent from '../../base/parent';
 import IContainerQueryBlock from '../../mixins/containerQueryBlock';
 import { ScrollPage } from '../../scrollPage';
 
 @mixins(IContainerQueryBlock)
-class ListItem extends Parent {
-    public override children: LinkedList<Parent> = new LinkedList();
-
+class ListItem extends Parent<Parent> {
     static override blockName = 'list-item';
 
     static create(muya: Muya, state: IListItemState) {
         const listItem = new ListItem(muya);
 
-        listItem.append(
-            ...state.children.map(child =>
-                ScrollPage.loadBlock(child.name).create(muya, child),
-            ),
+        appendCreatedChildren(
+            state.children,
+            child => ScrollPage.createStateBlock(muya, child),
+            child => listItem.append(child),
         );
 
         return listItem;
@@ -45,7 +43,7 @@ class ListItem extends Parent {
             children: this.children.map(child => child.getState()),
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

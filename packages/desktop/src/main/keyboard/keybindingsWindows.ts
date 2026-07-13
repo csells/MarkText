@@ -1,5 +1,7 @@
 // Key bindings for Windows.
 
+import { REVIEW_COMMAND_DESCRIPTORS } from '../../common/commands/review'
+
 // NOTE: Avoid `Ctrl+Alt` and `AltGr` shortcuts on Windows because these are used to produce alternative characters.
 //       Unlike Linux, `Ctrl+Alt` is an alias to `AltGr` on Windows and will produce alternative characters too.
 //       We'll should try bind no keys to `Alt` "modifiers" because there are only a few key bindings available.
@@ -84,6 +86,12 @@ const keybindings: Map<string, string> = new Map([
   ['format.hyperlink', 'Ctrl+L'],
   ['format.image', 'Ctrl+Shift+I'],
   ['format.clear-format', 'Ctrl+Shift+R'],
+
+  // Review menu (user-assignable; no conflict-prone defaults)
+  ...REVIEW_COMMAND_DESCRIPTORS.map(({ id, defaultKeybinding }) => [
+    id,
+    defaultKeybinding
+  ] as [string, string]),
 
   // Window menu
   ['window.minimize', 'Ctrl+M'],

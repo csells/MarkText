@@ -127,16 +127,20 @@ export class ImageToolBar extends BaseFloat {
 
         switch (item.type) {
             // Delete image.
-            case 'delete':
-                this._block!.deleteImage(imageInfo!);
+            case 'delete': {
+                this.muya.editor.mutationGateway.run(
+                    { kind: 'user-command' },
+                    () => this._block!.deleteImage(imageInfo!),
+                );
                 // Hide image transformer
                 this.muya.eventCenter.emit('muya-transformer', {
                     reference: null,
                 });
 
                 return this.hide();
+            }
 
-                // Edit image, for example: editor alt and title, replace image.
+            // Edit image, for example: editor alt and title, replace image.
             case 'edit': {
                 const rect = this._reference!.getBoundingClientRect();
                 const reference = {
@@ -167,7 +171,14 @@ export class ImageToolBar extends BaseFloat {
             case 'center':
                 // fall through
             case 'right': {
-                this._block!.updateImage(this._imageInfo!, 'data-align', item.type);
+                this.muya.editor.mutationGateway.run(
+                    { kind: 'user-command' },
+                    () => this._block!.updateImage(
+                        this._imageInfo!,
+                        'data-align',
+                        item.type,
+                    ),
+                );
 
                 return this.hide();
             }

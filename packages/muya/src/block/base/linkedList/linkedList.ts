@@ -1,12 +1,91 @@
 import type { Nullable } from '../../../types';
 import type { ILinkedNode } from './linkedNode';
 
+export interface IReadonlyLinkedList<out T extends ILinkedNode> {
+    readonly head: Nullable<T>;
+    readonly tail: Nullable<T>;
+    readonly length: number;
+    iterator: () => IterableIterator<T>;
+    find: (index: number) => Nullable<T>;
+    forEach: (callback: (cur: T, index: number) => void) => void;
+    forEachAt: (
+        index: number,
+        length: number,
+        callback: (cur: T, index: number) => void,
+    ) => void;
+    map: <Result>(callback: (cur: T, index: number) => Result) => Result[];
+    reduce: <Result>(
+        callback: (memo: Result, cur: T, index: number) => Result,
+        initialValue: Result,
+    ) => Result;
+}
+
+class ReadonlyLinkedListView<T extends ILinkedNode>
+implements IReadonlyLinkedList<T> {
+    readonly #list: LinkedList<T>;
+
+    constructor(list: LinkedList<T>) {
+        this.#list = list;
+        Object.freeze(this);
+    }
+
+    get head(): Nullable<T> {
+        return this.#list.head;
+    }
+
+    get tail(): Nullable<T> {
+        return this.#list.tail;
+    }
+
+    get length(): number {
+        return this.#list.length;
+    }
+
+    * iterator(
+        curNode: Nullable<T> = this.head,
+        length: number = this.length,
+    ): IterableIterator<T> {
+        yield* this.#list.iterator(curNode, length);
+    }
+
+    find(index: number): Nullable<T> {
+        return this.#list.find(index);
+    }
+
+    forEach(callback: (cur: T, index: number) => void): void {
+        this.#list.forEach(callback);
+    }
+
+    forEachAt(
+        index: number,
+        length: number,
+        callback: (cur: T, index: number) => void,
+    ): void {
+        this.#list.forEachAt(index, length, callback);
+    }
+
+    map<Result>(callback: (cur: T, index: number) => Result): Result[] {
+        return this.#list.map(callback);
+    }
+
+    reduce<Result>(
+        callback: (memo: Result, cur: T, index: number) => Result,
+        initialValue: Result,
+    ): Result {
+        return this.#list.reduce(callback, initialValue);
+    }
+}
+
 export class LinkedList<T extends ILinkedNode> {
     head: Nullable<T> = null;
 
     tail: Nullable<T> = null;
 
     length: number = 0;
+
+    readonlyView(): IReadonlyLinkedList<T> {
+        return new ReadonlyLinkedListView(this);
+    }
 
     * iterator(curNode = this.head, length = this.length) {
         let count = 0;

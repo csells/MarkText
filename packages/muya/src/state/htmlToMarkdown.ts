@@ -48,7 +48,9 @@ function turnSoftBreakToSpan(html: string) {
                             params.push(softBreak);
                         }
                     }
-                    node.replaceWith(...params);
+                    for (const replacement of params)
+                        node.before(replacement);
+                    node.remove();
                 }
             }
             else if (node.nodeType === Node.ELEMENT_NODE) {

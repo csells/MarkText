@@ -198,15 +198,22 @@ export class ParagraphFrontMenu extends BaseFloat {
         if (!block?.parent)
             return;
 
-        const oldState = block.getState();
+        const outcome: { cursorBlock: Content | null } = {
+            cursorBlock: null,
+        };
+        this.muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => {
+                const oldState = block.getState();
+                outcome.cursorBlock = /duplicate|new|delete/.test(label)
+                    ? this._applyMetaAction(label, block, oldState)
+                    : this._turnIntoBlock(label, block, oldState);
+            },
+        );
 
-        const cursorBlock = /duplicate|new|delete/.test(label)
-            ? this._applyMetaAction(label, block, oldState)
-            : this._turnIntoBlock(label, block, oldState);
-
-        if (cursorBlock) {
+        if (outcome.cursorBlock) {
             // mock cursorBlock focus
-            cursorBlock.setCursor(0, 0, true);
+            outcome.cursorBlock.setCursor(0, 0, true);
         }
         // Delay hide to avoid dispatch enter handler
         setTimeout(this.hide.bind(this));
@@ -217,14 +224,14 @@ export class ParagraphFrontMenu extends BaseFloat {
         switch (label) {
             case 'duplicate': {
                 const state = deepClone(oldState);
-                const dupBlock = ScrollPage.loadBlock(state.name).create(muya, state);
+                const dupBlock = ScrollPage.createStateBlock(muya, state);
                 block.parent!.insertAfter(dupBlock, block);
                 return dupBlock.lastContentInDescendant();
             }
 
             case 'new': {
                 const state = deepClone(emptyStates.paragraph);
-                const newBlock = ScrollPage.loadBlock('paragraph').create(
+                const newBlock = ScrollPage.createStateBlock(
                     muya,
                     state,
                 );
@@ -242,7 +249,7 @@ export class ParagraphFrontMenu extends BaseFloat {
                 }
                 else {
                     const state = deepClone(emptyStates.paragraph);
-                    const newBlock = ScrollPage.loadBlock('paragraph').create(
+                    const newBlock = ScrollPage.createStateBlock(
                         muya,
                         state,
                     );
@@ -374,7 +381,7 @@ export class ParagraphFrontMenu extends BaseFloat {
         // TODO: @JOCS, remove use this.selection directly.
         const { anchorPath, anchor, focus, isSelectionInSameBlock }
             = editor.selection;
-        const listBlock = ScrollPage.loadBlock(label).create(muya, state);
+        const listBlock = ScrollPage.createStateBlock(muya, state);
         block.replaceWith(listBlock);
         const guessCursorBlock
             = muya.editor.scrollPage?.queryBlock(anchorPath);

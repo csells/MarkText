@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya } from '../muya';
 import { injectSentinels, resolveSentinelCursor } from '../selection/offsetCursor';
+import { runUserEdit } from './helpers/mutation';
 
 // PARITY (gap PG2): the source-code -> WYSIWYG handoff carries only a
 // CodeMirror `{ line, ch }` index cursor. `setCursorByOffset` reproduces the
@@ -118,7 +119,9 @@ describe('muya.setCursorByOffset() (PG2)', () => {
         const first = muya.editor.scrollPage!.firstContentInDescendant()!;
         first.setCursor(5, 5, true);
         muya.editor.activeContentBlock = first;
-        first.text = 'alpha beta';
+        runUserEdit(muya, () => {
+            first.text = 'alpha beta';
+        });
         await vi.waitFor(() => {
             expect(muya.getHistory().stack.undo.length).toBeGreaterThan(0);
         });

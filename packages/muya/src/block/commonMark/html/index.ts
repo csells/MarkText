@@ -56,7 +56,7 @@ class HTMLBlock extends Parent {
             text: this.firstContentInDescendant()?.text ?? '',
         };
 
-        return state;
+        return this.withStateSourceTrivia(state);
     }
 }
 

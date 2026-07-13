@@ -2,6 +2,12 @@ import type { VNode } from 'snabbdom';
 import type LangInputContent from '../../block/content/langInputContent';
 import type ParagraphContent from '../../block/content/paragraphContent';
 import type { Muya } from '../../index';
+import type {
+    ICodeBlockState,
+    IDiagramMeta,
+    IDiagramState,
+    IMathBlockState,
+} from '../../state/types';
 import { ScrollPage } from '../../block/scrollPage';
 import { search } from '../../utils/prism';
 
@@ -23,6 +29,10 @@ const defaultOptions = {
 
 const DIAGRAM_LANGS = new Set(['mermaid', 'vega-lite', 'plantuml', 'flowchart', 'sequence']);
 
+function isDiagramType(value: string): value is IDiagramMeta['type'] {
+    return DIAGRAM_LANGS.has(value);
+}
+
 // The language the user actually typed after the ``` fence. The selector's
 // fuzzy search may resolve a non-code language (e.g. `vega-lite`) to an
 // unrelated Prism language, so the diagram check keys off this raw text.
@@ -34,11 +44,15 @@ function typedFenceLang(text: string): string {
 // (from the typed text) become a diagram block, mirroring markdownToState's
 // file-load path; GitLab math becomes a math-block; everything else a fenced
 // code block highlighted with the selector's matched language.
-function newBlockStateForLang(typedLang: string, matchedLang: string, isGitlabMath: boolean) {
+function newBlockStateForLang(
+    typedLang: string,
+    matchedLang: string,
+    isGitlabMath: boolean,
+): IMathBlockState | IDiagramState | ICodeBlockState {
     if (isGitlabMath)
         return { name: 'math-block', meta: { mathStyle: 'gitlab' }, text: '' };
 
-    if (DIAGRAM_LANGS.has(typedLang)) {
+    if (isDiagramType(typedLang)) {
         return {
             name: 'diagram',
             meta: { type: typedLang, lang: typedLang === 'vega-lite' ? 'json' : 'yaml' },
@@ -187,26 +201,34 @@ export class CodeBlockLanguageSelector extends BaseScrollFloat {
             return b.blockName === 'paragraph.content';
         }
 
-        if (isParagraphContent(block)) {
-            const isGitlabMath
-                = muya.options.isGitlabCompatibilityEnabled && name === 'math';
-            const state = newBlockStateForLang(typedFenceLang(block.text), name, isGitlabMath);
+        muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => {
+                if (isParagraphContent(block)) {
+                    const isGitlabMath
+                        = muya.options.isGitlabCompatibilityEnabled
+                            && name === 'math';
+                    const state = newBlockStateForLang(
+                        typedFenceLang(block.text),
+                        name,
+                        isGitlabMath,
+                    );
 
-            const newBlock = ScrollPage.loadBlock(state.name).create(
-                this.muya,
-                state,
-            );
-            block.parent?.replaceWith(newBlock);
-            const codeContent = newBlock.lastContentInDescendant();
-            codeContent?.setCursor(0, 0);
-        }
-        else {
-            const codeBlock = block.parent!;
-            block.text = name;
-            block.update();
-            codeBlock.lang = name;
-            codeBlock.lastContentInDescendant()?.setCursor(0, 0);
-        }
+                    const newBlock = ScrollPage.createStateBlock(
+                        this.muya,
+                        state,
+                    );
+                    block.parent?.replaceWith(newBlock);
+                    const codeContent = newBlock.lastContentInDescendant();
+                    codeContent?.setCursor(0, 0);
+                }
+                else {
+                    const codeBlock = block.parent!;
+                    codeBlock.lang = name;
+                    codeBlock.lastContentInDescendant()?.setCursor(0, 0);
+                }
+            },
+        );
 
         super.selectItem(item);
     }

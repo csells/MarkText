@@ -2,6 +2,7 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommand } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // #3223: Shift+Tab on a list item whose containing list is the FIRST child of
@@ -68,7 +69,7 @@ function tabAt(muya: Muya, content: Content, offset: number, shiftKey = false): 
         key: 'Tab',
         shiftKey,
     } as unknown as KeyboardEvent;
-    content.tabHandler(event);
+    runUserCommand(muya, () => content.tabHandler(event));
 }
 
 function flush(): Promise<void> {

@@ -3,6 +3,7 @@
 import type { TState } from '../../../../state/types';
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserCommand } from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // #4644 — pressing Enter on the EMPTY FIRST paragraph of a loose list item
@@ -93,7 +94,7 @@ function enterAt(muya: Muya, content: Content, offset: number) {
         shiftKey: false,
         key: 'Enter',
     } as unknown as KeyboardEvent;
-    content.enterHandler(event);
+    runUserCommand(muya, () => content.enterHandler(event));
 }
 
 function flush(): Promise<void> {

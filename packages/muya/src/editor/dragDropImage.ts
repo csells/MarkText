@@ -1,15 +1,14 @@
 import type Format from '../block/base/format';
 import type Parent from '../block/base/parent';
 import type { Muya } from '../muya';
+import type { IParagraphState } from '../state/types';
 import { ScrollPage } from '../block/scrollPage';
 import { IMAGE_EXT_REG, URL_REG } from '../config';
 import { findContentDOM } from '../selection/dom';
 import { getUniqueId } from '../utils';
+import { reportAsyncTask } from '../utils/asyncTask';
 import { getBlock, query } from '../utils/dom';
 import { checkImageContentType, getImageInfo, getImageSrc } from '../utils/image';
-import logger from '../utils/logger';
-
-const debug = logger('editor:dragDropImage:');
 
 // Drag-and-drop image insertion: a dropped image — either a web-link image
 // (`text/uri-list`) or a local image FILE — is inserted as a new `![](src)`
@@ -108,19 +107,26 @@ function insertImageParagraph(
     muya: Muya,
     target: IDropTarget,
     text: string,
-): Parent {
-    const state = { name: 'paragraph', text };
-    const imageBlock = ScrollPage.loadBlock('paragraph').create(muya, state);
-    const { anchor, position } = target;
+): boolean {
+    let inserted = false;
+    const result = muya.editor.mutationGateway.run(
+        { kind: 'user-command' },
+        () => {
+            const state: IParagraphState = { name: 'paragraph', text };
+            const imageBlock = ScrollPage.createStateBlock(muya, state);
+            const { anchor, position } = target;
 
-    if (position === 'up')
-        anchor.parent!.insertBefore(imageBlock, anchor);
-    else
-        anchor.parent!.insertAfter(imageBlock, anchor);
+            if (position === 'up')
+                anchor.parent!.insertBefore(imageBlock, anchor);
+            else
+                anchor.parent!.insertAfter(imageBlock, anchor);
 
-    imageBlock.firstContentInDescendant()?.setCursor(0, 0, true);
+            imageBlock.firstContentInDescendant()?.setCursor(0, 0, true);
+            inserted = true;
+        },
+    );
 
-    return imageBlock;
+    return result !== 'rejected' && inserted;
 }
 
 // `text/uri-list` is a CRLF-delimited format whose lines may include `#`
@@ -171,7 +177,7 @@ function handleWebLinkImage(
     const uriPromise = readItem(uriItem);
     const htmlPromise = readItem(htmlItem);
 
-    void (async () => {
+    reportAsyncTask((async () => {
         const url = firstUri(await uriPromise);
         if (!URL_REG.test(url))
             return;
@@ -185,7 +191,7 @@ function handleWebLinkImage(
             return;
 
         insertImageParagraph(muya, target, `![](${url})`);
-    })();
+    })(), 'Dropped web image detection');
 
     return true;
 }
@@ -202,26 +208,29 @@ async function persistDroppedImage(
     if (!imageAction)
         return;
 
-    try {
-        const newSrc = await imageAction({ src: path, alt: name, title: '' });
-        const { src } = getImageSrc(path);
-        if (src)
-            muya.editor.inlineRenderer.renderer.urlMap.set(newSrc, src);
+    const newSrc = await imageAction({ src: path, alt: name, title: '' });
+    const { src } = getImageSrc(path);
+    if (src)
+        muya.editor.inlineRenderer.renderer.urlMap.set(newSrc, src);
 
-        const imageWrapper = query<HTMLElement>(
-            `span[data-id=${loadingId}]`,
-            muya.domNode,
-        );
-        if (imageWrapper) {
-            const imageInfo = getImageInfo(imageWrapper);
-            const block = getBlock(
-                findContentDOM(imageWrapper),
-            ) as Format | undefined;
-            block?.replaceImage(imageInfo, { alt: name, src: newSrc });
+    const imageWrapper = query<HTMLElement>(
+        `span[data-id=${loadingId}]`,
+        muya.domNode,
+    );
+    if (imageWrapper) {
+        const imageInfo = getImageInfo(imageWrapper);
+        const block = getBlock(
+            findContentDOM(imageWrapper),
+        ) as Format | undefined;
+        if (block) {
+            muya.editor.mutationGateway.run(
+                { kind: 'user-command' },
+                () => block.replaceImage(
+                    imageInfo,
+                    { alt: name, src: newSrc },
+                ),
+            );
         }
-    }
-    catch (error) {
-        debug.warn(`Unexpected error on image action: ${String(error)}`);
     }
 }
 
@@ -257,9 +266,18 @@ function handleFileImage(
     }
 
     const loadingId = `loading-${getUniqueId()}`;
-    insertImageParagraph(muya, target, `![${loadingId}](${path})`);
+    const inserted = insertImageParagraph(
+        muya,
+        target,
+        `![${loadingId}](${path})`,
+    );
 
-    void persistDroppedImage(muya, path, name, loadingId);
+    if (inserted) {
+        reportAsyncTask(
+            persistDroppedImage(muya, path, name, loadingId),
+            'Dropped image persistence',
+        );
+    }
 
     return true;
 }

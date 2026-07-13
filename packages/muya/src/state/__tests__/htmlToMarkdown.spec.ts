@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest';
+import { longestLineLength } from '../../utils/turndownService';
 import HtmlToMarkdown from '../htmlToMarkdown';
 
 function convert(html: string): string {
@@ -8,6 +9,12 @@ function convert(html: string): string {
 }
 
 describe('htmlToMarkdown — Google Docs style inline formatting', () => {
+    it('measures a setext heading with 200k text-derived lines', () => {
+        const content = `${'x\n'.repeat(200_000)}longest`;
+
+        expect(longestLineLength(content)).toBe('longest'.length);
+    }, 60_000);
+
     it('preserves CSS bold and italic ranges from Google Docs without bolding the wrapper', () => {
         const html = [
             '<b style="font-weight:normal" id="docs-internal-guid-abc">',

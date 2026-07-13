@@ -90,6 +90,9 @@ export const ko = {
         'full mode': '전체 모드',
         // preview block
         'Loading...': '로딩 중...',
+        'Accept': '수락',
+        'Reject': '거부',
+        'Remove': '제거',
         'Invalid Diagram Code': '잘못된 다이어그램 코드',
         'Empty Diagram': '빈 다이어그램',
         'Input Mathematical Formula...': '수식 입력...',

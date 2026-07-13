@@ -2,6 +2,10 @@
 
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    runUserCommand,
+    runUserEdit,
+} from '../../../../__tests__/helpers/mutation';
 import { Muya } from '../../../../muya';
 
 // DATA-LOSS GUARD — forward-Delete-at-end-of-paragraph block merge.
@@ -72,7 +76,7 @@ function deleteAtEnd(muya: Muya, content: Content): { preventDefault: ReturnType
         stopPropagation: vi.fn(),
         key: 'Delete',
     } as unknown as KeyboardEvent & { preventDefault: ReturnType<typeof vi.fn> };
-    content.deleteHandler(event);
+    runUserCommand(muya, () => content.deleteHandler(event));
     return event;
 }
 
@@ -129,7 +133,9 @@ describe('forward Delete at end-of-paragraph — merge with next block', () => {
 describe('forward Delete merging a list item that owns a nested sublist (#1845)', () => {
     function emptyFirstItemThenDelete(muya: Muya): void {
         const first = contentByText(muya, 'a');
-        first.text = '';
+        runUserEdit(muya, () => {
+            first.text = '';
+        });
         deleteAtEnd(muya, first);
     }
 

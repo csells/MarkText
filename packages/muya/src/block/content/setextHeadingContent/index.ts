@@ -1,5 +1,6 @@
 import type { Muya } from '../../../muya';
 import type { IRenderCursor } from '../../../selection/types';
+import type { IParagraphState } from '../../../state/types';
 import { isKeyboardEvent } from '../../../utils';
 import Format from '../../base/format';
 import { ScrollPage } from '../../scrollPage';
@@ -52,12 +53,12 @@ class SetextHeadingContent extends Format {
             event.preventDefault();
             event.stopPropagation();
 
-            const newNodeState = {
+            const newNodeState: IParagraphState = {
                 name: 'paragraph',
                 text: '',
             };
 
-            const newParagraphBlock = ScrollPage.loadBlock(newNodeState.name).create(
+            const newParagraphBlock = ScrollPage.createStateBlock(
                 this.muya,
                 newNodeState,
             );

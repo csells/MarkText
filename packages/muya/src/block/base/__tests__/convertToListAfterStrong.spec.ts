@@ -3,6 +3,7 @@
 import type { Muya } from '../../../muya';
 import type Format from '../format';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runUserEdit } from '../../../__tests__/helpers/mutation';
 import { Muya as MuyaClass } from '../../../muya';
 
 vi.mock('../../../utils/prism/index', () => ({
@@ -53,8 +54,10 @@ interface ILiveBlock {
 function convert(text: string): ILiveBlock[] {
     const muya = bootMuya('seed\n');
     const content = muya.editor.scrollPage!.firstContentInDescendant() as Format;
-    content.text = text;
-    content.checkInlineUpdate();
+    runUserEdit(muya, () => {
+        content.text = text;
+        content.checkInlineUpdate();
+    });
 
     const top: ILiveBlock[] = [];
     (muya.editor.scrollPage as unknown as ILiveBlock).children!.forEach(b => top.push(b));
