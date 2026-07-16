@@ -63,7 +63,7 @@ test.describe('clipboard paste', () => {
         await expect.poll(async () => getMarkdown(page), {
             timeout: 5_000,
             intervals: [50, 100, 250, 500],
-        }).toBe('**Bold** normal *italic*\n');
+        }).toBe('**Bold** normal *italic*');
 
         const md = await getMarkdown(page);
         expect(md).not.toContain('**\n\n');
@@ -95,7 +95,7 @@ test.describe('clipboard paste', () => {
         await expect.poll(async () => getMarkdown(page), {
             timeout: 5_000,
             intervals: [50, 100, 250, 500],
-        }).toBe(`A[${url}](${url})B\n`);
+        }).toBe(`A[${url}](${url})B`);
     });
 
     test('pasting bare URL HTML link with auto-link boundaries keeps plain URL fallback', async ({ browserName, context, page }) => {
@@ -114,7 +114,7 @@ test.describe('clipboard paste', () => {
         await expect.poll(async () => getMarkdown(page), {
             timeout: 5_000,
             intervals: [50, 100, 250, 500],
-        }).toBe(`A ${url} B\n`);
+        }).toBe(`A ${url} B`);
     });
 
     test('pasting bare URL HTML link before trailing punctuation keeps plain URL fallback', async ({ browserName, context, page }) => {
@@ -133,7 +133,7 @@ test.describe('clipboard paste', () => {
         await expect.poll(async () => getMarkdown(page), {
             timeout: 5_000,
             intervals: [50, 100, 250, 500],
-        }).toBe(`A ${url}.\n`);
+        }).toBe(`A ${url}.`);
     });
 
     test('pasting a basic <table> converts to a GFM table', async ({ browserName, context, page }) => {
@@ -233,11 +233,14 @@ test.describe('clipboard paste', () => {
     test('pasting inline spaces with HTML still inserts the plain spaces', async ({ browserName, context, page }) => {
         test.skip(browserName !== 'chromium', 'ClipboardItem text/html unreliable on Firefox/WebKit headless — BACKLOG Phase 3.');
         await grantClipboardPermissions(context);
+        // The seeded document has no final newline; the parser owns the
+        // terminal line ending and an inline paste must not invent one
+        // (plan 0006 Wave 5 byte-exactness).
         await pasteClipboardAt(page, 'AB', 1, '<span style="white-space: pre;">  </span>', '  ');
         await expect.poll(async () => getMarkdown(page), {
             timeout: 5_000,
             intervals: [50, 100, 250, 500],
-        }).toBe('A  B\n');
+        }).toBe('A  B');
     });
 });
 

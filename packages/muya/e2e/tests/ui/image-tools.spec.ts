@@ -56,9 +56,11 @@ test.describe('image tools', () => {
         // No real <img> is mounted for an empty image.
         await expect(page.locator(`${editor.image} img`)).toHaveCount(0);
 
-        // The empty image round-trips losslessly through the serializer.
+        // The empty image round-trips losslessly through the serializer —
+        // byte-exact, including the absent terminal newline (the parser owns
+        // the source's terminal line ending; plan 0006 Wave 5).
         const md = await page.evaluate(() => window.muya!.getMarkdown());
-        expect(md).toBe('![]()\n');
+        expect(md).toBe('![]()');
     });
 
     test('clicking the empty-image placeholder opens the image edit tool', async ({ page }) => {

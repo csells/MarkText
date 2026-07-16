@@ -42,9 +42,15 @@ test('#4654 selecting a language after the code block is detached does not crash
     // picker stays up with a now-orphaned language-input target. (A caret move
     // would trip the selection-change auto-hide; this isolates the selectItem
     // guard, which is the last-resort net for any detach the auto-hide misses.)
+    // Structural removal must run through the mutation gateway — direct tree
+    // mutation is rejected by the single-gateway contract.
     await page.evaluate(() => {
-        const langInput = window.muya!.editor.activeContentBlock;
-        langInput.parent.remove();
+        const editor = window.muya!.editor;
+        const langInput = editor.activeContentBlock;
+        editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => langInput!.parent!.remove(),
+        );
     });
 
     // Click the language item that is still rendered in the open picker.

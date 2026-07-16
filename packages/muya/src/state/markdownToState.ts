@@ -325,7 +325,8 @@ export class MarkdownToState {
                 return;
             }
             descendant = (descendant as { children?: TState[] })
-                .children?.at(-1);
+                .children
+                ?.at(-1);
         }
         (previous as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
             ...previous.sourceTrivia,

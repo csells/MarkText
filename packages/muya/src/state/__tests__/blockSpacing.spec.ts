@@ -36,6 +36,21 @@ describe('list-final Critic boundary terminal EOL', () => {
     });
 });
 
+describe('empty-source terminal EOL', () => {
+    // Zero bytes in, zero bytes out: the parser owns the (absent) terminal
+    // line ending of an empty source exactly like any other document, so a
+    // no-op round-trip may not manufacture a trailing LF
+    // (terminalLineEnding.spec.ts pins the same law at the serializer).
+    it('records absent-terminal-EOL ownership for an empty source', () => {
+        const [state] = new MarkdownToState(OPTIONS).generate('');
+        expect(state.sourceTrivia?.terminalLineEnding).toBe('');
+    });
+
+    it('round-trips the empty document byte-exactly', () => {
+        expect(roundTrip('')).toBe('');
+    });
+});
+
 describe('parser-owned block spacing', () => {
     it.each([
         '\n\n',

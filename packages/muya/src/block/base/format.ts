@@ -653,7 +653,13 @@ class Format extends Content {
         }
 
         const { domNode } = this;
-        const { start, end } = this.getCursor()!;
+        // The gateway flushes pending boundaries before user input, so the
+        // first keystroke after a UI interaction can arrive with no committed
+        // cursor. Ignore the event; the DOM and model have not diverged yet.
+        const committedCursor = this.getCursor();
+        if (!committedCursor)
+            return;
+        const { start, end } = committedCursor;
         const textContent = getTextContent(domNode!, [
             CLASS_NAMES.MU_MATH_RENDER,
             CLASS_NAMES.MU_RUBY_RENDER,

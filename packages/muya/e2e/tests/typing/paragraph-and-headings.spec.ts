@@ -76,7 +76,9 @@ test.describe('paragraphs and headings', () => {
     // becomes `a\nb` (one paragraph, one `.mu-soft-line-break` span), and the
     // markdown carries the embedded newline. NOTE: the engine emits a plain
     // soft break (`\n`), not a CommonMark hard break (`  \n` / `\\\n`) — see
-    // suspectedBugs. Backspace at the start of the second visual line removes
+    // suspectedBugs. The document was created empty, so the parser owns an
+    // absent terminal newline and the markdown carries no trailing LF
+    // (plan 0006 byte-exactness). Backspace at the start of the second visual line removes
     // the soft break, joining the two lines back into `ab`.
     test('Shift+Enter inserts a soft line break, Backspace removes it', async ({ page }) => {
         await page.evaluate(() => window.muya!.setContent(''));
@@ -93,11 +95,11 @@ test.describe('paragraphs and headings', () => {
         await expect(page.locator(editor.softLineBreak)).toHaveCount(1);
         await expect(page.locator(editor.softLineBreak).first()).toBeAttached();
         await page.waitForFunction(
-            () => window.muya!.getMarkdown() === 'a\nb\n',
+            () => window.muya!.getMarkdown() === 'a\nb',
             undefined,
             { timeout: 5000 },
         );
-        expect(await getMarkdown(page)).toBe('a\nb\n');
+        expect(await getMarkdown(page)).toBe('a\nb');
 
         // Move the caret to the start of the second visual line (before `b`) and
         // Backspace to delete the soft break, rejoining the lines into `ab`.
@@ -105,11 +107,11 @@ test.describe('paragraphs and headings', () => {
         await page.keyboard.press('Backspace');
 
         await page.waitForFunction(
-            () => window.muya!.getMarkdown() === 'ab\n',
+            () => window.muya!.getMarkdown() === 'ab',
             undefined,
             { timeout: 5000 },
         );
-        expect(await getMarkdown(page)).toBe('ab\n');
+        expect(await getMarkdown(page)).toBe('ab');
         await expect(page.locator(editor.paragraph)).toHaveCount(1);
         await expect(page.locator(editor.softLineBreak)).toHaveCount(0);
     });

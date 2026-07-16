@@ -633,8 +633,13 @@ class Content extends TreeNode {
         type = 'format',
     ) {
     // TODO: @JOCS, remove use this selection directly.
+        // The mutation gateway flushes pending boundaries before user input,
+        // which can leave no committed cursor on the first keystroke after a
+        // UI interaction — fall through to the no-cursor guard below.
         const { anchor, focus } = this.selection;
-        const oldStart = anchor!.offset <= focus!.offset ? anchor : focus;
+        const oldStart = anchor && focus
+            ? (anchor.offset <= focus.offset ? anchor : focus)
+            : null;
         let needRender = false;
 
         // The event will not be input event, when click task list item input element.

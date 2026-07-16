@@ -221,12 +221,21 @@ test.describe('diagram via quick-insert menu', () => {
                 y: { field: 'b', type: 'quantitative' },
             },
         });
+        // Content text mutation must run through the mutation gateway — the
+        // single-gateway contract rejects a bare `block.text =` write.
         await page.evaluate((text) => {
-            const block = window.muya!.editor.activeContentBlock as unknown as {
+            const editorInstance = window.muya!.editor;
+            const block = editorInstance.activeContentBlock as unknown as {
                 text: string;
                 outContainer?: { attachments?: { head?: { update: (code: string) => void } } };
             } | null;
-            block!.text = text;
+            (editorInstance as unknown as {
+                mutationGateway: {
+                    run: (request: { kind: string }, mutate: () => void) => unknown;
+                };
+            }).mutationGateway.run({ kind: 'user-command' }, () => {
+                block!.text = text;
+            });
             block!.outContainer?.attachments?.head?.update(text);
         }, spec);
 

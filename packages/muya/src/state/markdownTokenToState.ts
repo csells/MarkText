@@ -69,7 +69,6 @@ function prependTokens(
         target[index] = values[index];
 }
 
-
 /**
  * Clear `blockSeparatorAfter` on every open ancestor container whose
  * recorded separator is a suffix of the after-boundary trivia. The boundary

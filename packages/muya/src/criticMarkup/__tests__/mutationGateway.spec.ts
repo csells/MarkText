@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type Format from '../../block/base/format';
 import type Parent from '../../block/base/parent';
 import type Frontmatter from '../../block/extra/frontmatter';
 import type Table from '../../block/gfm/table';
@@ -8,7 +9,6 @@ import diff from 'fast-diff';
 import * as json1 from 'ot-json1';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScrollPage } from '../../block/scrollPage';
-import type Format from '../../block/base/format';
 import { Muya } from '../../muya';
 import { diffToTextOp } from '../../utils';
 
