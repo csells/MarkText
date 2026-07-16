@@ -2,6 +2,8 @@
 
 **Status:** Active  
 **Created:** 2026-07-13  
+**Gap analyses:** 2026-07-16 ×2 (adversarial multi-agent; see the closure
+addendum)  
 **Branch:** `feat/native-criticmarkup`  
 **Base:** `develop` at `43bd8b77795fb27b1a9512737c000f7362031ea0`
 
@@ -443,17 +445,39 @@ Wave 7 gate step.
   and sidebar refreshes with a p95 below 500 ms. Pair this artifact budget with
   Wave 2's deterministic law that doubling input performs at most 2.25× the
   measured parser/adapter work; investigate rather than average away outliers.
+  **Budget qualification (2026-07-16):** the toggle p95 measures the steady
+  interactive state — the perf spec waits for the engine's `data-critic-warm`
+  projection-warmup marker (stamped moments after open; see
+  `specs/architecture/background-application-testing.md`) before sampling, so
+  the one-off warmup parse is bounded by the open budget rather than the
+  toggle budget. The spec attaches a machine record
+  (hostname/CPU/cores/memory/OS/node) to every run.
 - [ ] Prove the accessibility tree, keyboard traversal/actions, focus return,
   and rejection live announcement in automation, then complete one packaged-
   app assistive-technology walkthrough using VoiceOver on macOS or NVDA on
-  Windows and retain the checklist/result.
+  Windows and retain the checklist/result. **Automation half landed
+  2026-07-16** (desktop E2E: CDP `Accessibility.getFullAXTree` names/roles,
+  keyboard-only DOM-order card resolution equal to the pointer path, and the
+  rejection banner as a non-focus-stealing assertive live region driven
+  through the production notification sink — the engine→banner emission is
+  unit-proven by `critic-markup-rejection-presentation`); the VoiceOver/NVDA
+  walkthrough remains a user step.
 - [ ] Run named supported-platform jobs: macOS arm64 build plus Review menu/
   keybinding tests, Windows x64 build plus Windows menu/keybinding tests, and
-  Linux x64 build plus Linux menu/keybinding tests.
+  Linux x64 build plus Linux menu/keybinding tests. **Workflow authored
+  2026-07-16** (`.github/workflows/critic-review-platforms.yml`: macos-14
+  arm64 / windows-latest x64 / ubuntu-latest x64, each bundling the desktop
+  app via electron-vite and running the Review menu/store/descriptor/
+  keybinding/a11y/focus/rejection suites, plus a network-isolated
+  clean-checkout fork verification job; `workflow_dispatch` + PR triggers).
+  Remains open until the three platform jobs execute green on CI.
 - [x] Produce and inspect an actual PDF file. For printing, capture the final
   sanitized print document and print options with the deterministic hidden-test
-  adapter, then complete one user-owned packaged-app Print-to-PDF smoke step;
-  automated tests may not open a foreground native print dialog.
+  adapter; automated tests may not open a foreground native print dialog.
+- [ ] Complete one user-owned packaged-app Print-to-PDF smoke step and record
+  the result here. (Split out 2026-07-16: the previous combined checkbox was
+  checked without a retained record of this user-owned step; the automated
+  halves above stand, the user step remains open.)
 - [x] Immediately before the final gate, fetch `upstream` and `origin`; require
   local `develop`, `origin/develop`, and `upstream/develop` to name the same
   commit. If upstream advanced, fast-forward local `develop` to it, push that
@@ -466,9 +490,14 @@ Wave 7 gate step.
   five forms, Track Changes, projections, Accept/Reject/Remove, source/save/
   autosave, copy/export policy, interoperability limits, and the explicit
   concurrency non-goal.
-- [ ] Obtain an independent, fresh, whole-branch thermonuclear review with an
-  **APPROVE** verdict and zero validated findings. Do not seed the reviewer with
-  old scores or claim closure from an incremental rescore.
+- [x] Subject the whole branch to independent adversarial review. **Fulfilled
+  by user decision 2026-07-16:** two multi-agent gap analyses (52 and 64
+  independent verification/refutation agents, seeded only with the plan text
+  and the tree, never with prior scores) replace the previously required
+  "thermonuclear review with APPROVE" step. Every surviving finding from both
+  analyses was remediated red-green or recorded as an honest open item in this
+  plan; the previously manual review dimensions are now permanent fitness
+  gates. No further standalone review round is required.
 
 **Gate:** every command reaches a clean pass, the hidden freshly built app
 completes the workflow with zero captured errors, cross-platform checks pass,
@@ -498,15 +527,17 @@ documentation matches proven behavior, and the fresh review approves.
 This plan is complete only when all of the following are true:
 
 - [ ] Every PR-01 through PR-10 blocker is closed with red-green evidence.
-- [ ] Every fragment-bearing CriticMarkup consumer uses the exact parser-owned
+- [x] Every fragment-bearing CriticMarkup consumer uses the exact parser-owned
   binding artifact; no generic topology inference or optional provenance
-  remains.
+  remains (2026-07-16: required binding parameter, repo-wide provenance
+  fitness, test-only bound-document helper out of production).
 - [ ] Every supported edit satisfies both projection invariants, atomic
   history/rollback, and visible fail-closed behavior.
 - [ ] Valid, malformed, literal-context, Unicode, nested, block-spanning, and
   adversarial documents are lossless and bounded at every affected consumer.
-- [ ] The vendored Marked fork is complete, tracked, reproducible, and passes
-  conformance.
+- [x] The vendored Marked fork is complete, tracked, reproducible, and passes
+  conformance (2026-07-16: five negative drift controls, regenerated canonical
+  patch, offline CI verification job, conformance 1347/1347).
 - [ ] All focused and full gates pass sequentially from the final tree.
 - [ ] A freshly built hidden desktop application and the installed/mounted
   native distributable prove the end-to-end workflow with no captured error
@@ -515,12 +546,153 @@ This plan is complete only when all of the following are true:
   are proven.
 - [ ] User-facing documentation describes only behavior verified in the
   artifact.
-- [ ] A fresh whole-branch thermonuclear review returns **APPROVE** with zero
-  validated findings.
+- [x] The whole branch survived independent adversarial review: two 2026-07-16
+  multi-agent gap analyses with every surviving finding remediated or honestly
+  recorded (user decision 2026-07-16 replacing the former thermonuclear-review
+  requirement).
 
 After completion, distill any newly discovered lasting truth into
 `specs/architecture/`, move this plan to `specs/plans/archive/`, and begin the
 external-file concurrency effort as a separately numbered plan.
+
+## Closure addendum — 2026-07-16 gap analyses and remediation
+
+Two adversarial multi-agent gap analyses (2026-07-16, morning and afternoon,
+52 and 64 agents) audited every wave claim against the tree. This section is
+the corrected evidence record; where it contradicts a wave stamp above, this
+section wins.
+
+### Post-closure history the ledger previously omitted
+
+- Commit `799f4c7e` landed 38 minutes after the closure commit `aad0f659`,
+  changing six production muya serialization/state/mutation files. It fixed
+  real defects in capabilities the Wave 3/5 gates had already certified:
+  repeated open/save duplicated terminal line endings on list-final Critic
+  documents, quoted loose lists serialized spurious blank lines (both Wave 5
+  losslessness violations), and post-commit observer failures were masked by
+  a bogus rollback error (Wave 3 failure-injection). The Wave 3/5 MET stamps
+  therefore described suites that were green while certified byte classes
+  were broken.
+- `799f4c7e` also committed the user's `.vscode/settings.json` customization,
+  violating settled decision 10; remediated in `fdc48c4f` (tracked file
+  restored to its develop state, customization kept local-only). The
+  violation commit remains in branch history; a squash on merge removes it.
+- Two gates were red at `fdc48c4f` and are now fixed: muya ESLint (3 errors
+  in `799f4c7e`-touched files) and desktop `vue-tsc` (TS2367 in
+  `packaged-smoke.spec.ts`, introduced by `aad0f659` itself — so the Wave 7
+  "run all gates" item had never actually held; the Save menu item now has a
+  real id `fileSaveMenuItem` instead of a role scan).
+
+### Stamp corrections
+
+- **Wave 1:** the MET stamp's "no optional binding parameter" was false at
+  the stamped tree — `createCriticMarkupDocument` carried a defaulted
+  `'grammar'` sentinel, and `parseBoundCriticMarkupDocument` was a test-only
+  export living in production. Both remediated 2026-07-16: the parameter is
+  required at every call site, the helper moved to test support
+  (`inlineRenderer/__tests__/parseBoundDocument.ts`), and the
+  optional-provenance fitness contract now scans every production source
+  rather than `document.ts` alone.
+- **Wave 2:** recorded module sizes drifted (working tree: markdownToState
+  360, stateToMarkdown 754, nativeCriticMarkup 737, paragraphContent 932,
+  muya.ts ~1700); all ceilings still hold. `inlineRenderer/lexer.ts` and
+  `block/base/treeNode.ts` sit at exactly 999 against the 1000 gate — zero
+  headroom, decompose before any growth.
+- **Wave 3:** the rejection-presentation record said 19/19; the spec holds 22
+  cases. The "45 parity rows" phrasing: the corpus has 45+ rows; item-free
+  rows assert zero-count resolution rather than item parity.
+- **Wave 5:** the "remaining open rows" note is obsolete — the
+  no-final-newline/repeated-blank byte classes (matrix rows 24/38/39/40) now
+  cross real file IO as per-row desktop E2E cases; the corpus-boundary matrix
+  records every byte class closed.
+- **Wave 6:** the negative-controls checkbox was stamped when only three of
+  the five named drift classes had controls. `verify-fork.mjs --self-test`
+  now covers all five (manifest-reclassification and corrupted-canonical-
+  patch controls added red-green; `markedForkContract.spec.ts` grew 5→8
+  cases, including a census pinning all five control labels). The canonical
+  patch was regenerated for the updated fork surface. The clean-checkout
+  offline rerun is automated as the `fork-verify-offline` CI job
+  (network-isolated via `unshare --net`).
+- **Wave 7:** the checked runtime proofs recorded at `aad0f659` cited
+  session-local artifacts (scratchpad gate logs) and predate all later
+  changes; the 2026-07-16 final-tree ledger below is the operative record.
+  The `run-packaged-smoke.sh` driver now makes the packaged-DMG smoke
+  reproducible from the tree (previously the spec self-skipped with no
+  checked-in runner).
+
+### Engine fixes landed with the remediation (all red-green)
+
+- **O(blocks²) reference-definition collection:** the inline renderer
+  deep-cloned the entire document once per block render during whole-tree
+  rebuilds. Collection is now cached per `documentVersion`
+  (`referenceDefinitionsCache.spec.ts`); opening the 10k-paragraph fixture
+  dropped from ~103 s to ~7 s.
+- **Projection toggle cost:** read-only projections are parsed at most once
+  per document revision (cache keyed on `documentVersion`), item-free
+  documents project without any reparse, and an asynchronous warmup
+  (`scheduleProjectionWarmup`, marker `data-critic-warm`, deferred and
+  rescheduled while a mutation holds the authority) precomputes both
+  projections after open/reset (`criticMarkupProjectionToggle.spec.ts`).
+  A pure view switch no longer parses per toggle and no longer steals focus
+  or seats a caret at document start.
+- **Empty-source terminal EOL:** the parser now records absent-terminal-EOL
+  ownership for the empty source, so an empty document round-trips to zero
+  bytes and a document authored from an empty tab serializes without a
+  manufactured trailing LF (`blockSpacing.spec.ts` empty-source cases;
+  eight muya-E2E expectations updated from the old always-append-LF
+  behavior; documented in `docs/CRITICMARKUP.md`).
+- **Null-cursor input crashes:** the first keystroke after a gateway
+  boundary flush could arrive with no committed cursor and crashed the input
+  path at two sites (`autoPair` selection destructure; `inputHandler`
+  `getCursor()` destructure). Both guarded; contract pinned by
+  `autoPairNullCursor.spec.ts` (red proven against the pre-guard tree).
+- **Gateway-contract test repairs:** the orphan-4654 and vega-lite muya-E2E
+  specs mutated blocks directly and now route through the mutation gateway.
+
+### Known flakes (not branch obligations)
+
+- `mermaid.spec.ts` slash-menu typing drops a staged newline under load —
+  fails 4/6 at the merge base `43bd8b77` itself (selection restore is
+  rAF-scheduled and can lose to the next keystroke). Upstream backlog.
+- `table-row-column-menu.spec.ts` quick-click cases show the same
+  load-sensitivity in saturated full runs and pass in isolation.
+
+### 2026-07-16 final-tree verification ledger
+
+Sequential, single-worker, background-scheduled (`taskpolicy -b nice -n 20`),
+run on the remediated tree:
+
+- muya unit: 305 files / 3,262 tests green (includes the new
+  projection-toggle, reference-definition-cache, null-cursor, empty-EOL, and
+  fork-contract cases)
+- CommonMark/GFM conformance: 1,347/1,347
+- muya lint / lint:css / lint:types / madge: clean
+- muya E2E (Chromium, one worker): 243/244 — the single failure is the
+  documented pre-existing mermaid load flake (fails at the merge base;
+  passes in isolation)
+- fork verification: `verify-fork.mjs --self-test` PASS with five negative
+  controls; `markedForkContract.spec.ts` 8/8
+- desktop unit: 70 files / 897 tests green
+- root ESLint: 0 errors; desktop `vue-tsc`: clean
+- fresh `build:unpack` + hidden desktop E2E: 236 passed / 5 skipped
+  (packaged-smoke rows self-skip without a mounted DMG; run
+  `test/e2e/run-packaged-smoke.sh` for that leg) / 0 failed — including the
+  new Track Changes workflow, five-form authoring, a11y, and ten per-row
+  file-backed corpus cases; perf budgets met with machine record attached
+  (4,096-line open within 5 s; toggle/navigation/sidebar p95 < 500 ms under
+  the recorded warm-state qualification)
+- `validate-licenses`: clean
+
+### Remaining open items (all user- or CI-gated)
+
+1. Wave 4: packaged-app Review-surface reachability walkthrough — record the
+   user's acceptance here, or implement dedicated toolbar/preferences
+   controls (settled decision 7).
+2. Wave 7: VoiceOver (or NVDA) packaged-app walkthrough with retained
+   checklist; the automation half is done.
+3. Wave 7: three green platform-job runs of
+   `critic-review-platforms.yml` on CI (needs the branch pushed/PR opened).
+4. Wave 7: one user-owned packaged-app Print-to-PDF smoke step.
 
 ## Background-safe verification commands
 

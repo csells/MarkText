@@ -94,18 +94,18 @@ declared-options parse proof for every row remains with RT/PAC.
 | Front matter | `yaml-front-matter` (representative; rows 18–20 cite it) | E2E-FILE-ROW (`frontMatter: true` is the desktop's fixed engine default) | — | Covered |
 | Hostile cross-block payloads | `hostile-cross-block-addition` | E2E-FILE-ROW (with the `superSubScript` preference applied), including the live-editor inertness scan | — | Covered |
 
-### Additional `— (gap)` cells outside the named minimum
+### Additional byte-class rows outside the named minimum (all closed)
 
-These rows carry byte classes that no test transports through real file IO
+These rows carry byte classes that formerly never crossed real file IO
 (the plan's third Wave 5 bullet independently demands "no final newline,
 repeated blank lines" byte coverage):
 
 | Corpus row | Untransported byte class | Status |
 | --- | --- | --- |
-| `identical-substitution-arms-with-literal-link-destinations` | no final newline | Open |
-| `no-final-newline-repeated-blanks-astral-and-identical-text` | no final newline; repeated blank lines | Open |
-| `hostile-addition-html-and-url` | no final newline | Open |
-| `hostile-comment-title` | no final newline | Open |
+| `identical-substitution-arms-with-literal-link-destinations` | no final newline | Closed — E2E-FILE-ROW (open→save×2→reopen→save, byte-exact without a final newline) |
+| `no-final-newline-repeated-blanks-astral-and-identical-text` | no final newline; repeated blank lines | Closed — E2E-FILE-ROW (with the `superSubScript` preference applied) |
+| `hostile-addition-html-and-url` | no final newline | Closed — E2E-FILE-ROW, including the live-editor inertness scan |
+| `hostile-comment-title` | no final newline | Closed — E2E-FILE-ROW, including the live-editor inertness scan |
 | `toml-front-matter`, `semicolon-json-front-matter`, `brace-json-front-matter` | front-matter file transport | Closed — the front-matter transport class now crosses real file IO via row 17 (`yaml-front-matter`, E2E-FILE-ROW); rows 18–20 cite it |
 
 ## Equivalence rule for rows outside the file-backed set
@@ -113,7 +113,7 @@ repeated blank lines" byte coverage):
 Desktop file IO is content-agnostic UTF-8 byte transport plus the
 serializer's canonicalization. For a row whose canonical bytes fall in a
 class already driven through `E2E-FILE` (ASCII, LF line endings, terminal
-newline — the class of all five current file-backed rows, which also cover
+newline — the class of all six current `FILE_CORPUS_ROW_IDS` rows, which also cover
 backslash escapes, multi-block sources, and protected literal code
 contexts), the file boundary adds nothing beyond what RT (byte-exact,
 idempotent serialization under the row's own parser options) and CP (full
@@ -123,9 +123,9 @@ CRLF, missing final newline, repeated blank lines) or whose file-level risk
 is semantic rather than byte transport (front matter handling on the desktop
 open path; hostile payload rendering in the real renderer) cannot claim
 equivalence and are marked `— (gap)` until the E2E set covers them. The
-BOM/CRLF, front-matter, and hostile-rendering classes are now covered by the
-per-row `E2E-FILE-ROW` suite; the missing-final-newline and
-repeated-blank-line classes remain open gaps.
+BOM/CRLF, front-matter, hostile-rendering, missing-final-newline, and
+repeated-blank-line classes are all covered by the per-row `E2E-FILE-ROW`
+suite; no untransported byte class remains open.
 
 A desktop unit meta-guard pins the corpus wiring itself:
 `packages/desktop/test/unit/specs/e2e-background-safety.spec.ts` ›
@@ -135,7 +135,7 @@ from `sharedCorpus`.
 
 ## Matrix — `CRITIC_MARKUP_CORPUS` (45 rows)
 
-FB set = the five current `FILE_CORPUS_ROW_IDS` rows (see above).
+FB set = the six current `FILE_CORPUS_ROW_IDS` rows (see above).
 
 | # | Row id | Tags | Parser/state proof | Round-trip/persistence proof | Consumer-parity proof (live/Review/HTML/clipboard) | Security/sink proof | File-backed desktop proof |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -162,7 +162,7 @@ FB set = the five current `FILE_CORPUS_ROW_IDS` rows (see above).
 | 21 | `unterminated-yaml-front-matter-looking-prefix` | front-matter-lookalike, recovery | PAC, DOC | RT, PAC (canonical reparse of `known` normalization) | CP, RSNAP | — | — eq: RT+CP; canonical form is ASCII/LF class via FB set |
 | 22 | `bare-yaml-front-matter-looking-prefix` | front-matter-lookalike, recovery | PAC, DOC | RT, PAC | CP (incl. declared `resolution`), RSNAP | — | — eq: RT+CP; ASCII/LF class via FB set |
 | 23 | `yaml-front-matter-option-disabled` | front-matter-disabled, parser-options | PAC, DOC | RT, PAC (canonical reparse of `known` normalization) | CP, RSNAP | — | — eq: RT+CP; canonical form is ASCII/LF class via FB set; option-profile semantics are parser-level (DOC/RSNAP), not file-level |
-| 24 | `identical-substitution-arms-with-literal-link-destinations` | substitution, repeated-text, link-destination | PAC, DOC | RT, PAC | CP, HTML, RSNAP | — | — (gap: no-final-newline byte class never crosses real file IO) |
+| 24 | `identical-substitution-arms-with-literal-link-destinations` | substitution, repeated-text, link-destination | PAC, DOC | RT, PAC | CP, HTML, RSNAP | — | E2E-FILE-ROW (no-final-newline byte class byte-exact across real file IO) |
 | 25 | `substitution-new-arm-inline-math-owns-inner-critic-bytes` | substitution, semantic-arm, math, literal-context | PAC | RT, PAC | CP | — | — eq: RT+CP; ASCII/LF class via FB set; math-arm literal ownership is parser-level (PAC/CP) |
 | 26 | `additions-construct-inline-math-delimiters` | addition, constructed-context, math | PAC | RT, PAC | CP | — | — eq: RT+CP; ASCII/LF class via FB set |
 | 27 | `three-root-additions-construct-inline-math` | addition, constructed-context, math, adjacent | PAC | RT, PAC | CP | — | — eq: RT+CP; ASCII/LF class via FB set |
@@ -176,9 +176,9 @@ FB set = the five current `FILE_CORPUS_ROW_IDS` rows (see above).
 | 35 | `nested-tight-loose-list-blockquote-lazy-and-tab-contexts` | context, list, blockquote, lazy-continuation, tab, literal-context | PAC | RT, PAC (canonical reparse of `known` tab/list normalization; RT proves idempotence) | CP | — | — eq: RT+CP; canonical form is ASCII/LF class via FB set (tab bytes exist only pre-canonicalization, and RT proves the canonical form is stable) |
 | 36 | `repeated-table-cells-and-escaped-pipes` | context, table, repeated-text, escaped-pipe | PAC | RT, PAC | CP | — | E2E-FILE-ROW (with the `superSubScript` preference applied through the real preference round trip) |
 | 37 | `footnote-body-nested-list-and-definition-contexts` | context, footnote, nested-list, reference-definition, literal-context | PAC | RT, PAC | CP | — | — eq: RT+CP; ASCII/LF class via FB set; footnote option profile is parser-level |
-| 38 | `no-final-newline-repeated-blanks-astral-and-identical-text` | bytes, no-final-newline, repeated-blanks, astral, repeated-text | PAC | RT, PAC | CP | — | — (gap: no-final-newline and repeated-blank-line byte classes never cross real file IO; astral corroborated by the non-corpus E2E line and by row 16, E2E-FILE-ROW) |
-| 39 | `hostile-addition-html-and-url` | hostile, addition, security | PAC | RT, PAC | CP | SEC, TBC, DPRINT | — (gap: no-final-newline byte class never crosses real file IO; sink inertness proven on exact bytes by SEC+TBC+DPRINT) |
-| 40 | `hostile-comment-title` | hostile, comment, security | PAC | RT, PAC | CP | SEC, TBC, DPRINT | — (gap: same as row 39) |
+| 38 | `no-final-newline-repeated-blanks-astral-and-identical-text` | bytes, no-final-newline, repeated-blanks, astral, repeated-text | PAC | RT, PAC | CP | — | E2E-FILE-ROW (no-final-newline and repeated-blank-line byte classes byte-exact across real file IO, with the `superSubScript` preference applied; astral additionally corroborated by row 16) |
+| 39 | `hostile-addition-html-and-url` | hostile, addition, security | PAC | RT, PAC | CP | SEC, TBC, DPRINT | E2E-FILE-ROW (no-final-newline byte class byte-exact across real file IO, including the live-editor inertness scan) |
+| 40 | `hostile-comment-title` | hostile, comment, security | PAC | RT, PAC | CP | SEC, TBC, DPRINT | E2E-FILE-ROW (same coverage as row 39) |
 | 41 | `hostile-deletion-html-events-script-and-url` | hostile, deletion, security | PAC | RT, PAC | CP | SEC, TBC, DPRINT | — eq: sink inertness proven on exact bytes by SEC+TBC+DPRINT; ASCII/LF transport class via FB set; real-app hostile-file rendering representative covered at row 45 (E2E-FILE-ROW) |
 | 42 | `hostile-substitution-both-arms` | hostile, substitution, security | PAC | RT, PAC | CP | SEC, TBC, DPRINT | — eq: same as row 41 |
 | 43 | `hostile-highlight-markdown-image-fields` | hostile, highlight, image, security | PAC | RT, PAC | CP | SEC, TBC, DPRINT | — eq: same as row 41 |
@@ -186,7 +186,7 @@ FB set = the five current `FILE_CORPUS_ROW_IDS` rows (see above).
 | 45 | `hostile-cross-block-addition` | hostile, addition, block-spanning, security | PAC | RT, PAC | CP | SEC, TBC, DPRINT | E2E-FILE-ROW (with the `superSubScript` preference applied; includes the live-editor inertness scan) |
 
 Notes on non-corpus corroboration: `FILE_LOSSLESS_CORPUS` in the desktop E2E
-appends extra lines beyond the five corpus rows (an inline five-form
+appends extra lines beyond the six corpus rows (an inline five-form
 paragraph, an adjacent `{==focus==}{>>note<<}` pair, a `reviewable` token
 for menu authoring, a literal code span plus literal-URL link, and an astral
 tail). These strengthen the file-backed workflow but are not corpus rows and

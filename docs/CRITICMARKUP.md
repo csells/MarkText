@@ -85,7 +85,7 @@ Every Review control is reachable and operable from the keyboard: the menu comma
 
 MarkText writes pure CriticMarkup and nothing else. No author names, timestamps, comment threads, IDs, or metadata of any kind are added to the file, so there is nothing proprietary to strip before sharing. Any CriticMarkup-aware tool can process the file, and any plain editor can read it.
 
-Round-trips are byte-exact: opening a document containing CriticMarkup and saving it reproduces the same bytes, including BOM and CRLF line endings, until you actually change something. CriticMarkup syntax is never normalized, sanitized, or rewritten on save. (MarkText's few pre-existing Markdown normalizations, which predate this feature, still apply to the surrounding Markdown as before.)
+Round-trips are byte-exact: opening a document containing CriticMarkup and saving it reproduces the same bytes, including BOM and CRLF line endings — and including whether the file ends with a newline — until you actually change something. CriticMarkup syntax is never normalized, sanitized, or rewritten on save. A brand-new empty document saves as an empty file rather than a lone newline. (MarkText's few pre-existing Markdown normalizations, which predate this feature, still apply to the surrounding Markdown as before.)
 
 ## Deep nesting and large documents
 
