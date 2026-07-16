@@ -462,15 +462,16 @@ Wave 7 gate step.
   through the production notification sink — the engine→banner emission is
   unit-proven by `critic-markup-rejection-presentation`); the VoiceOver/NVDA
   walkthrough remains a user step.
-- [ ] Run named supported-platform jobs: macOS arm64 build plus Review menu/
+- [x] Run named supported-platform jobs: macOS arm64 build plus Review menu/
   keybinding tests, Windows x64 build plus Windows menu/keybinding tests, and
-  Linux x64 build plus Linux menu/keybinding tests. **Workflow authored
-  2026-07-16** (`.github/workflows/critic-review-platforms.yml`: macos-14
-  arm64 / windows-latest x64 / ubuntu-latest x64, each bundling the desktop
-  app via electron-vite and running the Review menu/store/descriptor/
-  keybinding/a11y/focus/rejection suites, plus a network-isolated
-  clean-checkout fork verification job; `workflow_dispatch` + PR triggers).
-  Remains open until the three platform jobs execute green on CI.
+  Linux x64 build plus Linux menu/keybinding tests. **MET 2026-07-16** —
+  `.github/workflows/critic-review-platforms.yml` run #1
+  (csells/MarkText actions run 29542818269): review-macos-arm64 ✓ 2m26s,
+  review-windows-x64 ✓ 2m29s, review-linux-x64 ✓ 1m48s — each bundles the
+  desktop app and runs the Review menu/store/descriptor/keybinding/a11y/
+  focus/rejection suites — plus fork-verify-offline ✓ 11s (clean checkout,
+  network-isolated via `unshare --net`), which also discharges Wave 6's
+  outstanding offline-rerun gate step.
 - [x] Produce and inspect an actual PDF file. For printing, capture the final
   sanitized print document and print options with the deterministic hidden-test
   adapter; automated tests may not open a foreground native print dialog.
@@ -531,17 +532,26 @@ This plan is complete only when all of the following are true:
   binding artifact; no generic topology inference or optional provenance
   remains (2026-07-16: required binding parameter, repo-wide provenance
   fitness, test-only bound-document helper out of production).
-- [ ] Every supported edit satisfies both projection invariants, atomic
-  history/rollback, and visible fail-closed behavior.
-- [ ] Valid, malformed, literal-context, Unicode, nested, block-spanning, and
-  adversarial documents are lossless and bounded at every affected consumer.
+- [x] Every supported edit satisfies both projection invariants, atomic
+  history/rollback, and visible fail-closed behavior (final-tree ledger:
+  mutation matrix 127/127, failure-injection, rejection presentation, and the
+  E2E Track Changes workflow all green).
+- [x] Valid, malformed, literal-context, Unicode, nested, block-spanning, and
+  adversarial documents are lossless and bounded at every affected consumer
+  (final-tree ledger: corpus round-trip/parity/security/sink suites green;
+  corpus-to-boundary matrix has no open byte class).
 - [x] The vendored Marked fork is complete, tracked, reproducible, and passes
   conformance (2026-07-16: five negative drift controls, regenerated canonical
   patch, offline CI verification job, conformance 1347/1347).
-- [ ] All focused and full gates pass sequentially from the final tree.
-- [ ] A freshly built hidden desktop application and the installed/mounted
+- [x] All focused and full gates pass sequentially from the final tree
+  (2026-07-16 ledger; the commits after that chain changed only docs, the CI
+  workflow, the settings untrack, and the packaged-smoke spec — the last
+  revalidated by its own green packaged run plus desktop typecheck).
+- [x] A freshly built hidden desktop application and the installed/mounted
   native distributable prove the end-to-end workflow with no captured error
-  and no foreground takeover during automation.
+  and no foreground takeover during automation (full hidden E2E 236/0 on the
+  fresh build; packaged-DMG smoke green with the zero-captured-errors
+  assertion and hidden/unfocused window checks).
 - [ ] Keyboard and screen-reader operation and supported-platform integration
   are proven.
 - [ ] User-facing documentation describes only behavior verified in the
@@ -692,16 +702,21 @@ run on the remediated tree:
   the recorded warm-state qualification)
 - `validate-licenses`: clean
 
-### Remaining open items (all user- or CI-gated)
+### Remaining open items (all user-gated)
 
 1. Wave 4: packaged-app Review-surface reachability walkthrough — record the
    user's acceptance here, or implement dedicated toolbar/preferences
    controls (settled decision 7).
 2. Wave 7: VoiceOver (or NVDA) packaged-app walkthrough with retained
    checklist; the automation half is done.
-3. Wave 7: three green platform-job runs of
-   `critic-review-platforms.yml` on CI (needs the branch pushed/PR opened).
-4. Wave 7: one user-owned packaged-app Print-to-PDF smoke step.
+3. Wave 7: one user-owned packaged-app Print-to-PDF smoke step (⌘P → Save as
+   PDF in the packaged app; the arm64 DMG is built under `dist/`).
+
+Closed 2026-07-16 (afternoon): the three platform jobs plus offline fork
+verification ran green on CI (run 29542818269), and the packaged-DMG smoke
+ran green twice against the mounted distributable via
+`run-packaged-smoke.sh` — the second run also asserting the same
+zero-captured-main/renderer-errors bar as the build:unpack E2E leg.
 
 ## Background-safe verification commands
 

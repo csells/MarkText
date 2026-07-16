@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron } from '@playwright/test'
 import { expect, test } from '@playwright/test'
+import { expectNoCapturedErrors } from './helpers'
 
 // Wave 7 packaged-artifact smoke (plan 0006): the installed/mounted native
 // distributable — not the electron-vite out/ tree — must complete a
@@ -94,6 +95,11 @@ test.describe('packaged distributable smoke (plan 0006 Wave 7)', () => {
       await expect
         .poll(() => fs.readFileSync(filePath, 'utf8'), { timeout: 15000 })
         .toBe(SMOKE_DOC)
+
+      // The packaged leg holds the same zero-captured-errors bar as the
+      // build:unpack E2E: the capture harness ships in production main and
+      // arms under MARKTEXT_TEST_BACKGROUND.
+      await expectNoCapturedErrors(app)
     } finally {
       await app.close()
     }
