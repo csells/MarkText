@@ -1,0 +1,69 @@
+name: CriticMarkup Review Platforms
+
+# Plan 0006 Wave 7: named supported-platform jobs pairing a real per-OS
+# desktop bundle with the Review menu/keybinding suites, plus the vendored
+# Marked fork verification from a clean checkout with no network access.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'packages/desktop/**'
+      - 'packages/marked/**'
+      - 'packages/muya/src/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/critic-review-platforms.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review-platform:
+    name: review-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-14
+          - name: windows-x64
+            os: windows-latest
+          - name: linux-x64
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Bundle the desktop app for this platform
+        run: pnpm --filter marktext run build
+
+      - name: Run Review menu, keybinding, and presentation suites
+        run: >-
+          pnpm --filter marktext exec vitest run
+          test/unit/specs/critic-markup-review.spec.ts
+          test/unit/specs/critic-markup-review-store.spec.ts
+          test/unit/specs/critic-markup-review-architecture.spec.ts
+          test/unit/specs/critic-markup-review-a11y.spec.ts
+          test/unit/specs/critic-markup-review-focus.spec.ts
+          test/unit/specs/critic-markup-rejection-presentation.spec.ts
+          test/unit/specs/review-command-descriptors.spec.ts
+          test/unit/specs/review-menu-ipc.spec.ts
+
+  fork-verify-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: '22.21.1'
+
+      # The verifier needs only git and node. Running it inside an empty
+      # network namespace proves the clean-checkout contract holds with no
+      # network access at all (Wave 6 gate).
+      - name: Verify vendored Marked fork offline
+        run: |
+          sudo git config --global --add safe.directory '*'
+          sudo unshare --net -- node packages/marked/scripts/verify-fork.mjs --self-test

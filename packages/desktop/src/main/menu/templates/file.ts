@@ -103,6 +103,9 @@ export default function(
       type: 'separator'
     },
     {
+      // Addressable so hidden-window automation can trigger Save without a
+      // locale-dependent label scan (packaged-smoke.spec.ts).
+      id: 'fileSaveMenuItem',
       label: t('menu.file.save'),
       accelerator: keybindings.getAccelerator('file.save') ?? undefined,
       click(_menuItem, browserWindow) {

@@ -1,3 +1,4 @@
+import * as os from 'node:os'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 import {
@@ -10,11 +11,29 @@ import {
 // fixture must open within 5 seconds, and five projection toggles,
 // next/previous review actions, and sidebar refreshes must each complete
 // with a p95 below 500ms. Budgets are asserted against the real hidden
-// editor window on this recorded machine; investigate outliers rather than
-// average them away.
+// editor window; every run attaches the machine descriptor below so the
+// measurements are tied to a recorded machine. Investigate outliers rather
+// than average them away.
 
 const OPEN_BUDGET_MS = 5000
 const ACTION_P95_BUDGET_MS = 500
+
+const MACHINE_RECORD = {
+  hostname: os.hostname(),
+  platform: `${process.platform}-${process.arch}`,
+  release: os.release(),
+  cpu: os.cpus()[0]?.model ?? 'unknown',
+  cores: os.cpus().length,
+  memoryGb: Math.round(os.totalmem() / 1024 ** 3),
+  node: process.version
+}
+
+const attachMachineRecord = async(): Promise<void> => {
+  await test.info().attach('machine-record', {
+    body: JSON.stringify(MACHINE_RECORD, null, 2),
+    contentType: 'application/json'
+  })
+}
 
 const NO_OPENER_4096 = `${
   'ordinary { json: true } ++ -- == >> ~~ and [link](url) text\n'.repeat(4096)
@@ -44,6 +63,7 @@ test.describe('CriticMarkup artifact performance budgets (plan 0006 Wave 7)', ()
   })
 
   test('opens the 4,096-line no-opener fixture within the 5s budget', async() => {
+    await attachMachineRecord()
     const startedAt = Date.now()
     const launched = await launchWithMarkdown(NO_OPENER_4096)
     app = launched.app
@@ -57,10 +77,17 @@ test.describe('CriticMarkup artifact performance budgets (plan 0006 Wave 7)', ()
   })
 
   test('five projection toggles, review navigation, and sidebar refreshes stay under the 500ms p95', async() => {
+    await attachMachineRecord()
     const launched = await launchWithMarkdown(NO_OPENER_4096 + REVIEW_TAIL)
     app = launched.app
     page = launched.page
     await expect(page.locator('.editor-component')).toContainText('review')
+    // Measure the steady interactive state: the engine warms its read-only
+    // projection cache right after open and flags completion on the editor
+    // root. Racing that warmup would time the one-off open-adjacent parse,
+    // not view-switch latency.
+    await expect(page.locator('.editor-component[data-critic-warm="true"]'))
+      .toBeAttached({ timeout: 30000 })
 
     const timed = async(action: () => Promise<void>): Promise<number> => {
       const startedAt = Date.now()
@@ -106,6 +133,7 @@ test.describe('CriticMarkup artifact performance budgets (plan 0006 Wave 7)', ()
     }
 
     const report = {
+      machine: MACHINE_RECORD,
       togglesP95: p95(toggleSamples),
       navigationP95: p95(navigationSamples),
       sidebarP95: p95(sidebarSamples),

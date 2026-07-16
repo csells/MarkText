@@ -55,6 +55,9 @@ const sourceMarkdown = (page: Page): Promise<string> => page.evaluate(() => {
 const menuEnabled = (app: ElectronApplication, id: string): Promise<boolean | null> =>
   app.evaluate(({ Menu }, menuId) => Menu.getApplicationMenu()?.getMenuItemById(menuId)?.enabled ?? null, id)
 
+const menuChecked = (app: ElectronApplication, id: string): Promise<boolean | null> =>
+  app.evaluate(({ Menu }, menuId) => Menu.getApplicationMenu()?.getMenuItemById(menuId)?.checked ?? null, id)
+
 const readClipboard = (app: ElectronApplication): Promise<string> =>
   app.evaluate(({ clipboard }) => clipboard.readText())
 
@@ -548,7 +551,17 @@ const FILE_ROW_CASE_DEFS: readonly FileRowCaseDefinition[] = [
   { id: 'repeated-table-cells-and-escaped-pipes', preferences: { superSubScript: true } },
   { id: 'yaml-front-matter' },
   { id: 'hostile-cross-block-addition', preferences: { superSubScript: true } },
-  { id: 'nested-block-spanning-addition-and-deletion' }
+  { id: 'nested-block-spanning-addition-and-deletion' },
+  // The no-final-newline / repeated-blank byte classes (corpus-boundary
+  // matrix rows 24, 38, 39, 40) must occupy the exact end of a real file,
+  // so each crosses file IO as its own document.
+  { id: 'identical-substitution-arms-with-literal-link-destinations' },
+  {
+    id: 'no-final-newline-repeated-blanks-astral-and-identical-text',
+    preferences: { superSubScript: true }
+  },
+  { id: 'hostile-addition-html-and-url' },
+  { id: 'hostile-comment-title' }
 ]
 
 const FILE_ROW_CASES = FILE_ROW_CASE_DEFS.map((definition) => {
@@ -724,4 +737,265 @@ test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
       }
     })
   }
+})
+
+// ----------------------------------------------------------------------------
+// Track Changes at the real desktop boundary: menu toggle, tracked selection
+// replacement, native cut, bulk resolution, and one-undo-step semantics —
+// the flows docs/CRITICMARKUP.md promises but no E2E previously exercised.
+// ----------------------------------------------------------------------------
+
+test.describe('CriticMarkup Track Changes desktop workflow', () => {
+  test.describe.configure({ timeout: 90000 })
+
+  test('tracks replacement and native cut, resolves all, one undo step each', async() => {
+    const original = 'alpha bravo charlie\n\ndelta echo foxtrot\n'
+    const { app, page } = await launchWithMarkdown(original)
+    try {
+      await focusEditor(page)
+      await clearRendererErrors(app)
+
+      await expect.poll(() => menuEnabled(app, 'reviewTrackChangesMenuItem')).toBe(true)
+      expect(await menuChecked(app, 'reviewTrackChangesMenuItem')).toBe(false)
+      await clickMenuById(app, 'reviewTrackChangesMenuItem')
+      await expect.poll(() => menuChecked(app, 'reviewTrackChangesMenuItem')).toBe(true)
+
+      // Typing over a selection becomes a substitution marker, not a
+      // destructive edit, and the exact untouched bytes stay in place.
+      await selectWord(page, 'bravo')
+      // 'zulu' shares no boundary bytes with 'bravo', so the minimal-diff
+      // tracked commit records the whole word as one substitution.
+      await page.keyboard.insertText('zulu')
+      const tracked = original.replace('bravo', '{~~bravo~>zulu~~}')
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(tracked)
+
+      // One semantic history entry per tracked commit.
+      await undo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+      await redo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(tracked)
+
+      // Native cut under Track Changes: a deletion marker in the document,
+      // the removed text in the OS clipboard.
+      await selectWord(page, 'echo')
+      const sentinel = `critic-cut-sentinel-${Date.now()}`
+      await writeClipboard(app, sentinel)
+      await expect.poll(() => readClipboard(app)).toBe(sentinel)
+      await app.evaluate(({ BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (!win) throw new TypeError('No editor window is available for native cut.')
+        win.webContents.cut()
+      })
+      await expect.poll(() => readClipboard(app), { timeout: 8000 }).toBe('echo')
+      const trackedCut = tracked.replace('echo', '{--echo--}')
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(trackedCut)
+
+      // Accept All applies both markers as one undoable boundary.
+      await expect.poll(() => menuEnabled(app, 'reviewAcceptAllMenuItem')).toBe(true)
+      await clickMenuById(app, 'reviewAcceptAllMenuItem')
+      const accepted = original.replace('bravo', 'zulu').replace('echo', '')
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(accepted)
+      await undo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(trackedCut)
+
+      // Reject All restores the exact pre-review bytes.
+      await expect.poll(() => menuEnabled(app, 'reviewRejectAllMenuItem')).toBe(true)
+      await clickMenuById(app, 'reviewRejectAllMenuItem')
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('authors addition, suggested replacement, and highlight via the Review menu', async() => {
+    const original = 'one two three four\n'
+    const { app, page } = await launchWithMarkdown(original)
+    try {
+      await focusEditor(page)
+      await clearRendererErrors(app)
+
+      await selectWord(page, 'two')
+      await expect.poll(() => menuEnabled(app, 'reviewMarkAdditionMenuItem')).toBe(true)
+      await clickMenuById(app, 'reviewMarkAdditionMenuItem')
+      const added = original.replace('two', '{++two++}')
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(added)
+
+      await selectWord(page, 'three')
+      await expect.poll(() => menuEnabled(app, 'reviewSuggestReplacementMenuItem')).toBe(true)
+      await clickMenuById(app, 'reviewSuggestReplacementMenuItem')
+      const prompt = page.locator('.ag-critic-markup-dialog')
+      await expect(prompt).toBeVisible()
+      await prompt.locator('textarea').fill('tres')
+      await prompt.locator('.el-button--primary').click()
+      await expect(prompt).toBeHidden()
+      const replaced = added.replace('three', '{~~three~>tres~~}')
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(replaced)
+
+      await selectWord(page, 'four')
+      await expect.poll(() => menuEnabled(app, 'reviewHighlightMenuItem')).toBe(true)
+      await clickMenuById(app, 'reviewHighlightMenuItem')
+      const highlighted = replaced.replace('four', '{==four==}')
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(highlighted)
+
+      await openReviewSidebar(page, app)
+      await expect(page.locator('.review-card')).toHaveCount(3)
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+})
+
+// ----------------------------------------------------------------------------
+// Accessibility at the real desktop boundary. The engine->sink emission and
+// per-reason localization are proven by muya's trackChangeRejectionContract
+// and the desktop critic-markup-rejection-presentation unit suites; the cases
+// below prove what only the running app can: the exposed accessibility tree,
+// DOM-order keyboard traversal and activation in the Review sidebar, and the
+// rejection banner as a non-focus-stealing assertive live region.
+// ----------------------------------------------------------------------------
+
+test.describe('CriticMarkup Review accessibility (desktop boundary)', () => {
+  test.describe.configure({ timeout: 90000 })
+
+  const FIVE_FORMS =
+    '{++new++} {--old--} {~~before~>after~~} {==spot==} {>>note<<}\n'
+
+  test('exposes named review controls in the accessibility tree', async() => {
+    const { app, page } = await launchWithMarkdown(FIVE_FORMS)
+    try {
+      await openReviewSidebar(page, app)
+      await expect(page.locator('.review-card')).toHaveCount(5)
+
+      // Read the real Chromium accessibility tree over CDP — this is what
+      // assistive technology consumes, not a DOM approximation.
+      const session = await page.context().newCDPSession(page)
+      await session.send('Accessibility.enable')
+      const { nodes } = await session.send('Accessibility.getFullAXTree')
+      const names = nodes
+        .filter((node) => !node.ignored)
+        .map((node) => `${node.role?.value}:${node.name?.value}`)
+
+      // The card list is a labelled group and every action is a real named
+      // button — change cards resolve, annotation cards remove explicitly.
+      expect(names).toContain('group:Review')
+      expect(names.filter((name) => name === 'button:Accept Change')).toHaveLength(3)
+      expect(names.filter((name) => name === 'button:Reject Change')).toHaveLength(3)
+      expect(names).toContain('button:Remove highlight')
+      expect(names).toContain('button:Remove comment')
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('resolves review items keyboard-only in DOM order', async() => {
+    const { app, page } = await launchWithMarkdown(FIVE_FORMS)
+    try {
+      await openReviewSidebar(page, app)
+      const cards = page.locator('.review-card')
+      await expect(cards).toHaveCount(5)
+
+      // Enter the first card and traverse its controls with Tab only:
+      // focus button -> Accept Change -> Reject Change, in DOM order.
+      await page.evaluate(() => {
+        const first = document.querySelector<HTMLButtonElement>(
+          '.review-card .review-card-focus'
+        )
+        first?.focus()
+      })
+      const activeDescription = (): Promise<string> => page.evaluate(() => {
+        const active = document.activeElement as HTMLElement | null
+        if (!active) return ''
+        return `${active.className}|${active.textContent?.trim() ?? ''}`
+      })
+      await expect.poll(activeDescription).toContain('review-card-focus')
+      await page.keyboard.press('Tab')
+      await expect.poll(activeDescription).toContain('Accept Change')
+      await page.keyboard.press('Tab')
+      await expect.poll(activeDescription).toContain('Reject Change')
+
+      // Keyboard activation must equal the pointer path: rejecting the
+      // pending addition erases it while the other four markers survive.
+      await page.keyboard.press('Enter')
+      await expect(cards).toHaveCount(4)
+      const resolved = await readCanonicalMarkdown(page)
+      expect(resolved).not.toContain('{++new++}')
+      expect(resolved).not.toContain('new')
+      for (const marker of ['{--old--}', '{~~before~>after~~}', '{==spot==}', '{>>note<<}']) {
+        expect(resolved).toContain(marker)
+      }
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('announces rejections in a live region without stealing focus', async() => {
+    const { app, page } = await launchWithMarkdown('alpha focus anchor\n')
+    try {
+      await focusEditor(page)
+      await clearRendererErrors(app)
+      const editorFocused = (): Promise<boolean> => page.evaluate(() =>
+        document.activeElement?.classList.contains('editor-component') ?? false)
+      await expect.poll(editorFocused).toBe(true)
+
+      // Drive the exact production sink the rejection notifier calls
+      // (pushTabNotification with the exclusive rejection type) through the
+      // live pinia store of the running app.
+      const pushRejection = (message: string): Promise<boolean> =>
+        page.evaluate((msg) => {
+          const root = document.querySelector('#app') as
+            | (Element & {
+              __vue_app__?: { config?: { globalProperties?: Record<string, unknown> } }
+            })
+            | null
+          const pinia = root?.__vue_app__?.config?.globalProperties?.$pinia as
+            | { _s?: Map<string, Record<string, unknown>> }
+            | undefined
+          const store = pinia?._s?.get('editor') as
+            | {
+              currentFile?: { id: string }
+              pushTabNotification?: (data: Record<string, unknown>) => void
+            }
+            | undefined
+          if (!store?.currentFile || typeof store.pushTabNotification !== 'function') {
+            return false
+          }
+          store.pushTabNotification({
+            tabId: store.currentFile.id,
+            msg,
+            showConfirm: false,
+            style: 'warn',
+            exclusiveType: 'criticMarkupTrackChangeRejected'
+          })
+          return true
+        }, message)
+
+      expect(await pushRejection('Change rejected: first explanation')).toBe(true)
+      const banner = page.locator('.editor-notifications')
+      await expect(banner).toHaveCount(1)
+      await expect(banner).toContainText('first explanation')
+      await expect(banner).toHaveAttribute('role', 'alert')
+      await expect(banner).toHaveAttribute('aria-live', 'assertive')
+      await expect(banner).toHaveAttribute('aria-atomic', 'true')
+
+      // Announcement never moves focus off the editor.
+      await expect.poll(editorFocused).toBe(true)
+
+      // A second rejection replaces the banner instead of stacking.
+      expect(await pushRejection('Change rejected: second explanation')).toBe(true)
+      await expect(banner).toHaveCount(1)
+      await expect(banner).toContainText('second explanation')
+      await expect(banner).not.toContainText('first explanation')
+
+      await banner.locator('.inline-button').last().click()
+      await expect(banner).toHaveCount(0)
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
 })

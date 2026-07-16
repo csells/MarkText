@@ -85,10 +85,7 @@ test.describe('packaged distributable smoke (plan 0006 Wave 7)', () => {
       // Canonical persistence: saving under a projection writes markup bytes.
       await app.evaluate(({ Menu, BrowserWindow }) => {
         const win = BrowserWindow.getAllWindows()[0]
-        const item = Menu.getApplicationMenu()?.getMenuItemById('fileSaveMenuItem') ??
-          Menu.getApplicationMenu()?.items
-            .flatMap(top => top.submenu?.items ?? [])
-            .find(candidate => candidate.role === 'save' || /^save$/i.test(candidate.label))
+        const item = Menu.getApplicationMenu()?.getMenuItemById('fileSaveMenuItem')
         if (!item) {
           throw new Error('Save menu item missing in packaged menu')
         }
