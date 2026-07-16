@@ -1,12 +1,12 @@
 import type Content from '../block/base/content';
 import type Parent from '../block/base/parent';
 import type TreeNode from '../block/base/treeNode';
+import type { TSourceRange } from '../mappedText';
 import type { Muya } from '../muya';
 import type { ISelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
 import type { ICriticMarkupClipboardContext } from '../utils/marked/getClipboardHtml';
-import type { TSourceRange } from '../mappedText';
 import type Clipboard from './index';
 import { hasCriticMarkupOpener } from '../criticMarkup/parser';
 import { localOffset, sourceRange } from '../mappedText';

@@ -557,7 +557,16 @@ export class Editor {
         }, beforePublish);
     }
 
-    private _rebuildScrollPage(state: TState[]) {
+    private _rebuildScrollPage(state: TState[], reuseUnchangedBlocks = false) {
+        // `updateState` keeps state-equal blocks alive, so per-block paint
+        // that `reset()`/direct clearing leaves behind must be scrubbed
+        // explicitly: content with search highlights, and the active
+        // ancestor chain of the focused leaf.
+        const paintedSearchBlocks = new Set(
+            this.searchModule.matches.map(match => match.block),
+        );
+        const activeAncestors = this._activeContentBlock?.getAncestors() ?? [];
+
         // A whole-tree replacement invalidates every cached block reference.
         // Clear native and cached selections while the outgoing tree is still
         // attached, then drop the active leaf without asking it to blur or
@@ -567,10 +576,18 @@ export class Editor {
         this._activeContentBlock = null;
         this._treeRebuildDepth++;
         try {
-            this.scrollPage!.updateState(state);
+            this.scrollPage!.updateState(state, reuseUnchangedBlocks);
         }
         finally {
             this._treeRebuildDepth--;
+        }
+        for (const block of paintedSearchBlocks) {
+            if (block.domNode?.isConnected)
+                block.update();
+        }
+        for (const ancestor of activeAncestors) {
+            if (ancestor.domNode?.isConnected && ancestor.active)
+                ancestor.active = false;
         }
         this.inlineRenderer.refreshCriticMarkupDocumentFragments();
         this._syncProjectionAttributes();
@@ -578,8 +595,12 @@ export class Editor {
 
     renderCurrentProjection(
         selection: Nullable<IHistorySelection> = null,
+        reuseUnchangedBlocks = false,
     ) {
-        this._rebuildScrollPage(this._stateForCurrentProjection());
+        this._rebuildScrollPage(
+            this._stateForCurrentProjection(),
+            reuseUnchangedBlocks,
+        );
         if (this._isCanonicalProjection()) {
             if (selection)
                 this._restoreSelection(selection, true);
@@ -777,12 +798,13 @@ export class Editor {
     reparseContent(
         content: TState[] | string,
         preserveSelection = true,
+        beforeRollback?: () => void,
     ): void {
         this._resetDocument(content, {
             autoFocus: false,
             clearHistory: false,
             preserveSelection,
-        });
+        }, beforeRollback);
     }
 
     private _resetDocument(
@@ -792,6 +814,7 @@ export class Editor {
             readonly clearHistory: boolean;
             readonly preserveSelection: boolean;
         },
+        beforeRollback?: () => void,
     ): void {
         const checkpoint = this.jsonState.checkpointReset();
         const history = this.history.getHistory();
@@ -810,6 +833,16 @@ export class Editor {
         }
         catch (error) {
             const rollbackErrors: unknown[] = [];
+            // The caller prepared under a prospective snapshot (for example
+            // new parser options); rollback must rebuild under the previous
+            // snapshot or the restored tree re-renders against the wrong
+            // parser profile.
+            try {
+                beforeRollback?.();
+            }
+            catch (rollbackError) {
+                rollbackErrors.push(rollbackError);
+            }
             try {
                 this.jsonState.restoreReset(checkpoint);
             }

@@ -21,13 +21,26 @@ body article.print-container {
     margin: 15mm 20mm 15mm 20mm;
   }
 
-  .editor-container {
+  /*
+    Blank the app UI for print media ONLY while the print service's export
+    container is mounted (renderMarkdown appends it right before printing and
+    clearup removes it after). Without a container — e.g. printToPDF against
+    the live editor window — the live document itself is what prints; an
+    unconditional blank would silently produce empty pages.
+  */
+  body:has(> article.print-container) .editor-container {
     display: none !important;
   }
 
-  /* General rules for printing. */
-  html,
-  body {
+  /*
+    General rules for printing an export container. These reflow html/body
+    into a single auto-height document. They must not touch a container-less
+    print: making body a positioned, zero-height, overflow-hidden box clips
+    the absolutely-positioned live app to nothing (only the fixed title bar
+    would survive onto the page).
+  */
+  html:has(> body > article.print-container),
+  body:has(> article.print-container) {
     position: relative !important;
     width: 100% !important;
     display: block !important;
@@ -36,13 +49,13 @@ body article.print-container {
     overflow: hidden;
   }
 
-  body {
+  body:has(> article.print-container) {
     position: relative !important;
     height: auto !important;
   }
 
-  body > div,
-  body > svg {
+  body:has(> article.print-container) > div,
+  body:has(> article.print-container) > svg {
     display: none !important;
   }
 

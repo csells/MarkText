@@ -477,12 +477,14 @@ function scopedStructuralEdits(
             ),
         },
     ]) {
-        edits.push(...diffSourceIsland(
+        for (const edit of diffSourceIsland(
             beforeMapped,
             afterMapped,
             sourceRange(beforeStart, anchor.before.start),
             sourceRange(afterStart, anchor.after.start),
-        ));
+        )) {
+            edits.push(edit);
+        }
         beforeStart = anchor.before.end;
         afterStart = anchor.after.end;
     }

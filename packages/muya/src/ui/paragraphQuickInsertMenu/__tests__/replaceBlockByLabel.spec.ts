@@ -23,6 +23,7 @@ interface IFakeBlock {
     parent?: { insertAfter: ReturnType<typeof vi.fn> };
     replaceWith: ReturnType<typeof vi.fn>;
     firstContentInDescendant?: () => { text: string; setCursor: ReturnType<typeof vi.fn> };
+    initializeStateSourceTrivia: ReturnType<typeof vi.fn>;
 }
 
 // Regression for marktext 8891287b "fix paragraph turn into list bug (#1025)".
@@ -90,6 +91,9 @@ function makeFakeBlock(state: IFakeBlockState): IFakeBlock {
             text: '',
             setCursor: vi.fn(),
         }),
+        // `ScrollPage.createStateBlock` binds source trivia on every block it
+        // creates through the (spied) `loadBlock` factory.
+        initializeStateSourceTrivia: vi.fn(),
     };
 }
 

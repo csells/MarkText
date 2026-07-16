@@ -990,7 +990,14 @@
       "commentTitle": "Add Comment",
       "commentPlaceholder": "Enter a review comment",
       "replacementTitle": "Suggest Replacement",
-      "replacementPlaceholder": "Enter replacement text"
+      "replacementPlaceholder": "Enter replacement text",
+      "trackChangeRejected": {
+        "title": "Edit not recorded",
+        "unmappableSourceEdit": "Track Changes couldn't record that edit, so the document was left unchanged. Try a smaller edit, or turn off Track Changes for this change.",
+        "parserConflict": "Track Changes couldn't reconcile that edit with the document's Markdown, so the document was left unchanged. Try a smaller edit, or turn off Track Changes for this change.",
+        "unmappableTrackedSelection": "Track Changes couldn't match your selection to the tracked document, so the document was left unchanged. Reselect the text and try again, or turn off Track Changes for this change.",
+        "missingTrackedSelectionBlock": "Track Changes couldn't find the block your selection was in, so the document was left unchanged. Click into the text again, or turn off Track Changes for this change."
+      }
     },
     "export": {
       "error": "Export error",

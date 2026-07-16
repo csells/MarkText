@@ -216,4 +216,31 @@ describe('mutation authority closure gaps', () => {
         expect(publications.selectionChanges).not.toHaveBeenCalled();
         expect(publications.reviewChanges).not.toHaveBeenCalled();
     });
+
+    it('rolls back a failed parse-affecting transition under the previous option snapshot', () => {
+        const muya = boot('keep {++new++} tail\n');
+        // Cache the revision's parser artifact under the CURRENT profile so a
+        // rollback that rebuilds under the prospective profile fails loudly.
+        muya.getCriticMarkupReviewSnapshot();
+        const before = observableSnapshot(muya);
+        const previousSuperSubScript = muya.options.superSubScript;
+
+        vi.spyOn(muya.editor.scrollPage!, 'updateState')
+            .mockImplementationOnce(() => {
+                throw new Error('injected prospective-profile rebuild failure');
+            });
+
+        // The original failure must surface unchanged: rollback runs under
+        // the previous snapshot, so it must not independently fail (a
+        // CollectedError here means rollback rebuilt under the prospective
+        // options).
+        expect(() => muya.setOptions(
+            { superSubScript: !previousSuperSubScript },
+            true,
+        )).toThrowError('injected prospective-profile rebuild failure');
+
+        expect(muya.options.superSubScript).toBe(previousSuperSubScript);
+        expect(observableSnapshot(muya)).toEqual(before);
+        expect(muya.getCriticMarkupReviewSnapshot().items).toHaveLength(1);
+    });
 });

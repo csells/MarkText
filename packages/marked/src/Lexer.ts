@@ -1114,6 +1114,40 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
     return consumption;
   }
 
+  /**
+   * Offer a tokenizer-internal token (one that never passes through
+   * blockTokens consumption, e.g. a list item) to the source-boundary
+   * extensions so boundary attachments can anchor to it. `source` is the
+   * token's raw envelope in the active provenance domain.
+   */
+  recordNestedTokenBoundary(
+    token: Token,
+    source: MarkedSourceView<object> | null,
+  ): void {
+    if (!this.provenanceRecorder || !source) {
+      return;
+    }
+    const extensions = this.options.extensions?.sourceBoundary ?? [];
+    for (const extension of extensions) {
+      const attachments = extension.call(
+        { lexer: this },
+        token,
+        source,
+        'block',
+      ) ?? [];
+      appendCriticMarkupBoundaries(
+        token,
+        'before',
+        attachments.filter(attachment => attachment.edge === 'before'),
+      );
+      appendCriticMarkupBoundaries(
+        token,
+        'after',
+        attachments.filter(attachment => attachment.edge === 'after'),
+      );
+    }
+  }
+
   private recordResidueConsumption(
     length: number,
     reason: 'discarded-token' | 'consumed-without-token' | 'parser-resource-limit',

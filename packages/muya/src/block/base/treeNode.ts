@@ -1,5 +1,5 @@
-import type { Muya } from '../../muya';
 import type { ICriticMarkupStructuralFragmentInput } from '../../criticMarkup/document';
+import type { Muya } from '../../muya';
 import type {
     ICriticMarkupStateMarker,
     IStateSourceTrivia,
@@ -282,6 +282,7 @@ function freezeSourceTrivia(
             'criticBefore',
             'criticAfter',
             'criticAfterPrefix',
+            'criticAfterFlush',
             'blockPrefix',
             'blockSeparatorAfter',
             'terminalLineEnding',
@@ -316,6 +317,12 @@ function freezeSourceTrivia(
     ) {
         throw new TypeError(
             'State source trivia criticAfterPrefix must be whitespace.',
+        );
+    }
+    const criticAfterFlush = properties.get('criticAfterFlush');
+    if (criticAfterFlush !== undefined && criticAfterFlush !== true) {
+        throw new TypeError(
+            'State source trivia criticAfterFlush must be true when present.',
         );
     }
     const blockPrefix = properties.get('blockPrefix');
@@ -399,8 +406,7 @@ function freezeSourceTrivia(
         listItemTrailingBlankLines !== undefined
         && (
             typeof listItemTrailingBlankLines !== 'number'
-            ||
-            !Number.isSafeInteger(listItemTrailingBlankLines)
+            || !Number.isSafeInteger(listItemTrailingBlankLines)
             || listItemTrailingBlankLines < 0
         )
     ) {
@@ -422,6 +428,7 @@ function freezeSourceTrivia(
         ...(typeof criticAfterPrefix === 'string'
             ? { criticAfterPrefix }
             : {}),
+        ...(criticAfterFlush === true ? { criticAfterFlush } : {}),
         ...(typeof blockPrefix === 'string' ? { blockPrefix } : {}),
         ...(typeof blockSeparatorAfter === 'string'
             ? { blockSeparatorAfter }
@@ -454,7 +461,7 @@ class TreeNode implements ILinkedNode {
     #sourceTrivia: Readonly<IStateSourceTrivia> | null = null;
     #sourceTriviaInitialized = false;
     #criticMarkupStructuralFragments:
-        readonly ICriticMarkupStructuralFragmentInput[]
+    readonly ICriticMarkupStructuralFragmentInput[]
         = EMPTY_STRUCTURAL_FRAGMENTS;
 
     get prev(): Nullable<TreeNode> {
@@ -537,6 +544,18 @@ class TreeNode implements ILinkedNode {
         this.#sourceTrivia = sourceTrivia
             ? freezeSourceTrivia(sourceTrivia)
             : null;
+    }
+
+    /** Read the block's frozen source trivia for subclass-owned rewrites. */
+    protected get sourceTriviaForRewrite(): Readonly<Record<string, unknown>> | null {
+        return this.#sourceTrivia as Readonly<Record<string, unknown>> | null;
+    }
+
+    /** Install rewritten trivia; only trivia-owning subclasses may call this. */
+    protected setRewrittenSourceTrivia(
+        value: Readonly<Record<string, unknown>> | null,
+    ): void {
+        this.#sourceTrivia = value;
     }
 
     /** Reattach the block's immutable source trivia to its native state. */
@@ -694,7 +713,7 @@ class TreeNode implements ILinkedNode {
     constructor(public muya: Muya) {}
 
     get criticMarkupStructuralFragments():
-        readonly ICriticMarkupStructuralFragmentInput[] {
+    readonly ICriticMarkupStructuralFragmentInput[] {
         return this.#criticMarkupStructuralFragments;
     }
 
@@ -715,8 +734,9 @@ class TreeNode implements ILinkedNode {
         domNode.classList.remove(
             'mu-critic-structural',
             'mu-critic-structural-multiple',
-            ...Object.values(STRUCTURAL_TYPE_CLASSES),
         );
+        for (const typeClass of Object.values(STRUCTURAL_TYPE_CLASSES))
+            domNode.classList.remove(typeClass);
         for (const attribute of [
             'data-critic-id',
             'data-critic-structural-id',

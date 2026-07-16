@@ -169,6 +169,38 @@ describe('muya replaceContent — single undo boundary', () => {
         expect(muya.getMarkdown().trim()).toBe('same');
     });
 
+    // PG15/per-tab-undo regression: a paragraph whose text begins with a space
+    // serializes to the same markdown but RE-PARSES to a differently-spelled
+    // state (the leading space moves from text into parser trivia). Handing
+    // the engine its own serialization back — the desktop's source-mode
+    // round-trip — must therefore stay a no-op: burning an undo boundary on
+    // the re-spelling makes the first undo after the handoff revert nothing,
+    // so undo can never reach the on-disk baseline and the saved indicator
+    // never clears.
+    it('serialization-identical re-spelling records no boundary; undo reverts the real edit', async () => {
+        const muya = bootMuya('hello world\n');
+        await vi.waitFor(() => expect(muya.getMarkdown().trim()).toBe('hello world'));
+        const baseline = muya.getMarkdown();
+
+        // A real user edit that produces parse-unstable state spelling: a new
+        // paragraph whose text keeps its leading space in the live tree.
+        placeCursorOnFirstBlock(muya);
+        muya.insertParagraph('after', ' EXTRA');
+        await vi.waitFor(() => expect(undoDepth(muya)).toBe(1));
+        const edited = muya.getMarkdown();
+        expect(edited).toContain(' EXTRA');
+
+        // The source-mode handoff: same markdown, re-spelled state.
+        expect(muya.replaceContent(muya.getMarkdown())).toBe(false);
+        expect(undoDepth(muya)).toBe(1);
+        expect(muya.getMarkdown()).toBe(edited);
+
+        // The FIRST undo reverts the user's edit, not a no-op boundary.
+        placeCursorOnFirstBlock(muya);
+        muya.undo();
+        await vi.waitFor(() => expect(muya.getMarkdown()).toBe(baseline));
+    });
+
     it('remains lossless across repeated undo/redo toggles (remove-heavy op)', async () => {
         // A replacement that DELETES blocks exercises the `invert`-without-doc
         // path `_change` uses to repopulate the redo stack: the recorded undo op

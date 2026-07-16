@@ -239,14 +239,24 @@ class Format extends Content {
         offset: number,
         type: Token['type'],
     ): Nullable<Token> {
+        // This probe runs on the PRE-COMMIT text the browser just produced,
+        // while fragments describe the last committed revision. When the
+        // edit shrank the text below a fragment's envelope the topology is
+        // provably stale — classify grammar-only instead of crashing the
+        // input path before the gateway can decide the edit's fate.
+        const revisionFragments = criticMarkupFragmentsForPath(
+            this.muya,
+            this.path,
+        );
+        const fragmentsFitText = revisionFragments.every(input =>
+            input.fragment.localRange.end <= text.length);
         const tokens = tokenizer(text, {
             hasBeginRules: false,
             options: {
                 ...this.muya.options,
-                criticMarkupDocumentFragments: criticMarkupFragmentsForPath(
-                    this.muya,
-                    this.path,
-                ),
+                criticMarkupDocumentFragments: fragmentsFitText
+                    ? revisionFragments
+                    : [],
             },
         });
 

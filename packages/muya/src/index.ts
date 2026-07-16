@@ -19,12 +19,19 @@ export type {
 } from './criticMarkup/reviewContract';
 export type { ILocale } from './i18n/types';
 export { de, en, es, fr, ja, ko, pt, tr, zhCN, zhTW } from './locales';
+export {
+    CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS,
+} from './mutation/trackedCriticMarkup';
+export type {
+    ICriticMarkupTrackChangeRejection,
+    TCriticMarkupTrackChangeRejectionReason,
+} from './mutation/trackedCriticMarkup';
 export { Muya } from './muya';
 export type { ITocItem } from './state/getTOC';
 export { MarkdownToHtml } from './state/markdownToHtml';
-export { sanitizeExportHtml } from './state/sanitizeExportHtml';
 export { renderToStaticHTML } from './state/renderToStaticHTML';
 export type { IRenderToStaticHTMLOptions } from './state/renderToStaticHTML';
+export { sanitizeExportHtml } from './state/sanitizeExportHtml';
 export type { TState } from './state/types';
 export type { IMuyaOptions } from './types';
 

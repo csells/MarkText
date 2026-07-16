@@ -1,5 +1,9 @@
 import type { MutationGateway } from './gateway';
-import type { ILocalMutationEdit, TMutationRequest } from './types';
+import type {
+    ILocalMutationEdit,
+    TMutationRequest,
+    TMutationResult,
+} from './types';
 
 /**
  * Command-side capability layered over MutationGateway.
@@ -15,8 +19,8 @@ export class MutationCommandDispatcher {
         request: TMutationRequest,
         command: () => void,
         localEdit?: ILocalMutationEdit | readonly ILocalMutationEdit[],
-    ): void {
-        this._run(request, command, localEdit);
+    ): TMutationResult {
+        return this._run(request, command, localEdit);
     }
 
     runBoolean(

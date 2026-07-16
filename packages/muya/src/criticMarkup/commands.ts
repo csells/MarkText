@@ -1,12 +1,15 @@
 import type Format from '../block/base/format';
 import type { Muya } from '../muya';
 import type { IHistorySelection } from '../selection/types';
+import type { TMarkdownStatePath } from '../state/markdownSourceMap';
 import type {
     CriticMarkupDocument,
     ICriticMarkupDocumentFragment,
     ICriticMarkupDocumentItem,
     TCriticMarkupDocumentToken,
 } from './document';
+import type { IExcludedRange } from './excludedRanges';
+import type { IProjectedCriticMarkupSourceSegment } from './project';
 import type {
     ICriticMarkupCommandState,
     ICriticMarkupReviewSnapshot,
@@ -29,7 +32,11 @@ import {
     SelectionDirection,
 } from '../selection/types';
 import { markdownStatePath } from '../state/markdownSourceMap';
-import { parseCriticMarkupAt } from './parser';
+import {
+    decodeCriticMarkupPayloadEscapes,
+    parseCriticMarkupAt,
+} from './parser';
+import { projectedCriticMarkupSourceSegments } from './project';
 import { createCriticMarkupReviewSnapshot } from './reviewSnapshot';
 import { createCriticMarkup } from './transform';
 
@@ -181,6 +188,91 @@ function criticMarkupAuthoringDraft(
         selectionStart: critic.contentRange.start,
         selectionEnd: critic.contentRange.end,
     };
+}
+
+/**
+ * Canonical junction spelling after a resolution erased a whole-line item.
+ * The junction must touch a line boundary on both sides — an inline erasure
+ * never changes surrounding bytes. A qualifying junction collapses the
+ * blank-line gap the erasure left behind:
+ *
+ * - mid-document, the leading newline run is removed so the erased block's
+ *   own terminator run re-supplies the separation to its surviving neighbor;
+ * - when the trailing run reaches EOF, the document ends with exactly one
+ *   final newline;
+ * - when the leading run reaches BOF, the whole run collapses so the next
+ *   block starts the document; erasing the whole document leaves exactly
+ *   one newline.
+ */
+function collapseErasedJunction(
+    markdown: string,
+    junction: number,
+): string {
+    let leading = 0;
+    while (junction - leading > 0 && markdown[junction - leading - 1] === '\n')
+        leading++;
+    let trailing = 0;
+    while (
+        junction + trailing < markdown.length
+        && markdown[junction + trailing] === '\n'
+    ) {
+        trailing++;
+    }
+    const atLineStart = junction - leading === 0 || leading > 0;
+    const atLineEnd = junction + trailing === markdown.length || trailing > 0;
+    if (!atLineStart || !atLineEnd)
+        return markdown;
+    if (junction - leading === 0) {
+        return junction + trailing === markdown.length
+            ? (markdown.length ? '\n' : markdown)
+            : markdown.slice(junction + trailing);
+    }
+    if (junction + trailing === markdown.length)
+        return `${markdown.slice(0, junction - leading)}\n`;
+    return markdown.slice(0, junction - leading) + markdown.slice(junction);
+}
+
+/**
+ * Materialize one projected source segment exactly as the document
+ * projection does: payload bytes decode their protective escapes while
+ * parser-excluded slices stay byte-for-byte opaque.
+ */
+function materializedProjectedSegment(
+    source: string,
+    segment: IProjectedCriticMarkupSourceSegment,
+    excludedRanges: readonly Readonly<IExcludedRange>[],
+): string {
+    const { range, owner } = segment;
+    if (!owner)
+        return source.slice(range.start, range.end);
+
+    const parts: string[] = [];
+    let cursor = range.start;
+    for (const opaque of excludedRanges) {
+        if (opaque.end <= cursor)
+            continue;
+        if (range.end <= opaque.start)
+            break;
+        if (cursor < opaque.start) {
+            parts.push(decodeCriticMarkupPayloadEscapes(
+                owner,
+                source.slice(cursor, opaque.start),
+            ));
+        }
+        const opaqueStart = Math.max(cursor, opaque.start);
+        cursor = Math.min(range.end, opaque.end);
+        parts.push(source.slice(opaqueStart, cursor));
+        if (range.end <= cursor)
+            break;
+    }
+    if (cursor < range.end) {
+        parts.push(decodeCriticMarkupPayloadEscapes(
+            owner,
+            source.slice(cursor, range.end),
+        ));
+    }
+
+    return parts.join('');
 }
 
 export class MuyaCriticMarkup {
@@ -574,7 +666,8 @@ export class MuyaCriticMarkup {
                         offset:
                             entry.documentItem.fragments[0].localRange.start,
                     }
-                : null);
+                : null)
+            ?? this._structuralFocusPosition(entry);
         if (!position)
             return null;
 
@@ -602,6 +695,30 @@ export class MuyaCriticMarkup {
             itemId: entry.item.id,
         };
         return entry.item;
+    }
+
+    /**
+     * A structural item has no inline fragment to place a cursor in; focus
+     * lands at the start of its native carrier's first content leaf.
+     */
+    private _structuralFocusPosition(
+        entry: ICriticMarkupEntry,
+    ): { path: TMarkdownStatePath; offset: number } | null {
+        const carrierPath = entry.documentItem.structuralFragments[0]?.path;
+        if (!carrierPath)
+            return null;
+        const carrier = this._muya.editor.scrollPage?.queryBlock([
+            ...carrierPath,
+        ]);
+        const content = carrier && 'firstContentInDescendant' in carrier
+            ? carrier.firstContentInDescendant()
+            : carrier;
+        if (!content)
+            return null;
+        return {
+            path: markdownStatePath(content.path),
+            offset: 0,
+        };
     }
 
     focus(target: TCriticMarkupFocusTarget): ICriticMarkupItem | null {
@@ -706,10 +823,16 @@ export class MuyaCriticMarkup {
             entry.documentItem.id,
             decision,
         );
-        const nextMarkdown
+        let nextMarkdown
             = snapshot.model.markdown.slice(0, syntax.range.start)
                 + replacement
                 + snapshot.model.markdown.slice(syntax.range.end);
+        if (!/\S/.test(replacement)) {
+            nextMarkdown = collapseErasedJunction(
+                nextMarkdown,
+                syntax.range.start + replacement.length,
+            );
+        }
         const selection = this._selectionSnapshot();
         if (!this._muya.replaceContent(nextMarkdown, selection))
             return false;
@@ -738,7 +861,69 @@ export class MuyaCriticMarkup {
 
         const selection = this._selectionSnapshot();
         const projection = decision === 'accept' ? 'revised' : 'original';
-        const nextMarkdown = snapshot.model.project(projection);
+        // One full-document projection resolves nested items with their
+        // parents (never regress to per-root splicing). Segments never cross
+        // a root's source range, so containment identifies each root's
+        // retained bytes and its junction — the projected offset right after
+        // them, or where the root would have appeared when it retained none.
+        const source = snapshot.model.markdown;
+        const segments = projectedCriticMarkupSourceSegments(
+            source.length,
+            projection,
+            snapshot.model.roots,
+        );
+        const excludedRanges = snapshot.model.excludedRanges.ranges;
+        const rootBounds = snapshot.model.roots.map(root => ({
+            range: root.range,
+            junction: -1,
+            content: false,
+        }));
+        const parts: string[] = [];
+        let offset = 0;
+        let rootIndex = 0;
+        for (const segment of segments) {
+            while (
+                rootIndex < rootBounds.length
+                && rootBounds[rootIndex].range.end <= segment.range.start
+            ) {
+                if (rootBounds[rootIndex].junction < 0)
+                    rootBounds[rootIndex].junction = offset;
+                rootIndex++;
+            }
+            const text = materializedProjectedSegment(
+                source,
+                segment,
+                excludedRanges,
+            );
+            parts.push(text);
+            const current = rootBounds[rootIndex];
+            if (
+                current
+                && segment.range.start >= current.range.start
+                && segment.range.end <= current.range.end
+            ) {
+                current.junction = offset + text.length;
+                if (/\S/.test(text))
+                    current.content = true;
+            }
+            offset += text.length;
+        }
+        for (; rootIndex < rootBounds.length; rootIndex++) {
+            if (rootBounds[rootIndex].junction < 0)
+                rootBounds[rootIndex].junction = offset;
+        }
+        let nextMarkdown = parts.join('');
+        // Collapse in descending junction order so offsets that earlier
+        // collapses have not passed remain valid.
+        const erased = rootBounds
+            .filter(bounds => !bounds.content)
+            .sort((left, right) => right.junction - left.junction);
+        for (const bounds of erased) {
+            nextMarkdown = collapseErasedJunction(
+                nextMarkdown,
+                bounds.junction,
+            );
+        }
         if (!this._muya.replaceContent(nextMarkdown, selection)) {
             throw new TypeError(
                 'CriticMarkup bulk projection produced no document change.',

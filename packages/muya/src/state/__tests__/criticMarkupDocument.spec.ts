@@ -5,11 +5,13 @@ import {
     FRONT_MATTER_LOOKALIKE_CORPUS,
     IDENTICAL_SUBSTITUTION_ARM_CORPUS,
 } from '../../criticMarkup/__tests__/sharedCorpus';
+import { createCriticMarkupDocument } from '../../criticMarkup/document';
+import { analyzeCriticMarkupMarkdownState } from '../../criticMarkup/markdownState';
 import {
-    parseCriticMarkupDocument,
+    criticMarkupParserProfile,
     projectCriticMarkupMarkdown,
+    snapshotCriticMarkupParserOptions,
 } from '../../utils/marked/criticMarkupDocument';
-import { MarkdownToState } from '../markdownToState';
 import StateToMarkdown from '../stateToMarkdown';
 
 function parse(
@@ -17,21 +19,32 @@ function parse(
     options: { frontMatter?: boolean } = {},
 ) {
     const frontMatter = options.frontMatter ?? true;
-    const state = new MarkdownToState({
-        footnote: false,
-        math: true,
-        isGitlabCompatibilityEnabled: true,
-        trimUnnecessaryCodeBlockEmptyLines: false,
-        frontMatter,
-    }).generate(markdown);
-    const sourceMap = new StateToMarkdown().generateMapped(state);
-
-    return parseCriticMarkupDocument(sourceMap, {
+    // The canonical fragment-bearing document is backed by the one state
+    // parser artifact: analysis and bindings from the same native parse.
+    const lex = snapshotCriticMarkupParserOptions({
         footnote: false,
         math: true,
         isGitlabCompatibilityEnabled: true,
         frontMatter,
     });
+    const analyzed = analyzeCriticMarkupMarkdownState(markdown, {
+        listIndentation: 1,
+        trimUnnecessaryCodeBlockEmptyLines: false,
+        lex,
+    });
+    const sourceMap = new StateToMarkdown().generateMapped(analyzed.states);
+    if (!analyzed.analysis) {
+        throw new TypeError(
+            'Fixture Markdown did not produce a CriticMarkup analysis.',
+        );
+    }
+    return createCriticMarkupDocument(
+        analyzed.analysis,
+        sourceMap,
+        criticMarkupParserProfile(lex),
+        'complete',
+        analyzed.bindings,
+    );
 }
 
 describe('parser-native CriticMarkup document model', () => {

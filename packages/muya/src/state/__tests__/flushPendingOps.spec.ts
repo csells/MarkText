@@ -48,10 +48,18 @@ describe('muya.flush() — make pending edits durable synchronously (#2938)', ()
         });
 
         expect(muya.editor.jsonState.getLiveState()).toEqual([
-            { name: 'paragraph', text: 'hello pending' },
+            {
+                name: 'paragraph',
+                text: 'hello pending',
+                sourceTrivia: { terminalLineEnding: '\n' },
+            },
         ]);
         expect(muya.getState()).toEqual([
-            { name: 'paragraph', text: 'hello' },
+            {
+                name: 'paragraph',
+                text: 'hello',
+                sourceTrivia: { terminalLineEnding: '\n' },
+            },
         ]);
         expect(changes).toBe(0);
     });

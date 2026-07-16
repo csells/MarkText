@@ -66,7 +66,7 @@ function onlyInlineBinding(fixture: ReturnType<typeof fixtureFor>) {
     return binding;
 }
 
-describe('CriticMarkupDocument native inline bindings', () => {
+describe('criticMarkupDocument native inline bindings', () => {
     it('rejects a native graph that omits a semantic item', () => {
         const { analysis, bindings, mapped } = fixtureFor('x {++same++} y\n');
         const emptyInlineGraph: ICriticMarkupStateBindingGraph = Object.freeze({
@@ -214,17 +214,20 @@ describe('CriticMarkupDocument native inline bindings', () => {
         const fixture = fixtureFor('{++one\n\n# two++}\n');
         const document = documentFor(fixture);
 
-        expect(fixture.bindings.block).toMatchObject([{
-            path: [0],
-            role: 'start',
-        }]);
-        expect(fixture.bindings.inline).toMatchObject([{
-            path: [1, 'text'],
-            role: 'end',
-        }]);
+        // A mixed item (inline-anchored, block-spanning) lowers entirely to
+        // per-line inline fragments; markers stay literal in the text leaves
+        // (shared-corpus row 'block-spanning-addition' pins this topology).
+        expect(fixture.bindings.block).toEqual([]);
+        expect(fixture.bindings.inline).toMatchObject([
+            { path: [0, 'text'], role: 'start' },
+            { path: [1, 'text'], role: 'end' },
+        ]);
         expect(document.items[0]).toMatchObject({
-            fragments: [{ path: [1, 'text'], role: 'end' }],
-            structuralFragments: [{ path: [0], role: 'start' }],
+            fragments: [
+                { path: [0, 'text'], role: 'start' },
+                { path: [1, 'text'], role: 'end' },
+            ],
+            structuralFragments: [],
         });
     });
 

@@ -6,7 +6,7 @@ import type InlineRenderer from '../../index';
 import { describe, expect, it } from 'vitest';
 import { CRITIC_MARKUP_RENDER_DEPTH_LIMIT } from '../../../criticMarkup/renderPolicy';
 import { mappedMarkdown, markdownStatePath } from '../../../state/markdownSourceMap';
-import { parseCriticMarkupDocument } from '../../../utils/marked/criticMarkupDocument';
+import { parseBoundCriticMarkupDocument } from '../../../utils/marked/criticMarkupDocument';
 import { tokenizer } from '../../lexer';
 import Renderer from '../index';
 
@@ -19,7 +19,7 @@ function render(
         {} as InlineRenderer,
     );
     const block = { text: source } as Format;
-    const document = parseCriticMarkupDocument(mappedMarkdown(
+    const document = parseBoundCriticMarkupDocument(mappedMarkdown(
         source,
         markdownStatePath([0, 'text']),
         0,

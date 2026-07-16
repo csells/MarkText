@@ -47,6 +47,7 @@ interface IRecordedBlock {
 function makeCreatedBlock(state: any): IRecordedBlock & {
     firstContentInDescendant: () => any;
     lastContentInDescendant: () => any;
+    initializeStateSourceTrivia: ReturnType<typeof vi.fn>;
 } {
     const content = {
         text: state.text ?? '',
@@ -58,6 +59,9 @@ function makeCreatedBlock(state: any): IRecordedBlock & {
         _contentText: state.text ?? '',
         firstContentInDescendant: () => content,
         lastContentInDescendant: () => content,
+        // `ScrollPage.createStateBlock` binds source trivia on every block it
+        // creates through the (spied) `loadBlock` factory.
+        initializeStateSourceTrivia: vi.fn(),
     };
 }
 

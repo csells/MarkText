@@ -990,7 +990,14 @@
       "commentTitle": "Ajouter un commentaire",
       "commentPlaceholder": "Saisissez un commentaire de révision",
       "replacementTitle": "Suggérer un remplacement",
-      "replacementPlaceholder": "Saisissez le texte de remplacement"
+      "replacementPlaceholder": "Saisissez le texte de remplacement",
+      "trackChangeRejected": {
+        "title": "Modification non enregistrée",
+        "unmappableSourceEdit": "Le suivi des modifications n'a pas pu enregistrer cette modification, le document n'a donc pas été modifié. Essayez une modification plus petite ou désactivez le suivi des modifications pour cette opération.",
+        "parserConflict": "Le suivi des modifications n'a pas pu concilier cette modification avec le Markdown du document, le document n'a donc pas été modifié. Essayez une modification plus petite ou désactivez le suivi des modifications pour cette opération.",
+        "unmappableTrackedSelection": "Le suivi des modifications n'a pas pu faire correspondre votre sélection au document suivi, le document n'a donc pas été modifié. Sélectionnez à nouveau le texte et réessayez, ou désactivez le suivi des modifications pour cette opération.",
+        "missingTrackedSelectionBlock": "Le suivi des modifications n'a pas pu retrouver le bloc contenant votre sélection, le document n'a donc pas été modifié. Cliquez à nouveau dans le texte, ou désactivez le suivi des modifications pour cette opération."
+      }
     },
     "export": {
       "error": "Erreur d'exportation",

@@ -147,6 +147,7 @@ import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
 import { type CriticMarkupTextRequest } from './criticMarkupReview'
 import CriticMarkupPromptDialog from './CriticMarkupPromptDialog.vue'
 import { useCriticMarkupReviewController } from './useCriticMarkupReviewController'
+import { useCriticMarkupRejectionNotifier } from './useCriticMarkupRejectionNotifier'
 import { installE2EReadOnlyBridge } from './e2eReadOnlyBridge'
 import { useEditorLifecycle } from './useEditorLifecycle'
 
@@ -1510,6 +1511,11 @@ useCriticMarkupReviewController({
   sourceCode,
   requestText: requestCriticMarkupText,
   cancelTextRequest: cancelCriticMarkupPrompt
+})
+
+useCriticMarkupRejectionNotifier({
+  editor,
+  tabId: computed(() => currentFile.value?.id ?? null)
 })
 
 const handleDialogTableConfirm = () => {

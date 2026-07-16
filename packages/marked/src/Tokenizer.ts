@@ -871,6 +871,10 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
     const listSource = currentSourceView(this.lexer, src);
     const listSourceLength = src.length;
     const itemSources: Array<MarkedSourceView<object> | null> = [];
+    // Raw item envelopes (marker and padding included) let boundary
+    // extensions anchor to the semantic list item rather than the
+    // enclosing list or the item's inner content tokens.
+    const itemRawSources: Array<MarkedSourceView<object> | null> = [];
     let cap = this.rules.block.list.exec(src);
     if (cap) {
       let bull = cap[1].trim();
@@ -1151,8 +1155,16 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
             );
           }
           itemSources.push(itemSource);
+          // `src` has advanced past this item, so the consumed span is the
+          // authoritative raw envelope (raw may disagree with the view
+          // domain when continuation handling rewrites trailing lines).
+          itemRawSources.push(listSource.slice(
+            markedViewOffset(itemSourceStart),
+            markedViewOffset(listSourceLength - src.length),
+          ));
         } else {
           itemSources.push(null);
+          itemRawSources.push(null);
         }
 
         list.raw += raw;
@@ -1167,6 +1179,11 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
         const finalSource = itemSources.at(-1);
         if (finalSource)
           itemSources[itemSources.length - 1] = trimMapped(finalSource, 'end');
+        const finalRawSource = itemRawSources.at(-1);
+        if (finalRawSource) {
+          itemRawSources[itemRawSources.length - 1]
+            = trimMapped(finalRawSource, 'end');
+        }
       } else {
         // not a list since there were no items
         return;
@@ -1180,6 +1197,10 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
         item.tokens = this.lexer.blockTokens(
           lexerSource(item.text, itemSources[itemIndex]),
           [],
+        );
+        this.lexer.recordNestedTokenBoundary(
+          item,
+          itemRawSources[itemIndex],
         );
         const itemToken = item.tokens[0];
         if (item.task && (itemToken?.type === 'text' || itemToken?.type === 'paragraph')) {

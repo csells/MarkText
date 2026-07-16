@@ -1,4 +1,5 @@
 import katex from 'katex';
+import { windowedInlineStart } from './inlineStartScan';
 import 'katex/dist/contrib/mhchem.mjs';
 
 export interface IMathToken {
@@ -60,15 +61,20 @@ function inlineKatex(renderer: (token: IMathToken) => string) {
         name: 'inlineMath',
         level: 'inline' as const,
         start(src: string) {
-            const match = src.match(inlineStartRule);
-            if (!match)
-                return;
+            return windowedInlineStart(src, (slice, full) => {
+                const match = slice.match(inlineStartRule);
+                if (!match)
+                    return undefined;
 
-            const index = (match.index || 0) + match[1].length;
-            const possibleKatex = src.substring(index);
+                const index = (match.index || 0) + match[1].length;
+                const possibleKatex = full.substring(index);
 
-            if (inlineRule.test(possibleKatex))
-                return index;
+                return {
+                    index,
+                    matchEnd: (match.index || 0) + match[0].length,
+                    verified: inlineRule.test(possibleKatex),
+                };
+            });
         },
         tokenizer(src: string) {
             const match = src.match(inlineRule);

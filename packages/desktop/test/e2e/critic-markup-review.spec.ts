@@ -323,9 +323,16 @@ const FILE_CORPUS_ROW_IDS = [
   'mixed-nested-forms',
   'escaped-opener-and-closer-like-payload',
   'block-spanning-addition',
-  'inline-fenced-and-indented-code-contexts'
+  'inline-fenced-and-indented-code-contexts',
+  'nested-block-spanning-addition-and-deletion'
 ] as const
 
+// The concatenated document below can only host rows that are byte-canonical
+// under the desktop's boot profile: a BOM/front-matter row must sit at the
+// exact start of a file, an options row would change the parse of its
+// neighbours, and a malformed dangling opener would capture `++}` closers
+// from later rows. Those plan-minimum rows are file-backed one row per real
+// file in the `CriticMarkup file-backed corpus rows` suite further down.
 const fileCorpusRows = FILE_CORPUS_ROW_IDS.map((id) => {
   const row = CRITIC_MARKUP_CORPUS.find((candidate) => candidate.id === id)
   if (!row) throw new TypeError(`Shared CriticMarkup corpus row is missing: ${id}`)
@@ -499,4 +506,222 @@ test.describe('CriticMarkup file-backed losslessness', () => {
       await app.close().catch(() => undefined)
     }
   })
+})
+
+// ----------------------------------------------------------------------------
+// Per-row file-backed coverage for the plan-minimum corpus rows that cannot
+// join the concatenated FILE_LOSSLESS_CORPUS document: byte classes that must
+// occupy the exact start/end of a real file (BOM, CRLF, front matter), rows
+// whose declared parser options differ from the desktop defaults, and
+// malformed recovery (a dangling opener would capture closers from later
+// rows). Each row is written to its own real file and driven through open,
+// Review item enumeration, repeated explicit save, and reopen with byte-exact
+// file reads at every step.
+// ----------------------------------------------------------------------------
+
+// The desktop open boundary (main-process `loadMarkdownFile`) decodes away a
+// UTF-8 BOM and canonicalizes every line ending to LF before the engine sees
+// the text, while recording `encoding.isBom` / `lineEnding` so the save path
+// re-emits the original bytes. This pair is the documented desktop-level
+// normalization the per-row assertions encode: the in-editor canonical text is
+// the LF form, the persisted artifact stays byte-identical to the source.
+const desktopOpenNormalization = (source: string): string =>
+  source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+
+interface FileRowCaseDefinition {
+  id: string
+  /**
+   * Desktop-settable subset of the row's declared parser options, applied via
+   * the real `mt::set-user-preference` round trip before any assertion.
+   * `frontMatter` and `math` have no desktop preference — the renderer always
+   * boots the engine defaults (both enabled), which matches the front-matter
+   * row's declared profile; the two option rows below contain neither
+   * front-matter-opening nor math-delimiter bytes, and their declared-profile
+   * parse proof stays with the muya RT/PAC suites.
+   */
+  preferences?: Record<string, boolean>
+}
+
+const FILE_ROW_CASE_DEFS: readonly FileRowCaseDefinition[] = [
+  { id: 'malformed-outer-recovers-inner-and-later-items' },
+  { id: 'bom-crlf-and-astral-boundaries' },
+  { id: 'repeated-table-cells-and-escaped-pipes', preferences: { superSubScript: true } },
+  { id: 'yaml-front-matter' },
+  { id: 'hostile-cross-block-addition', preferences: { superSubScript: true } },
+  { id: 'nested-block-spanning-addition-and-deletion' }
+]
+
+const FILE_ROW_CASES = FILE_ROW_CASE_DEFS.map((definition) => {
+  const row = CRITIC_MARKUP_CORPUS.find((candidate) => candidate.id === definition.id)
+  if (!row) {
+    throw new TypeError(`Shared CriticMarkup corpus row is missing: ${definition.id}`)
+  }
+  // A `known` serializer normalization is admissible here only when it is
+  // fully subsumed by the desktop open boundary (BOM strip + CRLF
+  // canonicalization) — otherwise the row needs its own expected bytes.
+  if (
+    row.normalization.kind === 'known' &&
+    desktopOpenNormalization(row.normalization.output) !== desktopOpenNormalization(row.source)
+  ) {
+    throw new TypeError(
+      `File-backed corpus row ${row.id} declares a serializer normalization ` +
+      'beyond the desktop open boundary.'
+    )
+  }
+  return { ...definition, row }
+})
+
+const REVIEW_TYPE_LABELS: Record<string, string> = {
+  addition: 'Addition',
+  deletion: 'Deletion',
+  substitution: 'Substitution',
+  highlight: 'Highlight',
+  comment: 'Comment'
+}
+
+const readPreferenceValue = (page: Page, key: string): Promise<unknown> =>
+  page.evaluate((prefKey) => {
+    const root = document.querySelector('#app') as
+      | (Element & { __vue_app__?: { config?: { globalProperties?: Record<string, unknown> } } })
+      | null
+    const pinia = root?.__vue_app__?.config?.globalProperties?.$pinia as
+      | { _s?: Map<string, Record<string, unknown>> }
+      | undefined
+    const store = pinia?._s?.get('preferences')
+    return store ? store[prefKey] : undefined
+  }, key)
+
+const applyRowPreferences = async(
+  page: Page,
+  preferences: Record<string, boolean>
+): Promise<void> => {
+  await page.evaluate((payload) => {
+    window.electron.ipcRenderer.send('mt::set-user-preference', payload)
+  }, preferences)
+  for (const [key, value] of Object.entries(preferences)) {
+    await expect.poll(() => readPreferenceValue(page, key), { timeout: 5000 }).toBe(value)
+  }
+  // The preference watcher re-renders the engine (`setOptions(..., true)`);
+  // let that settle before canonical-markdown assertions.
+  await page.evaluate(() => new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+}
+
+// A no-op save must still WRITE (the main process persists unconditionally).
+// Asserting only byte equality would pass vacuously when the file already
+// holds the expected bytes, so require an mtime advance before comparing.
+const saveAndExpectFileBytes = async(
+  app: ElectronApplication,
+  filePath: string,
+  expected: string
+): Promise<void> => {
+  const mtimeBefore = fs.statSync(filePath).mtimeMs
+  await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+  await expect.poll(() => fs.statSync(filePath).mtimeMs, { timeout: 5000 })
+    .toBeGreaterThan(mtimeBefore)
+  expect(fs.readFileSync(filePath, 'utf-8')).toBe(expected)
+}
+
+// Live-editor inertness scan for hostile rows: no script element, no event
+// handler or srcdoc attribute, and no javascript:/vbscript:/non-image data:
+// URL survives in the rendered document (mirrors the assertion set of muya's
+// criticMarkupSecurity.spec.ts against the real desktop renderer DOM).
+const editorSecurityViolations = (page: Page): Promise<string[]> =>
+  page.evaluate(() => {
+    const urlAttributes = new Set([
+      'action',
+      'formaction',
+      'href',
+      'poster',
+      'src',
+      'xlink:href'
+    ])
+    const violations: string[] = []
+    if ((window as unknown as { __criticXss?: unknown }).__criticXss !== undefined) {
+      violations.push('__criticXss global was set')
+    }
+    const root = document.querySelector('.editor-component')
+    if (!root) return ['editor root missing']
+    if (root.querySelector('script')) violations.push('script element rendered')
+    for (const element of root.querySelectorAll('*')) {
+      for (const attribute of Array.from(element.attributes)) {
+        const name = attribute.name.toLowerCase()
+        if (name.startsWith('on')) violations.push(`event attribute ${name}`)
+        if (name === 'srcdoc') violations.push('srcdoc attribute')
+        if (urlAttributes.has(name)) {
+          const compact = attribute.value
+            .split('')
+            .filter((character) => character.charCodeAt(0) > 0x20)
+            .join('')
+            .toLowerCase()
+          // `data:image/...` is the engine's own safe embedded-image form;
+          // executable schemes and non-image data: payloads must not survive.
+          if (/^(?:javascript|vbscript):/.test(compact)) {
+            violations.push(`${name}=${attribute.value}`)
+          } else if (/^data:/.test(compact) && !/^data:image\//.test(compact)) {
+            violations.push(`${name}=${attribute.value}`)
+          }
+        }
+      }
+    }
+    return violations
+  })
+
+test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
+  test.describe.configure({ timeout: 90000 })
+
+  for (const { id, preferences, row } of FILE_ROW_CASES) {
+    test(`${id} round-trips real file IO, review enumeration, and reopen`, async() => {
+      const expectedCanonical = desktopOpenNormalization(row.source)
+      const initial = await launchWithMarkdown(row.source)
+      let app = initial.app
+      let page = initial.page
+      const { filePath } = initial
+
+      try {
+        await clearCapturedErrors(app)
+        if (preferences) await applyRowPreferences(page, preferences)
+
+        await expect.poll(() => readCanonicalMarkdown(page), { timeout: 5000 })
+          .toBe(expectedCanonical)
+        expect(fs.readFileSync(filePath, 'utf-8')).toBe(row.source)
+
+        await openReviewSidebar(page, app)
+        const cards = page.locator('.review-card')
+        await expect(cards).toHaveCount(row.expected.itemTypes.length)
+        if (row.expected.itemTypes.length > 0) {
+          await expect(cards.locator('.type-label')).toHaveText(
+            row.expected.itemTypes.map((type) => REVIEW_TYPE_LABELS[type])
+          )
+        }
+
+        if (row.tags.includes('hostile')) {
+          expect(await editorSecurityViolations(page)).toEqual([])
+        }
+
+        // The save path must restore the exact source bytes (including BOM
+        // and CRLF via the recorded encoding/line-ending bookkeeping), and a
+        // repeated save must be byte-idempotent.
+        await saveAndExpectFileBytes(app, filePath, row.source)
+        await saveAndExpectFileBytes(app, filePath, row.source)
+        expect(await readCanonicalMarkdown(page)).toBe(expectedCanonical)
+
+        await expectNoCapturedErrors(app)
+        await app.close()
+        const reopened = await launchWithDoc(filePath)
+        app = reopened.app
+        page = reopened.page
+        await clearCapturedErrors(app)
+        if (preferences) await applyRowPreferences(page, preferences)
+
+        await expect.poll(() => readCanonicalMarkdown(page), { timeout: 5000 })
+          .toBe(expectedCanonical)
+        expect(fs.readFileSync(filePath, 'utf-8')).toBe(row.source)
+        await saveAndExpectFileBytes(app, filePath, row.source)
+        await expectNoCapturedErrors(app)
+      } finally {
+        await app.close().catch(() => undefined)
+      }
+    })
+  }
 })

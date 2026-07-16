@@ -73,6 +73,26 @@ vi.mock('../../utils/marked/lexBlock', async (importOriginal) => {
     };
 });
 
+// Projected-view literal-range parses go through the analyzer core directly
+// (utils/marked/markdownBlockAnalysis); count them under the same authority.
+vi.mock('../../utils/marked/markdownBlockAnalysis', async (importOriginal) => {
+    const actual = await importOriginal<
+        typeof import('../../utils/marked/markdownBlockAnalysis')
+    >();
+
+    return {
+        ...actual,
+        analyzeMarkdownBlockSourceWithExtensions: (
+            ...args: Parameters<
+                typeof actual.analyzeMarkdownBlockSourceWithExtensions
+            >
+        ) => {
+            calls.analyzeMarkdownBlockSource(args[0]);
+            return actual.analyzeMarkdownBlockSourceWithExtensions(...args);
+        },
+    };
+});
+
 beforeEach(() => {
     calls.analyzeMarkdownBlockSource.mockClear();
     calls.lexBlock.mockClear();

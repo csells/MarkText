@@ -1,5 +1,5 @@
-import type { TCriticMarkupDocumentToken } from '../../criticMarkup/analysis';
 import type { ICriticMarkupCorpusRow } from '../../criticMarkup/__tests__/sharedCorpus';
+import type { TCriticMarkupDocumentToken } from '../../criticMarkup/analysis';
 import type { TState } from '../types';
 import { describe, expect, it } from 'vitest';
 import { CRITIC_MARKUP_CORPUS } from '../../criticMarkup/__tests__/sharedCorpus';
@@ -57,7 +57,7 @@ function orderedSemanticItems(
     return result;
 }
 
-describe('CriticMarkup production Markdown-state adapter corpus', () => {
+describe('criticMarkup production Markdown-state adapter corpus', () => {
     it.each(SEMANTIC_CORPUS)(
         'keeps $id native through its declared serialization contract',
         (row) => {

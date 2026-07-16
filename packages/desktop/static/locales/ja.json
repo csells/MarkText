@@ -990,7 +990,14 @@
       "commentTitle": "コメントを追加",
       "commentPlaceholder": "レビューコメントを入力",
       "replacementTitle": "置換を提案",
-      "replacementPlaceholder": "置換テキストを入力"
+      "replacementPlaceholder": "置換テキストを入力",
+      "trackChangeRejected": {
+        "title": "編集は記録されませんでした",
+        "unmappableSourceEdit": "変更履歴がこの編集を記録できなかったため、ドキュメントは変更されていません。編集を小さく分けて試すか、この変更の間だけ変更履歴をオフにしてください。",
+        "parserConflict": "変更履歴がこの編集をドキュメントの Markdown と整合させられなかったため、ドキュメントは変更されていません。編集を小さく分けて試すか、この変更の間だけ変更履歴をオフにしてください。",
+        "unmappableTrackedSelection": "変更履歴が選択範囲を記録中のドキュメントに対応付けられなかったため、ドキュメントは変更されていません。テキストを選択し直して再試行するか、この変更の間だけ変更履歴をオフにしてください。",
+        "missingTrackedSelectionBlock": "変更履歴が選択範囲を含むブロックを見つけられなかったため、ドキュメントは変更されていません。テキストをクリックし直して再試行するか、この変更の間だけ変更履歴をオフにしてください。"
+      }
     },
     "export": {
       "error": "エクスポートエラー",

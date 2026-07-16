@@ -161,11 +161,54 @@ index 4527f223c5196c8b8db037d2c6f29f4b303c7d71..d9e22860ebe1e861810c7b0a72823c6d
 +    "verify:fork": "node scripts/verify-fork.mjs --self-test"
    }
  }
+diff --git a/src/Instance.ts b/src/Instance.ts
+index d21c0117a8de8935c370204c0c32d35183c5038d..48b751a525cca25e6461a61d8af003b35cfb2519 100644
+--- a/src/Instance.ts
++++ b/src/Instance.ts
+@@ -57,6 +57,17 @@ export class Marked<ParserOutput = string, RendererOutput = string> {
+           values = values.concat(this.walkTokens(listToken.items, callback));
+           break;
+         }
++        case 'critic_addition':
++        case 'critic_deletion':
++        case 'critic_substitution':
++        case 'critic_highlight':
++        case 'critic_comment': {
++          values = values.concat(this.walkTokens(
++            (token as Tokens.CriticMarkupFragment).tokens,
++            callback,
++          ));
++          break;
++        }
+         default: {
+           const genericToken = token as Tokens.Generic;
+           if (this.defaults.extensions?.childTokens?.[genericToken.type]) {
+@@ -130,6 +141,20 @@ export class Marked<ParserOutput = string, RendererOutput = string> {
+               }
+             }
+           }
++          if ('sourceBoundary' in ext) {
++            if (extensions.sourceBoundary) {
++              extensions.sourceBoundary.unshift(ext.sourceBoundary);
++            } else {
++              extensions.sourceBoundary = [ext.sourceBoundary];
++            }
++          }
++          if ('initializeTokens' in ext) {
++            if (extensions.initializeTokens) {
++              extensions.initializeTokens.unshift(ext.initializeTokens);
++            } else {
++              extensions.initializeTokens = [ext.initializeTokens];
++            }
++          }
+           if ('childTokens' in ext && ext.childTokens) { // Child tokens to be visited by walkTokens
+             extensions.childTokens[ext.name] = ext.childTokens;
+           }
 diff --git a/src/Lexer.ts b/src/Lexer.ts
-index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725150cd9cd 100644
+index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc94b4080c 100644
 --- a/src/Lexer.ts
 +++ b/src/Lexer.ts
-@@ -1,8 +1,89 @@
+@@ -1,8 +1,108 @@
 -import { _Tokenizer } from './Tokenizer.ts';
 +import {
 +  _Tokenizer,
@@ -185,6 +228,25 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
 +} from './SourceProvenance.ts';
 +
 +type LexerSource = string | MarkedSourceView<object>;
++
++function appendCriticMarkupBoundaries(
++  token: Token,
++  edge: 'before' | 'after',
++  attachments: readonly Tokens.CriticMarkupBoundaryAttachment[],
++): void {
++  if (!attachments.length)
++    return;
++  const key = edge === 'before' ? 'criticMarkupBefore' : 'criticMarkupAfter';
++  const existing = token[key] ?? [];
++  for (const attachment of attachments) {
++    if (attachment.edge !== edge) {
++      throw new TypeError(
++        `Marked CriticMarkup ${edge} boundary has ${attachment.edge} edge.`,
++      );
++    }
++  }
++  token[key] = Object.freeze([...existing, ...attachments]);
++}
 +
 +function replaceMappedSource(
 +  source: MarkedSourceView<object>,
@@ -256,7 +318,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
  
  /**
   * Block Lexer
-@@ -16,15 +97,34 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -16,15 +116,41 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
      top: boolean;
    };
  
@@ -268,17 +330,24 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
 +  private provenanceInvocations: ReturnType<
 +    IMarkedProvenanceRecorder<object>['beginInvocation']
 +  >[] = [];
++  private provenanceParserSources: string[] = [];
 +  private provenanceSourceOverrides: Array<{
 +    source: MarkedSourceView<object>;
 +    invocationDepth: number;
 +  }> = [];
 +  private provenanceCompleted = false;
 +  private blockNestingDepth = 0;
++  private reconstructedTokenSources = new WeakMap<
++    Token,
++    MarkedSourceView<object>
++  >();
  
    constructor(options?: MarkedOptions<ParserOutput, RendererOutput>) {
      // TokenList cannot be created in one go
      this.tokens = [] as unknown as TokensList;
      this.tokens.links = Object.create(null);
++    this.tokens.criticMarkup = null;
++    this.tokens.criticMarkupUnanchored = Object.freeze([]);
      this.options = options || _defaults;
 +    const maxBlockNesting = this.options.maxBlockNesting;
 +    if (
@@ -292,7 +361,16 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
      this.options.tokenizer = this.options.tokenizer || new _Tokenizer<ParserOutput, RendererOutput>();
      this.tokenizer = this.options.tokenizer;
      this.tokenizer.options = this.options;
-@@ -79,35 +179,284 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -54,6 +180,8 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+       }
+     }
+     this.tokenizer.rules = rules;
++    for (const initialize of this.options.extensions?.initializeTokens ?? [])
++      initialize.call({ lexer: this }, this.tokens);
+   }
+ 
+   /**
+@@ -79,39 +207,350 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
     */
    static lexInline<ParserOutput = string, RendererOutput = string>(src: string, options?: MarkedOptions<ParserOutput, RendererOutput>) {
      const lexer = new _Lexer<ParserOutput, RendererOutput>(options);
@@ -315,12 +393,47 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
 +      return override.source;
 +    }
 +    const invocation = this.provenanceInvocations.at(-1);
-+    if (!invocation) {
++    const parserSource = this.provenanceParserSources.at(-1);
++    if (!invocation || parserSource === undefined) {
 +      throw new TypeError(
-+        'Marked provenance has no active parser invocation.',
++        'Marked provenance has no active parser source.',
 +      );
 +    }
-+    return this.provenanceRecorder.remaining(invocation);
++    return this.provenanceRecorder.remaining(invocation, parserSource);
++  }
++
++  /** Validate an externally supplied tokenizer string against parser state. */
++  sourceViewFor(source: string): MarkedSourceView<object> | null {
++    const view = this.currentSourceView;
++    if (view && view.text !== source) {
++      throw new TypeError(
++        'Marked tokenizer source differs from its active mapped input.',
++      );
++    }
++    return view;
++  }
++
++  /** Exact parser-owned source carried by the current final parsed token. */
++  sourceViewForParsedToken(
++    tokens: readonly Token[],
++    token: Token,
++  ): MarkedSourceView<object> | null {
++    if (tokens.at(-1) !== token) {
++      throw new TypeError(
++        'Marked parsed-token source requires the exact final token carrier.',
++      );
++    }
++    if (!this.provenanceRecorder) {
++      return null;
++    }
++    const source = this.reconstructedTokenSources.get(token)
++      ?? this.provenanceRecorder.consumedTokenSource(token);
++    if (source.text !== token.raw) {
++      throw new TypeError(
++        'Marked parsed-token source differs from its token raw text.',
++      );
++    }
++    return source;
 +  }
 +
 +  /** Parser-internal source context for direct recursive tokenizer calls. */
@@ -453,6 +566,22 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
 +          'Marked nested block reconstruction produced no parser token.',
 +        );
 +      }
++      if (source instanceof MarkedSourceView) {
++        if (!source.text.startsWith(token.raw)) {
++          throw new TypeError(
++            'Marked reconstructed token is not a prefix of its parser-owned source.',
++          );
++        }
++        this.reconstructedTokenSources.set(
++          token,
++          source.text.length === token.raw.length
++            ? source
++            : source.slice(
++                markedViewOffset(0),
++                markedViewOffset(token.raw.length),
++              ),
++        );
++      }
 +      return token;
 +    } finally {
 +      this.blockNestingDepth = previousDepth;
@@ -478,6 +607,16 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
 +        'Marked nested block reconstruction must replace its exact prior token.',
 +      );
 +    }
++    appendCriticMarkupBoundaries(
++      replacement,
++      'before',
++      previous.criticMarkupBefore ?? [],
++    );
++    appendCriticMarkupBoundaries(
++      replacement,
++      'after',
++      previous.criticMarkupAfter ?? [],
++    );
 +    this.provenanceRecorder?.supersedeToken(previous, replacement);
 +    tokens[index] = replacement;
 +  }
@@ -584,7 +723,12 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
      }
  
      let srcLength = Infinity;
-@@ -123,6 +472,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+     while (src) {
++      this.setCurrentParserSource(src);
+       if (src.length < srcLength) {
+         srcLength = src.length;
+       } else {
+@@ -123,6 +562,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        if (this.options.extensions?.block?.some((extTokenizer) => {
          if (token = extTokenizer.call({ lexer: this }, src, tokens)) {
@@ -592,7 +736,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
            src = src.substring(token.raw.length);
            tokens.push(token);
            return true;
-@@ -137,10 +487,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -137,10 +577,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          src = src.substring(token.raw.length);
          const lastToken = tokens.at(-1);
          if (token.raw.length === 1 && lastToken !== undefined) {
@@ -605,7 +749,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
            tokens.push(token);
          }
          continue;
-@@ -152,10 +504,20 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -152,10 +594,20 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          const lastToken = tokens.at(-1);
          // An indented code block cannot interrupt a paragraph.
          if (lastToken?.type === 'paragraph' || lastToken?.type === 'text') {
@@ -627,7 +771,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
            tokens.push(token);
          }
          continue;
-@@ -163,6 +525,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -163,6 +615,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // fences
        if (token = this.tokenizer.fences(src)) {
@@ -635,7 +779,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -170,6 +533,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -170,6 +623,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // heading
        if (token = this.tokenizer.heading(src)) {
@@ -643,7 +787,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -177,6 +541,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -177,6 +631,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // hr
        if (token = this.tokenizer.hr(src)) {
@@ -651,7 +795,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -184,6 +549,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -184,13 +639,45 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // blockquote
        if (token = this.tokenizer.blockquote(src)) {
@@ -659,15 +803,46 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -191,6 +557,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+       }
  
        // list
-       if (token = this.tokenizer.list(src)) {
+-      if (token = this.tokenizer.list(src)) {
++      let listSource = src;
++      let listSourceView: MarkedSourceView<object> | null = null;
++      if (this.blockNestingDepth > 1 && this.options.extensions?.startBlock) {
++        let startIndex = Infinity;
++        const tempSrc = src.slice(1);
++        for (const getStartIndex of this.options.extensions.startBlock) {
++          const candidate = getStartIndex.call({ lexer: this }, tempSrc);
++          if (typeof candidate === 'number' && candidate >= 0)
++            startIndex = Math.min(startIndex, candidate);
++        }
++        if (startIndex < Infinity) {
++          const cut = startIndex + 1;
++          listSource = src.substring(0, cut);
++          const current = this.currentSourceView;
++          if (current) {
++            listSourceView = current.slice(
++              markedViewOffset(0),
++              markedViewOffset(cut),
++            );
++          }
++        }
++      }
++      token = listSourceView
++        ? this.withSourceView(
++            listSourceView,
++            () => this.tokenizer.list(listSource),
++          )
++        : this.tokenizer.list(listSource);
++      if (token) {
++        if (listSource.length < src.length)
++          (token as Tokens.List).suppressBlockSeparatorAfter = true;
 +        this.recordTokenConsumption(token, token.raw.length);
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -198,6 +565,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -198,6 +685,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // html
        if (token = this.tokenizer.html(src)) {
@@ -675,7 +850,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -208,21 +576,36 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -208,21 +696,36 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          src = src.substring(token.raw.length);
          const lastToken = tokens.at(-1);
          if (lastToken?.type === 'paragraph' || lastToken?.type === 'text') {
@@ -713,7 +888,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -230,6 +613,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -230,6 +733,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // lheading
        if (token = this.tokenizer.lheading(src)) {
@@ -721,7 +896,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -255,11 +639,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -255,11 +759,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
        if (this.state.top && (token = this.tokenizer.paragraph(cutSrc))) {
          const lastToken = tokens.at(-1);
          if (lastParagraphClipped && lastToken?.type === 'paragraph') {
@@ -736,7 +911,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
            tokens.push(token);
          }
          lastParagraphClipped = cutSrc.length !== src.length;
-@@ -272,11 +657,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -272,11 +777,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          src = src.substring(token.raw.length);
          const lastToken = tokens.at(-1);
          if (lastToken?.type === 'text') {
@@ -751,7 +926,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
            tokens.push(token);
          }
          continue;
-@@ -289,10 +675,22 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -289,10 +795,22 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
      }
  
      this.state.top = true;
@@ -775,7 +950,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
      this.inlineQueue.push({ src, tokens });
      return tokens;
    }
-@@ -300,8 +698,26 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -300,8 +818,26 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
    /**
     * Lexing/Compiling
     */
@@ -803,7 +978,15 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
      // String with links masked to avoid interference with em and strong
      let maskedSrc = src;
      let match: RegExpExecArray | null = null;
-@@ -356,6 +772,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -339,6 +875,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+     let prevChar = '';
+     let srcLength = Infinity;
+     while (src) {
++      this.setCurrentParserSource(src);
+       if (src.length < srcLength) {
+         srcLength = src.length;
+       } else {
+@@ -356,6 +893,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
        // extensions
        if (this.options.extensions?.inline?.some((extTokenizer) => {
          if (token = extTokenizer.call({ lexer: this }, src, tokens)) {
@@ -811,7 +994,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
            src = src.substring(token.raw.length);
            tokens.push(token);
            return true;
-@@ -367,6 +784,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -367,6 +905,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // escape
        if (token = this.tokenizer.escape(src)) {
@@ -819,7 +1002,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -374,6 +792,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -374,6 +913,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // tag
        if (token = this.tokenizer.tag(src)) {
@@ -827,7 +1010,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -381,6 +800,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -381,6 +921,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // link
        if (token = this.tokenizer.link(src)) {
@@ -835,7 +1018,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -391,9 +811,11 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -391,9 +932,11 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          src = src.substring(token.raw.length);
          const lastToken = tokens.at(-1);
          if (token.type === 'text' && lastToken?.type === 'text') {
@@ -847,7 +1030,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
            tokens.push(token);
          }
          continue;
-@@ -401,6 +823,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -401,6 +944,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // em & strong
        if (token = this.tokenizer.emStrong(src, maskedSrc, prevChar)) {
@@ -855,7 +1038,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -408,6 +831,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -408,6 +952,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // code
        if (token = this.tokenizer.codespan(src)) {
@@ -863,7 +1046,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -415,6 +839,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -415,6 +960,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // br
        if (token = this.tokenizer.br(src)) {
@@ -871,7 +1054,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -422,6 +847,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -422,6 +968,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // del (gfm)
        if (token = this.tokenizer.del(src, maskedSrc, prevChar)) {
@@ -879,7 +1062,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -429,6 +855,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -429,6 +976,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // autolink
        if (token = this.tokenizer.autolink(src)) {
@@ -887,7 +1070,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -436,6 +863,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -436,6 +984,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // url (gfm)
        if (!this.state.inLink && (token = this.tokenizer.url(src))) {
@@ -895,7 +1078,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -466,9 +894,11 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -466,9 +1015,11 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          keepPrevChar = true;
          const lastToken = tokens.at(-1);
          if (lastToken?.type === 'text') {
@@ -907,7 +1090,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
            tokens.push(token);
          }
          continue;
-@@ -480,9 +910,225 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -480,9 +1031,294 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
        }
      }
  
@@ -951,6 +1134,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
 +      tokens,
 +    );
 +    this.provenanceInvocations.push(invocation);
++    this.provenanceParserSources.push(source.text);
 +  }
 +
 +  private recordTokenConsumption(
@@ -966,11 +1150,65 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
 +        'Marked token consumption has no active parser invocation.',
 +      );
 +    }
-+    return this.provenanceRecorder.consumeToken(
++    const consumption = this.provenanceRecorder.consumeToken(
 +      invocation,
 +      token,
 +      length,
 +    );
++    const extensions = this.options.extensions?.sourceBoundary ?? [];
++    for (const extension of extensions) {
++      const attachments = extension.call(
++        { lexer: this },
++        token,
++        consumption.source,
++        invocation.level,
++      ) ?? [];
++      appendCriticMarkupBoundaries(
++        token,
++        'before',
++        attachments.filter(attachment => attachment.edge === 'before'),
++      );
++      appendCriticMarkupBoundaries(
++        token,
++        'after',
++        attachments.filter(attachment => attachment.edge === 'after'),
++      );
++    }
++    return consumption;
++  }
++
++  /**
++   * Offer a tokenizer-internal token (one that never passes through
++   * blockTokens consumption, e.g. a list item) to the source-boundary
++   * extensions so boundary attachments can anchor to it. `source` is the
++   * token's raw envelope in the active provenance domain.
++   */
++  recordNestedTokenBoundary(
++    token: Token,
++    source: MarkedSourceView<object> | null,
++  ): void {
++    if (!this.provenanceRecorder || !source) {
++      return;
++    }
++    const extensions = this.options.extensions?.sourceBoundary ?? [];
++    for (const extension of extensions) {
++      const attachments = extension.call(
++        { lexer: this },
++        token,
++        source,
++        'block',
++      ) ?? [];
++      appendCriticMarkupBoundaries(
++        token,
++        'before',
++        attachments.filter(attachment => attachment.edge === 'before'),
++      );
++      appendCriticMarkupBoundaries(
++        token,
++        'after',
++        attachments.filter(attachment => attachment.edge === 'after'),
++      );
++    }
 +  }
 +
 +  private recordResidueConsumption(
@@ -1004,12 +1242,26 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
 +      return;
 +    }
 +    const invocation = this.provenanceInvocations.pop();
-+    if (!invocation) {
++    const parserSource = this.provenanceParserSources.pop();
++    if (!invocation || parserSource === undefined) {
 +      throw new TypeError(
 +        'Marked provenance has no parser invocation to end.',
 +      );
 +    }
 +    this.provenanceRecorder.endInvocation(invocation);
++  }
++
++  private setCurrentParserSource(source: string) {
++    if (!this.provenanceRecorder) {
++      return;
++    }
++    const index = this.provenanceParserSources.length - 1;
++    if (index < 0) {
++      throw new TypeError(
++        'Marked parser source has no active provenance invocation.',
++      );
++    }
++    this.provenanceParserSources[index] = source;
 +  }
 +
 +  private completeProvenance(
@@ -1134,19 +1386,56 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..09da7fd76e00ffc52341e28ab4080725
      const errMsg = 'Infinite loop on byte: ' + byte;
      if (this.options.silent) {
 diff --git a/src/MarkedOptions.ts b/src/MarkedOptions.ts
-index 6ef3353330da0b715969e6d5b46e71cd12d05be2..7225dd5affd1d42a24710076672198cf422daef3 100644
+index 6ef3353330da0b715969e6d5b46e71cd12d05be2..d7455e06bb216d80fbc680a64e69f4427b5096e4 100644
 --- a/src/MarkedOptions.ts
 +++ b/src/MarkedOptions.ts
-@@ -4,6 +4,7 @@ import type { _Lexer } from './Lexer.ts';
- import type { _Renderer } from './Renderer.ts';
- import type { _Tokenizer } from './Tokenizer.ts';
- import type { _Hooks } from './Hooks.ts';
-+import type { IMarkedProvenanceFactory } from './SourceProvenance.ts';
+@@ -1,3 +1,7 @@
++import type {
++  IMarkedProvenanceFactory,
++  MarkedSourceView,
++} from './SourceProvenance.ts';
+ import type { Token, Tokens, TokensList } from './Tokens.ts';
+ import type { _Parser } from './Parser.ts';
+ import type { _Lexer } from './Lexer.ts';
+@@ -21,6 +25,32 @@ export interface TokenizerExtension {
+   childTokens?: string[];
+ }
  
- export interface TokenizerThis {
-   lexer: _Lexer;
-@@ -35,7 +36,7 @@ export interface RendererExtension<ParserOutput = string, RendererOutput = strin
- export type TokenizerAndRendererExtension<ParserOutput = string, RendererOutput = string> = TokenizerExtension | RendererExtension<ParserOutput, RendererOutput> | (TokenizerExtension & RendererExtension<ParserOutput, RendererOutput>);
++export interface SourceBoundaryThis {
++  lexer: _Lexer;
++}
++
++export type SourceBoundaryExtensionFunction = (
++  this: SourceBoundaryThis,
++  token: Token,
++  source: MarkedSourceView<object>,
++  level: 'block' | 'inline',
++) => readonly Tokens.CriticMarkupBoundaryAttachment[] | undefined;
++
++export interface SourceBoundaryExtension {
++  name: string;
++  sourceBoundary: SourceBoundaryExtensionFunction;
++}
++
++export type TokenListInitializerExtensionFunction = (
++  this: SourceBoundaryThis,
++  tokens: TokensList,
++) => void;
++
++export interface TokenListInitializerExtension {
++  name: string;
++  initializeTokens: TokenListInitializerExtensionFunction;
++}
++
+ export interface RendererThis<ParserOutput = string, RendererOutput = string> {
+   parser: _Parser<ParserOutput, RendererOutput>;
+ }
+@@ -32,10 +62,10 @@ export interface RendererExtension<ParserOutput = string, RendererOutput = strin
+   renderer: RendererExtensionFunction<ParserOutput, RendererOutput>;
+ }
+ 
+-export type TokenizerAndRendererExtension<ParserOutput = string, RendererOutput = string> = TokenizerExtension | RendererExtension<ParserOutput, RendererOutput> | (TokenizerExtension & RendererExtension<ParserOutput, RendererOutput>);
++export type TokenizerAndRendererExtension<ParserOutput = string, RendererOutput = string> = TokenizerExtension | RendererExtension<ParserOutput, RendererOutput> | SourceBoundaryExtension | TokenListInitializerExtension | (TokenizerExtension & RendererExtension<ParserOutput, RendererOutput>);
  
  type HooksApi<ParserOutput = string, RendererOutput = string> = Omit<_Hooks<ParserOutput, RendererOutput>, 'constructor' | 'options' | 'block'>;
 -type HooksObject<ParserOutput = string, RendererOutput = string> = {
@@ -1154,7 +1443,7 @@ index 6ef3353330da0b715969e6d5b46e71cd12d05be2..7225dd5affd1d42a24710076672198cf
    [K in keyof HooksApi<ParserOutput, RendererOutput>]?: (this: _Hooks<ParserOutput, RendererOutput>, ...args: Parameters<HooksApi<ParserOutput, RendererOutput>[K]>) => ReturnType<HooksApi<ParserOutput, RendererOutput>[K]> | Promise<ReturnType<HooksApi<ParserOutput, RendererOutput>[K]>>
  };
  
-@@ -45,7 +46,7 @@ type RendererObject<ParserOutput = string, RendererOutput = string> = {
+@@ -45,7 +75,7 @@ type RendererObject<ParserOutput = string, RendererOutput = string> = {
  };
  
  type TokenizerApi<ParserOutput = string, RendererOutput = string> = Omit<_Tokenizer<ParserOutput, RendererOutput>, 'constructor' | 'options' | 'rules' | 'lexer'>;
@@ -1163,7 +1452,7 @@ index 6ef3353330da0b715969e6d5b46e71cd12d05be2..7225dd5affd1d42a24710076672198cf
    [K in keyof TokenizerApi<ParserOutput, RendererOutput>]?: (this: _Tokenizer<ParserOutput, RendererOutput>, ...args: Parameters<TokenizerApi<ParserOutput, RendererOutput>[K]>) => ReturnType<TokenizerApi<ParserOutput, RendererOutput>[K]> | false
  };
  
-@@ -100,6 +101,15 @@ export interface MarkedExtension<ParserOutput = string, RendererOutput = string>
+@@ -100,6 +130,15 @@ export interface MarkedExtension<ParserOutput = string, RendererOutput = string>
     */
    silent?: boolean;
  
@@ -1179,6 +1468,15 @@ index 6ef3353330da0b715969e6d5b46e71cd12d05be2..7225dd5affd1d42a24710076672198cf
    /**
     * The tokenizer defines how to turn markdown text into tokens.
     */
+@@ -146,6 +185,8 @@ export interface MarkedOptions<ParserOutput = string, RendererOutput = string> e
+     block?: TokenizerExtensionFunction[];
+     startInline?: TokenizerStartFunction[];
+     startBlock?: TokenizerStartFunction[];
++    sourceBoundary?: SourceBoundaryExtensionFunction[];
++    initializeTokens?: TokenListInitializerExtensionFunction[];
+   };
+ 
+   /**
 diff --git a/src/Parser.ts b/src/Parser.ts
 index 636a8287b939c176e6a4df0fee8722e12b40c9bc..ee5d5bc30df2ace4df6b2ae06a801704525e69a4 100644
 --- a/src/Parser.ts
@@ -1260,10 +1558,10 @@ index 890ac2c4ec25d7ea96880d76144d085c4fb93849..042079d0d32545c9545c7d205a43ff16
  
 diff --git a/src/SourceProvenance.ts b/src/SourceProvenance.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8bf521a075
+index 0000000000000000000000000000000000000000..bcf6fb434982497b3ba4cc1c934ffb3ec3b743de
 --- /dev/null
 +++ b/src/SourceProvenance.ts
-@@ -0,0 +1,1109 @@
+@@ -0,0 +1,1308 @@
 +import type { MarkedExtension, MarkedOptions } from './MarkedOptions.ts';
 +import type { Token, TokensList } from './Tokens.ts';
 +import {
@@ -1354,6 +1652,56 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +  return Object.freeze({ ...boundary });
 +}
 +
++interface IMarkedSourceMapping {
++  readonly length: number;
++  readonly spans: readonly IMarkedSourceSpan[];
++  readonly boundaries: readonly IMarkedSourceBoundary[];
++}
++
++interface IMarkedSourceWindow {
++  readonly authority: object;
++  readonly mapping: IMarkedSourceMapping;
++  readonly start: number;
++  readonly end: number;
++}
++
++const SOURCE_WINDOW_AUTHORITY = Object.freeze({});
++const SOURCE_WINDOW = Symbol('marked-source-window');
++
++function lowerBoundBy<T>(
++  values: readonly T[],
++  target: number,
++  select: (value: T) => number,
++): number {
++  let low = 0;
++  let high = values.length;
++  while (low < high) {
++    const middle = low + ((high - low) >> 1);
++    if (select(values[middle]) < target)
++      low = middle + 1;
++    else
++      high = middle;
++  }
++  return low;
++}
++
++function upperBoundBy<T>(
++  values: readonly T[],
++  target: number,
++  select: (value: T) => number,
++): number {
++  let low = 0;
++  let high = values.length;
++  while (low < high) {
++    const middle = low + ((high - low) >> 1);
++    if (select(values[middle]) <= target)
++      low = middle + 1;
++    else
++      high = middle;
++  }
++  return low;
++}
++
 +export class MarkedSourceDocument<SourceId extends object> {
 +  readonly id: SourceId;
 +  readonly text: string;
@@ -1422,27 +1770,15 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +    if (typeof text !== 'string') {
 +      throw new TypeError('Marked generated source text must be a string.');
 +    }
-+    const boundaries: IMarkedSourceBoundary[] = [];
-+    if (!text.length) {
++    const boundaries: IMarkedSourceBoundary[] = [{
++      viewOffset: viewOffset(0),
++      documentOffset: sourceStart,
++    }];
++    if (text.length || sourceEnd !== sourceStart) {
 +      boundaries.push({
-+        viewOffset: viewOffset(0),
-+        documentOffset: sourceStart,
++        viewOffset: viewOffset(text.length),
++        documentOffset: sourceEnd,
 +      });
-+      if (sourceEnd !== sourceStart) {
-+        boundaries.push({
-+          viewOffset: viewOffset(0),
-+          documentOffset: sourceEnd,
-+        });
-+      }
-+    } else {
-+      for (let index = 0; index <= text.length; index++) {
-+        boundaries.push({
-+          viewOffset: viewOffset(index),
-+          documentOffset: documentOffset(
-+            index === text.length ? sourceEnd : sourceStart,
-+          ),
-+        });
-+      }
 +    }
 +    return new MarkedSourceView(this, text, [], boundaries);
 +  }
@@ -1457,14 +1793,18 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +export class MarkedSourceView<SourceId extends object> {
 +  readonly document: MarkedSourceDocument<SourceId>;
 +  readonly text: string;
-+  readonly spans: readonly IMarkedSourceSpan[];
-+  readonly boundaries: readonly IMarkedSourceBoundary[];
++  readonly #mapping: IMarkedSourceMapping;
++  readonly #mappingStart: number;
++  readonly #mappingEnd: number;
++  #materializedSpans: readonly IMarkedSourceSpan[] | null = null;
++  #materializedBoundaries: readonly IMarkedSourceBoundary[] | null = null;
 +
 +  constructor(
 +    document: MarkedSourceDocument<SourceId>,
 +    text: string,
 +    spans: readonly IMarkedSourceSpan[],
 +    boundaries: readonly IMarkedSourceBoundary[] = [],
++    window?: IMarkedSourceWindow,
 +  ) {
 +    if (!(document instanceof MarkedSourceDocument)) {
 +      throw new TypeError('Marked source views require a source document.');
@@ -1473,64 +1813,97 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +      throw new TypeError('Marked source view text must be a string.');
 +    }
 +
-+    let previousViewEnd = 0;
-+    let previousDocumentEnd = 0;
-+    const frozenSpans: IMarkedSourceSpan[] = [];
-+    for (const span of spans) {
-+      assertIntegerRange(
-+        span.viewStart,
-+        span.viewEnd,
-+        text.length,
-+        'Marked source span view',
-+      );
-+      assertIntegerRange(
-+        span.documentStart,
-+        span.documentEnd,
-+        document.text.length,
-+        'Marked source span document',
-+      );
-+      if (
-+        span.viewStart < previousViewEnd
-+        || span.documentStart < previousDocumentEnd
-+        || span.viewEnd - span.viewStart
-+          !== span.documentEnd - span.documentStart
-+        || text.slice(span.viewStart, span.viewEnd)
-+          !== document.text.slice(span.documentStart, span.documentEnd)
-+      ) {
-+        throw new RangeError(
-+          'Marked source spans must be ordered identity mappings.',
-+        );
-+      }
-+      previousViewEnd = span.viewEnd;
-+      previousDocumentEnd = span.documentEnd;
-+      frozenSpans.push(freezeSpan(span));
-+    }
-+
-+    let previousBoundary = -1;
-+    const frozenBoundaries: IMarkedSourceBoundary[] = [];
-+    for (const boundary of boundaries) {
-+      if (
-+        !Number.isInteger(boundary.viewOffset)
-+        || !Number.isInteger(boundary.documentOffset)
-+        || boundary.viewOffset < previousBoundary
-+        || boundary.viewOffset < 0
-+        || boundary.viewOffset > text.length
-+        || boundary.documentOffset < 0
-+        || boundary.documentOffset > document.text.length
-+      ) {
-+        throw new RangeError(
-+          'Marked source boundaries must be ordered points inside both sources.',
-+        );
-+      }
-+      previousBoundary = boundary.viewOffset;
-+      frozenBoundaries.push(freezeBoundary(boundary));
-+    }
-+
 +    this.document = document;
 +    this.text = text;
-+    this.spans = Object.freeze(frozenSpans);
-+    this.boundaries = Object.freeze(frozenBoundaries);
++    if (window) {
++      if (
++        window.authority !== SOURCE_WINDOW_AUTHORITY
++        || !Number.isInteger(window.start)
++        || !Number.isInteger(window.end)
++        || window.start < 0
++        || window.end < window.start
++        || window.end > window.mapping.length
++        || text.length !== window.end - window.start
++      ) {
++        throw new TypeError('Marked source window is detached from its mapping.');
++      }
++      this.#mapping = window.mapping;
++      this.#mappingStart = window.start;
++      this.#mappingEnd = window.end;
++    } else {
++      let previousViewEnd = 0;
++      let previousDocumentEnd = 0;
++      const frozenSpans: IMarkedSourceSpan[] = [];
++      for (const span of spans) {
++        assertIntegerRange(
++          span.viewStart,
++          span.viewEnd,
++          text.length,
++          'Marked source span view',
++        );
++        assertIntegerRange(
++          span.documentStart,
++          span.documentEnd,
++          document.text.length,
++          'Marked source span document',
++        );
++        if (
++          span.viewStart < previousViewEnd
++          || span.documentStart < previousDocumentEnd
++          || span.viewEnd - span.viewStart
++            !== span.documentEnd - span.documentStart
++          || text.slice(span.viewStart, span.viewEnd)
++            !== document.text.slice(span.documentStart, span.documentEnd)
++        ) {
++          throw new RangeError(
++            'Marked source spans must be ordered identity mappings.',
++          );
++        }
++        previousViewEnd = span.viewEnd;
++        previousDocumentEnd = span.documentEnd;
++        frozenSpans.push(freezeSpan(span));
++      }
++
++      let previousBoundary = -1;
++      const frozenBoundaries: IMarkedSourceBoundary[] = [];
++      for (const boundary of boundaries) {
++        if (
++          !Number.isInteger(boundary.viewOffset)
++          || !Number.isInteger(boundary.documentOffset)
++          || boundary.viewOffset < previousBoundary
++          || boundary.viewOffset < 0
++          || boundary.viewOffset > text.length
++          || boundary.documentOffset < 0
++          || boundary.documentOffset > document.text.length
++        ) {
++          throw new RangeError(
++            'Marked source boundaries must be ordered points inside both sources.',
++          );
++        }
++        previousBoundary = boundary.viewOffset;
++        frozenBoundaries.push(freezeBoundary(boundary));
++      }
++      this.#mapping = Object.freeze({
++        length: text.length,
++        spans: Object.freeze(frozenSpans),
++        boundaries: Object.freeze(frozenBoundaries),
++      });
++      this.#mappingStart = 0;
++      this.#mappingEnd = text.length;
++      this.#materializedSpans = this.#mapping.spans;
++      this.#materializedBoundaries = this.#mapping.boundaries;
++    }
 +    Object.freeze(this);
++  }
++
++  get spans(): readonly IMarkedSourceSpan[] {
++    this.#materializedSpans ??= this.#sliceSpans();
++    return this.#materializedSpans;
++  }
++
++  get boundaries(): readonly IMarkedSourceBoundary[] {
++    this.#materializedBoundaries ??= this.#sliceBoundaries();
++    return this.#materializedBoundaries;
 +  }
 +
 +  documentOffsetAt(
@@ -1543,39 +1916,61 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +      );
 +    }
 +
-+    let containing: TMarkedDocumentOffset | null = null;
-+    let previousSpan: TMarkedDocumentOffset | null = null;
-+    let previousAdjacent: TMarkedDocumentOffset | null = null;
-+    let nextSpan: TMarkedDocumentOffset | null = null;
-+    for (const span of this.spans) {
-+      if (span.viewStart <= local && local < span.viewEnd) {
-+        containing = documentOffset(
-+          span.documentStart + local - span.viewStart,
-+        );
-+      }
-+      if (span.viewEnd <= local) {
-+        previousSpan = span.documentEnd;
-+        if (span.viewEnd === local)
-+          previousAdjacent = span.documentEnd;
-+      }
-+      if (nextSpan === null && local <= span.viewStart)
-+        nextSpan = span.documentStart;
-+    }
++    const absolute = this.#mappingStart + local;
++    const spans = this.#mapping.spans;
++    const containingIndex = upperBoundBy(
++      spans,
++      absolute,
++      span => span.viewStart,
++    ) - 1;
++    const containingSpan = spans[containingIndex];
++    const containing = containingSpan
++      && containingSpan.viewStart <= absolute
++      && absolute < containingSpan.viewEnd
++      ? documentOffset(
++          containingSpan.documentStart + absolute - containingSpan.viewStart,
++        )
++      : null;
++    const previousIndex = upperBoundBy(
++      spans,
++      absolute,
++      span => span.viewEnd,
++    ) - 1;
++    const previousSpanEntry = spans[previousIndex];
++    const previousSpan = previousSpanEntry?.documentEnd ?? null;
++    const previousAdjacent = previousSpanEntry?.viewEnd === absolute
++      ? previousSpanEntry.documentEnd
++      : null;
++    const nextIndex = lowerBoundBy(
++      spans,
++      absolute,
++      span => span.viewStart,
++    );
++    const nextSpan = spans[nextIndex]?.documentStart ?? null;
 +
-+    let firstExactBoundary: TMarkedDocumentOffset | null = null;
-+    let lastExactBoundary: TMarkedDocumentOffset | null = null;
-+    let previousBoundary: TMarkedDocumentOffset | null = null;
-+    let nextBoundary: TMarkedDocumentOffset | null = null;
-+    for (const boundary of this.boundaries) {
-+      if (boundary.viewOffset === local) {
-+        firstExactBoundary ??= boundary.documentOffset;
-+        lastExactBoundary = boundary.documentOffset;
-+      } else if (boundary.viewOffset < local) {
-+        previousBoundary = boundary.documentOffset;
-+      } else if (nextBoundary === null) {
-+        nextBoundary = boundary.documentOffset;
-+      }
-+    }
++    const boundaries = this.#mapping.boundaries;
++    const exactStart = lowerBoundBy(
++      boundaries,
++      absolute,
++      boundary => boundary.viewOffset,
++    );
++    const exactEnd = upperBoundBy(
++      boundaries,
++      absolute,
++      boundary => boundary.viewOffset,
++    );
++    const firstExactBoundary = exactStart < exactEnd
++      ? boundaries[exactStart].documentOffset
++      : null;
++    const lastExactBoundary = exactStart < exactEnd
++      ? boundaries[exactEnd - 1].documentOffset
++      : null;
++    const previousBoundary = exactStart > 0
++      ? boundaries[exactStart - 1].documentOffset
++      : null;
++    const nextBoundary = exactEnd < boundaries.length
++      ? boundaries[exactEnd].documentOffset
++      : null;
 +
 +    const result = affinity === 'previous'
 +      ? previousAdjacent
@@ -1604,49 +1999,99 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +    end: TMarkedViewOffset = viewOffset(this.text.length),
 +  ): MarkedSourceView<SourceId> {
 +    assertIntegerRange(start, end, this.text.length, 'Marked source-view slice');
++    return this[SOURCE_WINDOW](start, end, this.text.slice(start, end));
++  }
++
++  [SOURCE_WINDOW](
++    start: TMarkedViewOffset,
++    end: TMarkedViewOffset,
++    text: string,
++  ): MarkedSourceView<SourceId> {
++    assertIntegerRange(start, end, this.text.length, 'Marked source-view window');
++    if (text.length !== end - start) {
++      throw new TypeError(
++        'Marked source-window text length differs from its mapped range.',
++      );
++    }
++    return new MarkedSourceView(
++      this.document,
++      text,
++      [],
++      [],
++      {
++        authority: SOURCE_WINDOW_AUTHORITY,
++        mapping: this.#mapping,
++        start: this.#mappingStart + start,
++        end: this.#mappingStart + end,
++      },
++    );
++  }
++
++  #sliceSpans(): readonly IMarkedSourceSpan[] {
 +    const spans: IMarkedSourceSpan[] = [];
-+    for (const span of this.spans) {
-+      const clippedStart = Math.max(start, span.viewStart);
-+      const clippedEnd = Math.min(end, span.viewEnd);
++    const source = this.#mapping.spans;
++    let index = lowerBoundBy(
++      source,
++      this.#mappingStart + 1,
++      span => span.viewEnd,
++    );
++    while (index < source.length) {
++      const span = source[index++];
++      if (span.viewStart >= this.#mappingEnd)
++        break;
++      const clippedStart = Math.max(this.#mappingStart, span.viewStart);
++      const clippedEnd = Math.min(this.#mappingEnd, span.viewEnd);
 +      if (clippedStart >= clippedEnd)
 +        continue;
-+      spans.push({
-+        viewStart: viewOffset(clippedStart - start),
-+        viewEnd: viewOffset(clippedEnd - start),
++      spans.push(freezeSpan({
++        viewStart: viewOffset(clippedStart - this.#mappingStart),
++        viewEnd: viewOffset(clippedEnd - this.#mappingStart),
 +        documentStart: documentOffset(
 +          span.documentStart + clippedStart - span.viewStart,
 +        ),
 +        documentEnd: documentOffset(
 +          span.documentStart + clippedEnd - span.viewStart,
 +        ),
-+      });
++      }));
 +    }
++    return Object.freeze(spans);
++  }
 +
-+    const boundaries: IMarkedSourceBoundary[] = [{
-+      viewOffset: viewOffset(0),
-+      documentOffset: this.documentOffsetAt(start, 'next'),
-+    }];
-+    for (const boundary of this.boundaries) {
-+      if (start < boundary.viewOffset && boundary.viewOffset < end) {
-+        boundaries.push({
-+          viewOffset: viewOffset(boundary.viewOffset - start),
-+          documentOffset: boundary.documentOffset,
-+        });
-+      }
-+    }
-+    if (end > start) {
-+      boundaries.push({
-+        viewOffset: viewOffset(end - start),
-+        documentOffset: this.documentOffsetAt(end, 'previous'),
-+      });
-+    }
-+
-+    return new MarkedSourceView(
-+      this.document,
-+      this.text.slice(start, end),
-+      spans,
-+      boundaries,
++  #sliceBoundaries(): readonly IMarkedSourceBoundary[] {
++    const boundaries: IMarkedSourceBoundary[] = [];
++    const push = (local: number, document: TMarkedDocumentOffset) => {
++      const previous = boundaries.at(-1);
++      if (previous?.viewOffset === local && previous.documentOffset === document)
++        return;
++      boundaries.push(freezeBoundary({
++        viewOffset: viewOffset(local),
++        documentOffset: document,
++      }));
++    };
++    const start = viewOffset(0);
++    const end = viewOffset(this.text.length);
++    push(start, this.documentOffsetAt(start, 'previous'));
++    push(start, this.documentOffsetAt(start, 'next'));
++    const source = this.#mapping.boundaries;
++    let index = lowerBoundBy(
++      source,
++      this.#mappingStart + 1,
++      boundary => boundary.viewOffset,
 +    );
++    while (index < source.length) {
++      const boundary = source[index++];
++      if (boundary.viewOffset >= this.#mappingEnd)
++        break;
++      push(
++        boundary.viewOffset - this.#mappingStart,
++        boundary.documentOffset,
++      );
++    }
++    if (this.text.length) {
++      push(end, this.documentOffsetAt(end, 'previous'));
++      push(end, this.documentOffsetAt(end, 'next'));
++    }
++    return Object.freeze(boundaries);
 +  }
 +
 +  generated(
@@ -1683,17 +2128,38 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +      }
 +      text.push(part.text);
 +      for (const span of part.spans) {
-+        spans.push({
++        const adjusted: IMarkedSourceSpan = {
 +          ...span,
 +          viewStart: viewOffset(offset + span.viewStart),
 +          viewEnd: viewOffset(offset + span.viewEnd),
-+        });
++        };
++        const previous = spans.at(-1);
++        if (
++          previous
++          && previous.viewEnd === adjusted.viewStart
++          && previous.documentEnd === adjusted.documentStart
++        ) {
++          spans[spans.length - 1] = {
++            ...previous,
++            viewEnd: adjusted.viewEnd,
++            documentEnd: adjusted.documentEnd,
++          };
++        } else {
++          spans.push(adjusted);
++        }
 +      }
 +      for (const boundary of part.boundaries) {
-+        boundaries.push({
++        const adjusted: IMarkedSourceBoundary = {
 +          ...boundary,
 +          viewOffset: viewOffset(offset + boundary.viewOffset),
-+        });
++        };
++        const previous = boundaries.at(-1);
++        if (
++          previous?.viewOffset !== adjusted.viewOffset
++          || previous.documentOffset !== adjusted.documentOffset
++        ) {
++          boundaries.push(adjusted);
++        }
 +      }
 +      offset += part.text.length;
 +    }
@@ -1891,6 +2357,10 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +  ) => IMutableInvocation<SourceId>;
 +  remaining: (
 +    invocation: IMutableInvocation<SourceId>,
++    source?: string,
++  ) => MarkedSourceView<SourceId>;
++  consumedTokenSource: (
++    token: Token,
 +  ) => MarkedSourceView<SourceId>;
 +  consumeToken: (
 +    invocation: IMutableInvocation<SourceId>,
@@ -1983,11 +2453,38 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +
 +  remaining(
 +    invocation: IMutableInvocation<SourceId>,
++    source?: string,
 +  ): MarkedSourceView<SourceId> {
 +    this._assertActive(invocation);
-+    return invocation.input.slice(
++    const remainingLength = invocation.input.text.length - invocation.offset;
++    const text = source ?? invocation.input.text.slice(invocation.offset);
++    if (text.length !== remainingLength) {
++      throw new TypeError(
++        'Marked parser source length differs from its active provenance cursor.',
++      );
++    }
++    return invocation.input[SOURCE_WINDOW](
 +      viewOffset(invocation.offset),
-+      viewOffset(invocation.input.text.length),
++      viewOffset(invocation.offset + text.length),
++      text,
++    );
++  }
++
++  consumedTokenSource(token: Token): MarkedSourceView<SourceId> {
++    if (this._completed) {
++      throw new TypeError(
++        'Marked consumed-token source is unavailable after parser completion.',
++      );
++    }
++    const consumptions = this._consumptions.get(token);
++    if (!consumptions?.length) {
++      throw new TypeError(
++        'Marked consumed-token source requires parser-owned token consumption.',
++      );
++    }
++    return MarkedSourceView.concat(
++      consumptions.map(consumption => consumption.source),
++      this.input.document,
 +    );
 +  }
 +
@@ -2375,10 +2872,10 @@ index 0000000000000000000000000000000000000000..bb9d0919cd39825103e86be45e053b8b
 +}
 diff --git a/src/TokenGraphAuthority.ts b/src/TokenGraphAuthority.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ea193378be9d0ed485073d779e39a7971521146b
+index 0000000000000000000000000000000000000000..1c87a41be2019b409fef8ab18d5883fabe29abb6
 --- /dev/null
 +++ b/src/TokenGraphAuthority.ts
-@@ -0,0 +1,317 @@
+@@ -0,0 +1,327 @@
 +import type { Token, Tokens } from './Tokens.ts';
 +
 +interface IDataPropertyDescriptorSnapshot {
@@ -2671,6 +3168,16 @@ index 0000000000000000000000000000000000000000..ea193378be9d0ed485073d779e39a797
 +      pending.push((value as Tokens.List).items);
 +      continue;
 +    }
++    if (
++      value.type === 'critic_addition'
++      || value.type === 'critic_deletion'
++      || value.type === 'critic_substitution'
++      || value.type === 'critic_highlight'
++      || value.type === 'critic_comment'
++    ) {
++      pending.push((value as Tokens.CriticMarkupFragment).tokens);
++      continue;
++    }
 +
 +    const generic = value as Tokens.Generic;
 +    const childProperties = extensionChildren[generic.type];
@@ -2697,10 +3204,18 @@ index 0000000000000000000000000000000000000000..ea193378be9d0ed485073d779e39a797
 +  return reachable.has(target);
 +}
 diff --git a/src/Tokenizer.ts b/src/Tokenizer.ts
-index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba39913a10e 100644
+index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..95beea4da876da21fa268d62a3ca710111ca3b4e 100644
 --- a/src/Tokenizer.ts
 +++ b/src/Tokenizer.ts
-@@ -10,11 +10,323 @@ import type { Rules } from './rules.ts';
+@@ -2,6 +2,7 @@ import { _defaults } from './defaults.ts';
+ import {
+   rtrim,
+   splitCells,
++  splitCellSourceRanges,
+   findClosingBracket,
+   expandTabs,
+   trimTrailingBlankLines,
+@@ -10,11 +11,382 @@ import type { Rules } from './rules.ts';
  import type { _Lexer } from './Lexer.ts';
  import type { Links, Tokens, Token } from './Tokens.ts';
  import type { MarkedOptions } from './MarkedOptions.ts';
@@ -2710,6 +3225,46 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +} from './SourceProvenance.ts';
 +
 +type MappedLexerSource = string | MarkedSourceView<object>;
++
++function trailingBlankLineCount(raw: string): number {
++  let cursor = raw.length;
++  if (!cursor || raw[cursor - 1] !== '\n') {
++    return 0;
++  }
++  cursor--;
++  if (cursor && raw[cursor - 1] === '\r') {
++    cursor--;
++  }
++
++  let count = 0;
++  while (cursor >= 0) {
++    const lineEnd = cursor;
++    let lineStart = lineEnd;
++    while (lineStart > 0 && raw[lineStart - 1] !== '\n') {
++      lineStart--;
++    }
++    let blank = true;
++    for (let index = lineStart; index < lineEnd; index++) {
++      const character = raw[index];
++      if (character !== ' ' && character !== '\t' && character !== '\r') {
++        blank = false;
++        break;
++      }
++    }
++    if (!blank) {
++      break;
++    }
++    count++;
++    if (!lineStart) {
++      break;
++    }
++    cursor = lineStart - 1;
++    if (cursor && raw[cursor - 1] === '\r') {
++      cursor--;
++    }
++  }
++  return count;
++}
 +
 +interface INativeBlockReconstruction {
 +  readonly lexer: _Lexer;
@@ -2766,12 +3321,17 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +  source: string,
 +): MarkedSourceView<object> | null {
 +  const view = lexer.currentSourceView;
-+  if (view && !view.text.startsWith(source)) {
++  if (view && view.text.length < source.length) {
 +    throw new TypeError(
-+      'Marked tokenizer source differs from its active mapped input.',
++      'Marked tokenizer source exceeds its active mapped input.',
 +    );
 +  }
-+  return view;
++  return view && view.text.length !== source.length
++    ? view.slice(
++        markedViewOffset(0),
++        markedViewOffset(source.length),
++      )
++    : view;
 +}
 +
 +function mappedPrefix(
@@ -2948,41 +3508,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +  rules: Rules,
 +  count?: number,
 +): IMappedTableCell[] {
-+  const delimiters: number[] = [];
-+  for (let index = 0; index < source.text.length; index++) {
-+    if (source.text[index] !== '|')
-+      continue;
-+    let slashes = 0;
-+    for (let cursor = index - 1; cursor >= 0 && source.text[cursor] === '\\'; cursor--)
-+      slashes++;
-+    if (slashes % 2 === 0)
-+      delimiters.push(index);
-+  }
-+
-+  const ranges: Array<{ start: number; end: number }> = [];
-+  let start = 0;
-+  for (const delimiter of delimiters) {
-+    ranges.push({ start, end: delimiter });
-+    start = delimiter + 1;
-+  }
-+  ranges.push({ start, end: source.text.length });
-+  if (!source.text.slice(ranges[0].start, ranges[0].end).trim())
-+    ranges.shift();
-+  if (
-+    ranges.length
-+    && !source.text.slice(ranges.at(-1)!.start, ranges.at(-1)!.end).trim()
-+  ) {
-+    ranges.pop();
-+  }
-+  if (count !== undefined) {
-+    ranges.splice(count);
-+    while (ranges.length < count) {
-+      ranges.push({
-+        start: source.text.length,
-+        end: source.text.length,
-+      });
-+    }
-+  }
++  const ranges = splitCellSourceRanges(source.text, count);
 +
 +  const cells = ranges.map((range) => {
 +    let view = trimMapped(source.slice(
@@ -3008,6 +3534,54 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +  }
 +  return cells;
 +}
++
++function tableRowSourceSyntax(
++  source: string,
++  rules: Rules,
++  count?: number,
++): Tokens.TableRowSourceSyntax {
++  const ranges = splitCellSourceRanges(source, count);
++  const cells = ranges.map(range => source.slice(range.start, range.end));
++  const segments: string[] = [];
++  let cursor = 0;
++  for (const range of ranges) {
++    if (range.start < cursor || range.end < range.start) {
++      throw new TypeError('Marked table-cell source ranges overlap.');
++    }
++    segments.push(source.slice(cursor, range.start));
++    cursor = range.end;
++  }
++  segments.push(source.slice(cursor));
++
++  const reconstructed = cells.reduce(
++    (row, cell, index) => row + cell + segments[index + 1],
++    segments[0],
++  );
++  if (
++    segments.length !== cells.length + 1
++    || reconstructed !== source
++  ) {
++    throw new TypeError(
++      'Marked table row source syntax does not reconstruct its parser input.',
++    );
++  }
++
++  const expected = splitCells(source, count);
++  const decoded = cells.map(cell => cell.replace(rules.other.slashPipe, '|'));
++  if (
++    expected.length !== decoded.length
++    || expected.some((cell, index) => cell !== decoded[index])
++  ) {
++    throw new TypeError(
++      'Marked table row source syntax differs from its tokenizer split.',
++    );
++  }
++
++  return Object.freeze({
++    cells: Object.freeze(cells),
++    segments: Object.freeze(segments),
++  });
++}
  
  function outputLink(cap: string[], link: Pick<Tokens.Link, 'href' | 'title'>, raw: string, lexer: _Lexer, rules: Rules): Tokens.Link | Tokens.Image {
    const href = link.href;
@@ -3024,7 +3598,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
  
    lexer.state.inLink = true;
    const token: Tokens.Link | Tokens.Image = {
-@@ -23,7 +335,7 @@ function outputLink(cap: string[], link: Pick<Tokens.Link, 'href' | 'title'>, ra
+@@ -23,7 +395,7 @@ function outputLink(cap: string[], link: Pick<Tokens.Link, 'href' | 'title'>, ra
      href,
      title,
      text,
@@ -3033,7 +3607,39 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
    };
    lexer.state.inLink = false;
    return token;
-@@ -114,6 +426,14 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -100,12 +472,31 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+     if (cap) {
+       const raw = cap[0];
+       const text = indentCodeCompensation(raw, cap[3] || '', this.rules);
++      const withoutTerminalEol = raw.endsWith('\n')
++        ? raw.slice(0, -1)
++        : raw;
++      const lastLineStart = withoutTerminalEol.lastIndexOf('\n') + 1;
++      const lastLine = withoutTerminalEol.slice(lastLineStart);
++      const indentation = /^ {0,3}/.exec(lastLine)?.[0] ?? '';
++      const closingCandidate = lastLine
++        .slice(indentation.length)
++        .trimEnd();
++      const fenceCharacter = cap[1][0];
++      const closingFence = closingCandidate.length >= cap[1].length
++        && [...closingCandidate].every(character =>
++          character === fenceCharacter)
++        ? lastLine
++        : null;
+ 
+       return {
+         type: 'code',
+         raw,
+         lang: cap[2] ? cap[2].trim().replace(this.rules.inline.anyPunctuation, '$1') : cap[2],
+         text,
++        sourceSyntax: {
++          openingFence: cap[1],
++          closingFence,
++        },
+       };
+     }
+   }
+@@ -114,6 +505,14 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
      const cap = this.rules.block.heading.exec(src);
      if (cap) {
        let text = cap[2].trim();
@@ -3048,7 +3654,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
  
        // remove trailing #s
        if (this.rules.other.endingHash.test(text)) {
-@@ -125,13 +445,25 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -125,13 +524,25 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
            text = trimmed.trim();
          }
        }
@@ -3075,7 +3681,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
        };
      }
    }
-@@ -149,10 +481,50 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -149,10 +560,50 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
    blockquote(src: string): Tokens.Blockquote | undefined {
      const cap = this.rules.block.blockquote.exec(src);
      if (cap) {
@@ -3127,7 +3733,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
  
        while (lines.length > 0) {
          let inBlockquote = false;
-@@ -173,18 +545,55 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -173,18 +624,55 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
          lines = lines.slice(i);
  
          const currentRaw = currentLines.join('\n');
@@ -3184,20 +3790,29 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
          this.lexer.state.top = top;
  
          // if there is no continuation then we are done
-@@ -201,8 +610,39 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -201,26 +689,175 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
            // include continuation in nested blockquote
            const oldToken = lastToken as Tokens.Blockquote;
            const newText = oldToken.raw + '\n' + lines.join('\n');
 -          const newToken = this.blockquote(newText)!;
 -          tokens[tokens.length - 1] = newToken;
-+          const oldStart = text.lastIndexOf(oldToken.raw);
+-
+-          raw = raw.substring(0, raw.length - oldToken.raw.length) + newToken.raw;
+-          text = text.substring(0, text.length - oldToken.text.length) + newToken.text;
++          const oldTokenSource = this.lexer.sourceViewForParsedToken(
++            tokens,
++            oldToken,
++          );
++          if (!text.endsWith(oldToken.raw)) {
++            throw new TypeError(
++              'Marked nested blockquote is not the terminal parser token source.',
++            );
++          }
++          const textPrefixLength = text.length - oldToken.raw.length;
 +          const remainingStart = sourceCursor;
-+          const newTextSource = textSource && sourceView && oldStart >= 0
++          const newTextSource = oldTokenSource && sourceView
 +            ? MarkedSourceView.concat([
-+                textSource.slice(
-+                  markedViewOffset(oldStart),
-+                  markedViewOffset(oldStart + oldToken.raw.length),
-+                ),
++                oldTokenSource,
 +                sourceView.slice(
 +                  markedViewOffset(remainingStart - 1),
 +                  markedViewOffset(remainingStart),
@@ -3223,23 +3838,46 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +              newToken,
 +            ),
 +          );
- 
-           raw = raw.substring(0, raw.length - oldToken.raw.length) + newToken.raw;
-           text = text.substring(0, text.length - oldToken.text.length) + newToken.text;
-@@ -211,16 +651,84 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
++
++          text = text.slice(0, textPrefixLength) + newToken.raw;
++          if (textSource && newTextSource) {
++            textSource = MarkedSourceView.concat([
++              textSource.slice(
++                markedViewOffset(0),
++                markedViewOffset(textPrefixLength),
++              ),
++              newTextSource.slice(
++                markedViewOffset(0),
++                markedViewOffset(newToken.raw.length),
++              ),
++            ]);
++          }
++          raw = matchedRaw;
+           break;
+         } else if (lastToken?.type === 'list') {
            // include continuation in nested list
            const oldToken = lastToken as Tokens.List;
            const newText = oldToken.raw + '\n' + lines.join('\n');
 -          const newToken = this.list(newText)!;
 -          tokens[tokens.length - 1] = newToken;
-+          const oldStart = text.lastIndexOf(oldToken.raw);
+-
+-          raw = raw.substring(0, raw.length - lastToken.raw.length) + newToken.raw;
+-          text = text.substring(0, text.length - oldToken.raw.length) + newToken.raw;
+-          lines = newText.substring(tokens.at(-1)!.raw.length).split('\n');
++          const oldTokenSource = this.lexer.sourceViewForParsedToken(
++            tokens,
++            oldToken,
++          );
++          if (!text.endsWith(oldToken.raw)) {
++            throw new TypeError(
++              'Marked nested list is not the terminal parser token source.',
++            );
++          }
++          const textPrefixLength = text.length - oldToken.raw.length;
 +          const remainingStart = sourceCursor;
-+          const newTextSource = textSource && sourceView && oldStart >= 0
++          const newTextSource = oldTokenSource && sourceView
 +            ? MarkedSourceView.concat([
-+                textSource.slice(
-+                  markedViewOffset(oldStart),
-+                  markedViewOffset(oldStart + oldToken.raw.length),
-+                ),
++                oldTokenSource,
 +                sourceView.slice(
 +                  markedViewOffset(remainingStart - 1),
 +                  markedViewOffset(remainingStart),
@@ -3265,12 +3903,25 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +              newToken,
 +            ),
 +          );
- 
-           raw = raw.substring(0, raw.length - lastToken.raw.length) + newToken.raw;
-           text = text.substring(0, text.length - oldToken.raw.length) + newToken.raw;
--          lines = newText.substring(tokens.at(-1)!.raw.length).split('\n');
-+          if (newToken.type === 'parser_residue')
++
++          text = text.slice(0, textPrefixLength) + newToken.raw;
++          if (textSource && newTextSource) {
++            textSource = MarkedSourceView.concat([
++              textSource.slice(
++                markedViewOffset(0),
++                markedViewOffset(textPrefixLength),
++              ),
++              newTextSource.slice(
++                markedViewOffset(0),
++                markedViewOffset(newToken.raw.length),
++              ),
++            ]);
++          }
++          if (newToken.type === 'parser_residue') {
++            raw = matchedRaw;
++            lines = [];
 +            break;
++          }
 +          const rebuiltPrefixLength = oldToken.raw.length + 1;
 +          const consumedContinuation = Math.max(
 +            0,
@@ -3286,6 +3937,10 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +            remainingText = remainingText.substring(1);
 +          }
 +          lines = remainingText ? remainingText.split('\n') : [];
++          raw = matchedRaw.slice(
++            0,
++            sourceCursor - (lines.length ? 1 : 0),
++          );
            continue;
          }
        }
@@ -3306,34 +3961,61 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +        raw = matchedRaw;
 +        text = text.slice(0, -extra.length);
 +      } else if (!matchedRaw.startsWith(raw)) {
++        let mismatch = 0;
++        const commonLength = Math.min(matchedRaw.length, raw.length);
++        while (mismatch < commonLength && matchedRaw[mismatch] === raw[mismatch]) {
++          mismatch++;
++        }
 +        throw new TypeError(
-+          'Marked blockquote reconstruction is not a parser-capture prefix.',
++          'Marked blockquote reconstruction is not a parser-capture prefix '
++          + `(rebuilt length ${raw.length}, capture length ${matchedRaw.length}, `
++          + `first mismatch ${mismatch}, rebuilt ${JSON.stringify(raw.slice(mismatch, mismatch + 40))}, `
++          + `capture ${JSON.stringify(matchedRaw.slice(mismatch, mismatch + 40))}).`,
 +        );
 +      }
 +
        return {
          type: 'blockquote',
          raw,
-@@ -231,6 +739,9 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -231,6 +868,13 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
    }
  
    list(src: string): Tokens.List | undefined {
 +    const listSource = currentSourceView(this.lexer, src);
 +    const listSourceLength = src.length;
 +    const itemSources: Array<MarkedSourceView<object> | null> = [];
++    // Raw item envelopes (marker and padding included) let boundary
++    // extensions anchor to the semantic list item rather than the
++    // enclosing list or the item's inner content tokens.
++    const itemRawSources: Array<MarkedSourceView<object> | null> = [];
      let cap = this.rules.block.list.exec(src);
      if (cap) {
        let bull = cap[1].trim();
-@@ -259,6 +770,8 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -259,9 +903,23 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
          let endEarly = false;
          let raw = '';
          let itemContents = '';
++        const continuationPrefixes: string[] = [];
 +        const itemParts: MarkedSourceView<object>[] = [];
 +        const itemSourceStart = listSourceLength - src.length;
          if (!(cap = itemRegex.exec(src))) {
            break;
          }
-@@ -270,7 +783,20 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
++        const markerCapture = cap[1];
++        const marker = markerCapture.trim();
++        if (!markerCapture.endsWith(marker)) {
++          throw new TypeError(
++            'Marked list marker is not a suffix of its parser capture.',
++          );
++        }
++        const leadingPrefix = markerCapture.slice(
++          0,
++          markerCapture.length - marker.length,
++        );
+ 
+         if (this.rules.block.hr.test(src)) { // End list if bullet was actually HR (possibly move into itemRegex?)
+           break;
+@@ -270,20 +928,45 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
          raw = cap[0];
          src = src.substring(raw.length);
  
@@ -3355,17 +4037,21 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
          let nextLine = src.split('\n', 1)[0];
          let blankLine = !line.trim();
  
-@@ -278,12 +804,20 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+         let indent = 0;
++        let markerPadding = '';
          if (this.options.pedantic) {
            indent = 2;
            itemContents = line.trimStart();
++          markerPadding = line.slice(0, line.length - itemContents.length);
 +          if (lineView)
 +            itemParts.push(trimMapped(lineView, 'start'));
          } else if (blankLine) {
            indent = cap[1].length + 1;
++          markerPadding = line;
          } else {
            indent = line.search(this.rules.other.nonSpaceChar); // Find first non-space char
            indent = indent > 4 ? 1 : indent; // Treat indented code blocks (> 4 spaces) as having only 1 indent
++          markerPadding = line.slice(0, indent);
            itemContents = line.slice(indent);
 +          if (lineView) {
 +            itemParts.push(lineView.slice(
@@ -3376,7 +4062,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
            indent += cap[1].length;
          }
  
-@@ -304,15 +838,45 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -304,15 +987,45 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
            // Check if following lines should be included in List Item
            while (src) {
              const rawLine = src.split('\n', 1)[0];
@@ -3422,10 +4108,14 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
              }
  
              // End list item if found code fences
-@@ -347,6 +911,16 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -347,6 +1060,20 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
  
              if (nextLineWithoutTabs.search(this.rules.other.nonSpaceChar) >= indent || !nextLine.trim()) { // Dedent if possible
                itemContents += '\n' + nextLineWithoutTabs.slice(indent);
++              continuationPrefixes.push(nextLineWithoutTabs.slice(
++                0,
++                Math.min(indent, nextLineWithoutTabs.length),
++              ));
 +              if (nextLineView && listSource) {
 +                itemParts.push(listSource.slice(
 +                  markedViewOffset(Math.max(0, rawLineStart - 1)),
@@ -3439,10 +4129,11 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
              } else {
                // not enough indentation
                if (blankLine) {
-@@ -368,6 +942,13 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -368,6 +1095,14 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
                }
  
                itemContents += '\n' + nextLine;
++              continuationPrefixes.push('');
 +              if (nextLineView && listSource) {
 +                itemParts.push(listSource.slice(
 +                  markedViewOffset(Math.max(0, rawLineStart - 1)),
@@ -3453,7 +4144,27 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
              }
  
              blankLine = !nextLine.trim();
-@@ -395,6 +976,22 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -387,14 +1122,50 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+           }
+         }
+ 
++        const trailingBlankLines = trailingBlankLineCount(raw);
++        const contentContinuationPrefixes = trailingBlankLines
++          ? continuationPrefixes.slice(
++              0,
++              Math.max(0, continuationPrefixes.length - trailingBlankLines),
++            )
++          : continuationPrefixes;
+         list.items.push({
+           type: 'list_item',
+           raw,
++          leadingPrefix,
++          marker,
++          markerPadding,
++          trailingBlankLines,
++          continuationPrefixes: contentContinuationPrefixes,
+           task: !!this.options.gfm && this.rules.other.listIsTask.test(itemContents),
+           loose: false,
            text: itemContents,
            tokens: [],
          });
@@ -3470,23 +4181,37 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +            );
 +          }
 +          itemSources.push(itemSource);
++          // `src` has advanced past this item, so the consumed span is the
++          // authoritative raw envelope (raw may disagree with the view
++          // domain when continuation handling rewrites trailing lines).
++          itemRawSources.push(listSource.slice(
++            markedViewOffset(itemSourceStart),
++            markedViewOffset(listSourceLength - src.length),
++          ));
 +        } else {
 +          itemSources.push(null);
++          itemRawSources.push(null);
 +        }
  
          list.raw += raw;
        }
-@@ -404,6 +1001,9 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -404,6 +1175,15 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
        if (lastItem) {
          lastItem.raw = lastItem.raw.trimEnd();
          lastItem.text = lastItem.text.trimEnd();
++        lastItem.trailingBlankLines = 0;
 +        const finalSource = itemSources.at(-1);
 +        if (finalSource)
 +          itemSources[itemSources.length - 1] = trimMapped(finalSource, 'end');
++        const finalRawSource = itemRawSources.at(-1);
++        if (finalRawSource) {
++          itemRawSources[itemRawSources.length - 1]
++            = trimMapped(finalRawSource, 'end');
++        }
        } else {
          // not a list since there were no items
          return;
-@@ -411,9 +1011,13 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -411,9 +1191,17 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
        list.raw = list.raw.trimEnd();
  
        // Item child tokens handled here at end because we needed to have the final item to trim it first
@@ -3499,10 +4224,14 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +          lexerSource(item.text, itemSources[itemIndex]),
 +          [],
 +        );
++        this.lexer.recordNestedTokenBoundary(
++          item,
++          itemRawSources[itemIndex],
++        );
          const itemToken = item.tokens[0];
          if (item.task && (itemToken?.type === 'text' || itemToken?.type === 'paragraph')) {
            // Remove checkbox markdown from item tokens
-@@ -421,8 +1025,28 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -421,8 +1209,28 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
            itemToken.raw = itemToken.raw.replace(this.rules.other.listReplaceTask, '');
            itemToken.text = itemToken.text.replace(this.rules.other.listReplaceTask, '');
            for (let i = this.lexer.inlineQueue.length - 1; i >= 0; i--) {
@@ -3533,7 +4262,23 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
                break;
              }
            }
-@@ -523,13 +1147,46 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -436,10 +1244,11 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+             };
+             item.checked = checkboxToken.checked;
+             if (list.loose) {
+-              if (item.tokens[0] && ['paragraph', 'text'].includes(item.tokens[0].type) && 'tokens' in item.tokens[0] && item.tokens[0].tokens) {
+-                item.tokens[0].raw = checkboxToken.raw + item.tokens[0].raw;
+-                item.tokens[0].text = checkboxToken.raw + item.tokens[0].text;
+-                item.tokens[0].tokens.unshift(checkboxToken);
++              const first = item.tokens[0];
++              if ((first?.type === 'paragraph' || first?.type === 'text') && first.tokens) {
++                first.raw = checkboxToken.raw + first.raw;
++                first.text = checkboxToken.raw + first.text;
++                first.tokens.unshift(checkboxToken);
+               } else {
+                 item.tokens.unshift({
+                   type: 'paragraph',
+@@ -523,23 +1332,84 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
        return;
      }
  
@@ -3575,6 +4320,34 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
 +    } else {
 +      rows.forEach(() => rowViews.push(null));
 +    }
++
++    if (headers.length !== aligns.length) {
++      // header and align columns must be equal, rows can be different.
++      return;
++    }
++
++    const headerSourceSyntax = tableRowSourceSyntax(
++      cap[1],
++      this.rules,
++    );
++    const delimiterSourceSyntax = tableRowSourceSyntax(
++      cap[2],
++      this.rules,
++    );
++    const rowSourceSyntax = rows.map(row => tableRowSourceSyntax(
++      row,
++      this.rules,
++      headers.length,
++    ));
++    if (
++      headerSourceSyntax.cells.length !== headers.length
++      || delimiterSourceSyntax.cells.length !== aligns.length
++      || rowSourceSyntax.some(row => row.cells.length !== headers.length)
++    ) {
++      throw new TypeError(
++        'Marked table source syntax column count differs from its token.',
++      );
++    }
  
      const item: Tokens.Table = {
        type: 'table',
@@ -3583,7 +4356,22 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
        header: [],
        align: [],
        rows: [],
-@@ -554,18 +1211,32 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
++      sourceSyntax: Object.freeze({
++        header: headerSourceSyntax,
++        delimiter: delimiterSourceSyntax,
++        rows: Object.freeze(rowSourceSyntax),
++      }),
+     };
+ 
+-    if (headers.length !== aligns.length) {
+-      // header and align columns must be equal, rows can be different.
+-      return;
+-    }
+-
+     for (const align of aligns) {
+       if (this.rules.other.tableAlignRight.test(align)) {
+         item.align.push('right');
+@@ -554,18 +1424,32 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
  
      for (let i = 0; i < headers.length; i++) {
        item.header.push({
@@ -3622,7 +4410,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
            header: false,
            align: item.align[i],
          };
-@@ -579,12 +1250,21 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -579,12 +1463,21 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
      const cap = this.rules.block.lheading.exec(src);
      if (cap) {
        const text = cap[1].trim();
@@ -3646,7 +4434,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
        };
      }
    }
-@@ -595,11 +1275,12 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -595,11 +1488,12 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
        const text = cap[1].charAt(cap[1].length - 1) === '\n'
          ? cap[1].slice(0, -1)
          : cap[1];
@@ -3660,7 +4448,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
        };
      }
    }
-@@ -611,7 +1292,10 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -611,7 +1505,10 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
          type: 'text',
          raw: cap[0],
          text: cap[0],
@@ -3672,7 +4460,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
        };
      }
    }
-@@ -782,21 +1466,31 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -782,21 +1679,31 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
          // Create `em` if smallest delimiter has odd char count. *a***
          if (Math.min(lLength, rLength) % 2) {
            const text = raw.slice(1, -1);
@@ -3706,7 +4494,7 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
          };
        }
      }
-@@ -872,11 +1566,16 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
+@@ -872,11 +1779,16 @@ export class _Tokenizer<ParserOutput = string, RendererOutput = string> {
  
          // Create del token - only single ~ or double ~~ supported
          const text = raw.slice(lLength, -lLength);
@@ -3725,23 +4513,174 @@ index e6f900d4574e2b329b4345a0a1cde4d7ae32508d..934ab4f4d83a02f5cfd4776dc7e84ba3
        }
      }
 diff --git a/src/Tokens.ts b/src/Tokens.ts
-index 35c058691d13742f4b9ba01c714b65a88980183c..10f4b5df75fd315c2e5348cfe12ca9ce34206df3 100644
+index 35c058691d13742f4b9ba01c714b65a88980183c..a7c40ba9d542c202104df92673582ab62ecc3352 100644
 --- a/src/Tokens.ts
 +++ b/src/Tokens.ts
-@@ -1,7 +1,8 @@
+@@ -1,7 +1,9 @@
  /* eslint-disable no-use-before-define */
  
  export type MarkedToken = (
 -  Tokens.Blockquote
 +  Tokens.ParserResidue
++  | Tokens.CriticMarkupFragment
 +  | Tokens.Blockquote
    | Tokens.Br
    | Tokens.Checkbox
    | Tokens.Code
-@@ -30,6 +31,19 @@ export type Token = (
-   | Tokens.Generic);
+@@ -23,13 +25,167 @@ export type MarkedToken = (
+   | Tokens.Table
+   | Tokens.Tag
+   | Tokens.Text
+-);
++) & Tokens.CriticMarkupBoundaryCarrier;
+ 
+ export type Token = (
+   MarkedToken
+-  | Tokens.Generic);
++  | (Tokens.Generic & Tokens.CriticMarkupBoundaryCarrier));
  
  export namespace Tokens {
++  export type CriticMarkupType =
++    | 'addition'
++    | 'deletion'
++    | 'substitution'
++    | 'highlight'
++    | 'comment';
++
++  export interface CriticMarkupRange {
++    readonly start: number;
++    readonly end: number;
++  }
++
++  export interface CriticMarkupMarker {
++    readonly name: 'open' | 'separator' | 'close';
++    readonly raw: string;
++    /** Canonical document range. */
++    readonly range: CriticMarkupRange;
++  }
++
++  export interface CriticMarkupArm {
++    readonly name: 'content' | 'old' | 'new' | 'comment';
++    readonly raw: string;
++    readonly range: CriticMarkupRange;
++  }
++
++  export interface CriticMarkupItem {
++    readonly id: string;
++    readonly parentId: string | null;
++    readonly depth: number;
++    readonly criticType: CriticMarkupType;
++    readonly raw: string;
++    readonly range: CriticMarkupRange;
++    readonly markers: Readonly<{
++      readonly open: CriticMarkupMarker;
++      readonly separator?: CriticMarkupMarker;
++      readonly close: CriticMarkupMarker;
++    }>;
++    readonly arms: readonly CriticMarkupArm[];
++  }
++
++  /**
++   * A zero-content CriticMarkup item cannot be emitted as a zero-length lexer
++   * token. The parser instead binds it to the nearest native Markdown token
++   * at the same mapped source boundary.
++   */
++  export interface CriticMarkupBoundaryAttachment {
++    readonly itemId: string;
++    readonly criticType: CriticMarkupType;
++    readonly arm: CriticMarkupArm['name'];
++    readonly role: 'only' | 'start' | 'middle' | 'end';
++    readonly edge: 'before' | 'after';
++    /**
++     * `empty` binds zero-width syntax to the nearest token boundary.
++     * `content` marks one edge of a structural arm whose covered Markdown
++     * parses natively; the consumer pairs both edges to recover coverage.
++     */
++    readonly coverage: 'content' | 'empty';
++    /** Arm content envelope for `content` coverage; zero-width otherwise. */
++    readonly contentRange: CriticMarkupRange;
++    readonly range: CriticMarkupRange;
++    readonly markers: readonly CriticMarkupMarker[];
++    /**
++     * Exact whitespace crossed while binding this zero-width syntax to the
++     * nearest semantic Markdown token. It follows the markers on a `before`
++     * attachment and precedes them on an `after` attachment.
++     */
++    readonly trivia: Readonly<{
++      readonly raw: string;
++      readonly range: CriticMarkupRange;
++    }>;
++    /** Exact whitespace immediately following this marker envelope. */
++    readonly followingTrivia: Readonly<{
++      readonly raw: string;
++      readonly range: CriticMarkupRange;
++    }>;
++  }
++
++  export interface CriticMarkupBoundaryCarrier {
++    criticMarkupBefore?: readonly CriticMarkupBoundaryAttachment[];
++    criticMarkupAfter?: readonly CriticMarkupBoundaryAttachment[];
++  }
++
++  /**
++   * Immutable semantic CriticMarkup table owned by one Marked token list.
++   * Fragments in the ordinary token tree link back to these item identities.
++   */
++  export interface CriticMarkupDocument {
++    readonly roots: readonly string[];
++    readonly items: readonly CriticMarkupItem[];
++  }
++
++  interface CriticMarkupFragmentBase {
++    level: 'block' | 'inline';
++    /** Marker bytes were removed from this fragment's active parser view. */
++    markersTransparent: boolean;
++    fragmentKind: 'content' | 'boundary';
++    itemId: string;
++    arm: 'content' | 'old' | 'new' | 'comment';
++    role: 'only' | 'start' | 'middle' | 'end';
++    raw: string;
++    /** Parser-view fragment envelope before Marked attaches terminal EOL. */
++    fragmentRaw: string;
++    /** The next linked fragment starts at this fragment's source boundary. */
++    suppressBlockSeparatorAfter: boolean;
++    /** Canonical source envelope owned by this fragment. */
++    range: CriticMarkupRange;
++    /** Canonical source range represented by `contentRaw`. */
++    contentRange: CriticMarkupRange;
++    contentRaw: string;
++    tokens: Token[];
++    before: readonly CriticMarkupMarker[];
++    after: readonly CriticMarkupMarker[];
++  }
++
++  export interface CriticAddition extends CriticMarkupFragmentBase {
++    type: 'critic_addition';
++  }
++
++  export interface CriticDeletion extends CriticMarkupFragmentBase {
++    type: 'critic_deletion';
++  }
++
++  export interface CriticSubstitution extends CriticMarkupFragmentBase {
++    type: 'critic_substitution';
++  }
++
++  export interface CriticHighlight extends CriticMarkupFragmentBase {
++    type: 'critic_highlight';
++  }
++
++  export interface CriticComment extends CriticMarkupFragmentBase {
++    type: 'critic_comment';
++  }
++
++  export type CriticMarkupFragment
++    = | CriticAddition
++      | CriticDeletion
++      | CriticSubstitution
++      | CriticHighlight
++      | CriticComment;
++
 +  export interface ParserResidue {
 +    type: 'parser_residue';
 +    raw: string;
@@ -3758,6 +4697,73 @@ index 35c058691d13742f4b9ba01c714b65a88980183c..10f4b5df75fd315c2e5348cfe12ca9ce
    export interface Blockquote {
      type: 'blockquote';
      raw: string;
+@@ -55,6 +211,10 @@ export namespace Tokens {
+     lang?: string;
+     text: string;
+     escaped?: boolean;
++    readonly sourceSyntax?: Readonly<{
++      readonly openingFence: string;
++      readonly closingFence: string | null;
++    }>;
+   }
+ 
+   export interface Codespan {
+@@ -145,11 +305,26 @@ export namespace Tokens {
+     start: number | '';
+     loose: boolean;
+     items: ListItem[];
++    /** Native block annotation follows without an ordinary block separator. */
++    suppressBlockSeparatorAfter?: true;
+   }
+ 
+   export interface ListItem {
+     type: 'list_item';
+     raw: string;
++    /** Exact parser-view whitespace preceding this item's marker. */
++    leadingPrefix: string;
++    /** Exact parser-captured list marker, excluding indentation/whitespace. */
++    marker: string;
++    /** Parser-view whitespace consumed between the marker and first content. */
++    markerPadding: string;
++    /** Blank source lines following this item, excluding its terminal EOL. */
++    trailingBlankLines: number;
++    /**
++     * Parser-view prefix consumed by this tokenizer invocation for each
++     * physical continuation line. Descendant indentation is not included.
++     */
++    continuationPrefixes: string[];
+     task: boolean;
+     checked?: boolean;
+     loose: boolean;
+@@ -183,6 +358,21 @@ export namespace Tokens {
+     align: Array<'center' | 'left' | 'right' | null>;
+     header: TableCell[];
+     rows: TableCell[][];
++    /** Exact parser-view table layout, captured atomically by the tokenizer. */
++    readonly sourceSyntax: TableSourceSyntax;
++  }
++
++  export interface TableSourceSyntax {
++    readonly header: TableRowSourceSyntax;
++    readonly delimiter: TableRowSourceSyntax;
++    readonly rows: readonly TableRowSourceSyntax[];
++  }
++
++  export interface TableRowSourceSyntax {
++    /** Trimmed raw cell contents before Markdown escape decoding. */
++    readonly cells: readonly string[];
++    /** Exact source before, between, and after cells. */
++    readonly segments: readonly string[];
+   }
+ 
+   export interface TableCell {
+@@ -218,4 +408,6 @@ export type Links = Record<string, Pick<Tokens.Link | Tokens.Image, 'href' | 'ti
+ 
+ export type TokensList = Token[] & {
+   links: Links;
++  criticMarkup: Tokens.CriticMarkupDocument | null;
++  criticMarkupUnanchored: readonly Tokens.CriticMarkupBoundaryAttachment[];
+ };
 diff --git a/src/defaults.ts b/src/defaults.ts
 index 28314f367dbee6f8bb061baa1581c0dac20f65a6..d94a8681a4385c51b5e65e1f1497e40e298862a4 100644
 --- a/src/defaults.ts
@@ -3771,18 +4777,131 @@ index 28314f367dbee6f8bb061baa1581c0dac20f65a6..d94a8681a4385c51b5e65e1f1497e40e
      walkTokens: null,
    };
 diff --git a/src/helpers.ts b/src/helpers.ts
-index ae8c380b26d28d294416ef6bef7ba53eba84768e..0c05fbc51933a60eaf41a5847a75842ad79f9d27 100644
+index ae8c380b26d28d294416ef6bef7ba53eba84768e..e78796a4f2f494bdaddcac9e32df735898a7ae87 100644
 --- a/src/helpers.ts
 +++ b/src/helpers.ts
-@@ -38,7 +38,7 @@ export function cleanUrl(href: string) {
- export function splitCells(tableRow: string, count?: number) {
-   // ensure that every cell-delimiting pipe has a space
-   // before it to distinguish it from an escaped pipe
+@@ -35,46 +35,90 @@ export function cleanUrl(href: string) {
+   return href;
+ }
+ 
+-export function splitCells(tableRow: string, count?: number) {
+-  // ensure that every cell-delimiting pipe has a space
+-  // before it to distinguish it from an escaped pipe
 -  const row = tableRow.replace(other.findPipe, (match, offset, str) => {
-+  const row = tableRow.replace(other.findPipe, (_match, offset, str) => {
-       let escaped = false;
-       let curr = offset;
-       while (--curr >= 0 && str[curr] === '\\') escaped = !escaped;
+-      let escaped = false;
+-      let curr = offset;
+-      while (--curr >= 0 && str[curr] === '\\') escaped = !escaped;
+-      if (escaped) {
+-        // odd number of slashes means | is escaped
+-        // so we leave it alone
+-        return '|';
+-      } else {
+-        // add space before unescaped |
+-        return ' |';
+-      }
+-    }),
+-    cells = row.split(other.splitPipe);
+-  let i = 0;
++export interface TableCellSourceRange {
++  readonly start: number;
++  readonly end: number;
++}
++
++/**
++ * Return the exact trimmed source range of each GFM table cell.
++ *
++ * This is the single authority for table-pipe recognition. Consumers that
++ * need decoded cell text, mapped parser input, or lossless row syntax must all
++ * derive those views from these ranges so escaped pipes and column-count
++ * normalization cannot diverge.
++ */
++export function splitCellSourceRanges(
++  tableRow: string,
++  count?: number,
++): TableCellSourceRange[] {
++  const delimiters: number[] = [];
++  for (let index = 0; index < tableRow.length; index++) {
++    if (tableRow[index] !== '|') {
++      continue;
++    }
++    let slashes = 0;
++    for (
++      let cursor = index - 1;
++      cursor >= 0 && tableRow[cursor] === '\\';
++      cursor--
++    ) {
++      slashes++;
++    }
++    if (slashes % 2 === 0) {
++      delimiters.push(index);
++    }
++  }
+ 
+-  // First/last cell in a row cannot be empty if it has no leading/trailing pipe
+-  if (!cells[0].trim()) {
+-    cells.shift();
++  const ranges: Array<{ start: number; end: number }> = [];
++  let start = 0;
++  for (const delimiter of delimiters) {
++    ranges.push({ start, end: delimiter });
++    start = delimiter + 1;
+   }
+-  if (cells.length > 0 && !cells.at(-1)?.trim()) {
+-    cells.pop();
++  ranges.push({ start, end: tableRow.length });
++
++  // First/last cell in a row cannot be empty if it has no leading/trailing
++  // pipe. This deliberately mirrors splitCells' historical behavior.
++  if (!tableRow.slice(ranges[0].start, ranges[0].end).trim()) {
++    ranges.shift();
++  }
++  if (
++    ranges.length
++    && !tableRow.slice(ranges.at(-1)!.start, ranges.at(-1)!.end).trim()
++  ) {
++    ranges.pop();
+   }
+ 
+   if (count) {
+-    if (cells.length > count) {
+-      cells.splice(count);
++    if (ranges.length > count) {
++      ranges.splice(count);
+     } else {
+-      while (cells.length < count) cells.push('');
++      while (ranges.length < count) {
++        ranges.push({
++          start: tableRow.length,
++          end: tableRow.length,
++        });
++      }
+     }
+   }
+ 
+-  for (; i < cells.length; i++) {
+-    // leading or trailing whitespace is ignored per the gfm spec
+-    cells[i] = cells[i].trim().replace(other.slashPipe, '|');
+-  }
+-  return cells;
++  return ranges.map((range) => {
++    const source = tableRow.slice(range.start, range.end);
++    const leadingLength = source.length - source.trimStart().length;
++    const trimmedEnd = source.trimEnd().length;
++    const trimmedStart = range.start + leadingLength;
++    return {
++      start: trimmedStart,
++      end: range.start + Math.max(leadingLength, trimmedEnd),
++    };
++  });
++}
++
++export function splitCells(tableRow: string, count?: number) {
++  return splitCellSourceRanges(tableRow, count).map(range => (
++    tableRow.slice(range.start, range.end).replace(other.slashPipe, '|')
++  ));
+ }
+ 
+ /**
 diff --git a/src/marked.ts b/src/marked.ts
 index 9ea906ecc958c3708a1fdd5ea9abbb5ea94c52ea..8ead0f033f6ddc1dcb96e73fb3ed0ea990dc2409 100644
 --- a/src/marked.ts
@@ -3794,4 +4913,3 @@ index 9ea906ecc958c3708a1fdd5ea9abbb5ea94c52ea..8ead0f033f6ddc1dcb96e73fb3ed0ea9
 +export * from './SourceProvenance.ts';
  export type * from './MarkedOptions.ts';
  export type * from './Tokens.ts';
-

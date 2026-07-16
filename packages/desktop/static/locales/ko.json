@@ -990,7 +990,14 @@
       "commentTitle": "댓글 추가",
       "commentPlaceholder": "검토 댓글 입력",
       "replacementTitle": "대체 제안",
-      "replacementPlaceholder": "대체 텍스트 입력"
+      "replacementPlaceholder": "대체 텍스트 입력",
+      "trackChangeRejected": {
+        "title": "편집이 기록되지 않았습니다",
+        "unmappableSourceEdit": "변경 내용 추적이 이 편집을 기록할 수 없어 문서는 변경되지 않았습니다. 편집을 더 작게 나누어 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
+        "parserConflict": "변경 내용 추적이 이 편집을 문서의 마크다운과 맞출 수 없어 문서는 변경되지 않았습니다. 편집을 더 작게 나누어 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
+        "unmappableTrackedSelection": "변경 내용 추적이 선택 영역을 추적 중인 문서와 연결할 수 없어 문서는 변경되지 않았습니다. 텍스트를 다시 선택해 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
+        "missingTrackedSelectionBlock": "변경 내용 추적이 선택 영역이 있던 블록을 찾을 수 없어 문서는 변경되지 않았습니다. 텍스트를 다시 클릭해 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요."
+      }
     },
     "export": {
       "error": "내보내기 오류",

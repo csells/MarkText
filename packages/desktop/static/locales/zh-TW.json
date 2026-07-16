@@ -990,7 +990,14 @@
       "commentTitle": "新增註解",
       "commentPlaceholder": "輸入檢閱註解",
       "replacementTitle": "建議取代",
-      "replacementPlaceholder": "輸入取代文字"
+      "replacementPlaceholder": "輸入取代文字",
+      "trackChangeRejected": {
+        "title": "未能記錄這次編輯",
+        "unmappableSourceEdit": "追蹤修訂無法記錄這次編輯，文件維持不變。請嘗試較小的編輯，或先關閉追蹤修訂再進行這次變更。",
+        "parserConflict": "追蹤修訂無法讓這次編輯與文件的 Markdown 內容相互對應，文件維持不變。請嘗試較小的編輯，或先關閉追蹤修訂再進行這次變更。",
+        "unmappableTrackedSelection": "追蹤修訂無法將選取範圍對應到追蹤中的文件，文件維持不變。請重新選取文字後再試一次，或先關閉追蹤修訂再進行這次變更。",
+        "missingTrackedSelectionBlock": "追蹤修訂找不到選取範圍所在的文字區塊，文件維持不變。請重新點按文字後再試一次，或先關閉追蹤修訂再進行這次變更。"
+      }
     },
     "export": {
       "error": "匯出錯誤",

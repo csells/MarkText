@@ -15,6 +15,7 @@ import LangInputContent from '../block/content/langInputContent';
 import { ScrollPage } from '../block/scrollPage';
 import { URL_REG } from '../config';
 import { tokenizer } from '../inlineRenderer/lexer';
+import { stripListSpacingTrivia } from '../muyaFacadeSupport';
 import HtmlToMarkdown from '../state/htmlToMarkdown';
 import { MarkdownToState } from '../state/markdownToState';
 import {
@@ -373,6 +374,28 @@ function tryMergeListPaste(
     }
 
     const loose = listState.meta.loose || firstState.meta.loose;
+    // The merge composes a new list spelling: per-item source trivia from
+    // either input (spacing, marker numbering) is stale against the merged
+    // order and looseness, so release it and let the serializer re-spell.
+    const respelledChildren = stripListSpacingTrivia(mergedChildren)
+        .map((child) => {
+            if (child.sourceTrivia?.listItemMarker === undefined)
+                return child;
+            const { listItemMarker: _stale, ...rest } = child.sourceTrivia;
+            const { sourceTrivia: _replaced, ...plain } = child;
+            return {
+                ...plain,
+                ...(Object.keys(rest).length
+                    ? { sourceTrivia: rest }
+                    : {}),
+            };
+        });
+    replaceArrayRange(
+        mergedChildren,
+        0,
+        mergedChildren.length,
+        respelledChildren as typeof mergedChildren,
+    );
     let mergedListState: IBulletListState | IOrderListState | ITaskListState;
     if (listState.name === 'task-list') {
         if (!mergedChildren.every(isTaskListItemState)) {
@@ -460,6 +483,16 @@ function applyParsedPaste(
 
     if (states.length === 0)
         return;
+    // Document-final trivia describes the CLIPBOARD text's end, not the host
+    // document's; spliced into the middle of a document it would delete the
+    // host's final newline.
+    const lastPasted = states.at(-1)!;
+    if (lastPasted.sourceTrivia?.terminalLineEnding !== undefined) {
+        const { terminalLineEnding: _clipboardEol, ...rest }
+            = lastPasted.sourceTrivia;
+        (lastPasted as { sourceTrivia?: typeof rest }).sourceTrivia
+            = Object.keys(rest).length ? rest : undefined;
+    }
 
     const head = content.substring(0, start.offset);
     const tail = content.substring(end.offset);

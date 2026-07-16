@@ -990,7 +990,14 @@
       "commentTitle": "Adicionar comentário",
       "commentPlaceholder": "Digite um comentário de revisão",
       "replacementTitle": "Sugerir substituição",
-      "replacementPlaceholder": "Digite o texto de substituição"
+      "replacementPlaceholder": "Digite o texto de substituição",
+      "trackChangeRejected": {
+        "title": "Edição não registrada",
+        "unmappableSourceEdit": "O controle de alterações não conseguiu registrar essa edição, então o documento não foi alterado. Tente uma edição menor ou desative o controle de alterações para esta alteração.",
+        "parserConflict": "O controle de alterações não conseguiu conciliar essa edição com o Markdown do documento, então o documento não foi alterado. Tente uma edição menor ou desative o controle de alterações para esta alteração.",
+        "unmappableTrackedSelection": "O controle de alterações não conseguiu associar sua seleção ao documento em revisão, então o documento não foi alterado. Selecione o texto novamente e tente de novo, ou desative o controle de alterações para esta alteração.",
+        "missingTrackedSelectionBlock": "O controle de alterações não conseguiu encontrar o bloco onde estava sua seleção, então o documento não foi alterado. Clique novamente no texto, ou desative o controle de alterações para esta alteração."
+      }
     },
     "export": {
       "error": "Erro de exportação",

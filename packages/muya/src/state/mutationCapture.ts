@@ -52,7 +52,7 @@ function asState(value: unknown): TState[] {
     return value as TState[];
 }
 
-function valueAtPath(document: unknown, path: Path): unknown {
+export function valueAtPath(document: unknown, path: Path): unknown {
     let value = document;
     for (const component of path) {
         if (
@@ -192,6 +192,11 @@ export class StateMutationCapture {
             operation,
             value: deepClone(value),
         });
+    }
+
+    /** Current draft value at `path` — what a replace must use as `before`. */
+    draftValueAt(path: Path): unknown {
+        return deepClone(valueAtPath(this._draft, path));
     }
 
     recordRemove(path: Path, operation: JSONOpList): void {

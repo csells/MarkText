@@ -9,8 +9,8 @@ import loadRenderer from '../utils/diagram';
 
 import { getHighlightHtml } from '../utils/marked';
 import { generateGithubSlug } from '../utils/slug';
-import { transformFootnotes } from './transformFootnotes';
 import { sanitizeExportHtml } from './sanitizeExportHtml';
+import { transformFootnotes } from './transformFootnotes';
 
 // The core stylesheets (github-markdown-css, katex, prism) are inlined into the
 // exported document so the output is fully self-contained and renders offline /

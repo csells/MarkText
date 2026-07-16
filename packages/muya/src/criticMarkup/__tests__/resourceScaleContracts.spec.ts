@@ -161,10 +161,17 @@ describe('criticMarkup final-adapter structural scale', () => {
         expect(parsedItems).toBe(itemCount);
         expect(mocks.analyzeMarkdownBlockSource.mock.calls.length)
             .toBeLessThanOrEqual(4);
-        expect(DOCUMENT_SOURCE.match(
-            /for \(const span of mappedText\.sourceMap\.spans\)/g,
-        ) ?? []).toHaveLength(1);
-        expect(DOCUMENT_SOURCE).toContain('function buildFragmentsByItem');
+    });
+
+    it('owns fragment topology in parser bindings, never generic span inference', () => {
+        // Parser-owned binding authority: every fragment-bearing document is
+        // backed by an authenticated parser binding graph. The generic
+        // mapped-span intersection fallback and every optional-binding entry
+        // point must not exist.
+        expect(DOCUMENT_SOURCE).not.toContain('function buildFragmentsByItem');
+        expect(DOCUMENT_SOURCE).not.toContain('function finalizedFragments');
+        expect(DOCUMENT_SOURCE).not.toContain('function segmentEvents');
+        expect(DOCUMENT_SOURCE).not.toMatch(/nativeBindings\?:/);
         expect(DOCUMENT_SOURCE).not.toContain('function fragmentsForToken');
         expect(DOCUMENT_SOURCE).not.toContain('function fragmentForPath');
     });

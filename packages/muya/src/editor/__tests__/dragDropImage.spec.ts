@@ -24,25 +24,39 @@ import EventCenter from '../../event';
 // inserted markdown text and where it landed relative to the anchor.
 const createdBlocks: Array<{ text: string; insertedBefore: boolean; insertedAfter: boolean }> = [];
 
-vi.mock('../../block/scrollPage', () => ({
-    ScrollPage: {
-        loadBlock: () => ({
-            create: (_muya: unknown, state: { text: string }) => {
-                const record = {
-                    text: state.text,
-                    insertedBefore: false,
-                    insertedAfter: false,
-                };
-                createdBlocks.push(record);
-                const block = {
-                    record,
-                    firstContentInDescendant: () => ({ setCursor: vi.fn() }),
-                };
+vi.mock('../../block/scrollPage', () => {
+    const loadBlock = () => ({
+        create: (_muya: unknown, state: { text: string }) => {
+            const record = {
+                text: state.text,
+                insertedBefore: false,
+                insertedAfter: false,
+            };
+            createdBlocks.push(record);
+            const block = {
+                record,
+                initializeStateSourceTrivia: vi.fn(),
+                firstContentInDescendant: () => ({ setCursor: vi.fn() }),
+            };
+            return block;
+        },
+    });
+    return {
+        ScrollPage: {
+            loadBlock,
+            // Mirrors the production factory: create through `loadBlock`,
+            // then bind the state's source trivia on the new block.
+            createStateBlock: (
+                muya: unknown,
+                state: { text: string; sourceTrivia?: unknown },
+            ) => {
+                const block = loadBlock().create(muya, state);
+                block.initializeStateSourceTrivia?.(state.sourceTrivia);
                 return block;
             },
-        }),
-    },
-}));
+        },
+    };
+});
 
 const { attachDragDropImageHandlers } = await import('../dragDropImage');
 

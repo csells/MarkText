@@ -32,6 +32,11 @@ export interface IStateSourceTrivia {
     readonly criticAfterPrefix?: string;
     /** Parser whitespace immediately after after-markers on this native block. */
     readonly criticAfterSuffix?: string;
+    /**
+     * After-markers sit flush against the node's text, before its own line
+     * terminator, so the weave inserts them inside the trailing newline.
+     */
+    readonly criticAfterFlush?: boolean;
     /** Parser-view whitespace before this block within its parent sequence. */
     readonly blockPrefix?: string;
     /**

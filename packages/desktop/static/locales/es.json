@@ -990,7 +990,14 @@
       "commentTitle": "Añadir comentario",
       "commentPlaceholder": "Escribe un comentario de revisión",
       "replacementTitle": "Sugerir reemplazo",
-      "replacementPlaceholder": "Escribe el texto de reemplazo"
+      "replacementPlaceholder": "Escribe el texto de reemplazo",
+      "trackChangeRejected": {
+        "title": "Edición no registrada",
+        "unmappableSourceEdit": "El control de cambios no pudo registrar esa edición, así que el documento no se modificó. Prueba con una edición más pequeña o desactiva el control de cambios para este cambio.",
+        "parserConflict": "El control de cambios no pudo conciliar esa edición con el Markdown del documento, así que el documento no se modificó. Prueba con una edición más pequeña o desactiva el control de cambios para este cambio.",
+        "unmappableTrackedSelection": "El control de cambios no pudo asociar tu selección con el documento en revisión, así que el documento no se modificó. Vuelve a seleccionar el texto e inténtalo de nuevo, o desactiva el control de cambios para este cambio.",
+        "missingTrackedSelectionBlock": "El control de cambios no pudo encontrar el bloque donde estaba tu selección, así que el documento no se modificó. Vuelve a hacer clic en el texto, o desactiva el control de cambios para este cambio."
+      }
     },
     "export": {
       "error": "Error de exportación",

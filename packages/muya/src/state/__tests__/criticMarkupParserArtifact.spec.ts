@@ -58,7 +58,7 @@ function boot(markdown: string): MuyaType {
     return muya;
 }
 
-describe('CriticMarkup parser artifact revision ownership', () => {
+describe('criticMarkup parser artifact revision ownership', () => {
     it('returns normalized states, analysis, and bindings from one revision', () => {
         const parsed = analyzeCriticMarkupMarkdownState(
             UNNORMALIZED_SOURCE,

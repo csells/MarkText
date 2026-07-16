@@ -1,14 +1,14 @@
-import type { TState } from '../state/types';
 import type {
-    CriticMarkupAnalysis,
-    TCriticMarkupDocumentToken,
-} from './analysis';
+    ICriticMarkupStateBindingGraph,
+} from '../state/markdownToState';
+import type { TState } from '../state/types';
 import type {
     TCriticMarkupParserOptions,
 } from '../utils/marked/criticMarkupSourceContext';
 import type {
-    ICriticMarkupStateBindingGraph,
-} from '../state/markdownToState';
+    CriticMarkupAnalysis,
+    TCriticMarkupDocumentToken,
+} from './analysis';
 import { MarkdownToState } from '../state/markdownToState';
 import StateToMarkdown from '../state/stateToMarkdown';
 
@@ -45,6 +45,7 @@ function parseNativeState(
 function hasSameCriticMarkupSemantics(
     before: readonly TCriticMarkupDocumentToken[],
     after: readonly TCriticMarkupDocumentToken[],
+    canonicalize: (raw: string) => string | null,
 ): boolean {
     const pending: Array<readonly [
         readonly TCriticMarkupDocumentToken[],
@@ -59,11 +60,21 @@ function hasSameCriticMarkupSemantics(
         for (let index = 0; index < beforeSiblings.length; index++) {
             const beforeItem = beforeSiblings[index];
             const afterItem = afterSiblings[index];
-            if (
-                beforeItem.type !== afterItem.type
-                || beforeItem.raw !== afterItem.raw
-            ) {
+            if (beforeItem.type !== afterItem.type)
                 return false;
+            if (beforeItem.raw !== afterItem.raw) {
+                // Documented serializer normalization may rewrite bytes
+                // INSIDE an arm (for example collapsing ATX heading padding).
+                // The change is semantic-preserving exactly when both raws
+                // reach the same canonical Markdown form.
+                const beforeCanonical = canonicalize(beforeItem.raw);
+                const afterCanonical = canonicalize(afterItem.raw);
+                if (
+                    beforeCanonical === null
+                    || beforeCanonical !== afterCanonical
+                ) {
+                    return false;
+                }
             }
 
             pending.push([
@@ -108,12 +119,25 @@ export function analyzeCriticMarkupMarkdownState(
 
     const normalized = parseNativeState(mapped.text, options);
     const normalizedAnalysis = normalized.criticMarkupAnalysis;
+    const canonicalize = (raw: string): string | null => {
+        try {
+            return new StateToMarkdown({
+                listIndentation: options.listIndentation,
+            }).generate(parseNativeState(raw, options).states);
+        }
+        catch {
+            // An item raw that cannot stand alone has no canonical form;
+            // the caller treats that as a semantic mismatch and fails closed.
+            return null;
+        }
+    };
     const hasStableSemantics = originalAnalysis === null
         ? normalizedAnalysis === null
         : normalizedAnalysis !== null
             && hasSameCriticMarkupSemantics(
                 originalAnalysis.roots,
                 normalizedAnalysis.roots,
+                canonicalize,
             );
     if (hasStableSemantics) {
         const normalizedMarkdown = new StateToMarkdown({

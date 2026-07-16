@@ -990,7 +990,14 @@
       "commentTitle": "Yorum ekle",
       "commentPlaceholder": "İnceleme yorumu girin",
       "replacementTitle": "Değişiklik öner",
-      "replacementPlaceholder": "Yeni metni girin"
+      "replacementPlaceholder": "Yeni metni girin",
+      "trackChangeRejected": {
+        "title": "Düzenleme kaydedilmedi",
+        "unmappableSourceEdit": "Değişiklik izleme bu düzenlemeyi kaydedemediği için belge değiştirilmedi. Daha küçük bir düzenleme deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
+        "parserConflict": "Değişiklik izleme bu düzenlemeyi belgenin Markdown içeriğiyle bağdaştıramadığı için belge değiştirilmedi. Daha küçük bir düzenleme deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
+        "unmappableTrackedSelection": "Değişiklik izleme seçiminizi izlenen belgeyle eşleştiremediği için belge değiştirilmedi. Metni yeniden seçip tekrar deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
+        "missingTrackedSelectionBlock": "Değişiklik izleme seçiminizin bulunduğu bloğu bulamadığı için belge değiştirilmedi. Metne yeniden tıklayıp tekrar deneyin veya bu değişiklik için değişiklik izlemeyi kapatın."
+      }
     },
     "export": {
       "error": "Dışa aktarma hatası",

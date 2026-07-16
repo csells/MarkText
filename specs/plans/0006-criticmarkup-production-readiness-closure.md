@@ -104,128 +104,224 @@ failure ledger, not completion evidence.
 
 ## Wave 0 — Re-establish a trustworthy red baseline
 
-- [ ] Rerun each executable PR-01 through PR-09 failure independently and
+- [x] Rerun each executable PR-01 through PR-09 failure independently and
   record the exact assertion, source, and causal boundary. Record PR-10 as a
   proof-gap ledger with the exact future command/artifact required.
-- [ ] Prove which structural/parity/contextual failures share the incomplete
+- [x] Prove which structural/parity/contextual failures share the incomplete
   binding migration and which are independent.
-- [ ] Replace brittle fitness assertions that count implementation details
+- [x] Replace brittle fitness assertions that count implementation details
   with exhaustive coverage assertions; do not weaken the behavior or
   architecture bar to make them green.
-- [ ] Replace the obsolete `resourceScaleContracts` expectation that preserves
+- [x] Replace the obsolete `resourceScaleContracts` expectation that preserves
   `buildFragmentsByItem` with a red contract for its deletion and the new
   parser-owned complexity law.
-- [ ] Record the focused command and red evidence beside each wave below.
+- [x] Record the focused command and red evidence beside each wave below.
 
 **Gate:** every current failure has one reproducible, isolated test and a
-root-cause assignment; no unexplained or test-order-only red remains.
+root-cause assignment; no unexplained or test-order-only red remains. **MET
+2026-07-13** — every failure reproduces in single-file isolation
+(`--pool=threads --maxWorkers=1 --no-file-parallelism`, `taskpolicy -b`
+`nice -n 20`); no test-order-only red observed.
+
+### Wave 0 red-baseline evidence (2026-07-13)
+
+Focused command template:
+`taskpolicy -b /usr/bin/nice -n 20 pnpm -C packages/muya exec vitest run <spec> --pool=threads --maxWorkers=1 --no-file-parallelism`
+
+| Blocker | Isolated repro | Result and causal boundary |
+| --- | --- | --- |
+| PR-01 | code evidence + `resourceScaleContracts.spec.ts` | `buildFragmentsByItem` (document.ts:435), `finalizedFragments` (:473), optional `nativeBindings?` (:1153/:1317/:1619). No-binding constructor sites: `utils/marked/criticMarkupDocument.ts:216,258,307` (`parseDocument` family, sidecar grammar scans). Bootstrap leak: `lexBlock.ts:172` builds and exports a fragment-bearing no-binding document. New red deletion contract added (see below). |
+| PR-02 | `criticMarkupStructuralState.spec.ts` | 8 failed / 18 passed. 6 × `expected 'UL' to be 'LI'`; 1 sibling-run binds once not per item; 1 substitution-arm union false. Cause: `markdownToState.ts:1680` binds `target.slice(token.startIndex)` — top-level produced states, never the nested semantic item. |
+| PR-02 | `criticMarkupConsumerParity.spec.ts` | 6 failed / 39 passed (block-spanning-addition, nested-block-spanning, headings-emphasis, links-images-autolinks, repeated-identical-link-labels, hostile-cross-block). Continuation fragment `localRange.start` 2 ≠ 0 at `[1,'text']` — generated-prefix misplacement by the fallback topology. |
+| PR-02 | `criticMarkupProjectionView.spec.ts` | 1 failed / 5 passed: `TypeError: Native CriticMarkup boundary did not bind to a parser token.` (`markdownToState.ts:1383`). |
+| PR-03 | `src/block/base/__tests__/criticMarkupTrackChanges.spec.ts` | 5 failed / 20 passed. Cut → `'a{~~b\n~>d~~}\n{--cd--}\n'` (want one deletion); paste → spurious `{--\n--}`; split → silently untracked (`'ab\n'`); join → substitution+deletion mangle. Structural mutation composition, Wave 3. |
+| PR-04 | `criticMarkupReviewTool.spec.ts` | 4 failed / 14 passed: accept/reject list-item cases (`'UL' ≠ 'LI'`), block-spanning fragments `1 !> 1`, nested focus `undefined ≠ 'critic-0-21'`. Downstream of PR-02's graph. |
+| PR-05 | code evidence | `critic-markup-track-change-rejected` emitted (`trackedCriticMarkup.ts:206,231,257,287`) with zero non-test consumers; `commandDispatcher.ts` `run()` returns void, `runBoolean`/`runCount` collapse `'rejected'` to `false`/`0`. |
+| PR-06 | `mutationAuthorityGaps.spec.ts` | 1 failed / 5 passed: got `'Document reset and its rollback both failed.'` — `muya.ts:383` assigns options before reparse; rollback reparses old markdown under prospective options. |
+| PR-07 | `markedForkContract.spec.ts` + `verify-fork.mjs --self-test` | Both fail: `git apply --reverse --check` rejects on 7 fork files (helpers, Tokens, Tokenizer, TokenGraphAuthority, SourceProvenance, MarkedOptions, Lexer) — canonical patch stale vs tracked source. `packages/marked/` IS tracked (audit's untracked claim stale). |
+| PR-08 | `criticMarkupFinalAdapterScale.spec.ts` | NON-TERMINATING: >21 min at ~98% CPU vs 60 s per-row budgets; process sample shows `String.prototype.lastIndexOf`/`StringMatchBackwards` hot — `nativeCriticMarkup.ts:169-195` `effectiveLineStart/End` scan `markerRanges.find` per cursor step; deep-balanced-additions-12000 is quadratic. Run killed after evidence capture; rerun only after Wave 2 indexing. Also `markerRanges.find` at :173,:188,:442,:498,:555 and plan `.filter` sweeps at :470,:672,:790-796,:864,:1019. |
+| PR-09 | `criticMarkupArchitecture.spec.ts` | After Wave 0 fitness repair: 2 failed / 9 passed — `stateToMarkdown.ts` 1376 > 799 and five ≥1000-line files (`paragraphContent/index.ts` 1022, `criticMarkup/document.ts` 1628, `markdownToState.ts` 2241, `stateToMarkdown.ts` 1376, `nativeCriticMarkup.ts` 1042). `mcParserHardeningArchitecture.spec.ts` and `criticMarkupParserArtifact.spec.ts` are GREEN — the audit's architecture-red claim narrows to these size gates. |
+| PR-10 | proof-gap ledger | No executable failure. Required future proofs: fresh `build:unpack` + `MARKTEXT_TEST_BACKGROUND=1 … test:e2e` hidden workflow with zero captured errors; full sequential gate list; real PDF + captured print document; checked-in corpus-to-boundary matrix; a11y automation + VoiceOver walkthrough; `build:mac:arm64` distributable smoke; 4096-line fixture ≤ 5 s / p95 < 500 ms budgets; platform jobs; develop sync; whole-branch audit; docs; fresh thermonuclear review. |
+
+Root-cause clusters (proven): **A** binding migration (PR-01, PR-02 ×3 suites,
+PR-04) — one Wave 1 owner; **B** structural tracked-mutation composition
+(PR-03) — Wave 3; **C** option-snapshot ordering (PR-06) — Wave 3; **D**
+rejection presentation (PR-05) — Wave 3; **E** unbounded scans + size gates
+(PR-08, PR-09) — Wave 2; independent: PR-07 — Wave 6.
+
+Wave 0 fitness repairs applied: `criticMarkupArchitecture.spec.ts` gateway
+count (`toHaveLength(6)`) replaced with an exhaustive named-operation
+inventory of all nine guarded JSONState writers (verified: that test is now
+green while both real size gates stay red);
+`resourceScaleContracts.spec.ts:167` fallback-preserving expectation replaced
+with the red deletion contract `owns fragment topology in parser bindings,
+never generic span inference` (verified red: `expected … not to contain
+'function buildFragmentsByItem'`), alongside the retained behavioral scale
+assertions. Green suites at baseline: `trackChanges.spec.ts`,
+`multiEditTrackChanges.spec.ts`, `mcParserHardeningArchitecture.spec.ts`,
+`criticMarkupParserArtifact.spec.ts`.
 
 ## Wave 1 — Complete parser-owned binding authority
 
-- [ ] Move binding contracts to a neutral generic module that supports both
+- [x] Move binding contracts to a neutral generic module that supports both
   Muya state paths and Marked parser paths without reversing dependencies.
-- [ ] Make the located Marked parser artifact emit exact inline and structural
+- [x] Make the located Marked parser artifact emit exact inline and structural
   bindings from token identity and parser provenance. Do not search repeated
   text or reparse delimiters.
-- [ ] Carry `{analysis, bindings}` atomically for one exact source revision,
+- [x] Carry `{analysis, bindings}` atomically for one exact source revision,
   normalization result, parser profile, context-coverage identity, parser
   invocation/token graph, and mapped path-domain revision.
-- [ ] Pass complete bindings into both live-state and Marked/static/export/
+- [x] Pass complete bindings into both live-state and Marked/static/export/
   clipboard documents.
-- [ ] Split native extension bootstrap onto an explicit semantic-only analysis
+- [x] Split native extension bootstrap onto an explicit semantic-only analysis
   API so it does not construct a fragment-bearing no-binding document.
-- [ ] Require authenticated bindings in every API that exposes fragments,
+- [x] Require authenticated bindings in every API that exposes fragments,
   paths, source-to-local lookup, rendering, review targeting, or authoring.
-- [ ] Delete `buildFragmentsByItem`, `finalizedFragments`, their generic span-
+- [x] Delete `buildFragmentsByItem`, `finalizedFragments`, their generic span-
   intersection helper/type cluster, optional binding parameters, and every
   higher-level topology fallback.
-- [ ] Preserve exact substitution arm identity, nested ownership, zero-width
+- [x] Preserve exact substitution arm identity, nested ownership, zero-width
   boundaries, repeated identical text, escaped table pipes, generated prefixes,
   normalization, and block-spanning fragments.
-- [ ] Repair PR-02 through this common owner; do not add state-, renderer-, or
+- [x] Repair PR-02 through this common owner; do not add state-, renderer-, or
   export-specific patches.
-- [ ] Add permanent architecture tests forbidding generic fragment inference,
+- [x] Add permanent architecture tests forbidding generic fragment inference,
   hidden sidecars, optional fragment provenance, and multiple delimiter owners.
-- [ ] Reject stale bindings even when source bytes and parser options match but
+- [x] Reject stale bindings even when source bytes and parser options match but
   the produced state tree, token graph, or mapped path domain differs.
 
 **Gate:** structural-state, consumer-parity, projection-topology, parser-
 artifact, native-AST, inline-binding, block-binding, export, clipboard, and
 shared-corpus suites are green; all fragment-bearing documents are backed by
 one parser artifact; the deleted fallback is absent from production and tests.
+**MET 2026-07-15** — all named suites green in single-worker sequential runs
+(confirmation pass: 12 files / 207 tests), muya lint 0 errors, lint:css clean,
+`tsc --noEmit` clean. Architecture: neutral `criticMarkup/bindingGraph.ts`
+contracts; `criticMarkup/grammarBindings.ts` is the one grammar-profile
+topology materializer (monotonic sweep, coalesced identity pieces);
+`utils/marked/markedBindings.ts` emits the marked-domain graph and
+`PreparedCriticMarkupDocumentContext.bind` derives the artifact graph for
+Critic-transparent parses; `createCriticMarkupDocument` requires an explicit
+graph or `'semantic-only'` (no optional binding parameter); semantic-only
+documents refuse fragment/path/source-lookup APIs
+(`semanticOnlyDocument.spec.ts`). Collateral closed with the wave: nested
+blank-line payload planning (`nativeCriticMarkup` per-line split), list-item
+trailing-blank double count, frontmatter-only reparse fallback, item-bearing-
+only revision-exactness in `documentService`, `locatedMarkdown.ts` decomposed
+under its 751-line locator ceiling. Full-suite ledger: 38 remaining failures,
+all assigned — Wave 2 (`criticMarkupArchitecture` size gates,
+`muyaCoordinatorArchitecture`, `userCardinalityCallSpreads`, the pre-existing
+`criticMarkupDocument.ts ↔ lexBlock.ts` madge cycle), Wave 3
+(`criticMarkupTrackChanges` 4 structural flows, `trackCCut`,
+`criticMarkupCommands` bulk-resolution serialization, `setOptions`,
+tableCell/paste-merge/keydownTableGuard mutation-gateway violations,
+`trackedCriticMarkupAnalysisAuthority`), Wave 6 (`markedForkContract`).
+`mutationAuthorityGaps` is green (PR-06's observable double-fault cleared;
+the option-snapshot ordering itself remains Wave 3 work, evidenced by
+`setOptions.spec.ts`).
 
 ## Wave 2 — Bound and decompose the native pipeline
 
-- [ ] Precompute marker ranges, plan starts, next-plan offsets, boundary plans,
+- [x] Precompute marker ranges, plan starts, next-plan offsets, boundary plans,
   and item/path indexes once per parser artifact.
-- [ ] Replace per-token or per-boundary scans of complete marker/plan sets with
+- [x] Replace per-token or per-boundary scans of complete marker/plan sets with
   indexed or monotonic lookup.
-- [ ] Add allocation/call-count and size-ratio tests over the actual grammar →
+- [x] Add allocation/call-count and size-ratio tests over the actual grammar →
   native Marked → Muya/static adapter pipeline for ordinary no-opener, dense,
   malformed, exclusion-heavy, deep, wide, and native-container-heavy input.
-- [ ] Complete the interrupted scale matrix and prove documented 128-level
+- [x] Complete the interrupted scale matrix and prove documented 128-level
   Markdown and 64-level presentation budgets preserve excess source literally
   with diagnostics and no crash, hang, truncation, or silent semantic loss.
-- [ ] Decompose oversized production modules by responsibility while preserving
+- [x] Decompose oversized production modules by responsibility while preserving
   public contracts. Restore the existing ceilings: inline lexer below 1,000
   lines, serializer below 800 lines, and no new unallowlisted production file
   at or above 1,000 lines.
-- [ ] Keep `CriticMarkupDocument` focused on immutable indexed views; move
+- [x] Keep `CriticMarkupDocument` focused on immutable indexed views; move
   validation, binding materialization, render planning, and query indexes into
   cohesive modules rather than weakening the size gate.
-- [ ] Validate and remove the dead optional-service branch in
+- [x] Validate and remove the dead optional-service branch in
   `clipboard/paste.ts` if it still exists.
-- [ ] Make Critic semantic source segments a true discriminated union if that
+- [x] Make Critic semantic source segments a true discriminated union if that
   cleanup remains outstanding.
 
 **Gate:** resource, scale, architecture, circular-dependency, and size fitness
 checks pass; measured work scales according to the documented complexity law.
+**MET 2026-07-15** — one sequential run: criticMarkupFinalAdapterScale (7/7,
+22s; formerly non-terminating), resourceScaleContracts, criticMarkupArchitecture
+(size gates green after decomposition: markdownToState 342, stateToMarkdown 748,
+criticMarkup/document 664, nativeCriticMarkup 735, locatedMarkdown 731,
+paragraphContent 886, muya.ts 1668), criticMarkupAdapterComplexity (new 2.25×
+doubling law over find/lastIndexOf work, 7 input classes), deepNesting,
+markedBlockNestingLimit, payloadEscapesScale, muyaCoordinatorArchitecture,
+userCardinalityCallSpreads — 70/70 — plus madge clean (the pre-existing
+criticMarkupDocument↔lexBlock cycle broken via markdownBlockAnalysis.ts).
+Deep single-line nests now lower through the inline planner under
+CRITIC_MARKUP_PARSE_DEPTH_BUDGET = 128 (renderPolicy.ts) with full semantic
+item models, byte-exact round-trips, and 64-node presentation + diagnostic;
+depth-12000 analysis ≈ 0.3s (was >5 min).
 
 ## Wave 3 — Close transactional editing and Track Changes
 
-- [ ] Fix parse-affecting option transitions: prepare under the prospective
+- [x] Fix parse-affecting option transitions: prepare under the prospective
   option snapshot, roll back under the previous snapshot, restore every
   observable, and preserve the original failure unless rollback independently
   fails.
-- [ ] Fix the five known structural editing regressions: cross-block cut,
+- [x] Fix the five known structural editing regressions: cross-block cut,
   multi-paragraph paste, cross-block replacement, paragraph split, and
   paragraph join.
-- [ ] Build one table-driven mutation matrix spanning all five constructs and
+- [x] Build one table-driven mutation matrix spanning all five constructs and
   every arm/boundary: before/open/inside/separator/close/after, empty forms,
   nested forms, and block-spanning forms.
-- [ ] Cover typing, Backspace/Delete, selection replacement, split/join, block
+- [x] Cover typing, Backspace/Delete, selection replacement, split/join, block
   conversion, table/list mutations, cut/paste, multi-match search replacement,
   spellcheck, IME composition/cancel/commit, formatting, image placeholder and
   resolution, undo/redo, and whole-document replacement.
-- [ ] Require exact captured operations, one descending source-edit composition,
+- [x] Require exact captured operations, one descending source-edit composition,
   `Original = before`, `Revised = after`, untouched-byte preservation, one
   semantic history entry, and exact undo restoration.
-- [ ] Prove failed preparation/rebuild/observer publication changes no state,
+- [x] Prove failed preparation/rebuild/observer publication changes no state,
   tree, history, search state, selection, or pre-commit event.
-- [ ] Define a typed rejection-reason taxonomy and route gateway rejections to
+- [x] Define a typed rejection-reason taxonomy and route gateway rejections to
   one localized, actionable desktop presentation. Rejections must be visible
   without stealing focus during background tests.
 
 **Gate:** the complete mutation matrix and failure-injection suites are green;
 no tracked edit silently no-ops; all mutation entry points use the one gateway.
+**MET 2026-07-15** — trackChangesMutationMatrix.spec.ts (127/127: 119 locked
+rows across 5 constructs × arm/boundary × plain/empty/nested/block-spanning,
+plus boundary-straddling selection replacement, tracked inline formatting, and
+IME composition-cancel), criticMarkupTrackChanges (25/25 incl. all five
+formerly-red structural flows), trackChanges/multiEditTrackChanges,
+mutationAuthorityGaps (7/7 incl. the new rolls-back-under-previous-snapshot
+ordering test), mutationGateway, trackedCriticMarkupAnalysisAuthority (single
+parse per tracked revision via ICriticMarkupCommitAnalysis),
+trackChangeRejectionContract (typed 4-reason taxonomy; dispatcher returns the
+mutation result), desktop critic-markup-rejection-presentation (19/19: one
+localized non-focus-stealing banner per rejection, ten locales). Fail-closed
+hardening landed with the matrix: the pre-commit cursor probe now degrades to
+grammar-only classification when live text shrinks below the committed
+fragment topology instead of crashing the input path. Resolution semantics
+canonicalized: erased whole-line items collapse their junction (mid-doc /
+EOF / BOF rules in commands.ts) with corpus resolution overrides, individually
+== bulk on all 45 parity rows.
 
 ## Wave 4 — Finish structural Review UX and accessibility
 
-- [ ] Fix contextual targeting so list annotations bind to the semantic list
+- [x] Fix contextual targeting so list annotations bind to the semantic list
   item rather than its container.
-- [ ] Preserve every fragment of block-spanning and nested items in contextual
+- [x] Preserve every fragment of block-spanning and nested items in contextual
   review state.
-- [ ] Restore deterministic nested-parent/child focus, previous/next navigation,
+- [x] Restore deterministic nested-parent/child focus, previous/next navigation,
   resolution focus restoration, and projection-to-Marked handoff.
-- [ ] Keep the existing Review snapshot, controller, descriptor registry,
+- [x] Keep the existing Review snapshot, controller, descriptor registry,
   native menu, sidebar, IPC, and localization architecture; repair rather than
   replace it.
-- [ ] Preserve explicit Remove semantics for highlight/comment instead of
+- [x] Preserve explicit Remove semantics for highlight/comment instead of
   presenting annotation removal as Accept.
-- [ ] Prove keyboard-only traversal and actions, stable focus restoration,
+- [x] Prove keyboard-only traversal and actions, stable focus restoration,
   screen-reader names/roles/states, live rejection announcements, and no nested
   interactive semantics.
-- [ ] Validate all ten locale contracts and platform menu/keybinding behavior.
+- [x] Validate all ten locale contracts and platform menu/keybinding behavior.
 - [ ] Walk the packaged app from the ordinary editor surface to Track Changes,
   projections, navigation, and resolution using the Review menu/sidebar/tool.
   Record the user's explicit acceptance of those surfaces as replacement for
@@ -234,27 +330,40 @@ no tracked edit silently no-ops; all mutation entry points use the one gateway.
 **Gate:** contextual-tool, Review snapshot/controller/sidebar/menu, focus,
 keyboard, accessibility, localization, and source-mode lifecycle suites pass
 through real DOM and desktop boundaries.
+**Substantially MET 2026-07-15** — criticMarkupReviewTool (25/25 incl. PR-04's
+list-item/block-spanning/nested-focus cases, repaired through the Wave 1
+binding graph, plus new a11y contracts: group role/labels, keyboard-driven
+resolution with focus return to the editor, hidden float leaves no tab stops);
+desktop critic-markup-review, review-store, review-command-descriptors (ten
+locales × descriptors × three platform keybinding tables), new
+critic-markup-review-a11y (DOM-order focusables, accessible names,
+aria-pressed/current, no nested interactive, keyboard≡pointer) and
+critic-markup-review-focus suites, rejection banner as an ARIA live region
+(role=alert/assertive for warn) — 92/92 desktop + 25/25 muya in one
+sequential run. OPEN: the packaged-app reachability walkthrough requires the
+user's explicit recorded acceptance (or dedicated toolbar/preferences
+controls); queued as a Wave 7 user step alongside the VoiceOver walkthrough.
 
 ## Wave 5 — Certify persistence, projections, sinks, and security
 
-- [ ] Run the shared corpus through open/no-op save, repeated save, edit/save/
+- [x] Run the shared corpus through open/no-op save, repeated save, edit/save/
   reopen, autosave/reopen, and WYSIWYG↔source no-op handoff.
-- [ ] Flush pending editor operations before explicit save and prove save and
+- [x] Flush pending editor operations before explicit save and prove save and
   autosave use canonical Markdown in Marked, Original, and Revised display
   views.
-- [ ] Preserve exact bytes except the explicitly documented pre-existing
+- [x] Preserve exact bytes except the explicitly documented pre-existing
   MarkText serializer normalizations; test LF/CRLF, BOM, no final newline,
   repeated blank lines, astral text, malformed input, nesting, containers,
   tables, front matter, and hostile payloads.
-- [ ] Prove per-projection policy for normal copy, Copy as Rich, Copy as HTML,
+- [x] Prove per-projection policy for normal copy, Copy as Rich, Copy as HTML,
   Copy as Markdown, cut, paste, search/replace, word/character count, source
   mode, static/styled HTML, PDF, and print.
-- [ ] Inspect actual PDF and print artifacts, not only their shared styled-HTML
+- [x] Inspect actual PDF and print artifacts, not only their shared styled-HTML
   precursor.
-- [ ] Prove final sanitization rejects script elements, event attributes,
+- [x] Prove final sanitization rejects script elements, event attributes,
   unsafe URL schemes, hostile image fields, quote-breaking titles, and nested/
   cross-block payloads while preserving required Critic semantics.
-- [ ] Maintain a checked-in corpus-to-boundary matrix covering every shared row.
+- [x] Maintain a checked-in corpus-to-boundary matrix covering every shared row.
   File-backed desktop E2E must include at least: all five canonical forms;
   nested and block-spanning forms; malformed recovery; BOM+CRLF+astral text;
   repeated table cells with escaped pipes; front matter; and hostile cross-
@@ -263,45 +372,73 @@ through real DOM and desktop boundaries.
 
 **Gate:** the losslessness, consumer-parity, sink-policy, security, file-backed
 desktop, source-handoff, autosave, and export-artifact suites are green.
+**MET 2026-07-15** — sequential gate chain (scratchpad gatechain logs): full
+muya unit (all corpus round-trip/parity/security/sink suites), desktop unit
+897/897 (incl. new critic-markup-autosave — canonical bytes under all three
+projections; flush-before-save projection cases; critic-markup-print-security
+— all 7 hostile rows through the desktop sanitizeExportHtml into the real
+print container), and full hidden desktop E2E green including the extended
+file-backed corpus rows (malformed recovery, BOM+CRLF+astral with the
+documented desktop open/save byte restoration, escaped table pipes, front
+matter, hostile cross-block, nested block-spanning), per-row open→save×2→
+reopen→save cycles, and real PDF artifacts for all five forms where the
+Original-projection PDF text provably differs from the Marked one (this
+exposed and fixed a product hole: printService.css print-media rules blanked
+the live window for direct prints; now scoped to the mounted print
+container). The corpus-to-boundary matrix is checked in at
+specs/architecture/criticmarkup-corpus-boundary-matrix.md with per-row proof
+citations; remaining open rows there: the no-final-newline/repeated-blank
+byte classes across real file IO (documented as gaps, unit-proven
+elsewhere).
 
 ## Wave 6 — Make the Marked fork reproducible and reviewable
 
-- [ ] Finalize and track the complete `packages/marked` fork, including source,
+- [x] Finalize and track the complete `packages/marked` fork, including source,
   license, upstream identity, package metadata, canonical patch, manifest, and
   verifier.
-- [ ] Regenerate the canonical patch and manifest from the pinned upstream
+- [x] Regenerate the canonical patch and manifest from the pinned upstream
   commit so reverse/reapply produces byte-exact trees.
-- [ ] Verify the fork offline and run its negative controls for unrecorded
+- [x] Verify the fork offline and run its negative controls for unrecorded
   source, version, manifest, patch, and consumer-wiring drift.
-- [ ] Prove Muya resolves `marked` through `workspace:*`, the lockfile points to
+- [x] Prove Muya resolves `marked` through `workspace:*`, the lockfile points to
   `packages/marked`, and the pinned CommonMark conformance version is exact.
-- [ ] Regenerate and validate third-party license attribution for the vendored
+- [x] Regenerate and validate third-party license attribution for the vendored
   fork.
-- [ ] Run the complete CommonMark/GFM ratchet and explain every intentional
+- [x] Run the complete CommonMark/GFM ratchet and explain every intentional
   delta caused by the native parser contract.
 
 **Gate:** `node packages/marked/scripts/verify-fork.mjs --self-test`, fork-
 contract tests, dependency/lock checks, and CommonMark/GFM conformance pass from
 a clean checkout without network access.
+**Substantially MET 2026-07-15** — canonical patch + manifest regenerated
+against the pinned upstream v18.0.5 (fetched once; commit/tree hashes matched
+the reviewed constants byte-exact); `verify-fork.mjs --self-test` PASS;
+`markedForkContract.spec.ts` 5/5; third-party attribution regenerated with the
+vendored fork (entry "marked (MIT)") and `validate-licenses` clean after
+excluding the private workspace fork from license-checker;
+`test/spec` conformance + round-trip 1347/1347 with the ledger refreshed
+(78 CM / 90 GFM expected failures; setext-heading deltas 84/89 + 54/59
+documented in `conformance.md`). The clean-checkout offline rerun remains a
+Wave 7 gate step.
 
 ## Wave 7 — Prove the production artifact and close the branch
 
-- [ ] Run all gates sequentially under background scheduling: Muya unit,
+- [x] Run all gates sequentially under background scheduling: Muya unit,
   spec/conformance, real-DOM/E2E, lint, CSS lint, typecheck, circular checks;
   desktop unit/E2E, lint, typecheck; fork verification; and unpacked/package
   build.
-- [ ] Build freshly before desktop E2E. Reject stale bundles deterministically.
-- [ ] Produce the native distributable for the current platform, install or
+- [x] Build freshly before desktop E2E. Reject stale bundles deterministically.
+- [x] Produce the native distributable for the current platform, install or
   mount it in an isolated test location, and run the smoke workflow against
   that packaged artifact rather than only `build:unpack` output.
-- [ ] Run one hidden, low-priority, one-worker desktop workflow with no Dock/
+- [x] Run one hidden, low-priority, one-worker desktop workflow with no Dock/
   focus/window takeover and capture main and renderer errors.
-- [ ] In the real artifact, open the named Wave 5 file-backed corpus rows;
+- [x] In the real artifact, open the named Wave 5 file-backed corpus rows;
   inspect every item; author all five forms; enable Track Changes; exercise inline and
   structural edits; navigate and resolve individual/all items; toggle all
   projections; copy/cut/paste/search; source-edit; autosave/save/reopen; undo/
   redo; and export HTML/PDF/print.
-- [ ] On a recorded CI/dogfood machine, open the 4,096-line no-opener fixture in
+- [x] On a recorded CI/dogfood machine, open the 4,096-line no-opener fixture in
   at most 5 seconds and complete five projection toggles, next/previous actions,
   and sidebar refreshes with a p95 below 500 ms. Pair this artifact budget with
   Wave 2's deterministic law that doubling input performs at most 2.25× the
@@ -313,19 +450,19 @@ a clean checkout without network access.
 - [ ] Run named supported-platform jobs: macOS arm64 build plus Review menu/
   keybinding tests, Windows x64 build plus Windows menu/keybinding tests, and
   Linux x64 build plus Linux menu/keybinding tests.
-- [ ] Produce and inspect an actual PDF file. For printing, capture the final
+- [x] Produce and inspect an actual PDF file. For printing, capture the final
   sanitized print document and print options with the deterministic hidden-test
   adapter, then complete one user-owned packaged-app Print-to-PDF smoke step;
   automated tests may not open a foreground native print dialog.
-- [ ] Immediately before the final gate, fetch `upstream` and `origin`; require
+- [x] Immediately before the final gate, fetch `upstream` and `origin`; require
   local `develop`, `origin/develop`, and `upstream/develop` to name the same
   commit. If upstream advanced, fast-forward local `develop` to it, push that
   exact commit to the fork's `origin/develop`, merge `develop` forward into
   this branch without rebasing, and rerun every gate.
-- [ ] Audit the whole branch versus the merge base, including every untracked
+- [x] Audit the whole branch versus the merge base, including every untracked
   file. Remove generated artifacts and unrelated changes; preserve the user's
   `.vscode/settings.json` customization unstaged.
-- [ ] Update README/user documentation/release notes only after artifact proof:
+- [x] Update README/user documentation/release notes only after artifact proof:
   five forms, Track Changes, projections, Accept/Reject/Remove, source/save/
   autosave, copy/export policy, interoperability limits, and the explicit
   concurrency non-goal.

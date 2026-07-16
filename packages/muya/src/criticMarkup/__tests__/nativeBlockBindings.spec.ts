@@ -3,9 +3,9 @@ import type {
     TCriticMarkupBlockStateBinding,
 } from '../../state/markdownToState';
 import { describe, expect, it } from 'vitest';
+import { markdownStatePath } from '../../state/markdownSourceMap';
 import { MarkdownToState } from '../../state/markdownToState';
 import StateToMarkdown from '../../state/stateToMarkdown';
-import { markdownStatePath } from '../../state/markdownSourceMap';
 import { CriticMarkupAnalysis } from '../analysis';
 import { createCriticMarkupDocument } from '../document';
 import { ExcludedRanges } from '../excludedRanges';
@@ -56,7 +56,7 @@ function immutableGraph(
     });
 }
 
-describe('CriticMarkupDocument native block bindings', () => {
+describe('criticMarkupDocument native block bindings', () => {
     it('uses parser-owned structural identity instead of reconstructing it', () => {
         const { analysis, bindings, mapped } = fixture();
         const document = createCriticMarkupDocument(

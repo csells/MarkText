@@ -1,4 +1,5 @@
 import { validEmoji } from '../../../utils/emoji';
+import { windowedInlineStart } from './inlineStartScan';
 
 const START_REG = /(\s|^):(?!:)/;
 const EMOJI_REG = /^(:)([a-z_\d+-]+)\1/;
@@ -31,15 +32,20 @@ function getExtension(opts: IOptions) {
         name: 'emoji',
         level: 'inline' as const,
         start(src: string) {
-            const match = src.match(START_REG);
-            if (!match)
-                return;
+            return windowedInlineStart(src, (slice, full) => {
+                const match = slice.match(START_REG);
+                if (!match)
+                    return undefined;
 
-            const index = (match.index || 0) + match[1].length;
-            const possibleEmoji = src.substring(index);
+                const index = (match.index || 0) + match[1].length;
+                const possibleEmoji = full.substring(index);
 
-            if (EMOJI_REG.test(possibleEmoji))
-                return index;
+                return {
+                    index,
+                    matchEnd: (match.index || 0) + match[0].length,
+                    verified: EMOJI_REG.test(possibleEmoji),
+                };
+            });
         },
 
         tokenizer(src: string) {

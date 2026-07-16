@@ -65,7 +65,12 @@ const focusEditorAndExecute = (fn: () => void): void => {
 const executeReviewAction = (action: CriticMarkupReviewAction): void => {
   // Review actions are document-scoped. Capture their target in the
   // controller before a delayed callback could observe a different active tab.
-  bus.emit('editor-focus')
+  // Projection switches are exempt: they rebuild the editor and manage focus
+  // themselves, and the pre-focus would force an O(document) cursor render
+  // that the rebuild immediately discards.
+  if (!action.startsWith('show-')) {
+    bus.emit('editor-focus')
+  }
   bus.emit('critic-markup-review', action)
 }
 

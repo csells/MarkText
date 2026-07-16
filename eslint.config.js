@@ -29,9 +29,14 @@ export default [
       // ts/no-explicit-any), so we keep them isolated rather than try to
       // merge two flat configs.
       'packages/muya/**',
+      // The vendored Marked fork keeps upstream's source style byte-exact:
+      // its canonical patch and manifest are verified by reverse/reapply
+      // (packages/marked/scripts/verify-fork.mjs), so reformatting it here
+      // would break fork reproducibility.
+      'packages/marked/**',
       'packages/desktop/src/renderer/src/assets/symbolIcon/index.js',
       '**/*.min.json',
-      'test-results/**',
+      '**/test-results/**',
       'playwright-report/**'
     ]
   },

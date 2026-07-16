@@ -67,7 +67,8 @@ describe('thematicBreakContent handlers — block native DOM mutation (#4559)', 
     });
 
     it('enterHandler at offset 0 calls preventDefault and stopPropagation before inserting', () => {
-        const create = vi.fn().mockReturnValue({});
+        // `ScrollPage.createStateBlock` binds source trivia on the created block.
+        const create = vi.fn().mockReturnValue({ initializeStateSourceTrivia: vi.fn() });
         vi.spyOn(ScrollPage, 'loadBlock').mockReturnValue({ create } as never);
 
         const content = makeFakeContent(0);

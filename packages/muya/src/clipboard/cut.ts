@@ -219,6 +219,11 @@ function removeBlocks(before: TreeNode, after: TreeNode): void {
         between.remove();
         between = temp;
     }
+    // `beforeBranch` now precedes different (or no) content than at parse
+    // time, so its recorded interblock spelling no longer describes real
+    // boundary bytes.
+    if (beforeBranch && !beforeBranch.isContent())
+        (beforeBranch as Parent).releaseBlockSeparatorTrivia();
 
     // Does any content leaf after `after` survive inside `afterBranch`? If
     // not, `afterBranch` is fully consumed — remove it once (this also keeps

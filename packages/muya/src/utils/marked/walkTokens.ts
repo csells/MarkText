@@ -1,6 +1,74 @@
-import type { Token } from 'marked';
+import type { Token, Tokens } from 'marked';
 import type { IMathToken } from './extensions/math';
 import type { Heading, ILexOption } from './types';
+
+/**
+ * Visit every lexed token exactly like `Marked.walkTokens`, without its
+ * result accumulator: marked concatenates each callback result into a
+ * growing array, which is O(tokens^2) on the flat inline token list of a
+ * large paragraph. The lex walker mutates tokens in place and returns
+ * nothing, so a plain recursive visit is behavior-identical.
+ *
+ * `childTokens` is the marked instance's `defaults.extensions.childTokens`
+ * registry, so extension-declared child fields (e.g. a substitution's
+ * `oldTokens`/`newTokens`) are covered the same way marked covers them.
+ */
+export function walkLexedTokens(
+    tokens: readonly Token[],
+    callback: (token: Token) => void,
+    childTokens?: Record<string, string[]>,
+): void {
+    for (const token of tokens) {
+        callback(token);
+        switch (token.type) {
+            case 'table': {
+                const tableToken = token as Tokens.Table;
+                for (const cell of tableToken.header)
+                    walkLexedTokens(cell.tokens, callback, childTokens);
+                for (const row of tableToken.rows) {
+                    for (const cell of row)
+                        walkLexedTokens(cell.tokens, callback, childTokens);
+                }
+                break;
+            }
+            case 'list': {
+                const listToken = token as Tokens.List;
+                walkLexedTokens(listToken.items, callback, childTokens);
+                break;
+            }
+            case 'critic_addition':
+            case 'critic_deletion':
+            case 'critic_substitution':
+            case 'critic_highlight':
+            case 'critic_comment': {
+                walkLexedTokens(
+                    (token as Tokens.CriticMarkupFragment).tokens,
+                    callback,
+                    childTokens,
+                );
+                break;
+            }
+            default: {
+                const genericToken = token as Tokens.Generic;
+                const childFields = childTokens?.[genericToken.type];
+                if (childFields) {
+                    for (const field of childFields) {
+                        walkLexedTokens(
+                            (genericToken[field] as Token[]).flat(
+                                Number.POSITIVE_INFINITY,
+                            ),
+                            callback,
+                            childTokens,
+                        );
+                    }
+                }
+                else if (genericToken.tokens) {
+                    walkLexedTokens(genericToken.tokens, callback, childTokens);
+                }
+            }
+        }
+    }
+}
 
 function isHeadingToken(token: Token | Heading): token is Heading {
     return token.type === 'heading';

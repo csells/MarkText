@@ -990,7 +990,14 @@
       "commentTitle": "Kommentar hinzufügen",
       "commentPlaceholder": "Prüfkommentar eingeben",
       "replacementTitle": "Ersetzung vorschlagen",
-      "replacementPlaceholder": "Ersatztext eingeben"
+      "replacementPlaceholder": "Ersatztext eingeben",
+      "trackChangeRejected": {
+        "title": "Änderung nicht erfasst",
+        "unmappableSourceEdit": "Die Änderungsverfolgung konnte diese Bearbeitung nicht erfassen, das Dokument blieb daher unverändert. Versuchen Sie eine kleinere Bearbeitung oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
+        "parserConflict": "Die Änderungsverfolgung konnte diese Bearbeitung nicht mit dem Markdown des Dokuments in Einklang bringen, das Dokument blieb daher unverändert. Versuchen Sie eine kleinere Bearbeitung oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
+        "unmappableTrackedSelection": "Die Änderungsverfolgung konnte Ihre Auswahl nicht dem nachverfolgten Dokument zuordnen, das Dokument blieb daher unverändert. Wählen Sie den Text erneut aus und versuchen Sie es noch einmal, oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
+        "missingTrackedSelectionBlock": "Die Änderungsverfolgung konnte den Block mit Ihrer Auswahl nicht finden, das Dokument blieb daher unverändert. Klicken Sie erneut in den Text, oder schalten Sie die Änderungsverfolgung für diese Änderung aus."
+      }
     },
     "export": {
       "error": "Export-Fehler",

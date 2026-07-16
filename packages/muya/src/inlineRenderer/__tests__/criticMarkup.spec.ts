@@ -8,12 +8,12 @@ import { describe, expect, it } from 'vitest';
 import { CRITIC_MARKUP_RENDER_DEPTH_LIMIT } from '../../criticMarkup/renderPolicy';
 import { localRange } from '../../mappedText';
 import { mappedMarkdown, markdownStatePath } from '../../state/markdownSourceMap';
-import { parseCriticMarkupDocument } from '../../utils/marked/criticMarkupDocument';
+import { parseBoundCriticMarkupDocument } from '../../utils/marked/criticMarkupDocument';
 import { generator, tokenizer } from '../lexer';
 
 function tokenize(source: string) {
     const path = markdownStatePath([0, 'text']);
-    const document = parseCriticMarkupDocument(mappedMarkdown(
+    const document = parseBoundCriticMarkupDocument(mappedMarkdown(
         source,
         path,
         0,
@@ -235,7 +235,7 @@ describe('inline lexer — CriticMarkup', () => {
     it('indexes dense siblings once instead of rereading every item per character', () => {
         const itemCount = 2_048;
         const source = '{++x++}'.repeat(itemCount);
-        const document = parseCriticMarkupDocument(mappedMarkdown(
+        const document = parseBoundCriticMarkupDocument(mappedMarkdown(
             source,
             markdownStatePath([0, 'text']),
             0,

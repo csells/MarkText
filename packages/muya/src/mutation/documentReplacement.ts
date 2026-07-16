@@ -47,9 +47,22 @@ export function replaceDocumentContent(
 ): boolean {
     muya.flush();
     const { jsonState, history } = muya.editor;
-    const { op, prevState } = jsonState.buildReplaceOp(content);
+    const { op, prevState, nextState } = jsonState.buildReplaceOp(content);
     if (op.length === 0)
         return false;
+
+    // The op compares raw states, which also differ when the SAME markdown is
+    // merely re-spelled (e.g. a paragraph's leading space lives as text in the
+    // live tree but as parser trivia after a re-parse). Such a replacement is
+    // not a document change: applying it would burn an undo boundary on a
+    // no-op, so the first undo after a source-mode handoff would revert
+    // nothing instead of the user's last edit.
+    if (
+        jsonState.getMarkdownFromState(nextState)
+        === jsonState.getMarkdownFromState(prevState)
+    ) {
+        return false;
+    }
 
     const selection = muya.editor.selection.getSelection();
     const boundarySelection = recordSelection !== undefined

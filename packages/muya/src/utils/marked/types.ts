@@ -55,6 +55,13 @@ export interface IFrontmatterToken {
 export interface IBlockEndToken {
     type: 'block-end';
     tokenType: 'blockquote' | 'list' | 'list-item' | 'footnote';
+    /**
+     * Blank lines after a list item are owned by the item's
+     * `listItemTrailingBlankLines` trivia; the same bytes also surface as a
+     * trailing in-item space token. The closer strips that duplicated
+     * separator from the item's last child.
+     */
+    ownsTrailingBlankLines?: boolean;
 }
 
 export interface ICriticMarkupFragmentEndToken {

@@ -33,8 +33,9 @@ export function parserResidueTerminalNewlines(
                 || token.type === 'block-end'
                 || token.type === 'critic-fragment-end'
                 || token.type === 'critic-boundary-end'
-            )
+            ) {
                 return;
+            }
             const following = values[index + 1];
             const followingNewline = following?.type === 'space'
                 && following.raw.startsWith('\n');

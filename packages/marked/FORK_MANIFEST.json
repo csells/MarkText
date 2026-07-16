@@ -38,6 +38,7 @@
     "surface": {
       "modified": [
         "package.json",
+        "src/Instance.ts",
         "src/Lexer.ts",
         "src/MarkedOptions.ts",
         "src/Parser.ts",
@@ -56,7 +57,6 @@
       "unchanged": [
         "LICENSE",
         "src/Hooks.ts",
-        "src/Instance.ts",
         "src/TextRenderer.ts",
         "src/rules.ts"
       ]

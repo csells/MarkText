@@ -1,3 +1,5 @@
+import { windowedInlineStart } from './inlineStartScan';
+
 const SUB_START_REG = /(?:\s|^)(~)(?!\1)/;
 const SUB_REG = /^(~)((?:[^~\s]|(?<=\\)\1|(?<=\\) )+?)(?<!\\)\1(?!\1)/;
 // TODO: why \S in sup???
@@ -32,16 +34,23 @@ function getExtension(name: 'superscript' | 'subscript') {
         name,
         level: 'inline' as const,
         start(src: string) {
-            const match = src.match(START_HASH[name]);
-            if (!match)
-                return;
+            return windowedInlineStart(src, (slice, full) => {
+                const match = slice.match(START_HASH[name]);
+                if (!match)
+                    return undefined;
 
-            const markerInMatch = match[0].lastIndexOf(match[1]);
-            const index = (match.index ?? 0) + markerInMatch;
-            const possibleSubSup = src.substring(index);
+                const markerInMatch = match[0].lastIndexOf(match[1]);
+                const index = (match.index ?? 0) + markerInMatch;
+                const possibleSubSup = full.substring(index);
 
-            if (SUP_REG.test(possibleSubSup) || SUB_REG.test(possibleSubSup))
-                return index;
+                return {
+                    index,
+                    matchEnd: (match.index ?? 0) + match[0].length,
+                    verified:
+                        SUP_REG.test(possibleSubSup)
+                        || SUB_REG.test(possibleSubSup),
+                };
+            });
         },
 
         tokenizer(src: string) {

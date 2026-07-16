@@ -31,6 +31,7 @@ const UNSAFE_FULL_DOC =
   '</article></body></html>'
 
 vi.mock('@muyajs/core', async(importOriginal) => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- vi.mock factories cannot hoist a top-level type import
   const actual = await importOriginal<typeof import('@muyajs/core')>()
   return {
     ...actual,

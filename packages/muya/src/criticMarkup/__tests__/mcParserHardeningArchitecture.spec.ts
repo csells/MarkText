@@ -321,6 +321,7 @@ describe('mC-informed CriticMarkup architecture fitness', () => {
             'criticMarkup/transform.ts',
             'utils/marked/criticMarkupDocument.ts',
             'utils/marked/locatedMarkdown.ts',
+            'utils/marked/markedSourceBinding.ts',
         ]);
         const rawNames = new Set(['ICriticMarkupRange', 'TCriticMarkupToken']);
         const offenders = productionSourceFiles(
@@ -385,7 +386,7 @@ describe('mC-informed CriticMarkup architecture fitness', () => {
             'utf8',
         );
 
-        expect(stateAdapter).not.toContain("name: 'markdown-parser-residue'");
+        expect(stateAdapter).not.toContain('name: \'markdown-parser-residue\'');
         expect(stateAdapter).not.toContain(
             'critic-markup-structural-residue',
         );
@@ -444,7 +445,13 @@ describe('mC-informed CriticMarkup architecture fitness', () => {
         );
         const forkLexer = readFileSync(forkLexerPath, 'utf8');
         const forkTokenizer = readFileSync(forkTokenizerPath, 'utf8');
-        const blockLexer = readFileSync(blockLexerPath, 'utf8');
+        // The block lexer's provenanced analyzer core was decomposed into
+        // markdownBlockAnalysis.ts; the boundary contract spans both files.
+        const blockLexer = readFileSync(blockLexerPath, 'utf8')
+            + readFileSync(
+                sourcePath('utils/marked/markdownBlockAnalysis.ts'),
+                'utf8',
+            );
         const ordinaryLexBlock = blockLexer.slice(
             blockLexer.indexOf('export function lexBlock('),
             blockLexer.indexOf('export function analyzeMarkdownBlockSource('),

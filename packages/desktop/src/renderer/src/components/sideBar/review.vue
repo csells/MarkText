@@ -60,6 +60,8 @@
       v-else
       ref="reviewList"
       class="review-list"
+      role="group"
+      :aria-label="t('sideBar.review.title')"
     >
       <section
         v-for="(item, index) of snapshot.items"

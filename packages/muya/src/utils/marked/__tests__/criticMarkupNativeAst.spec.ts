@@ -1,8 +1,8 @@
 import type { Token, Tokens } from 'marked';
+import type { TState } from '../../../state/types';
 import { describe, expect, it } from 'vitest';
 import { MarkdownToState } from '../../../state/markdownToState';
 import StateToMarkdown from '../../../state/stateToMarkdown';
-import type { TState } from '../../../state/types';
 import { analyzeMarkdownBlockSource } from '../lexBlock';
 
 const OPTIONS = {
@@ -262,6 +262,10 @@ describe('parser-native CriticMarkup AST', () => {
                 raw: ['old', '- item', 'after'].join('\n'),
             }],
         }]);
+        // A mixed (inline-anchored, block-spanning) item lowers to per-line
+        // literal inline fragments; the covered lines parse natively (the
+        // `- item` line becomes a native list) and each line piece binds
+        // inside whichever leaf hosts it.
         expect(fragments.map(fragment => ({
             level: fragment.level,
             role: fragment.role,
@@ -279,10 +283,10 @@ describe('parser-native CriticMarkup AST', () => {
                 after: [],
             },
             {
-                level: 'block',
+                level: 'inline',
                 role: 'middle',
-                contentRaw: '- item\n',
-                children: ['list'],
+                contentRaw: 'item',
+                children: ['text'],
                 before: [],
                 after: [],
             },
@@ -300,7 +304,7 @@ describe('parser-native CriticMarkup AST', () => {
         expect(parsed.trace.residues).toEqual([]);
     });
 
-    it('binds parser-owned block fragment identity to produced state paths', () => {
+    it('binds parser-owned mixed-item identity to produced state paths', () => {
         const source = [
             'before {--old',
             '- item',
@@ -308,10 +312,10 @@ describe('parser-native CriticMarkup AST', () => {
             '',
         ].join('\n');
         const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
-        const blockFragment = nativeCriticFragments(parsed.tokens).find(fragment =>
-            fragment.level === 'block');
-        if (!blockFragment)
-            throw new TypeError('Fixture produced no native block fragment.');
+        const fragments = nativeCriticFragments(parsed.tokens);
+        const itemId = fragments[0]?.itemId;
+        if (!itemId)
+            throw new TypeError('Fixture produced no native critic fragment.');
 
         const lowered = new MarkdownToState({
             footnote: false,
@@ -321,36 +325,36 @@ describe('parser-native CriticMarkup AST', () => {
             trimUnnecessaryCodeBlockEmptyLines: false,
         }).generateWithMetadata(source);
 
+        // The mixed item's covered `- item` line parses as a native list
+        // between the two paragraphs; every fragment binds inline in the
+        // exact leaf hosting its line.
         expect(lowered.states.map(state => state.name)).toEqual([
             'paragraph',
             'bullet-list',
-            'paragraph',
         ]);
-        expect(lowered.criticMarkupBindings.block).toEqual([{
-            kind: 'content',
-            path: [1],
-            itemId: blockFragment.itemId,
-            criticType: 'deletion',
-            arm: blockFragment.arm,
-            role: blockFragment.role,
-            sourceRange: blockFragment.range,
-            localRange: {
-                start: blockFragment.contentRange.start
-                    - blockFragment.range.start,
-                end: blockFragment.contentRange.end
-                    - blockFragment.range.start,
+        expect(lowered.criticMarkupBindings.block).toEqual([]);
+        expect(lowered.criticMarkupBindings.inline).toMatchObject([
+            { itemId, path: [0, 'text'], role: 'start' },
+            {
+                itemId,
+                path: [1, 'children', 0, 'children', 0, 'text'],
+                role: 'middle',
             },
-        }]);
+            {
+                itemId,
+                path: [1, 'children', 0, 'children', 0, 'text'],
+                role: 'end',
+            },
+        ]);
         expect(Object.isFrozen(lowered.criticMarkupBindings)).toBe(true);
-        expect(Object.isFrozen(lowered.criticMarkupBindings.block)).toBe(true);
-        expect(Object.isFrozen(lowered.criticMarkupBindings.block[0])).toBe(true);
-        expect(Object.isFrozen(lowered.criticMarkupBindings.block[0].path))
+        expect(Object.isFrozen(lowered.criticMarkupBindings.inline)).toBe(true);
+        expect(Object.isFrozen(lowered.criticMarkupBindings.inline[0]))
             .toBe(true);
         expect(Object.isFrozen(
-            lowered.criticMarkupBindings.block[0].sourceRange,
+            lowered.criticMarkupBindings.inline[0].localRange,
         )).toBe(true);
         expect(Object.isFrozen(
-            lowered.criticMarkupBindings.block[0].localRange,
+            lowered.criticMarkupBindings.inline[0].sourceRange,
         )).toBe(true);
     });
 
@@ -474,20 +478,29 @@ describe('parser-native CriticMarkup AST', () => {
             '',
         ].join('\n');
         const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
-        const fragments = nativeCriticFragments(parsed.tokens);
-        expect(fragments.map(fragment => ({
-            level: fragment.level,
-            contentRaw: fragment.contentRaw,
-            before: fragment.before.map(marker => marker.name),
-            after: fragment.after.map(marker => marker.name),
-            children: fragment.tokens.map(token => token.type),
-        }))).toContainEqual({
-            level: 'block',
-            contentRaw: '- same\n',
-            before: ['open'],
-            after: ['close'],
-            children: ['list'],
-        });
+        // A pure-list structural arm welds into the surrounding native list;
+        // its coverage attachments land on the exact semantic list item, not
+        // on a fragment token or the containing list.
+        expect(nativeCriticFragments(parsed.tokens)).toEqual([]);
+        const rootList = parsed.tokens[0] as Tokens.List;
+        const nestedList = rootList.items[0].tokens.find(token =>
+            token.type === 'list') as Tokens.List | undefined;
+        const coveredItem = nestedList?.items[0] as (
+            Tokens.ListItem & Tokens.CriticMarkupBoundaryCarrier
+        ) | undefined;
+        expect(coveredItem?.criticMarkupBefore).toMatchObject([{
+            criticType: 'deletion',
+            arm: 'content',
+            edge: 'before',
+            coverage: 'content',
+            markers: [{ name: 'open', raw: '{--' }],
+        }]);
+        expect(coveredItem?.criticMarkupAfter).toMatchObject([{
+            criticType: 'deletion',
+            edge: 'after',
+            coverage: 'content',
+            markers: [{ name: 'close', raw: '--}' }],
+        }]);
         const states = new MarkdownToState({
             footnote: false,
             frontMatter: false,
@@ -519,19 +532,31 @@ describe('parser-native CriticMarkup AST', () => {
             '- tail',
             '',
         ].join('\n');
-        const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
-        const fragments = nativeCriticFragments(parsed.tokens)
-            .filter(fragment => fragment.type === 'critic_deletion');
-        expect(new Set(fragments.map(fragment => fragment.itemId)).size)
-            .toBe(2);
-
-        const states = new MarkdownToState({
+        const lowered = new MarkdownToState({
             footnote: false,
             frontMatter: false,
             isGitlabCompatibilityEnabled: false,
             math: false,
             trimUnnecessaryCodeBlockEmptyLines: false,
-        }).generate(source);
+        }).generateWithMetadata(source);
+        const states = lowered.states;
+        // Each sibling deletion keeps its own identity and binds its exact
+        // native list item.
+        expect(new Set(lowered.criticMarkupBindings.block
+            .map(binding => binding.itemId)).size).toBe(2);
+        expect(lowered.criticMarkupBindings.block.map(binding => ({
+            kind: binding.kind,
+            path: binding.path,
+        }))).toEqual([
+            {
+                kind: 'content',
+                path: [0, 'children', 0, 'children', 1, 'children', 0],
+            },
+            {
+                kind: 'content',
+                path: [0, 'children', 0, 'children', 1, 'children', 2],
+            },
+        ]);
         const structural = flattenStates(states).filter(state =>
             state.sourceTrivia?.criticBefore?.some(marker =>
                 marker.type === 'deletion'
@@ -590,15 +615,19 @@ describe('parser-native CriticMarkup AST', () => {
         }]);
         const rootList = parsed.tokens[0] as Tokens.List;
         const childList = rootList.items[0].tokens.find(token =>
-            token.type === 'list') as (
-            Tokens.List & Tokens.CriticMarkupBoundaryCarrier
+            token.type === 'list') as Tokens.List | undefined;
+        // The zero-width boundary anchors to the exact semantic list item
+        // the marker precedes, not to its containing list.
+        const childItem = childList?.items[0] as (
+            Tokens.ListItem & Tokens.CriticMarkupBoundaryCarrier
         ) | undefined;
-        expect(childList?.criticMarkupBefore).toMatchObject([{
+        expect(childItem?.criticMarkupBefore).toMatchObject([{
             itemId: parsed.tokens.criticMarkup?.items[0].id,
             criticType: 'addition',
             arm: 'content',
             role: 'only',
             edge: 'before',
+            coverage: 'empty',
             markers: [
                 { name: 'open', raw: '{++' },
                 { name: 'close', raw: '++}' },

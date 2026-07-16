@@ -1,11 +1,14 @@
-import type { Muya } from '../../muya';
 import type { CriticMarkupDocument } from '../../criticMarkup/document';
+import type { Muya } from '../../muya';
 import type { TState } from '../../state/types';
 import type { Nullable } from '../../types';
 import type Content from '../base/content';
 import type TreeNode from '../base/treeNode';
 import type { IConstructor, TBlockPath } from '../types';
 import { BLOCK_DOM_PROPERTY } from '../../config';
+import {
+    collectReferenceDefinitions,
+} from '../../inlineRenderer/referenceDefinitions';
 import { isHTMLElement, isMouseEvent } from '../../utils';
 import logger from '../../utils/logger';
 import {
@@ -15,6 +18,40 @@ import {
 import Parent from '../base/parent';
 
 const debug = logger('scrollpage:');
+
+/**
+ * Key-order-independent serialization, so a live block's `getState()` and a
+ * freshly parsed state compare equal whenever they describe the same block.
+ * Mirrors `JSON.stringify` value semantics (undefined object entries are
+ * skipped, undefined array elements serialize as null).
+ */
+function stableStateKey(value: unknown): string {
+    if (value === null || typeof value !== 'object')
+        return JSON.stringify(value) ?? 'null';
+    if (Array.isArray(value))
+        return `[${value.map(item => stableStateKey(item)).join(',')}]`;
+    const entries = Object.keys(value as Record<string, unknown>)
+        .sort()
+        .filter(key => (value as Record<string, unknown>)[key] !== undefined)
+        .map(key =>
+            `${JSON.stringify(key)}:${
+                stableStateKey((value as Record<string, unknown>)[key])}`);
+    return `{${entries.join(',')}}`;
+}
+
+function labelsEqual(
+    left: ReturnType<typeof collectReferenceDefinitions>,
+    right: ReturnType<typeof collectReferenceDefinitions>,
+): boolean {
+    if (left.size !== right.size)
+        return false;
+    for (const [label, info] of left) {
+        const other = right.get(label);
+        if (!other || other.href !== info.href || other.title !== info.title)
+            return false;
+    }
+    return true;
+}
 
 interface IBlurFocus {
     blur: Nullable<Content>;
@@ -145,16 +182,68 @@ export class ScrollPage extends Parent<Parent> {
         eventCenter.attachDOMEvent(domNode!, 'click', this._clickHandler.bind(this));
     }
 
-    updateState(state: TState[]) {
+    /**
+     * Rebuild the page's top-level blocks from `state`.
+     *
+     * `reuseUnchangedBlocks` keeps the block instance (and its rendered DOM)
+     * for every top-level block whose canonical state is unchanged. A
+     * projection toggle re-derives the whole state array even when only the
+     * critic-bearing blocks differ; recreating everything made the toggle
+     * O(document) in inline tokenization and DOM construction. Callers must
+     * only pass it when the render context (locale, render-affecting
+     * options, diagram themes) is unchanged — a reused block's DOM is not
+     * repainted.
+     */
+    updateState(state: TState[], reuseUnchangedBlocks = false) {
         const { muya } = this;
-        const children = createChildren(
-            state,
-            block => ScrollPage.createStateBlock(muya, block),
-        );
+        const reusable = reuseUnchangedBlocks
+            ? this._reusableChildrenByState(state)
+            : null;
+        const children = createChildren(state, (block) => {
+            const reused = reusable?.get(stableStateKey(block))?.shift();
+            return reused ?? ScrollPage.createStateBlock(muya, block);
+        });
         // Empty scrollPage dom
         this.empty();
         for (const child of children)
             this.append(child);
+    }
+
+    /**
+     * Index the current top-level blocks by canonical state for
+     * `updateState` reuse. Returns null when reuse is unsound: rendered
+     * output also depends on document-wide reference definitions, so if
+     * those changed a state-equal `[text][ref]` paragraph could keep a
+     * stale link target.
+     */
+    private _reusableChildrenByState(
+        nextState: readonly TState[],
+    ): Map<string, Parent[]> | null {
+        const currentBlocks: Parent[] = [];
+        const currentStates: TState[] = [];
+        this.forEach((child) => {
+            currentBlocks.push(child);
+            currentStates.push(child.getState());
+        });
+        if (
+            !labelsEqual(
+                collectReferenceDefinitions(currentStates),
+                collectReferenceDefinitions(nextState),
+            )
+        ) {
+            return null;
+        }
+
+        const byKey = new Map<string, Parent[]>();
+        currentBlocks.forEach((block, index) => {
+            const key = stableStateKey(currentStates[index]);
+            const queue = byKey.get(key);
+            if (queue)
+                queue.push(block);
+            else
+                byKey.set(key, [block]);
+        });
+        return byKey;
     }
 
     /**

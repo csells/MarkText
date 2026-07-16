@@ -1,4 +1,7 @@
 import type { CriticMarkupDocument } from '../criticMarkup/document';
+import type {
+    ICriticMarkupCommitAnalysis,
+} from '../criticMarkup/documentService';
 import type { ICriticMarkupSourceEdit } from '../criticMarkup/trackChanges';
 import type { Muya } from '../muya';
 import type { IHistorySelection } from '../selection/types';
@@ -19,6 +22,35 @@ import {
 import { markdownStatePath } from '../state/markdownSourceMap';
 import { PreparedSelectionError } from './errors';
 import { deriveOperationSourceEdits } from './operationSourceEdits';
+
+/**
+ * Closed fail-closed taxonomy for tracked-commit rejections. Every gateway
+ * rejection publishes exactly one of these reasons so presentation layers can
+ * localize an actionable explanation instead of a silent no-op.
+ */
+export const CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS = Object.freeze([
+    'unmappable-source-edit',
+    'parser-conflict',
+    'unmappable-tracked-selection',
+    'missing-tracked-selection-block',
+] as const);
+
+export type TCriticMarkupTrackChangeRejectionReason
+    = (typeof CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS)[number];
+
+export interface ICriticMarkupTrackChangeRejection {
+    readonly beforeMarkdown: string;
+    readonly proposedMarkdown: string;
+    readonly reason: TCriticMarkupTrackChangeRejectionReason;
+}
+
+function trackChangeRejection(
+    beforeMarkdown: string,
+    proposedMarkdown: string,
+    reason: TCriticMarkupTrackChangeRejectionReason,
+): ICriticMarkupTrackChangeRejection {
+    return Object.freeze({ beforeMarkdown, proposedMarkdown, reason });
+}
 
 function cloneSelection(
     selection: IHistorySelection | null,
@@ -204,17 +236,26 @@ export class TrackedCriticMarkupPolicy {
                 this._restoreBefore(beforeState, beforeSelection);
                 this._muya.eventCenter.emit(
                     'critic-markup-track-change-rejected',
-                    {
+                    trackChangeRejection(
                         beforeMarkdown,
                         proposedMarkdown,
-                        reason: 'unmappable-source-edit',
-                    },
+                        'unmappable-source-edit',
+                    ),
                 );
                 return 'rejected';
             }
 
             const proposedDocument
                 = documentSession.createForMapped(proposedMapped);
+            // The tracked revision is parsed exactly once: that artifact's
+            // semantic-only view serves trackChanges' projection proof and
+            // its state document becomes the committed tree below. Sources
+            // the native parse cannot describe byte-exactly keep the
+            // parser-context path.
+            const commitAnalyses = new Map<
+                string,
+                ICriticMarkupCommitAnalysis
+            >();
             const tracked = trackCriticMarkupEdits(
                 beforeMarkdown,
                 proposedMarkdown,
@@ -222,28 +263,40 @@ export class TrackedCriticMarkupPolicy {
                 {
                     beforeDocument,
                     proposedDocument,
-                    createDocument: documentSession.createForSource,
+                    createDocument: (source) => {
+                        const cached = commitAnalyses.get(source);
+                        if (cached)
+                            return cached.proofDocument;
+                        const analyzed
+                            = documentSession.analyzeForCommit(source);
+                        if (!analyzed)
+                            return documentSession.createForSource(source);
+                        commitAnalyses.set(source, analyzed);
+                        return analyzed.proofDocument;
+                    },
                 },
             );
             if (!tracked) {
                 this._restoreBefore(beforeState, beforeSelection);
                 this._muya.eventCenter.emit(
                     'critic-markup-track-change-rejected',
-                    {
+                    trackChangeRejection(
                         beforeMarkdown,
                         proposedMarkdown,
-                        reason: 'parser-conflict',
-                    },
+                        'parser-conflict',
+                    ),
                 );
                 return 'rejected';
             }
 
-            const trackedState = documentSession.parseState(tracked.text);
-            const trackedDocument
-                = documentSession.bindAnalysisForState(
-                    tracked.analysis,
-                    trackedState,
+            const commit = commitAnalyses.get(tracked.text);
+            if (!commit || commit.document.analysis !== tracked.analysis) {
+                throw new TypeError(
+                    'Tracked CriticMarkup commit is detached from its single-parse analysis.',
                 );
+            }
+            const trackedState = commit.states;
+            const trackedDocument = commit.document;
             const nextSelection = preparedSelection(
                 trackedState,
                 trackedDocument,
@@ -255,11 +308,11 @@ export class TrackedCriticMarkupPolicy {
                 this._restoreBefore(beforeState, beforeSelection);
                 this._muya.eventCenter.emit(
                     'critic-markup-track-change-rejected',
-                    {
+                    trackChangeRejection(
                         beforeMarkdown,
                         proposedMarkdown,
-                        reason: 'unmappable-tracked-selection',
-                    },
+                        'unmappable-tracked-selection',
+                    ),
                 );
                 return 'rejected';
             }
@@ -285,11 +338,11 @@ export class TrackedCriticMarkupPolicy {
             if (error instanceof PreparedSelectionError) {
                 this._muya.eventCenter.emit(
                     'critic-markup-track-change-rejected',
-                    {
+                    trackChangeRejection(
                         beforeMarkdown,
                         proposedMarkdown,
-                        reason: 'missing-tracked-selection-block',
-                    },
+                        'missing-tracked-selection-block',
+                    ),
                 );
                 return 'rejected';
             }

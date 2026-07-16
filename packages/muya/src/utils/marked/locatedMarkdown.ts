@@ -4,6 +4,9 @@ import type {
     Token,
     Tokens,
 } from 'marked';
+import type {
+    ICriticMarkupBindingGraph,
+} from '../../criticMarkup/bindingGraph';
 import type { ICriticMarkupRange } from '../../criticMarkup/parser';
 import type { IMappedTextSpan } from '../../mappedText';
 import type { IMarkdownSourceMapPiece } from '../../state/stateToMarkdown';
@@ -14,6 +17,9 @@ import type {
     IPreparedMarkdownSourceContext,
     PreparedCriticMarkupSourceContext,
 } from './criticMarkupSourceContext';
+import type {
+    ICriticMarkupContextSourceBinding,
+} from './markedSourceBinding';
 import type { IMarkedSourceView, TMarkedParserPath } from './markedSourceView';
 import { MarkedSourceView as ParserSourceView } from 'marked';
 import { ExcludedRanges } from '../../criticMarkup/excludedRanges';
@@ -30,6 +36,11 @@ import {
     completeCriticMarkupParseSession,
 } from './criticMarkupParseSession';
 import {
+    CRITIC_FRAGMENT_TOKEN_TYPES,
+    markedCriticBindingGraph,
+} from './markedBindings';
+import { parserSourceMappings } from './markedSourceBinding';
+import {
     markedParserPath,
     markedProvenanceSourceView,
     sliceView,
@@ -37,6 +48,10 @@ import {
     sourceRange,
 } from './markedSourceView';
 
+export type {
+    ICriticMarkupContextSourceBinding,
+    ICriticMarkupParserSourceMapping,
+} from './markedSourceBinding';
 export type { TMarkedParserPath } from './markedSourceView';
 export { markedParserPath } from './markedSourceView';
 
@@ -72,31 +87,12 @@ interface ILocatedMarkdownContextAnalysis<
     readonly mappedText: MappedText<TMarkedParserPath>;
     readonly literalRanges: readonly ICriticMarkupRange[];
     readonly inlineLeaves: readonly ICriticMarkupInlineLeaf[];
+    /** Parser-owned CriticMarkup topology for this located revision. */
+    readonly bindings: ICriticMarkupBindingGraph<TMarkedParserPath>;
 }
 
 export interface ICriticMarkupContextAnalysis
     extends ILocatedMarkdownContextAnalysis<PreparedCriticMarkupSourceContext> {}
-
-export interface ICriticMarkupContextSourceBinding {
-    /** Full canonical Markdown whose coordinates the analysis must expose. */
-    source: string;
-    /** Offset at which one contiguous tokenized parser source begins. */
-    parserOffset?: number;
-    /**
-     * Exact parser-source slices that correspond to canonical source. Bytes
-     * outside these slices are generated clipboard/container structure.
-     */
-    parserMappings?: readonly ICriticMarkupParserSourceMapping[];
-    /** Canonical parser-owned literal ranges from the prepared document. */
-    literalRanges: readonly ICriticMarkupRange[];
-}
-
-export interface ICriticMarkupParserSourceMapping {
-    readonly parserStart: number;
-    readonly parserEnd: number;
-    readonly sourceStart: number;
-    readonly sourceEnd: number;
-}
 
 interface ILocatedMarkedToken {
     token: Token;
@@ -105,11 +101,27 @@ interface ILocatedMarkedToken {
     children: ILocatedMarkedToken[] | null;
 }
 
+/** One open structural arm whose covered leaves inherit its annotation. */
+interface ICriticCoverageScope {
+    readonly key: string;
+    readonly itemId: string;
+    readonly criticType: Tokens.CriticMarkupType;
+    readonly arm: Tokens.CriticMarkupArm['name'];
+    readonly sourceRange: ICriticMarkupRange;
+}
+
+interface ICriticCoveredLeaf {
+    readonly leaf: ICriticMarkupInlineLeaf;
+    readonly scopes: readonly ICriticCoverageScope[];
+}
+
 interface ITraversalResult {
     literalRanges: ICriticMarkupRange[];
     inlineLeaves: ICriticMarkupInlineLeaf[];
     activeInlineLeaf: ICriticMarkupInlineLeaf | null;
     trace: MarkedParseTrace<IPreparedMarkdownSourceContext>;
+    criticCoverageStack: ICriticCoverageScope[];
+    criticCoveredLeaves: ICriticCoveredLeaf[];
 }
 
 type TTokenLevel = 'block' | 'inline';
@@ -275,14 +287,14 @@ function locatedInlineTree(
         return {
             token: node.token,
             localRange,
-            children: node.token.type === 'image'
-                ? []
-                : locatedInlineTree(
-                        optionalSourceChildren(node, result) ?? [],
-                        leaf,
-                        result,
-                        leafInvocationId,
-                    ),
+            // Image alt renders as plain text, but critic items inside it
+            // are still semantic; their bindings come from this walk.
+            children: locatedInlineTree(
+                optionalSourceChildren(node, result) ?? [],
+                leaf,
+                result,
+                leafInvocationId,
+            ),
         };
     });
 }
@@ -317,6 +329,12 @@ function recordInlineLeaf(
         invocation.id,
     );
     result.inlineLeaves.push(leaf);
+    if (result.criticCoverageStack.length) {
+        result.criticCoveredLeaves.push({
+            leaf,
+            scopes: Object.freeze([...result.criticCoverageStack]),
+        });
+    }
 
     const previousLeaf = result.activeInlineLeaf;
     result.activeInlineLeaf = leaf;
@@ -489,12 +507,83 @@ const BLOCK_VISITORS: Readonly<Partial<Record<string, TLocatedTokenVisitor>>> = 
     },
 };
 
+function criticScopeOf(source: {
+    readonly itemId: string;
+    readonly criticType: Tokens.CriticMarkupType;
+    readonly arm: Tokens.CriticMarkupArm['name'];
+    readonly range: Tokens.CriticMarkupRange;
+}): ICriticCoverageScope {
+    return Object.freeze({
+        key: [
+            source.itemId,
+            source.arm,
+            source.range.start,
+            source.range.end,
+        ].join(' '),
+        itemId: source.itemId,
+        criticType: source.criticType,
+        arm: source.arm,
+        sourceRange: { start: source.range.start, end: source.range.end },
+    });
+}
+
 function visitBlock(node: ILocatedMarkedToken, result: ITraversalResult) {
+    const carrier = node.token as
+        Partial<Tokens.CriticMarkupBoundaryCarrier>;
+    const opened = (carrier.criticMarkupBefore ?? [])
+        .filter(attachment => attachment.coverage === 'content');
+    for (const attachment of opened) {
+        result.criticCoverageStack.push(criticScopeOf({
+            itemId: attachment.itemId,
+            criticType: attachment.criticType,
+            arm: attachment.arm,
+            range: attachment.range,
+        }));
+    }
+    const fragmentType = CRITIC_FRAGMENT_TOKEN_TYPES[node.token.type];
+    // The token-type table above is the discriminator: a matched type IS a
+    // critic fragment token, which marked's Token union cannot express.
+    const fragment = fragmentType
+        // eslint-disable-next-line no-restricted-syntax
+        ? node.token as unknown as Tokens.CriticMarkupFragment
+        : null;
+    if (fragment && fragment.fragmentKind === 'content') {
+        result.criticCoverageStack.push(criticScopeOf({
+            itemId: fragment.itemId,
+            criticType: fragmentType!,
+            arm: fragment.arm,
+            range: fragment.range,
+        }));
+    }
+
     const visitor = BLOCK_VISITORS[node.token.type];
     if (visitor)
         visitor(node, result);
     else
         visitLocated(sourceChildren(node, result), result, 'block');
+
+    if (fragment && fragment.fragmentKind === 'content')
+        result.criticCoverageStack.pop();
+    for (const attachment of carrier.criticMarkupAfter ?? []) {
+        if (attachment.coverage !== 'content')
+            continue;
+        const key = criticScopeOf({
+            itemId: attachment.itemId,
+            criticType: attachment.criticType,
+            arm: attachment.arm,
+            range: attachment.range,
+        }).key;
+        for (
+            let index = result.criticCoverageStack.length - 1;
+            index >= 0;
+            index--
+        ) {
+            if (result.criticCoverageStack[index].key === key) {
+                result.criticCoverageStack.splice(index, 1);
+                break;
+            }
+        }
+    }
 }
 
 function visitInline(node: ILocatedMarkedToken, result: ITraversalResult) {
@@ -521,105 +610,6 @@ function visitLocated(
         else
             visitInline(node, result);
     }
-}
-
-function assertParserSourceMapping(
-    mapping: ICriticMarkupParserSourceMapping,
-    previous: ICriticMarkupParserSourceMapping | undefined,
-    parserSource: string,
-    canonicalSource: string,
-    allowEmpty: boolean,
-): void {
-    const values = [
-        mapping.parserStart,
-        mapping.parserEnd,
-        mapping.sourceStart,
-        mapping.sourceEnd,
-    ];
-    if (
-        values.some(value => !Number.isInteger(value))
-        || mapping.parserStart < (previous?.parserEnd ?? 0)
-        || mapping.sourceStart < (previous?.sourceEnd ?? 0)
-        || mapping.parserStart < 0
-        || mapping.parserEnd < mapping.parserStart
-        || (mapping.parserEnd === mapping.parserStart && !allowEmpty)
-        || parserSource.length < mapping.parserEnd
-        || mapping.sourceStart < 0
-        || mapping.sourceEnd < mapping.sourceStart
-        || canonicalSource.length < mapping.sourceEnd
-        || mapping.parserEnd - mapping.parserStart
-        !== mapping.sourceEnd - mapping.sourceStart
-        || parserSource.slice(mapping.parserStart, mapping.parserEnd)
-        !== canonicalSource.slice(mapping.sourceStart, mapping.sourceEnd)
-    ) {
-        throw new RangeError(
-            'Located Markdown parser mapping is invalid for its canonical source.',
-        );
-    }
-}
-
-function parserSourceMappings(
-    parserSource: string,
-    sourceBinding?: ICriticMarkupContextSourceBinding,
-): readonly ICriticMarkupParserSourceMapping[] {
-    if (!sourceBinding) {
-        return [{
-            parserStart: 0,
-            parserEnd: parserSource.length,
-            sourceStart: 0,
-            sourceEnd: parserSource.length,
-        }];
-    }
-
-    const hasOffset = sourceBinding.parserOffset !== undefined;
-    const hasMappings = sourceBinding.parserMappings !== undefined;
-    if (hasOffset === hasMappings) {
-        throw new TypeError(
-            'Located Markdown source binding requires exactly one mapping form.',
-        );
-    }
-
-    const mappings: ICriticMarkupParserSourceMapping[] = [];
-    if (sourceBinding.parserMappings) {
-        for (const mapping of sourceBinding.parserMappings)
-            mappings.push(mapping);
-    }
-    else {
-        const parserOffset = sourceBinding.parserOffset;
-        if (parserOffset === undefined) {
-            throw new TypeError(
-                'Located Markdown source offset is missing.',
-            );
-        }
-        if (parserOffset + parserSource.length !== sourceBinding.source.length) {
-            throw new RangeError(
-                'Located Markdown parser source is not at its declared canonical offset.',
-            );
-        }
-        mappings.push({
-            parserStart: 0,
-            parserEnd: parserSource.length,
-            sourceStart: parserOffset,
-            sourceEnd: parserOffset + parserSource.length,
-        });
-    }
-    if (!mappings.length)
-        throw new RangeError('Located Markdown source binding is empty.');
-
-    const allowEmptyMapping
-        = sourceBinding.parserMappings === undefined
-            && parserSource.length === 0;
-    for (let index = 0; index < mappings.length; index++) {
-        assertParserSourceMapping(
-            mappings[index],
-            mappings[index - 1],
-            parserSource,
-            sourceBinding.source,
-            allowEmptyMapping,
-        );
-    }
-
-    return mappings;
 }
 
 export function analyzeLocatedMarkdownContext<
@@ -658,6 +648,8 @@ export function analyzeLocatedMarkdownContext<
         inlineLeaves: [],
         activeInlineLeaf: null,
         trace: trace as MarkedParseTrace<IPreparedMarkdownSourceContext>,
+        criticCoverageStack: [],
+        criticCoveredLeaves: [],
     };
     for (const residue of trace.residues) {
         const view = markedProvenanceSourceView(residue.source);
@@ -702,6 +694,10 @@ export function analyzeLocatedMarkdownContext<
             .ranges
             .map(range => ({ ...range }))),
         inlineLeaves: Object.freeze(result.inlineLeaves),
+        bindings: markedCriticBindingGraph(
+            result.inlineLeaves,
+            result.criticCoveredLeaves,
+        ),
     });
 }
 

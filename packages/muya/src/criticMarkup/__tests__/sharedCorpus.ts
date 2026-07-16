@@ -380,6 +380,15 @@ export const CRITIC_MARKUP_CORPUS: readonly ICriticMarkupCorpusRow[] = [
             revised: 'odd \\{++literal++} even \\\\live\n'
                 + 'close \\++} inside \\\\'
                 + '\nnew\n',
+            resolution: {
+                accept: 'odd \\{++literal++} even \\\\live\n'
+                    + 'close \\++} inside \\\\'
+                    + '\nnew\n',
+                reject: 'odd \\{++literal++} even \\\\'
+                    + '\nold ~> still old \\\\'
+                    + '\n',
+                reason: 'Rejecting the second-line addition erases the whole line, so resolution collapses the vacated mid-document junction that the lossless projection keeps blank.',
+            },
         },
     },
     {
@@ -659,8 +668,8 @@ export const CRITIC_MARKUP_CORPUS: readonly ICriticMarkupCorpusRow[] = [
             revised: '---\n\nvisible\n',
             resolution: {
                 accept: '---\n\nvisible\n',
-                reject: '---\n\n\n',
-                reason: 'Parser-owned block spacing preserves the blank structural bytes left after rejecting the only paragraph.',
+                reject: '---\n',
+                reason: 'Rejecting the only paragraph erases the final line, so resolution collapses the vacated junction to exactly one final newline.',
             },
         },
     },

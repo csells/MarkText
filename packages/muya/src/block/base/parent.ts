@@ -1,3 +1,4 @@
+import type { Doc } from 'ot-json1';
 import type { Muya } from '../../muya';
 import type { TState } from '../../state/types';
 import type { Nullable } from '../../types';
@@ -100,6 +101,46 @@ class Parent<Child extends TreeNode = TreeNode> extends TreeNode {
     // You should never call get state on Parent.
         debug.error('You should never call get state on Parent.');
         return {} as TState;
+    }
+
+    /**
+     * Drop this block's parser-owned following-boundary spelling. The
+     * separator described the bytes between this block and its parse-time
+     * next sibling; once a structural mutation removes or replaces that
+     * sibling, the recorded spelling is stale and the serializer must fall
+     * back to canonical separation. The change is dispatched as a JSON
+     * operation so the live tree and the prepared state stay in lockstep.
+     */
+    releaseBlockSeparatorTrivia(): void {
+        if (!this.sourceTriviaForRewrite || !('blockSeparatorAfter' in this.sourceTriviaForRewrite))
+            return;
+        // The prepared JSON state may hold what an EARLIER getState()
+        // produced (blocks like tables derive trivia from live content), so
+        // the replacement's old value must come from the state authority,
+        // not from this block's frozen field or a fresh reconstruction.
+        const path = [...this._getJsonPath(), 'sourceTrivia'];
+        const stateTrivia = this.jsonState.replaceableValueAt(path) as
+            Record<string, unknown> | undefined;
+        const { blockSeparatorAfter: _stale, ...restState }
+            = stateTrivia ?? {};
+        const releasedState = Object.keys(restState).length
+            ? restState
+            : null;
+        if (releasedState) {
+            this.jsonState.replaceOperation(
+                path,
+                stateTrivia as Doc,
+                releasedState as Doc,
+            );
+        }
+        else {
+            this.jsonState.removeOperation(path);
+        }
+        const { blockSeparatorAfter: _frozen, ...restFrozen }
+            = this.sourceTriviaForRewrite as Record<string, unknown>;
+        this.setRewrittenSourceTrivia(Object.keys(restFrozen).length
+            ? Object.freeze(restFrozen)
+            : null);
     }
 
     /**

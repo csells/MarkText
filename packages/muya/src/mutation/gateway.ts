@@ -6,6 +6,7 @@ import type {
     TMutationRequest,
     TMutationResult,
 } from './types';
+import { statesEqual } from '../state/stateEquality';
 import { CollectedError } from '../utils/collectedError';
 import { PostCommitNotificationError } from './errors';
 import { TrackedCriticMarkupPolicy } from './trackedCriticMarkup';
@@ -95,10 +96,9 @@ export class MutationGateway {
                 }
                 else {
                     const liveState = editor.getLiveBlockState();
-                    if (
-                        JSON.stringify(liveState)
-                        !== JSON.stringify(captured.afterState)
-                    ) {
+                    // Structural equality: block-tree reconstruction may order
+                    // sourceTrivia keys differently than the parser did.
+                    if (!statesEqual(liveState, captured.afterState)) {
                         throw new TypeError(
                             'A direct mutation changed the live tree without emitting an operation.',
                         );

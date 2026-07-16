@@ -3,7 +3,7 @@ import type ParagraphContent from '../block/content/paragraphContent';
 import type { Muya } from '../muya';
 import type { IRenderCursor } from '../selection/types';
 import type { TMarkdownStatePath } from '../state/markdownSourceMap';
-import type { IParagraphState, TContainerState, TState } from '../state/types';
+import type { IParagraphState } from '../state/types';
 import type { IHighlight, Labels } from './types';
 import { MappedPathIndex } from '../mapped-range';
 import { localRange } from '../mappedText';
@@ -11,8 +11,11 @@ import { markdownStatePath } from '../state/markdownSourceMap';
 import logger from '../utils/logger';
 import { criticMarkupFragmentsForPath } from './criticMarkupFragments';
 import { tokenizer } from './lexer';
+import {
+    collectReferenceDefinitions,
+    referenceDefinitionLabelInfo,
+} from './referenceDefinitions';
 import Renderer from './renderer';
-import { beginRules } from './rules';
 
 const debug = logger('inlineRenderer:');
 
@@ -110,7 +113,13 @@ class InlineRenderer {
         if (!affectedPaths.size)
             return;
 
-        const selection = editor.selection.getSelection();
+        // `getSelection()` resolves DOM offsets against the live tree, which
+        // is O(block text) for large blocks. Right after a whole-tree rebuild
+        // both the active block and the cached selection were cleared, so
+        // there is nothing to preserve — skip the resolution entirely.
+        const selection = editor.activeContentBlock || editor.selection.anchorBlock
+            ? editor.selection.getSelection()
+            : null;
         let renderedSelectionEndpoint = false;
         scrollPage.breadthFirstTraverse((node) => {
             if (
@@ -172,43 +181,13 @@ class InlineRenderer {
     }
 
     private _collectReferenceDefinitions() {
-        const state = this.muya.editor.jsonState.getState();
-        const labels = new Map();
-
-        const travel = (sts: TState[]) => {
-            if (Array.isArray(sts) && sts.length) {
-                for (const st of sts) {
-                    if (st.name === 'paragraph') {
-                        const { label, info } = this.getLabelInfo(st);
-                        if (label && info)
-                            labels.set(label, info);
-                    }
-                    else if ((st as TContainerState).children) {
-                        travel((st as TContainerState).children);
-                    }
-                }
-            }
-        };
-
-        travel(state);
-
-        this.labels = labels;
+        this.labels = collectReferenceDefinitions(
+            this.muya.editor.jsonState.getState(),
+        );
     }
 
     getLabelInfo(blockOrState: ParagraphContent | IParagraphState) {
-        const { text } = blockOrState;
-        const tokens = beginRules.reference_definition.exec(text);
-        let label = null;
-        let info = null;
-        if (tokens) {
-            label = (tokens[2] + tokens[3]).toLowerCase();
-            info = {
-                href: tokens[6],
-                title: tokens[10] || '',
-            };
-        }
-
-        return { label, info };
+        return referenceDefinitionLabelInfo(blockOrState.text);
     }
 }
 

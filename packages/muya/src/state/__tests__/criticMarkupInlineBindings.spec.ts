@@ -330,10 +330,7 @@ describe('parser-native inline CriticMarkup state bindings', () => {
 
     it('keeps dense inline binding output linear in parser item count', () => {
         const itemCount = 128;
-        const source = `${Array.from(
-            { length: itemCount },
-            () => '{++same++}',
-        ).join(' ')}\n`;
+        const source = `${Array.from({ length: itemCount }).fill('{++same++}').join(' ')}\n`;
         const lowered = lower(source);
         const bindings = lowered.criticMarkupBindings.inline;
 

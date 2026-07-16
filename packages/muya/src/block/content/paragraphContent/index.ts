@@ -1,17 +1,18 @@
 import type { Muya } from '../../../index';
-import type { CodeEmojiMathToken, HTMLTagToken, ImageToken, LinkToken, ReferenceLinkToken, Token } from '../../../inlineRenderer/types';
+import type { Token } from '../../../inlineRenderer/types';
 import type { IRenderCursor } from '../../../selection/types';
 import type {
     IBlockQuoteState,
     IBulletListState,
     ICodeBlockState,
-    IDiagramState,
     IDiagramMeta,
+    IDiagramState,
     IHtmlBlockState,
     IListItemState,
     IMathBlockState,
     IOrderListState,
     IParagraphState,
+    IStateSourceTriviaCarrier,
     ITaskListItemState,
     ITaskListState,
 } from '../../../state/types';
@@ -20,15 +21,21 @@ import type Content from '../../base/content';
 import type Parent from '../../base/parent';
 import type BulletList from '../../commonMark/bulletList';
 import type Paragraph from '../../commonMark/paragraph';
-import { HTML_TAGS, VOID_HTML_TAGS } from '../../../config';
 import { tokenizer } from '../../../inlineRenderer/lexer';
 import { isListItemState, isTaskListItemState } from '../../../state/types';
-import { isKeyboardEvent, isLengthEven } from '../../../utils';
+import { isKeyboardEvent } from '../../../utils';
 import logger from '../../../utils/logger';
 import Format from '../../base/format';
 import OrderList from '../../commonMark/orderList';
 import TaskList from '../../gfm/taskList';
 import { ScrollPage } from '../../scrollPage';
+
+import {
+    BOTH_SIDES_FORMATS,
+    END_FORMAT_HANDLERS,
+    matchBlockConversion,
+    parseTableHeader,
+} from './textClassification';
 
 // `_unindentListItem` / `_indentListItem` walk parents typed as the loose
 // `Parent` super-class; at runtime the relevant nodes are always one of
@@ -43,147 +50,36 @@ enum UnindentType {
 
 const debug = logger('paragraph:content');
 
-const HTML_BLOCK_REG = /^<([a-z\d-]+)(?=\s|>)[^<>]*>$/i;
-const CODE_BLOCK_REG = /(^ {0,3}`{3,})([^` ]*)/;
-const MATH_BLOCK_REG = /^\$\$/;
-// eslint-disable-next-line regexp/no-super-linear-backtracking
-const TABLE_BLOCK_REG = /^\|.*?(\\*)\|.*?(\\*)\|/;
-
-type BlockConversion
-    = | { kind: 'math' }
-        | { kind: 'code'; lang: string }
-        | { kind: 'table' }
-        | { kind: 'html'; tagName: string };
-
-// Single source of truth for "what block, if any, does this paragraph text
-// convert into on Enter". Shared by the enterHandler guard (to decide whether
-// to convert in place) and `_enterConvert` (to perform it), so the match rules
-// can never drift between the two.
-function matchBlockConversion(text: string): BlockConversion | null {
-    if (MATH_BLOCK_REG.test(text))
-        return { kind: 'math' };
-
-    const codeBlockToken = text.match(CODE_BLOCK_REG);
-    if (codeBlockToken)
-        return { kind: 'code', lang: codeBlockToken[2] };
-
-    const tableMatch = TABLE_BLOCK_REG.exec(text);
-    if (tableMatch && isLengthEven(tableMatch[1]) && isLengthEven(tableMatch[2]))
-        return { kind: 'table' };
-
-    const htmlMatch = HTML_BLOCK_REG.exec(text);
-    const tagName = htmlMatch && htmlMatch[1] && HTML_TAGS.find(t => t === htmlMatch[1]);
-    if (tagName && VOID_HTML_TAGS.every(tag => tag !== tagName))
-        return { kind: 'html', tagName };
-
-    return null;
-}
-
-const BOTH_SIDES_FORMATS = [
-    'strong',
-    'em',
-    'inline_code',
-    'image',
-    'link',
-    'reference_image',
-    'reference_link',
-    'emoji',
-    'del',
-    'html_tag',
-    'inline_math',
-];
-
-interface IEndFormatHit {
-    offset: number;
-}
-
-type TEndFormatHandler = (token: Token, offset: number) => Nullable<IEndFormatHit>;
-
-function endHitStrongLike(token: Token, offset: number): Nullable<IEndFormatHit> {
-    const { end } = token.range;
-    const { marker } = token as CodeEmojiMathToken;
-    if (marker && offset === end - marker.length)
-        return { offset: marker.length };
-
-    return null;
-}
-
-function endHitImageLink(token: Token, offset: number): Nullable<IEndFormatHit> {
-    const { end } = token.range;
-    const { backlash } = token as ImageToken;
-    const srcAndTitle = (token as ImageToken).srcAndTitle;
-    const hrefAndTitle = (token as LinkToken).hrefAndTitle;
-    const linkTitleLen = (srcAndTitle || hrefAndTitle).length;
-    const secondLashLen
-        = backlash && backlash.second ? backlash.second.length : 0;
-    if (offset === end - 3 - (linkTitleLen + secondLashLen))
-        return { offset: 2 };
-    if (offset === end - 1)
-        return { offset: 1 };
-
-    return null;
-}
-
-function endHitReference(token: Token, offset: number): Nullable<IEndFormatHit> {
-    const { end } = token.range;
-    const { backlash, isFullLink, label } = token as ReferenceLinkToken;
-    const labelLen = label ? label.length : 0;
-    const secondLashLen
-        = backlash && backlash.second ? backlash.second.length : 0;
-    if (isFullLink) {
-        if (offset === end - 3 - labelLen - secondLashLen)
-            return { offset: 2 };
-        if (offset === end - 1)
-            return { offset: 1 };
-        return null;
-    }
-    if (offset === end - 1)
-        return { offset: 1 };
-
-    return null;
-}
-
-function endHitHtmlTag(token: Token, offset: number): Nullable<IEndFormatHit> {
-    const { end } = token.range;
-    const { closeTag } = token as HTMLTagToken;
-    if (closeTag && offset === end - closeTag.length)
-        return { offset: closeTag.length };
-
-    return null;
-}
-
-const END_FORMAT_HANDLERS: Record<string, TEndFormatHandler> = {
-    strong: endHitStrongLike,
-    em: endHitStrongLike,
-    inline_code: endHitStrongLike,
-    emoji: endHitStrongLike,
-    del: endHitStrongLike,
-    inline_math: endHitStrongLike,
-    image: endHitImageLink,
-    link: endHitImageLink,
-    reference_image: endHitReference,
-    reference_link: endHitReference,
-    html_tag: endHitHtmlTag,
-};
-
-function parseTableHeader(text: string) {
-    const rowHeader = [];
-    const len = text.length;
-    let i;
-
-    for (i = 0; i < len; i++) {
-        const char = text[i];
-        if (/^[^|]$/.test(char))
-            rowHeader[rowHeader.length - 1] += char;
-
-        if (/\\/.test(char))
-            rowHeader[rowHeader.length - 1] += text[++i];
-
-        if (/\|/.test(char) && i !== len - 1)
-            rowHeader.push('');
-    }
-
-    return rowHeader;
+/**
+ * Release a re-parented list item's parser-owned marker and physical spacing
+ * trivia. That trivia spells the item's OLD position — marker number, leading
+ * indent, per-line continuation prefixes — so after a Tab/Shift-Tab move the
+ * serializer must re-spell the item from its new context (e.g. a nested
+ * ordered list restarts numbering at 1; honoring a stale `2.` would round-trip
+ * as a different number than the live document shows). Only the moved item's
+ * own layout keys are released: nested descendants keep their still-valid
+ * trivia, and non-layout trivia (Critic markers, block spacing) is preserved.
+ * The stripped state feeds a fresh block whose insertion op carries it, so no
+ * live-tree trivia rewrite is needed.
+ */
+function releaseListItemLayoutTrivia<T extends IStateSourceTriviaCarrier>(
+    state: T,
+): T {
+    const { sourceTrivia } = state;
+    if (!sourceTrivia)
+        return state;
+    const {
+        listItemLeadingPrefix: _leadingPrefix,
+        listItemMarker: _marker,
+        listItemMarkerPadding: _markerPadding,
+        listItemTrailingBlankLines: _trailingBlankLines,
+        listItemContinuationPrefixes: _continuationPrefixes,
+        ...keptTrivia
+    } = sourceTrivia;
+    const { sourceTrivia: _stale, ...rest } = state;
+    return (Object.keys(keptTrivia).length
+        ? { ...rest, sourceTrivia: keptTrivia }
+        : rest) as T;
 }
 
 /**
@@ -621,7 +517,10 @@ class ParagraphContent extends Format {
         const { text: oldText } = previousContentBlock;
         const offset = oldText.length;
         previousContentBlock.text += this.text;
+        const absorbing = previousContentBlock.getAnchor();
         this.parent!.remove();
+        // The join removed the block this separator was spelled against.
+        absorbing?.releaseBlockSeparatorTrivia();
         previousContentBlock.setCursor(offset, offset, true);
     }
 
@@ -768,7 +667,10 @@ class ParagraphContent extends Format {
             this._placeCursorIn(paragraph, start.offset, end.offset);
         }
         else if (type === UnindentType.INDENT) {
-            const newListItem = listItem.clone() as Parent;
+            const newListItem = ScrollPage.createStateBlock(
+                this.muya,
+                releaseListItemLayoutTrivia(listItem.getState()),
+            );
             listParent.parent!.insertAfter(newListItem, listParent);
 
             // At runtime, when unindentListItem runs, the surrounding `list`
@@ -868,7 +770,9 @@ class ParagraphContent extends Format {
 
         if (!newList || !/ol|ul/.test(newList.tagName)) {
             const listAsList = list as TListBlock;
-            const listItemState = listItem.getState();
+            const listItemState = releaseListItemLayoutTrivia(
+                listItem.getState(),
+            );
             let state: IBulletListState | IOrderListState | ITaskListState;
             if (listAsList instanceof TaskList) {
                 if (!isTaskListItemState(listItemState)) {
@@ -904,7 +808,13 @@ class ParagraphContent extends Format {
             prevListItem!.append(newList as Parent, 'user');
         }
         else {
-            (newList as Parent).append(listItem.clone() as Parent, 'user');
+            (newList as Parent).append(
+                ScrollPage.createStateBlock(
+                    muya,
+                    releaseListItemLayoutTrivia(listItem.getState()),
+                ),
+                'user',
+            );
         }
 
         listItem.remove();

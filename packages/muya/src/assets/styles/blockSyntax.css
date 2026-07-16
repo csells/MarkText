@@ -121,9 +121,9 @@
     width: 18px;
     height: 18px;
 
-    cursor: pointer;
-
     transform: translateY(calc(0.7em - 9px));
+
+    cursor: pointer;
     opacity: 0;
 
     transition: opacity 0.2s ease;
@@ -266,8 +266,8 @@
 
 .mu-code-block .mu-code::-webkit-scrollbar {
     display: block;
-    height: 6px;
     width: 3px;
+    height: 6px;
 }
 
 .mu-code-block .mu-content {
@@ -366,6 +366,7 @@ code.mu-code .mu-code-copy:hover {
 .mu-line-numbers-rows > span {
     position: absolute;
     left: 0;
+
     width: 100%;
 
     counter-increment: mu-linenumber;
@@ -642,7 +643,6 @@ li.mu-task-list-item > span.mu-checkbox-checked::before {
 .mu-table-inner tr th::before,
 .mu-table-inner tr td::before {
     position: absolute;
-    inset: 0;
 
     box-sizing: border-box;
     width: calc(100% + 1px);
@@ -652,6 +652,7 @@ li.mu-task-list-item > span.mu-checkbox-checked::before {
 
     content: '';
     pointer-events: none;
+    inset: 0;
 }
 
 .mu-table-inner tr th:first-child,
@@ -963,6 +964,10 @@ pre.mu-active.mu-fenced-code::after {
 }
 
 /* content */
+
+/* The higher-specificity code-block override above resolves independently
+of order; moving this base rule would reshuffle unrelated cascade ties. */
+/* stylelint-disable-next-line no-descending-specificity */
 .mu-content {
     display: block;
 
@@ -1097,10 +1102,12 @@ pre.mu-active.mu-fenced-code::after {
 }
 
 .mu-markdown-parser-residue {
-    border-left: 3px solid var(--theme-color);
     padding: 0.5em 0.75em;
-    background: var(--editor-color-04);
+
     white-space: pre-wrap;
+
+    background: var(--editor-color-04);
+    border-left: 3px solid var(--theme-color);
 }
 
 .mu-markdown-parser-residue-content {

@@ -9,6 +9,7 @@ import type { CriticMarkupDocument } from './document';
 import {
     mappedMarkdown,
     markdownStatePath,
+    plainMarkdown,
 } from '../state/markdownSourceMap';
 import StateToMarkdown from '../state/stateToMarkdown';
 import {
@@ -30,6 +31,22 @@ interface ICriticMarkupParserOptionsSnapshot {
     readonly lex: TCriticMarkupParserOptions;
 }
 
+/**
+ * Single-parse artifact for a revision about to be committed. Every member
+ * derives from one native analysis run: `states`, `document.analysis`, and
+ * `proofDocument.analysis` share the identical analysis object, so consumers
+ * can verify authority by identity instead of reparsing.
+ */
+export interface ICriticMarkupCommitAnalysis {
+    /** Byte-exact analyzed revision; `document.markdown === source`. */
+    readonly source: string;
+    readonly states: TState[];
+    /** Fragment-bearing document valid for stagePrepared/adoptCommitted. */
+    readonly document: CriticMarkupDocument;
+    /** Semantic-only view for projection proofs; refuses live-path lookups. */
+    readonly proofDocument: CriticMarkupDocument;
+}
+
 export interface ICriticMarkupDocumentSession {
     getContext: () => CriticMarkupDocument;
     createForState: (state: TState[]) => CriticMarkupDocument;
@@ -41,6 +58,9 @@ export interface ICriticMarkupDocumentSession {
         analysis: CriticMarkupAnalysis,
         state: TState[],
     ) => CriticMarkupDocument;
+    analyzeForCommit: (
+        markdown: string,
+    ) => ICriticMarkupCommitAnalysis | null;
     stagePrepared: (document: CriticMarkupDocument) => void;
     clearPrepared: () => void;
     adoptCommitted: (document: CriticMarkupDocument) => void;
@@ -184,8 +204,8 @@ export class CriticMarkupDocumentService {
             ),
             bindAnalysisForState: (analysis, state) => {
                 const mapped = this._mappedState(state, parserOptions);
-                const native = this._analyzeMappedState(
-                    mapped,
+                const native = this._analyzeSource(
+                    mapped.text,
                     parserOptions,
                 );
                 const parserProfile = criticMarkupParserProfile(
@@ -199,6 +219,10 @@ export class CriticMarkupDocumentService {
                     native.bindings,
                 );
             },
+            analyzeForCommit: markdown => this._analyzeForCommit(
+                markdown,
+                parserOptions,
+            ),
             stagePrepared: document => this._stagePrepared(
                 document,
                 parserOptions,
@@ -256,11 +280,14 @@ export class CriticMarkupDocumentService {
         let parserArtifact = this._muya.editor.jsonState
             .parserArtifactForSource(mapped.text);
         if (!parserArtifact) {
-            const analyzed = this._analyzeMappedState(
-                mapped,
+            const analyzed = this._analyzeSource(
+                mapped.text,
                 parserOptions,
             );
-            if (analyzed.analysis) {
+            // A drifted openerless analysis describes the normalized
+            // revision, not this one; the mapped parse below stays the
+            // authority for the live bytes.
+            if (analyzed.analysis && analyzed.source === mapped.text) {
                 parserArtifact = Object.freeze({
                     analysis: analyzed.analysis,
                     bindings: analyzed.bindings,
@@ -286,22 +313,72 @@ export class CriticMarkupDocumentService {
         return this._parseMapped(mapped, parserOptions, includeContext);
     }
 
-    private _analyzeMappedState(
-        mapped: TTrackedMarkdown,
+    private _analyzeSource(
+        source: string,
         parserOptions: ICriticMarkupParserOptionsSnapshot,
     ): ReturnType<typeof analyzeCriticMarkupMarkdownState> {
-        const analyzed = analyzeCriticMarkupMarkdownState(mapped.text, {
+        const analyzed = analyzeCriticMarkupMarkdownState(source, {
             listIndentation: parserOptions.listIndentation,
             trimUnnecessaryCodeBlockEmptyLines:
                 parserOptions.trimUnnecessaryCodeBlockEmptyLines,
             lex: parserOptions.lex,
         });
-        if (analyzed.source !== mapped.text) {
+        // Only an item-bearing revision must be byte-exact: its analysis
+        // and bindings anchor to exact offsets. A revision without Critic
+        // items has no semantics to bind, so documented serializer
+        // normalization drift is not an artifact failure.
+        if (analyzed.analysis?.roots.length && analyzed.source !== source) {
             throw new TypeError(
                 'State Markdown did not produce a revision-exact native parser artifact.',
             );
         }
         return analyzed;
+    }
+
+    /**
+     * One native parse is the sole analysis authority for a commit revision.
+     * Returns null when that parse cannot describe the byte-exact requested
+     * revision (openerless coverage or documented no-item normalization
+     * drift) so the caller keeps the parser-context path; an item-bearing
+     * drift stays a hard artifact failure inside `_analyzeSource`.
+     */
+    private _analyzeForCommit(
+        markdown: string,
+        parserOptions: ICriticMarkupParserOptionsSnapshot,
+    ): ICriticMarkupCommitAnalysis | null {
+        const analyzed = this._analyzeSource(markdown, parserOptions);
+        if (
+            !analyzed.analysis
+            || analyzed.source !== markdown
+            || analyzed.analysis.contextCoverage !== 'complete'
+        ) {
+            return null;
+        }
+        const mapped = this._mappedState(analyzed.states, parserOptions);
+        if (mapped.text !== analyzed.source) {
+            throw new TypeError(
+                'Committed CriticMarkup states did not serialize to their analyzed revision.',
+            );
+        }
+        const parserProfile = criticMarkupParserProfile(parserOptions.lex);
+        return Object.freeze({
+            source: analyzed.source,
+            states: analyzed.states,
+            document: createCriticMarkupDocument(
+                analyzed.analysis,
+                mapped,
+                parserProfile,
+                'complete',
+                analyzed.bindings,
+            ),
+            proofDocument: createCriticMarkupDocument(
+                analyzed.analysis,
+                plainMarkdown(markdown),
+                parserProfile,
+                'complete',
+                'semantic-only',
+            ),
+        });
     }
 
     private _mappedState(

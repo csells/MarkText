@@ -5,8 +5,8 @@
 
 .mu-critic-markup-review-tool {
     display: flex;
-    align-items: center;
     gap: 2px;
+    align-items: center;
     min-height: 30px;
     padding: 2px;
 }

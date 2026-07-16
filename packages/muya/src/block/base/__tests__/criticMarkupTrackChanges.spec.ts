@@ -290,25 +290,30 @@ describe('format Track Changes input path', () => {
         vi.spyOn(muya.editor.criticMarkupDocument, 'beginSession')
             .mockImplementation(() => {
                 const session = beginSession();
-                const bindAnalysisForState = session.bindAnalysisForState;
+                const analyzeForCommit = session.analyzeForCommit;
                 return {
                     ...session,
-                    bindAnalysisForState(analysis, state) {
-                        const document = bindAnalysisForState(analysis, state);
-                        return new Proxy(document, {
-                            get(target, property) {
-                                if (property === 'localPositionAt')
-                                    return () => null;
-                                const value = Reflect.get(
-                                    target,
-                                    property,
-                                    target,
-                                );
-                                return typeof value === 'function'
-                                    ? value.bind(target)
-                                    : value;
-                            },
-                        });
+                    analyzeForCommit(markdown) {
+                        const artifact = analyzeForCommit(markdown);
+                        if (!artifact)
+                            return artifact;
+                        return {
+                            ...artifact,
+                            document: new Proxy(artifact.document, {
+                                get(target, property) {
+                                    if (property === 'localPositionAt')
+                                        return () => null;
+                                    const value = Reflect.get(
+                                        target,
+                                        property,
+                                        target,
+                                    );
+                                    return typeof value === 'function'
+                                        ? value.bind(target)
+                                        : value;
+                                },
+                            }),
+                        };
                     },
                 };
             });

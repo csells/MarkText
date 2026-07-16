@@ -53,6 +53,9 @@ export class CriticMarkupReviewTool extends BaseFloat {
         this.floatBox!.classList.add(
             'mu-critic-markup-review-tool-container',
         );
+        // A small set of decision buttons: group semantics give screen
+        // readers a named container without a toolbar's arrow-key contract.
+        this.container!.setAttribute('role', 'group');
         this.listen();
     }
 
@@ -113,8 +116,7 @@ export class CriticMarkupReviewTool extends BaseFloat {
             return item;
         });
         return items.reduce((selected, item) =>
-            !selected || item.depth >= selected.depth ? item : selected,
-        null as (typeof items)[number] | null)?.id ?? null;
+            !selected || item.depth >= selected.depth ? item : selected, null as (typeof items)[number] | null)?.id ?? null;
     }
 
     private _queueOpen(
@@ -155,16 +157,44 @@ export class CriticMarkupReviewTool extends BaseFloat {
             button.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                // Keyboard activation (and the browser's mousedown focus)
+                // seats DOM focus on this button; capture that before the
+                // resolve/hide teardown removes it.
+                const toolHeldFocus
+                    = this.floatBox?.contains(document.activeElement) ?? false;
                 this.muya.resolveCriticMarkup(action.decision);
                 this._cancelAndHide();
+                if (toolHeldFocus)
+                    this._focusEditor();
             });
 
             return button;
         });
 
-        this.container!.replaceChildren();
+        const container = this.container!;
+        // Refresh the group's accessible name per render so it follows the
+        // active locale. `t` falls back to the key, so the label is always
+        // present even for locales without this translation yet.
+        container.setAttribute(
+            'aria-label',
+            this.muya.i18n.t('Review changes'),
+        );
+        container.replaceChildren();
         for (const button of buttons)
-            this.container!.appendChild(button);
+            container.appendChild(button);
+    }
+
+    /**
+     * Resolving already reseated the caret in the document model; hand DOM
+     * focus back to the editor so a keyboard user is not stranded on the
+     * hidden float.
+     */
+    private _focusEditor() {
+        const { editor } = this.muya;
+        const target = editor.selection.anchorBlock?.domNode
+            ?? editor.activeContentBlock?.domNode
+            ?? this.muya.domNode;
+        target.focus();
     }
 
     private _cancelAndHide() {
@@ -174,6 +204,16 @@ export class CriticMarkupReviewTool extends BaseFloat {
             this._openTimer = null;
         }
         this.hide();
+    }
+
+    override hide() {
+        const wasShown = this.status;
+        super.hide();
+        // BaseFloat only moves the float off-screen; dropping the buttons as
+        // well removes their phantom keyboard tab stops while hidden. The
+        // next open re-renders them.
+        if (wasShown)
+            this.container?.replaceChildren();
     }
 
     override destroy() {

@@ -37,3 +37,18 @@ export function criticMarkupRenderLimitDiagnostic(
 export function exceedsCriticMarkupRenderDepth(depth: number): boolean {
     return depth >= CRITIC_MARKUP_RENDER_DEPTH_LIMIT;
 }
+
+/**
+ * Native Markdown lowering plans CriticMarkup parser fragments only for
+ * depths 0..127. A deeper item's exact bytes stay literal content inside
+ * the deepest planned fragment; the grammar, projections, and canonical
+ * document still retain every item at full depth. This mirrors the native
+ * block nesting budget of 128 container levels and keeps the recursive
+ * parse bounded (specs/architecture/criticmarkup.md, "Resource and
+ * render-depth policy").
+ */
+export const CRITIC_MARKUP_PARSE_DEPTH_BUDGET = 128;
+
+export function exceedsCriticMarkupParseDepthBudget(depth: number): boolean {
+    return depth >= CRITIC_MARKUP_PARSE_DEPTH_BUDGET;
+}

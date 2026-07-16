@@ -41,12 +41,21 @@ import {
     URL_REG,
 } from './config/index';
 import { MuyaCriticMarkup } from './criticMarkup/commands';
-
 import { Editor } from './editor/index';
+
 import EventCenter from './event/index';
 import I18n from './i18n/index';
 import { MutationCommandDispatcher } from './mutation/commandDispatcher';
 import { replaceDocumentContent } from './mutation/documentReplacement';
+import {
+    applyAppearance,
+    CROSS_BLOCK_LIST_LABELS,
+    getContainer,
+    PARAGRAPH_LABEL_MAP,
+    PARSE_AFFECTING_OPTIONS,
+    stripListSpacingTrivia,
+    TOGGLEABLE_BLOCK_LABELS,
+} from './muyaFacadeSupport';
 import { CursorController } from './selection/cursorController';
 import { isAnyListState, isAtxHeadingState, isCodeBlockState } from './state/types';
 import { Ui } from './ui/ui';
@@ -84,61 +93,6 @@ interface ISelectionSnapshot {
 
 // Maps the paragraph-menu labels the desktop sends through `updateParagraph`
 // to muya's `replaceBlockByLabel` vocabulary.
-const PARAGRAPH_LABEL_MAP: Record<string, string> = {
-    'paragraph': 'paragraph',
-    'hr': 'thematic-break',
-    'front-matter': 'frontmatter',
-    'table': 'table',
-    'mathblock': 'math-block',
-    'html': 'html-block',
-    'pre': 'code-block',
-    'blockquote': 'block-quote',
-    'heading 1': 'atx-heading 1',
-    'heading 2': 'atx-heading 2',
-    'heading 3': 'atx-heading 3',
-    'heading 4': 'atx-heading 4',
-    'heading 5': 'atx-heading 5',
-    'heading 6': 'atx-heading 6',
-    'ul-bullet': 'bullet-list',
-    'ol-order': 'order-list',
-    // The desktop command palette emits `ol-bullet` for the ordered-list
-    // command while the menu emits `ol-order`; accept both.
-    'ol-bullet': 'order-list',
-    'ul-task': 'task-list',
-    'mermaid': 'diagram mermaid',
-    'plantuml': 'diagram plantuml',
-    'vega-lite': 'diagram vega-lite',
-    'flowchart': 'diagram flowchart',
-    'sequence': 'diagram sequence',
-};
-
-// The outmost-block labels that wrap a cross-block selection into a list.
-const CROSS_BLOCK_LIST_LABELS = new Set(['bullet-list', 'order-list', 'task-list']);
-
-// Paragraph-menu labels whose block toggles back to a paragraph when the cursor
-// is already inside one (the menu item is checked) — clicking unwraps/removes it.
-const TOGGLEABLE_BLOCK_LABELS = new Set([
-    'bullet-list',
-    'order-list',
-    'task-list',
-    'block-quote',
-    'code-block',
-    'thematic-break',
-]);
-
-// Options consumed by the markdown→state lexer (markdownToState / lexBlock).
-// Changing any of these re-classifies block structure (e.g. ```math ⇄ code
-// block under GitLab compatibility, front matter, footnote definitions), which
-// a render-only rebuild from the already-parsed state cannot reflect — the
-// document must be re-parsed from markdown. See setOptions below.
-const PARSE_AFFECTING_OPTIONS = new Set<keyof IMuyaOptions>([
-    'isGitlabCompatibilityEnabled',
-    'math',
-    'footnote',
-    'frontMatter',
-    'trimUnnecessaryCodeBlockEmptyLines',
-]);
-
 function endpointPair(
     anchor: Nullable<Parent>,
     focus: Nullable<Parent>,
@@ -389,11 +343,25 @@ export class Muya implements ICriticMarkupReviewEditor {
                     () => this.editor.reparseContent(
                         jsonState.markdownToState(markdown!),
                         !projectionChanged,
+                        () => {
+                            this.options = previousOptions;
+                        },
                     ),
                 );
             }
             else if (render) {
-                this._forceRender(!projectionChanged);
+                // A pure projection switch re-derives the same block states
+                // for every critic-free block, and nothing else about the
+                // render context changed, so unchanged blocks can keep their
+                // rendered DOM. Any other render-affecting change (locale,
+                // diagram themes, an explicit forceRender with no option
+                // delta) must repaint every block.
+                const projectionOnly
+                    = projectionChanged
+                        && Object.keys(options).every(
+                            key => key === 'criticMarkupProjection',
+                        );
+                this._forceRender(!projectionChanged, projectionOnly);
             }
 
             this._applyOptionEffects(options);
@@ -427,16 +395,26 @@ export class Muya implements ICriticMarkupReviewEditor {
         applyAppearance(this.domNode, options);
     }
 
-    private _forceRender(preserveSelection = true) {
+    private _forceRender(preserveSelection = true, reuseUnchangedBlocks = false) {
         const selection = preserveSelection
             ? this.editor.selection.getSelection()
             : null;
-        this.editor.renderCurrentProjection(selection);
+        this.editor.renderCurrentProjection(selection, reuseUnchangedBlocks);
     }
 
     /** Update list indentation and re-render so it takes effect. */
     setListIndentation(listIndentation: IMuyaOptions['listIndentation']) {
         this.setOptions({ listIndentation }, true);
+        if (this.options.listIndentation !== listIndentation)
+            return;
+        // Parser-owned list spacing trivia preserves each item's original
+        // spelling byte-for-byte, so the new indentation only reaches the
+        // serializer once that spelling is explicitly released.
+        const stripped = stripListSpacingTrivia(this.getState());
+        this._mutationCommands.run(
+            { kind: 'document-reset' },
+            () => this.editor.reparseContent(stripped),
+        );
     }
 
     focus() {
@@ -1712,57 +1690,4 @@ export class Muya implements ICriticMarkupReviewEditor {
                 (destroy as () => void).call(plugin);
         }
     }
-}
-
-// Write provided appearance options as `--mu-*` vars / a wrap class on the root.
-function applyAppearance(domNode: HTMLElement, options: Partial<IMuyaOptions>) {
-    const { style } = domNode;
-    if (typeof options.fontSize === 'number')
-        style.setProperty('--mu-font-size', `${options.fontSize}px`);
-    if (typeof options.lineHeight === 'number')
-        style.setProperty('--mu-line-height', `${options.lineHeight}`);
-    if (options.editorFontFamily)
-        style.setProperty('--mu-font-family', options.editorFontFamily);
-    if (typeof options.codeFontSize === 'number')
-        style.setProperty('--mu-code-font-size', `${options.codeFontSize}px`);
-    if (options.codeFontFamily)
-        style.setProperty('--mu-code-font-family', options.codeFontFamily);
-    if ('wrapCodeBlocks' in options)
-        domNode.classList.toggle(CLASS_NAMES.MU_CODE_WRAP, !!options.wrapCodeBlocks);
-}
-
-/**
- * [ensureContainerDiv ensure container element is div]
- */
-function getContainer(originContainer: HTMLElement, options: IMuyaOptions) {
-    const { spellcheckEnabled, spellcheckHideMarks, hideQuickInsertHint, focusMode } = options;
-    const newContainer = document.createElement('div');
-    const attrs = originContainer.attributes;
-    // Copy attrs from origin container to new container
-    Array.from(attrs).forEach((attr: { name: string; value: string }) => {
-        newContainer.setAttribute(attr.name, attr.value);
-    });
-
-    if (!hideQuickInsertHint)
-        newContainer.classList.add(CLASS_NAMES.MU_SHOW_QUICK_INSERT_HINT);
-
-    if (spellcheckHideMarks)
-        newContainer.classList.add(CLASS_NAMES.MU_HIDE_SPELLING_MARKS);
-
-    // Apply focus mode at construction when initially enabled; `setFocusMode`
-    // toggles it thereafter.
-    if (focusMode)
-        newContainer.classList.add(CLASS_NAMES.MU_FOCUS_MODE);
-
-    newContainer.classList.add(CLASS_NAMES.MU_EDITOR);
-
-    newContainer.setAttribute('contenteditable', 'true');
-    newContainer.setAttribute('autocorrect', 'false');
-    newContainer.setAttribute('autocomplete', 'off');
-    newContainer.setAttribute('spellcheck', spellcheckEnabled ? 'true' : 'false');
-    originContainer.replaceWith(newContainer);
-
-    applyAppearance(newContainer, options);
-
-    return newContainer;
 }

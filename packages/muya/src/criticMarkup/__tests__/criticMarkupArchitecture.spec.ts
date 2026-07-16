@@ -166,7 +166,20 @@ describe('criticMarkup architecture fitness', () => {
         expect(authority).toContain('assertActive(operation: string)');
         expect(gateway).toContain('this._authority.run');
         expect(gateway).toContain('this._authority.active');
-        expect(state.match(/_mutationAuthority\.assertActive\(/g)).toHaveLength(6);
+        const guardedStateWriters = [...state.matchAll(
+            /_mutationAuthority\.assertActive\('([^']+)'\)/g,
+        )].map(([, operation]) => operation).sort();
+        expect(guardedStateWriters).toEqual([
+            'JSON document reset',
+            'JSON document reset checkpoint',
+            'JSON document reset rollback',
+            'JSON state insertion',
+            'JSON state mutation capture',
+            'JSON state removal',
+            'JSON state replacement',
+            'JSON state text edit',
+            'Prepared JSON commit',
+        ]);
         expect(treeNode).toContain('mutationGateway.assertActive(operation)');
         expect(treeNode).toContain(
             'editor.assertTreeMutationAuthorized(operation)',

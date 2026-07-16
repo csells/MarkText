@@ -1,3 +1,4 @@
+import type { ICriticMarkupBindingGraph } from '../../criticMarkup/bindingGraph';
 import type {
     ICriticMarkupCandidateIdentity,
     ICriticMarkupRange,
@@ -20,8 +21,15 @@ import type {
 } from './locatedMarkdown';
 import type { ILexOption } from './types';
 import { CriticMarkupAnalysis } from '../../criticMarkup/analysis';
+import {
+    emptyCriticMarkupBindingGraph,
+
+} from '../../criticMarkup/bindingGraph';
 import { createCriticMarkupDocument } from '../../criticMarkup/document';
 import { ExcludedRanges } from '../../criticMarkup/excludedRanges';
+import {
+    grammarCriticMarkupBindingGraph,
+} from '../../criticMarkup/grammarBindings';
 import {
     assertCriticMarkupCandidateIdentity,
     prepareCriticMarkupCandidateIdentity,
@@ -38,7 +46,9 @@ import {
     criticMarkupParserProfile,
     snapshotCriticMarkupParserOptions,
 } from './criticMarkupSourceContext';
-import { analyzeMarkdownBlockSource } from './lexBlock';
+import {
+    analyzeMarkdownBlockSourceWithExtensions,
+} from './markdownBlockAnalysis';
 
 export {
     criticMarkupParserProfile,
@@ -95,6 +105,7 @@ export class PreparedCriticMarkupDocumentContext {
         readonly contextCoverage: 'complete',
         readonly candidateIdentity: ICriticMarkupCandidateIdentity,
         readonly analysis: CriticMarkupAnalysis | null,
+        readonly bindings: ICriticMarkupBindingGraph<TMarkedParserPath>,
     ) {
         Object.freeze(this);
     }
@@ -131,6 +142,18 @@ export class PreparedCriticMarkupDocumentContext {
             }
         }
 
+        // When Critic syntax stayed transparent to this Markdown parse, the
+        // located token graph carries no fragment tokens, so the artifact
+        // emits its topology here: the same revision's analysis ranges
+        // intersected with this parse's own leaf provenance. A parse whose
+        // token graph already carries fragment tokens keeps that emission.
+        const analysis = sourceContext.analysis;
+        const bindings = context.bindings.inline.length
+            || !analysis
+            || !analysis.roots.length
+            ? context.bindings
+            : grammarCriticMarkupBindingGraph(analysis, context.mappedText);
+
         return new PreparedCriticMarkupDocumentContext(
             context.mappedText,
             excludedRanges,
@@ -139,6 +162,7 @@ export class PreparedCriticMarkupDocumentContext {
             'complete',
             sourceContext.candidateIdentity,
             sourceContext.analysis,
+            bindings,
         );
     }
 }
@@ -165,7 +189,26 @@ export function parseCriticMarkupDocument(
     sourceMap: TTrackedMarkdown,
     options: ILexOption = {},
 ) {
-    return parseDocument(sourceMap, options, false);
+    return parseDocument(sourceMap, options, false, 'semantic-only');
+}
+
+/**
+ * Parse one standalone mapped revision into a fragment-bearing document.
+ * The parse's own analysis and mapped provenance emit the binding graph —
+ * the same artifact emission the prepared parser context performs — so the
+ * document authenticates against real topology instead of staying
+ * semantic-only. Live-state consumers keep using the state parser artifact.
+ */
+export function parseBoundCriticMarkupDocument(
+    sourceMap: TTrackedMarkdown,
+    options: ILexOption = {},
+) {
+    return parseDocument(
+        sourceMap,
+        options,
+        false,
+        emptyCriticMarkupBindingGraph(),
+    );
 }
 
 /**
@@ -199,6 +242,7 @@ export function parseCriticMarkupContextDocument(
         sourceMap,
         options,
         true,
+        'semantic-only',
         undefined,
         candidateAnalysis?.candidateIdentity,
     );
@@ -218,12 +262,17 @@ export function parseCriticMarkupDocumentFromContext(
             prepared.mappedText,
             prepared.parserProfile,
             prepared.contextCoverage,
+            prepared.bindings,
         );
     }
+    // The located parse already emitted this context's binding graph; the
+    // grammar scan below only reconstructs the analysis for the same
+    // exclusions and revision.
     return parseDocument(
         prepared.mappedText,
         prepared.parserOptions,
         true,
+        prepared.bindings,
         {
             source: prepared.mappedText.text,
             literalRanges: prepared.excludedRanges.ranges,
@@ -236,6 +285,7 @@ function parseDocument<Path extends TMappedTextPath>(
     sourceMap: MappedText<Path>,
     options: ILexOption,
     analyzeWithoutOpener: boolean,
+    topology: ICriticMarkupBindingGraph<Path> | 'semantic-only',
     context?: ICriticMarkupLiteralContext,
     knownCandidateIdentity?: ICriticMarkupCandidateIdentity,
 ) {
@@ -264,6 +314,7 @@ function parseDocument<Path extends TMappedTextPath>(
             sourceMap,
             parserProfile,
             contextCoverage,
+            emptyCriticMarkupBindingGraph<Path>(),
         );
     }
 
@@ -304,15 +355,29 @@ function parseDocument<Path extends TMappedTextPath>(
                 candidateIdentity,
             );
 
+    // Grammar-scan parses own no topology of their own: item-bearing
+    // documents are either explicitly semantic-only (projection, validation,
+    // extension planning) or carry the binding graph the located parser
+    // artifact emitted for this exact context — including the derived graph
+    // for parses that kept Critic syntax transparent. An openerless parse
+    // binds an exact empty graph so authoring-context lookups over clean
+    // revisions stay available.
+    const analysis = CriticMarkupAnalysis.fromMarkdownScan(
+        finalScan,
+        parserProfile.key,
+        contextCoverage,
+    );
+    const bindings = !finalScan.roots.length
+        ? emptyCriticMarkupBindingGraph<Path>()
+        : topology === 'semantic-only' || topology.inline.length
+            ? topology
+            : grammarCriticMarkupBindingGraph(analysis, sourceMap);
     return createCriticMarkupDocument(
-        CriticMarkupAnalysis.fromMarkdownScan(
-            finalScan,
-            parserProfile.key,
-            contextCoverage,
-        ),
+        analysis,
         sourceMap,
         parserProfile,
         contextCoverage,
+        bindings,
     );
 }
 
@@ -743,11 +808,13 @@ function criticMarkupLiteralRanges(
     source: string,
     options: ILexOption,
 ) {
-    return analyzeMarkdownBlockSource(source, {
+    // criticMarkup is disabled here, so the critic-free analyzer core is
+    // exactly the parse analyzeMarkdownBlockSource would have run.
+    return analyzeMarkdownBlockSourceWithExtensions(source, {
         ...options,
         criticMarkup: false,
         criticMarkupProjection: 'marked',
-    }).literalRanges;
+    }, []).literalRanges;
 }
 
 export function projectCriticMarkupMarkdown(
@@ -765,6 +832,7 @@ export function projectCriticMarkupMarkdown(
         plainMarkdown(source),
         options,
         false,
+        'semantic-only',
         undefined,
         candidateIdentity,
     ).project(projection);

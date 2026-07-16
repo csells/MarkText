@@ -5,9 +5,12 @@
  * Cross-platform postinstall: patch native-keymap for C++20, download Electron,
  * rebuild all native modules for Electron's ABI, generate locale files.
  *
- * native-keymap is listed as optionalDependency so pnpm ignores its auto-gyp
- * compile failure on Node v24+. This script restores the source, patches and
- * rebuilds it correctly via @electron/rebuild.
+ * native-keymap is a regular dependency (electron-builder only packages
+ * dependencies reported by `pnpm list --prod`, and the packaged app cannot
+ * boot without it), but its auto-gyp build fails on Node v24+, so
+ * pnpm-workspace.yaml denies its install-time build (allowBuilds: false).
+ * This script patches the source and rebuilds it correctly via
+ * @electron/rebuild.
  *
  * Step order matters: native-keymap source must be restored before downloading
  * Electron, because the inner `pnpm add` can disturb devDependency state.
@@ -43,11 +46,12 @@ const ext = process.platform === 'win32' ? '.cmd' : ''
 const patchPackageBin = path.join(desktopRoot, 'node_modules', '.bin', `patch-package${ext}`)
 const electronRebuildBin = path.join(desktopRoot, 'node_modules', '.bin', `electron-rebuild${ext}`)
 
-// ── 1. Ensure native-keymap source is present (pm removes it on optional failure) ──
+// ── 1. Ensure native-keymap source is present (safety net for installs done
+// while it was still an optionalDependency, which pnpm removed on build failure) ──
 const nativeKeymapDir = path.join(desktopRoot, 'node_modules', 'native-keymap')
 if (!fs.existsSync(nativeKeymapDir)) {
   console.log('Installing native-keymap source (skipping compilation)...')
-  // native-keymap is already in marktext's optionalDependencies; the add
+  // native-keymap is already in marktext's dependencies; the add
   // re-installs without changing the version range.
   if (isPnpm) {
     run('pnpm --filter marktext add native-keymap --ignore-scripts')

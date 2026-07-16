@@ -5,14 +5,16 @@ import type { ICriticMarkupItem } from '../../criticMarkup/commands';
 import type { ICriticMarkupDocumentItem } from '../../criticMarkup/document';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CRITIC_MARKUP_CORPUS } from '../../criticMarkup/__tests__/sharedCorpus';
+import { createCriticMarkupDocument } from '../../criticMarkup/document';
+import { analyzeCriticMarkupMarkdownState } from '../../criticMarkup/markdownState';
 import { localOffset } from '../../mappedText';
 import { Muya } from '../../muya';
 import {
-    parseCriticMarkupDocument,
+    criticMarkupParserProfile,
     projectCriticMarkupMarkdown,
+    snapshotCriticMarkupParserOptions,
 } from '../../utils/marked/criticMarkupDocument';
 import { getClipBoardHtml } from '../../utils/marked/getClipboardHtml';
-import { MarkdownToState } from '../markdownToState';
 import { renderToStaticHTML } from '../renderToStaticHTML';
 import StateToMarkdown from '../stateToMarkdown';
 
@@ -48,11 +50,29 @@ function canonicalSource(row: (typeof CRITIC_MARKUP_CORPUS)[number]) {
 
 function parse(source: string, rowOptions: ICriticMarkupCorpusRow['options']) {
     const options = parserOptions(rowOptions);
-    const state = new MarkdownToState(options).generate(source);
-    const sourceMap = new StateToMarkdown().generateMapped(state);
+    // The canonical fragment-bearing document is backed by the one state
+    // parser artifact: analysis and bindings from the same native parse.
+    const analyzed = analyzeCriticMarkupMarkdownState(source, {
+        listIndentation: 1,
+        trimUnnecessaryCodeBlockEmptyLines:
+            options.trimUnnecessaryCodeBlockEmptyLines,
+        lex: snapshotCriticMarkupParserOptions(options),
+    });
+    const sourceMap = new StateToMarkdown().generateMapped(analyzed.states);
 
     expect(sourceMap.text).toBe(source);
-    return parseCriticMarkupDocument(sourceMap, options);
+    if (!analyzed.analysis) {
+        throw new TypeError(
+            'Corpus source did not produce a CriticMarkup analysis.',
+        );
+    }
+    return createCriticMarkupDocument(
+        analyzed.analysis,
+        sourceMap,
+        criticMarkupParserProfile(options),
+        'complete',
+        analyzed.bindings,
+    );
 }
 
 function boot(source: string, rowOptions: ICriticMarkupCorpusRow['options']) {

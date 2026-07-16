@@ -1,11 +1,11 @@
 import type { Doc, JSONOp, JSONOpList, Path } from 'ot-json1';
+import type { CriticMarkupAnalysis } from '../criticMarkup/analysis';
 import type { IMutationAuthority } from '../mutation/authority';
 import type { Muya } from '../muya';
 import type { TDiff } from '../utils';
-import type { ICapturedStateMutation } from './mutationCapture';
 import type { ICriticMarkupStateBindingGraph } from './markdownToState';
+import type { ICapturedStateMutation } from './mutationCapture';
 import type { TState } from './types';
-import type { CriticMarkupAnalysis } from '../criticMarkup/analysis';
 import * as json1 from 'ot-json1';
 import {
     analyzeCriticMarkupMarkdownState,
@@ -17,7 +17,7 @@ import {
     snapshotCriticMarkupParserOptions,
 } from '../utils/marked/criticMarkupDocument';
 import { getTOC } from './getTOC';
-import { StateMutationCapture } from './mutationCapture';
+import { StateMutationCapture, valueAtPath } from './mutationCapture';
 import StateToMarkdown from './stateToMarkdown';
 
 const debug = logger('jsonState:');
@@ -328,6 +328,17 @@ class JSONState {
         this._documentVersion++;
 
         this._emitStateChange();
+    }
+
+    /**
+     * The value a replacement at `path` must name as its old value: the
+     * captured draft's value while a capture is active, the live state's
+     * otherwise.
+     */
+    replaceableValueAt(path: Path): unknown {
+        if (this._capture)
+            return this._capture.draftValueAt(path);
+        return valueAtPath(this.getLiveState(), path);
     }
 
     replaceOperation(path: Path, oldValue: Doc, newValue: Doc) {

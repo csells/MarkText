@@ -64,7 +64,8 @@ describe('atxHeadingContent.enterHandler — prevents default when inserting par
     it('calls preventDefault when Enter is pressed at offset 0 in an H1', () => {
         // Stub ScrollPage.loadBlock so the handler can synthesize a new
         // paragraph block without bootstrapping the registry.
-        const fakeParagraphBlock = {};
+        // `ScrollPage.createStateBlock` binds source trivia on the created block.
+        const fakeParagraphBlock = { initializeStateSourceTrivia: vi.fn() };
         const create = vi.fn().mockReturnValue(fakeParagraphBlock);
         vi.spyOn(ScrollPage, 'loadBlock').mockReturnValue({ create } as never);
 
@@ -82,7 +83,8 @@ describe('atxHeadingContent.enterHandler — prevents default when inserting par
     });
 
     it('calls preventDefault when Enter is pressed right after the `#` in an H1 (offset 1)', () => {
-        const fakeParagraphBlock = {};
+        // `ScrollPage.createStateBlock` binds source trivia on the created block.
+        const fakeParagraphBlock = { initializeStateSourceTrivia: vi.fn() };
         const create = vi.fn().mockReturnValue(fakeParagraphBlock);
         vi.spyOn(ScrollPage, 'loadBlock').mockReturnValue({ create } as never);
 

@@ -83,6 +83,14 @@ export namespace Tokens {
     readonly arm: CriticMarkupArm['name'];
     readonly role: 'only' | 'start' | 'middle' | 'end';
     readonly edge: 'before' | 'after';
+    /**
+     * `empty` binds zero-width syntax to the nearest token boundary.
+     * `content` marks one edge of a structural arm whose covered Markdown
+     * parses natively; the consumer pairs both edges to recover coverage.
+     */
+    readonly coverage: 'content' | 'empty';
+    /** Arm content envelope for `content` coverage; zero-width otherwise. */
+    readonly contentRange: CriticMarkupRange;
     readonly range: CriticMarkupRange;
     readonly markers: readonly CriticMarkupMarker[];
     /**

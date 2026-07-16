@@ -160,18 +160,17 @@ class Renderer {
     }
 
     output(tokens: Token[], block: Format, cursor: IRenderCursor) {
-        const children: VNode[] = tokens.reduce(
-            (acc, token) => [
-                ...acc,
-                ...this.dispatch(snakeToCamel(token.type), {
-                    h,
-                    cursor,
-                    block,
-                    token,
-                }),
-            ],
-            [] as VNode[],
-        );
+        const children: VNode[] = [];
+        for (const token of tokens) {
+            const rendered = this.dispatch(snakeToCamel(token.type), {
+                h,
+                cursor,
+                block,
+                token,
+            });
+            for (const vnode of rendered)
+                children.push(vnode);
+        }
         const vNode = h('span', children);
         const rawHtml = toHTML(vNode);
 

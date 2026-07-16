@@ -5,60 +5,38 @@ import type {
     Tokens,
     TokensList,
 } from 'marked';
-import type {
-    ICriticMarkupDocumentItem,
-    CriticMarkupDocument,
-} from '../../../criticMarkup/document';
 import type { TCriticMarkupDocumentToken } from '../../../criticMarkup/analysis';
+import type {
+    CriticMarkupDocument,
+    ICriticMarkupDocumentItem,
+} from '../../../criticMarkup/document';
+import type { IBoundaryAttachmentHolder, ICriticMarkupBoundaryAttachmentPlan } from './criticMarkupBoundaryPlans';
+import type { ICriticMarkupFragmentPlan } from './criticMarkupFragmentPlans';
+import type { ICriticMarkupMarkerIndex } from './criticMarkupPlanIndex';
 import {
     markedViewOffset,
 } from 'marked';
-
-interface ICriticMarkupFragmentPlan {
-    readonly item: ICriticMarkupDocumentItem;
-    readonly level: 'block' | 'inline';
-    readonly arm: Tokens.CriticMarkupFragment['arm'];
-    readonly role: Tokens.CriticMarkupFragment['role'];
-    readonly range: Tokens.CriticMarkupRange;
-    readonly contentRange: Tokens.CriticMarkupRange;
-    readonly before: readonly Tokens.CriticMarkupMarker[];
-    readonly after: readonly Tokens.CriticMarkupMarker[];
-}
+import { HalfOpenIntervalIndex, upperBound } from '../../../mapped-range';
+import {
+    boundaryAttachmentPlans,
+    coverageEdgeFits,
+    detachBoundaryAttachment,
+} from './criticMarkupBoundaryPlans';
+import {
+    fragmentPlans,
+    itemMarkerRanges,
+    marker,
+} from './criticMarkupFragmentPlans';
+import {
+    criticMarkupMarkerIndex,
+    viewDocumentEnvelope,
+    viewOffsetForDocumentOffset,
+} from './criticMarkupPlanIndex';
 
 export interface IPreparedNativeCriticMarkupExtension {
     readonly extension: MarkedExtension;
     readonly transparentMarkerRanges: readonly Tokens.CriticMarkupRange[];
     readonly useTransparentParserView: boolean;
-}
-
-function itemMarkerRanges(
-    item: ICriticMarkupDocumentItem,
-): Tokens.CriticMarkupRange[] {
-    const { syntax } = item;
-    return (syntax.type === 'substitution'
-        ? [
-                syntax.markers.open.range,
-                syntax.markers.separator.range,
-                syntax.markers.close.range,
-            ]
-        : [syntax.markers.open.range, syntax.markers.close.range])
-        .map(range => ({ start: range.start, end: range.end }));
-}
-
-function criticMarkerRanges(
-    document: CriticMarkupDocument,
-): Tokens.CriticMarkupRange[] {
-    return document.items.flatMap((item) => {
-        const { syntax } = item;
-        return syntax.type === 'substitution'
-            ? [
-                    syntax.markers.open.range,
-                    syntax.markers.separator.range,
-                    syntax.markers.close.range,
-                ]
-            : [syntax.markers.open.range, syntax.markers.close.range];
-    }).map(range => ({ start: range.start, end: range.end }))
-        .sort((left, right) => left.start - right.start || right.end - left.end);
 }
 
 function criticTokenType(
@@ -76,20 +54,6 @@ function criticTokenType(
 
 function unexpectedCriticType(value: never): never {
     throw new TypeError(`Unknown CriticMarkup type: ${String(value)}.`);
-}
-
-function marker(
-    name: Tokens.CriticMarkupMarker['name'],
-    value: TCriticMarkupDocumentToken['markers']['open'],
-): Tokens.CriticMarkupMarker {
-    return Object.freeze({
-        name,
-        raw: value.raw,
-        range: Object.freeze({
-            start: value.range.start,
-            end: value.range.end,
-        }),
-    });
 }
 
 function arms(
@@ -160,267 +124,16 @@ function semanticDocument(
     });
 }
 
-function fragmentPlans(
-    document: CriticMarkupDocument,
-    isStructuralBlock: (source: string) => boolean,
-): readonly ICriticMarkupFragmentPlan[] {
-    const plans: ICriticMarkupFragmentPlan[] = [];
-    const markerRanges = criticMarkerRanges(document);
-    const effectiveLineStart = (offset: number): boolean => {
-        const lineStart = document.markdown.lastIndexOf('\n', offset - 1) + 1;
-        let cursor = lineStart;
-        while (cursor < offset) {
-            const covering = markerRanges.find(range =>
-                range.start === cursor && range.end <= offset);
-            if (!covering)
-                return false;
-            cursor = covering.end;
-        }
-        return cursor === offset;
-    };
-    const effectiveLineEnd = (offset: number): boolean => {
-        const physicalEnd = document.markdown.indexOf('\n', offset);
-        const lineEnd = physicalEnd < 0
-            ? document.markdown.length
-            : physicalEnd;
-        let cursor = offset;
-        while (cursor < lineEnd) {
-            const covering = markerRanges.find(range =>
-                range.start === cursor && range.end <= lineEnd);
-            if (!covering)
-                return false;
-            cursor = covering.end;
-        }
-        return cursor === lineEnd;
-    };
-    for (const item of document.items) {
-        const token = item.syntax;
-        const open = marker('open', token.markers.open);
-        const close = marker('close', token.markers.close);
-        const itemPlans: ICriticMarkupFragmentPlan[] = [];
-        const appendArm = (
-            arm: ICriticMarkupFragmentPlan['arm'],
-            contentRange: Tokens.CriticMarkupRange,
-            envelopeStart: number,
-            envelopeEnd: number,
-            before: readonly Tokens.CriticMarkupMarker[],
-            after: readonly Tokens.CriticMarkupMarker[],
-            effectiveLineStart: boolean,
-            nestedCoversContent: boolean,
-            closingMarkerMayRejoinText: boolean,
-        ) => {
-            const segments: Array<{
-                level: 'block' | 'inline';
-                start: number;
-                end: number;
-            }> = [];
-            let cursor = contentRange.start;
-            const envelopeEndsLine = effectiveLineEnd(envelopeEnd);
-            const physicalLineEnd = document.markdown.indexOf(
-                '\n',
-                envelopeEnd,
-            );
-            const followingLineSource = document.markdown.slice(
-                envelopeEnd,
-                physicalLineEnd < 0
-                    ? document.markdown.length
-                    : physicalLineEnd,
-            );
-            const rejoinsInlineContext = contentRange.start < contentRange.end
-                ? !isStructuralBlock(document.markdown.slice(
-                        contentRange.start,
-                        contentRange.end,
-                    ))
-                : followingLineSource.length > 0
-                    && !isStructuralBlock(followingLineSource);
-            if (
-                effectiveLineStart
-                && !envelopeEndsLine
-                && !nestedCoversContent
-                && closingMarkerMayRejoinText
-                && rejoinsInlineContext
-            ) {
-                // A marker that rejoins ordinary text on its closing line is
-                // still part of that paragraph's inline/lazy-continuation
-                // context, even when its payload owns a physical line.
-                segments.push({
-                    level: 'inline',
-                    start: contentRange.start,
-                    end: contentRange.end,
-                });
-                cursor = contentRange.end;
-            }
-            else if (nestedCoversContent) {
-                segments.push({
-                    level: 'block',
-                    start: contentRange.start,
-                    end: contentRange.end,
-                });
-                cursor = contentRange.end;
-            }
-            else if (!effectiveLineStart) {
-                const firstNewline = document.markdown.indexOf('\n', cursor);
-                if (firstNewline < 0 || firstNewline >= contentRange.end) {
-                    segments.push({
-                        level: 'inline',
-                        start: cursor,
-                        end: contentRange.end,
-                    });
-                    cursor = contentRange.end;
-                }
-                else {
-                    segments.push({
-                        level: 'inline',
-                        start: cursor,
-                        end: firstNewline,
-                    });
-                    cursor = firstNewline + 1;
-                }
-            }
-            const finalNewline = document.markdown.lastIndexOf(
-                '\n',
-                contentRange.end - 1,
-            );
-            const blockEnd = finalNewline >= cursor
-                ? finalNewline + 1
-                : cursor;
-            if (cursor < blockEnd) {
-                segments.push({
-                    level: 'block',
-                    start: cursor,
-                    end: blockEnd,
-                });
-                cursor = blockEnd;
-            }
-            if (cursor < contentRange.end) {
-                segments.push({
-                    level: 'inline',
-                    start: cursor,
-                    end: contentRange.end,
-                });
-            }
-            if (!segments.length) {
-                segments.push({
-                    level: effectiveLineStart ? 'block' : 'inline',
-                    start: contentRange.start,
-                    end: contentRange.end,
-                });
-            }
-            segments.forEach((segment, index) => {
-                itemPlans.push({
-                    item,
-                    arm,
-                    role: 'middle',
-                    range: {
-                        start: index === 0 ? envelopeStart : segment.start,
-                        end: index === segments.length - 1
-                            ? envelopeEnd
-                            : segment.end,
-                    },
-                    contentRange: {
-                        start: segment.start,
-                        end: segment.end,
-                    },
-                    before: index === 0 ? before : [],
-                    after: index === segments.length - 1 ? after : [],
-                    level: segment.level,
-                });
-            });
-        };
-        if (token.type === 'substitution') {
-            const separator = marker('separator', token.markers.separator);
-            const nestedCovers = (range: Tokens.CriticMarkupRange) => {
-                const nested = (token.nested ?? [])
-                    .filter(child =>
-                        range.start <= child.range.start
-                        && child.range.end <= range.end)
-                    .sort((left, right) => left.range.start - right.range.start);
-                let cursor = range.start;
-                for (const child of nested) {
-                    if (child.range.start !== cursor)
-                        return false;
-                    cursor = child.range.end;
-                }
-                return nested.length > 0 && cursor === range.end;
-            };
-            appendArm('old', token.oldRange, token.range.start,
-                token.markers.separator.range.end, [open], [separator],
-                effectiveLineStart(token.range.start),
-                nestedCovers(token.oldRange),
-                false);
-            appendArm('new', token.newRange, token.newRange.start,
-                token.range.end, [], [close],
-                effectiveLineStart(token.markers.separator.range.start),
-                nestedCovers(token.newRange),
-                true);
-        }
-        else {
-            const nested = [...(token.nested ?? [])]
-                .sort((left, right) => left.range.start - right.range.start);
-            let nestedCursor = token.contentRange.start;
-            for (const child of nested) {
-                if (child.range.start !== nestedCursor)
-                    break;
-                nestedCursor = child.range.end;
-            }
-            appendArm(
-                token.type === 'comment' ? 'comment' : 'content',
-                token.contentRange,
-                token.range.start,
-                token.range.end,
-                [open],
-                [close],
-                effectiveLineStart(token.range.start),
-                nested.length > 0 && nestedCursor === token.contentRange.end,
-                true,
-            );
-        }
-        itemPlans.sort((left, right) => left.range.start - right.range.start);
-        itemPlans.forEach((plan, index) => plans.push(Object.freeze({
-            ...plan,
-            role: itemPlans.length === 1
-                ? 'only'
-                : index === 0
-                    ? 'start'
-                    : index === itemPlans.length - 1 ? 'end' : 'middle',
-            range: Object.freeze({ ...plan.range }),
-            contentRange: Object.freeze({ ...plan.contentRange }),
-            before: Object.freeze([...plan.before]),
-            after: Object.freeze([...plan.after]),
-        })));
-    }
-    return Object.freeze(plans.sort((left, right) =>
-        left.range.start - right.range.start
-        || right.range.end - left.range.end));
-}
-
-function viewOffsetForDocumentOffset(
-    view: MarkedSourceView<object>,
-    documentOffset: number,
-): number | null {
-    for (const span of view.spans) {
-        if (
-            span.documentStart <= documentOffset
-            && documentOffset <= span.documentEnd
-        ) {
-            return span.viewStart + documentOffset - span.documentStart;
-        }
-    }
-    for (const boundary of view.boundaries) {
-        if (boundary.documentOffset === documentOffset)
-            return boundary.viewOffset;
-    }
-    return null;
-}
-
 function rootTokens(value: Token[] | TokensList): value is TokensList {
+    // Object.hasOwn needs lib es2022; this package compiles below that.
+    // eslint-disable-next-line e18e/prefer-object-has-own
     return Object.prototype.hasOwnProperty.call(value, 'links');
 }
 
 function plansBySourceStart(
     plans: readonly ICriticMarkupFragmentPlan[],
     source: string,
-    markerRanges: readonly Tokens.CriticMarkupRange[],
+    transparentMarkerIndex: ICriticMarkupMarkerIndex,
 ): ReadonlyMap<number, readonly ICriticMarkupFragmentPlan[]> {
     const result = new Map<number, readonly ICriticMarkupFragmentPlan[]>();
     for (const plan of plans) {
@@ -428,6 +141,18 @@ function plansBySourceStart(
             plan.range.start,
             plan.contentRange.start,
         ]);
+        if (plan.literalLine) {
+            // The line may open with block syntax (heading/quote/list
+            // prefixes) that never reaches the inline lexer; the fragment
+            // becomes reachable at the first inline-visible byte.
+            const prefix = /^(?:#{1,6}[ \t]+|>[ \t]?|(?:[*+-]|\d{1,9}[.)])[ \t]+|[ \t])*/
+                .exec(source.slice(
+                    plan.contentRange.start,
+                    plan.contentRange.end,
+                ));
+            if (prefix && prefix[0].length)
+                starts.add(plan.contentRange.start + prefix[0].length);
+        }
         let transformedStart = plan.contentRange.start;
         while (
             transformedStart < plan.contentRange.end
@@ -437,12 +162,13 @@ function plansBySourceStart(
             transformedStart++;
             starts.add(transformedStart);
         }
+        // Only markers removed from the parser view are invisible here; a
+        // nested literal item's markers are real view bytes, so stepping
+        // over them would register a start inside visible content.
         let transparentStart = plan.contentRange.start;
         while (transparentStart < plan.contentRange.end) {
-            const marker = markerRanges.find(range =>
-                range.start === transparentStart
-                && range.end <= plan.contentRange.end);
-            if (!marker)
+            const marker = transparentMarkerIndex.startingAt(transparentStart);
+            if (!marker || marker.end > plan.contentRange.end)
                 break;
             transparentStart = marker.end;
             starts.add(transparentStart);
@@ -458,19 +184,31 @@ function plansBySourceStart(
     return result;
 }
 
-function plansAtSourceStart(
-    plansByStart: ReadonlyMap<number, readonly ICriticMarkupFragmentPlan[]>,
+function transparentPlanIntervals(
     plans: readonly ICriticMarkupFragmentPlan[],
     transparentItemIds: ReadonlySet<string>,
+): HalfOpenIntervalIndex<ICriticMarkupFragmentPlan> {
+    return new HalfOpenIntervalIndex(plans
+        .filter(plan =>
+            transparentItemIds.has(plan.item.id)
+            && plan.contentRange.start < plan.contentRange.end)
+        .map(plan => ({
+            start: plan.contentRange.start,
+            end: plan.contentRange.end,
+            value: plan,
+        })));
+}
+
+function plansAtSourceStart(
+    plansByStart: ReadonlyMap<number, readonly ICriticMarkupFragmentPlan[]>,
+    transparentIntervals: HalfOpenIntervalIndex<ICriticMarkupFragmentPlan>,
     sourceStart: number,
 ): readonly ICriticMarkupFragmentPlan[] | undefined {
     const exact = plansByStart.get(sourceStart);
     if (exact)
         return exact;
-    const transformed = plans.filter(plan =>
-        transparentItemIds.has(plan.item.id)
-        && plan.contentRange.start < sourceStart
-        && sourceStart < plan.contentRange.end);
+    const transformed = transparentIntervals.containing(sourceStart)
+        .filter(plan => plan.contentRange.start < sourceStart);
     return transformed.length
         ? Object.freeze(transformed.sort((left, right) =>
                 left.range.start - right.range.start
@@ -483,7 +221,7 @@ function tokenizeFragment(
     view: MarkedSourceView<object>,
     level: 'block' | 'inline',
     transparentParserView: boolean,
-    markerRanges: readonly Tokens.CriticMarkupRange[],
+    transparentMarkerIndex: ICriticMarkupMarkerIndex,
     tokenizeChildren: (
         source: MarkedSourceView<object>,
         tokens: Token[],
@@ -493,14 +231,17 @@ function tokenizeFragment(
         markedViewOffset(0),
         'next',
     );
+    // Walk back only over markers the parser view removed: a nested literal
+    // item's close marker is visible content and must stay inside the
+    // fragment, or the fragment envelope would cut mid-content.
     let transparentEnd = plan.contentRange.end;
-    while (transparentParserView && transparentEnd > plan.contentRange.start) {
-        const marker = markerRanges.find(range =>
-            range.end === transparentEnd
-            && plan.contentRange.start <= range.start);
-        if (!marker)
-            break;
-        transparentEnd = marker.start;
+    if (transparentParserView) {
+        while (transparentEnd > plan.contentRange.start) {
+            const marker = transparentMarkerIndex.endingAt(transparentEnd);
+            if (!marker || marker.start < plan.contentRange.start)
+                break;
+            transparentEnd = marker.start;
+        }
     }
     const fragmentEnd = viewOffsetForDocumentOffset(
         view,
@@ -513,7 +254,7 @@ function tokenizeFragment(
         plan.contentRange.start,
     );
     const contentStart = mappedContentStart ?? (
-        transparentParserView
+        (transparentParserView || plan.literalLine)
         && plan.contentRange.start <= viewDocumentStart
         && viewDocumentStart <= plan.contentRange.end
             ? 0
@@ -524,7 +265,7 @@ function tokenizeFragment(
         plan.contentRange.end,
     );
     const contentEnd = mappedContentEnd
-        ?? (transparentParserView ? fragmentEnd : null);
+        ?? (transparentParserView || plan.literalLine ? fragmentEnd : null);
     if (
         fragmentEnd === null
         || contentStart === null
@@ -552,9 +293,12 @@ function tokenizeFragment(
             semanticStart++;
             continue;
         }
-        const transparentMarker = markerRanges.find(range =>
-            range.start === semanticStart
-            && range.end <= plan.contentRange.end);
+        const startingMarker
+            = transparentMarkerIndex.startingAt(semanticStart);
+        const transparentMarker
+            = startingMarker && startingMarker.end <= plan.contentRange.end
+                ? startingMarker
+                : undefined;
         if (transparentMarker) {
             semanticStart = transparentMarker.end;
             continue;
@@ -594,186 +338,31 @@ function tokenizeFragment(
 
 function nextPlanOffset(
     view: MarkedSourceView<object>,
+    sortedStarts: readonly number[],
     plansByStart: ReadonlyMap<
         number,
         readonly ICriticMarkupFragmentPlan[]
     >,
     activePlans: ReadonlySet<ICriticMarkupFragmentPlan>,
 ): number | undefined {
-    let result = Infinity;
-    for (const [sourceStart, plans] of plansByStart) {
+    const envelope = viewDocumentEnvelope(view);
+    if (!envelope)
+        return undefined;
+    // Document order maps monotonically into view order, so the first
+    // in-envelope start that resolves is the minimal view offset.
+    const first = upperBound(sortedStarts, envelope.start, start => start);
+    for (let index = first; index < sortedStarts.length; index++) {
+        const sourceStart = sortedStarts[index];
+        if (sourceStart > envelope.end)
+            break;
+        const plans = plansByStart.get(sourceStart)!;
         if (!plans.some(plan => !activePlans.has(plan)))
             continue;
         const offset = viewOffsetForDocumentOffset(view, sourceStart);
-        if (offset !== null && offset > 0 && offset < result)
-            result = offset;
+        if (offset !== null && offset > 0)
+            return offset;
     }
-    return result < Infinity ? result : undefined;
-}
-
-interface ICriticMarkupBoundaryAttachmentPlan {
-    readonly plan: ICriticMarkupFragmentPlan;
-    readonly anchor: number;
-    readonly attachment: Tokens.CriticMarkupBoundaryAttachment;
-}
-
-function boundaryAttachment(
-    plan: ICriticMarkupFragmentPlan,
-    edge: 'before' | 'after',
-    markers: readonly Tokens.CriticMarkupMarker[],
-    source: string,
-    triviaStart: number,
-    triviaEnd: number,
-    followingTriviaStart: number,
-    followingTriviaEnd: number,
-): Tokens.CriticMarkupBoundaryAttachment {
-    const triviaRaw = source.slice(triviaStart, triviaEnd);
-    const followingTriviaRaw = source.slice(
-        followingTriviaStart,
-        followingTriviaEnd,
-    );
-    if (!/^\s*$/.test(triviaRaw) || !/^\s*$/.test(followingTriviaRaw)) {
-        throw new TypeError(
-            'Native CriticMarkup boundary trivia contains semantic source.',
-        );
-    }
-    return Object.freeze({
-        itemId: plan.item.id,
-        criticType: plan.item.syntax.type,
-        arm: plan.arm,
-        role: plan.role,
-        edge,
-        range: Object.freeze({ ...plan.range }),
-        markers: Object.freeze([...markers]),
-        trivia: Object.freeze({
-            raw: triviaRaw,
-            range: Object.freeze({
-                start: triviaStart,
-                end: triviaEnd,
-            }),
-        }),
-        followingTrivia: Object.freeze({
-            raw: followingTriviaRaw,
-            range: Object.freeze({
-                start: followingTriviaStart,
-                end: followingTriviaEnd,
-            }),
-        }),
-    });
-}
-
-function boundaryAttachmentPlans(
-    source: string,
-    plans: readonly ICriticMarkupFragmentPlan[],
-): readonly ICriticMarkupBoundaryAttachmentPlan[] {
-    const ordered = [...plans].sort((left, right) =>
-        left.range.start - right.range.start);
-    const emptyRangeAt = new Map(ordered
-        .filter(plan => plan.contentRange.start === plan.contentRange.end)
-        .map(plan => [plan.range.start, plan.range]));
-    return Object.freeze(ordered.flatMap((plan) => {
-        if (plan.contentRange.start === plan.contentRange.end) {
-            let anchor = plan.range.end;
-            while (anchor < source.length) {
-                const adjacentBoundary = emptyRangeAt.get(anchor);
-                if (adjacentBoundary) {
-                    anchor = adjacentBoundary.end;
-                    continue;
-                }
-                if (/\s/.test(source[anchor])) {
-                    anchor++;
-                    continue;
-                }
-                break;
-            }
-            const edge = anchor < source.length
-                ? 'before' as const
-                : 'after' as const;
-            let triviaStart: number;
-            let triviaEnd: number;
-            let followingTriviaEnd = plan.range.end;
-            while (
-                followingTriviaEnd < source.length
-                && /\s/.test(source[followingTriviaEnd])
-            ) {
-                followingTriviaEnd++;
-            }
-            if (edge === 'after') {
-                anchor = plan.range.start;
-                while (anchor > 0 && /\s/.test(source[anchor - 1]))
-                    anchor--;
-                triviaStart = anchor;
-                triviaEnd = plan.range.start;
-            }
-            else {
-                triviaStart = anchor;
-                while (
-                    triviaStart > plan.range.end
-                    && /\s/.test(source[triviaStart - 1])
-                ) {
-                    triviaStart--;
-                }
-                if (triviaStart !== plan.range.end)
-                    triviaStart = anchor;
-                triviaEnd = anchor;
-            }
-            return [Object.freeze({
-                plan,
-                anchor,
-                attachment: boundaryAttachment(
-                    plan,
-                    edge,
-                    [...plan.before, ...plan.after],
-                    source,
-                    triviaStart,
-                    triviaEnd,
-                    plan.range.end,
-                    followingTriviaEnd,
-                ),
-            })];
-        }
-
-        const result: ICriticMarkupBoundaryAttachmentPlan[] = [];
-        if (plan.before.length) {
-            let anchor = plan.contentRange.start;
-            while (anchor < plan.contentRange.end && /\s/.test(source[anchor]))
-                anchor++;
-            result.push(Object.freeze({
-                plan,
-                anchor,
-                attachment: boundaryAttachment(
-                    plan,
-                    'before',
-                    plan.before,
-                    source,
-                    plan.contentRange.start,
-                    anchor,
-                    plan.range.end,
-                    plan.range.end,
-                ),
-            }));
-        }
-        if (plan.after.length) {
-            let anchor = plan.contentRange.end;
-            while (anchor > plan.contentRange.start && /\s/.test(source[anchor - 1]))
-                anchor--;
-            result.push(Object.freeze({
-                plan,
-                anchor,
-                attachment: boundaryAttachment(
-                    plan,
-                    'after',
-                    plan.after,
-                    source,
-                    anchor,
-                    plan.contentRange.end,
-                    plan.range.end,
-                    plan.range.end,
-                ),
-            }));
-        }
-        return result;
-    }));
+    return undefined;
 }
 
 /**
@@ -784,15 +373,37 @@ function boundaryAttachmentPlans(
 export function prepareNativeCriticMarkupExtension(
     document: CriticMarkupDocument,
     isStructuralBlock: (source: string) => boolean,
+    isPureListBlock: (source: string) => boolean,
 ): IPreparedNativeCriticMarkupExtension {
     const criticDocument = semanticDocument(document);
     const allPlans = fragmentPlans(document, isStructuralBlock);
+    // Mixed items were already rewritten to literal inline line pieces by
+    // fragmentPlans, so every remaining block plan owns whole native blocks.
     const blockBoundaryPlans = allPlans.filter(plan =>
         plan.level === 'block'
         && plan.contentRange.start === plan.contentRange.end);
     const blockPlans = allPlans.filter(plan =>
         plan.level === 'block'
         && plan.contentRange.start < plan.contentRange.end);
+    // Pure list arms must weld into the surrounding native list so sibling
+    // items share one list AST; they parse natively and bind through paired
+    // coverage attachments on their exact carrier tokens. Whitespace arms
+    // with a line break are block separators whose markers split onto the
+    // surrounding tokens. Any other content (tables, paragraphs, mixed
+    // runs) would merge across arm/edge boundaries in a transparent parse,
+    // so those plans keep the fragment tokenizer.
+    const separatorBlockPlanSet = new Set(blockPlans.filter(plan =>
+        !/\S/.test(document.markdown.slice(
+            plan.contentRange.start,
+            plan.contentRange.end,
+        ))));
+    const interceptedBlockPlans = blockPlans.filter(plan =>
+        !separatorBlockPlanSet.has(plan)
+        && !isPureListBlock(document.markdown.slice(
+            plan.contentRange.start,
+            plan.contentRange.end,
+        )));
+    const interceptedBlockPlanSet = new Set(interceptedBlockPlans);
     const inlinePlans = allPlans.filter(plan => plan.level === 'inline');
     const transparentItemIds = new Set(
         [...blockPlans, ...blockBoundaryPlans].map(plan => plan.item.id),
@@ -801,19 +412,49 @@ export function prepareNativeCriticMarkupExtension(
         .filter(item => transparentItemIds.has(item.id))
         .flatMap(itemMarkerRanges)
         .sort((left, right) => left.start - right.start));
+    const transparentMarkerIndex = criticMarkupMarkerIndex(
+        transparentMarkerRanges,
+    );
     const boundaryPlans = boundaryAttachmentPlans(
         document.markdown,
         [...blockPlans, ...blockBoundaryPlans],
+        transparentMarkerIndex,
+        plan => separatorBlockPlanSet.has(plan)
+            ? 'separator'
+            : interceptedBlockPlanSet.has(plan)
+                ? 'intercepted'
+                : 'native',
     );
+    const boundaryPlansByPlan = new Map<
+        ICriticMarkupFragmentPlan,
+        ICriticMarkupBoundaryAttachmentPlan[]
+    >();
+    for (const candidate of boundaryPlans) {
+        const entries = boundaryPlansByPlan.get(candidate.plan) ?? [];
+        entries.push(candidate);
+        boundaryPlansByPlan.set(candidate.plan, entries);
+    }
     const blockPlansByStart = plansBySourceStart(
-        blockPlans,
+        interceptedBlockPlans,
         document.markdown,
-        criticMarkerRanges(document),
+        transparentMarkerIndex,
     );
     const inlinePlansByStart = plansBySourceStart(
         inlinePlans,
         document.markdown,
-        criticMarkerRanges(document),
+        transparentMarkerIndex,
+    );
+    const blockPlanStarts = [...blockPlansByStart.keys()]
+        .sort((left, right) => left - right);
+    const inlinePlanStarts = [...inlinePlansByStart.keys()]
+        .sort((left, right) => left - right);
+    const blockTransparentIntervals = transparentPlanIntervals(
+        interceptedBlockPlans,
+        transparentItemIds,
+    );
+    const inlineTransparentIntervals = transparentPlanIntervals(
+        inlinePlans,
+        transparentItemIds,
     );
     const useTransparentParserView = transparentMarkerRanges.length > 0;
     const activePlansByLexer = new WeakMap<
@@ -840,6 +481,18 @@ export function prepareNativeCriticMarkupExtension(
         }
         return claimed;
     };
+    const boundaryAttachmentHolders = new WeakMap<
+        object,
+        Map<Tokens.CriticMarkupBoundaryAttachment, IBoundaryAttachmentHolder>
+    >();
+    const holdersFor = (lexer: object) => {
+        let holders = boundaryAttachmentHolders.get(lexer);
+        if (!holders) {
+            holders = new Map();
+            boundaryAttachmentHolders.set(lexer, holders);
+        }
+        return holders;
+    };
     const claimAttachments = (
         lexer: { tokens: TokensList },
         matches: readonly ICriticMarkupBoundaryAttachmentPlan[],
@@ -859,10 +512,7 @@ export function prepareNativeCriticMarkupExtension(
     const claimFragmentPlan = (
         lexer: { tokens: TokensList },
         plan: ICriticMarkupFragmentPlan,
-    ) => claimAttachments(
-        lexer,
-        boundaryPlans.filter(candidate => candidate.plan === plan),
-    );
+    ) => claimAttachments(lexer, boundaryPlansByPlan.get(plan) ?? []);
 
     const extension: MarkedExtension = {
         extensions: [
@@ -885,6 +535,7 @@ export function prepareNativeCriticMarkupExtension(
                     const activePlans = activePlansFor(this.lexer);
                     const offset = nextPlanOffset(
                         view,
+                        blockPlanStarts,
                         blockPlansByStart,
                         activePlans,
                     );
@@ -906,8 +557,7 @@ export function prepareNativeCriticMarkupExtension(
                     );
                     const candidates = plansAtSourceStart(
                         blockPlansByStart,
-                        blockPlans,
-                        transparentItemIds,
+                        blockTransparentIntervals,
                         sourceStart,
                     );
                     if (!candidates)
@@ -923,7 +573,7 @@ export function prepareNativeCriticMarkupExtension(
                                 view,
                                 'block',
                                 transparentItemIds.has(plan.item.id),
-                                criticMarkerRanges(document),
+                                transparentMarkerIndex,
                                 (source, children) => {
                                     this.lexer.blockTokens(source, children);
                                 },
@@ -950,6 +600,7 @@ export function prepareNativeCriticMarkupExtension(
                     const activePlans = activePlansFor(this.lexer);
                     const offset = nextPlanOffset(
                         view,
+                        inlinePlanStarts,
                         inlinePlansByStart,
                         activePlans,
                     );
@@ -969,8 +620,7 @@ export function prepareNativeCriticMarkupExtension(
                     );
                     const candidates = plansAtSourceStart(
                         inlinePlansByStart,
-                        inlinePlans,
-                        transparentItemIds,
+                        inlineTransparentIntervals,
                         sourceStart,
                     );
                     if (!candidates)
@@ -986,7 +636,7 @@ export function prepareNativeCriticMarkupExtension(
                                 view,
                                 'inline',
                                 transparentItemIds.has(plan.item.id),
-                                criticMarkerRanges(document),
+                                transparentMarkerIndex,
                                 (source, children) => {
                                     this.lexer.inlineTokens(source, children);
                                 },
@@ -1008,6 +658,7 @@ export function prepareNativeCriticMarkupExtension(
                         return undefined;
                     const activePlans = activePlansFor(this.lexer);
                     const claimed = claimsFor(this.lexer);
+                    const holders = holdersFor(this.lexer);
                     const sourceStart = source.documentOffsetAt(
                         markedViewOffset(0),
                         'next',
@@ -1016,16 +667,60 @@ export function prepareNativeCriticMarkupExtension(
                         markedViewOffset(source.text.length),
                         'previous',
                     );
-                    const matches = boundaryPlans.filter((candidate) => {
-                        if (
-                            claimed.has(candidate.attachment)
-                            || activePlans.has(candidate.plan)
-                        )
-                            return false;
-                        return candidate.attachment.edge === 'before'
-                            ? candidate.anchor === sourceStart
-                            : candidate.anchor === sourceEnd;
-                    });
+                    const matches: ICriticMarkupBoundaryAttachmentPlan[] = [];
+                    for (const candidate of boundaryPlans) {
+                        if (activePlans.has(candidate.plan))
+                            continue;
+                        const { attachment } = candidate;
+                        const exactCoverage = attachment.coverage === 'content';
+                        if (!exactCoverage) {
+                            if (claimed.has(attachment))
+                                continue;
+                            const anchored = attachment.edge === 'before'
+                                ? candidate.anchor === sourceStart
+                                : candidate.anchor === sourceEnd;
+                            if (anchored)
+                                matches.push(candidate);
+                            continue;
+                        }
+                        const fits = coverageEdgeFits(
+                            document.markdown,
+                            transparentMarkerIndex,
+                            candidate,
+                            sourceStart,
+                            sourceEnd,
+                        );
+                        if (!fits) {
+                            continue;
+                        }
+                        const holder = holders.get(attachment);
+                        if (holder) {
+                            // Inner tokens are consumed before their
+                            // containers; a later fitting token that
+                            // encloses the current holder is the more
+                            // semantic carrier and takes the attachment.
+                            if (
+                                sourceStart <= holder.start
+                                && holder.end <= sourceEnd
+                                && (sourceStart < holder.start
+                                    || holder.end < sourceEnd)
+                            ) {
+                                detachBoundaryAttachment(
+                                    holder.token,
+                                    attachment,
+                                );
+                            }
+                            else {
+                                continue;
+                            }
+                        }
+                        holders.set(attachment, {
+                            token,
+                            start: sourceStart,
+                            end: sourceEnd,
+                        });
+                        matches.push(candidate);
+                    }
                     claimAttachments(this.lexer, matches);
                     return matches.length
                         ? Object.freeze(matches.map(match => match.attachment))

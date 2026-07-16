@@ -7,10 +7,10 @@ import { getHighlightHtml } from '../getHighlightHtml';
 describe('criticMarkup parser provenance allocation contract', () => {
     it('does not repeatedly materialize decreasing root suffixes for a late opener', () => {
         const blockCount = 512;
-        const source = Array.from(
+        const source = `${Array.from(
             { length: blockCount },
             (_, index) => `ordinary paragraph ${index}\n\n`,
-        ).join('') + '{++late candidate++}\n';
+        ).join('')}{++late candidate++}\n`;
         const sliceSpy = vi.spyOn(MarkedSourceView.prototype, 'slice');
         let html = '';
         let decreasingSuffixLengths: number[] = [];

@@ -26,6 +26,8 @@ vi.mock('@/services/notification', () => ({
 }))
 
 import { useEditorStore } from '@/store/editor'
+import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
+import { CRITIC_MARKUP_CORPUS } from '../../../../muya/src/criticMarkup/__tests__/sharedCorpus'
 import bus from '@/bus'
 
 // #3803: the store snapshots `currentFile.markdown` (refreshed only on the
@@ -165,5 +167,103 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
     expect(flushOrder).toBeDefined()
     expect(renameOrder).toBeDefined()
     expect(flushOrder as number).toBeLessThan(renameOrder as number)
+  })
+})
+
+// Wave 5: an explicit save performed while a Critic display projection is
+// active must persist the canonical CriticMarkup source, never the projected
+// (Original/Revised) text. The engine invariant — `getMarkdown()` stays
+// canonical under any projection — is proven in muya's consumer-parity suite;
+// these tests prove the desktop FILE_SAVE/FILE_SAVE_AS path is a byte-identity
+// transport for it and consults nothing from the Review projection state. The
+// flush listener commits the engine's canonical serialization, mirroring
+// editor.vue's `flush-active-editor` → `json-change` wiring.
+
+const CRITIC_ROW = CRITIC_MARKUP_CORPUS.find((row) => row.id === 'all-five-canonical-forms')
+if (!CRITIC_ROW) {
+  throw new TypeError('Shared CriticMarkup corpus row all-five-canonical-forms is missing.')
+}
+const CANONICAL_CRITIC = CRITIC_ROW.source
+const STALE_CRITIC = 'A {++new++} pending keystroke.\n'
+
+// Mirror editor.vue's flush listener for a Critic document: the engine commits
+// its canonical serialization — not the projected view — into the store.
+function onCriticFlushCommit(store: ReturnType<typeof useEditorStore>) {
+  const handler = () => {
+    if (store.currentFile) store.currentFile.markdown = CANONICAL_CRITIC
+  }
+  bus.on('flush-active-editor', handler)
+  return () => bus.off('flush-active-editor', handler)
+}
+
+function activateProjection(projection: 'marked' | 'original' | 'revised') {
+  useCriticMarkupReviewStore().UPDATE({
+    fileId: 'tab-1',
+    available: true,
+    items: [],
+    currentItemId: null,
+    trackChanges: true,
+    projection
+  })
+}
+
+describe('editor store — explicit save under CriticMarkup projections', () => {
+  let detach: (() => void) | undefined
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    detach?.()
+    detach = undefined
+  })
+
+  it.each([
+    ['original', CRITIC_ROW.expected.original],
+    ['revised', CRITIC_ROW.expected.revised]
+  ] as const)(
+    'FILE_SAVE sends canonical Critic markdown while the %s projection is active',
+    (projection, projectedText) => {
+      const store = useEditorStore()
+      seedCurrentFile(store, {
+        filename: 'review.md',
+        pathname: '/tmp/review.md',
+        markdown: STALE_CRITIC
+      })
+      activateProjection(projection)
+      detach = onCriticFlushCommit(store)
+      const sendSpy = vi.spyOn(window.electron.ipcRenderer, 'send')
+
+      store.FILE_SAVE()
+
+      const call = sendSpy.mock.calls.find((c) => c[0] === 'mt::response-file-save')
+      expect(call).toBeDefined()
+      expect(call?.[MARKDOWN_ARG]).toBe(CANONICAL_CRITIC)
+      expect(call?.[MARKDOWN_ARG]).not.toBe(projectedText)
+      for (const raw of CRITIC_ROW.expected.itemRaw) {
+        expect(call?.[MARKDOWN_ARG]).toContain(raw)
+      }
+    }
+  )
+
+  it('FILE_SAVE_AS sends canonical Critic markdown under the revised projection', () => {
+    const store = useEditorStore()
+    seedCurrentFile(store, {
+      filename: 'review.md',
+      pathname: '/tmp/review.md',
+      markdown: STALE_CRITIC
+    })
+    activateProjection('revised')
+    detach = onCriticFlushCommit(store)
+    const sendSpy = vi.spyOn(window.electron.ipcRenderer, 'send')
+
+    store.FILE_SAVE_AS()
+
+    const call = sendSpy.mock.calls.find((c) => c[0] === 'mt::response-file-save-as')
+    expect(call).toBeDefined()
+    expect(call?.[MARKDOWN_ARG]).toBe(CANONICAL_CRITIC)
+    expect(call?.[MARKDOWN_ARG]).not.toBe(CRITIC_ROW.expected.revised)
   })
 })

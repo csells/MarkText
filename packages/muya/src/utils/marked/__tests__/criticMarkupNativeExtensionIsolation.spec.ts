@@ -42,6 +42,7 @@ describe('native CriticMarkup extension parser isolation', () => {
         const native = prepareNativeCriticMarkupExtension(
             document,
             fragment => fragment.startsWith('# '),
+            () => false,
         );
         let triggered = false;
         let triggerCount = 0;

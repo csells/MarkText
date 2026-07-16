@@ -8,7 +8,7 @@ import {
     mappedMarkdown,
     markdownStatePath,
 } from '../../state/markdownSourceMap';
-import { parseCriticMarkupDocument } from '../../utils/marked/criticMarkupDocument';
+import { parseBoundCriticMarkupDocument } from '../../utils/marked/criticMarkupDocument';
 import { CopyType } from '../types';
 
 const calls = vi.hoisted(() => ({
@@ -59,7 +59,7 @@ function copy(
         options: parserOptions,
         editor: {
             criticMarkupDocument: {
-                get: () => parseCriticMarkupDocument(
+                get: () => parseBoundCriticMarkupDocument(
                     mappedMarkdown(
                         SOURCE,
                         markdownStatePath([]),

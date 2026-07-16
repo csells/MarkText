@@ -11,7 +11,12 @@ allowBuilds:
   electron-winstaller: true
   esbuild: true
   keytar: true
-  native-keymap: true
+  # native-keymap's node-gyp build fails on Node v24+; deny pnpm's install-time
+  # build and let scripts/postinstall.ts patch (C++20) + electron-rebuild it
+  # for Electron's ABI instead. It must stay a regular dependency so
+  # electron-builder packages it (a missing module aborts the packaged app at
+  # boot with an invisible modal error dialog).
+  native-keymap: false
   sharp: true
   unrs-resolver: true
   workerd: true

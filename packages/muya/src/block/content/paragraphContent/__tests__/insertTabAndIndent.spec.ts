@@ -212,6 +212,49 @@ describe('paragraphContent.tabHandler — indent / unindent a list item', () => 
         expect(state.length).toBe(1);
         expect(state[0].name).toBe('bullet-list');
     });
+
+    // Re-parenting an ordered item must release its parser-owned marker and
+    // spacing trivia: the nested list restarts numbering, so serializing the
+    // stale source marker ('2.') would spell an item the parser reads back as
+    // a different number than the live document shows (list-indent E2E).
+    it('tab renumbers an ordered item nested under its predecessor (stale source marker released)', async () => {
+        const muya = bootMuya('1. alpha\n2. beta\n');
+        expect(muya.getMarkdown()).toBe('1. alpha\n2. beta\n');
+        const beta = contentByText(muya, 'beta');
+
+        tabAt(muya, beta, 0);
+
+        await flush();
+        // The nested list restarts at 1 and indents by the `1. ` marker width.
+        expect(muya.getMarkdown()).toBe('1. alpha\n   1. beta\n');
+        const state = muya.getState();
+        expect(state.length).toBe(1);
+        expect(state[0].name).toBe('order-list');
+    });
+
+    it('tab into an EXISTING nested ordered list renumbers the moved item', async () => {
+        const muya = bootMuya('1. alpha\n   1. child\n2. beta\n');
+        const beta = contentByText(muya, 'beta');
+
+        tabAt(muya, beta, 0);
+
+        await flush();
+        // `beta` joins alpha's existing nested list as its SECOND item; its
+        // stale top-level '2.' marker must not survive the re-parent.
+        expect(muya.getMarkdown()).toBe('1. alpha\n   1. child\n   2. beta\n');
+    });
+
+    it('shift+Tab out of a nested ordered list releases the stale nested marker', async () => {
+        const muya = bootMuya('1. alpha\n   1. beta\n');
+        const beta = contentByText(muya, 'beta');
+
+        tabAt(muya, beta, 0, true);
+
+        await flush();
+        // Lifted back to the top level, beta is the SECOND item, so the stale
+        // nested '1.' marker must be re-spelled as '2.'.
+        expect(muya.getMarkdown()).toBe('1. alpha\n2. beta\n');
+    });
 });
 
 describe('paragraphContent.tabHandler — jump past a closing inline marker', () => {
