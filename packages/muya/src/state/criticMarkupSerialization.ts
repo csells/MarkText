@@ -25,7 +25,22 @@ export function applyTerminalLineEnding(
     markdown: TTrackedMarkdown,
 ): TTrackedMarkdown {
     const finalTrivia = states.at(-1)?.sourceTrivia;
-    const terminalLineEnding = finalTrivia?.criticAfterSuffix !== undefined
+    // After-boundary trivia lands on the state that carries the closing
+    // markers — for container-final documents that is the deepest last
+    // descendant, not the container. Wherever it lives on the final chain,
+    // that trivia already spells the document's trailing bytes, so the
+    // generated terminal LF must yield.
+    let suffixOwner: TState | undefined = states.at(-1);
+    let hasBoundarySuffix = false;
+    while (suffixOwner) {
+        if (suffixOwner.sourceTrivia?.criticAfterSuffix !== undefined) {
+            hasBoundarySuffix = true;
+            break;
+        }
+        const children = (suffixOwner as { children?: TState[] }).children;
+        suffixOwner = children?.at(-1);
+    }
+    const terminalLineEnding = hasBoundarySuffix
         ? ''
         : finalTrivia?.terminalLineEnding;
     if (terminalLineEnding === undefined || terminalLineEnding === '\n')
@@ -146,6 +161,20 @@ export function weaveCriticSourceTrivia(
                     // and its own line terminator (`first{++` before the
                     // paragraph's LF), so it weaves inside the newline.
                     let afterOffset = range.end;
+                    let wovenAfterPrefix = afterPrefix;
+                    // The boundary trivia's first newline is the node's own
+                    // line terminator; the serializer regenerates that byte
+                    // directly before the insertion point, so the prefix
+                    // must yield it or the boundary serializes one line low.
+                    if (
+                        !state.sourceTrivia?.criticAfterFlush
+                        && clean.text[afterOffset - 1] === '\n'
+                    ) {
+                        if (wovenAfterPrefix.startsWith('\r\n'))
+                            wovenAfterPrefix = wovenAfterPrefix.slice(2);
+                        else if (wovenAfterPrefix.startsWith('\n'))
+                            wovenAfterPrefix = wovenAfterPrefix.slice(1);
+                    }
                     if (state.sourceTrivia?.criticAfterFlush) {
                         if (clean.text.slice(
                             afterOffset - 2,
@@ -162,8 +191,9 @@ export function weaveCriticSourceTrivia(
                         edge: 'after',
                         depth: path.length,
                         markdown: concatMarkdown([
-                            ...(afterPrefix
-                                ? [plainMarkdown(afterPrefix).withNode(path)]
+                            ...(wovenAfterPrefix
+                                ? [plainMarkdown(wovenAfterPrefix)
+                                        .withNode(path)]
                                 : []),
                             plainMarkdown(after),
                             ...(afterSuffix

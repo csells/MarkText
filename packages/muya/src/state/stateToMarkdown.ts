@@ -434,8 +434,14 @@ export default class ExportMarkdown {
                     'A parser-spaced list item has no trailing blank-line count.',
                 );
             }
-            if (trailing)
-                result.push(plainMarkdown('\n'.repeat(trailing)));
+            if (trailing) {
+                // Blank lines between items keep the container's prefix
+                // (`>` for quoted lists) minus trailing spaces: a bare LF
+                // would terminate the enclosing blockquote on reparse.
+                result.push(plainMarkdown(
+                    `${indent.replace(/ +$/, '')}\n`.repeat(trailing),
+                ));
+            }
         }
         this._isLooseParentList = true;
     }

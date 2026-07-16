@@ -8,6 +8,7 @@ import diff from 'fast-diff';
 import * as json1 from 'ot-json1';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScrollPage } from '../../block/scrollPage';
+import type Format from '../../block/base/format';
 import { Muya } from '../../muya';
 import { diffToTextOp } from '../../utils';
 
@@ -564,6 +565,33 @@ describe('criticMarkup mutation gateway', () => {
 
         muya.undo();
         expect(muya.getMarkdown()).toBe('before\n');
+    });
+
+    it('keeps a committed tracked edit when a post-commit observer throws', () => {
+        const muya = boot('ab\n', { criticMarkupTrackChanges: true });
+        const laterObserver = vi.fn();
+        muya.eventCenter.once('json-change', () => {
+            throw new Error('injected tracked observer failure');
+        });
+        muya.on('json-change', laterObserver);
+
+        const block = muya.editor.scrollPage!
+            .firstContentInDescendant()! as Format;
+        block.domNode!.textContent = 'axb';
+        block.setCursor(2, 2);
+        // The commit is durable before observers run; a listener failure
+        // must surface as the post-commit error, not roll back the tracked
+        // document or mask itself behind an invariant violation.
+        expect(() => block.inputHandler(new InputEvent('input', {
+            bubbles: true,
+            data: 'x',
+            inputType: 'insertText',
+        }))).toThrowError('post-commit notification failed');
+        expect(muya.getMarkdown()).toBe('a{++x++}b\n');
+        expect(laterObserver).toHaveBeenCalledTimes(1);
+
+        muya.undo();
+        expect(muya.getMarkdown()).toBe('ab\n');
     });
 
     it('never reuses a failed proposal cache version for a later commit', () => {

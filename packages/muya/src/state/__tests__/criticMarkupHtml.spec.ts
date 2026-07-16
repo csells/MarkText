@@ -29,6 +29,16 @@ describe('criticMarkup HTML pipelines', () => {
         expect(html).toContain('data-critic-type="addition"');
     });
 
+    it('keeps the render-depth-limit diagnostic through the sanitizer', () => {
+        const depth = 200;
+        const source = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`;
+        // The depth-limit diagnostic is user-facing evidence that content
+        // was capped; the sanitized sink must not silently drop it.
+        const sanitized = renderToStaticHTML(source);
+        expect(sanitized).toContain('critic-markup-render-depth-limit');
+        expect(sanitized).toContain('data-critic-diagnostic');
+    });
+
     it('forwards original and revised projections to the parser extension', () => {
         const original = renderToStaticHTML(SOURCE, {
             criticMarkupProjection: 'original',

@@ -225,12 +225,10 @@ function assertExactNativeInlineMapping<Path extends TMappedTextPath>(
             continue;
         if (localRange.end <= localCursor)
             break;
-        if (
-            span.localStart > localCursor
-            || span.localEnd <= localCursor
-        ) {
+        // A gap before this span means the range is not covered contiguously
+        // (spans ending at or before the cursor were skipped above).
+        if (span.localStart > localCursor)
             break;
-        }
         const mappedSource = span.sourceStart
             + localCursor
             - span.localStart;

@@ -20,7 +20,10 @@ import {
     SelectionDirection,
 } from '../selection/types';
 import { markdownStatePath } from '../state/markdownSourceMap';
-import { PreparedSelectionError } from './errors';
+import {
+    PostCommitNotificationError,
+    PreparedSelectionError,
+} from './errors';
 import { deriveOperationSourceEdits } from './operationSourceEdits';
 
 /**
@@ -212,6 +215,7 @@ export class TrackedCriticMarkupPolicy {
 
         this._running = true;
         let committed = false;
+        let committedDocument: CriticMarkupDocument | null = null;
         let proposedMarkdown = beforeMarkdown;
         try {
             const captured = this._muya.eventCenter.suppress(() =>
@@ -297,6 +301,7 @@ export class TrackedCriticMarkupPolicy {
             }
             const trackedState = commit.states;
             const trackedDocument = commit.document;
+            committedDocument = trackedDocument;
             const nextSelection = preparedSelection(
                 trackedState,
                 trackedDocument,
@@ -333,6 +338,17 @@ export class TrackedCriticMarkupPolicy {
             return 'tracked';
         }
         catch (error) {
+            // A post-commit notification failure happens AFTER the tracked
+            // replacement committed durably; listener failures must not roll
+            // back a durable state/history boundary (gateway contract), and
+            // restoring here would mask the original error behind a bogus
+            // invariant violation.
+            if (error instanceof PostCommitNotificationError) {
+                committed = true;
+                if (committedDocument)
+                    documentSession.adoptCommitted(committedDocument);
+                throw error;
+            }
             if (!committed)
                 this._restoreBefore(beforeState, beforeSelection);
             if (error instanceof PreparedSelectionError) {

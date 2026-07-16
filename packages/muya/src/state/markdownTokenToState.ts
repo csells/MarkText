@@ -1,4 +1,4 @@
-import type { Token } from 'marked';
+import type { Token, Tokens } from 'marked';
 import type { ICriticMarkupInlineLeaf } from '../utils/marked/locatedMarkdown';
 import type { TBlockToken } from '../utils/marked/types';
 import type { ILoweredNativeInlineSource } from './criticMarkupInlineLowering';
@@ -67,6 +67,39 @@ function prependTokens(
         target[index + addedLength] = target[index];
     for (let index = 0; index < addedLength; index++)
         target[index] = values[index];
+}
+
+
+/**
+ * Clear `blockSeparatorAfter` on every open ancestor container whose
+ * recorded separator is a suffix of the after-boundary trivia. The boundary
+ * weave re-emits those exact bytes, so leaving the separator in place would
+ * double-spell them on serialization.
+ */
+function releaseAncestorSeparators(
+    parentList: TState[][],
+    attachments: readonly Tokens.CriticMarkupBoundaryAttachment[],
+): void {
+    const trivia = attachments
+        .map(attachment => attachment.trivia.raw + attachment.followingTrivia.raw)
+        .join('');
+    if (!trivia)
+        return;
+    for (let level = 1; level < parentList.length; level++) {
+        const container = parentList[level].at(-1);
+        const separator = container?.sourceTrivia?.blockSeparatorAfter;
+        if (
+            container
+            && separator !== undefined
+            && separator.length > 0
+            && trivia.endsWith(separator)
+        ) {
+            const { blockSeparatorAfter: _released, ...rest }
+                = container.sourceTrivia!;
+            (container as { sourceTrivia?: typeof rest }).sourceTrivia
+                = Object.keys(rest).length ? rest : undefined;
+        }
+    }
 }
 
 export function handleContainerToken(
@@ -317,6 +350,11 @@ export function handleContainerToken(
                     'after',
                     emptyAfter,
                 );
+                // The boundary's trivia spells the bytes between the marker
+                // and its neighbors; any open ancestor container whose
+                // parser-recorded separator names those same bytes must
+                // yield ownership or the byte serializes twice.
+                releaseAncestorSeparators(parentList, emptyAfter);
                 attachCriticBoundaryAttachments(
                     lastMarkerState,
                     'after',

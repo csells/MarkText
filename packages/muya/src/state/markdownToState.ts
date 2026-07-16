@@ -310,6 +310,23 @@ export class MarkdownToState {
                 'Markdown parser emitted consecutive interblock space tokens.',
             );
         }
+        // A Critic after-boundary woven inside `previous` may already spell
+        // these exact interblock bytes as its marker prefix; attaching the
+        // separator too would serialize the same bytes twice.
+        let descendant: TState | undefined = previous;
+        while (descendant) {
+            const prefix = descendant.sourceTrivia?.criticAfterPrefix;
+            if (
+                prefix !== undefined
+                && descendant !== previous
+                && `${prefix}${descendant.sourceTrivia?.criticAfterSuffix ?? ''}`
+                    .endsWith(raw.slice(1))
+            ) {
+                return;
+            }
+            descendant = (descendant as { children?: TState[] })
+                .children?.at(-1);
+        }
         (previous as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
             ...previous.sourceTrivia,
             blockSeparatorAfter: raw.slice(1),
