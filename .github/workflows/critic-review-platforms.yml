@@ -6,6 +6,12 @@ name: CriticMarkup Review Platforms
 
 on:
   workflow_dispatch:
+  # workflow_dispatch resolves only against the default branch, so the
+  # feature branch carries a push trigger to get platform signal before any
+  # PR exists. Drop this block once the workflow lands on develop.
+  push:
+    branches:
+      - feat/native-criticmarkup
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
