@@ -22,7 +22,7 @@ import { Search } from '../search';
 import Selection from '../selection';
 import JSONState from '../state';
 import { statesEqual } from '../state/stateEquality';
-import { hasPick, isHTMLElement, isKeyboardEvent } from '../utils';
+import { deepClone, hasPick, isHTMLElement, isKeyboardEvent } from '../utils';
 import { CollectedError } from '../utils/collectedError';
 import { getBlock } from '../utils/dom';
 import logger from '../utils/logger';
@@ -297,6 +297,9 @@ export class Editor {
     private _activeContentBlock: Nullable<Content> = null;
     private readonly _mutationAuthority: IMutationAuthority;
     private _treeRebuildDepth = 0;
+    private readonly _projectionStateCache = new Map<'original' | 'revised', TState[]>();
+    private _projectionCacheVersion = -1;
+    private _projectionWarmupTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(private _muya: Muya) {
         const state = _muya.options.json || _muya.options.markdown || '';
@@ -343,10 +346,68 @@ export class Editor {
         const projection = this._muya.options.criticMarkupProjection;
         if (projection === 'marked')
             return this.jsonState.getState();
+        return this._projectedState(projection);
+    }
 
-        return this.jsonState.markdownToState(
-            this.criticMarkupDocument.get().project(projection),
-        );
+    /**
+     * Derive the read-only projected state, parsing each projection of a
+     * document revision at most once. An item-free document projects to its
+     * own bytes, so the canonical state is exact without a reparse.
+     */
+    private _projectedState(projection: 'original' | 'revised'): TState[] {
+        const document = this.criticMarkupDocument.get();
+        if (!document.items.length)
+            return this.jsonState.getState();
+        const version = this.jsonState.documentVersion;
+        if (this._projectionCacheVersion !== version) {
+            this._projectionCacheVersion = version;
+            this._projectionStateCache.clear();
+        }
+        let state = this._projectionStateCache.get(projection);
+        if (!state) {
+            state = this.jsonState.markdownToState(document.project(projection));
+            this._projectionStateCache.set(projection, state);
+        }
+        return deepClone(state);
+    }
+
+    /**
+     * Parse the read-only projections ahead of the first view switch so
+     * toggling stays interactive on large documents. The warmup is deferred
+     * off the reset path — projection parsing of pathological input can cost
+     * seconds and must never gate document open — and self-cancels when the
+     * editor is destroyed or the document changed before it ran.
+     */
+    scheduleProjectionWarmup(): void {
+        if (this._projectionWarmupTimer !== null)
+            clearTimeout(this._projectionWarmupTimer);
+        // `data-critic-warm` marks the steady interactive state: automation
+        // measuring view-switch latency waits for it instead of racing the
+        // warmup parse.
+        this._muya.domNode.removeAttribute('data-critic-warm');
+        this._projectionWarmupTimer = setTimeout(() => {
+            this._projectionWarmupTimer = null;
+            if (!this.scrollPage)
+                return;
+            if (this._mutationAuthority.active) {
+                // A mutation owns the document right now; defer rather than
+                // drop, or the steady-state marker never appears.
+                this.scheduleProjectionWarmup();
+                return;
+            }
+            if (this.criticMarkupDocument.get().items.length) {
+                this._projectedState('original');
+                this._projectedState('revised');
+            }
+            this._muya.domNode.setAttribute('data-critic-warm', 'true');
+        }, 0);
+    }
+
+    cancelProjectionWarmup(): void {
+        if (this._projectionWarmupTimer !== null) {
+            clearTimeout(this._projectionWarmupTimer);
+            this._projectionWarmupTimer = null;
+        }
     }
 
     private _syncProjectionAttributes() {
@@ -377,6 +438,7 @@ export class Editor {
         this.scrollPage = ScrollPage.create(muya, state);
         this.inlineRenderer.refreshCriticMarkupDocumentFragments();
         this._syncProjectionAttributes();
+        this.scheduleProjectionWarmup();
 
         this._dispatchEvents();
         // Hovering a rendered link wrapper dispatches `muya-link-tools` so the
@@ -596,6 +658,7 @@ export class Editor {
     renderCurrentProjection(
         selection: Nullable<IHistorySelection> = null,
         reuseUnchangedBlocks = false,
+        autoFocus = true,
     ) {
         this._rebuildScrollPage(
             this._stateForCurrentProjection(),
@@ -604,7 +667,7 @@ export class Editor {
         if (this._isCanonicalProjection()) {
             if (selection)
                 this._restoreSelection(selection, true);
-            else
+            else if (autoFocus)
                 this.focus();
         }
     }
@@ -793,6 +856,7 @@ export class Editor {
         if (result === 'rejected') {
             throw new TypeError('A document reset cannot be rejected by projection policy.');
         }
+        this.scheduleProjectionWarmup();
     }
 
     reparseContent(

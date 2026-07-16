@@ -55,3 +55,15 @@ At least one freshly built real-application workflow must assert that windows
 remain hidden and unfocused while exercising the production renderer and main
 process. Mocked policy tests are necessary but do not replace this artifact
 proof.
+
+## Steady-state readiness marker
+
+The editor warms its read-only Critic projection caches asynchronously after
+every document open or reset, then stamps `data-critic-warm="true"` on the
+editor root (`scheduleProjectionWarmup` in `packages/muya/src/editor/index.ts`;
+the warmup defers and reschedules while a mutation holds the authority).
+Automation that measures interactive latency — notably the Wave 7 projection
+p95 budget in `critic-markup-perf.spec.ts` — must wait for this marker before
+sampling: it bounds the steady interactive state a user reaches moments after
+open, while the one-off warmup parse is bounded separately by the document
+open budget.

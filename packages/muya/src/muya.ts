@@ -399,7 +399,14 @@ export class Muya implements ICriticMarkupReviewEditor {
         const selection = preserveSelection
             ? this.editor.selection.getSelection()
             : null;
-        this.editor.renderCurrentProjection(selection, reuseUnchangedBlocks);
+        // A view switch is not an edit: when the selection was deliberately
+        // not preserved (projection changes invalidate its offsets), the
+        // re-render must not grab focus or seat a caret at document start.
+        this.editor.renderCurrentProjection(
+            selection,
+            reuseUnchangedBlocks,
+            preserveSelection,
+        );
     }
 
     /** Update list indentation and re-render so it takes effect. */
@@ -1671,6 +1678,7 @@ export class Muya implements ICriticMarkupReviewEditor {
     }
 
     destroy() {
+        this.editor.cancelProjectionWarmup();
         this.eventCenter.detachAllDomEvents();
         this.eventCenter.unsubscribeAll();
         // this.domNode[BLOCK_DOM_PROPERTY] = null;

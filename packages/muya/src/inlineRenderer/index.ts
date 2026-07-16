@@ -21,6 +21,7 @@ const debug = logger('inlineRenderer:');
 
 class InlineRenderer {
     public labels: Labels = new Map();
+    private _labelsDocumentVersion = -1;
     public renderer: Renderer;
 
     private _criticMarkupFragmentPaths = new MappedPathIndex<TMarkdownStatePath, true>();
@@ -181,9 +182,14 @@ class InlineRenderer {
     }
 
     private _collectReferenceDefinitions() {
-        this.labels = collectReferenceDefinitions(
-            this.muya.editor.jsonState.getState(),
-        );
+        // Every state mutation bumps documentVersion, so one collection per
+        // version is exact. Recollecting per patched block cloned the whole
+        // document O(blocks²) during full-tree rebuilds.
+        const { jsonState } = this.muya.editor;
+        if (jsonState.documentVersion === this._labelsDocumentVersion)
+            return;
+        this.labels = collectReferenceDefinitions(jsonState.getState());
+        this._labelsDocumentVersion = jsonState.documentVersion;
     }
 
     getLabelInfo(blockOrState: ParagraphContent | IParagraphState) {
