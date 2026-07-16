@@ -139,10 +139,16 @@ describe('one CriticMarkup analysis authority per source revision', () => {
         const stateDocument = createCriticMarkupDocument(
             analysis,
             stateMapped,
+            undefined,
+            undefined,
+            'grammar',
         );
         const markedDocument = createCriticMarkupDocument(
             analysis,
             markedMapped,
+            undefined,
+            undefined,
+            'grammar',
         );
 
         expect(calls.scanCriticMarkup).toHaveBeenCalledTimes(1);
@@ -160,6 +166,9 @@ describe('one CriticMarkup analysis authority per source revision', () => {
         expect(() => createCriticMarkupDocument(
             analysis,
             plainMarkdown('{++two++}'),
+            undefined,
+            undefined,
+            'grammar',
         )).toThrow(/different source revision/);
     });
 
@@ -187,6 +196,8 @@ describe('one CriticMarkup analysis authority per source revision', () => {
             mathDocument.analysis,
             mapped,
             plainDocument.analysis.parserProfile,
+            undefined,
+            'grammar',
         )).toThrow(/different parser profile/);
     });
 

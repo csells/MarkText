@@ -4,11 +4,11 @@ import type Content from '../../block/base/content';
 import type { ImageToken } from '../../inlineRenderer/types';
 import type { Muya } from '../../muya';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseBoundCriticMarkupDocument } from '../../inlineRenderer/__tests__/parseBoundDocument';
 import {
     mappedMarkdown,
     markdownStatePath,
 } from '../../state/markdownSourceMap';
-import { parseBoundCriticMarkupDocument } from '../../utils/marked/criticMarkupDocument';
 import { CopyType } from '../types';
 
 const calls = vi.hoisted(() => ({

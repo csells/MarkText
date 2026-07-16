@@ -641,7 +641,7 @@ export function createCriticMarkupDocument<
         kind: 'grammar-only',
     }),
     contextCoverage: TCriticMarkupContextCoverage = 'grammar-only',
-    nativeBindings: TCriticMarkupDocumentBindings<Path> | 'grammar' = 'grammar',
+    nativeBindings: TCriticMarkupDocumentBindings<Path> | 'grammar',
 ): CriticMarkupDocument<Path> {
     if (nativeBindings === 'grammar') {
         // Only the grammar-only profile may derive topology from grammar

@@ -23,6 +23,9 @@ function createCriticMarkupDocument(
     return createDocumentFromAnalysis(
         CriticMarkupAnalysis.analyzeGrammar(source.text, excludedRanges),
         source,
+        undefined,
+        undefined,
+        'grammar',
     );
 }
 

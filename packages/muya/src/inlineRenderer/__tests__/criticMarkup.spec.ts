@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { CRITIC_MARKUP_RENDER_DEPTH_LIMIT } from '../../criticMarkup/renderPolicy';
 import { localRange } from '../../mappedText';
 import { mappedMarkdown, markdownStatePath } from '../../state/markdownSourceMap';
-import { parseBoundCriticMarkupDocument } from '../../utils/marked/criticMarkupDocument';
 import { generator, tokenizer } from '../lexer';
+import { parseBoundCriticMarkupDocument } from './parseBoundDocument';
 
 function tokenize(source: string) {
     const path = markdownStatePath([0, 'text']);

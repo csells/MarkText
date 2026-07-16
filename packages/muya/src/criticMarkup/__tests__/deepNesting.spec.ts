@@ -20,6 +20,9 @@ function createCriticMarkupDocument(source: TTrackedMarkdown) {
     return createDocumentFromAnalysis(
         CriticMarkupAnalysis.analyzeGrammar(source.text),
         source,
+        undefined,
+        undefined,
+        'grammar',
     );
 }
 

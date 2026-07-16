@@ -193,25 +193,6 @@ export function parseCriticMarkupDocument(
 }
 
 /**
- * Parse one standalone mapped revision into a fragment-bearing document.
- * The parse's own analysis and mapped provenance emit the binding graph —
- * the same artifact emission the prepared parser context performs — so the
- * document authenticates against real topology instead of staying
- * semantic-only. Live-state consumers keep using the state parser artifact.
- */
-export function parseBoundCriticMarkupDocument(
-    sourceMap: TTrackedMarkdown,
-    options: ILexOption = {},
-) {
-    return parseDocument(
-        sourceMap,
-        options,
-        false,
-        emptyCriticMarkupBindingGraph(),
-    );
-}
-
-/**
  * Build the same canonical document while also materializing Markdown-owned
  * literal ranges when the source has no Critic opener yet. Authoring and
  * Track Changes need this form to decide whether a proposed new marker would

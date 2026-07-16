@@ -18,6 +18,9 @@ function grammarDocument(source: string) {
     return createCriticMarkupDocument(
         CriticMarkupAnalysis.analyzeGrammar(source),
         mapped,
+        undefined,
+        undefined,
+        'grammar',
     );
 }
 

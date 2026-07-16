@@ -1,7 +1,8 @@
 import type { TBlockPath } from '../../block/types';
 import type { TTrackedMarkdown } from '../../state/markdownSourceMap';
 import type { IMarkdownSourceMap } from '../../state/stateToMarkdown';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localOffset, sourceOffset } from '../../mappedText';
@@ -42,6 +43,9 @@ function createCriticMarkupDocument(source: TTrackedMarkdown) {
     return createDocumentFromAnalysis(
         CriticMarkupAnalysis.analyzeGrammar(source.text),
         source,
+        undefined,
+        undefined,
+        'grammar',
     );
 }
 
@@ -174,6 +178,46 @@ describe('criticMarkup final-adapter structural scale', () => {
         expect(DOCUMENT_SOURCE).not.toMatch(/nativeBindings\?:/);
         expect(DOCUMENT_SOURCE).not.toContain('function fragmentsForToken');
         expect(DOCUMENT_SOURCE).not.toContain('function fragmentForPath');
+    });
+
+    it('requires explicit binding provenance at every production entry point', () => {
+        // A defaulted binding parameter is optional provenance in disguise:
+        // call sites compile without stating where topology comes from. The
+        // factory may accept the 'grammar' sentinel, but never silently.
+        expect(DOCUMENT_SOURCE).not.toMatch(/nativeBindings\s*:[^=;\n]*=/);
+
+        // The marked parser module exposes no test-only bound-document
+        // shortcut; test suites compose one from the public semantic parse
+        // plus the sanctioned grammar materializer.
+        const markedDocumentSource = readFileSync(
+            fileURLToPath(
+                new URL('../../utils/marked/criticMarkupDocument.ts', import.meta.url),
+            ),
+            'utf8',
+        );
+        expect(markedDocumentSource)
+            .not
+            .toContain('function parseBoundCriticMarkupDocument');
+
+        // Repo-wide: no production module may declare an optional parameter
+        // or property of a binding-graph type (reassignments and required
+        // parameters stay legal).
+        const srcRoot = fileURLToPath(new URL('../..', import.meta.url));
+        const productionSources = readdirSync(srcRoot, { recursive: true })
+            .map(String)
+            .filter(relative => relative.endsWith('.ts')
+                && !relative.includes('__tests__')
+                && !relative.endsWith('.spec.ts'));
+        expect(productionSources.length).toBeGreaterThan(100);
+        for (const relative of productionSources) {
+            const source = readFileSync(join(srcRoot, relative), 'utf8');
+            expect(
+                source,
+                `${relative} declares optional binding provenance`,
+            ).not.toMatch(
+                /\w+\?\s*:\s*(?:ICriticMarkupBindingGraph|TCriticMarkupDocumentBindings)\b/,
+            );
+        }
     });
 
     it('builds deep table-style fragmented mappings in one output-sensitive sweep', () => {
