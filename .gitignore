@@ -20,3 +20,6 @@ playwright-report/
 .claude/
 .agents/
 .agent/
+
+# Personal editor workspace settings stay local
+.vscode/settings.json
