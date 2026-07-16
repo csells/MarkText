@@ -564,7 +564,8 @@ section wins.
 
 ### Post-closure history the ledger previously omitted
 
-- Commit `799f4c7e` landed 38 minutes after the closure commit `aad0f659`,
+- A post-closure fix commit (now `3b8d2170`; `799f4c7e` before the 2026-07-16
+  history rewrite below) landed 38 minutes after the closure commit `aad0f659`,
   changing six production muya serialization/state/mutation files. It fixed
   real defects in capabilities the Wave 3/5 gates had already certified:
   repeated open/save duplicated terminal line endings on list-final Critic
@@ -573,12 +574,20 @@ section wins.
   a bogus rollback error (Wave 3 failure-injection). The Wave 3/5 MET stamps
   therefore described suites that were green while certified byte classes
   were broken.
-- `799f4c7e` also committed the user's `.vscode/settings.json` customization,
-  violating settled decision 10; remediated in `fdc48c4f` (tracked file
-  restored to its develop state, customization kept local-only). The
-  violation commit remains in branch history; a squash on merge removes it.
-- Two gates were red at `fdc48c4f` and are now fixed: muya ESLint (3 errors
-  in `799f4c7e`-touched files) and desktop `vue-tsc` (TS2367 in
+- That commit also committed the user's `.vscode/settings.json`
+  customization, violating settled decision 10. Remediated twice over on
+  2026-07-16: first by reverting the tracked file, then — per user
+  instruction — by rewriting the branch history (`git filter-branch` over
+  the base..tip range) so that **no branch commit touches
+  `.vscode/settings.json` at all**. The revert-only commit was pruned as
+  empty; every SHA after `aad0f659` changed. A follow-up commit untracks the
+  file and gitignores it (`.gitignore`: `.vscode/settings.json`), so
+  personal workspace settings can never enter history again; the shared
+  `.vscode/extensions.json` and `.vscode/launch.json` remain tracked, and
+  the user's local customization file survives untracked on disk.
+- Two gates were red at the pre-rewrite closure tip and are now fixed: muya
+  ESLint (3 errors in files touched by the post-closure fix commit) and
+  desktop `vue-tsc` (TS2367 in
   `packaged-smoke.spec.ts`, introduced by `aad0f659` itself — so the Wave 7
   "run all gates" item had never actually held; the Save menu item now has a
   real id `fileSaveMenuItem` instead of a role scan).
