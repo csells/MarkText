@@ -1,9 +1,9 @@
 diff --git a/UPSTREAM.md b/UPSTREAM.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..e8bf5ec8f9f7a6f5ade09abc4850f353bc5f4735
+index 0000000000000000000000000000000000000000..2809f35555877ce01306c00253e8cc3d2661900a
 --- /dev/null
 +++ b/UPSTREAM.md
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,40 @@
 +# Upstream provenance
 +
 +This private workspace fork is based on
@@ -23,9 +23,12 @@ index 0000000000000000000000000000000000000000..e8bf5ec8f9f7a6f5ade09abc4850f353
 +```
 +
 +The verifier reverses the patch, authenticates the reconstructed upstream source
-+tree and blobs, reapplies the patch, and requires a byte-exact round trip. It also
-+rejects an unrecorded source edit and fork-version drift in temporary copies. It
-+does not fetch from the network.
++tree and blobs, reapplies the patch, and requires a byte-exact round trip. Its
++self-test runs one negative control per recorded drift class in temporary
++copies: an unrecorded source edit, fork-version drift, a decoy consumer
++importer masking broken Muya lock wiring, a manifest that reclassifies a
++modified file as unchanged, and a corrupted canonical patch. It does not fetch
++from the network.
 +
 +## Updating the fork
 +

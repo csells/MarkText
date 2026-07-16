@@ -406,6 +406,36 @@ function runSelfTest (forkRoot, repositoryRoot) {
       () => verifyMarkedFork({ forkRoot, repositoryRoot: consumerDrift }),
       'decoy consumer importer drift'
     )
+
+    const manifestDrift = copyFork()
+    const manifestPath = join(manifestDrift, MANIFEST_NAME)
+    const manifest = readJson(manifestPath, 'self-test manifest')
+    const [reclassified, ...remainingModified] = manifest.fork.surface.modified
+    assert(reclassified, 'manifest-drift self-test found no modified surface file.')
+    manifest.fork.surface.modified = remainingModified
+    manifest.fork.surface.unchanged = [
+      ...manifest.fork.surface.unchanged,
+      reclassified,
+    ].sort()
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    expectContractFailure(
+      () => verifyMarkedFork({ forkRoot: manifestDrift, repositoryRoot }),
+      'manifest reclassification drift'
+    )
+
+    const patchDrift = copyFork()
+    const patchManifest = readJson(join(patchDrift, MANIFEST_NAME), 'self-test manifest')
+    const patchPath = join(patchDrift, patchManifest.fork.canonicalPatch)
+    const patchLines = readFileSync(patchPath, 'utf8').split('\n')
+    const additionIndex = patchLines.findIndex(line =>
+      line.startsWith('+') && !line.startsWith('+++'))
+    assert(additionIndex > 0, 'patch-drift self-test found no addition line to corrupt.')
+    patchLines[additionIndex] = `${patchLines[additionIndex]} /* self-test drift */`
+    writeFileSync(patchPath, patchLines.join('\n'))
+    expectContractFailure(
+      () => verifyMarkedFork({ forkRoot: patchDrift, repositoryRoot }),
+      'canonical patch drift'
+    )
   } finally {
     for (const directory of temporaryRoots) {
       rmSync(directory, { force: true, recursive: true })

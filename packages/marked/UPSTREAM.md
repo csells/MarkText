@@ -17,9 +17,12 @@ node packages/marked/scripts/verify-fork.mjs --self-test
 ```
 
 The verifier reverses the patch, authenticates the reconstructed upstream source
-tree and blobs, reapplies the patch, and requires a byte-exact round trip. It also
-rejects an unrecorded source edit and fork-version drift in temporary copies. It
-does not fetch from the network.
+tree and blobs, reapplies the patch, and requires a byte-exact round trip. Its
+self-test runs one negative control per recorded drift class in temporary
+copies: an unrecorded source edit, fork-version drift, a decoy consumer
+importer masking broken Muya lock wiring, a manifest that reclassifies a
+modified file as unchanged, and a corrupted canonical patch. It does not fetch
+from the network.
 
 ## Updating the fork
 

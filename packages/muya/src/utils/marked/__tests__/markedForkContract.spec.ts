@@ -82,6 +82,61 @@ describe('vendored Marked fork contract', () => {
         expect(result.status, result.output).toBe(0);
     });
 
+    it('self-tests all five recorded drift classes', () => {
+        // The self-test must keep one offline negative control per drift
+        // class the fork contract certifies: source bytes, package version,
+        // consumer wiring, manifest classification, and the canonical patch.
+        const verifierSource = readFileSync(VERIFIER, 'utf8');
+        for (const label of [
+            'unrecorded source drift',
+            'package-version drift',
+            'decoy consumer importer drift',
+            'manifest reclassification drift',
+            'canonical patch drift',
+        ]) {
+            expect(verifierSource, `self-test lacks the ${label} control`)
+                .toContain(`'${label}'`);
+        }
+    });
+
+    it('rejects a manifest that reclassifies a modified file as unchanged', () => {
+        const copy = copiedFork();
+        const manifestPath = join(copy, 'FORK_MANIFEST.json');
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+        const [reclassified, ...modified] = manifest.fork.surface.modified;
+        expect(reclassified).toBeTruthy();
+        manifest.fork.surface.modified = modified;
+        manifest.fork.surface.unchanged = [
+            ...manifest.fork.surface.unchanged,
+            reclassified,
+        ].sort();
+        writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+        const result = runVerifier('--fork-root', copy);
+
+        expect(result.status).not.toBe(0);
+        expect(result.output).toMatch(/classification|unchanged/i);
+    });
+
+    it('rejects a corrupted canonical patch', () => {
+        const copy = copiedFork();
+        const manifest = JSON.parse(
+            readFileSync(join(copy, 'FORK_MANIFEST.json'), 'utf8'),
+        );
+        const patchPath = join(copy, manifest.fork.canonicalPatch);
+        const patchLines = readFileSync(patchPath, 'utf8').split('\n');
+        const additionIndex = patchLines.findIndex(line =>
+            line.startsWith('+') && !line.startsWith('+++'));
+        expect(additionIndex).toBeGreaterThan(0);
+        patchLines[additionIndex] = `${patchLines[additionIndex]} /* drifted */`;
+        writeFileSync(patchPath, patchLines.join('\n'));
+
+        const result = runVerifier('--fork-root', copy);
+
+        expect(result.status).not.toBe(0);
+        expect(result.output).toMatch(/apply|patch/i);
+    });
+
     it('rejects an unrecorded source edit', () => {
         const copy = copiedFork();
         appendFileSync(join(copy, 'src/rules.ts'), '\n// unrecorded drift\n');
