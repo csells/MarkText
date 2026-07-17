@@ -108,6 +108,12 @@
           </span>
 
           <span
+            v-if="item.type === 'comment' && item.anchorText"
+            class="comment-anchor"
+            :title="item.anchorText"
+          >{{ item.anchorText }}</span>
+
+          <span
             v-if="item.type === 'substitution'"
             class="substitution"
           >
@@ -506,6 +512,20 @@ watch(
   font-size: 10px;
   line-height: 14px;
   opacity: 0.45;
+}
+
+.comment-anchor {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-bottom: 5px;
+  padding-left: 6px;
+  border-left: 2px solid var(--themeColor);
+  color: var(--sideBarColor);
+  font-size: 11px;
+  line-height: 16px;
+  opacity: 0.7;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .item-content,

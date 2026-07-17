@@ -410,11 +410,11 @@ export class MuyaCriticMarkup {
         ) {
             return null;
         }
-        if (
-            start === end
-            && type !== 'addition'
-            && type !== 'comment'
-        ) {
+        // Only an addition can start at a collapsed caret. A comment must have
+        // a selection so every app-made comment has a highlighted anchor; the
+        // bare `{>>note<<}` form still renders and round-trips, but is not
+        // authored here.
+        if (start === end && type !== 'addition') {
             return null;
         }
 
@@ -804,6 +804,31 @@ export class MuyaCriticMarkup {
         return this._focusEntry(snapshot, entries[targetIndex]);
     }
 
+    // The commented-span pair for an entry — the gapless `{==sel==}{>>note<<}`
+    // where the highlight ends exactly where the comment begins. Resolving
+    // either half resolves both, so the pair is never split. Null for a plain
+    // highlight, a point comment with no anchor, a non-pair entry, or a comment
+    // nested inside another item's content.
+    private _commentedSpanFor(
+        snapshot: ICriticMarkupDocumentSnapshot,
+        entry: ICriticMarkupEntry,
+    ): { highlight: ICriticMarkupEntry; comment: ICriticMarkupEntry } | null {
+        const range = entry.documentItem.syntax.range;
+        if (entry.item.type === 'comment') {
+            const highlight = snapshot.entries.find(candidate =>
+                candidate.item.type === 'highlight'
+                && candidate.documentItem.syntax.range.end === range.start);
+            return highlight ? { highlight, comment: entry } : null;
+        }
+        if (entry.item.type === 'highlight') {
+            const comment = snapshot.entries.find(candidate =>
+                candidate.item.type === 'comment'
+                && candidate.documentItem.syntax.range.start === range.end);
+            return comment ? { highlight: entry, comment } : null;
+        }
+        return null;
+    }
+
     resolve(
         decision: TCriticMarkupDecision,
         target: ICriticMarkupTarget | undefined,
@@ -818,19 +843,28 @@ export class MuyaCriticMarkup {
         if (!entry)
             return false;
 
-        const { syntax } = entry.documentItem;
-        const replacement = snapshot.model.resolveItem(
-            entry.documentItem.id,
-            decision,
-        );
+        // A comment and its anchor highlight are one commented span: resolving
+        // either half resolves both in the same splice, so the pair is never
+        // stranded. The highlight always precedes the comment in source.
+        const span = this._commentedSpanFor(snapshot, entry);
+        const removalStart = span
+            ? span.highlight.documentItem.syntax.range.start
+            : entry.documentItem.syntax.range.start;
+        const removalEnd = span
+            ? span.comment.documentItem.syntax.range.end
+            : entry.documentItem.syntax.range.end;
+        const replacement = span
+            ? snapshot.model.resolveItem(span.highlight.documentItem.id, decision)
+            + snapshot.model.resolveItem(span.comment.documentItem.id, decision)
+            : snapshot.model.resolveItem(entry.documentItem.id, decision);
         let nextMarkdown
-            = snapshot.model.markdown.slice(0, syntax.range.start)
+            = snapshot.model.markdown.slice(0, removalStart)
                 + replacement
-                + snapshot.model.markdown.slice(syntax.range.end);
+                + snapshot.model.markdown.slice(removalEnd);
         if (!/\S/.test(replacement)) {
             nextMarkdown = collapseErasedJunction(
                 nextMarkdown,
-                syntax.range.start + replacement.length,
+                removalStart + replacement.length,
             );
         }
         const selection = this._selectionSnapshot();
@@ -839,7 +873,7 @@ export class MuyaCriticMarkup {
 
         const nextSnapshot = this._documentSnapshot();
         const cursor = nextSnapshot.model.localPositionAt(
-            mappedSourceOffset(syntax.range.start + replacement.length),
+            mappedSourceOffset(removalStart + replacement.length),
         );
         if (cursor) {
             const block = this._muya.editor.scrollPage?.queryBlock([

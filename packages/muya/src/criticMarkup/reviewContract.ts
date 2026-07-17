@@ -58,6 +58,14 @@ export interface ICriticMarkupReviewItem extends ICriticMarkupTarget {
     readonly content?: string;
     readonly oldContent?: string;
     readonly newContent?: string;
+    /**
+     * A comment's anchor highlight, folded in so the pair reads as one item.
+     * `anchorId` is the `{==…==}` highlight's id (so Remove can delete the
+     * pair); `anchorText` is its highlighted text (the card's context preview).
+     * Absent on non-comment items and on a point comment with no anchor.
+     */
+    readonly anchorId?: string;
+    readonly anchorText?: string;
 }
 
 /** Complete, serializable Review state published by one Muya revision. */

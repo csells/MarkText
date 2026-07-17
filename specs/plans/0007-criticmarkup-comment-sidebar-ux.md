@@ -117,6 +117,30 @@ criticMarkupReview,commentComposer}.ts`, `components/sideBar/{review.vue,index.v
 `store/criticMarkupReview.ts`, the editor context menu (`main/contextMenu/…`),
 `static/locales/*.json`.
 
+## Status & divergences to correct (gap analysis 2026-07-17)
+
+Phases 1a/2/3 are committed and green. The gap analysis surfaced five places
+where the *current* build contradicts a settled decision (not merely missing) —
+each is folded into the phase that fixes it:
+
+- **D1 — Add Comment allowed with no selection** (`commands.ts:413-419` permits
+  a collapsed caret for `comment`). Violates decision 2. Fixed in Phase 4.
+- **D2 — the anchor double-lists** (`reviewSnapshot.ts` maps items 1:1, so
+  `{==sel==}{>>c<<}` is two cards; Remove strands one). Violates decision 3.
+  Fixed in Phase 4.
+- **D3 — the in-document indicator force-opens/scrolls the sidebar**
+  (`criticDocumentFragment.ts:121` → `focusCriticMarkup`). Violates decision 7.
+  Fixed in Phase 6.
+- **D4 — clicking a sidebar comment card jumps the document** (`review.vue`
+  focus action) rather than editing it. Violates decision 7. Fixed in Phase 5.
+- **D5 — the anchor renders as an indistinguishable plain highlight.** Violates
+  decision 3 / Outcome 2. Fixed in Phase 4.
+
+Phase 6 (passive selection) is half-present already: `_currentEntry`
+(`commands.ts:620`) derives the current item from the caret, and `review.vue`
+marks that card active — so once the anchor is subsumed (Phase 4) and D3/D4 are
+removed, caret-in-a-span → active comment card falls out for free.
+
 ## Execution — red-green TDD
 
 Every phase: a red test encoding the behaviour, the minimum change to green, a

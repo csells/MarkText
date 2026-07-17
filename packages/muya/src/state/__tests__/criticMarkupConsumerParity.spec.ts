@@ -331,6 +331,16 @@ describe('criticMarkup cross-consumer parity corpus', () => {
                 .toEqual(expectedHtml);
             expect(commandItemSummaries(commandItems))
                 .toEqual(expected.map(declaredCommandItem));
+            // The Review snapshot folds a comment's anchor highlight (a gapless
+            // `{==sel==}{>>note<<}` pair) into the comment, so it does not mirror
+            // the document items 1:1 there. Drop the anchor highlight from the
+            // expected Review items and re-index — every non-adjacent row is
+            // unaffected.
+            const expectedReview = expected.filter(item =>
+                !(item.type === 'highlight'
+                    && expected.some(candidate =>
+                        candidate.type === 'comment'
+                        && candidate.sourceRange.start === item.sourceRange.end)));
             expect(review.items.map((item, documentOrder) => ({
                 type: item.type,
                 raw: item.raw,
@@ -341,7 +351,7 @@ describe('criticMarkup cross-consumer parity corpus', () => {
                     end: item.sourceEnd,
                 },
                 documentOrder,
-            }))).toEqual(expected.map(item => ({
+            }))).toEqual(expectedReview.map((item, documentOrder) => ({
                 type: item.type,
                 raw: item.raw,
                 // A fully structural item (no inline fragments) anchors the
@@ -350,7 +360,7 @@ describe('criticMarkup cross-consumer parity corpus', () => {
                 localRange: item.fragments[0]?.localRange
                     ?? item.sourceRange,
                 sourceRange: item.sourceRange,
-                documentOrder: item.documentOrder,
+                documentOrder,
             })));
             expect(review.canResolveAll).toBe(expected.length > 0);
 
@@ -474,7 +484,11 @@ describe('criticMarkup cross-consumer parity corpus', () => {
                     );
                     const bulk = resolveInBulk(source, row, decision);
 
-                    expect(individually.count).toBe(expected.length);
+                    // Resolving one half of a commented span resolves both, so
+                    // per-item resolution takes one step per resolvable unit
+                    // (the anchor folded into its comment); bulk still counts
+                    // every underlying entry.
+                    expect(individually.count).toBe(expectedReview.length);
                     expect(bulk.count).toBe(expected.length);
                     expect(individually.markdown).toBe(bulk.markdown);
                     if (row.normalization.kind === 'exact') {
