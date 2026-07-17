@@ -233,6 +233,12 @@ export const exportStyledHTML = async(
   // event attributes, and URI schemes introduced by any earlier renderer.
   bodyHtml = sanitizeExportHtml(bodyHtml)
 
-  // Re-emit the engine document shell with the sanitized augmented body.
-  return fullDoc.replace(/<body>[\s\S]*<\/body>/, `<body>\n  ${bodyHtml}\n</body>`)
+  // Re-emit the engine document shell with the sanitized augmented body. A
+  // function replacer is required so `$&`/`$\``/`$'`/`$n` sequences in the
+  // rendered content are inserted verbatim instead of being interpreted as
+  // String.replace substitution patterns.
+  return fullDoc.replace(
+    /<body>[\s\S]*<\/body>/,
+    () => `<body>\n  ${bodyHtml}\n</body>`
+  )
 }

@@ -83,6 +83,25 @@ describe('exportStyledHTML — wrapper parity', () => {
     expect(body).toContain('<article class="markdown-body">')
     expect(body).not.toContain('<body>')
   })
+
+  it('preserves $-dollar replacement patterns verbatim in the body', async() => {
+    // The final `fullDoc.replace(<body>…</body>, body)` must not let $&, $`,
+    // $', or $n in rendered content trigger String.replace interpolation:
+    // those sequences must reach the export byte-for-byte.
+    const out = await exportStyledHTML(
+      NO_MUYA,
+      'price $` and $& and $\' and $1 end',
+      {}
+    )
+    const body = /<body>([\s\S]*)<\/body>/.exec(out)![1]
+    expect(body).toContain('$`')
+    expect(body).toContain('$&amp;')
+    expect(body).toContain('$1')
+    expect(body).toContain('$\'')
+    // Interpolation of $& would splice the matched <body>…</body> text in,
+    // producing a nested <body> — the export must never contain one.
+    expect(body).not.toContain('<body>')
+  })
 })
 
 describe('exportStyledHTML — CriticMarkup PDF/print sink policy', () => {
