@@ -671,6 +671,30 @@ section wins.
 - **Gateway-contract test repairs:** the orphan-4654 and vega-lite muya-E2E
   specs mutated blocks directly and now route through the mutation gateway.
 
+### 2026-07-17 property-fuzz burn-down (post-walkthrough hardening)
+
+After the user's manual walkthrough surfaced an opener-on-own-line boot
+crash that every example suite had missed, a deterministic property fuzzer
+was added as a permanent gate
+(`criticMarkupPropertyFuzz.spec.ts`: fixed mulberry32 seeds, 40
+serialization fixed-point cases plus 8 editor boot/projection cases per
+seed, failing cases print their source). Burning its findings down closed
+twelve serializer/lowering defect classes — several were editor-boot
+crashes (the fail-closed exactness gate) or byte corruption on every save:
+lazy-continuation arms half-anchoring coverage, whitespace-payload pairs
+losing or scrambling marker-adjacent runs, unanchored items re-homed to
+the wrong document end, substitution `~>`/`~~}` inter-marker runs being
+unrepresentable (markers now carry per-marker `rawPrefix` bytes),
+co-located weave prefixes double-yielding to the same clean newline, and
+directly-abutting block pairs widening on save (CriticMarkup documents now
+record explicitly empty separators; plain documents keep the historical
+normalization). The `critic-boundary-end` lowering moved to
+`criticBoundaryEndLowering.ts` for the size law, and the new laziness
+probes are memoized and bounded for the adapter complexity law. Final
+sweep on the committed tree (`fdb9aaf9`): muya unit 3,302/3,302 (serial;
+parallel runs show unrelated load flakes), conformance 1,347/1,347,
+fuzzer 16/16, desktop unit 886/886, lint/typecheck/madge clean.
+
 ### Known flakes (not branch obligations)
 
 - `mermaid.spec.ts` slash-menu typing drops a staged newline under load —
