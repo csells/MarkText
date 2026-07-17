@@ -2,20 +2,22 @@
 
 **Status:** Active
 **Created:** 2026-07-17
+**Design settled:** 2026-07-17 via a grilling session (see decisions below;
+domain terms in `CONTEXT.md`, hard decisions in `docs/adr/0001–0004`).
 **Branch:** `feat/native-criticmarkup`
 **Reference UX:** `origin/markupdown-inline-comments` (a separate, mature
-Google-Docs-style review system — the *look and interaction* are the target;
-its storage format is **not** adopted)
+Google-Docs-style review system — its *look and interaction* informed this
+design; its `<!--MC:id-->` storage format is **not** adopted).
 **Relationship to 0006:** 0006 shipped pure CriticMarkup (five forms, parser
 topology, projections, Track Changes, Review surfaces). This plan corrects one
-specific defect 0006 left: the **comment** form's editing UX. It does not
-reopen any 0006 decision.
+specific defect 0006 left — the **comment** form's editing UX — without
+reopening any 0006 decision.
 
 ## Problem
 
-The `{>>comment<<}` form is authored through a modal dialog and rendered
-**inline** as grey text in the middle of the paragraph (it reveals in full
-whenever the caret is nearby). A reviewer expects a comment to behave like
+The `{>>comment<<}` form was authored through a modal dialog and rendered
+**inline** as grey text in the middle of the paragraph (revealing in full
+whenever the caret was nearby). A reviewer expects a comment to behave like
 Google Docs: composed in a sidebar, living in a sidebar, with only the
 *anchored text* highlighted in the document — never the comment body spliced
 into the prose.
@@ -26,190 +28,191 @@ Comments are a sidebar experience, not an inline one:
 
 1. **Not shown inline.** The `{>>comment<<}` markers and body never appear in
    the WYSIWYG text flow, regardless of caret position.
-2. **Anchor highlighted.** The commented span is highlighted in the document.
-   (Commenting on a selection already emits `{==sel==}{>>comment<<}`, so the
-   `{==…==}` highlight *is* the anchor.)
-3. **Composed in the sidebar.** "Add comment" opens the sidebar with a focused
+2. **Anchor highlighted.** A commented span's `{==…==}` anchor is highlighted
+   and visibly distinguishable from a plain highlight.
+3. **Composed in the sidebar.** Add Comment opens the sidebar with a focused
    compose box; there is no modal.
-4. **Lives in the sidebar.** Each comment shows its text and anchor, with
-   click-to-scroll, edit, and delete — matching the reference UX's feel.
+4. **Lives in the sidebar.** Each comment is one card (its text, its anchor),
+   editable and removable there.
+5. **Explicit and non-intrusive.** Putting the caret in a commented span marks
+   its card selected — nothing opens or scrolls on its own. Editing is a
+   deliberate act (click the card, or right-click → Edit Comment).
 
 Completion is a capability judgment: the freshly built desktop app must
-demonstrate the whole flow (select → add → see highlight + sidebar card →
+demonstrate the whole flow (select → add → highlighted anchor + sidebar card →
 edit → delete), not merely pass unit tests.
 
-## Scope boundary and settled decisions
+## Settled decisions
 
-1. **CriticMarkup is the only storage format.** Comments persist solely as the
-   canonical `{==sel==}{>>comment<<}` (or a bare `{>>comment<<}` for an empty
-   selection). No `<!--MC:id-->` markers, no metadata definitions, no sidecar —
-   this inherits 0006 decision 1 (pure CriticMarkup only).
-2. **Single-note comments.** A `{>>comment<<}` is one anonymous string.
-   Threaded replies, authors, timestamps, and resolve/reopen from the reference
-   UI are **out of scope** — they cannot be represented in pure CriticMarkup
-   without the metadata encoding decision 1 forbids. The reference UI's *look
-   and interaction* are adopted; its thread model is not.
-3. **Reuse the reference UI's presentation, re-back the data.** Bring over the
-   compose-box + comment-card presentation and the format-agnostic seam
-   (a sidebar view over a store field + intent bus). Replace the data provider
-   with a CriticMarkup-backed one. Do not port the MC comment engine.
-4. **The existing Review surface is the host.** 0006 decision 7 makes the
-   native Review sidebar the baseline product UI. Comments are presented there
-   (or in a sibling Comments tab that shares its store/controller), not in a
-   new parallel subsystem.
-5. **Canonical Markdown owns persistence** (0006 decision 8) — the sidebar
-   never persists anything but the canonical CriticMarkup bytes.
-6. **Preserve user-owned workspace state** (0006 decision 10) — do not modify
-   or stage `.vscode/settings.json`.
+Inherited from 0006 (unchanged): pure CriticMarkup only (decision 1); canonical
+Markdown owns persistence (decision 8); existing Review surfaces are the
+baseline UI (decision 7); do not touch `.vscode/settings.json` (decision 10).
+
+Settled here (grilling, 2026-07-17):
+
+1. **Single-note comments** *(Q1 · ADR-0001)*. A comment is one anonymous
+   `{>>…<<}` string; lifecycle is create → edit → delete. No replies, authors,
+   timestamps, or resolved state — none are representable in pure CriticMarkup,
+   and deleting is the only "done". The reference UI's look/interaction are
+   adopted; its threaded data model is not.
+2. **Every app-made comment has a highlighted anchor** *(Q2)*. Add Comment
+   **requires a selection** and emits `{==sel==}{>>note<<}`. A bare `{>>note<<}`
+   (typed in source, imported, or left by anchor deletion) still renders and
+   round-trips, but the app never creates one.
+3. **A commented span is one unit** *(Q6 · ADR-0003)*. Identity follows
+   creation intent — Mark Highlight → a plain highlight; Add Comment → a
+   commented span. The proxy is source adjacency: a gapless `{==…==}{>>…<<}` is
+   a comment's anchor; a lone `{==…==}` is a highlight. The pair is created and
+   removed together and shown as **one** Comment entry (never a separate
+   Highlight card).
+4. **Editing is in place** *(Q4)*. A new muya command rewrites only the
+   `{>>…<<}` content through the single mutation gateway, keeping the same
+   anchor and item identity. Two entry points: click the sidebar card, or
+   right-click the span → Edit Comment.
+5. **The caret never enters a hidden comment** *(Q5 · ADR-0002)*. A hard
+   navigation invariant enforced at the cursor-placement layer — no arrow,
+   jump, click, select-all-collapse, or programmatic restore may land inside
+   the collapsed `{>>…<<}`.
+6. **Anchor deletion keeps the comment** *(Q7)*. Deleting all of a comment's
+   anchored text leaves the `{>>…<<}` as a point comment — still listed and
+   removable in the sidebar. The app never silently destroys a comment.
+7. **Selection is passive; viewing/editing is explicit** *(Q8 · ADR-0004)*.
+   Caret inside a commented span marks its sidebar card selected and does
+   **nothing else** — it never opens or scrolls the sidebar. The user opens the
+   comments sidebar themselves; edits a comment by clicking its card or via
+   right-click → Edit Comment. (Composing a *new* comment does open the sidebar,
+   because the compose box must be visible.)
+8. **Flat Review list** *(Q3)*. Comments and tracked changes share the one
+   Review list as cards; no dedicated Comments tab and no sectioning.
+9. **Nested/overlapping comments are allowed but unspecialised.** Commenting on
+   a selection that already contains a comment nests as CriticMarkup permits; no
+   special handling for now.
 
 ## Architecture — the seam
 
-Two code maps (2026-07-17) established the integration boundary.
+**This branch already owns the CriticMarkup review stack:** a `review` sidebar
+tab + badge, a `criticMarkupReview` Pinia store (`snapshot.items` of
+`ICriticMarkupReviewItem`), `useCriticMarkupReviewController` (subscribed to the
+muya `critic-markup-review-change` event), the executor `criticMarkupReview.ts`,
+the review panel `review.vue`, and the muya facade (`createCriticMarkup` /
+`focusCriticMarkup` / `resolveCriticMarkup` / `getCriticMarkupReviewSnapshot`).
+The comment UX is built on this stack, not a ported subsystem.
 
-**Reference UI layer (format-agnostic, reusable):** the reference sidebar is a
-thin view over one store field and an intent bus. It reads
-`comments.threads` / `activeCommentIds` / `addCommentEnabled` /
-`composeCommentId` from a Pinia store and emits `comment:add / focus / resolve
-/ reopen / reply / edit / discard` on a `mitt` bus; a command router turns
-those into calls on an `ICommentSurface` (9 methods). The Vue components, the
-edit box, the router shape, the store fields, the i18n keys, and the
-menu/context-menu "can a comment start here" plumbing carry **no** knowledge of
-the storage format.
+**Key enablers proven during mapping (2026-07-17):**
 
-**This branch already has the CriticMarkup half:** a `review` sidebar tab with
-a badge (the checklist icon in the bug report screenshot), a
-`criticMarkupReview` Pinia store (`snapshot.items` of
-`ICriticMarkupReviewItem`), a `useCriticMarkupReviewController` that subscribes
-to the muya `critic-markup-review-change` event, an executor
-(`criticMarkupReview.ts`), the muya facade
-(`createCriticMarkup` / `focusCriticMarkup` / `resolveCriticMarkup` /
-`getCriticMarkupReviewSnapshot`), and the review panel `review.vue`. What is
-missing is exactly the four Outcome behaviours.
-
-**Key enablers proven during mapping:**
-
-- muya persists its selection: `_selectionSnapshot` falls back to the stored
+- muya persists its selection — `_selectionSnapshot` falls back to the stored
   editor selection when the live DOM selection is gone
-  (`criticMarkup/commands.ts:315`). So a sidebar compose box can feed text
-  straight into `createCriticMarkup({type:'comment', comment})` — the same
-  atomic path the modal uses — with no selection save/restore.
+  (`criticMarkup/commands.ts:315`) — so the sidebar compose box feeds text
+  straight into `createCriticMarkup({type:'comment', comment})`.
 - The comment↔anchor link is derivable by adjacency
   (`highlight.sourceEnd === comment.sourceStart`) via the document's
-  source-range queries; there is no linked-pair type today.
+  source-range queries; there is no linked-pair type in the data today.
 
-**Files that change (by phase):**
-
-- muya render: `inlineRenderer/renderer/criticDocumentFragment.ts` (hide
-  inline; optional anchor linkage), `assets/styles/inlineSyntax.css`.
-- desktop compose: `components/editorWithTabs/{useCriticMarkupReviewController,
-  criticMarkupReview}.ts`, retire the `add-comment` path through
-  `CriticMarkupPromptDialog.vue`.
-- desktop sidebar: `components/sideBar/{review.vue or a new comments.vue,
-  commentEditBox.vue, index.vue, help.ts}`, `store/criticMarkupReview.ts`,
-  `static/locales/*.json` (`sideBar.comments.*`).
-- muya edit command: `criticMarkup/commands.ts` (+ facade in `muya.ts`).
+**Files in play:** muya render `inlineRenderer/renderer/criticDocumentFragment.ts`
++ `assets/styles/inlineSyntax.css`; muya command/navigation
+`criticMarkup/commands.ts`, `muya.ts`, the selection/cursor-placement layer, and
+the review snapshot (`criticMarkup/reviewSnapshot.ts` + `reviewContract.ts`) for
+anchor subsumption; desktop `components/editorWithTabs/{useCriticMarkupReviewController,
+criticMarkupReview,commentComposer}.ts`, `components/sideBar/{review.vue,index.vue}`,
+`store/criticMarkupReview.ts`, the editor context menu (`main/contextMenu/…`),
+`static/locales/*.json`.
 
 ## Execution — red-green TDD
 
-Every phase is a red test first (a failing assertion that encodes the desired
-behaviour), then the minimum change to green, then a regression guard run.
+Every phase: a red test encoding the behaviour, the minimum change to green, a
+regression run.
 
-### Phase 1a — the comment is never rendered inline (muya) — **DONE**
+### Phase 1a — comment never rendered inline (muya) — **DONE**
 
-- **Red:** with the caret inside a `{>>comment<<}`, the renderer revealed the
-  raw markers + body in `mu-gray`
-  (`inlineRenderer/renderer/__tests__/criticMarkup.spec.ts`).
-- **Green:** a comment fragment now always uses the collapsed hide class, never
-  the caret-reveal (`criticDocumentFragment.ts`). The other four forms still
-  reveal for inline editing.
-- **Evidence:** new test green; 80/80 across the critic render + inline-binding
-  + consumer-parity suites.
+Red proved the caret-reveal; green forces the collapsed class for comments
+(`criticDocumentFragment.ts`). 80/80 critic render + binding + parity suites.
 
-### Phase 1b — link + highlight the comment's anchor (muya) — deferred polish
+### Phase 2 — compose in the sidebar, not the modal (desktop) — **DONE**
 
-Commenting on a selection already highlights the anchor (the `{==…==}` renders
-as `<mark>`), so Outcome 2 holds without this. This phase adds the *distinct*
-commented-vs-plain-highlight styling, a `data-comment-id` on the anchor, and
-click-the-highlight-to-open. Pull it forward only if Phase 3's scroll-to-anchor
-needs the linkage.
+`createCommentComposer` (pure, 4/4) satisfies the executor's
+`requestText('comment')` from the sidebar; the controller owns it, the store's
+`composing` signal drives the compose box, the sidebar container opens the
+Review tab on compose. Store signal red-green.
 
-- **Red:** rendering `{==x==}{>>c<<}` does not put the comment's id on the
-  highlight vnode, and a plain `{==x==}` is styled identically to a commented
-  one.
-- **Green:** derive adjacency in the document/topology, thread an
-  `anchorCommentId` onto the highlight fragment, emit `data-comment-id`, add a
-  `.mu-critic-comment-anchor` style.
+### Phase 3 — compose box + comment cards (desktop) — **DONE (baseline)**
 
-### Phase 2 — compose in the sidebar, not the modal (desktop)
+`review.vue` has the compose box (textarea, Enter submits, autofocus); the
+Review list already renders each comment as a card (content + focus + remove).
+Baseline only — anchor subsumption, edit, and passive-selection land below.
 
-- **Red:** triggering `add-comment` resolves through
-  `CriticMarkupPromptDialog` (a modal), and no sidebar compose state is set.
-  A unit test on the controller/executor asserts the add-comment intent opens
-  a sidebar compose affordance and, on submit, calls
-  `createCriticMarkup({type:'comment', comment})` with the persisted selection —
-  without invoking the modal `requestText`.
-- **Green:** route `add-comment` to a store `composingComment` signal + open the
-  Review/Comments sidebar + focus the compose box; the compose box's submit
-  runs the create through the controller. Remove the modal from the comment
-  path (leave it for `substitution` if still needed, or replace there too in a
-  follow-up).
+### Phase 4 — subsume the anchor into the comment *(decision 3, Q6)*
 
-### Phase 3 — the Comments sidebar backed by CriticMarkup (desktop)
+- **Red:** a rendered `{==x==}{>>c<<}` does not carry the comment's id on the
+  anchor and is styled like a plain highlight; the review snapshot lists the
+  anchor highlight as its own item alongside the comment (double-listing);
+  removing the comment card does not remove the anchor.
+- **Green:** derive anchor↔comment adjacency in the document/topology; the
+  review snapshot presents the pair as **one** comment item (anchor subsumed,
+  not a separate highlight item); the anchor renders with a distinct
+  commented marker; Remove on the comment deletes the whole pair.
 
-- **Red:** the sidebar renders comment items with the reference look — a
-  compose box and one card per comment (text + anchor preview + jump/edit/
-  delete) — driven by the `criticMarkupReview` store's comment-typed items.
-  Tests assert: the store exposes comment items distinctly from the other four
-  review types; a card renders the comment `content`; jump calls
-  `focusCriticMarkup`; delete calls `resolveCriticMarkup('accept', id)`.
-- **Green:** bring `commentEditBox.vue`, add a comments view (reuse
-  `review.vue` structure or a sibling `comments.vue`), a comment selector over
-  the store, the sidebar tab + badge, and the `sideBar.comments.*` locale keys
-  in all shipped locales.
+### Phase 5 — editing a comment *(decision 4, Q4; decision 7, Q8)*
 
-### Phase 4 — edit command, caret-skip, source parity, gate + deploy
+- **Red:** no muya command edits a `{>>…<<}` body in place; the sidebar card has
+  no edit affordance; there is no right-click Edit Comment.
+- **Green:** add an in-place `editComment(id, text)` command on the facade
+  (gateway-routed, anchor and id preserved); clicking a comment card enters an
+  inline edit box that calls it; add an editor context-menu **Edit Comment** on
+  a commented span that opens the sidebar in edit mode for that comment.
 
-- **Red:** there is no muya command to edit a comment's body in place; the caret
-  can be placed inside the now-hidden comment and type blind; source-code mode
-  must still show the raw `{>>…<<}`.
-- **Green:** add an `editComment(id, text)` command (in-place content rewrite,
-  or remove+re-add) on the facade; make caret navigation skip over a hidden
-  comment region; confirm source-mode already shows the raw bytes.
+### Phase 6 — passive selection *(decision 7, Q8)*
+
+- **Red:** the in-document comment affordance force-opens/scrolls the sidebar on
+  click (today's `focusCriticMarkup` behaviour), violating "nothing else
+  happens".
+- **Green:** caret/selection inside a commented span marks that card selected in
+  the sidebar (active-comment state) and nothing more — no open, no scroll-jack.
+  Opening the sidebar stays a user action.
+
+### Phase 7 — caret never enters the hidden comment *(decision 5, Q5 · ADR-0002)*
+
+- **Red:** the caret can be placed inside the collapsed `{>>…<<}` by arrow,
+  click, word/line/doc jump, select-all-collapse, or programmatic restore, and
+  typing there edits hidden source.
+- **Green:** enforce the skip at the cursor-placement/navigation layer so the
+  caret always resolves to the nearest edge outside the comment, by every means.
+
+### Phase 8 — anchor-deletion survival + gate + deploy *(decision 6, Q7)*
+
+- **Red:** deleting all of a comment's anchored text drops the comment.
+- **Green:** confirm/guarantee the `{>>…<<}` survives as a point comment, still
+  listed and removable.
 - **Gate:** muya unit (serial), CommonMark/GFM conformance, muya
   lint/lint:types/check-circular, desktop unit (serial), root lint, vue-tsc,
-  fresh `build:unpack`, then rebuild `build:mac:arm64` and redeploy to
+  fresh `build:unpack`; then rebuild `build:mac:arm64` and redeploy to
   `/Applications` for the capability walkthrough.
 
 ## Acceptance criteria
 
-1. In the running app, typing text, selecting it, and choosing Add Comment
-   produces a highlighted span and a sidebar card — with **no** comment text
-   inline and **no** modal.
-2. The `.md` on disk contains exactly `{==sel==}{>>comment<<}` (or
-   `{>>comment<<}` for an empty selection) — canonical CriticMarkup, nothing
-   else.
-3. Clicking a sidebar card scrolls to and reveals its anchor; edit rewrites the
-   comment body; delete removes the whole annotation.
-4. Source-code mode shows the raw CriticMarkup; round-trip is byte-exact.
-5. The full gate is green and the artifact is rebuilt and deployed.
+1. Select text → Add Comment produces a **highlighted, distinguishable** anchor
+   and **one** sidebar card — no inline comment text, no modal, no separate
+   Highlight card for the anchor.
+2. The `.md` on disk contains exactly `{==sel==}{>>note<<}` — canonical
+   CriticMarkup, nothing else.
+3. Caret in a commented span selects its card and does nothing else. Editing is
+   explicit (click the card, or right-click → Edit Comment) and rewrites the
+   body in place; Remove deletes the whole pair.
+4. The caret cannot be placed inside a hidden comment by any means.
+5. Deleting a comment's anchored text leaves a removable point comment.
+6. Source-code mode shows the raw CriticMarkup; round-trip is byte-exact.
+7. The full gate is green and the artifact is rebuilt and deployed.
 
 ## Evidence ledger
 
-- **2026-07-17** — Phase 1a green. `criticDocumentFragment.ts` forces the
-  collapsed class for comments; red proved the caret-reveal, green removed it;
-  80/80 critic render + binding + parity suites.
-- **2026-07-17** — Phase 2 green. `createCommentComposer` (pure, red-green,
-  4/4) satisfies the executor's `requestText('comment')` promise from the
-  sidebar instead of the modal; muya's persisted selection carries the anchor
-  across the focus change.
-- **2026-07-17** — Phase 3 green. Store `composing` signal (red-green);
-  `review.vue` gains a compose box (textarea + Comment/Cancel, Enter submits,
-  autofocus) driven by that signal over the bus; the sidebar container opens
-  the Review tab on `composing`. The panel already rendered each comment as a
-  card (content + jump/focus + remove).
-- **2026-07-17** — Architecture kept. The composer lives in the Review
-  controller (which owns the review store/snapshot protocol), NOT editor.vue —
-  the 0006 invariant holds. The focus-invariant test was refined: the
-  resolution surfaces still take no DOM focus; the sidebar's only focus write
-  is its own compose box. Full gate at this milestone: desktop unit 893/893,
-  muya render/critic/state 1068/1068, typecheck clean, lint 0 errors.
+- **2026-07-17** — Phase 1a green (comment never inline); 80/80 critic render +
+  binding + parity suites.
+- **2026-07-17** — Phase 2 green (`createCommentComposer` 4/4; store `composing`
+  red-green); composer owned by the Review controller (0006 editor.vue
+  invariant held; focus-invariant test refined).
+- **2026-07-17** — Phase 3 baseline green (compose box + existing comment
+  cards). Milestone gate: desktop unit 893/893, muya render/critic/state
+  1068/1068, typecheck clean, lint 0 errors. Built + deployed to `/Applications`.
+- **2026-07-17** — Design settled via grilling; decisions 1–9 above recorded in
+  `CONTEXT.md` and `docs/adr/0001–0004`. Phases 4–8 re-scoped from those
+  decisions (anchor subsumption, in-place edit + right-click, passive selection,
+  hard caret-skip, anchor-deletion survival).
