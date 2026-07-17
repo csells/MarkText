@@ -198,3 +198,18 @@ needs the linkage.
 - **2026-07-17** — Phase 1a green. `criticDocumentFragment.ts` forces the
   collapsed class for comments; red proved the caret-reveal, green removed it;
   80/80 critic render + binding + parity suites.
+- **2026-07-17** — Phase 2 green. `createCommentComposer` (pure, red-green,
+  4/4) satisfies the executor's `requestText('comment')` promise from the
+  sidebar instead of the modal; muya's persisted selection carries the anchor
+  across the focus change.
+- **2026-07-17** — Phase 3 green. Store `composing` signal (red-green);
+  `review.vue` gains a compose box (textarea + Comment/Cancel, Enter submits,
+  autofocus) driven by that signal over the bus; the sidebar container opens
+  the Review tab on `composing`. The panel already rendered each comment as a
+  card (content + jump/focus + remove).
+- **2026-07-17** — Architecture kept. The composer lives in the Review
+  controller (which owns the review store/snapshot protocol), NOT editor.vue —
+  the 0006 invariant holds. The focus-invariant test was refined: the
+  resolution surfaces still take no DOM focus; the sidebar's only focus write
+  is its own compose box. Full gate at this milestone: desktop unit 893/893,
+  muya render/critic/state 1068/1068, typecheck clean, lint 0 errors.
