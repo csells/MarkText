@@ -40,4 +40,26 @@ describe('CriticMarkup Review store', () => {
       projection: 'marked'
     })
   })
+
+  it('tracks whether a comment is being composed in the sidebar', () => {
+    const store = useCriticMarkupReviewStore()
+    // A fresh store is not composing; the compose box stays hidden.
+    expect(store.composing).toBe(false)
+
+    store.SET_COMPOSING(true)
+    expect(store.composing).toBe(true)
+
+    store.SET_COMPOSING(false)
+    expect(store.composing).toBe(false)
+  })
+
+  it('stops composing when the document snapshot is cleared', () => {
+    const store = useCriticMarkupReviewStore()
+    store.SET_COMPOSING(true)
+
+    // Switching files / tearing down the editor must not strand an open
+    // compose box against a document that is gone.
+    store.CLEAR()
+    expect(store.composing).toBe(false)
+  })
 })

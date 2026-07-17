@@ -276,7 +276,11 @@
         "substitution": "Substitution",
         "highlight": "Highlight",
         "comment": "Comment"
-      }
+      },
+      "addComment": "Comment",
+      "cancel": "Cancel",
+      "commentPlaceholder": "Add a comment...",
+      "composeTitle": "New comment"
     },
     "icons": {
       "files": "Files",

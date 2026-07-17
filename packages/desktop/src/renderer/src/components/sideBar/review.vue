@@ -39,6 +39,40 @@
       </button>
     </div>
 
+    <section
+      v-if="composing"
+      class="comment-compose"
+    >
+      <div class="section-title">
+        {{ t('sideBar.review.composeTitle') }}
+      </div>
+      <textarea
+        ref="composeInput"
+        v-model="composeDraft"
+        class="comment-compose-input"
+        rows="3"
+        :placeholder="t('sideBar.review.commentPlaceholder')"
+        @keydown.enter="onComposeEnter"
+        @keydown.esc.prevent="cancelCompose"
+      />
+      <div class="comment-compose-actions">
+        <button
+          type="button"
+          @click="cancelCompose"
+        >
+          {{ t('sideBar.review.cancel') }}
+        </button>
+        <button
+          type="button"
+          class="submit"
+          :disabled="!composeDraft.trim()"
+          @click="submitCompose"
+        >
+          {{ t('sideBar.review.addComment') }}
+        </button>
+      </div>
+    </section>
+
     <div
       v-if="!snapshot.available"
       class="empty"
@@ -148,8 +182,40 @@ import type {
 
 const { t } = useI18n()
 const reviewStore = useCriticMarkupReviewStore()
-const { snapshot } = storeToRefs(reviewStore)
+const { snapshot, composing } = storeToRefs(reviewStore)
 const reviewList = ref<HTMLElement | null>(null)
+const composeInput = ref<HTMLTextAreaElement | null>(null)
+const composeDraft = ref('')
+
+// The compose box opens when the editor's composer requests a comment; focus
+// it once it mounts and start from an empty draft each time. `immediate` so a
+// panel that mounts while already composing (the sidebar was switched to Review
+// by the add-comment action) still focuses its box.
+watch(composing, (active) => {
+  composeDraft.value = ''
+  if (active) {
+    nextTick(() => composeInput.value?.focus())
+  }
+}, { immediate: true })
+
+const submitCompose = (): void => {
+  const text = composeDraft.value.trim()
+  if (!text) return
+  bus.emit('critic-markup-comment-submit', text)
+  composeDraft.value = ''
+}
+
+const cancelCompose = (): void => {
+  bus.emit('critic-markup-comment-cancel')
+  composeDraft.value = ''
+}
+
+// Enter submits; Shift+Enter inserts a newline.
+const onComposeEnter = (event: KeyboardEvent): void => {
+  if (event.shiftKey) return
+  event.preventDefault()
+  submitCompose()
+}
 
 const reviewCommand = (action: CriticMarkupReviewAction): ReviewCommand => {
   const descriptor = REVIEW_COMMAND_DESCRIPTORS.find((candidate) => candidate.action === action)
@@ -299,6 +365,73 @@ watch(
   font-size: 13px;
   line-height: 20px;
   opacity: 0.65;
+}
+
+.comment-compose {
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--themeColor);
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px var(--themeColor10);
+}
+
+.section-title {
+  margin-bottom: 6px;
+  color: var(--sideBarTitleColor);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.comment-compose-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--itemBgColor);
+  border-radius: 5px;
+  background: var(--sideBarBgColor);
+  color: var(--sideBarTextColor);
+  font: inherit;
+  font-size: 12px;
+  line-height: 17px;
+  resize: vertical;
+}
+
+.comment-compose-input:focus {
+  outline: none;
+  border-color: var(--themeColor);
+}
+
+.comment-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.comment-compose-actions button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--sideBarColor);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.comment-compose-actions button.submit {
+  background: var(--themeColor);
+  color: #fff;
+}
+
+.comment-compose-actions button.submit:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .review-list {
