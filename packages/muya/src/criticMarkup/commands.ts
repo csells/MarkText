@@ -886,6 +886,30 @@ export class MuyaCriticMarkup {
         return true;
     }
 
+    // Rewrite a comment's body in place: the `{>>…<<}` content is replaced,
+    // the anchor and the comment's position are untouched. Refuses a
+    // non-comment target or an empty body (a comment always carries text).
+    editComment(target: ICriticMarkupTarget, text: string): boolean {
+        const content = text.trim();
+        if (!content)
+            return false;
+
+        this._muya.flush();
+        const snapshot = this._documentSnapshot();
+        const entry = this._entryForTarget(snapshot, target);
+        if (!entry || entry.item.type !== 'comment')
+            return false;
+
+        const { syntax } = entry.documentItem;
+        const replacement = createCriticMarkup({ type: 'comment', content });
+        const nextMarkdown
+            = snapshot.model.markdown.slice(0, syntax.range.start)
+                + replacement
+                + snapshot.model.markdown.slice(syntax.range.end);
+        const selection = this._selectionSnapshot();
+        return this._muya.replaceContent(nextMarkdown, selection);
+    }
+
     resolveAll(decision: TCriticMarkupDecision): number {
         this._muya.flush();
         const snapshot = this._documentSnapshot();

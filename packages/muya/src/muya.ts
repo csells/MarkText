@@ -548,6 +548,16 @@ export class Muya implements ICriticMarkupReviewEditor {
         );
     }
 
+    editCriticMarkupComment(
+        target: ICriticMarkupTarget,
+        text: string,
+    ): boolean {
+        return this._mutationCommands.runBoolean(
+            { kind: 'review-command' },
+            () => this._criticMarkup.editComment(target, text),
+        );
+    }
+
     private _formatAcrossBlocks(type: string) {
         if (type === 'link' || type === 'image')
             return;

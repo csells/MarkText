@@ -98,6 +98,7 @@
         :data-critic-id="item.id"
       >
         <button
+          v-show="editingId !== item.id"
           type="button"
           class="review-card-focus"
           @click="actOnItem('focus', item)"
@@ -135,7 +136,44 @@
           </span>
         </button>
 
+        <div
+          v-if="editingId === item.id"
+          class="comment-edit"
+        >
+          <textarea
+            ref="editInput"
+            v-model="editDraft"
+            class="comment-compose-input"
+            rows="3"
+            @keydown.enter="onEditEnter($event, item)"
+            @keydown.esc.prevent="cancelEdit"
+          />
+          <div class="comment-compose-actions">
+            <button
+              type="button"
+              @click="cancelEdit"
+            >
+              {{ t('sideBar.review.cancel') }}
+            </button>
+            <button
+              type="button"
+              class="submit"
+              :disabled="!editDraft.trim()"
+              @click="submitEdit(item)"
+            >
+              {{ t('sideBar.review.saveEdit') }}
+            </button>
+          </div>
+        </div>
+
         <div class="card-actions">
+          <button
+            v-if="item.type === 'comment' && editingId !== item.id"
+            type="button"
+            @click.stop="beginEdit(item)"
+          >
+            {{ t('sideBar.review.edit') }}
+          </button>
           <button
             v-if="isChange(item.type)"
             type="button"
@@ -222,6 +260,45 @@ const onComposeEnter = (event: KeyboardEvent): void => {
   event.preventDefault()
   submitCompose()
 }
+
+// Editing a comment in place: click Edit on the card to open an inline box
+// prefilled with the comment; Save rewrites the {>>...<<} body via the engine.
+const editingId = ref<string | null>(null)
+const editDraft = ref('')
+const editInput = ref<HTMLTextAreaElement | null>(null)
+
+const beginEdit = (item: CriticMarkupSidebarItem): void => {
+  editingId.value = item.id
+  editDraft.value = item.content ?? ''
+  nextTick(() => editInput.value?.focus())
+}
+
+const cancelEdit = (): void => {
+  editingId.value = null
+  editDraft.value = ''
+}
+
+const submitEdit = (item: CriticMarkupSidebarItem): void => {
+  const text = editDraft.value.trim()
+  if (!text) return
+  bus.emit('critic-markup-comment-edit', { target: item, text })
+  cancelEdit()
+}
+
+const onEditEnter = (event: KeyboardEvent, item: CriticMarkupSidebarItem): void => {
+  if (event.shiftKey) return
+  event.preventDefault()
+  submitEdit(item)
+}
+
+// A comment whose card is mid-edit can disappear (removed elsewhere); drop the
+// stale edit box rather than leaving it open against a gone item.
+watch(
+  () => snapshot.value.items.map(item => item.id),
+  (ids) => {
+    if (editingId.value && !ids.includes(editingId.value)) cancelEdit()
+  }
+)
 
 const reviewCommand = (action: CriticMarkupReviewAction): ReviewCommand => {
   const descriptor = REVIEW_COMMAND_DESCRIPTORS.find((candidate) => candidate.action === action)

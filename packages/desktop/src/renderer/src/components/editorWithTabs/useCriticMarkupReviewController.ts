@@ -15,6 +15,7 @@ import {
 import type {
   CriticMarkupReviewAction,
   CriticMarkupReviewMenuState,
+  CriticMarkupSidebarItem,
   CriticMarkupSidebarItemAction
 } from '@shared/types/criticMarkup'
 
@@ -180,6 +181,15 @@ export function useCriticMarkupReviewController(
     commentComposer.cancel()
   }
 
+  const handleCommentEdit = (payload: unknown): void => {
+    const targetEditor = connectedEditor
+    if (!targetEditor || !options.fileId.value || options.sourceCode.value) return
+    if (!payload || typeof payload !== 'object') return
+    const { target, text } = payload as { target?: unknown, text?: unknown }
+    if (!target || typeof text !== 'string') return
+    targetEditor.editCriticMarkupComment(target as CriticMarkupSidebarItem, text)
+  }
+
   const handleSidebarAction = (payload: unknown): void => {
     const targetEditor = connectedEditor
     const fileId = options.fileId.value
@@ -201,6 +211,7 @@ export function useCriticMarkupReviewController(
   bus.on('critic-markup-review-item', handleSidebarAction)
   bus.on('critic-markup-comment-submit', handleCommentSubmit)
   bus.on('critic-markup-comment-cancel', handleCommentCancel)
+  bus.on('critic-markup-comment-edit', handleCommentEdit)
   bus.on('file-loaded', handleDocumentContextChange)
   bus.on('file-changed', handleDocumentContextChange)
 
@@ -233,6 +244,7 @@ export function useCriticMarkupReviewController(
     bus.off('critic-markup-review-item', handleSidebarAction)
     bus.off('critic-markup-comment-submit', handleCommentSubmit)
     bus.off('critic-markup-comment-cancel', handleCommentCancel)
+    bus.off('critic-markup-comment-edit', handleCommentEdit)
     bus.off('file-loaded', handleDocumentContextChange)
     bus.off('file-changed', handleDocumentContextChange)
     disconnectEditor()

@@ -96,6 +96,7 @@ class FakeReviewEngine {
   focusCriticMarkup = vi.fn(() => itemA)
   navigateCriticMarkup = vi.fn(() => itemA)
   resolveAllCriticMarkup = vi.fn(() => 0)
+  editCriticMarkupComment = vi.fn(() => true)
   setOptions = vi.fn()
 }
 
@@ -199,6 +200,22 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
     }
   })
 
+  it('routes a sidebar comment edit to the engine editCriticMarkupComment', async() => {
+    const engine = new FakeReviewEngine()
+    const app = mountController(engine)
+    try {
+      await flushMicrotasks()
+
+      const target = { ...itemA, type: 'comment' as const, raw: '{>>old<<}', content: 'old' }
+      bus.emit('critic-markup-comment-edit', { target, text: 'new note' })
+      await flushMicrotasks()
+
+      expect(engine.editCriticMarkupComment).toHaveBeenCalledWith(target, 'new note')
+    } finally {
+      app.unmount()
+    }
+  })
+
   it('has no DOM focus writes anywhere on the desktop Review resolution path', () => {
     const rendererRoot = path.resolve(__dirname, '../../../src/renderer/src')
     // The resolution surfaces (accept/reject/focus a review item, snapshot
@@ -215,13 +232,15 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
       expect(source, file).not.toMatch(/\.focus\(|autofocus/)
     }
 
-    // The sidebar's ONLY DOM focus write is its own compose textarea — composing
-    // a new comment is a deliberate focus move into the sidebar. It never
-    // focuses the editor, and never uses a bare autofocus.
+    // The sidebar's ONLY DOM focus writes are its own compose and edit
+    // textareas — composing or editing a comment is a deliberate focus move
+    // into the sidebar. It never focuses the editor, and never uses a bare
+    // autofocus.
     const review = fs.readFileSync(path.join(rendererRoot, 'components/sideBar/review.vue'), 'utf8')
     expect(review).not.toMatch(/autofocus/)
-    expect(review.match(/\.focus\(/g) ?? []).toEqual(['.focus('])
-    expect(review).toContain('composeInput.value?.focus()')
+    const focusTargets = [...review.matchAll(/(\w+)\.value\?\.focus\(/g)].map(match => match[1])
+    expect(focusTargets.length).toBeGreaterThan(0)
+    expect(focusTargets.every(name => name === 'composeInput' || name === 'editInput')).toBe(true)
 
     // The sidebar only scrolls the focused card into view inside its own
     // pane; it must not scroll-jack or refocus the editor.

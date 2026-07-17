@@ -179,6 +179,7 @@ describe('CriticMarkup Review sidebar interaction semantics', () => {
       navigateCriticMarkup: vi.fn(),
       resolveCriticMarkup: vi.fn(() => true),
       resolveAllCriticMarkup: vi.fn(),
+      editCriticMarkupComment: vi.fn(() => true),
       getCriticMarkupReviewSnapshot: vi.fn(),
       setOptions: vi.fn()
     }

@@ -139,6 +139,7 @@ describe('CriticMarkup renderer command routing', () => {
     navigateCriticMarkup: vi.fn(() => reviewItem),
     resolveCriticMarkup: vi.fn(() => true),
     resolveAllCriticMarkup: vi.fn(() => 2),
+    editCriticMarkupComment: vi.fn(() => true),
     getCriticMarkupReviewSnapshot: vi.fn(() => ({
       items: [reviewItem],
       currentItemId: reviewItem.id,

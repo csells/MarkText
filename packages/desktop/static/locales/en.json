@@ -280,7 +280,9 @@
       "addComment": "Comment",
       "cancel": "Cancel",
       "commentPlaceholder": "Add a comment...",
-      "composeTitle": "New comment"
+      "composeTitle": "New comment",
+      "edit": "Edit",
+      "saveEdit": "Save"
     },
     "icons": {
       "files": "Files",

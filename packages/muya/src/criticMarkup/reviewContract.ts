@@ -94,6 +94,10 @@ export interface ICriticMarkupReviewActions {
         target?: ICriticMarkupTarget,
     ) => boolean;
     resolveAllCriticMarkup: (decision: TCriticMarkupDecision) => number;
+    editCriticMarkupComment: (
+        target: ICriticMarkupTarget,
+        text: string,
+    ) => boolean;
     getCriticMarkupReviewSnapshot: () => ICriticMarkupReviewSnapshot;
     setOptions: (options: ICriticMarkupReviewOptions, forceRender?: boolean) => void;
 }
