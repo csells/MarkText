@@ -34,7 +34,14 @@ export default function criticDocumentFragment(
 ): VNode[] {
     const token = options.token as CriticMarkupDocumentFragmentToken;
     const { h, block, cursor } = options;
-    const markerClass = this.getClassName(undefined, block, token, cursor);
+    // Every critic form but the comment gray-reveals its raw markers when the
+    // caret enters them, so they can be edited inline. A comment is authored
+    // and read in the sidebar with its anchor highlighted, never inline, so it
+    // stays collapsed regardless of the caret — force the hide class instead of
+    // letting `getClassName` reveal it.
+    const markerClass = token.criticType === 'comment'
+        ? CLASS_NAMES.MU_HIDE
+        : this.getClassName(undefined, block, token, cursor);
     const markerNodes = new Map<number, VNode>();
     for (const segment of token.segments) {
         if (segment.kind === 'marker') {

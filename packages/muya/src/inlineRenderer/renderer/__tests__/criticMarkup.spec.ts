@@ -2,6 +2,7 @@
 
 import type Format from '../../../block/base/format';
 import type { Muya } from '../../../muya';
+import type { IRenderCursor } from '../../../selection/types';
 import type InlineRenderer from '../../index';
 import { describe, expect, it } from 'vitest';
 import { CRITIC_MARKUP_RENDER_DEPTH_LIMIT } from '../../../criticMarkup/renderPolicy';
@@ -13,6 +14,7 @@ import Renderer from '../index';
 function render(
     source: string,
     projection: 'marked' | 'original' | 'revised' = 'marked',
+    cursor: IRenderCursor = {},
 ): string {
     const renderer = new Renderer(
         { options: { criticMarkupProjection: projection } } as Muya,
@@ -33,7 +35,7 @@ function render(
             footnote: false,
             superSubScript: true,
         },
-    }), block, {});
+    }), block, cursor);
 }
 
 describe('criticMarkup renderer', () => {
@@ -65,6 +67,21 @@ describe('criticMarkup renderer', () => {
         expect(html).toContain('data-critic-type="comment"');
         expect(html).toContain('mu-critic-comment-indicator');
         expect(html).toContain('title="Review this"');
+    });
+
+    it('never reveals the comment inline, even with the caret inside it', () => {
+        // The other four critic forms gray-reveal their raw markers when the
+        // caret enters them (inline editing). A comment is read and edited in
+        // the sidebar, so it must stay collapsed regardless of the caret — the
+        // reveal (`mu-gray`) must never appear on a comment fragment.
+        const html = render('{>>Review this<<}', 'marked', {
+            anchor: { offset: 4 },
+            focus: { offset: 4 },
+        });
+
+        expect(html).toContain('data-critic-type="comment"');
+        expect(html).toContain('mu-critic-comment-indicator');
+        expect(html).not.toContain('mu-gray');
     });
 
     it('keeps the fragment renderer marked-only when host view state is stale', () => {
