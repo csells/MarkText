@@ -65,6 +65,12 @@ export function useCriticMarkupReviewController(
   // note still wraps the originally selected span.
   const commentComposer = createCommentComposer((active) => {
     reviewStore.SET_COMPOSING(active)
+    if (active) {
+      // Release editor focus (and hide the inline critic tool) as the compose
+      // box takes over. muya keeps its cached source selection, so the note
+      // still wraps the originally selected span.
+      bus.emit('editor-blur')
+    }
   })
   let connectedEditor: ICriticMarkupReviewEditor | null = null
   let snapshotListener: ((snapshot: ICriticMarkupReviewSnapshot) => void) | null = null
