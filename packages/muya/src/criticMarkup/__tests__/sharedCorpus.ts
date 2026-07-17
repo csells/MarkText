@@ -641,23 +641,24 @@ export const CRITIC_MARKUP_CORPUS: readonly ICriticMarkupCorpusRow[] = [
         tags: ['front-matter-lookalike', 'recovery'],
         source: '---\ntitle: {++visible++}\n',
         options: { frontMatter: true },
-        normalization: {
-            kind: 'known',
-            output: '---\n\ntitle: {++visible++}\n',
-            reason: 'The existing block serializer separates a thematic break from the following paragraph with one blank line.',
-        },
+        normalization: { kind: 'exact' },
         expected: {
             itemTypes: ['addition'],
             itemRaw: ['{++visible++}'],
             itemContracts: [
-                item(0, 12, 25, null, 0, 0, [
-                    fragment('only', [1, 'text'], 7, 20, 12, 25),
+                item(0, 11, 24, null, 0, 0, [
+                    fragment('only', [1, 'text'], 7, 20, 11, 24),
                 ]),
             ],
             literalRanges: [],
             plainTextItems: [],
             original: '---\ntitle: \n',
             revised: '---\ntitle: visible\n',
+            resolution: {
+                accept: '---\n\ntitle: visible\n',
+                reject: '---\n\ntitle: \n',
+                reason: 'Resolution edits the live tree; the serializer restores the default blank line between the thematic break and the edited paragraph. Only no-op saves are byte-exact.',
+            },
         },
     },
     {
@@ -690,23 +691,24 @@ export const CRITIC_MARKUP_CORPUS: readonly ICriticMarkupCorpusRow[] = [
         tags: ['front-matter-disabled', 'parser-options'],
         source: '---\ntitle: "{++visible++}"\n---\n\nBody\n',
         options: { frontMatter: false },
-        normalization: {
-            kind: 'known',
-            output: '---\n\ntitle: "{++visible++}"\n---\n\nBody\n',
-            reason: 'With front matter disabled, the existing block serializer separates the opening thematic break from the following paragraph.',
-        },
+        normalization: { kind: 'exact' },
         expected: {
             itemTypes: ['addition'],
             itemRaw: ['{++visible++}'],
             itemContracts: [
-                item(0, 13, 26, null, 0, 0, [
-                    fragment('only', [1, 'text'], 8, 21, 13, 26),
+                item(0, 12, 25, null, 0, 0, [
+                    fragment('only', [1, 'text'], 8, 21, 12, 25),
                 ]),
             ],
             literalRanges: [],
             plainTextItems: [],
             original: '---\ntitle: ""\n---\n\nBody\n',
             revised: '---\ntitle: "visible"\n---\n\nBody\n',
+            resolution: {
+                accept: '---\n\ntitle: "visible"\n---\n\nBody\n',
+                reject: '---\n\ntitle: ""\n---\n\nBody\n',
+                reason: 'Resolution edits the live tree; the serializer restores the default blank line between the thematic break and the edited paragraph. Only no-op saves are byte-exact.',
+            },
         },
     },
     {

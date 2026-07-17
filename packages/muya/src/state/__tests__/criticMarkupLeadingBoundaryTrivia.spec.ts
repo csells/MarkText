@@ -31,6 +31,20 @@ describe('block-spanning opener on its own line', () => {
         'intro:\n\n{--\nremoved paragraph\n--}\n',
         '{==\nspanning highlight\n==}\n',
         '{++\n\nblank line after opener\n++}\n',
+        // Whitespace-only interiors: the pair brackets nothing but a line
+        // ending, with and without an anchoring neighbor (fuzz 2026-07-17).
+        '{>>\n<<}\n',
+        '{==\n==}\n',
+        '{++\n++}\n',
+        'anchor\n\n{>>\n<<}\n',
+        // Trailing runs around a non-flush closer: before it, after it at
+        // EOF, and as the separator to a following block (fuzz 2026-07-17;
+        // the space run after a terminator-consuming fragment was sliced as
+        // if it still held the terminator).
+        '{>>delta alpha\n<<}\n\n\n',
+        '{++\nfoo\n++}\n\nbar\n',
+        '{>>- draft\n\n<<}\n',
+        '{>>text\n\n- item\n<<}\n',
     ];
 
     it.each(SOURCES)('round-trips %j byte-exactly', (source) => {

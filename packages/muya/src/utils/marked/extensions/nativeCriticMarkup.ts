@@ -374,9 +374,14 @@ export function prepareNativeCriticMarkupExtension(
     document: CriticMarkupDocument,
     isStructuralBlock: (source: string) => boolean,
     isPureListBlock: (source: string) => boolean,
+    armAbsorbsFollowing: (arm: string, following: string) => boolean,
 ): IPreparedNativeCriticMarkupExtension {
     const criticDocument = semanticDocument(document);
-    const allPlans = fragmentPlans(document, isStructuralBlock);
+    const allPlans = fragmentPlans(
+        document,
+        isStructuralBlock,
+        armAbsorbsFollowing,
+    );
     // Mixed items were already rewritten to literal inline line pieces by
     // fragmentPlans, so every remaining block plan owns whole native blocks.
     const blockBoundaryPlans = allPlans.filter(plan =>

@@ -76,8 +76,12 @@ export function marker(
 export function fragmentPlans(
     document: CriticMarkupDocument,
     isStructuralBlock: (source: string) => boolean,
+    armAbsorbsFollowing: (arm: string, following: string) => boolean,
 ): readonly ICriticMarkupFragmentPlan[] {
     const plans: ICriticMarkupFragmentPlan[] = [];
+    const allMarkerRanges = criticMarkerRanges(document)
+        .slice()
+        .sort((left, right) => left.start - right.start);
     const markerIndex = criticMarkupMarkerIndex(criticMarkerRanges(document));
     const lineIndex = sourceLineIndex(document.markdown);
     const effectiveLineStart = (offset: number): boolean => {
@@ -145,6 +149,7 @@ export function fragmentPlans(
         const open = marker('open', token.markers.open);
         const close = marker('close', token.markers.close);
         const itemPlans: ICriticMarkupFragmentPlan[] = [];
+        let forceLiteralLines = false;
         const appendArm = (
             arm: ICriticMarkupFragmentPlan['arm'],
             contentRange: Tokens.CriticMarkupRange,
@@ -165,12 +170,108 @@ export function fragmentPlans(
                 contentRange.start,
                 contentRange.end,
             );
+            // An item opening at line start whose first content line would
+            // lazily continue the preceding block (a paragraph line after a
+            // list item or paragraph) cannot hold as block coverage — the
+            // parser merges the line into that block. Lower the whole item
+            // as per-line literal pieces instead.
+            if (
+                effectiveLineStart
+                && contentRange.start < contentRange.end
+                && !forceLiteralLines
+                // Later arms live in their own isolated parser context —
+                // only the item's first line can see preceding source.
+                && lineIndex.lineStartAt(envelopeStart)
+                === lineIndex.lineStartAt(token.range.start)
+            ) {
+                const lineStart
+                    = lineIndex.lineStartAt(envelopeStart);
+                if (lineStart > 0) {
+                    // Laziness is decided by the block still open at the
+                    // final preceding lines: walk back a bounded number of
+                    // lines, stopping at a blank line (a block boundary).
+                    let contextStart = lineStart;
+                    for (let step = 0; step < 8; step++) {
+                        if (contextStart === 0)
+                            break;
+                        const previousLineStart
+                            = lineIndex.lineStartAt(contextStart - 1);
+                        if (!/\S/.test(document.markdown.slice(
+                            previousLineStart,
+                            contextStart,
+                        ))) {
+                            break;
+                        }
+                        contextStart = previousLineStart;
+                    }
+                    // Probe against the transparent view — other items'
+                    // marker bytes are invisible to the block parser.
+                    let low = 0;
+                    let high = allMarkerRanges.length;
+                    while (low < high) {
+                        const middle = (low + high) >> 1;
+                        if (allMarkerRanges[middle].end <= contextStart)
+                            low = middle + 1;
+                        else
+                            high = middle;
+                    }
+                    let precedingContext = '';
+                    let stripCursor = contextStart;
+                    for (
+                        let index = low;
+                        index < allMarkerRanges.length;
+                        index++
+                    ) {
+                        const markerRange = allMarkerRanges[index];
+                        if (markerRange.start >= lineStart)
+                            break;
+                        precedingContext += document.markdown.slice(
+                            stripCursor,
+                            Math.max(
+                                Math.min(markerRange.start, lineStart),
+                                stripCursor,
+                            ),
+                        );
+                        stripCursor = Math.max(
+                            stripCursor,
+                            Math.min(markerRange.end, lineStart),
+                        );
+                    }
+                    precedingContext += document.markdown.slice(
+                        stripCursor,
+                        lineStart,
+                    );
+                    const strippedArm = armSource.replace(
+                        /^(?:[ \t]*\r?\n)*/,
+                        '',
+                    );
+                    const lineEnd = strippedArm.indexOf('\n');
+                    const firstContentLine = lineEnd < 0
+                        ? strippedArm
+                        : strippedArm.slice(0, lineEnd);
+                    if (
+                        /\S/.test(precedingContext)
+                        && /\S/.test(firstContentLine)
+                        && armAbsorbsFollowing(
+                            precedingContext,
+                            firstContentLine,
+                        )
+                    ) {
+                        forceLiteralLines = true;
+                    }
+                }
+            }
             if (!/\S/.test(armSource) && armSource.includes('\n')) {
-                // A whitespace arm containing a line break is a pure block
-                // separator: it lowers as one block plan whose markers split
-                // onto the surrounding native tokens.
+                // A whitespace arm containing a line break that both starts
+                // and ends at a line boundary is a pure block separator: it
+                // lowers as one block plan whose markers split onto the
+                // surrounding native tokens. Opened mid-line or closing
+                // into trailing text, the payload has no block seam to
+                // ride — it stays an inline fragment preserving its bytes.
                 segments.push({
-                    level: 'block',
+                    level: effectiveLineStart && effectiveLineEnd(envelopeEnd)
+                        ? 'block'
+                        : 'inline',
                     start: contentRange.start,
                     end: contentRange.end,
                 });
@@ -215,6 +316,21 @@ export function fragmentPlans(
                     ))
                 : followingLineSource.length > 0
                     && !isStructuralBlock(followingLineSource);
+            if (
+                effectiveLineStart
+                && !envelopeEndsLine
+                && !nestedCoversContent
+                && closingMarkerMayRejoinText
+                && !rejoinsInlineContext
+                && contentRange.start < contentRange.end
+                && armAbsorbsFollowing(armSource, followingLineSource)
+            ) {
+                // A structural arm whose final block lazily absorbs the
+                // closing line's trailing text cannot hold as coverage —
+                // the parser merges them into one block. Lower the whole
+                // item as per-line literal pieces instead.
+                forceLiteralLines = true;
+            }
             if (
                 effectiveLineStart
                 && !envelopeEndsLine
@@ -353,8 +469,10 @@ export function fragmentPlans(
             );
         }
         if (
-            itemPlans.some(plan => plan.level === 'inline')
-            && itemPlans.some(plan => plan.level === 'block')
+            (itemPlans.some(plan => plan.level === 'inline')
+                && itemPlans.some(plan => plan.level === 'block'))
+            || (forceLiteralLines
+                && itemPlans.some(plan => plan.level === 'block'))
         ) {
             // A mixed item anchors inside a line and spans blocks. Every
             // block segment becomes per-line literal inline pieces bound in

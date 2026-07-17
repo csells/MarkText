@@ -75,6 +75,11 @@ export interface ICriticMarkupBoundaryEndToken {
     startIndex: number;
     before: readonly Tokens.CriticMarkupBoundaryAttachment[];
     after: readonly Tokens.CriticMarkupBoundaryAttachment[];
+    /**
+     * Whole-document source for the whitespace-only unanchored case, so the
+     * consumer can restore the bytes between paired markers exactly.
+     */
+    unanchoredInterior?: string;
 }
 
 // Tokens the lexer (lexBlock) emits. Replace marked's default

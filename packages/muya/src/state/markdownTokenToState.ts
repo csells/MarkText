@@ -22,20 +22,16 @@ import type {
 } from './types';
 import { firstWordOfInfo } from '../utils';
 import logger from '../utils/logger';
+import { lowerCriticBoundaryEnd } from './criticBoundaryEndLowering';
 import {
     appendPendingInlineBindings,
     nativeInlineCriticSource,
 } from './criticMarkupInlineLowering';
 import {
     attachCriticBlockSeparator,
-    attachCriticBoundaryAttachments,
-    attachCriticBoundaryTrivia,
     attachCriticMarkers,
-    criticCoverageRole,
-    criticCoverageScopeKey,
     criticMarkerBoundaryState,
     criticPreviousSiblingChain,
-    releaseAncestorSeparators,
     relocateCriticLeadingTrivia,
 } from './criticMarkupStateBindings';
 
@@ -194,6 +190,7 @@ export function handleContainerToken(
                         ...token.fragment.before,
                         ...token.fragment.after,
                     ],
+                    markdown,
                 );
             }
             else {
@@ -202,12 +199,14 @@ export function handleContainerToken(
                     'before',
                     token.fragment,
                     token.fragment.before,
+                    markdown,
                 );
                 attachCriticMarkers(
                     lastMarkerState,
                     'after',
                     token.fragment,
                     token.fragment.after,
+                    markdown,
                 );
                 if (token.fragment.before.length) {
                     // An opener that ends its line owns the payload's leading
@@ -263,6 +262,39 @@ export function handleContainerToken(
             // weave inside it.
             const afterMarkersFlush = token.fragment.after.length > 0
                 && !token.fragment.contentRaw.endsWith('\n');
+            if (token.fragment.after.length && !afterMarkersFlush) {
+                // The whitespace run between the content's last byte and
+                // the close markers belongs BEFORE them. Read it from the
+                // source (the parser-view space run misattributes it to the
+                // post-closer position); the weave yields the run's first
+                // newline when the preceding block terminator is already in
+                // the clean text.
+                const closerStart = token.fragment.after.reduce(
+                    (start, marker) => Math.min(start, marker.range.start),
+                    Number.MAX_SAFE_INTEGER,
+                );
+                const lowerBound = token.fragment.before.reduce(
+                    (end, marker) => Math.max(end, marker.range.end),
+                    token.fragment.contentRange.start,
+                );
+                let runStart = closerStart;
+                while (
+                    runStart > lowerBound
+                    && /[ \t\r\n]/.test(markdown[runStart - 1])
+                ) {
+                    runStart--;
+                }
+                const run = markdown.slice(runStart, closerStart);
+                if (run) {
+                    (lastMarkerState as {
+                        sourceTrivia?: IStateSourceTrivia;
+                    }).sourceTrivia = {
+                        ...lastMarkerState.sourceTrivia,
+                        criticAfterPrefix: run,
+                        criticAfterConsumedEol: true,
+                    };
+                }
+            }
             if (
                 afterMarkersFlush
                 && !lastMarkerState.sourceTrivia?.criticAfterFlush
@@ -295,182 +327,13 @@ export function handleContainerToken(
         }
 
         case 'critic-boundary-end': {
-            const target = parentList[0];
-            const emptyBefore = token.before.filter(attachment =>
-                attachment.coverage !== 'content');
-            const emptyAfter = token.after.filter(attachment =>
-                attachment.coverage !== 'content');
-            const contentBefore = token.before.filter(attachment =>
-                attachment.coverage === 'content');
-            const contentAfter = token.after.filter(attachment =>
-                attachment.coverage === 'content');
-            if (emptyBefore.length || emptyAfter.length) {
-                if (target.length === token.startIndex) {
-                    target.push({
-                        name: 'paragraph',
-                        text: '',
-                    });
-                }
-                const first = target[token.startIndex];
-                const last = target.at(-1);
-                if (!first || !last) {
-                    throw new TypeError(
-                        'Native CriticMarkup boundary produced no state anchor.',
-                    );
-                }
-                const firstMarkerState = criticMarkerBoundaryState(
-                    first,
-                    'before',
-                );
-                attachCriticBoundaryTrivia(
-                    first,
-                    firstMarkerState,
-                    'before',
-                    emptyBefore,
-                    criticPreviousSiblingChain(
-                        parentList,
-                        target,
-                        token.startIndex,
-                    ),
-                );
-                attachCriticBoundaryAttachments(
-                    firstMarkerState,
-                    'before',
-                    emptyBefore,
-                );
-                for (const attachment of emptyBefore) {
-                    pendingCriticMarkupBlockBindings.push({
-                        kind: 'boundary',
-                        state: firstMarkerState,
-                        attachment,
-                    });
-                }
-                const lastMarkerState = criticMarkerBoundaryState(
-                    last,
-                    'after',
-                );
-                attachCriticBoundaryTrivia(
-                    last,
-                    lastMarkerState,
-                    'after',
-                    emptyAfter,
-                );
-                // The boundary's trivia spells the bytes between the marker
-                // and its neighbors; any open ancestor container whose
-                // parser-recorded separator names those same bytes must
-                // yield ownership or the byte serializes twice.
-                releaseAncestorSeparators(parentList, emptyAfter);
-                attachCriticBoundaryAttachments(
-                    lastMarkerState,
-                    'after',
-                    emptyAfter,
-                );
-                for (const attachment of emptyAfter) {
-                    pendingCriticMarkupBlockBindings.push({
-                        kind: 'boundary',
-                        state: lastMarkerState,
-                        attachment,
-                    });
-                }
-            }
-            for (const attachment of contentBefore) {
-                const covered = target[token.startIndex];
-                if (!covered) {
-                    throw new TypeError(
-                        'Native CriticMarkup coverage opened without a covered state.',
-                    );
-                }
-                openCriticCoverageScopes.push({
-                    key: criticCoverageScopeKey(attachment),
-                    attachment,
-                    target,
-                    startIndex: token.startIndex,
-                });
-                if (attachment.markers.length) {
-                    const markerState = criticMarkerBoundaryState(
-                        covered,
-                        'before',
-                    );
-                    attachCriticBoundaryTrivia(
-                        covered,
-                        markerState,
-                        'before',
-                        [attachment],
-                        criticPreviousSiblingChain(
-                            parentList,
-                            target,
-                            token.startIndex,
-                        ),
-                    );
-                    attachCriticBoundaryAttachments(
-                        markerState,
-                        'before',
-                        [attachment],
-                    );
-                }
-            }
-            for (const attachment of contentAfter) {
-                const key = criticCoverageScopeKey(attachment);
-                let scopeIndex = -1;
-                for (
-                    let index = openCriticCoverageScopes.length - 1;
-                    index >= 0;
-                    index--
-                ) {
-                    if (openCriticCoverageScopes[index].key === key) {
-                        scopeIndex = index;
-                        break;
-                    }
-                }
-                if (scopeIndex < 0) {
-                    throw new TypeError(
-                        'Native CriticMarkup coverage closed without opening.',
-                    );
-                }
-                const [scope] = openCriticCoverageScopes.splice(
-                    scopeIndex,
-                    1,
-                );
-                // The close edge may anchor at a different nesting level
-                // (its carrier sits inside the last covered subtree or
-                // after the open level popped). Coverage is always the
-                // open level's produced slice: the deeper carrier is
-                // inside its final state, and a popped level is complete.
-                const covered = scope.target.slice(scope.startIndex);
-                if (!covered.length) {
-                    throw new TypeError(
-                        'Native CriticMarkup coverage covers no produced state.',
-                    );
-                }
-                if (attachment.markers.length) {
-                    const last = covered.at(-1)!;
-                    const markerState = criticMarkerBoundaryState(
-                        last,
-                        'after',
-                    );
-                    // The whitespace between the covered content and the
-                    // close marker is interior to the covered node and is
-                    // re-emitted by its own serialization; storing it as
-                    // an after-prefix would duplicate those bytes.
-                    attachCriticBoundaryAttachments(
-                        markerState,
-                        'after',
-                        [attachment],
-                    );
-                }
-                covered.forEach((coveredState, index) => {
-                    pendingCriticMarkupBlockBindings.push({
-                        kind: 'coverage',
-                        state: coveredState,
-                        attachment,
-                        role: criticCoverageRole(
-                            attachment.role,
-                            index,
-                            covered.length,
-                        ),
-                    });
-                });
-            }
+            lowerCriticBoundaryEnd(
+                token,
+                parentList,
+                pendingCriticMarkupBlockBindings,
+                openCriticCoverageScopes,
+                markdown,
+            );
             break;
         }
 

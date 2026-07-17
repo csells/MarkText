@@ -84,7 +84,7 @@ export function criticMarkerText(
                 'State CriticMarkup marker differs from grammar-owned syntax.',
             );
         }
-        return marker.raw;
+        return `${marker.rawPrefix ?? ''}${marker.raw}`;
     }).join('');
 }
 
@@ -96,7 +96,18 @@ export function weaveCriticSourceTrivia(
         readonly offset: number;
         readonly edge: 'after' | 'before';
         readonly depth: number;
+        readonly pathKey: string;
         readonly markdown: TTrackedMarkdown;
+        /**
+         * Whitespace owed before the markers whose leading newlines yield
+         * to bytes already serialized directly before the insertion point
+         * — resolved during assembly so co-located insertions cannot yield
+         * to the same byte twice.
+         */
+        readonly deferredPrefix?: {
+            readonly text: string;
+            readonly path: TMarkdownStatePath;
+        };
     }> = [];
     const pending: Array<{
         readonly states: readonly TState[];
@@ -148,6 +159,7 @@ export function weaveCriticSourceTrivia(
                         offset: range.start,
                         edge: 'before',
                         depth: path.length,
+                        pathKey: path.join('\u0000'),
                         markdown: concatMarkdown([
                             plainMarkdown(before),
                             ...(beforeSuffix
@@ -161,21 +173,13 @@ export function weaveCriticSourceTrivia(
                     // and its own line terminator (`first{++` before the
                     // paragraph's LF), so it weaves inside the newline.
                     let afterOffset = range.end;
-                    let wovenAfterPrefix = afterPrefix;
-                    // The boundary trivia's first newline is the node's own
-                    // line terminator; the serializer regenerates that byte
-                    // directly before the insertion point, so the prefix
-                    // must yield it or the boundary serializes one line low.
+                    // Only a newline inside this state's own range can be
+                    // its terminator; a zero-width synthetic state must not
+                    // hijack the preceding block's line ending.
                     if (
-                        !state.sourceTrivia?.criticAfterFlush
-                        && clean.text[afterOffset - 1] === '\n'
+                        state.sourceTrivia?.criticAfterFlush
+                        && range.start < afterOffset
                     ) {
-                        if (wovenAfterPrefix.startsWith('\r\n'))
-                            wovenAfterPrefix = wovenAfterPrefix.slice(2);
-                        else if (wovenAfterPrefix.startsWith('\n'))
-                            wovenAfterPrefix = wovenAfterPrefix.slice(1);
-                    }
-                    if (state.sourceTrivia?.criticAfterFlush) {
                         if (clean.text.slice(
                             afterOffset - 2,
                             afterOffset,
@@ -186,13 +190,24 @@ export function weaveCriticSourceTrivia(
                             afterOffset = sourceOffset(afterOffset - 1);
                         }
                     }
+                    const deferPrefix = afterPrefix
+                        && !state.sourceTrivia?.criticAfterFlush;
                     insertions.push({
                         offset: afterOffset,
+                        pathKey: path.join('\u0000'),
                         edge: 'after',
                         depth: path.length,
+                        ...(deferPrefix
+                            ? {
+                                    deferredPrefix: {
+                                        text: afterPrefix,
+                                        path,
+                                    },
+                                }
+                            : {}),
                         markdown: concatMarkdown([
-                            ...(wovenAfterPrefix
-                                ? [plainMarkdown(wovenAfterPrefix)
+                            ...(afterPrefix && !deferPrefix
+                                ? [plainMarkdown(afterPrefix)
                                         .withNode(path)]
                                 : []),
                             plainMarkdown(after),
@@ -223,19 +238,58 @@ export function weaveCriticSourceTrivia(
             ? left.edge === 'before'
                 ? left.depth - right.depth
                 : right.depth - left.depth
-            : left.edge === 'after' ? -1 : 1));
+            // At a shared offset, a previous node's closer precedes the next
+            // node's opener — except on a zero-width node carrying both
+            // edges itself, where its own opener must come first.
+            : left.pathKey === right.pathKey
+                ? left.edge === 'before' ? -1 : 1
+                : left.edge === 'after' ? -1 : 1));
     const parts: TTrackedMarkdown[] = [];
     let cursor = 0;
+    // Only the trailing bytes matter for prefix yielding; whitespace runs
+    // are short, so a bounded tail avoids re-concatenating the document.
+    let assembledTail = '';
+    const pushPart = (part: TTrackedMarkdown): void => {
+        parts.push(part);
+        assembledTail = (assembledTail + part.text).slice(-1024);
+    };
     for (const insertion of insertions) {
         if (cursor < insertion.offset) {
-            parts.push(sliceMarkdownForWeave(
+            pushPart(sliceMarkdownForWeave(
                 clean,
                 cursor,
                 insertion.offset,
             ));
             cursor = insertion.offset;
         }
-        parts.push(insertion.markdown);
+        if (insertion.deferredPrefix) {
+            // The prefix's leading newlines yield to bytes the assembly
+            // already emitted directly before this point — the node's
+            // regenerated terminator, blank lines a loose container
+            // re-emits, or a co-located earlier insertion's own run.
+            let prefix = insertion.deferredPrefix.text;
+            let tailCursor = assembledTail.length;
+            while (prefix) {
+                const unit = prefix.startsWith('\r\n')
+                    ? '\r\n'
+                    : prefix.startsWith('\n') ? '\n' : '';
+                if (!unit)
+                    break;
+                if (assembledTail.slice(
+                    tailCursor - unit.length,
+                    tailCursor,
+                ) !== unit) {
+                    break;
+                }
+                prefix = prefix.slice(unit.length);
+                tailCursor -= unit.length;
+            }
+            if (prefix) {
+                pushPart(plainMarkdown(prefix)
+                    .withNode(insertion.deferredPrefix.path));
+            }
+        }
+        pushPart(insertion.markdown);
     }
     if (!clean.text.length) {
         // Preserve the zero-width native node that owns a marker-only
@@ -250,5 +304,12 @@ export function weaveCriticSourceTrivia(
             clean.text.length,
         ));
     }
-    return concatMarkdown(parts);
+    const woven = concatMarkdown(parts);
+    // A close marker may seat after the document's final generated
+    // newline; the parser-recorded terminal EOL still owns the last
+    // byte, so re-assert it.
+    const terminal = states.at(-1)?.sourceTrivia?.terminalLineEnding;
+    if (terminal && !woven.text.endsWith(terminal))
+        return concatMarkdown([woven, plainMarkdown(terminal)]);
+    return woven;
 }

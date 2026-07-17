@@ -1,4 +1,4 @@
-import type { Token } from 'marked';
+import type { Token, Tokens } from 'marked';
 import type { CriticMarkupDocument } from '../../criticMarkup/document';
 import type {
     PreparedMarkdownSourceContext,
@@ -143,10 +143,78 @@ export function analyzeMarkdownBlockSource(
                 && parsed.tokens.every(token =>
                     token.type === 'list' || token.type === 'space');
         };
+        const leafTextsCache = new Map<string, string[]>();
+        const blockLeafTexts = (fragment: string): string[] => {
+            const cached = leafTextsCache.get(fragment);
+            if (cached)
+                return cached;
+            const leaves: string[] = [];
+            const visit = (tokens: readonly Token[]): void => {
+                for (const token of tokens) {
+                    if (token.type === 'space')
+                        continue;
+                    const generic = token as Tokens.Generic;
+                    if (token.type === 'list' && Array.isArray(generic.items)) {
+                        visit(generic.items as Token[]);
+                    }
+                    else if (token.type === 'table') {
+                        // Rows are the table's leaves: a purely appended row
+                        // must not read as a rewrite of the table itself.
+                        for (const line of token.raw.split('\n')) {
+                            if (line.trim().length)
+                                leaves.push(line);
+                        }
+                    }
+                    else if (
+                        (token.type === 'list_item'
+                            || token.type === 'blockquote')
+                        && Array.isArray(generic.tokens)
+                    ) {
+                        visit(generic.tokens as Token[]);
+                    }
+                    else {
+                        leaves.push(typeof generic.text === 'string'
+                            ? generic.text
+                            : token.raw);
+                    }
+                }
+            };
+            visit(analyzeMarkdownBlockSourceWithExtensions(
+                fragment,
+                { ...effective, criticMarkup: false },
+                [],
+            ).tokens);
+            leafTextsCache.set(fragment, leaves);
+            return leaves;
+        };
+        // Lazy continuation makes a structural arm and its closing line
+        // inseparable: if appending the trailing line rewrites any block
+        // leaf the arm already produced (instead of only adding new ones),
+        // the parser will merge them and structural coverage cannot hold.
+        const absorbsCache = new Map<string, boolean>();
+        const armAbsorbsFollowing = (
+            arm: string,
+            following: string,
+        ): boolean => {
+            if (!arm || !/\S/.test(following))
+                return false;
+            const key = `${arm.length}\u0000${arm}${following}`;
+            const cached = absorbsCache.get(key);
+            if (cached !== undefined)
+                return cached;
+            const base = blockLeafTexts(arm);
+            const joined = blockLeafTexts(arm + following);
+            const absorbs = base.some(
+                (leaf, index) => joined[index] !== leaf,
+            );
+            absorbsCache.set(key, absorbs);
+            return absorbs;
+        };
         const native = prepareNativeCriticMarkupExtension(
             document,
             isStructuralBlock,
             isPureListBlock,
+            armAbsorbsFollowing,
         );
         const parsed = analyzeMarkdownBlockSourceWithExtensions(
             source,

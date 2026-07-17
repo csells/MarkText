@@ -9,6 +9,8 @@ export interface ICriticMarkupStateMarker {
     readonly raw: string;
     /** Canonical parser source offset used to order co-located markers. */
     readonly sourceOffset?: number;
+    /** Source whitespace between the preceding marker and this one. */
+    readonly rawPrefix?: string;
 }
 
 export interface ITableRowSourceSyntax {
@@ -28,6 +30,8 @@ export interface IStateSourceTrivia {
     readonly criticAfter?: readonly ICriticMarkupStateMarker[];
     /** Parser whitespace after before-markers and before their native block. */
     readonly criticBeforeSuffix?: string;
+    /** The closed fragment's raw consumed the block's line terminator. */
+    readonly criticAfterConsumedEol?: true;
     /** Parser whitespace immediately before after-markers on this native block. */
     readonly criticAfterPrefix?: string;
     /** Parser whitespace immediately after after-markers on this native block. */

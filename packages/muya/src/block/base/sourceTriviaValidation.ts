@@ -57,13 +57,14 @@ function freezeCriticMarkupMarker(
     assertPlainDataObject(value, label);
     const properties = dataProperties(
         value,
-        new Set(['type', 'marker', 'raw', 'sourceOffset']),
+        new Set(['type', 'marker', 'raw', 'sourceOffset', 'rawPrefix']),
         label,
     );
     const type = properties.get('type');
     const marker = properties.get('marker');
     const raw = properties.get('raw');
     const sourceOffset = properties.get('sourceOffset');
+    const rawPrefix = properties.get('rawPrefix');
     if (
         typeof type !== 'string'
         || !CRITIC_MARKUP_TYPES.has(type)
@@ -77,6 +78,14 @@ function freezeCriticMarkupMarker(
                 typeof sourceOffset !== 'number'
                 || !Number.isSafeInteger(sourceOffset)
                 || sourceOffset < 0
+            )
+        )
+        || (
+            rawPrefix !== undefined
+            && (
+                typeof rawPrefix !== 'string'
+                || rawPrefix.length === 0
+                || !/^[ \t\r\n]+$/.test(rawPrefix)
             )
         )
     ) {
@@ -97,6 +106,7 @@ function freezeCriticMarkupMarker(
         marker: marker as ICriticMarkupStateMarker['marker'],
         raw,
         ...(typeof sourceOffset === 'number' ? { sourceOffset } : {}),
+        ...(typeof rawPrefix === 'string' ? { rawPrefix } : {}),
     });
 }
 
@@ -253,8 +263,10 @@ export function freezeSourceTrivia(
         new Set([
             'criticBefore',
             'criticBeforeSuffix',
+            'criticAfterConsumedEol',
             'criticAfter',
             'criticAfterPrefix',
+            'criticAfterSuffix',
             'criticAfterFlush',
             'blockPrefix',
             'blockSeparatorAfter',
@@ -304,10 +316,31 @@ export function freezeSourceTrivia(
             'State source trivia criticAfterPrefix must be whitespace.',
         );
     }
+    const criticAfterSuffix = properties.get('criticAfterSuffix');
+    if (
+        criticAfterSuffix !== undefined
+        && (
+            typeof criticAfterSuffix !== 'string'
+            || !/^[ \t\r\n]*$/.test(criticAfterSuffix)
+        )
+    ) {
+        throw new TypeError(
+            'State source trivia criticAfterSuffix must be whitespace.',
+        );
+    }
     const criticAfterFlush = properties.get('criticAfterFlush');
     if (criticAfterFlush !== undefined && criticAfterFlush !== true) {
         throw new TypeError(
             'State source trivia criticAfterFlush must be true when present.',
+        );
+    }
+    const criticAfterConsumedEol = properties.get('criticAfterConsumedEol');
+    if (
+        criticAfterConsumedEol !== undefined
+        && criticAfterConsumedEol !== true
+    ) {
+        throw new TypeError(
+            'State source trivia criticAfterConsumedEol must be true when present.',
         );
     }
     const blockPrefix = properties.get('blockPrefix');
@@ -413,7 +446,11 @@ export function freezeSourceTrivia(
         ...(typeof criticAfterPrefix === 'string'
             ? { criticAfterPrefix }
             : {}),
+        ...(typeof criticAfterSuffix === 'string'
+            ? { criticAfterSuffix }
+            : {}),
         ...(criticAfterFlush === true ? { criticAfterFlush } : {}),
+        ...(criticAfterConsumedEol === true ? { criticAfterConsumedEol } : {}),
         ...(typeof blockPrefix === 'string' ? { blockPrefix } : {}),
         ...(typeof blockSeparatorAfter === 'string'
             ? { blockSeparatorAfter }

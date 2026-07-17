@@ -285,6 +285,20 @@ export function boundaryAttachmentPlans(
                     plan.contentRange.start,
                     0,
                 );
+                // The whitespace directly before the open markers (an
+                // opener on its own line) must ride along as trivia or the
+                // weave seats the markers flush against the anchor text.
+                const openerStart = plan.before.reduce(
+                    (start, marker) => Math.min(start, marker.range.start),
+                    plan.contentRange.start,
+                );
+                let triviaStart = openerStart;
+                while (
+                    triviaStart > anchor
+                    && /\s/.test(source[triviaStart - 1])
+                ) {
+                    triviaStart--;
+                }
                 result.push(Object.freeze({
                     plan,
                     anchor,
@@ -294,8 +308,8 @@ export function boundaryAttachmentPlans(
                         'empty',
                         plan.before,
                         source,
-                        anchor,
-                        anchor,
+                        triviaStart,
+                        openerStart,
                         plan.range.end,
                         plan.range.end,
                     ),
@@ -308,6 +322,27 @@ export function boundaryAttachmentPlans(
                     plan.contentRange.end,
                     source.length,
                 );
+                // Only the item's final closer owns the whitespace run
+                // after itself; an interior marker's following bytes are
+                // the next arm's payload, respelled per marker.
+                const itemCloseStart
+                    = plan.item.syntax.markers.close.range.start;
+                const carriesFinalCloser = plan.after.some(marker =>
+                    marker.range.start === itemCloseStart);
+                const closerEnd = plan.after.reduce(
+                    (end, marker) => Math.max(end, marker.range.end),
+                    plan.contentRange.end,
+                );
+                let triviaEnd = closerEnd;
+                if (carriesFinalCloser) {
+                    while (
+                        triviaEnd < source.length
+                        && /[ \t\r\n]/.test(source[triviaEnd])
+                        && triviaEnd < anchor
+                    ) {
+                        triviaEnd++;
+                    }
+                }
                 result.push(Object.freeze({
                     plan,
                     anchor,
@@ -317,8 +352,8 @@ export function boundaryAttachmentPlans(
                         'empty',
                         plan.after,
                         source,
-                        anchor,
-                        anchor,
+                        closerEnd,
+                        triviaEnd,
                         plan.range.end,
                         plan.range.end,
                     ),
