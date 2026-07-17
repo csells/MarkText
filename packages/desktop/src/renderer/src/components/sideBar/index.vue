@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useLayoutStore } from '@/store/layout'
 import { useProjectStore } from '@/store/project'
 import { useEditorStore } from '@/store/editor'
@@ -85,7 +85,16 @@ const { rightColumn, showSideBar, sideBarWidth } = storeToRefs(layoutStore)
 
 const { projectTree } = storeToRefs(projectStore)
 const { tabs } = storeToRefs(editorStore)
-const { snapshot: criticMarkupReview } = storeToRefs(criticMarkupReviewStore)
+const { snapshot: criticMarkupReview, composing: criticMarkupComposing } = storeToRefs(criticMarkupReviewStore)
+
+// Starting a comment (Add Comment) reveals the Review sidebar with its compose
+// box. Opening the sidebar is a view concern, so it lives here rather than in
+// the review controller.
+watch(criticMarkupComposing, (composing) => {
+  if (composing) {
+    layoutStore.SET_LAYOUT({ rightColumn: 'review', showSideBar: true })
+  }
+})
 
 const reviewCount = computed(() => criticMarkupReview.value.items.length)
 const reviewBadgeText = computed(() => reviewCount.value > 99 ? '99+' : `${reviewCount.value}`)

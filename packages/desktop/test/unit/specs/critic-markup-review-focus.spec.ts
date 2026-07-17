@@ -201,21 +201,30 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
 
   it('has no DOM focus writes anywhere on the desktop Review resolution path', () => {
     const rendererRoot = path.resolve(__dirname, '../../../src/renderer/src')
-    const surfaceFiles = [
+    // The resolution surfaces (accept/reject/focus a review item, snapshot
+    // publish, store) must never touch DOM focus — the engine reseats the caret
+    // and the desktop layer rides that flow.
+    const resolutionFiles = [
       'components/editorWithTabs/useCriticMarkupReviewController.ts',
       'components/editorWithTabs/criticMarkupReview.ts',
-      'store/criticMarkupReview.ts',
-      'components/sideBar/review.vue'
+      'store/criticMarkupReview.ts'
     ]
 
-    for (const file of surfaceFiles) {
+    for (const file of resolutionFiles) {
       const source = fs.readFileSync(path.join(rendererRoot, file), 'utf8')
       expect(source, file).not.toMatch(/\.focus\(|autofocus/)
     }
 
+    // The sidebar's ONLY DOM focus write is its own compose textarea — composing
+    // a new comment is a deliberate focus move into the sidebar. It never
+    // focuses the editor, and never uses a bare autofocus.
+    const review = fs.readFileSync(path.join(rendererRoot, 'components/sideBar/review.vue'), 'utf8')
+    expect(review).not.toMatch(/autofocus/)
+    expect(review.match(/\.focus\(/g) ?? []).toEqual(['.focus('])
+    expect(review).toContain('composeInput.value?.focus()')
+
     // The sidebar only scrolls the focused card into view inside its own
     // pane; it must not scroll-jack or refocus the editor.
-    const review = fs.readFileSync(path.join(rendererRoot, 'components/sideBar/review.vue'), 'utf8')
     expect(review).toContain("scrollIntoView({ block: 'nearest' })")
   })
 })

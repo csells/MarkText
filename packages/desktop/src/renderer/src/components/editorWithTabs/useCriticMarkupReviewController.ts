@@ -5,6 +5,7 @@ import type {
 } from '@muyajs/core'
 import bus from '@/bus'
 import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
+import { createCommentComposer } from './commentComposer'
 import {
   executeCriticMarkupReviewAction,
   executeCriticMarkupSidebarItemAction,
@@ -57,6 +58,14 @@ export function useCriticMarkupReviewController(
   options: CriticMarkupReviewControllerOptions
 ): void {
   const reviewStore = useCriticMarkupReviewStore()
+  // A comment is composed in the sidebar, not a modal. Opening composition
+  // flips the store's `composing` signal; the sidebar container reveals the
+  // Review compose box, and the box's submit/cancel (bus) resolve the request.
+  // muya keeps its cached source selection across the focus change, so the
+  // note still wraps the originally selected span.
+  const commentComposer = createCommentComposer((active) => {
+    reviewStore.SET_COMPOSING(active)
+  })
   let connectedEditor: ICriticMarkupReviewEditor | null = null
   let snapshotListener: ((snapshot: ICriticMarkupReviewSnapshot) => void) | null = null
   let lastSnapshot: ICriticMarkupReviewSnapshot | null = null
@@ -124,6 +133,7 @@ export function useCriticMarkupReviewController(
   const invalidateContext = (): number => {
     contextVersion += 1
     options.cancelTextRequest()
+    commentComposer.cancel()
     return contextVersion
   }
 
@@ -137,7 +147,11 @@ export function useCriticMarkupReviewController(
       targetEditor,
       action as CriticMarkupReviewAction,
       async(kind) => {
-        const value = await options.requestText(kind)
+        // A comment's text comes from the sidebar compose box; every other
+        // text-bearing action (substitution) still uses the prompt modal.
+        const value = kind === 'comment'
+          ? await commentComposer.request()
+          : await options.requestText(kind)
         if (
           value === null ||
           targetEditor !== connectedEditor ||
@@ -150,6 +164,14 @@ export function useCriticMarkupReviewController(
         return value
       }
     )
+  }
+
+  const handleCommentSubmit = (text: unknown): void => {
+    commentComposer.submit(typeof text === 'string' ? text : '')
+  }
+
+  const handleCommentCancel = (): void => {
+    commentComposer.cancel()
   }
 
   const handleSidebarAction = (payload: unknown): void => {
@@ -171,6 +193,8 @@ export function useCriticMarkupReviewController(
 
   bus.on('critic-markup-review', handleReviewAction)
   bus.on('critic-markup-review-item', handleSidebarAction)
+  bus.on('critic-markup-comment-submit', handleCommentSubmit)
+  bus.on('critic-markup-comment-cancel', handleCommentCancel)
   bus.on('file-loaded', handleDocumentContextChange)
   bus.on('file-changed', handleDocumentContextChange)
 
@@ -201,6 +225,8 @@ export function useCriticMarkupReviewController(
     stopContextWatch()
     bus.off('critic-markup-review', handleReviewAction)
     bus.off('critic-markup-review-item', handleSidebarAction)
+    bus.off('critic-markup-comment-submit', handleCommentSubmit)
+    bus.off('critic-markup-comment-cancel', handleCommentCancel)
     bus.off('file-loaded', handleDocumentContextChange)
     bus.off('file-changed', handleDocumentContextChange)
     disconnectEditor()

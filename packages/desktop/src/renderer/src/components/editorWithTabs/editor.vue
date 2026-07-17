@@ -141,13 +141,10 @@ import { addCommonStyle, setEditorWidth } from '@/util/theme'
 import { usePreferencesStore } from '@/store/preferences'
 import { useEditorStore } from '@/store/editor'
 import { useProjectStore } from '@/store/project'
-import { useLayoutStore } from '@/store/layout'
-import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
 import { type CriticMarkupTextRequest } from './criticMarkupReview'
-import { createCommentComposer } from './commentComposer'
 import CriticMarkupPromptDialog from './CriticMarkupPromptDialog.vue'
 import { useCriticMarkupReviewController } from './useCriticMarkupReviewController'
 import { useCriticMarkupRejectionNotifier } from './useCriticMarkupRejectionNotifier'
@@ -220,8 +217,6 @@ const props = defineProps<{
 const preferencesStore = usePreferencesStore()
 const editorStore = useEditorStore()
 const projectStore = useProjectStore()
-const layoutStore = useLayoutStore()
-const criticMarkupReviewStore = useCriticMarkupReviewStore()
 
 // Use storeToRefs to extract reactive properties from the stores
 const {
@@ -1500,40 +1495,15 @@ const handleInlineFormat = (type: unknown) => {
   editor.value && editor.value.format(type)
 }
 
-// A comment is composed in the Review sidebar, not a modal: open the sidebar,
-// then let the compose box resolve the note. muya keeps its cached source
-// selection across the focus change, so the note still wraps the intended
-// span. `SET_COMPOSING` drives the compose box's visibility.
-const commentComposer = createCommentComposer((active) => {
-  criticMarkupReviewStore.SET_COMPOSING(active)
-  if (active) {
-    layoutStore.SET_LAYOUT({ rightColumn: 'review', showSideBar: true })
-  }
-})
-
 const requestCriticMarkupText: CriticMarkupTextRequest = (kind) => {
-  // Release contenteditable focus (caching muya's source selection) before
-  // focus moves to the sidebar / dialog, so the eventual command still applies
-  // to the originally selected text.
+  // Release contenteditable focus before Element Plus starts trapping focus.
+  // Muya retains its cached source selection for this menu/dialog round trip,
+  // so the eventual command still applies to the intended text.
   handleModalOpening()
-  if (kind === 'comment') {
-    return commentComposer.request()
-  }
   return criticMarkupPromptDialog.value?.request(kind) ?? Promise.resolve(null)
 }
 
-const cancelCriticMarkupPrompt = (): void => {
-  commentComposer.cancel()
-  criticMarkupPromptDialog.value?.cancel()
-}
-
-const handleCommentComposeSubmit = (text: unknown): void => {
-  commentComposer.submit(typeof text === 'string' ? text : '')
-}
-
-const handleCommentComposeCancel = (): void => {
-  commentComposer.cancel()
-}
+const cancelCriticMarkupPrompt = (): void => criticMarkupPromptDialog.value?.cancel()
 
 useCriticMarkupReviewController({
   editor,
@@ -1974,8 +1944,6 @@ useEditorLifecycle(() => {
   bus.on('switch-spellchecker-language', switchSpellcheckLanguage)
   bus.on('open-command-spellchecker-switch-language', openSpellcheckerLanguageCommand)
   bus.on('replace-misspelling', replaceMisspelling)
-  bus.on('critic-markup-comment-submit', handleCommentComposeSubmit)
-  bus.on('critic-markup-comment-cancel', handleCommentComposeCancel)
 
   // The engine emits a low-level `json-change` ({ op, source, prevDoc, doc })
   // on every document mutation; the desktop's content-change pipeline wants the
@@ -2132,8 +2100,6 @@ useEditorLifecycle(() => {
   bus.off('switch-spellchecker-language', switchSpellcheckLanguage)
   bus.off('open-command-spellchecker-switch-language', openSpellcheckerLanguageCommand)
   bus.off('replace-misspelling', replaceMisspelling)
-  bus.off('critic-markup-comment-submit', handleCommentComposeSubmit)
-  bus.off('critic-markup-comment-cancel', handleCommentComposeCancel)
   bus.off('language-changed', handleLanguageChanged)
 
   document.removeEventListener('keyup', keyup)
