@@ -68,6 +68,18 @@ export interface ICriticMarkupCorpusItemContract {
     depth: number;
     documentOrder: number;
     fragments: readonly ICriticMarkupCorpusFragmentContract[];
+    /**
+     * Roles the item renders through structural (whole-native-block)
+     * annotations rather than inline text fragments. Fully structural items
+     * have inline fragments [] but still surface these in the DOM.
+     */
+    structuralRoles?: readonly ICriticMarkupCorpusFragmentContract['role'][];
+    /**
+     * Static/clipboard HTML decomposition when it differs from the live
+     * DOM's structural annotation (recorded divergence: the static renderer
+     * splits a fully structural item per covered block).
+     */
+    staticStructuralRoles?: readonly ICriticMarkupCorpusFragmentContract['role'][];
 }
 
 function range(start: number, end: number): ICriticMarkupCorpusRange {
@@ -1528,6 +1540,38 @@ export const CRITIC_MARKUP_CORPUS: readonly ICriticMarkupCorpusRow[] = [
             original: '<span title="safe&quot; onfocus=&quot;globalThis.__criticXss=10" onmouseover="globalThis.__criticXss=11">focus</span>\n',
             revised: '<span title="safe&quot; onfocus=&quot;globalThis.__criticXss=10" onmouseover="globalThis.__criticXss=11">focus</span>\n',
             mustBeInert: true,
+        },
+    },
+    {
+        id: 'opener-on-own-line-block-spanning-addition',
+        tags: ['syntax', 'block-spanning', 'boundary-trivia'],
+        source: 'intro:\n\n{++\n- first\n- second\n++}\n',
+        options: {},
+        normalization: { kind: 'exact' },
+        expected: {
+            itemTypes: ['addition'],
+            itemRaw: ['{++\n- first\n- second\n++}'],
+            itemContracts: [
+                // Fully structural coverage: the item binds the native
+                // list block, so it exposes no inline text fragments.
+                {
+                    ...item(0, 8, 32, null, 0, 0, []),
+                    structuralRoles: ['only'],
+                    staticStructuralRoles: ['start', 'middle', 'end'],
+                },
+            ],
+            literalRanges: [],
+            plainTextItems: [],
+            original: 'intro:\n\n\n',
+            revised: 'intro:\n\n\n- first\n- second\n\n',
+            resolution: {
+                accept: 'intro:\n\n\n- first\n- second\n\n',
+                reject: 'intro:\n',
+                reason: 'Rejecting erases the covered whole-line list, so the '
+                    + 'editor collapses the erased junction (mid-document '
+                    + 'rule) instead of keeping the raw grammar projection\'s '
+                    + 'blank run.',
+            },
         },
     },
     {

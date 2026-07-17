@@ -338,13 +338,28 @@ export function boundaryAttachmentPlans(
         if (coverage === 'content' || plan.before.length) {
             // The anchor may cross nested transparent markers to reach the
             // native token, but stored trivia stays whitespace-pure — the
-            // nested item's own markers re-emit those bytes.
+            // nested item's own markers re-emit those bytes. The trivia run
+            // starts at the opener's end: an opener that ends its line owns
+            // the gap up to the covered content ({++\n…).
             const anchor = skipTriviaForward(
                 source,
                 markerIndex,
                 plan.contentRange.start,
                 plan.contentRange.end,
             );
+            const openerEnd = plan.before.length
+                ? plan.before.reduce(
+                        (end, marker) => Math.max(end, marker.range.end),
+                        0,
+                    )
+                : plan.contentRange.start;
+            let triviaStart = Math.min(openerEnd, plan.contentRange.start);
+            while (
+                triviaStart < plan.contentRange.start
+                && !/\s/.test(source[triviaStart])
+            ) {
+                triviaStart++;
+            }
             let triviaEnd = plan.contentRange.start;
             while (triviaEnd < anchor && /\s/.test(source[triviaEnd]))
                 triviaEnd++;
@@ -357,7 +372,7 @@ export function boundaryAttachmentPlans(
                     coverage,
                     plan.before,
                     source,
-                    plan.contentRange.start,
+                    triviaStart,
                     triviaEnd,
                     plan.range.end,
                     plan.range.end,

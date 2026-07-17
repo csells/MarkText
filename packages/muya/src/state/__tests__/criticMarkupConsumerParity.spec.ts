@@ -197,6 +197,7 @@ function htmlItemSummary(html: string) {
 function expectedHtmlItems(
     row: ICriticMarkupCorpusRow,
     items: ReturnType<typeof declaredItems>,
+    backend: 'live' | 'static' = 'live',
 ) {
     const plainTextIdentity = new Set(row.expected.plainTextItems.map(item =>
         `${item.itemIndex}:${item.sourceRange.start}:${item.sourceRange.end}`));
@@ -204,12 +205,18 @@ function expectedHtmlItems(
     return items.flatMap((item) => {
         const identity
             = `${item.itemIndex}:${item.sourceRange.start}:${item.sourceRange.end}`;
+        const structuralRoles = backend === 'static'
+            ? item.staticStructuralRoles ?? item.structuralRoles
+            : item.structuralRoles;
         return plainTextIdentity.has(identity)
             ? []
             : [{
                     type: item.type,
                     sourceRange: item.sourceRange,
-                    roles: item.fragments.map(fragment => fragment.role),
+                    roles: [
+                        ...item.fragments.map(fragment => fragment.role),
+                        ...(structuralRoles ?? []),
+                    ],
                 }];
     });
 }
@@ -283,7 +290,11 @@ describe('criticMarkup cross-consumer parity corpus', () => {
                 }
             }
 
-            expect(documentItemSummaries(canonical.items)).toEqual(expected);
+            expect(documentItemSummaries(canonical.items)).toEqual(
+                expected.map((
+                    { structuralRoles: _roles, staticStructuralRoles: _static, ...rest },
+                ) => rest),
+            );
             expect(canonical.excludedRanges.ranges)
                 .toEqual(row.expected.literalRanges);
             expect(projectCriticMarkupMarkdown(
@@ -307,7 +318,13 @@ describe('criticMarkup cross-consumer parity corpus', () => {
             const review = muya.getCriticMarkupReviewSnapshot();
             const commandItems = muya.getCriticMarkupItems();
 
-            expect(documentItemSummaries(live.items)).toEqual(expected);
+            expect(documentItemSummaries(live.items)).toEqual(
+                // structuralRoles is a rendering contract, not a document-
+                // model field.
+                expected.map((
+                    { structuralRoles: _roles, staticStructuralRoles: _static, ...rest },
+                ) => rest),
+            );
             expect(live.excludedRanges.ranges)
                 .toEqual(row.expected.literalRanges);
             expect(htmlItemSummary(muya.domNode.innerHTML))
@@ -327,8 +344,11 @@ describe('criticMarkup cross-consumer parity corpus', () => {
             }))).toEqual(expected.map(item => ({
                 type: item.type,
                 raw: item.raw,
-                path: item.fragments[0].path,
-                localRange: item.fragments[0].localRange,
+                // A fully structural item (no inline fragments) anchors the
+                // Review snapshot at its source envelope with an empty path.
+                path: item.fragments[0]?.path ?? [],
+                localRange: item.fragments[0]?.localRange
+                    ?? item.sourceRange,
                 sourceRange: item.sourceRange,
                 documentOrder: item.documentOrder,
             })));
@@ -364,8 +384,13 @@ describe('criticMarkup cross-consumer parity corpus', () => {
                 sanitize: false,
             });
             const clipboardHtml = getClipBoardHtml(source, options);
-            expect(htmlItemSummary(staticHtml)).toEqual(expectedHtml);
-            expect(htmlItemSummary(clipboardHtml)).toEqual(expectedHtml);
+            const expectedStaticHtml = expectedHtmlItems(
+                row,
+                expected,
+                'static',
+            );
+            expect(htmlItemSummary(staticHtml)).toEqual(expectedStaticHtml);
+            expect(htmlItemSummary(clipboardHtml)).toEqual(expectedStaticHtml);
 
             for (const projection of ['original', 'revised'] as const) {
                 const projected = canonical.project(projection);
@@ -406,20 +431,24 @@ describe('criticMarkup cross-consumer parity corpus', () => {
                     .toMatchObject(expectedFocus);
                 expect(muya.focusCriticMarkup(commandItem))
                     .toMatchObject(expectedFocus);
-                expect(muya.focusCriticMarkup({
-                    path: [...fragment.path],
-                    start: fragment.localRange.start,
-                    end: fragment.localRange.end,
-                    raw: item.raw,
-                    sourceStart: item.sourceRange.start,
-                    sourceEnd: item.sourceRange.end,
-                })).toMatchObject(expectedFocus);
-                expect(muya.focusCriticMarkup({
-                    path: [...fragment.path],
-                    start: fragment.localRange.start,
-                    end: fragment.localRange.end,
-                    raw: item.raw,
-                })).toMatchObject(expectedFocus);
+                // Fragment-target focus applies only to items with inline
+                // fragments; fully structural items focus by id/command.
+                if (fragment) {
+                    expect(muya.focusCriticMarkup({
+                        path: [...fragment.path],
+                        start: fragment.localRange.start,
+                        end: fragment.localRange.end,
+                        raw: item.raw,
+                        sourceStart: item.sourceRange.start,
+                        sourceEnd: item.sourceRange.end,
+                    })).toMatchObject(expectedFocus);
+                    expect(muya.focusCriticMarkup({
+                        path: [...fragment.path],
+                        start: fragment.localRange.start,
+                        end: fragment.localRange.end,
+                        raw: item.raw,
+                    })).toMatchObject(expectedFocus);
+                }
                 if (!row.expected.plainTextItems.some(plain =>
                     plain.itemIndex === item.itemIndex)) {
                     expect(muya.getCurrentCriticMarkupItem()?.id)

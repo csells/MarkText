@@ -74,6 +74,24 @@ export type {
     IMarkdownSourceMapPiece,
 } from './markdownSourceMap';
 
+/**
+ * A covered block whose opener owns the payload's leading newline
+ * (`{++\n…`) carries that byte as an opener suffix instead of a block
+ * prefix. The suffix re-emits the block joiner, so the serializer must not
+ * generate a second one. The carrier may sit one container level down —
+ * marker attachment binds list markers to the first item.
+ */
+function criticBeforeSuffixReplacesJoiner(state: TState): boolean {
+    let current: TState | undefined = state;
+    while (current) {
+        const suffix = current.sourceTrivia?.criticBeforeSuffix;
+        if (suffix !== undefined)
+            return suffix.startsWith('\n');
+        current = (current as { children?: TState[] }).children?.[0];
+    }
+    return false;
+}
+
 const debug = logger('export markdown: ');
 const SETEXT_SAFE_BULLET_MARKER = '*';
 
@@ -209,7 +227,8 @@ export default class ExportMarkdown {
                 );
             }
             const suppressInitialLineBreak = blockPrefix !== undefined
-                || previousSeparator !== undefined;
+                || previousSeparator !== undefined
+                || criticBeforeSuffixReplacesJoiner(state);
             if (blockPrefix !== undefined) {
                 result.push(serializeBlockSpacing(
                     blockPrefix,

@@ -267,11 +267,88 @@ function criticBoundaryFollowingTrivia(
     return trivia.values().next().value ?? '';
 }
 
+/**
+ * Move covered-content leading whitespace from the first covered state's
+ * block prefix to the opener's marker suffix, so serialization re-emits it
+ * INSIDE the item (`{++` + trivia + content) instead of hoisting it before
+ * the opener and changing the item's payload bytes.
+ */
+export function relocateCriticLeadingTrivia(
+    owner: TState,
+    markerState: TState,
+    trivia: string,
+    previousChain: readonly TState[] = [],
+    allowGeneratedJoinerClaim = false,
+): void {
+    if (!trivia)
+        return;
+    const setSuffix = (): void => {
+        const existingSuffix = markerState.sourceTrivia?.criticBeforeSuffix;
+        if (existingSuffix !== undefined && existingSuffix !== trivia) {
+            throw new TypeError(
+                'Native CriticMarkup before-boundary trivia conflicts on its state.',
+            );
+        }
+        (markerState as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
+            ...markerState.sourceTrivia,
+            criticBeforeSuffix: trivia,
+        };
+    };
+    const prefix = owner.sourceTrivia?.blockPrefix;
+    if (prefix === undefined) {
+        // Block lexing folded the byte into the preceding whitespace run:
+        // reclaim it from the nearest preceding sibling's separator tail
+        // (walking outward through open ancestors), or — when nothing
+        // recorded it — from the serializer's generated block joiner, which
+        // yields to a covered state carrying an opener suffix.
+        for (const previous of previousChain) {
+            const separator = previous.sourceTrivia?.blockSeparatorAfter;
+            if (separator !== undefined && separator.endsWith(trivia)) {
+                (previous as {
+                    sourceTrivia?: IStateSourceTrivia;
+                }).sourceTrivia = {
+                    ...previous.sourceTrivia,
+                    blockSeparatorAfter:
+                        separator.slice(0, -trivia.length) || undefined,
+                };
+                setSuffix();
+                return;
+            }
+        }
+        // Nothing recorded the byte. Only at document start is it provably
+        // the serializer's generated joiner (which yields to the suffix);
+        // anywhere else the bytes already have a structural owner.
+        if (allowGeneratedJoinerClaim)
+            setSuffix();
+        return;
+    }
+    if (!prefix.endsWith(trivia)) {
+        throw new TypeError(
+            'Native CriticMarkup before-boundary trivia is not a block-prefix suffix.',
+        );
+    }
+    const existing = markerState.sourceTrivia?.criticBeforeSuffix;
+    if (existing !== undefined && existing !== trivia) {
+        throw new TypeError(
+            'Native CriticMarkup before-boundary trivia conflicts on its state.',
+        );
+    }
+    (owner as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
+        ...owner.sourceTrivia,
+        blockPrefix: prefix.slice(0, -trivia.length) || undefined,
+    };
+    (markerState as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
+        ...markerState.sourceTrivia,
+        criticBeforeSuffix: trivia,
+    };
+}
+
 export function attachCriticBoundaryTrivia(
     owner: TState,
     markerState: TState,
     edge: 'before' | 'after',
     attachments: readonly Tokens.CriticMarkupBoundaryAttachment[],
+    previousChain: readonly TState[] = [],
 ): void {
     if (!attachments.length)
         return;
@@ -280,31 +357,7 @@ export function attachCriticBoundaryTrivia(
         return;
 
     if (edge === 'before') {
-        const prefix = owner.sourceTrivia?.blockPrefix;
-        if (prefix === undefined) {
-            // Container syntax such as list indentation is already inside the
-            // native node's mapped range, so marker weaving preserves it.
-            return;
-        }
-        if (!prefix.endsWith(trivia)) {
-            throw new TypeError(
-                'Native CriticMarkup before-boundary trivia is not a block-prefix suffix.',
-            );
-        }
-        const existing = markerState.sourceTrivia?.criticBeforeSuffix;
-        if (existing !== undefined && existing !== trivia) {
-            throw new TypeError(
-                'Native CriticMarkup before-boundary trivia conflicts on its state.',
-            );
-        }
-        (owner as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
-            ...owner.sourceTrivia,
-            blockPrefix: prefix.slice(0, -trivia.length) || undefined,
-        };
-        (markerState as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
-            ...markerState.sourceTrivia,
-            criticBeforeSuffix: trivia,
-        };
+        relocateCriticLeadingTrivia(owner, markerState, trivia, previousChain);
         return;
     }
 
@@ -664,4 +717,61 @@ export function finalizeCriticMarkupStateBindings(
         block: Object.freeze(block),
         inline: Object.freeze(inline),
     });
+}
+
+/**
+ * Clear `blockSeparatorAfter` on every open ancestor container whose
+ * recorded separator is a suffix of the after-boundary trivia. The boundary
+ * weave re-emits those exact bytes, so leaving the separator in place would
+ * double-spell them on serialization.
+ */
+export function releaseAncestorSeparators(
+    parentList: TState[][],
+    attachments: readonly Tokens.CriticMarkupBoundaryAttachment[],
+): void {
+    const trivia = attachments
+        .map(attachment => attachment.trivia.raw + attachment.followingTrivia.raw)
+        .join('');
+    if (!trivia)
+        return;
+    for (let level = 1; level < parentList.length; level++) {
+        const container = parentList[level].at(-1);
+        const separator = container?.sourceTrivia?.blockSeparatorAfter;
+        if (
+            container
+            && separator !== undefined
+            && separator.length > 0
+            && trivia.endsWith(separator)
+        ) {
+            const { blockSeparatorAfter: _released, ...rest }
+                = container.sourceTrivia!;
+            (container as { sourceTrivia?: typeof rest }).sourceTrivia
+                = Object.keys(rest).length ? rest : undefined;
+        }
+    }
+}
+
+/**
+ * Preceding siblings whose separator may own an opener's leading trivia:
+ * the covered state's direct predecessor first, then each open ancestor
+ * level's predecessor (the covered subtree itself is each level's last
+ * state while it is being built).
+ */
+export function criticPreviousSiblingChain(
+    parentList: TState[][],
+    target: TState[],
+    startIndex: number,
+): TState[] {
+    const chain: TState[] = [];
+    const direct = target[startIndex - 1];
+    if (direct)
+        chain.push(direct);
+    for (let level = 0; level < parentList.length; level++) {
+        if (parentList[level] === target)
+            continue;
+        const candidate = parentList[level].at(-2);
+        if (candidate)
+            chain.push(candidate);
+    }
+    return chain;
 }

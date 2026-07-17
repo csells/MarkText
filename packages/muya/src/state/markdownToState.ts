@@ -210,6 +210,7 @@ export class MarkdownToState {
                     tokens,
                     pendingCriticMarkupBlockBindings,
                     openCriticCoverageScopes,
+                    markdown,
                 );
             }
             else {

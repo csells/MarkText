@@ -1,4 +1,4 @@
-import type { Token, Tokens } from 'marked';
+import type { Token } from 'marked';
 import type { ICriticMarkupInlineLeaf } from '../utils/marked/locatedMarkdown';
 import type { TBlockToken } from '../utils/marked/types';
 import type { ILoweredNativeInlineSource } from './criticMarkupInlineLowering';
@@ -34,6 +34,9 @@ import {
     criticCoverageRole,
     criticCoverageScopeKey,
     criticMarkerBoundaryState,
+    criticPreviousSiblingChain,
+    releaseAncestorSeparators,
+    relocateCriticLeadingTrivia,
 } from './criticMarkupStateBindings';
 
 const debug = logger('import markdown: ');
@@ -69,38 +72,6 @@ function prependTokens(
         target[index] = values[index];
 }
 
-/**
- * Clear `blockSeparatorAfter` on every open ancestor container whose
- * recorded separator is a suffix of the after-boundary trivia. The boundary
- * weave re-emits those exact bytes, so leaving the separator in place would
- * double-spell them on serialization.
- */
-function releaseAncestorSeparators(
-    parentList: TState[][],
-    attachments: readonly Tokens.CriticMarkupBoundaryAttachment[],
-): void {
-    const trivia = attachments
-        .map(attachment => attachment.trivia.raw + attachment.followingTrivia.raw)
-        .join('');
-    if (!trivia)
-        return;
-    for (let level = 1; level < parentList.length; level++) {
-        const container = parentList[level].at(-1);
-        const separator = container?.sourceTrivia?.blockSeparatorAfter;
-        if (
-            container
-            && separator !== undefined
-            && separator.length > 0
-            && trivia.endsWith(separator)
-        ) {
-            const { blockSeparatorAfter: _released, ...rest }
-                = container.sourceTrivia!;
-            (container as { sourceTrivia?: typeof rest }).sourceTrivia
-                = Object.keys(rest).length ? rest : undefined;
-        }
-    }
-}
-
 export function handleContainerToken(
     token: TBlockToken,
     parentList: TState[][],
@@ -108,6 +79,7 @@ export function handleContainerToken(
     pendingCriticMarkupBlockBindings:
     TPendingCriticMarkupBlockBinding[],
     openCriticCoverageScopes: IOpenCriticCoverageScope[],
+    markdown: string,
 ) {
     let state: TState;
     switch (token.type) {
@@ -237,6 +209,35 @@ export function handleContainerToken(
                     token.fragment,
                     token.fragment.after,
                 );
+                if (token.fragment.before.length) {
+                    // An opener that ends its line owns the payload's leading
+                    // whitespace ({++\n…). Those bytes sit between the last
+                    // opening marker and the covered content in source, but
+                    // block lexing may have folded them into the preceding
+                    // whitespace run — reclaim them from wherever they were
+                    // recorded so serialization keeps them inside the item.
+                    const openerEnd
+                        = token.fragment.before.at(-1)!.range.end;
+                    // Read the run from the source itself: the fragment's
+                    // contentRange/contentRaw disagree about who owns these
+                    // bytes depending on how block lexing folded them. Only
+                    // line-ending runs move — a final horizontal run is the
+                    // first content line's own indentation.
+                    const leadingTrivia = /^(?:[ \t]*\r?\n)*/.exec(
+                        markdown.slice(openerEnd),
+                    )![0];
+                    relocateCriticLeadingTrivia(
+                        first,
+                        firstMarkerState,
+                        leadingTrivia,
+                        criticPreviousSiblingChain(
+                            parentList,
+                            target,
+                            token.startIndex,
+                        ),
+                        token.startIndex === 0,
+                    );
+                }
             }
             const contentSuffix = last.sourceTrivia
                 ?.blockSeparatorAfter;
@@ -326,6 +327,11 @@ export function handleContainerToken(
                     firstMarkerState,
                     'before',
                     emptyBefore,
+                    criticPreviousSiblingChain(
+                        parentList,
+                        target,
+                        token.startIndex,
+                    ),
                 );
                 attachCriticBoundaryAttachments(
                     firstMarkerState,
@@ -390,6 +396,11 @@ export function handleContainerToken(
                         markerState,
                         'before',
                         [attachment],
+                        criticPreviousSiblingChain(
+                            parentList,
+                            target,
+                            token.startIndex,
+                        ),
                     );
                     attachCriticBoundaryAttachments(
                         markerState,
