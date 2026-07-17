@@ -671,6 +671,39 @@ section wins.
 - **Gateway-contract test repairs:** the orphan-4654 and vega-lite muya-E2E
   specs mutated blocks directly and now route through the mutation gateway.
 
+### 2026-07-17 adversarial-review disposition (export interpolation fix)
+
+A multi-dimension adversarial review (correctness, security, serialization,
+performance, test-honesty, API) raised 25 findings against the branch. Their
+verifier panels were lost to a session limit mid-run, so every finding was
+re-verified by hand against the committed tree. Disposition:
+
+- **Confirmed real, fixed byte-exact earlier this branch** — the serializer
+  byte-drift and binding-provenance classes (blockquote-prefixed list blanks,
+  unbounded terminal-EOL growth, ancestor separator double-emit): all closed
+  by the property-fuzz burn-down (`fdb9aaf9`) and predecessors; the tracked
+  post-commit-rollback and dead-disjunct pair closed in
+  `trackedCriticMarkup.ts` / `nativeBindingTopology.ts`.
+- **Confirmed real, fixed here (`23659059`)** — styled-HTML/PDF/print export
+  spliced the sanitized body via a `String.replace` *string* replacement, so
+  a document containing `$&`, `` $` ``, `$'`, or `$n` corrupted the export (a
+  bare `$&` re-spliced the whole matched `<body>…</body>`, nesting a second
+  `<body>`). Fixed with a function replacer; red-green regression added
+  (`exportHtml.spec.ts`, 23/23) proving the sequences reach the output
+  byte-for-byte and no nested `<body>` appears.
+- **Refuted against the runtime** — render-depth-limit diagnostic survives
+  sanitization (green guard added to `criticMarkupHtml.spec.ts`); the
+  predicted unconditional-throw and hard-throw paths do not reproduce (green
+  suites, stale line refs).
+- **Documented normalization, not byte-loss** — the reparse-stable idempotent
+  cases fall inside the published carve-out.
+- **Deliberate committed decision, not overridden** — the export E2E finding:
+  each pipeline stage is unit-covered and the branch already carries a
+  recorded decision against an E2E save-dialog stub, so it stands.
+
+Only the two user-gated acceptance walkthroughs (packaged-app reachability;
+VoiceOver) remain open, and neither can be performed without the user.
+
 ### 2026-07-17 property-fuzz burn-down (post-walkthrough hardening)
 
 After the user's manual walkthrough surfaced an opener-on-own-line boot
