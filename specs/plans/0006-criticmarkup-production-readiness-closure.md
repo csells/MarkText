@@ -701,8 +701,11 @@ re-verified by hand against the committed tree. Disposition:
   each pipeline stage is unit-covered and the branch already carries a
   recorded decision against an E2E save-dialog stub, so it stands.
 
-Only the two user-gated acceptance walkthroughs (packaged-app reachability;
-VoiceOver) remain open, and neither can be performed without the user.
+Only one user-gated item remains: the packaged-app reachability walkthrough
+(Wave 4 acceptance). The VoiceOver walkthrough is NOT a branch obligation — the
+dedicated a11y features were extracted on 2026-07-16 (`c616f030`), the
+preservation branch was dropped (`a3afa9a0`), and the walkthrough was removed
+from this plan the same day; a future a11y effort owns it.
 
 ### 2026-07-17 property-fuzz burn-down (post-walkthrough hardening)
 
