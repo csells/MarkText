@@ -64,7 +64,7 @@ describe('criticMarkup renderer', () => {
 
         expect(html).toContain('data-critic-type="comment"');
         expect(html).toContain('mu-critic-comment-indicator');
-        expect(html).toContain('aria-label="Review this"');
+        expect(html).toContain('title="Review this"');
     });
 
     it('keeps the fragment renderer marked-only when host view state is stale', () => {

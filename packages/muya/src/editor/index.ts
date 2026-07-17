@@ -414,10 +414,6 @@ export class Editor {
         const projection = this._muya.options.criticMarkupProjection;
         const readOnly = projection !== 'marked';
         this._muya.domNode.setAttribute('data-critic-projection', projection);
-        if (readOnly)
-            this._muya.domNode.setAttribute('aria-readonly', 'true');
-        else
-            this._muya.domNode.removeAttribute('aria-readonly');
 
         this.scrollPage?.breadthFirstTraverse((node) => {
             if (node.isContent()) {

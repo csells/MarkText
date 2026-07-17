@@ -32,7 +32,7 @@ describe('criticMarkup live projection views', () => {
         muya.setOptions({ criticMarkupProjection: 'original' }, true);
         expect(muya.domNode.querySelectorAll('.mu-paragraph')).toHaveLength(1);
         expect(muya.domNode.textContent).toContain('firstsecond');
-        expect(muya.domNode.getAttribute('aria-readonly')).toBe('true');
+        expect(muya.domNode.getAttribute('data-critic-projection')).toBe('original');
 
         muya.setOptions({ criticMarkupProjection: 'revised' }, true);
         expect(muya.domNode.querySelectorAll('.mu-paragraph')).toHaveLength(2);
@@ -44,7 +44,7 @@ describe('criticMarkup live projection views', () => {
 
         muya.setOptions({ criticMarkupProjection: 'marked' }, true);
         expect(muya.domNode.querySelectorAll('.mu-paragraph')).toHaveLength(2);
-        expect(muya.domNode.hasAttribute('aria-readonly')).toBe(false);
+        expect(muya.domNode.getAttribute('data-critic-projection')).toBe('marked');
         expect(muya.getMarkdown()).toBe(source);
     });
 

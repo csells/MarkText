@@ -320,9 +320,14 @@ EOF / BOF rules in commands.ts) with corpus resolution overrides, individually
   replace it.
 - [x] Preserve explicit Remove semantics for highlight/comment instead of
   presenting annotation removal as Accept.
-- [x] Prove keyboard-only traversal and actions, stable focus restoration,
+- [x] ~~Prove keyboard-only traversal and actions, stable focus restoration,
   screen-reader names/roles/states, live rejection announcements, and no nested
-  interactive semantics.
+  interactive semantics.~~ **Re-scoped 2026-07-16 by user decision:** dedicated
+  accessibility work is a separate concern from the CriticMarkup
+  implementation and was extracted to the `a11y/review` branch for its own
+  PR (see the closure addendum). What remains in scope here: every Review
+  command reachable via the native menu and command palette, dialog focus
+  handling, and the non-focus-stealing rejection banner (settled decision 6).
 - [x] Validate all ten locale contracts and platform menu/keybinding behavior.
 - [ ] Walk the packaged app from the ordinary editor surface to Track Changes,
   projections, navigation, and resolution using the Review menu/sidebar/tool.
@@ -452,16 +457,12 @@ Wave 7 gate step.
   the one-off warmup parse is bounded by the open budget rather than the
   toggle budget. The spec attaches a machine record
   (hostname/CPU/cores/memory/OS/node) to every run.
-- [ ] Prove the accessibility tree, keyboard traversal/actions, focus return,
-  and rejection live announcement in automation, then complete one packaged-
-  app assistive-technology walkthrough using VoiceOver on macOS or NVDA on
-  Windows and retain the checklist/result. **Automation half landed
-  2026-07-16** (desktop E2E: CDP `Accessibility.getFullAXTree` names/roles,
-  keyboard-only DOM-order card resolution equal to the pointer path, and the
-  rejection banner as a non-focus-stealing assertive live region driven
-  through the production notification sink — the engine→banner emission is
-  unit-proven by `critic-markup-rejection-presentation`); the VoiceOver/NVDA
-  walkthrough remains a user step.
+- [x] ~~Prove the accessibility tree, keyboard traversal/actions, focus
+  return, and rejection live announcement in automation, then complete one
+  packaged-app assistive-technology walkthrough.~~ **Extracted 2026-07-16 by
+  user decision** to the `a11y/review` branch together with all dedicated
+  accessibility features and their test suites; the VoiceOver/NVDA
+  walkthrough moves with that PR. No a11y obligation remains in this plan.
 - [x] Run named supported-platform jobs: macOS arm64 build plus Review menu/
   keybinding tests, Windows x64 build plus Windows menu/keybinding tests, and
   Linux x64 build plus Linux menu/keybinding tests. **MET 2026-07-16** —
@@ -552,8 +553,10 @@ This plan is complete only when all of the following are true:
   and no foreground takeover during automation (full hidden E2E 236/0 on the
   fresh build; packaged-DMG smoke green with the zero-captured-errors
   assertion and hidden/unfocused window checks).
-- [ ] Keyboard and screen-reader operation and supported-platform integration
-  are proven.
+- [x] Supported-platform integration is proven (three green platform CI jobs);
+  every Review command is keyboard-reachable via the native menu and command
+  palette. ~~Screen-reader operation~~ re-scoped 2026-07-16 to the
+  `a11y/review` branch by user decision.
 - [ ] User-facing documentation describes only behavior verified in the
   artifact.
 - [x] The whole branch survived independent adversarial review: two 2026-07-16
@@ -702,21 +705,45 @@ run on the remediated tree:
   the recorded warm-state qualification)
 - `validate-licenses`: clean
 
+### Scope ruling — 2026-07-16 (evening): single-concern branch
+
+The user ruled that this branch must carry the CriticMarkup implementation
+only: cross-cutting capabilities built to a bar the rest of the app does not
+share belong in their own PRs. Ten such categories were audited. Rulings:
+dedicated **accessibility features — extracted** (this section); test
+infrastructure in production, perf laws, fork verification, security depth,
+locale contract tests, per-feature CI, packaged-artifact testing, and
+`specs/` governance — **kept** by explicit user decision.
+
+The extraction removed from this branch: all ARIA roles/labels/states in
+`review.vue` and the sidebar icon rail; the notification live-region module
+and bindings (`notificationLiveRegion.ts`); the review float's group
+semantics, hidden-state tab-stop scrubbing, and keyboard focus return; the
+comment indicator's `role`/`tabindex`/keydown affordances (click and tooltip
+remain); the editor's `aria-readonly` projection attribute; the
+`critic-markup-review-a11y` suite, the desktop-E2E accessibility describes,
+the reviewTool a11y cases, and the live-region cases of the
+rejection-presentation suite; the docs/release-notes screen-reader claims;
+and the a11y suite entry in the CI workflow. All of it lives on the
+**`a11y/review`** branch (this branch's tip plus a revert of the strip
+commit), ready to become its own PR after CM merges. The VoiceOver/NVDA
+walkthrough obligation moved with it.
+
 ### Remaining open items (all user-gated)
 
 1. Wave 4: packaged-app Review-surface reachability walkthrough — record the
    user's acceptance here, or implement dedicated toolbar/preferences
    controls (settled decision 7).
-2. Wave 7: VoiceOver (or NVDA) packaged-app walkthrough with retained
-   checklist; the automation half is done.
-3. Wave 7: one user-owned packaged-app Print-to-PDF smoke step (⌘P → Save as
+2. Wave 7: one user-owned packaged-app Print-to-PDF smoke step (⌘P → Save as
    PDF in the packaged app; the arm64 DMG is built under `dist/`).
 
 Closed 2026-07-16 (afternoon): the three platform jobs plus offline fork
 verification ran green on CI (run 29542818269), and the packaged-DMG smoke
 ran green twice against the mounted distributable via
 `run-packaged-smoke.sh` — the second run also asserting the same
-zero-captured-main/renderer-errors bar as the build:unpack E2E leg.
+zero-captured-main/renderer-errors bar as the build:unpack E2E leg. (That
+run predates the a11y extraction; the post-extraction gate rerun is recorded
+in the strip commit.)
 
 ## Background-safe verification commands
 

@@ -52,7 +52,6 @@ jobs:
           test/unit/specs/critic-markup-review.spec.ts
           test/unit/specs/critic-markup-review-store.spec.ts
           test/unit/specs/critic-markup-review-architecture.spec.ts
-          test/unit/specs/critic-markup-review-a11y.spec.ts
           test/unit/specs/critic-markup-review-focus.spec.ts
           test/unit/specs/critic-markup-rejection-presentation.spec.ts
           test/unit/specs/review-command-descriptors.spec.ts

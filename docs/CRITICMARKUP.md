@@ -36,7 +36,7 @@ Structural edits are recorded too: cutting and pasting across paragraphs, pastin
 
 Every tracked edit keeps one exact guarantee: the **Original** view shows the document as it was before the edit, and the **Revised** view shows it as it will be after. Untouched text is never swept into a broader suggestion.
 
-When Track Changes cannot record an edit while keeping that guarantee, it refuses the edit entirely. The document, your undo history, and your selection are left exactly as they were, and a banner titled "Edit not recorded" appears with the reason and what to do about it (usually: try a smaller edit, or turn Track Changes off for that one change). The banner never steals focus or opens a dialog, and screen readers announce it as an alert. There are no silent failures: if the document did not change, you were told why.
+When Track Changes cannot record an edit while keeping that guarantee, it refuses the edit entirely. The document, your undo history, and your selection are left exactly as they were, and a banner titled "Edit not recorded" appears with the reason and what to do about it (usually: try a smaller edit, or turn Track Changes off for that one change). The banner never steals focus or opens a dialog. There are no silent failures: if the document did not change, you were told why.
 
 ## Reviewing changes
 
@@ -77,9 +77,9 @@ Text you copy and documents you export follow the view you are looking at:
 
 **Source Code Mode** shows the canonical Markdown with marks as plain text you can edit freely. Review commands are disabled while source mode owns the document, and the sidebar reports "Review is unavailable in this view." Leaving source mode brings Review back with a fresh snapshot of the items.
 
-## Keyboard access and screen readers
+## Keyboard access
 
-Every Review control is reachable and operable from the keyboard: the menu commands, the sidebar's switch, view picker, cards, and buttons, and the in-text tool. The Review commands ship without default shortcuts to avoid colliding with your existing bindings; assign your own in `keybindings.json` using the `review.*` command IDs on macOS, Windows, or Linux. Review controls expose proper names, roles, and states to assistive technology, and Track Changes rejection notices are announced through a live region without moving your focus.
+Every Review command is available from the native Review menu and the command palette. The Review commands ship without default shortcuts to avoid colliding with your existing bindings; assign your own in `keybindings.json` using the `review.*` command IDs on macOS, Windows, or Linux.
 
 ## Sharing files with other tools
 

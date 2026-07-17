@@ -117,26 +117,13 @@ export default function criticDocumentFragment(
             `span.${CLASS_NAMES.MU_CRITIC_COMMENT_INDICATOR}`,
             {
                 attrs: {
-                    'aria-label': token.critic.type === 'comment'
-                        ? token.critic.content
-                        : '',
-                    'contenteditable': 'false',
-                    'role': 'button',
-                    'tabindex': '0',
-                    'title': token.critic.type === 'comment'
+                    contenteditable: 'false',
+                    title: token.critic.type === 'comment'
                         ? token.critic.content
                         : '',
                 },
                 on: {
                     click: focusComment,
-                    keydown: (event: Event) => {
-                        if (
-                            event instanceof KeyboardEvent
-                            && (event.key === 'Enter' || event.key === ' ')
-                        ) {
-                            focusComment(event);
-                        }
-                    },
                 },
             },
         ));

@@ -3,9 +3,6 @@
     v-if="currentNotification"
     class="editor-notifications"
     :class="currentNotification.style"
-    :role="liveRegion.role"
-    :aria-live="liveRegion.politeness"
-    aria-atomic="true"
     :style="{ 'max-width': `calc(100vw - ${effectiveSideBarWidth}px)` }"
   >
     <div class="msg">
@@ -43,7 +40,6 @@ import { useLayoutStore } from '@/store/layout'
 import { storeToRefs } from 'pinia'
 import { Close } from '@element-plus/icons-vue'
 import { t } from '../../i18n'
-import { notificationLiveRegion } from './notificationLiveRegion'
 
 const editorStore = useEditorStore()
 const layoutStore = useLayoutStore()
@@ -58,9 +54,6 @@ const currentNotification = computed(() => {
   }
   return notifications[0]
 })
-
-// Announce the banner to assistive tech without ever moving focus.
-const liveRegion = computed(() => notificationLiveRegion(currentNotification.value?.style))
 
 const handleClick = (status: boolean) => {
   const notifications = currentFile.value?.notifications

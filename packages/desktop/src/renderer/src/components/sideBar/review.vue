@@ -26,18 +26,13 @@
       </label>
     </header>
 
-    <div
-      class="projection-picker"
-      role="group"
-      :aria-label="t('menu.review.display')"
-    >
+    <div class="projection-picker">
       <button
         v-for="option of projectionOptions"
         :key="option.projection"
         type="button"
         :class="{ active: snapshot.projection === option.projection }"
         :disabled="!snapshot.available"
-        :aria-pressed="snapshot.projection === option.projection"
         @click="selectProjection(option.commandId)"
       >
         {{ t(option.label) }}
@@ -60,8 +55,6 @@
       v-else
       ref="reviewList"
       class="review-list"
-      role="group"
-      :aria-label="t('sideBar.review.title')"
     >
       <section
         v-for="(item, index) of snapshot.items"
@@ -69,7 +62,6 @@
         class="review-card"
         :class="[`type-${item.type}`, { active: snapshot.currentItemId === item.id }]"
         :data-critic-id="item.id"
-        :aria-current="snapshot.currentItemId === item.id ? 'true' : undefined"
       >
         <button
           type="button"
@@ -335,8 +327,7 @@ watch(
   text-align: left;
 }
 
-.review-card-focus:hover,
-.review-card-focus:focus-visible {
+.review-card-focus:hover {
   background: var(--sideBarItemHoverBgColor);
   outline: none;
 }
@@ -442,8 +433,7 @@ watch(
   line-height: 16px;
 }
 
-.card-actions button:hover,
-.card-actions button:focus-visible {
+.card-actions button:hover {
   color: var(--themeColor);
   background: var(--itemBgColor);
 }

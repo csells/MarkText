@@ -11,7 +11,7 @@ MarkText now speaks [CriticMarkup](https://github.com/CriticMarkup/CriticMarkup-
 - Clicking a mark in the text opens a floating Accept/Reject (or Remove) tool; nested marks resolve innermost-first.
 - Three views via **Review** → **Display**: **Markup** (editable, marks visible), **Original** (read-only, all suggestions rejected), and **Revised** (read-only, all suggestions accepted).
 - Save and autosave always write the canonical markup regardless of the active view. Copy and HTML/PDF/print export follow the view you are looking at; **Copy as Markdown** always copies the raw markup. Source Code Mode shows the raw markup and disables Review until you leave it.
-- Full keyboard operation and screen-reader support: every Review control is keyboard-reachable, rejection notices are announced via a live region, and all Review commands are user-assignable in `keybindings.json` (no default shortcuts, so nothing collides with your bindings).
+- Every Review command is available from the native Review menu and the command palette, and all Review commands are user-assignable in `keybindings.json` (no default shortcuts, so nothing collides with your bindings).
 
 **Notes**
 

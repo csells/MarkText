@@ -12,7 +12,6 @@
           :key="index"
           :class="{ active: c.id === rightColumn }"
           :title="c.name()"
-          :aria-label="c.name()"
           @click="handleLeftIconClick(c.id)"
         >
           <component :is="c.icon" />

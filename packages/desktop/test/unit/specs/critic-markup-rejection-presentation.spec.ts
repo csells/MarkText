@@ -24,7 +24,6 @@ import {
   TRACK_CHANGE_REJECTION_TITLE_KEY,
   useCriticMarkupRejectionNotifier
 } from '@/components/editorWithTabs/useCriticMarkupRejectionNotifier'
-import { notificationLiveRegion } from '@/components/editorWithTabs/notificationLiveRegion'
 import { compileSfcRender, mountTemplate } from '../helpers/mountTemplate'
 
 type RejectionListener = (rejection: ICriticMarkupTrackChangeRejection) => void
@@ -199,7 +198,6 @@ describe('Track Changes rejection presentation', () => {
     const rendererRoot = path.join(desktopRoot, 'src/renderer/src')
     const surfaceFiles = [
       path.join(rendererRoot, 'components/editorWithTabs/useCriticMarkupRejectionNotifier.ts'),
-      path.join(rendererRoot, 'components/editorWithTabs/notificationLiveRegion.ts'),
       path.join(rendererRoot, 'components/editorWithTabs/notifications.vue')
     ]
 
@@ -208,68 +206,6 @@ describe('Track Changes rejection presentation', () => {
       expect(source, file).not.toMatch(
         /\.focus\(|autofocus|new Notification\(|alert\(|showMessageBox/
       )
-    }
-  })
-
-  it('maps warn and crit banners to an assertive alert and everything else to polite status', () => {
-    expect(notificationLiveRegion('warn')).toEqual({ role: 'alert', politeness: 'assertive' })
-    expect(notificationLiveRegion('crit')).toEqual({ role: 'alert', politeness: 'assertive' })
-    expect(notificationLiveRegion('info')).toEqual({ role: 'status', politeness: 'polite' })
-    expect(notificationLiveRegion(undefined)).toEqual({ role: 'status', politeness: 'polite' })
-  })
-
-  it('derives the live region from the banner style inside the component', () => {
-    const source = fs.readFileSync(
-      path.join(desktopRoot, 'src/renderer/src/components/editorWithTabs/notifications.vue'),
-      'utf8'
-    )
-
-    expect(source).toContain('notificationLiveRegion(currentNotification.value?.style)')
-    expect(source).toContain(':role="liveRegion.role"')
-    expect(source).toContain(':aria-live="liveRegion.politeness"')
-    expect(source).toContain('aria-atomic="true"')
-  })
-
-  it('renders the banner container as a live region that cannot take focus', () => {
-    const render = compileSfcRender(
-      path.join(desktopRoot, 'src/renderer/src/components/editorWithTabs/notifications.vue')
-    )
-    const stub = defineComponent({ render: () => null })
-    const mountBanner = (style: string) =>
-      mountTemplate(render, {
-        currentNotification: {
-          msg: 'Edit not recorded: details',
-          showConfirm: false,
-          style,
-          exclusiveType: TRACK_CHANGE_REJECTION_EXCLUSIVE_TYPE,
-          action: () => {}
-        },
-        effectiveSideBarWidth: 0,
-        liveRegion: notificationLiveRegion(style),
-        t: (key: string) => key,
-        handleClick: () => {}
-      }, { 'el-icon': stub, Close: stub })
-
-    const warn = mountBanner('warn')
-    try {
-      const container = warn.el.querySelector('.editor-notifications')
-      expect(container).not.toBeNull()
-      expect(container?.getAttribute('role')).toBe('alert')
-      expect(container?.getAttribute('aria-live')).toBe('assertive')
-      expect(container?.getAttribute('aria-atomic')).toBe('true')
-      expect(container?.hasAttribute('tabindex')).toBe(false)
-      expect(container?.textContent).toContain('Edit not recorded')
-    } finally {
-      warn.unmount()
-    }
-
-    const info = mountBanner('info')
-    try {
-      const container = info.el.querySelector('.editor-notifications')
-      expect(container?.getAttribute('role')).toBe('status')
-      expect(container?.getAttribute('aria-live')).toBe('polite')
-    } finally {
-      info.unmount()
     }
   })
 
