@@ -35,6 +35,15 @@ that authenticated graph. Optional bindings, generic mapped-span intersection,
 structural source-cover reconstruction, repeated-text search, hidden sidecars,
 and module-global provenance are forbidden.
 
+Provenance is explicit at every construction site: the document factory takes
+a required binding argument — a complete graph, the literal `'semantic-only'`,
+or the `'grammar'` sentinel, which only the grammar-only parser profile may
+use (a Markdown-aware parse with items must hand over its own graph). No
+production entry point defaults or infers it, a repo-wide fitness contract
+forbids optional binding-graph parameters in any production source, and the
+test suites' bound-document convenience composition lives in test support,
+never in a production module.
+
 Native extension planning is deliberately separate: it may consume a
 source-neutral analysis through an explicitly semantic-only API. Semantic-only
 construction cannot expose fragment or path APIs and cannot masquerade as a
@@ -79,6 +88,13 @@ threads, replies, resolution status, compact references, inline attribute
 blocks, and YAML review metadata are not part of this implementation. In-memory
 item IDs are source-range-derived, session-local routing handles and are never
 serialized.
+
+The parser owns the source's terminal line ending as part of the same
+provenance: `''` (absent), `'\n'`, or `'\r\n'` is recorded on the final state
+and restored byte-exactly on serialization. The empty source owns an *absent*
+terminal EOL, so an empty document round-trips to zero bytes and a document
+authored from an empty tab serializes without a manufactured trailing LF. The
+serializer never invents a final newline the parser did not record.
 
 Roughdraft's metadata model is intentionally outside this boundary. It remains
 useful precedent for a future, separately specified collaboration layer, but it
@@ -260,7 +276,27 @@ failed transition restores options, state, tree, history, selection, search,
 and events, and rethrows the original failure unless rollback itself fails
 independently.
 
-### Desktop Review ownership and accessibility
+Projection derivation has a fixed cost model. Read-only projection states are
+parsed at most once per document revision (the cache is keyed on the JSON
+state's `documentVersion`, which every mutation advances); an item-free
+document projects as its own canonical state with no reparse at all. After
+every document open or reset an asynchronous warmup precomputes both
+read-only projections off the reset path — deferring and rescheduling while a
+mutation holds the authority — and stamps `data-critic-warm` on the editor
+root as the steady-state marker automation waits for (see
+`background-application-testing.md`). A pure view switch is not an edit: it
+reuses unchanged blocks, never grabs focus, and never seats a caret. The same
+`documentVersion` key also caches the engine's whole-document
+reference-definition collection, which whole-tree rebuilds previously
+re-derived per block at O(blocks²).
+
+Two input-path guards keep the gateway's boundary flush safe: a keystroke
+that arrives with no committed cursor (possible on the first input event
+after a UI interaction, because the gateway flushes pending boundaries first)
+is ignored rather than crashing or guessing an edit position, and the next
+keystroke with a committed cursor lands normally.
+
+### Desktop Review ownership
 
 Muya emits one detached, typed Review snapshot for a document revision. One
 desktop lifecycle controller consumes it, publishes sidebar and native-menu
@@ -274,10 +310,15 @@ Source mode clears actionable Review state while it owns the document and
 restores a fresh parser-backed snapshot after handoff.
 
 Fail-closed editing is not silent. Mutation rejection has a typed reason that
-reaches one localized, actionable UI presentation and an accessible live
-announcement. Sidebar and contextual controls use explicit focus targets,
-restore focus deterministically across navigation/projection handoff, and keep
-annotation **Remove** semantics distinct from change **Accept** semantics.
+reaches one localized, actionable, non-focus-stealing banner. Annotation
+**Remove** semantics stay distinct from change **Accept** semantics. Every
+Review command is reachable through the native menu and the command palette
+(the OS-accessible surfaces); dedicated assistive-technology affordances
+(ARIA semantics, live-region announcements, DOM keyboard traversal) are
+deliberately **not** part of the CriticMarkup implementation — the app has no
+such layer anywhere, and building one is an app-wide effort in its own right
+(scope ruling 2026-07-16; a future a11y effort can seed its Review portion by
+reverting commit `c616f030`).
 
 ### Sink and security policy
 
@@ -377,6 +418,19 @@ advance a monotonic cursor or query an index; it may not repeatedly `find`,
 `filter`, or sort a complete global marker/plan set. Permanent call-count or
 size-ratio tests enforce this on ordinary, dense, malformed, exclusion-heavy,
 deep, wide, and native-container-heavy inputs.
+
+## Vendored parser fork
+
+Native CriticMarkup tokens required parser changes upstream `marked` does not
+carry, so `packages/marked` vendors a private fork pinned to upstream
+v18.0.5. Its contract: upstream release + the canonical patch = the checked-in
+fork, byte-exact and verifiable offline. `FORK_MANIFEST.json` pins the
+reviewed upstream git objects and the complete file inventory;
+`scripts/verify-fork.mjs --self-test` proves the round trip and runs one
+negative control per recorded drift class (source, version, manifest, patch,
+consumer wiring); a network-isolated CI job re-proves it from a clean
+checkout. Muya resolves `marked` through `workspace:*` only. The update
+procedure lives in `packages/marked/UPSTREAM.md`.
 
 ## Roughdraft behavior reused as precedent
 
