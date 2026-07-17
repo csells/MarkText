@@ -324,8 +324,8 @@ EOF / BOF rules in commands.ts) with corpus resolution overrides, individually
   screen-reader names/roles/states, live rejection announcements, and no nested
   interactive semantics.~~ **Re-scoped 2026-07-16 by user decision:** dedicated
   accessibility work is a separate concern from the CriticMarkup
-  implementation and was extracted to the `a11y/review` branch for its own
-  PR (see the closure addendum). What remains in scope here: every Review
+  implementation and was removed from this branch (see the closure
+  addendum). What remains in scope here: every Review
   command reachable via the native menu and command palette, dialog focus
   handling, and the non-focus-stealing rejection banner (settled decision 6).
 - [x] Validate all ten locale contracts and platform menu/keybinding behavior.
@@ -459,10 +459,10 @@ Wave 7 gate step.
   (hostname/CPU/cores/memory/OS/node) to every run.
 - [x] ~~Prove the accessibility tree, keyboard traversal/actions, focus
   return, and rejection live announcement in automation, then complete one
-  packaged-app assistive-technology walkthrough.~~ **Extracted 2026-07-16 by
-  user decision** to the `a11y/review` branch together with all dedicated
-  accessibility features and their test suites; the VoiceOver/NVDA
-  walkthrough moves with that PR. No a11y obligation remains in this plan.
+  packaged-app assistive-technology walkthrough.~~ **Removed 2026-07-16 by
+  user decision** together with all dedicated accessibility features and
+  their test suites; a future a11y effort owns the walkthrough. No a11y
+  obligation remains in this plan.
 - [x] Run named supported-platform jobs: macOS arm64 build plus Review menu/
   keybinding tests, Windows x64 build plus Windows menu/keybinding tests, and
   Linux x64 build plus Linux menu/keybinding tests. **MET 2026-07-16** —
@@ -555,8 +555,8 @@ This plan is complete only when all of the following are true:
   assertion and hidden/unfocused window checks).
 - [x] Supported-platform integration is proven (three green platform CI jobs);
   every Review command is keyboard-reachable via the native menu and command
-  palette. ~~Screen-reader operation~~ re-scoped 2026-07-16 to the
-  `a11y/review` branch by user decision.
+  palette. ~~Screen-reader operation~~ removed from this plan's scope
+  2026-07-16 by user decision (future dedicated a11y effort).
 - [ ] User-facing documentation describes only behavior verified in the
   artifact.
 - [x] The whole branch survived independent adversarial review: two 2026-07-16
@@ -724,10 +724,11 @@ remain); the editor's `aria-readonly` projection attribute; the
 `critic-markup-review-a11y` suite, the desktop-E2E accessibility describes,
 the reviewTool a11y cases, and the live-region cases of the
 rejection-presentation suite; the docs/release-notes screen-reader claims;
-and the a11y suite entry in the CI workflow. All of it lives on the
-**`a11y/review`** branch (this branch's tip plus a revert of the strip
-commit), ready to become its own PR after CM merges. The VoiceOver/NVDA
-walkthrough obligation moved with it.
+and the a11y suite entry in the CI workflow. The user subsequently ruled
+against keeping a preservation branch: the extraction commit (`c616f030`)
+is the sole record, and a future dedicated a11y effort can seed itself by
+reverting it. The VoiceOver/NVDA walkthrough obligation leaves this plan
+with it.
 
 ### Remaining open items (all user-gated)
 
