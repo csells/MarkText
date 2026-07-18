@@ -269,12 +269,17 @@ const onComposeEnter = (event: KeyboardEvent): void => {
 // prefilled with the comment; Save rewrites the {>>...<<} body via the engine.
 const editingId = ref<string | null>(null)
 const editDraft = ref('')
-const editInput = ref<HTMLTextAreaElement | null>(null)
+const editInput = ref<HTMLTextAreaElement | HTMLTextAreaElement[] | null>(null)
 
 const beginEdit = (item: CriticMarkupSidebarItem): void => {
   editingId.value = item.id
   editDraft.value = item.content ?? ''
-  nextTick(() => editInput.value?.focus())
+  // The ref lives inside the card v-for, so Vue may collect it as an array;
+  // focus the single mounted edit box either way.
+  nextTick(() => {
+    const box = Array.isArray(editInput.value) ? editInput.value[0] : editInput.value
+    box?.focus()
+  })
 }
 
 const cancelEdit = (): void => {

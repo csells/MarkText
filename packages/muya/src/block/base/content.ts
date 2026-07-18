@@ -431,7 +431,16 @@ class Content extends TreeNode {
     }
 
     keyupHandler(_event: Event): void {
-    // Do nothing.
+        // A keyboard shift-selection never reaches setSelection on its own,
+        // mirroring the same-block mouse-drag hole: commit a real range on keyup
+        // so an authoring command (Add Comment) can recover it after the editor
+        // blurs. A collapsed caret (ordinary typing/navigation) and an in-progress
+        // IME composition are left untouched, so typing is never disturbed.
+        if (this.isComposed)
+            return;
+        const selection = this.selection.getSelection();
+        if (selection && !selection.isCollapsed)
+            this.selection.setSelection(selection.anchor, selection.focus);
     }
 
     inputHandler(_event: Event): void {

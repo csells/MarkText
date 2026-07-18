@@ -519,22 +519,15 @@ export class Muya implements ICriticMarkupReviewEditor {
         return this._criticMarkup.getCurrentItem();
     }
 
-    focusCriticMarkup(
-        target: TCriticMarkupFocusTarget,
-    ): ICriticMarkupItem | null {
+    focusCriticMarkup(target: TCriticMarkupFocusTarget): ICriticMarkupItem | null {
         return this._criticMarkup.focus(target);
     }
 
-    navigateCriticMarkup(
-        direction: TCriticMarkupNavigationDirection,
-    ): ICriticMarkupItem | null {
+    navigateCriticMarkup(direction: TCriticMarkupNavigationDirection): ICriticMarkupItem | null {
         return this._criticMarkup.navigate(direction);
     }
 
-    resolveCriticMarkup(
-        decision: TCriticMarkupDecision,
-        target?: ICriticMarkupTarget,
-    ): boolean {
+    resolveCriticMarkup(decision: TCriticMarkupDecision, target?: ICriticMarkupTarget): boolean {
         return this._mutationCommands.runBoolean(
             { kind: 'review-command' },
             () => this._criticMarkup.resolve(decision, target),
@@ -548,23 +541,17 @@ export class Muya implements ICriticMarkupReviewEditor {
         );
     }
 
-    editCriticMarkupComment(
-        target: ICriticMarkupTarget,
-        text: string,
-    ): boolean {
+    editCriticMarkupComment(target: ICriticMarkupTarget, text: string): boolean {
         return this._mutationCommands.runBoolean(
             { kind: 'review-command' },
             () => this._criticMarkup.editComment(target, text),
         );
     }
 
-    // Snapshot the live DOM range into the selection model so an authoring
-    // command can still see it after focus leaves the editor (opening a menu,
-    // or the caret moving to the sidebar comment box, blurs the editor and
-    // `getSelection()` goes null). A same-block mouse/programmatic selection
-    // never reaches setSelection on its own, so without this the model — and
-    // thus the eventual `{==sel==}` — is stale. Only real ranges are committed;
-    // a bare caret is left alone so ordinary typing is never disturbed.
+    // Belt-and-suspenders for host/programmatic ranges (an e2e DOM Range) that
+    // never fire Muya's mouse handlers: snapshot the live DOM range into the
+    // model so an authoring command survives the editor blur. Real mouse/keyboard
+    // ranges already commit at mouseup/keyup. Ranges only — a caret is untouched.
     commitAuthoringSelection(): void {
         const selection = this.editor.selection.getSelection();
         if (selection && !selection.isCollapsed)

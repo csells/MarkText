@@ -300,9 +300,17 @@ class TextSelection {
             if (!selection)
                 return;
 
-            const { anchor, focus, isSelectionInSameBlock } = selection;
+            const { anchor, focus, isCollapsed } = selection;
 
-            if (isSelectionInSameBlock) {
+            // A collapsed caret (a plain click, or the drag-start collapse) must
+            // not be committed here — that would disturb caret placement and
+            // typing. A real range, whether same-block or cross-block, falls
+            // through so its endpoints are stashed on `mousemove` and committed
+            // on `mouseup`. Previously a same-block range early-returned, so a
+            // same-block drag never reached the persistent selection model and
+            // an authoring command (Add Comment) could not recover it after the
+            // editor blurred.
+            if (isCollapsed) {
                 return;
             }
 

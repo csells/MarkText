@@ -46,6 +46,45 @@ const selectText = async(page: Page, needle: string): Promise<void> => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 
+// Select `needle` by driving muya's own mouse handlers over a real DOM Range —
+// the deterministic stand-in for a same-block mouse drag (a hardware/CDP drag is
+// flaky in this harness). This exercises the mouseup commit into muya's model
+// (the root fix), unlike selectText which leans on the belt-and-suspenders
+// commitAuthoringSelection.
+const mouseSelect = async(page: Page, needle: string): Promise<void> => {
+  const ok = await page.evaluate((text) => {
+    const contents = Array.from(
+      document.querySelectorAll('.editor-component .mu-content')
+    ) as HTMLElement[]
+    const content = contents.find((el) => (el.textContent ?? '').includes(text))
+    if (!content) return false
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text
+      const index = node.textContent?.indexOf(text) ?? -1
+      if (index >= 0) {
+        const range = document.createRange()
+        range.setStart(node, index)
+        range.setEnd(node, index + text.length)
+        const selection = window.getSelection()
+        if (!selection) return false
+        selection.removeAllRanges()
+        selection.addRange(range)
+        content.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+        content.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+        content.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+        return true
+      }
+    }
+    return false
+  }, needle)
+
+  if (!ok) throw new TypeError(`Could not mouse-select ${JSON.stringify(needle)} in the editor.`)
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(needle)
+  await page.evaluate(() => new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+}
+
 const addCommentViaSidebar = async(
   page: Page,
   app: ElectronApplication,
@@ -82,6 +121,21 @@ test.describe('CriticMarkup comment authoring (sidebar compose)', () => {
 
     await expect.poll(() => readCanonicalMarkdown(page))
       .toContain('{==honey==}{>>a note<<}')
+    await expectNoRendererErrors(app)
+  })
+
+  test('a mouse-drag selection (mouseup commit) wraps the right text', async() => {
+    const launched = await launchWithMarkdown('hello my honey hello my baby\n')
+    app = launched.app
+    page = launched.page
+    await focusEditor(page)
+    await clearRendererErrors(app)
+
+    await mouseSelect(page, 'honey')
+    await addCommentViaSidebar(page, app, 'drag note')
+
+    await expect.poll(() => readCanonicalMarkdown(page))
+      .toContain('{==honey==}{>>drag note<<}')
     await expectNoRendererErrors(app)
   })
 
@@ -144,8 +198,10 @@ test.describe('CriticMarkup comment authoring (sidebar compose)', () => {
     await page.keyboard.press('Delete')
     await page.keyboard.press('Delete')
 
-    // Whatever the demotion result, the app must not crash.
+    // No crash, the comment survives, AND the block actually demotes: the
+    // canonical markdown must no longer start with a heading marker.
     await expectNoRendererErrors(app)
-    expect(await readCanonicalMarkdown(page)).toContain('{>>header note<<}')
+    await expect.poll(() => readCanonicalMarkdown(page)).toContain('{>>header note<<}')
+    expect(await readCanonicalMarkdown(page)).not.toMatch(/^#\s/m)
   })
 })
