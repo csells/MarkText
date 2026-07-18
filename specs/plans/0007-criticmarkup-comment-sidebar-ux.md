@@ -199,13 +199,30 @@ Baseline only — anchor subsumption, edit, and passive-selection land below.
   the sidebar (active-comment state) and nothing more — no open, no scroll-jack.
   Opening the sidebar stays a user action.
 
-### Phase 7 — caret never enters the hidden comment *(decision 5, Q5 · ADR-0002)*
+### Phase 7 — caret never enters the hidden comment *(decision 5, Q5 · ADR-0002)* — **DEFERRED (tracked)**
 
-- **Red:** the caret can be placed inside the collapsed `{>>…<<}` by arrow,
-  click, word/line/doc jump, select-all-collapse, or programmatic restore, and
-  typing there edits hidden source.
-- **Green:** enforce the skip at the cursor-placement/navigation layer so the
-  caret always resolves to the nearest edge outside the comment, by every means.
+The hard invariant is a large, high-risk change to muya's core cursor layer:
+muya has **no single `selectionchange` backstop** — the caret flows through
+native browser movement (arrows/clicks) observed on keyup/click, plus
+`Content.setCursor` for programmatic placements, plus the input path. Enforcing
+"never enters, by any means" touches all of them, and a rushed change risks
+breaking ordinary editing — a worse outcome than the residual gap (the comment
+is already visually collapsed via Phase 1a and is read/edited in the sidebar;
+the narrow remaining risk is arrowing into the zero-width region and typing).
+
+Deferred deliberately rather than rushed. Design for the follow-up:
+
+- **Placement redirect** in `Content.setCursor` (Format-aware): using
+  `criticMarkupFragmentsForPath`, snap an offset strictly inside a comment
+  fragment's local range to the nearest edge. Covers programmatic restores,
+  `focusCriticMarkup`, post-edit cursor reseats — cleanly unit-testable.
+- **Native backstop**: after a keyup/click selection read, if the caret landed
+  inside a comment's hidden range, snap it out (the arrows/clicks path).
+- **Input guard**: reject an input mutation whose target offset is inside a
+  comment's hidden range (defence-in-depth against corruption).
+
+Do this as a focused change with its own red-green battery, not squeezed into
+this pass.
 
 ### Phase 8 — anchor-deletion survival + gate + deploy *(decision 6, Q7)*
 
