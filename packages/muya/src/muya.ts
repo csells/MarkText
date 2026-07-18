@@ -558,6 +558,19 @@ export class Muya implements ICriticMarkupReviewEditor {
         );
     }
 
+    // Snapshot the live DOM range into the selection model so an authoring
+    // command can still see it after focus leaves the editor (opening a menu,
+    // or the caret moving to the sidebar comment box, blurs the editor and
+    // `getSelection()` goes null). A same-block mouse/programmatic selection
+    // never reaches setSelection on its own, so without this the model — and
+    // thus the eventual `{==sel==}` — is stale. Only real ranges are committed;
+    // a bare caret is left alone so ordinary typing is never disturbed.
+    commitAuthoringSelection(): void {
+        const selection = this.editor.selection.getSelection();
+        if (selection && !selection.isCollapsed)
+            this.editor.selection.setSelection(selection.anchor, selection.focus);
+    }
+
     private _formatAcrossBlocks(type: string) {
         if (type === 'link' || type === 'image')
             return;

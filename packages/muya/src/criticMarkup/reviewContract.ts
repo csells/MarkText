@@ -98,6 +98,7 @@ export interface ICriticMarkupReviewActions {
         target: ICriticMarkupTarget,
         text: string,
     ) => boolean;
+    commitAuthoringSelection: () => void;
     getCriticMarkupReviewSnapshot: () => ICriticMarkupReviewSnapshot;
     setOptions: (options: ICriticMarkupReviewOptions, forceRender?: boolean) => void;
 }

@@ -247,11 +247,15 @@ const submitCompose = (): void => {
   if (!text) return
   bus.emit('critic-markup-comment-submit', text)
   composeDraft.value = ''
+  // Posting a comment is punctuation on editing, not the start of a session —
+  // hand focus back to the document.
+  bus.emit('editor-focus')
 }
 
 const cancelCompose = (): void => {
   bus.emit('critic-markup-comment-cancel')
   composeDraft.value = ''
+  bus.emit('editor-focus')
 }
 
 // Enter submits; Shift+Enter inserts a newline.

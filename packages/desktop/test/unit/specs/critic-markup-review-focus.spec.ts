@@ -97,6 +97,7 @@ class FakeReviewEngine {
   navigateCriticMarkup = vi.fn(() => itemA)
   resolveAllCriticMarkup = vi.fn(() => 0)
   editCriticMarkupComment = vi.fn(() => true)
+  commitAuthoringSelection = vi.fn()
   setOptions = vi.fn()
 }
 

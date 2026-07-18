@@ -149,6 +149,13 @@ export function useCriticMarkupReviewController(
     const targetFileId = options.fileId.value
     if (!targetEditor || !targetFileId || options.sourceCode.value) return
 
+    // Capture the live selection into the model before the compose box takes
+    // focus, so the note wraps the text the user actually selected rather than
+    // a stale range.
+    if (action === 'add-comment') {
+      targetEditor.commitAuthoringSelection()
+    }
+
     const targetVersion = contextVersion
     await executeCriticMarkupReviewAction(
       targetEditor,
@@ -208,11 +215,30 @@ export function useCriticMarkupReviewController(
   }
 
   // A bare selection change (notably a same-block mouse drag) emits no engine
-  // review event, so the Review menu's create-capabilities would go stale.
-  // Re-read the live snapshot so canCreateComment (and the rest) track the
-  // current selection.
+  // review event, so the Review menu's create-capabilities would go stale. On
+  // each selection change: commit the live range into the model (so it survives
+  // the blur when a menu or the compose box takes focus — the selection is gone
+  // by the time an authoring command runs), then re-read the live snapshot so
+  // canCreateComment and the rest track the current selection.
   const handleRefresh = (): void => {
+    const targetEditor = connectedEditor
+    if (targetEditor && !options.sourceCode.value) {
+      targetEditor.commitAuthoringSelection()
+    }
     publishCurrent()
+  }
+
+  // The DOM selectionchange fires for every selection — including a same-block
+  // mouse drag, which emits no engine review event. Debounce it (it is very
+  // frequent) into a review refresh so the live range is committed and the
+  // capabilities track the selection.
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
+  const onSelectionChange = (): void => {
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      handleRefresh()
+    }, 120)
   }
 
   bus.on('critic-markup-review', handleReviewAction)
@@ -223,6 +249,7 @@ export function useCriticMarkupReviewController(
   bus.on('critic-markup-refresh', handleRefresh)
   bus.on('file-loaded', handleDocumentContextChange)
   bus.on('file-changed', handleDocumentContextChange)
+  document.addEventListener('selectionchange', onSelectionChange)
 
   const stopEditorWatch = watch(
     options.editor,
@@ -257,6 +284,8 @@ export function useCriticMarkupReviewController(
     bus.off('critic-markup-refresh', handleRefresh)
     bus.off('file-loaded', handleDocumentContextChange)
     bus.off('file-changed', handleDocumentContextChange)
+    document.removeEventListener('selectionchange', onSelectionChange)
+    if (refreshTimer) clearTimeout(refreshTimer)
     disconnectEditor()
     clear()
   })

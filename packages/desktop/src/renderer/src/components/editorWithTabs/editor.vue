@@ -1513,19 +1513,6 @@ useCriticMarkupReviewController({
   cancelTextRequest: cancelCriticMarkupPrompt
 })
 
-// A same-block mouse-drag selection emits no engine review event, so the Review
-// menu's create-capabilities (canCreateComment, …) would go stale against it.
-// The DOM selectionchange fires for every selection; debounce it (it is very
-// frequent) into a review refresh that re-reads the live selection.
-let reviewRefreshTimer: ReturnType<typeof setTimeout> | null = null
-const refreshReviewCapabilities = (): void => {
-  if (reviewRefreshTimer) clearTimeout(reviewRefreshTimer)
-  reviewRefreshTimer = setTimeout(() => {
-    reviewRefreshTimer = null
-    bus.emit('critic-markup-refresh')
-  }, 120)
-}
-
 useCriticMarkupRejectionNotifier({
   editor,
   tabId: computed(() => currentFile.value?.id ?? null)
@@ -2073,7 +2060,6 @@ useEditorLifecycle(() => {
   })
 
   document.addEventListener('keyup', keyup)
-  document.addEventListener('selectionchange', refreshReviewCapabilities)
 
   setEditorWidth(editorLineWidth.value)
 }, () => {
@@ -2117,8 +2103,6 @@ useEditorLifecycle(() => {
   bus.off('language-changed', handleLanguageChanged)
 
   document.removeEventListener('keyup', keyup)
-  document.removeEventListener('selectionchange', refreshReviewCapabilities)
-  if (reviewRefreshTimer) clearTimeout(reviewRefreshTimer)
 
   // Remove the manual scroll listener; engine `on(...)` listeners are torn down
   // by `destroy()` → `eventCenter.unsubscribeAll()`.
