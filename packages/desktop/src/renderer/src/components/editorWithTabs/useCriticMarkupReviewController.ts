@@ -207,11 +207,20 @@ export function useCriticMarkupReviewController(
     invalidateContext()
   }
 
+  // A bare selection change (notably a same-block mouse drag) emits no engine
+  // review event, so the Review menu's create-capabilities would go stale.
+  // Re-read the live snapshot so canCreateComment (and the rest) track the
+  // current selection.
+  const handleRefresh = (): void => {
+    publishCurrent()
+  }
+
   bus.on('critic-markup-review', handleReviewAction)
   bus.on('critic-markup-review-item', handleSidebarAction)
   bus.on('critic-markup-comment-submit', handleCommentSubmit)
   bus.on('critic-markup-comment-cancel', handleCommentCancel)
   bus.on('critic-markup-comment-edit', handleCommentEdit)
+  bus.on('critic-markup-refresh', handleRefresh)
   bus.on('file-loaded', handleDocumentContextChange)
   bus.on('file-changed', handleDocumentContextChange)
 
@@ -245,6 +254,7 @@ export function useCriticMarkupReviewController(
     bus.off('critic-markup-comment-submit', handleCommentSubmit)
     bus.off('critic-markup-comment-cancel', handleCommentCancel)
     bus.off('critic-markup-comment-edit', handleCommentEdit)
+    bus.off('critic-markup-refresh', handleRefresh)
     bus.off('file-loaded', handleDocumentContextChange)
     bus.off('file-changed', handleDocumentContextChange)
     disconnectEditor()

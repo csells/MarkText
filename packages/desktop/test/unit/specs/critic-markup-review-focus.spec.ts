@@ -200,6 +200,25 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
     }
   })
 
+  it('republishes review capabilities from the live selection on refresh', async() => {
+    const engine = new FakeReviewEngine()
+    const app = mountController(engine)
+    try {
+      await flushMicrotasks()
+      engine.getCriticMarkupReviewSnapshot.mockClear()
+
+      // A bare selection change (e.g. a same-block mouse drag) emits no engine
+      // review event, so the menu would go stale; a refresh re-reads the live
+      // snapshot so create-capabilities (canCreateComment) track the selection.
+      bus.emit('critic-markup-refresh')
+      await flushMicrotasks()
+
+      expect(engine.getCriticMarkupReviewSnapshot).toHaveBeenCalled()
+    } finally {
+      app.unmount()
+    }
+  })
+
   it('routes a sidebar comment edit to the engine editCriticMarkupComment', async() => {
     const engine = new FakeReviewEngine()
     const app = mountController(engine)
