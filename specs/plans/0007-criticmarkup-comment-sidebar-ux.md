@@ -297,3 +297,28 @@ this pass.
   crashing; the existing Review E2E's comment authoring moved off the retired
   modal. **Standing rule: comment-flow changes must be proven by this E2E, not
   unit tests alone.** Desktop unit 895/895; authoring E2E 4/4.
+- **2026-07-17 — the ACTUAL root cause (workflow root-cause audit + real Chromium
+  E2E).** The "commit on debounced selectionchange" above was only a timing
+  band-aid; a real fast mouse drag beats it, and Playwright's scripted mouse
+  silently fails to select — so that earlier E2E was weak. True root cause: a
+  **same-block selection is never written into muya's persistent selection model
+  by muya's own DOM handlers** — `handleMousemoveOrClick` early-returned for
+  `isSelectionInSameBlock` so `mouseup` committed nothing (`TextSelection.ts`),
+  and `keyupHandler` was a no-op (`content.ts`). Opening the Review menu blurs
+  the editor → `getSelection()` null → the authoring command resolved a stale
+  pre-drag caret → the comment wrapped the whole paragraph / one char.
+  **Fix at the source:** a real range (same- or cross-block) now stashes on
+  `mousemove` and commits on `mouseup`; `keyupHandler` commits a real keyboard
+  shift-selection (guarded on `isComposed`); collapsed carets untouched.
+  `commitAuthoringSelection` stays as belt-and-suspenders for host/programmatic
+  ranges. **Deterministic reproduction:** create a DOM Range, then dispatch
+  muya's own `mousedown`/`mousemove`/`mouseup` over it. New muya-engine E2E
+  (`critic-selection-commit.spec.ts`) proves the model commits forward+backward
+  (red→green); new desktop E2E authors via the mouseup-commit drag and asserts
+  the wrap; a heading-render E2E proves headings render critic fragments (the
+  "raw in a header" report was an older build); header-demotion E2E strengthened
+  to assert the block demotes. Audit: Cmd+Enter already fixed; edit-box
+  autofocus made v-for-ref-array-resilient. **Manual-only:** a genuine hardware
+  drag's native selection, and the visual fidelity of the mouseup round-trip.
+  Gate: muya 3316/3316, conformance 1347/1347, madge clean, desktop 895/895,
+  authoring E2E 5/5, muya e2e drag/editing 59 + new specs green.
