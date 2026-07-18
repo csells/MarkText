@@ -281,3 +281,19 @@ this pass.
   - **Gate (all green):** muya unit 3,316/3,316, CommonMark/GFM conformance
     1,347/1,347, desktop unit 894/894, root lint 0 errors, vue-tsc clean, muya
     lint:types + check-circular clean.
+- **2026-07-17 — real-app E2E, and the bugs it caught.** The unit gate above
+  missed everything that only breaks in the running editor. A Playwright
+  Electron spec (`test/e2e/critic-markup-comment-authoring.spec.ts`) driving the
+  actual sidebar flow found: a comment wrapped the **whole paragraph** (or
+  nothing, in a header) because opening the Review menu blurs the editor and
+  `getSelection()` goes null before the authoring command runs, and a same-block
+  selection never reaches muya's `setSelection` so the model was stale. Fix:
+  `Muya.commitAuthoringSelection()` snapshots the live DOM **range** into the
+  model (ranges only, so typing is undisturbed), called on a debounced DOM
+  `selectionchange` in the Review controller — the range is committed while the
+  editor still holds it and survives the blur. The compose box also returns
+  focus to the editor on submit/cancel. E2E now covers: wraps-the-selection,
+  Cmd+Enter submit, header commenting, and demoting a commented header without
+  crashing; the existing Review E2E's comment authoring moved off the retired
+  modal. **Standing rule: comment-flow changes must be proven by this E2E, not
+  unit tests alone.** Desktop unit 895/895; authoring E2E 4/4.
