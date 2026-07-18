@@ -115,11 +115,11 @@ export default function criticDocumentFragment(
         token.criticType === 'comment'
         && (token.role === 'only' || token.role === 'end')
     ) {
-        const focusComment = (event: Event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            this.muya.focusCriticMarkup(token.itemId);
-        };
+        // A presentational marker only — it distinguishes a commented span from
+        // a plain highlight and its title previews the note. It is deliberately
+        // NOT clickable: putting the caret in a commented span marks its sidebar
+        // card selected (passive), and comments are opened/edited from the
+        // sidebar, never by opening or scrolling the document on a click.
         nodes.push(h(
             `span.${CLASS_NAMES.MU_CRITIC_COMMENT_INDICATOR}`,
             {
@@ -128,9 +128,6 @@ export default function criticDocumentFragment(
                     title: token.critic.type === 'comment'
                         ? token.critic.content
                         : '',
-                },
-                on: {
-                    click: focusComment,
                 },
             },
         ));

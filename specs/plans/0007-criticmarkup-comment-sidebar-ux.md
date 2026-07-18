@@ -175,14 +175,20 @@ Baseline only — anchor subsumption, edit, and passive-selection land below.
   not a separate highlight item); the anchor renders with a distinct
   commented marker; Remove on the comment deletes the whole pair.
 
-### Phase 5 — editing a comment *(decision 4, Q4; decision 7, Q8)*
+### Phase 5 — editing a comment *(decision 4, Q4; decision 7, Q8)* — **DONE (core)**
 
-- **Red:** no muya command edits a `{>>…<<}` body in place; the sidebar card has
-  no edit affordance; there is no right-click Edit Comment.
-- **Green:** add an in-place `editComment(id, text)` command on the facade
-  (gateway-routed, anchor and id preserved); clicking a comment card enters an
-  inline edit box that calls it; add an editor context-menu **Edit Comment** on
-  a commented span that opens the sidebar in edit mode for that comment.
+- **Red/green (done):** `editCriticMarkupComment(target, text)` on the muya
+  review contract + facade rewrites the `{>>…<<}` body through the mutation
+  gateway (anchor + id preserved; refuses a non-comment target or empty text).
+  The sidebar comment card gained an Edit action opening an inline box; Save
+  routes through the controller to the command. Red-green on the muya command
+  and the controller edit-routing.
+- **Deferred (convenience):** the native editor context-menu **Edit Comment**
+  item. It needs racy cross-process plumbing (renderer comment hit-test → IPC →
+  the main `context-menu` handler, which fires after the DOM event). The edit
+  requirement is fully met by the sidebar Edit action, and passive selection
+  already surfaces the right comment card when you click into its span, so this
+  is a follow-up, not a blocker.
 
 ### Phase 6 — passive selection *(decision 7, Q8)*
 
