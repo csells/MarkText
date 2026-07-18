@@ -263,3 +263,21 @@ this pass.
   `CONTEXT.md` and `docs/adr/0001–0004`. Phases 4–8 re-scoped from those
   decisions (anchor subsumption, in-place edit + right-click, passive selection,
   hard caret-skip, anchor-deletion survival).
+- **2026-07-17** — Phases 4–8 landed red-green:
+  - **Phase 4** (anchor subsumption): review snapshot folds the anchor into one
+    comment item (+anchorId/anchorText) with a caret→comment current-item remap;
+    symmetric paired removal (resolving either half removes both); Add Comment
+    requires a selection; desktop card previews the anchored text. Cross-consumer
+    parity corpus updated for the fold (document/live/HTML/clipboard unchanged).
+  - **Phase 5** (edit): `editCriticMarkupComment` gateway command +
+    contract/facade; sidebar card Edit action → inline box → controller routing.
+    Native right-click Edit Comment deferred (racy cross-process menu; sidebar
+    Edit covers it).
+  - **Phase 6** (passive selection): the in-document indicator is presentational
+    (no force-scroll); the caret drives card selection via the Phase 4 remap.
+  - **Phase 7** (hard caret-skip): **deferred** — large, high-risk cursor-layer
+    change; design + rationale recorded above.
+  - **Phase 8** (survival): a point comment stays listed + removable.
+  - **Gate (all green):** muya unit 3,316/3,316, CommonMark/GFM conformance
+    1,347/1,347, desktop unit 894/894, root lint 0 errors, vue-tsc clean, muya
+    lint:types + check-circular clean.
