@@ -126,6 +126,10 @@ class Selection {
         this._text.setSelection(anchor, focus);
     }
 
+    commitSelectionToModel(anchor: IAnchorFocusInfo, focus: IAnchorFocusInfo): void {
+        this._text.commitSelectionToModel(anchor, focus);
+    }
+
     selectAll(): void {
         const tableSelection = this._table;
 

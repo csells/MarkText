@@ -555,7 +555,7 @@ export class Muya implements ICriticMarkupReviewEditor {
     commitAuthoringSelection(): void {
         const selection = this.editor.selection.getSelection();
         if (selection && !selection.isCollapsed)
-            this.editor.selection.setSelection(selection.anchor, selection.focus);
+            this.editor.selection.commitSelectionToModel(selection.anchor, selection.focus);
     }
 
     private _formatAcrossBlocks(type: string) {

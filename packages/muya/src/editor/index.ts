@@ -536,7 +536,7 @@ export class Editor {
             return;
 
         const { selection, scrollPage } = this;
-        const { anchorBlock, anchorPath, anchor, focus } = selection;
+        const { anchorBlock, anchorPath, anchor, focus, focusBlock, focusPath } = selection;
 
         // Restore the user's last caret when it is still in the tree, so a
         // focus() triggered after a blur (e.g. the command palette) keeps
@@ -548,6 +548,23 @@ export class Editor {
             && focus
             && scrollPage?.queryBlock(anchorPath) === anchorBlock
         ) {
+            // A cross-block selection lives in two different blocks. Restore the
+            // whole range so re-focusing (after the review compose box, a menu,
+            // or the command palette took focus) never collapses it into the
+            // anchor block. anchorBlock.setCursor(anchor, focus) would place
+            // BOTH offsets in the anchor block, shrinking a cross-paragraph
+            // selection to a one-character span in the first paragraph.
+            if (
+                focusBlock
+                && focusBlock !== anchorBlock
+                && scrollPage?.queryBlock(focusPath) === focusBlock
+            ) {
+                selection.setSelection(
+                    { offset: anchor.offset, block: anchorBlock, path: anchorPath },
+                    { offset: focus.offset, block: focusBlock, path: focusPath },
+                );
+                return;
+            }
             anchorBlock.setCursor(anchor.offset, focus.offset, true);
             return;
         }

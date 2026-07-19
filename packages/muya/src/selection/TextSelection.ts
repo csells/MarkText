@@ -224,6 +224,23 @@ class TextSelection {
         this._emitSelectionChange();
     }
 
+    // Persist an already-live selection into the stored model WITHOUT rewriting
+    // the DOM. Unlike setSelection, this never calls _updateSelection: restoring
+    // a range to the DOM re-anchors it via collapse()+extend(), which cannot
+    // reproduce a selection that spans two blocks and so collapses it to a
+    // caret. Authoring capture only needs the model to remember the live range
+    // (so it survives a later blur) — the DOM already holds the user's real
+    // selection, and must be left untouched.
+    commitSelectionToModel(anchor: IAnchorFocusInfo, focus: IAnchorFocusInfo) {
+        this.anchor = { offset: anchor.offset };
+        this.anchorBlock = anchor.block;
+        this.anchorPath = anchor.path;
+        this.focus = { offset: focus.offset };
+        this.focusBlock = focus.block;
+        this.focusPath = focus.path;
+        this._emitSelectionChange();
+    }
+
     private _emitSelectionChange() {
         const { _isCollapsed: isCollapsed, isSelectionInSameBlock, _direction: direction, _type: type } = this;
         const anchorBlock = this.anchorBlock ?? null;
@@ -277,7 +294,7 @@ class TextSelection {
 
         const handleMouseupOrLeave = () => {
             if (this._selectInfo.selection)
-                this.setSelection(this._selectInfo.selection.anchor, this._selectInfo.selection.focus);
+                this.commitSelectionToModel(this._selectInfo.selection.anchor, this._selectInfo.selection.focus);
 
             this._selectInfo = {
                 isSelect: false,
@@ -332,39 +349,6 @@ class TextSelection {
         eventCenter.attachDOMEvent(domNode, 'click', handleMousemoveOrClick);
     }
 
-    private _selectRange(range: Range) {
-        const selection = this._doc.getSelection();
-
-        if (selection) {
-            selection.removeAllRanges();
-            selection.addRange(range);
-        }
-    }
-
-    private _select(
-        startNode: Node,
-        startOffset: number,
-        endNode?: Node,
-        endOffset?: number,
-    ) {
-        const range = this._doc.createRange();
-        range.setStart(startNode, getLegalOffset(startNode, startOffset));
-        if (endNode && typeof endOffset === 'number')
-            range.setEnd(endNode, getLegalOffset(endNode, endOffset));
-        else
-            range.collapse(true);
-
-        this._selectRange(range);
-
-        return range;
-    }
-
-    private _setFocus(focusNode: Node, focusOffset: number) {
-        const selection = this._doc.getSelection();
-        if (selection)
-            selection.extend(focusNode, getLegalOffset(focusNode, focusOffset));
-    }
-
     private _updateSelection() {
         const {
             anchor,
@@ -406,8 +390,20 @@ class TextSelection {
             focus.offset,
         );
 
-        this._select(anchorNode, anchorOffset);
-        this._setFocus(focusNode, focusOffset);
+        // setBaseAndExtent restores anchor→focus in one call, so a cross-block
+        // range (anchor in one paragraph, focus in another) survives intact and
+        // keeps its direction. The older collapse()+extend() pair dropped the
+        // focus back into the anchor's block when the two straddled a block
+        // boundary, silently shrinking a cross-paragraph selection to a caret.
+        const domSelection = this._doc.getSelection();
+        if (domSelection) {
+            domSelection.setBaseAndExtent(
+                anchorNode,
+                getLegalOffset(anchorNode, anchorOffset),
+                focusNode,
+                getLegalOffset(focusNode, focusOffset),
+            );
+        }
     }
 }
 

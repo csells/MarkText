@@ -322,3 +322,34 @@ this pass.
   drag's native selection, and the visual fidelity of the mouseup round-trip.
   Gate: muya 3316/3316, conformance 1347/1347, madge clean, desktop 895/895,
   authoring E2E 5/5, muya e2e drag/editing 59 + new specs green.
+- **2026-07-19 — cross-PARAGRAPH comment authoring (real-gesture E2E + the true
+  focus root cause).** The 2026-07-17 fix landed same-paragraph authoring but a
+  selection spanning a paragraph break still mis-commented one character. The
+  engine was never the limit: an authored `{==a\n\nb==}{>>c<<}` renders (mark in
+  both paragraphs) and round-trips byte-exact, and `create()`'s document path is
+  unit-tested. The defect was that muya's LIVE editor could not hold a
+  cross-block DOM selection through the add-comment flow. **True root cause:**
+  `Editor.focus()` restored the caret with `anchorBlock.setCursor(anchor.offset,
+  focus.offset)`, forcing BOTH offsets into the anchor block; when focus returned
+  to the editor after the compose box / menu took it, a cross-paragraph selection
+  collapsed to a one-char span in the first paragraph (`Editor.focus ← Muya.focus`
+  proven by a setSelection caller-stack trace). **Fix:** when the stored
+  selection spans two in-tree blocks, `Editor.focus()` restores the whole range
+  via `selection.setSelection(anchor, focus)` instead of a same-block
+  `setCursor`. Supporting changes: `Selection.commitSelectionToModel` (a
+  model-only capture that never rewrites the DOM — wired into
+  `commitAuthoringSelection`, `keyupHandler`, and the mouseup commit) fixed a
+  `TypeError` regression (the method existed on the inner `TextSelection` but not
+  the `Selection` facade, aborting the review refresh on every non-collapsed
+  selection); `_updateSelection` now restores via `setBaseAndExtent`.
+  **Testing lesson (user-driven):** the earlier synthetic-Range / dispatched-
+  event E2E hid this — a pre-built Range has no native selection base. The
+  authoring spec is now a REAL-gesture matrix (real `page.keyboard` shift-select,
+  real `page.mouse` drags over computed pixel rects) × {same-paragraph,
+  cross-paragraph}: 9 pass incl. real-keyboard cross-paragraph. The real-MOUSE
+  cross-paragraph case is `test.fixme` — a Playwright/Electron harness limit
+  (scripted drags do not select across a block boundary), covered by transitivity
+  (same-paragraph real mouse drag + cross-paragraph real keyboard meet in that
+  code path). Gate: muya 3309/3316 (+7 timeout-flakes green in isolation),
+  conformance 1347/1347, madge clean, muya e2e Chromium 247/247, desktop
+  typecheck + authoring matrix green.

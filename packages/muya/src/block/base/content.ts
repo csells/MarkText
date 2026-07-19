@@ -431,16 +431,19 @@ class Content extends TreeNode {
     }
 
     keyupHandler(_event: Event): void {
-        // A keyboard shift-selection never reaches setSelection on its own,
+        // A keyboard shift-selection never reaches the stored model on its own,
         // mirroring the same-block mouse-drag hole: commit a real range on keyup
         // so an authoring command (Add Comment) can recover it after the editor
-        // blurs. A collapsed caret (ordinary typing/navigation) and an in-progress
-        // IME composition are left untouched, so typing is never disturbed.
+        // blurs. Use the model-only commit — rewriting the DOM here would
+        // re-anchor the browser selection between keystrokes and collapse a
+        // still-growing cross-block shift-selection. A collapsed caret (ordinary
+        // typing/navigation) and an in-progress IME composition are left
+        // untouched, so typing is never disturbed.
         if (this.isComposed)
             return;
         const selection = this.selection.getSelection();
         if (selection && !selection.isCollapsed)
-            this.selection.setSelection(selection.anchor, selection.focus);
+            this.selection.commitSelectionToModel(selection.anchor, selection.focus);
     }
 
     inputHandler(_event: Event): void {
