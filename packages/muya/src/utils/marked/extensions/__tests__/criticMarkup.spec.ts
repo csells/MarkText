@@ -104,6 +104,15 @@ describe('marked criticMarkup extension', () => {
         expect(html).toContain(fragment);
     });
 
+    it('uses decoded semantic comment text in exported note metadata', () => {
+        const source = String.raw`{>>literal <<\} closer<<}`;
+        const host = document.createElement('div');
+        host.innerHTML = render(source);
+
+        expect(host.querySelector<HTMLElement>('.critic-comment')?.title)
+            .toBe('literal <<} closer');
+    });
+
     it('renders both substitution arms as one marked review item', () => {
         const html = render('{~~**old**~>_new_~~}');
 

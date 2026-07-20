@@ -245,6 +245,45 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
     return view;
   }
 
+  /** Earliest future extension token in the current parser source. */
+  private extensionStartIndex(
+    src: string,
+    level: 'block' | 'inline',
+  ): number | undefined {
+    const extensions = this.options.extensions;
+    const sourceStarts = level === 'block'
+      ? extensions?.startBlockSource
+      : extensions?.startInlineSource;
+    const legacyStarts = level === 'block'
+      ? extensions?.startBlock
+      : extensions?.startInline;
+    let startIndex = Infinity;
+
+    if (sourceStarts?.length) {
+      const source = this.currentSourceView;
+      if (source) {
+        for (const getStartIndex of sourceStarts) {
+          const candidate = getStartIndex.call({ lexer: this }, source);
+          if (typeof candidate === 'number' && candidate > 0) {
+            startIndex = Math.min(startIndex, candidate);
+          }
+        }
+      }
+    }
+
+    if (legacyStarts?.length) {
+      const tail = src.slice(1);
+      for (const getStartIndex of legacyStarts) {
+        const candidate = getStartIndex.call({ lexer: this }, tail);
+        if (typeof candidate === 'number' && candidate >= 0) {
+          startIndex = Math.min(startIndex, candidate + 1);
+        }
+      }
+    }
+
+    return startIndex < Infinity ? startIndex : undefined;
+  }
+
   /** Exact parser-owned source carried by the current final parsed token. */
   sourceViewForParsedToken(
     tokens: readonly Token[],
@@ -648,16 +687,16 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
       // list
       let listSource = src;
       let listSourceView: MarkedSourceView<object> | null = null;
-      if (this.blockNestingDepth > 1 && this.options.extensions?.startBlock) {
-        let startIndex = Infinity;
-        const tempSrc = src.slice(1);
-        for (const getStartIndex of this.options.extensions.startBlock) {
-          const candidate = getStartIndex.call({ lexer: this }, tempSrc);
-          if (typeof candidate === 'number' && candidate >= 0)
-            startIndex = Math.min(startIndex, candidate);
-        }
-        if (startIndex < Infinity) {
-          const cut = startIndex + 1;
+      if (
+        this.blockNestingDepth > 1
+        && (
+          this.options.extensions?.startBlock
+          || this.options.extensions?.startBlockSource
+        )
+      ) {
+        const startIndex = this.extensionStartIndex(src, 'block');
+        if (startIndex !== undefined) {
+          const cut = startIndex;
           listSource = src.substring(0, cut);
           const current = this.currentSourceView;
           if (current) {
@@ -742,19 +781,13 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
       // top-level paragraph
       // prevent paragraph consuming extensions by clipping 'src' to extension start
       let cutSrc = src;
-      if (this.options.extensions?.startBlock) {
-        let startIndex = Infinity;
-        const tempSrc = src.slice(1);
-        let tempStart;
-        this.options.extensions.startBlock.forEach((getStartIndex) => {
-          tempStart = getStartIndex.call({ lexer: this }, tempSrc);
-          if (typeof tempStart === 'number' && tempStart >= 0) {
-            startIndex = Math.min(startIndex, tempStart);
-          }
-        });
-        if (startIndex < Infinity && startIndex >= 0) {
-          cutSrc = src.substring(0, startIndex + 1);
-        }
+      if (
+        this.options.extensions?.startBlock
+        || this.options.extensions?.startBlockSource
+      ) {
+        const startIndex = this.extensionStartIndex(src, 'block');
+        if (startIndex !== undefined)
+          cutSrc = src.substring(0, startIndex);
       }
       if (this.state.top && (token = this.tokenizer.paragraph(cutSrc))) {
         const lastToken = tokens.at(-1);
@@ -863,9 +896,21 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
 
     // Mask out other blocks
     let offset;
+    let blockMaskCursor = 0;
+    const blockMaskParts: string[] = [];
     while ((match = this.tokenizer.rules.inline.blockSkip.exec(maskedSrc)) !== null) {
       offset = match[2] ? match[2].length : 0;
-      maskedSrc = maskedSrc.slice(0, match.index + offset) + '[' + 'a'.repeat(match[0].length - offset - 2) + ']' + maskedSrc.slice(this.tokenizer.rules.inline.blockSkip.lastIndex);
+      blockMaskParts.push(
+        maskedSrc.slice(blockMaskCursor, match.index + offset),
+        '[',
+        'a'.repeat(match[0].length - offset - 2),
+        ']',
+      );
+      blockMaskCursor = this.tokenizer.rules.inline.blockSkip.lastIndex;
+    }
+    if (blockMaskParts.length) {
+      blockMaskParts.push(maskedSrc.slice(blockMaskCursor));
+      maskedSrc = blockMaskParts.join('');
     }
 
     // Mask out blocks from extensions
@@ -993,19 +1038,13 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
       // text
       // prevent inlineText consuming extensions by clipping 'src' to extension start
       let cutSrc = src;
-      if (this.options.extensions?.startInline) {
-        let startIndex = Infinity;
-        const tempSrc = src.slice(1);
-        let tempStart;
-        this.options.extensions.startInline.forEach((getStartIndex) => {
-          tempStart = getStartIndex.call({ lexer: this }, tempSrc);
-          if (typeof tempStart === 'number' && tempStart >= 0) {
-            startIndex = Math.min(startIndex, tempStart);
-          }
-        });
-        if (startIndex < Infinity && startIndex >= 0) {
-          cutSrc = src.substring(0, startIndex + 1);
-        }
+      if (
+        this.options.extensions?.startInline
+        || this.options.extensions?.startInlineSource
+      ) {
+        const startIndex = this.extensionStartIndex(src, 'inline');
+        if (startIndex !== undefined)
+          cutSrc = src.substring(0, startIndex);
       }
       if (token = this.tokenizer.inlineText(cutSrc)) {
         src = src.substring(token.raw.length);

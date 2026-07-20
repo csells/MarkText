@@ -85,7 +85,11 @@ const { rightColumn, showSideBar, sideBarWidth } = storeToRefs(layoutStore)
 
 const { projectTree } = storeToRefs(projectStore)
 const { tabs } = storeToRefs(editorStore)
-const { snapshot: criticMarkupReview, composing: criticMarkupComposing } = storeToRefs(criticMarkupReviewStore)
+const {
+  snapshot: criticMarkupReview,
+  composing: criticMarkupComposing,
+  commentEditRequest: criticMarkupCommentEditRequest
+} = storeToRefs(criticMarkupReviewStore)
 
 // Starting a comment (Add Comment) reveals the Review sidebar with its compose
 // box. Opening the sidebar is a view concern, so it lives here rather than in
@@ -95,6 +99,12 @@ watch(criticMarkupComposing, (composing) => {
     layoutStore.SET_LAYOUT({ rightColumn: 'review', showSideBar: true })
   }
 })
+
+watch(criticMarkupCommentEditRequest, (request) => {
+  if (request) {
+    layoutStore.SET_LAYOUT({ rightColumn: 'review', showSideBar: true })
+  }
+}, { immediate: true })
 
 const reviewCount = computed(() => criticMarkupReview.value.items.length)
 const reviewBadgeText = computed(() => reviewCount.value > 99 ? '99+' : `${reviewCount.value}`)

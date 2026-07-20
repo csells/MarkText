@@ -116,6 +116,29 @@ export class ExcludedRanges {
         }
     }
 
+    /** Index of the first normalized range whose end is strictly after offset. */
+    firstIndexEndingAfter(offset: number): number {
+        if (
+            !Number.isInteger(offset)
+            || offset < 0
+            || this.#sourceLength < offset
+        ) {
+            throw new RangeError(
+                `Excluded-range offset ${offset} is outside a source of length ${this.#sourceLength}.`,
+            );
+        }
+        let low = 0;
+        let high = this.ranges.length;
+        while (low < high) {
+            const middle = (low + high) >> 1;
+            if (this.ranges[middle].end <= offset)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+        return low;
+    }
+
     /** Create an independent cursor for a monotonically increasing scan. */
     forwardCursor(): ExcludedRangeCursor {
         return new ExcludedRangeCursor(this.ranges);

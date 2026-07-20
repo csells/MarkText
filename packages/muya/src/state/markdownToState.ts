@@ -375,6 +375,10 @@ export class MarkdownToState {
             'critic-boundary-end',
         ]);
         let previousTokenWasSpace = true;
+        const previousBlockEndedWithLineBreak = new WeakMap<
+            TState[],
+            boolean
+        >();
 
         // eslint-disable-next-line no-cond-assign
         while ((token = tokens.shift())) {
@@ -412,6 +416,11 @@ export class MarkdownToState {
                         }).sourceTrivia = {
                             ...previousState.sourceTrivia,
                             blockSeparatorAfter: '',
+                            ...(previousBlockEndedWithLineBreak.get(
+                                targetStates,
+                            ) === false
+                                ? { suppressBlockTerminatorAfter: true }
+                                : {}),
                         };
                     }
                 }
@@ -420,6 +429,10 @@ export class MarkdownToState {
                 // treat it like an explicit space token.
                 previousTokenWasSpace = /\n\s*\n$/.test(
                     (token as { raw?: string }).raw ?? '',
+                );
+                previousBlockEndedWithLineBreak.set(
+                    targetStates,
+                    /\r?\n$/.test((token as { raw?: string }).raw ?? ''),
                 );
             }
 
@@ -547,10 +560,14 @@ export class MarkdownToState {
                     && previous.sourceTrivia?.blockSeparatorAfter
                     === undefined
                 ) {
+                    const {
+                        suppressBlockTerminatorAfter: _stale,
+                        ...sourceTrivia
+                    } = previous.sourceTrivia ?? {};
                     (previous as {
                         sourceTrivia?: IStateSourceTrivia;
                     }).sourceTrivia = {
-                        ...previous.sourceTrivia,
+                        ...sourceTrivia,
                         blockSeparatorAfter: remainder,
                     };
                 }
@@ -613,8 +630,12 @@ export class MarkdownToState {
             }
             cursor = (cursor as { children?: TState[] }).children?.at(-1);
         }
+        const {
+            suppressBlockTerminatorAfter: _stale,
+            ...sourceTrivia
+        } = previous.sourceTrivia ?? {};
         (previous as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
-            ...previous.sourceTrivia,
+            ...sourceTrivia,
             blockSeparatorAfter: separatorRemainder
                 ?? (terminatorInsideFragment ? raw : raw.slice(1)),
         };

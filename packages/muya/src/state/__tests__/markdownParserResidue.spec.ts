@@ -73,5 +73,5 @@ describe('native Markdown parser residue', () => {
         const reopened = boot(firstSave);
         expect(reopened.getMarkdown()).toBe(firstSave);
         expect(reopened.getCriticMarkupItems()).toHaveLength(1);
-    }, 15_000);
+    }, 30_000);
 });

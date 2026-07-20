@@ -9,6 +9,9 @@ import { BLOCK_DOM_PROPERTY } from '../../config';
 import {
     collectReferenceDefinitions,
 } from '../../inlineRenderer/referenceDefinitions';
+import {
+    bindCriticMarkupStructuralVisibility,
+} from '../../criticMarkup/renderedBlockState';
 import { isHTMLElement, isMouseEvent } from '../../utils';
 import logger from '../../utils/logger';
 import {
@@ -61,6 +64,7 @@ interface IBlurFocus {
 export class ScrollPage extends Parent<Parent> {
     private _blurFocus: IBlurFocus = { blur: null, focus: null };
     private readonly _criticMarkupStructuralBlocks = new Set<TreeNode>();
+    private readonly _criticMarkupStructuralCommentContents = new Set<Content>();
 
     static override blockName = 'scrollpage';
 
@@ -155,6 +159,9 @@ export class ScrollPage extends Parent<Parent> {
 
     /** Bind all structural fragments from one canonical document revision. */
     bindCriticMarkupDocument(document: CriticMarkupDocument | null): void {
+        for (const content of this._criticMarkupStructuralCommentContents)
+            bindCriticMarkupStructuralVisibility(content, false);
+        this._criticMarkupStructuralCommentContents.clear();
         for (const block of this._criticMarkupStructuralBlocks)
             block.replaceCriticMarkupStructuralFragments([]);
         this._criticMarkupStructuralBlocks.clear();
@@ -168,11 +175,27 @@ export class ScrollPage extends Parent<Parent> {
                     'Structural CriticMarkup path has no live native block.',
                 );
             }
-            block.replaceCriticMarkupStructuralFragments(
-                document.structuralFragmentsForPath(path),
-            );
+            const fragments = document.structuralFragmentsForPath(path);
+            block.replaceCriticMarkupStructuralFragments(fragments);
             this._criticMarkupStructuralBlocks.add(block);
+            if (fragments.some(({ fragment }) =>
+                fragment.kind === 'content'
+                && fragment.arm === 'comment')) {
+                if (block.isContent()) {
+                    this._criticMarkupStructuralCommentContents.add(block);
+                }
+                else if (block.isParent()) {
+                    block.breadthFirstTraverse((descendant) => {
+                        if (descendant.isContent()) {
+                            this._criticMarkupStructuralCommentContents
+                                .add(descendant);
+                        }
+                    });
+                }
+            }
         }
+        for (const content of this._criticMarkupStructuralCommentContents)
+            bindCriticMarkupStructuralVisibility(content, true);
     }
 
     private _listenDomEvent() {

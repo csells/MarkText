@@ -183,6 +183,98 @@ describe('muya criticMarkup authoring commands', () => {
         expect(muya.getMarkdown())
             .toBe('old {~~one\n\n# old two~>replacement~~}\n');
     });
+
+    it('authors a comment in source coordinates when one leaf spans generated blockquote prefixes', () => {
+        const source = '> first\n> second\n';
+        const { muya, block } = boot(source);
+        block.setCursor(0, block.text.length, true);
+
+        expect(muya.canCreateCriticMarkup('comment')).toBe(true);
+        expect(muya.createCriticMarkup({
+            type: 'comment',
+            comment: 'review quote',
+        })).toBe(true);
+        expect(muya.getMarkdown()).toBe(
+            '> {==first\n> second==}{>>review quote<<}\n',
+        );
+    });
+
+    it('authors a nested comment around an existing commented span', () => {
+        const source = '{==word==}{>>first<<}\n';
+        const { muya, block } = boot(source);
+        block.setCursor(0, block.text.length, true);
+
+        expect(muya.canCreateCriticMarkup('comment')).toBe(true);
+        expect(muya.createCriticMarkup({
+            type: 'comment',
+            comment: 'second',
+        })).toBe(true);
+        expect(muya.getMarkdown())
+            .toBe('{=={==word==}{>>first<<}==}{>>second<<}\n');
+        expect(muya.getCriticMarkupReviewSnapshot().items.map(item => item.type))
+            .toEqual(['comment', 'comment']);
+    });
+
+    it('authors a nested comment inside an existing comment anchor', () => {
+        const source = 'a {==word==}{>>first<<} b\n';
+        const { muya, block } = boot(source);
+        const start = block.text.indexOf('word');
+        block.setCursor(start, start + 'word'.length, true);
+
+        expect(muya.createCriticMarkup({
+            type: 'comment',
+            comment: 'second',
+        })).toBe(true);
+        expect(muya.getMarkdown())
+            .toBe('a {=={==word==}{>>second<<}==}{>>first<<} b\n');
+        expect(muya.getCriticMarkupReviewSnapshot().items.map(item => item.type))
+            .toEqual(['comment', 'comment']);
+    });
+
+    it('keeps a comment anchor gapless around a structural nested item', () => {
+        const source = '{--# heading--}\n';
+        const { muya, block } = boot(source);
+        block.setCursor(0, block.text.length, true);
+
+        expect(muya.createCriticMarkup({
+            type: 'comment',
+            comment: 'review heading',
+        })).toBe(true);
+        expect(muya.getMarkdown()).toBe(
+            '{=={--# heading--}==}{>>review heading<<}\n',
+        );
+        expect(muya.getCriticMarkupReviewSnapshot().items.map(item => item.type))
+            .toEqual(['deletion', 'comment']);
+    });
+
+    it('allows a contained comment to own its Markdown-literal exclusions', () => {
+        const source = 'a {==word==}{>>https://x.test<<} b\n';
+        const { muya, block } = boot(source);
+        block.setCursor(0, block.text.length, true);
+
+        expect(muya.canCreateCriticMarkup('comment')).toBe(true);
+        expect(muya.createCriticMarkup({
+            type: 'comment',
+            comment: 'outer',
+        })).toBe(true);
+        expect(muya.getMarkdown()).toBe(
+            '{==a {==word==}{>>https://x.test<<} b==}{>>outer<<}\n',
+        );
+    });
+
+    it('rejects a comment selection that crosses an existing item boundary', () => {
+        const source = 'a {==word==} b\n';
+        const { muya, block } = boot(source);
+        const start = block.text.indexOf('word') + 1;
+        block.setCursor(start, block.text.indexOf(' b'), true);
+
+        expect(muya.canCreateCriticMarkup('comment')).toBe(false);
+        expect(muya.createCriticMarkup({
+            type: 'comment',
+            comment: 'crossing',
+        })).toBe(false);
+        expect(muya.getMarkdown()).toBe(source);
+    });
 });
 
 describe('muya criticMarkup resolution commands', () => {
@@ -426,6 +518,50 @@ describe('muya criticMarkup navigation commands', () => {
 
         expect(muya.getCurrentCriticMarkupItem()).toBeNull();
         expect(muya.navigateCriticMarkup('next')?.raw).toBe('{++one++}');
+    });
+
+    it('visits an anchored comment once as one logical Review item', () => {
+        const { muya, block } = boot(
+            'plain {==one==}{>>note<<} then {--two--}\n',
+        );
+        block.setCursor(0, 0, true);
+        const comment = muya.getCriticMarkupReviewSnapshot().items
+            .find(item => item.type === 'comment');
+        expect(comment).toBeDefined();
+
+        muya.navigateCriticMarkup('next');
+        expect(muya.getCriticMarkupReviewSnapshot().currentItemId)
+            .toBe(comment!.id);
+        expect(muya.navigateCriticMarkup('next')?.raw).toBe('{--two--}');
+        expect(muya.getCurrentCriticMarkupItem()?.raw).toBe('{--two--}');
+    });
+
+    it.each([
+        ['an anchored comment', 'plain {==one==}{>>note<<}\n'],
+        ['a point comment', 'plain {>>note<<}\n'],
+    ])('does not open the in-text Review tool when navigating to %s', (
+        _label,
+        source,
+    ) => {
+        const { muya, block } = boot(source);
+        const openTool = vi.fn();
+        muya.eventCenter.on('muya-critic-markup-tool', openTool);
+        block.setCursor(0, 0, true);
+
+        muya.navigateCriticMarkup('next');
+
+        expect(openTool).not.toHaveBeenCalled();
+    });
+
+    it('keeps the in-text Review tool for a plain highlight', () => {
+        const { muya, block } = boot('plain {==review==}\n');
+        const openTool = vi.fn();
+        muya.eventCenter.on('muya-critic-markup-tool', openTool);
+        block.setCursor(0, 0, true);
+
+        muya.navigateCriticMarkup('next');
+
+        expect(openTool).toHaveBeenCalledTimes(1);
     });
 
     it('returns null without moving the selection when no review item exists', () => {

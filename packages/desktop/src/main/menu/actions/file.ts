@@ -82,6 +82,39 @@ interface ExportPayload {
   pageOptions?: PageOptions
 }
 
+const sendToRendererIfReachable = (
+  win: BrowserWindow,
+  channel: string,
+  payload?: unknown
+): void => {
+  try {
+    win.webContents.send(channel, payload)
+  } catch (err) {
+    // Export completion can race destruction of the originating editor. The
+    // export operation is already settled, so a dead notification transport
+    // must not turn the async IPC listener into an unhandled rejection.
+    log.error(`Error while sending ${channel}:`, err)
+  }
+}
+
+const createPrintServiceCleanup = (
+  win: BrowserWindow,
+  enabled = true
+): (() => void) => {
+  let cleared = !enabled
+  return () => {
+    if (cleared) return
+    cleared = true
+    try {
+      removePrintServiceFromWindow(win)
+    } catch (err) {
+      // Cleanup can race a window/frame teardown. The renderer is already
+      // unreachable in that case, so contain the transport failure here.
+      log.error('Error while clearing print service:', err)
+    }
+  }
+}
+
 // Handle the export response from renderer process.
 const handleResponseForExport = async(e: IpcMainEvent, payload: ExportPayload): Promise<void> => {
   const { type, content, pathname, title, pageOptions } = payload
@@ -89,6 +122,7 @@ const handleResponseForExport = async(e: IpcMainEvent, payload: ExportPayload): 
   if (!win) {
     return
   }
+  const clearPrintService = createPrintServiceCleanup(win, type === 'pdf')
   const extension = (EXTENSION_HASN as Record<string, string>)[type]
   const dirname = pathname ? path.dirname(pathname) : getPath('documents')
   let nakedFilename = pathname ? path.basename(pathname, '.md') : title
@@ -97,13 +131,15 @@ const handleResponseForExport = async(e: IpcMainEvent, payload: ExportPayload): 
   }
 
   const defaultPath = path.join(dirname, `${nakedFilename}${extension}`)
-  const { filePath, canceled } = await presentationPolicy.showSaveDialog(win, {
-    defaultPath,
-    filters: getExportExtensionFilter(type)
-  })
+  let filePath: string | undefined
 
-  if (filePath && !canceled) {
-    try {
+  try {
+    const response = await presentationPolicy.showSaveDialog(win, {
+      defaultPath,
+      filters: getExportExtensionFilter(type)
+    })
+    filePath = response.filePath
+    if (filePath && !response.canceled) {
       if (type === 'pdf') {
         // Build a clickable bookmark/outline tree from the document's h1-h6
         // headings so exported PDFs have a navigation pane (#2989). The outline
@@ -116,7 +152,7 @@ const handleResponseForExport = async(e: IpcMainEvent, payload: ExportPayload): 
         }
         Object.assign(options, getPdfPageOptions(pageOptions))
         const data = await win.webContents.printToPDF(options)
-        removePrintServiceFromWindow(win)
+        clearPrintService()
         await writeFile(filePath, data, extension!, 'binary')
       } else {
         if (!content) {
@@ -124,22 +160,19 @@ const handleResponseForExport = async(e: IpcMainEvent, payload: ExportPayload): 
         }
         await writeFile(filePath, content, extension!, 'utf8')
       }
-      win.webContents.send('mt::export-success', { type, filePath })
-    } catch (err) {
-      log.error('Error while exporting:', err)
-      const ERROR_MSG =
-        (err instanceof Error && err.message) || `Error happened when export ${filePath}`
-      win.webContents.send('mt::show-notification', {
-        title: 'Export failure',
-        type: 'error',
-        message: ERROR_MSG
-      })
+      sendToRendererIfReachable(win, 'mt::export-success', { type, filePath })
     }
-  } else {
-    // User canceled save dialog
-    if (type === 'pdf') {
-      removePrintServiceFromWindow(win)
-    }
+  } catch (err) {
+    log.error('Error while exporting:', err)
+    const ERROR_MSG =
+      (err instanceof Error && err.message) || `Error happened when export ${filePath}`
+    sendToRendererIfReachable(win, 'mt::show-notification', {
+      title: 'Export failure',
+      type: 'error',
+      message: ERROR_MSG
+    })
+  } finally {
+    clearPrintService()
   }
 }
 
@@ -148,11 +181,17 @@ const handleResponseForPrint = async(e: IpcMainEvent): Promise<void> => {
   if (!win) {
     return
   }
-  presentationPolicy.printWebContents(
-    win.webContents,
-    { printBackground: true },
-    () => removePrintServiceFromWindow(win)
-  )
+  const clearPrintService = createPrintServiceCleanup(win)
+  try {
+    presentationPolicy.printWebContents(
+      win.webContents,
+      { printBackground: true },
+      clearPrintService
+    )
+  } catch (err) {
+    log.error('Error while printing:', err)
+    clearPrintService()
+  }
 }
 
 const handleResponseForSave = async(

@@ -101,7 +101,7 @@
           v-show="editingId !== item.id"
           type="button"
           class="review-card-focus"
-          @click="actOnItem('focus', item)"
+          @click="activateItem(item)"
         >
           <span class="card-head">
             <span class="type-label">{{ typeLabel(item.type) }}</span>
@@ -145,9 +145,16 @@
             v-model="editDraft"
             class="comment-compose-input"
             rows="3"
+            @input="onEditInput"
             @keydown.enter="onEditEnter($event, item)"
             @keydown.esc.prevent="cancelEdit"
           />
+          <p
+            v-if="editFailed"
+            class="comment-edit-failure"
+          >
+            {{ t('sideBar.review.commentEditFailed') }}
+          </p>
           <div class="comment-compose-actions">
             <button
               type="button"
@@ -210,6 +217,7 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import bus from '@/bus'
 import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
+import type { CriticMarkupCommentEditSubmission } from '../editorWithTabs/criticMarkupCommentEdit'
 import {
   REVIEW_COMMAND_DESCRIPTORS,
   type ReviewCommand,
@@ -226,7 +234,7 @@ import type {
 
 const { t } = useI18n()
 const reviewStore = useCriticMarkupReviewStore()
-const { snapshot, composing } = storeToRefs(reviewStore)
+const { snapshot, composing, commentEditRequest } = storeToRefs(reviewStore)
 const reviewList = ref<HTMLElement | null>(null)
 const composeInput = ref<HTMLTextAreaElement | null>(null)
 const composeDraft = ref('')
@@ -243,8 +251,8 @@ watch(composing, (active) => {
 }, { immediate: true })
 
 const submitCompose = (): void => {
-  const text = composeDraft.value.trim()
-  if (!text) return
+  const text = composeDraft.value
+  if (!text.trim()) return
   bus.emit('critic-markup-comment-submit', text)
   composeDraft.value = ''
   // Posting a comment is punctuation on editing, not the start of a session —
@@ -269,29 +277,129 @@ const onComposeEnter = (event: KeyboardEvent): void => {
 // prefilled with the comment; Save rewrites the {>>...<<} body via the engine.
 const editingId = ref<string | null>(null)
 const editDraft = ref('')
+const editFailed = ref(false)
 const editInput = ref<HTMLTextAreaElement | HTMLTextAreaElement[] | null>(null)
+let editSubmissionVersion = 0
+interface CommentEditIdentity {
+  fileId: string | null
+  id: string
+  sourceStart: number
+  sourceEnd: number
+  raw: string
+}
+const editingTarget = ref<CommentEditIdentity | null>(null)
 
-const beginEdit = (item: CriticMarkupSidebarItem): void => {
-  editingId.value = item.id
-  editDraft.value = item.content ?? ''
-  // The ref lives inside the card v-for, so Vue may collect it as an array;
-  // focus the single mounted edit box either way.
+const matchesEditIdentity = (
+  identity: CommentEditIdentity,
+  fileId: string | null,
+  item: CriticMarkupSidebarItem
+): boolean =>
+  identity.fileId === fileId &&
+  identity.id === item.id &&
+  identity.sourceStart === item.sourceStart &&
+  identity.sourceEnd === item.sourceEnd &&
+  identity.raw === item.raw
+
+const focusEditInput = (): void => {
   nextTick(() => {
     const box = Array.isArray(editInput.value) ? editInput.value[0] : editInput.value
     box?.focus()
   })
 }
 
+const beginEdit = (item: CriticMarkupSidebarItem): void => {
+  editSubmissionVersion += 1
+  editingTarget.value = {
+    fileId: snapshot.value.fileId,
+    id: item.id,
+    sourceStart: item.sourceStart,
+    sourceEnd: item.sourceEnd,
+    raw: item.raw
+  }
+  editingId.value = item.id
+  editDraft.value = item.content ?? ''
+  editFailed.value = false
+  // The ref lives inside the card v-for, so Vue may collect it as an array;
+  // focus the single mounted edit box either way.
+  focusEditInput()
+}
+
+watch(
+  [commentEditRequest, snapshot],
+  ([pending, current]) => {
+    if (!pending || pending.fileId !== current.fileId) return
+    const target = current.items.find(item =>
+      item.type === 'comment' &&
+      item.id === pending.target.id &&
+      item.sourceStart === pending.target.sourceStart &&
+      item.sourceEnd === pending.target.sourceEnd &&
+      item.raw === pending.target.raw)
+    if (!target) return
+
+    reviewStore.TAKE_COMMENT_EDIT()
+    const identity = editingTarget.value
+    if (identity && matchesEditIdentity(identity, current.fileId, target)) {
+      focusEditInput()
+      return
+    }
+    beginEdit(target)
+  },
+  { immediate: true }
+)
+
+const activateItem = (item: CriticMarkupSidebarItem): void => {
+  if (item.type === 'comment') {
+    beginEdit(item)
+    return
+  }
+  actOnItem('focus', item)
+}
+
 const cancelEdit = (): void => {
+  editSubmissionVersion += 1
+  editingTarget.value = null
   editingId.value = null
   editDraft.value = ''
+  editFailed.value = false
+}
+
+const onEditInput = (): void => {
+  editSubmissionVersion += 1
+  editFailed.value = false
 }
 
 const submitEdit = (item: CriticMarkupSidebarItem): void => {
-  const text = editDraft.value.trim()
-  if (!text) return
-  bus.emit('critic-markup-comment-edit', { target: item, text })
-  cancelEdit()
+  const identity = editingTarget.value
+  if (!identity || !matchesEditIdentity(identity, snapshot.value.fileId, item)) {
+    cancelEdit()
+    return
+  }
+  const text = editDraft.value
+  if (!text.trim()) return
+  const version = ++editSubmissionVersion
+  editFailed.value = false
+  const submission: CriticMarkupCommentEditSubmission = {
+    target: item,
+    text,
+    acknowledge: (result) => {
+      // Ignore an acknowledgement for a draft that the user has since edited,
+      // cancelled, or replaced with another comment.
+      if (
+        version !== editSubmissionVersion ||
+        editingTarget.value !== identity ||
+        editingId.value !== item.id ||
+        editDraft.value !== text
+      ) {
+        return
+      }
+      if (result.outcome === 'saved') {
+        cancelEdit()
+      } else {
+        editFailed.value = true
+      }
+    }
+  }
+  bus.emit('critic-markup-comment-edit', submission)
 }
 
 const onEditEnter = (event: KeyboardEvent, item: CriticMarkupSidebarItem): void => {
@@ -300,13 +408,19 @@ const onEditEnter = (event: KeyboardEvent, item: CriticMarkupSidebarItem): void 
   submitEdit(item)
 }
 
-// A comment whose card is mid-edit can disappear (removed elsewhere); drop the
-// stale edit box rather than leaving it open against a gone item.
+// A comment whose card is mid-edit can disappear, move, change source identity,
+// or be replaced by a same-offset comment in another file. Drop that draft
+// rather than ever submitting it against a different document revision.
 watch(
-  () => snapshot.value.items.map(item => item.id),
-  (ids) => {
-    if (editingId.value && !ids.includes(editingId.value)) cancelEdit()
-  }
+  snapshot,
+  (current) => {
+    const identity = editingTarget.value
+    if (!identity) return
+    const stillCurrent = current.items.some(item =>
+      matchesEditIdentity(identity, current.fileId, item))
+    if (!stillCurrent) cancelEdit()
+  },
+  { flush: 'sync' }
 )
 
 const reviewCommand = (action: CriticMarkupReviewAction): ReviewCommand => {
@@ -364,6 +478,8 @@ watch(
   () => snapshot.value.currentItemId,
   (id) => {
     if (!id) return
+    const item = snapshot.value.items.find(candidate => candidate.id === id)
+    if (item?.type === 'comment') return
     nextTick(() => {
       const card = Array.from(reviewList.value?.querySelectorAll<HTMLElement>('[data-critic-id]') ?? [])
         .find((element) => element.dataset.criticId === id)
@@ -502,6 +618,13 @@ watch(
   justify-content: flex-end;
   gap: 6px;
   margin-top: 8px;
+}
+
+.comment-edit-failure {
+  margin: 6px 0 0;
+  color: var(--notificationErrorBg, var(--themeColor));
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .comment-compose-actions button {

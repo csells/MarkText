@@ -106,6 +106,10 @@ export interface ICriticMarkupReviewActions {
 /** Compiler-checked protocol shared by Muya and its desktop embedder. */
 export interface ICriticMarkupReviewEditor
     extends ICriticMarkupReviewActions {
+    getCriticMarkupCommentAtPoint: (
+        clientX: number,
+        clientY: number,
+    ) => ICriticMarkupReviewItem | null;
     on: (
         event: 'critic-markup-review-change',
         listener: (snapshot: ICriticMarkupReviewSnapshot) => void,

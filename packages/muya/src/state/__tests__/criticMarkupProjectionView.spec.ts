@@ -76,6 +76,32 @@ describe('criticMarkup live projection views', () => {
         expect(muya.getMarkdown()).toBe(source);
     });
 
+    it('rebinds structural comment visibility and clears selection across projection switches', () => {
+        const source = '{>>COMMENT\n<<}\n\nVISIBLE\n';
+        const muya = boot(source);
+
+        expect(muya.domNode.querySelector(
+            '[hidden][data-critic-type~="comment"]',
+        )?.textContent).toContain('COMMENT');
+
+        muya.setOptions({ criticMarkupProjection: 'original' }, true);
+        expect(muya.domNode.textContent).not.toContain('COMMENT');
+        expect(muya.domNode.textContent).toContain('VISIBLE');
+        expect(muya.domNode.querySelector('[hidden]')).toBeNull();
+        expect(muya.editor.selection.getSelection()).toBeNull();
+
+        muya.setOptions({ criticMarkupProjection: 'revised' }, true);
+        expect(muya.domNode.textContent).not.toContain('COMMENT');
+        expect(muya.domNode.querySelector('[hidden]')).toBeNull();
+        expect(muya.editor.selection.getSelection()).toBeNull();
+
+        muya.setOptions({ criticMarkupProjection: 'marked' }, true);
+        expect(muya.domNode.querySelector(
+            '[hidden][data-critic-type~="comment"]',
+        )?.textContent).toContain('COMMENT');
+        expect(muya.getMarkdown()).toBe(source);
+    });
+
     it('keeps resolution and undo canonical while clean views stay read-only', async () => {
         const source = '{++new++} {--old--}\n';
         const muya = boot(source);

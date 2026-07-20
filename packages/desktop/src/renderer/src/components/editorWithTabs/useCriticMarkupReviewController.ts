@@ -6,17 +6,20 @@ import type {
 import bus from '@/bus'
 import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
 import { createCommentComposer } from './commentComposer'
+import { isCriticMarkupCommentEditSubmission } from './criticMarkupCommentEdit'
 import {
   executeCriticMarkupReviewAction,
   executeCriticMarkupSidebarItemAction,
   buildCriticMarkupSidebarState,
   type CriticMarkupTextRequest
 } from './criticMarkupReview'
-import type {
-  CriticMarkupReviewAction,
-  CriticMarkupReviewMenuState,
-  CriticMarkupSidebarItem,
-  CriticMarkupSidebarItemAction
+import {
+  isCriticMarkupCommentEditRequest,
+  type CriticMarkupEditorContextRequest,
+  type CriticMarkupReviewAction,
+  type CriticMarkupReviewMenuState,
+  type CriticMarkupSidebarItem,
+  type CriticMarkupSidebarItemAction
 } from '@shared/types/criticMarkup'
 
 interface CriticMarkupReviewControllerOptions {
@@ -190,11 +193,18 @@ export function useCriticMarkupReviewController(
 
   const handleCommentEdit = (payload: unknown): void => {
     const targetEditor = connectedEditor
-    if (!targetEditor || !options.fileId.value || options.sourceCode.value) return
-    if (!payload || typeof payload !== 'object') return
-    const { target, text } = payload as { target?: unknown, text?: unknown }
-    if (!target || typeof text !== 'string') return
-    targetEditor.editCriticMarkupComment(target as CriticMarkupSidebarItem, text)
+    if (!isCriticMarkupCommentEditSubmission(payload)) return
+
+    let saved = false
+    if (targetEditor && options.fileId.value && !options.sourceCode.value) {
+      try {
+        saved = targetEditor.editCriticMarkupComment(payload.target, payload.text)
+      } catch {
+        // The engine normally fails closed with `false`. Treat an unexpected
+        // exception the same way at this UI boundary so the draft is retained.
+      }
+    }
+    payload.acknowledge({ outcome: saved ? 'saved' : 'rejected' })
   }
 
   const handleSidebarAction = (payload: unknown): void => {
@@ -212,6 +222,73 @@ export function useCriticMarkupReviewController(
 
   const handleDocumentContextChange = (): void => {
     invalidateContext()
+  }
+
+  const handleEditorContextQuery = (
+    _event: unknown,
+    request: CriticMarkupEditorContextRequest
+  ): void => {
+    if (
+      !request ||
+      typeof request.requestId !== 'string' ||
+      !Number.isFinite(request.x) ||
+      !Number.isFinite(request.y)
+    ) {
+      return
+    }
+
+    const targetEditor = connectedEditor
+    const fileId = options.fileId.value
+    let target: CriticMarkupSidebarItem | null = null
+    try {
+      target = targetEditor && fileId && !options.sourceCode.value
+        ? targetEditor.getCriticMarkupCommentAtPoint(request.x, request.y)
+        : null
+    } catch {
+      // The parser-owned point API deliberately throws for stale DOM identity.
+      // This IPC boundary fails closed so the main process can show the normal
+      // context menu instead of surfacing an obsolete Edit Comment target.
+    }
+    window.electron.ipcRenderer.send('mt::cm-editor-context-response', target && fileId
+      ? { requestId: request.requestId, fileId, target }
+      : { requestId: request.requestId, fileId: null, target: null })
+  }
+
+  const isExactLiveComment = (
+    live: CriticMarkupSidebarItem,
+    target: CriticMarkupSidebarItem
+  ): boolean => live.type === 'comment' && target.type === 'comment' &&
+    live.id === target.id &&
+    live.start === target.start &&
+    live.end === target.end &&
+    live.sourceStart === target.sourceStart &&
+    live.sourceEnd === target.sourceEnd &&
+    live.raw === target.raw &&
+    live.content === target.content &&
+    live.anchorId === target.anchorId &&
+    live.anchorText === target.anchorText &&
+    live.path.length === target.path.length &&
+    live.path.every((part, index) => part === target.path[index])
+
+  const handleNativeCommentEdit = (
+    _event: unknown,
+    request: unknown
+  ): void => {
+    const targetEditor = connectedEditor
+    const fileId = options.fileId.value
+    if (
+      !targetEditor ||
+      !fileId ||
+      options.sourceCode.value ||
+      !isCriticMarkupCommentEditRequest(request) ||
+      request.fileId !== fileId
+    ) {
+      return
+    }
+
+    const live = targetEditor.getCriticMarkupReviewSnapshot().items.find(item =>
+      isExactLiveComment(item, request.target))
+    if (live) reviewStore.REQUEST_COMMENT_EDIT({ fileId, target: live })
   }
 
   // A bare selection change (notably a same-block mouse drag) emits no engine
@@ -250,6 +327,14 @@ export function useCriticMarkupReviewController(
   bus.on('file-loaded', handleDocumentContextChange)
   bus.on('file-changed', handleDocumentContextChange)
   document.addEventListener('selectionchange', onSelectionChange)
+  const stopEditorContextQuery = window.electron.ipcRenderer.on(
+    'mt::cm-query-editor-context',
+    handleEditorContextQuery
+  )
+  const stopNativeCommentEdit = window.electron.ipcRenderer.on(
+    'mt::cm-edit-comment',
+    handleNativeCommentEdit
+  )
 
   const stopEditorWatch = watch(
     options.editor,
@@ -285,6 +370,8 @@ export function useCriticMarkupReviewController(
     bus.off('file-loaded', handleDocumentContextChange)
     bus.off('file-changed', handleDocumentContextChange)
     document.removeEventListener('selectionchange', onSelectionChange)
+    stopEditorContextQuery()
+    stopNativeCommentEdit()
     if (refreshTimer) clearTimeout(refreshTimer)
     disconnectEditor()
     clear()

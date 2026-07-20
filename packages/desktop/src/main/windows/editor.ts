@@ -167,6 +167,7 @@ class EditorWindow extends BaseWindow {
 
     win.webContents.on('context-menu', (event, params) => {
       showEditorContextMenu(win!, event, params, preferences.getItem('spellcheckerEnabled'))
+        .catch(error => log.error('Unable to show editor context menu.', error))
     })
 
     win.webContents.once('did-finish-load', () => {

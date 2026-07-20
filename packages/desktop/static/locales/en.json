@@ -205,6 +205,7 @@
     "pasteAsPlainText": "Paste as Plain Text",
     "insertParagraphBefore": "Insert Paragraph Before",
     "insertParagraphAfter": "Insert Paragraph After",
+    "editComment": "Edit Comment",
     "spelling": "Spelling...",
     "changeLanguage": "Change Language...",
     "addToDictionary": "Add to Dictionary",
@@ -282,7 +283,8 @@
       "commentPlaceholder": "Add a comment...",
       "composeTitle": "New comment",
       "edit": "Edit",
-      "saveEdit": "Save"
+      "saveEdit": "Save",
+      "commentEditFailed": "Couldn't save this comment. Your draft was kept; review the document and try again."
     },
     "icons": {
       "files": "Files",

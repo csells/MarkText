@@ -141,7 +141,6 @@ export class Muya implements ICriticMarkupReviewEditor {
         );
         this._cursorController = new CursorController(this);
         this._bindFocusBlurEvents();
-        this._bindCriticMarkupReviewEvents();
     }
 
     private _bindFocusBlurEvents() {
@@ -151,19 +150,6 @@ export class Muya implements ICriticMarkupReviewEditor {
         this.eventCenter.attachDOMEvent(this.domNode, 'blur', () => {
             this.eventCenter.emit('blur');
         });
-    }
-
-    private _bindCriticMarkupReviewEvents() {
-        const publish = () => this._emitCriticMarkupReviewChange();
-        this.eventCenter.on('selection-change', publish);
-        this.eventCenter.on('json-change', publish);
-    }
-
-    private _emitCriticMarkupReviewChange() {
-        this.eventCenter.emit(
-            'critic-markup-review-change',
-            this.getCriticMarkupReviewSnapshot(),
-        );
     }
 
     init() {
@@ -276,7 +262,7 @@ export class Muya implements ICriticMarkupReviewEditor {
 
     setContent(content: TState[] | string, autoFocus = false) {
         this.editor.setContent(content, autoFocus);
-        this._emitCriticMarkupReviewChange();
+        this._criticMarkup.publishReviewSnapshot();
     }
 
     replaceContent(content: TState[] | string, recordSelection?: Nullable<IHistorySelection>): boolean {
@@ -328,9 +314,9 @@ export class Muya implements ICriticMarkupReviewEditor {
         if (projectionChanged || trackChangesChanged)
             this.flush();
         const render = forceRender || projectionChanged;
-        const parseAffecting = render
-            && Object.keys(options).some(key =>
-                PARSE_AFFECTING_OPTIONS.has(key as keyof IMuyaOptions));
+        const parserOptionsChanged = Object.keys(options).some(key =>
+            PARSE_AFFECTING_OPTIONS.has(key as keyof IMuyaOptions));
+        const parseAffecting = render && parserOptionsChanged;
         const markdown = parseAffecting ? this.getMarkdown() : null;
 
         try {
@@ -366,7 +352,9 @@ export class Muya implements ICriticMarkupReviewEditor {
 
             this._applyOptionEffects(options);
             if (projectionChanged || trackChangesChanged)
-                this._emitCriticMarkupReviewChange();
+                this._criticMarkup.publishReviewSnapshot();
+            if (parserOptionsChanged)
+                this.editor.scheduleProjectionWarmup();
         }
         catch (error) {
             this.options = previousOptions;
@@ -513,6 +501,13 @@ export class Muya implements ICriticMarkupReviewEditor {
 
     getCriticMarkupReviewSnapshot(): ICriticMarkupReviewSnapshot {
         return this._criticMarkup.getReviewSnapshot();
+    }
+
+    getCriticMarkupCommentAtPoint(
+        clientX: number,
+        clientY: number,
+    ): ICriticMarkupReviewSnapshot['items'][number] | null {
+        return this._criticMarkup.commentAtPoint(clientX, clientY);
     }
 
     getCurrentCriticMarkupItem(): ICriticMarkupItem | null {

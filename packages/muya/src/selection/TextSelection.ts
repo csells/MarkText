@@ -5,7 +5,7 @@ import type { Muya } from '../muya';
 import type { Nullable } from '../types';
 import type Selection from './index';
 import type { IAnchorFocusInfo, INodeOffset, ISelection } from './types';
-import { BLOCK_DOM_PROPERTY } from '../config';
+import { BLOCK_DOM_PROPERTY, CLASS_NAMES } from '../config';
 import { isHTMLElement, isMouseEvent } from '../utils';
 import {
     buildSelectionAffiliation,
@@ -18,9 +18,24 @@ import {
     getLegalOffset,
     getNodeAndOffset,
     getOffsetOfParagraph,
+    getTextContent,
     getTextOffset,
 } from './dom';
 import { SelectionCaretType, SelectionDirection, SelectionType } from './types';
+
+const ELEMENT_NODE_TYPE = 1;
+
+function isNodeOwnedBy(
+    value: unknown,
+    ownerDocument: Document,
+): value is Node {
+    if (!value || typeof value !== 'object')
+        return false;
+
+    const candidate = value as Partial<Node>;
+    return typeof candidate.nodeType === 'number'
+        && candidate.ownerDocument === ownerDocument;
+}
 
 function computeDirection(
     anchorBlock: Content,
@@ -51,6 +66,52 @@ function computeCaretType(
     return isCollapsed ? SelectionCaretType.CARET : SelectionCaretType.RANGE;
 }
 
+function visibleDomEndpoint(
+    paragraph: Node,
+    modelOffset: number,
+): ReturnType<typeof getNodeAndOffset> {
+    const endpoint = getNodeAndOffset(paragraph, modelOffset);
+    const startElement = endpoint.node.nodeType === ELEMENT_NODE_TYPE
+        ? endpoint.node as HTMLElement
+        : endpoint.node.parentElement;
+    if (!startElement)
+        return endpoint;
+
+    // getNodeAndOffset deliberately descends into the child that owns an exact
+    // text-boundary equality. At a hidden comment boundary that can put the
+    // native caret in the open/close marker even though the model offset is at
+    // a legal visible edge. Lift the endpoint out of the *outermost* enclosing
+    // comment wrapper so nested comments cannot leave it inside a hidden parent.
+    let outerComment: HTMLElement | null = null;
+    let ancestor: HTMLElement | null = startElement;
+    while (ancestor && ancestor !== paragraph) {
+        if (
+            ancestor.classList.contains(CLASS_NAMES.MU_CRITIC_MARKUP)
+            && ancestor.classList.contains(CLASS_NAMES.MU_CRITIC_COMMENT)
+        ) {
+            outerComment = ancestor;
+        }
+        ancestor = ancestor.parentElement;
+    }
+    if (!outerComment?.parentNode)
+        return endpoint;
+
+    const parent = outerComment.parentNode;
+    const childIndex = [...parent.childNodes].indexOf(outerComment);
+    if (childIndex < 0)
+        return endpoint;
+    const commentStart = getOffsetOfParagraph(outerComment, paragraph as HTMLElement);
+    const commentEnd = commentStart + getTextContent(outerComment).length;
+
+    return {
+        node: parent,
+        offset: modelOffset - commentStart
+            <= commentEnd - modelOffset
+            ? childIndex
+            : childIndex + 1,
+    };
+}
+
 class TextSelection {
     public anchorPath: TBlockPath = [];
     public anchorBlock: Nullable<Content> = null;
@@ -59,7 +120,7 @@ class TextSelection {
     public anchor: Nullable<INodeOffset> = null;
     public focus: Nullable<INodeOffset> = null;
 
-    private _doc: Document = document;
+    private readonly _doc: Document;
 
     private _selectInfo: {
         isSelect: boolean;
@@ -70,6 +131,7 @@ class TextSelection {
     };
 
     constructor(private _muya: Muya, private _selection: Selection) {
+        this._doc = _muya.domNode.ownerDocument;
         this._listenSelectActions();
     }
 
@@ -286,6 +348,7 @@ class TextSelection {
         const { eventCenter, domNode } = this._muya;
 
         const handleMousedown = () => {
+            this._selection.resetHiddenCriticCommentCaretNavigation();
             this._selectInfo = {
                 isSelect: true,
                 selection: null,
@@ -347,6 +410,9 @@ class TextSelection {
         eventCenter.attachDOMEvent(domNode, 'mouseup', handleMouseupOrLeave);
         eventCenter.attachDOMEvent(domNode, 'mouseleave', handleMouseupOrLeave);
         eventCenter.attachDOMEvent(domNode, 'click', handleMousemoveOrClick);
+        eventCenter.attachDOMEvent(this._doc, 'selectionchange', () => {
+            this._selection.normalizeHiddenCriticCommentCaret();
+        });
     }
 
     private _updateSelection() {
@@ -379,13 +445,24 @@ class TextSelection {
         // getNodeAndOffset expects a DOM Node. The fallback branch can hand
         // back a Parent/Content block (from scrollPage.queryBlock); narrow to
         // an actual Node here, preserving the existing not-found behavior.
-        if (!(anchorParagraph instanceof Node) || !(focusParagraph instanceof Node))
+        if (
+            !isNodeOwnedBy(anchorParagraph, this._doc)
+            || !isNodeOwnedBy(focusParagraph, this._doc)
+        ) {
             return;
-        const { node: anchorNode, offset: anchorOffset } = getNodeAndOffset(
+        }
+        // Only a collapsed caret is normalized out of hidden comments. Ranges
+        // retain exact source endpoints for history/programmatic restoration;
+        // lifting one endpoint would make the live DOM disagree with the stored
+        // model and silently change the range.
+        const endpointAt = this._isCollapsed
+            ? visibleDomEndpoint
+            : getNodeAndOffset;
+        const { node: anchorNode, offset: anchorOffset } = endpointAt(
             anchorParagraph,
             anchor.offset,
         );
-        const { node: focusNode, offset: focusOffset } = getNodeAndOffset(
+        const { node: focusNode, offset: focusOffset } = endpointAt(
             focusParagraph,
             focus.offset,
         );

@@ -155,6 +155,41 @@ describe('criticMarkup track-changes transform', () => {
         });
     });
 
+    it('tracks complete deletion of a nested comment anchor payload', () => {
+        const before
+            = '{==outer {==inner==}{>>inner note<<} tail==}{>>outer note<<}';
+        const removed = 'outer {==inner==}{>>inner note<<} tail';
+        const start = before.indexOf(removed);
+        const after = before.slice(0, start)
+            + before.slice(start + removed.length);
+        const expected
+            = '{=={--outer {==inner==}{>>inner note<<} tail--}==}'
+            + '{>>outer note<<}';
+        expect(projectCriticMarkupTokens(
+            expected,
+            'original',
+            scanCriticMarkup(expected),
+        )).toBe(projectCriticMarkupTokens(
+            before,
+            'original',
+            scanCriticMarkup(before),
+        ));
+        expect(projectCriticMarkupTokens(
+            expected,
+            'revised',
+            scanCriticMarkup(expected),
+        )).toBe(projectCriticMarkupTokens(
+            after,
+            'revised',
+            scanCriticMarkup(after),
+        ));
+
+        expect(track(before, after, [{
+            oldRange: sourceRange(start, start + removed.length),
+            inserted: '',
+        }])?.text).toBe(expected);
+    });
+
     it('edits the revised arm of a pending substitution without nesting', () => {
         expect(track(
             '{~~old~>new~~}',

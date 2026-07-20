@@ -91,12 +91,6 @@ em.mu-inline-rule {
 
     background: var(--theme-color);
     border-radius: 50%;
-    cursor: pointer;
-}
-
-.mu-critic-comment-indicator:focus-visible {
-    outline: 1px solid var(--theme-color);
-    outline-offset: 2px;
 }
 
 /* An over-budget nested subtree stays as editable literal Markdown. The

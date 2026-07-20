@@ -259,7 +259,7 @@ describe('criticMarkupReviewTool integration', () => {
         expect(muya.getMarkdown()).toBe('before new after\n');
     });
 
-    it('makes the visible comment indicator focus the native comment item', async () => {
+    it('keeps the visible comment indicator passive', async () => {
         const { muya, tool } = boot('{>>review note<<}\n');
         const indicator = muya.domNode.querySelector(
             '.mu-critic-comment-indicator',
@@ -268,9 +268,7 @@ describe('criticMarkupReviewTool integration', () => {
         indicator.click();
         await settleFloat();
 
-        expect(muya.getCurrentCriticMarkupItem()?.type).toBe('comment');
-        expect(tool.status).toBe(true);
-        expect(tool.container!.querySelector('button.remove')).not.toBeNull();
+        expect(tool.status).toBe(false);
     });
 
     it.each([
@@ -348,7 +346,14 @@ describe('criticMarkupReviewTool integration', () => {
         expect(muya.focusCriticMarkup(item)).not.toBeNull();
         await settleFloat();
 
-        expect(item.fragments.length).toBeGreaterThan(1);
+        const documentItem = muya.editor.criticMarkupDocument
+            .get()
+            .itemById(item.id);
+        expect(item.fragments).toMatchObject([
+            { path: [0, 'text'], role: 'start' },
+            { path: [1, 'text'], role: 'end' },
+        ]);
+        expect(documentItem?.structuralFragments).toEqual([]);
         expect(tool.status).toBe(true);
         expect(tool.container!.querySelectorAll('button')).toHaveLength(2);
     });

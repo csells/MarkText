@@ -1,3 +1,4 @@
+import type { CriticMarkupDocument } from '../criticMarkup/document';
 import type { Muya } from '../muya';
 import type { IMutationAuthority } from './authority';
 import type {
@@ -8,12 +9,15 @@ import type {
 } from './types';
 import { statesEqual } from '../state/stateEquality';
 import { CollectedError } from '../utils/collectedError';
+import { normalizeDeletedCommentAnchors } from './commentAnchorDeletion';
 import { PostCommitNotificationError } from './errors';
 import { TrackedCriticMarkupPolicy } from './trackedCriticMarkup';
 
 /** Sole policy boundary for Direct, Tracked, and ReadOnly mutation modes. */
 export class MutationGateway {
     private readonly _trackedPolicy: TrackedCriticMarkupPolicy;
+    private _directBeforeDocument: CriticMarkupDocument | null = null;
+    private _normalizingDirectMutation = false;
 
     constructor(
         private readonly _muya: Muya,
@@ -87,10 +91,18 @@ export class MutationGateway {
         const beforeSelection = editor.selection.getSelection();
         const beforeSearch = editor.searchModule.checkpoint();
         let replay: (() => void) | null = null;
+        const previousBeforeDocument = this._directBeforeDocument;
+        const beforeDocument = editor.criticMarkupDocument.get();
+        this._directBeforeDocument = beforeDocument.hasCommentAnchors
+            ? beforeDocument
+            : null;
 
         try {
             const prepared = eventCenter.buffer(() => {
-                const captured = editor.jsonState.capture(mutate);
+                const captured = editor.jsonState.capture(
+                    mutate,
+                    () => this._normalizeActiveDirectMutation(),
+                );
                 if (captured.operation !== null) {
                     editor.commitPendingContents(captured.operation, 'user');
                 }
@@ -126,7 +138,35 @@ export class MutationGateway {
             }
             throw error;
         }
+        finally {
+            this._directBeforeDocument = previousBeforeDocument;
+        }
         return replay ?? (() => {});
+    }
+
+    private _normalizeActiveDirectMutation(): void {
+        const beforeDocument = this._directBeforeDocument;
+        if (
+            !beforeDocument
+            || this._normalizingDirectMutation
+        ) {
+            return;
+        }
+        const captured = this._muya.editor.jsonState.activeCaptureSnapshot();
+        if (!captured)
+            return;
+
+        this._normalizingDirectMutation = true;
+        try {
+            normalizeDeletedCommentAnchors(
+                this._muya,
+                beforeDocument,
+                captured,
+            );
+        }
+        finally {
+            this._normalizingDirectMutation = false;
+        }
     }
 
     /** Publish only after the authority scope has closed. */

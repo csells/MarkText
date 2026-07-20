@@ -205,6 +205,7 @@
     "pasteAsPlainText": "Düz Metin Olarak Yapıştır",
     "insertParagraphBefore": "Önüne Paragraf Ekle",
     "insertParagraphAfter": "Arkasına Paragraf Ekle",
+    "editComment": "Yorumu düzenle",
     "spelling": "Yazım...",
     "changeLanguage": "Dili Değiştir...",
     "addToDictionary": "Sözlüğe Ekle",
@@ -276,7 +277,14 @@
         "substitution": "Değişiklik",
         "highlight": "Vurgu",
         "comment": "Yorum"
-      }
+      },
+      "addComment": "Yorum yap",
+      "cancel": "İptal",
+      "commentPlaceholder": "Yorum ekle...",
+      "composeTitle": "Yeni yorum",
+      "edit": "Düzenle",
+      "saveEdit": "Kaydet",
+      "commentEditFailed": "Yorum kaydedilemedi. Taslağınız korundu; belgeyi gözden geçirip yeniden deneyin."
     },
     "icons": {
       "files": "Dosyalar",

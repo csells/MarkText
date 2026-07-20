@@ -77,6 +77,43 @@ describe('projection toggle cost model', () => {
         ).toBe('keep brand-new tail');
     });
 
+    it('invalidates cached projections when the parser profile changes without a document edit', () => {
+        const muya = createEditor('keep {++new++} tail\n');
+        muya.editor.cancelProjectionWarmup();
+        const parse = vi.spyOn(muya.editor.jsonState, 'markdownToState');
+
+        muya.setOptions({ criticMarkupProjection: 'original' }, false);
+        muya.setOptions({ criticMarkupProjection: 'marked' }, false);
+        expect(parse).toHaveBeenCalledOnce();
+        parse.mockClear();
+
+        // The source revision is unchanged, but footnote participates in the
+        // native Markdown parser profile. Its projected states must not come
+        // from the old profile's cache.
+        muya.setOptions({ footnote: true }, false);
+        muya.setOptions({ criticMarkupProjection: 'original' }, false);
+
+        expect(parse).toHaveBeenCalledOnce();
+    });
+
+    it('marks projections cold and rewarms after a parser-profile change', () => {
+        vi.useFakeTimers();
+        try {
+            const muya = createEditor('keep {++new++} tail\n');
+            vi.runAllTimers();
+            expect(muya.domNode.getAttribute('data-critic-warm')).toBe('true');
+
+            muya.setOptions({ footnote: true }, false);
+
+            expect(muya.domNode.getAttribute('data-critic-warm')).toBeNull();
+            vi.runAllTimers();
+            expect(muya.domNode.getAttribute('data-critic-warm')).toBe('true');
+        }
+        finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('reschedules the projection warmup when a mutation is in flight', () => {
         vi.useFakeTimers();
         try {

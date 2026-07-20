@@ -5,6 +5,7 @@ import type { IRenderCursor } from '../selection/types';
 import type { TMarkdownStatePath } from '../state/markdownSourceMap';
 import type { IParagraphState } from '../state/types';
 import type { IHighlight, Labels } from './types';
+import { markCriticMarkupBlockRendered } from '../criticMarkup/renderedBlockState';
 import { MappedPathIndex } from '../mapped-range';
 import { localRange } from '../mappedText';
 import { markdownStatePath } from '../state/markdownSourceMap';
@@ -49,7 +50,7 @@ class InlineRenderer {
         );
         const criticMarkupDocument = this.muya.editor.criticMarkupDocument.get();
 
-        return tokenizer(text, {
+        const tokens = tokenizer(text, {
             hasBeginRules,
             labels,
             options: {
@@ -68,6 +69,12 @@ class InlineRenderer {
             },
             highlights,
         });
+        return {
+            tokens,
+            hasHiddenCriticComment: criticMarkupDocumentFragments.some(
+                ({ item }) => item.syntax.type === 'comment',
+            ),
+        };
     }
 
     /**
@@ -172,13 +179,21 @@ class InlineRenderer {
         if (block.isParent())
             debug.error('Patch can only handle content block');
 
-        const tokens = this._tokenizer(block, highlights);
+        const { tokens, hasHiddenCriticComment } = this._tokenizer(
+            block,
+            highlights,
+        );
         const html = this.renderer.output(
             tokens,
             block,
             cursor && cursor.block === block ? cursor : {},
         );
         domNode!.innerHTML = html;
+        markCriticMarkupBlockRendered(
+            block,
+            this.muya.options.criticMarkupProjection,
+            hasHiddenCriticComment,
+        );
     }
 
     private _collectReferenceDefinitions() {

@@ -270,6 +270,7 @@ export function freezeSourceTrivia(
             'criticAfterFlush',
             'blockPrefix',
             'blockSeparatorAfter',
+            'suppressBlockTerminatorAfter',
             'terminalLineEnding',
             'tableSourceSyntax',
             'listItemLeadingPrefix',
@@ -367,6 +368,17 @@ export function freezeSourceTrivia(
             'State source trivia blockSeparatorAfter must be whitespace.',
         );
     }
+    const suppressBlockTerminatorAfter = properties.get(
+        'suppressBlockTerminatorAfter',
+    );
+    if (
+        suppressBlockTerminatorAfter !== undefined
+        && suppressBlockTerminatorAfter !== true
+    ) {
+        throw new TypeError(
+            'State source trivia suppressBlockTerminatorAfter must be true when present.',
+        );
+    }
     const terminalLineEnding = properties.get('terminalLineEnding');
     if (
         terminalLineEnding !== undefined
@@ -454,6 +466,9 @@ export function freezeSourceTrivia(
         ...(typeof blockPrefix === 'string' ? { blockPrefix } : {}),
         ...(typeof blockSeparatorAfter === 'string'
             ? { blockSeparatorAfter }
+            : {}),
+        ...(suppressBlockTerminatorAfter === true
+            ? { suppressBlockTerminatorAfter }
             : {}),
         ...(typeof terminalLineEnding === 'string'
             ? { terminalLineEnding: terminalLineEnding as '' | '\n' | '\r\n' }

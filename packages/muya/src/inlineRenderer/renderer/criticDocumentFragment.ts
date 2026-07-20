@@ -126,7 +126,7 @@ export default function criticDocumentFragment(
                 attrs: {
                     contenteditable: 'false',
                     title: token.critic.type === 'comment'
-                        ? token.critic.content
+                        ? token.critic.semanticContent
                         : '',
                 },
             },

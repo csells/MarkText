@@ -7,10 +7,9 @@ import type {
 import {
     exceedsCriticMarkupParseDepthBudget,
 } from '../../../criticMarkup/renderPolicy';
-import {
-    criticMarkupMarkerIndex,
-    sourceLineIndex,
-} from './criticMarkupPlanIndex';
+import { upperBound } from '../../../mapped-range';
+import { sourceRange } from '../../../mappedText';
+import { sourceLineIndex } from './criticMarkupPlanIndex';
 
 export interface ICriticMarkupFragmentPlan {
     readonly item: ICriticMarkupDocumentItem;
@@ -59,6 +58,184 @@ export function criticMarkerRanges(
     }).map(range => ({ start: range.start, end: range.end })).sort((left, right) => left.start - right.start || right.end - left.end);
 }
 
+function criticParserInvisibleRanges(
+    document: CriticMarkupDocument,
+    markerRanges: readonly Tokens.CriticMarkupRange[],
+): readonly Tokens.CriticMarkupRange[] {
+    return coalescedRanges([
+        ...markerRanges,
+        ...document.items
+            .filter(item => item.syntax.type === 'comment')
+            .map(item => item.syntax.range),
+    ]);
+}
+
+function coalescedRanges(
+    sourceRanges: readonly Tokens.CriticMarkupRange[],
+): readonly Tokens.CriticMarkupRange[] {
+    return [...sourceRanges]
+        .sort((left, right) => left.start - right.start)
+        .reduce<Tokens.CriticMarkupRange[]>((ranges, range) => {
+            const previous = ranges.at(-1);
+            if (previous && range.start <= previous.end) {
+                ranges[ranges.length - 1] = {
+                    start: previous.start,
+                    end: Math.max(previous.end, range.end),
+                };
+            }
+            else {
+                ranges.push({ start: range.start, end: range.end });
+            }
+            return ranges;
+        }, []);
+}
+
+function sourceWithoutRanges(
+    source: string,
+    ranges: readonly Tokens.CriticMarkupRange[],
+    start: number,
+    end: number,
+): string {
+    let low = 0;
+    let high = ranges.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (ranges[middle].end <= start)
+            low = middle + 1;
+        else
+            high = middle;
+    }
+    let result = '';
+    let cursor = start;
+    for (let index = low; index < ranges.length; index++) {
+        const invisible = ranges[index];
+        if (end <= invisible.start)
+            break;
+        result += source.slice(
+            cursor,
+            Math.max(cursor, Math.min(invisible.start, end)),
+        );
+        cursor = Math.max(cursor, Math.min(invisible.end, end));
+    }
+    return result + source.slice(cursor, end);
+}
+
+interface IProjectedLineTail {
+    readonly source: string;
+    readonly structural: boolean;
+}
+
+interface IProjectedLineContext {
+    readonly isLineStartAt: (sourceOffset: number) => boolean;
+    readonly isLineEndAt: (sourceOffset: number) => boolean;
+    readonly precedingLinesAt: (
+        sourceOffset: number,
+        maximumLines: number,
+    ) => string;
+    readonly followingLineAt: (
+        sourceOffset: number,
+    ) => IProjectedLineTail;
+}
+
+/**
+ * Index physical source offsets into the Markdown projection produced by
+ * deleting parser-invisible ranges. Line queries must operate in that
+ * projection: a hidden multiline comment contributes neither its newlines
+ * nor a block boundary. Building the projection once also lets every item at
+ * one collapsed boundary share the same following-line slice and structural
+ * probe.
+ */
+function projectedLineContext(
+    source: string,
+    invisibleRanges: readonly Tokens.CriticMarkupRange[],
+    isStructuralBlock: (source: string) => boolean,
+): IProjectedLineContext {
+    const removedThrough: number[] = [];
+    let removed = 0;
+    for (const range of invisibleRanges) {
+        removed += range.end - range.start;
+        removedThrough.push(removed);
+    }
+    const projected = sourceWithoutRanges(
+        source,
+        invisibleRanges,
+        0,
+        source.length,
+    );
+    const lines = sourceLineIndex(projected);
+    const precedingCache = new Map<string, string>();
+    const followingCache = new Map<number, IProjectedLineTail>();
+    const projectedOffsetAt = (sourceOffset: number): number => {
+        const rangeIndex = upperBound(
+            invisibleRanges,
+            sourceOffset,
+            range => range.start,
+        ) - 1;
+        if (rangeIndex < 0)
+            return sourceOffset;
+        const range = invisibleRanges[rangeIndex];
+        const removedBefore = rangeIndex > 0
+            ? removedThrough[rangeIndex - 1]
+            : 0;
+        return sourceOffset <= range.end
+            ? range.start - removedBefore
+            : sourceOffset - removedThrough[rangeIndex];
+    };
+
+    return Object.freeze({
+        isLineStartAt: (sourceOffset: number) => {
+            const offset = projectedOffsetAt(sourceOffset);
+            return offset === 0 || projected[offset - 1] === '\n';
+        },
+        isLineEndAt: (sourceOffset: number) => {
+            const offset = projectedOffsetAt(sourceOffset);
+            return offset === projected.length
+                || projected[offset] === '\n'
+                || (
+                    projected[offset] === '\r'
+                    && projected[offset + 1] === '\n'
+                );
+        },
+        precedingLinesAt: (sourceOffset: number, maximumLines: number) => {
+            const offset = projectedOffsetAt(sourceOffset);
+            const key = `${offset}:${maximumLines}`;
+            const cached = precedingCache.get(key);
+            if (cached !== undefined)
+                return cached;
+            let contextStart = offset;
+            for (let step = 0; step < maximumLines; step++) {
+                if (contextStart === 0)
+                    break;
+                const previousLineStart = lines.lineStartAt(contextStart - 1);
+                if (!/\S/.test(projected.slice(
+                    previousLineStart,
+                    contextStart,
+                ))) {
+                    break;
+                }
+                contextStart = previousLineStart;
+            }
+            const context = projected.slice(contextStart, offset);
+            precedingCache.set(key, context);
+            return context;
+        },
+        followingLineAt: (sourceOffset: number) => {
+            const offset = projectedOffsetAt(sourceOffset);
+            const cached = followingCache.get(offset);
+            if (cached)
+                return cached;
+            const lineEnd = lines.lineEndAt(offset);
+            const lineSource = projected.slice(offset, lineEnd);
+            const result = Object.freeze({
+                source: lineSource,
+                structural: isStructuralBlock(lineSource),
+            });
+            followingCache.set(offset, result);
+            return result;
+        },
+    });
+}
+
 export function marker(
     name: Tokens.CriticMarkupMarker['name'],
     value: TCriticMarkupDocumentToken['markers']['open'],
@@ -82,28 +259,96 @@ export function fragmentPlans(
     const allMarkerRanges = criticMarkerRanges(document)
         .slice()
         .sort((left, right) => left.start - right.start);
-    const markerIndex = criticMarkupMarkerIndex(criticMarkerRanges(document));
+    // A structural arm's lazy-continuation probe must see semantic Markdown,
+    // not Critic delimiters or a following comment body: neither can continue
+    // the arm's final native block. Coalesce those grammar-invisible ranges so
+    // each same-line query starts with one binary search.
+    const parserInvisibleRanges = criticParserInvisibleRanges(
+        document,
+        allMarkerRanges,
+    );
+    const markerOnlyInvisibleRanges = coalescedRanges(allMarkerRanges);
+    // A comment body is active Markdown only while planning that comment or
+    // one of its descendants. Outside that subtree, Original/Revised hide the
+    // complete sibling comment and it cannot prevent a real line boundary.
+    const commentProjectionItemIds = new Set<string>();
+    for (const item of document.items) {
+        if (
+            item.syntax.type === 'comment'
+            || (
+                item.parentId !== null
+                && commentProjectionItemIds.has(item.parentId)
+            )
+        ) {
+            commentProjectionItemIds.add(item.id);
+        }
+    }
     const lineIndex = sourceLineIndex(document.markdown);
-    const effectiveLineStart = (offset: number): boolean => {
-        let cursor = lineIndex.lineStartAt(offset);
-        while (cursor < offset) {
-            const covering = markerIndex.startingAt(cursor);
-            if (!covering || covering.end > offset)
-                return false;
-            cursor = covering.end;
+    const ordinaryLineContext = projectedLineContext(
+        document.markdown,
+        parserInvisibleRanges,
+        isStructuralBlock,
+    );
+    const commentLineContext = projectedLineContext(
+        document.markdown,
+        markerOnlyInvisibleRanges,
+        isStructuralBlock,
+    );
+    const lineContextFor = (commentsVisible: boolean) => commentsVisible
+        ? commentLineContext
+        : ordinaryLineContext;
+    const effectiveLineStart = (
+        offset: number,
+        commentsVisible: boolean,
+    ): boolean => lineContextFor(commentsVisible).isLineStartAt(offset);
+    const effectiveLineEnd = (
+        offset: number,
+        commentsVisible: boolean,
+    ): boolean => lineContextFor(commentsVisible).isLineEndAt(offset);
+    const nestedCoverageContext = (
+        range: Tokens.CriticMarkupRange,
+        envelopeEndsLine: boolean,
+    ): {
+        readonly level: 'block' | 'inline';
+        readonly structuralSources: readonly string[];
+    } => {
+        const mappedRange = sourceRange(range.start, range.end);
+        const ownsStructuralBoundary = (source: string): boolean =>
+            isStructuralBlock(source)
+            && (envelopeEndsLine || /\r?\n$/.test(source));
+        const projections = [
+            document.projectSourceRange(
+                mappedRange,
+                'original',
+            ),
+            document.projectSourceRange(
+                mappedRange,
+                'revised',
+            ),
+            document.projectCommentSourceRange(
+                mappedRange,
+                'original',
+            ),
+            document.projectCommentSourceRange(
+                mappedRange,
+                'revised',
+            ),
+        ];
+        const structuralSources = projections.filter(ownsStructuralBoundary);
+        if (structuralSources.length) {
+            return {
+                level: 'block',
+                structuralSources,
+            };
         }
-        return cursor === offset;
-    };
-    const effectiveLineEnd = (offset: number): boolean => {
-        const lineEnd = lineIndex.lineEndAt(offset);
-        let cursor = offset;
-        while (cursor < lineEnd) {
-            const covering = markerIndex.startingAt(cursor);
-            if (!covering || covering.end > lineEnd)
-                return false;
-            cursor = covering.end;
-        }
-        return cursor === lineEnd;
+
+        // A structural-looking descendant does not establish block context
+        // by itself. One complete clean or hidden-comment view of this exact
+        // range must own the structural boundary.
+        return {
+            level: 'inline',
+            structuralSources,
+        };
     };
     // A single-line nest deeper than the parse budget must not lower its
     // covered arms as block fragments: block lowering would recurse the
@@ -146,6 +391,9 @@ export function fragmentPlans(
             continue;
         const forceInlineNest = inlineNestRootId !== null;
         const token = item.syntax;
+        const commentsVisible = item.parentId !== null
+            && commentProjectionItemIds.has(item.parentId);
+        const projectedLines = lineContextFor(commentsVisible);
         const open = marker('open', token.markers.open);
         const close = marker('close', token.markers.close);
         const itemPlans: ICriticMarkupFragmentPlan[] = [];
@@ -184,63 +432,11 @@ export function fragmentPlans(
                 && lineIndex.lineStartAt(envelopeStart)
                 === lineIndex.lineStartAt(token.range.start)
             ) {
-                const lineStart
-                    = lineIndex.lineStartAt(envelopeStart);
-                if (lineStart > 0) {
-                    // Laziness is decided by the block still open at the
-                    // final preceding lines: walk back a bounded number of
-                    // lines, stopping at a blank line (a block boundary).
-                    let contextStart = lineStart;
-                    for (let step = 0; step < 8; step++) {
-                        if (contextStart === 0)
-                            break;
-                        const previousLineStart
-                            = lineIndex.lineStartAt(contextStart - 1);
-                        if (!/\S/.test(document.markdown.slice(
-                            previousLineStart,
-                            contextStart,
-                        ))) {
-                            break;
-                        }
-                        contextStart = previousLineStart;
-                    }
-                    // Probe against the transparent view — other items'
-                    // marker bytes are invisible to the block parser.
-                    let low = 0;
-                    let high = allMarkerRanges.length;
-                    while (low < high) {
-                        const middle = (low + high) >> 1;
-                        if (allMarkerRanges[middle].end <= contextStart)
-                            low = middle + 1;
-                        else
-                            high = middle;
-                    }
-                    let precedingContext = '';
-                    let stripCursor = contextStart;
-                    for (
-                        let index = low;
-                        index < allMarkerRanges.length;
-                        index++
-                    ) {
-                        const markerRange = allMarkerRanges[index];
-                        if (markerRange.start >= lineStart)
-                            break;
-                        precedingContext += document.markdown.slice(
-                            stripCursor,
-                            Math.max(
-                                Math.min(markerRange.start, lineStart),
-                                stripCursor,
-                            ),
-                        );
-                        stripCursor = Math.max(
-                            stripCursor,
-                            Math.min(markerRange.end, lineStart),
-                        );
-                    }
-                    precedingContext += document.markdown.slice(
-                        stripCursor,
-                        lineStart,
-                    );
+                const precedingContext = projectedLines.precedingLinesAt(
+                    envelopeStart,
+                    8,
+                );
+                if (precedingContext.length) {
                     const strippedArm = armSource.replace(
                         /^(?:[ \t]*\r?\n)*/,
                         '',
@@ -269,7 +465,10 @@ export function fragmentPlans(
                 // into trailing text, the payload has no block seam to
                 // ride — it stays an inline fragment preserving its bytes.
                 segments.push({
-                    level: effectiveLineStart && effectiveLineEnd(envelopeEnd)
+                    level: effectiveLineStart && effectiveLineEnd(
+                        contentRange.end,
+                        commentsVisible,
+                    )
                         ? 'block'
                         : 'inline',
                     start: contentRange.start,
@@ -298,24 +497,21 @@ export function fragmentPlans(
                 return;
             }
             let cursor = contentRange.start;
-            const envelopeEndsLine = effectiveLineEnd(envelopeEnd);
-            const physicalLineEnd = document.markdown.indexOf(
-                '\n',
-                envelopeEnd,
+            const envelopeEndsLine = effectiveLineEnd(
+                contentRange.end,
+                commentsVisible,
             );
-            const followingLineSource = document.markdown.slice(
+            const followingLine = () => projectedLines.followingLineAt(
                 envelopeEnd,
-                physicalLineEnd < 0
-                    ? document.markdown.length
-                    : physicalLineEnd,
             );
             const rejoinsInlineContext = contentRange.start < contentRange.end
                 ? !isStructuralBlock(document.markdown.slice(
                         contentRange.start,
                         contentRange.end,
                     ))
-                : followingLineSource.length > 0
-                    && !isStructuralBlock(followingLineSource);
+                : effectiveLineStart
+                    && followingLine().source.length > 0
+                    && !followingLine().structural;
             if (
                 effectiveLineStart
                 && !envelopeEndsLine
@@ -323,7 +519,7 @@ export function fragmentPlans(
                 && closingMarkerMayRejoinText
                 && !rejoinsInlineContext
                 && contentRange.start < contentRange.end
-                && armAbsorbsFollowing(armSource, followingLineSource)
+                && armAbsorbsFollowing(armSource, followingLine().source)
             ) {
                 // A structural arm whose final block lazily absorbs the
                 // closing line's trailing text cannot hold as coverage —
@@ -351,13 +547,61 @@ export function fragmentPlans(
                 });
                 cursor = contentRange.end;
             }
-            else if (nestedCoversContent) {
+            else if (
+                effectiveLineStart
+                && envelopeEndsLine
+                && !nestedCoversContent
+                && token.type !== 'comment'
+                && contentRange.start < contentRange.end
+                && !/^[ \t]*\r?\n/.test(armSource)
+                // A paragraph-first payload remains mixed even when a later
+                // block is structural; only a structurally anchored first
+                // line can own the complete native block span.
+                && projectedLines.followingLineAt(contentRange.start).structural
+                && !rejoinsInlineContext
+            ) {
+                // Critic close markers and hidden sibling comments may sit
+                // between a structural payload and its projected line ending.
+                // When the payload starts on the opener's physical line, it
+                // owns the complete native block span even if later blocks
+                // follow before the flush close. An opener-own-line payload
+                // keeps its leading boundary trivia on the segmented path.
                 segments.push({
                     level: 'block',
                     start: contentRange.start,
                     end: contentRange.end,
                 });
                 cursor = contentRange.end;
+            }
+            else if (nestedCoversContent) {
+                const nestedContext = nestedCoverageContext(
+                    contentRange,
+                    envelopeEndsLine,
+                );
+                const followingRewritesNestedBlock
+                    = nestedContext.level === 'block'
+                        && nestedContext.structuralSources.some(source =>
+                            armAbsorbsFollowing(
+                                source,
+                                followingLine().source,
+                            ));
+                if (effectiveLineStart && followingRewritesNestedBlock) {
+                    // The transparent block and same-line tail form one native
+                    // lazy continuation. Route the complete enclosing item
+                    // through the existing literal-line rewrite so descendant
+                    // block plans cannot escape and split its marker envelope.
+                    forceLiteralLines = true;
+                }
+                else {
+                    segments.push({
+                        level: effectiveLineStart
+                            ? nestedContext.level
+                            : 'inline',
+                        start: contentRange.start,
+                        end: contentRange.end,
+                    });
+                    cursor = contentRange.end;
+                }
             }
             else if (!effectiveLineStart) {
                 const firstNewline = document.markdown.indexOf('\n', cursor);
@@ -442,8 +686,8 @@ export function fragmentPlans(
                 }
                 return nested.length > 0 && cursor === range.end;
             };
-            appendArm('old', token.oldRange, token.range.start, token.markers.separator.range.end, [open], [separator], effectiveLineStart(token.range.start), !forceInlineNest && nestedCovers(token.oldRange), false);
-            appendArm('new', token.newRange, token.newRange.start, token.range.end, [], [close], effectiveLineStart(token.markers.separator.range.start), !forceInlineNest && nestedCovers(token.newRange), true);
+            appendArm('old', token.oldRange, token.range.start, token.markers.separator.range.end, [open], [separator], effectiveLineStart(token.oldRange.start, commentsVisible), !forceInlineNest && nestedCovers(token.oldRange), false);
+            appendArm('new', token.newRange, token.newRange.start, token.range.end, [], [close], effectiveLineStart(token.newRange.start, commentsVisible), !forceInlineNest && nestedCovers(token.newRange), true);
         }
         else {
             const nested = [...(token.nested ?? [])]
@@ -461,7 +705,7 @@ export function fragmentPlans(
                 token.range.end,
                 [open],
                 [close],
-                effectiveLineStart(token.range.start),
+                effectiveLineStart(token.contentRange.start, commentsVisible),
                 !forceInlineNest
                 && nested.length > 0
                 && nestedCursor === token.contentRange.end,

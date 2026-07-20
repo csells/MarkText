@@ -205,6 +205,7 @@
     "pasteAsPlainText": "Pegar como Texto Plano",
     "insertParagraphBefore": "Insertar Párrafo Antes",
     "insertParagraphAfter": "Insertar Párrafo Después",
+    "editComment": "Editar comentario",
     "spelling": "Ortografía...",
     "changeLanguage": "Cambiar Idioma...",
     "addToDictionary": "Agregar al Diccionario",
@@ -276,7 +277,14 @@
         "substitution": "Reemplazo",
         "highlight": "Resaltado",
         "comment": "Comentario"
-      }
+      },
+      "addComment": "Comentar",
+      "cancel": "Cancelar",
+      "commentPlaceholder": "Añade un comentario...",
+      "composeTitle": "Nuevo comentario",
+      "edit": "Editar",
+      "saveEdit": "Guardar",
+      "commentEditFailed": "No se pudo guardar el comentario. El borrador se ha conservado; revisa el documento e inténtalo de nuevo."
     },
     "icons": {
       "files": "Archivos",

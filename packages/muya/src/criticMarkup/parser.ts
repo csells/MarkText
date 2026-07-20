@@ -12,6 +12,14 @@ export interface ICriticMarkupMarker {
     readonly range: Readonly<ICriticMarkupRange>;
 }
 
+/** Minimal grammar identity needed to decode one serialized payload slice. */
+export interface ICriticMarkupPayloadEscapeOwner {
+    readonly type: TCriticMarkupType;
+    readonly markers: Readonly<{
+        close: Readonly<{ raw: string }>;
+    }>;
+}
+
 export type TCriticMarkupContentType
     = | 'addition'
         | 'deletion'
@@ -752,7 +760,7 @@ function escapeCriticMarkupPayload(
  * substitution separator or a foreign close is never removed accidentally.
  */
 export function decodeCriticMarkupPayloadEscapes(
-    token: TCriticMarkupToken,
+    token: ICriticMarkupPayloadEscapeOwner,
     value: string,
 ): string {
     const result: string[] = [];

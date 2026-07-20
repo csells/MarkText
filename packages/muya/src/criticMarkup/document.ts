@@ -28,11 +28,13 @@ import type {
 import {
     HalfOpenIntervalIndex,
     MappedPathIndex,
+    mappedPathsEqual,
 } from '../mapped-range';
 import {
     localOffset as mappedLocalOffset,
     sourceRange as mappedSourceRange,
 } from '../mappedText';
+import { indexCommentAnchors } from './commentAnchors';
 import { grammarCriticMarkupBindingGraph } from './grammarBindings';
 import {
     EMPTY_FRAGMENT_INPUTS,
@@ -40,6 +42,7 @@ import {
     flattenSemanticItems,
 } from './nativeBindingTopology';
 import {
+    projectCriticMarkupCommentSourceRange,
     projectCriticMarkupItem,
     projectCriticMarkupSourceRange,
 } from './project';
@@ -96,8 +99,20 @@ export interface ICriticMarkupSelectionEndpoint {
     offset: number;
 }
 
+export interface ICriticMarkupAuthoringRangeOptions {
+    /** Allow a balanced selection to contain, or sit inside, parser items. */
+    readonly allowNestedItems?: boolean;
+}
+
 type IPathItemIndexEntry<Path extends TMappedTextPath>
     = ICriticMarkupDocumentFragmentInput<Path>;
+
+export interface ICriticMarkupCommentAnchorPair<
+    Path extends TMappedTextPath = TMarkdownStatePath,
+> {
+    readonly anchor: ICriticMarkupDocumentItem<Path>;
+    readonly comment: ICriticMarkupDocumentItem<Path>;
+}
 
 /** Freeze a semantic forest iteratively so adversarial nesting cannot overflow. */
 function deepFreezeSemanticGraph<T>(root: T): T {
@@ -111,7 +126,11 @@ function deepFreezeSemanticGraph<T>(root: T): T {
         if (seen.has(current))
             continue;
         seen.add(current);
-        for (const value of Object.values(current)) {
+        for (const key of Reflect.ownKeys(current)) {
+            const descriptor = Object.getOwnPropertyDescriptor(current, key);
+            if (!descriptor || !('value' in descriptor))
+                continue;
+            const { value } = descriptor;
             if (value !== null && typeof value === 'object')
                 pending.push(value);
         }
@@ -136,6 +155,9 @@ function itemIndexes<Path extends TMappedTextPath>(items: readonly ICriticMarkup
         readonly ICriticMarkupStructuralFragmentInput<Path>[]
     >;
     structuralFragmentPaths: readonly Path[];
+    commentAnchorPairs: readonly ICriticMarkupCommentAnchorPair<Path>[];
+    anchorByCommentId: ReadonlyMap<string, ICriticMarkupDocumentItem<Path>>;
+    commentByAnchorId: ReadonlyMap<string, ICriticMarkupDocumentItem<Path>>;
 } {
     const itemsById = new Map<string, ICriticMarkupDocumentItem<Path>>();
     const itemsByParent = new Map<string | null, ICriticMarkupDocumentItem<Path>[]>();
@@ -216,6 +238,27 @@ function itemIndexes<Path extends TMappedTextPath>(items: readonly ICriticMarkup
     for (const [path, entries] of structuralItemsByPath.entries())
         frozenStructuralItemsByPath.set(path, Object.freeze(entries));
 
+    const anchorIndex = indexCommentAnchors(items.map(item => ({
+        id: item.id,
+        type: item.syntax.type,
+        sourceStart: item.syntax.range.start,
+        sourceEnd: item.syntax.range.end,
+    })));
+    const commentAnchorPairs = Object.freeze([
+        ...anchorIndex.anchorByCommentId,
+    ].map(([commentId, anchor]) => Object.freeze({
+        anchor: itemsById.get(anchor.id)!,
+        comment: itemsById.get(commentId)!,
+    })));
+    const anchorByCommentId = new Map(commentAnchorPairs.map(pair => [
+        pair.comment.id,
+        pair.anchor,
+    ]));
+    const commentByAnchorId = new Map(commentAnchorPairs.map(pair => [
+        pair.anchor.id,
+        pair.comment,
+    ]));
+
     return {
         itemsById,
         itemsByParent: new Map([...itemsByParent].map(([parentId, children]) => [
@@ -228,6 +271,9 @@ function itemIndexes<Path extends TMappedTextPath>(items: readonly ICriticMarkup
         structuralFragmentPaths: Object.freeze([
             ...structuralItemsByPath.paths(),
         ]),
+        commentAnchorPairs,
+        anchorByCommentId,
+        commentByAnchorId,
     };
 }
 
@@ -268,7 +314,18 @@ export class CriticMarkupDocument<
     >;
 
     readonly #structuralFragmentPaths: readonly Path[];
+    readonly #commentAnchorPairs: readonly ICriticMarkupCommentAnchorPair<Path>[];
+    readonly #anchorByCommentId: ReadonlyMap<
+        string,
+        ICriticMarkupDocumentItem<Path>
+    >;
+    readonly #commentByAnchorId: ReadonlyMap<
+        string,
+        ICriticMarkupDocumentItem<Path>
+    >;
     readonly #semanticOnly: boolean;
+
+    readonly hasCommentAnchors: boolean;
 
     constructor(
         analysis: CriticMarkupAnalysis,
@@ -306,6 +363,10 @@ export class CriticMarkupDocument<
         this.#fragmentPaths = indexes.fragmentPaths;
         this.#structuralItemsByPath = indexes.structuralItemsByPath;
         this.#structuralFragmentPaths = indexes.structuralFragmentPaths;
+        this.#commentAnchorPairs = indexes.commentAnchorPairs;
+        this.#anchorByCommentId = indexes.anchorByCommentId;
+        this.#commentByAnchorId = indexes.commentByAnchorId;
+        this.hasCommentAnchors = indexes.commentAnchorPairs.length > 0;
         this.#sourceIntervals = new HalfOpenIntervalIndex(items.map(item => ({
             start: item.syntax.range.start,
             end: item.syntax.range.end,
@@ -334,6 +395,22 @@ export class CriticMarkupDocument<
 
     childrenOf(parentId: string | null): readonly ICriticMarkupDocumentItem<Path>[] {
         return this.#itemsByParent.get(parentId) ?? [];
+    }
+
+    commentAnchorPairs(): readonly ICriticMarkupCommentAnchorPair<Path>[] {
+        return this.#commentAnchorPairs;
+    }
+
+    commentAnchorFor(
+        commentId: string,
+    ): ICriticMarkupDocumentItem<Path> | null {
+        return this.#anchorByCommentId.get(commentId) ?? null;
+    }
+
+    commentForAnchor(
+        anchorId: string,
+    ): ICriticMarkupDocumentItem<Path> | null {
+        return this.#commentByAnchorId.get(anchorId) ?? null;
     }
 
     /**
@@ -458,6 +535,7 @@ export class CriticMarkupDocument<
         this: CriticMarkupDocument<TMarkdownStatePath>,
         anchor: ICriticMarkupSelectionEndpoint,
         focus: ICriticMarkupSelectionEndpoint,
+        options: ICriticMarkupAuthoringRangeOptions = {},
     ): TSourceRange | null {
         this.analysis.assertContextCoverage('complete');
         this.#requireNativeBindings('authoringRange');
@@ -472,15 +550,71 @@ export class CriticMarkupDocument<
         if (anchorOffset === null || focusOffset === null)
             return null;
 
-        const range = mappedSourceRange(
+        let range = mappedSourceRange(
             Math.min(anchorOffset, focusOffset),
             Math.max(anchorOffset, focusOffset),
         );
         if (
-            this.excludedRanges.overlaps(range)
-            || this.itemIntersectingSourceRange(range) !== null
+            options.allowNestedItems
+            && mappedPathsEqual(anchor.path, focus.path)
         ) {
+            const structuralItem = this.#structuralItemEnclosing(anchor.path);
+            const syntax = structuralItem?.syntax;
+            if (
+                syntax
+                && syntax.type !== 'substitution'
+                && range.start === syntax.contentRange.start
+                && range.end === syntax.contentRange.end
+            ) {
+                // A structural item's markers live outside its native block.
+                // Selecting its complete visible carrier therefore means the
+                // whole parser item, not merely its payload. Promote before
+                // containment/exclusion checks so a new comment wraps the
+                // existing syntax as one opaque nested item.
+                range = mappedSourceRange(
+                    syntax.range.start,
+                    syntax.range.end,
+                );
+            }
+        }
+        const intersecting = this.#sourceIntervals.overlapping(
+            range.start,
+            range.end,
+        );
+        if (!options.allowNestedItems && intersecting.length)
             return null;
+        const containedItems = intersecting.filter((item) => {
+            const itemRange = item.syntax.range;
+            return range.start <= itemRange.start && itemRange.end <= range.end;
+        });
+        const containedItemSet = new Set(containedItems);
+        if (this.excludedRanges.overlaps(range)) {
+            if (!options.allowNestedItems)
+                return null;
+            const hasUnownedExclusion = this.excludedRanges.ranges.some(
+                excluded =>
+                    excluded.start < range.end
+                    && range.start < excluded.end
+                    && !containedItems.some(item =>
+                        item.syntax.range.start <= excluded.start
+                        && excluded.end <= item.syntax.range.end),
+            );
+            if (hasUnownedExclusion) {
+                return null;
+            }
+        }
+
+        if (options.allowNestedItems) {
+            for (const item of intersecting) {
+                const selectionContainsItem = containedItemSet.has(item);
+                const arms = item.syntax.type === 'substitution'
+                    ? [item.syntax.oldRange, item.syntax.newRange]
+                    : [item.syntax.contentRange];
+                const selectionInsideOneArm = arms.some(arm =>
+                    arm.start <= range.start && range.end <= arm.end);
+                if (!selectionContainsItem && !selectionInsideOneArm)
+                    return null;
+            }
         }
 
         return range;
@@ -533,6 +667,27 @@ export class CriticMarkupDocument<
         }
 
         return projectCriticMarkupSourceRange(
+            this.analysis.source,
+            range,
+            projection,
+            directTokens,
+            this.excludedRanges,
+        );
+    }
+
+    projectCommentSourceRange(
+        range: TSourceRange,
+        projection: Exclude<TCriticMarkupProjection, 'marked'>,
+    ): string {
+        const containedIds = new Set<string>();
+        const directTokens: TCriticMarkupDocumentToken[] = [];
+        for (const item of this.itemsContainedBySourceRange(range)) {
+            if (!item.parentId || !containedIds.has(item.parentId))
+                directTokens.push(item.syntax);
+            containedIds.add(item.id);
+        }
+
+        return projectCriticMarkupCommentSourceRange(
             this.analysis.source,
             range,
             projection,

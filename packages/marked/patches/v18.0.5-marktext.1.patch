@@ -165,7 +165,7 @@ index 4527f223c5196c8b8db037d2c6f29f4b303c7d71..d9e22860ebe1e861810c7b0a72823c6d
    }
  }
 diff --git a/src/Instance.ts b/src/Instance.ts
-index d21c0117a8de8935c370204c0c32d35183c5038d..48b751a525cca25e6461a61d8af003b35cfb2519 100644
+index d21c0117a8de8935c370204c0c32d35183c5038d..84b64a655d7b6fac8cbca4b056dbc5ac114e70af 100644
 --- a/src/Instance.ts
 +++ b/src/Instance.ts
 @@ -57,6 +57,17 @@ export class Marked<ParserOutput = string, RendererOutput = string> {
@@ -186,10 +186,26 @@ index d21c0117a8de8935c370204c0c32d35183c5038d..48b751a525cca25e6461a61d8af003b3
          default: {
            const genericToken = token as Tokens.Generic;
            if (this.defaults.extensions?.childTokens?.[genericToken.type]) {
-@@ -130,6 +141,20 @@ export class Marked<ParserOutput = string, RendererOutput = string> {
+@@ -129,6 +140,35 @@ export class Marked<ParserOutput = string, RendererOutput = string> {
+                 }
                }
              }
-           }
++            if (ext.startSource) { // Indexed start against mapped source
++              if (ext.level === 'block') {
++                if (extensions.startBlockSource) {
++                  extensions.startBlockSource.push(ext.startSource);
++                } else {
++                  extensions.startBlockSource = [ext.startSource];
++                }
++              } else {
++                if (extensions.startInlineSource) {
++                  extensions.startInlineSource.push(ext.startSource);
++                } else {
++                  extensions.startInlineSource = [ext.startSource];
++                }
++              }
++            }
++          }
 +          if ('sourceBoundary' in ext) {
 +            if (extensions.sourceBoundary) {
 +              extensions.sourceBoundary.unshift(ext.sourceBoundary);
@@ -203,12 +219,11 @@ index d21c0117a8de8935c370204c0c32d35183c5038d..48b751a525cca25e6461a61d8af003b3
 +            } else {
 +              extensions.initializeTokens = [ext.initializeTokens];
 +            }
-+          }
+           }
            if ('childTokens' in ext && ext.childTokens) { // Child tokens to be visited by walkTokens
              extensions.childTokens[ext.name] = ext.childTokens;
-           }
 diff --git a/src/Lexer.ts b/src/Lexer.ts
-index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc94b4080c 100644
+index 9efbdd38c8570110d74f51551990871c32f54b1b..b0eee590aba8406c23388d372331fc75ff894df0 100644
 --- a/src/Lexer.ts
 +++ b/src/Lexer.ts
 @@ -1,8 +1,108 @@
@@ -373,7 +388,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
    }
  
    /**
-@@ -79,39 +207,350 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -79,39 +207,389 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
     */
    static lexInline<ParserOutput = string, RendererOutput = string>(src: string, options?: MarkedOptions<ParserOutput, RendererOutput>) {
      const lexer = new _Lexer<ParserOutput, RendererOutput>(options);
@@ -414,6 +429,45 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
 +      );
 +    }
 +    return view;
++  }
++
++  /** Earliest future extension token in the current parser source. */
++  private extensionStartIndex(
++    src: string,
++    level: 'block' | 'inline',
++  ): number | undefined {
++    const extensions = this.options.extensions;
++    const sourceStarts = level === 'block'
++      ? extensions?.startBlockSource
++      : extensions?.startInlineSource;
++    const legacyStarts = level === 'block'
++      ? extensions?.startBlock
++      : extensions?.startInline;
++    let startIndex = Infinity;
++
++    if (sourceStarts?.length) {
++      const source = this.currentSourceView;
++      if (source) {
++        for (const getStartIndex of sourceStarts) {
++          const candidate = getStartIndex.call({ lexer: this }, source);
++          if (typeof candidate === 'number' && candidate > 0) {
++            startIndex = Math.min(startIndex, candidate);
++          }
++        }
++      }
++    }
++
++    if (legacyStarts?.length) {
++      const tail = src.slice(1);
++      for (const getStartIndex of legacyStarts) {
++        const candidate = getStartIndex.call({ lexer: this }, tail);
++        if (typeof candidate === 'number' && candidate >= 0) {
++          startIndex = Math.min(startIndex, candidate + 1);
++        }
++      }
++    }
++
++    return startIndex < Infinity ? startIndex : undefined;
 +  }
 +
 +  /** Exact parser-owned source carried by the current final parsed token. */
@@ -731,7 +785,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
        if (src.length < srcLength) {
          srcLength = src.length;
        } else {
-@@ -123,6 +562,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -123,6 +601,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        if (this.options.extensions?.block?.some((extTokenizer) => {
          if (token = extTokenizer.call({ lexer: this }, src, tokens)) {
@@ -739,7 +793,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
            src = src.substring(token.raw.length);
            tokens.push(token);
            return true;
-@@ -137,10 +577,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -137,10 +616,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          src = src.substring(token.raw.length);
          const lastToken = tokens.at(-1);
          if (token.raw.length === 1 && lastToken !== undefined) {
@@ -752,7 +806,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
            tokens.push(token);
          }
          continue;
-@@ -152,10 +594,20 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -152,10 +633,20 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          const lastToken = tokens.at(-1);
          // An indented code block cannot interrupt a paragraph.
          if (lastToken?.type === 'paragraph' || lastToken?.type === 'text') {
@@ -774,7 +828,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
            tokens.push(token);
          }
          continue;
-@@ -163,6 +615,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -163,6 +654,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // fences
        if (token = this.tokenizer.fences(src)) {
@@ -782,7 +836,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -170,6 +623,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -170,6 +662,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // heading
        if (token = this.tokenizer.heading(src)) {
@@ -790,7 +844,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -177,6 +631,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -177,6 +670,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // hr
        if (token = this.tokenizer.hr(src)) {
@@ -798,7 +852,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -184,13 +639,45 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -184,13 +678,45 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // blockquote
        if (token = this.tokenizer.blockquote(src)) {
@@ -812,16 +866,16 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
 -      if (token = this.tokenizer.list(src)) {
 +      let listSource = src;
 +      let listSourceView: MarkedSourceView<object> | null = null;
-+      if (this.blockNestingDepth > 1 && this.options.extensions?.startBlock) {
-+        let startIndex = Infinity;
-+        const tempSrc = src.slice(1);
-+        for (const getStartIndex of this.options.extensions.startBlock) {
-+          const candidate = getStartIndex.call({ lexer: this }, tempSrc);
-+          if (typeof candidate === 'number' && candidate >= 0)
-+            startIndex = Math.min(startIndex, candidate);
-+        }
-+        if (startIndex < Infinity) {
-+          const cut = startIndex + 1;
++      if (
++        this.blockNestingDepth > 1
++        && (
++          this.options.extensions?.startBlock
++          || this.options.extensions?.startBlockSource
++        )
++      ) {
++        const startIndex = this.extensionStartIndex(src, 'block');
++        if (startIndex !== undefined) {
++          const cut = startIndex;
 +          listSource = src.substring(0, cut);
 +          const current = this.currentSourceView;
 +          if (current) {
@@ -845,7 +899,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -198,6 +685,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -198,6 +724,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // html
        if (token = this.tokenizer.html(src)) {
@@ -853,7 +907,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -208,21 +696,36 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -208,21 +735,36 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          src = src.substring(token.raw.length);
          const lastToken = tokens.at(-1);
          if (lastToken?.type === 'paragraph' || lastToken?.type === 'text') {
@@ -891,7 +945,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -230,6 +733,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -230,6 +772,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // lheading
        if (token = this.tokenizer.lheading(src)) {
@@ -899,7 +953,31 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -255,11 +759,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -238,28 +781,23 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+       // top-level paragraph
+       // prevent paragraph consuming extensions by clipping 'src' to extension start
+       let cutSrc = src;
+-      if (this.options.extensions?.startBlock) {
+-        let startIndex = Infinity;
+-        const tempSrc = src.slice(1);
+-        let tempStart;
+-        this.options.extensions.startBlock.forEach((getStartIndex) => {
+-          tempStart = getStartIndex.call({ lexer: this }, tempSrc);
+-          if (typeof tempStart === 'number' && tempStart >= 0) {
+-            startIndex = Math.min(startIndex, tempStart);
+-          }
+-        });
+-        if (startIndex < Infinity && startIndex >= 0) {
+-          cutSrc = src.substring(0, startIndex + 1);
+-        }
++      if (
++        this.options.extensions?.startBlock
++        || this.options.extensions?.startBlockSource
++      ) {
++        const startIndex = this.extensionStartIndex(src, 'block');
++        if (startIndex !== undefined)
++          cutSrc = src.substring(0, startIndex);
+       }
        if (this.state.top && (token = this.tokenizer.paragraph(cutSrc))) {
          const lastToken = tokens.at(-1);
          if (lastParagraphClipped && lastToken?.type === 'paragraph') {
@@ -914,7 +992,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
            tokens.push(token);
          }
          lastParagraphClipped = cutSrc.length !== src.length;
-@@ -272,11 +777,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -272,11 +810,12 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          src = src.substring(token.raw.length);
          const lastToken = tokens.at(-1);
          if (lastToken?.type === 'text') {
@@ -929,7 +1007,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
            tokens.push(token);
          }
          continue;
-@@ -289,10 +795,22 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -289,10 +828,22 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
      }
  
      this.state.top = true;
@@ -953,7 +1031,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
      this.inlineQueue.push({ src, tokens });
      return tokens;
    }
-@@ -300,8 +818,26 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -300,8 +851,26 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
    /**
     * Lexing/Compiling
     */
@@ -981,7 +1059,30 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
      // String with links masked to avoid interference with em and strong
      let maskedSrc = src;
      let match: RegExpExecArray | null = null;
-@@ -339,6 +875,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -327,9 +896,21 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+ 
+     // Mask out other blocks
+     let offset;
++    let blockMaskCursor = 0;
++    const blockMaskParts: string[] = [];
+     while ((match = this.tokenizer.rules.inline.blockSkip.exec(maskedSrc)) !== null) {
+       offset = match[2] ? match[2].length : 0;
+-      maskedSrc = maskedSrc.slice(0, match.index + offset) + '[' + 'a'.repeat(match[0].length - offset - 2) + ']' + maskedSrc.slice(this.tokenizer.rules.inline.blockSkip.lastIndex);
++      blockMaskParts.push(
++        maskedSrc.slice(blockMaskCursor, match.index + offset),
++        '[',
++        'a'.repeat(match[0].length - offset - 2),
++        ']',
++      );
++      blockMaskCursor = this.tokenizer.rules.inline.blockSkip.lastIndex;
++    }
++    if (blockMaskParts.length) {
++      blockMaskParts.push(maskedSrc.slice(blockMaskCursor));
++      maskedSrc = blockMaskParts.join('');
+     }
+ 
+     // Mask out blocks from extensions
+@@ -339,6 +920,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
      let prevChar = '';
      let srcLength = Infinity;
      while (src) {
@@ -989,7 +1090,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
        if (src.length < srcLength) {
          srcLength = src.length;
        } else {
-@@ -356,6 +893,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -356,6 +938,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
        // extensions
        if (this.options.extensions?.inline?.some((extTokenizer) => {
          if (token = extTokenizer.call({ lexer: this }, src, tokens)) {
@@ -997,7 +1098,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
            src = src.substring(token.raw.length);
            tokens.push(token);
            return true;
-@@ -367,6 +905,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -367,6 +950,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // escape
        if (token = this.tokenizer.escape(src)) {
@@ -1005,7 +1106,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -374,6 +913,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -374,6 +958,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // tag
        if (token = this.tokenizer.tag(src)) {
@@ -1013,7 +1114,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -381,6 +921,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -381,6 +966,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // link
        if (token = this.tokenizer.link(src)) {
@@ -1021,7 +1122,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -391,9 +932,11 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -391,9 +977,11 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          src = src.substring(token.raw.length);
          const lastToken = tokens.at(-1);
          if (token.type === 'text' && lastToken?.type === 'text') {
@@ -1033,7 +1134,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
            tokens.push(token);
          }
          continue;
-@@ -401,6 +944,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -401,6 +989,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // em & strong
        if (token = this.tokenizer.emStrong(src, maskedSrc, prevChar)) {
@@ -1041,7 +1142,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -408,6 +952,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -408,6 +997,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // code
        if (token = this.tokenizer.codespan(src)) {
@@ -1049,7 +1150,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -415,6 +960,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -415,6 +1005,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // br
        if (token = this.tokenizer.br(src)) {
@@ -1057,7 +1158,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -422,6 +968,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -422,6 +1013,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // del (gfm)
        if (token = this.tokenizer.del(src, maskedSrc, prevChar)) {
@@ -1065,7 +1166,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -429,6 +976,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -429,6 +1021,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // autolink
        if (token = this.tokenizer.autolink(src)) {
@@ -1073,7 +1174,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -436,6 +984,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -436,6 +1029,7 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
  
        // url (gfm)
        if (!this.state.inLink && (token = this.tokenizer.url(src))) {
@@ -1081,7 +1182,34 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
          src = src.substring(token.raw.length);
          tokens.push(token);
          continue;
-@@ -466,9 +1015,11 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -444,19 +1038,13 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+       // text
+       // prevent inlineText consuming extensions by clipping 'src' to extension start
+       let cutSrc = src;
+-      if (this.options.extensions?.startInline) {
+-        let startIndex = Infinity;
+-        const tempSrc = src.slice(1);
+-        let tempStart;
+-        this.options.extensions.startInline.forEach((getStartIndex) => {
+-          tempStart = getStartIndex.call({ lexer: this }, tempSrc);
+-          if (typeof tempStart === 'number' && tempStart >= 0) {
+-            startIndex = Math.min(startIndex, tempStart);
+-          }
+-        });
+-        if (startIndex < Infinity && startIndex >= 0) {
+-          cutSrc = src.substring(0, startIndex + 1);
+-        }
++      if (
++        this.options.extensions?.startInline
++        || this.options.extensions?.startInlineSource
++      ) {
++        const startIndex = this.extensionStartIndex(src, 'inline');
++        if (startIndex !== undefined)
++          cutSrc = src.substring(0, startIndex);
+       }
+       if (token = this.tokenizer.inlineText(cutSrc)) {
+         src = src.substring(token.raw.length);
+@@ -466,9 +1054,11 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
          keepPrevChar = true;
          const lastToken = tokens.at(-1);
          if (lastToken?.type === 'text') {
@@ -1093,7 +1221,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
            tokens.push(token);
          }
          continue;
-@@ -480,9 +1031,294 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
+@@ -480,9 +1070,294 @@ export class _Lexer<ParserOutput = string, RendererOutput = string> {
        }
      }
  
@@ -1389,7 +1517,7 @@ index 9efbdd38c8570110d74f51551990871c32f54b1b..0b97ee1ac2e5340875e09a55b2f858cc
      const errMsg = 'Infinite loop on byte: ' + byte;
      if (this.options.silent) {
 diff --git a/src/MarkedOptions.ts b/src/MarkedOptions.ts
-index 6ef3353330da0b715969e6d5b46e71cd12d05be2..d7455e06bb216d80fbc680a64e69f4427b5096e4 100644
+index 6ef3353330da0b715969e6d5b46e71cd12d05be2..4bc1817f2d7b9bb34fbb950923ffa1bd9df2f122 100644
 --- a/src/MarkedOptions.ts
 +++ b/src/MarkedOptions.ts
 @@ -1,3 +1,7 @@
@@ -1400,7 +1528,29 @@ index 6ef3353330da0b715969e6d5b46e71cd12d05be2..d7455e06bb216d80fbc680a64e69f442
  import type { Token, Tokens, TokensList } from './Tokens.ts';
  import type { _Parser } from './Parser.ts';
  import type { _Lexer } from './Lexer.ts';
-@@ -21,6 +25,32 @@ export interface TokenizerExtension {
+@@ -13,14 +17,54 @@ export type TokenizerExtensionFunction = (this: TokenizerThis, src: string, toke
+ 
+ export type TokenizerStartFunction = (this: TokenizerThis, src: string) => number | void;
+ 
++/**
++ * Locate the next extension token directly in the active mapped source.
++ *
++ * Unlike the legacy `start` callback, the returned offset is relative to the
++ * complete current source view (not `src.slice(1)`). This lets parser-native
++ * extensions use their source indexes without materializing the remaining
++ * input on every lexer turn.
++ */
++export type TokenizerSourceStartFunction = (
++  this: TokenizerThis,
++  source: MarkedSourceView<object>,
++) => number | void;
++
+ export interface TokenizerExtension {
+   name: string;
+   level: 'block' | 'inline';
+   start?: TokenizerStartFunction;
++  startSource?: TokenizerSourceStartFunction;
+   tokenizer: TokenizerExtensionFunction;
    childTokens?: string[];
  }
  
@@ -1433,7 +1583,7 @@ index 6ef3353330da0b715969e6d5b46e71cd12d05be2..d7455e06bb216d80fbc680a64e69f442
  export interface RendererThis<ParserOutput = string, RendererOutput = string> {
    parser: _Parser<ParserOutput, RendererOutput>;
  }
-@@ -32,10 +62,10 @@ export interface RendererExtension<ParserOutput = string, RendererOutput = strin
+@@ -32,10 +76,10 @@ export interface RendererExtension<ParserOutput = string, RendererOutput = strin
    renderer: RendererExtensionFunction<ParserOutput, RendererOutput>;
  }
  
@@ -1446,7 +1596,7 @@ index 6ef3353330da0b715969e6d5b46e71cd12d05be2..d7455e06bb216d80fbc680a64e69f442
    [K in keyof HooksApi<ParserOutput, RendererOutput>]?: (this: _Hooks<ParserOutput, RendererOutput>, ...args: Parameters<HooksApi<ParserOutput, RendererOutput>[K]>) => ReturnType<HooksApi<ParserOutput, RendererOutput>[K]> | Promise<ReturnType<HooksApi<ParserOutput, RendererOutput>[K]>>
  };
  
-@@ -45,7 +75,7 @@ type RendererObject<ParserOutput = string, RendererOutput = string> = {
+@@ -45,7 +89,7 @@ type RendererObject<ParserOutput = string, RendererOutput = string> = {
  };
  
  type TokenizerApi<ParserOutput = string, RendererOutput = string> = Omit<_Tokenizer<ParserOutput, RendererOutput>, 'constructor' | 'options' | 'rules' | 'lexer'>;
@@ -1455,7 +1605,7 @@ index 6ef3353330da0b715969e6d5b46e71cd12d05be2..d7455e06bb216d80fbc680a64e69f442
    [K in keyof TokenizerApi<ParserOutput, RendererOutput>]?: (this: _Tokenizer<ParserOutput, RendererOutput>, ...args: Parameters<TokenizerApi<ParserOutput, RendererOutput>[K]>) => ReturnType<TokenizerApi<ParserOutput, RendererOutput>[K]> | false
  };
  
-@@ -100,6 +130,15 @@ export interface MarkedExtension<ParserOutput = string, RendererOutput = string>
+@@ -100,6 +144,15 @@ export interface MarkedExtension<ParserOutput = string, RendererOutput = string>
     */
    silent?: boolean;
  
@@ -1471,10 +1621,12 @@ index 6ef3353330da0b715969e6d5b46e71cd12d05be2..d7455e06bb216d80fbc680a64e69f442
    /**
     * The tokenizer defines how to turn markdown text into tokens.
     */
-@@ -146,6 +185,8 @@ export interface MarkedOptions<ParserOutput = string, RendererOutput = string> e
+@@ -146,6 +199,10 @@ export interface MarkedOptions<ParserOutput = string, RendererOutput = string> e
      block?: TokenizerExtensionFunction[];
      startInline?: TokenizerStartFunction[];
      startBlock?: TokenizerStartFunction[];
++    startInlineSource?: TokenizerSourceStartFunction[];
++    startBlockSource?: TokenizerSourceStartFunction[];
 +    sourceBoundary?: SourceBoundaryExtensionFunction[];
 +    initializeTokens?: TokenListInitializerExtensionFunction[];
    };

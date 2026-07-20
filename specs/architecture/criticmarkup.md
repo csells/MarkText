@@ -1,5 +1,14 @@
 # CriticMarkup Architecture and Compatibility
 
+> **Status: legacy implementation record; not the target architecture.** This
+> file describes the mutable-state/Marked/binding engine currently present on
+> `feat/native-criticmarkup`. ADR-0005 through ADR-0008 and plan 0009 supersede it
+> for all new work: the immutable `DocumentRevision` is sole authority, decoded
+> source is exact, CM/Markdown form one atomic syntax graph, and resource failure
+> yields SourceOnly rather than literal rendering. Any conflict is an explicit
+> current-to-target gap, not an alternate allowed design. Keep this record only
+> as a migration/deletion oracle; rewrite or archive it when cutover completes.
+
 ## Purpose
 
 CriticMarkup is a native Markdown feature in Muya and MarkText. One typed
@@ -12,9 +21,9 @@ adds only mapped fragments and indexes. The desktop shell consumes those Muya
 models; it does not rediscover markers with regular expressions or a second
 parser.
 
-This document records the compatibility decisions behind that implementation.
-It is the authority for cases where the CriticMarkup draft, Markdown parsing,
-and existing editors do not define one interoperable answer.
+This document records compatibility decisions behind that **legacy
+implementation**. It is not authority for the replacement engine; Profile 1 in
+plan 0009 owns every silent or divergent case there.
 
 ## Parser artifact and binding authority
 
@@ -69,32 +78,60 @@ and resolution behavior, not either parser architecture.
 
 ## Canonical forms
 
-| Type | Stored form | Accept | Reject |
-| --- | --- | --- | --- |
-| Addition | `{++new++}` | Keep `new` | Remove `new` |
-| Deletion | `{--old--}` | Remove `old` | Keep `old` |
-| Substitution | `{~~old~>new~~}` | Keep `new` | Keep `old` |
-| Highlight | `{==text==}` | Keep text, remove markers | Keep text, remove markers |
-| Comment | `{>>comment<<}` | Remove annotation | Remove annotation |
+| Type         | Stored form      | Accept                    | Reject                    |
+| ------------ | ---------------- | ------------------------- | ------------------------- |
+| Addition     | `{++new++}`      | Keep `new`                | Remove `new`              |
+| Deletion     | `{--old--}`      | Remove `old`              | Keep `old`                |
+| Substitution | `{~~old~>new~~}` | Keep `new`                | Keep `old`                |
+| Highlight    | `{==text==}`     | Keep text, remove markers | Keep text, remove markers |
+| Comment      | `{>>comment<<}`  | Remove annotation         | Remove annotation         |
 
-A substitution is always one semantic review item. A highlight and an
-immediately adjacent comment are two flat items; pure CriticMarkup carries no
-durable relationship between them.
+A substitution is always one semantic review item. In the parser, a highlight
+and an immediately adjacent comment remain two flat items because pure
+CriticMarkup carries no durable relationship between them. The Review snapshot
+may derive their gapless source adjacency for the current revision and present
+the pair as one anchored Comment card; that UI relationship is never persisted
+or fed back into grammar identity.
+
+Explicit Review removal of that derived Comment card removes both annotation
+wrappers while retaining the anchor payload as ordinary prose. Deleting the
+anchor payload through ordinary editing is intentionally different: the empty
+highlight wrapper is removed, but the comment survives as a bare point comment.
+Source-authored and imported bare comments are equally valid parser items.
+
+Parser tokens retain both canonical raw payload bytes and their semantic
+payload view. The semantic view decodes only grammar-owned protective escapes;
+parser-declared Markdown literals and authenticated nested CriticMarkup ranges
+remain opaque islands with mapped coordinates. Review cards, editors, and
+comment tooltips use semantic text, while routing, persistence, and stale-target
+checks retain exact raw identity. Parent-comment editing relocates those opaque
+ranges through semantic-text diffs. An island must have one exact whole-range
+mapping in the edited text; split/ambiguous/crossing mappings fail closed, for
+Markdown literals as well as nested review items, instead of re-escaping
+parser-owned bytes. Semantic materialization uses indexed exclusion jumps: an
+ancestor treats a direct nested item as one opaque interval and does not revisit
+each of that child's Markdown literals.
 
 ## Persistence boundary
 
 MarkText writes only the five pure forms above. IDs, author names, timestamps,
 threads, replies, resolution status, compact references, inline attribute
 blocks, and YAML review metadata are not part of this implementation. In-memory
-item IDs are source-range-derived, session-local routing handles and are never
-serialized.
+item IDs are source-range-derived, revision-local routing handles and are never
+serialized. A new canonical revision invalidates an old handle even when a new
+item happens to receive the same derived string; desktop drafts and commands
+therefore revalidate document identity, exact source range, and raw syntax
+rather than trusting an ID alone.
 
 The parser owns the source's terminal line ending as part of the same
 provenance: `''` (absent), `'\n'`, or `'\r\n'` is recorded on the final state
-and restored byte-exactly on serialization. The empty source owns an *absent*
+and restored byte-exactly on serialization. The empty source owns an _absent_
 terminal EOL, so an empty document round-trips to zero bytes and a document
 authored from an empty tab serializes without a manufactured trailing LF. The
-serializer never invents a final newline the parser did not record.
+serializer never invents a final newline the parser did not record. Internal
+CRLF is subject to MarkText's pre-existing canonical Markdown normalization to
+LF; CriticMarkup does not claim a stronger byte-preservation contract than the
+host serializer.
 
 Roughdraft's metadata model is intentionally outside this boundary. It remains
 useful precedent for a future, separately specified collaboration layer, but it
@@ -223,11 +260,15 @@ behavior rather than a portability claim.
 ### Nested forms
 
 Balanced nested forms are parsed deterministically, deepest items can be
-selected, and projections recurse through the token forest. MarkText commands
-do not deliberately create nested review syntax; edits inside a pending payload
-modify that payload directly when doing so preserves its grammar. Other editors
-may treat nested forms as literal content, so nested input is supported for
-losslessness rather than promoted as a portable authoring convention.
+selected, and projections recurse through the token forest. Add Comment may
+deliberately nest when its selected anchor wholly contains existing parser
+items or remains within one semantic arm; a selection that crosses only part of
+an item fails closed. The grammar serializer treats the already-authenticated
+contained item ranges as opaque so it preserves their valid delimiters instead
+of protective-escaping them as newly typed payload. Other authoring commands
+do not deliberately create nested review syntax. Other editors may treat
+nested forms as literal content, so nesting remains a lossless MarkText
+capability rather than a universal portability claim.
 
 ### Block-spanning forms
 
@@ -309,6 +350,50 @@ handwritten duplicate unions.
 Source mode clears actionable Review state while it owns the document and
 restores a fresh parser-backed snapshot after handoff.
 
+Comment composition and editing are sidebar-owned. Add Comment requires a
+selection and emits a gapless `{==anchor==}{>>comment<<}` pair; imported bare
+comments remain valid parser items but are not created by that command. Comment
+selection is passive: an anchor updates current-item state only when no deeper
+visible Review item owns the hit, nested anchors choose the innermost Comment,
+and explicit parent focus survives while its target does. It never opens or
+scrolls the sidebar. A card activation edits the comment in place. The native
+right-click command uses an event-scoped, request-correlated `ReviewHitPath` from
+the exact originating Electron frame. The mounted plan identifies the deepest
+item, visible ancestry, and nearest containing anchor; main retains the deepest
+item's commands and also offers Edit Comment for that nearest anchor. The
+renderer revalidates the chosen opaque path entry against the current Review
+snapshot before opening the persistent, mount-safe sidebar edit request. No
+process reparses markers or infers identity from displayed text.
+
+An edit submission has an explicit saved/rejected acknowledgement. The sidebar
+closes only after the engine accepts the mutation; rejection retains the exact
+draft and presents a localized, non-focus-stealing status. An ordinary edit that
+exhausts a comment anchor is classified from the before/candidate revision pair.
+A hidden Comment descendant rejects before carrier or Track policy. Otherwise
+the direct path removes the exhausted Highlight wrapper, preserves residual
+untargeted non-Comment nodes, and leaves the outer point Comment; the tracked
+root-effective path wraps the exact current Highlight in a Deletion so Reject
+restores it. One undo restores the exact prior source. Primitive capture writes
+only mark the isolated draft dirty. After the outermost mutation body completes,
+and before its single history/observer commit, the gateway invokes the direct
+planner exactly once for that dirty capture; nested operations join the same
+capture. It does not run after every primitive write or at an intermediate
+consumption point. No delimiter scan or post-save source rewrite participates.
+
+Hidden comment content is also excluded from the editable caret domain. The
+parser binding graph identifies both inline comment fragments and native block
+carriers; only a structural **content** fragment whose semantic arm is
+`comment` is hidden, never an ordinary block that merely carries a zero-width
+comment boundary. Muya resolves a caret in such a fragment through the
+document's source map to the nearest visible semantic boundary, walking across
+consecutive and nested structural comments when necessary. Programmatic cursor
+placement, native `selectionchange`, arrow traversal, `beforeinput` target
+ranges, and IME composition all share that resolver. Exact DOM endpoints are
+seated outside the hidden wrapper, and a comment-only document collapses the
+native/model selection because it has no legal visible owner. This is a
+selection-layer invariant over parser identity, not a renderer heuristic over
+comment text.
+
 Fail-closed editing is not silent. Mutation rejection has a typed reason that
 reaches one localized, actionable, non-focus-stealing banner. Annotation
 **Remove** semantics stay distinct from change **Accept** semantics. Every
@@ -333,17 +418,17 @@ before reading it. Original/Revised views are read-only presentations; neither
 may replace canonical bytes in the tab buffer, autosave queue, source-mode
 handoff, or file write.
 
-| Sink | Marked view | Original/Revised view | Security boundary |
-| --- | --- | --- | --- |
-| File save, autosave, source mode | Raw canonical Markdown | Raw canonical Markdown | Text only; never sanitize or normalize Critic syntax |
-| Copy as Markdown | Raw selected Markdown | Raw selected Markdown | Text only |
-| Normal copy/cut `text/plain` | Raw selected Markdown, preserving review syntax for lossless paste | Selected projected Markdown | Text only; clean views are read-only |
-| Copy as Rich `text/html` | Semantic `<ins>`/`<del>`/review HTML | Projected HTML | Sanitize immediately before `clipboardData.setData` |
-| Copy as Rich plain fallback | Raw selected Markdown | Selected projected Markdown | Text only |
-| Copy as HTML | Sanitized semantic review HTML source | Sanitized projected HTML source | HTML is placed in `text/plain`; the `text/html` slot is blank |
-| Static/export HTML, PDF, print | Semantic review HTML | Projected HTML | Sanitize final rendered HTML before it reaches the sink |
-| Search | Active parser-view text, including canonical marker bytes in Marked view | Projected read-only-view text | Search never evaluates markup |
-| Word/character count | Canonical Markdown, including annotations | Canonical Markdown | Text only; changing this is a separate product decision |
+| Sink                             | Marked view                                                              | Original/Revised view           | Security boundary                                             |
+| -------------------------------- | ------------------------------------------------------------------------ | ------------------------------- | ------------------------------------------------------------- |
+| File save, autosave, source mode | Raw canonical Markdown                                                   | Raw canonical Markdown          | Text only; never sanitize or normalize Critic syntax          |
+| Copy as Markdown                 | Raw selected Markdown                                                    | Raw selected Markdown           | Text only                                                     |
+| Normal copy/cut `text/plain`     | Raw selected Markdown, preserving review syntax for lossless paste       | Selected projected Markdown     | Text only; clean views are read-only                          |
+| Copy as Rich `text/html`         | Semantic `<ins>`/`<del>`/review HTML                                     | Projected HTML                  | Sanitize immediately before `clipboardData.setData`           |
+| Copy as Rich plain fallback      | Raw selected Markdown                                                    | Selected projected Markdown     | Text only                                                     |
+| Copy as HTML                     | Sanitized semantic review HTML source                                    | Sanitized projected HTML source | HTML is placed in `text/plain`; the `text/html` slot is blank |
+| Static/export HTML, PDF, print   | Semantic review HTML                                                     | Projected HTML                  | Sanitize final rendered HTML before it reaches the sink       |
+| Search                           | Active parser-view text, including canonical marker bytes in Marked view | Projected read-only-view text   | Search never evaluates markup                                 |
+| Word/character count             | Canonical Markdown, including annotations                                | Canonical Markdown              | Text only; changing this is a separate product decision       |
 
 Comments are annotations, not trusted HTML. Their payload may be displayed as
 text or a sanitized Markdown rendering, but it never becomes an unescaped
@@ -441,7 +526,8 @@ procedure lives in `packages/marked/UPSTREAM.md`.
 - Addition, deletion, and substitution use Accept/Reject actions.
 - Highlight and comment use one Remove/Resolve action because both projection
   decisions have the same result.
-- Review cards focus their exact source annotation and reflect the current item.
+- Change and highlight cards focus their exact source annotation; comment cards
+  edit in place, and every card reflects the current item.
 - Source view exposes the raw Markdown syntax losslessly.
 
 Roughdraft does not define Original/Revised display projections, Previous/Next

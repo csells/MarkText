@@ -305,6 +305,34 @@ function criticBoundaryFollowingTrivia(
 }
 
 /**
+ * Remove a parser-owned whitespace suffix while treating its normalized LF
+ * and canonical CRLF spellings as the same line boundary. Marked normalizes
+ * parser-view CRLF to LF, while Critic boundary trivia intentionally retains
+ * the exact source bytes that must be woven back inside the markers.
+ */
+function stripEquivalentWhitespaceSuffix(
+    value: string,
+    suffix: string,
+): string | undefined {
+    const normalizedValue = value.replace(/\r\n/g, '\n');
+    const normalizedSuffix = suffix.replace(/\r\n/g, '\n');
+    if (!normalizedValue.endsWith(normalizedSuffix))
+        return undefined;
+
+    const retainedLength = normalizedValue.length - normalizedSuffix.length;
+    let rawOffset = 0;
+    let normalizedOffset = 0;
+    while (normalizedOffset < retainedLength) {
+        if (value.startsWith('\r\n', rawOffset))
+            rawOffset += 2;
+        else
+            rawOffset++;
+        normalizedOffset++;
+    }
+    return value.slice(0, rawOffset);
+}
+
+/**
  * Move covered-content leading whitespace from the first covered state's
  * block prefix to the opener's marker suffix, so serialization re-emits it
  * INSIDE the item (`{++` + trivia + content) instead of hoisting it before
@@ -352,13 +380,15 @@ export function relocateCriticLeadingTrivia(
         // yields to a covered state carrying an opener suffix.
         for (const previous of previousChain) {
             const separator = previous.sourceTrivia?.blockSeparatorAfter;
-            if (separator !== undefined && separator.endsWith(trivia)) {
+            const retainedSeparator = separator === undefined
+                ? undefined
+                : stripEquivalentWhitespaceSuffix(separator, trivia);
+            if (retainedSeparator !== undefined) {
                 (previous as {
                     sourceTrivia?: IStateSourceTrivia;
                 }).sourceTrivia = {
                     ...previous.sourceTrivia,
-                    blockSeparatorAfter:
-                        separator.slice(0, -trivia.length) || undefined,
+                    blockSeparatorAfter: retainedSeparator || undefined,
                 };
                 setSuffix();
                 return;
@@ -368,8 +398,8 @@ export function relocateCriticLeadingTrivia(
             // newlines instead, so they move to its suffix.
             const trailingBlanks
                 = previous.sourceTrivia?.listItemTrailingBlankLines;
-            const newlineCount = /^\n+$/.test(trivia)
-                ? trivia.length
+            const newlineCount = /^(?:\r?\n)+$/.test(trivia)
+                ? trivia.match(/\r?\n/g)!.length
                 : undefined;
             if (
                 typeof trailingBlanks === 'number'
@@ -392,16 +422,15 @@ export function relocateCriticLeadingTrivia(
         // list) relocates the same way.
         for (const ancestor of ancestors) {
             const ancestorPrefix = ancestor.sourceTrivia?.blockPrefix;
-            if (
-                ancestorPrefix !== undefined
-                && ancestorPrefix.endsWith(trivia)
-            ) {
+            const retainedPrefix = ancestorPrefix === undefined
+                ? undefined
+                : stripEquivalentWhitespaceSuffix(ancestorPrefix, trivia);
+            if (retainedPrefix !== undefined) {
                 (ancestor as {
                     sourceTrivia?: IStateSourceTrivia;
                 }).sourceTrivia = {
                     ...ancestor.sourceTrivia,
-                    blockPrefix:
-                        ancestorPrefix.slice(0, -trivia.length) || undefined,
+                    blockPrefix: retainedPrefix || undefined,
                 };
                 setSuffix();
                 return;
@@ -438,7 +467,8 @@ export function relocateCriticLeadingTrivia(
         }
         return;
     }
-    if (!prefix.endsWith(trivia)) {
+    const retainedPrefix = stripEquivalentWhitespaceSuffix(prefix, trivia);
+    if (retainedPrefix === undefined) {
         throw new TypeError(
             'Native CriticMarkup before-boundary trivia is not a block-prefix suffix.',
         );
@@ -455,7 +485,7 @@ export function relocateCriticLeadingTrivia(
         if (spelledByMarkerPrefix(trivia)) {
             (owner as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
                 ...owner.sourceTrivia,
-                blockPrefix: prefix.slice(0, -trivia.length) || undefined,
+                blockPrefix: retainedPrefix || undefined,
             };
             return;
         }
@@ -467,7 +497,7 @@ export function relocateCriticLeadingTrivia(
     }
     (owner as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
         ...owner.sourceTrivia,
-        blockPrefix: prefix.slice(0, -trivia.length) || undefined,
+        blockPrefix: retainedPrefix || undefined,
     };
     (markerState as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
         ...markerState.sourceTrivia,
@@ -562,7 +592,20 @@ export function attachCriticBlockSeparator(
             'Native CriticMarkup fragment suffix contains semantic source.',
         );
     }
-    if (afterMarkersFlush) {
+    if (fragment.suppressBlockSeparatorAfter) {
+        // The fragment closes into same-line source. Marked may append the
+        // later line terminator to this structural token after tokenization,
+        // but that terminator belongs to the following inline item/content,
+        // not between the fragment and its close-adjacent successor.
+        suffix = '';
+        if (afterMarkersFlush) {
+            (state as { sourceTrivia?: IStateSourceTrivia }).sourceTrivia = {
+                ...state.sourceTrivia,
+                suppressBlockTerminatorAfter: true,
+            };
+        }
+    }
+    else if (afterMarkersFlush) {
         // Flush close markers weave inside the final state's generated line
         // terminator, so the suffix's first EOL is that terminator (the
         // block-spacing analogue of a space token's leading LF), not an

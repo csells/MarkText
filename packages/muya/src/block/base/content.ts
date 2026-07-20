@@ -9,6 +9,7 @@ import diff from 'fast-diff';
 import TreeNode from '../../block/base/treeNode';
 import { ScrollPage } from '../../block/scrollPage';
 import { BACK_HASH, BRACKET_HASH, EVENT_KEYS, isFirefox } from '../../config';
+import { noteCriticMarkupBlockTextMutation } from '../../criticMarkup/renderedBlockState';
 import Selection from '../../selection';
 import {
     adjustOffset,
@@ -369,6 +370,8 @@ class Content extends TreeNode {
         const oldText = this._text;
         if (oldText !== text)
             this.assertMutationAuthorized('Content text mutation');
+        if (oldText !== text)
+            noteCriticMarkupBlockTextMutation(this);
         this._text = text;
         const { path } = this;
         if (this.blockName === 'language-input') {
@@ -491,6 +494,7 @@ class Content extends TreeNode {
         const { muya } = this;
         let cursorBlock = null;
         let offset = 0;
+        let criticCommentAffinity: 'previous' | 'next' = 'next';
         // In RTL the physical Left/Right arrows are visually mirrored, so the
         // cross-block boundary keys swap (offset 0 is the visual right end).
         const isRtl = this.domNode?.closest('[dir]')?.getAttribute('dir') === 'rtl';
@@ -518,6 +522,7 @@ class Content extends TreeNode {
 
             cursorBlock = previousContentBlock;
             offset = previousContentBlock.text.length;
+            criticCommentAffinity = 'previous';
         }
         else if (
             event.key === EVENT_KEYS.ArrowDown
@@ -555,6 +560,9 @@ class Content extends TreeNode {
         }
 
         if (cursorBlock) {
+            this.selection.preferHiddenCriticCommentCaretNavigation(
+                criticCommentAffinity,
+            );
             this.update();
             cursorBlock.setCursor(offset, offset, true);
         }

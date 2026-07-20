@@ -54,6 +54,183 @@ function flattenStates(states: readonly TState[]): TState[] {
 }
 
 describe('parser-native CriticMarkup AST', () => {
+    it('isolates consecutive structural comments nested in one addition', () => {
+        const source = [
+            '- parent',
+            '{++  - ADD-PARENT',
+            '{>>    - FIRST',
+            '<<}{>>    - SECOND',
+            '<<}  - ADD',
+            '++}  - KEEP',
+            '- tail',
+            '',
+        ].join('\n');
+        const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+
+        expect(parsed.tokens.criticMarkup?.items.map(item => item.criticType))
+            .toEqual(['addition', 'comment', 'comment']);
+
+        const states = new MarkdownToState({
+            footnote: false,
+            frontMatter: false,
+            isGitlabCompatibilityEnabled: false,
+            math: false,
+            trimUnnecessaryCodeBlockEmptyLines: false,
+        }).generate(source);
+        expect(new StateToMarkdown({ listIndentation: 4 }).generate(states))
+            .toBe(source);
+    });
+
+    it.each([
+        {
+            source: '{=={>># head\n<<}==}{>>outer<<}\n',
+            nestedTypes: ['heading'],
+        },
+        {
+            source: '{=={>>{--# head\n--}<<}==}{>>outer<<}\n',
+            nestedTypes: ['critic_deletion'],
+        },
+    ])(
+        'keeps a marker-transparent structural comment native: $source',
+        ({ source, nestedTypes }) => {
+            const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+            const anchor = parsed.tokens[0] as Tokens.CriticHighlight;
+            const expectedNested = nestedTypes.map(type => type === 'critic_deletion'
+                ? {
+                        type,
+                        level: 'block',
+                        tokens: [{ type: 'heading', depth: 1, text: 'head' }],
+                    }
+                : { type });
+
+            expect(anchor).toMatchObject({
+                type: 'critic_highlight',
+                level: 'block',
+                tokens: [{
+                    type: 'critic_comment',
+                    level: 'block',
+                    tokens: expectedNested,
+                }],
+            });
+            expect(parsed.tokens[1]).toMatchObject({
+                type: 'paragraph',
+                tokens: [{ type: 'critic_comment' }],
+            });
+        },
+    );
+
+    it('keeps a mid-line nested structural anchor in one native paragraph', () => {
+        const source = 'prefix {=={--# head\n--}==}{>>c<<}\n';
+        const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+
+        expect(parsed.tokens).toHaveLength(1);
+        expect(parsed.tokens[0]).toMatchObject({ type: 'paragraph' });
+    });
+
+    it('keeps the exact comment-wrapped mid-line structural case inline', () => {
+        const source = '{=={>>x {--# head\n--}<<}==}{>>outer<<}\n';
+        const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+        const fragments = nativeCriticFragments(parsed.tokens);
+
+        expect(parsed.tokens).toHaveLength(1);
+        expect(parsed.tokens[0]).toMatchObject({ type: 'paragraph' });
+        expect(fragments).not.toHaveLength(0);
+        expect(fragments.every(fragment => fragment.level === 'inline'))
+            .toBe(true);
+    });
+
+    it.each([
+        '{>>note<<}{--# head\n--}\n',
+        '{--# head--}{>>note<<}\n',
+        '{>>multi\nline<<}{--# head\n--}\n',
+        '{--# head--}{>>multi\nline<<}\n',
+    ])(
+        'treats a hidden sibling comment as transparent at a block boundary: %j',
+        (source) => {
+            const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+            const deletion = nativeCriticFragments(parsed.tokens)
+                .find(fragment => fragment.type === 'critic_deletion');
+
+            expect(deletion).toMatchObject({
+                type: 'critic_deletion',
+                level: 'block',
+                tokens: [{ type: 'heading', depth: 1, text: 'head' }],
+            });
+        },
+    );
+
+    it('ignores a hidden comment when probing preceding lazy block context', () => {
+        const source = '{>>- hidden parent<<}\n{--continued\n# head\n--}\n';
+        const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+        const deletion = nativeCriticFragments(parsed.tokens).find(fragment =>
+            fragment.type === 'critic_deletion');
+
+        expect(deletion).toMatchObject({
+            type: 'critic_deletion',
+            level: 'block',
+            tokens: [
+                { type: 'paragraph', text: 'continued' },
+                { type: 'heading', depth: 1, text: 'head' },
+            ],
+        });
+    });
+
+    it('sees a semantic tail beyond a hidden multiline comment', () => {
+        const source = '{--# head--}{>>multi\nline<<} trailing\n';
+        const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+        const deletion = nativeCriticFragments(parsed.tokens).filter(fragment =>
+            fragment.type === 'critic_deletion');
+
+        expect(parsed.tokens[0]).toMatchObject({ type: 'paragraph' });
+        expect(deletion).not.toHaveLength(0);
+        expect(deletion.every(fragment => fragment.level === 'inline'))
+            .toBe(true);
+    });
+
+    it('sees preceding lazy context beyond a hidden multiline comment', () => {
+        const source = '- parent\n{>>hidden\n\ncomment<<}{--continued\n# head\n--}\n';
+        const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+        const deletion = nativeCriticFragments(parsed.tokens).filter(fragment =>
+            fragment.type === 'critic_deletion');
+
+        expect(parsed.tokens[0]).toMatchObject({ type: 'list' });
+        expect(deletion).not.toHaveLength(0);
+        expect(deletion.every(fragment => fragment.level === 'inline'))
+            .toBe(true);
+    });
+
+    it('keeps a nested list item native before a gapless anchor comment', () => {
+        const source = '{=={--  - item\n--}==}{>>c<<}\n';
+        const parsed = analyzeMarkdownBlockSource(source, OPTIONS);
+        const anchor = parsed.tokens[0] as (
+            Tokens.CriticHighlight & Tokens.CriticMarkupBoundaryCarrier
+        );
+
+        expect(anchor).toMatchObject({
+            type: 'critic_highlight',
+            level: 'block',
+            tokens: [{ type: 'list' }],
+        });
+        expect(anchor.criticMarkupBefore).toMatchObject([{
+            criticType: 'deletion',
+            arm: 'content',
+            edge: 'before',
+            coverage: 'content',
+            markers: [{ name: 'open', raw: '{--' }],
+        }]);
+        expect(anchor.criticMarkupAfter).toMatchObject([{
+            criticType: 'deletion',
+            arm: 'content',
+            edge: 'after',
+            coverage: 'content',
+            markers: [{ name: 'close', raw: '--}' }],
+        }]);
+        expect(parsed.tokens[1]).toMatchObject({
+            type: 'paragraph',
+            tokens: [{ type: 'critic_comment' }],
+        });
+    });
+
     it('owns a whole-table substitution and recursively parses each arm', () => {
         const source = [
             '{~~| OLD |',

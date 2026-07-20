@@ -325,6 +325,7 @@ class TreeNode implements ILinkedNode {
             'data-critic-boundary',
             'data-start',
             'data-end',
+            'hidden',
         ]) {
             domNode.removeAttribute(attribute);
         }
@@ -355,6 +356,21 @@ class TreeNode implements ILinkedNode {
         );
         domNode.setAttribute('data-critic-type', types.join(' '));
         domNode.setAttribute('data-critic-role', roles.join(' '));
+
+        // Inline comment fragments collapse their markers and body while
+        // retaining a visible indicator. A parser-owned structural comment
+        // content fragment has no inline wrapper to perform that collapse, so
+        // hide its native carrier semantically. Boundary-only fragments do not
+        // own the carrier's content (an empty comment can be anchored immediately
+        // before an otherwise visible list item), and must never hide it. The
+        // fragment arm is the parser-owned authority here: nested items propagated
+        // through a comment can have a non-comment item type while still occupying
+        // the hidden comment arm.
+        if (fragments.some(({ fragment }) =>
+            fragment.kind === 'content'
+            && fragment.arm === 'comment')) {
+            domNode.setAttribute('hidden', '');
+        }
 
         if (items.length > 1) {
             domNode.classList.add('mu-critic-structural-multiple');

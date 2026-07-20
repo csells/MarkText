@@ -35,6 +35,18 @@ function allStates(states: readonly TState[]): TState[] {
 }
 
 describe('parser-owned structural CriticMarkup state', () => {
+    it.each([
+        '{>>note<<}{--# head\n--}\n',
+        '{--# head--}{>>note<<}\n',
+    ])('loads same-line projected block boundaries into the editor: %j', (source) => {
+        const muya = boot(source);
+
+        expect(muya.getMarkdown()).toBe(source);
+        expect(allStates(muya.getState()).some(state =>
+            state.sourceTrivia?.suppressBlockTerminatorAfter === true))
+            .toBe(true);
+    });
+
     it('keeps valid CriticMarkup native across documented Markdown normalization', () => {
         const source = '\uFEFF😀 {++🚀++}\r\n{--旧--}\r\n';
         const normalized = '\uFEFF😀 {++🚀++}\n{--旧--}\r\n';
@@ -626,9 +638,35 @@ describe('parser-owned structural CriticMarkup state', () => {
             .toBe(projected);
         expect(muya.editor.criticMarkupDocument.get().project('revised'))
             .toBe(projected);
-        expect(muya.domNode.querySelector(
+        const structuralComment = muya.domNode.querySelector(
             '[data-critic-structural-id]',
-        )?.getAttribute('data-critic-type')).toBe('comment');
+        );
+        expect(structuralComment?.getAttribute('data-critic-type'))
+            .toBe('comment');
+        expect(structuralComment?.hasAttribute('hidden')).toBe(true);
+    });
+
+    it('keeps a visible block unhidden when an empty comment is bound only to its boundary', () => {
+        const source = [
+            '- parent',
+            '{>><<}  - child',
+            '- tail',
+            '',
+        ].join('\n');
+        const muya = boot(source);
+        const document = muya.editor.criticMarkupDocument.get();
+        const comment = document.items.find(item => item.syntax.type === 'comment');
+
+        expect(comment).toBeDefined();
+        expect(comment?.structuralFragments).toHaveLength(1);
+        expect(comment?.structuralFragments[0]).toMatchObject({
+            kind: 'boundary',
+        });
+        const [fragment] = comment!.structuralFragments;
+        const carrier = muya.editor.scrollPage?.queryBlock([...fragment.path]);
+        expect(carrier?.domNode?.textContent).toContain('child');
+        expect(carrier?.domNode?.hasAttribute('hidden')).toBe(false);
+        expect(muya.getMarkdown()).toBe(source);
     });
 
     it('reconciles nested structural items into one native annotated tree', () => {

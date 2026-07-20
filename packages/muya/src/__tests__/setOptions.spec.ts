@@ -20,6 +20,7 @@ vi.mock('../utils/diagram', () => ({
 // effect) WITHOUT clearing undo history, and preserves the document content.
 
 const bootedHosts: HTMLElement[] = [];
+const bootedEditors: Muya[] = [];
 let originalVersion: string | undefined;
 let hadVersion = false;
 
@@ -30,6 +31,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    while (bootedEditors.length)
+        bootedEditors.pop()!.destroy();
     while (bootedHosts.length) {
         const host = bootedHosts.pop()!;
         host.remove();
@@ -46,6 +49,7 @@ function bootMuya(markdown: string): Muya {
     document.body.appendChild(host);
     const muya = new Muya(host, { markdown } as ConstructorParameters<typeof Muya>[1]);
     muya.init();
+    bootedEditors.push(muya);
     bootedHosts.push(muya.domNode);
     return muya;
 }
@@ -153,6 +157,7 @@ describe('muya runtime options', () => {
             wrapCodeBlocks: true,
         } as ConstructorParameters<typeof Muya>[1]);
         muya.init();
+        bootedEditors.push(muya);
         bootedHosts.push(muya.domNode);
         expect(muya.domNode.style.getPropertyValue('--mu-font-size')).toBe('20px');
         expect(muya.domNode.style.getPropertyValue('--mu-code-font-size')).toBe('12px');
@@ -172,6 +177,7 @@ describe('muya render-affecting options', () => {
         document.body.appendChild(host);
         const muya = new Muya(host, { markdown, ...options } as ConstructorParameters<typeof Muya>[1]);
         muya.init();
+        bootedEditors.push(muya);
         bootedHosts.push(muya.domNode);
         return muya;
     }
@@ -268,6 +274,7 @@ describe('muya diagram-theme options', () => {
         document.body.appendChild(host);
         const muya = new Muya(host, { markdown, ...options } as ConstructorParameters<typeof Muya>[1]);
         muya.init();
+        bootedEditors.push(muya);
         bootedHosts.push(muya.domNode);
         return muya;
     }

@@ -2,14 +2,17 @@ import type Format from '../block/base/format';
 import type { Muya } from '../muya';
 import type { IHistorySelection } from '../selection/types';
 import type { TMarkdownStatePath } from '../state/markdownSourceMap';
+import type { ICriticMarkupAuthoringDraft } from './authoringDraft';
 import type {
     CriticMarkupDocument,
-    ICriticMarkupDocumentFragment,
-    ICriticMarkupDocumentItem,
-    TCriticMarkupDocumentToken,
 } from './document';
 import type { IExcludedRange } from './excludedRanges';
 import type { IProjectedCriticMarkupSourceSegment } from './project';
+import type {
+    ICriticMarkupDocumentSnapshot,
+    ICriticMarkupEntry,
+    ICriticMarkupItem,
+} from './commandSnapshot';
 import type {
     ICriticMarkupCommandState,
     ICriticMarkupReviewSnapshot,
@@ -21,7 +24,6 @@ import type {
     TCriticMarkupNavigationDirection,
 } from './reviewContract';
 import FormatBlock from '../block/base/format';
-import { mappedPathsEqual } from '../mapped-range';
 import {
     localOffset,
     localRange,
@@ -33,12 +35,22 @@ import {
 } from '../selection/types';
 import { markdownStatePath } from '../state/markdownSourceMap';
 import {
+    criticMarkupAuthoringDraft,
+} from './authoringDraft';
+import {
+    criticMarkupCommentedSpanFor,
+    criticMarkupEntryForTarget,
+    createCriticMarkupDocumentSnapshot,
+} from './commandSnapshot';
+import { planCriticMarkupCommentEdit } from './commentEditing';
+import { criticMarkupItemsFromDomTarget } from './domIdentity';
+import { ExcludedRanges } from './excludedRanges';
+import {
     decodeCriticMarkupPayloadEscapes,
-    parseCriticMarkupAt,
 } from './parser';
+import { nestedPointCommentSource } from './pointComments';
 import { projectedCriticMarkupSourceSegments } from './project';
 import { createCriticMarkupReviewSnapshot } from './reviewSnapshot';
-import { createCriticMarkup } from './transform';
 
 export type {
     ICriticMarkupCommandState,
@@ -48,17 +60,7 @@ export type {
     TCriticMarkupFocusTarget,
     TCriticMarkupNavigationDirection,
 } from './reviewContract';
-
-export interface ICriticMarkupItem extends ICriticMarkupTarget {
-    id: string;
-    sourceStart: number;
-    sourceEnd: number;
-    type: TCriticMarkupDocumentToken['type'];
-    fragments: readonly ICriticMarkupDocumentFragment[];
-    content?: string;
-    oldContent?: string;
-    newContent?: string;
-}
+export type { ICriticMarkupItem } from './commandSnapshot';
 
 interface ILeafAuthoringContext {
     kind: 'leaf';
@@ -66,6 +68,7 @@ interface ILeafAuthoringContext {
     start: number;
     end: number;
     selection: IHistorySelection;
+    nestedItems: ExcludedRanges;
 }
 
 interface IDocumentAuthoringContext {
@@ -74,136 +77,12 @@ interface IDocumentAuthoringContext {
     end: number;
     selection: IHistorySelection;
     source: string;
+    nestedItems: ExcludedRanges;
 }
 
 type IAuthoringContext = ILeafAuthoringContext | IDocumentAuthoringContext;
 
-interface ICriticMarkupEntry {
-    documentItem: ICriticMarkupDocumentItem;
-    item: ICriticMarkupItem;
-}
-
-interface ICriticMarkupDocumentSnapshot {
-    model: CriticMarkupDocument;
-    entries: ICriticMarkupEntry[];
-}
-
-interface ICriticMarkupAuthoringDraft {
-    text: string;
-    selectionStart: number;
-    selectionEnd: number;
-}
-
-function itemFromDocumentItem(
-    documentItem: ICriticMarkupDocumentItem,
-): ICriticMarkupItem {
-    const { syntax: critic } = documentItem;
-    const firstFragment = documentItem.fragments[0];
-    const common = {
-        id: documentItem.id,
-        type: critic.type,
-        path: firstFragment ? [...firstFragment.path] : [],
-        start: firstFragment?.localRange.start ?? critic.range.start,
-        end: firstFragment?.localRange.end ?? critic.range.end,
-        sourceStart: critic.range.start,
-        sourceEnd: critic.range.end,
-        raw: critic.raw,
-        fragments: documentItem.fragments,
-    };
-
-    return critic.type === 'substitution'
-        ? {
-                ...common,
-                oldContent: critic.oldContent,
-                newContent: critic.newContent,
-            }
-        : { ...common, content: critic.content };
-}
-
-function criticMarkupAuthoringDraft(
-    input: TCriticMarkupAuthorInput,
-    selected: string,
-): ICriticMarkupAuthoringDraft {
-    let text: string;
-    switch (input.type) {
-        case 'addition':
-        case 'deletion':
-        case 'highlight':
-            text = createCriticMarkup({
-                type: input.type,
-                content: selected,
-            });
-            break;
-        case 'substitution':
-            text = createCriticMarkup({
-                type: 'substitution',
-                oldContent: selected,
-                newContent: input.replacement,
-            });
-            break;
-        case 'comment':
-            text = selected
-                ? createCriticMarkup({
-                    type: 'highlight',
-                    content: selected,
-                }) + createCriticMarkup({
-                    type: 'comment',
-                    content: input.comment,
-                })
-                : createCriticMarkup({
-                        type: 'comment',
-                        content: input.comment,
-                    });
-            break;
-    }
-
-    const critic = parseCriticMarkupAt(text, 0);
-    if (!critic) {
-        throw new TypeError(
-            'CriticMarkup serializer produced syntax its grammar cannot parse.',
-        );
-    }
-    if (input.type === 'comment' && !selected) {
-        return { text, selectionStart: text.length, selectionEnd: text.length };
-    }
-    if (input.type === 'substitution') {
-        if (critic.type !== 'substitution') {
-            throw new TypeError(
-                'CriticMarkup substitution serializer changed semantic type.',
-            );
-        }
-        return {
-            text,
-            selectionStart: critic.newRange.start,
-            selectionEnd: critic.newRange.end,
-        };
-    }
-    if (critic.type === 'substitution') {
-        throw new TypeError(
-            'CriticMarkup content serializer changed semantic type.',
-        );
-    }
-    return {
-        text,
-        selectionStart: critic.contentRange.start,
-        selectionEnd: critic.contentRange.end,
-    };
-}
-
-/**
- * Canonical junction spelling after a resolution erased a whole-line item.
- * The junction must touch a line boundary on both sides — an inline erasure
- * never changes surrounding bytes. A qualifying junction collapses the
- * blank-line gap the erasure left behind:
- *
- * - mid-document, the leading newline run is removed so the erased block's
- *   own terminator run re-supplies the separation to its surviving neighbor;
- * - when the trailing run reaches EOF, the document ends with exactly one
- *   final newline;
- * - when the leading run reaches BOF, the whole run collapses so the next
- *   block starts the document; erasing the whole document leaves exactly
- *   one newline.
- */
+/** Collapse a whole-line junction left by an erased review item. */
 function collapseErasedJunction(
     markdown: string,
     junction: number,
@@ -232,11 +111,7 @@ function collapseErasedJunction(
     return markdown.slice(0, junction - leading) + markdown.slice(junction);
 }
 
-/**
- * Materialize one projected source segment exactly as the document
- * projection does: payload bytes decode their protective escapes while
- * parser-excluded slices stay byte-for-byte opaque.
- */
+/** Decode one retained projection segment without touching excluded bytes. */
 function materializedProjectedSegment(
     source: string,
     segment: IProjectedCriticMarkupSourceSegment,
@@ -288,11 +163,19 @@ export class MuyaCriticMarkup {
     } | null = null;
 
     constructor(private readonly _muya: Muya) {
-        const clearExplicitFocus = () => {
+        const publish = () => {
             this._navigationCursor = null;
+            this.publishReviewSnapshot();
         };
-        _muya.eventCenter.on('selection-change', clearExplicitFocus);
-        _muya.eventCenter.on('json-change', clearExplicitFocus);
+        _muya.eventCenter.on('selection-change', publish);
+        _muya.eventCenter.on('json-change', publish);
+    }
+
+    publishReviewSnapshot(): void {
+        this._muya.eventCenter.emit(
+            'critic-markup-review-change',
+            this.getReviewSnapshot(),
+        );
     }
 
     private _selectionSnapshot(): IHistorySelection | null {
@@ -371,9 +254,19 @@ export class MuyaCriticMarkup {
                 path: markdownStatePath(selection.focus.path),
                 offset: selection.focus.offset,
             },
+            { allowNestedItems: type === 'comment' },
         );
         if (!sourceRange)
             return null;
+        const nestedItems = ExcludedRanges.from(
+            sourceRange.end - sourceRange.start,
+            type === 'comment'
+                ? model.itemsContainedBySourceRange(sourceRange).map(item => ({
+                        start: item.syntax.range.start - sourceRange.start,
+                        end: item.syntax.range.end - sourceRange.start,
+                    }))
+                : [],
+        );
 
         if (
             !selection.isSelectionInSameBlock
@@ -388,6 +281,7 @@ export class MuyaCriticMarkup {
                 end: sourceRange.end,
                 selection,
                 source: model.markdown,
+                nestedItems,
             };
         }
 
@@ -418,7 +312,28 @@ export class MuyaCriticMarkup {
             return null;
         }
 
-        return { kind: 'leaf', block, start, end, selection };
+        // A single visual leaf can still span non-leaf Markdown bytes such as
+        // the generated `> ` prefix on every line of a blockquote. In that
+        // case the parser-owned nested/excluded ranges above are source-local,
+        // not leaf-local. Route the mutation through the canonical document
+        // slice so the draft payload and every range share one coordinate
+        // domain; leaf editing is safe only when both selected byte strings
+        // are exactly identical.
+        if (
+            block.text.slice(start, end)
+            !== model.markdown.slice(sourceRange.start, sourceRange.end)
+        ) {
+            return {
+                kind: 'document',
+                start: sourceRange.start,
+                end: sourceRange.end,
+                selection,
+                source: model.markdown,
+                nestedItems,
+            };
+        }
+
+        return { kind: 'leaf', block, start, end, selection, nestedItems };
     }
 
     canCreate(type: TCriticMarkupAuthorType): boolean {
@@ -522,7 +437,11 @@ export class MuyaCriticMarkup {
         const selected = context.kind === 'leaf'
             ? context.block.text.slice(start, end)
             : context.source.slice(start, end);
-        const draft = criticMarkupAuthoringDraft(input, selected);
+        const draft = criticMarkupAuthoringDraft(
+            input,
+            selected,
+            context.nestedItems,
+        );
 
         return context.kind === 'leaf'
             ? this._applyLeafAuthoring(context, draft)
@@ -531,12 +450,7 @@ export class MuyaCriticMarkup {
 
     private _documentSnapshot(): ICriticMarkupDocumentSnapshot {
         const model = this._muya.editor.criticMarkupDocument.get();
-        const entries = model.items.map(documentItem => ({
-            documentItem,
-            item: itemFromDocumentItem(documentItem),
-        }));
-
-        return { model, entries };
+        return createCriticMarkupDocumentSnapshot(model);
     }
 
     getItems(): ICriticMarkupItem[] {
@@ -575,41 +489,47 @@ export class MuyaCriticMarkup {
         );
     }
 
-    private _entryForTarget(
-        snapshot: ICriticMarkupDocumentSnapshot,
-        target: TCriticMarkupFocusTarget,
-    ): ICriticMarkupEntry | null {
-        if (typeof target === 'string') {
-            const documentItem = snapshot.model.itemById(target);
-            return documentItem
-                ? snapshot.entries.find(entry =>
-                    entry.documentItem === documentItem) ?? null
-                : null;
-        }
+    commentAtPoint(
+        clientX: number,
+        clientY: number,
+    ): ICriticMarkupReviewSnapshot['items'][number] | null {
+        if (this._muya.options.criticMarkupProjection !== 'marked')
+            return null;
 
-        if (
-            target.sourceStart !== undefined
-            && target.sourceEnd !== undefined
-        ) {
-            return snapshot.entries.find(({ item }) =>
-                item.sourceStart === target.sourceStart
-                && item.sourceEnd === target.sourceEnd
-                && item.raw === target.raw) ?? null;
-        }
+        const target = this._muya.domNode.ownerDocument.elementFromPoint(
+            clientX,
+            clientY,
+        );
+        if (!target || !this._muya.domNode.contains(target))
+            return null;
 
-        return snapshot.entries.find(({ item }) =>
-            mappedPathsEqual(item.path, target.path)
-            && item.start === target.start
-            && item.end === target.end
-            && item.raw === target.raw) ?? null;
+        const identities = criticMarkupItemsFromDomTarget(
+            this._muya.editor.criticMarkupDocument.get(),
+            this._muya.domNode,
+            target,
+        );
+        if (!identities.length)
+            return null;
+
+        const comments = this.getReviewSnapshot().items.filter(
+            item => item.type === 'comment',
+        );
+        for (const identity of identities) {
+            const comment = comments.find(item =>
+                item.id === identity.id || item.anchorId === identity.id);
+            if (comment)
+                return comment;
+        }
+        return null;
     }
 
     private _currentEntry(
         snapshot: ICriticMarkupDocumentSnapshot,
     ): ICriticMarkupEntry | null {
         if (this._navigationCursor?.model === snapshot.model) {
-            const explicit = snapshot.entries.find(entry =>
-                entry.item.id === this._navigationCursor?.itemId);
+            const explicit = snapshot.entryById.get(
+                this._navigationCursor.itemId,
+            );
             if (!explicit) {
                 throw new TypeError(
                     'Explicit CriticMarkup focus is stale for its document revision.',
@@ -642,8 +562,7 @@ export class MuyaCriticMarkup {
         );
 
         return documentItem
-            ? snapshot.entries.find(entry =>
-                entry.documentItem.id === documentItem.id) ?? null
+            ? snapshot.entryById.get(documentItem.id) ?? null
             : null;
     }
 
@@ -684,7 +603,9 @@ export class MuyaCriticMarkup {
             : block.domNode?.querySelector<HTMLElement>(selector)
                 ?? block.domNode?.closest<HTMLElement>(selector)
                 ?? block.domNode;
-        if (reference) {
+        const isCommentFocus = entry.item.type === 'comment'
+            || criticMarkupCommentedSpanFor(snapshot, entry) !== null;
+        if (reference && !isCommentFocus) {
             this._muya.eventCenter.emit('muya-critic-markup-tool', {
                 item: entry.item,
                 reference,
@@ -728,7 +649,7 @@ export class MuyaCriticMarkup {
             return null;
 
         const snapshot = this._documentSnapshot();
-        const entry = this._entryForTarget(snapshot, target);
+        const entry = criticMarkupEntryForTarget(snapshot, target);
         return entry ? this._focusEntry(snapshot, entry) : null;
     }
 
@@ -741,15 +662,15 @@ export class MuyaCriticMarkup {
         if (this._navigationCursor?.model !== snapshot.model)
             return null;
 
-        return snapshot.entries.find(entry =>
-            entry.item.id === this._navigationCursor?.itemId) ?? null;
+        return snapshot.entryById.get(this._navigationCursor.itemId) ?? null;
     }
 
     private _selectionNavigationIndex(
         snapshot: ICriticMarkupDocumentSnapshot,
+        entries: readonly ICriticMarkupEntry[],
         direction: TCriticMarkupNavigationDirection,
     ): number {
-        const { entries, model } = snapshot;
+        const { model } = snapshot;
         const selection = this._selectionSnapshot();
         const endpoint = direction === 'next'
             ? selection?.focus
@@ -785,13 +706,22 @@ export class MuyaCriticMarkup {
             return null;
 
         const snapshot = this._documentSnapshot();
-        const { entries } = snapshot;
+        const entries = snapshot.entries.filter(entry =>
+            !snapshot.model.commentForAnchor(entry.documentItem.id));
         if (!entries.length)
             return null;
 
-        const current = this._navigationEntry(snapshot);
+        const rawCurrent = this._navigationEntry(snapshot);
+        const currentDocumentItem = rawCurrent
+            ? snapshot.model.commentForAnchor(rawCurrent.documentItem.id)
+            ?? rawCurrent.documentItem
+            : null;
+        const current = currentDocumentItem
+            ? snapshot.entryById.get(currentDocumentItem.id) ?? null
+            : null;
         let targetIndex = this._selectionNavigationIndex(
             snapshot,
+            entries,
             direction,
         );
         if (current) {
@@ -804,29 +734,53 @@ export class MuyaCriticMarkup {
         return this._focusEntry(snapshot, entries[targetIndex]);
     }
 
-    // The commented-span pair for an entry — the gapless `{==sel==}{>>note<<}`
-    // where the highlight ends exactly where the comment begins. Resolving
-    // either half resolves both, so the pair is never split. Null for a plain
-    // highlight, a point comment with no anchor, a non-pair entry, or a comment
-    // nested inside another item's content.
-    private _commentedSpanFor(
+    private _emptiedCommentAnchorFor(
         snapshot: ICriticMarkupDocumentSnapshot,
         entry: ICriticMarkupEntry,
-    ): { highlight: ICriticMarkupEntry; comment: ICriticMarkupEntry } | null {
-        const range = entry.documentItem.syntax.range;
-        if (entry.item.type === 'comment') {
-            const highlight = snapshot.entries.find(candidate =>
-                candidate.item.type === 'highlight'
-                && candidate.documentItem.syntax.range.end === range.start);
-            return highlight ? { highlight, comment: entry } : null;
+        replacement: string,
+    ): ICriticMarkupEntry | null {
+        if (replacement)
+            return null;
+        const parentId = entry.documentItem.parentId;
+        const parent = parentId === null
+            ? null
+            : snapshot.entryById.get(parentId) ?? null;
+        if (
+            parent?.documentItem.syntax.type !== 'highlight'
+            || entry.documentItem.syntax.range.start
+                !== parent.documentItem.syntax.contentRange.start
+            || entry.documentItem.syntax.range.end
+                !== parent.documentItem.syntax.contentRange.end
+        ) {
+            return null;
         }
-        if (entry.item.type === 'highlight') {
-            const comment = snapshot.entries.find(candidate =>
-                candidate.item.type === 'comment'
-                && candidate.documentItem.syntax.range.start === range.end);
-            return comment ? { highlight: entry, comment } : null;
-        }
-        return null;
+        return criticMarkupCommentedSpanFor(snapshot, parent)?.highlight ?? null;
+    }
+
+    private _pointCommentReplacement(
+        snapshot: ICriticMarkupDocumentSnapshot,
+        emptiedAnchor: ICriticMarkupEntry,
+        entry: ICriticMarkupEntry,
+    ): string {
+        const anchorSyntax = emptiedAnchor.documentItem.syntax;
+        const precedingHighlight = snapshot.model.childrenOf(
+            emptiedAnchor.documentItem.parentId,
+        ).some(candidate =>
+            candidate.id !== emptiedAnchor.documentItem.id
+            && candidate.syntax.type === 'highlight'
+            && candidate.syntax.range.end === anchorSyntax.range.start);
+        const boundary = precedingHighlight
+            && anchorSyntax.type === 'highlight'
+            ? snapshot.model.markdown.slice(
+                    anchorSyntax.range.start,
+                    anchorSyntax.contentRange.start,
+                )
+                + snapshot.model.markdown.slice(
+                    anchorSyntax.contentRange.end,
+                    anchorSyntax.range.end,
+                )
+            : '';
+        return boundary + nestedPointCommentSource(entry.documentItem.syntax);
     }
 
     resolve(
@@ -838,7 +792,7 @@ export class MuyaCriticMarkup {
         this._muya.flush();
         const snapshot = this._documentSnapshot();
         const entry = target
-            ? this._entryForTarget(snapshot, target)
+            ? criticMarkupEntryForTarget(snapshot, target)
             : this._currentEntry(snapshot);
         if (!entry)
             return false;
@@ -846,17 +800,38 @@ export class MuyaCriticMarkup {
         // A comment and its anchor highlight are one commented span: resolving
         // either half resolves both in the same splice, so the pair is never
         // stranded. The highlight always precedes the comment in source.
-        const span = this._commentedSpanFor(snapshot, entry);
+        const span = criticMarkupCommentedSpanFor(snapshot, entry);
+        const entryReplacement = snapshot.model.resolveItem(
+            entry.documentItem.id,
+            decision,
+        );
+        const emptiedAnchor = span
+            ? null
+            : this._emptiedCommentAnchorFor(
+                    snapshot,
+                    entry,
+                    entryReplacement,
+                );
         const removalStart = span
             ? span.highlight.documentItem.syntax.range.start
+            : emptiedAnchor
+                ? emptiedAnchor.documentItem.syntax.range.start
             : entry.documentItem.syntax.range.start;
         const removalEnd = span
             ? span.comment.documentItem.syntax.range.end
+            : emptiedAnchor
+                ? emptiedAnchor.documentItem.syntax.range.end
             : entry.documentItem.syntax.range.end;
         const replacement = span
             ? snapshot.model.resolveItem(span.highlight.documentItem.id, decision)
             + snapshot.model.resolveItem(span.comment.documentItem.id, decision)
-            : snapshot.model.resolveItem(entry.documentItem.id, decision);
+            : emptiedAnchor
+                ? this._pointCommentReplacement(
+                        snapshot,
+                        emptiedAnchor,
+                        entry,
+                    )
+                : entryReplacement;
         let nextMarkdown
             = snapshot.model.markdown.slice(0, removalStart)
                 + replacement
@@ -890,21 +865,30 @@ export class MuyaCriticMarkup {
     // the anchor and the comment's position are untouched. Refuses a
     // non-comment target or an empty body (a comment always carries text).
     editComment(target: ICriticMarkupTarget, text: string): boolean {
-        const content = text.trim();
-        if (!content)
+        const content = text;
+        if (!content.trim())
             return false;
 
         this._muya.flush();
         const snapshot = this._documentSnapshot();
-        const entry = this._entryForTarget(snapshot, target);
-        if (!entry || entry.item.type !== 'comment')
+        const entry = criticMarkupEntryForTarget(snapshot, target);
+        if (!entry || entry.documentItem.syntax.type !== 'comment')
             return false;
 
         const { syntax } = entry.documentItem;
-        const replacement = createCriticMarkup({ type: 'comment', content });
+        const plan = planCriticMarkupCommentEdit(
+            snapshot.model.analysis.source,
+            syntax,
+            snapshot.model.excludedRanges,
+            content,
+        );
+        if (plan.outcome === 'unchanged')
+            return true;
+        if (plan.outcome === 'rejected')
+            return false;
         const nextMarkdown
             = snapshot.model.markdown.slice(0, syntax.range.start)
-                + replacement
+                + plan.replacement
                 + snapshot.model.markdown.slice(syntax.range.end);
         const selection = this._selectionSnapshot();
         return this._muya.replaceContent(nextMarkdown, selection);

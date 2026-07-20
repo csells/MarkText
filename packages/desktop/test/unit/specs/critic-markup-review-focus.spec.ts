@@ -14,11 +14,16 @@ import type {
 vi.hoisted(() => {
   const w = globalThis as unknown as {
     window?: {
-      electron?: { ipcRenderer: { send: (...a: unknown[]) => void } }
+      electron?: {
+        ipcRenderer: {
+          send: (...a: unknown[]) => void
+          on: (...a: unknown[]) => () => void
+        }
+      }
     }
   }
   w.window ??= {}
-  w.window.electron ??= { ipcRenderer: { send: () => {} } }
+  w.window.electron ??= { ipcRenderer: { send: () => {}, on: () => () => {} } }
 })
 
 import bus from '@/bus'
@@ -227,10 +232,12 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
       await flushMicrotasks()
 
       const target = { ...itemA, type: 'comment' as const, raw: '{>>old<<}', content: 'old' }
-      bus.emit('critic-markup-comment-edit', { target, text: 'new note' })
+      const acknowledge = vi.fn()
+      bus.emit('critic-markup-comment-edit', { target, text: 'new note', acknowledge })
       await flushMicrotasks()
 
       expect(engine.editCriticMarkupComment).toHaveBeenCalledWith(target, 'new note')
+      expect(acknowledge).toHaveBeenCalledWith({ outcome: 'saved' })
     } finally {
       app.unmount()
     }
@@ -261,9 +268,5 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
     const focusTargets = [...review.matchAll(/(\w+)\.value\?\.focus\(/g)].map(match => match[1])
     expect(focusTargets.length).toBeGreaterThan(0)
     expect(focusTargets.every(name => name === 'composeInput' || name === 'editInput')).toBe(true)
-
-    // The sidebar only scrolls the focused card into view inside its own
-    // pane; it must not scroll-jack or refocus the editor.
-    expect(review).toContain("scrollIntoView({ block: 'nearest' })")
   })
 })

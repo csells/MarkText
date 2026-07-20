@@ -72,6 +72,22 @@ describe('criticMarkup excluded ranges', () => {
         expect(cursor).toBe(sourceLength);
     });
 
+    it('finds the first range ending after a validated source offset', () => {
+        const excluded = ExcludedRanges.from(16, [
+            { start: 1, end: 4 },
+            { start: 7, end: 9 },
+            { start: 12, end: 15 },
+        ]);
+
+        expect(excluded.firstIndexEndingAfter(0)).toBe(0);
+        expect(excluded.firstIndexEndingAfter(4)).toBe(1);
+        expect(excluded.firstIndexEndingAfter(8)).toBe(1);
+        expect(excluded.firstIndexEndingAfter(15)).toBe(3);
+        expect(excluded.firstIndexEndingAfter(16)).toBe(3);
+        expect(() => excluded.firstIndexEndingAfter(-1)).toThrow(RangeError);
+        expect(() => excluded.firstIndexEndingAfter(17)).toThrow(RangeError);
+    });
+
     it('makes the parser consume the validated type instead of raw ranges', () => {
         const source = '{++hidden++} and {++visible++}';
         const hiddenEnd = source.indexOf(' and ');

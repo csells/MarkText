@@ -16,20 +16,26 @@
  * - `rejected`: the fail-closed path — markdown, JSON state, and history are
  *   untouched and exactly one `critic-markup-track-change-rejected` event
  *   fired. No delimiter edit may partially mutate the document.
+ * - `blocked`: the caret target is hidden comment syntax, so `beforeinput`
+ *   prevents the browser mutation before it can enter the Track Changes
+ *   gateway. Markdown, JSON state, and history remain untouched and no
+ *   gateway rejection event fires.
  *
  * Expected values are derived from the grammar authority
  * (specs/architecture/criticmarkup.md) plus the coded invariant in
  * src/criticMarkup/trackChanges.ts:
  *
  * 1. An edit whose source range is contained by an item's editable payload
- *    (addition/deletion/highlight/comment `contentRange`, substitution
+ *    (addition/deletion/highlight `contentRange`, substitution
  *    `oldRange`/`newRange`) is applied as a plain payload edit — but only
  *    when both projections still hold: `tracked.original` must equal the
  *    ORIGINAL projection of the before-document and `tracked.revised` the
  *    REVISED projection of the proposal. Payload edits inside a deletion,
  *    a highlight, or a substitution's old arm change the Original projection
  *    and are therefore rejected (fail-closed); payload edits inside an
- *    addition, a comment, or a substitution's new arm are committed.
+ *    addition or a substitution's new arm are committed. Comment syntax is
+ *    never a WYSIWYG caret target; deliberate comment edits use the Review
+ *    command path and are covered separately.
  * 2. An edit intersecting an item anywhere else (delimiters, separator) is
  *    rejected outright.
  * 3. An edit wholly outside every item is authored as a new
@@ -152,7 +158,8 @@ type TMatrixExpectation
         original: string;
         revised: string;
     }
-    | { result: 'rejected' };
+        | { result: 'rejected' }
+        | { result: 'blocked' };
 
 interface IMatrixRow {
     construct: TConstruct;
@@ -172,6 +179,8 @@ interface IMatrixRow {
     caretOffset: number;
     /** Character typed by `type` rows; defaults to the neutral letter Z. */
     insert?: string;
+    /** Browser-reported mutation range when the visible caret is at a hidden edge. */
+    beforeInputTarget?: 'comment-close-marker';
     expected: TMatrixExpectation;
 }
 
@@ -184,6 +193,7 @@ function tracked(
 }
 
 const REJECTED: TMatrixExpectation = { result: 'rejected' };
+const BLOCKED: TMatrixExpectation = { result: 'blocked' };
 
 const TYPED = 'Z';
 
@@ -354,27 +364,27 @@ const MATRIX: readonly IMatrixRow[] = [
     { construct: 'comment', form: 'plain', position: 'before', operation: 'backspace', source: 'a{>>x<<}b\n', caretOffset: 1,
         expected: tracked('{--a--}{>>x<<}b\n', 'ab\n', 'b\n') },
     { construct: 'comment', form: 'plain', position: 'open', operation: 'type', source: 'a{>>x<<}b\n', caretOffset: 2,
-        expected: REJECTED },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'open', operation: 'type', source: 'a{>>x<<}b\n', caretOffset: 3,
-        expected: REJECTED },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'open', operation: 'backspace', source: 'a{>>x<<}b\n', caretOffset: 2,
-        expected: REJECTED },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'open', operation: 'backspace', source: 'a{>>x<<}b\n', caretOffset: 4,
-        expected: REJECTED },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'content', operation: 'type', source: 'a{>>x<<}b\n', caretOffset: 4,
-        expected: tracked('a{>>Zx<<}b\n', 'ab\n', 'ab\n') },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'content', operation: 'type', source: 'a{>>x<<}b\n', caretOffset: 5,
-        expected: tracked('a{>>xZ<<}b\n', 'ab\n', 'ab\n') },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'content', operation: 'backspace', source: 'a{>>x<<}b\n', caretOffset: 5,
-        expected: tracked('a{>><<}b\n', 'ab\n', 'ab\n') },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'close', operation: 'type', source: 'a{>>x<<}b\n', caretOffset: 6,
-        expected: REJECTED },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'close', operation: 'type', source: 'a{>>x<<}b\n', caretOffset: 7,
-        expected: REJECTED },
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'close', operation: 'backspace', source: 'a{>>x<<}b\n', caretOffset: 6,
-        expected: REJECTED },
-    { construct: 'comment', form: 'plain', position: 'close', operation: 'backspace', source: 'a{>>x<<}b\n', caretOffset: 8,
-        expected: REJECTED },
+        expected: BLOCKED },
+    { construct: 'comment', form: 'plain', position: 'close', operation: 'backspace', source: 'a{>>x<<}b\n', caretOffset: 8, beforeInputTarget: 'comment-close-marker',
+        expected: BLOCKED },
     { construct: 'comment', form: 'plain', position: 'after', operation: 'type', source: 'a{>>x<<}b\n', caretOffset: 8,
         expected: tracked('a{>>x<<}{++Z++}b\n', 'ab\n', 'aZb\n') },
     { construct: 'comment', form: 'plain', position: 'after', operation: 'backspace', source: 'a{>>x<<}b\n', caretOffset: 9,
@@ -395,7 +405,7 @@ const MATRIX: readonly IMatrixRow[] = [
     { construct: 'highlight', form: 'plain', position: 'content', operation: 'type', source: 'a{==xy==}b\n', caretOffset: 5,
         expected: REJECTED },
     { construct: 'comment', form: 'plain', position: 'content', operation: 'type', source: 'a{>>xy<<}b\n', caretOffset: 5,
-        expected: tracked('a{>>xZy<<}b\n', 'ab\n', 'ab\n') },
+        expected: BLOCKED },
 
     // Authoring with a delimiter-like character: the serializer emits no
     // escape for a lone '+' — '{+++++}' reparses to the payload '+' because
@@ -429,9 +439,9 @@ const MATRIX: readonly IMatrixRow[] = [
     { construct: 'highlight', form: 'empty', position: 'close', operation: 'backspace', source: 'a{====}b\n', caretOffset: 4,
         expected: REJECTED },
     { construct: 'comment', form: 'empty', position: 'content', operation: 'type', source: 'a{>><<}b\n', caretOffset: 4,
-        expected: tracked('a{>>Z<<}b\n', 'ab\n', 'ab\n') },
+        expected: BLOCKED },
     { construct: 'comment', form: 'empty', position: 'open', operation: 'backspace', source: 'a{>><<}b\n', caretOffset: 4,
-        expected: REJECTED },
+        expected: BLOCKED },
 
     // ------------------------------------------------------------------
     // NESTED forms: the edit targets the nested item's payload. Projection
@@ -446,11 +456,11 @@ const MATRIX: readonly IMatrixRow[] = [
     { construct: 'substitution', form: 'nested', position: 'new-arm', operation: 'type', source: 'a{~~o~>x{==h==}y~~}b\n', caretOffset: 12,
         expected: tracked('a{~~o~>x{==hZ==}y~~}b\n', 'aob\n', 'axhZyb\n') },
     { construct: 'highlight', form: 'nested', position: 'content', operation: 'type', source: 'a{==x{>>c<<}y==}b\n', caretOffset: 9,
-        expected: tracked('a{==x{>>cZ<<}y==}b\n', 'axyb\n', 'axyb\n') },
+        expected: BLOCKED },
     // Comment payload is opaque to both projections whether or not the
     // grammar nests the inner form, so the outcome is identical either way.
     { construct: 'comment', form: 'nested', position: 'content', operation: 'type', source: 'a{>>x{++y++}z<<}b\n', caretOffset: 9,
-        expected: tracked('a{>>x{++yZ++}z<<}b\n', 'ab\n', 'ab\n') },
+        expected: BLOCKED },
     // Deleting the NESTED opener happens inside the OUTER addition's editable
     // payload: the gateway accepts it as a plain payload edit — the inner
     // marker degrades to literal payload text ('--y--}' has no opener, and
@@ -485,9 +495,9 @@ const MATRIX: readonly IMatrixRow[] = [
     { construct: 'highlight', form: 'block-spanning', position: 'close', operation: 'backspace', source: 'a{==b\n\nc==}d\n', block: 'last', blockText: 'c==}d', caretOffset: 2,
         expected: REJECTED },
     { construct: 'comment', form: 'block-spanning', position: 'content', operation: 'type', source: 'a{>>b\n\nc<<}d\n', block: 'first', blockText: 'a{>>b', caretOffset: 4,
-        expected: tracked('a{>>Zb\n\nc<<}d\n', 'ad\n', 'ad\n') },
+        expected: BLOCKED },
     { construct: 'comment', form: 'block-spanning', position: 'close', operation: 'backspace', source: 'a{>>b\n\nc<<}d\n', block: 'last', blockText: 'c<<}d', caretOffset: 2,
-        expected: REJECTED },
+        expected: BLOCKED },
 ];
 /* eslint-enable antfu/consistent-list-newline */
 
@@ -562,6 +572,77 @@ function expectRejectedOutcome(
     expect(changes).not.toHaveBeenCalled();
 }
 
+function expectBlockedBeforeMutation(
+    muya: Muya,
+    block: Format,
+    row: IMatrixRow,
+    stateBefore: unknown,
+    rejected: ReturnType<typeof vi.fn>,
+    changes: ReturnType<typeof vi.fn>,
+): void {
+    const selection = muya.editor.selection.getSelection();
+    if (!selection)
+        throw new TypeError('Expected an editor selection.');
+    const getSelection = vi.spyOn(
+        muya.editor.selection,
+        'getSelection',
+    ).mockReturnValue({
+        ...selection,
+        anchor: {
+            offset: row.caretOffset,
+            block,
+            path: block.path,
+        },
+        focus: {
+            offset: row.caretOffset,
+            block,
+            path: block.path,
+        },
+        isCollapsed: true,
+        isSelectionInSameBlock: true,
+    });
+    const event = new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        data: row.operation === 'type' ? row.insert ?? TYPED : null,
+        inputType: row.operation === 'type'
+            ? 'insertText'
+            : 'deleteContentBackward',
+    });
+    if (row.beforeInputTarget === 'comment-close-marker') {
+        const markers = block.domNode!.querySelectorAll(
+            '.mu-critic-comment .mu-critic-marker',
+        );
+        const target = markers[markers.length - 1]?.firstChild;
+        if (!target) {
+            throw new TypeError(
+                'Expected a rendered hidden comment close marker.',
+            );
+        }
+        const endOffset = target.textContent?.length ?? 0;
+        Object.defineProperty(event, 'getTargetRanges', {
+            value: () => [{
+                startContainer: target,
+                startOffset: Math.max(0, endOffset - 1),
+                endContainer: target,
+                endOffset,
+                collapsed: false,
+            }],
+        });
+    }
+
+    const accepted = muya.domNode.dispatchEvent(event);
+    getSelection.mockRestore();
+
+    expect(accepted).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(muya.getMarkdown()).toBe(row.source);
+    expect(muya.getState()).toEqual(stateBefore);
+    expect(muya.getHistory().stack.undo).toHaveLength(0);
+    expect(rejected).not.toHaveBeenCalled();
+    expect(changes).not.toHaveBeenCalled();
+}
+
 describe('criticMarkup Track Changes mutation matrix', () => {
     it.each(MATRIX)(
         '$construct/$form $operation at $position (caret $caretOffset)',
@@ -576,6 +657,18 @@ describe('criticMarkup Track Changes mutation matrix', () => {
             const changes = vi.fn();
             muya.on('critic-markup-track-change-rejected', rejected);
             muya.on('json-change', changes);
+
+            if (row.expected.result === 'blocked') {
+                expectBlockedBeforeMutation(
+                    muya,
+                    block,
+                    row,
+                    stateBefore,
+                    rejected,
+                    changes,
+                );
+                return;
+            }
 
             applyBrowserEdit(block, row);
 

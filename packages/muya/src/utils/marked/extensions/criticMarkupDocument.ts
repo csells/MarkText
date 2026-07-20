@@ -790,7 +790,7 @@ export default function criticMarkupDocumentExtension(
                         return `<mark class="critic critic-highlight" ${attributes}>${render(fragment.tokens)}</mark>`;
                     case 'comment': {
                         const title = fragment.critic.type === 'comment'
-                            ? fragment.critic.content
+                            ? fragment.critic.semanticContent
                             : '';
                         return `<span class="critic critic-comment" ${attributes} role="note" title="${escapeAttribute(title)}">${render(fragment.tokens)}</span>`;
                     }

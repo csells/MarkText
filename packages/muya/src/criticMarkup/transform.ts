@@ -1,4 +1,7 @@
-import type { TCriticMarkupDraft } from './parser';
+import type {
+    ICriticMarkupDraftOpaqueContext,
+    TCriticMarkupDraft,
+} from './parser';
 import type { TCriticMarkupDecision } from './project';
 import {
     parseCriticMarkupAt,
@@ -7,8 +10,11 @@ import {
 import { resolveCriticMarkupToken } from './project';
 
 /** Create pure CriticMarkup using the grammar owner's canonical delimiters. */
-export function createCriticMarkup(draft: TCriticMarkupDraft): string {
-    return serializeCriticMarkupDraft(draft);
+export function createCriticMarkup(
+    draft: TCriticMarkupDraft,
+    opaque: ICriticMarkupDraftOpaqueContext = {},
+): string {
+    return serializeCriticMarkupDraft(draft, opaque);
 }
 
 /** Resolve exactly one known review item and leave adjacent Markdown intact. */

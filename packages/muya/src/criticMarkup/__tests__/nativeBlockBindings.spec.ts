@@ -57,6 +57,48 @@ function immutableGraph(
 }
 
 describe('criticMarkupDocument native block bindings', () => {
+    it.each([
+        {
+            kind: 'heading',
+            source: '{=={--# head\n--}==}{>>c<<}\n',
+        },
+        {
+            kind: 'list',
+            source: '{=={--  - item\n--}==}{>>c<<}\n',
+        },
+    ])(
+        'authenticates a nested structural $kind anchor without splitting its comment',
+        ({ source }) => {
+            const lowered = new MarkdownToState(LOWERER_OPTIONS)
+                .generateWithMetadata(source);
+            const mapped = new StateToMarkdown({ listIndentation: 4 })
+                .generateMapped(lowered.states);
+
+            expect(mapped.text).toBe(source);
+            const analysis = CriticMarkupAnalysis.analyzeGrammar(
+                mapped.text,
+                ExcludedRanges.empty(mapped.text.length),
+            );
+            const document = createCriticMarkupDocument(
+                analysis,
+                mapped,
+                undefined,
+                undefined,
+                lowered.criticMarkupBindings,
+            );
+
+            expect(document.items.map(item => ({
+                type: item.syntax.type,
+                inline: item.fragments.length,
+                structural: item.structuralFragments.length,
+            }))).toEqual([
+                { type: 'highlight', inline: 0, structural: 1 },
+                { type: 'deletion', inline: 0, structural: 1 },
+                { type: 'comment', inline: 1, structural: 0 },
+            ]);
+        },
+    );
+
     it('uses parser-owned structural identity instead of reconstructing it', () => {
         const { analysis, bindings, mapped } = fixture();
         const document = createCriticMarkupDocument(

@@ -230,6 +230,22 @@ export class StateMutationCapture {
         });
     }
 
+    /**
+     * Read the in-progress capture without cloning or final verification.
+     * The snapshot is ephemeral and must be consumed synchronously/read-only;
+     * `finish` remains the sole commit-time integrity boundary.
+     */
+    activeSnapshot<T>(value: T): ICapturedStateMutation<T> {
+        return {
+            value,
+            baseRevision: this.baseRevision,
+            beforeState: this.beforeState,
+            afterState: this._draft,
+            intents: this.intents,
+            operation: this._operation,
+        };
+    }
+
     finish<T>(value: T): ICapturedStateMutation<T> {
         const operation = Array.isArray(this._operation)
             && this._operation.length === 0

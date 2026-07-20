@@ -59,6 +59,28 @@ function sourceMapForLeaves(
 const path = (...parts: Array<string | number>) => markdownStatePath(parts);
 
 describe('criticMarkup document model', () => {
+    it('indexes only gapless parser-owned comment anchors once per revision', () => {
+        const markdown
+            = '{==focus==}{>>note<<} {==plain==} {>>point<<}';
+        const document = createCriticMarkupDocument(fromMarkdownSourceMap(
+            sourceMapForLeaves(markdown, [{
+                path: [0, 'text'],
+                text: markdown,
+            }]),
+        ));
+
+        expect(document.hasCommentAnchors).toBe(true);
+        const pairs = document.commentAnchorPairs();
+        expect(pairs).toHaveLength(1);
+        expect(pairs[0].anchor.syntax.raw).toBe('{==focus==}');
+        expect(pairs[0].comment.syntax.raw).toBe('{>>note<<}');
+        expect(document.commentAnchorFor(pairs[0].comment.id))
+            .toBe(pairs[0].anchor);
+        expect(document.commentForAnchor(pairs[0].anchor.id))
+            .toBe(pairs[0].comment);
+        expect(document.commentAnchorFor(document.items[2].id)).toBeNull();
+    });
+
     it('freezes every public document authority and projects from immutable analysis', () => {
         const markdown = '{++x++}';
         const document = createCriticMarkupDocument(fromMarkdownSourceMap(

@@ -4,6 +4,7 @@ import type { TCriticMarkupDecision } from '../../criticMarkup/project';
 import type { ICriticMarkupReviewSnapshot } from '../../criticMarkup/reviewSnapshot';
 import type { Muya } from '../../muya';
 import type { IBaseOptions } from '../types';
+import { deepestCriticMarkupItemId } from '../../criticMarkup/domIdentity';
 import BaseFloat from '../baseFloat';
 
 import './index.css';
@@ -85,35 +86,32 @@ export class CriticMarkupReviewTool extends BaseFloat {
                         '[data-critic-id], [data-critic-structural-id]',
                     )
                 : null;
-            const targetId = this._deepestTargetItemId(target);
+            const targetId = target
+                ? deepestCriticMarkupItemId(
+                        this.muya.editor.criticMarkupDocument.get(),
+                        this.muya.domNode,
+                        target,
+                    )
+                : null;
+            if (
+                targetId
+                && this.muya.getCriticMarkupReviewSnapshot().items.some(item =>
+                    item.type === 'comment'
+                    && (item.id === targetId || item.anchorId === targetId))
+            ) {
+                this._cancelAndHide();
+                return;
+            }
             const item = targetId
                 ? this.muya.focusCriticMarkup(targetId)
                 : this.muya.getCurrentCriticMarkupItem();
-            if (!item)
+            if (!item || item.type === 'comment') {
+                this._cancelAndHide();
                 return;
+            }
             const anchor = this.muya.editor.selection.anchorBlock?.domNode;
             this._queueOpen(item, target ?? anchor ?? domNode);
         });
-    }
-
-    private _deepestTargetItemId(target: HTMLElement | null): string | null {
-        const rawIds = target?.getAttribute('data-critic-id')
-            ?? target?.getAttribute('data-critic-structural-id');
-        if (!rawIds)
-            return null;
-        const ids = rawIds.trim().split(/\s+/).filter(Boolean);
-        const document = this.muya.editor.criticMarkupDocument.get();
-        const items = ids.map((id) => {
-            const item = document.itemById(id);
-            if (!item) {
-                throw new TypeError(
-                    `CriticMarkup DOM identity ${id} is stale for this revision.`,
-                );
-            }
-            return item;
-        });
-        return items.reduce((selected, item) =>
-            !selected || item.depth >= selected.depth ? item : selected, null as (typeof items)[number] | null)?.id ?? null;
     }
 
     private _queueOpen(

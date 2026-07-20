@@ -145,6 +145,23 @@ function relativeExcludedRanges(
     );
 }
 
+function relativeOpaqueAnchorPayload(
+    document: CriticMarkupDocument,
+    range: TSourceRange,
+): ExcludedRanges {
+    const excluded = relativeExcludedRanges(
+        document.excludedRanges,
+        range,
+    );
+    return ExcludedRanges.from(range.end - range.start, [
+        ...excluded.ranges,
+        ...document.itemsContainedBySourceRange(range).map(item => ({
+            start: item.syntax.range.start - range.start,
+            end: item.syntax.range.end - range.start,
+        })),
+    ]);
+}
+
 function assertDocumentSource(
     label: string,
     document: CriticMarkupDocument,
@@ -215,12 +232,34 @@ export function trackCriticMarkupEdits(
         const completeEdit: IConcreteSourceEdit = {
             oldRange: edit.oldRange,
         };
-        const containing = beforeDocument.itemsContainingSourceRange(
+        const containingItem = beforeDocument.itemsContainingSourceRange(
             edit.oldRange,
         ).find(item => editableRanges(item.syntax).some(range =>
-            rangeContainsEdit(range, completeEdit)))?.syntax;
+            rangeContainsEdit(range, completeEdit)));
+        const containing = containingItem?.syntax;
 
         if (containing) {
+            const deletesWholeCommentAnchor = edit.inserted === ''
+                && containing.type === 'highlight'
+                && beforeDocument.commentForAnchor(containingItem!.id) !== null
+                && edit.oldRange.start === containing.contentRange.start
+                && edit.oldRange.end === containing.contentRange.end;
+            if (deletesWholeCommentAnchor) {
+                replacements.push({
+                    edit,
+                    replacement: authoredReplacement(
+                        removed,
+                        '',
+                        relativeOpaqueAnchorPayload(
+                            beforeDocument,
+                            edit.oldRange,
+                        ),
+                        ExcludedRanges.empty(0),
+                    ),
+                    authored: true,
+                });
+                continue;
+            }
             replacements.push({
                 edit,
                 replacement: edit.inserted,

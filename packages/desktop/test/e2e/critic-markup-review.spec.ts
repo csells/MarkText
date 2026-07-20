@@ -44,6 +44,59 @@ const selectWord = async(page: Page, word: string): Promise<void> => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 
+const placeCaretInWord = async(
+  page: Page,
+  needle: string,
+  offset: number
+): Promise<void> => {
+  const placed = await page.evaluate(({ text: target, characterOffset }) => {
+    const root = document.querySelector('.editor-component') as HTMLElement | null
+    if (!root) return false
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const text = walker.currentNode as Text
+      const index = text.textContent?.indexOf(target) ?? -1
+      if (index < 0) continue
+      const range = document.createRange()
+      range.setStart(text, index + characterOffset)
+      range.collapse(true)
+      const selection = window.getSelection()
+      if (!selection) return false
+      selection.removeAllRanges()
+      selection.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+      root.dispatchEvent(new KeyboardEvent('keyup', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true
+      }))
+      return true
+    }
+    return false
+  }, { text: needle, characterOffset: offset })
+  if (!placed) {
+    throw new TypeError(`Could not place a caret in ${JSON.stringify(needle)}.`)
+  }
+  await page.evaluate(() => new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+}
+
+const selectionIsInsideHiddenComment = (page: Page): Promise<boolean> =>
+  page.evaluate(() => {
+    const selection = window.getSelection()
+    const selector = [
+      '.mu-critic-comment',
+      '[hidden][data-critic-type~="comment"]'
+    ].join(', ')
+    const inside = (node: Node | null): boolean => {
+      const element = node?.nodeType === Node.ELEMENT_NODE
+        ? node as Element
+        : node?.parentElement
+      return Boolean(element?.closest(selector))
+    }
+    return inside(selection?.anchorNode ?? null) || inside(selection?.focusNode ?? null)
+  })
+
 const sourceMarkdown = (page: Page): Promise<string> => page.evaluate(() => {
   const element = document.querySelector('.source-code .CodeMirror') as
     | (Element & { CodeMirror?: { getValue: () => string } })
@@ -315,6 +368,123 @@ test.describe('CriticMarkup Review sidebar', () => {
       await exitSourceMode(page, app)
       await expect(cards).toHaveCount(4)
       await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('folds, edits, rejects, saves, and removes an anchored comment', async() => {
+    const opaqueLiteral = '`<<\\}`'
+    const preface = Array.from(
+      { length: 24 },
+      (_, index) => `{++preface ${index}++}`
+    ).join('\n\n')
+    const original = `${preface}\n\n{==reviewed==}{>>outer ${opaqueLiteral} tail<<}\n`
+    const edited = original.replace(
+      `{>>outer ${opaqueLiteral} tail<<}`,
+      `{>>edited ${opaqueLiteral} note<<}`
+    )
+    const removed = `${preface}\n\nreviewed\n`
+    const { app, page } = await launchWithMarkdown(original)
+
+    try {
+      await focusEditor(page)
+      await clearRendererErrors(app)
+      await openReviewSidebar(page, app)
+
+      const commentCard = page.locator('.review-card.type-comment')
+      await expect(commentCard).toHaveCount(1)
+      await expect(page.locator('.review-card.type-highlight')).toHaveCount(0)
+      await expect(commentCard.locator('.comment-anchor')).toHaveText('reviewed')
+      await expect(page.locator('.mu-critic-comment-text')).toBeHidden()
+      await expect(page.locator('.mu-critic-comment-indicator')).toBeVisible()
+
+      const sideBar = page.locator('.side-bar-review')
+      const scrollTop = await sideBar.evaluate((element) => {
+        element.scrollTop = 120
+        return element.scrollTop
+      })
+      expect(scrollTop).toBeGreaterThan(0)
+      await placeCaretInWord(page, 'reviewed', 3)
+      await expect(commentCard).toHaveClass(/active/)
+      await expect(commentCard.locator('.comment-edit')).toHaveCount(0)
+      expect(await sideBar.evaluate((element) => element.scrollTop)).toBe(scrollTop)
+
+      await commentCard.locator('.review-card-focus').click()
+      const editor = commentCard.locator('.comment-edit textarea')
+      await expect(editor).toHaveValue(`outer ${opaqueLiteral} tail`)
+      const rejected = `outer ${opaqueLiteral} ${opaqueLiteral} tail`
+      await editor.fill(rejected)
+      await commentCard.locator('.comment-edit .submit').click()
+      await expect(commentCard.locator('.comment-edit-failure')).toBeVisible()
+      await expect(editor).toHaveValue(rejected)
+      expect(await readCanonicalMarkdown(page)).toBe(original)
+
+      await editor.fill(`edited ${opaqueLiteral} note`)
+      await commentCard.locator('.comment-edit .submit').click()
+      await expect(commentCard.locator('.comment-edit')).toHaveCount(0)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+      await expect(commentCard.locator('.comment-anchor')).toHaveText('reviewed')
+
+      await undo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+      await redo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+
+      await commentCard.getByRole('button', { name: 'Remove comment' }).click()
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(removed)
+      await undo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+      await redo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(removed)
+      await expectNoCapturedErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('escapes a hidden caret and preserves a deleted anchor as a point comment', async() => {
+    const original = 'before {==target==}{>>note<<} after\n'
+    const point = 'before {>>note<<} after\n'
+    const { app, page } = await launchWithMarkdown(original)
+
+    try {
+      await focusEditor(page)
+      await clearRendererErrors(app)
+      const placed = await page.evaluate(() => {
+        const hidden = document.querySelector('.mu-critic-comment-text')
+        const text = hidden?.firstChild
+        if (!text || text.nodeType !== Node.TEXT_NODE) return false
+        const selection = window.getSelection()
+        if (!selection) return false
+        const range = document.createRange()
+        range.setStart(text, Math.min(1, text.textContent?.length ?? 0))
+        range.collapse(true)
+        selection.removeAllRanges()
+        selection.addRange(range)
+        document.dispatchEvent(new Event('selectionchange'))
+        return true
+      })
+      expect(placed).toBe(true)
+      await expect.poll(() => selectionIsInsideHiddenComment(page)).toBe(false)
+      expect(await readCanonicalMarkdown(page)).toBe(original)
+
+      await selectWord(page, 'target')
+      await page.keyboard.press('Backspace')
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(point)
+
+      await openReviewSidebar(page, app)
+      const commentCard = page.locator('.review-card.type-comment')
+      await expect(commentCard).toHaveCount(1)
+      await expect(commentCard.locator('.comment-anchor')).toHaveCount(0)
+
+      await undo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+      await redo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(point)
+      await commentCard.getByRole('button', { name: 'Remove comment' }).click()
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe('before  after\n')
+      await expectNoCapturedErrors(app)
     } finally {
       await app.close()
     }

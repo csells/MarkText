@@ -38,6 +38,12 @@ const canonicalContractPath = path.join(
 const muyaPath = path.join(muyaRoot, 'muya.ts')
 const muyaShimPath = path.join(desktopRoot, 'src/types/muya-core.d.ts')
 const desktopTsconfigPath = path.join(desktopRoot, 'tsconfig.base.json')
+const criticPlatformWorkflowPath = path.resolve(
+  desktopRoot,
+  '../../.github/workflows/critic-review-platforms.yml'
+)
+const inlineSyntaxPath = path.join(muyaRoot, 'assets/styles/inlineSyntax.css')
+const packagedSmokePath = path.join(desktopRoot, 'test/e2e/packaged-smoke.spec.ts')
 
 const sourceFiles = (directory: string): string[] => fs.readdirSync(directory, {
   withFileTypes: true
@@ -63,6 +69,19 @@ const eventExpressions = (node: TemplateNode, event: string): string[] =>
     .map((prop) => prop.exp?.content ?? '') ?? []
 
 describe('one CriticMarkup Review snapshot/controller protocol', () => {
+  it('runs every desktop CriticMarkup unit suite in the platform workflow', () => {
+    const workflow = fs.readFileSync(criticPlatformWorkflowPath, 'utf8')
+    const specs = fs.readdirSync(path.join(desktopRoot, 'test/unit/specs'))
+      .filter((name) => name.startsWith('critic-markup-') && name.endsWith('.spec.ts'))
+      .sort()
+
+    expect(specs.length).toBeGreaterThan(0)
+    for (const spec of specs) {
+      expect(workflow, `${spec} is absent from the platform workflow`)
+        .toContain(`test/unit/specs/${spec}`)
+    }
+  })
+
   it('subscribes once in a dedicated controller instead of manually polling in editor.vue', () => {
     expect(fs.existsSync(controllerPath)).toBe(true)
 
@@ -139,11 +158,11 @@ describe('CriticMarkup Review sidebar interaction semantics', () => {
     const directChildren = card!.children ?? []
     const focusControl = directChildren.find((node) =>
       node.tag === 'button' && eventExpressions(node, 'click')
-        .some((expression) => expression.includes("actOnItem('focus'")))
+        .some((expression) => expression.includes('activateItem(item)')))
     const actionGroup = directChildren.find((node) =>
       staticAttribute(node, 'class')?.split(/\s+/).includes('card-actions'))
 
-    expect(focusControl, 'the card needs a dedicated focus/reveal button').toBeDefined()
+    expect(focusControl, 'the card needs a dedicated activate/edit button').toBeDefined()
     expect(actionGroup, 'focus and decision controls must be siblings').toBeDefined()
 
     let nestedButton = false
@@ -159,6 +178,26 @@ describe('CriticMarkup Review sidebar interaction semantics', () => {
     expect(source).not.toMatch(
       /<button\s+v-else[\s\S]{0,240}?actOnItem\('accept', item\)/
     )
+  })
+
+  it('styles the passive comment indicator without interactive affordances', () => {
+    const source = fs.readFileSync(inlineSyntaxPath, 'utf8')
+    expect(source).not.toMatch(
+      /\.mu-critic-comment-indicator\s*\{[^}]*cursor:\s*pointer/s
+    )
+    expect(source).not.toMatch(/\.mu-critic-comment-indicator:focus-visible/)
+  })
+
+  it('makes the packaged smoke prove a folded anchored comment in an isolated profile', () => {
+    const source = fs.readFileSync(packagedSmokePath, 'utf8')
+    expect(source).toContain('with {==marked==}{>>remember this<<}')
+    expect(source).toMatch(/args:\s*\[[^\]]*'--user-data-dir'[^\]]*userDataDir/s)
+    expect(source).toContain("page.locator('.side-bar-review')")
+    expect(source).toContain("page.locator('.review-card')")
+    expect(source).toContain("page.locator('.review-card.type-comment')")
+    expect(source).toContain("page.locator('.review-card.type-highlight')")
+    expect(source).toContain("page.locator('.comment-anchor')")
+    expect(source).toMatch(/finally\s*\{[\s\S]*fs\.rmSync\(dir,\s*\{\s*recursive:\s*true,\s*force:\s*true\s*\}\)/)
   })
 
   it('maps the explicit annotation-removal action to the engine decision deliberately', () => {

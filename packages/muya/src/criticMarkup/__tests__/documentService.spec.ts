@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type Content from '../../block/base/content';
+import type { TState } from '../../state/types';
 import type { CriticMarkupDocument } from '../document';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -32,12 +33,15 @@ vi.mock('../parser', async (importOriginal) => {
 });
 
 const hosts: HTMLElement[] = [];
+const editors: Muya[] = [];
 
 beforeEach(() => {
     parserCalls.candidateSources.length = 0;
 });
 
 afterEach(() => {
+    while (editors.length)
+        editors.pop()!.destroy();
     while (hosts.length)
         hosts.pop()!.remove();
 });
@@ -48,6 +52,7 @@ function boot(markdown: string) {
     hosts.push(host);
     const muya = new Muya(host, { markdown });
     muya.init();
+    editors.push(muya);
     return muya;
 }
 
@@ -161,6 +166,21 @@ describe('criticMarkup document service', () => {
         }
     });
 
+    it('rejects an exact-source parser artifact from an obsolete parser profile', () => {
+        const source = '{++^sup^++}\n';
+        const muya = boot(source);
+        const service = muya.editor.criticMarkupDocument;
+        const before = service.get();
+
+        muya.setOptions({ superSubScript: false });
+
+        const after = service.get();
+        expect(after.markdown).toBe(source);
+        expect(after.analysis).not.toBe(before.analysis);
+        expect(after.analysis.parserProfile)
+            .not.toEqual(before.analysis.parserProfile);
+    });
+
     it('rebuilds a native block graph after a live user mutation invalidates the parser artifact', () => {
         const source = [
             '{~~| OLD |',
@@ -209,6 +229,112 @@ describe('criticMarkup document service', () => {
         ]);
     });
 
+    it('rebinds native inline segments after a table edit invalidates the parser artifact', () => {
+        const source = [
+            '| A {++x \\| y++} | B |',
+            '| --- | --- |',
+            '',
+        ].join('\n');
+        const muya = boot(source);
+        const service = muya.editor.criticMarkupDocument;
+        const otherCell = contentByText(muya, 'B');
+
+        expect(service.get().items).toHaveLength(1);
+        runUserEdit(muya, () => {
+            otherCell.text = 'C';
+        });
+
+        const editedSource = muya.getMarkdown();
+        expect(muya.editor.jsonState.parserArtifactForSource(editedSource))
+            .toBeNull();
+        const [addition] = service.get().items;
+        const [fragment] = addition.fragments;
+
+        expect(fragment.path).toEqual([
+            0,
+            'children',
+            0,
+            'children',
+            0,
+            'text',
+        ]);
+        expect(fragment.segments).toHaveLength(4);
+        expect(fragment.sourceRange.end - fragment.sourceRange.start)
+            .toBeGreaterThan(fragment.localRange.end - fragment.localRange.start);
+    });
+
+    it('rebinds spanless native block carriers after artifact invalidation', () => {
+        const source = [
+            '{~~```',
+            'old',
+            '~># new',
+            '~~}',
+            '',
+            'tail',
+            '',
+        ].join('\n');
+        const muya = boot(source);
+        const service = muya.editor.criticMarkupDocument;
+        const tail = contentByText(muya, 'tail');
+
+        expect(service.get().items).toHaveLength(1);
+        runUserEdit(muya, () => {
+            tail.text = 'tail changed';
+        });
+
+        const editedSource = muya.getMarkdown();
+        expect(muya.editor.jsonState.parserArtifactForSource(editedSource))
+            .toBeNull();
+        const [substitution] = service.get().items;
+
+        expect(substitution.structuralFragments).toMatchObject([
+            { kind: 'content', path: [0], arm: 'old' },
+            { kind: 'content', path: [1], arm: 'new' },
+        ]);
+    });
+
+    it('rebinds every state covered by one multi-block native arm', () => {
+        const source = '{++# a\n\n# b\n\n# c++}\n\ntail\n';
+        const muya = boot(source);
+        const service = muya.editor.criticMarkupDocument;
+        const tail = contentByText(muya, 'tail');
+
+        const [before] = service.get().items;
+        expect(before.structuralFragments).toMatchObject([
+            { kind: 'content', path: [0] },
+            { kind: 'content', path: [1] },
+            { kind: 'content', path: [2] },
+        ]);
+        runUserEdit(muya, () => {
+            tail.text = 'tail changed';
+        });
+
+        const editedSource = muya.getMarkdown();
+        expect(muya.editor.jsonState.parserArtifactForSource(editedSource))
+            .toBeNull();
+        const [addition] = service.get().items;
+
+        expect(addition.structuralFragments)
+            .toEqual(before.structuralFragments);
+    });
+
+    it('rebinds a marker-only EOF boundary through its semantic point', () => {
+        const source = '{++++}';
+        const muya = boot('before\n');
+        const session = muya.editor.criticMarkupDocument.beginSession();
+        const analysis = session.createForSource(source).analysis;
+        const state = session.parseState(source);
+
+        expect(session.mapState(state).text).toBe(source);
+        const [addition] = session.bindAnalysisForState(analysis, state).items;
+
+        expect(addition.structuralFragments).toMatchObject([{
+            kind: 'boundary',
+            path: [0],
+            edge: 'after',
+        }]);
+    });
+
     it('binds tracked state analysis with the native parser graph', () => {
         const source = [
             '{~~| OLD |',
@@ -231,6 +357,34 @@ describe('criticMarkup document service', () => {
         ]);
     });
 
+    it('rebinds a parser-owned empty block boundary to its live carrier', () => {
+        const source = 'a\n\n{++++}# heading\n\nc\n';
+        const muya = boot('before\n');
+        const session = muya.editor.criticMarkupDocument.beginSession();
+        const analysis = session.createForSource(source).analysis;
+        const state: TState[] = [
+            {
+                name: 'paragraph',
+                text: 'a\n\n{++++}# heading',
+                sourceTrivia: { blockSeparatorAfter: '\n' },
+            },
+            {
+                name: 'paragraph',
+                text: 'c',
+                sourceTrivia: { terminalLineEnding: '\n' },
+            },
+        ];
+
+        expect(session.mapState(state).text).toBe(source);
+        const [addition] = session.bindAnalysisForState(analysis, state).items;
+
+        expect(addition.structuralFragments).toMatchObject([{
+            kind: 'boundary',
+            path: [0],
+            edge: 'before',
+        }]);
+    });
+
     it('caches one parser-native model for an unchanged live revision', () => {
         const muya = boot('{++one\n\n# two++}\n');
 
@@ -239,6 +393,74 @@ describe('criticMarkup document service', () => {
 
         expect(second).toBe(first);
         expect(first.items).toHaveLength(1);
+    });
+
+    it('caches one speculative model per exact capture draft', () => {
+        const muya = boot('{++one++}\n');
+        const service = muya.editor.criticMarkupDocument;
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant()!;
+        let first!: CriticMarkupDocument;
+        let second!: CriticMarkupDocument;
+        let changed!: CriticMarkupDocument;
+
+        runUserEdit(muya, () => {
+            leaf.text = '{++two++}';
+            first = service.get();
+            second = service.get();
+            leaf.text = '{++three++}';
+            changed = service.get();
+        });
+
+        expect(second).toBe(first);
+        expect(changed).not.toBe(first);
+        expect(first.markdown).toBe('{++two++}\n');
+        expect(changed.markdown).toBe('{++three++}\n');
+    });
+
+    it('caches completed parser context for one openerless capture draft', () => {
+        const muya = boot('plain text\n');
+        const service = muya.editor.criticMarkupDocument;
+        const leaf = muya.editor.scrollPage!.firstContentInDescendant()!;
+        let first!: CriticMarkupDocument;
+        let second!: CriticMarkupDocument;
+
+        runUserEdit(muya, () => {
+            leaf.text = 'changed text';
+            first = service.getContext();
+            second = service.getContext();
+        });
+
+        expect(second).toBe(first);
+        expect(first.markdown).toBe('changed text\n');
+        expect(first.analysis.contextCoverage).toBe('complete');
+    });
+
+    it('does not reuse durable binding paths for same-source capture topology', () => {
+        const source = '{++one++}\n';
+        const muya = boot(source);
+        const service = muya.editor.criticMarkupDocument;
+        const emptyContainer: TState = {
+            name: 'block-quote',
+            children: [],
+            sourceTrivia: { blockSeparatorAfter: '' },
+        };
+        const draft = [emptyContainer, ...muya.getState()];
+        expect(service.beginSession().mapState(draft).text).toBe(source);
+        let speculative!: CriticMarkupDocument;
+
+        expect(() => muya.editor.mutationGateway.run(
+            { kind: 'user-command' },
+            () => {
+                muya.editor.jsonState.insertOperation([0], emptyContainer);
+                speculative = service.get();
+                throw new Error('stop speculative capture');
+            },
+        )).toThrowError('stop speculative capture');
+
+        expect(speculative.markdown).toBe(source);
+        expect(speculative.items[0].fragments[0].path)
+            .toEqual([1, 'text']);
+        expect(muya.getMarkdown()).toBe(source);
     });
 
     it.each(CACHED_INDEX_POISONERS)(

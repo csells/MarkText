@@ -10,14 +10,18 @@ import {
     IDENTICAL_SUBSTITUTION_ARM_CORPUS,
 } from '../criticMarkup/__tests__/sharedCorpus';
 import { Muya } from '../muya';
+import * as criticMarkupGrammar from '../criticMarkup/parser';
 
 interface IReviewSnapshotMuya extends Muya {
     getCriticMarkupReviewSnapshot: () => ICriticMarkupReviewSnapshot;
 }
 
 const hosts: HTMLElement[] = [];
+const editors: Muya[] = [];
 
 afterEach(() => {
+    while (editors.length)
+        editors.pop()!.destroy();
     while (hosts.length)
         hosts.pop()!.remove();
 });
@@ -32,11 +36,52 @@ function boot(
 
     const muya = new Muya(host, { markdown, ...options }) as IReviewSnapshotMuya;
     muya.init();
+    editors.push(muya);
     const block = muya.editor.scrollPage!.firstContentInDescendant() as Format;
     return { muya, block };
 }
 
 describe('atomic CriticMarkup Review snapshot', () => {
+    it('keeps nested semantic payloads lazy across ordinary Review refreshes', () => {
+        const depth = 96;
+        const source
+            = `${'{++visible '.repeat(depth)}leaf${'++}'.repeat(depth)}\n`;
+        const decode = vi.spyOn(
+            criticMarkupGrammar,
+            'decodeCriticMarkupPayloadEscapes',
+        );
+
+        try {
+            const { muya } = boot(source);
+            const commandItems = muya.getCriticMarkupItems();
+            const first = muya.getCriticMarkupReviewSnapshot();
+            const second = muya.getCriticMarkupReviewSnapshot();
+
+            expect(commandItems).toHaveLength(depth);
+            expect(first.items).toHaveLength(depth);
+            expect(decode).not.toHaveBeenCalled();
+            expect(Object.getOwnPropertyDescriptor(
+                commandItems[0],
+                'content',
+            )).toMatchObject({ enumerable: true, get: expect.any(Function) });
+            expect(Object.getOwnPropertyDescriptor(
+                first.items[0],
+                'content',
+            )).toMatchObject({ enumerable: true, get: expect.any(Function) });
+
+            const innermost = first.items.at(-1)!;
+            expect(innermost.content).toBe('visible leaf');
+            const materializedCalls = decode.mock.calls.length;
+            expect(materializedCalls).toBeGreaterThan(0);
+            expect(commandItems.at(-1)!.content).toBe('visible leaf');
+            expect(second.items.at(-1)!.content).toBe('visible leaf');
+            expect(decode).toHaveBeenCalledTimes(materializedCalls);
+        }
+        finally {
+            decode.mockRestore();
+        }
+    });
+
     it('returns one serializable engine-owned snapshot without live fragment objects', () => {
         const { muya } = boot('before {++new++} {--old--}\n');
 

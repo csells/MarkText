@@ -11,6 +11,7 @@ import {
     markdownStatePath,
     plainMarkdown,
 } from '../state/markdownSourceMap';
+import { rebindCriticMarkupStateBindings } from '../state/rebindCriticMarkupStateBindings';
 import StateToMarkdown from '../state/stateToMarkdown';
 import {
     criticMarkupParserProfile,
@@ -77,6 +78,12 @@ export class CriticMarkupDocumentService {
     private _preparedDocument: CriticMarkupDocument | null = null;
     private _preparedOptionsKey = '';
     private _preparedRevision = -1;
+    private _captureDocument: CriticMarkupDocument | null = null;
+    private _captureOptionsKey = '';
+    private _captureDraftVersion = -1;
+    private _captureContextDocument: CriticMarkupDocument | null = null;
+    private _captureContextOptionsKey = '';
+    private _captureContextDraftVersion = -1;
 
     constructor(private readonly _muya: Muya) {}
 
@@ -92,8 +99,35 @@ export class CriticMarkupDocumentService {
         // block handlers may synchronously re-render that draft before the
         // gateway accepts or rejects it. Its offsets must never reuse or
         // replace the durable revision cache.
-        if (jsonState.isCapturing)
-            return this._build(jsonState.getLiveState(), parserOptions);
+        if (jsonState.isCapturing) {
+            const captureDraftVersion = jsonState.captureDraftVersion;
+            if (captureDraftVersion === null) {
+                throw new TypeError(
+                    'Active state capture has no speculative cache identity.',
+                );
+            }
+            if (
+                this._captureDocument
+                && this._captureDraftVersion === captureDraftVersion
+                && this._captureOptionsKey === parserOptions.key
+            ) {
+                return this._captureDocument;
+            }
+            this._captureDocument = this._build(
+                jsonState.getLiveState(),
+                parserOptions,
+            );
+            this._captureDraftVersion = captureDraftVersion;
+            this._captureOptionsKey = parserOptions.key;
+            return this._captureDocument;
+        }
+
+        this._captureDocument = null;
+        this._captureDraftVersion = -1;
+        this._captureOptionsKey = '';
+        this._captureContextDocument = null;
+        this._captureContextDraftVersion = -1;
+        this._captureContextOptionsKey = '';
 
         if (
             this._preparedDocument
@@ -114,6 +148,8 @@ export class CriticMarkupDocumentService {
         this._document = this._build(
             jsonState.getLiveState(),
             parserOptions,
+            false,
+            true,
         );
         this._revision = jsonState.documentVersion;
         this._optionsKey = parserOptions.key;
@@ -152,12 +188,28 @@ export class CriticMarkupDocumentService {
             return document;
         }
         if (jsonState.isCapturing) {
-            return this._parseMapped(
+            const captureDraftVersion = jsonState.captureDraftVersion;
+            if (captureDraftVersion === null) {
+                throw new TypeError(
+                    'Active state capture has no context cache identity.',
+                );
+            }
+            if (
+                this._captureContextDocument
+                && this._captureContextDraftVersion === captureDraftVersion
+                && this._captureContextOptionsKey === parserOptions.key
+            ) {
+                return this._captureContextDocument;
+            }
+            this._captureContextDocument = this._parseMapped(
                 document.mappedText,
                 parserOptions,
                 true,
                 document.analysis,
             );
+            this._captureContextDraftVersion = captureDraftVersion;
+            this._captureContextOptionsKey = parserOptions.key;
+            return this._captureContextDocument;
         }
 
         this._contextDocument = this._parseMapped(
@@ -216,7 +268,11 @@ export class CriticMarkupDocumentService {
                     mapped,
                     parserProfile,
                     'complete',
-                    native.bindings,
+                    this._bindingsForMappedState(
+                        native,
+                        mapped,
+                        parserOptions,
+                    ),
                 );
             },
             analyzeForCommit: markdown => this._analyzeForCommit(
@@ -275,10 +331,19 @@ export class CriticMarkupDocumentService {
         state: ReturnType<Muya['getState']>,
         parserOptions: ICriticMarkupParserOptionsSnapshot,
         includeContext = false,
+        reuseLiveArtifact = false,
     ): CriticMarkupDocument {
         const mapped = this._mappedState(state, parserOptions);
-        let parserArtifact = this._muya.editor.jsonState
-            .parserArtifactForSource(mapped.text);
+        const parserProfile = criticMarkupParserProfile(parserOptions.lex);
+        let parserArtifact = reuseLiveArtifact
+            ? this._muya.editor.jsonState.parserArtifactForSource(mapped.text)
+            : null;
+        if (
+            parserArtifact
+            && !parserArtifact.analysis.matchesParserProfile(parserProfile)
+        ) {
+            parserArtifact = null;
+        }
         if (!parserArtifact) {
             const analyzed = this._analyzeSource(
                 mapped.text,
@@ -290,7 +355,11 @@ export class CriticMarkupDocumentService {
             if (analyzed.analysis && analyzed.source === mapped.text) {
                 parserArtifact = Object.freeze({
                     analysis: analyzed.analysis,
-                    bindings: analyzed.bindings,
+                    bindings: this._bindingsForMappedState(
+                        analyzed,
+                        mapped,
+                        parserOptions,
+                    ),
                 });
             }
         }
@@ -304,7 +373,7 @@ export class CriticMarkupDocumentService {
             return createCriticMarkupDocument(
                 parserArtifact.analysis,
                 mapped,
-                criticMarkupParserProfile(parserOptions.lex),
+                parserProfile,
                 parserArtifact.analysis.contextCoverage,
                 parserArtifact.bindings,
             );
@@ -333,6 +402,32 @@ export class CriticMarkupDocumentService {
             );
         }
         return analyzed;
+    }
+
+    private _bindingsForMappedState(
+        analyzed: ReturnType<typeof analyzeCriticMarkupMarkdownState>,
+        mapped: TTrackedMarkdown,
+        parserOptions: ICriticMarkupParserOptionsSnapshot,
+    ) {
+        if (analyzed.source !== mapped.text) {
+            throw new TypeError(
+                'Native CriticMarkup bindings belong to a different source revision.',
+            );
+        }
+        const parserMapped = this._mappedState(
+            analyzed.states,
+            parserOptions,
+        );
+        if (parserMapped.text !== analyzed.source) {
+            throw new TypeError(
+                'Native CriticMarkup bindings do not reproduce their parser revision.',
+            );
+        }
+        return rebindCriticMarkupStateBindings(
+            analyzed.bindings,
+            parserMapped,
+            mapped,
+        );
     }
 
     /**

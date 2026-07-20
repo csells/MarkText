@@ -3,6 +3,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { minifyLocaleJson } from './minifyLocaleJson'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -21,7 +22,7 @@ files.forEach((file) => {
 
     fs.writeFileSync(
       path.join(localesDir, `${filename}.min.json`),
-      JSON.stringify(JSON.parse(content)),
+      minifyLocaleJson(content),
       'utf8'
     )
   }

@@ -24,41 +24,31 @@ export function applyTerminalLineEnding(
     states: readonly TState[],
     markdown: TTrackedMarkdown,
 ): TTrackedMarkdown {
-    const finalTrivia = states.at(-1)?.sourceTrivia;
-    // After-boundary trivia lands on the state that carries the closing
-    // markers — for container-final documents that is the deepest last
-    // descendant, not the container. Wherever it lives on the final chain,
-    // that trivia already spells the document's trailing bytes, so the
-    // generated terminal LF must yield.
-    let suffixOwner: TState | undefined = states.at(-1);
-    let hasBoundarySuffix = false;
-    while (suffixOwner) {
-        if (suffixOwner.sourceTrivia?.criticAfterSuffix !== undefined) {
-            hasBoundarySuffix = true;
-            break;
-        }
-        const children = (suffixOwner as { children?: TState[] }).children;
-        suffixOwner = children?.at(-1);
-    }
-    const terminalLineEnding = hasBoundarySuffix
-        ? ''
-        : finalTrivia?.terminalLineEnding;
-    if (terminalLineEnding === undefined || terminalLineEnding === '\n')
+    const wanted = states.at(-1)?.sourceTrivia?.terminalLineEnding;
+    const actual = markdown.text.endsWith('\r\n')
+        ? '\r\n'
+        : markdown.text.endsWith('\n') ? '\n' : '';
+    if (wanted === undefined || actual === wanted)
         return markdown;
-    if (terminalLineEnding === '' && !markdown.text.endsWith('\n'))
-        return markdown;
-    if (!markdown.text.endsWith('\n')) {
-        throw new TypeError(
-            'Parser-owned terminal EOL has no generated LF to replace.',
-        );
+
+    if (!actual) {
+        return wanted
+            ? concatMarkdown([markdown, plainMarkdown(wanted)])
+            : markdown;
     }
 
-    const terminalStart = markdown.text.length - 1;
+    const terminalStart = markdown.text.length - actual.length;
     return concatMarkdown([
         sliceMarkdown(markdown, 0, terminalStart),
         replaceGeneratedMarkdown(
-            sliceMarkdown(markdown, terminalStart),
-            terminalLineEnding,
+            // A structural node ending exactly before the terminal byte does
+            // not own that byte. The ordinary mapped slice preserves its
+            // zero-width boundary envelope on both sides of the cut; if that
+            // envelope is expanded to CRLF, an after-marker is then woven
+            // past the document terminator. Use the weave slice's half-open
+            // node ownership for this replacement chunk.
+            sliceMarkdownForWeave(markdown, terminalStart),
+            wanted,
         ),
     ]);
 }
@@ -270,19 +260,24 @@ export function weaveCriticSourceTrivia(
             let prefix = insertion.deferredPrefix.text;
             let tailCursor = assembledTail.length;
             while (prefix) {
-                const unit = prefix.startsWith('\r\n')
+                const prefixUnit = prefix.startsWith('\r\n')
                     ? '\r\n'
                     : prefix.startsWith('\n') ? '\n' : '';
-                if (!unit)
+                if (!prefixUnit)
                     break;
-                if (assembledTail.slice(
-                    tailCursor - unit.length,
-                    tailCursor,
-                ) !== unit) {
+                const assembled = assembledTail.slice(0, tailCursor);
+                const tailUnit = assembled.endsWith('\r\n')
+                    ? '\r\n'
+                    : assembled.endsWith('\n') ? '\n' : '';
+                if (!tailUnit) {
                     break;
                 }
-                prefix = prefix.slice(unit.length);
-                tailCursor -= unit.length;
+                // Internal Markdown CRLF is intentionally normalized to LF.
+                // Treat either spelling as the same already-emitted line
+                // boundary so parser-owned CRLF trivia cannot append a second
+                // newline after the generated LF.
+                prefix = prefix.slice(prefixUnit.length);
+                tailCursor -= tailUnit.length;
             }
             if (prefix) {
                 pushPart(plainMarkdown(prefix)
@@ -304,12 +299,5 @@ export function weaveCriticSourceTrivia(
             clean.text.length,
         ));
     }
-    const woven = concatMarkdown(parts);
-    // A close marker may seat after the document's final generated
-    // newline; the parser-recorded terminal EOL still owns the last
-    // byte, so re-assert it.
-    const terminal = states.at(-1)?.sourceTrivia?.terminalLineEnding;
-    if (terminal && !woven.text.endsWith(terminal))
-        return concatMarkdown([woven, plainMarkdown(terminal)]);
-    return woven;
+    return concatMarkdown(parts);
 }

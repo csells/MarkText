@@ -88,6 +88,14 @@ class JSONState {
     // later retry that happens to reach the same revision number.
     private _documentVersion = 0;
     private _capture: StateMutationCapture | null = null;
+    // Monotonic identity for the exact isolated draft currently visible to
+    // synchronous render/parser consumers. It advances at capture start and
+    // after every recorded operation, so failed/finished captures can never
+    // alias a later draft with the same durable revision.
+    private _captureDraftVersion = 0;
+    private _captureAfterMutation: (() => void) | null = null;
+    private _captureDirty = false;
+    private _finalizingCaptureDraft = false;
 
     constructor(
         private _muya: Muya,
@@ -285,6 +293,7 @@ class JSONState {
 
         if (this._capture) {
             this._capture.recordInsert(path, asDoc(state), operation);
+            this._recordedCaptureMutation();
             return;
         }
 
@@ -302,6 +311,7 @@ class JSONState {
 
         if (this._capture) {
             this._capture.recordRemove(path, operation);
+            this._recordedCaptureMutation();
             return;
         }
 
@@ -319,6 +329,7 @@ class JSONState {
 
         if (this._capture) {
             this._capture.recordText(path, diff, operation);
+            this._recordedCaptureMutation();
             return;
         }
 
@@ -352,6 +363,7 @@ class JSONState {
                 newValue,
                 operation,
             );
+            this._recordedCaptureMutation();
             return;
         }
 
@@ -428,6 +440,15 @@ class JSONState {
         return this._capture !== null;
     }
 
+    get captureDraftVersion(): number | null {
+        return this._capture ? this._captureDraftVersion : null;
+    }
+
+    private _recordedCaptureMutation(): void {
+        this._captureDirty = true;
+        this._captureDraftVersion++;
+    }
+
     /**
      * Snapshot the document exactly as the live block tree currently sees it,
      * including edits queued for the next animation-frame batch. Unlike
@@ -456,7 +477,10 @@ class JSONState {
      * Run a synchronous proposal against an isolated draft. Canonical state,
      * pending ops, revisions, animation frames, and events remain untouched.
      */
-    capture<T>(mutate: () => T): ICapturedStateMutation<T> {
+    capture<T>(
+        mutate: () => T,
+        afterMutation?: () => void,
+    ): ICapturedStateMutation<T> {
         this._mutationAuthority.assertActive('JSON state mutation capture');
         if (this._capture) {
             throw new TypeError(
@@ -468,13 +492,49 @@ class JSONState {
             this._liveRevision,
             this.getLiveState(),
         );
+        this._captureDraftVersion++;
         this._capture = capture;
+        this._captureAfterMutation = afterMutation ?? null;
+        this._captureDirty = false;
         try {
-            return capture.finish(mutate());
+            const value = mutate();
+            this._finalizeCaptureDraft();
+            return capture.finish(value);
         }
         finally {
+            this._captureAfterMutation = null;
+            this._captureDirty = false;
+            this._finalizingCaptureDraft = false;
             this._capture = null;
         }
+    }
+
+    /** Finalize a dirty isolated draft after the outer mutation has returned. */
+    private _finalizeCaptureDraft(): void {
+        if (
+            !this._capture
+            || !this._captureDirty
+            || !this._captureAfterMutation
+            || this._finalizingCaptureDraft
+        ) {
+            return;
+        }
+
+        this._finalizingCaptureDraft = true;
+        this._captureDirty = false;
+        try {
+            this._captureAfterMutation();
+        }
+        finally {
+            // Mutations made by draft finalization are part of that same pass,
+            // not a second dirty user batch.
+            this._captureDirty = false;
+            this._finalizingCaptureDraft = false;
+        }
+    }
+
+    activeCaptureSnapshot(): ICapturedStateMutation<undefined> | null {
+        return this._capture?.activeSnapshot(undefined) ?? null;
     }
 
     getMarkdown() {

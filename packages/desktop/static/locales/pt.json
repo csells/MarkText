@@ -205,6 +205,7 @@
     "pasteAsPlainText": "Colar como Texto Simples",
     "insertParagraphBefore": "Inserir Parágrafo Antes",
     "insertParagraphAfter": "Inserir Parágrafo Depois",
+    "editComment": "Editar comentário",
     "spelling": "Ortografia...",
     "changeLanguage": "Alterar Idioma...",
     "addToDictionary": "Adicionar ao Dicionário",
@@ -276,7 +277,14 @@
         "substitution": "Substituição",
         "highlight": "Destaque",
         "comment": "Comentário"
-      }
+      },
+      "addComment": "Comentar",
+      "cancel": "Cancelar",
+      "commentPlaceholder": "Adicionar um comentário...",
+      "composeTitle": "Novo comentário",
+      "edit": "Editar",
+      "saveEdit": "Salvar",
+      "commentEditFailed": "Não foi possível salvar o comentário. Seu rascunho foi mantido; revise o documento e tente novamente."
     },
     "icons": {
       "files": "Arquivos",
@@ -615,7 +623,7 @@
       },
       "uploader": {
         "title": "Carregador de Imagens",
-        "currentUploader": "Carregador Atual",
+        "currentUploader": "Carregador atual: {name}",
         "picgoNotInstalled": "PicGo não está instalado",
         "picgoInstalled": "PicGo está instalado",
         "picgoDetectionFailed": "Detecção do PicGo falhou",
@@ -735,7 +743,7 @@
       "online": "Online",
       "saveError": "Erro ao salvar atalhos de teclado",
       "shortcutInUse": "Atalho em uso",
-      "shortcutInUseMessage": "Este atalho já está atribuído a outro comando",
+      "shortcutInUseMessage": "Este atalho já está atribuído a {accelerator}",
       "table": {
         "description": "Descrição",
         "edit": "Editar",
@@ -764,7 +772,7 @@
     }
   },
   "about": {
-    "copyright": "Copyright",
+    "copyright": "Copyright © Luo Ran 2017-{year}",
     "copyrightContributors": "Copyright Contribuidores"
   },
   "commands": {
@@ -934,7 +942,7 @@
     "close": "Fechar",
     "dontSave": "Não Salvar",
     "file": "Arquivo",
-    "fileExists": "Arquivo existe",
+    "fileExists": "O arquivo {filename} existe",
     "files": "Arquivos",
     "importWarning": "Aviso de importação",
     "installPandoc": "Instalar Pandoc",
@@ -951,12 +959,12 @@
   "error": {
     "configSchemaViolation": "Violação do esquema de configuração",
     "copyError": "Erro de cópia",
-    "initializationFailed": "Falha na inicialização",
+    "initializationFailed": "Falha na inicialização: {hint}",
     "otherInstanceDetected": "Outra instância do MarkText já está em execução",
     "report": "Reportar",
     "startupError": "Erro de inicialização",
     "terminatedDueToError": "Terminado devido a erro",
-    "unexpectedErrorWithMessage": "Erro inesperado com mensagem",
+    "unexpectedErrorWithMessage": "Erro inesperado com mensagem {message}",
     "unexpectedMainProcess": "Erro inesperado do processo principal",
     "unexpectedRendererProcess": "Erro inesperado do processo de renderização"
   },
@@ -968,7 +976,7 @@
     "editor": {
       "anchorLinkCopied": "Link âncora copiado",
       "tabNotFound": "Aba não encontrada",
-      "tocItemNotFound": "Item do índice não encontrado",
+      "tocItemNotFound": "Item {key} do índice não encontrado",
       "errorLoadingTabTitle": "Erro ao carregar a aba",
       "errorLoadingTabMessage": "Ocorreu um erro ao carregar a alteração do arquivo porque a aba não pôde ser encontrada.",
       "mixedLineEndingsNormalized": "“{name}” possui finais de linha mistos que foram normalizados automaticamente para {lineEnding}.",
@@ -1001,8 +1009,8 @@
     },
     "export": {
       "error": "Erro de exportação",
-      "errorExporting": "Erro ao exportar arquivo",
-      "failed": "Exportação falhou"
+      "errorExporting": "Erro ao exportar arquivo {type}",
+      "failed": "A exportação de {type} falhou"
     },
     "insertTable": {
       "title": "Inserir Tabela",
@@ -1013,7 +1021,7 @@
       "notificationNotFound": "Notificação não encontrada"
     },
     "print": {
-      "error": "Erro de impressão",
+      "error": "Erro de impressão para \"{title}\"",
       "failed": "Impressão falhou"
     },
     "sourceCode": {
@@ -1022,9 +1030,9 @@
     },
     "spellcheck": {
       "disabledError": "Erro ao desativar verificação ortográfica",
-      "errorSwitchingLanguage": "Erro ao trocar idioma da verificação ortográfica",
-      "languageMissing": "Idioma da verificação ortográfica não encontrado",
-      "switchError": "Erro ao trocar verificação ortográfica",
+      "errorSwitchingLanguage": "Erro ao trocar o idioma da verificação ortográfica para {languageCode}",
+      "languageMissing": "Idioma da verificação ortográfica não encontrado: {languageCode}",
+      "switchError": "Erro ao trocar a verificação ortográfica para {languageCode}: {error}",
       "title": "Verificação Ortográfica"
     }
   }

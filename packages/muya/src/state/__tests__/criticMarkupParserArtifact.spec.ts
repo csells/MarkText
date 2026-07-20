@@ -5,7 +5,11 @@ import type JSONState from '../index';
 import type { TState } from '../types';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runDeferredDirectMutation } from '../../__tests__/helpers/mutation';
-import { analyzeCriticMarkupMarkdownState } from '../../criticMarkup/markdownState';
+import { CriticMarkupAnalysis } from '../../criticMarkup/analysis';
+import {
+    analyzeCriticMarkupMarkdownState,
+    hasSameCriticMarkupNormalizationSemantics,
+} from '../../criticMarkup/markdownState';
 import { Muya } from '../../muya';
 import { snapshotCriticMarkupParserOptions } from '../../utils/marked/criticMarkupSourceContext';
 import { asDoc } from '../index';
@@ -59,6 +63,60 @@ function boot(markdown: string): MuyaType {
 }
 
 describe('criticMarkup parser artifact revision ownership', () => {
+    it.each([' ', '\n'])(
+        'rejects normalization that inserts %j between an anchor and comment',
+        (gap) => {
+            const before = CriticMarkupAnalysis.analyzeGrammar(
+                '{==anchor==}{>>comment<<}',
+            );
+            const after = CriticMarkupAnalysis.analyzeGrammar(
+                `{==anchor==}${gap}{>>comment<<}`,
+            );
+
+            expect(hasSameCriticMarkupNormalizationSemantics(
+                before,
+                after,
+                raw => raw.trimEnd(),
+            )).toBe(false);
+        },
+    );
+
+    it('rejects whole-item normalization when a semantic arm changes', () => {
+        const before = CriticMarkupAnalysis.analyzeGrammar('{>>old<<}');
+        const after = CriticMarkupAnalysis.analyzeGrammar('{>>new<<}');
+        const canonicalize = (raw: string): string =>
+            raw.startsWith('{>>') ? '<canonical comment>' : raw;
+
+        // Whole Critic source can appear canonically equal and both clean
+        // projections hide comments completely. The gate must still compare
+        // the comment arm itself, not trust either larger semantic proxy.
+        expect(hasSameCriticMarkupNormalizationSemantics(
+            before,
+            after,
+            canonicalize,
+        )).toBe(false);
+    });
+
+    it('rejects a contextual projection change hidden by isolated arms', () => {
+        const before = CriticMarkupAnalysis.analyzeGrammar('*{--old--}*');
+        const after = CriticMarkupAnalysis.analyzeGrammar('*{--new--}*');
+        const isolated = new Set([
+            'old',
+            'new',
+            '{--old--}',
+            '{--new--}',
+        ]);
+        const canonicalize = (raw: string): string => isolated.has(raw)
+            ? '<same isolated canonical form>'
+            : raw;
+
+        expect(hasSameCriticMarkupNormalizationSemantics(
+            before,
+            after,
+            canonicalize,
+        )).toBe(false);
+    });
+
     it('returns normalized states, analysis, and bindings from one revision', () => {
         const parsed = analyzeCriticMarkupMarkdownState(
             UNNORMALIZED_SOURCE,

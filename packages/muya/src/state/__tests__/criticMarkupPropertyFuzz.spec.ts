@@ -133,6 +133,16 @@ const CASES_PER_SEED = 40;
 const BOOT_CASES_PER_SEED = 8;
 
 describe('criticMarkup generative properties', () => {
+    it('does not grow a multiline structural arm whose projected close is line-final', () => {
+        const source = '{--\n\n- alpha text\n- echo two draft --}\n';
+
+        const once = roundTrip(source);
+        const twice = roundTrip(once);
+
+        expect(once).toBe(source);
+        expect(twice).toBe(source);
+    });
+
     it.each(SEEDS)(
         'seed %i: serialization reaches a byte-stable fixed point',
         (seed) => {

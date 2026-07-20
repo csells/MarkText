@@ -22,6 +22,10 @@ type TCriticBoundaryEndToken = Extract<
     { type: 'critic-boundary-end' }
 >;
 
+function lineBreakCount(value: string): number {
+    return value.match(/\r?\n/g)?.length ?? 0;
+}
+
 /**
  * Lower one `critic-boundary-end` token: attach empty-coverage boundary
  * markers with their displaced trivia, open/close structural coverage
@@ -245,6 +249,46 @@ export function lowerCriticBoundaryEnd(
                 last,
                 'after',
             );
+            const contentEndsWithLineBreak
+                = attachment.contentRange.end
+                    > attachment.contentRange.start
+                    && markdown[attachment.contentRange.end - 1] === '\n';
+            if (!contentEndsWithLineBreak) {
+                // A native block always regenerates a terminator. When its
+                // physical Critic content ends flush against the close marker,
+                // weave that marker inside the generated terminator so the
+                // parser-owned EOL remains after the complete item.
+                (markerState as {
+                    sourceTrivia?: IStateSourceTrivia;
+                }).sourceTrivia = {
+                    ...markerState.sourceTrivia,
+                    criticAfterFlush: true,
+                };
+            }
+            const closeEnd = criticMarkerRunEnd([attachment]);
+            const following = markdown[closeEnd];
+            if (
+                following !== undefined
+                && following !== '\n'
+                && following !== '\r'
+            ) {
+                // The close marker rejoins physical source on the same line.
+                // The state at the coverage level may be a list item while
+                // its containing list owns the join to following source.
+                const boundaryOwner = criticOpenAncestors(
+                    parentList,
+                    scope.target,
+                )[0] ?? last;
+                (boundaryOwner as {
+                    sourceTrivia?: IStateSourceTrivia;
+                }).sourceTrivia = {
+                    ...boundaryOwner.sourceTrivia,
+                    blockSeparatorAfter: '',
+                    ...(!contentEndsWithLineBreak
+                        ? { suppressBlockTerminatorAfter: true as const }
+                        : {}),
+                };
+            }
                 // The producer's trivia is the whitespace displaced
                 // from between the covered content and the close
                 // markers; it belongs before them. Its first newline is
@@ -289,12 +333,12 @@ export function lowerCriticBoundaryEnd(
                     }
                 }
             }
-            // Blank lines the parser view attributed to the last
-            // covered item really sit AFTER the closer in source
-            // (split around this and the next item's markers). The
-            // whitespace run following the closer becomes the
-            // markers' suffix, and the item's blank count resets so
-            // the same bytes don't also serialize inside the item.
+            // The parser view can attribute blank lines spanning several
+            // transparent Critic boundaries to the last covered list item.
+            // Transfer only the lines owned by this close. The first EOL
+            // across the pre-close and post-close runs is the item's own
+            // terminator; every later EOL belongs to marker trivia. Any
+            // remainder stays available for a following opener to claim.
             const trailingBlanks = markerState.sourceTrivia
                 ?.listItemTrailingBlankLines;
             if (
@@ -309,12 +353,26 @@ export function lowerCriticBoundaryEnd(
                     markdown.slice(closersEnd),
                 )![0];
                 if (followRun) {
+                    const claimedBlankLines = Math.max(
+                        0,
+                        lineBreakCount(attachment.trivia.raw)
+                        + lineBreakCount(followRun)
+                        - 1,
+                    );
+                    if (claimedBlankLines > trailingBlanks) {
+                        throw new TypeError(
+                            'Native CriticMarkup close claims more list-item blank lines than the parser recorded.',
+                        );
+                    }
                     (markerState as {
                         sourceTrivia?: IStateSourceTrivia;
                     }).sourceTrivia = {
                         ...markerState.sourceTrivia,
+                        blockSeparatorAfter: '',
                         criticAfterSuffix: followRun,
-                        listItemTrailingBlankLines: 0,
+                        listItemTrailingBlankLines:
+                            trailingBlanks - claimedBlankLines,
+                        suppressBlockTerminatorAfter: true,
                     };
                 }
             }

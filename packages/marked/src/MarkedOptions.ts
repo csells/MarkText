@@ -17,10 +17,24 @@ export type TokenizerExtensionFunction = (this: TokenizerThis, src: string, toke
 
 export type TokenizerStartFunction = (this: TokenizerThis, src: string) => number | void;
 
+/**
+ * Locate the next extension token directly in the active mapped source.
+ *
+ * Unlike the legacy `start` callback, the returned offset is relative to the
+ * complete current source view (not `src.slice(1)`). This lets parser-native
+ * extensions use their source indexes without materializing the remaining
+ * input on every lexer turn.
+ */
+export type TokenizerSourceStartFunction = (
+  this: TokenizerThis,
+  source: MarkedSourceView<object>,
+) => number | void;
+
 export interface TokenizerExtension {
   name: string;
   level: 'block' | 'inline';
   start?: TokenizerStartFunction;
+  startSource?: TokenizerSourceStartFunction;
   tokenizer: TokenizerExtensionFunction;
   childTokens?: string[];
 }
@@ -185,6 +199,8 @@ export interface MarkedOptions<ParserOutput = string, RendererOutput = string> e
     block?: TokenizerExtensionFunction[];
     startInline?: TokenizerStartFunction[];
     startBlock?: TokenizerStartFunction[];
+    startInlineSource?: TokenizerSourceStartFunction[];
+    startBlockSource?: TokenizerSourceStartFunction[];
     sourceBoundary?: SourceBoundaryExtensionFunction[];
     initializeTokens?: TokenListInitializerExtensionFunction[];
   };

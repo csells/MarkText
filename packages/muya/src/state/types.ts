@@ -48,6 +48,12 @@ export interface IStateSourceTrivia {
      * This is emitted outside the block's source-mapped node range.
      */
     readonly blockSeparatorAfter?: string;
+    /**
+     * This parser-owned block ended before a projected adjacent block rather
+     * than at a source line break; omit the serializer's generated terminal
+     * LF while retaining the block as a distinct native state.
+     */
+    readonly suppressBlockTerminatorAfter?: true;
     /** Exact terminal EOL owned by the final top-level parser state. */
     readonly terminalLineEnding?: '' | '\n' | '\r\n';
     /** Atomic parser-owned GFM table row and delimiter layout. */

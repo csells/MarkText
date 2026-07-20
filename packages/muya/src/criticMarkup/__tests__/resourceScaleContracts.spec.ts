@@ -8,7 +8,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localOffset, sourceOffset } from '../../mappedText';
 import { fromMarkdownSourceMap, plainMarkdown } from '../../state/markdownSourceMap';
 import { parseCriticMarkupDocument } from '../../utils/marked/criticMarkupDocument';
-import { CriticMarkupAnalysis } from '../analysis';
+import {
+    CriticMarkupAnalysis,
+    criticMarkupSemanticPayloadView,
+} from '../analysis';
 import { createCriticMarkupDocument as createDocumentFromAnalysis } from '../document';
 import { ExcludedRanges } from '../excludedRanges';
 import * as criticMarkupGrammar from '../parser';
@@ -57,6 +60,62 @@ function sourceMapWithPieces(
         markdown,
         leaves: [{ path: PATH, pieces }],
     };
+}
+
+function semanticLiteralRangeReads(depth: number): number {
+    const literals = Array.from(
+        { length: depth },
+        (_, index) => `\`literal-${index}\``,
+    );
+    const openings = literals.map(literal => `{>>${literal} `).join('');
+    const source = `${openings}leaf${'<<}'.repeat(depth)}`;
+    let cursor = 0;
+    const ranges = literals.map((literal) => {
+        const start = source.indexOf(literal, cursor);
+        cursor = start + literal.length;
+        return { start, end: cursor };
+    });
+    const excluded = ExcludedRanges.from(source.length, ranges);
+    let reads = 0;
+    const countedRanges = new Proxy(excluded.ranges, {
+        get(target, property, receiver) {
+            if (typeof property === 'string' && /^\d+$/.test(property))
+                reads++;
+            return Reflect.get(target, property, receiver);
+        },
+    });
+    const countedExcluded = {
+        ranges: countedRanges,
+        assertSourceLength: excluded.assertSourceLength.bind(excluded),
+        firstIndexEndingAfter: (offset: number): number => {
+            let low = 0;
+            let high = countedRanges.length;
+            while (low < high) {
+                const middle = (low + high) >> 1;
+                if (countedRanges[middle].end <= offset)
+                    low = middle + 1;
+                else
+                    high = middle;
+            }
+            return low;
+        },
+    } as unknown as ExcludedRanges;
+    const pending = [...scanCriticMarkup(source, excluded)];
+    while (pending.length) {
+        const token = pending.pop()!;
+        if (token.type === 'substitution') {
+            throw new TypeError('Depth fixture unexpectedly parsed a substitution.');
+        }
+        criticMarkupSemanticPayloadView(
+            source,
+            token,
+            token.contentRange,
+            countedExcluded,
+        );
+        if (token.nested)
+            pending.push(...token.nested);
+    }
+    return reads;
 }
 
 beforeEach(() => {
@@ -300,5 +359,144 @@ describe('criticMarkup final-adapter structural scale', () => {
 
         expect(raw).toEqual(['{++visible++}']);
         expect(randomAccessCalls).toBe(0);
+    });
+
+    it('does not revisit every descendant literal for each nested semantic payload', () => {
+        const depth32 = semanticLiteralRangeReads(32);
+        const depth64 = semanticLiteralRangeReads(64);
+
+        expect(
+            depth64,
+            `rangeReads(64) = ${depth64} exceeds 2.5x rangeReads(32) = ${depth32}`,
+        ).toBeLessThanOrEqual(depth32 * 2.5 + 64);
+    });
+
+    it('defers and memoizes semantic strings behind frozen public token properties', () => {
+        const depth = 96;
+        const source
+            = `${'{++visible '.repeat(depth)}leaf${'++}'.repeat(depth)}`;
+        const expected
+            = `visible ${'{++visible '.repeat(depth - 1)}leaf${'++}'.repeat(depth - 1)}`;
+        const decode = vi.spyOn(
+            criticMarkupGrammar,
+            'decodeCriticMarkupPayloadEscapes',
+        );
+
+        try {
+            const analysis = CriticMarkupAnalysis.analyzeGrammar(source);
+            const root = analysis.roots[0];
+            const descriptor = Object.getOwnPropertyDescriptor(
+                root,
+                'semanticContent',
+            );
+
+            expect(decode).not.toHaveBeenCalled();
+            expect(Object.isFrozen(root)).toBe(true);
+            expect(descriptor).toMatchObject({
+                configurable: false,
+                enumerable: true,
+            });
+            expect(descriptor?.get).toBeTypeOf('function');
+            expect(descriptor?.set).toBeUndefined();
+            expect(Reflect.set(root, 'semanticContent', 'forged')).toBe(false);
+
+            expect(root.type).toBe('addition');
+            if (root.type === 'substitution')
+                throw new TypeError('Depth fixture unexpectedly parsed a substitution.');
+            expect(root.semanticContent).toBe(expected);
+            const firstReadCalls = decode.mock.calls.length;
+            expect(firstReadCalls).toBeGreaterThan(0);
+
+            expect(root.semanticContent).toBe(expected);
+            const firstView = criticMarkupSemanticPayloadView(
+                source,
+                root,
+                root.contentRange,
+                analysis.excludedRanges,
+            );
+            expect(firstView.text).toBe(expected);
+            expect(criticMarkupSemanticPayloadView(
+                source,
+                root,
+                root.contentRange,
+                analysis.excludedRanges,
+            )).toBe(firstView);
+            expect(decode).toHaveBeenCalledTimes(firstReadCalls);
+        }
+        finally {
+            decode.mockRestore();
+        }
+    });
+
+    it('rejects alien source and exclusion authority for document tokens', () => {
+        const source = 'A {>>note<<}\n';
+        const alien = 'B {>>note<<}\n';
+        const analysis = CriticMarkupAnalysis.analyzeGrammar(source);
+        const [comment] = analysis.roots;
+
+        expect(comment.type).toBe('comment');
+        if (comment.type === 'substitution') {
+            throw new TypeError(
+                'Authority fixture unexpectedly parsed a substitution.',
+            );
+        }
+        expect(() => criticMarkupSemanticPayloadView(
+            alien,
+            comment,
+            comment.contentRange,
+            analysis.excludedRanges,
+        )).toThrow('different semantic authority');
+        expect(() => criticMarkupSemanticPayloadView(
+            source,
+            comment,
+            comment.contentRange,
+            ExcludedRanges.empty(source.length),
+        )).toThrow('different semantic authority');
+    });
+
+    it('does not re-slice every authenticated ancestor arm during analysis', () => {
+        const depth = 96;
+        const source
+            = `${'{++unique-visible '.repeat(depth)}leaf${'++}'.repeat(depth)}`;
+        const originalSlice = String.prototype.slice;
+        const armSlices = new Map<string, number>();
+        const slice = vi.spyOn(String.prototype, 'slice').mockImplementation(
+            function(this: string, start?: number, end?: number): string {
+                if (
+                    String(this) === source
+                    && typeof start === 'number'
+                    && typeof end === 'number'
+                ) {
+                    const key = `${start}:${end}`;
+                    armSlices.set(key, (armSlices.get(key) ?? 0) + 1);
+                }
+                return originalSlice.call(this, start, end);
+            },
+        );
+
+        try {
+            const analysis = CriticMarkupAnalysis.analyzeGrammar(source);
+            const pending = [...analysis.roots];
+            const contentRanges: string[] = [];
+            while (pending.length) {
+                const token = pending.pop()!;
+                if (token.type === 'substitution') {
+                    throw new TypeError(
+                        'Slice fixture unexpectedly parsed a substitution.',
+                    );
+                }
+                contentRanges.push(
+                    `${token.contentRange.start}:${token.contentRange.end}`,
+                );
+                pending.push(...token.nested ?? []);
+            }
+
+            expect(contentRanges).toHaveLength(depth);
+            expect(contentRanges.map(range => armSlices.get(range) ?? 0))
+                .toEqual(Array.from({ length: depth }, () => 1));
+        }
+        finally {
+            slice.mockRestore();
+        }
     });
 });

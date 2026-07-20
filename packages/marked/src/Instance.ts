@@ -140,6 +140,21 @@ export class Marked<ParserOutput = string, RendererOutput = string> {
                 }
               }
             }
+            if (ext.startSource) { // Indexed start against mapped source
+              if (ext.level === 'block') {
+                if (extensions.startBlockSource) {
+                  extensions.startBlockSource.push(ext.startSource);
+                } else {
+                  extensions.startBlockSource = [ext.startSource];
+                }
+              } else {
+                if (extensions.startInlineSource) {
+                  extensions.startInlineSource.push(ext.startSource);
+                } else {
+                  extensions.startInlineSource = [ext.startSource];
+                }
+              }
+            }
           }
           if ('sourceBoundary' in ext) {
             if (extensions.sourceBoundary) {

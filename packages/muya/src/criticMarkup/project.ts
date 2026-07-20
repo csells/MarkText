@@ -73,12 +73,25 @@ export interface IProjectedCriticMarkupSourceSegment {
 type TSourceRangeProjection
     = | Exclude<TCriticMarkupProjection, 'marked'>
         | 'comments'
+        | 'comments-original'
+        | 'comments-revised'
         | 'union';
 
 function projectedContentRanges(
     token: TCriticMarkupToken,
     projection: TSourceRangeProjection,
 ): Array<{ start: number; end: number }> {
+    if (
+        projection === 'comments-original'
+        || projection === 'comments-revised'
+    ) {
+        if (token.type === 'comment')
+            return [token.contentRange];
+        return projectedContentRanges(
+            token,
+            projection === 'comments-original' ? 'original' : 'revised',
+        );
+    }
     if (projection === 'comments') {
         return token.type === 'comment'
             ? [token.contentRange]
@@ -486,6 +499,35 @@ export function projectCriticMarkupSourceRange(
     return materializeProjectedSourceSegments(
         source,
         projectedRangeSourceSegments(range, projection, tokens, null),
+        excludedRanges,
+    );
+}
+
+/**
+ * Project one canonical range through the parser's hidden-comment view while
+ * applying Original or Revised semantics to changes inside those comments.
+ * This is the structural-context authority for comment-only nested ranges;
+ * callers must not inspect isolated descendant payloads.
+ */
+export function projectCriticMarkupCommentSourceRange(
+    source: string,
+    range: Readonly<ICriticMarkupRange>,
+    projection: Exclude<TCriticMarkupProjection, 'marked'>,
+    tokens: readonly TCriticMarkupToken[],
+    excludedRanges: ExcludedRanges = ExcludedRanges.empty(source.length),
+): string {
+    assertProjectionRange(source, range);
+    excludedRanges.assertSourceLength(source.length);
+    return materializeProjectedSourceSegments(
+        source,
+        projectedRangeSourceSegments(
+            range,
+            projection === 'original'
+                ? 'comments-original'
+                : 'comments-revised',
+            tokens,
+            null,
+        ),
         excludedRanges,
     );
 }

@@ -533,10 +533,7 @@ export function prepareNativeCriticMarkupExtension(
             {
                 name: 'critic_native_block',
                 level: 'block',
-                start() {
-                    const view = this.lexer.currentSourceView;
-                    if (!view)
-                        return undefined;
+                startSource(view) {
                     const activePlans = activePlansFor(this.lexer);
                     const offset = nextPlanOffset(
                         view,
@@ -544,7 +541,7 @@ export function prepareNativeCriticMarkupExtension(
                         blockPlansByStart,
                         activePlans,
                     );
-                    return offset === undefined ? undefined : offset - 1;
+                    return offset;
                 },
                 tokenizer(src, tokens) {
                     if (rootTokens(tokens) && tokens.criticMarkup === null)
@@ -598,10 +595,7 @@ export function prepareNativeCriticMarkupExtension(
             {
                 name: 'critic_native_inline',
                 level: 'inline',
-                start() {
-                    const view = this.lexer.currentSourceView;
-                    if (!view)
-                        return undefined;
+                startSource(view) {
                     const activePlans = activePlansFor(this.lexer);
                     const offset = nextPlanOffset(
                         view,
@@ -609,7 +603,7 @@ export function prepareNativeCriticMarkupExtension(
                         inlinePlansByStart,
                         activePlans,
                     );
-                    return offset === undefined ? undefined : offset - 1;
+                    return offset;
                 },
                 tokenizer(src) {
                     const view = this.lexer.sourceViewFor(src);

@@ -205,6 +205,7 @@
     "pasteAsPlainText": "Als reinen Text einfügen",
     "insertParagraphBefore": "Absatz davor einfügen",
     "insertParagraphAfter": "Absatz danach einfügen",
+    "editComment": "Kommentar bearbeiten",
     "spelling": "Rechtschreibung...",
     "changeLanguage": "Sprache ändern...",
     "addToDictionary": "Zum Wörterbuch hinzufügen",
@@ -276,7 +277,14 @@
         "substitution": "Ersetzung",
         "highlight": "Hervorhebung",
         "comment": "Kommentar"
-      }
+      },
+      "addComment": "Kommentieren",
+      "cancel": "Abbrechen",
+      "commentPlaceholder": "Kommentar hinzufügen...",
+      "composeTitle": "Neuer Kommentar",
+      "edit": "Bearbeiten",
+      "saveEdit": "Speichern",
+      "commentEditFailed": "Der Kommentar konnte nicht gespeichert werden. Dein Entwurf wurde beibehalten; prüfe das Dokument und versuche es erneut."
     },
     "icons": {
       "files": "Dateien",

@@ -1,12 +1,12 @@
-import type { JSONOp, JSONOpComponent, JSONOpList } from 'ot-json1';
+import type { JSONOp } from 'ot-json1';
 import type Content from '../block/base/content';
 import type Format from '../block/base/format';
+import type { CriticMarkupAnalysis } from '../criticMarkup/analysis';
 import type { IMutationAuthority } from '../mutation/authority';
 import type { Muya } from '../muya';
 import type { IHistorySelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
-import * as otText from 'ot-text-unicode';
 import { fromEvent, merge } from 'rxjs';
 import { registerBlocks } from '../block';
 import { ScrollPage } from '../block/scrollPage';
@@ -22,266 +22,15 @@ import { Search } from '../search';
 import Selection from '../selection';
 import JSONState from '../state';
 import { statesEqual } from '../state/stateEquality';
-import { deepClone, hasPick, isHTMLElement, isKeyboardEvent } from '../utils';
+import { deepClone, isHTMLElement, isKeyboardEvent } from '../utils';
 import { CollectedError } from '../utils/collectedError';
 import { getBlock } from '../utils/dom';
 import logger from '../utils/logger';
+import { applyBlockTreeOperations } from './blockTreeOperations';
 import { attachDragDropImageHandlers } from './dragDropImage';
 import { attachLinkMouseHandlers } from './linkMouseEvents';
 
 const debug = logger('editor:');
-
-// The pick/drop walkers operate on live block-tree nodes (ScrollPage,
-// Parent, Content). The tree's instance methods (queryBlock, find,
-// insertBefore, etc.) are not all exposed on a single TS type, and
-// ot-json1 op descents are dynamically shaped — so we type these as
-// BlockNode (loose structural alias) inside the inner walkers and let
-// the runtime branches do the actual narrowing.
-type BlockNode = {
-    queryBlock?: (path: (string | number)[]) => BlockNode | undefined;
-    find?: (key: number | string) => BlockNode;
-    remove?: (source: string) => void;
-    replaceWith?: (newBlock: BlockNode, source: string) => void;
-    insertBefore?: (newBlock: BlockNode, ref: BlockNode, source: string) => void;
-    append?: (newBlock: BlockNode, source: string) => void;
-    update?: (value?: unknown, source?: string) => void;
-    applyCheckedFromState?: (checked: boolean) => void;
-    applyAlignmentFromState?: (value: string) => void;
-    applyLanguageFromState?: (value: string) => void;
-    applyTypeFromState?: (value: string) => void;
-    blockName?: string;
-    align?: string;
-    _text?: string;
-    text?: string;
-    meta?: { lang?: string; type?: string };
-    parent?: BlockNode;
-} | undefined;
-
-function descend(
-    subDoc: BlockNode,
-    descent: JSONOpList,
-    stack: BlockNode[],
-): { subDoc: BlockNode; i: number } {
-    let i = 0;
-
-    for (; i < descent.length; i++) {
-        const d = descent[i];
-        if (Array.isArray(d))
-            break;
-        if (typeof d === 'object')
-            continue;
-        stack.push(subDoc);
-        // Its valid to descend into a null space - just we can't pick there.
-        subDoc = subDoc == null ? undefined : subDoc.queryBlock?.([d]);
-    }
-
-    return { subDoc, i };
-}
-
-function restore(
-    subDoc: BlockNode,
-    descent: JSONOpList,
-    stack: BlockNode[],
-    i: number,
-): BlockNode {
-    // Then back again.
-    for (--i; i >= 0; i--) {
-        const d = descent[i];
-        if (typeof d !== 'object') {
-            const container = stack.pop();
-            if (
-                subDoc
-                === (container == null ? undefined : container.queryBlock?.([d as string | number]))
-            ) {
-                subDoc = container;
-            }
-            else {
-                if (subDoc === undefined) {
-                    // TODO: handler typeof d === 'string'
-                    if (typeof d === 'number')
-                        container?.find?.(d)?.remove?.('api');
-                    subDoc = container;
-                }
-                else {
-                    if (typeof d === 'number')
-                        container?.find?.(d)?.replaceWith?.(subDoc, 'api');
-                    subDoc = container;
-                }
-            }
-        }
-        else if (!Array.isArray(d) && hasPick(d)) {
-            subDoc = undefined;
-        }
-    }
-
-    return subDoc;
-}
-
-// Phase 1: Pick. Returns updated subDocument.
-function pick(subDoc: BlockNode, descent: JSONOpList): BlockNode {
-    const stack: BlockNode[] = [];
-
-    const descended = descend(subDoc, descent, stack);
-    subDoc = descended.subDoc;
-    const i = descended.i;
-
-    // Children. These need to be traversed in reverse order here.
-    for (let j = descent.length - 1; j >= i; j--)
-        subDoc = pick(subDoc, descent[j] as JSONOpList);
-
-    return restore(subDoc, descent, stack, i);
-}
-
-function drop(root: BlockNode, descent: JSONOpList, muya: Muya): BlockNode {
-    let subDoc = root;
-    let i = 0; // For reading
-    let m = 0;
-    const rootContainer: { root: BlockNode } = { root }; // This is an avoidable allocation.
-    let container: BlockNode | { root: BlockNode } = rootContainer;
-    let key: string | number = 'root'; // For writing
-
-    function mut() {
-        for (; m < i; m++) {
-            const d = descent[m];
-            if (typeof d === 'object')
-                continue;
-            if (key === 'root') {
-                const wrap = container as { root: BlockNode };
-                container = wrap.root;
-            }
-            else {
-                container = (container as BlockNode)?.queryBlock?.([key]);
-            }
-            key = d as string | number;
-        }
-    }
-
-    function applyInsert(comp: JSONOpComponent) {
-        // Insert
-        mut();
-        const cur = container as BlockNode;
-        const ref = cur?.find?.(key);
-        if (typeof key === 'number') {
-            const insertedState = comp.i as TState;
-            const newBlock = ScrollPage.createStateBlock(
-                muya,
-                insertedState,
-            );
-            // createStateBlock always returns a live Parent. The OT walker uses
-            // a deliberately loose structural view whose callback parameter
-            // variance prevents direct assignment even though Parent provides
-            // the required runtime methods.
-            // eslint-disable-next-line no-restricted-syntax
-            const newBlockNode = newBlock as unknown as BlockNode;
-            if (cur && newBlockNode) {
-                if (ref)
-                    cur.insertBefore?.(newBlockNode, ref, 'api');
-                else
-                    cur.append?.(newBlockNode, 'api');
-            }
-
-            subDoc = newBlockNode;
-        }
-        else {
-            switch (key) {
-                case 'checked': {
-                    if (typeof comp.i !== 'boolean') {
-                        throw new TypeError(
-                            'Prepared task-list checked value must be boolean.',
-                        );
-                    }
-                    if (!ref?.applyCheckedFromState) {
-                        throw new TypeError(
-                            'Prepared task-list operation has no checkbox applier.',
-                        );
-                    }
-                    ref.applyCheckedFromState(comp.i);
-                    break;
-                }
-
-                case 'meta':
-                    // Do nothing.
-                    break;
-
-                default:
-                    debug.warn(`Unknown operation path ${key}`);
-                    break;
-            }
-        }
-    }
-
-    function applyTextEdit(es: NonNullable<JSONOpComponent['es']>) {
-        // Edit. Ok because its illegal to drop inside mixed region
-        mut();
-        const sd = subDoc!;
-        if (sd.blockName === 'table.cell') {
-            if (!sd.applyAlignmentFromState) {
-                throw new TypeError(
-                    'Prepared table operation has no alignment applier.',
-                );
-            }
-            sd.applyAlignmentFromState(
-                otText.type.apply(sd.align ?? '', es) as string,
-            );
-        }
-        else if (sd.blockName === 'language-input') {
-            const nextText = otText.type.apply(sd.text ?? '', es) as string;
-            sd._text = nextText;
-            if (!sd.parent?.applyLanguageFromState) {
-                throw new TypeError(
-                    'Prepared language input has no code-block applier.',
-                );
-            }
-            sd.parent.applyLanguageFromState(nextText);
-            sd.update?.();
-        }
-        else if (sd.blockName === 'code-block') {
-            // Handle modify code block type.
-            if (!sd.applyTypeFromState) {
-                throw new TypeError(
-                    'Prepared code block has no type applier.',
-                );
-            }
-            sd.applyTypeFromState(
-                otText.type.apply(sd.meta?.type ?? '', es) as string,
-            );
-        }
-        else {
-            sd._text = otText.type.apply(sd.text ?? '', es) as string;
-            sd.update?.();
-        }
-    }
-
-    for (; i < descent.length; i++) {
-        const d = descent[i];
-
-        if (Array.isArray(d)) {
-            const child = drop(subDoc, d, muya);
-            if (child !== subDoc && child !== undefined) {
-                mut();
-                // It maybe never go into this if statement.
-                if (key === 'root')
-                    (container as { root: BlockNode }).root = child;
-                else
-                    (container as Record<string, BlockNode>)[key] = child;
-                subDoc = child;
-            }
-        }
-        else if (typeof d === 'object') {
-            const comp = d as JSONOpComponent;
-            if (comp.i !== undefined)
-                applyInsert(comp);
-
-            if (comp.es)
-                applyTextEdit(comp.es);
-        }
-        else {
-            subDoc = subDoc != null ? subDoc.queryBlock?.([d]) : undefined;
-        }
-    }
-
-    return rootContainer.root;
-}
 
 export class Editor {
     jsonState: JSONState;
@@ -295,10 +44,12 @@ export class Editor {
     scrollPage: Nullable<ScrollPage> = null;
 
     private _activeContentBlock: Nullable<Content> = null;
+    private _compositionContentBlock: Nullable<Content> = null;
     private readonly _mutationAuthority: IMutationAuthority;
     private _treeRebuildDepth = 0;
     private readonly _projectionStateCache = new Map<'original' | 'revised', TState[]>();
     private _projectionCacheVersion = -1;
+    private _projectionCacheAnalysis: CriticMarkupAnalysis | null = null;
     private _projectionWarmupTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(private _muya: Muya) {
@@ -359,8 +110,12 @@ export class Editor {
         if (!document.items.length)
             return this.jsonState.getState();
         const version = this.jsonState.documentVersion;
-        if (this._projectionCacheVersion !== version) {
+        if (
+            this._projectionCacheVersion !== version
+            || this._projectionCacheAnalysis !== document.analysis
+        ) {
             this._projectionCacheVersion = version;
+            this._projectionCacheAnalysis = document.analysis;
             this._projectionStateCache.clear();
         }
         let state = this._projectionStateCache.get(projection);
@@ -449,10 +204,63 @@ export class Editor {
             this.focus();
     }
 
+    private _handleKeydown(anchorBlock: Content, event: Event): void {
+        if (isKeyboardEvent(event))
+            this.selection.prepareHiddenCriticCommentCaretNavigation(event);
+        const mutation = () => anchorBlock.keydownHandler(event);
+        if (
+            isKeyboardEvent(event)
+            && ['Backspace', 'Delete', 'Enter', 'Tab'].includes(event.key)
+        ) {
+            this.mutationGateway.run(
+                { kind: 'user-command' },
+                mutation,
+            );
+        }
+        else {
+            mutation();
+        }
+    }
+
+    private _handleKeyup(event: Event): void {
+        if (isKeyboardEvent(event))
+            this.selection.finishHiddenCriticCommentCaretNavigation(event);
+        // Native navigation may have placed the caret in a hidden CriticMarkup
+        // comment. Route keyup to the post-normalization owner; a Format handler
+        // legitimately expects its own live cursor and cannot use the old block.
+        const normalizedSelection = this.selection.getSelection();
+        if (normalizedSelection?.isSelectionInSameBlock) {
+            const normalizedBlock = normalizedSelection.anchor.block;
+            this.activeContentBlock = normalizedBlock;
+            normalizedBlock.keyupHandler(event);
+        }
+    }
+
+    private _handleCompositionEnd(anchorBlock: Content, event: Event): void {
+        const compositionBlock = this._compositionContentBlock ?? anchorBlock;
+        try {
+            this.mutationGateway.run(
+                { kind: 'user-edit' },
+                () => compositionBlock.composeHandler(event),
+            );
+        }
+        finally {
+            this._compositionContentBlock = null;
+        }
+    }
+
     private _dispatchEvents() {
         const { domNode } = this._muya;
 
         const eventHandler = (event: Event) => {
+            // beforeinput can reject a hidden comment-only caret and remove the
+            // native selection entirely. compositionend still belongs to the
+            // block that received compositionstart, so close that lifecycle
+            // before the ordinary selection-routing guard can return early.
+            if (event.type === 'compositionend' && this._compositionContentBlock) {
+                this._handleCompositionEnd(this._compositionContentBlock, event);
+                return;
+            }
             const selectionResult = this.selection.getSelection();
             const anchorBlock = selectionResult?.anchor.block;
             const isSelectionInSameBlock = selectionResult?.isSelectionInSameBlock;
@@ -480,6 +288,10 @@ export class Editor {
                     anchorBlock.clickHandler(event);
                     break;
                 }
+                case 'beforeinput': {
+                    this.selection.preventHiddenCriticCommentInput(event);
+                    break;
+                }
                 case 'input': {
                     this.mutationGateway.run(
                         { kind: 'user-edit' },
@@ -488,34 +300,23 @@ export class Editor {
                     break;
                 }
                 case 'keydown': {
-                    const mutation = () => anchorBlock.keydownHandler(event);
-                    if (
-                        isKeyboardEvent(event)
-                        && ['Backspace', 'Delete', 'Enter', 'Tab'].includes(event.key)
-                    ) {
-                        this.mutationGateway.run(
-                            { kind: 'user-command' },
-                            mutation,
-                        );
-                    }
-                    else {
-                        mutation();
-                    }
+                    this._handleKeydown(anchorBlock, event);
                     break;
                 }
                 case 'keyup': {
-                    anchorBlock.keyupHandler(event);
+                    this._handleKeyup(event);
                     break;
                 }
                 case 'compositionstart': {
+                    // Keep the lifecycle owner even if beforeinput rejects a
+                    // hidden-comment caret and normalization moves the live
+                    // selection to a different block before compositionend.
+                    this._compositionContentBlock = anchorBlock;
                     anchorBlock.composeHandler(event);
                     break;
                 }
                 case 'compositionend': {
-                    this.mutationGateway.run(
-                        { kind: 'user-edit' },
-                        () => anchorBlock.composeHandler(event),
-                    );
+                    this._handleCompositionEnd(anchorBlock, event);
                     break;
                 }
             }
@@ -523,6 +324,7 @@ export class Editor {
 
         merge(
             fromEvent(domNode, 'click'),
+            fromEvent(domNode, 'beforeinput'),
             fromEvent(domNode, 'input'),
             fromEvent(domNode, 'keydown'),
             fromEvent(domNode, 'keyup'),
@@ -614,9 +416,7 @@ export class Editor {
             }
 
             try {
-                const snapshot = pick(this.scrollPage as BlockNode, operations);
-
-                drop(snapshot, operations, muya);
+                applyBlockTreeOperations(this.scrollPage!, operations, muya);
 
                 this._restoreSelection(selection);
                 this.inlineRenderer.refreshCriticMarkupDocumentFragments();

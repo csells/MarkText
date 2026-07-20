@@ -42,15 +42,46 @@ function parseNativeState(
     }).generateWithMetadata(markdown);
 }
 
-function hasSameCriticMarkupSemantics(
-    before: readonly TCriticMarkupDocumentToken[],
-    after: readonly TCriticMarkupDocumentToken[],
+/**
+ * Compare two parser revisions across documented Markdown normalization.
+ * Item payloads alone are insufficient: a gapless highlight followed by a
+ * comment is the Review model's anchored-comment relation, so normalization
+ * must preserve that source adjacency as well as the semantic item forest.
+ */
+export function hasSameCriticMarkupNormalizationSemantics(
+    beforeAnalysis: CriticMarkupAnalysis,
+    afterAnalysis: CriticMarkupAnalysis,
     canonicalize: (raw: string) => string | null,
 ): boolean {
+    const before = beforeAnalysis.roots;
+    const after = afterAnalysis.roots;
     const pending: Array<readonly [
         readonly TCriticMarkupDocumentToken[],
         readonly TCriticMarkupDocumentToken[],
     ]> = [[before, after]];
+    const hasSameCanonicalMarkdown = (
+        beforeRaw: string,
+        afterRaw: string,
+    ): boolean => {
+        if (beforeRaw === afterRaw)
+            return true;
+        const beforeCanonical = canonicalize(beforeRaw);
+        return beforeCanonical !== null
+            && beforeCanonical === canonicalize(afterRaw);
+    };
+    const armPayloads = (
+        item: TCriticMarkupDocumentToken,
+    ): readonly string[] => item.type === 'substitution'
+        ? [item.oldContent, item.newContent]
+        : [item.content];
+
+    for (const projection of ['original', 'revised'] as const) {
+        const beforeProjection = beforeAnalysis.project(projection);
+        const afterProjection = afterAnalysis.project(projection);
+        if (!hasSameCanonicalMarkdown(beforeProjection, afterProjection)) {
+            return false;
+        }
+    }
 
     while (pending.length) {
         const [beforeSiblings, afterSiblings] = pending.pop()!;
@@ -62,19 +93,40 @@ function hasSameCriticMarkupSemantics(
             const afterItem = afterSiblings[index];
             if (beforeItem.type !== afterItem.type)
                 return false;
-            if (beforeItem.raw !== afterItem.raw) {
+            const beforePrevious = beforeSiblings[index - 1];
+            const afterPrevious = afterSiblings[index - 1];
+            const beforeIsGaplessAnchorComment = beforeItem.type === 'comment'
+                && beforePrevious?.type === 'highlight'
+                && beforePrevious.range.end === beforeItem.range.start;
+            const afterIsGaplessAnchorComment = afterItem.type === 'comment'
+                && afterPrevious?.type === 'highlight'
+                && afterPrevious.range.end === afterItem.range.start;
+            if (
+                beforeIsGaplessAnchorComment
+                !== afterIsGaplessAnchorComment
+            ) {
+                return false;
+            }
+            const beforeArms = armPayloads(beforeItem);
+            const afterArms = armPayloads(afterItem);
+            for (let arm = 0; arm < beforeArms.length; arm++) {
+                // Original/Revised projections are assembled from these
+                // payloads, not from the containing Critic delimiter source.
+                // Prove each corresponding projection arm independently so
+                // whole-item canonicalization cannot conceal changed text.
+                if (!hasSameCanonicalMarkdown(
+                    beforeArms[arm],
+                    afterArms[arm],
+                )) {
+                    return false;
+                }
+            }
+            if (!hasSameCanonicalMarkdown(beforeItem.raw, afterItem.raw)) {
                 // Documented serializer normalization may rewrite bytes
                 // INSIDE an arm (for example collapsing ATX heading padding).
                 // The change is semantic-preserving exactly when both raws
                 // reach the same canonical Markdown form.
-                const beforeCanonical = canonicalize(beforeItem.raw);
-                const afterCanonical = canonicalize(afterItem.raw);
-                if (
-                    beforeCanonical === null
-                    || beforeCanonical !== afterCanonical
-                ) {
-                    return false;
-                }
+                return false;
             }
 
             pending.push([
@@ -134,9 +186,9 @@ export function analyzeCriticMarkupMarkdownState(
     const hasStableSemantics = originalAnalysis === null
         ? normalizedAnalysis === null
         : normalizedAnalysis !== null
-            && hasSameCriticMarkupSemantics(
-                originalAnalysis.roots,
-                normalizedAnalysis.roots,
+            && hasSameCriticMarkupNormalizationSemantics(
+                originalAnalysis,
+                normalizedAnalysis,
                 canonicalize,
             );
     if (hasStableSemantics) {

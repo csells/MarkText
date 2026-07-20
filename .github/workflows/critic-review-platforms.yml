@@ -18,6 +18,8 @@ on:
       - 'packages/desktop/**'
       - 'packages/marked/**'
       - 'packages/muya/src/**'
+      - 'scripts/minify-locales.ts'
+      - 'scripts/minifyLocaleJson.ts'
       - 'pnpm-lock.yaml'
       - '.github/workflows/critic-review-platforms.yml'
 
@@ -49,11 +51,20 @@ jobs:
       - name: Run Review menu, keybinding, and presentation suites
         run: >-
           pnpm --filter marktext exec vitest run
-          test/unit/specs/critic-markup-review.spec.ts
-          test/unit/specs/critic-markup-review-store.spec.ts
+          test/unit/specs/critic-markup-autosave.spec.ts
+          test/unit/specs/critic-markup-comment-composer.spec.ts
+          test/unit/specs/critic-markup-comment-context-ipc.spec.ts
+          test/unit/specs/critic-markup-comment-edit-ack.spec.ts
+          test/unit/specs/critic-markup-context-menu.spec.ts
+          test/unit/specs/critic-markup-print-security.spec.ts
+          test/unit/specs/critic-markup-rejection-presentation.spec.ts
           test/unit/specs/critic-markup-review-architecture.spec.ts
           test/unit/specs/critic-markup-review-focus.spec.ts
-          test/unit/specs/critic-markup-rejection-presentation.spec.ts
+          test/unit/specs/critic-markup-review-sidebar-locales.spec.ts
+          test/unit/specs/critic-markup-review-sidebar-shell.spec.ts
+          test/unit/specs/critic-markup-review-sidebar.spec.ts
+          test/unit/specs/critic-markup-review-store.spec.ts
+          test/unit/specs/critic-markup-review.spec.ts
           test/unit/specs/review-command-descriptors.spec.ts
           test/unit/specs/review-menu-ipc.spec.ts
 

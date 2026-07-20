@@ -86,7 +86,7 @@ function criticBeforeSuffixReplacesJoiner(state: TState): boolean {
     while (current) {
         const suffix = current.sourceTrivia?.criticBeforeSuffix;
         if (suffix !== undefined)
-            return suffix.startsWith('\n');
+            return /^[ \t]*\r?\n/.test(suffix);
         current = (current as { children?: TState[] }).children?.[0];
     }
     return false;
@@ -145,9 +145,9 @@ export default class ExportMarkdown {
     }
 
     generate(states: TState[]) {
-        return weaveCriticSourceTrivia(
+        return applyTerminalLineEnding(
             states,
-            applyTerminalLineEnding(
+            weaveCriticSourceTrivia(
                 states,
                 this._convertStatesToMarkdown(states),
             ),
@@ -178,9 +178,9 @@ export default class ExportMarkdown {
         this._mappedLeafPaths = [];
 
         try {
-            const markdown = weaveCriticSourceTrivia(
+            const markdown = applyTerminalLineEnding(
                 states,
-                applyTerminalLineEnding(
+                weaveCriticSourceTrivia(
                     states,
                     this._convertStatesToMarkdown(states),
                 ),
@@ -284,7 +284,20 @@ export default class ExportMarkdown {
             }
 
             const stateParts = result.splice(resultStart);
-            result.push(concatMarkdown(stateParts).withNode(statePath));
+            let stateMarkdown = concatMarkdown(stateParts);
+            if (state.sourceTrivia?.suppressBlockTerminatorAfter) {
+                if (!stateMarkdown.text.endsWith('\n')) {
+                    throw new TypeError(
+                        'Parser-owned block has no generated terminal LF to suppress.',
+                    );
+                }
+                stateMarkdown = sliceMarkdown(
+                    stateMarkdown,
+                    0,
+                    stateMarkdown.text.length - 1,
+                );
+            }
+            result.push(stateMarkdown.withNode(statePath));
             if (blockSeparatorAfter !== undefined) {
                 result.push(serializeBlockSpacing(
                     blockSeparatorAfter,

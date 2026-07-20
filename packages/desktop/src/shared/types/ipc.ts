@@ -31,7 +31,12 @@ import type {
   UnsavedFile
 } from './files'
 import type { BufferedState as BufferedStateType } from './bufferedState'
-import type { CriticMarkupReviewMenuState } from './criticMarkup'
+import type {
+  CriticMarkupCommentEditRequest,
+  CriticMarkupEditorContextRequest,
+  CriticMarkupEditorContextResponse,
+  CriticMarkupReviewMenuState
+} from './criticMarkup'
 import type { MenuTemplate, MenuPopupPosition } from './menu'
 
 // =================================================================
@@ -111,6 +116,7 @@ export interface IpcSendChannels {
   'mt::ask-for-user-preference': []
   'mt::check-for-update': []
   'mt::clipboard::write-text': [text: string]
+  'mt::cm-editor-context-response': [response: CriticMarkupEditorContextResponse]
   'mt::close-window': []
   'mt::close-window-confirm': [unsavedFiles: UnsavedFile[]]
   'mt::cmd-close-window': []
@@ -227,8 +233,10 @@ export interface IpcMainEventChannels {
   'mt::bootstrap-editor': [config: BootstrapEditorConfig]
   'mt::cm-copy-as-html': []
   'mt::cm-copy-as-rich': []
+  'mt::cm-edit-comment': [request: CriticMarkupCommentEditRequest]
   'mt::cm-insert-paragraph': [direction: 'before' | 'after']
   'mt::cm-paste-as-plain-text': []
+  'mt::cm-query-editor-context': [request: CriticMarkupEditorContextRequest]
   'mt::current-language': [language: string]
   'mt::editor-ask-file-save': []
   'mt::editor-ask-file-save-as': []
