@@ -1,7 +1,7 @@
 # 0007 — CriticMarkup Comment Sidebar UX
 
-**Status:** Product and automated-acceptance contract; implementation
-superseded by plan 0009
+**Status:** Archived on 2026-07-19; superseded by
+[`0009-criticmarkup-document-engine-rebuild.md`](../0009-criticmarkup-document-engine-rebuild.md)
 
 **Created:** 2026-07-17
 **Design settled:** 2026-07-17 via a grilling session (see decisions below;
@@ -10,18 +10,19 @@ domain terms in `CONTEXT.md`, hard decisions in `docs/adr/0001–0004`).
 **Reference UX:** `origin/markupdown-inline-comments` (a separate, mature
 Google-Docs-style review system — its _look and interaction_ informed this
 design; its `<!--MC:id-->` storage format is **not** adopted).
-**Relationship to 0006:** 0006 established the pure-CriticMarkup foundation
+**Relationship to archived 0006:** 0006 established the pure-CriticMarkup foundation
 (five forms, parser topology, projections, Track Changes, Review surfaces).
 This plan specifies the **comment** form's editing UX without reopening those
-product decisions. Both plans remain acceptance contracts until plan 0009's
-shared automated closure gate is complete. Manual dogfooding happens afterward
-and is not a completion requirement.
+product decisions. Plan 0009 has absorbed both archived plans' surviving
+requirements and is now the sole active contract. Manual dogfooding happens
+afterward and is not a completion requirement.
 
-**Plan 0009 owns the rebuild.** It supersedes this plan's legacy architecture,
-phase/checkmark status, serializer-normalization allowances, and claims that
-legacy evidence proves the rebuilt engine. This plan retains the comment UX
-outcomes and automated acceptance criteria. Its implementation history remains
-an oracle and regression inventory, not rebuild completion evidence.
+**Plan 0009 owns the rebuild and acceptance.** It supersedes this plan's legacy
+architecture, phase/checkmark status, serializer-normalization allowances, and
+claims that legacy evidence proves the rebuilt engine. Every surviving Comment
+UX outcome and automated acceptance requirement was transferred there. This
+implementation history is an oracle and regression inventory, not an active
+queue or rebuild completion evidence.
 
 ## Problem
 

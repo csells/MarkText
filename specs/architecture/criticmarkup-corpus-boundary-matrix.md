@@ -1,16 +1,18 @@
 # CriticMarkup corpus-to-boundary proof matrix
 
 > **Status: legacy implementation proof inventory, not a target contract.**
-> This matrix records the pre-rebuild branch described by plans 0006/0007. Its
+> This matrix records the pre-rebuild branch described by archived plans
+> 0006/0007. Its
 > BOM stripping, CRLF normalization, serializer canonicalization, depth-64/128
 > limits, literal fallback, and named old-engine suites are historical evidence
-> only and are superseded by ADRs 0005–0008 and plan 0009. The replacement is
+> only and are superseded by ADRs 0005–0009 and plan 0009. The replacement is
 > plan 0009's checked-in Profile 1 manifests, interaction matrices, resource
 > boundary corpus, installed-artifact gates, and deletion ledger. Retain this
 > file only as a migration oracle; do not use any row to approve the target
 > engine unless plan 0009 explicitly imports it into a new red-green fixture.
 
-Purpose: plan `specs/plans/0006-criticmarkup-production-readiness-closure.md`,
+Purpose: archived plan
+`specs/plans/archive/0006-criticmarkup-production-readiness-closure.md`,
 Wave 5, final bullet, requires a checked-in corpus-to-boundary matrix
 "covering every shared row", where the file-backed desktop E2E includes a
 named minimum set and "every other row names its equivalent parser, state,

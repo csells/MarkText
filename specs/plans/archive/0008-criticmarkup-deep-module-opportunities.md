@@ -1,6 +1,8 @@
 # 0008 — CriticMarkup Deep-Module Opportunities
 
-**Status:** Superseded by plan 0009; migration evidence only
+**Status:** Archived on 2026-07-19; superseded by
+[`0009-criticmarkup-document-engine-rebuild.md`](../0009-criticmarkup-document-engine-rebuild.md);
+migration evidence only
 **Created:** 2026-07-19
 **Branch:** `feat/native-criticmarkup`
 **Source:** `/improve-codebase-architecture` review — five parallel Explore

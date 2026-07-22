@@ -1,0 +1,23 @@
+{
+  "source": "https://github.github.com/gfm/#strikethrough-extension-",
+  "version": "0.29-gfm",
+  "section": "Strikethrough (extension)",
+  "license": "CC BY-SA 4.0",
+  "examples": [
+    {
+      "number": 491,
+      "markdown": "~~Hi~~ Hello, ~there~ world!\n",
+      "signature": "<del></del><del></del>"
+    },
+    {
+      "number": 492,
+      "markdown": "This ~~has a\n\nnew paragraph~~.\n",
+      "signature": ""
+    },
+    {
+      "number": 493,
+      "markdown": "This will ~~~not~~~ strike.\n",
+      "signature": ""
+    }
+  ]
+}

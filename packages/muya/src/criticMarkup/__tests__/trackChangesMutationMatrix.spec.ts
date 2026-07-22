@@ -2,7 +2,8 @@
 
 /**
  * Wave 3 table-driven Track Changes mutation matrix
- * (specs/plans/0006-criticmarkup-production-readiness-closure.md, bullets 3-5).
+ * (specs/plans/archive/0006-criticmarkup-production-readiness-closure.md,
+ * bullets 3-5).
  *
  * Every row drives a real browser gesture (typing or Backspace) through the
  * booted editor's input path — exactly like

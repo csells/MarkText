@@ -57,8 +57,9 @@ test.describe('image tools', () => {
         await expect(page.locator(`${editor.image} img`)).toHaveCount(0);
 
         // The empty image round-trips losslessly through the serializer —
-        // byte-exact, including the absent terminal newline (the parser owns
-        // the source's terminal line ending; plan 0006 Wave 5).
+        // byte-exact, including the absent terminal newline. This is a legacy
+        // oracle from archived plan 0006 Wave 5; plan 0009 defines target
+        // acceptance for the rebuilt engine.
         const md = await page.evaluate(() => window.muya!.getMarkdown());
         expect(md).toBe('![]()');
     });

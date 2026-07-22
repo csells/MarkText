@@ -2,9 +2,9 @@
 
 > **Status: legacy implementation record; not the target architecture.** This
 > file describes the mutable-state/Marked/binding engine currently present on
-> `feat/native-criticmarkup`. ADR-0005 through ADR-0008 and plan 0009 supersede it
+> `feat/native-criticmarkup`. ADR-0005 through ADR-0009 and plan 0009 supersede it
 > for all new work: the immutable `DocumentRevision` is sole authority, decoded
-> source is exact, CM/Markdown form one atomic syntax graph, and resource failure
+> source is exact, CM is intrinsic syntax in one conditional Markdown graph, and resource failure
 > yields SourceOnly rather than literal rendering. Any conflict is an explicit
 > current-to-target gap, not an alternate allowed design. Keep this record only
 > as a migration/deletion oracle; rewrite or archive it when cutover completes.

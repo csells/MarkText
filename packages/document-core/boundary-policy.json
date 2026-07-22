@@ -1,0 +1,5 @@
+{
+  "runtimeDependencies": [],
+  "ambientLibraries": ["ES2022"],
+  "forbiddenPackages": ["@muyajs/core", "marked", "vue", "pinia", "electron"]
+}

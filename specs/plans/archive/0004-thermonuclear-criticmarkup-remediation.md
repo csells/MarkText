@@ -1,7 +1,7 @@
 # 0004 — Thermonuclear CriticMarkup Remediation
 
 **Status:** Superseded on 2026-07-13 by
-[`0006-criticmarkup-production-readiness-closure.md`](../0006-criticmarkup-production-readiness-closure.md)  
+[`0006-criticmarkup-production-readiness-closure.md`](0006-criticmarkup-production-readiness-closure.md)
 **Started:** 2026-07-11  
 **Branch:** `feat/native-criticmarkup`  
 **Review scope:** the complete working tree versus `upstream/develop` at

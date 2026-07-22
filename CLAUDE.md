@@ -32,7 +32,7 @@ MarkText is a WYSIWYG markdown editor built on Electron + Vue 3. It supports Com
 
 ## Directory Structure
 
-This is a pnpm workspace. Three packages live under `packages/`, and the
+This is a pnpm workspace. Six packages live under `packages/`, and the
 root holds only shared tooling and CI-facing scripts.
 
 ```
@@ -55,6 +55,27 @@ root holds only shared tooling and CI-facing scripts.
                             `directories.output: ../../dist` so CI artifact
                             globs `dist/*` still apply).
   packages/
+    document-core/          Source-authoritative Markdown + CriticMarkup
+                            language/session engine
+                            (name: "@marktext/document-core"). Pure
+                            TypeScript with no DOM, Muya, Marked, Vue, Pinia,
+                            or Electron dependency. Owns exact source,
+                            immutable revisions, Profile 1 parsing,
+                            projections, provenance, and the new session
+                            tracer. Run its checks independently while the
+                            migration remains behind the new-engine boundary.
+      src/                  Public engine/session types plus private parser
+                            and session kernels.
+      test/                 Vitest language, session, fixture, and package-
+                            boundary suites.
+      boundary-policy.json Forbidden dependency and ambient-library policy.
+    marked/                 Private vendored Marked fork
+                            (name: "marked"). Its source provenance and native
+                            extension behavior are legacy migration oracles;
+                            plan 0009 requires removing it from the new
+                            document-core authority.
+      src/                  Forked TypeScript parser source.
+      scripts/              Fork-integrity verification.
     desktop/                The Electron app (name: "marktext").
       package.json          Holds all Electron / Vue / build-time deps and
                             the dev/build/test/typecheck scripts. Depends on
@@ -198,6 +219,14 @@ pnpm run test:unit     # Unit tests only
 pnpm run test:e2e      # End-to-end tests (Playwright)
 pnpm run lint          # ESLint (run before committing; CI enforces)
 pnpm run typecheck     # vue-tsc --noEmit (CI enforces)
+
+# New source-authoritative document engine
+pnpm -C packages/document-core run check
+pnpm -C packages/document-core exec vitest run test/language-engine/open-addition.spec.ts
+
+# Browser walking tracer for document-core
+pnpm -C packages/muya/e2e run typecheck:document-core-tracer
+pnpm -C packages/muya/e2e exec playwright test tests/document-core/walking-tracer.spec.ts --project=chromium --workers=1
 
 # Run a single spec — paths are relative to packages/desktop. Use `-C` so
 # pnpm resolves the spec path inside the desktop package's vitest config.

@@ -1,7 +1,7 @@
 # 0006 — CriticMarkup Production-Readiness Closure
 
-**Status:** Product and automated-acceptance contract; implementation
-superseded by plan 0009
+**Status:** Archived on 2026-07-19; superseded by
+[`0009-criticmarkup-document-engine-rebuild.md`](../0009-criticmarkup-document-engine-rebuild.md)
 
 **Created:** 2026-07-13  
 **Gap analyses:** 2026-07-16 ×2 (adversarial multi-agent; see the closure
@@ -11,21 +11,22 @@ addendum)
 
 **Supersedes:**
 
-- [`0003-native-criticmarkup-integration.md`](archive/0003-native-criticmarkup-integration.md)
-- [`0004-thermonuclear-criticmarkup-remediation.md`](archive/0004-thermonuclear-criticmarkup-remediation.md)
-- [`0005-mc-informed-criticmarkup-parser-hardening.md`](archive/0005-mc-informed-criticmarkup-parser-hardening.md)
+- [`0003-native-criticmarkup-integration.md`](0003-native-criticmarkup-integration.md)
+- [`0004-thermonuclear-criticmarkup-remediation.md`](0004-thermonuclear-criticmarkup-remediation.md)
+- [`0005-mc-informed-criticmarkup-parser-hardening.md`](0005-mc-informed-criticmarkup-parser-hardening.md)
 
 Those plans remain the historical decision and red/green evidence record. This
-plan is the consolidated foundation and carries every surviving obligation
-from them. Companion plan 0007 extends its comment UX and shares this plan's
-final automated and artifact gates. Manual dogfooding happens after these plans
-close and is not a completion requirement.
+plan later consolidated their surviving obligations, and plan 0009 has now
+absorbed this plan's product and automated-acceptance requirements together
+with archived plan 0007. Manual dogfooding happens after plan 0009 closes and
+is not a completion requirement.
 
-**Plan 0009 owns the rebuild.** It supersedes this plan's legacy architecture,
-phase/checkmark status, serializer-normalization allowances, and claims that a
-legacy green ledger proves the rebuilt engine. This plan retains its product
-outcomes and automated acceptance criteria. Its historical evidence remains an
-oracle and regression inventory, not rebuild completion evidence.
+**Plan 0009 is the sole active contract.** It supersedes this plan's legacy
+architecture, phase/checkmark status, serializer-normalization allowances, and
+claims that a legacy green ledger proves the rebuilt engine. Every surviving
+product outcome and automated acceptance requirement was transferred there.
+This file is an oracle and regression inventory, not an active queue or rebuild
+completion evidence.
 
 Everything from **Historical evidence baseline (superseded by 0009)** through the legacy closure
 addenda is historical implementation evidence. Its waves, gates, commands,
@@ -857,12 +858,12 @@ in the strip commit.)
 ### 2026-07-19 legacy automated closure status
 
 The historical MET stamps above describe the revisions on which they were
-recorded. The open rows below remain product acceptance obligations, but plan
-0009 now owns their implementation and proof; completing them in the legacy
-engine would not close the rebuild:
+recorded. At archival, the open rows below were product acceptance obligations.
+Their surviving requirements were transferred to plan 0009; completing them in
+the legacy engine would not have closed the rebuild:
 
 - [ ] Finish the red-green comment-anchor edge matrix and binding-rebase
-      matrix recorded in active plan 0007.
+      matrix recorded in the then-active, now-archived plan 0007.
 - [ ] Prove the anchored and point-comment lifecycle in the real browser,
       including edit rejection, exact undo/redo, caret exclusion, ordinary anchor
       deletion, and explicit Highlight unwrapping plus Comment deletion.
@@ -873,7 +874,7 @@ engine would not close the rebuild:
       commit immediately before the final gate and push; merge forward without a
       rebase if upstream moved.
 - [x] Reconcile the CriticMarkup user docs, architecture record, ADR-0003,
-      domain vocabulary, and active plans with standalone-comment survival,
+      domain vocabulary, and then-active plans with standalone-comment survival,
       explicit Highlight unwrapping plus Comment deletion, revision-local IDs,
       and plan 0009's exact-source contract.
 

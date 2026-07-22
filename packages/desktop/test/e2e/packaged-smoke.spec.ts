@@ -5,12 +5,13 @@ import { _electron as electron } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 import { clickMenuById, expectNoCapturedErrors } from './helpers'
 
-// Wave 7 packaged-artifact smoke (plan 0006): the installed/mounted native
-// distributable — not the electron-vite out/ tree — must complete a
-// CriticMarkup review workflow hidden and without focus takeover. The
-// packaged binary path arrives via MARKTEXT_PACKAGED_APP (set by the runner
-// that mounted the DMG in an isolated location); without it the smoke is
-// skipped so ordinary E2E runs stay packaged-artifact-free.
+// Legacy packaged regression oracle originating in archived plan 0006 Wave 7;
+// plan 0009 defines target acceptance for the rebuilt engine. The
+// installed/mounted native distributable — not the electron-vite out/ tree —
+// must complete a CriticMarkup review workflow hidden and without focus
+// takeover. The packaged binary path arrives via MARKTEXT_PACKAGED_APP (set
+// by the runner that mounted the DMG in an isolated location); without it the
+// smoke is skipped so ordinary E2E runs stay packaged-artifact-free.
 
 const packagedBinary = process.env.MARKTEXT_PACKAGED_APP
 
@@ -22,7 +23,7 @@ const SMOKE_DOC = [
   ''
 ].join('\n')
 
-test.describe('packaged distributable smoke (plan 0006 Wave 7)', () => {
+test.describe('legacy packaged distributable smoke', () => {
   test.skip(!packagedBinary, 'MARKTEXT_PACKAGED_APP not set')
   test.describe.configure({ timeout: 120000 })
 

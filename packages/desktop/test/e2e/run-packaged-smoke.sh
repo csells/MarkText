@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Reproducible driver for packaged-smoke.spec.ts (plan 0006 Wave 7).
+# Legacy packaged regression oracle originating in archived plan 0006 Wave 7;
+# plan 0009 defines target acceptance for the rebuilt engine.
 #
 # Builds the macOS arm64 distributable (or reuses MARKTEXT_DMG if set),
 # mounts it read-only at an isolated temporary mountpoint, and runs the

@@ -1,7 +1,7 @@
 # Native CriticMarkup review and Track Changes
 
 > **Draft target release notes—not current branch behavior.** Publish these only
-> after plans 0006, 0007, and 0009 close against their final automated gates.
+> after plan 0009 closes against its final automated gates.
 > The current branch still lacks parts of the contract, including the persistent
 > hidden-sidebar mouse entry, source-authoritative exact persistence,
 > session-owned raw Comment drafts, and the 16,384/16,385 resource boundary.

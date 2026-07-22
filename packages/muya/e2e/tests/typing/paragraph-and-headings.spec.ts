@@ -77,9 +77,11 @@ test.describe('paragraphs and headings', () => {
     // markdown carries the embedded newline. NOTE: the engine emits a plain
     // soft break (`\n`), not a CommonMark hard break (`  \n` / `\\\n`) — see
     // suspectedBugs. The document was created empty, so the parser owns an
-    // absent terminal newline and the markdown carries no trailing LF
-    // (plan 0006 byte-exactness). Backspace at the start of the second visual line removes
-    // the soft break, joining the two lines back into `ab`.
+    // absent terminal newline and the markdown carries no trailing LF. This
+    // is a legacy byte-exactness oracle from archived plan 0006; plan 0009
+    // defines target acceptance for the rebuilt engine. Backspace at the
+    // start of the second visual line removes the soft break, joining the two
+    // lines back into `ab`.
     test('Shift+Enter inserts a soft line break, Backspace removes it', async ({ page }) => {
         await page.evaluate(() => window.muya!.setContent(''));
         await page.locator(editor.paragraph).first().click();

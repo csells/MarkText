@@ -1,7 +1,7 @@
 # 0003 — Native CriticMarkup Integration
 
 **Status:** Superseded on 2026-07-13 by
-[`0006-criticmarkup-production-readiness-closure.md`](../0006-criticmarkup-production-readiness-closure.md)  
+[`0006-criticmarkup-production-readiness-closure.md`](0006-criticmarkup-production-readiness-closure.md)
 **Started:** 2026-07-10  
 **Branch:** `feat/native-criticmarkup` (from the repository mainline,
 `develop`)

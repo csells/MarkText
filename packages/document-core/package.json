@@ -1,0 +1,43 @@
+{
+  "name": "@marktext/document-core",
+  "version": "0.1.0-dev",
+  "description": "Source-authoritative MarkText document language engine",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "pnpm run clean && tsc -p tsconfig.build.json",
+    "lint": "eslint src test vitest.config.ts",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

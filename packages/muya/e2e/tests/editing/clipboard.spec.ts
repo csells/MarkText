@@ -234,8 +234,9 @@ test.describe('clipboard paste', () => {
         test.skip(browserName !== 'chromium', 'ClipboardItem text/html unreliable on Firefox/WebKit headless — BACKLOG Phase 3.');
         await grantClipboardPermissions(context);
         // The seeded document has no final newline; the parser owns the
-        // terminal line ending and an inline paste must not invent one
-        // (plan 0006 Wave 5 byte-exactness).
+        // terminal line ending and an inline paste must not invent one. This
+        // is a legacy byte-exactness oracle from archived plan 0006 Wave 5;
+        // plan 0009 defines target acceptance for the rebuilt engine.
         await pasteClipboardAt(page, 'AB', 1, '<span style="white-space: pre;">  </span>', '  ');
         await expect.poll(async () => getMarkdown(page), {
             timeout: 5_000,

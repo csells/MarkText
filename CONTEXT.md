@@ -8,8 +8,8 @@ terms are out of scope.
 ## Language
 
 **Document revision**:
-One exact canonical Markdown snapshot together with its complete Markdown and
-CriticMarkup interpretation. A revision is replaced as a whole by an accepted
+One exact canonical Markdown snapshot together with its complete intrinsic
+MarkText Markdown Profile interpretation, including CriticMarkup. A revision is replaced as a whole by an accepted
 edit; views of it are never independent document authorities.
 _Avoid_: JSON state, live DOM state, parser sidecar
 
@@ -21,16 +21,23 @@ desktop persistence adapter separately owns file encoding and byte-exact
 open/save behavior.
 _Avoid_: normalized Markdown, serialized view
 
+**MarkText Markdown Profile**:
+The complete versioned Markdown language MarkText accepts: pinned CommonMark,
+GFM, built-in MarkText constructs, and the configured intrinsic CriticMarkup
+productions.
+_Avoid_: base Markdown parser, host language
+
 **MarkText CriticMarkup Profile**:
-A named, versioned language contract whose base is the five published
-CriticMarkup forms and whose explicit extensions define MarkText behavior where
-the upstream prose or reference implementations are silent or inconsistent.
-Every parser revision records its profile version; conformance tests cover both
-the shared base and each declared extension. Profile 1 permits properly nested
-CriticMarkup only: CM items never cross or partially overlap other CM items.
-Markdown and CM remain independent structures and may cross each other's
-containment boundaries.
-_Avoid_: CriticMarkup dialect, current parser behavior, de facto grammar
+The versioned subset of the MarkText Markdown Profile that defines the five
+intrinsic CriticMarkup forms and MarkText behavior where upstream sources are
+silent or inconsistent. Its forms participate in the complete profile's syntax
+and precedence rather than forming a peer language.
+_Avoid_: CriticMarkup dialect, peer CM language, current parser behavior, de facto grammar
+
+**Projection**:
+A read-only Original, Revised, or Comment-display interpretation selected from
+one Document revision. It is never an independent document authority.
+_Avoid_: parsed copy, alternate document
 
 **Comment**:
 The unstructured metadata payload serialized by CriticMarkup as `{>>…<<}`.

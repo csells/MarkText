@@ -7,13 +7,14 @@ import {
   launchWithMarkdown
 } from './helpers'
 
-// Wave 7 artifact performance budgets (plan 0006): the 4,096-line no-opener
-// fixture must open within 5 seconds, and five projection toggles,
-// next/previous review actions, and sidebar refreshes must each complete
-// with a p95 below 500ms. Budgets are asserted against the real hidden
-// editor window; every run attaches the machine descriptor below so the
-// measurements are tied to a recorded machine. Investigate outliers rather
-// than average them away.
+// Legacy performance regression oracle originating in archived plan 0006
+// Wave 7; plan 0009 defines target acceptance for the rebuilt engine. The
+// 4,096-line no-opener fixture must open within 5 seconds, and five projection
+// toggles, next/previous review actions, and sidebar refreshes must each
+// complete with a p95 below 500ms. Budgets are asserted against the real
+// hidden editor window; every run attaches the machine descriptor below so
+// the measurements are tied to a recorded machine. Investigate outliers
+// rather than average them away.
 
 const OPEN_BUDGET_MS = 5000
 const ACTION_P95_BUDGET_MS = 500
@@ -49,7 +50,7 @@ function p95(samples: number[]): number {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)]
 }
 
-test.describe('CriticMarkup artifact performance budgets (plan 0006 Wave 7)', () => {
+test.describe('legacy CriticMarkup artifact performance budgets', () => {
   test.describe.configure({ timeout: 120000 })
 
   let app: ElectronApplication

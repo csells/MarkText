@@ -14,9 +14,11 @@
         "e2e:ui": "playwright test --ui",
         "e2e:headed": "playwright test --headed",
         "e2e:report": "playwright show-report",
-        "e2e:install": "playwright install --with-deps chromium firefox webkit"
+        "e2e:install": "playwright install --with-deps chromium firefox webkit",
+        "typecheck:document-core-tracer": "tsc -p tsconfig.document-core.json"
     },
     "dependencies": {
+        "@marktext/document-core": "workspace:*",
         "@muyajs/core": "workspace:*",
         "intl-segmenter-polyfill": "^0.4.4"
     },
@@ -24,6 +26,7 @@
         "@axe-core/playwright": "^4.11.3",
         "@playwright/test": "^1.61.0",
         "@types/node": "^22.20.0",
+        "typescript": "^6.0.3",
         "vite": "^8.0.16"
     }
 }

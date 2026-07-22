@@ -1,8 +1,9 @@
 name: CriticMarkup Review Platforms
 
-# Plan 0006 Wave 7: named supported-platform jobs pairing a real per-OS
-# desktop bundle with the Review menu/keybinding suites, plus the vendored
-# Marked fork verification from a clean checkout with no network access.
+# Legacy platform regression oracle originating in archived plan 0006 Wave 7.
+# Plan 0009 defines the target platform acceptance for the rebuilt engine.
+# These jobs pair a real per-OS desktop bundle with the Review menu/keybinding
+# suites, plus the vendored Marked fork verification from a clean checkout.
 
 on:
   workflow_dispatch:

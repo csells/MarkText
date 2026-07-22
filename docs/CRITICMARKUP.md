@@ -1,7 +1,7 @@
 # CriticMarkup review
 
 > **Target documentation—not current branch behavior.** This guide describes
-> the product contract that plans 0006, 0007, and 0009 require. The current
+> the product contract that plan 0009 requires. The current
 > `feat/native-criticmarkup` implementation does not yet satisfy every claim,
 > including the persistent mouse path from a fully hidden sidebar, the
 > source-authoritative/no-normalization engine, session-owned Comment drafts and

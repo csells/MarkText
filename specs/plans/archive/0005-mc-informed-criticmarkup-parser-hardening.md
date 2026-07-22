@@ -1,7 +1,7 @@
 # 0005 — MC-Informed CriticMarkup Parser Hardening
 
 **Status:** Superseded on 2026-07-13 by
-[`0006-criticmarkup-production-readiness-closure.md`](../0006-criticmarkup-production-readiness-closure.md)  
+[`0006-criticmarkup-production-readiness-closure.md`](0006-criticmarkup-production-readiness-closure.md)
 **Created:** 2026-07-11  
 **Branch:** `feat/native-criticmarkup`  
 **Evidence branch:** `markupdown-inline-comments` at
