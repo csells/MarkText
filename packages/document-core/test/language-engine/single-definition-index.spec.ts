@@ -48,17 +48,18 @@ describe('one reference-definition index per lane parse', () => {
     // Was 12 per open: every lane parse built an index, then the CST builder
     // rebuilt an identical one from the same literals. Sharing the index halved
     // that to 6; dropping the tautological clean-verification parse halved it to
-    // 4; and ADR 0013 (a CriticMarkup-free document reads one shared parse
-    // instead of re-parsing for Revised) halves it again to 2.
-    expect(indexBuildsFor('# Title\n\nHello *world*.\n')).toBe(2)
+    // 4; ADR 0013 (Revised reads Original's parse) halved it to 2; and removing
+    // the no-op arm-boundary planning parse (no scopes, no edits to plan) halves
+    // it to 1 — a CriticMarkup-free document now builds the index exactly once.
+    expect(indexBuildsFor('# Title\n\nHello *world*.\n')).toBe(1)
   })
 
   it('costs one extra build when definitions force a second block pass', () => {
     // A definition may follow its reference, so the block phase runs twice and
     // the carried index must come from the FINAL literals (the second pass can
-    // reclassify them) — correctness over symmetry. Was 12; then 8; ADR 0013's
-    // shared CriticMarkup-free parse halves the per-view work to 4.
-    expect(indexBuildsFor('[a]: /x\n\nSee [a].\n')).toBe(4)
+    // reclassify them) — correctness over symmetry. Was 12; then 8; then 4;
+    // removing the no-op planning parse halves it to 2 (the two block passes).
+    expect(indexBuildsFor('[a]: /x\n\nSee [a].\n')).toBe(2)
   })
 
   it('preserves reference-link resolution while sharing the index', () => {

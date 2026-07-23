@@ -12,12 +12,18 @@ import {
 /**
  * ADR 0013: parse each document once and read every view off it.
  *
- * The migration is measured here by parse count. Outside CriticMarkup marker
- * regions every view is byte-identical, so a CriticMarkup-free document must
- * parse exactly ONCE — the redundant per-view reparse is precisely the "parse
- * more than once when nothing changed" waste the single-parse architecture
- * removes. Marker cases still parse more than once until their fork-reads land
- * (slices 2-3); their counts below are the current ceiling, not the target.
+ * The migration is measured here by parse count, and the counter is now honest:
+ * `__markdownDocumentParsesV1` increments in `parseMarkdownDocumentWithBoundaryEvidence`,
+ * the shared entry of EVERY full document parse (invariant 21). That exposed —
+ * and then let us remove — a hidden parse: the projection builder ran
+ * `planMarkdownArmBoundaryProjectionEdits`, a full document parse, once per
+ * projection even when the view has no Substitution-arm scopes and so no
+ * boundary edits to plan. Skipping that no-op parse makes a CriticMarkup-free
+ * document parse exactly ONCE (the invariant, now actually true) and halves
+ * unary-form documents. Substitution still plans real arm boundaries.
+ *
+ * Remaining counts above 1 are per-view projection reparses that the fork-read
+ * model (slices 2-3) removes; they are the current honest ceiling, not the target.
  */
 
 const TEST_CONFIGURATION: ParseConfiguration = {
@@ -41,22 +47,23 @@ function parsesFor(source: string): number {
 }
 
 describe('one authoritative Markdown parse per view', () => {
-  it('parses a CriticMarkup-free document exactly once (all views read one parse)', () => {
-    // Original === Revised === editing when there are no markers, so one parse
-    // serves every view. This is ADR 0013 slice 1.
+  it('parses a CriticMarkup-free document exactly once', () => {
+    // The invariant, now actually true and honestly counted: no markers, no
+    // per-view divergence, no boundary edits to plan — one authoritative parse.
     expect(parsesFor('# Title\n\nHello *world*.\n')).toBe(1)
   })
 
-  it('parses a document whose forms create no arm scopes (slice-2 ceiling: 2)', () => {
-    // Addition/Deletion/Highlight/Comment create no Substitution-arm scopes.
-    // Target is 1 once inline arm-selection reads land (slice 2); today 2.
+  it('parses unary-form documents twice today (was 4 — no-op planning removed)', () => {
+    // Addition/Deletion/Highlight/Comment create no Substitution-arm scopes, so
+    // no boundary planning runs; the two are Original and Revised per-view
+    // reparses. Target is 1 once the fork-read model lands (slices 2-3).
     expect(parsesFor('a{++x++}{--y--}{==h==}b\n')).toBe(2)
   })
 
-  it('still verifies a Substitution, which does create arm scopes', () => {
-    // Both arms produce matching scopes, so each view keeps its verification
-    // parse: 2 views x (scoped + clean) = 4.
-    expect(parsesFor('a{~~old~>new~~}b\n')).toBe(4)
+  it('parses a Substitution six times today (arm boundaries genuinely planned)', () => {
+    // Both arms produce matching scopes, so each view keeps its verification and
+    // boundary-planning parses. Target is 1 once fork-reads land.
+    expect(parsesFor('a{~~old~>new~~}b\n')).toBe(6)
   })
 
   it('preserves projected Markdown structure while skipping the tautology', () => {

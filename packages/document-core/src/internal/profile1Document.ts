@@ -1928,6 +1928,9 @@ function applyProtections(
   )
 }
 
+const EMPTY_ARM_BOUNDARY_PROJECTION_EDITS: readonly MarkdownArmBoundaryProjectionEdit[] =
+  Object.freeze([])
+
 function applyMarkdownArmBoundaryProjectionEdits(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
@@ -2888,14 +2891,22 @@ function project(
       sourceStart: segment.sourceStart
     })
   ))
-  const armBoundaryProjectionEdits = planMarkdownArmBoundaryProjectionEdits({
-    source: projectedSource,
-    matchingScopes: Object.freeze(matchingScopes),
-    canonicalIdentityRuns,
-    armTerminationEdits: Object.freeze(armTerminationEdits)
-  }, markdownDepthLimit, traceRecorder === undefined
-    ? undefined
-    : Object.freeze({ view: traceView, recorder: traceRecorder }))
+  // Boundary edits arise only from Substitution-arm scopes and arm terminations
+  // (with no scopes the boundary policy is undefined). With neither, planning
+  // provably yields no edits, so skip the full document parse it would run — a
+  // CriticMarkup-free view is then parsed exactly once (its authoritative CST),
+  // never a second time to discover boundary edits it has none of.
+  const armBoundaryProjectionEdits =
+    matchingScopes.length === 0 && armTerminationEdits.length === 0
+      ? EMPTY_ARM_BOUNDARY_PROJECTION_EDITS
+      : planMarkdownArmBoundaryProjectionEdits({
+        source: projectedSource,
+        matchingScopes: Object.freeze(matchingScopes),
+        canonicalIdentityRuns,
+        armTerminationEdits: Object.freeze(armTerminationEdits)
+      }, markdownDepthLimit, traceRecorder === undefined
+        ? undefined
+        : Object.freeze({ view: traceView, recorder: traceRecorder }))
   const armSafe = applyMarkdownArmBoundaryProjectionEdits(
     projectedSource,
     segments,

@@ -2529,6 +2529,11 @@ function parseMarkdownDocumentWithBoundaryEvidence(
   containerDepthLimit: number = Number.POSITIVE_INFINITY,
   trace?: Profile1ProjectionPlanningTraceV1
 ): BoundaryAwareMarkdownParse {
+  // Every full document parse flows through here — both parseMarkdownDocument
+  // and planMarkdownArmBoundaryProjectionEdits (which builds a full document
+  // only to read its boundary edits). Count here so no full-parse entry point
+  // is invisible to __markdownDocumentParsesV1 (invariant 21).
+  markdownDocumentParses += 1
   const source = lane.source
   const canonicalIdentityRuns = validatedCanonicalIdentityRuns(
     source.length,
@@ -2708,7 +2713,6 @@ export function parseMarkdownDocument(
   lane: MappedMarkdownLane,
   containerDepthLimit: number = Number.POSITIVE_INFINITY
 ): Profile1MarkdownParse {
-  markdownDocumentParses += 1
   const parsed = parseMarkdownDocumentWithBoundaryEvidence(
     lane,
     containerDepthLimit
