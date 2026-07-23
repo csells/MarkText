@@ -9,6 +9,8 @@ import {
   createMarkdownReferenceDefinitionIndex,
   normalizeMarkdownReferenceLabel,
   parsePlainMarkdownLane,
+  __plainMarkdownLaneUnitsV1,
+  __resetPlainMarkdownLaneUnitsV1,
   type MarkdownMatchingScopePolicy,
   type MarkdownReferenceDefinitionLookup,
   type PlainMarkdownContainer,
@@ -2600,11 +2602,6 @@ function parseMarkdownDocumentWithBoundaryEvidence(
           )
         ))
       })
-  // Count units where the block phase actually consumes text. That is the
-  // shareable work — block structure, literals and definitions — so measuring
-  // here is what makes "unchanged text is parsed once" observable: sharing a
-  // region across views means its characters are handed to this phase once.
-  markdownParsedUnits += source.length
   const parsedLane = parsePlainMarkdownLane(
     source,
     containerDepthLimit,
@@ -2712,7 +2709,7 @@ export function __markdownDocumentParsesV1(): number {
 
 export function __resetMarkdownDocumentParsesV1(): void {
   markdownDocumentParses = 0
-  markdownParsedUnits = 0
+  __resetPlainMarkdownLaneUnitsV1()
 }
 
 /**
@@ -2730,10 +2727,8 @@ export function __resetMarkdownDocumentParsesV1(): void {
  * So this is the metric slices 2-3 are measured by; the parse count remains
  * useful only for the case where views share one text exactly.
  */
-let markdownParsedUnits = 0
-
 export function __markdownParsedUnitsV1(): number {
-  return markdownParsedUnits
+  return __plainMarkdownLaneUnitsV1()
 }
 
 export function parseMarkdownDocument(

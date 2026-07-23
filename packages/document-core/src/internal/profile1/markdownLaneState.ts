@@ -3367,6 +3367,21 @@ function parsePlainMarkdownLanePass(
 }
 
 /**
+ * Test-only counter of source units handed to the block phase — the shareable
+ * work. Counting here rather than at the caller is what makes sharing visible:
+ * re-analysing only a divergent region costs only that region.
+ */
+let plainMarkdownLaneUnits = 0
+
+export function __plainMarkdownLaneUnitsV1(): number {
+  return plainMarkdownLaneUnits
+}
+
+export function __resetPlainMarkdownLaneUnitsV1(): void {
+  plainMarkdownLaneUnits = 0
+}
+
+/**
  * Rebase a lane parse onto a different position, shifting every offset it
  * carries by `delta`.
  *
@@ -3421,11 +3436,136 @@ export function shiftPlainMarkdownLane(
   })
 }
 
+/** A previously analysed view, offered as reuse for the next one. */
+export interface PlainMarkdownLaneReuse {
+  readonly source: string
+  readonly parsed: PlainMarkdownLaneParse
+}
+
+/**
+ * Offsets where a block unambiguously starts: a non-blank top-level line
+ * following a blank one. Blocks do not span these, so a region beginning here
+ * parses the same however the text before it changed
+ * (`specs/research/0002`).
+ */
+function laneSafeOffsets(lane: PlainMarkdownLaneParse): readonly number[] {
+  const offsets: number[] = []
+  for (const [index, line] of lane.lines.entries()) {
+    const topLevel = line.blockQuoteDepth === 0 &&
+      line.listDepth === 0 &&
+      line.containers.length === 0
+    if (!topLevel || line.blank) {
+      continue
+    }
+    const previous = lane.lines[index - 1]
+    if (index === 0 || previous?.blank === true) {
+      offsets.push(line.start)
+    }
+  }
+  return offsets
+}
+
+/**
+ * Analyse `source` reusing the untouched regions of an already-analysed view.
+ *
+ * Two views of a reviewed document differ only where a marker resolves
+ * differently, so re-analysing the whole document for each one re-does the
+ * untouched majority. This keeps the shared head and tail and re-parses only the
+ * divergent middle (ADR-0013 slice 2).
+ *
+ * Every step is conservative: reuse is taken only across a safe point, only when
+ * no matching-scope policy is in play, and only when no literal straddles a
+ * seam. Anything else falls back to a full parse. Reusing wrongly would produce
+ * a plausible-looking but incorrect analysis that no cost metric could catch;
+ * declining to reuse merely forgoes a saving.
+ */
+export function parsePlainMarkdownLaneReusing(
+  source: string,
+  reuse: PlainMarkdownLaneReuse | undefined,
+  containerDepthLimit: number = Number.POSITIVE_INFINITY,
+  matchingScopePolicy?: MarkdownMatchingScopePolicy
+): PlainMarkdownLaneParseWithDefinitions {
+  // Arm scopes change how the grammar matches, so a region analysed without
+  // them cannot be reused under them.
+  if (reuse === undefined || matchingScopePolicy !== undefined) {
+    return parsePlainMarkdownLane(source, containerDepthLimit, matchingScopePolicy)
+  }
+  const previous = reuse.source
+  const safeOffsets = laneSafeOffsets(reuse.parsed)
+
+  let commonPrefix = 0
+  const prefixLimit = Math.min(source.length, previous.length)
+  while (commonPrefix < prefixLimit && source[commonPrefix] === previous[commonPrefix]) {
+    commonPrefix += 1
+  }
+  let commonSuffix = 0
+  while (
+    commonSuffix < prefixLimit - commonPrefix &&
+    source[source.length - 1 - commonSuffix] === previous[previous.length - 1 - commonSuffix]
+  ) {
+    commonSuffix += 1
+  }
+
+  let prefixEnd = 0
+  for (const offset of safeOffsets) {
+    if (offset <= commonPrefix) {
+      prefixEnd = offset
+    }
+  }
+  const suffixFloor = previous.length - commonSuffix
+  const suffixStart = safeOffsets.find((offset) => offset >= suffixFloor) ?? previous.length
+  const delta = source.length - previous.length
+  const middleEnd = suffixStart + delta
+  const reusedUnits = prefixEnd + (previous.length - suffixStart)
+  // Not worth splicing, or the seams cross — parse it whole.
+  if (prefixEnd > middleEnd || reusedUnits * 4 < source.length) {
+    return parsePlainMarkdownLane(source, containerDepthLimit)
+  }
+  const straddles = (offset: number): boolean =>
+    reuse.parsed.literals.some((literal) => literal.start < offset && literal.end > offset)
+  if (straddles(prefixEnd) || straddles(suffixStart)) {
+    return parsePlainMarkdownLane(source, containerDepthLimit)
+  }
+
+  const middle = shiftPlainMarkdownLane(
+    parsePlainMarkdownLane(source.slice(prefixEnd, middleEnd), containerDepthLimit),
+    prefixEnd
+  )
+  const tail = shiftPlainMarkdownLane(
+    Object.freeze({
+      containerDepthFailure: undefined,
+      literals: reuse.parsed.literals.filter((literal) => literal.start >= suffixStart),
+      lines: reuse.parsed.lines.filter((line) => line.start >= suffixStart)
+    }),
+    delta
+  )
+  const lines = Object.freeze([
+    ...reuse.parsed.lines.filter((line) => line.start < prefixEnd),
+    ...middle.lines,
+    ...tail.lines
+  ])
+  const literals = Object.freeze([
+    ...reuse.parsed.literals.filter((literal) => literal.end <= prefixEnd),
+    ...middle.literals,
+    ...tail.literals
+  ])
+  return Object.freeze({
+    lines,
+    literals,
+    containerDepthFailure: middle.containerDepthFailure,
+    // Rebuilt from the spliced literals, never inherited: definition visibility
+    // is view-dependent, so a reused region must not import another view's
+    // definitions (ADR-0009).
+    referenceDefinitions: createMarkdownReferenceDefinitionIndex(source, literals)
+  })
+}
+
 export function parsePlainMarkdownLane(
   source: string,
   containerDepthLimit: number = Number.POSITIVE_INFINITY,
   matchingScopePolicy?: MarkdownMatchingScopePolicy
 ): PlainMarkdownLaneParseWithDefinitions {
+  plainMarkdownLaneUnits += source.length
   const blockStage = parsePlainMarkdownLanePass(
     source,
     containerDepthLimit,
