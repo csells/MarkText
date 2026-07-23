@@ -3,8 +3,8 @@
 The engine parses a document **once** and reads Original, Revised, and the
 editing (Markup) view off that single parse. Outside CriticMarkup marker
 regions the three views are byte-identical and share identical block and inline
-structure; they diverge only inside marker regions and reconverge immediately
-after. So the parse runs over the real source with every CriticMarkup marker as
+structure; they diverge only inside marker regions and reconverge at the next
+safe point after (see below). So the parse runs over the real source with every CriticMarkup marker as
 a zero-width grammar event, and where eliding a marker's content would change
 Markdown structure it records the **fork** — the alternative block or inline
 shape each view takes — rather than committing to one. Reading a view is arm
@@ -47,10 +47,29 @@ The hard core of this rebuild is that constraint meeting CommonMark's
 non-locality: lazy continuation, reference definitions, and setext underlines
 mean a marker's elision-consequence is not always local to the marker, so the
 single parse must maintain forked block, inline, and definition state across a
-divergent region and reconverge cleanly. The migration is measured by parse
-count per document: a CriticMarkup-free document parses once; a marker that does
-not change block structure (an addition inside a paragraph) parses once with the
-views differing only by inline arm selection; a marker that does change block
-structure parses once and records a block fork. The editing view is the parse
+divergent region and reconverge. A fork reconverges at the next **safe point**:
+a top-level blank line at which no resolution has an open fenced-code or HTML
+block — the only CommonMark leaf blocks a blank line does not close. At a safe
+point both resolutions are in the identical document-root, nothing-open block
+state, so the remaining source parses identically in both and is parsed once.
+An inline marker changes no block structure; a block-structural marker
+reconverges within a block or two; the sole divergence that reaches end of
+document is an *unclosed* fenced-code or HTML block, which runs to EOF under
+plain CommonMark regardless of CriticMarkup — degenerate input, not the common
+case. This is measured, not asserted, in
+`specs/research/0002-criticmarkup-view-fork-reconvergence.md`, which reads the
+reconvergence points off correct Original/Revised trees.
+
+The safe-point detector — a position of canonical, nothing-open block state — is
+the same primitive an incremental parse needs to choose a restart boundary after
+an edit (the fragment-reuse boundary). Cross-view reconvergence and cross-edit
+fragment reuse are one problem: find a position where block-parser state is known
+and empty. It is built once and serves both.
+
+The migration is measured by parse count per document: a CriticMarkup-free
+document parses once; a marker that does not change block structure (an addition
+inside a paragraph) parses once with the views differing only by inline arm
+selection; a marker that does change block structure parses once and records a
+block fork that reconverges at the next safe point. The editing view is the parse
 that always runs — it is the surface the user types into — so it is the natural
 home of the single structure, with Original and Revised as reads of its forks.

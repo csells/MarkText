@@ -110,10 +110,14 @@ The following architectures are forbidden in both the core and adapters:
 - a CM scanner or CM-first facade driving a partial Markdown sidecar;
 - a CM-only parse whose forest is later woven into a Markdown CST;
 - post-hoc topology, ownership, delimiter, or reference-resolution reconstruction;
-- re-*recognizing CriticMarkup* in any flattened Original, Revised, or Comment string (building the
-  *Markdown* CST over a projected string that carries an exact canonical segment map is permitted and
-  is how views are produced — the forbidden thing is a second CriticMarkup authority, not a second
-  Markdown parse);
+- re-*recognizing CriticMarkup* in any flattened Original, Revised, or Comment string. Under ADR-0013
+  a view is a **read** of the one parse by arm selection, not a per-view Markdown parse of an assembled
+  string; text that does not change across views is parsed once (decision 11, invariant 21). A
+  **Markdown-only** re-parse is permitted where it is genuinely required — confined to a divergent
+  fork's elided span, or to materializing a view as canonical bytes (see the materialization sites
+  below) — and always over source carrying an exact canonical segment map; the forbidden thing is a
+  *second CriticMarkup authority*, and re-parsing *convergent* text once per view is likewise forbidden
+  as redundant work, not merely discouraged;
 - projector-only revision of an intrinsic parser decision — the guard may *add* generated protection
   but may never flip an accepted marker to rejected; and
 - private marker recognition in Review, rendering, commands, clipboard/export, persistence, or UI.
@@ -229,12 +233,14 @@ non-focus-stealing behaviors specified here remain mandatory automated acceptanc
     accept-all / show-all), not separate reparses. Outside CriticMarkup marker regions the views are
     byte-identical, so text that does not change across views is parsed exactly once; the parse forks —
     recomputing both resolutions — only across a region where eliding a marker changes Markdown
-    structure, and reconverges after it. Worst case (pervasive divergence) is the bounded `O(views · n)`
-    the per-view proof establishes; the common case (sparse markers) is `O(n)`. This is **not** the
-    retracted "one tokenization, then select" mechanism — a fork stores both fully-resolved
-    sub-structures rather than sharing one tokenization across a divergence. It deletes the per-view
-    reparses, the post-hoc reconstruction, and most of the flatten + boundary-safe-codec machinery. See
-    ADR-0013.
+    structure, and reconverges at the next **safe point** (a top-level blank line with no open
+    fenced-code/HTML block; see invariant 21 and `specs/research/0002`). Worst case (pervasive
+    divergence, or an unclosed fence forking to EOF) is the bounded `O(views · n)` the per-view proof
+    establishes; the common case (sparse markers) is `O(n)`. This is **not** the retracted "one
+    tokenization, then select" mechanism — a fork stores both fully-resolved sub-structures rather than
+    sharing one tokenization across a divergence. It deletes the per-view reparses, the post-hoc
+    reconstruction, and most of the flatten + boundary-safe-codec machinery (relocated to the
+    materialization sites, not evaporated). See ADR-0013.
 
 12. **Parse each incremental edit once — future work.** The same principle across time: a keystroke
     should re-parse only its changed region and reuse unchanged fragments, never re-derive the whole
@@ -2683,7 +2689,10 @@ remains available. Increasing the budget uses `reinterpret`, not an implicit con
 6. Parser provenance is created with syntax. No range intersection, repeated-text search, DOM
    inference, structural-carrier rank, forest walk, or topology rebinding may manufacture it later.
 
-7. Incremental parsing is observably equivalent to a clean full intrinsic parse of the resulting source.
+7. **If** an incremental (fragment-reuse) parse is built — it is gated on measured need, Phase 11
+   step 4, and may never be — it is observably equivalent to a clean full intrinsic parse of the
+   resulting source. This is the acceptance contract fragment reuse must satisfy, not a mandate that
+   one exist; the full parse is always the correctness oracle and the shipped fallback (see Phase 5).
    Equivalence compares canonical source, profile/options, syntax kinds/ranges/raw slices,
    projections/maps, diagnostics, semantic indexes, revision-owned action capabilities, and
    materialized outputs. Active item, draft state, menu placement, and selection-dependent semantic
@@ -2733,8 +2742,20 @@ remains available. Increasing the budget uses `reinterpret`, not an implicit con
 21. Text that does not change across views is parsed exactly once. A document is parsed once and
     every view is a *read* of that one structure by arm selection; the parse forks — recomputing both
     resolutions — only across a region where eliding a marker changes Markdown structure, and
-    reconverges after it. A CriticMarkup-free document therefore parses exactly once. Measured by
-    `__markdownDocumentParsesV1`. See ADR-0013 and decision 11.
+    **reconverges at the next safe point**: a top-level blank line at which no resolution has an open
+    fenced-code or HTML block (the only CommonMark leaf blocks a blank line does not close). At a safe
+    point both resolutions are in the identical document-root/nothing-open block state, so the tail
+    parses identically and is parsed once. An inline marker never changes block structure; a
+    block-structural marker reconverges within a block or two; the sole divergence that reaches EOF is
+    an *unclosed* fence/HTML block, which runs to EOF under plain CommonMark anyway (degenerate, not the
+    common case). A CriticMarkup-free document therefore parses exactly once. See ADR-0013,
+    decision 11, and `specs/research/0002-criticmarkup-view-fork-reconvergence.md`. Measured by
+    `__markdownDocumentParsesV1` — which, to be authoritative, **must instrument every full-parse entry
+    point**. It does not yet: `planMarkdownArmBoundaryProjectionEdits` reaches
+    `parseMarkdownDocumentWithBoundaryEvidence` (a full document parse) without incrementing the
+    counter, so a full parse is currently invisible to the metric. Moving the increment into the shared
+    entry, and updating the counts the specs pin, is a required precondition for trusting this
+    invariant's measurement.
 
 22. One block AST serves Markdown and CriticMarkup alike, and it is the model the editor mounts. The
     five CM forms are nodes beside Markdown blocks and inlines in a single tree. No view, renderer, or
@@ -3487,16 +3508,19 @@ techniques land in **Phase 11** below, sequenced after the correctness rebuild.
 >   and CommonMark recognition is adjacency-dependent: `a*{--X--}*b` → Original `a*X*b` (emphasis on
 >   `X`) vs Revised `a**b` (plain). The same source `*`s are emphasis delimiters in one view and
 >   literal in the other; no single tokenization selects into both trees.
-> - **Divergence is unbounded and not only Substitution.** `{++```++}\n# Heading` → Revised opens a
->   fence to EOF; Original is a heading. A deleted list marker re-parents an unbounded suffix.
+> - **Divergence can reach EOF, and is not only Substitution.** `{++```++}\n# Heading` → Revised opens a
+>   fence to EOF; Original is a heading. A deleted list marker re-parents a suffix.
 >
 > A second draft then over-corrected to "keep N fully independent per-view parses," which re-parses the
 > shared text once per view and needs the flatten/codec machinery. **The committed architecture
 > (ADR 0013) is neither.** One parse *shares* the convergent regions — the bulk of any document, byte-
 > identical across views — and *forks* at a divergence, storing both fully-resolved sub-structures
 > there. A fork is a local re-parse of the divergent span, **not** a shared tokenization, so the proof
-> holds: forks are not shared, and pervasive divergence degrades to the bounded `O(views · n)` ceiling.
-> The common case (sparse markers) is `O(n)`, and text that does not change across views is parsed once.
+> holds: forks are not shared. A fork **reconverges at the next safe point** (a top-level blank line
+> with no open fenced-code/HTML block — measured in `specs/research/0002`), so it is usually local
+> (a block or two); only an *unclosed* fence forks to EOF, which is degenerate under plain CommonMark
+> too. Pervasive divergence degrades to the bounded `O(views · n)` ceiling; the common case (sparse
+> markers) is `O(n)`, and text that does not change across views is parsed once.
 
 A CriticMarkup document is a **family of documents sharing one source tape** whose members agree
 everywhere except inside marker-divergent regions. The one parse recognizes the five forms and arms as
@@ -3540,11 +3564,15 @@ retracted mechanism:
    only** — or (b) fuse into what *looks* like a CriticMarkup marker (`{{--a--}+{--b--}+x++}` →
    `{++x++}` in Revised). Case (b) never affects a view *read*: CriticMarkup is recognized once over the
    real source and never re-recognized, so a fused `{++` is inert literal text on every read and inside
-   every fork. It matters only when **Accept All materializes Revised as a new canonical source file** —
-   re-parsing those saved bytes must mean the same, so that one serialization applies the boundary-safe
-   escapes (ADR-0010). The escape codec is therefore a **materialization obligation, not a per-view
-   scan**: the guard's per-projection `parseCriticMarkup` deletes outright rather than becoming a
-   lexical sweep.
+   every fork. It matters only when a view is **materialized as canonical bytes that get re-parsed** —
+   re-parsing those bytes must mean the same, so that serialization applies the boundary-safe escapes
+   (ADR-0010). Those sites are **every view→canonical-bytes path, not Accept-All alone**: Accept All
+   *and Reject All* both commit a boundary-safe projected source (invariant 5, line ~850), and copying
+   or exporting a clean Original/Revised view emits bytes another tool re-parses. So the escape codec is
+   a **materialization obligation, not a per-view read scan** — it relocates to the materialization
+   sites rather than evaporating. What deletes is the redundant *recognition* on the read path (the
+   guard's per-projection `parseCriticMarkup`), not the codec itself; earlier drafts of this section
+   overstated the deletion by naming only Accept All.
 
 ##### How this reconciles with the architectural law
 
@@ -3629,20 +3657,22 @@ review flagged step 2/5 as the one place the byte snapshot is *not* trivially em
 be reviewed as a deliberate product change, not waved through; (2) the marker-elided-line block
 semantics settled in step 4 is a Profile 1 language choice.
 
-#### Progress landed (2026-07-22)
+#### Progress landed (2026-07-23)
 
-Work already merged into the tree, each red-green with the suite green (currently 414 passing, all
-gates clean; the one red is a pre-existing untracked linearity spec, not caused by this work):
+Work already merged into the tree, each red-green with the suite green (document-core: 418 passing,
+7 expected-fail; the one red is a pre-existing untracked linearity spec, not caused by this work):
 
 - **Clean verifier no longer recognizes CriticMarkup** (uses `parseMarkdownDocument` + the guard's
   `acceptedMarkerCount`). Recognitions/open 5 → 3.
 - **Guard skipped entirely when the document has no CriticMarkup** — CriticMarkup-free docs do **zero**
   CriticMarkup recognitions per open (was 4). Upgrades the gate's CM-free rows from a byte-equality
   coincidence to a real mechanism.
-- **Tautological clean-verification parse dropped** where a view has no arm scopes: Markdown parses/open
-  4 → 2 for CriticMarkup-free and unary-form documents; Substitution correctly still verifies (stays 4).
-- **Shared reference-definition index** built once from final literals: index builds/open 12 → 4
-  (no-definitions) / → 8 (with definitions).
+- **ADR-0013 slice 1 landed — a CriticMarkup-free document parses exactly ONCE** (was 2). Revised reads
+  Original's parse when there are no markers. Markdown parses/open: CriticMarkup-free 2 → **1**;
+  unary-form still 2; Substitution still verifies at 4. (Supersedes the earlier "4 → 2" tautology-drop
+  number, which was itself against a stale 4 baseline.)
+- **Shared reference-definition index** built once from final literals; slice 1 halved it again as a
+  consequence: index builds/open 12 → 4 → **2** (no-definitions) / → **4** (with definitions).
 - **Dead `retainedMarkdownLiterals` oracle removed**; literal precedence has one owner (the lane).
 - **Shared line construction** (`buildPlainMarkdownLine`, `plainMarkdownLineBounds`) extracted — the
   first mechanical piece of migration step 1.
@@ -4059,7 +4089,24 @@ browser/platform cells remain in Phase 7 and reuse these already-green protocol 
   and close cannot omit visible or acknowledged input; IME produces zero or one canonical source
   transaction; and renderer parsing work is zero by dependency/runtime proof.
 
-### Phase 5 — incremental equivalence and deterministic resources
+### Phase 5 — resumable-parse and deterministic-resource equivalence
+
+**Two dimensions, split by whether they are required to ship (decided 2026-07-23 from measured
+latency — `specs/research/0003`).** This phase proves equivalence across *three* execution modes, but
+they are not all hard exits:
+
+- **Full parse and checkpoint-restarted (resumable) parse are required.** Resumability is the
+  foundation main-thread **time-slicing** runs on (Phase 11 step 1), and it shares the safe-point
+  primitive with the fork model (`specs/research/0002`). Measured full-parse cost is linear at
+  ~12 ms/1k lines, so time-slicing alone delivers 0-lag up through large documents — this is the
+  0-lag path, and it must be proven here.
+- **Incremental (edit-driven fragment reuse) is *defined but gated*.** Fragment reuse earns its keep
+  only on very large documents (tens of thousands of lines), so it is built only if Phase 11 step 3's
+  measurement demands it. Until then the "fall back to a clean full parse" path (Green, below) is the
+  shipped behavior, and every "incremental" row below is the **acceptance contract that activates when
+  fragment reuse is built** — not a requirement that an incremental parser exist to exit this phase.
+  Read every "full, incremental, and restarted" row accordingly: full + restarted are hard exits;
+  incremental is the on-build contract.
 
 **Red**
 
@@ -4101,8 +4148,10 @@ browser/platform cells remain in Phase 7 and reuse these already-green protocol 
 
 **Exit**
 
-- Incremental/full differential fuzz is observably equivalent and every deterministic limit returns
-  the specified complete/source-only/rejected outcome.
+- Full and checkpoint-restarted parses are observably equivalent under differential fuzz, and every
+  deterministic limit returns the specified complete/source-only/rejected outcome. (Incremental/full
+  differential equivalence activates as a hard exit only if Phase 11 builds fragment reuse; until then
+  the full-parse fallback is the shipped path.)
 - Every enabled maximum-depth projection/index/live-plan cell is iterative, completes without stack
   overflow, preserves exact provenance, and never leaks Comment payload into prose or an editable
   position. SourceOnly disables every semantic cell by type and runtime contract.
@@ -4520,18 +4569,23 @@ independent of everything):
 2. **Make comment-display projections lazy and revision-keyed** — materialize a comment's display only
    when the sidebar renders it, cached by revision. Removes the verified O(comments × n) blow-up.
    Independent of the rebuild; land it whenever.
-3. **Measure before building incremental parsing.** No source (and not this project) has ms/keystroke
-   numbers. Time a viewport-slice parse on a realistic corpus (~100 KB document; ~30 KB / ~50-comment
-   document) on target hardware. Crossover: viewport-slice parse **< ~8 ms → time-slicing + lazy
-   projections is sufficient; do not build incremental parsing** (likely for typical documents).
-   Residual stall **> ~16 ms even viewport-first → proceed to step 4.**
+3. **Measure before building incremental parsing.** Full-parse cost is already measured linear at
+   ~12 ms/1k lines (`specs/research/0003`), so time-slicing covers documents up to ~large (10k lines,
+   ~120 ms sliced); fragment reuse earns its keep only on very large documents (tens of thousands of
+   lines, hundreds of ms per full parse). Confirm on target hardware: time a viewport-slice parse on a
+   realistic corpus (~100 KB document; ~30 KB / ~50-comment document). Crossover: viewport-slice parse
+   **< ~8 ms → time-slicing + lazy projections is sufficient; do not build incremental parsing**
+   (the expected outcome for all but very large documents). Residual stall **> ~16 ms even
+   viewport-first → proceed to step 4.**
 4. **Add fragment reuse to the canonical parse, only if step 3 demands it.** Study `@lezer/markdown`'s
    `TreeFragment` reuse contract and reimplement it (do not depend on it). Gate reuse on a context key
    that includes provenance/lane state (per the precondition above), and expect CommonMark non-locality
    (unclosed fence, lazy continuation, reference definition) to force a bounded reparse-suffix on those
    edits — scope reuse to the common intra-block edit, with a reparse-to-bounded-suffix fallback for
-   the non-local cases. This is the hardest, most bug-prone lever; take it on last and only against
-   evidence.
+   the non-local cases. Reconvergence uses the same safe-point primitive as the fork model
+   (`specs/research/0002`). Building this **activates** Phase 5's incremental-equivalence rows and
+   invariant 7 as hard exits. This is the hardest, most bug-prone lever; take it on last and only
+   against evidence.
 
 **Acceptance:** a real-gesture typing benchmark (sustained input on the realistic corpus) shows no
 frame exceeding the budget from step 3, with the automated suite and all invariants (especially
