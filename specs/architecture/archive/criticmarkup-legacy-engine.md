@@ -2,12 +2,16 @@
 
 > **Status: legacy implementation record; not the target architecture.** This
 > file describes the mutable-state/Marked/binding engine currently present on
-> `feat/native-criticmarkup`. ADR-0005 through ADR-0012 and plan 0009 supersede it
+> `feat/native-criticmarkup`. ADR-0005 through ADR-0013 and plan 0009 supersede it
 > for all new work: the immutable `DocumentRevision` is sole authority, decoded
 > source is exact, CM is intrinsic syntax in one atomic lossless Markdown graph, and resource failure
-> yields SourceOnly rather than literal rendering. Any conflict is an explicit
+> yields SourceOnly rather than literal rendering. ADR-0013 additionally supersedes
+> every per-view reparse described below: the target parses a document **once** and
+> reads Original/Revised/editing off one block AST in which CriticMarkup forms are
+> nodes beside Markdown nodes. Any conflict is an explicit
 > current-to-target gap, not an alternate allowed design. Keep this record only
 > as a migration/deletion oracle; rewrite or archive it when cutover completes.
+> The *why* behind the replacement is `specs/vision/criticmarkup-vision.md`.
 
 ## Purpose
 

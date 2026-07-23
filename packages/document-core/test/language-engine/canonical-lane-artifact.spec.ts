@@ -30,6 +30,7 @@ describe('Profile 1 canonical Markdown parse artifact', () => {
     const arm = branch?.arms[0]
     expect(arm).toBeDefined()
     expect(parsed.canonicalMarkdown.lanes[arm?.id ?? -1]?.parseArtifact).toBe(arm)
+    expect(arm?.armBoundaries).toEqual([])
     expect(arm?.entryCheckpoint).not.toBe(arm?.exitCheckpoint)
     expect(
       arm?.transitions.flatMap((transition) =>
@@ -43,6 +44,43 @@ describe('Profile 1 canonical Markdown parse artifact', () => {
         transition.emittedFacts.block.paragraphOpen
       )
     ).toBe(true)
+  })
+
+  it('retains parser-owned enter and exit events for each Substitution arm', () => {
+    const parsed = parseProfile1Document('{~~old~>new~~}', TEST_BUDGET)
+
+    expect(parsed.kind).toBe('complete')
+    if (parsed.kind !== 'complete') {
+      throw new Error('Expected a complete Profile 1 parse')
+    }
+
+    const arms = parsed.canonicalMarkdownParse.branches[0]?.arms
+    expect(arms?.map((arm) => arm.armBoundaries)).toEqual([
+      [
+        {
+          kind: 'substitution-arm-boundary',
+          role: 'enter',
+          sourcePosition: 3
+        },
+        {
+          kind: 'substitution-arm-boundary',
+          role: 'exit',
+          sourcePosition: 6
+        }
+      ],
+      [
+        {
+          kind: 'substitution-arm-boundary',
+          role: 'enter',
+          sourcePosition: 8
+        },
+        {
+          kind: 'substitution-arm-boundary',
+          role: 'exit',
+          sourcePosition: 11
+        }
+      ]
+    ])
   })
 
   it('refuses to synthesize a missing parser lane branch from the CM forest', () => {

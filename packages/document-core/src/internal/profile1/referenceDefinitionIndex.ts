@@ -105,7 +105,7 @@ function scopesAreCompatible(
   )
   for (const constraint of definition.substitutions) {
     const occurrenceArm = occurrenceArms.get(constraint.substitutionStart)
-    if (occurrenceArm !== undefined && occurrenceArm !== constraint.arm) {
+    if (occurrenceArm !== constraint.arm) {
       return false
     }
   }

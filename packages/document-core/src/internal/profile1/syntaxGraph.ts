@@ -554,6 +554,7 @@ function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
       for (let armIndex = 0; armIndex < item.arms.length; armIndex += 1) {
         const armLane = item.arms[armIndex]
         const arm = item.node.arms[armIndex]
+        const boundaries = armLane?.parseArtifact.armBoundaries ?? []
         if (
           armLane === undefined ||
           arm === undefined ||
@@ -564,6 +565,19 @@ function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
           armLane.owner.arm !== arm.name
         ) {
           throw new Error('Canonical Markdown arm lane is detached from its CM arm')
+        }
+        if (
+          item.node.kind === 'substitution'
+            ? boundaries.length !== 2 ||
+              boundaries[0]?.role !== 'enter' ||
+              boundaries[0].sourcePosition !== arm.range.start ||
+              boundaries[1]?.role !== 'exit' ||
+              boundaries[1].sourcePosition !== arm.range.end
+            : boundaries.length !== 0
+        ) {
+          throw new Error(
+            'Canonical Markdown arm boundary events diverged from parser topology'
+          )
         }
       }
       cursor = item.node.range.end

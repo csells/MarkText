@@ -83,3 +83,14 @@ export type {
   UnaryCriticNode,
   ViewRange
 } from './revision.js'
+export {
+  markupRenderElement,
+  renderMarkupPlan,
+  type MarkupRenderElement,
+  type MarkupRenderRun
+} from './view/markupRender.js'
+export {
+  groupRenderLines,
+  type MarkupRenderLine
+} from './view/markupRender.js'
+export { canonicalMarkupDocument } from './view/markupRender.js'

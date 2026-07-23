@@ -76,16 +76,25 @@ interface MarkdownDefinitionState {
 interface MarkdownBracketPath {
   readonly parent: MarkdownBracketPath | undefined
   readonly kind: 'link' | 'image'
+  /** Source identity of the actual `[` matching delimiter. */
+  readonly bracketStart: number
+  /** Source identity of the whole construct (`!` for images, `[` for links). */
   readonly start: number
   readonly labelStart: number
+  readonly matchingScopeId: number
+  readonly matchingScopeDepth: number
 }
 
 interface MarkdownPendingLinkLabel {
   readonly kind: 'link' | 'image'
+  readonly bracketStart: number
   readonly start: number
   readonly labelStart: number
   readonly labelEnd: number
   readonly normalizedLabel: string
+  readonly matchingScopeId: number
+  readonly matchingScopeDepth: number
+  readonly parentBracketPath: MarkdownBracketPath | undefined
 }
 
 interface MarkdownFixedInlineState {
@@ -121,6 +130,7 @@ export interface MarkdownCheckpoint {
   readonly definition: MarkdownDefinitionState | undefined
   readonly pendingCarriageReturn: MarkdownPendingCarriageReturn | undefined
   readonly firstContainerDepthFailure: MarkdownContainerDepthFailure | undefined
+  readonly enclosingLabelInterrupted: boolean
   readonly atVirtualBof: boolean
 }
 
@@ -128,6 +138,37 @@ export interface MarkdownLaneAdvance {
   readonly checkpoint: MarkdownCheckpoint
   readonly completedLiterals: readonly MarkdownLiteralRange[]
 }
+
+export interface MarkdownPendingLineBlockFact {
+  readonly paragraphOpen: boolean
+  readonly continuesExistingParagraph: boolean
+  readonly containerPath: readonly ('blockquote' | 'list-item')[]
+  readonly containers: readonly MarkdownPendingLineContainerFact[]
+  readonly listContinuationIndentations:
+  readonly MarkdownPendingListContinuationIndentationFact[]
+}
+
+export type MarkdownPendingLineContainerFact =
+  | Readonly<{ readonly kind: 'blockquote' }>
+  | Readonly<{
+    readonly kind: 'list-item'
+    readonly contentIndent: number
+  }>
+
+export interface MarkdownPendingListContinuationIndentationFact {
+  /** One-based position of the continued list item in the container path. */
+  readonly containerDepth: number
+  readonly contentIndent: number
+  /** Exact canonical whitespace consumed to continue this list item. */
+  readonly trivia: Readonly<{ readonly start: number; readonly end: number }>
+  /** Smallest trailing part of `trivia` whose removal exits this list item. */
+  readonly exitTrivia: Readonly<{ readonly start: number; readonly end: number }>
+}
+
+export type MarkdownArmMode =
+  | 'continuous'
+  | 'self-contained'
+  | 'isolated'
 
 export interface MarkdownLaneState {
   readonly emptyCheckpoint: MarkdownCheckpoint
@@ -139,18 +180,19 @@ export interface MarkdownLaneState {
     laneEnd: number,
     boundaryEnd: number
   ) => MarkdownLaneAdvance
-  readonly forkArm: (
+  readonly enterArm: (
     checkpoint: MarkdownCheckpoint,
     sourceStart: number,
-    isolated: boolean
+    mode: MarkdownArmMode
   ) => MarkdownCheckpoint
   readonly markerIsProtected: (checkpoint: MarkdownCheckpoint) => boolean
   readonly markerIsLiteralOwned: (checkpoint: MarkdownCheckpoint) => boolean
-  readonly rejoinCarrier: (
+  readonly finishArm: (
     continuation: MarkdownCheckpoint,
-    armStart: MarkdownCheckpoint,
     armEnd: MarkdownCheckpoint,
-    isolated: boolean,
+    mode: MarkdownArmMode,
+    payloadIntervened: boolean,
+    enclosingLabelPreservedByAllArms: boolean,
     atDocumentRoot: boolean
   ) => MarkdownCheckpoint
   readonly finishLane: (
@@ -176,12 +218,30 @@ export interface MarkdownReferenceDefinitionLookup {
     normalizedLabel: string,
     sourceOffset: number
   ) => boolean
+  readonly hasAny?: (normalizedLabel: string) => boolean
+}
+
+export interface MarkdownReferenceDefinitionIndex
+  extends MarkdownReferenceDefinitionLookup {
+  readonly size: number
+  readonly hasAny: (normalizedLabel: string) => boolean
 }
 
 export interface PlainMarkdownLaneParse {
   readonly literals: readonly MarkdownLiteralRange[]
   readonly containerDepthFailure: MarkdownContainerDepthFailure | undefined
   readonly lines: readonly PlainMarkdownLine[]
+}
+
+/**
+ * A completed lane parse plus the reference-definition index built from its
+ * final literals. The block/literal phase already has to build this index to
+ * resolve links; carrying it forward lets the inline phase consume it instead
+ * of rebuilding an identical one from the same literals.
+ */
+export interface PlainMarkdownLaneParseWithDefinitions
+  extends PlainMarkdownLaneParse {
+  readonly referenceDefinitions: MarkdownReferenceDefinitionLookup
 }
 
 export interface PlainMarkdownLine {
@@ -226,12 +286,32 @@ export interface PlainMarkdownListMarker {
 
 type NextBacktickRunStart = (
   markerLength: number,
+  openerStart: number,
   after: number,
   laneEnd: number
 ) => number | undefined
 
+export interface MarkdownMatchingScopePolicy {
+  readonly matchingScopeAt: (
+    offset: number
+  ) => Readonly<{ readonly id: number; readonly depth: number }> | undefined
+  readonly rejectCrossScopeMatch: (
+    openerStart: number,
+    closerStart: number
+  ) => number | undefined
+  readonly rejectCrossScopeImageOpener: (
+    bangStart: number,
+    bracketStart: number
+  ) => void
+  readonly definitionCanResolveReference: (
+    definitionStart: number,
+    referenceStart: number
+  ) => boolean
+}
+
 type NextMathRunStart = (
   delimiterLength: number,
+  openerStart: number,
   after: number,
   laneEnd: number
 ) => number | undefined
@@ -257,6 +337,7 @@ const EMPTY_MARKDOWN_CHECKPOINT: MarkdownCheckpoint = Object.freeze({
   definition: undefined,
   pendingCarriageReturn: undefined,
   firstContainerDepthFailure: undefined,
+  enclosingLabelInterrupted: false,
   atVirtualBof: true
 })
 
@@ -299,6 +380,8 @@ interface ListMarker {
 interface ContainerLineState {
   readonly activeContainers: readonly ActiveBlockContainer[]
   readonly continuedContainerDepth: number
+  readonly listContinuationIndentations:
+  readonly ListContinuationIndentationState[]
   readonly blockQuoteDepth: number
   readonly blank: boolean
   readonly indentation: number
@@ -306,6 +389,15 @@ interface ContainerLineState {
   readonly containerBaseColumn: number
   readonly openers: readonly MarkdownContainerOpener[]
   readonly lazy: boolean
+}
+
+interface ListContinuationIndentationState {
+  readonly containerDepth: number
+  readonly contentIndent: number
+  readonly triviaStart: number
+  readonly triviaEnd: number
+  readonly exitTriviaStart: number
+  readonly exitTriviaEnd: number
 }
 
 interface MarkdownContainerOpener {
@@ -456,6 +548,7 @@ function analyzeContainerLine(
   // List indentation is relative to its parent container, so flattening lists
   // and block quotes into separate counters cannot represent `> -` and `- >`.
   const activeContainers: ActiveBlockContainer[] = []
+  const listContinuationIndentations: ListContinuationIndentationState[] = []
   let containerBaseColumn = column
   for (const inherited of inheritedContainers) {
     if (inherited.kind === 'blockquote') {
@@ -480,6 +573,7 @@ function analyzeContainerLine(
         offset += 1
       }
     } else {
+      const triviaStart = offset
       const targetColumn = column + inherited.contentIndent
       while (
         offset < line.contentEnd &&
@@ -502,6 +596,15 @@ function analyzeContainerLine(
         if (blankOffset !== line.contentEnd) {
           break
         }
+      } else {
+        listContinuationIndentations.push(Object.freeze({
+          containerDepth: activeContainers.length + 1,
+          contentIndent: inherited.contentIndent,
+          triviaStart,
+          triviaEnd: offset,
+          exitTriviaStart: offset - 1,
+          exitTriviaEnd: offset
+        }))
       }
     }
     activeContainers.push(inherited)
@@ -598,6 +701,7 @@ function analyzeContainerLine(
   const provisionalState: ContainerLineState = Object.freeze({
     activeContainers: Object.freeze(activeContainers),
     continuedContainerDepth: inheritedMatchDepth,
+    listContinuationIndentations: Object.freeze(listContinuationIndentations),
     blockQuoteDepth: activeContainers.reduce(
       (depth, container) => depth + (container.kind === 'blockquote' ? 1 : 0),
       0
@@ -747,6 +851,120 @@ function isLazyParagraphContinuation(
     return false
   }
   return htmlBlockOpening(source, state, true) === undefined
+}
+
+/**
+ * Non-destructively classifies the line retained by a parser checkpoint.
+ * Canonical lane evidence uses this at fragment boundaries so projection does
+ * not have to rediscover block structure from flattened text.
+ */
+export function inspectMarkdownPendingLineBlock(
+  checkpoint: MarkdownCheckpoint
+): MarkdownPendingLineBlockFact | undefined {
+  const lineText = materializeMarkdownLine(checkpoint.linePath)
+  if (lineText.length === 0) {
+    return undefined
+  }
+  const lineState = analyzeContainerLine(
+    lineText,
+    { start: 0, contentEnd: lineText.length, end: lineText.length },
+    checkpoint.activeContainers,
+    checkpoint.paragraphOpen,
+    checkpoint.lastLineLazy
+  )
+  const opensFence = findMarkdownFenceOpening(
+    lineText,
+    lineState.contentOffset,
+    lineState.indentation,
+    lineState.blank
+  ) !== undefined
+  const ownsBlockLiteral =
+    checkpoint.fence !== undefined ||
+    checkpoint.frontMatter !== undefined ||
+    checkpoint.indentedCode !== undefined ||
+    checkpoint.htmlBlock !== undefined ||
+    checkpoint.definition !== undefined ||
+    (
+      checkpoint.frontMatterEligible &&
+      trimMarkdownLineWhitespace(lineText) === '---'
+    ) ||
+    (!checkpoint.paragraphOpen && lineState.indentation >= 4) ||
+    htmlBlockOpening(lineText, lineState, checkpoint.paragraphOpen) !== undefined ||
+    definitionOpening(lineText, lineState) !== undefined
+  const paragraphOpen =
+    !checkpoint.lineBlockClosed &&
+    !lineState.blank &&
+    !ownsBlockLiteral &&
+    !opensFence &&
+    !isAtxHeadingLine(lineText, lineState) &&
+    !isThematicBreakFrom(
+      lineText,
+      lineState.contentOffset,
+      lineText.length
+    )
+  const mapContiguousTrivia = (
+    start: number,
+    end: number
+  ): Readonly<{ readonly start: number; readonly end: number }> | undefined => {
+    if (start < 0 || end <= start) {
+      return undefined
+    }
+    const sourceStart = linePathSourceOffsetAt(checkpoint.linePath, start)
+    if (sourceStart === undefined) {
+      return undefined
+    }
+    for (let offset = start + 1; offset < end; offset += 1) {
+      if (
+        linePathSourceOffsetAt(checkpoint.linePath, offset) !==
+        sourceStart + offset - start
+      ) {
+        return undefined
+      }
+    }
+    return Object.freeze({ start: sourceStart, end: sourceStart + end - start })
+  }
+  const listContinuationIndentations = lineState.listContinuationIndentations
+    .flatMap((indentation): readonly MarkdownPendingListContinuationIndentationFact[] => {
+      const trivia = mapContiguousTrivia(
+        indentation.triviaStart,
+        indentation.triviaEnd
+      )
+      const exitTrivia = mapContiguousTrivia(
+        indentation.exitTriviaStart,
+        indentation.exitTriviaEnd
+      )
+      return trivia === undefined || exitTrivia === undefined
+        ? Object.freeze([])
+        : Object.freeze([Object.freeze({
+          containerDepth: indentation.containerDepth,
+          contentIndent: indentation.contentIndent,
+          trivia,
+          exitTrivia
+        })])
+    })
+  return Object.freeze({
+    paragraphOpen,
+    continuesExistingParagraph:
+      checkpoint.paragraphOpen &&
+      paragraphOpen &&
+      isLazyParagraphContinuation(
+        lineText,
+        lineState,
+        checkpoint.lastLineLazy
+      ),
+    containerPath: Object.freeze(
+      lineState.activeContainers.map((container) => container.kind)
+    ),
+    containers: Object.freeze(lineState.activeContainers.map((container) =>
+      container.kind === 'blockquote'
+        ? Object.freeze({ kind: 'blockquote' as const })
+        : Object.freeze({
+          kind: 'list-item' as const,
+          contentIndent: container.contentIndent
+        })
+    )),
+    listContinuationIndentations: Object.freeze(listContinuationIndentations)
+  })
 }
 
 function htmlBlockTerminatedOnLine(
@@ -901,6 +1119,64 @@ export function markdownReferenceDefinitionLabel(
     offset = lineEnd + 1
   }
   return undefined
+}
+
+/**
+ * Test-only counter of reference-definition index constructions. Phase 0.5
+ * step 6 requires the index to be built once per lane parse and handed to the
+ * block/inline phase, rather than built, discarded, and rebuilt by the CST
+ * builder from the same literals.
+ */
+let referenceDefinitionIndexBuilds = 0
+
+export function __referenceDefinitionIndexBuildsV1(): number {
+  return referenceDefinitionIndexBuilds
+}
+
+export function __resetReferenceDefinitionIndexBuildsV1(): void {
+  referenceDefinitionIndexBuilds = 0
+}
+
+export function createMarkdownReferenceDefinitionIndex(
+  source: string,
+  literals: readonly MarkdownLiteralRange[],
+  definitionCanResolveReference?: (
+    definitionStart: number,
+    referenceStart: number
+  ) => boolean
+): MarkdownReferenceDefinitionIndex {
+  referenceDefinitionIndexBuilds += 1
+  const definitionsByLabel = new Map<string, number[]>()
+  let size = 0
+  for (const literal of literals) {
+    if (literal.kind !== 'definition') {
+      continue
+    }
+    const label = markdownReferenceDefinitionLabel(
+      source,
+      literal.start,
+      literal.end
+    )
+    if (label === undefined) {
+      continue
+    }
+    const matching = definitionsByLabel.get(label)
+    if (matching === undefined) {
+      definitionsByLabel.set(label, [literal.start])
+    } else {
+      matching.push(literal.start)
+    }
+    size += 1
+  }
+  return Object.freeze({
+    size,
+    hasAny: Object.freeze((label: string): boolean =>
+      definitionsByLabel.has(label)),
+    has: Object.freeze((label: string, referenceStart: number): boolean =>
+      definitionsByLabel.get(label)?.some((definitionStart) =>
+        definitionCanResolveReference?.(definitionStart, referenceStart) ?? true
+      ) ?? false)
+  })
 }
 
 function referenceLabelSuffix(
@@ -1211,7 +1487,10 @@ function continuesBlockContainer(
   return true
 }
 
-function createNextBacktickRunStart(source: string): NextBacktickRunStart {
+function createNextBacktickRunStart(
+  source: string,
+  matchingPolicy?: MarkdownMatchingScopePolicy
+): NextBacktickRunStart {
   const startsByLength = new Map<number, number[]>()
   for (let offset = 0; offset < source.length;) {
     if (source.charCodeAt(offset) !== 96) {
@@ -1234,6 +1513,7 @@ function createNextBacktickRunStart(source: string): NextBacktickRunStart {
 
   return (
     markerLength: number,
+    openerStart: number,
     after: number,
     laneEnd: number
   ): number | undefined => {
@@ -1248,8 +1528,21 @@ function createNextBacktickRunStart(source: string): NextBacktickRunStart {
         high = middle
       }
     }
-    const start = starts[low]
-    return start !== undefined && start < laneEnd ? start : undefined
+    const openerScopeId = matchingPolicy?.matchingScopeAt(openerStart)?.id ?? -1
+    for (; low < starts.length; low += 1) {
+      const start = starts[low]
+      if (start === undefined || start >= laneEnd) {
+        return undefined
+      }
+      if (
+        matchingPolicy === undefined ||
+        (matchingPolicy.matchingScopeAt(start)?.id ?? -1) === openerScopeId
+      ) {
+        return start
+      }
+      matchingPolicy.rejectCrossScopeMatch(openerStart, start)
+    }
+    return undefined
   }
 }
 
@@ -1257,7 +1550,10 @@ function isMarkdownWhitespace(codeUnit: number): boolean {
   return codeUnit === 9 || codeUnit === 10 || codeUnit === 13 || codeUnit === 32
 }
 
-function createNextMathRunStart(source: string): NextMathRunStart {
+function createNextMathRunStart(
+  source: string,
+  matchingPolicy?: MarkdownMatchingScopePolicy
+): NextMathRunStart {
   const startsByLength = new Map<number, number[]>()
   for (let offset = 0; offset < source.length;) {
     if (source.charCodeAt(offset) !== 36) {
@@ -1286,6 +1582,7 @@ function createNextMathRunStart(source: string): NextMathRunStart {
 
   return (
     delimiterLength: number,
+    openerStart: number,
     after: number,
     laneEnd: number
   ): number | undefined => {
@@ -1300,8 +1597,21 @@ function createNextMathRunStart(source: string): NextMathRunStart {
         high = middle
       }
     }
-    const start = starts[low]
-    return start !== undefined && start < laneEnd ? start : undefined
+    const openerScopeId = matchingPolicy?.matchingScopeAt(openerStart)?.id ?? -1
+    for (; low < starts.length; low += 1) {
+      const start = starts[low]
+      if (start === undefined || start >= laneEnd) {
+        return undefined
+      }
+      if (
+        matchingPolicy === undefined ||
+        (matchingPolicy.matchingScopeAt(start)?.id ?? -1) === openerScopeId
+      ) {
+        return start
+      }
+      matchingPolicy.rejectCrossScopeMatch(openerStart, start)
+    }
+    return undefined
   }
 }
 
@@ -1464,8 +1774,11 @@ function retainImageBracketOpeners(
       retained = Object.freeze({
         parent: retained,
         kind: 'image',
+        bracketStart: image.bracketStart,
         start: image.start,
-        labelStart: image.labelStart
+        labelStart: image.labelStart,
+        matchingScopeId: image.matchingScopeId,
+        matchingScopeDepth: image.matchingScopeDepth
       })
     }
   }
@@ -1476,10 +1789,51 @@ export function createMarkdownLaneState(
   source: string,
   containerDepthLimit: number = Number.POSITIVE_INFINITY,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
-  EMPTY_REFERENCE_DEFINITIONS
+  EMPTY_REFERENCE_DEFINITIONS,
+  matchingScopePolicy?: MarkdownMatchingScopePolicy
 ): MarkdownLaneState {
-  const nextBacktickRunStart = createNextBacktickRunStart(source)
-  const nextMathRunStart = createNextMathRunStart(source)
+  const nextBacktickRunStart = createNextBacktickRunStart(
+    source,
+    matchingScopePolicy
+  )
+  const nextMathRunStart = createNextMathRunStart(
+    source,
+    matchingScopePolicy
+  )
+  const matchingScopeAtOffset = (
+    offset: number
+  ): Readonly<{ readonly id: number; readonly depth: number }> =>
+    matchingScopePolicy?.matchingScopeAt(offset) ??
+    Object.freeze({ id: -1, depth: -1 })
+  const bracketOpenerScopeHasExited = (
+    opener: MarkdownBracketPath,
+    current: Readonly<{ readonly id: number; readonly depth: number }>
+  ): boolean =>
+    opener.matchingScopeDepth > current.depth ||
+    (
+      opener.matchingScopeDepth === current.depth &&
+      opener.matchingScopeId !== current.id
+    )
+  const authenticateRetargetedBracketCloser = (
+    parentPath: MarkdownBracketPath | undefined,
+    closerStart: number
+  ): void => {
+    if (parentPath === undefined) {
+      return
+    }
+    const closerScope = matchingScopeAtOffset(closerStart)
+    if (bracketOpenerScopeHasExited(parentPath, closerScope)) {
+      throw new Error('Pending Markdown label retained an inactive parent')
+    }
+    if (
+      parentPath.matchingScopeDepth < closerScope.depth
+    ) {
+      matchingScopePolicy?.rejectCrossScopeMatch(
+        parentPath.bracketStart,
+        closerStart
+      )
+    }
+  }
 
   const firstExcessContainer = (
     state: ContainerLineState
@@ -1573,6 +1927,7 @@ export function createMarkdownLaneState(
     let htmlBlock = checkpoint.htmlBlock
     let definition = checkpoint.definition
     let firstContainerDepthFailure = checkpoint.firstContainerDepthFailure
+    let enclosingLabelInterrupted = checkpoint.enclosingLabelInterrupted
     const trailingBackslashOdd = trailingBackslashParity(
       text,
       checkpoint.trailingBackslashOdd
@@ -1692,6 +2047,7 @@ export function createMarkdownLaneState(
             container: blockContainerFrom(probeState)
           })
           activeContainers = probeState.activeContainers
+          enclosingLabelInterrupted = true
           bracketPath = undefined
           pendingLinkLabel = undefined
         } else if (
@@ -1714,6 +2070,7 @@ export function createMarkdownLaneState(
             lastCodeEnd: sourceLineEnd(source, lookaheadEnd, laneEnd)
           })
           activeContainers = probeState.activeContainers
+          enclosingLabelInterrupted = true
           bracketPath = undefined
           pendingLinkLabel = undefined
         } else {
@@ -1740,6 +2097,7 @@ export function createMarkdownLaneState(
               container: blockContainerFrom(probeState)
             })
             activeContainers = probeState.activeContainers
+            enclosingLabelInterrupted = true
             bracketPath = undefined
             pendingLinkLabel = undefined
           } else {
@@ -1762,6 +2120,7 @@ export function createMarkdownLaneState(
                 phase: definitionKind
               })
               activeContainers = probeState.activeContainers
+              enclosingLabelInterrupted = true
               bracketPath = undefined
               pendingLinkLabel = undefined
             }
@@ -1787,7 +2146,14 @@ export function createMarkdownLaneState(
             end: fixedInline.closeEnd,
             ...(fixedInline.linkLabel === undefined
               ? {}
-              : { construct: Object.freeze({ ...fixedInline.linkLabel }) })
+              : {
+                construct: Object.freeze({
+                  kind: fixedInline.linkLabel.kind,
+                  start: fixedInline.linkLabel.start,
+                  labelStart: fixedInline.linkLabel.labelStart,
+                  labelEnd: fixedInline.linkLabel.labelEnd
+                })
+              })
           }))
           offset = fixedInline.closeEnd
           fixedInline = undefined
@@ -1812,43 +2178,99 @@ export function createMarkdownLaneState(
         if (inlineCode === undefined && pendingLinkLabel !== undefined) {
           const resolvedLabel = pendingLinkLabel
           pendingLinkLabel = undefined
+          const suffixScope = matchingScopeAtOffset(offset)
+          const suffixSharesLabelScope =
+            suffixScope.id === resolvedLabel.matchingScopeId
+          let rejectedExplicitSuffix = false
           if (source.charCodeAt(offset) === 40) {
-            const closeEnd = findInlineLinkDestinationEnd(source, offset, laneEnd)
-            if (closeEnd !== undefined) {
-              fixedInline = Object.freeze({
-                kind: 'link-destination',
-                openStart: offset,
-                closeEnd,
-                linkLabel: resolvedLabel
-              })
+            if (!suffixSharesLabelScope) {
+              const protectedOffset =
+                matchingScopePolicy?.rejectCrossScopeMatch(
+                  resolvedLabel.bracketStart,
+                  offset
+                )
+              if (protectedOffset === resolvedLabel.bracketStart) {
+                authenticateRetargetedBracketCloser(
+                  resolvedLabel.parentBracketPath,
+                  resolvedLabel.labelEnd
+                )
+              }
+              rejectedExplicitSuffix = true
+            } else {
+              const closeEnd = findInlineLinkDestinationEnd(
+                source,
+                offset,
+                laneEnd
+              )
+              if (closeEnd !== undefined) {
+                const closeStart = closeEnd - 1
+                const closeScope = matchingScopeAtOffset(closeStart)
+                if (closeScope.id !== suffixScope.id) {
+                  matchingScopePolicy?.rejectCrossScopeMatch(
+                    offset,
+                    closeStart
+                  )
+                  rejectedExplicitSuffix = true
+                } else {
+                  fixedInline = Object.freeze({
+                    kind: 'link-destination',
+                    openStart: offset,
+                    closeEnd,
+                    linkLabel: resolvedLabel
+                  })
             // Links cannot contain links, but images may contain links and
             // links may contain images. Resolving an image therefore leaves
             // an enclosing link opener active; resolving a link deactivates
             // only earlier link openers while retaining image openers.
-              if (resolvedLabel.kind === 'link') {
-                bracketPath = retainImageBracketOpeners(bracketPath)
+                  if (resolvedLabel.kind === 'link') {
+                    bracketPath = retainImageBracketOpeners(bracketPath)
+                  }
+                  continue
+                }
               }
-              continue
             }
           }
-          const referenceSuffix = referenceLabelSuffix(source, offset, laneEnd)
+          const referenceSuffix = rejectedExplicitSuffix
+            ? undefined
+            : referenceLabelSuffix(source, offset, laneEnd)
           if (referenceSuffix !== undefined) {
-            const normalizedReference =
-            referenceSuffix.labelStart === referenceSuffix.labelEnd
-              ? resolvedLabel.normalizedLabel
-              : normalizeMarkdownReferenceLabel(
-                source,
-                referenceSuffix.labelStart,
-                referenceSuffix.labelEnd
-              )
-            if (referenceDefinitions.has(normalizedReference, resolvedLabel.start)) {
-              if (resolvedLabel.kind === 'link') {
-                bracketPath = retainImageBracketOpeners(bracketPath)
+            if (!suffixSharesLabelScope) {
+              const protectedOffset =
+                matchingScopePolicy?.rejectCrossScopeMatch(
+                  resolvedLabel.bracketStart,
+                  offset
+                )
+              if (protectedOffset === resolvedLabel.bracketStart) {
+                authenticateRetargetedBracketCloser(
+                  resolvedLabel.parentBracketPath,
+                  resolvedLabel.labelEnd
+                )
               }
-              offset = referenceSuffix.end
-              continue
+              rejectedExplicitSuffix = true
+            } else {
+              const normalizedReference =
+              referenceSuffix.labelStart === referenceSuffix.labelEnd
+                ? resolvedLabel.normalizedLabel
+                : normalizeMarkdownReferenceLabel(
+                  source,
+                  referenceSuffix.labelStart,
+                  referenceSuffix.labelEnd
+                )
+              if (
+                referenceDefinitions.has(
+                  normalizedReference,
+                  resolvedLabel.start
+                )
+              ) {
+                if (resolvedLabel.kind === 'link') {
+                  bracketPath = retainImageBracketOpeners(bracketPath)
+                }
+                offset = referenceSuffix.end
+                continue
+              }
             }
           } else if (
+            !rejectedExplicitSuffix &&
             referenceDefinitions.has(
               resolvedLabel.normalizedLabel,
               resolvedLabel.start
@@ -1898,7 +2320,7 @@ export function createMarkdownLaneState(
               (runEnd < source.length &&
                 !isMarkdownWhitespace(source.charCodeAt(runEnd)))
               const closeStart = canOpen
-                ? nextMathRunStart(delimiterLength, runEnd, laneEnd)
+                ? nextMathRunStart(delimiterLength, offset, runEnd, laneEnd)
                 : undefined
               if (closeStart !== undefined) {
                 math = Object.freeze({ openStart: offset, delimiterLength, closeStart })
@@ -1907,8 +2329,15 @@ export function createMarkdownLaneState(
               continue
             }
             if (source.charCodeAt(offset) === 91) {
+              const openerScope = matchingScopeAtOffset(offset)
+              while (
+                bracketPath !== undefined &&
+                bracketOpenerScopeHasExited(bracketPath, openerScope)
+              ) {
+                bracketPath = bracketPath.parent
+              }
               const inheritedLine = materializeMarkdownLine(checkpoint.linePath)
-              const previousIsActiveBang =
+              const activeBangStart =
               offset > sourceStart
                 ? source.charCodeAt(offset - 1) === 33 &&
                   hasEvenLaneBackslashRunBefore(
@@ -1917,38 +2346,84 @@ export function createMarkdownLaneState(
                     sourceStart,
                     checkpoint.trailingBackslashOdd
                   )
+                  ? offset - 1
+                  : undefined
                 : inheritedLine.charCodeAt(inheritedLine.length - 1) === 33 &&
                   hasEvenBackslashRunBeforeText(
                     inheritedLine,
                     inheritedLine.length - 1
                   )
-              bracketPath = Object.freeze({
-                parent: bracketPath,
-                kind: previousIsActiveBang ? 'image' : 'link',
-                start: previousIsActiveBang
-                  ? offset > sourceStart
-                    ? offset - 1
-                    : linePathSourceOffsetAt(
-                      checkpoint.linePath,
-                      inheritedLine.length - 1
-                    ) ?? offset
-                  : offset,
-                labelStart: offset + 1
-              })
-            } else if (source.charCodeAt(offset) === 93 && bracketPath !== undefined) {
-              const label = bracketPath
-              bracketPath = bracketPath.parent
-              pendingLinkLabel = Object.freeze({
-                kind: label.kind,
-                start: label.start,
-                labelStart: label.labelStart,
-                labelEnd: offset,
-                normalizedLabel: normalizeMarkdownReferenceLabel(
-                  source,
-                  label.labelStart,
+                  ? linePathSourceOffsetAt(
+                    checkpoint.linePath,
+                    inheritedLine.length - 1
+                  ) ?? Math.max(0, offset - 1)
+                  : undefined
+              const imageOpenerSharesScope =
+                activeBangStart === undefined ||
+                matchingScopeAtOffset(activeBangStart).id === openerScope.id
+              if (
+                activeBangStart !== undefined &&
+                !imageOpenerSharesScope
+              ) {
+                matchingScopePolicy?.rejectCrossScopeImageOpener(
+                  activeBangStart,
                   offset
                 )
+              }
+              const image =
+                activeBangStart !== undefined && imageOpenerSharesScope
+              bracketPath = Object.freeze({
+                parent: bracketPath,
+                kind: image ? 'image' : 'link',
+                bracketStart: offset,
+                start: image ? activeBangStart : offset,
+                labelStart: offset + 1,
+                matchingScopeId: openerScope.id,
+                matchingScopeDepth: openerScope.depth
               })
+            } else if (source.charCodeAt(offset) === 93 && bracketPath !== undefined) {
+              const closerScope = matchingScopeAtOffset(offset)
+              while (
+                bracketPath !== undefined &&
+                bracketOpenerScopeHasExited(bracketPath, closerScope)
+              ) {
+                matchingScopePolicy?.rejectCrossScopeMatch(
+                  bracketPath.bracketStart,
+                  offset
+                )
+                bracketPath = bracketPath.parent
+              }
+              if (
+                bracketPath !== undefined &&
+                bracketPath.matchingScopeDepth < closerScope.depth
+              ) {
+                matchingScopePolicy?.rejectCrossScopeMatch(
+                  bracketPath.bracketStart,
+                  offset
+                )
+              }
+              if (
+                bracketPath !== undefined &&
+                bracketPath.matchingScopeId === closerScope.id
+              ) {
+                const label = bracketPath
+                bracketPath = bracketPath.parent
+                pendingLinkLabel = Object.freeze({
+                  kind: label.kind,
+                  bracketStart: label.bracketStart,
+                  start: label.start,
+                  labelStart: label.labelStart,
+                  labelEnd: offset,
+                  normalizedLabel: normalizeMarkdownReferenceLabel(
+                    source,
+                    label.labelStart,
+                    offset
+                  ),
+                  matchingScopeId: label.matchingScopeId,
+                  matchingScopeDepth: label.matchingScopeDepth,
+                  parentBracketPath: bracketPath
+                })
+              }
             }
           }
           offset += 1
@@ -1979,7 +2454,12 @@ export function createMarkdownLaneState(
           checkpoint.trailingBackslashOdd
         )
         ) {
-          const closeStart = nextBacktickRunStart(markerLength, runEnd, laneEnd)
+          const closeStart = nextBacktickRunStart(
+            markerLength,
+            offset,
+            runEnd,
+            laneEnd
+          )
           if (closeStart !== undefined) {
             inlineCode = Object.freeze({ openStart: offset, markerLength, closeStart })
           }
@@ -2066,6 +2546,9 @@ export function createMarkdownLaneState(
         paragraphOpen,
         lastLineLazy
       )
+      if (lineState.blank || lineBlockClosed) {
+        enclosingLabelInterrupted = true
+      }
       if (firstContainerDepthFailure === undefined) {
         const excess = firstExcessContainer(lineState)
         if (excess !== undefined) {
@@ -2281,6 +2764,7 @@ export function createMarkdownLaneState(
           if (inlineCode?.openStart !== undefined && inlineCode.openStart >= lineStart) {
             inlineCode = undefined
           }
+          enclosingLabelInterrupted = true
           bracketPath = undefined
           pendingLinkLabel = undefined
           fixedInline = undefined
@@ -2345,6 +2829,7 @@ export function createMarkdownLaneState(
         definition,
         pendingCarriageReturn: undefined,
         firstContainerDepthFailure,
+        enclosingLabelInterrupted,
         atVirtualBof: false
       }),
       completedLiterals: Object.freeze(completedLiterals)
@@ -2577,40 +3062,50 @@ export function createMarkdownLaneState(
     true
   )
 
-  const rejoinCarrier: MarkdownLaneState['rejoinCarrier'] = (
+  const finishArm: MarkdownLaneState['finishArm'] = (
     continuation,
-    armStart,
     armEnd,
-    isolated,
+    mode,
+    payloadIntervened,
+    enclosingLabelPreservedByAllArms,
     atDocumentRoot
   ) => {
-    const resumed = isolated
+    const resumed = mode === 'isolated'
       ? continuation
-      : Object.freeze({
-        linePath: armEnd.linePath,
-        inlineCode: armStart.inlineCode,
-        math: armStart.math,
-        bracketPath: armEnd.bracketPath,
-        pendingLinkLabel: armEnd.pendingLinkLabel,
-        fixedInline: armEnd.fixedInline,
-        activeContainers: armEnd.activeContainers,
-        paragraphOpen: armEnd.paragraphOpen,
-        lastLineLazy: armEnd.lastLineLazy,
-        lineStart: armEnd.lineStart,
-        fence: armStart.fence,
-        lineBlockClosed: armEnd.lineBlockClosed,
-        trailingBackslashOdd: armEnd.trailingBackslashOdd,
-        frontMatterEligible: armEnd.frontMatterEligible,
-        frontMatter: armEnd.frontMatter,
-        indentedCode: armEnd.indentedCode,
-        htmlBlock: armEnd.htmlBlock,
-        definition: armEnd.definition,
-        pendingCarriageReturn: armEnd.pendingCarriageReturn,
-        firstContainerDepthFailure:
-          continuation.firstContainerDepthFailure ??
-          armEnd.firstContainerDepthFailure,
-        atVirtualBof: armEnd.atVirtualBof
-      })
+      : mode === 'continuous'
+        ? armEnd
+        : Object.freeze({
+          linePath: armEnd.linePath,
+          inlineCode: continuation.inlineCode,
+          math: continuation.math,
+          bracketPath: enclosingLabelPreservedByAllArms
+            ? continuation.bracketPath
+            : undefined,
+          pendingLinkLabel: payloadIntervened
+            ? undefined
+            : continuation.pendingLinkLabel,
+          fixedInline: continuation.fixedInline,
+          activeContainers: armEnd.activeContainers,
+          paragraphOpen: armEnd.paragraphOpen,
+          lastLineLazy: armEnd.lastLineLazy,
+          lineStart: armEnd.lineStart,
+          fence: continuation.fence,
+          lineBlockClosed: armEnd.lineBlockClosed,
+          trailingBackslashOdd: continuation.trailingBackslashOdd,
+          frontMatterEligible: armEnd.frontMatterEligible,
+          frontMatter: continuation.frontMatter,
+          indentedCode: continuation.indentedCode,
+          htmlBlock: continuation.htmlBlock,
+          definition: continuation.definition,
+          pendingCarriageReturn: armEnd.pendingCarriageReturn,
+          firstContainerDepthFailure:
+            continuation.firstContainerDepthFailure ??
+            armEnd.firstContainerDepthFailure,
+          enclosingLabelInterrupted:
+            continuation.enclosingLabelInterrupted ||
+            !enclosingLabelPreservedByAllArms,
+          atVirtualBof: armEnd.atVirtualBof
+        })
     return atDocumentRoot
       ? Object.freeze({
         ...resumed,
@@ -2671,33 +3166,152 @@ export function createMarkdownLaneState(
         checkpoint.htmlBlock !== undefined ||
         checkpoint.definition !== undefined
     ),
-    rejoinCarrier: Object.freeze(rejoinCarrier),
-    forkArm: Object.freeze((
+    finishArm: Object.freeze(finishArm),
+    enterArm: Object.freeze((
       checkpoint: MarkdownCheckpoint,
       sourceStart: number,
-      isolated: boolean
+      mode: MarkdownArmMode
     ): MarkdownCheckpoint =>
-      isolated
+      mode === 'isolated'
         ? Object.freeze({
           ...EMPTY_MARKDOWN_CHECKPOINT,
           lineStart: sourceStart
         })
-        : Object.freeze({
-          ...checkpoint,
-          frontMatterEligible: checkpoint.atVirtualBof
-        }))
+        : mode === 'continuous'
+          ? Object.freeze({
+            ...checkpoint,
+            frontMatterEligible: checkpoint.atVirtualBof
+          })
+          : Object.freeze({
+            ...checkpoint,
+            inlineCode: undefined,
+            math: undefined,
+            bracketPath: undefined,
+            pendingLinkLabel: undefined,
+            fixedInline: undefined,
+            fence: undefined,
+            frontMatter: undefined,
+            indentedCode: undefined,
+            htmlBlock: undefined,
+            definition: undefined,
+            trailingBackslashOdd: false,
+            pendingCarriageReturn: undefined,
+            enclosingLabelInterrupted: false,
+            frontMatterEligible: checkpoint.atVirtualBof
+          }))
   })
+}
+
+/**
+ * Build the `PlainMarkdownLine` record for one source line from the lane state
+ * entering it.
+ *
+ * Extracted so the canonical CriticMarkup-bearing driver can emit the same line
+ * records the plain driver does. Line emission is the only thing the plain
+ * driver has that the canonical one lacks, and it is the reason two drivers
+ * exist over one lane state machine; sharing this is the first step to
+ * collapsing them (Phase 0.5 step 7).
+ */
+export function buildPlainMarkdownLine(
+  source: string,
+  bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
+  activeContainers: MarkdownCheckpoint['activeContainers'],
+  paragraphOpen: boolean,
+  lastLineLazy: boolean
+): PlainMarkdownLine {
+  const { start, contentEnd, end } = bounds
+  const lineState = analyzeContainerLine(
+    source,
+    { start, contentEnd, end },
+    activeContainers,
+    paragraphOpen,
+    lastLineLazy
+  )
+  let openerIndex = 0
+  const containers = lineState.activeContainers.map(
+    (container, depth): PlainMarkdownContainer => {
+      const continued = depth < lineState.continuedContainerDepth
+      const opener = continued ? undefined : lineState.openers[openerIndex++]
+      if (container.kind === 'blockquote') {
+        return Object.freeze({
+          kind: 'blockquote',
+          continued,
+          start: opener?.start ?? start,
+          end: opener?.end ?? start
+        })
+      }
+      return Object.freeze({
+        kind: 'list-item',
+        continued,
+        start: opener?.start ?? start,
+        end: opener?.end ?? start,
+        ordered: container.ordered,
+        startNumber: container.startNumber,
+        delimiterCodeUnit: container.delimiterCodeUnit,
+        contentOffset: opener?.contentOffset ?? lineState.contentOffset
+      })
+    }
+  )
+  return Object.freeze({
+    start,
+    contentEnd,
+    end,
+    blank: lineState.blank,
+    contentOffset: lineState.contentOffset,
+    indentation: lineState.indentation,
+    blockQuoteDepth: lineState.blockQuoteDepth,
+    listDepth: lineState.activeContainers.filter(
+      (container) => container.kind === 'list-item'
+    ).length,
+    listMarkers: Object.freeze(
+      lineState.openers
+        .filter((opener) => opener.kind === 'list-item')
+        .map((opener): PlainMarkdownListMarker => Object.freeze({
+          start: opener.start,
+          end: opener.end,
+          ordered: opener.ordered ?? false,
+          startNumber: opener.startNumber ?? 1,
+          contentOffset: opener.contentOffset ?? opener.end
+        }))
+    ),
+    containers: Object.freeze(containers)
+  })
+}
+
+/** Line boundaries starting at `start`, honoring LF and CRLF. */
+export function plainMarkdownLineBounds(
+  source: string,
+  start: number
+): Readonly<{ start: number, contentEnd: number, end: number }> {
+  let contentEnd = start
+  while (
+    contentEnd < source.length &&
+    source.charCodeAt(contentEnd) !== 10 &&
+    source.charCodeAt(contentEnd) !== 13
+  ) {
+    contentEnd += 1
+  }
+  let end = contentEnd
+  if (end < source.length) {
+    end +=
+      source.charCodeAt(end) === 13 && source.charCodeAt(end + 1) === 10
+        ? 2
+        : 1
+  }
+  return Object.freeze({ start, contentEnd, end })
 }
 
 function parsePlainMarkdownLanePass(
   source: string,
   containerDepthLimit: number,
-  referenceDefinitions: MarkdownReferenceDefinitionLookup
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  matchingScopePolicy?: MarkdownMatchingScopePolicy
 ): PlainMarkdownLaneParse {
   const parser = createMarkdownLaneState(
     source,
     containerDepthLimit,
-    referenceDefinitions
+    referenceDefinitions,
+    matchingScopePolicy
   )
   const literals: MarkdownLiteralRange[] = []
   const lines: PlainMarkdownLine[] = []
@@ -2723,77 +3337,15 @@ function parsePlainMarkdownLanePass(
   }
   let start = 0
   while (start < source.length) {
-    let contentEnd = start
-    while (
-      contentEnd < source.length &&
-      source.charCodeAt(contentEnd) !== 10 &&
-      source.charCodeAt(contentEnd) !== 13
-    ) {
-      contentEnd += 1
-    }
-    let end = contentEnd
-    if (end < source.length) {
-      end +=
-        source.charCodeAt(end) === 13 && source.charCodeAt(end + 1) === 10
-          ? 2
-          : 1
-    }
-    const lineState = analyzeContainerLine(
+    const bounds = plainMarkdownLineBounds(source, start)
+    const { contentEnd, end } = bounds
+    lines.push(buildPlainMarkdownLine(
       source,
-      { start, contentEnd, end },
+      bounds,
       checkpoint.activeContainers,
       checkpoint.paragraphOpen,
       checkpoint.lastLineLazy
-    )
-    let openerIndex = 0
-    const containers = lineState.activeContainers.map(
-      (container, depth): PlainMarkdownContainer => {
-        const continued = depth < lineState.continuedContainerDepth
-        const opener = continued ? undefined : lineState.openers[openerIndex++]
-        if (container.kind === 'blockquote') {
-          return Object.freeze({
-            kind: 'blockquote',
-            continued,
-            start: opener?.start ?? start,
-            end: opener?.end ?? start
-          })
-        }
-        return Object.freeze({
-          kind: 'list-item',
-          continued,
-          start: opener?.start ?? start,
-          end: opener?.end ?? start,
-          ordered: container.ordered,
-          startNumber: container.startNumber,
-          delimiterCodeUnit: container.delimiterCodeUnit,
-          contentOffset: opener?.contentOffset ?? lineState.contentOffset
-        })
-      }
-    )
-    lines.push(Object.freeze({
-      start,
-      contentEnd,
-      end,
-      blank: lineState.blank,
-      contentOffset: lineState.contentOffset,
-      indentation: lineState.indentation,
-      blockQuoteDepth: lineState.blockQuoteDepth,
-      listDepth: lineState.activeContainers.filter(
-        (container) => container.kind === 'list-item'
-      ).length,
-      listMarkers: Object.freeze(
-        lineState.openers
-          .filter((opener) => opener.kind === 'list-item')
-          .map((opener): PlainMarkdownListMarker => Object.freeze({
-            start: opener.start,
-            end: opener.end,
-            ordered: opener.ordered ?? false,
-            startNumber: opener.startNumber ?? 1,
-            contentOffset: opener.contentOffset ?? opener.end
-          }))
-      ),
-      containers: Object.freeze(containers)
-    }))
+    ))
     const failure =
       advanceRange(start, contentEnd) ?? advanceRange(contentEnd, end)
     if (failure !== undefined) {
@@ -2816,32 +3368,42 @@ function parsePlainMarkdownLanePass(
 
 export function parsePlainMarkdownLane(
   source: string,
-  containerDepthLimit: number = Number.POSITIVE_INFINITY
-): PlainMarkdownLaneParse {
+  containerDepthLimit: number = Number.POSITIVE_INFINITY,
+  matchingScopePolicy?: MarkdownMatchingScopePolicy
+): PlainMarkdownLaneParseWithDefinitions {
   const blockStage = parsePlainMarkdownLanePass(
     source,
     containerDepthLimit,
-    EMPTY_REFERENCE_DEFINITIONS
+    EMPTY_REFERENCE_DEFINITIONS,
+    matchingScopePolicy
   )
-  const referenceDefinitions = new Set<string>()
-  for (const literal of blockStage.literals) {
-    if (literal.kind !== 'definition') {
-      continue
-    }
-    const label = markdownReferenceDefinitionLabel(
-      source,
-      literal.start,
-      literal.end
-    )
-    if (label !== undefined) {
-      referenceDefinitions.add(label)
-    }
+  const blockStageDefinitions = createMarkdownReferenceDefinitionIndex(
+    source,
+    blockStage.literals,
+    matchingScopePolicy?.definitionCanResolveReference
+  )
+  if (blockStageDefinitions.size === 0) {
+    return Object.freeze({
+      ...blockStage,
+      referenceDefinitions: blockStageDefinitions
+    })
   }
-  return referenceDefinitions.size === 0
-    ? blockStage
-    : parsePlainMarkdownLanePass(
+  // A definition can precede or follow its reference, so the block phase runs
+  // again once the definitions are known. The inline phase must resolve against
+  // the FINAL literals, which that second pass may have reclassified, so the
+  // carried index is built from them rather than from the first pass.
+  const finalStage = parsePlainMarkdownLanePass(
+    source,
+    containerDepthLimit,
+    blockStageDefinitions,
+    matchingScopePolicy
+  )
+  return Object.freeze({
+    ...finalStage,
+    referenceDefinitions: createMarkdownReferenceDefinitionIndex(
       source,
-      containerDepthLimit,
-      referenceDefinitions
+      finalStage.literals,
+      matchingScopePolicy?.definitionCanResolveReference
     )
+  })
 }

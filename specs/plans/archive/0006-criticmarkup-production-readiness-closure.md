@@ -434,7 +434,7 @@ Original-projection PDF text provably differs from the Marked one (this
 exposed and fixed a product hole: printService.css print-media rules blanked
 the live window for direct prints; now scoped to the mounted print
 container). The corpus-to-boundary matrix is checked in at
-specs/architecture/criticmarkup-corpus-boundary-matrix.md with per-row proof
+specs/architecture/archive/criticmarkup-corpus-boundary-matrix.md with per-row proof
 citations; remaining open rows there: the no-final-newline/repeated-blank
 byte classes across real file IO (documented as gaps, unit-proven
 elsewhere).

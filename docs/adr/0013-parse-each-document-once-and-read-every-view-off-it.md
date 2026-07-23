@@ -1,0 +1,56 @@
+# The engine parses each document once and reads every view off it
+
+The engine parses a document **once** and reads Original, Revised, and the
+editing (Markup) view off that single parse. Outside CriticMarkup marker
+regions the three views are byte-identical and share identical block and inline
+structure; they diverge only inside marker regions and reconverge immediately
+after. So the parse runs over the real source with every CriticMarkup marker as
+a zero-width grammar event, and where eliding a marker's content would change
+Markdown structure it records the **fork** — the alternative block or inline
+shape each view takes — rather than committing to one. Reading a view is arm
+selection over that one structure: reject-all yields Original, accept-all
+yields Revised, show-all yields the editing surface. No view is reparsed, no
+per-view string is flattened, and no structure is reconstructed after the fact.
+
+This supersedes an earlier draft of this decision that had the engine run one
+independent Markdown parse per view over a boundary-safe flattened string. That
+still parsed the shared text once per view and still required the flattening and
+boundary-safe codec machinery to make each per-view string safe to reparse. A
+CriticMarkup-free document — where the views are identical and nothing changed —
+parsed twice under that design; here it parses once. The per-view-reparse design
+was a workaround for not recording the fork during the one parse.
+
+The architecture is forced by a proven constraint together with the parse-once
+requirement. The constraint: per-view projections are **irreducible per-view
+results** — eliding a marker changes character adjacency, hence block structure
+(`{--# --}Title` is a heading in Original where the `# ` survives and a
+paragraph in Revised where it does not; `a{++\n\n++}b` is one paragraph in
+Original and two in Revised). So no view's finished tree can be derived from
+another's by tree transformation, and there is no single canonical tree the
+others project from by transform. The parse-once requirement forbids
+re-traversing the shared text once per view. The only shape satisfying both is a
+single parse that carries the per-view alternatives inline as forks; each view
+is read, not re-derived and not re-parsed.
+
+Not flattening removes a class of hazard rather than adding one. The boundary
+concern that the per-view-reparse design solved with codecs — a substitution's
+old-arm tail and new-arm head concatenating into false Markdown syntax
+(`` {~~`~>plain~~}{++literal++}` ``) — cannot arise when the parser reads the
+real source and never concatenates arms into a string. The semantic rule that
+arms are self-contained fragments still holds and is enforced in the fork logic,
+but it needs no string codec. "One authority" therefore means one parse with no
+private re-recognition, no per-view reparse, and no post-hoc reconstruction —
+not one finished tree everything else derives from, which the irreducibility
+constraint forbids.
+
+The hard core of this rebuild is that constraint meeting CommonMark's
+non-locality: lazy continuation, reference definitions, and setext underlines
+mean a marker's elision-consequence is not always local to the marker, so the
+single parse must maintain forked block, inline, and definition state across a
+divergent region and reconverge cleanly. The migration is measured by parse
+count per document: a CriticMarkup-free document parses once; a marker that does
+not change block structure (an addition inside a paragraph) parses once with the
+views differing only by inline arm selection; a marker that does change block
+structure parses once and records a block fork. The editing view is the parse
+that always runs — it is the surface the user types into — so it is the natural
+home of the single structure, with Original and Revised as reads of its forks.

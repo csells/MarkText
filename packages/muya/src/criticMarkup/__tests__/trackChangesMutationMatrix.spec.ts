@@ -23,7 +23,7 @@
  *   gateway rejection event fires.
  *
  * Expected values are derived from the grammar authority
- * (specs/architecture/criticmarkup.md) plus the coded invariant in
+ * (specs/architecture/archive/criticmarkup-legacy-engine.md) plus the coded invariant in
  * src/criticMarkup/trackChanges.ts:
  *
  * 1. An edit whose source range is contained by an item's editable payload
@@ -692,7 +692,7 @@ describe('selection replacement across item boundaries', () => {
     }
 
     // The three boundary-crossing tests below assert
-    // the required fail-closed contract (specs/architecture/criticmarkup.md,
+    // the required fail-closed contract (specs/architecture/archive/criticmarkup-legacy-engine.md,
     // "Malformed input" / "Projection and mutation": an edit that would
     // damage a live delimiter must be rejected with one typed
     // `critic-markup-track-change-rejected` event and an untouched document).

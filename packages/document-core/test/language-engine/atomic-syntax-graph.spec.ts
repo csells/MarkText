@@ -814,9 +814,9 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     })
   })
 
-  it('forks one completed multiline link-label checkpoint into both Substitution arms', () => {
+  it('parses one complete multiline link independently in each Substitution arm', () => {
     const sourceText =
-      '[x\n]{~~(old/{++oldlit++})~>(new/{--newlit--})~~}'
+      '{~~[x\n](old/{++oldlit++})~>[x\n](new/{--newlit--})~~}'
     const revision = createLanguageEngine().open(
       createSourceSnapshot(sourceText),
       TEST_CONFIGURATION
@@ -830,21 +830,21 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     expect(revision.criticMarkup.roots).toEqual([
       {
         kind: 'substitution',
-        range: { start: 4, end: 48 },
+        range: { start: 0, end: 52 },
         markers: {
-          open: { start: 4, end: 7 },
+          open: { start: 0, end: 3 },
           separator: { start: 25, end: 27 },
-          close: { start: 45, end: 48 }
+          close: { start: 49, end: 52 }
         },
         arms: [
           {
             name: 'old',
-            range: { start: 7, end: 25 },
+            range: { start: 3, end: 25 },
             children: []
           },
           {
             name: 'new',
-            range: { start: 27, end: 45 },
+            range: { start: 27, end: 49 },
             children: []
           }
         ]
@@ -859,12 +859,12 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
         ownerRange: { start: 7, end: 25 }
       }
     })
-    expect(revision.ownership.ownerAt(32)).toEqual({
-      range: { start: 27, end: 45 },
+    expect(revision.ownership.ownerAt(36)).toEqual({
+      range: { start: 31, end: 49 },
       owner: {
         kind: 'markdown-literal',
         provider: 'link-destination',
-        ownerRange: { start: 27, end: 45 }
+        ownerRange: { start: 31, end: 49 }
       }
     })
 
@@ -883,11 +883,11 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     expect(revised.source).toBe('[x\n](new/{--newlit--})')
     expect(revised.provenance.originAt(9)).toEqual({
       kind: 'canonical',
-      sourceOffset: 32
+      sourceOffset: 36
     })
     expect(revised.provenance.originAt(20)).toEqual({
       kind: 'canonical',
-      sourceOffset: 43
+      sourceOffset: 47
     })
   })
 

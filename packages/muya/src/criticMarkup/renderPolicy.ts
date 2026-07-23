@@ -44,7 +44,7 @@ export function exceedsCriticMarkupRenderDepth(depth: number): boolean {
  * the deepest planned fragment; the grammar, projections, and canonical
  * document still retain every item at full depth. This mirrors the native
  * block nesting budget of 128 container levels and keeps the recursive
- * parse bounded (specs/architecture/criticmarkup.md, "Resource and
+ * parse bounded (specs/architecture/archive/criticmarkup-legacy-engine.md, "Resource and
  * render-depth policy").
  */
 export const CRITIC_MARKUP_PARSE_DEPTH_BUDGET = 128;

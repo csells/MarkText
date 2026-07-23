@@ -2,6 +2,7 @@ import type { SourceSnapshot } from './sourceSnapshot.js'
 import { createSourceSnapshot } from './sourceSnapshot.js'
 import type { CompleteDocumentRevision, DocumentRevision, ParseConfiguration } from './revision.js'
 import { parseProfile1Document } from './internal/profile1Document.js'
+import { activeProfileParseTraceRecorderV1 } from './internal/profileParseTraceV1.js'
 import { validateAndFreezeParseConfiguration } from './configuration.js'
 
 export interface LanguageEngine {
@@ -9,13 +10,14 @@ export interface LanguageEngine {
 }
 
 export function createLanguageEngine(): LanguageEngine {
-  return Object.freeze({
+  const engine: LanguageEngine = Object.freeze({
     open(source: SourceSnapshot, configuration: ParseConfiguration): DocumentRevision {
       const stableSource = createSourceSnapshot(source.text)
       const stableConfiguration = validateAndFreezeParseConfiguration(configuration)
       const parsed = parseProfile1Document(
         stableSource.text,
-        stableConfiguration.executionBudget
+        stableConfiguration.executionBudget,
+        activeProfileParseTraceRecorderV1(engine)
       )
       if (parsed.kind === 'source-only') {
         return Object.freeze({
@@ -47,4 +49,5 @@ export function createLanguageEngine(): LanguageEngine {
       }) satisfies CompleteDocumentRevision
     }
   })
+  return engine
 }

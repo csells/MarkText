@@ -6,6 +6,8 @@ import type {
   MarkupMark,
   MarkupProjection,
   MarkupProjectionRun,
+  MarkdownDocument,
+  MarkdownNode,
   ProjectedCodeUnitOrigin,
   ProjectionProvenance,
   ResourceDiagnostic,
@@ -22,7 +24,9 @@ import {
 } from './profile1/markdownLiterals.js'
 import {
   createMarkdownLaneState,
+  type MarkdownArmMode,
   type MarkdownCheckpoint,
+  type MarkdownPendingLineBlockFact,
   type MarkdownReferenceDefinitionLookup
 } from './profile1/markdownLaneState.js'
 import {
@@ -30,12 +34,14 @@ import {
 } from './profile1/referenceDefinitionIndex.js'
 import {
   createCanonicalMarkdownParseRecorder,
+  type CanonicalMarkdownArmBoundaryEvent,
   type CanonicalMarkdownParseArtifact,
   type CanonicalMarkdownParseLaneHandle
 } from './profile1/canonicalMarkdownArtifact.js'
 import {
   assertLosslessTape,
   findMarker,
+  isMarkdownTextTapeRole,
   markerCandidateFromRole,
   scanSourceTape,
   type CanonicalMarkerDecision,
@@ -58,9 +64,17 @@ import type {
   CanonicalMarkdownLane
 } from './profile1/syntaxGraph.js'
 import {
+  planMarkdownArmBoundaryProjectionEdits,
   parseMarkdownDocument,
+  type MarkdownArmBoundaryProjectionEdit,
+  type MappedMarkdownCanonicalIdentityRun,
+  type MappedMarkdownMatchingScope,
   type Profile1MarkdownParse
 } from './profile1/markdownParser.js'
+import type {
+  ProfileParseTraceRecorderV1,
+  ProfileParseTraceViewV1
+} from './profileParseTraceV1.js'
 
 type ImplementedUnaryNode =
   | UnaryCriticNode<'addition', 'content'>
@@ -71,16 +85,78 @@ type ImplementedUnaryNode =
 type ImplementedNode = ImplementedUnaryNode | SubstitutionNode
 type ImplementedKind = ImplementedNode['kind']
 
+interface MarkdownNodeComparison {
+  readonly expected: MarkdownNode
+  readonly clean: MarkdownNode
+}
+
+/**
+ * Compares a graph-retained projected Markdown product with the independently
+ * parsed clean candidate. The clean product is verification evidence only and
+ * is never returned to a consumer.
+ */
+export function verifyCleanProjectedMarkdownV1(
+  expected: MarkdownDocument,
+  clean: MarkdownDocument
+): void {
+  if (expected.source !== clean.source) {
+    throw new Error('Clean projection Markdown mismatch: source')
+  }
+  const pending: MarkdownNodeComparison[] = [{
+    expected: expected.root,
+    clean: clean.root
+  }]
+  while (pending.length > 0) {
+    const comparison = pending.pop()
+    if (comparison === undefined) {
+      continue
+    }
+    const expectedNode = comparison.expected
+    const cleanNode = comparison.clean
+    if (
+      expectedNode.kind !== cleanNode.kind ||
+      expectedNode.range.start !== cleanNode.range.start ||
+      expectedNode.range.end !== cleanNode.range.end ||
+      expectedNode.childCount !== cleanNode.childCount
+    ) {
+      throw new Error('Clean projection Markdown mismatch: node topology')
+    }
+    const expectedAttributeKeys = Object.keys(expectedNode.attributes).sort()
+    const cleanAttributeKeys = Object.keys(cleanNode.attributes).sort()
+    if (expectedAttributeKeys.length !== cleanAttributeKeys.length) {
+      throw new Error('Clean projection Markdown mismatch: node attributes')
+    }
+    for (let index = 0; index < expectedAttributeKeys.length; index += 1) {
+      const expectedKey = expectedAttributeKeys[index]
+      const cleanKey = cleanAttributeKeys[index]
+      if (
+        expectedKey === undefined ||
+        cleanKey !== expectedKey ||
+        expectedNode.attributes[expectedKey] !== cleanNode.attributes[cleanKey]
+      ) {
+        throw new Error('Clean projection Markdown mismatch: node attributes')
+      }
+    }
+    for (let ordinal = expectedNode.childCount - 1; ordinal >= 0; ordinal -= 1) {
+      pending.push({
+        expected: expectedNode.childAt(ordinal),
+        clean: cleanNode.childAt(ordinal)
+      })
+    }
+  }
+}
+
 interface ParseFrame {
   readonly definition: FormDefinition
   readonly open: TapeRun
   readonly children: readonly [CriticMarkupNode[], CriticMarkupNode[]]
   readonly continuationCheckpoint: MarkdownCheckpoint
-  readonly armStartCheckpoint: MarkdownCheckpoint
+  readonly armMode: MarkdownArmMode
   readonly artifactParentLane: CanonicalMarkdownParseLaneHandle
   readonly artifactArmLanes: CanonicalMarkdownParseLaneHandle[]
   currentArtifactLane: CanonicalMarkdownParseLaneHandle
   currentCheckpoint: MarkdownCheckpoint
+  enclosingLabelPreservedByAllArms: boolean
   separator?: TapeRun
 }
 
@@ -158,7 +234,16 @@ interface AppendTask {
   readonly end: number
 }
 
-type ProjectionTask = LaneTask | AppendTask
+interface ArmBoundaryTask {
+  readonly kind: 'arm-boundary'
+  readonly laneId: number
+  readonly event: CanonicalMarkdownArmBoundaryEvent
+  readonly lane: CanonicalMarkdownLane
+  readonly parentLane: CanonicalMarkdownLane
+  readonly branchEnd: number
+}
+
+type ProjectionTask = LaneTask | AppendTask | ArmBoundaryTask
 
 interface MarkupRangeTask {
   readonly kind: 'markup-range'
@@ -463,7 +548,6 @@ function finalizeCanonicalTape(
 function parseCriticMarkupPass(
   source: string,
   cmDepthLimit: number = Number.POSITIVE_INFINITY,
-  retainedMarkdownLiterals?: readonly MarkdownLiteralRange[],
   referenceDefinitions: MarkdownReferenceDefinitionLookup = new Set(),
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   delimiterPolicy?: Profile1DelimiterPolicy
@@ -473,10 +557,6 @@ function parseCriticMarkupPass(
     markdownDepthLimit,
     referenceDefinitions
   )
-  const markdownLiterals =
-    retainedMarkdownLiterals === undefined
-      ? Object.freeze([])
-      : retainedMarkdownLiterals
   const roots: CriticMarkupNode[] = []
   const frames: ParseFrame[] = []
   const framesByKind = new Map<ImplementedKind, ParseFrame[]>()
@@ -610,71 +690,6 @@ function parseCriticMarkupPass(
       )
       : nextCloserStart(frame.definition.kind, start)
 
-  const isInsideAuthenticatedRootLiteral = (range: SourceRange): boolean => {
-    let low = 0
-    let high = markdownLiterals.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      const literal = markdownLiterals[middle]
-      if (literal !== undefined && literal.start <= range.start) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
-    }
-    const literal = markdownLiterals[low - 1]
-    if (
-      literal === undefined ||
-      range.start < literal.start ||
-      range.end > literal.end
-    ) {
-      return false
-    }
-
-    // Inline providers are authenticated by the current virtual lane, where
-    // accepted CM markers are zero-width. A canonical raw-source prepass
-    // cannot decide their ownership across an accepted carrier boundary.
-    if (
-      literal.kind === 'inline-code' ||
-      literal.kind === 'inline-html' ||
-      literal.kind === 'autolink' ||
-      literal.kind === 'link-destination' ||
-      literal.kind === 'math'
-    ) {
-      return false
-    }
-
-    for (const authenticated of stagedMarkdownLiterals) {
-      if (
-        authenticated.start < literal.start &&
-        literal.start < authenticated.end
-      ) {
-        return false
-      }
-    }
-
-    // A root literal whose opener was inside an already accepted root CM
-    // carrier belongs to that carrier's independent arm lane. It cannot
-    // reach back out and erase a later sibling carrier.
-    low = 0
-    high = roots.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      const root = roots[middle]
-      if (root !== undefined && root.range.start <= literal.start) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
-    }
-    const owner = roots[low - 1]
-    return !(
-      owner !== undefined &&
-      literal.start >= owner.range.start &&
-      literal.start < owner.range.end
-    )
-  }
-
   let nextTemporaryMarkerId = 0
   const createTemporaryRun = (
     kind: Profile1CriticKind,
@@ -797,12 +812,13 @@ function parseCriticMarkupPass(
       sourceCursor += 1
       continue
     }
-    const checkpointLiteralOwnsMarker =
+    // The Markdown lane is the single owner of literal precedence. (A second
+    // "authenticated root literal" oracle used to be consulted here; it was fed
+    // by a `retainedMarkdownLiterals` parameter that every call site passed as
+    // undefined, so it was dead and is gone.)
+    const insideLiteral =
       markdownLane.markerIsLiteralOwned(checkpoint) &&
       !compatibleActiveFrameCloser
-    const insideLiteral =
-      checkpointLiteralOwnsMarker ||
-      isInsideAuthenticatedRootLiteral(run.range)
     if (insideLiteral) {
       appendMarkdownRange(sourceCursor, sourceCursor + 1)
       sourceCursor += 1
@@ -820,13 +836,29 @@ function parseCriticMarkupPass(
         continue
       }
       const continuationCheckpoint = currentMarkdownCheckpoint()
-      const armStartCheckpoint = markdownLane.forkArm(
+      const armMode: MarkdownArmMode =
+        definition.kind === 'comment'
+          ? 'isolated'
+          : definition.kind === 'substitution'
+            ? 'self-contained'
+            : 'continuous'
+      const armStartCheckpoint = markdownLane.enterArm(
         continuationCheckpoint,
         run.range.end,
-        definition.kind === 'comment'
+        armMode
       )
       const artifactParentLane = currentMarkdownArtifactLane()
       const artifactArmLane = markdownArtifact.forkLane(armStartCheckpoint)
+      if (definition.kind === 'substitution') {
+        markdownArtifact.recordArmBoundary(
+          artifactArmLane,
+          Object.freeze({
+            kind: 'substitution-arm-boundary',
+            role: 'enter',
+            sourcePosition: sourceOffset(run.range.end)
+          })
+        )
+      }
       markerDecisions.push(
         Object.freeze({
           kind: definition.kind,
@@ -841,11 +873,12 @@ function parseCriticMarkupPass(
         open: run,
         children: [[], []],
         continuationCheckpoint,
-        armStartCheckpoint,
+        armMode,
         artifactParentLane,
         artifactArmLanes: [artifactArmLane],
         currentArtifactLane: artifactArmLane,
-        currentCheckpoint: armStartCheckpoint
+        currentCheckpoint: armStartCheckpoint,
+        enclosingLabelPreservedByAllArms: true
       }
       frames.push(nextFrame)
       const sameKindFrames = framesByKind.get(definition.kind)
@@ -873,17 +906,54 @@ function parseCriticMarkupPass(
         }))) {
           continue
         }
+        const finishedArm = markdownLane.finishLane(
+          frame.currentCheckpoint,
+          run.range.start
+        )
+        markdownArtifact.recordTransition(
+          frame.currentArtifactLane,
+          'finish-lane',
+          frame.currentCheckpoint,
+          finishedArm.checkpoint,
+          run.range.start,
+          run.range.start,
+          finishedArm.completedLiterals
+        )
+        stagedMarkdownLiterals.push(...finishedArm.completedLiterals)
+        noteMarkdownDepthFailure(finishedArm.checkpoint)
+        frame.currentCheckpoint = finishedArm.checkpoint
+        frame.enclosingLabelPreservedByAllArms &&=
+          !finishedArm.checkpoint.enclosingLabelInterrupted
+        markdownArtifact.recordArmBoundary(
+          frame.currentArtifactLane,
+          Object.freeze({
+            kind: 'substitution-arm-boundary',
+            role: 'exit',
+            sourcePosition: sourceOffset(run.range.start)
+          })
+        )
         markdownArtifact.sealLane(
           frame.currentArtifactLane,
           frame.currentCheckpoint
         )
-        const nextArtifactArm = markdownArtifact.forkLane(
-          frame.armStartCheckpoint
+        const nextArmCheckpoint = markdownLane.enterArm(
+          frame.continuationCheckpoint,
+          run.range.end,
+          frame.armMode
+        )
+        const nextArtifactArm = markdownArtifact.forkLane(nextArmCheckpoint)
+        markdownArtifact.recordArmBoundary(
+          nextArtifactArm,
+          Object.freeze({
+            kind: 'substitution-arm-boundary',
+            role: 'enter',
+            sourcePosition: sourceOffset(run.range.end)
+          })
         )
         frame.artifactArmLanes.push(nextArtifactArm)
         frame.currentArtifactLane = nextArtifactArm
         frame.separator = run
-        frame.currentCheckpoint = frame.armStartCheckpoint
+        frame.currentCheckpoint = nextArmCheckpoint
         markerDecisions.push(
           Object.freeze({
             kind: 'substitution',
@@ -1015,6 +1085,18 @@ function parseCriticMarkupPass(
       finishedLane.completedLiterals
     )
     frame.currentCheckpoint = finishedLane.checkpoint
+    frame.enclosingLabelPreservedByAllArms &&=
+      !finishedLane.checkpoint.enclosingLabelInterrupted
+    if (frame.definition.kind === 'substitution') {
+      markdownArtifact.recordArmBoundary(
+        frame.currentArtifactLane,
+        Object.freeze({
+          kind: 'substitution-arm-boundary',
+          role: 'exit',
+          sourcePosition: sourceOffset(run.range.start)
+        })
+      )
+    }
     markdownArtifact.sealLane(
       frame.currentArtifactLane,
       frame.currentCheckpoint
@@ -1068,11 +1150,14 @@ function parseCriticMarkupPass(
       frame.artifactArmLanes
     )
     appendNode(node, frames, roots)
-    const rejoinedCheckpoint = markdownLane.rejoinCarrier(
+    const rejoinedCheckpoint = markdownLane.finishArm(
       frame.continuationCheckpoint,
-      frame.armStartCheckpoint,
       frame.currentCheckpoint,
-      node.kind === 'comment',
+      frame.armMode,
+      node.kind === 'substitution' && node.arms.some(
+        (arm) => arm.range.start < arm.range.end
+      ),
+      frame.enclosingLabelPreservedByAllArms,
       frames.length === 0
     )
     markdownArtifact.recordTransition(
@@ -1175,25 +1260,42 @@ function parseCriticMarkupPass(
     canonicalMarkdownParse,
     rejectedDelimiters: Object.freeze(rejectedDelimiters),
     markdownLiterals: finalizeAuthenticatedMarkdownLiterals(
-      markdownLiterals,
+      Object.freeze([]),
       stagedMarkdownLiterals,
       roots
     )
   })
 }
 
+/**
+ * Test-only counter of full CriticMarkup recognitions. Phase 0.5 drives the
+ * "one CriticMarkup authority per open" property by shrinking this from ~5
+ * (canonical + per-projection guard + per-projection verifier) to 1. It counts
+ * `parseCriticMarkup`, not `parseCriticMarkupPass`, so the reference-resolution
+ * second pass inside one recognition is deliberately not double-counted.
+ */
+let criticMarkupRecognitionCount = 0
+
+export function __criticMarkupRecognitionCountV1(): number {
+  return criticMarkupRecognitionCount
+}
+
+export function __resetCriticMarkupRecognitionCountV1(): void {
+  criticMarkupRecognitionCount = 0
+}
+
 function parseCriticMarkup(
   source: string,
   cmDepthLimit: number = Number.POSITIVE_INFINITY,
-  retainedMarkdownLiterals?: readonly MarkdownLiteralRange[],
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   delimiterPolicy?: Profile1DelimiterPolicy,
-  projectedMarkdownDepthLimit?: number
+  projectedMarkdownDepthLimit?: number,
+  traceRecorder?: ProfileParseTraceRecorderV1
 ): ParseOutcome {
+  criticMarkupRecognitionCount += 1
   const blockStage = parseCriticMarkupPass(
     source,
     cmDepthLimit,
-    retainedMarkdownLiterals,
     undefined,
     markdownDepthLimit,
     delimiterPolicy
@@ -1201,17 +1303,25 @@ function parseCriticMarkup(
   if (blockStage.kind !== 'complete') {
     return blockStage
   }
+  // Phase 0 invariant 6 fact: reference-definition scope is discovered from a
+  // finished forest after the parse, then the entire pass is discarded and
+  // re-run with that index. Both the join and the reparse are recorded so the
+  // architecture gate can assert their absence once definitions become
+  // parser-created edges.
   const referenceDefinitions = createProfile1ReferenceDefinitionIndex(
     source,
     blockStage.roots,
     blockStage.markdownLiterals
   )
+  if (referenceDefinitions.size !== 0) {
+    traceRecorder?.recordPostHocJoin('reference-definitions')
+    traceRecorder?.recordCanonicalReparse('reference-definitions')
+  }
   const completed = referenceDefinitions.size === 0
     ? blockStage
     : parseCriticMarkupPass(
       source,
       cmDepthLimit,
-      retainedMarkdownLiterals,
       referenceDefinitions,
       markdownDepthLimit,
       delimiterPolicy
@@ -1533,6 +1643,21 @@ interface PlannedProtection {
   readonly sourcePosition: number
 }
 
+interface PlannedGeneratedInsertion {
+  readonly candidateOffset: number
+  readonly text: string
+  readonly sourcePosition: number
+  readonly affinity: 'previous' | 'next'
+}
+
+interface PlannedGeneratedReplacement {
+  readonly candidateStart: number
+  readonly candidateEnd: number
+  readonly text: string
+  readonly sourcePosition: number
+  readonly affinity: 'previous' | 'next'
+}
+
 function projectionOriginAt(
   segments: readonly MutableProjectionSegment[],
   projectedOffset: number
@@ -1675,38 +1800,48 @@ function appendProjectionRange(
   }
 }
 
-function applyProtections(
+function applyGeneratedInsertions(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
-  protections: readonly PlannedProtection[]
+  insertions: readonly PlannedGeneratedInsertion[]
 ): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
-  if (protections.length === 0) {
+  if (insertions.length === 0) {
     return Object.freeze({ source: candidateSource, segments: candidateSegments })
   }
+  const orderedInsertions = [...insertions].sort((left, right) =>
+    left.candidateOffset - right.candidateOffset
+  )
   const chunks: string[] = []
   const segments: MutableProjectionSegment[] = []
   let candidateCursor = 0
   let projectedLength = 0
-  for (const protection of protections) {
-    chunks.push(candidateSource.slice(candidateCursor, protection.candidateOffset))
+  for (const insertion of orderedInsertions) {
+    if (
+      insertion.candidateOffset < candidateCursor ||
+      insertion.candidateOffset > candidateSource.length ||
+      insertion.text.length === 0
+    ) {
+      throw new Error('Projection codec insertion is invalid')
+    }
+    chunks.push(candidateSource.slice(candidateCursor, insertion.candidateOffset))
     appendProjectionRange(
       segments,
       candidateSegments,
       candidateCursor,
-      protection.candidateOffset,
+      insertion.candidateOffset,
       projectedLength
     )
-    projectedLength += protection.candidateOffset - candidateCursor
-    chunks.push('\\')
+    projectedLength += insertion.candidateOffset - candidateCursor
+    chunks.push(insertion.text)
     segments.push({
       kind: 'generated',
       projectedStart: projectedLength,
-      projectedEnd: projectedLength + 1,
-      sourcePosition: protection.sourcePosition,
-      affinity: 'next'
+      projectedEnd: projectedLength + insertion.text.length,
+      sourcePosition: insertion.sourcePosition,
+      affinity: insertion.affinity
     })
-    projectedLength += 1
-    candidateCursor = protection.candidateOffset
+    projectedLength += insertion.text.length
+    candidateCursor = insertion.candidateOffset
   }
   chunks.push(candidateSource.slice(candidateCursor))
   appendProjectionRange(
@@ -1717,6 +1852,301 @@ function applyProtections(
     projectedLength
   )
   return Object.freeze({ source: chunks.join(''), segments: Object.freeze(segments) })
+}
+
+function applyGeneratedCodecEdits(
+  candidateSource: string,
+  candidateSegments: readonly MutableProjectionSegment[],
+  replacements: readonly PlannedGeneratedReplacement[]
+): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
+  if (replacements.length === 0) {
+    return Object.freeze({ source: candidateSource, segments: candidateSegments })
+  }
+  const orderedReplacements = [...replacements].sort((left, right) =>
+    left.candidateStart - right.candidateStart ||
+    left.candidateEnd - right.candidateEnd
+  )
+  const chunks: string[] = []
+  const segments: MutableProjectionSegment[] = []
+  let candidateCursor = 0
+  let projectedLength = 0
+  for (const replacement of orderedReplacements) {
+    if (
+      replacement.candidateStart < candidateCursor ||
+      replacement.candidateEnd < replacement.candidateStart ||
+      replacement.candidateEnd > candidateSource.length
+    ) {
+      throw new Error('Projection codec replacement is invalid')
+    }
+    chunks.push(candidateSource.slice(candidateCursor, replacement.candidateStart))
+    appendProjectionRange(
+      segments,
+      candidateSegments,
+      candidateCursor,
+      replacement.candidateStart,
+      projectedLength
+    )
+    projectedLength += replacement.candidateStart - candidateCursor
+    if (replacement.text.length > 0) {
+      chunks.push(replacement.text)
+      segments.push({
+        kind: 'generated',
+        projectedStart: projectedLength,
+        projectedEnd: projectedLength + replacement.text.length,
+        sourcePosition: replacement.sourcePosition,
+        affinity: replacement.affinity
+      })
+      projectedLength += replacement.text.length
+    }
+    candidateCursor = replacement.candidateEnd
+  }
+  chunks.push(candidateSource.slice(candidateCursor))
+  appendProjectionRange(
+    segments,
+    candidateSegments,
+    candidateCursor,
+    candidateSource.length,
+    projectedLength
+  )
+  return Object.freeze({ source: chunks.join(''), segments: Object.freeze(segments) })
+}
+
+function applyProtections(
+  candidateSource: string,
+  candidateSegments: readonly MutableProjectionSegment[],
+  protections: readonly PlannedProtection[]
+): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
+  return applyGeneratedInsertions(
+    candidateSource,
+    candidateSegments,
+    protections.map((protection): PlannedGeneratedInsertion => Object.freeze({
+      candidateOffset: protection.candidateOffset,
+      text: '\\',
+      sourcePosition: protection.sourcePosition,
+      affinity: 'next'
+    }))
+  )
+}
+
+function applyMarkdownArmBoundaryProjectionEdits(
+  candidateSource: string,
+  candidateSegments: readonly MutableProjectionSegment[],
+  edits: readonly MarkdownArmBoundaryProjectionEdit[]
+): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
+  const insertions: PlannedGeneratedInsertion[] = []
+  const replacements: PlannedGeneratedReplacement[] = []
+  for (const edit of edits) {
+    if (edit.kind === 'separate-following-block') {
+      if (
+        !Number.isInteger(edit.sourcePosition) ||
+        edit.sourcePosition < 0
+      ) {
+        throw new Error('Block-separation projection codec lost its boundary')
+      }
+      insertions.push(Object.freeze({
+        candidateOffset: edit.candidateOffset,
+        text: edit.lineEnding,
+        sourcePosition: edit.sourcePosition,
+        affinity: 'next'
+      }))
+      const elision = edit.indentationElision
+      if (elision !== undefined) {
+        const length = elision.candidateEnd - elision.candidateStart
+        const identity = canonicalMarkerIdentity(
+          candidateSegments,
+          elision.candidateStart,
+          length
+        )
+        const trivia = candidateSource.slice(
+          elision.candidateStart,
+          elision.candidateEnd
+        )
+        if (
+          length <= 0 ||
+          elision.sourceEnd - elision.sourceStart !== length ||
+          identity?.sourceStart !== elision.sourceStart ||
+          !Array.from(trivia).every((codeUnit) =>
+            codeUnit === ' ' || codeUnit === '\t'
+          )
+        ) {
+          throw new Error(
+            'Block-separation projection codec lost its indentation trivia'
+          )
+        }
+        replacements.push(Object.freeze({
+          candidateStart: elision.candidateStart,
+          candidateEnd: elision.candidateEnd,
+          text: '',
+          sourcePosition: elision.sourceStart,
+          affinity: 'next'
+        }))
+      }
+      continue
+    }
+
+    if (edit.kind === 'terminate-fenced-block-fragment') {
+      if (
+        !Number.isInteger(edit.sourcePosition) ||
+        edit.sourcePosition < 0 ||
+        !Number.isInteger(edit.delimiterLength) ||
+        edit.delimiterLength < 3 ||
+        (edit.marker !== '`' && edit.marker !== '~')
+      ) {
+        throw new Error('Fenced-block projection codec lost its terminal fence')
+      }
+      const nextCodeUnit = candidateSource.charCodeAt(edit.candidateOffset)
+      const followedByLineEnding = nextCodeUnit === 10 || nextCodeUnit === 13
+      insertions.push(Object.freeze({
+        candidateOffset: edit.candidateOffset,
+        text: `${edit.needsLeadingLineEnding ? edit.lineEnding : ''}${
+          edit.marker.repeat(edit.delimiterLength)
+        }${followedByLineEnding ? '' : edit.lineEnding}`,
+        sourcePosition: edit.sourcePosition,
+        affinity: 'next'
+      }))
+      continue
+    }
+
+    if (edit.kind === 'protect-delimiter') {
+      const origin = projectionOriginAt(candidateSegments, edit.candidateOffset)
+      insertions.push(Object.freeze({
+        candidateOffset: edit.candidateOffset,
+        text: '\\',
+        sourcePosition:
+          origin.kind === 'canonical'
+            ? origin.sourceOffset
+            : origin.sourcePosition,
+        affinity: 'next'
+      }))
+      continue
+    }
+
+    if (edit.kind === 'encode-emphasis-flanking-scalar') {
+      const scalarIdentity = canonicalMarkerIdentity(
+        candidateSegments,
+        edit.candidateStart,
+        edit.candidateEnd - edit.candidateStart
+      )
+      const scalar = candidateSource.slice(
+        edit.candidateStart,
+        edit.candidateEnd
+      )
+      if (
+        scalarIdentity === undefined ||
+        Array.from(scalar).length !== 1 ||
+        scalar.codePointAt(0) !== edit.codePoint ||
+        !Number.isInteger(edit.codePoint) ||
+        edit.codePoint <= 0 ||
+        edit.codePoint > 0x10ffff ||
+        (edit.codePoint >= 0xd800 && edit.codePoint <= 0xdfff)
+      ) {
+        throw new Error('Emphasis projection codec lost a flanking scalar')
+      }
+      replacements.push(Object.freeze({
+        candidateStart: edit.candidateStart,
+        candidateEnd: edit.candidateEnd,
+        text: `&#x${edit.codePoint.toString(16)};`,
+        sourcePosition: scalarIdentity.sourceStart,
+        affinity: 'next'
+      }))
+      continue
+    }
+
+    if (edit.kind === 'respell-enclosing-emphasis-delimiters') {
+      const openerIdentity = canonicalMarkerIdentity(
+        candidateSegments,
+        edit.openerStart,
+        edit.openerEnd - edit.openerStart
+      )
+      const closerIdentity = canonicalMarkerIdentity(
+        candidateSegments,
+        edit.closerStart,
+        edit.closerEnd - edit.closerStart
+      )
+      const opener = candidateSource.slice(edit.openerStart, edit.openerEnd)
+      const closer = candidateSource.slice(edit.closerStart, edit.closerEnd)
+      if (
+        openerIdentity === undefined ||
+        closerIdentity === undefined ||
+        opener.length !== 1 ||
+        closer !== opener ||
+        (opener !== '*' && opener !== '_') ||
+        edit.replacementMarker === opener
+      ) {
+        throw new Error('Emphasis projection codec lost a canonical delimiter')
+      }
+      replacements.push(
+        Object.freeze({
+          candidateStart: edit.openerStart,
+          candidateEnd: edit.openerEnd,
+          text: edit.replacementMarker,
+          sourcePosition: openerIdentity.sourceStart,
+          affinity: 'next'
+        }),
+        Object.freeze({
+          candidateStart: edit.closerStart,
+          candidateEnd: edit.closerEnd,
+          text: edit.replacementMarker,
+          sourcePosition: closerIdentity.sourceStart,
+          affinity: 'next'
+        })
+      )
+      continue
+    }
+
+    const openerIdentity = canonicalMarkerIdentity(
+      candidateSegments,
+      edit.openerStart,
+      edit.openerEnd - edit.openerStart
+    )
+    const closerIdentity = canonicalMarkerIdentity(
+      candidateSegments,
+      edit.closerStart,
+      edit.closerEnd - edit.closerStart
+    )
+    const existingDelimiterLength = edit.openerEnd - edit.openerStart
+    const extensionLength = edit.delimiterLength - existingDelimiterLength
+    if (
+      openerIdentity === undefined ||
+      closerIdentity === undefined ||
+      existingDelimiterLength <= 0 ||
+      edit.closerEnd - edit.closerStart !== existingDelimiterLength ||
+      extensionLength <= 0
+    ) {
+      throw new Error('Inline-code projection codec lost a canonical delimiter')
+    }
+    const generatedBackticks = '`'.repeat(extensionLength)
+    insertions.push(
+      Object.freeze({
+        candidateOffset: edit.openerStart,
+        text: generatedBackticks,
+        sourcePosition: openerIdentity.sourceStart,
+        affinity: 'next'
+      }),
+      Object.freeze({
+        candidateOffset: edit.closerStart,
+        text: generatedBackticks,
+        sourcePosition: closerIdentity.sourceStart,
+        affinity: 'next'
+      })
+    )
+  }
+  return applyGeneratedCodecEdits(
+    candidateSource,
+    candidateSegments,
+    [
+      ...replacements,
+      ...insertions.map((insertion): PlannedGeneratedReplacement =>
+        Object.freeze({
+          candidateStart: insertion.candidateOffset,
+          candidateEnd: insertion.candidateOffset,
+          text: insertion.text,
+          sourcePosition: insertion.sourcePosition,
+          affinity: insertion.affinity
+        })
+      )
+    ]
+  )
 }
 
 function encodeMovedBofText(
@@ -1752,7 +2182,11 @@ function guardProjectionCandidate(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
   markerDecisions: readonly CanonicalMarkerDecision[]
-): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
+): Readonly<{
+    source: string
+    segments: readonly MutableProjectionSegment[]
+    acceptedMarkerCount: number
+  }> {
   const decisionByIdentity = new Map<string, CanonicalMarkerDecision>()
   for (const decision of markerDecisions) {
     decisionByIdentity.set(`${decision.runId}:${decision.kind}:${decision.role}`, decision)
@@ -1810,7 +2244,6 @@ function guardProjectionCandidate(
   const candidateParse = parseCriticMarkup(
     candidateSource,
     Number.POSITIVE_INFINITY,
-    undefined,
     Number.POSITIVE_INFINITY,
     delimiterPolicy
   )
@@ -1835,19 +2268,416 @@ function guardProjectionCandidate(
           : responsibleOrigin.sourcePosition
     }))
   }
-  return applyProtections(candidateSource, candidateSegments, protections)
+  const protected_ = applyProtections(candidateSource, candidateSegments, protections)
+  // The accepted count is the projection's own "no synthetic CriticMarkup"
+  // evidence: markers are elided from a view, so a well-formed candidate accepts
+  // none. Escaping only adds backslashes to rejected markers and cannot create
+  // an accepted one, so this pre-escape count equals a re-parse of the escaped
+  // candidate — which is why the clean verifier no longer needs its own parse.
+  return Object.freeze({
+    source: protected_.source,
+    segments: protected_.segments,
+    acceptedMarkerCount: candidateParse.roots.length
+  })
+}
+
+function remapMatchingScopesByCanonicalIdentity(
+  graph: Profile1SyntaxGraphCore,
+  matchingScopes: readonly MappedMarkdownMatchingScope[],
+  segments: readonly MutableProjectionSegment[]
+): readonly MappedMarkdownMatchingScope[] {
+  const laneById = new Map(
+    graph.canonicalMarkdown.lanes.map((lane) => [lane.id, lane] as const)
+  )
+  return Object.freeze(matchingScopes.map((scope) => {
+    const lane = laneById.get(scope.id - 1)
+    if (lane === undefined) {
+      throw new Error('Projected Substitution scope lost its canonical lane')
+    }
+    let projectedStart = Number.POSITIVE_INFINITY
+    let projectedEnd = Number.NEGATIVE_INFINITY
+    for (const segment of segments) {
+      if (segment.kind === 'canonical') {
+        const sourceEnd =
+          segment.sourceStart + segment.projectedEnd - segment.projectedStart
+        const overlapStart = Math.max(lane.range.start, segment.sourceStart)
+        const overlapEnd = Math.min(lane.range.end, sourceEnd)
+        if (overlapStart < overlapEnd) {
+          projectedStart = Math.min(
+            projectedStart,
+            segment.projectedStart + overlapStart - segment.sourceStart
+          )
+          projectedEnd = Math.max(
+            projectedEnd,
+            segment.projectedStart + overlapEnd - segment.sourceStart
+          )
+        }
+        continue
+      }
+      const belongsToLane =
+        (lane.range.start < segment.sourcePosition &&
+          segment.sourcePosition < lane.range.end) ||
+        (segment.sourcePosition === lane.range.start &&
+          segment.affinity === 'next') ||
+        (segment.sourcePosition === lane.range.end &&
+          segment.affinity === 'previous')
+      if (belongsToLane) {
+        projectedStart = Math.min(projectedStart, segment.projectedStart)
+        projectedEnd = Math.max(projectedEnd, segment.projectedEnd)
+      }
+    }
+    if (
+      !Number.isFinite(projectedStart) ||
+      !Number.isFinite(projectedEnd) ||
+      projectedStart >= projectedEnd
+    ) {
+      throw new Error('Projected Substitution scope lost its retained content')
+    }
+    return Object.freeze({
+      id: scope.id,
+      start: projectedStart,
+      end: projectedEnd,
+      depth: scope.depth
+    })
+  }))
+}
+
+type ProjectionLineEnding = '\n' | '\r' | '\r\n'
+
+function lastProjectionLineEnding(
+  source: string,
+  start: number,
+  end: number
+): ProjectionLineEnding {
+  for (let offset = end - 1; offset >= start; offset -= 1) {
+    const codeUnit = source.charCodeAt(offset)
+    if (codeUnit === 10) {
+      return offset > start && source.charCodeAt(offset - 1) === 13
+        ? '\r\n'
+        : '\n'
+    }
+    if (codeUnit === 13) {
+      return '\r'
+    }
+  }
+  return '\n'
+}
+
+function terminalArmFenceEdit(
+  lane: CanonicalMarkdownLane,
+  candidateOffset: number,
+  sourcePosition: number,
+  source: string
+): Extract<
+  MarkdownArmBoundaryProjectionEdit,
+  { readonly kind: 'terminate-fenced-block-fragment' }
+> | undefined {
+  for (
+    let transitionIndex = lane.parseArtifact.transitions.length - 1;
+    transitionIndex >= 0;
+    transitionIndex -= 1
+  ) {
+    const transition = lane.parseArtifact.transitions[transitionIndex]
+    if (transition?.operation !== 'finish-lane') {
+      continue
+    }
+    const fence = transition.entryCheckpoint.fence
+    if (
+      fence === undefined ||
+      !transition.emittedFacts.literals.some((literal) =>
+        literal.kind === fence.provider &&
+        literal.start === fence.openStart &&
+        literal.end === lane.range.end
+      )
+    ) {
+      return undefined
+    }
+    if (
+      (fence.markerCodeUnit !== 96 && fence.markerCodeUnit !== 126) ||
+      fence.openerLength < 3
+    ) {
+      throw new Error('Parser-owned terminal fence evidence is invalid')
+    }
+    return Object.freeze({
+      kind: 'terminate-fenced-block-fragment',
+      candidateOffset,
+      sourcePosition,
+      marker: fence.markerCodeUnit === 96 ? '`' : '~',
+      delimiterLength: fence.openerLength,
+      lineEnding: lastProjectionLineEnding(
+        source,
+        fence.openStart,
+        lane.range.end
+      ),
+      needsLeadingLineEnding: transition.entryCheckpoint.linePath !== undefined
+    })
+  }
+  return undefined
+}
+
+function soleLineEndingBeforeFence(
+  source: string,
+  branchEnd: number,
+  fenceStart: number
+): ProjectionLineEnding | undefined {
+  const gap = source.slice(branchEnd, fenceStart)
+  const match = /^(\r\n|\r|\n)[\t ]{0,3}$/.exec(gap)
+  const lineEnding = match?.[1]
+  return lineEnding === '\n' || lineEnding === '\r' || lineEnding === '\r\n'
+    ? lineEnding
+    : undefined
+}
+
+function followingFencedBlockLineEnding(
+  parentLane: CanonicalMarkdownLane,
+  branchEnd: number,
+  source: string
+): ProjectionLineEnding | undefined {
+  for (const transition of parentLane.parseArtifact.transitions) {
+    const fence = transition.entryCheckpoint.fence
+    if (
+      fence === undefined ||
+      fence.openStart <= branchEnd ||
+      !transition.emittedFacts.literals.some((literal) =>
+        literal.kind === fence.provider &&
+        literal.start === fence.openStart
+      )
+    ) {
+      continue
+    }
+    const lineEnding = soleLineEndingBeforeFence(
+      source,
+      branchEnd,
+      fence.openStart
+    )
+    if (lineEnding !== undefined) {
+      return lineEnding
+    }
+  }
+  return undefined
+}
+
+function canonicalLineEndingAt(
+  parentLane: CanonicalMarkdownLane,
+  branchEnd: number,
+  source: string
+): ProjectionLineEnding | undefined {
+  const lineEnding: ProjectionLineEnding | undefined =
+    source.startsWith('\r\n', branchEnd)
+      ? '\r\n'
+      : source.charCodeAt(branchEnd) === 13
+        ? '\r'
+        : source.charCodeAt(branchEnd) === 10
+          ? '\n'
+          : undefined
+  if (lineEnding === undefined) {
+    return undefined
+  }
+  const lineEndingEnd = branchEnd + lineEnding.length
+  let consumedCursor = branchEnd
+  for (const transition of parentLane.parseArtifact.transitions) {
+    for (const slice of transition.consumed) {
+      if (slice.range.end <= consumedCursor) {
+        continue
+      }
+      if (slice.range.start > consumedCursor) {
+        return undefined
+      }
+      consumedCursor = Math.min(lineEndingEnd, slice.range.end)
+      if (consumedCursor === lineEndingEnd) {
+        return lineEnding
+      }
+    }
+  }
+  return undefined
+}
+
+function armCreatedTerminalParagraph(
+  lane: CanonicalMarkdownLane
+): MarkdownPendingLineBlockFact | undefined {
+  const entry = lane.parseArtifact.entryCheckpoint
+  if (
+    entry.linePath !== undefined ||
+    entry.paragraphOpen ||
+    entry.activeContainers.length !== 0
+  ) {
+    return undefined
+  }
+  let terminal: MarkdownPendingLineBlockFact | undefined
+  for (
+    let index = lane.parseArtifact.transitions.length - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    const transition = lane.parseArtifact.transitions[index]
+    if (transition?.operation === 'finish-lane') {
+      terminal = transition.emittedFacts.block.pendingLine
+      break
+    }
+  }
+  return terminal?.paragraphOpen === true &&
+    terminal.containerPath.every((kind) =>
+      kind === 'blockquote' || kind === 'list-item'
+    )
+    ? terminal
+    : undefined
+}
+
+function laneRetainsUnchangedSourceRange(
+  lane: CanonicalMarkdownLane,
+  start: number,
+  end: number
+): boolean {
+  if (start < lane.range.start || end <= start || end > lane.range.end) {
+    return false
+  }
+  let cursor = start
+  for (const item of lane.items) {
+    const range = item.kind === 'source' ? item.range : item.node.range
+    if (range.end <= cursor) {
+      continue
+    }
+    if (range.start > cursor || item.kind !== 'source') {
+      return false
+    }
+    cursor = Math.min(end, range.end)
+    if (cursor === end) {
+      return true
+    }
+  }
+  return false
+}
+
+function followingCanonicalLineMergingParagraph(
+  parentLane: CanonicalMarkdownLane,
+  branchEnd: number,
+  lineEnding: ProjectionLineEnding
+): MarkdownPendingLineBlockFact | undefined {
+  const suffixStart = branchEnd + lineEnding.length
+  if (!laneRetainsUnchangedSourceRange(
+    parentLane,
+    branchEnd,
+    suffixStart
+  )) {
+    return undefined
+  }
+  for (const transition of parentLane.parseArtifact.transitions) {
+    const pendingLine = transition.emittedFacts.block.pendingLine
+    if (
+      transition.exitCheckpoint.lineStart >= suffixStart &&
+      pendingLine?.continuesExistingParagraph === true &&
+      transition.consumed.some((slice) => slice.range.end > suffixStart)
+    ) {
+      return pendingLine
+    }
+  }
+  return undefined
+}
+
+interface TerminalArmParagraphSeparation {
+  readonly lineEnding: ProjectionLineEnding
+  readonly indentationElision?: Readonly<{
+    readonly sourceStart: number
+    readonly sourceEnd: number
+  }>
+}
+
+function terminalListIndentationElision(
+  terminal: MarkdownPendingLineBlockFact,
+  following: MarkdownPendingLineBlockFact,
+  parentLane: CanonicalMarkdownLane,
+  branchEnd: number,
+  lineEnding: ProjectionLineEnding
+): Readonly<{ readonly sourceStart: number; readonly sourceEnd: number }> |
+  undefined {
+  const terminalList = terminal.containers[0]
+  if (
+    terminal.containers.length !== 1 ||
+    terminalList?.kind !== 'list-item' ||
+    following.containerPath.length !== 1 ||
+    following.containerPath[0] !== 'list-item'
+  ) {
+    return undefined
+  }
+  const continuation = following.listContinuationIndentations.find(
+    (indentation) =>
+      indentation.containerDepth === 1 &&
+      indentation.contentIndent === terminalList.contentIndent
+  )
+  if (continuation === undefined) {
+    return undefined
+  }
+  const suffixStart = branchEnd + lineEnding.length
+  if (
+    continuation.trivia.start < suffixStart ||
+    continuation.exitTrivia.start < continuation.trivia.start ||
+    continuation.exitTrivia.end > continuation.trivia.end ||
+    !laneRetainsUnchangedSourceRange(
+      parentLane,
+      branchEnd,
+      continuation.trivia.end
+    )
+  ) {
+    return undefined
+  }
+  return Object.freeze({
+    sourceStart: continuation.exitTrivia.start,
+    sourceEnd: continuation.exitTrivia.end
+  })
+}
+
+function terminalArmParagraphSeparation(
+  lane: CanonicalMarkdownLane,
+  parentLane: CanonicalMarkdownLane,
+  branchEnd: number,
+  source: string
+): TerminalArmParagraphSeparation | undefined {
+  const terminal = armCreatedTerminalParagraph(lane)
+  if (terminal === undefined) {
+    return undefined
+  }
+  const lineEnding = canonicalLineEndingAt(parentLane, branchEnd, source)
+  if (lineEnding === undefined) {
+    return undefined
+  }
+  const following = followingCanonicalLineMergingParagraph(
+    parentLane,
+    branchEnd,
+    lineEnding
+  )
+  if (following === undefined) {
+    return undefined
+  }
+  const indentationElision = terminalListIndentationElision(
+    terminal,
+    following,
+    parentLane,
+    branchEnd,
+    lineEnding
+  )
+  return indentationElision === undefined
+    ? Object.freeze({ lineEnding })
+    : Object.freeze({ lineEnding, indentationElision })
 }
 
 function project(
   graph: Profile1SyntaxGraphCore,
   view: 'original' | 'revised',
   lane: CanonicalMarkdownLane = graph.canonicalMarkdown.root,
-  markdownDepthLimit: number = Number.POSITIVE_INFINITY
+  markdownDepthLimit: number = Number.POSITIVE_INFINITY,
+  traceRecorder?: ProfileParseTraceRecorderV1,
+  traceView: ProfileParseTraceViewV1 = view
 ): Profile1ProjectedMarkdown {
   const source = graph.source
   const chunks: string[] = []
   const segments: MutableCanonicalProjectionSegment[] = []
   const tasks: ProjectionTask[] = [{ kind: 'lane', lane }]
+  const openMatchingScopes = new Map<
+    number,
+    Readonly<{ readonly start: number; readonly depth: number }>
+  >()
+  const matchingScopes: MappedMarkdownMatchingScope[] = []
+  const armTerminationEdits: MarkdownArmBoundaryProjectionEdit[] = []
   let projectedLength = 0
 
   const appendSource = (start: number, end: number): void => {
@@ -1904,6 +2734,84 @@ function project(
       appendSource(task.start, task.end)
       continue
     }
+    if (task.kind === 'arm-boundary') {
+      if (task.event.role === 'enter') {
+        if (openMatchingScopes.has(task.laneId)) {
+          throw new Error('Projected Substitution arm entered twice')
+        }
+        openMatchingScopes.set(task.laneId, Object.freeze({
+          start: projectedLength,
+          depth: openMatchingScopes.size
+        }))
+      } else {
+        const open = openMatchingScopes.get(task.laneId)
+        if (open === undefined) {
+          throw new Error('Projected Substitution arm exited before entry')
+        }
+        openMatchingScopes.delete(task.laneId)
+        const terminalFence = terminalArmFenceEdit(
+          task.lane,
+          projectedLength,
+          task.event.sourcePosition,
+          source
+        )
+        if (terminalFence !== undefined) {
+          armTerminationEdits.push(terminalFence)
+        } else if (
+          task.lane.parseArtifact.exitCheckpoint.linePath !== undefined &&
+          task.lane.parseArtifact.exitCheckpoint.frontMatter === undefined &&
+          task.lane.parseArtifact.exitCheckpoint.indentedCode === undefined &&
+          task.lane.parseArtifact.exitCheckpoint.htmlBlock === undefined &&
+          task.lane.parseArtifact.exitCheckpoint.definition === undefined
+        ) {
+          const paragraphSeparation = terminalArmParagraphSeparation(
+            task.lane,
+            task.parentLane,
+            task.branchEnd,
+            source
+          )
+          const lineEnding = paragraphSeparation?.lineEnding ??
+            followingFencedBlockLineEnding(
+              task.parentLane,
+              task.branchEnd,
+              source
+            )
+          if (lineEnding !== undefined) {
+            const sourceElision = paragraphSeparation?.indentationElision
+            armTerminationEdits.push(sourceElision === undefined
+              ? Object.freeze({
+                kind: 'separate-following-block',
+                candidateOffset: projectedLength,
+                sourcePosition: task.event.sourcePosition,
+                lineEnding
+              })
+              : Object.freeze({
+                kind: 'separate-following-block',
+                candidateOffset: projectedLength,
+                sourcePosition: task.event.sourcePosition,
+                lineEnding,
+                indentationElision: Object.freeze({
+                  candidateStart:
+                    projectedLength + sourceElision.sourceStart - task.branchEnd,
+                  candidateEnd:
+                    projectedLength + sourceElision.sourceEnd - task.branchEnd,
+                  sourceStart: sourceElision.sourceStart,
+                  sourceEnd: sourceElision.sourceEnd
+                })
+              }))
+          }
+        }
+        if (open.start < projectedLength) {
+          matchingScopes.push(Object.freeze({
+            id: task.laneId + 1,
+            start: open.start,
+            end: projectedLength,
+            depth: open.depth
+          }))
+        }
+      }
+      continue
+    }
 
     const orderedTasks: ProjectionTask[] = []
     for (const item of task.lane.items) {
@@ -1917,7 +2825,46 @@ function project(
       }
       const arm = selectedCanonicalArm(item, view)
       if (arm !== undefined) {
-        orderedTasks.push({ kind: 'lane', lane: arm })
+        const boundaries = arm.parseArtifact.armBoundaries
+        if (item.node.kind === 'substitution') {
+          const enter = boundaries[0]
+          const exit = boundaries[1]
+          if (
+            boundaries.length !== 2 ||
+            enter?.role !== 'enter' ||
+            exit?.role !== 'exit' ||
+            enter.sourcePosition !== arm.range.start ||
+            exit.sourcePosition !== arm.range.end
+          ) {
+            throw new Error(
+              'Selected Substitution arm lost parser-owned boundary events'
+            )
+          }
+          orderedTasks.push(
+            {
+              kind: 'arm-boundary',
+              laneId: arm.id,
+              event: enter,
+              lane: arm,
+              parentLane: task.lane,
+              branchEnd: item.node.range.end
+            },
+            { kind: 'lane', lane: arm },
+            {
+              kind: 'arm-boundary',
+              laneId: arm.id,
+              event: exit,
+              lane: arm,
+              parentLane: task.lane,
+              branchEnd: item.node.range.end
+            }
+          )
+        } else {
+          if (boundaries.length !== 0) {
+            throw new Error('Non-Substitution arm has matching boundaries')
+          }
+          orderedTasks.push({ kind: 'lane', lane: arm })
+        }
       }
     }
     for (let index = orderedTasks.length - 1; index >= 0; index -= 1) {
@@ -1928,31 +2875,109 @@ function project(
     }
   }
 
-  const projectedSource = chunks.join('')
-  const bofSafe = encodeMovedBofText(projectedSource, segments)
-  const guarded = guardProjectionCandidate(
-    bofSafe.source,
-    bofSafe.segments,
-    graph.markerDecisions
-  )
-  const mappedTape = Object.freeze(guarded.segments.map(freezeSegment))
-  const verification = parseCriticMarkup(
-    guarded.source,
-    Number.POSITIVE_INFINITY,
-    undefined,
-    Number.POSITIVE_INFINITY,
-    undefined,
-    markdownDepthLimit
-  )
-  if (verification.kind !== 'complete') {
-    throw new Error('Boundary-safe projection verification exceeded an internal resource budget')
+  if (openMatchingScopes.size !== 0) {
+    throw new Error('Projected Substitution arm boundary was not closed')
   }
-  if (verification.roots.length !== 0) {
+
+  const projectedSource = chunks.join('')
+  const canonicalIdentityRuns = Object.freeze(segments.map(
+    (segment): MappedMarkdownCanonicalIdentityRun => Object.freeze({
+      candidateStart: segment.projectedStart,
+      candidateEnd: segment.projectedEnd,
+      sourceRunId: segment.sourceRunId,
+      sourceStart: segment.sourceStart
+    })
+  ))
+  const armBoundaryProjectionEdits = planMarkdownArmBoundaryProjectionEdits({
+    source: projectedSource,
+    matchingScopes: Object.freeze(matchingScopes),
+    canonicalIdentityRuns,
+    armTerminationEdits: Object.freeze(armTerminationEdits)
+  }, markdownDepthLimit, traceRecorder === undefined
+    ? undefined
+    : Object.freeze({ view: traceView, recorder: traceRecorder }))
+  const armSafe = applyMarkdownArmBoundaryProjectionEdits(
+    projectedSource,
+    segments,
+    armBoundaryProjectionEdits
+  )
+  const bofSafe = encodeMovedBofText(armSafe.source, armSafe.segments)
+  // The boundary guard exists to catch CriticMarkup that the projection itself
+  // synthesized where elision made two non-adjacent canonical runs adjacent. A
+  // document with no CriticMarkup elides nothing: every view is the canonical
+  // source, there is no join, and no marker can be manufactured. Recognizing
+  // CriticMarkup again to discover that is pure waste, so the guard is skipped
+  // and its accepted-marker count is zero by construction.
+  const guarded = graph.criticMarkup.roots.length === 0
+    ? Object.freeze({
+      source: bofSafe.source,
+      segments: bofSafe.segments,
+      acceptedMarkerCount: 0
+    })
+    : guardProjectionCandidate(
+      bofSafe.source,
+      bofSafe.segments,
+      graph.markerDecisions
+    )
+  const mappedTape = Object.freeze(guarded.segments.map(freezeSegment))
+  // Phase 0 invariant 6 fact: parser-owned arm scopes are re-anchored onto the
+  // flattened candidate by canonical identity after the fact. A projection with
+  // no arm scopes performs no such join.
+  if (matchingScopes.length !== 0) {
+    traceRecorder?.recordPostHocJoin('matching-scopes')
+  }
+  const retainedMatchingScopes = remapMatchingScopesByCanonicalIdentity(
+    graph,
+    matchingScopes,
+    guarded.segments
+  )
+  // Phase 0 forbidden-architecture fact (plan line 89): a published Markdown CST
+  // produced by running the grammar over a flattened projected string cannot
+  // share parser-created identity with a canonical CriticMarkup node.
+  //
+  // When the guarded candidate is byte-identical to canonical source, nothing
+  // was flattened: offsets map 1:1 onto canonical source, so this is a canonical
+  // parse and the identity objection does not arise. That equality is the
+  // condition, not the absence of CriticMarkup — a projection that elides or
+  // generates even one code unit is still a flattened reparse.
+  traceRecorder?.recordAuthoritativeMarkdownParse(
+    guarded.source === graph.source ? 'canonical-source' : 'flattened-projection',
+    traceView
+  )
+  const markdownParse = parseMarkdownDocument({
+    source: guarded.source,
+    matchingScopes: retainedMatchingScopes
+  }, markdownDepthLimit)
+  // Phase 0.5 step 1: the clean verifier no longer recognizes CriticMarkup. It
+  // needs only (a) proof the projection synthesized no CriticMarkup — supplied
+  // by the guard's accepted-marker count — and (b) a matching-scope-free
+  // Markdown CST to compare the scope-constrained parse against, which is a
+  // plain `parseMarkdownDocument` (CriticMarkup-blind by construction).
+  if (guarded.acceptedMarkerCount !== 0) {
     throw new Error('Boundary-safe projection verification produced synthetic CriticMarkup')
   }
-  const markdownParse = verification.projectedMarkdown
-  if (markdownParse === undefined) {
-    throw new Error('Boundary-safe projection verification omitted its Markdown product')
+  // The clean verification proves that constraining the parse to the
+  // parser-owned Substitution-arm scopes did not change the Markdown structure.
+  // With no scopes to constrain it, the "clean" parse takes byte-identical
+  // inputs to the scoped one, so the comparison is a tautology and the second
+  // parse is pure waste. Views that do carry arm scopes still verify.
+  const cleanMarkdownParse = retainedMatchingScopes.length === 0
+    ? markdownParse
+    : parseMarkdownDocument({ source: guarded.source }, markdownDepthLimit)
+  if (cleanMarkdownParse !== markdownParse) {
+    verifyCleanProjectedMarkdownV1(
+      markdownParse.document,
+      cleanMarkdownParse.document
+    )
+  }
+  const expectedDepthFailure = markdownParse.containerDepthFailure
+  const cleanDepthFailure = cleanMarkdownParse.containerDepthFailure
+  if (
+    expectedDepthFailure?.start !== cleanDepthFailure?.start ||
+    expectedDepthFailure?.end !== cleanDepthFailure?.end ||
+    expectedDepthFailure?.observed !== cleanDepthFailure?.observed
+  ) {
+    throw new Error('Clean projection Markdown mismatch: container depth')
   }
   return Object.freeze({
     source: guarded.source,
@@ -1965,14 +2990,22 @@ function project(
 
 function createCommentDisplayProjections(
   graph: Profile1SyntaxGraphCore,
-  markdownDepthLimit: number
+  markdownDepthLimit: number,
+  traceRecorder?: ProfileParseTraceRecorderV1
 ): readonly Profile1ProjectedMarkdown[] {
   const displays: Profile1ProjectedMarkdown[] = []
   for (const branch of graph.canonicalMarkdown.branches) {
     if (branch.node.kind === 'comment') {
       const armLane = branch.arms[0]
       if (armLane !== undefined) {
-        displays.push(project(graph, 'revised', armLane, markdownDepthLimit))
+        displays.push(project(
+          graph,
+          'revised',
+          armLane,
+          markdownDepthLimit,
+          traceRecorder,
+          'comment-display'
+        ))
       }
     }
   }
@@ -2032,9 +3065,142 @@ function createDiagnosticIndex(items: readonly SyntaxDiagnostic[]): DiagnosticIn
   return Object.freeze({ count: frozenItems.length, at })
 }
 
+/**
+ * Every CriticMarkup node and every CriticMarkup diagnostic requires at least
+ * one of these ten marker tokens in the source. A document containing none of
+ * them is pure Profile 1 Markdown: it has no CM forest, no marker decisions and
+ * no CM diagnostics, so no CriticMarkup state machine is needed to parse it.
+ *
+ * The test is deliberately a necessary condition only. A false positive costs
+ * nothing but the legacy path; a false negative is impossible, because a marker
+ * token cannot be recognized without appearing literally in the source.
+ */
+const CRITIC_MARKER_TOKEN = /\{(?:\+\+|--|~~|==|>>)|(?:\+\+|--|~~|==|<<)\}/
+
+/**
+ * Phase 0 intrinsic-kernel beachhead.
+ *
+ * Hands canonical source straight to the Profile 1 Markdown lane. The Markdown
+ * parser owns source progression here and its parse is the authoritative CST:
+ * no marker scan drives the loop, no parse frame or marker decision exists, and
+ * nothing is flattened and reparsed. This is the ownership direction Phase 0
+ * requires, proven first on the documents that need no CriticMarkup grammar at
+ * all; extending it to documents that do contain CM is the remaining work.
+ */
+function parseMarkdownOnlyPass(
+  source: string,
+  markdownDepthLimit: number,
+  traceRecorder?: ProfileParseTraceRecorderV1
+): ParseOutcome {
+  traceRecorder?.recordSourceProgression('markdown-kernel')
+  const markdownLane = createMarkdownLaneState(
+    source,
+    markdownDepthLimit,
+    undefined
+  )
+  const canonical = finalizeCanonicalTape(source, Object.freeze([]))
+  let checkpoint = markdownLane.emptyCheckpoint
+  const markdownArtifact = createCanonicalMarkdownParseRecorder(
+    source.length,
+    checkpoint
+  )
+  const stagedMarkdownLiterals: MarkdownLiteralRange[] = []
+  let firstMarkdownDepthFailure: MarkdownContainerDepthFailure | undefined
+  const noteMarkdownDepthFailure = (
+    candidate: MarkdownCheckpoint
+  ): void => {
+    const failure = markdownLane.containerDepthFailure(candidate)
+    if (
+      failure !== undefined &&
+      (
+        firstMarkdownDepthFailure === undefined ||
+        failure.start < firstMarkdownDepthFailure.start ||
+        (
+          failure.start === firstMarkdownDepthFailure.start &&
+          failure.end < firstMarkdownDepthFailure.end
+        )
+      )
+    ) {
+      firstMarkdownDepthFailure = failure
+    }
+  }
+
+  for (const run of canonical.tape) {
+    if (!isMarkdownTextTapeRole(run.role)) {
+      continue
+    }
+    const entryCheckpoint = checkpoint
+    const advanced = markdownLane.advance(
+      entryCheckpoint,
+      run.range.start,
+      run.range.end,
+      0,
+      source.length,
+      source.length
+    )
+    markdownArtifact.recordTransition(
+      markdownArtifact.root,
+      'advance',
+      entryCheckpoint,
+      advanced.checkpoint,
+      run.range.start,
+      run.range.end,
+      advanced.completedLiterals
+    )
+    checkpoint = advanced.checkpoint
+    noteMarkdownDepthFailure(checkpoint)
+    stagedMarkdownLiterals.push(...advanced.completedLiterals)
+  }
+
+  const finishedRootLane = markdownLane.finishLane(checkpoint, source.length)
+  markdownArtifact.recordTransition(
+    markdownArtifact.root,
+    'finish-lane',
+    checkpoint,
+    finishedRootLane.checkpoint,
+    source.length,
+    source.length,
+    finishedRootLane.completedLiterals
+  )
+  checkpoint = finishedRootLane.checkpoint
+  noteMarkdownDepthFailure(checkpoint)
+  stagedMarkdownLiterals.push(...finishedRootLane.completedLiterals)
+
+  if (firstMarkdownDepthFailure !== undefined) {
+    return Object.freeze({
+      kind: 'resource-failure',
+      fatalDiagnostic: createResourceDiagnostic(
+        'CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED',
+        sourceRange(
+          firstMarkdownDepthFailure.start,
+          firstMarkdownDepthFailure.end
+        ),
+        markdownDepthLimit,
+        firstMarkdownDepthFailure.observed
+      )
+    })
+  }
+
+  return Object.freeze({
+    kind: 'complete',
+    tape: canonical.tape,
+    roots: Object.freeze([]),
+    diagnostics: Object.freeze([]),
+    markerDecisions: canonical.markerDecisions,
+    canonicalMarkdownParse: markdownArtifact.finish(canonical.tape, checkpoint),
+    rejectedDelimiters: Object.freeze([]),
+    markdownLiterals: finalizeAuthenticatedMarkdownLiterals(
+      Object.freeze([]),
+      stagedMarkdownLiterals,
+      Object.freeze([])
+    )
+  })
+}
+
 export function parseProfile1Document(
   source: string,
-  executionBudget: ExecutionBudgetId
+  executionBudget: ExecutionBudgetId,
+  traceRecorder?: ProfileParseTraceRecorderV1
 ): Profile1DocumentResult {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   if (usesDesktopLimits && source.length > DESKTOP_SOURCE_UNIT_LIMIT) {
@@ -2048,18 +3214,40 @@ export function parseProfile1Document(
       )
     })
   }
-  const parsed = parseCriticMarkup(
-    source,
-    usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
-    undefined,
-    usesDesktopLimits
-      ? DESKTOP_MARKDOWN_DEPTH_LIMIT
-      : Number.POSITIVE_INFINITY
-  )
+  traceRecorder?.recordCanonicalSourceAdmission(source.length)
+  const markdownDepthLimit = usesDesktopLimits
+    ? DESKTOP_MARKDOWN_DEPTH_LIMIT
+    : Number.POSITIVE_INFINITY
+  // A source with no CriticMarkup marker token needs no CriticMarkup grammar,
+  // so it takes the intrinsic-kernel path where the Markdown parser owns
+  // progression. Everything else still runs the legacy CM-first driver, in
+  // which a CriticMarkup state machine consumes canonical source and consults a
+  // Markdown lane — the target-incompatible ownership Phase 0 must remove.
+  const usesCriticMarkupDriver = CRITIC_MARKER_TOKEN.test(source)
+  if (usesCriticMarkupDriver) {
+    traceRecorder?.recordSourceProgression('criticmarkup-driver')
+  }
+  const parsed = usesCriticMarkupDriver
+    ? parseCriticMarkup(
+      source,
+      usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
+      markdownDepthLimit,
+      undefined,
+      undefined,
+      traceRecorder
+    )
+    : parseMarkdownOnlyPass(source, markdownDepthLimit, traceRecorder)
   if (parsed.kind === 'resource-failure') {
     return Object.freeze({ kind: 'source-only', fatalDiagnostic: parsed.fatalDiagnostic })
   }
   const criticMarkup = Object.freeze({ roots: parsed.roots })
+  // Phase 0 invariant 6 fact: canonical ownership is reconstructed by an
+  // interval join over marker/EOL/literal spans after parsing, rather than
+  // created with syntax. The kernel path still inherits this join; retiring it
+  // requires parser-created ownership, which is later Phase 0 work.
+  if (usesCriticMarkupDriver) {
+    traceRecorder?.recordPostHocJoin('source-ownership')
+  }
   const graphCore = createProfile1SyntaxGraphCore(
     source,
     criticMarkup,
@@ -2068,14 +3256,29 @@ export function parseProfile1Document(
     parsed.markerDecisions,
     parsed.canonicalMarkdownParse
   )
-  const markdownDepthLimit = usesDesktopLimits
-    ? DESKTOP_MARKDOWN_DEPTH_LIMIT
-    : Number.POSITIVE_INFINITY
-  const original = project(graphCore, 'original', undefined, markdownDepthLimit)
-  const revised = project(graphCore, 'revised', undefined, markdownDepthLimit)
+  const original = project(
+    graphCore,
+    'original',
+    undefined,
+    markdownDepthLimit,
+    traceRecorder
+  )
+  // ADR 0013: parse once and read every view off it. With no CriticMarkup the
+  // Revised view is byte-identical to Original, so it reads the same parse
+  // rather than re-parsing the unchanged source.
+  const revised = criticMarkup.roots.length === 0
+    ? original
+    : project(
+      graphCore,
+      'revised',
+      undefined,
+      markdownDepthLimit,
+      traceRecorder
+    )
   const commentDisplays = createCommentDisplayProjections(
     graphCore,
-    markdownDepthLimit
+    markdownDepthLimit,
+    traceRecorder
   )
   const projectedDepthDiagnostic = usesDesktopLimits
     ? projectedMarkdownDepthDiagnostic(

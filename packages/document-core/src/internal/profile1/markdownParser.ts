@@ -6,9 +6,11 @@ import type {
   ViewRange
 } from '../../revision.js'
 import {
-  markdownReferenceDefinitionLabel,
+  createMarkdownReferenceDefinitionIndex,
   normalizeMarkdownReferenceLabel,
   parsePlainMarkdownLane,
+  type MarkdownMatchingScopePolicy,
+  type MarkdownReferenceDefinitionLookup,
   type PlainMarkdownContainer,
   type PlainMarkdownLine
 } from './markdownLaneState.js'
@@ -16,6 +18,15 @@ import type {
   MarkdownContainerDepthFailure,
   MarkdownInlineConstruct
 } from './markdownTypes.js'
+import type {
+  ProfileParseTraceRecorderV1,
+  ProfileParseTraceViewV1
+} from '../profileParseTraceV1.js'
+
+export interface Profile1ProjectionPlanningTraceV1 {
+  readonly view: ProfileParseTraceViewV1
+  readonly recorder: ProfileParseTraceRecorderV1
+}
 
 interface MappedMarkdownLiteral {
   readonly provider: MarkdownLiteralProvider
@@ -27,7 +38,83 @@ interface MappedMarkdownLiteral {
 
 export interface MappedMarkdownLane {
   readonly source: string
+  /**
+   * Parser-owned Substitution-arm scopes mapped into this lane. These are
+   * transitional evidence for the boundary guard; they are not rediscovered
+   * from the flattened source.
+   */
+  readonly matchingScopes?: readonly MappedMarkdownMatchingScope[]
+  /** Maximal candidate runs that retain one contiguous canonical tape identity. */
+  readonly canonicalIdentityRuns?: readonly MappedMarkdownCanonicalIdentityRun[]
+  /**
+   * Projection edits justified by parser-owned arm termination facts. The
+   * flattened lane may consume this evidence, but it must not rediscover it.
+   */
+  readonly armTerminationEdits?: readonly MarkdownArmBoundaryProjectionEdit[]
 }
+
+export interface MappedMarkdownMatchingScope {
+  readonly id: number
+  readonly start: number
+  readonly end: number
+  readonly depth: number
+}
+
+export interface MappedMarkdownCanonicalIdentityRun {
+  readonly candidateStart: number
+  readonly candidateEnd: number
+  readonly sourceRunId: number
+  readonly sourceStart: number
+}
+
+export type MarkdownArmBoundaryProjectionEdit =
+  | Readonly<{
+    readonly kind: 'protect-delimiter'
+    readonly candidateOffset: number
+  }>
+  | Readonly<{
+    readonly kind: 'respell-enclosing-emphasis-delimiters'
+    readonly openerStart: number
+    readonly openerEnd: number
+    readonly closerStart: number
+    readonly closerEnd: number
+    readonly replacementMarker: '*' | '_'
+  }>
+  | Readonly<{
+    readonly kind: 'encode-emphasis-flanking-scalar'
+    readonly candidateStart: number
+    readonly candidateEnd: number
+    readonly codePoint: number
+  }>
+  | Readonly<{
+    readonly kind: 'extend-inline-code-delimiters'
+    readonly openerStart: number
+    readonly openerEnd: number
+    readonly closerStart: number
+    readonly closerEnd: number
+    readonly delimiterLength: number
+  }>
+  | Readonly<{
+    readonly kind: 'terminate-fenced-block-fragment'
+    readonly candidateOffset: number
+    readonly sourcePosition: number
+    readonly marker: '`' | '~'
+    readonly delimiterLength: number
+    readonly lineEnding: '\n' | '\r' | '\r\n'
+    readonly needsLeadingLineEnding: boolean
+  }>
+  | Readonly<{
+    readonly kind: 'separate-following-block'
+    readonly candidateOffset: number
+    readonly sourcePosition: number
+    readonly lineEnding: '\n' | '\r' | '\r\n'
+    readonly indentationElision?: Readonly<{
+      readonly candidateStart: number
+      readonly candidateEnd: number
+      readonly sourceStart: number
+      readonly sourceEnd: number
+    }>
+  }>
 
 export interface Profile1MarkdownParse {
   readonly document: MarkdownDocument
@@ -36,7 +123,10 @@ export interface Profile1MarkdownParse {
 
 const EMPTY_ATTRIBUTES = Object.freeze({})
 const EMPTY_INLINE_CONSTRUCTS: ReadonlyMap<number, MappedMarkdownLiteral> = new Map()
-const EMPTY_REFERENCE_DEFINITIONS: ReadonlySet<string> = new Set()
+const EMPTY_REFERENCE_DEFINITIONS: MarkdownReferenceDefinitionLookup =
+  Object.freeze({
+    has: Object.freeze((): boolean => false)
+  })
 
 function viewRange(start: number, end: number): ViewRange {
   return Object.freeze({ start, end })
@@ -118,19 +208,32 @@ function findReferenceLink(
   source: string,
   start: number,
   end: number,
-  referenceDefinitions: ReadonlySet<string>
+  floor: number,
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): ParsedReferenceLink | undefined {
   const image =
     source.charCodeAt(start) === 33 && source.charCodeAt(start + 1) === 91
   const opener = image ? start + 1 : start
   if (
     source.charCodeAt(opener) !== 91 ||
-    hasOddBackslashRunBefore(source, opener, start)
+    hasOddBackslashRunBefore(source, start, floor)
   ) {
+    return undefined
+  }
+  if (
+    image &&
+    (matchingScopeAt(boundaryPolicy, start)?.id ?? -1) !==
+      (matchingScopeAt(boundaryPolicy, opener)?.id ?? -1)
+  ) {
+    boundaryPolicy?.unsafeDelimiterOffsets.add(start)
     return undefined
   }
   const labelEnd = findBalancedLabelEnd(source, opener, end)
   if (labelEnd === undefined || labelEnd === opener + 1) {
+    return undefined
+  }
+  if (rejectMappedCrossScopeMatch(boundaryPolicy, opener, labelEnd)) {
     return undefined
   }
   const normalizedLabel = normalizeMarkdownReferenceLabel(
@@ -141,8 +244,19 @@ function findReferenceLink(
   let constructEnd = labelEnd + 1
   let referenceLabel = normalizedLabel
   if (source.charCodeAt(constructEnd) === 91) {
-    const referenceEnd = findBalancedLabelEnd(source, constructEnd, end)
+    const referenceStart = constructEnd
+    const referenceEnd = findBalancedLabelEnd(source, referenceStart, end)
     if (referenceEnd === undefined) {
+      return undefined
+    }
+    if (
+      rejectMappedCrossScopeMatch(boundaryPolicy, opener, referenceStart) ||
+      rejectMappedCrossScopeMatch(
+        boundaryPolicy,
+        referenceStart,
+        referenceEnd
+      )
+    ) {
       return undefined
     }
     referenceLabel = referenceEnd === constructEnd + 1
@@ -159,7 +273,10 @@ function findReferenceLink(
   ) {
     return undefined
   }
-  if (!referenceDefinitions.has(referenceLabel)) {
+  if (!referenceDefinitions.has(referenceLabel, start)) {
+    if (referenceDefinitions.hasAny?.(referenceLabel) === true) {
+      boundaryPolicy?.unsafeDelimiterOffsets.add(opener)
+    }
     return undefined
   }
   return Object.freeze({
@@ -188,6 +305,7 @@ interface InlineDelimiterItem {
   end: number
   length: number
   active: boolean
+  readonly matchingScopeId: number
   previous: InlineItem | undefined
   next: InlineItem | undefined
 }
@@ -206,10 +324,87 @@ interface InlineDelimiterRun {
   readonly length: number
   readonly canOpen: boolean
   readonly canClose: boolean
+  readonly matchingScopeId: number
+}
+
+interface InlineBoundaryPolicy {
+  readonly scopeRuns: readonly MappedMarkdownMatchingScope[]
+  readonly unsafeDelimiterOffsets: Set<number>
+  readonly enclosingEmphasisRespellings: Map<
+    string,
+    Extract<
+      MarkdownArmBoundaryProjectionEdit,
+      { readonly kind: 'respell-enclosing-emphasis-delimiters' }
+    >
+  >
 }
 
 const UNICODE_WHITESPACE = /^\s$/u
 const UNICODE_PUNCTUATION_OR_SYMBOL = /^[\p{P}\p{S}]$/u
+
+function markdownFlankingScalar(scalar: string): string {
+  if (scalar.length !== 1) {
+    return scalar
+  }
+  const codeUnit = scalar.charCodeAt(0)
+  return codeUnit === 0 || (codeUnit >= 0xd800 && codeUnit <= 0xdfff)
+    ? '\ufffd'
+    : scalar
+}
+
+function matchingScopeAt(
+  policy: InlineBoundaryPolicy | undefined,
+  offset: number
+): MappedMarkdownMatchingScope | undefined {
+  const runs = policy?.scopeRuns ?? []
+  let low = 0
+  let high = runs.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if ((runs[middle]?.end ?? Number.POSITIVE_INFINITY) <= offset) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  const run = runs[low]
+  return run !== undefined && run.start <= offset ? run : undefined
+}
+
+function rejectMappedCrossScopeMatch(
+  policy: InlineBoundaryPolicy | undefined,
+  openerStart: number,
+  closerStart: number
+): boolean {
+  const unsafeOffset = mappedCrossScopeProtectionOffset(
+    policy,
+    openerStart,
+    closerStart
+  )
+  if (policy === undefined || unsafeOffset === undefined) {
+    return false
+  }
+  policy.unsafeDelimiterOffsets.add(unsafeOffset)
+  return true
+}
+
+function mappedCrossScopeProtectionOffset(
+  policy: InlineBoundaryPolicy | undefined,
+  openerStart: number,
+  closerStart: number
+): number | undefined {
+  if (policy === undefined) {
+    return undefined
+  }
+  const openerScope = matchingScopeAt(policy, openerStart)
+  const closerScope = matchingScopeAt(policy, closerStart)
+  if ((openerScope?.id ?? -1) === (closerScope?.id ?? -1)) {
+    return undefined
+  }
+  const openerDepth = openerScope?.depth ?? -1
+  const closerDepth = closerScope?.depth ?? -1
+  return closerDepth > openerDepth ? closerStart : openerStart
+}
 
 function unicodeScalarBefore(
   source: string,
@@ -231,7 +426,7 @@ function unicodeScalarBefore(
       start -= 1
     }
   }
-  return source.slice(start, offset)
+  return markdownFlankingScalar(source.slice(start, offset))
 }
 
 function unicodeScalarAt(
@@ -246,28 +441,110 @@ function unicodeScalarAt(
   if (codePoint === undefined) {
     return undefined
   }
-  return String.fromCodePoint(codePoint)
+  return markdownFlankingScalar(String.fromCodePoint(codePoint))
+}
+
+function unicodeScalarRangeBefore(
+  source: string,
+  offset: number
+): Readonly<{
+  readonly start: number
+  readonly end: number
+  readonly scalar: string
+}> | undefined {
+  const scalar = unicodeScalarBefore(source, offset, 0)
+  return scalar === undefined
+    ? undefined
+    : Object.freeze({ start: offset - scalar.length, end: offset, scalar })
+}
+
+function unicodeScalarRangeAt(
+  source: string,
+  offset: number
+): Readonly<{
+  readonly start: number
+  readonly end: number
+  readonly scalar: string
+}> | undefined {
+  const scalar = unicodeScalarAt(source, offset, source.length)
+  return scalar === undefined
+    ? undefined
+    : Object.freeze({ start: offset, end: offset + scalar.length, scalar })
+}
+
+function underscoreCanOpenBetween(
+  previous: string | undefined,
+  next: string | undefined
+): boolean {
+  const previousIsWhitespace =
+    previous === undefined || UNICODE_WHITESPACE.test(previous)
+  const nextIsWhitespace =
+    next === undefined || UNICODE_WHITESPACE.test(next)
+  const previousIsPunctuation =
+    previous !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(previous)
+  const nextIsPunctuation =
+    next !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(next)
+  const leftFlanking =
+    !nextIsWhitespace &&
+    (!nextIsPunctuation || previousIsWhitespace || previousIsPunctuation)
+  const rightFlanking =
+    !previousIsWhitespace &&
+    (!previousIsPunctuation || nextIsWhitespace || nextIsPunctuation)
+  return leftFlanking && (!rightFlanking || previousIsPunctuation)
+}
+
+function underscoreCanCloseBetween(
+  previous: string | undefined,
+  next: string | undefined
+): boolean {
+  const previousIsWhitespace =
+    previous === undefined || UNICODE_WHITESPACE.test(previous)
+  const nextIsWhitespace =
+    next === undefined || UNICODE_WHITESPACE.test(next)
+  const previousIsPunctuation =
+    previous !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(previous)
+  const nextIsPunctuation =
+    next !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(next)
+  const leftFlanking =
+    !nextIsWhitespace &&
+    (!nextIsPunctuation || previousIsWhitespace || previousIsPunctuation)
+  const rightFlanking =
+    !previousIsWhitespace &&
+    (!previousIsPunctuation || nextIsWhitespace || nextIsPunctuation)
+  return rightFlanking && (!leftFlanking || nextIsPunctuation)
 }
 
 function delimiterRunAt(
   source: string,
   offset: number,
   start: number,
-  end: number
+  end: number,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): InlineDelimiterRun | undefined {
+  const matchingScope = matchingScopeAt(boundaryPolicy, offset)
+  const matchingFloor = Math.max(start, matchingScope?.start ?? start)
+  const matchingCeiling = Math.min(end, matchingScope?.end ?? end)
   const markerCodeUnit = source.charCodeAt(offset)
   if (
     (markerCodeUnit !== 42 && markerCodeUnit !== 95 && markerCodeUnit !== 126) ||
     (
       source.charCodeAt(offset - 1) === markerCodeUnit &&
-      !hasOddBackslashRunBefore(source, offset - 1, start)
+      offset - 1 >= matchingFloor &&
+      (matchingScopeAt(boundaryPolicy, offset - 1)?.id ?? -1) ===
+        (matchingScope?.id ?? -1) &&
+      !hasOddBackslashRunBefore(source, offset - 1, matchingFloor)
     ) ||
-    hasOddBackslashRunBefore(source, offset, start)
+    hasOddBackslashRunBefore(source, offset, matchingFloor)
   ) {
     return undefined
   }
   let runEnd = offset + 1
-  while (runEnd < end && source.charCodeAt(runEnd) === markerCodeUnit) {
+  while (
+    runEnd < matchingCeiling &&
+    source.charCodeAt(runEnd) === markerCodeUnit &&
+    (matchingScopeAt(boundaryPolicy, runEnd)?.id ?? -1) ===
+      (matchingScope?.id ?? -1)
+  ) {
     runEnd += 1
   }
   const length = runEnd - offset
@@ -275,8 +552,8 @@ function delimiterRunAt(
     return undefined
   }
 
-  const previous = unicodeScalarBefore(source, offset, start)
-  const next = unicodeScalarAt(source, runEnd, end)
+  const previous = unicodeScalarBefore(source, offset, matchingFloor)
+  const next = unicodeScalarAt(source, runEnd, matchingCeiling)
   const previousIsWhitespace =
     previous === undefined || UNICODE_WHITESPACE.test(previous)
   const nextIsWhitespace = next === undefined || UNICODE_WHITESPACE.test(next)
@@ -302,7 +579,8 @@ function delimiterRunAt(
     end: runEnd,
     length,
     canOpen,
-    canClose
+    canClose,
+    matchingScopeId: matchingScope?.id ?? -1
   })
 }
 
@@ -429,11 +707,80 @@ function wrapInlineDelimiterPair(
 
 function resolveInlineDelimiterItems(
   list: InlineList,
-  delimiters: readonly InlineDelimiterItem[]
+  delimiters: readonly InlineDelimiterItem[],
+  boundaryPolicy?: InlineBoundaryPolicy
 ): readonly MarkdownNode[] {
   const openerStacks = new Map<number, InlineDelimiterItem[]>()
   const openerBottoms = new Map<number, Map<string, number>>()
-  for (const closer of delimiters) {
+  const futureCloserIndexes = new Map<string, number[]>()
+  const futureCloserKey = (
+    delimiter: InlineDelimiterItem,
+    lengthModulo: number = delimiter.length % 3,
+    canOpen: boolean = delimiter.canOpen
+  ): string =>
+    `${delimiter.matchingScopeId}:${delimiter.markerCodeUnit}:${lengthModulo}:${canOpen ? 1 : 0}`
+  for (let index = 0; index < delimiters.length; index += 1) {
+    const delimiter = delimiters[index]
+    if (delimiter === undefined || !delimiter.canClose) {
+      continue
+    }
+    const key = futureCloserKey(delimiter)
+    const indexes = futureCloserIndexes.get(key)
+    if (indexes === undefined) {
+      futureCloserIndexes.set(key, [index])
+    } else {
+      indexes.push(index)
+    }
+  }
+  const nextSameScopeCloser = (
+    opener: InlineDelimiterItem,
+    afterIndex: number
+  ): Readonly<{
+    readonly delimiter: InlineDelimiterItem
+    readonly index: number
+  }> | undefined => {
+    let selectedIndex = Number.POSITIVE_INFINITY
+    for (let lengthModulo = 0; lengthModulo < 3; lengthModulo += 1) {
+      for (const canOpen of [false, true]) {
+        const indexes = futureCloserIndexes.get(
+          futureCloserKey(opener, lengthModulo, canOpen)
+        ) ?? []
+        let low = 0
+        let high = indexes.length
+        while (low < high) {
+          const middle = low + Math.floor((high - low) / 2)
+          if ((indexes[middle] ?? Number.POSITIVE_INFINITY) <= afterIndex) {
+            low = middle + 1
+          } else {
+            high = middle
+          }
+        }
+        const candidateIndex = indexes[low]
+        const candidate = delimiters[candidateIndex ?? -1]
+        if (
+          candidateIndex !== undefined &&
+          candidateIndex < selectedIndex &&
+          candidate !== undefined &&
+          delimiterPairIsAllowed(opener, candidate)
+        ) {
+          selectedIndex = candidateIndex
+        }
+      }
+    }
+    const delimiter = delimiters[selectedIndex]
+    return delimiter === undefined
+      ? undefined
+      : Object.freeze({ delimiter, index: selectedIndex })
+  }
+  for (
+    let delimiterIndex = 0;
+    delimiterIndex < delimiters.length;
+    delimiterIndex += 1
+  ) {
+    const closer = delimiters[delimiterIndex]
+    if (closer === undefined) {
+      continue
+    }
     if (!closer.active) {
       continue
     }
@@ -468,6 +815,59 @@ function resolveInlineDelimiterItems(
           bottoms.set(closerClass, openers.length)
           break
         }
+        if (opener.matchingScopeId !== closer.matchingScopeId) {
+          const laterOpenerScopeCloser = nextSameScopeCloser(
+            opener,
+            delimiterIndex
+          )
+          const laterCloserScopeCloser = closer.canOpen
+            ? nextSameScopeCloser(closer, delimiterIndex)
+            : undefined
+          if (
+            boundaryPolicy !== undefined &&
+            (opener.markerCodeUnit === 42 || opener.markerCodeUnit === 95) &&
+            opener.length === 1 &&
+            closer.length === 1 &&
+            laterOpenerScopeCloser?.delimiter.length === 1 &&
+            laterCloserScopeCloser?.delimiter.length === 1 &&
+            laterCloserScopeCloser.index < laterOpenerScopeCloser.index
+          ) {
+            const replacementMarker = opener.markerCodeUnit === 42 ? '_' : '*'
+            const respelling = Object.freeze({
+              kind: 'respell-enclosing-emphasis-delimiters' as const,
+              openerStart: opener.start,
+              openerEnd: opener.end,
+              closerStart: laterOpenerScopeCloser.delimiter.start,
+              closerEnd: laterOpenerScopeCloser.delimiter.end,
+              replacementMarker
+            })
+            boundaryPolicy.enclosingEmphasisRespellings.set(
+              `${respelling.openerStart}:${respelling.closerStart}`,
+              respelling
+            )
+            break
+          }
+          const unsafeDelimiter: InlineDelimiterItem =
+            laterOpenerScopeCloser !== undefined ? closer : opener
+          for (
+            let markerOffset = unsafeDelimiter.start;
+            markerOffset < unsafeDelimiter.end;
+          ) {
+            boundaryPolicy?.unsafeDelimiterOffsets.add(markerOffset)
+            markerOffset += 1
+          }
+          unsafeDelimiter.active = false
+          if (unsafeDelimiter === closer) {
+            break
+          }
+          openers.splice(openerIndex, 1)
+          for (const [key, bottom] of bottoms) {
+            if (bottom > openers.length) {
+              bottoms.set(key, openers.length)
+            }
+          }
+          continue
+        }
         wrapInlineDelimiterPair(list, opener, closer)
         openers.length = openerIndex + (opener.active ? 1 : 0)
         for (const [key, bottom] of bottoms) {
@@ -501,7 +901,9 @@ function appendInlineRange(
   start: number,
   end: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS,
-  referenceDefinitions: ReadonlySet<string> = EMPTY_REFERENCE_DEFINITIONS
+  referenceDefinitions: MarkdownReferenceDefinitionLookup =
+  EMPTY_REFERENCE_DEFINITIONS,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): void {
   const appendNode = (node: MarkdownNode): void => {
     appendInlineItem(list, {
@@ -533,7 +935,8 @@ function appendInlineRange(
           construct.labelStart,
           construct.labelEnd,
           constructs,
-          referenceDefinitions
+          referenceDefinitions,
+          boundaryPolicy
         ),
         {
           destinationStart: literal.start,
@@ -610,7 +1013,9 @@ function appendInlineRange(
       source,
       offset,
       end,
-      referenceDefinitions
+      start,
+      referenceDefinitions,
+      boundaryPolicy
     )
     if (referenceLink !== undefined) {
       if (textStart < offset) {
@@ -625,7 +1030,8 @@ function appendInlineRange(
           referenceLink.labelStart,
           referenceLink.labelEnd,
           constructs,
-          referenceDefinitions
+          referenceDefinitions,
+          boundaryPolicy
         ),
         { referenceLabel: referenceLink.referenceLabel }
       ))
@@ -668,7 +1074,13 @@ function appendInlineRange(
       textStart = offset
       continue
     }
-    const delimiterRun = delimiterRunAt(source, offset, start, end)
+    const delimiterRun = delimiterRunAt(
+      source,
+      offset,
+      start,
+      end,
+      boundaryPolicy
+    )
     if (delimiterRun !== undefined) {
       if (textStart < offset) {
         appendNode(createNode('text', textStart, offset))
@@ -682,6 +1094,7 @@ function appendInlineRange(
         end: delimiterRun.end,
         length: delimiterRun.length,
         active: true,
+        matchingScopeId: delimiterRun.matchingScopeId,
         previous: undefined,
         next: undefined
       }
@@ -703,7 +1116,9 @@ function parseInlineNodes(
   start: number,
   end: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS,
-  referenceDefinitions: ReadonlySet<string> = EMPTY_REFERENCE_DEFINITIONS
+  referenceDefinitions: MarkdownReferenceDefinitionLookup =
+  EMPTY_REFERENCE_DEFINITIONS,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): readonly MarkdownNode[] {
   const list: InlineList = { head: undefined, tail: undefined }
   const delimiters: InlineDelimiterItem[] = []
@@ -714,16 +1129,18 @@ function parseInlineNodes(
     start,
     end,
     constructs,
-    referenceDefinitions
+    referenceDefinitions,
+    boundaryPolicy
   )
-  return resolveInlineDelimiterItems(list, delimiters)
+  return resolveInlineDelimiterItems(list, delimiters, boundaryPolicy)
 }
 
 function parseInlineLineSequence(
   source: string,
   lines: readonly PlainMarkdownLine[],
   constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
-  referenceDefinitions: ReadonlySet<string>
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): readonly MarkdownNode[] {
   const list: InlineList = { head: undefined, tail: undefined }
   const delimiters: InlineDelimiterItem[] = []
@@ -739,10 +1156,11 @@ function parseInlineLineSequence(
       line.contentOffset,
       index + 1 < lines.length ? line.end : line.contentEnd,
       constructs,
-      referenceDefinitions
+      referenceDefinitions,
+      boundaryPolicy
     )
   }
-  return resolveInlineDelimiterItems(list, delimiters)
+  return resolveInlineDelimiterItems(list, delimiters, boundaryPolicy)
 }
 
 function leadingIndent(source: string, start: number, end: number): number {
@@ -758,7 +1176,9 @@ function parseAtxHeading(
   start: number,
   end: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS,
-  referenceDefinitions: ReadonlySet<string> = EMPTY_REFERENCE_DEFINITIONS
+  referenceDefinitions: MarkdownReferenceDefinitionLookup =
+  EMPTY_REFERENCE_DEFINITIONS,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): MarkdownNode | undefined {
   const indentation = leadingIndent(source, start, end)
   let offset = start + indentation
@@ -812,7 +1232,8 @@ function parseAtxHeading(
       offset,
       contentEnd,
       constructs,
-      referenceDefinitions
+      referenceDefinitions,
+      boundaryPolicy
     )
     : []
   return createNode('heading', start, end, children, { level })
@@ -942,7 +1363,8 @@ function parseOrderedContainerSequence(
   lineIndex: number,
   literals: readonly MappedMarkdownLiteral[],
   constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
-  referenceDefinitions: ReadonlySet<string>
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): ParsedContainerSequence | undefined {
   if ((lines[lineIndex]?.containers.length ?? 0) === 0) {
     return undefined
@@ -971,7 +1393,8 @@ function parseOrderedContainerSequence(
         source,
         paragraphLines,
         constructs,
-        referenceDefinitions
+        referenceDefinitions,
+        boundaryPolicy
       ))
     }
     paragraphOwner = undefined
@@ -1104,7 +1527,8 @@ function parseOrderedContainerSequence(
       line.contentOffset,
       line.contentEnd,
       constructs,
-      referenceDefinitions
+      referenceDefinitions,
+      boundaryPolicy
     )
     if (heading !== undefined) {
       parent.children.push(heading)
@@ -1285,7 +1709,8 @@ function parseTable(
   lines: readonly PlainMarkdownLine[],
   lineIndex: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
-  referenceDefinitions: ReadonlySet<string>
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): ParsedTable | undefined {
   const headerLine = lines[lineIndex]
   const delimiterLine = lines[lineIndex + 1]
@@ -1331,7 +1756,8 @@ function parseTable(
           cell.start,
           cell.end,
           constructs,
-          referenceDefinitions
+          referenceDefinitions,
+          boundaryPolicy
         ),
         { header, alignment }
       )
@@ -1369,7 +1795,8 @@ function parseBlocks(
   source: string,
   literals: readonly MappedMarkdownLiteral[],
   lines: readonly PlainMarkdownLine[],
-  referenceDefinitions: ReadonlySet<string>
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): readonly MarkdownNode[] {
   const blocks: MarkdownNode[] = []
   const constructs = new Map<number, MappedMarkdownLiteral>()
@@ -1401,7 +1828,8 @@ function parseBlocks(
       lineIndex,
       literals,
       constructs,
-      referenceDefinitions
+      referenceDefinitions,
+      boundaryPolicy
     )
     if (containerSequence !== undefined) {
       blocks.push(...containerSequence.nodes)
@@ -1420,7 +1848,8 @@ function parseBlocks(
       lines,
       lineIndex,
       constructs,
-      referenceDefinitions
+      referenceDefinitions,
+      boundaryPolicy
     )
     if (table !== undefined) {
       blocks.push(table.node)
@@ -1436,7 +1865,8 @@ function parseBlocks(
       line.start,
       line.contentEnd,
       constructs,
-      referenceDefinitions
+      referenceDefinitions,
+      boundaryPolicy
     )
     if (standalone !== undefined) {
       blocks.push(standalone)
@@ -1465,7 +1895,8 @@ function parseBlocks(
           line.contentOffset,
           line.contentEnd,
           constructs,
-          referenceDefinitions
+          referenceDefinitions,
+          boundaryPolicy
         ),
         { level: setextLevel, style: 'setext' }
       ))
@@ -1507,7 +1938,8 @@ function parseBlocks(
           nextLine.start,
           nextLine.contentEnd,
           constructs,
-          referenceDefinitions
+          referenceDefinitions,
+          boundaryPolicy
         ) !== undefined ||
         nextLine.listMarkers.length > 0
       ) {
@@ -1525,7 +1957,8 @@ function parseBlocks(
         paragraphStart,
         paragraphEnd,
         constructs,
-        referenceDefinitions
+        referenceDefinitions,
+        boundaryPolicy
       )
     ))
     lineIndex = nextLineIndex
@@ -1548,12 +1981,625 @@ function containsPosition(
   )
 }
 
-export function parseMarkdownDocument(
+interface BoundaryAwareMarkdownParse extends Profile1MarkdownParse {
+  readonly boundaryProjectionEdits: readonly MarkdownArmBoundaryProjectionEdit[]
+}
+
+function backtickRunEnd(
+  source: string,
+  start: number,
+  ceiling: number
+): number {
+  let end = start
+  while (end < ceiling && source.charCodeAt(end) === 96) {
+    end += 1
+  }
+  return end
+}
+
+interface AuthenticatedMarkdownDelimiterIdentity {
+  readonly sourceRunId: number
+  readonly sourceStart: number
+  readonly matchingScopeId: number
+}
+
+interface AuthenticatedMarkdownDelimiterLookup {
+  readonly authenticate: (
+    start: number,
+    end: number
+  ) => AuthenticatedMarkdownDelimiterIdentity | undefined
+}
+
+function createAuthenticatedMarkdownDelimiterLookup(
+  canonicalIdentityRuns: readonly MappedMarkdownCanonicalIdentityRun[],
+  boundaryPolicy: InlineBoundaryPolicy | undefined,
+  trace?: Profile1ProjectionPlanningTraceV1
+): AuthenticatedMarkdownDelimiterLookup {
+  const scopeRuns = boundaryPolicy?.scopeRuns ?? []
+  let identityRunIndex = 0
+  let scopeRunIndex = 0
+  let previousStart = -1
+  return Object.freeze({
+    authenticate: Object.freeze((
+      start: number,
+      end: number
+    ): AuthenticatedMarkdownDelimiterIdentity | undefined => {
+      if (start < previousStart) {
+        throw new Error('Markdown delimiter identity lookup moved backward')
+      }
+      previousStart = start
+      // One indexed lookup request. Both index cursors below advance
+      // monotonically, so the recorded candidate probes stay linear in the
+      // number of runs rather than rescanning the lane per query.
+      trace?.recorder.recordInlineCodeCloserQuery(trace.view, start, end)
+      if (start >= end) {
+        return undefined
+      }
+      while (
+        (canonicalIdentityRuns[identityRunIndex]?.candidateEnd ??
+          Number.POSITIVE_INFINITY) <= start
+      ) {
+        trace?.recorder.recordInlineCodeCloserCandidate(trace.view, start, end)
+        identityRunIndex += 1
+      }
+      const identityRun = canonicalIdentityRuns[identityRunIndex]
+      if (
+        identityRun === undefined ||
+        identityRun.candidateStart > start ||
+        end > identityRun.candidateEnd
+      ) {
+        return undefined
+      }
+
+      while (
+        (scopeRuns[scopeRunIndex]?.end ?? Number.POSITIVE_INFINITY) <= start
+      ) {
+        trace?.recorder.recordInlineCodeCloserCandidate(trace.view, start, end)
+        scopeRunIndex += 1
+      }
+      const matchingScope = scopeRuns[scopeRunIndex]
+      const startsInMatchingScope =
+        matchingScope !== undefined && matchingScope.start <= start
+      if (startsInMatchingScope) {
+        if (end > matchingScope.end) {
+          return undefined
+        }
+      } else if (
+        matchingScope !== undefined && matchingScope.start < end
+      ) {
+        return undefined
+      }
+
+      return Object.freeze({
+        sourceRunId: identityRun.sourceRunId,
+        sourceStart:
+          identityRun.sourceStart + start - identityRun.candidateStart,
+        matchingScopeId: startsInMatchingScope
+          ? matchingScope.id
+          : -1
+      })
+    })
+  })
+}
+
+interface InlineCodeLiteralExtensionAnalysis {
+  readonly literal: MappedMarkdownLiteral
+  readonly openerEnd: number
+  readonly closerStart: number
+  readonly delimiterLength: number
+  readonly extensionDelimiterLength: number | undefined
+  readonly eligibleUnsafeOffsets: ReadonlySet<number>
+}
+
+function analyzeInlineCodeLiteralForExtension(
+  source: string,
+  literal: MappedMarkdownLiteral,
+  identityLookup: AuthenticatedMarkdownDelimiterLookup,
+  trace?: Profile1ProjectionPlanningTraceV1
+): InlineCodeLiteralExtensionAnalysis {
+  trace?.recorder.recordInlineCodeExtensionAnalysis(
+    trace.view,
+    literal.start,
+    literal.end
+  )
+  const openerEnd = backtickRunEnd(source, literal.start, literal.end)
+  const delimiterLength = openerEnd - literal.start
+  let closerStart = literal.end - 1
+  while (
+    closerStart > literal.start &&
+    source.charCodeAt(closerStart - 1) === 96
+  ) {
+    closerStart -= 1
+  }
+  if (
+    delimiterLength === 0 ||
+    literal.end - closerStart !== delimiterLength
+  ) {
+    throw new Error('Inline-code literal lost its paired delimiters')
+  }
+
+  const openerIdentity = identityLookup.authenticate(
+    literal.start,
+    openerEnd
+  )
+  let maximumInteriorRunLength = 0
+  const eligibleUnsafeOffsets = new Set<number>()
+  for (let offset = openerEnd; offset < closerStart;) {
+    if (source.charCodeAt(offset) !== 96) {
+      offset += 1
+      continue
+    }
+    const runEnd = backtickRunEnd(source, offset, closerStart)
+    maximumInteriorRunLength = Math.max(
+      maximumInteriorRunLength,
+      runEnd - offset
+    )
+    if (runEnd - offset >= delimiterLength) {
+      eligibleUnsafeOffsets.add(runEnd - delimiterLength)
+    }
+    offset = runEnd
+  }
+  const closerIdentity = identityLookup.authenticate(
+    closerStart,
+    literal.end
+  )
+  const canExtend =
+    openerIdentity !== undefined &&
+    closerIdentity !== undefined &&
+    openerIdentity.matchingScopeId === closerIdentity.matchingScopeId &&
+    maximumInteriorRunLength >= delimiterLength
+  return Object.freeze({
+    literal,
+    openerEnd,
+    closerStart,
+    delimiterLength,
+    extensionDelimiterLength: canExtend
+      ? maximumInteriorRunLength + 1
+      : undefined,
+    eligibleUnsafeOffsets: canExtend
+      ? eligibleUnsafeOffsets
+      : new Set<number>()
+  })
+}
+
+function inlineCodeDelimiterExtension(
+  analysis: InlineCodeLiteralExtensionAnalysis,
+  unsafeOffset: number
+): Extract<
+  MarkdownArmBoundaryProjectionEdit,
+  { readonly kind: 'extend-inline-code-delimiters' }
+> | undefined {
+  const extensionDelimiterLength = analysis.extensionDelimiterLength
+  if (
+    extensionDelimiterLength === undefined ||
+    !analysis.eligibleUnsafeOffsets.has(unsafeOffset)
+  ) {
+    return undefined
+  }
+  return Object.freeze({
+    kind: 'extend-inline-code-delimiters',
+    openerStart: analysis.literal.start,
+    openerEnd: analysis.openerEnd,
+    closerStart: analysis.closerStart,
+    closerEnd: analysis.literal.end,
+    delimiterLength: extensionDelimiterLength
+  })
+}
+
+function unauthenticatedInlineCodeDelimiterOffsets(
+  source: string,
+  literals: readonly MappedMarkdownLiteral[],
+  identityLookup: AuthenticatedMarkdownDelimiterLookup
+): readonly number[] {
+  const offsets: number[] = []
+  for (const literal of literals) {
+    const openerEnd = backtickRunEnd(source, literal.start, literal.end)
+    let closerStart = literal.end - 1
+    while (
+      closerStart > literal.start &&
+      source.charCodeAt(closerStart - 1) === 96
+    ) {
+      closerStart -= 1
+    }
+    const openerLength = openerEnd - literal.start
+    if (
+      openerLength <= 0 ||
+      literal.end - closerStart !== openerLength
+    ) {
+      throw new Error('Inline-code literal lost its paired delimiters')
+    }
+    const openerIdentity = identityLookup.authenticate(
+      literal.start,
+      openerEnd
+    )
+    if (openerIdentity === undefined) {
+      offsets.push(literal.start)
+      continue
+    }
+    const closerIdentity = identityLookup.authenticate(
+      closerStart,
+      literal.end
+    )
+    if (
+      closerIdentity === undefined ||
+      closerIdentity.matchingScopeId !== openerIdentity.matchingScopeId
+    ) {
+      offsets.push(closerStart)
+    }
+  }
+  return Object.freeze(offsets)
+}
+
+function emphasisFlankingScalarEdits(
+  source: string,
+  respelling: Extract<
+    MarkdownArmBoundaryProjectionEdit,
+    { readonly kind: 'respell-enclosing-emphasis-delimiters' }
+  >
+): readonly Extract<
+    MarkdownArmBoundaryProjectionEdit,
+    { readonly kind: 'encode-emphasis-flanking-scalar' }
+  >[] {
+  if (respelling.replacementMarker !== '_') {
+    return Object.freeze([])
+  }
+  const edits: Extract<
+    MarkdownArmBoundaryProjectionEdit,
+    { readonly kind: 'encode-emphasis-flanking-scalar' }
+  >[] = []
+  const beforeOpener = unicodeScalarRangeBefore(source, respelling.openerStart)
+  const afterOpener = unicodeScalarRangeAt(source, respelling.openerEnd)
+  if (
+    !underscoreCanOpenBetween(beforeOpener?.scalar, afterOpener?.scalar) &&
+    beforeOpener !== undefined
+  ) {
+    edits.push(Object.freeze({
+      kind: 'encode-emphasis-flanking-scalar',
+      candidateStart: beforeOpener.start,
+      candidateEnd: beforeOpener.end,
+      codePoint: beforeOpener.scalar.codePointAt(0) ?? 0
+    }))
+  }
+
+  const beforeCloser = unicodeScalarRangeBefore(source, respelling.closerStart)
+  const afterCloser = unicodeScalarRangeAt(source, respelling.closerEnd)
+  if (
+    !underscoreCanCloseBetween(beforeCloser?.scalar, afterCloser?.scalar) &&
+    afterCloser !== undefined
+  ) {
+    edits.push(Object.freeze({
+      kind: 'encode-emphasis-flanking-scalar',
+      candidateStart: afterCloser.start,
+      candidateEnd: afterCloser.end,
+      codePoint: afterCloser.scalar.codePointAt(0) ?? 0
+    }))
+  }
+  return Object.freeze(edits)
+}
+
+function planBoundaryProjectionEdits(
+  source: string,
+  literals: readonly MappedMarkdownLiteral[],
+  canonicalIdentityRuns: readonly MappedMarkdownCanonicalIdentityRun[],
+  boundaryPolicy: InlineBoundaryPolicy | undefined,
+  unsafeDelimiterOffsets: ReadonlySet<number>,
+  enclosingEmphasisRespellings: ReadonlyMap<
+    string,
+    Extract<
+      MarkdownArmBoundaryProjectionEdit,
+      { readonly kind: 'respell-enclosing-emphasis-delimiters' }
+    >
+  >,
+  armTerminationEdits: readonly MarkdownArmBoundaryProjectionEdit[],
+  trace?: Profile1ProjectionPlanningTraceV1
+): readonly MarkdownArmBoundaryProjectionEdit[] {
+  const respellings = [
+    ...enclosingEmphasisRespellings.values()
+  ].sort((left, right) => left.openerStart - right.openerStart)
+  const edits: MarkdownArmBoundaryProjectionEdit[] = [
+    ...armTerminationEdits
+  ]
+  const flankingScalarEditsByRange = new Map<
+    string,
+    Extract<
+      MarkdownArmBoundaryProjectionEdit,
+      { readonly kind: 'encode-emphasis-flanking-scalar' }
+    >
+  >()
+  for (const respelling of respellings) {
+    edits.push(respelling)
+    for (const scalarEdit of emphasisFlankingScalarEdits(source, respelling)) {
+      const rangeKey = `${scalarEdit.candidateStart}:${scalarEdit.candidateEnd}`
+      const existing = flankingScalarEditsByRange.get(rangeKey)
+      if (existing === undefined) {
+        flankingScalarEditsByRange.set(rangeKey, scalarEdit)
+        edits.push(scalarEdit)
+        continue
+      }
+      if (existing.codePoint !== scalarEdit.codePoint) {
+        throw new Error(
+          'Emphasis projection codecs conflict for one flanking scalar'
+        )
+      }
+    }
+  }
+  const inlineCodeLiterals = literals.filter(
+    (literal) => literal.provider === 'inline-code'
+  )
+  const protectionOffsets = new Set<number>(
+    unauthenticatedInlineCodeDelimiterOffsets(
+      source,
+      inlineCodeLiterals,
+      createAuthenticatedMarkdownDelimiterLookup(
+        canonicalIdentityRuns,
+        boundaryPolicy,
+        trace
+      )
+    )
+  )
+  const analysisIdentityLookup = createAuthenticatedMarkdownDelimiterLookup(
+    canonicalIdentityRuns,
+    boundaryPolicy
+  )
+  const extendedInlineCodeStarts = new Set<number>()
+  let inlineCodeLiteralIndex = 0
+  let cachedAnalysis: InlineCodeLiteralExtensionAnalysis | undefined
+  let visitedUnsafeOffsetCount = 0
+  for (
+    let candidateOffset = 0;
+    candidateOffset < source.length;
+    candidateOffset += 1
+  ) {
+    if (!unsafeDelimiterOffsets.has(candidateOffset)) {
+      continue
+    }
+    visitedUnsafeOffsetCount += 1
+    while (
+      (inlineCodeLiterals[inlineCodeLiteralIndex]?.end ??
+        Number.POSITIVE_INFINITY) <= candidateOffset
+    ) {
+      inlineCodeLiteralIndex += 1
+      cachedAnalysis = undefined
+    }
+    const literal = inlineCodeLiterals[inlineCodeLiteralIndex]
+    let extension: Extract<
+      MarkdownArmBoundaryProjectionEdit,
+      { readonly kind: 'extend-inline-code-delimiters' }
+    > | undefined
+    if (
+      literal !== undefined &&
+      literal.start < candidateOffset &&
+      candidateOffset < literal.end &&
+      source.charCodeAt(candidateOffset) === 96
+    ) {
+      cachedAnalysis ??= analyzeInlineCodeLiteralForExtension(
+        source,
+        literal,
+        analysisIdentityLookup,
+        trace
+      )
+      extension = inlineCodeDelimiterExtension(
+        cachedAnalysis,
+        candidateOffset
+      )
+    }
+    if (extension !== undefined) {
+      if (!extendedInlineCodeStarts.has(extension.openerStart)) {
+        extendedInlineCodeStarts.add(extension.openerStart)
+        edits.push(extension)
+      }
+      continue
+    }
+    protectionOffsets.add(candidateOffset)
+  }
+  if (visitedUnsafeOffsetCount !== unsafeDelimiterOffsets.size) {
+    throw new Error('Unsafe Markdown delimiter offset is outside the lane')
+  }
+  let visitedProtectionOffsetCount = 0
+  for (
+    let candidateOffset = 0;
+    candidateOffset < source.length;
+    candidateOffset += 1
+  ) {
+    if (protectionOffsets.has(candidateOffset)) {
+      visitedProtectionOffsetCount += 1
+      edits.push(Object.freeze({ kind: 'protect-delimiter', candidateOffset }))
+    }
+  }
+  if (visitedProtectionOffsetCount !== protectionOffsets.size) {
+    throw new Error('Markdown delimiter protection is outside the lane')
+  }
+  return Object.freeze(edits)
+}
+
+function validatedCanonicalIdentityRuns(
+  sourceLength: number,
+  runs: readonly MappedMarkdownCanonicalIdentityRun[] | undefined
+): readonly MappedMarkdownCanonicalIdentityRun[] {
+  const stable = Object.freeze([...(runs ?? [])])
+  let previousEnd = 0
+  for (const run of stable) {
+    if (
+      !Number.isInteger(run.candidateStart) ||
+      !Number.isInteger(run.candidateEnd) ||
+      !Number.isInteger(run.sourceRunId) ||
+      !Number.isInteger(run.sourceStart) ||
+      run.candidateStart < previousEnd ||
+      run.candidateStart >= run.candidateEnd ||
+      run.candidateEnd > sourceLength ||
+      run.sourceRunId < 0 ||
+      run.sourceStart < 0
+    ) {
+      throw new Error('Mapped Markdown canonical identity run is invalid')
+    }
+    previousEnd = run.candidateEnd
+  }
+  return stable
+}
+
+function validatedMatchingScopeRuns(
+  sourceLength: number,
+  scopes: readonly MappedMarkdownMatchingScope[] | undefined
+): readonly MappedMarkdownMatchingScope[] {
+  const stable = Object.freeze([...(scopes ?? [])])
+  const ids = new Set<number>()
+  const events: Array<Readonly<{
+    readonly offset: number
+    readonly role: 'enter' | 'exit'
+    readonly scope: MappedMarkdownMatchingScope
+  }>> = []
+  for (const scope of stable) {
+    if (
+      scope === undefined ||
+      !Number.isInteger(scope.id) ||
+      ids.has(scope.id) ||
+      !Number.isInteger(scope.start) ||
+      !Number.isInteger(scope.end) ||
+      !Number.isInteger(scope.depth) ||
+      scope.start < 0 ||
+      scope.start >= scope.end ||
+      scope.end > sourceLength ||
+      scope.depth < 0
+    ) {
+      throw new Error('Mapped Markdown matching scope is invalid')
+    }
+    ids.add(scope.id)
+    events.push(
+      Object.freeze({ offset: scope.start, role: 'enter', scope }),
+      Object.freeze({ offset: scope.end, role: 'exit', scope })
+    )
+  }
+  events.sort((left, right) =>
+    left.offset - right.offset ||
+    (left.role === right.role
+      ? left.role === 'enter'
+        ? left.scope.depth - right.scope.depth
+        : right.scope.depth - left.scope.depth
+      : left.role === 'exit' ? -1 : 1)
+  )
+
+  const active: MappedMarkdownMatchingScope[] = []
+  const runs: MappedMarkdownMatchingScope[] = []
+  let eventIndex = 0
+  while (eventIndex < events.length) {
+    const offset = events[eventIndex]?.offset
+    if (offset === undefined) {
+      break
+    }
+    while (events[eventIndex]?.offset === offset) {
+      const event = events[eventIndex]
+      if (event === undefined) {
+        break
+      }
+      if (event.role === 'exit') {
+        if (active.pop()?.id !== event.scope.id) {
+          throw new Error('Mapped Markdown matching scopes cross')
+        }
+      } else {
+        if (event.scope.depth !== active.length) {
+          throw new Error('Mapped Markdown matching scope depth is invalid')
+        }
+        active.push(event.scope)
+      }
+      eventIndex += 1
+    }
+    const nextOffset = events[eventIndex]?.offset
+    const selected = active.at(-1)
+    if (
+      selected !== undefined &&
+      nextOffset !== undefined &&
+      offset < nextOffset
+    ) {
+      runs.push(Object.freeze({
+        id: selected.id,
+        start: offset,
+        end: nextOffset,
+        depth: selected.depth
+      }))
+    }
+  }
+  if (active.length !== 0) {
+    throw new Error('Mapped Markdown matching scope is unterminated')
+  }
+  return Object.freeze(runs)
+}
+
+function parseMarkdownDocumentWithBoundaryEvidence(
   lane: MappedMarkdownLane,
-  containerDepthLimit: number = Number.POSITIVE_INFINITY
-): Profile1MarkdownParse {
+  containerDepthLimit: number = Number.POSITIVE_INFINITY,
+  trace?: Profile1ProjectionPlanningTraceV1
+): BoundaryAwareMarkdownParse {
   const source = lane.source
-  const parsedLane = parsePlainMarkdownLane(source, containerDepthLimit)
+  const canonicalIdentityRuns = validatedCanonicalIdentityRuns(
+    source.length,
+    lane.canonicalIdentityRuns
+  )
+  const matchingScopeRuns = validatedMatchingScopeRuns(
+    source.length,
+    lane.matchingScopes
+  )
+  const boundaryPolicy: InlineBoundaryPolicy | undefined =
+    matchingScopeRuns.length === 0
+      ? undefined
+      : {
+        scopeRuns: matchingScopeRuns,
+        unsafeDelimiterOffsets: new Set<number>(),
+        enclosingEmphasisRespellings: new Map()
+      }
+  const matchingScopePolicy: MarkdownMatchingScopePolicy | undefined =
+    boundaryPolicy === undefined
+      ? undefined
+      : Object.freeze({
+        matchingScopeAt: Object.freeze((offset: number) => {
+          const scope = matchingScopeAt(boundaryPolicy, offset)
+          return scope === undefined
+            ? undefined
+            : Object.freeze({ id: scope.id, depth: scope.depth })
+        }),
+        rejectCrossScopeMatch: Object.freeze((
+          openerStart: number,
+          closerStart: number
+        ): number | undefined => {
+          const unsafeOffset = mappedCrossScopeProtectionOffset(
+            boundaryPolicy,
+            openerStart,
+            closerStart
+          )
+          if (unsafeOffset !== undefined) {
+            boundaryPolicy.unsafeDelimiterOffsets.add(unsafeOffset)
+          }
+          return unsafeOffset
+        }),
+        rejectCrossScopeImageOpener: Object.freeze((
+          bangStart: number,
+          bracketStart: number
+        ): void => {
+          if (
+            (matchingScopeAt(boundaryPolicy, bangStart)?.id ?? -1) ===
+            (matchingScopeAt(boundaryPolicy, bracketStart)?.id ?? -1)
+          ) {
+            throw new Error('Cross-scope image rejection received one scope')
+          }
+          boundaryPolicy.unsafeDelimiterOffsets.add(bangStart)
+        }),
+        definitionCanResolveReference: Object.freeze((
+          definitionStart: number,
+          referenceStart: number
+        ): boolean => (lane.matchingScopes ?? []).every((scope) =>
+          !(
+            scope.start <= definitionStart &&
+            definitionStart < scope.end
+          ) || (
+            scope.start <= referenceStart &&
+            referenceStart < scope.end
+          )
+        ))
+      })
+  const parsedLane = parsePlainMarkdownLane(
+    source,
+    containerDepthLimit,
+    matchingScopePolicy
+  )
   const literals = parsedLane.literals.map(
     (literal): MappedMarkdownLiteral => Object.freeze({
       provider: literal.kind,
@@ -1567,20 +2613,10 @@ export function parseMarkdownDocument(
         : { blockKind: literal.blockKind })
     })
   )
-  const referenceDefinitions = new Set<string>()
-  for (const literal of parsedLane.literals) {
-    if (literal.kind !== 'definition') {
-      continue
-    }
-    const label = markdownReferenceDefinitionLabel(
-      source,
-      literal.start,
-      literal.end
-    )
-    if (label !== undefined) {
-      referenceDefinitions.add(label)
-    }
-  }
+  // The block/literal phase already built this index from these exact literals
+  // with this exact predicate; consume it rather than rebuilding an identical
+  // one (Phase 0.5 step 6: one index per lane parse, handed to the inline phase).
+  const referenceDefinitions = parsedLane.referenceDefinitions
   const children =
     source.length === 0
       ? Object.freeze([])
@@ -1588,7 +2624,8 @@ export function parseMarkdownDocument(
         source,
         literals,
         parsedLane.lines,
-        referenceDefinitions
+        referenceDefinitions,
+        boundaryPolicy
       )
   const root = createNode('document', 0, source.length, children)
   const nodeAt = Object.freeze((
@@ -1626,6 +2663,58 @@ export function parseMarkdownDocument(
   })
   return Object.freeze({
     document: Object.freeze({ source, root, nodeAt }),
-    containerDepthFailure: parsedLane.containerDepthFailure
+    containerDepthFailure: parsedLane.containerDepthFailure,
+    boundaryProjectionEdits: planBoundaryProjectionEdits(
+      source,
+      literals,
+      canonicalIdentityRuns,
+      boundaryPolicy,
+      boundaryPolicy?.unsafeDelimiterOffsets ?? new Set<number>(),
+      boundaryPolicy?.enclosingEmphasisRespellings ?? new Map(),
+      lane.armTerminationEdits ?? Object.freeze([]),
+      trace
+    )
+  })
+}
+
+export function planMarkdownArmBoundaryProjectionEdits(
+  lane: MappedMarkdownLane,
+  containerDepthLimit: number = Number.POSITIVE_INFINITY,
+  trace?: Profile1ProjectionPlanningTraceV1
+): readonly MarkdownArmBoundaryProjectionEdit[] {
+  return parseMarkdownDocumentWithBoundaryEvidence(
+    lane,
+    containerDepthLimit,
+    trace
+  ).boundaryProjectionEdits
+}
+
+/**
+ * Test-only counter of authoritative Markdown parses. Phase 0.5 drives this
+ * toward one parse per published view; a projection that verifies itself by
+ * parsing the same text twice is counted twice here on purpose.
+ */
+let markdownDocumentParses = 0
+
+export function __markdownDocumentParsesV1(): number {
+  return markdownDocumentParses
+}
+
+export function __resetMarkdownDocumentParsesV1(): void {
+  markdownDocumentParses = 0
+}
+
+export function parseMarkdownDocument(
+  lane: MappedMarkdownLane,
+  containerDepthLimit: number = Number.POSITIVE_INFINITY
+): Profile1MarkdownParse {
+  markdownDocumentParses += 1
+  const parsed = parseMarkdownDocumentWithBoundaryEvidence(
+    lane,
+    containerDepthLimit
+  )
+  return Object.freeze({
+    document: parsed.document,
+    containerDepthFailure: parsed.containerDepthFailure
   })
 }

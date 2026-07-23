@@ -3,8 +3,10 @@ import type {
   SourceOffset,
   SourceRange
 } from '../../revision.js'
-import type {
-  MarkdownCheckpoint
+import {
+  inspectMarkdownPendingLineBlock,
+  type MarkdownCheckpoint,
+  type MarkdownPendingLineBlockFact
 } from './markdownLaneState.js'
 import type {
   MarkdownLiteralRange
@@ -30,6 +32,7 @@ export interface CanonicalMarkdownBlockFact {
   readonly lineStart: number
   readonly containerPath: readonly ('blockquote' | 'list-item')[]
   readonly activeProvider: MarkdownLiteralRange['kind'] | undefined
+  readonly pendingLine: MarkdownPendingLineBlockFact | undefined
 }
 
 export interface CanonicalMarkdownEmittedFacts {
@@ -60,6 +63,12 @@ export interface CanonicalMarkdownParseBranch {
   readonly arms: readonly CanonicalMarkdownParseLane[]
 }
 
+export interface CanonicalMarkdownArmBoundaryEvent {
+  readonly kind: 'substitution-arm-boundary'
+  readonly role: 'enter' | 'exit'
+  readonly sourcePosition: SourceOffset
+}
+
 export type CanonicalMarkdownParseLaneItem =
   | CanonicalMarkdownParseSourceSlice
   | CanonicalMarkdownParseBranch
@@ -71,6 +80,7 @@ export interface CanonicalMarkdownParseLane {
   readonly entryCheckpoint: MarkdownCheckpoint
   readonly exitCheckpoint: MarkdownCheckpoint
   readonly transitions: readonly CanonicalMarkdownLaneTransition[]
+  readonly armBoundaries: readonly CanonicalMarkdownArmBoundaryEvent[]
   readonly items: readonly CanonicalMarkdownParseLaneItem[]
 }
 
@@ -99,6 +109,7 @@ interface MutableCanonicalMarkdownParseLane {
   readonly entryCheckpoint: MarkdownCheckpoint
   exitCheckpoint: MarkdownCheckpoint | undefined
   readonly transitions: PendingTransition[]
+  armBoundaries: readonly CanonicalMarkdownArmBoundaryEvent[]
   readonly branches: PendingBranch[]
 }
 
@@ -123,6 +134,10 @@ export interface CanonicalMarkdownParseRecorder {
   readonly sealLane: (
     lane: CanonicalMarkdownParseLaneHandle,
     exitCheckpoint: MarkdownCheckpoint
+  ) => void
+  readonly recordArmBoundary: (
+    lane: CanonicalMarkdownParseLaneHandle,
+    event: CanonicalMarkdownArmBoundaryEvent
   ) => void
   readonly acceptBranch: (
     parent: CanonicalMarkdownParseLaneHandle,
@@ -174,14 +189,20 @@ function activeProvider(
   return checkpoint.fixedInline?.kind
 }
 
-function blockFact(checkpoint: MarkdownCheckpoint): CanonicalMarkdownBlockFact {
+function blockFact(
+  checkpoint: MarkdownCheckpoint,
+  retainPendingLine: boolean
+): CanonicalMarkdownBlockFact {
   return Object.freeze({
     paragraphOpen: checkpoint.paragraphOpen,
     lineStart: checkpoint.lineStart,
     containerPath: Object.freeze(
       checkpoint.activeContainers.map((container) => container.kind)
     ),
-    activeProvider: activeProvider(checkpoint)
+    activeProvider: activeProvider(checkpoint),
+    pendingLine: retainPendingLine
+      ? inspectMarkdownPendingLineBlock(checkpoint)
+      : undefined
   })
 }
 
@@ -233,6 +254,7 @@ function createMutableLane(
     entryCheckpoint,
     exitCheckpoint: undefined,
     transitions: [],
+    armBoundaries: Object.freeze([]),
     branches: []
   }
 }
@@ -271,6 +293,15 @@ export function createCanonicalMarkdownParseRecorder(
     exitCheckpoint: MarkdownCheckpoint
   ): void => {
     lane.lane.exitCheckpoint = exitCheckpoint
+  })
+  const recordArmBoundary = Object.freeze((
+    lane: CanonicalMarkdownParseLaneHandle,
+    event: CanonicalMarkdownArmBoundaryEvent
+  ): void => {
+    lane.lane.armBoundaries = Object.freeze([
+      ...lane.lane.armBoundaries,
+      event
+    ])
   })
   const acceptBranch = Object.freeze((
     parent: CanonicalMarkdownParseLaneHandle,
@@ -370,10 +401,29 @@ export function createCanonicalMarkdownParseRecorder(
             ),
             emittedFacts: Object.freeze({
               literals: transition.emittedLiterals,
-              block: blockFact(transition.exitCheckpoint)
+              block: blockFact(
+                transition.exitCheckpoint,
+                (
+                  transition.operation === 'finish-lane' &&
+                  lane.owner?.kind === 'critic-arm' &&
+                  lane.owner.node.kind === 'substitution'
+                ) ||
+                (
+                  transition.operation === 'advance' &&
+                  (
+                    transition.exitCheckpoint.lineStart >
+                      transition.entryCheckpoint.lineStart ||
+                    (
+                      transition.entryCheckpoint.linePath === undefined &&
+                      transition.entryCheckpoint.paragraphOpen
+                    )
+                  )
+                )
+              )
             })
           })
         )),
+        armBoundaries: lane.armBoundaries,
         items: Object.freeze([]) as readonly CanonicalMarkdownParseLaneItem[]
       }
       laneByMutable.set(lane, shell)
@@ -442,6 +492,7 @@ export function createCanonicalMarkdownParseRecorder(
     forkLane,
     recordTransition,
     sealLane,
+    recordArmBoundary,
     acceptBranch,
     promoteBranches,
     finish

@@ -5,7 +5,7 @@
 > 0006/0007. Its
 > BOM stripping, CRLF normalization, serializer canonicalization, depth-64/128
 > limits, literal fallback, and named old-engine suites are historical evidence
-> only and are superseded by ADRs 0005–0012 and plan 0009. The replacement is
+> only and are superseded by ADRs 0005–0013 and plan 0009. The replacement is
 > plan 0009's checked-in Profile 1 manifests, interaction matrices, resource
 > boundary corpus, installed-artifact gates, and deletion ledger. Retain this
 > file only as a migration oracle; do not use any row to approve the target
