@@ -1,4 +1,9 @@
-import type { MarkupMark, ParseConfiguration, SourceRange } from './revision.js'
+import type {
+  MarkdownDocument,
+  MarkupMark,
+  ParseConfiguration,
+  SourceRange
+} from './revision.js'
 import type { SourceSnapshot } from './sourceSnapshot.js'
 import { createSessionCoordinator } from './internal/session/sessionCoordinator.js'
 
@@ -67,6 +72,15 @@ export interface EditorSnapshot {
   readonly revision: RevisionDescriptor
   readonly view: 'markup'
   readonly livePlan: MarkupLiveRenderPlan
+  /**
+   * The block AST of the revision's editing view — what a WYSIWYG view mounts.
+   * Served here so a view never re-parses to learn its own structure: doing that
+   * would re-parse the whole document per keystroke and make the view a second
+   * authority on what the document says (ADR-0009, ADR-0013). Its `source` is
+   * the same text `livePlan` renders, so block ranges and run offsets share one
+   * coordinate space.
+   */
+  readonly editingDocument: MarkdownDocument
   readonly pending: PendingSessionState
 }
 

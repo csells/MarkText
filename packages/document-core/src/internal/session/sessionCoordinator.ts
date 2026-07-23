@@ -245,6 +245,10 @@ export class SessionCoordinator {
       revision: createDescriptor(this.#worker),
       view: 'markup' as const,
       livePlan,
+      // Straight off the retained revision: the editing projection is lazy and
+      // reuses an existing view when the text matches, so serving it here costs
+      // no parse and spares the view re-parsing to learn its own structure.
+      editingDocument: state.revision.projection('editing').markdown,
       pending: Object.freeze({
         retained: retainedDrafts,
         status: retainedDrafts.length === 0 ? ('idle' as const) : ('blocked' as const)
