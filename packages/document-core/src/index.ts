@@ -94,3 +94,4 @@ export {
   type MarkupRenderLine
 } from './view/markupRender.js'
 export { canonicalMarkupDocument } from './view/markupRender.js'
+export { groupRenderBlocks, type MarkupRenderBlock } from './view/markupRender.js'

@@ -60,6 +60,22 @@ case. This is measured, not asserted, in
 `specs/research/0002-criticmarkup-view-fork-reconvergence.md`, which reads the
 reconvergence points off correct Original/Revised trees.
 
+The editing view is exempt from the clean-projection verification that Original
+and Revised must pass, and the asymmetry is principled. That verification proves
+a projection parses the same with and without the parser-owned Substitution-arm
+scopes, because Original and Revised can be **materialized as canonical bytes**
+(Accept All / Reject All) and reparsed with no scopes at all — so for them,
+scoped must equal unscoped, and boundary-safe escaping exists to make it so. The
+editing view is never materialized: the marker-bearing canonical source is what
+is saved. It is also the only view that shows **both** Substitution arms
+adjacent, which makes arm scoping load-bearing rather than incidental — ADR-0010
+requires matching state created inside an arm to finish inside it, so
+`a{~~*x*~>*y*~~}b` renders as `a*x**y*b` with one emphasis per arm, never one
+span pairing `*` across the junction. Demanding the unscoped reading agree would
+demand exactly the cross-arm pairing ADR-0010 forbids. For the same reason the
+editing view carries no protective escapes: it shows the author's exact content,
+run-for-run identical to the session's model text.
+
 The safe-point detector — a position of canonical, nothing-open block state — is
 the same primitive an incremental parse needs to choose a restart boundary after
 an edit (the fragment-reuse boundary). Cross-view reconvergence and cross-edit

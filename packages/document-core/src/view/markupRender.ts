@@ -2,6 +2,7 @@ import type { MarkupLiveRenderPlan, ModelRange } from '../documentSession.js'
 import type {
   CompleteDocumentRevision,
   MarkdownDocument,
+  MarkdownNodeKind,
   MarkupMark,
   SourceOffset,
   SourceRange
@@ -95,6 +96,77 @@ export function renderMarkupPlan(
     modelRange: run.modelRange,
     sourceRange: run.sourceRange
   })))
+}
+
+/**
+ * One block a view mounts: the engine-emitted block node's kind and span, plus
+ * the CriticMarkup-marked inline runs that fall inside it. A run straddling a
+ * block boundary is split so each block carries only its own text.
+ */
+export interface MarkupRenderBlock {
+  readonly kind: MarkdownNodeKind
+  readonly modelRange: ModelRange
+  readonly runs: readonly MarkupRenderRun[]
+}
+
+/**
+ * Join the engine's editing-view block AST with the CriticMarkup-marked inline
+ * runs into the tree a WYSIWYG view mounts. The view never computes block
+ * structure — it mounts what the parser emitted (ADR-0009/0013) — and never
+ * loses the marks or the model↔source map it needs for selection and editing.
+ *
+ * Both inputs share one coordinate space: the editing projection's source is the
+ * session's model text, so a block's range and a run's `modelRange` are directly
+ * comparable.
+ */
+export function groupRenderBlocks(
+  document: MarkdownDocument,
+  runs: readonly MarkupRenderRun[]
+): readonly MarkupRenderBlock[] {
+  const root = document.root
+  return Object.freeze(Array.from({ length: root.childCount }, (_, ordinal) => {
+    const block = root.childAt(ordinal)
+    const start = block.range.start
+    const end = block.range.end
+    const blockRuns: MarkupRenderRun[] = []
+    for (const run of runs) {
+      const overlapStart = Math.max(run.modelRange.start, start)
+      const overlapEnd = Math.min(run.modelRange.end, end)
+      if (overlapStart >= overlapEnd) {
+        continue
+      }
+      blockRuns.push(
+        overlapStart === run.modelRange.start && overlapEnd === run.modelRange.end
+          ? run
+          : sliceRenderRun(run, overlapStart, overlapEnd)
+      )
+    }
+    return Object.freeze({
+      kind: block.kind,
+      modelRange: Object.freeze({ start, end }),
+      runs: Object.freeze(blockRuns)
+    })
+  }))
+}
+
+/** The `[from, to)` model-offset slice of a run, keeping its marks and mapping. */
+function sliceRenderRun(
+  run: MarkupRenderRun,
+  from: number,
+  to: number
+): MarkupRenderRun {
+  const offset = from - run.modelRange.start
+  const length = to - from
+  return Object.freeze({
+    key: `${run.key}:${offset}`,
+    text: run.text.slice(offset, offset + length),
+    elements: run.elements,
+    modelRange: Object.freeze({ start: from, end: to }),
+    sourceRange: Object.freeze({
+      start: (run.sourceRange.start + offset) as SourceOffset,
+      end: (run.sourceRange.start + offset + length) as SourceOffset
+    })
+  })
 }
 
 /**
