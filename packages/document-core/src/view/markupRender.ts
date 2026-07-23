@@ -149,6 +149,96 @@ export function groupRenderBlocks(
   }))
 }
 
+/**
+ * Where the caret or a click sits in view terms: which mounted block, which run
+ * inside it, and how many UTF-16 code units into that run's text. `offset` may
+ * equal the run's length, meaning the boundary just past its last character.
+ */
+export interface MarkupViewPosition {
+  readonly blockIndex: number
+  readonly runIndex: number
+  readonly offset: number
+}
+
+/**
+ * The model offset a view position denotes. Every editor intent addresses the
+ * model, so this is the translation a view performs before dispatching one — it
+ * reads the engine-emitted mapping the run already carries rather than counting
+ * rendered DOM text.
+ *
+ * @throws RangeError when the position is not a position in these blocks.
+ */
+export function modelOffsetAt(
+  blocks: readonly MarkupRenderBlock[],
+  position: MarkupViewPosition
+): number {
+  const block = blocks[position.blockIndex]
+  if (block === undefined) {
+    throw new RangeError(`No mounted block at index ${position.blockIndex}`)
+  }
+  const run = block.runs[position.runIndex]
+  if (run === undefined) {
+    // A block with no runs (an empty paragraph) still has a caret position.
+    if (position.runIndex === 0 && position.offset === 0) {
+      return block.modelRange.start
+    }
+    throw new RangeError(`No run at index ${position.runIndex}`)
+  }
+  if (position.offset < 0 || position.offset > run.text.length) {
+    throw new RangeError(`Offset ${position.offset} is outside the run`)
+  }
+  return run.modelRange.start + position.offset
+}
+
+/**
+ * The view position that renders a model offset — the reverse of
+ * `modelOffsetAt`, used to place the caret after the model changes.
+ *
+ * An offset between two runs is genuinely two positions: the trailing edge of
+ * the earlier run and the leading edge of the later one. `affinity` picks the
+ * side, matching `ModelPosition.affinity`. At a CriticMarkup boundary the choice
+ * is meaningful — `'next'` puts the caret inside the following run, so typing at
+ * the start of an addition extends the addition, while `'previous'` keeps it in
+ * the preceding text.
+ *
+ * @throws RangeError when the offset is not rendered by these blocks.
+ */
+export function viewPositionAt(
+  blocks: readonly MarkupRenderBlock[],
+  modelOffset: number,
+  affinity: 'previous' | 'next' = 'next'
+): MarkupViewPosition {
+  const candidates: MarkupViewPosition[] = []
+  for (const [blockIndex, block] of blocks.entries()) {
+    if (modelOffset < block.modelRange.start || modelOffset > block.modelRange.end) {
+      continue
+    }
+    for (const [runIndex, run] of block.runs.entries()) {
+      if (modelOffset < run.modelRange.start || modelOffset > run.modelRange.end) {
+        continue
+      }
+      candidates.push({
+        blockIndex,
+        runIndex,
+        offset: modelOffset - run.modelRange.start
+      })
+    }
+    // A block with no runs (an empty paragraph) still hosts a caret.
+    if (block.runs.length === 0 && modelOffset === block.modelRange.start) {
+      candidates.push({ blockIndex, runIndex: 0, offset: 0 })
+    }
+  }
+  const preferred = affinity === 'next'
+    // Leading edge of the later run; fall back to the only candidate there is.
+    ? candidates.find((candidate) => candidate.offset === 0) ?? candidates[0]
+    // Trailing edge of the earlier run.
+    : candidates.find((candidate) => candidate.offset !== 0) ?? candidates[0]
+  if (preferred === undefined) {
+    throw new RangeError(`Model offset ${modelOffset} is not rendered`)
+  }
+  return Object.freeze(preferred)
+}
+
 /** The `[from, to)` model-offset slice of a run, keeping its marks and mapping. */
 function sliceRenderRun(
   run: MarkupRenderRun,

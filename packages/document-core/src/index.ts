@@ -95,3 +95,4 @@ export {
 } from './view/markupRender.js'
 export { canonicalMarkupDocument } from './view/markupRender.js'
 export { groupRenderBlocks, type MarkupRenderBlock } from './view/markupRender.js'
+export { modelOffsetAt, viewPositionAt, type MarkupViewPosition } from './view/markupRender.js'
