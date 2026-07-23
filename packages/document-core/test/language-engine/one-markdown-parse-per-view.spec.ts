@@ -53,6 +53,32 @@ describe('one authoritative Markdown parse per view', () => {
     expect(parsesFor('# Title\n\nHello *world*.\n')).toBe(1)
   })
 
+  it('reads one shared view parse for an annotation-only document', () => {
+    // Highlights show in both Original and Revised, and Comment bodies are
+    // hidden in both, so an annotated-but-unchanged document is byte-identical
+    // across views — the common "review without editing" case. Revised now reads
+    // Original's parse instead of re-parsing it (was 3).
+    //
+    // The remaining parse is NOT a view parse: `createCommentDisplayProjections`
+    // eagerly builds a display for each Comment, one full parse per comment.
+    expect(parsesFor('Hello {==world==}{>>check this<<}.\n')).toBe(2)
+  })
+
+  it('costs one extra parse per comment, eagerly, at open', () => {
+    // The O(comments x n) blow-up recorded in Phase 11 step 2: a review tool is
+    // slowest exactly when it is most used. Each added Comment adds a full
+    // document parse at open() even though nothing reads the display.
+    const one = parsesFor('a {==x==}{>>one<<} b\n')
+    const three = parsesFor('a {==x==}{>>one<<} {==y==}{>>two<<} {==z==}{>>three<<} b\n')
+    expect(three - one).toBe(2)
+  })
+
+  it.fails('TARGET: comment displays are lazy, so annotation-only parses once', () => {
+    // Turns green when comment-display projections are materialized on demand
+    // (Phase 11 step 2), like the editing view already is.
+    expect(parsesFor('Hello {==world==}{>>check this<<}.\n')).toBe(1)
+  })
+
   it('parses unary-form documents twice today (was 4 — no-op planning removed)', () => {
     // Addition/Deletion/Highlight/Comment create no Substitution-arm scopes, so
     // no boundary planning runs; the two are Original and Revised per-view

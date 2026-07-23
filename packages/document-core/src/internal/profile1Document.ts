@@ -1958,6 +1958,10 @@ function forestContainsKind(
   )
 }
 
+/** The forms Original and Revised resolve differently; the rest render alike. */
+const VIEW_DIVERGENT_KINDS: ReadonlySet<CriticMarkupNode['kind']> =
+  new Set(['addition', 'deletion', 'substitution'])
+
 const EDITING_DIFFERS_FROM_REVISED: ReadonlySet<CriticMarkupNode['kind']> =
   new Set(['deletion', 'substitution'])
 const EDITING_DIFFERS_FROM_ORIGINAL: ReadonlySet<CriticMarkupNode['kind']> =
@@ -3344,18 +3348,21 @@ export function parseProfile1Document(
     markdownDepthLimit,
     traceRecorder
   )
-  // ADR 0013: parse once and read every view off it. With no CriticMarkup the
-  // Revised view is byte-identical to Original, so it reads the same parse
-  // rather than re-parsing the unchanged source.
-  const revised = criticMarkup.roots.length === 0
-    ? original
-    : project(
+  // ADR 0013: parse once and read every view off it. Original and Revised differ
+  // only where a form resolves differently between them — Additions, Deletions
+  // and Substitutions. A document carrying none of those (no CriticMarkup at
+  // all, or only Highlights and Comments, which both views render identically)
+  // is byte-identical across the two views, so Revised reads Original's parse
+  // instead of re-parsing unchanged text.
+  const revised = forestContainsKind(criticMarkup.roots, VIEW_DIVERGENT_KINDS)
+    ? project(
       graphCore,
       'revised',
       undefined,
       markdownDepthLimit,
       traceRecorder
     )
+    : original
   const commentDisplays = createCommentDisplayProjections(
     graphCore,
     markdownDepthLimit,
