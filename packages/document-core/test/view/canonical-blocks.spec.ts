@@ -47,9 +47,6 @@ function revisionFor(source: string): CompleteDocumentRevision {
 describe('canonical editing-view block AST', () => {
   it('provides the block tree for a CriticMarkup-free document', () => {
     const doc = canonicalMarkupDocument(revisionFor('# Title\n\nHello world.\n'))
-    if (doc === null) {
-      throw new Error('Expected a canonical block document for CriticMarkup-free source')
-    }
     expect(doc.root.childCount).toBe(2)
     expect(doc.root.childAt(0).kind).toBe('heading')
     expect(doc.root.childAt(1).kind).toBe('paragraph')
@@ -57,44 +54,50 @@ describe('canonical editing-view block AST', () => {
     expect(doc.source).toBe('# Title\n\nHello world.\n')
   })
 
-  // ADR 0013 slice 3 (block forks): the editing view is a read of the single
-  // forked parse. Until that lands, canonicalMarkupDocument returns null for
-  // marker-bearing docs, so these acceptance targets are expected-fail.
-  it.fails('provides the editing-view block tree for a marker-bearing document', () => {
+  it('provides the editing-view block tree for a marker-bearing document', () => {
     // The editing view parses the source with markers zero-width and all content
     // present (ADR 0013). '{--# --}Title' → editing text '# Title' → a heading
     // (the deletion's content is present in the editing surface, struck through).
     const doc = canonicalMarkupDocument(revisionFor('{--# --}Title'))
-    if (doc === null) {
-      throw new Error('Expected a canonical block document for marker-bearing source')
-    }
     expect(doc.source).toBe('# Title')
     expect(doc.root.childCount).toBe(1)
     expect(doc.root.childAt(0).kind).toBe('heading')
   })
 
-  it.fails('parses an addition that splits a paragraph as two editing-view blocks', () => {
+  it('parses an addition that splits a paragraph as two editing-view blocks', () => {
     // 'a{++\n\n++}b' → editing text 'a\n\nb' → two paragraphs (the inserted blank
     // line is present in the editing surface as an addition).
     const doc = canonicalMarkupDocument(revisionFor('a{++\n\n++}b'))
-    if (doc === null) {
-      throw new Error('Expected a canonical block document for marker-bearing source')
-    }
     expect(doc.source).toBe('a\n\nb')
     expect(doc.root.childCount).toBe(2)
     expect(doc.root.childAt(0).kind).toBe('paragraph')
     expect(doc.root.childAt(1).kind).toBe('paragraph')
   })
 
-  it.fails('emits both substitution arms into the editing-view parse', () => {
+  it('emits both substitution arms into the editing-view parse', () => {
     // 'a{~~old~>new~~}b' → editing text 'aoldnewb' (old arm then new arm) → one
     // paragraph. Verified against the session model text.
     const doc = canonicalMarkupDocument(revisionFor('a{~~old~>new~~}b'))
-    if (doc === null) {
-      throw new Error('Expected a canonical block document for marker-bearing source')
-    }
     expect(doc.source).toBe('aoldnewb')
     expect(doc.root.childCount).toBe(1)
     expect(doc.root.childAt(0).kind).toBe('paragraph')
+  })
+
+  it('keeps both substitution arms self-contained at their junction', () => {
+    // The editing view is the only view showing both arms adjacent, so it is the
+    // only one that can pair Markdown across the arm junction — which ADR-0010
+    // forbids ("matching state created inside an arm must finish inside it").
+    // 'a{~~*x*~>*y*~~}b' → 'a*x**y*b': the two `*` at the junction must NOT pair
+    // into one span; each arm keeps its own emphasis.
+    const doc = canonicalMarkupDocument(revisionFor('a{~~*x*~>*y*~~}b'))
+    // Exact content, with no protective escapes injected — the editing surface
+    // shows what the author wrote, and matches the session's model text.
+    expect(doc.source).toBe('a*x**y*b')
+    expect(doc.root.childCount).toBe(1)
+    const paragraph = doc.root.childAt(0)
+    expect(Array.from(
+      { length: paragraph.childCount },
+      (_, ordinal) => paragraph.childAt(ordinal).kind
+    )).toEqual(['text', 'emphasis', 'emphasis', 'text'])
   })
 })

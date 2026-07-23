@@ -4,6 +4,7 @@ export type ProfileParseTraceViewV1 =
   | 'original'
   | 'revised'
   | 'comment-display'
+  | 'editing'
 
 /**
  * Which component consumed canonical source and decided where the next

@@ -113,6 +113,9 @@ export interface Profile1SyntaxGraph extends Profile1SyntaxGraphCore {
   readonly original: Profile1ProjectedMarkdown
   readonly revised: Profile1ProjectedMarkdown
   readonly commentDisplays: readonly Profile1ProjectedMarkdown[]
+  // The editing (Markup) view's block AST, computed lazily on first read so it
+  // never runs during open() — only the editor's block layer forces it.
+  readonly editing: () => Profile1ProjectedMarkdown
 }
 
 export interface Profile1SyntaxGraphProducts {
@@ -121,6 +124,7 @@ export interface Profile1SyntaxGraphProducts {
   readonly original: Profile1ProjectedMarkdown
   readonly revised: Profile1ProjectedMarkdown
   readonly commentDisplays: readonly Profile1ProjectedMarkdown[]
+  readonly editing: () => Profile1ProjectedMarkdown
 }
 
 function sourceOffset(value: number): SourceOffset {
@@ -688,6 +692,7 @@ export function finalizeProfile1SyntaxGraph(
     original: products.original,
     revised: products.revised,
     commentDisplays: Object.freeze([...products.commentDisplays]),
+    editing: products.editing,
     markdownLiterals: core.markdownLiterals
   })
 }

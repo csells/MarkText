@@ -250,7 +250,7 @@ export interface CompleteDocumentRevision {
   readonly diagnostics: DiagnosticIndex
   readonly ownership: SourceOwnershipIndex
   readonly markup: MarkupProjection
-  readonly projection: (view: 'original' | 'revised') => ProjectedMarkdown
+  readonly projection: (view: 'original' | 'revised' | 'editing') => ProjectedMarkdown
 }
 
 export type ResourceDiagnosticCode =

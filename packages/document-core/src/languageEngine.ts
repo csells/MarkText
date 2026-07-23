@@ -27,12 +27,15 @@ export function createLanguageEngine(): LanguageEngine {
           fatalDiagnostic: parsed.fatalDiagnostic
         })
       }
-      const projection = Object.freeze((view: 'original' | 'revised') => {
+      const projection = Object.freeze((view: 'original' | 'revised' | 'editing') => {
         if (view === 'original') {
           return parsed.original
         }
         if (view === 'revised') {
           return parsed.revised
+        }
+        if (view === 'editing') {
+          return parsed.editing()
         }
         throw new RangeError(`Unknown CriticMarkup projection: ${String(view)}`)
       })

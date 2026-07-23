@@ -13,19 +13,16 @@ import type {
  * mounts rather than re-parses it.
  *
  * ADR 0013: the engine parses once and reads every view off it; the editing view
- * is that single parse. Returns `null` for a document that contains CriticMarkup
- * — the marker-bearing editing-view tree is a read of the single forked parse,
- * which is not built yet (slice 3). For a CriticMarkup-free document the editing
- * view is the source itself, so its block tree is the shared parse the engine
- * already builds.
+ * is that parse. The block AST is the editing view's Markdown tree — markers
+ * zero-width, all content present (both Substitution arms, old then new). For a
+ * CriticMarkup-free document the editing view is the source itself, so this is
+ * the shared parse the engine already builds; the projection is lazy, so reading
+ * it here never adds a parse to `open()`.
  */
 export function canonicalMarkupDocument(
   revision: CompleteDocumentRevision
-): MarkdownDocument | null {
-  if (revision.criticMarkup.roots.length !== 0) {
-    return null
-  }
-  return revision.projection('original').markdown
+): MarkdownDocument {
+  return revision.projection('editing').markdown
 }
 
 /**

@@ -1615,28 +1615,44 @@ function createMarkupProjection(
   })
 }
 
-function selectedCanonicalArm(
+type ProjectionView = 'original' | 'revised' | 'editing'
+
+// The lanes a branch contributes to a view, in projected order. Original rejects
+// (keeps deletion/substitution-old), Revised accepts (keeps addition/substitution-
+// new), and the editing view shows every content arm as the user edits it —
+// including both Substitution arms, old then new. Comments contribute no text to
+// any view (their bodies live in the sidebar).
+function selectedCanonicalArms(
   branch: CanonicalMarkdownCriticBranch,
-  view: 'original' | 'revised'
-): CanonicalMarkdownLane | undefined {
+  view: ProjectionView
+): readonly CanonicalMarkdownLane[] {
   const node = branch.node
+  const show = (lane: CanonicalMarkdownLane | undefined): readonly CanonicalMarkdownLane[] =>
+    lane === undefined ? EMPTY_CANONICAL_LANES : [lane]
   if (node.kind === 'addition') {
-    return view === 'revised' ? branch.arms[0] : undefined
+    return view === 'original' ? EMPTY_CANONICAL_LANES : show(branch.arms[0])
   }
   if (node.kind === 'deletion') {
-    return view === 'original' ? branch.arms[0] : undefined
+    return view === 'revised' ? EMPTY_CANONICAL_LANES : show(branch.arms[0])
   }
   if (node.kind === 'substitution') {
-    return view === 'original' ? branch.arms[0] : branch.arms[1]
+    if (view === 'editing') {
+      return branch.arms[0] !== undefined && branch.arms[1] !== undefined
+        ? [branch.arms[0], branch.arms[1]]
+        : EMPTY_CANONICAL_LANES
+    }
+    return show(view === 'original' ? branch.arms[0] : branch.arms[1])
   }
   if (node.kind === 'highlight') {
-    return branch.arms[0]
+    return show(branch.arms[0])
   }
   if (node.kind === 'comment') {
-    return undefined
+    return EMPTY_CANONICAL_LANES
   }
   throw new Error('CriticMarkup projection reached an unknown form')
 }
+
+const EMPTY_CANONICAL_LANES: readonly CanonicalMarkdownLane[] = Object.freeze([])
 
 interface PlannedProtection {
   readonly candidateOffset: number
@@ -2665,7 +2681,7 @@ function terminalArmParagraphSeparation(
 
 function project(
   graph: Profile1SyntaxGraphCore,
-  view: 'original' | 'revised',
+  view: ProjectionView,
   lane: CanonicalMarkdownLane = graph.canonicalMarkdown.root,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   traceRecorder?: ProfileParseTraceRecorderV1,
@@ -2826,14 +2842,16 @@ function project(
         })
         continue
       }
-      const arm = selectedCanonicalArm(item, view)
-      if (arm !== undefined) {
+      for (const arm of selectedCanonicalArms(item, view)) {
         const boundaries = arm.parseArtifact.armBoundaries
-        if (item.node.kind === 'substitution') {
+        // A Substitution arm carries parser-owned enter/exit boundary events; a
+        // unary-form arm has none. Key on that, so the editing view's two
+        // Substitution arms each emit their boundary pair without special-casing
+        // the view.
+        if (boundaries.length === 2) {
           const enter = boundaries[0]
           const exit = boundaries[1]
           if (
-            boundaries.length !== 2 ||
             enter?.role !== 'enter' ||
             exit?.role !== 'exit' ||
             enter.sourcePosition !== arm.range.start ||
@@ -2862,11 +2880,10 @@ function project(
               branchEnd: item.node.range.end
             }
           )
-        } else {
-          if (boundaries.length !== 0) {
-            throw new Error('Non-Substitution arm has matching boundaries')
-          }
+        } else if (boundaries.length === 0) {
           orderedTasks.push({ kind: 'lane', lane: arm })
+        } else {
+          throw new Error('Canonical arm has an unexpected boundary count')
         }
       }
     }
@@ -2972,9 +2989,21 @@ function project(
   // With no scopes to constrain it, the "clean" parse takes byte-identical
   // inputs to the scoped one, so the comparison is a tautology and the second
   // parse is pure waste. Views that do carry arm scopes still verify.
-  const cleanMarkdownParse = retainedMatchingScopes.length === 0
-    ? markdownParse
-    : parseMarkdownDocument({ source: guarded.source }, markdownDepthLimit)
+  //
+  // The editing view is exempt, and must be. Its premise is materialization:
+  // Original and Revised can be committed as canonical bytes (Accept All /
+  // Reject All) and reparsed with no scopes, so scoped must equal unscoped
+  // there. The editing view is never materialized — the marker-bearing
+  // canonical source is what is saved — and it is the one view that shows BOTH
+  // Substitution arms, adjacent. Arm scoping is therefore load-bearing rather
+  // than incidental (ADR-0010: matching state created in an arm finishes in
+  // that arm), so `{~~*x*~>*y*~~}` must keep one emphasis per arm instead of
+  // pairing `*` across the junction. Requiring the unscoped reading to agree
+  // would demand exactly the cross-arm pairing ADR-0010 forbids.
+  const cleanMarkdownParse =
+    retainedMatchingScopes.length === 0 || view === 'editing'
+      ? markdownParse
+      : parseMarkdownDocument({ source: guarded.source }, markdownDepthLimit)
   if (cleanMarkdownParse !== markdownParse) {
     verifyCleanProjectedMarkdownV1(
       markdownParse.document,
@@ -3300,11 +3329,24 @@ export function parseProfile1Document(
   if (projectedDepthDiagnostic !== undefined) {
     return Object.freeze({ kind: 'source-only', fatalDiagnostic: projectedDepthDiagnostic })
   }
+  // Lazy: the editing view is computed only when the editor's block layer reads
+  // it, so it never adds a parse to open(). With no CriticMarkup it is Original
+  // (identical text), so the existing projection is reused rather than re-run.
+  let editingCache: Profile1ProjectedMarkdown | undefined
+  const editing = (): Profile1ProjectedMarkdown => {
+    if (editingCache === undefined) {
+      editingCache = criticMarkup.roots.length === 0
+        ? original
+        : project(graphCore, 'editing', undefined, markdownDepthLimit)
+    }
+    return editingCache
+  }
   return finalizeProfile1SyntaxGraph(graphCore, {
     diagnostics: createDiagnosticIndex(parsed.diagnostics),
     markup: createMarkupProjection(source, criticMarkup.roots),
     original,
     revised,
-    commentDisplays
+    commentDisplays,
+    editing
   })
 }
