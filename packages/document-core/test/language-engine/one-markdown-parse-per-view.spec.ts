@@ -60,6 +60,24 @@ describe('one authoritative Markdown parse per view', () => {
     expect(parsesFor('a{++x++}{--y--}{==h==}b\n')).toBe(2)
   })
 
+  it('reads the editing block AST without re-parsing when a view already matches', () => {
+    // The editing view shows addition, deletion and highlight content and hides
+    // comments. With no deletions and no Substitutions it is therefore
+    // byte-identical to Revised, so mounting the editor's block AST must reuse
+    // that parse rather than run another one over the same text.
+    __resetMarkdownDocumentParsesV1()
+    const revision = createLanguageEngine().open(
+      createSourceSnapshot('a{++x++}b and {==h==}{>>note<<} here.\n'),
+      TEST_CONFIGURATION
+    )
+    if (revision.kind !== 'complete') {
+      throw new Error('Expected a complete document revision')
+    }
+    const afterOpen = __markdownDocumentParsesV1()
+    revision.projection('editing')
+    expect(__markdownDocumentParsesV1()).toBe(afterOpen)
+  })
+
   it('parses a Substitution six times today (arm boundaries genuinely planned)', () => {
     // Both arms produce matching scopes, so each view keeps its verification and
     // boundary-planning parses. Target is 1 once fork-reads land.

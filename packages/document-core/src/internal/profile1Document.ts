@@ -1947,6 +1947,47 @@ function applyProtections(
 const EMPTY_ARM_BOUNDARY_PROJECTION_EDITS: readonly MarkdownArmBoundaryProjectionEdit[] =
   Object.freeze([])
 
+/** Whether any node in the forest, at any depth, has one of these kinds. */
+function forestContainsKind(
+  nodes: readonly CriticMarkupNode[],
+  kinds: ReadonlySet<CriticMarkupNode['kind']>
+): boolean {
+  return nodes.some((node) =>
+    kinds.has(node.kind) ||
+    node.arms.some((arm) => forestContainsKind(arm.children, kinds))
+  )
+}
+
+const EDITING_DIFFERS_FROM_REVISED: ReadonlySet<CriticMarkupNode['kind']> =
+  new Set(['deletion', 'substitution'])
+const EDITING_DIFFERS_FROM_ORIGINAL: ReadonlySet<CriticMarkupNode['kind']> =
+  new Set(['addition', 'substitution'])
+
+/**
+ * An already-built projection whose text is byte-identical to the editing view,
+ * or `undefined` when the editing view is genuinely its own text.
+ *
+ * The editing view shows Addition, Deletion and Highlight content and hides
+ * Comment bodies. Revised differs from it only by dropping Deletions, and
+ * Original only by dropping Additions; a Substitution differs from both because
+ * the editing view shows old *and* new. So with no Deletions or Substitutions
+ * the editing view is Revised, and with no Additions or Substitutions it is
+ * Original — and parsing those same bytes again would be pure waste.
+ */
+function reusableEditingProjection(
+  roots: readonly CriticMarkupNode[],
+  original: Profile1ProjectedMarkdown,
+  revised: Profile1ProjectedMarkdown
+): Profile1ProjectedMarkdown | undefined {
+  if (!forestContainsKind(roots, EDITING_DIFFERS_FROM_REVISED)) {
+    return revised
+  }
+  if (!forestContainsKind(roots, EDITING_DIFFERS_FROM_ORIGINAL)) {
+    return original
+  }
+  return undefined
+}
+
 function applyMarkdownArmBoundaryProjectionEdits(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
@@ -3330,15 +3371,13 @@ export function parseProfile1Document(
     return Object.freeze({ kind: 'source-only', fatalDiagnostic: projectedDepthDiagnostic })
   }
   // Lazy: the editing view is computed only when the editor's block layer reads
-  // it, so it never adds a parse to open(). With no CriticMarkup it is Original
-  // (identical text), so the existing projection is reused rather than re-run.
+  // it, so it never adds a parse to open(). It also reuses an existing
+  // projection whenever one already covers identical text, rather than parsing
+  // the same bytes twice (invariant 21).
   let editingCache: Profile1ProjectedMarkdown | undefined
   const editing = (): Profile1ProjectedMarkdown => {
-    if (editingCache === undefined) {
-      editingCache = criticMarkup.roots.length === 0
-        ? original
-        : project(graphCore, 'editing', undefined, markdownDepthLimit)
-    }
+    editingCache ??= reusableEditingProjection(criticMarkup.roots, original, revised) ??
+      project(graphCore, 'editing', undefined, markdownDepthLimit)
     return editingCache
   }
   return finalizeProfile1SyntaxGraph(graphCore, {
