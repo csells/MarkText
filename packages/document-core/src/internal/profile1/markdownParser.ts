@@ -2534,7 +2534,6 @@ function parseMarkdownDocumentWithBoundaryEvidence(
   // only to read its boundary edits). Count here so no full-parse entry point
   // is invisible to __markdownDocumentParsesV1 (invariant 21).
   markdownDocumentParses += 1
-  markdownParsedUnits += lane.source.length
   const source = lane.source
   const canonicalIdentityRuns = validatedCanonicalIdentityRuns(
     source.length,
@@ -2601,6 +2600,11 @@ function parseMarkdownDocumentWithBoundaryEvidence(
           )
         ))
       })
+  // Count units where the block phase actually consumes text. That is the
+  // shareable work — block structure, literals and definitions — so measuring
+  // here is what makes "unchanged text is parsed once" observable: sharing a
+  // region across views means its characters are handed to this phase once.
+  markdownParsedUnits += source.length
   const parsedLane = parsePlainMarkdownLane(
     source,
     containerDepthLimit,

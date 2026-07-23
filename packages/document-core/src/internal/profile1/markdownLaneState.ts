@@ -3366,6 +3366,61 @@ function parsePlainMarkdownLanePass(
   })
 }
 
+/**
+ * Rebase a lane parse onto a different position, shifting every offset it
+ * carries by `delta`.
+ *
+ * This is what lets the block phase be shared across views (ADR-0013 slice 2):
+ * a region is analysed once and reused wherever it appears, even though eliding
+ * a marker moves it. Reuse is sound only across a safe point — blocks do not
+ * span one, so a differently sized prefix cannot change how the region parses,
+ * only where it sits (`specs/research/0002`).
+ *
+ * Reference definitions are deliberately not carried: they are rebuilt from the
+ * shifted literals by the caller, because their visibility is view-dependent
+ * and a shared region must not import another view's definitions (ADR-0009).
+ */
+export function shiftPlainMarkdownLane(
+  lane: PlainMarkdownLaneParse,
+  delta: number
+): PlainMarkdownLaneParse {
+  if (delta === 0) {
+    return lane
+  }
+  return Object.freeze({
+    containerDepthFailure: lane.containerDepthFailure === undefined
+      ? undefined
+      : Object.freeze({
+        ...lane.containerDepthFailure,
+        start: lane.containerDepthFailure.start + delta,
+        end: lane.containerDepthFailure.end + delta
+      }),
+    literals: Object.freeze(lane.literals.map((literal) => Object.freeze({
+      ...literal,
+      start: literal.start + delta,
+      end: literal.end + delta
+    }))),
+    lines: Object.freeze(lane.lines.map((line) => Object.freeze({
+      ...line,
+      start: line.start + delta,
+      contentEnd: line.contentEnd + delta,
+      end: line.end + delta,
+      contentOffset: line.contentOffset + delta,
+      listMarkers: Object.freeze(line.listMarkers.map((marker) => Object.freeze({
+        ...marker,
+        start: marker.start + delta,
+        end: marker.end + delta,
+        contentOffset: marker.contentOffset + delta
+      }))),
+      containers: Object.freeze(line.containers.map((container) => Object.freeze({
+        ...container,
+        start: container.start + delta,
+        end: container.end + delta
+      })))
+    })))
+  })
+}
+
 export function parsePlainMarkdownLane(
   source: string,
   containerDepthLimit: number = Number.POSITIVE_INFINITY,
