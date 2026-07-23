@@ -8,10 +8,28 @@ terms are out of scope.
 ## Language
 
 **Document revision**:
-One exact canonical Markdown snapshot together with its complete intrinsic
-MarkText Markdown Profile interpretation, including CriticMarkup. A revision is replaced as a whole by an accepted
-edit; views of it are never independent document authorities.
+One immutable exact canonical Markdown snapshot accepted as document authority
+under one immutable parse configuration. It is either a Complete revision or a
+Source-only revision. An accepted edit replaces the revision as a whole; views
+of it are never independent document authorities.
 _Avoid_: JSON state, live DOM state, parser sidecar
+
+**Complete revision**:
+A Document revision whose MarkText Markdown Profile interpretation completed
+within its deterministic execution budget. It owns the atomic lossless syntax
+graph, diagnostics, provenance, ownership, projections, and semantic indexes
+used by WYSIWYG, Review, commands, and materializers.
+_Avoid_: normal revision, successful parse result
+
+**Source-only revision**:
+A Document revision that retains the exact canonical source, immutable parse
+configuration, identity, and one fatal resource or compatibility diagnostic
+when a complete interpretation cannot safely be published. It permits Source
+mode, exact persistence, and an explicit retry or reinterpretation, but exposes
+no semantic graph, projection, WYSIWYG surface, Review surface, or semantic
+materializer. It remains document authority rather than becoming an error
+placeholder.
+_Avoid_: failed document, partial parse, literal fallback, truncated revision
 
 **Canonical source**:
 The exact decoded UTF-16 code-unit sequence owned by a Document revision and
@@ -36,8 +54,17 @@ _Avoid_: CriticMarkup dialect, peer CM language, current parser behavior, de fac
 
 **Projection**:
 A read-only Original, Revised, or Comment-display interpretation selected from
-one Document revision. It is never an independent document authority.
+one Complete revision. It is never an independent document authority and is
+unavailable for a Source-only revision.
 _Avoid_: parsed copy, alternate document
+
+**Substitution arm**:
+The old or new payload of one Substitution. Markdown constructs that require a
+matching boundary must have both endpoints within that arm. An arm neither
+inherits an open matching boundary from outside nor exports one to later
+source. A complete construct with both endpoints outside may enclose the whole
+Substitution.
+_Avoid_: route, branch-continuation lane
 
 **Comment**:
 The unstructured metadata payload serialized by CriticMarkup as `{>>…<<}`.

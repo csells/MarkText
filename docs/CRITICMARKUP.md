@@ -25,6 +25,8 @@ A substitution is always one review item, never a separate deletion and addition
 
 You can type active marks by hand in Source Code Mode or another raw Markdown editor. Ordinary WYSIWYG typing is semantic text: marker-looking characters are protected as literals unless Track Changes or a direct Review command intentionally authors a mark. The raw Comment editor likewise accepts nested syntax only inside that Comment payload. Markdown context wins over CriticMarkup syntax, so marks inside inline code, code blocks, and other literal Markdown ranges stay literal text and never become review items. Unmatched delimiters and an invalid outer candidate remain literal source. If that malformed outer text contains a complete, properly nested CriticMarkup item, MarkText promotes that complete descendant as a Review item and reports the malformed surrounding syntax without changing any source bytes.
 
+Keep paired Markdown syntax complete inside each side of a substitution. For example, write `{~~*old*~>*new*~~}`, not `*{~~old*~>new*~~}`. A Markdown opener or closer inside one arm cannot pair with syntax outside that arm or continue after `~~}`. When a read-only projection would otherwise assemble such a pair, MarkText shows it literally rather than inventing emphasis, code, math, or another Markdown construct that was not valid in the arm.
+
 ## Marking up a document
 
 The **Review** menu holds the authoring commands. Each one enables when the current selection can support it:
@@ -87,7 +89,8 @@ Whatever view is active, **save and autosave always write the canonical markup**
 
 Text you copy and documents you export follow the view you are looking at:
 
-- Normal copy and cut in the Markup view put the raw Markdown, marks included, on the clipboard, so pasting elsewhere is lossless. In Original or Revised they copy the projected text you see.
+- Normal copy in Markup puts the raw Markdown, marks included, on the clipboard, so pasting elsewhere is lossless. In Original or Revised it copies the projected text you see.
+- Cut is available only in editable Markup and Source modes. It copies first and removes the selected content only after the system clipboard confirms the complete bundle; Original and Revised remain read-only.
 - **Copy as Markdown** always copies the raw markup regardless of view.
 - HTML export, PDF export, and print render the active view: Markup produces review-styled HTML with insertions and deletions visibly marked, plus numbered comments outside the prose flow; Original and Revised produce the clean projected document with comments elided. Exported and printed HTML is sanitized; comment text is treated as text, never as live HTML.
 - Search looks through the text of the active view: canonical text with markers in Markup, projected text in Original and Revised.

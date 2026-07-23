@@ -2,7 +2,9 @@
 
 MarkText will replace mutable JSON block state as document authority with one
 immutable, lossless document revision containing the exact canonical Markdown
-and its unified Markdown/CriticMarkup interpretation. The DOM, editor block
+and immutable parse configuration. A Complete revision also owns its unified
+Markdown/CriticMarkup interpretation; a Source-only revision deliberately owns
+no semantic interpretation. For a Complete revision, the DOM, editor block
 tree, review surfaces, projections, and exports are derived views; accepted
 commands replace the revision as a whole. This prevents independently produced
 state, syntax, and provenance from being rebound or inferred after the fact.

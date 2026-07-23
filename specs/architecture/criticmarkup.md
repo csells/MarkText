@@ -2,9 +2,9 @@
 
 > **Status: legacy implementation record; not the target architecture.** This
 > file describes the mutable-state/Marked/binding engine currently present on
-> `feat/native-criticmarkup`. ADR-0005 through ADR-0009 and plan 0009 supersede it
+> `feat/native-criticmarkup`. ADR-0005 through ADR-0012 and plan 0009 supersede it
 > for all new work: the immutable `DocumentRevision` is sole authority, decoded
-> source is exact, CM is intrinsic syntax in one conditional Markdown graph, and resource failure
+> source is exact, CM is intrinsic syntax in one atomic lossless Markdown graph, and resource failure
 > yields SourceOnly rather than literal rendering. Any conflict is an explicit
 > current-to-target gap, not an alternate allowed design. Keep this record only
 > as a migration/deletion oracle; rewrite or archive it when cutover completes.
@@ -170,6 +170,13 @@ analysis is separately identified and cannot be injected into a parser-aware
 transaction. Exact source bytes, parser-profile identity, and required context
 coverage are all checked when an analysis is rebound to another mapped path
 domain.
+
+> **Superseded behavior:** ADR-0010 rejects the conditional final-scan model
+> above for Substitution arms. The target parser contains matching Markdown
+> boundaries within one arm, gives following source one canonical owner, and
+> protects any projected adjacency that would otherwise manufacture a
+> cross-arm Markdown pair. This section remains only as a deletion oracle for
+> the legacy engine.
 
 MarkText vendors Marked with parser-owned source provenance. Every block and
 inline lexer invocation receives a mapped source view, and its ledger
