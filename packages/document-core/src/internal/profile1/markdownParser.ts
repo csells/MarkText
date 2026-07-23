@@ -2534,6 +2534,7 @@ function parseMarkdownDocumentWithBoundaryEvidence(
   // only to read its boundary edits). Count here so no full-parse entry point
   // is invisible to __markdownDocumentParsesV1 (invariant 21).
   markdownDocumentParses += 1
+  markdownParsedUnits += lane.source.length
   const source = lane.source
   const canonicalIdentityRuns = validatedCanonicalIdentityRuns(
     source.length,
@@ -2707,6 +2708,28 @@ export function __markdownDocumentParsesV1(): number {
 
 export function __resetMarkdownDocumentParsesV1(): void {
   markdownDocumentParses = 0
+  markdownParsedUnits = 0
+}
+
+/**
+ * Test-only counter of parsed source units — the code units handed to the
+ * Markdown grammar, summed over every parse.
+ *
+ * Parse *count* cannot express the parse-once invariant for a document that
+ * carries markers: Original and Revised resolve to genuinely different text
+ * (`ab` vs `axb`), so they can never literally share one parse, and the count
+ * has a floor of one per distinct view text. What the invariant actually claims
+ * is that *unchanged* text is parsed once — which is a statement about units,
+ * not calls. A document whose views differ in one paragraph should cost about
+ * its own length plus that paragraph, not twice its length.
+ *
+ * So this is the metric slices 2-3 are measured by; the parse count remains
+ * useful only for the case where views share one text exactly.
+ */
+let markdownParsedUnits = 0
+
+export function __markdownParsedUnitsV1(): number {
+  return markdownParsedUnits
 }
 
 export function parseMarkdownDocument(

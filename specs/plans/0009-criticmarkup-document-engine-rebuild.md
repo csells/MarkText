@@ -3782,12 +3782,32 @@ working end-to-end in the app, then widen):
      boundary-edit planning parse was skipped where a view has no arm scopes and no arm terminations,
      because it provably plans nothing. Unary-form documents halved 4 → 2 and reference-definition
      index builds dropped 2 → 1 / 4 → 2 as a consequence.
-   - **Slice 2:** a marker that does not change block structure (an addition inside a paragraph) parses
-     once; views differ only by inline arm selection. *(Open: unary forms are 2 today — Original and
-     Revised have genuinely different text, so this needs the fork-read model, not another reuse.)*
-   - **Slice 3+:** a marker that changes block structure parses once and records a **block fork** — the
-     hard core (CommonMark non-locality under forks: lazy continuation, reference definitions, setext).
-     Reconvergence is at the safe point established in `specs/research/0002`.
+   **Metric correction (2026-07-23, found by implementing it).** Slices 2-3 were stated as "parses
+   once," measured by `__markdownDocumentParsesV1`. That metric **cannot express them**: a
+   marker-bearing document resolves to genuinely different text per view (`ab` vs `axb`), so Original
+   and Revised can never literally share one parse — the count has a floor of one per distinct view
+   text no matter how much work is shared. The invariant's real claim is that *unchanged text* is
+   parsed once, which is a statement about **source units, not calls**. Slices 2-3 are therefore
+   measured by `__markdownParsedUnitsV1`; parse count remains meaningful only where views share one
+   text exactly (slice 1, annotation-only). Today a 20-paragraph document with one tracked change
+   costs ~2× its length; the target is ~1× plus the divergent paragraph.
+
+   - **Slice 2:** a marker that does not change block structure (an addition inside a paragraph) costs
+     the document's length plus that paragraph, not twice the length; views differ only by inline arm
+     selection over shared block structure.
+   - **Slice 3+:** a marker that changes block structure records a **block fork** reconverging at the
+     safe point (`specs/research/0002`, implemented as `safePointsOf`) — the hard core.
+
+   **Two constraints established while building the foundation, both load-bearing for 2-3:**
+   - *Block sharing and inline sharing are different problems.* Reference definitions are
+     document-scoped, so a block with **no marker in it** can still diverge — verified:
+     `[link]\n\n{++[link]: /url++}` resolves the first block to `text` in Original and `link` in
+     Revised. Any plan keyed on marker positions alone is unsound; inline resolution needs a per-view
+     definition index even where block structure is shared. Setext underlines and lazy continuation are
+     the same shape of hazard.
+   - *Conservative over-approximation is the correct posture.* Over-marking a region divergent forgoes
+     an optimization; under-marking one serves a view another view's tree. `forkPlanOf` refuses all
+     sharing when a divergent region may carry a definition, pending parser-supplied definition ranges.
 
    Consequence for the muya gut: it is deeper than deleting the ~48k CriticMarkup/authority machinery —
    muya's own Markdown **block parsing** (inside the ~42k) must also be removed and replaced by reading
