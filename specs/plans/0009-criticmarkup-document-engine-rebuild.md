@@ -3826,9 +3826,22 @@ working end-to-end in the app, then widen):
    The full loop is proven headless in `test/view/typing-loop.spec.ts`: a keystroke aimed by view
    position commits a revision and re-renders, an edit beside a tracked change leaves it intact, and
    undo restores the exact prior model text.
-4. **Mount in a gutted muya-as-view behind the new-engine flag, one flow (plain paragraph typing).**
-   Wire adapter + translator to muya's contenteditable core; prove gesture → intent → revision → plan →
-   DOM diff end-to-end in the real app (the loop never yet demonstrated in production).
+4. **DONE (2026-07-23) — mounted in muya, the engine's first production caller.** `packages/muya`
+   now depends on `@marktext/document-core` and renders its block tree to DOM
+   (`src/documentCore/`). Nothing in the view parses Markdown, recognizes CriticMarkup, or derives a
+   position from rendered text length: the engine decides blocks, runs and offsets, and the DOM
+   carries model offsets so selection maps back exactly. Each CriticMarkup form keeps its own element
+   (`ins`/`del`/`mark`, both Substitution arms). The full loop — gesture → intent → revision → DOM —
+   is proven in a real DOM, including a tracked change surviving an edit beside it and undo restoring
+   the exact prior document. Two defects the tests caught: `MarkupRenderBlock` dropped the parser's
+   block attributes so every heading rendered as `<h1>`; and the view had to re-open the engine per
+   render for block structure, so `EditorSnapshot` now serves `editingDocument` (no parse, tracks the
+   revision, shares one coordinate space with `livePlan`).
+
+   *Remaining for this increment:* wiring behind the new-engine flag inside the real editor shell, and
+   replacing muya's own block parsing for the migrated flow — the view is proven but not yet the
+   editor's default path.
+
 5. **Migrate flows one at a time**, deleting muya's authority + CM machinery as each lands, until muya
    is a pure view and the ~48k legacy is gone.
 
