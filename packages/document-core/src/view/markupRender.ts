@@ -150,6 +150,42 @@ export function groupRenderBlocks(
 }
 
 /**
+ * Which blocks can share one parse across views, and which must be resolved per
+ * view. `shared` and `divergent` together cover the document, in order.
+ */
+export interface ForkPlan {
+  readonly shared: readonly ModelRange[]
+  readonly divergent: readonly ModelRange[]
+}
+
+/**
+ * Plan where a per-view fork is actually required (ADR-0013 slices 2-3).
+ *
+ * Original and Revised differ only where an Addition, Deletion or Substitution
+ * resolves differently — rendered as `ins` and `del`. A Highlight renders in
+ * both views and a Comment body is hidden in both, so a block carrying only
+ * those is byte-identical across views and one parse serves every view.
+ *
+ * Blocks are the unit because a fork reconverges at a safe point and every
+ * top-level block start is one (`specs/research/0002`), so a divergence can
+ * never leak past its block into the shared remainder.
+ */
+export function forkPlanOf(blocks: readonly MarkupRenderBlock[]): ForkPlan {
+  const shared: ModelRange[] = []
+  const divergent: ModelRange[] = []
+  for (const block of blocks) {
+    const diverges = block.runs.some((run) =>
+      run.elements.includes('ins') || run.elements.includes('del')
+    )
+    ;(diverges ? divergent : shared).push(block.modelRange)
+  }
+  return Object.freeze({
+    shared: Object.freeze(shared),
+    divergent: Object.freeze(divergent)
+  })
+}
+
+/**
  * Where the caret or a click sits in view terms: which mounted block, which run
  * inside it, and how many UTF-16 code units into that run's text. `offset` may
  * equal the run's length, meaning the boundary just past its last character.
