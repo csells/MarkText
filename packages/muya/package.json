@@ -58,6 +58,7 @@
     },
     "dependencies": {
         "@floating-ui/dom": "^1.7.6",
+        "@marktext/document-core": "workspace:*",
         "@marktext/file-icons": "^1.0.6",
         "dompurify": "^3.4.11",
         "execall": "^3.0.0",

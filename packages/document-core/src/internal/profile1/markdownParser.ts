@@ -6,9 +6,7 @@ import type {
   ViewRange
 } from '../../revision.js'
 import {
-  createMarkdownReferenceDefinitionIndex,
   normalizeMarkdownReferenceLabel,
-  parsePlainMarkdownLane,
   parsePlainMarkdownLaneReusing,
   type PlainMarkdownLaneReuse,
   __plainMarkdownLaneUnitsV1,

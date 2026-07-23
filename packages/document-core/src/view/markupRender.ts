@@ -105,6 +105,12 @@ export function renderMarkupPlan(
  */
 export interface MarkupRenderBlock {
   readonly kind: MarkdownNodeKind
+  /**
+   * The block node's parser-owned attributes — a heading's `level`, a list's
+   * ordering. The view mounts these; deriving them itself would be a second
+   * authority guessing at what the parser already decided.
+   */
+  readonly attributes: Readonly<Record<string, string | number | boolean>>
   readonly modelRange: ModelRange
   readonly runs: readonly MarkupRenderRun[]
 }
@@ -143,6 +149,7 @@ export function groupRenderBlocks(
     }
     return Object.freeze({
       kind: block.kind,
+      attributes: block.attributes,
       modelRange: Object.freeze({ start, end }),
       runs: Object.freeze(blockRuns)
     })
