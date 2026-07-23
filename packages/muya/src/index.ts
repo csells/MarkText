@@ -17,6 +17,9 @@ export type {
     TCriticMarkupProjection,
     TCriticMarkupType,
 } from './criticMarkup/reviewContract';
+export { createDocumentCoreView } from './documentCore/documentCoreView';
+export type { IDocumentCoreView, IDocumentCoreViewOptions } from './documentCore/documentCoreView';
+export { renderDocumentCoreBlocks } from './documentCore/renderBlocks';
 export type { ILocale } from './i18n/types';
 export { de, en, es, fr, ja, ko, pt, tr, zhCN, zhTW } from './locales';
 export {
@@ -31,10 +34,10 @@ export type { ITocItem } from './state/getTOC';
 export { MarkdownToHtml } from './state/markdownToHtml';
 export { renderToStaticHTML } from './state/renderToStaticHTML';
 export type { IRenderToStaticHTMLOptions } from './state/renderToStaticHTML';
+
 export { sanitizeExportHtml } from './state/sanitizeExportHtml';
 export type { TState } from './state/types';
 export type { IMuyaOptions } from './types';
-
 // Export ui tools.
 export { CodeBlockLanguageSelector } from './ui/codeBlockLanguageSelector';
 export { CriticMarkupReviewTool } from './ui/criticMarkupReviewTool';
