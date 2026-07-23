@@ -3776,19 +3776,36 @@ working end-to-end in the app, then widen):
    the home of the single structure; `canonicalMarkupDocument` returns it and Original/Revised are
    reads of its forks. The migration is **measured by parse count per document** (`__markdownDocumentParsesV1`):
 
-   - **Slice 1 (this section's first red-green):** a CriticMarkup-free document parses **once**, not
-     twice — all views read one shared parse. (Today: 2.)
+   - **Slice 1 — DONE (2026-07-23).** A CriticMarkup-free document parses **exactly once**. Two steps:
+     the counter was made honest (it now increments in `parseMarkdownDocumentWithBoundaryEvidence`, the
+     shared entry of every full parse), which exposed a hidden per-projection parse; then the
+     boundary-edit planning parse was skipped where a view has no arm scopes and no arm terminations,
+     because it provably plans nothing. Unary-form documents halved 4 → 2 and reference-definition
+     index builds dropped 2 → 1 / 4 → 2 as a consequence.
    - **Slice 2:** a marker that does not change block structure (an addition inside a paragraph) parses
-     once; views differ only by inline arm selection.
+     once; views differ only by inline arm selection. *(Open: unary forms are 2 today — Original and
+     Revised have genuinely different text, so this needs the fork-read model, not another reuse.)*
    - **Slice 3+:** a marker that changes block structure parses once and records a **block fork** — the
      hard core (CommonMark non-locality under forks: lazy continuation, reference definitions, setext).
+     Reconvergence is at the safe point established in `specs/research/0002`.
 
    Consequence for the muya gut: it is deeper than deleting the ~48k CriticMarkup/authority machinery —
    muya's own Markdown **block parsing** (inside the ~42k) must also be removed and replaced by reading
    the engine's single forked structure. muya keeps the DOM/contenteditable/selection *mechanics*; it
    stops *deciding* block structure. Keep the hands, replace the brain.
-3. **Gesture → intent translation.** A pure function mapping a DOM selection + input event to an
-   `EditorIntent` against the current plan's `modelRange`s. Testable headless.
+   **2b/2c — DONE (2026-07-23).** The engine emits the editing view as a first-class projection with a
+   block AST (`canonicalMarkupDocument`), for every CriticMarkup form including a Substitution's two
+   arms, and `groupRenderBlocks` nests the marked inline runs under those engine-emitted blocks. The
+   projection is lazy, so it adds no parse to `open()`. The editing view is exempt from clean
+   verification — that is a materialization premise, and the editing view is never materialized while
+   being the only view showing both arms adjacent (ADR-0013).
+
+3. **Gesture → intent translation. DONE (2026-07-23).** `modelOffsetAt`/`viewPositionAt` bridge view
+   coordinates (block, run, offset) to model offsets, with an affinity choosing the side of a
+   CriticMarkup boundary — so typing at the start of an addition can extend it or not, deliberately.
+   The full loop is proven headless in `test/view/typing-loop.spec.ts`: a keystroke aimed by view
+   position commits a revision and re-renders, an edit beside a tracked change leaves it intact, and
+   undo restores the exact prior model text.
 4. **Mount in a gutted muya-as-view behind the new-engine flag, one flow (plain paragraph typing).**
    Wire adapter + translator to muya's contenteditable core; prove gesture → intent → revision → plan →
    DOM diff end-to-end in the real app (the loop never yet demonstrated in production).
