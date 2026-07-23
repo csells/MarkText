@@ -61,6 +61,45 @@ fenced code (blank lines are literal content until the closing fence) and HTML b
    principle. The evidence shows divergence is *already* mostly-local under faithful CommonMark, so the
    deviation buys little and costs fidelity.
 
+## The exception that block-local reasoning misses: reference definitions
+
+Block reconvergence governs **block** structure. It does not govern **inline**
+resolution, because CommonMark reference definitions are *document-scoped*.
+Verified against the engine:
+
+```markdown
+[link]
+
+{++[link]: /url++}
+```
+
+The first block contains **no marker at all**, yet its inline structure is `text`
+in Original (the definition is rejected, so the reference does not resolve) and
+`link` in Revised (accepted, so it does). A block can therefore diverge across
+views with nothing marked inside it.
+
+Consequences for the fork model:
+
+1. **"No marker in this block" does not imply "shared."** Any fork plan keyed on
+   marker positions alone is unsound. When a divergent region may carry a
+   reference definition, no block is safely shared.
+2. **Block sharing and inline sharing are different problems.** Block structure
+   reconverges at a safe point; inline resolution depends on a document-wide
+   definition index that is itself view-dependent. A parse-once implementation
+   must compute the definition index per view (cheap — it is a scan of
+   definitions, not a full parse) and re-resolve references, even where block
+   structure is shared.
+3. **Conservative over-approximation is the correct interim posture.**
+   Over-marking a block divergent only forgoes an optimization; under-marking one
+   serves a view another view's tree. `forkPlanOf` currently refuses all sharing
+   when a divergent run looks like it carries a definition, and should take
+   parser-supplied definition ranges when the fork lands — deciding what a
+   definition *is* belongs to the parser (ADR-0009), not to a view-layer probe.
+
+Setext underlines and lazy continuation are the same shape of hazard (a marker
+changing how a *later or earlier* line is read) and want the same treatment:
+identify them from parser-owned facts, not from a view-layer scan.
+
 ## Unification with incremental parsing (Phase 5/11)
 
 The "safe point" detector — a position of canonical, nothing-open block state where a parse can start

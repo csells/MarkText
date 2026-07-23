@@ -166,24 +166,53 @@ export interface ForkPlan {
  * both views and a Comment body is hidden in both, so a block carrying only
  * those is byte-identical across views and one parse serves every view.
  *
- * Blocks are the unit because a fork reconverges at a safe point and every
- * top-level block start is one (`specs/research/0002`), so a divergence can
- * never leak past its block into the shared remainder.
+ * Blocks are the unit because a *block* fork reconverges at a safe point and
+ * every top-level block start is one (`specs/research/0002`).
+ *
+ * Block-local reasoning is not sufficient on its own, though, and the exception
+ * is load-bearing: CommonMark reference definitions are **document-scoped**.
+ * Verified on `[link]\n\n{++[link]: /url++}\n`, the first block carries no marker
+ * yet resolves to `text` in Original and `link` in Revised, because the
+ * definition sits inside an Addition in another block. So when a divergent
+ * region might carry a definition, nothing is shared.
+ *
+ * That guard is a deliberate over-approximation — it looks for a definition-like
+ * `]:` rather than deciding what a definition is, which is the parser's job
+ * (ADR-0009). Over-marking a block divergent only forgoes an optimization;
+ * under-marking one would serve a view the wrong tree. It should be replaced by
+ * parser-supplied definition ranges when the fork lands.
  */
 export function forkPlanOf(blocks: readonly MarkupRenderBlock[]): ForkPlan {
   const shared: ModelRange[] = []
   const divergent: ModelRange[] = []
+  let definitionMayDiverge = false
   for (const block of blocks) {
-    const diverges = block.runs.some((run) =>
+    const divergentRuns = block.runs.filter((run) =>
       run.elements.includes('ins') || run.elements.includes('del')
     )
-    ;(diverges ? divergent : shared).push(block.modelRange)
+    if (divergentRuns.some((run) => DEFINITION_LIKE.test(run.text))) {
+      definitionMayDiverge = true
+    }
+    ;(divergentRuns.length > 0 ? divergent : shared).push(block.modelRange)
+  }
+  if (definitionMayDiverge) {
+    // A view-dependent definition can change any reference elsewhere, so no
+    // block is safely shared.
+    return Object.freeze({
+      shared: Object.freeze([]),
+      divergent: Object.freeze([...shared, ...divergent].sort(
+        (left, right) => left.start - right.start
+      ))
+    })
   }
   return Object.freeze({
     shared: Object.freeze(shared),
     divergent: Object.freeze(divergent)
   })
 }
+
+/** Conservative "this text might define a link reference" probe — see above. */
+const DEFINITION_LIKE = /\]\s*:/
 
 /**
  * Where the caret or a click sits in view terms: which mounted block, which run

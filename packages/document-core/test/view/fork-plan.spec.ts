@@ -95,6 +95,17 @@ describe('fork plan', () => {
     }
   })
 
+  it('shares nothing when a marker may carry a reference definition', async() => {
+    // CommonMark reference definitions are DOCUMENT-scoped, so block-local
+    // reasoning is not enough. Verified: for '[link]\n\n{++[link]: /url++}\n'
+    // the first block carries no marker at all, yet its inline structure is
+    // `text` in Original and `link` in Revised — the definition lives inside an
+    // Addition in a different block. Sharing that block's parse would serve one
+    // view the other's tree, so the plan must refuse to share here.
+    const plan = await planFor('[link]\n\n{++[link]: /url++}\n')
+    expect(plan.shared).toHaveLength(0)
+  })
+
   it('reports the sharable fraction of realistic review prose', async() => {
     // The O(n) premise: markers are sparse in real documents, so the shared
     // majority is parsed once and only the marked blocks fork.
