@@ -67,28 +67,32 @@ describe('parsed units', () => {
     expect(unitsFor(source)).toBeLessThan(source.length * 2)
   })
 
-  it('costs about twice the document today when one paragraph diverges', () => {
-    // The waste slices 2-3 remove: 19 untouched paragraphs are parsed once for
-    // Original and again for Revised even though their text is identical.
-    const source = reviewProse(20)
-    const ratio = unitsFor(source) / source.length
-    expect(ratio).toBeGreaterThan(1.8)
-  })
-
-  it('grows the waste linearly with untouched prose', () => {
-    // Doubling the untouched prose roughly doubles the duplicated work, which is
-    // what makes this worth fixing: the cost tracks the text the reader did NOT
-    // change.
-    const small = unitsFor(reviewProse(10))
-    const large = unitsFor(reviewProse(20))
-    expect(large).toBeGreaterThan(small * 1.8)
-  })
-
-  it.fails('TARGET: unchanged text is parsed once even when a paragraph diverges', () => {
-    // Slices 2-3. Budget: the document length, plus the one divergent paragraph
-    // resolved a second time, plus modest slack — not a multiple of the length.
+  it('parses unchanged text once when a paragraph diverges', () => {
+    // Slice 2, landed. Was ~2x the document: 19 untouched paragraphs analysed
+    // once for Original and again for Revised despite identical text. Revised
+    // now reuses every shared region, so the cost is the document plus the one
+    // divergent paragraph, not a multiple of the document.
     const source = reviewProse(20)
     const divergentParagraph = 'Paragraph 3 with an inserted clause.'.length
     expect(unitsFor(source)).toBeLessThan(source.length + divergentParagraph * 3)
+  })
+
+  it('no longer grows the cost with untouched prose', () => {
+    // The waste used to track the text the reviewer did NOT change. Doubling the
+    // untouched prose now roughly doubles the cost once — the shape of a single
+    // pass — rather than doubling a duplicated pass.
+    const small = unitsFor(reviewProse(10))
+    const large = unitsFor(reviewProse(20))
+    const smallSource = reviewProse(10)
+    const largeSource = reviewProse(20)
+    expect(small / smallSource.length).toBeLessThan(1.3)
+    expect(large / largeSource.length).toBeLessThan(1.3)
+  })
+
+  it('scales the saving with document size', () => {
+    // The bigger the untouched majority, the more is saved — the property that
+    // makes this matter for real documents rather than fixtures.
+    const source = reviewProse(60)
+    expect(unitsFor(source) / source.length).toBeLessThan(1.1)
   })
 })

@@ -65,6 +65,7 @@ import type {
 } from './profile1/syntaxGraph.js'
 import {
   planMarkdownArmBoundaryProjectionEdits,
+  type PlainMarkdownLaneReuseCache,
   parseMarkdownDocument,
   type MarkdownArmBoundaryProjectionEdit,
   type MappedMarkdownCanonicalIdentityRun,
@@ -2730,7 +2731,8 @@ function project(
   lane: CanonicalMarkdownLane = graph.canonicalMarkdown.root,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   traceRecorder?: ProfileParseTraceRecorderV1,
-  traceView: ProfileParseTraceViewV1 = view
+  traceView: ProfileParseTraceViewV1 = view,
+  reuseCache?: PlainMarkdownLaneReuseCache
 ): Profile1ProjectedMarkdown {
   const source = graph.source
   const chunks: string[] = []
@@ -3020,7 +3022,7 @@ function project(
   const markdownParse = parseMarkdownDocument({
     source: guarded.source,
     matchingScopes: retainedMatchingScopes
-  }, markdownDepthLimit)
+  }, markdownDepthLimit, reuseCache)
   // Phase 0.5 step 1: the clean verifier no longer recognizes CriticMarkup. It
   // needs only (a) proof the projection synthesized no CriticMarkup — supplied
   // by the guard's accepted-marker count — and (b) a matching-scope-free
@@ -3341,12 +3343,18 @@ export function parseProfile1Document(
     parsed.markerDecisions,
     parsed.canonicalMarkdownParse
   )
+  // One cache spanning the view projections: Original is analysed in full, and
+  // Revised reuses every region the two views share, re-analysing only where a
+  // marker actually resolves differently (ADR-0013 slice 2).
+  const laneReuse: PlainMarkdownLaneReuseCache = {}
   const original = project(
     graphCore,
     'original',
     undefined,
     markdownDepthLimit,
-    traceRecorder
+    traceRecorder,
+    undefined,
+    laneReuse
   )
   // ADR 0013: parse once and read every view off it. Original and Revised differ
   // only where a form resolves differently between them — Additions, Deletions
@@ -3360,7 +3368,9 @@ export function parseProfile1Document(
       'revised',
       undefined,
       markdownDepthLimit,
-      traceRecorder
+      traceRecorder,
+      undefined,
+      laneReuse
     )
     : original
   const commentDisplays = createCommentDisplayProjections(

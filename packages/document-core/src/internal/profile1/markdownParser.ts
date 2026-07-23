@@ -9,6 +9,8 @@ import {
   createMarkdownReferenceDefinitionIndex,
   normalizeMarkdownReferenceLabel,
   parsePlainMarkdownLane,
+  parsePlainMarkdownLaneReusing,
+  type PlainMarkdownLaneReuse,
   __plainMarkdownLaneUnitsV1,
   __resetPlainMarkdownLaneUnitsV1,
   type MarkdownMatchingScopePolicy,
@@ -2529,7 +2531,8 @@ function validatedMatchingScopeRuns(
 function parseMarkdownDocumentWithBoundaryEvidence(
   lane: MappedMarkdownLane,
   containerDepthLimit: number = Number.POSITIVE_INFINITY,
-  trace?: Profile1ProjectionPlanningTraceV1
+  trace?: Profile1ProjectionPlanningTraceV1,
+  reuseCache?: PlainMarkdownLaneReuseCache
 ): BoundaryAwareMarkdownParse {
   // Every full document parse flows through here — both parseMarkdownDocument
   // and planMarkdownArmBoundaryProjectionEdits (which builds a full document
@@ -2602,11 +2605,16 @@ function parseMarkdownDocumentWithBoundaryEvidence(
           )
         ))
       })
-  const parsedLane = parsePlainMarkdownLane(
+  const parsedLane = parsePlainMarkdownLaneReusing(
     source,
+    reuseCache?.current,
     containerDepthLimit,
     matchingScopePolicy
   )
+  if (reuseCache !== undefined && matchingScopePolicy === undefined) {
+    // Offer this analysis to the next view; only scope-free parses are reusable.
+    reuseCache.current = { source, parsed: parsedLane }
+  }
   const literals = parsedLane.literals.map(
     (literal): MappedMarkdownLiteral => Object.freeze({
       provider: literal.kind,
@@ -2727,17 +2735,28 @@ export function __resetMarkdownDocumentParsesV1(): void {
  * So this is the metric slices 2-3 are measured by; the parse count remains
  * useful only for the case where views share one text exactly.
  */
+/**
+ * A slot holding the last scope-free block analysis, so the next view can reuse
+ * its untouched regions instead of re-analysing them (ADR-0013 slice 2).
+ */
+export interface PlainMarkdownLaneReuseCache {
+  current?: PlainMarkdownLaneReuse
+}
+
 export function __markdownParsedUnitsV1(): number {
   return __plainMarkdownLaneUnitsV1()
 }
 
 export function parseMarkdownDocument(
   lane: MappedMarkdownLane,
-  containerDepthLimit: number = Number.POSITIVE_INFINITY
+  containerDepthLimit: number = Number.POSITIVE_INFINITY,
+  reuseCache?: PlainMarkdownLaneReuseCache
 ): Profile1MarkdownParse {
   const parsed = parseMarkdownDocumentWithBoundaryEvidence(
     lane,
-    containerDepthLimit
+    containerDepthLimit,
+    undefined,
+    reuseCache
   )
   return Object.freeze({
     document: parsed.document,
