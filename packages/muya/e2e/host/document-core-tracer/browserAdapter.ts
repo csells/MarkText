@@ -6,6 +6,7 @@ import type {
     ModelPosition,
     ModelSelection,
 } from '@marktext/document-core';
+import { markupRenderElement } from '@marktext/document-core';
 
 type BrowserSessionClient = Pick<DocumentSession, 'dispatch' | 'snapshot' | 'subscribe'>;
 
@@ -19,16 +20,14 @@ export interface BoundDocumentSession {
 }
 
 function createRunElement(run: MarkupLiveRenderPlan['runs'][number]): HTMLElement {
+    // Use the engine's own mark -> element mapping rather than restating it.
+    // A private copy here would let this harness drift from the mapping the
+    // editor actually ships, and the browser proof would then be validating
+    // code no user runs.
     const primaryMark = run.marks[run.marks.length - 1];
-    const tagName = primaryMark?.kind === 'addition'
-        || (primaryMark?.kind === 'substitution' && primaryMark.arm === 'new')
-        ? 'ins'
-        : primaryMark?.kind === 'deletion'
-            || (primaryMark?.kind === 'substitution' && primaryMark.arm === 'old')
-            ? 'del'
-            : primaryMark?.kind === 'highlight'
-                ? 'mark'
-                : 'span';
+    const tagName = primaryMark === undefined
+        ? 'span'
+        : markupRenderElement(primaryMark);
     const element = document.createElement(tagName);
     element.dataset.modelStart = String(run.modelRange.start);
     element.dataset.modelEnd = String(run.modelRange.end);
