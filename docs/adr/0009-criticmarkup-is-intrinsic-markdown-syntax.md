@@ -18,3 +18,16 @@ scanner, excluded-range pass, CM-first facade, post-hoc semantic join, or
 flattened projection reparse as an authority. Multiple internal parser phases
 are allowed only when they consume the same canonical source tape and directly
 build or refine the same parser-owned node/event identity space.
+
+Resolving a recorded fork is part of that one parse, not a separate pass. Where
+eliding a marker changes structure, a view's resolution may re-run a parser
+phase over the divergent region alone: it reads the same canonical tape through
+the projection's exact segment map, settles a divergence the parse itself
+recorded, and yields a view read rather than a competing authority (ADR-0013).
+Because reference definitions are document-scoped and their visibility is
+view-dependent, inline resolution takes a per-view definition index even where
+block structure is shared — a block containing no marker can still resolve
+differently per view. None of that relaxes what is forbidden above: no stage may
+re-recognize CriticMarkup, discover syntax from a flattened string, or join
+identity after the fact. It adds one obligation instead — text that does not
+change across views is resolved once and shared, never re-parsed per view.
