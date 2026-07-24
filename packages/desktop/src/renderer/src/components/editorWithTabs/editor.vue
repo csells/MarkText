@@ -1867,7 +1867,9 @@ useEditorLifecycle(() => {
   const muya = markRaw(new Muya(ele, options))
   // First flow routed through the migration seam. Legacy delegates to Muya, so
   // nothing changes until the flag selects the new engine.
-  installDocumentEngine(ele, window.electron.process.env, muya)
+  // Mark the element Muya actually mounts: its constructor REPLACES the element
+  // it is given, so marking `ele` would tag a node that is thrown away.
+  installDocumentEngine(muya.domNode, window.electron.process.env, muya)
   // The new engine requires an explicit init() after construction (it builds
   // the document tree and instantiates the registered UI plugins).
   muya.init()
