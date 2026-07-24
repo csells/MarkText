@@ -45,6 +45,10 @@ export interface IDocumentCoreView {
     render: () => void;
     /** Open a different document in this view, replacing what it holds. */
     setContent: (source: string) => Promise<void>;
+    /** The caret/selection as model offsets, not DOM positions. */
+    getSelection: () => { start: number; end: number };
+    hasFocus: () => boolean;
+    blur: () => void;
     /**
      * Observe committed changes, so the editor can mark a tab dirty or drive
      * autosave from the engine rather than from its own idea of "changed".
@@ -163,6 +167,26 @@ export async function createDocumentCoreView(
         render();
     };
 
+    const getSelection = (): { start: number; end: number } => {
+        const selection = session.snapshot().revision.selection;
+        if (selection === null)
+            return { start: 0, end: 0 };
+
+        return {
+            start: selection.anchor.offset,
+            end: selection.focus.offset,
+        };
+    };
+
+    const hasFocus = (): boolean =>
+        host.ownerDocument.activeElement === host
+        || host.contains(host.ownerDocument.activeElement);
+
+    const blur = (): void => {
+        if (hasFocus())
+            (host.ownerDocument.activeElement as HTMLElement | null)?.blur();
+    };
+
     const onChange = (listener: () => void): Disposable => {
         listeners.add(listener);
         return {
@@ -175,7 +199,10 @@ export async function createDocumentCoreView(
     render();
 
     return {
+        blur,
         getMarkdown,
+        getSelection,
+        hasFocus,
         modelText,
         onChange,
         render,
