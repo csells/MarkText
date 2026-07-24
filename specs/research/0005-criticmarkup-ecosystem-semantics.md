@@ -127,8 +127,8 @@ structure changes (deleted heading markers, added blank lines) are resolved by t
 Markdown parse. This is independent confirmation of the Phase 0.5 amendment: a projection is a
 genuine parse of projected source, not a selection over retained decisions.
 
-**Profile 1 position:** already aligned (REFERENCE_PROJECTION_CONVENTIONS is differential-tested
-against these exact processors). ADR-0013's contribution is doing the re-parse _without_ the
+**Profile 1 position:** already aligned (REFERENCE*PROJECTION_CONVENTIONS is differential-tested
+against these exact processors). ADR-0013's contribution is doing the re-parse \_without* the
 string-materialization step for convergent text — same semantics, better complexity.
 
 ### Q7 — Highlight+comment pairing: loose adjacency convention, not grammar · high (3-0)
