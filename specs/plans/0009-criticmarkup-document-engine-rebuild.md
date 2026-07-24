@@ -3845,6 +3845,24 @@ working end-to-end in the app, then widen):
 5. **Migrate flows one at a time**, deleting muya's authority + CM machinery as each lands, until muya
    is a pure view and the ~48k legacy is gone.
 
+   *De-risked, not yet started (2026-07-23).* The production view is proven in Chromium
+   (`packages/muya/e2e/tests/document-core/production-view.spec.ts`, 6 cases): engine blocks render
+   with CriticMarkup and no markers leak into view, heading levels are honoured, an edit commits and
+   re-renders from the new revision, editing beside a tracked change leaves it intact, undo restores
+   the exact prior document, and a block-spanning addition becomes two real blocks. The browser
+   harness now calls the engine's own `markupRenderElement` rather than a private copy, so the proof
+   covers shipped code. `createDocumentCoreView` is exported from muya's entry point, so the shell can
+   select it.
+
+   What remains is app surgery, and it is the part that needs care rather than speed.
+   `editorWithTabs/editor.vue` is ~1,900 lines coupled to Muya's API (`getMarkdown`, `json-change`,
+   history, selection, UI plugins, save/export/search), and the desktop CriticMarkup surface spans the
+   review sidebar, comment composer/edit, review controller, commands and store. Migrating means
+   introducing the new-engine flag, abstracting the engine seam, then moving one flow at a time with
+   the desktop E2E exercised between steps — deleting the muya CM machinery each flow retires. It
+   should not be done in one sweep: the value of the flag is that both engines run side by side until
+   each flow is proven.
+
 Parser Phases 1–10 and latency Phase 11 continue **behind this seam** — refined against the running
 app, not ahead of it. The first production caller is worth more than the next parser phase.
 
