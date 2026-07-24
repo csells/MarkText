@@ -1625,7 +1625,7 @@ const handleFileChange = (payload: unknown) => {
       // document is unchanged this is a no-op (returns false) and the existing
       // history/content already match — either way the caret still needs
       // remapping below.
-      editor.value.replaceContent(newMarkdown, preSourceModeSelection)
+      hostFor(editor.value).replaceContent(newMarkdown, preSourceModeSelection)
       preSourceModeSelection = null
       seedDerivedDocumentState(editor.value)
       // Map the CodeMirror `{ line, ch }` cursor onto a block-key cursor so the
@@ -1648,7 +1648,7 @@ const handleFileChange = (payload: unknown) => {
       if (id) {
         resetSyntheticHistory(id, newMarkdown)
       }
-      editor.value.replaceContent(newMarkdown)
+      hostFor(editor.value).replaceContent(newMarkdown)
       seedDerivedDocumentState(editor.value)
       if (newCursor) {
         applyCursor(editor.value, newCursor)

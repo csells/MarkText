@@ -14,26 +14,28 @@ import { applyDocumentEngine } from './documentEngineSelection'
  */
 
 /** The subset of Muya this facade needs, so tests need no Muya instance. */
-export interface LegacyEngineBinding {
+export interface LegacyEngineBinding<Selection = never> {
   readonly getMarkdown: () => string
   readonly setContent?: (markdown: string) => void
+  readonly replaceContent?: (markdown: string, selection?: Selection) => void
   readonly on?: (event: string, listener: () => void) => void
 }
 
 /** The matching document-core view surface. */
-export interface DocumentCoreBinding {
+export interface DocumentCoreBinding<Selection = never> {
   readonly getMarkdownSync: () => string
   readonly setContent?: (markdown: string) => void
+  readonly replaceContent?: (markdown: string, selection?: Selection) => void
   readonly onChange?: (listener: () => void) => void
 }
 
-export interface DocumentEngineHostOptions {
+export interface DocumentEngineHostOptions<Selection = never> {
   readonly engine: DocumentEngine
-  readonly legacy?: LegacyEngineBinding
-  readonly documentCore?: DocumentCoreBinding
+  readonly legacy?: LegacyEngineBinding<Selection>
+  readonly documentCore?: DocumentCoreBinding<Selection>
 }
 
-export interface DocumentEngineHost {
+export interface DocumentEngineHost<Selection = never> {
   readonly engine: DocumentEngine
   /**
    * The document's canonical Markdown, from whichever engine owns it.
@@ -45,13 +47,20 @@ export interface DocumentEngineHost {
   readonly getMarkdown: () => string
   /** Load a document into whichever engine owns this tab. */
   readonly setContent: (markdown: string) => void
+  /**
+   * Replace the document, optionally restoring a selection — the source-mode
+   * hand-back, where the caret must survive the round trip. The selection type
+   * travels with the engine rather than being flattened to `unknown`, which
+   * would let one engine's caret be handed to the other.
+   */
+  readonly replaceContent: (markdown: string, selection?: Selection) => void
   /** Observe committed changes from the owning engine. */
   readonly onChange: (listener: () => void) => void
 }
 
-export function createDocumentEngineHost(
-  options: DocumentEngineHostOptions
-): DocumentEngineHost {
+export function createDocumentEngineHost<Selection = never>(
+  options: DocumentEngineHostOptions<Selection>
+): DocumentEngineHost<Selection> {
   if (options.engine === 'document-core') {
     const binding = options.documentCore
     if (binding === undefined) {
@@ -63,6 +72,8 @@ export function createDocumentEngineHost(
       engine: 'document-core' as const,
       getMarkdown: () => binding.getMarkdownSync(),
       setContent: (markdown: string) => binding.setContent?.(markdown),
+      replaceContent: (markdown: string, selection?: Selection) =>
+        binding.replaceContent?.(markdown, selection),
       onChange: (listener: () => void) => binding.onChange?.(listener)
     })
   }
@@ -75,6 +86,8 @@ export function createDocumentEngineHost(
     engine: 'legacy' as const,
     getMarkdown: () => binding.getMarkdown(),
     setContent: (markdown: string) => binding.setContent?.(markdown),
+    replaceContent: (markdown: string, selection?: Selection) =>
+      binding.replaceContent?.(markdown, selection),
     // Muya reports document changes as a 'json-change' event; the engine name
     // for it does not leak past this seam.
     onChange: (listener: () => void) => binding.on?.('json-change', listener)
@@ -88,25 +101,25 @@ export function createDocumentEngineHost(
  * whichever mounted last and silently read the wrong document. Weak keys let a
  * closed tab's host be collected with its editor.
  */
-const hosts = new WeakMap<object, DocumentEngineHost>()
+const hosts = new WeakMap<object, DocumentEngineHost<never>>()
 
 /**
  * Select the engine for an editor element, record it on the DOM, and build the
  * host the coordinator talks to — one call, so migrating a flow does not grow
  * the coordinator that is already at its size guard.
  */
-export function installDocumentEngine(
+export function installDocumentEngine<Selection>(
   element: HTMLElement,
   environment: Readonly<Record<string, string | undefined>>,
-  legacy: LegacyEngineBinding,
-  documentCore?: DocumentCoreBinding
-): DocumentEngineHost {
+  legacy: LegacyEngineBinding<Selection>,
+  documentCore?: DocumentCoreBinding<Selection>
+): DocumentEngineHost<Selection> {
   const host = createDocumentEngineHost({
     engine: applyDocumentEngine(element, environment),
     legacy,
     documentCore
   })
-  hosts.set(legacy, host)
+  hosts.set(legacy, host as DocumentEngineHost<never>)
   return host
 }
 
@@ -121,8 +134,11 @@ export function installDocumentEngine(
  * legacy engine does — so a caller reached before the seam was installed still
  * gets the right answer rather than an error.
  */
-export function hostFor(editor: LegacyEngineBinding): DocumentEngineHost {
-  return hosts.get(editor) ?? createDocumentEngineHost({
+export function hostFor<Selection>(
+  editor: LegacyEngineBinding<Selection>
+): DocumentEngineHost<Selection> {
+  const installed = hosts.get(editor) as DocumentEngineHost<Selection> | undefined
+  return installed ?? createDocumentEngineHost<Selection>({
     engine: 'legacy',
     legacy: editor
   })
