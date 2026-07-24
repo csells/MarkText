@@ -103,6 +103,17 @@ export function createDocumentCoreMirror<Selection = never>(
       // Falls back to the editor until the session exists, because building one
       // is async while the editor reads synchronously from the first render.
       // An empty answer would show an empty document or dirty a clean tab.
+      // Muya still commits the edits while this engine only serves reads, so a
+      // change subscription has to reach the editor that owns them. Leaving it
+      // unimplemented silently disabled the editor's whole change handler under
+      // the flag — dirty tracking, content updates and history all stopped,
+      // because the host routed onChange to a binding that ignored it.
+      onChange: (listener: () => void) => {
+        editor.on?.('json-change', () => {
+          sync()
+          listener()
+        })
+      },
       getMarkdownSync: () => {
         sync()
         const engine = options.readEngineSource === undefined

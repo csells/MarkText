@@ -138,3 +138,17 @@ describe('divergence detection', () => {
     expect(mirror.binding.getMarkdownSync()).toBe('# Trusted\n')
   })
 })
+
+describe('change subscription', () => {
+  it('still notifies the editor’s own listeners under the flag', async() => {
+    // Regression: the host routes onChange to the document-core binding, so a
+    // binding without one silently switches off the editor's change handling.
+    const muya = fakeMuya('# One\n')
+    const mirror = createDocumentCoreMirror(muya, PARSE_CONFIGURATION)
+    await mirror.ready
+    let notified = 0
+    mirror.binding.onChange?.(() => { notified += 1 })
+    muya.edit('# Two\n')
+    expect(notified).toBe(1)
+  })
+})
