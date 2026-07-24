@@ -84,14 +84,14 @@ describe('view surface', () => {
         // yet.
         expect(view.supports('typing')).toBe(true);
         expect(view.supports('search')).toBe(true);
-        expect(view.supports('list-indentation')).toBe(false);
+        expect(view.supports('list-indentation')).toBe(true);
+        expect(view.supports('tables')).toBe(false);
     });
 
-    it('declines an unsupported structural command', async () => {
-        const { view } = await mount('- one\n- two\n');
-        // Approximating list indentation with text edits would corrupt the
-        // document's structure; declining is the honest answer until the engine
-        // exposes structural edits.
-        await expect(view.setListIndentation(0, 'increase')).rejects.toThrow();
+    it('declines a structural command it cannot express', async () => {
+        // Table editing needs structure Markdown text edits cannot express
+        // precisely; declining beats mangling a user's table.
+        const { view } = await mount('| a | b |\n| - | - |\n');
+        await expect(view.insertTableRow(0)).rejects.toThrow();
     });
 });

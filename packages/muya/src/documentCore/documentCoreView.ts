@@ -78,6 +78,7 @@ const SUPPORTED_CAPABILITIES: ReadonlySet<DocumentCoreCapability> = new Set([
     'deleting',
     'search',
     'table-of-contents',
+    'list-indentation',
 ]);
 
 export interface IDocumentCoreTocItem {
@@ -149,7 +150,8 @@ export interface IDocumentCoreView {
      * discovering by exception.
      */
     supports: (capability: DocumentCoreCapability) => boolean;
-    /** @throws while the engine exposes no structural edits. */
+    /** @throws while table structure has no precise source edit. */
+    insertTableRow: (modelOffset: number) => Promise<void>;
     setListIndentation: (
         modelOffset: number,
         direction: 'increase' | 'decrease',
@@ -471,10 +473,38 @@ export async function createDocumentCoreView(
     const supports = (capability: DocumentCoreCapability): boolean =>
         SUPPORTED_CAPABILITIES.has(capability);
 
-    const setListIndentation = async (): Promise<void> => {
+    const insertTableRow = async (): Promise<void> => {
         throw new Error(
-            'List indentation needs structural edits the engine does not expose yet',
+            'Table editing needs structure a Markdown text edit cannot express precisely',
         );
+    };
+
+    const setListIndentation = async (
+        modelOffset: number,
+        direction: 'increase' | 'decrease',
+    ): Promise<void> => {
+        // Ask the parser where the item is rather than pattern-matching the
+        // source. In Markdown the structure IS the text, so the edit is precise
+        // once the engine has named the block — and the engine re-parses to
+        // decide what the result means.
+        const document = session.snapshot().editingDocument;
+        const path = document.nodeAt(modelOffset, 'next');
+        const item = [...path].reverse().find(node => node.kind === 'list-item');
+        if (item === undefined)
+            throw new Error('There is no list item at that position');
+
+        const text = document.source;
+        const lineStart = text.lastIndexOf('\n', item.range.start - 1) + 1;
+        const indent = /^[ \t]*/.exec(text.slice(lineStart))?.[0] ?? '';
+        if (direction === 'increase') {
+            await typeText(lineStart, '  ');
+            return;
+        }
+        const removable = Math.min(2, indent.length);
+        if (removable === 0)
+            return;
+
+        await deleteRange(lineStart, lineStart + removable);
     };
 
     const blur = (): void => {
@@ -499,6 +529,7 @@ export async function createDocumentCoreView(
         domNode,
         focus,
         hideAllFloatTools,
+        insertTableRow,
         pasteImage,
         setFocusMode,
         setListIndentation,
