@@ -1,0 +1,253 @@
+{
+  "question": "Which open-source Rust markdown parsers/parsing engines could replace a custom TypeScript \"document-core\" markdown engine being built for the MarkText editor? The custom engine's hard requirements, which candidates must be evaluated against: (1) source-authoritative & lossless \u2014 exact byte-span provenance over the original source, lossless round-trip (CST-like, preserves trivia), source is the single authority; (2) incremental reparse on each keystroke (tree-edit/fragment-reuse like tree-sitter or Lezer) for near-zero typing lag; (3) extensible grammar able to host CriticMarkup ({++add++}, {--del--}, {~~sub~>new~~}, {==highlight==}, {>>comment<<}) as intrinsic syntax parsed in the SAME single pass as Markdown, including multi-block-spanning annotations \u2014 not a second scanner/sidecar pass; (4) CommonMark + GFM (tables, strikethrough, task lists, autolinks), plus math and front-matter; (5) error-tolerant parsing of mid-edit invalid states; (6) embeddable in an Electron sandboxed renderer, so WASM compilation and JS/TS bindings matter, plus performance of the WASM boundary for per-keystroke use; (7) MIT-compatible license. Candidates to investigate and compare (plus any others found): pulldown-cmark, comrak, markdown-rs (wooorm), tree-sitter-markdown (block+inline grammars), jotdown, mdxjs-rs, and any rowan/CST-based or incremental markdown parsers (e.g. approaches like rust-analyzer's rowan or Typst's incremental parser applied to markdown). Also search for any existing Rust CriticMarkup implementations. For each candidate report: parse model (event stream vs AST vs CST), source-position fidelity, losslessness/round-trip, incrementality, extension mechanism and whether CriticMarkup could be intrinsic, GFM/math/frontmatter coverage, error tolerance, WASM/npm bindings maturity, maintenance health, license. Conclude with which (if any) could genuinely replace the custom engine versus only partially, and what would have to be built on top.",
+  "summary": "No existing open-source Rust markdown parser fully replaces the custom document-core engine: every candidate fails at least one hard requirement. Tree-sitter is the only ecosystem that natively delivers incremental CST parsing with fragment reuse at per-keystroke speed and WASM embeddability, but both markdown grammars for it are disqualifying \u2014 the maintained block+inline grammar is explicitly not spec-correct, requires two separate parses (blocking single-pass intrinsic CriticMarkup), and needs static-linking workarounds for WASM. Among the batch parsers, markdown-rs offers the best spec coverage (100% CommonMark/GFM plus built-in math and frontmatter) with byte-exact positional provenance, but it is a whole-document state machine with no incremental reparse, no public extension API (CriticMarkup would require a fork), and is ~5x slower than pulldown-cmark/comrak; pulldown-cmark and comrak are fast with source positions but offer neither lossless CSTs, incrementality, nor grammar-level extensibility; markdown-it (Rust) uniquely allows custom syntax in the same parsing pipeline (CommonMark itself is a plugin) with full inline source maps, but lacks incrementality, losslessness, and easy multi-block annotation support; jotdown parses Djot, not Markdown. The realistic paths are therefore (a) keep building the custom engine, (b) fork markdown-rs and add CriticMarkup constructs plus an incrementality layer on top, or (c) write a new, correctness-focused single-pass tree-sitter (or tree-sitter-like) markdown grammar with CriticMarkup intrinsic \u2014 each of which is substantial engineering, confirming that no off-the-shelf replacement exists today.",
+  "findings": [
+    {
+      "claim": "Only tree-sitter (the core library) natively satisfies the incremental-reparse requirement: it builds concrete syntax trees, efficiently updates them via tree-edit/fragment reuse as the source is edited, is designed to be fast enough to parse on every keystroke, and ships official Rust and WebAssembly bindings (dependency-free pure-C runtime) suitable for a sandboxed Electron renderer.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/tree-sitter/tree-sitter"
+      ],
+      "evidence": "README: \"a parser generator tool and an incremental parsing library ... can build a concrete syntax tree for a source file and efficiently update the syntax tree as the source file is edited\"; \"Fast enough to parse on every keystroke in a text editor\"; \"Dependency-free so that the runtime library (which is written in pure C) can be embedded in any application\" \u2014 with lib/binding_rust and lib/binding_web (npm web-tree-sitter) in the official repo. Note: the per-keystroke claim survived only 2-1 and covers the core C library, not the WASM + markdown-grammar combination specifically.",
+      "vote": "3-0 (CST/incremental, bindings); 2-1 (per-keystroke speed)"
+    },
+    {
+      "claim": "Both available tree-sitter markdown grammars are disqualifying despite the core library's strengths: the maintained tree-sitter-grammars grammar is split into separate block and inline grammars requiring two parses (via ts_parser_set_included_ranges), its maintainers explicitly disclaim spec correctness and recommend it only for syntax highlighting, and its WASM build requires static-linking workarounds because the external scanner uses unexported C functions; the older ikatyang grammar targets outdated CommonMark 0.29-gfm and hard-codes the assumption that reference link label matching never fails because forward references make correct incremental parsing infeasible otherwise.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
+        "https://github.com/ikatyang/tree-sitter-markdown"
+      ],
+      "evidence": "tree-sitter-grammars README: \"first parse the document with the block grammar. Then perform a second parse with the inline grammar using ts_parser_set_included_ranges\"; \"there are still lots of inaccuracies in the output. As such it is not recommended to use this parser where correctness is important\"; \"using this parser with WASM/web-tree-sitter does not work out of the box ... uses some C functions that are not exported by tree-sitter by default\". ikatyang README: \"This grammar is based on the assumption that link label matchings will never fail since reference links can come before their reference definitions, which causes it hard to do incremental parsing without this assumption.\" The two-parse architecture directly conflicts with requirement (3): CriticMarkup, especially multi-block-spanning annotations, cannot be parsed intrinsically in one pass.",
+      "vote": "3-0 (all five constituent claims)"
+    },
+    {
+      "claim": "markdown-rs (wooorm's 'markdown' crate) has the strongest spec coverage and source-provenance story of the batch parsers: 100% CommonMark and 100% GFM compliance with math and frontmatter as built-in optional extensions, and a tokenizer where every byte is accounted for with line:column plus byte-offset positional info on AST nodes \u2014 though it makes no explicit lossless round-trip guarantee.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/wooorm/markdown-rs"
+      ],
+      "evidence": "README: \"100% to CommonMark ... 100% GFM, 100% MDX, frontmatter, math\"; \"implemented as a state machine ... that emits concrete tokens, so that every byte is accounted for, with positional info\"; example mdast output shows positions like 1:3-1:6 (2-5). Corroborated by ~650 CommonMark spec tests plus 1,000+ extra tests confirmed against cmark/cmark-gfm, fuzz testing, and stable 1.0.0 (April 2025). Covers requirements (1, partially) and (4) fully; a known edge-case position-envelope bug exists (list-item vs fenced-code child).",
+      "vote": "3-0 (both constituent claims)"
+    },
+    {
+      "claim": "markdown-rs fails requirements (2) and (3): it is a whole-document #![no_std]+alloc state machine with no incremental/fragment-reuse reparsing documented (implying full reparse per edit), and its extensions (GFM, MDX, math, frontmatter) are compiled-in and merely toggled via options with no public API for user-defined syntax \u2014 hosting CriticMarkup as intrinsic single-pass syntax would require forking the parser. The no_std+alloc design does make WASM compilation straightforward (requirement 6), as demonstrated by mdxjs-rs shipping WASM builds.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/wooorm/markdown-rs",
+        "https://github.com/wooorm/markdown-rs/issues/32"
+      ],
+      "evidence": "README: \"It's implemented as a state machine (#![no_std] + alloc) that emits concrete tokens\"; extensions \"are not enabled by default but can be turned on with options.\" Open issue #32 \"Enable custom plugins\" (Dec 2022, still open): \"As far as I can tell, there isn't currently a way to do that\"; discussion #52 asks about \"alternatives to forking the repository\"; maintainer stance is that supporting lots of extensions is \"not a goal of the project.\" MIT-licensed and actively maintained.",
+      "vote": "3-0 (both constituent claims)"
+    },
+    {
+      "claim": "pulldown-cmark is a pull-parser/event-stream (iterator of events) that deliberately avoids constructing a document tree, so it provides no native lossless CST or round-trip representation; it does provide byte-span source provenance via into_offset_iter() yielding (Event, Range) pairs mapping every event to offsets in the original source.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/pulldown-cmark/pulldown-cmark"
+      ],
+      "evidence": "README: \"Pull parsers are at heart an iterator of events ... it uses dramatically less memory than constructing a document tree\"; \"source-map information ... is readily available; you can call into_offset_iter() to create an iterator that yields (Event, Range) pairs.\" Round-tripping exists only via the third-party pulldown-cmark-to-cmark crate and is not byte-lossless. Note: a broader composite claim about its GFM/extension coverage and lack of extension mechanism was refuted 1-2 in verification, so those specifics are not asserted here beyond the parse-model facts.",
+      "vote": "3-0 (both constituent claims)"
+    },
+    {
+      "claim": "Comrak is fully CommonMark 0.31.2 compliant by default (652/652 spec tests) with all five GFM extensions (670/670 GFM tests) and ships built-in front matter and math extensions, but its parse model is a mutable typed_arena/RefCell AST \u2014 not an event stream or lossless CST \u2014 with no incremental reparsing documented, sourcepos reported as line/column (UTF-8 byte or Unicode char columns) rather than absolute byte spans, and an extension mechanism limited to output formatting (partial HTML-formatter specialization, syntax-highlighter adapter) rather than new intrinsic grammar constructs.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/kivikakk/comrak"
+      ],
+      "evidence": "README: \"Compliant with CommonMark 0.31.2 by default\" with CI badges 652/652 CommonMark and 670/670 GFM; \"This library offers an AST backed by typed_arena, with extensive use of RefCell ... with parent/sibling/child pointers\"; extension list includes \"front matter ... math ... wikilinks ... alerts\"; \"The default HTML formatter can be partially specialised.\" --sourcepos / --sourcepos-chars options confirm line/column positioning. Verifiers noted comrak is BSD-2-Clause (MIT-compatible but not MIT), and inline-level sourcepos has historically been weaker than block-level. Fails requirements (1) losslessness, (2) incrementality, (3) intrinsic extensibility.",
+      "vote": "3-0 (all four constituent claims)"
+    },
+    {
+      "claim": "markdown-it (Rust) is the only batch candidate whose extension mechanism could host CriticMarkup as intrinsic same-pass syntax: CommonMark itself is implemented as a plugin, custom rules of arbitrary complexity run in the same parsing pipeline, and it provides source-position maps on all nodes including inline elements (beyond cmark-style block-only positions). However, its block-then-inline two-phase model makes multi-block-spanning CriticMarkup annotations hard, and it offers no incrementality or lossless CST.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/markdown-it-rust/markdown-it"
+      ],
+      "evidence": "README: \"Ability to write your own syntax of arbitrary complexity \u2014 to prove this point, CommonMark syntax itself is written as a plugin\"; \"Source maps (full support, not just on block tags like cmark).\" Implementation corroborated: every Node has srcmap: Option<SourcePos>, and conformance tests assert srcmap presence on all nodes. docs.rs (v0.6.1, June 2026, MIT): \"Everything, including basic markdown syntax, is a plugin,\" with a generics module and shipped custom-rule examples. Verifier caveat: multi-block annotations remain hard in the two-phase model; the claim covers inline CriticMarkup rules only.",
+      "vote": "3-0 (both constituent claims)"
+    },
+    {
+      "claim": "jotdown is disqualified: it parses the Djot markup language, not CommonMark/GFM Markdown (failing requirement 4), and is a pull/event-stream parser with no CST, trivia preservation, or lossless round-trip (consumers must build any AST themselves), though it does expose per-event byte offsets via OffsetIter.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/hellux/jotdown",
+        "https://github.com/matklad/jotdown"
+      ],
+      "evidence": "README: \"Jotdown is a pull parser Rust library for the Djot markup language\"; \"The event interface allows downstream crates to e.g. construct an AST or generate any type of output format.\" Djot intentionally diverges from CommonMark (no indented code blocks, different emphasis rules). Note: the canonical repo is hellux/jotdown; matklad/jotdown is a fork with identical content.",
+      "vote": "3-0 (both constituent claims)"
+    },
+    {
+      "claim": "Per-keystroke full-reparse latency budgets favor pulldown-cmark, comrak, and jotdown (~2ms on the md-rosetta-rs corpus in release mode) over markdown-rs (~11ms, roughly 5x slower) \u2014 meaning a non-incremental full-reparse-per-keystroke strategy is plausibly viable with the fast parsers on typical documents, but markdown-rs's speed penalty compounds its lack of incrementality.",
+      "confidence": "medium",
+      "sources": [
+        "https://github.com/rosetta-rs/md-rosetta-rs"
+      ],
+      "evidence": "Benchmark table (rustc 1.94.0, 2026-03-02; pulldown-cmark 0.13.1, comrak 0.50.0, markdown 1.0.0): \"comrak ... 2ms ... markdown ... 11ms ... pulldown-cmark ... 2ms.\" Vote was unanimous, but confidence is downgraded to medium for the interpretive extension: ms-granularity rounding, a ~1ms null baseline, and an unspecified corpus make the 5x ratio coarse, and the benchmark does not measure WASM-boundary overhead relevant to the Electron renderer.",
+      "vote": "3-0 (on the benchmark numbers themselves)"
+    },
+    {
+      "claim": "Verdict: no candidate can genuinely replace the custom engine wholesale. The viable partial paths, each requiring substantial build-on-top work, are: (a) fork markdown-rs to add CriticMarkup as intrinsic constructs \u2014 gaining spec coverage, byte provenance, and WASM-friendliness, but having to build losslessness guarantees and an incremental layer from scratch; (b) build on markdown-it (Rust) for its genuine same-pass extensibility and full source maps \u2014 but add incrementality, losslessness, and multi-block annotation handling; (c) write a new correctness-focused single-grammar tree-sitter markdown grammar (or tree-sitter-like engine) with CriticMarkup intrinsic \u2014 inheriting incremental CST parsing and error tolerance but essentially rewriting the markdown grammar the existing tree-sitter grammars got wrong. pulldown-cmark, comrak, and jotdown serve at most as reference implementations or fallback renderers.",
+      "confidence": "medium",
+      "sources": [
+        "https://github.com/wooorm/markdown-rs",
+        "https://github.com/markdown-it-rust/markdown-it",
+        "https://github.com/tree-sitter/tree-sitter",
+        "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
+        "https://github.com/kivikakk/comrak",
+        "https://github.com/pulldown-cmark/pulldown-cmark"
+      ],
+      "evidence": "Synthesized from the confirmed findings above: requirement matrix shows tree-sitter alone meets (2) incrementality and CST-shape but its markdown grammars fail (3), (4-correctness), and (6-turnkey WASM); markdown-rs alone meets (4) fully with strong (1) provenance but fails (2) and (3); markdown-it alone meets (3) for inline syntax but fails (1), (2), and multi-block spans; comrak/pulldown-cmark fail (1), (2), (3). No confirmed claim establishes any candidate satisfying all seven requirements. This is an inference from unanimous individual findings rather than a directly-sourced claim, hence medium confidence.",
+      "vote": "synthesis (not directly voted)"
+    }
+  ],
+  "caveats": "Key uncertainties: (1) The tree-sitter error-tolerance claim was refuted 1-2 in verification, so tree-sitter's suitability for requirement (5) \u2014 error-tolerant parsing of mid-edit invalid states \u2014 rests on its general design reputation, not a verified claim here; likewise the per-keystroke-speed claim passed only 2-1 and covers the core C library, not the WASM + dual-markdown-grammar configuration actually needed in an Electron renderer. (2) The composite pulldown-cmark claim about GFM/math/frontmatter coverage and extension mechanisms was refuted 1-2, so this report deliberately does not assert pulldown-cmark's exact extension coverage. (3) No verified claim addressed existing Rust CriticMarkup implementations \u2014 the research question asked for them, and none surfaced in the surviving claims, which weakly suggests none of significance exist but was not proven. (4) The md-rosetta-rs benchmark has ms-granularity rounding, a ~1ms null baseline, an unspecified corpus, and measures native release builds, not WASM-boundary performance for per-keystroke use \u2014 the actual Electron/WASM cost per keystroke for any candidate remains unmeasured. (5) Losslessness/round-trip was assessed only from documentation absence for most candidates; no candidate was empirically round-trip tested. (6) Time-sensitivity: markdown-it (Rust) v0.6.1 dates to June 2026 and markdown-rs 1.0.0 to April 2025; tree-sitter-markdown's WASM limitation and correctness disclaimer were confirmed current as of 2026-07-24 but are 'at the moment' statements that could change. (7) Comrak is BSD-2-Clause rather than MIT \u2014 MIT-compatible, but worth noting against requirement (7). (8) Maintenance-health depth (bus factor, release cadence) was only spot-checked, not systematically compared.",
+  "openQuestions": [
+    "Do any Rust CriticMarkup implementations (crates or forks) exist at all? No surviving claim addressed this directly, and the answer determines whether path (a) \u2014 forking markdown-rs \u2014 could start from prior art or must implement the CriticMarkup grammar from zero.",
+    "What is the actual per-keystroke latency of each candidate compiled to WASM and called across the JS boundary in a sandboxed Electron renderer (including string marshalling of the full document vs. edits)? A 2ms native parse could make full-reparse-per-keystroke with pulldown-cmark/comrak viable without incrementality, but no WASM-boundary measurements were found.",
+    "Could Lezer's (or Typst's) incremental-parsing architecture host a from-scratch markdown+CriticMarkup grammar more practically than tree-sitter, given that tree-sitter's markdown grammars needed an external scanner and a two-grammar split precisely because markdown resists GLR-style grammar description? The rowan/CST-based and Typst-style approaches named in the research question produced no surviving claims and remain unevaluated.",
+    "How hard is it in practice to layer incrementality on markdown-rs \u2014 e.g., block-level reuse keyed on its concrete token stream \u2014 and would wooorm accept upstream extension-API work (issue #32 has been open since Dec 2022), or is a permanent fork the only route?"
+  ],
+  "refuted": [
+    {
+      "claim": "pulldown-cmark targets full CommonMark compliance and optionally supports footnotes, GFM tables, GFM task lists, strikethrough, and a highlight (==marked==) extension; the repo page as fetched does not document math or front-matter support, incremental reparsing, or a user-facing mechanism for adding intrinsic custom syntax such as CriticMarkup.",
+      "vote": "1-2",
+      "source": "https://github.com/pulldown-cmark/pulldown-cmark"
+    },
+    {
+      "claim": "Tree-sitter is robust to syntax errors, producing useful parse results even for invalid mid-edit input, matching the error-tolerant parsing requirement.",
+      "vote": "1-2",
+      "source": "https://github.com/tree-sitter/tree-sitter"
+    }
+  ],
+  "unverified": [],
+  "sources": [
+    {
+      "url": "https://github.com/rosetta-rs/md-rosetta-rs",
+      "quality": "primary",
+      "angle": "candidate-survey/primary",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/wooorm/markdown-rs",
+      "quality": "primary",
+      "angle": "candidate-survey/primary",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/pulldown-cmark/pulldown-cmark",
+      "quality": "primary",
+      "angle": "candidate-survey/primary",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/kivikakk/comrak",
+      "quality": "primary",
+      "angle": "candidate-survey/primary",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/markdown-it-rust/markdown-it",
+      "quality": "primary",
+      "angle": "candidate-survey/primary",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/matklad/jotdown",
+      "quality": "primary",
+      "angle": "candidate-survey/primary",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
+      "quality": "primary",
+      "angle": "incrementality/CST-technical",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/tree-sitter/tree-sitter",
+      "quality": "primary",
+      "angle": "incrementality/CST-technical",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/ikatyang/tree-sitter-markdown",
+      "quality": "primary",
+      "angle": "incrementality/CST-technical",
+      "claimCount": 5
+    },
+    {
+      "url": "https://www.npmjs.com/package/@tree-sitter-grammars/tree-sitter-markdown",
+      "quality": "primary",
+      "angle": "incrementality/CST-technical",
+      "claimCount": 5
+    },
+    {
+      "url": "https://zed.dev/blog/syntax-aware-editing",
+      "quality": "blog",
+      "angle": "incrementality/CST-technical",
+      "claimCount": 5
+    },
+    {
+      "url": "https://stereobooster.com/posts/markdown-parsers/",
+      "quality": "blog",
+      "angle": "incrementality/CST-technical",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/wooorm/markdown-rs/discussions/52",
+      "quality": "forum",
+      "angle": "extensibility/CriticMarkup",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/Fevol/criticmarkup-parser",
+      "quality": "primary",
+      "angle": "extensibility/CriticMarkup",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/nathanlesage/lang-criticmarkup",
+      "quality": "primary",
+      "angle": "extensibility/CriticMarkup",
+      "claimCount": 5
+    },
+    {
+      "url": "https://blog.pulsar-edit.dev/posts/20240902-savetheclocktower-modern-tree-sitter-part-7/",
+      "quality": "blog",
+      "angle": "WASM-embedding/practitioner",
+      "claimCount": 5
+    },
+    {
+      "url": "https://medium.com/@SpiderOak/using-webassembly-to-accelerate-markdown-rendering-c64184470cec",
+      "quality": "blog",
+      "angle": "WASM-embedding/practitioner",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/fletcher/MultiMarkdown-6/issues/41",
+      "quality": "primary",
+      "angle": "limitations/contrarian",
+      "claimCount": 4
+    },
+    {
+      "url": "https://zenn.dev/mizchi/articles/markdown-incremental-preview?locale=en",
+      "quality": "blog",
+      "angle": "limitations/contrarian",
+      "claimCount": 5
+    }
+  ],
+  "stats": {
+    "angles": 5,
+    "sourcesFetched": 19,
+    "claimsExtracted": 94,
+    "claimsVerified": 25,
+    "confirmed": 23,
+    "killed": 2,
+    "unverified": 0,
+    "afterSynthesis": 10,
+    "urlDupes": 8,
+    "budgetDropped": 3,
+    "agentCalls": 101
+  }
+}
