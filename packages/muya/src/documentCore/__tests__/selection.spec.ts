@@ -46,21 +46,27 @@ describe('selection', () => {
         expect(view.getSelection()).toEqual({ start: 0, end: 0 });
     });
 
-    it.fails('eNGINE GAP: moves the caret to a model offset', async () => {
-        // DocumentSession exposes snapshot/dispatch/flush/subscribe and no way
-        // to move the caret: selection is set when the document opens and then
-        // only moves as a side effect of an edit. A WYSIWYG editor needs
-        // click-to-place and arrow keys, so the session must own a selection
-        // change — the view tracking its own caret would be a second source of
-        // truth for a position the engine already holds.
-        //
-        // Deliberately not bolted on here: a selection change is session state
-        // rather than a new revision, so it has to settle what it does to
-        // transitions and retained drafts. That belongs in document-core.
+    it('moves the caret to a model offset', async () => {
+        // The engine owns the position: session.select validates it, and the
+        // view keeps no caret of its own.
         const { view } = await mount('Hello world.\n');
-        (view as unknown as { setCursorByOffset: (offset: number) => void })
-            .setCursorByOffset(5);
+        view.setCursorByOffset(5);
         expect(view.getSelection()).toEqual({ start: 5, end: 5 });
+    });
+
+    it('refuses an offset outside the document', async () => {
+        // Clamping would put the caret somewhere the caller did not ask for and
+        // hide whatever produced the bad offset.
+        const { view } = await mount('abc\n');
+        expect(() => view.setCursorByOffset(99)).toThrow();
+        expect(() => view.setCursorByOffset(-1)).toThrow();
+    });
+
+    it('types where the caret was placed', async () => {
+        const { view } = await mount('Hello world.\n');
+        view.setCursorByOffset(5);
+        await view.typeText(view.getSelection().start, ' there');
+        expect(await view.getMarkdown()).toBe('Hello there world.\n');
     });
 
     it('places the caret where an edit left it', async () => {

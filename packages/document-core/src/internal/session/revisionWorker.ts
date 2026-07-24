@@ -131,6 +131,23 @@ export class RevisionWorker {
     return this.#state
   }
 
+  /**
+   * Move the caret within the current revision.
+   *
+   * Selection is session state, not document state: the document did not
+   * change, so this commits no revision and records no history. Positions are
+   * validated like any other, because an offset outside the document is a
+   * caller error rather than something to clamp silently.
+   */
+  moveSelection(selection: InitialModelSelection): void {
+    assertPosition(selection.anchor, this.#state.markupView.modelLength)
+    assertPosition(selection.focus, this.#state.markupView.modelLength)
+    this.#state = Object.freeze({
+      ...this.#state,
+      selection: freezeSelection(this.#state.session, this.#state.id, selection)
+    })
+  }
+
   prepareInsertion(target: ModelSelection, text: string, next: RevisionId): PreparedWorkerCommit {
     assertCollapsedSelection(target, this.#state)
     if (text.length === 0) {

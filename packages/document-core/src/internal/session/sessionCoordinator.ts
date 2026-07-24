@@ -217,6 +217,13 @@ export class SessionCoordinator {
       this.#requestSourceLease('prepare-persistence', reason)
     )
     const flush = Object.freeze((reason: FlushReason) => this.#flush(reason))
+    const select = Object.freeze((selection: InitialModelSelection) => {
+      this.#worker.moveSelection(selection)
+      // Republish so the caret is visible to the next reader. No revision is
+      // committed and no transition is emitted: the document did not change,
+      // and retained drafts are untouched.
+      this.#snapshot = this.#createSnapshot()
+    })
     const subscribe = Object.freeze((listener: SessionTransitionListener) =>
       this.#subscribe(listener)
     )
@@ -226,6 +233,7 @@ export class SessionCoordinator {
       dispatch,
       preparePersistence,
       flush,
+      select,
       subscribe
     })
   }

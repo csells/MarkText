@@ -47,6 +47,8 @@ export interface IDocumentCoreView {
     setContent: (source: string) => Promise<void>;
     /** The caret/selection as model offsets, not DOM positions. */
     getSelection: () => { start: number; end: number };
+    /** @throws RangeError when the offset is outside the document. */
+    setCursorByOffset: (modelOffset: number) => void;
     hasFocus: () => boolean;
     blur: () => void;
     /**
@@ -178,6 +180,13 @@ export async function createDocumentCoreView(
         };
     };
 
+    const setCursorByOffset = (modelOffset: number): void => {
+        const caret = { offset: modelOffset, affinity: 'next' } as const;
+        // The engine validates and owns the position; the view does not keep a
+        // caret of its own.
+        session.select({ anchor: caret, focus: caret });
+    };
+
     const hasFocus = (): boolean =>
         host.ownerDocument.activeElement === host
         || host.contains(host.ownerDocument.activeElement);
@@ -207,6 +216,7 @@ export async function createDocumentCoreView(
         onChange,
         render,
         setContent,
+        setCursorByOffset,
         typeText,
         undo,
     };

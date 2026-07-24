@@ -261,6 +261,17 @@ export interface DocumentSession {
   readonly dispatch: (intent: EditorIntent) => DispatchTicket
   readonly preparePersistence: (reason: PersistenceReason) => SessionOperation<FlushResult>
   readonly flush: (reason: FlushReason) => SessionOperation<FlushResult>
+  /**
+   * Move the caret or selection within the current revision.
+   *
+   * Selection is session state, not document state, so this commits no revision,
+   * records no history and emits no transition — the document did not change.
+   * It exists because the caret is a position the engine owns: a view keeping
+   * its own copy would be a second source of truth for it.
+   *
+   * @throws RangeError when a position is outside the document.
+   */
+  readonly select: (selection: InitialModelSelection) => void
   readonly subscribe: (listener: SessionTransitionListener) => Disposable
 }
 
