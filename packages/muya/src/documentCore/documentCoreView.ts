@@ -1,10 +1,12 @@
 import type {
+    Disposable,
     DocumentSession,
     ParseConfiguration,
     SourceSnapshot,
 } from '@marktext/document-core';
 import {
     createDocumentSession,
+    createSourceSnapshot,
     groupRenderBlocks,
     renderMarkupPlan,
 } from '@marktext/document-core';
@@ -41,13 +43,25 @@ export interface IDocumentCoreView {
     typeText: (modelOffset: number, text: string) => Promise<void>;
     undo: () => Promise<void>;
     render: () => void;
+    /** Open a different document in this view, replacing what it holds. */
+    setContent: (source: string) => Promise<void>;
+    /**
+     * Observe committed changes, so the editor can mark a tab dirty or drive
+     * autosave from the engine rather than from its own idea of "changed".
+     * The subscription belongs to the view and survives loading a document.
+     */
+    onChange: (listener: () => void) => Disposable;
 }
 
 export async function createDocumentCoreView(
     options: IDocumentCoreViewOptions,
 ): Promise<IDocumentCoreView> {
     const { host, parseConfiguration } = options;
-    const session: DocumentSession = await createDocumentSession({
+    // Listeners belong to the view, not to a session: opening a file replaces
+    // the session, and a subscription tied to the old one would silently stop
+    // reporting edits.
+    const listeners = new Set<() => void>();
+    let session: DocumentSession = await createDocumentSession({
         source: options.source,
         parseConfiguration,
         configuration: { authoringTextPolicy: 'nearest-owner-eol-v1' },
@@ -88,6 +102,8 @@ export async function createDocumentCoreView(
 
         await ticket.completion;
         render();
+        for (const listener of listeners)
+            listener();
     };
 
     const typeText = async (
@@ -129,7 +145,42 @@ export async function createDocumentCoreView(
         return source;
     };
 
+    const setContent = async (source: string): Promise<void> => {
+        // A new document is a new session: the engine's revisions are immutable
+        // and a document's history is its own, so loading a file must not
+        // inherit the previous document's undo stack.
+        session = await createDocumentSession({
+            source: createSourceSnapshot(source),
+            parseConfiguration,
+            configuration: { authoringTextPolicy: 'nearest-owner-eol-v1' },
+            initialView: 'markup',
+            trackChanges: false,
+            initialSelection: {
+                anchor: { offset: 0, affinity: 'next' },
+                focus: { offset: 0, affinity: 'next' },
+            },
+        });
+        render();
+    };
+
+    const onChange = (listener: () => void): Disposable => {
+        listeners.add(listener);
+        return {
+            dispose: () => {
+                listeners.delete(listener);
+            },
+        };
+    };
+
     render();
 
-    return { getMarkdown, modelText, render, typeText, undo };
+    return {
+        getMarkdown,
+        modelText,
+        onChange,
+        render,
+        setContent,
+        typeText,
+        undo,
+    };
 }
