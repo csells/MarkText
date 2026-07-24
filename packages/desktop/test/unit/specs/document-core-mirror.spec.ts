@@ -98,3 +98,43 @@ describe('mirror staleness', () => {
     expect(mirror.binding.getMarkdownSync()).toBe('# After\n')
   })
 })
+
+describe('divergence detection', () => {
+  it('reports no divergence when the engine round-trips the document', async() => {
+    const muya = fakeMuya('# Same\n\nBody with {++tracked++} text.\n')
+    const mirror = createDocumentCoreMirror(muya, PARSE_CONFIGURATION)
+    await mirror.ready
+    mirror.binding.getMarkdownSync()
+    expect(mirror.divergences()).toEqual([])
+  })
+
+  it('records a divergence when the engine would not reproduce the document', async() => {
+    // Before handing a user's text to a new engine, we need evidence the engine
+    // gives back exactly what it was given. A silent difference here is the
+    // failure that loses data on save, so it is recorded rather than assumed
+    // away.
+    const muya = fakeMuya('# Doc\n')
+    const mirror = createDocumentCoreMirror(muya, PARSE_CONFIGURATION, {
+      // Force a mismatch to prove the check actually fires.
+      readEngineSource: () => '# Something else\n'
+    })
+    await mirror.ready
+    mirror.binding.getMarkdownSync()
+    expect(mirror.divergences()).toHaveLength(1)
+    expect(mirror.divergences()[0]).toMatchObject({
+      editor: '# Doc\n',
+      engine: '# Something else\n'
+    })
+  })
+
+  it('serves the editor’s text when the engine diverges', async() => {
+    // Confidence-building must never become a way to serve wrong bytes: if the
+    // engine disagrees, the answer is still the document the user is editing.
+    const muya = fakeMuya('# Trusted\n')
+    const mirror = createDocumentCoreMirror(muya, PARSE_CONFIGURATION, {
+      readEngineSource: () => '# Wrong\n'
+    })
+    await mirror.ready
+    expect(mirror.binding.getMarkdownSync()).toBe('# Trusted\n')
+  })
+})
