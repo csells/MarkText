@@ -50,16 +50,9 @@ describe('editing commands', () => {
         expect(await view.getMarkdown()).toBe('Hello kind world.\n');
     });
 
-    it.fails('engine gap: undoes a replacement as one step', async () => {
-        // A replacement is a delete plus an insert, and the engine records each
-        // as its own revision, so reversing one user gesture takes two undos.
-        // Collapsing them needs a compound intent in document-core — one that
-        // commits several edits as a single history entry.
-        //
-        // Deliberately not faked with a view-level undo stack: history would
-        // then live in two places, and the engine's would be the one that is
-        // wrong. Recorded here so the gap is visible rather than surprising
-        // someone as a bug later.
+    it('undoes a replacement as one step', async () => {
+        // One user gesture, one undo: the engine replaces a range in a single
+        // edit, so reversing it does not take two.
         const { view } = await mount('Hello brave world.\n');
         await view.replaceRange(6, 12, 'kind ');
         await view.undo();

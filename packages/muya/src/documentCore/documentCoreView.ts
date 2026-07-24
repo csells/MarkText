@@ -216,12 +216,23 @@ export async function createDocumentCoreView(
         end: number,
         text: string,
     ): Promise<void> => {
-        // Delete then insert. The engine records each as a revision, so this
-        // takes two undos today; collapsing a replacement into one undoable
-        // step needs a compound intent in document-core, which is recorded as a
-        // failing expectation rather than faked with a view-level undo stack.
-        await deleteRange(start, end);
-        await typeText(start, text);
+        const selection = session.snapshot().revision.selection;
+        if (selection === null)
+            throw new Error('The session carries no selection');
+
+        // One gesture, one revision, one undo — the engine replaces a range in a
+        // single edit rather than this composing a delete with an insert.
+        await settle(
+            session.dispatch({
+                kind: 'replace-text',
+                target: {
+                    ...selection,
+                    anchor: { offset: start, affinity: 'next' },
+                    focus: { offset: end, affinity: 'previous' },
+                },
+                text,
+            }),
+        );
     };
 
     const selectAll = (): void => {

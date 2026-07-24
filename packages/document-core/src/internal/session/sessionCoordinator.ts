@@ -81,6 +81,13 @@ function snapshotIntent(intent: EditorIntent): EditorIntent {
       text: intent.text
     })
   }
+  if (intent.kind === 'replace-text') {
+    return Object.freeze({
+      kind: 'replace-text' as const,
+      target: copySelection(intent.target),
+      text: intent.text
+    })
+  }
   if (intent.kind === 'delete-text') {
     return Object.freeze({
       kind: 'delete-text' as const,
@@ -335,6 +342,8 @@ export class SessionCoordinator {
       let prepared
       if (intent.kind === 'insert-text') {
         prepared = this.#worker.prepareInsertion(intent.target, intent.text, next)
+      } else if (intent.kind === 'replace-text') {
+        prepared = this.#worker.prepareReplacement(intent.target, intent.text, next)
       } else if (intent.kind === 'delete-text') {
         prepared = this.#worker.prepareDeletion(intent.target, next)
       } else if (intent.kind === 'undo') {
@@ -359,7 +368,9 @@ export class SessionCoordinator {
         id: transitionId,
         // Insertion and deletion are both source edits; undo/redo name
         // themselves.
-        cause: intent.kind === 'insert-text' || intent.kind === 'delete-text'
+        cause: intent.kind === 'insert-text'
+          || intent.kind === 'delete-text'
+          || intent.kind === 'replace-text'
           ? 'source-edit'
           : intent.kind,
         history: prepared.history,

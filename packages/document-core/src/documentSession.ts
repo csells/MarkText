@@ -134,9 +134,24 @@ export interface DeleteTextIntent {
   readonly target: ModelSelection
 }
 
+/**
+ * Replace the text a selection covers.
+ *
+ * Typing over a selection is one gesture, so it is one revision and one undo.
+ * This is a single edit rather than a delete composed with an insert: the
+ * revision kernel already describes an edit as a range plus replacement text.
+ * A collapsed target simply inserts.
+ */
+export interface ReplaceTextIntent {
+  readonly kind: 'replace-text'
+  readonly target: ModelSelection
+  readonly text: string
+}
+
 export type EditorIntent =
   | InsertTextIntent
   | DeleteTextIntent
+  | ReplaceTextIntent
   | UndoIntent
   | RedoIntent
 

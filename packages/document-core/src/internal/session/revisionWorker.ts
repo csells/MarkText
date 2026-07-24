@@ -161,6 +161,33 @@ export class RevisionWorker {
     })
   }
 
+  prepareReplacement(
+    target: ModelSelection,
+    text: string,
+    next: RevisionId
+  ): PreparedWorkerCommit {
+    assertSelection(target, this.#state)
+    const from = Math.min(target.anchor.offset, target.focus.offset)
+    const to = Math.max(target.anchor.offset, target.focus.offset)
+    if (from === to && text.length === 0) {
+      throw new IntentRejection('selection-collapsed')
+    }
+    const sourceStart = this.#state.markupView.sourcePositionAt(
+      Object.freeze({ offset: from, affinity: 'next' as const })
+    )
+    const sourceEnd = from === to
+      ? sourceStart
+      : this.#state.markupView.sourcePositionAt(
+        Object.freeze({ offset: to, affinity: 'previous' as const })
+      )
+    const edit = Object.freeze({
+      start: sourceStart.offset,
+      end: sourceEnd.offset,
+      insert: text
+    })
+    return this.#prepareEdit(edit, sourceStart.offset, target, next)
+  }
+
   prepareDeletion(target: ModelSelection, next: RevisionId): PreparedWorkerCommit {
     assertSelection(target, this.#state)
     if (target.anchor.offset === target.focus.offset) {
