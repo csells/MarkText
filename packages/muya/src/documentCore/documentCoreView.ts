@@ -1,6 +1,7 @@
 import type {
     Disposable,
     DocumentSession,
+    MarkdownNode,
     ParseConfiguration,
     SourceSnapshot,
 } from '@marktext/document-core';
@@ -10,7 +11,26 @@ import {
     groupRenderBlocks,
     renderMarkupPlan,
 } from '@marktext/document-core';
+import { generateGithubSlug } from '../utils/slug';
 import { renderDocumentCoreBlocks } from './renderBlocks';
+
+/**
+ * A heading's visible text: the parser's text leaves, not the raw slice.
+ * Reading the source span directly would include the `#` syntax and any inline
+ * markup delimiters, which is not what an outline entry should say.
+ */
+function headingText(source: string, node: MarkdownNode): string {
+    if (node.childCount === 0) {
+        return node.kind === 'text'
+            ? source.slice(node.range.start, node.range.end)
+            : '';
+    }
+    let text = '';
+    for (let ordinal = 0; ordinal < node.childCount; ordinal += 1)
+        text += headingText(source, node.childAt(ordinal));
+
+    return text;
+}
 
 /**
  * A minimal editing view driven entirely by `@marktext/document-core`.
@@ -26,6 +46,12 @@ export interface IDocumentCoreViewOptions {
     readonly host: HTMLElement;
     readonly source: SourceSnapshot;
     readonly parseConfiguration: ParseConfiguration;
+}
+
+export interface IDocumentCoreTocItem {
+    readonly level: number;
+    readonly content: string;
+    readonly slug: string;
 }
 
 export interface IDocumentCoreView {
@@ -51,6 +77,8 @@ export interface IDocumentCoreView {
     setCursorByOffset: (modelOffset: number) => void;
     hasFocus: () => boolean;
     blur: () => void;
+    /** The document outline, derived from the parser's headings. */
+    getTOC: () => readonly IDocumentCoreTocItem[];
     /**
      * Observe committed changes, so the editor can mark a tab dirty or drive
      * autosave from the engine rather than from its own idea of "changed".
@@ -187,6 +215,29 @@ export async function createDocumentCoreView(
         session.select({ anchor: caret, focus: caret });
     };
 
+    const getTOC = (): readonly IDocumentCoreTocItem[] => {
+        const document = session.snapshot().editingDocument;
+        const root = document.root;
+        const items: IDocumentCoreTocItem[] = [];
+        for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
+            const block = root.childAt(ordinal);
+            if (block.kind !== 'heading')
+                continue;
+
+            // Ask the parser what is a heading and at what level. Re-scanning
+            // the text for '#' cannot answer that under CriticMarkup, where the
+            // same source is a heading in one view and a paragraph in another.
+            const level = block.attributes.level;
+            const content = headingText(document.source, block);
+            items.push({
+                level: typeof level === 'number' ? level : 1,
+                content,
+                slug: generateGithubSlug(content),
+            });
+        }
+        return Object.freeze(items);
+    };
+
     const hasFocus = (): boolean =>
         host.ownerDocument.activeElement === host
         || host.contains(host.ownerDocument.activeElement);
@@ -215,6 +266,7 @@ export async function createDocumentCoreView(
         modelText,
         onChange,
         render,
+        getTOC,
         setContent,
         setCursorByOffset,
         typeText,
