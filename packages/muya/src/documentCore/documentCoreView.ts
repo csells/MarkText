@@ -79,6 +79,11 @@ export interface IDocumentCoreView {
     getMarkdown: () => Promise<string>;
     /** Insert text at a model offset, committing a revision and re-rendering. */
     typeText: (modelOffset: number, text: string) => Promise<void>;
+    /**
+     * Remove the text between two model offsets — backspace, Delete, or a
+     * selection being typed over.
+     */
+    deleteRange: (start: number, end: number) => Promise<void>;
     undo: () => Promise<void>;
     render: () => void;
     /** Open a different document in this view, replacing what it holds. */
@@ -173,6 +178,23 @@ export async function createDocumentCoreView(
                 kind: 'insert-text',
                 target: { ...selection, anchor: caret, focus: caret },
                 text,
+            }),
+        );
+    };
+
+    const deleteRange = async (start: number, end: number): Promise<void> => {
+        const selection = session.snapshot().revision.selection;
+        if (selection === null)
+            throw new Error('The session carries no selection');
+
+        await settle(
+            session.dispatch({
+                kind: 'delete-text',
+                target: {
+                    ...selection,
+                    anchor: { offset: start, affinity: 'next' },
+                    focus: { offset: end, affinity: 'previous' },
+                },
             }),
         );
     };
@@ -296,6 +318,7 @@ export async function createDocumentCoreView(
 
     return {
         blur,
+        deleteRange,
         getMarkdown,
         getSelection,
         hasFocus,

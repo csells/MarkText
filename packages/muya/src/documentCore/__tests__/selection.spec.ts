@@ -87,3 +87,25 @@ describe('selection', () => {
         expect(view.hasFocus()).toBe(false);
     });
 });
+
+describe('deleting text', () => {
+    it('removes a range and leaves the caret where it began', async () => {
+        const { view } = await mount('Hello brave world.\n');
+        await view.deleteRange(5, 11);
+        expect(view.modelText()).toBe('Hello world.\n');
+        expect(view.getSelection().start).toBe(5);
+    });
+
+    it('re-renders the document after a delete', async () => {
+        const { host, view } = await mount('Hello brave world.\n');
+        await view.deleteRange(5, 11);
+        expect(host.textContent).toBe('Hello world.');
+    });
+
+    it('leaves a tracked change intact when deleting beside it', async () => {
+        const { host, view } = await mount('Oh, Hello {++world++}.\n');
+        await view.deleteRange(0, 4);
+        expect(host.querySelector('ins')?.textContent).toBe('world');
+        expect(await view.getMarkdown()).toBe('Hello {++world++}.\n');
+    });
+});

@@ -83,6 +83,19 @@ function assertPosition(position: ModelPosition, modelLength: number): void {
   }
 }
 
+/** Validate a selection against the head revision, collapsed or not. */
+function assertSelection(selection: ModelSelection, state: WorkerState): void {
+  if (
+    selection.session !== state.session ||
+    selection.revision !== state.id ||
+    selection.view !== 'markup'
+  ) {
+    throw new IntentRejection('stale-selection')
+  }
+  assertPosition(selection.anchor, state.markupView.modelLength)
+  assertPosition(selection.focus, state.markupView.modelLength)
+}
+
 function assertCollapsedSelection(selection: ModelSelection, state: WorkerState): void {
   if (
     selection.session !== state.session ||
@@ -148,6 +161,29 @@ export class RevisionWorker {
     })
   }
 
+  prepareDeletion(target: ModelSelection, next: RevisionId): PreparedWorkerCommit {
+    assertSelection(target, this.#state)
+    if (target.anchor.offset === target.focus.offset) {
+      // Removing nothing is not an edit; say so instead of committing a
+      // revision that leaves the document identical.
+      throw new IntentRejection('selection-collapsed')
+    }
+    const from = Math.min(target.anchor.offset, target.focus.offset)
+    const to = Math.max(target.anchor.offset, target.focus.offset)
+    const sourceStart = this.#state.markupView.sourcePositionAt(
+      Object.freeze({ offset: from, affinity: 'next' as const })
+    )
+    const sourceEnd = this.#state.markupView.sourcePositionAt(
+      Object.freeze({ offset: to, affinity: 'previous' as const })
+    )
+    const edit = Object.freeze({
+      start: sourceStart.offset,
+      end: sourceEnd.offset,
+      insert: ''
+    })
+    return this.#prepareEdit(edit, sourceStart.offset, target, next)
+  }
+
   prepareInsertion(target: ModelSelection, text: string, next: RevisionId): PreparedWorkerCommit {
     assertCollapsedSelection(target, this.#state)
     if (text.length === 0) {
@@ -160,6 +196,22 @@ export class RevisionWorker {
       end: sourceTarget.offset,
       insert: text
     })
+    return this.#prepareEdit(edit, sourceTarget.offset, target, next)
+  }
+
+  /**
+   * Commit one source edit and settle where the caret lands.
+   *
+   * Insertion and deletion differ only in the edit they describe, so they share
+   * this: the caret rule, the history entry and the transition are identical,
+   * and having two copies is how they drift apart.
+   */
+  #prepareEdit(
+    edit: Readonly<{ start: number, end: number, insert: string }>,
+    caretSourceOffset: number,
+    target: ModelSelection,
+    next: RevisionId
+  ): PreparedWorkerCommit {
     const prepared = this.#kernel.revise(this.#state.revision, edit, {
       base: this.#state.id,
       next
@@ -167,11 +219,11 @@ export class RevisionWorker {
     const markupView = createMarkupView(prepared.revision)
     const nextSourcePosition = prepared.transition.canonicalMap.mapPosition(
       'forward',
-      Object.freeze({ offset: sourceTarget.offset, affinity: 'next' as const })
+      Object.freeze({ offset: caretSourceOffset, affinity: 'next' as const })
     )
     const nextPosition = markupView.modelPositionAt(nextSourcePosition)
     if (nextPosition === null) {
-      throw new Error('Committed insertion caret is not representable in the next Markup view')
+      throw new Error('Committed caret is not representable in the next Markup view')
     }
     const afterSelection = Object.freeze({
       anchor: nextPosition,

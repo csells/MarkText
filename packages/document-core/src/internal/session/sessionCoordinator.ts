@@ -74,14 +74,20 @@ function copySelection(selection: ModelSelection): ModelSelection {
 }
 
 function snapshotIntent(intent: EditorIntent): EditorIntent {
-  if (intent.kind !== 'insert-text') {
-    return Object.freeze({ kind: intent.kind })
+  if (intent.kind === 'insert-text') {
+    return Object.freeze({
+      kind: 'insert-text' as const,
+      target: copySelection(intent.target),
+      text: intent.text
+    })
   }
-  return Object.freeze({
-    kind: 'insert-text' as const,
-    target: copySelection(intent.target),
-    text: intent.text
-  })
+  if (intent.kind === 'delete-text') {
+    return Object.freeze({
+      kind: 'delete-text' as const,
+      target: copySelection(intent.target)
+    })
+  }
+  return Object.freeze({ kind: intent.kind })
 }
 
 class SessionIds {
@@ -329,6 +335,8 @@ export class SessionCoordinator {
       let prepared
       if (intent.kind === 'insert-text') {
         prepared = this.#worker.prepareInsertion(intent.target, intent.text, next)
+      } else if (intent.kind === 'delete-text') {
+        prepared = this.#worker.prepareDeletion(intent.target, next)
       } else if (intent.kind === 'undo') {
         prepared = this.#worker.prepareUndo(next)
       } else {
@@ -349,7 +357,11 @@ export class SessionCoordinator {
       const transition: RevisionChangedTransition = Object.freeze({
         kind: 'revision-changed' as const,
         id: transitionId,
-        cause: intent.kind === 'insert-text' ? 'source-edit' : intent.kind,
+        // Insertion and deletion are both source edits; undo/redo name
+        // themselves.
+        cause: intent.kind === 'insert-text' || intent.kind === 'delete-text'
+          ? 'source-edit'
+          : intent.kind,
         history: prepared.history,
         before,
         after,

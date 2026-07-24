@@ -121,7 +121,24 @@ export interface RedoIntent {
   readonly kind: 'redo'
 }
 
-export type EditorIntent = InsertTextIntent | UndoIntent | RedoIntent
+/**
+ * Remove the text a selection covers.
+ *
+ * The other half of editing: without it there is no backspace, no Delete key
+ * and no typing over a selection. The target must be a range — a collapsed one
+ * removes nothing, and is rejected rather than quietly committing a revision
+ * that changes the document not at all.
+ */
+export interface DeleteTextIntent {
+  readonly kind: 'delete-text'
+  readonly target: ModelSelection
+}
+
+export type EditorIntent =
+  | InsertTextIntent
+  | DeleteTextIntent
+  | UndoIntent
+  | RedoIntent
 
 export type AdmissionResult = {
   readonly kind: 'admitted'
@@ -164,6 +181,8 @@ interface CommittedDispatchResult {
 export type RejectionCode =
   | 'stale-selection'
   | 'selection-not-collapsed'
+  /** A delete whose target covers nothing — it would change the document not at all. */
+  | 'selection-collapsed'
   | 'nothing-to-undo'
   | 'nothing-to-redo'
 
