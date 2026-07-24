@@ -149,6 +149,7 @@ import CriticMarkupPromptDialog from './CriticMarkupPromptDialog.vue'
 import { useCriticMarkupReviewController } from './useCriticMarkupReviewController'
 import { useCriticMarkupRejectionNotifier } from './useCriticMarkupRejectionNotifier'
 import { installE2EReadOnlyBridge } from './e2eReadOnlyBridge'
+import { applyDocumentEngine } from './documentEngineSelection'
 import { useEditorLifecycle } from './useEditorLifecycle'
 
 // Importing the engine entrypoint auto-injects its editor CSS (the muya.ts
@@ -1872,6 +1873,7 @@ useEditorLifecycle(() => {
   // The engine stores live DOM nodes and block-tree references and patches the
   // DOM via snabbdom; proxying them silently breaks identity checks so the
   // document tree never renders.
+  applyDocumentEngine(ele, window.electron.process.env)
   const muya = markRaw(new Muya(ele, options))
   // The new engine requires an explicit init() after construction (it builds
   // the document tree and instantiates the registered UI plugins).
