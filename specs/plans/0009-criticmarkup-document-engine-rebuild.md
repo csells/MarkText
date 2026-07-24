@@ -3854,6 +3854,30 @@ working end-to-end in the app, then widen):
    covers shipped code. `createDocumentCoreView` is exported from muya's entry point, so the shell can
    select it.
 
+   **Started (2026-07-23).** The seam is in place and the first flow is routed:
+   `documentEngineSelection` (flag, DOM-marked, `1` only), `documentEngineHost` (strangler facade —
+   fails loudly, never falls back to the other engine), and the canonical-Markdown read now goes
+   through the host, with legacy delegating to Muya so behaviour is unchanged until the flag flips.
+
+   Routing that one flow surfaced three constraints the rest of the migration must plan around:
+
+   - **`editor.vue` is at its size guard.** It sat at 2132 lines against 2133, so it could not absorb
+     the seam. Diagram-theme selection was extracted to make room. *Every further flow will need
+     similar extraction first* — the guard is correct, and raising it spends the protection instead of
+     earning headroom.
+   - **The engines disagreed on read shape.** Muya reads canonical Markdown synchronously,
+     document-core only through an async flush lease, while the editor asks from change handlers and
+     history bookkeeping. Fixed by carrying the revision's source on `RevisionDescriptor`, tested to
+     agree byte-for-byte with the leased read; persistence keeps the lease.
+   - **Several call sites are parameterized by editor instance** (`exportDocument(targetEditor…)`,
+     `seedDerivedDocumentState(muya…)`). They cannot read a module-level host without risking binding
+     the wrong editor, so the host has to be threaded as a parameter — a wider refactor than a
+     one-line redirect, and the next concrete step.
+
+   The remaining flows are the same shape: redirect a flow's Muya call sites to the host, extract
+   whatever the coordinator needs to give up to fit, exercise the real app, then delete the muya
+   machinery that flow retired.
+
    What remains is app surgery, and it is the part that needs care rather than speed.
    `editorWithTabs/editor.vue` is ~1,900 lines coupled to Muya's API (`getMarkdown`, `json-change`,
    history, selection, UI plugins, save/export/search), and the desktop CriticMarkup surface spans the
