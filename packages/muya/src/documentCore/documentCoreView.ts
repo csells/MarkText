@@ -29,6 +29,14 @@ export interface IDocumentCoreViewOptions {
 export interface IDocumentCoreView {
     /** The document as the user sees it, straight from the engine. */
     modelText: () => string;
+    /**
+     * The document's exact canonical source — the bytes that go to disk.
+     *
+     * This is what save reads. It is deliberately not derived from the rendered
+     * DOM or re-serialized from a tree: the revision owns the source, so saving
+     * cannot silently rewrite a user's file (ADR-0005, ADR-0007).
+     */
+    getMarkdown: () => Promise<string>;
     /** Insert text at a model offset, committing a revision and re-rendering. */
     typeText: (modelOffset: number, text: string) => Promise<void>;
     undo: () => Promise<void>;
@@ -104,7 +112,24 @@ export async function createDocumentCoreView(
         await settle(session.dispatch({ kind: 'undo' }));
     };
 
+    const getMarkdown = async (): Promise<string> => {
+        // Read the canonical source through a lease so the engine can guarantee
+        // the bytes are a settled revision rather than a half-applied edit.
+        // 'materialize' is the engine's name for producing bytes from a
+        // revision; save is the caller's reason, not the engine's.
+        const flushed = await session.flush('materialize').completion;
+        if (flushed.kind !== 'flushed')
+            throw new Error(`Could not read canonical source: ${flushed.kind}`);
+
+        let source = '';
+        for await (const chunk of flushed.source.readChunks())
+            source += chunk.text;
+
+        await flushed.source.release('consumer-finished').completion;
+        return source;
+    };
+
     render();
 
-    return { modelText, render, typeText, undo };
+    return { getMarkdown, modelText, render, typeText, undo };
 }
