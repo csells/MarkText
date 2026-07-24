@@ -14,6 +14,18 @@ import {
 import { generateGithubSlug } from '../utils/slug';
 import { renderDocumentCoreBlocks } from './renderBlocks';
 
+/** muya's appearance contract: option -> CSS custom property on the root. */
+const APPEARANCE_VARIABLES: ReadonlyArray<readonly [string, string]> = [
+    ['fontSize', '--mu-font-size'],
+    ['lineHeight', '--mu-line-height'],
+    ['editorFontFamily', '--mu-font-family'],
+    ['codeFontSize', '--mu-code-font-size'],
+    ['codeFontFamily', '--mu-code-font-family'],
+];
+
+/** Options measured in pixels, so a bare number gains its unit. */
+const PIXEL_OPTIONS: ReadonlySet<string> = new Set(['fontSize', 'codeFontSize']);
+
 /**
  * A heading's visible text: the parser's text leaves, not the raw slice.
  * Reading the source span directly would include the `#` syntax and any inline
@@ -79,6 +91,13 @@ export interface IDocumentCoreView {
     blur: () => void;
     /** The document outline, derived from the parser's headings. */
     getTOC: () => readonly IDocumentCoreTocItem[];
+    /**
+     * Apply appearance options, following muya's documented contract so a
+     * document-core tab themes identically to a legacy one. Options this view
+     * does not own are ignored, because the editor passes one bag of options for
+     * everything.
+     */
+    setOptions: (options: Readonly<Record<string, unknown>>) => void;
     /**
      * Observe committed changes, so the editor can mark a tab dirty or drive
      * autosave from the engine rather than from its own idea of "changed".
@@ -238,6 +257,23 @@ export async function createDocumentCoreView(
         return Object.freeze(items);
     };
 
+    const setOptions = (options: Readonly<Record<string, unknown>>): void => {
+        for (const [key, variable] of APPEARANCE_VARIABLES) {
+            const value = options[key];
+            if (value === undefined)
+                continue;
+
+            host.style.setProperty(
+                variable,
+                typeof value === 'number' && PIXEL_OPTIONS.has(key)
+                    ? `${value}px`
+                    : String(value),
+            );
+        }
+        if (typeof options.wrapCodeBlocks === 'boolean')
+            host.classList.toggle('mu-code-wrap', options.wrapCodeBlocks);
+    };
+
     const hasFocus = (): boolean =>
         host.ownerDocument.activeElement === host
         || host.contains(host.ownerDocument.activeElement);
@@ -268,6 +304,7 @@ export async function createDocumentCoreView(
         render,
         getTOC,
         setContent,
+        setOptions,
         setCursorByOffset,
         typeText,
         undo,
