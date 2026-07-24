@@ -74,3 +74,16 @@ describe('canonical source', () => {
         expect(await view.getMarkdown()).toBe('Oh, Hello {++world++}.\n');
     });
 });
+
+describe('synchronous canonical source', () => {
+    it('matches the leased read', async () => {
+        const view = await mount('a{++x++}b\n');
+        expect(view.getMarkdownSync()).toBe(await view.getMarkdown());
+    });
+
+    it('tracks edits without awaiting', async () => {
+        const view = await mount('Hello world.\n');
+        await view.typeText(5, ' there');
+        expect(view.getMarkdownSync()).toBe('Hello there world.\n');
+    });
+});

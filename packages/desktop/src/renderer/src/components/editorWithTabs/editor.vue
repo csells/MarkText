@@ -149,7 +149,8 @@ import CriticMarkupPromptDialog from './CriticMarkupPromptDialog.vue'
 import { useCriticMarkupReviewController } from './useCriticMarkupReviewController'
 import { useCriticMarkupRejectionNotifier } from './useCriticMarkupRejectionNotifier'
 import { installE2EReadOnlyBridge } from './e2eReadOnlyBridge'
-import { applyDocumentEngine } from './documentEngineSelection'
+import { diagramThemesFor } from './diagramThemes'
+import { installDocumentEngine, type DocumentEngineHost } from './documentEngineHost'
 import { useEditorLifecycle } from './useEditorLifecycle'
 
 // Importing the engine entrypoint auto-injects its editor CSS (the muya.ts
@@ -289,6 +290,7 @@ const tableChecker = reactive({
 
 // Template refs
 const editorRef = ref<HTMLDivElement | null>(null)
+let engineHost: DocumentEngineHost | null = null
 const imageViewerRef = ref<HTMLDivElement | null>(null)
 const rowInput = ref<InputNumberInstance | null>(null)
 const criticMarkupPromptDialog = ref<{
@@ -1857,24 +1859,18 @@ useEditorLifecycle(() => {
     getPathForFile: (file: File) => window.electron.webUtils.getPathForFile(file)
   }
 
-  if (/dark/i.test(theme.value)) {
-    Object.assign(options, {
-      mermaidTheme: 'dark',
-      vegaTheme: 'dark'
-    })
-  } else {
-    Object.assign(options, {
-      mermaidTheme: 'default',
-      vegaTheme: 'latimes'
-    })
-  }
+  Object.assign(options, diagramThemesFor(theme.value))
 
   // `markRaw` keeps Vue from wrapping the Muya instance in a reactive Proxy.
   // The engine stores live DOM nodes and block-tree references and patches the
   // DOM via snabbdom; proxying them silently breaks identity checks so the
   // document tree never renders.
-  applyDocumentEngine(ele, window.electron.process.env)
   const muya = markRaw(new Muya(ele, options))
+  // First flow routed through the migration seam. Legacy delegates to Muya, so
+  // nothing changes until the flag selects the new engine.
+  engineHost = installDocumentEngine(ele, window.electron.process.env, {
+    getMarkdown: () => muya.getMarkdown()
+  })
   // The new engine requires an explicit init() after construction (it builds
   // the document tree and instantiates the registered UI plugins).
   muya.init()
@@ -1882,7 +1878,7 @@ useEditorLifecycle(() => {
   disposeE2EReadOnlyBridge = installE2EReadOnlyBridge(
     window,
     window.electron.process.env.MARKTEXT_E2E_READONLY_BRIDGE === '1',
-    () => muya.getMarkdown()
+    () => engineHost?.getMarkdown() ?? muya.getMarkdown()
   )
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it.

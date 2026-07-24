@@ -97,6 +97,12 @@ export interface IDocumentCoreView {
      * cannot silently rewrite a user's file (ADR-0005, ADR-0007).
      */
     getMarkdown: () => Promise<string>;
+    /**
+     * The same canonical source, read synchronously from the current revision.
+     * The editor asks this from change handlers and history bookkeeping, where
+     * awaiting is not an option; saving still uses the leased read.
+     */
+    getMarkdownSync: () => string;
     /** Insert text at a model offset, committing a revision and re-rendering. */
     typeText: (modelOffset: number, text: string) => Promise<void>;
     /**
@@ -336,6 +342,8 @@ export async function createDocumentCoreView(
         await settle(session.dispatch({ kind: 'undo' }));
     };
 
+    const getMarkdownSync = (): string => session.snapshot().revision.source;
+
     const getMarkdown = async (): Promise<string> => {
         // Read the canonical source through a lease so the engine can guarantee
         // the bytes are a settled revision rather than a half-applied edit.
@@ -502,6 +510,7 @@ export async function createDocumentCoreView(
         search,
         selectAll,
         getMarkdown,
+        getMarkdownSync,
         getSelection,
         hasFocus,
         modelText,

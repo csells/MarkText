@@ -1,4 +1,5 @@
 import type { DocumentEngine } from './documentEngineSelection'
+import { applyDocumentEngine } from './documentEngineSelection'
 
 /**
  * The seam the engine migration runs through.
@@ -19,7 +20,7 @@ export interface LegacyEngineBinding {
 
 /** The matching document-core view surface. */
 export interface DocumentCoreBinding {
-  readonly getMarkdown: () => Promise<string>
+  readonly getMarkdownSync: () => string
 }
 
 export interface DocumentEngineHostOptions {
@@ -30,8 +31,14 @@ export interface DocumentEngineHostOptions {
 
 export interface DocumentEngineHost {
   readonly engine: DocumentEngine
-  /** The document's canonical Markdown, from whichever engine owns it. */
-  readonly getMarkdown: () => Promise<string>
+  /**
+   * The document's canonical Markdown, from whichever engine owns it.
+   *
+   * Synchronous because the editor asks from change handlers and history
+   * bookkeeping, where awaiting is not an option — both engines can answer the
+   * current revision without one.
+   */
+  readonly getMarkdown: () => string
 }
 
 export function createDocumentEngineHost(
@@ -46,7 +53,7 @@ export function createDocumentEngineHost(
     }
     return Object.freeze({
       engine: 'document-core' as const,
-      getMarkdown: () => binding.getMarkdown()
+      getMarkdown: () => binding.getMarkdownSync()
     })
   }
 
@@ -56,6 +63,24 @@ export function createDocumentEngineHost(
   }
   return Object.freeze({
     engine: 'legacy' as const,
-    getMarkdown: async() => binding.getMarkdown()
+    getMarkdown: () => binding.getMarkdown()
+  })
+}
+
+/**
+ * Select the engine for an editor element, record it on the DOM, and build the
+ * host the coordinator talks to — one call, so migrating a flow does not grow
+ * the coordinator that is already at its size guard.
+ */
+export function installDocumentEngine(
+  element: HTMLElement,
+  environment: Readonly<Record<string, string | undefined>>,
+  legacy: LegacyEngineBinding,
+  documentCore?: DocumentCoreBinding
+): DocumentEngineHost {
+  return createDocumentEngineHost({
+    engine: applyDocumentEngine(element, environment),
+    legacy,
+    documentCore
   })
 }

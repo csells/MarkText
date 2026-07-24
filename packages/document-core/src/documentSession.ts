@@ -61,6 +61,15 @@ export interface RevisionDescriptor {
   readonly kind: 'complete'
   readonly configuration: ParseConfiguration
   readonly sourceLength: number
+  /**
+   * The revision's exact canonical source.
+   *
+   * Read it for questions the editor asks synchronously — is this tab dirty,
+   * what should history record — because the answer is already in the revision
+   * this descriptor names. Persistence keeps the lease: saving needs a settled,
+   * consistent read, which is what `flush` and `preparePersistence` provide.
+   */
+  readonly source: string
   readonly diagnostics: { readonly count: number }
   readonly selection: ModelSelection | null
 }

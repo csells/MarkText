@@ -23,17 +23,17 @@ describe('document engine host', () => {
       legacy: { getMarkdown }
     })
 
-    expect(await host.getMarkdown()).toBe('# From Muya\n')
+    expect(host.getMarkdown()).toBe('# From Muya\n')
     expect(getMarkdown).toHaveBeenCalledOnce()
   })
 
   it('reads canonical Markdown from the engine on document-core', async() => {
     const host = createDocumentEngineHost({
       engine: 'document-core',
-      documentCore: { getMarkdown: async() => '# From the engine\n' }
+      documentCore: { getMarkdownSync: () => '# From the engine\n' }
     })
 
-    expect(await host.getMarkdown()).toBe('# From the engine\n')
+    expect(host.getMarkdown()).toBe('# From the engine\n')
   })
 
   it('never falls back to the other engine', async() => {
@@ -43,17 +43,17 @@ describe('document engine host', () => {
     const host = createDocumentEngineHost({
       engine: 'document-core',
       legacy: { getMarkdown },
-      documentCore: { getMarkdown: async() => '# From the engine\n' }
+      documentCore: { getMarkdownSync: () => '# From the engine\n' }
     })
 
-    expect(await host.getMarkdown()).toBe('# From the engine\n')
+    expect(host.getMarkdown()).toBe('# From the engine\n')
     expect(getMarkdown).not.toHaveBeenCalled()
   })
 
   it('reports which engine is answering', async() => {
     const host = createDocumentEngineHost({
       engine: 'document-core',
-      documentCore: { getMarkdown: async() => '' }
+      documentCore: { getMarkdownSync: () => '' }
     })
     expect(host.engine).toBe('document-core')
   })

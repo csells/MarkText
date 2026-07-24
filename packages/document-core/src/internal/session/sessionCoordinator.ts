@@ -156,6 +156,7 @@ function createDescriptor(worker: RevisionWorker): RevisionDescriptor {
     kind: 'complete' as const,
     configuration: state.revision.configuration,
     sourceLength: state.revision.source.text.length,
+    source: state.revision.source.text,
     diagnostics: Object.freeze({ count: state.revision.diagnostics.count }),
     selection: state.selection
   })
