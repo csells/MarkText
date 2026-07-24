@@ -243,8 +243,22 @@ an extension.
 
 ## Open questions carried forward
 
-1. Does Obsidian Commentator's `Fevol/criticmarkup-parser` grammar admit nesting and define
-   mid-edit recovery — the only potential editor-grade precedent for Q5/Q10 live behavior?
+1. ~~Does Obsidian Commentator's `Fevol/criticmarkup-parser` grammar admit nesting and define
+   mid-edit recovery — the only potential editor-grade precedent for Q5/Q10 live behavior?~~
+   **Closed 2026-07-24 by direct inspection** (`src/criticmarkup.grammar`, `test/edge_cases.txt`):
+   it is a CM-only Lezer lexer over plain text — five delimiter pairs with `@local tokens`
+   catch-all bodies, no Markdown productions, no block model. **Nesting: flat, first-closer-wins**
+   — `{++ {-- nested --} ++}` parses as one Addition whose body is literal text (expected tree
+   `CriticMarkup(Addition, …)`, no inner Deletion node), diverging from MMD-6's recursive
+   accept/reject. **Mid-edit recovery: admitted broken** — the README documents that an unclosed
+   `{++` "will match all subsequent tokens," citing a CodeMirror-forum thread concluding it is not
+   easily resolvable in Lezer local-token terms. It also ships Commentator-specific surface
+   extensions (`@@` metadata separators inside annotations, `{<del>`/`{&gt;&gt;` HTML-entity
+   delimiter aliases) that diverge from canonical CM. Conclusion: no editor-grade nesting or
+   recovery precedent exists anywhere in the ecosystem; its `basic/malformed/edge` fixtures are
+   worth importing as lexical corpus rows, and its documented unclosed-marker failure is evidence
+   for Profile 1's explicit bounded-recovery rules. Gemini's report mischaracterized this grammar:
+   its `MSub` node is the substitution's `~>` divider, not nesting support.
 2. Do any Pandoc/markdown-it/remark CM plugins give code spans literal precedence (precedent for
    Q2's divergence)?
 3. Is MMD-6's render/accept multi-block asymmetry a reported bug (evidence of user expectations)?
