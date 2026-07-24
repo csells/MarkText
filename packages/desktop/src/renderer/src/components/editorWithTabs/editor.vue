@@ -1865,16 +1865,16 @@ useEditorLifecycle(() => {
   // DOM via snabbdom; proxying them silently breaks identity checks so the
   // document tree never renders.
   const muya = markRaw(new Muya(ele, options))
-  // First flow routed through the migration seam. Legacy delegates to Muya, so
-  // nothing changes until the flag selects the new engine.
-  // Mark the element Muya actually mounts: its constructor REPLACES the element
-  // it is given, so marking `ele` would tag a node that is thrown away.
-  installDocumentEngineWithMirror(
-    muya.domNode, window.electron.process.env, muya, DOCUMENT_CORE_PARSE_CONFIGURATION
-  )
   // The new engine requires an explicit init() after construction (it builds
   // the document tree and instantiates the registered UI plugins).
   muya.init()
+  // Install the seam only after init(): the mirror reads the document and
+  // subscribes to it, and doing either against a half-constructed editor left
+  // input unable to commit. Mark the element Muya actually mounts, since its
+  // constructor REPLACES the element it is given.
+  installDocumentEngineWithMirror(
+    muya.domNode, window.electron.process.env, muya, DOCUMENT_CORE_PARSE_CONFIGURATION
+  )
   editor.value = muya
   disposeE2EReadOnlyBridge = installE2EReadOnlyBridge(
     window,
