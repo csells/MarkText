@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
-import { createDocumentEngineHost } from '@/components/editorWithTabs/documentEngineHost'
+import {
+  createDocumentEngineHost,
+  hostFor,
+  installDocumentEngine
+} from '@/components/editorWithTabs/documentEngineHost'
 
 /**
  * Increment 5 — the strangler facade the cutover runs through.
@@ -65,5 +69,33 @@ describe('document engine host', () => {
       .toThrow(/document-core/)
     expect(() => createDocumentEngineHost({ engine: 'legacy' }))
       .toThrow(/legacy/)
+  })
+})
+
+describe('per-editor host registry', () => {
+  it('returns the host installed for that editor instance', () => {
+    const element = document.createElement('div')
+    const muya = { getMarkdown: () => '# One\n' }
+    const host = installDocumentEngine(element, {}, muya)
+    expect(hostFor(muya)).toBe(host)
+  })
+
+  it('keeps hosts distinct per editor', () => {
+    // Several tabs mean several editors; a module-level host would answer for
+    // whichever mounted last and silently read the wrong document.
+    const first = { getMarkdown: () => '# First\n' }
+    const second = { getMarkdown: () => '# Second\n' }
+    installDocumentEngine(document.createElement('div'), {}, first)
+    installDocumentEngine(document.createElement('div'), {}, second)
+    expect(hostFor(first).getMarkdown()).toBe('# First\n')
+    expect(hostFor(second).getMarkdown()).toBe('# Second\n')
+  })
+
+  it('falls back to reading an unregistered editor directly', () => {
+    // An editor created before the seam existed must still be readable, and
+    // reading it is exactly what the legacy engine does.
+    const stray = { getMarkdown: () => '# Stray\n' }
+    expect(hostFor(stray).getMarkdown()).toBe('# Stray\n')
+    expect(hostFor(stray).engine).toBe('legacy')
   })
 })

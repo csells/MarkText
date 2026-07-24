@@ -68,6 +68,15 @@ export function createDocumentEngineHost(
 }
 
 /**
+ * Hosts keyed by the editor they belong to.
+ *
+ * Several tabs mean several editors, so a module-level host would answer for
+ * whichever mounted last and silently read the wrong document. Weak keys let a
+ * closed tab's host be collected with its editor.
+ */
+const hosts = new WeakMap<object, DocumentEngineHost>()
+
+/**
  * Select the engine for an editor element, record it on the DOM, and build the
  * host the coordinator talks to — one call, so migrating a flow does not grow
  * the coordinator that is already at its size guard.
@@ -78,9 +87,29 @@ export function installDocumentEngine(
   legacy: LegacyEngineBinding,
   documentCore?: DocumentCoreBinding
 ): DocumentEngineHost {
-  return createDocumentEngineHost({
+  const host = createDocumentEngineHost({
     engine: applyDocumentEngine(element, environment),
     legacy,
     documentCore
+  })
+  hosts.set(legacy, host)
+  return host
+}
+
+/**
+ * The host for an editor instance.
+ *
+ * This is what lets a flow migrate without changing signatures: any function
+ * already holding an editor can ask for *that* editor's host, which is correct
+ * with several tabs open where a module-level lookup would not be.
+ *
+ * An editor with no host registered reads directly, which is exactly what the
+ * legacy engine does — so a caller reached before the seam was installed still
+ * gets the right answer rather than an error.
+ */
+export function hostFor(editor: LegacyEngineBinding): DocumentEngineHost {
+  return hosts.get(editor) ?? Object.freeze({
+    engine: 'legacy' as const,
+    getMarkdown: () => editor.getMarkdown()
   })
 }

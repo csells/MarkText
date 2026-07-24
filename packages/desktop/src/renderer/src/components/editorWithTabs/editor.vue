@@ -150,7 +150,7 @@ import { useCriticMarkupReviewController } from './useCriticMarkupReviewControll
 import { useCriticMarkupRejectionNotifier } from './useCriticMarkupRejectionNotifier'
 import { installE2EReadOnlyBridge } from './e2eReadOnlyBridge'
 import { diagramThemesFor } from './diagramThemes'
-import { installDocumentEngine, type DocumentEngineHost } from './documentEngineHost'
+import { hostFor, installDocumentEngine } from './documentEngineHost'
 import { useEditorLifecycle } from './useEditorLifecycle'
 
 // Importing the engine entrypoint auto-injects its editor CSS (the muya.ts
@@ -290,7 +290,6 @@ const tableChecker = reactive({
 
 // Template refs
 const editorRef = ref<HTMLDivElement | null>(null)
-let engineHost: DocumentEngineHost | null = null
 const imageViewerRef = ref<HTMLDivElement | null>(null)
 const rowInput = ref<InputNumberInstance | null>(null)
 const criticMarkupPromptDialog = ref<{
@@ -1326,7 +1325,7 @@ const handleExport = async (options: unknown) => {
   }
 
   const htmlToc = getHtmlToc(targetEditor.getTOC(), opts as unknown as HtmlTocOptions)
-  const markdown = targetEditor.getMarkdown()
+  const markdown = hostFor(targetEditor).getMarkdown()
   const header = (opts.header ?? null) as HeaderFooterPart | null
   const footer = (opts.footer ?? null) as HeaderFooterPart | null
 
@@ -1538,7 +1537,7 @@ interface FileLoadedPayload {
 // This intentionally bypasses LISTEN_FOR_CONTENT_CHANGE, which also owns
 // dirty/save/history bookkeeping and would turn a load into an edit.
 const seedDerivedDocumentState = (muya: MuyaInstance): void => {
-  const markdown = muya.getMarkdown()
+  const markdown = hostFor(muya).getMarkdown()
   editorStore.UPDATE_TOC(muya.getTOC())
   editorStore.UPDATE_WORD_COUNT(muyaWordCount(markdown))
 }
@@ -1557,7 +1556,7 @@ const setMarkdownToEditor = (payload: unknown) => {
     // raw payload) so it matches the markdown later emitted on `json-change`
     // — the engine may normalize trailing newlines / whitespace on round-trip.
     if (id) {
-      resetSyntheticHistory(id, editor.value.getMarkdown())
+      resetSyntheticHistory(id, hostFor(editor.value).getMarkdown())
     }
     if (newCursor) {
       applyCursor(editor.value, newCursor)
@@ -1680,7 +1679,7 @@ const handleFileChange = (payload: unknown) => {
       // any edit. For a tab that already has a tracker this is a no-op —
       // switching back must keep the existing content -> id map.
       if (id) {
-        getSyntheticHistory(id, editor.value.getMarkdown())
+        getSyntheticHistory(id, hostFor(editor.value).getMarkdown())
       }
     }
   }
@@ -1868,9 +1867,7 @@ useEditorLifecycle(() => {
   const muya = markRaw(new Muya(ele, options))
   // First flow routed through the migration seam. Legacy delegates to Muya, so
   // nothing changes until the flag selects the new engine.
-  engineHost = installDocumentEngine(ele, window.electron.process.env, {
-    getMarkdown: () => muya.getMarkdown()
-  })
+  installDocumentEngine(ele, window.electron.process.env, muya)
   // The new engine requires an explicit init() after construction (it builds
   // the document tree and instantiates the registered UI plugins).
   muya.init()
@@ -1878,7 +1875,7 @@ useEditorLifecycle(() => {
   disposeE2EReadOnlyBridge = installE2EReadOnlyBridge(
     window,
     window.electron.process.env.MARKTEXT_E2E_READONLY_BRIDGE === '1',
-    () => engineHost?.getMarkdown() ?? muya.getMarkdown()
+    () => hostFor(muya).getMarkdown()
   )
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it.
@@ -1890,7 +1887,7 @@ useEditorLifecycle(() => {
   // after the first edit — so the pristine content never maps to id 0 and
   // undoing back to the on-disk content can never read as clean again (PG15).
   if (currentFile.value?.id) {
-    getSyntheticHistory(currentFile.value.id, muya.getMarkdown())
+    getSyntheticHistory(currentFile.value.id, hostFor(muya).getMarkdown())
   }
 
   const container = getScrollContainer()!
@@ -1954,7 +1951,7 @@ useEditorLifecycle(() => {
     if (!currentFile.value || !editor.value) return
     const { id } = currentFile.value
     if (!id) return
-    const markdown = editor.value.getMarkdown()
+    const markdown = hostFor(editor.value).getMarkdown()
     // Stash the real engine history for in-session tab-switch restoration. The
     // synthetic save-tracking id is derived from the live document content (a
     // monotonic, never-reused id — see `syntheticHistory.ts`), NOT the engine
