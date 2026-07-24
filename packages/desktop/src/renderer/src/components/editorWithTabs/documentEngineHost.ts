@@ -1,5 +1,7 @@
+import type { ParseConfiguration } from '@marktext/document-core'
+import { createDocumentCoreMirror } from './documentCoreMirror'
 import type { DocumentEngine } from './documentEngineSelection'
-import { applyDocumentEngine } from './documentEngineSelection'
+import { applyDocumentEngine, selectDocumentEngine } from './documentEngineSelection'
 
 /**
  * The seam the engine migration runs through.
@@ -142,4 +144,39 @@ export function hostFor<Selection>(
     engine: 'legacy',
     legacy: editor
   })
+}
+
+/** The profile the desktop app parses with; one place so tabs cannot differ. */
+export const DOCUMENT_CORE_PARSE_CONFIGURATION: ParseConfiguration = Object.freeze({
+  criticMarkupProfile: 'marktext-profile-1',
+  markdownProfile: 'markdown-profile-1',
+  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  executionBudget: Object.freeze({
+    limitsProfile: 'desktop-v1',
+    accountingSchema: 'syntax-accounting-1'
+  })
+})
+
+/**
+ * Install the seam, building the document-core side only when the flag selects
+ * it. Mirroring costs a session per tab, so an unflagged launch must not pay for
+ * an engine it is not using.
+ */
+export function installDocumentEngineWithMirror<Selection>(
+  element: HTMLElement,
+  environment: Readonly<Record<string, string | undefined>>,
+  legacy: LegacyEngineBinding<Selection>,
+  parseConfiguration: ParseConfiguration
+): DocumentEngineHost<Selection> {
+  const engine = selectDocumentEngine(environment)
+  const documentCore: DocumentCoreBinding<Selection> | undefined =
+    engine === 'document-core'
+      ? createDocumentCoreMirror<Selection>(legacy, parseConfiguration).binding
+      : undefined
+  return installDocumentEngine<Selection>(
+    element,
+    environment,
+    legacy,
+    documentCore
+  )
 }

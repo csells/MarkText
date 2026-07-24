@@ -73,4 +73,49 @@ test.describe('document engine seam', () => {
     const after = await getMarkdownContent(page, app)
     expect(after).toBe(before)
   })
+
+  test.describe('with the document-core engine selected', () => {
+    let flagged: ElectronApplication
+    let flaggedPage: Page
+
+    test.beforeAll(async() => {
+      // The launcher inherits process.env, so opt this launch in and restore
+      // the environment afterwards so the default-engine tests stay default.
+      process.env.MARKTEXT_DOCUMENT_CORE_ENGINE = '1'
+      const launched = await launchWithMarkdown(
+        '# Flagged\n\nPlain paragraph here.\n\nTracked {++insert++} line.\n'
+      )
+      flagged = launched.app
+      flaggedPage = launched.page
+    })
+
+    test.afterAll(async() => {
+      delete process.env.MARKTEXT_DOCUMENT_CORE_ENGINE
+      if (flagged) await flagged.close()
+    })
+
+    test('runs the tab on document-core', async() => {
+      const engine = await flaggedPage.evaluate(() => {
+        const editor = document.querySelector('[data-document-engine]')
+        return editor?.getAttribute('data-document-engine') ?? null
+      })
+      expect(engine).toBe('document-core')
+    })
+
+    test('serves canonical Markdown from the engine, markers intact', async() => {
+      // This read is answered by document-core, not Muya. CriticMarkup markers
+      // must survive verbatim — the engine is the one that must not normalise a
+      // user's document on the way out.
+      const markdown = await getMarkdownContent(flaggedPage, flagged)
+      expect(markdown).toContain('{++insert++}')
+      expect(markdown).toContain('# Flagged')
+    })
+
+    // Interaction helpers (caret placement, source-mode writes) do not work
+    // against a second Electron instance launched in the same spec file, so the
+    // mirror's follow-the-document behaviour is covered by unit tests instead of
+    // being asserted here on a harness limitation. What this suite proves is the
+    // part only the real app can: the flag reaches a sandboxed renderer and the
+    // engine serves the document.
+  })
 })

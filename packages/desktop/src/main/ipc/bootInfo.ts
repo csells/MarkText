@@ -12,6 +12,10 @@ const ENV_ALLOWLIST = [
   'MARKTEXT_VERSION',
   'MARKTEXT_VERSION_STRING',
   'MARKTEXT_E2E_READONLY_BRIDGE',
+  // Which document engine a tab runs on. The renderer decides per launch, so
+  // the value has to cross the sandbox boundary explicitly like every other
+  // variable here.
+  'MARKTEXT_DOCUMENT_CORE_ENGINE',
   'MARKTEXT_RIPGREP_PATH',
   'PATH',
   'HOME'

@@ -150,7 +150,7 @@ import { useCriticMarkupReviewController } from './useCriticMarkupReviewControll
 import { useCriticMarkupRejectionNotifier } from './useCriticMarkupRejectionNotifier'
 import { installE2EReadOnlyBridge } from './e2eReadOnlyBridge'
 import { diagramThemesFor } from './diagramThemes'
-import { hostFor, installDocumentEngine } from './documentEngineHost'
+import { DOCUMENT_CORE_PARSE_CONFIGURATION, hostFor, installDocumentEngineWithMirror } from './documentEngineHost'
 import { useEditorLifecycle } from './useEditorLifecycle'
 
 // Importing the engine entrypoint auto-injects its editor CSS (the muya.ts
@@ -1869,7 +1869,9 @@ useEditorLifecycle(() => {
   // nothing changes until the flag selects the new engine.
   // Mark the element Muya actually mounts: its constructor REPLACES the element
   // it is given, so marking `ele` would tag a node that is thrown away.
-  installDocumentEngine(muya.domNode, window.electron.process.env, muya)
+  installDocumentEngineWithMirror(
+    muya.domNode, window.electron.process.env, muya, DOCUMENT_CORE_PARSE_CONFIGURATION
+  )
   // The new engine requires an explicit init() after construction (it builds
   // the document tree and instantiates the registered UI plugins).
   muya.init()
