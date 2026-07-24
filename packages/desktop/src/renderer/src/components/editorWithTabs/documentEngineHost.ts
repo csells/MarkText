@@ -16,11 +16,15 @@ import { applyDocumentEngine } from './documentEngineSelection'
 /** The subset of Muya this facade needs, so tests need no Muya instance. */
 export interface LegacyEngineBinding {
   readonly getMarkdown: () => string
+  readonly setContent?: (markdown: string) => void
+  readonly on?: (event: string, listener: () => void) => void
 }
 
 /** The matching document-core view surface. */
 export interface DocumentCoreBinding {
   readonly getMarkdownSync: () => string
+  readonly setContent?: (markdown: string) => void
+  readonly onChange?: (listener: () => void) => void
 }
 
 export interface DocumentEngineHostOptions {
@@ -39,6 +43,10 @@ export interface DocumentEngineHost {
    * current revision without one.
    */
   readonly getMarkdown: () => string
+  /** Load a document into whichever engine owns this tab. */
+  readonly setContent: (markdown: string) => void
+  /** Observe committed changes from the owning engine. */
+  readonly onChange: (listener: () => void) => void
 }
 
 export function createDocumentEngineHost(
@@ -53,7 +61,9 @@ export function createDocumentEngineHost(
     }
     return Object.freeze({
       engine: 'document-core' as const,
-      getMarkdown: () => binding.getMarkdownSync()
+      getMarkdown: () => binding.getMarkdownSync(),
+      setContent: (markdown: string) => binding.setContent?.(markdown),
+      onChange: (listener: () => void) => binding.onChange?.(listener)
     })
   }
 
@@ -63,7 +73,11 @@ export function createDocumentEngineHost(
   }
   return Object.freeze({
     engine: 'legacy' as const,
-    getMarkdown: () => binding.getMarkdown()
+    getMarkdown: () => binding.getMarkdown(),
+    setContent: (markdown: string) => binding.setContent?.(markdown),
+    // Muya reports document changes as a 'json-change' event; the engine name
+    // for it does not leak past this seam.
+    onChange: (listener: () => void) => binding.on?.('json-change', listener)
   })
 }
 
@@ -108,8 +122,8 @@ export function installDocumentEngine(
  * gets the right answer rather than an error.
  */
 export function hostFor(editor: LegacyEngineBinding): DocumentEngineHost {
-  return hosts.get(editor) ?? Object.freeze({
-    engine: 'legacy' as const,
-    getMarkdown: () => editor.getMarkdown()
+  return hosts.get(editor) ?? createDocumentEngineHost({
+    engine: 'legacy',
+    legacy: editor
   })
 }

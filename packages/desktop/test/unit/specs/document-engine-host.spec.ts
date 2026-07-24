@@ -99,3 +99,49 @@ describe('per-editor host registry', () => {
     expect(hostFor(stray).engine).toBe('legacy')
   })
 })
+
+describe('write flows', () => {
+  it('loads content through the engine that owns the document', () => {
+    const calls: string[] = []
+    const muya = {
+      getMarkdown: () => '',
+      setContent: (markdown: string) => calls.push(`legacy:${markdown}`)
+    }
+    installDocumentEngine(document.createElement('div'), {}, muya)
+    hostFor(muya).setContent('# Loaded\n')
+    expect(calls).toEqual(['legacy:# Loaded\n'])
+  })
+
+  it('routes a load to document-core when that engine is selected', () => {
+    const calls: string[] = []
+    const legacy = { getMarkdown: () => '', setContent: () => calls.push('legacy') }
+    const host = createDocumentEngineHost({
+      engine: 'document-core',
+      legacy,
+      documentCore: {
+        getMarkdownSync: () => '',
+        setContent: () => calls.push('document-core')
+      }
+    })
+    host.setContent('# Loaded\n')
+    // Loading into the wrong engine would leave the user editing one document
+    // while the other holds what was opened.
+    expect(calls).toEqual(['document-core'])
+  })
+
+  it('subscribes to changes on the owning engine', () => {
+    const listeners: Array<() => void> = []
+    const muya = {
+      getMarkdown: () => '',
+      setContent: () => {},
+      on: (event: string, listener: () => void) => {
+        if (event === 'json-change') listeners.push(listener)
+      }
+    }
+    installDocumentEngine(document.createElement('div'), {}, muya)
+    let seen = 0
+    hostFor(muya).onChange(() => { seen += 1 })
+    listeners.forEach(listener => listener())
+    expect(seen).toBe(1)
+  })
+})

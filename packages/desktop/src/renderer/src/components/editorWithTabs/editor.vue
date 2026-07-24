@@ -1548,7 +1548,7 @@ const setMarkdownToEditor = (payload: unknown) => {
   if (editor.value) {
     // `setContent` resets the document and clears the undo history; only set a
     // cursor afterwards (a freshly-opened file has no history to restore).
-    editor.value.setContent(newMarkdown ?? '')
+    hostFor(editor.value).setContent(newMarkdown ?? '')
     // The freshly loaded content is this tab's clean baseline (id 0). Re-seed
     // the monotonic save-tracking allocator so undoing an edit back to this
     // content reads as clean again (matches the store's `lastSavedHistoryId: 0`).
@@ -1659,7 +1659,7 @@ const handleFileChange = (payload: unknown) => {
       // per-tab) afterwards — preserves undo/redo on in-session tab switch. The
       // `history` in the payload is the synthetic desktop-shaped history used
       // for save tracking, not the engine history.
-      editor.value.setContent(newMarkdown)
+      hostFor(editor.value).setContent(newMarkdown)
       seedDerivedDocumentState(editor.value)
       if (newCursor) {
         applyCursor(editor.value, newCursor)
@@ -1945,7 +1945,7 @@ useEditorLifecycle(() => {
   // derived document snapshot (markdown / word count / cursor / history / TOC /
   // block AST), so we compute it here — mirroring the legacy engine's
   // `dispatchChange` payload.
-  editor.value.on('json-change', () => {
+  hostFor(editor.value).onChange(() => {
     // There is a chance that this event is fired AFTER the tab is switched. If we purely rely on this.currentFile later on
     // it can cause invalid updates. Hence, we need the id to identify changes as part of each tab
     if (!currentFile.value || !editor.value) return
