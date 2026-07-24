@@ -84,6 +84,18 @@ export interface IDocumentCoreView {
      * selection being typed over.
      */
     deleteRange: (start: number, end: number) => Promise<void>;
+    /** Replace a range with text. */
+    replaceRange: (start: number, end: number, text: string) => Promise<void>;
+    /** Select the whole document. */
+    selectAll: () => void;
+    /** Break the paragraph at an offset. */
+    insertParagraph: (modelOffset: number) => Promise<void>;
+    /** Insert clipboard text with no formatting applied. */
+    pasteAsPlainText: (modelOffset: number, text: string) => Promise<void>;
+    /** Replace the word surrounding an offset — autocomplete and emoji. */
+    replaceWordAt: (modelOffset: number, replacement: string) => Promise<void>;
+    /** Every match, as model ranges over the text the reader sees. */
+    search: (query: string) => ReadonlyArray<{ start: number; end: number }>;
     undo: () => Promise<void>;
     render: () => void;
     /** Open a different document in this view, replacing what it holds. */
@@ -197,6 +209,74 @@ export async function createDocumentCoreView(
                 },
             }),
         );
+    };
+
+    const replaceRange = async (
+        start: number,
+        end: number,
+        text: string,
+    ): Promise<void> => {
+        // Delete then insert. The engine records each as a revision, so this
+        // takes two undos today; collapsing a replacement into one undoable
+        // step needs a compound intent in document-core, which is recorded as a
+        // failing expectation rather than faked with a view-level undo stack.
+        await deleteRange(start, end);
+        await typeText(start, text);
+    };
+
+    const selectAll = (): void => {
+        const length = modelText().length;
+        session.select({
+            anchor: { offset: 0, affinity: 'next' },
+            focus: { offset: length, affinity: 'previous' },
+        });
+    };
+
+    const insertParagraph = async (modelOffset: number): Promise<void> => {
+        // A blank line is what makes two paragraphs in Markdown; the engine
+        // decides what that means structurally, not this view.
+        await typeText(modelOffset, '\n\n');
+    };
+
+    const pasteAsPlainText = async (
+        modelOffset: number,
+        text: string,
+    ): Promise<void> => {
+        await typeText(modelOffset, text);
+    };
+
+    const replaceWordAt = async (
+        modelOffset: number,
+        replacement: string,
+    ): Promise<void> => {
+        const text = modelText();
+        let start = modelOffset;
+        let end = modelOffset;
+        while (start > 0 && !/\s/.test(text[start - 1] ?? ''))
+            start -= 1;
+
+        while (end < text.length && !/\s/.test(text[end] ?? ''))
+            end += 1;
+
+        await replaceRange(start, end, replacement);
+    };
+
+    const search = (
+        query: string,
+    ): ReadonlyArray<{ start: number; end: number }> => {
+        if (query.length === 0)
+            return [];
+
+        // Search the text the reader sees. Searching the source would match
+        // marker characters the user cannot see and miss text they can.
+        const text = modelText();
+        const matches: Array<{ start: number; end: number }> = [];
+        let from = text.indexOf(query);
+        while (from !== -1) {
+            matches.push({ start: from, end: from + query.length });
+            from = text.indexOf(query, from + query.length);
+        }
+        return Object.freeze(matches);
     };
 
     const undo = async (): Promise<void> => {
@@ -319,6 +399,12 @@ export async function createDocumentCoreView(
     return {
         blur,
         deleteRange,
+        insertParagraph,
+        pasteAsPlainText,
+        replaceRange,
+        replaceWordAt,
+        search,
+        selectAll,
         getMarkdown,
         getSelection,
         hasFocus,
