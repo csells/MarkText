@@ -10,7 +10,7 @@
      25 adversarially verified (3-vote), 2 killed, synthesized to 10 findings.
   2. Google Gemini Deep Research — independent report from the same prompt
      (`Rust_Markdown_Parsers_Evaluation.pdf`).
-  Where the two disagree, this document records which claims survived primary-source verification.
+     Where the two disagree, this document records which claims survived primary-source verification.
 - **Requirements evaluated against** (from plan 0009 and the document-core architecture):
   (1) source-authoritative & lossless (exact byte provenance, lossless round-trip);
   (2) incremental per-keystroke reparse; (3) CriticMarkup as intrinsic single-pass grammar,
@@ -24,7 +24,7 @@
 at least one hard requirement.** The two runs disagree on the recommended fallback: Gemini
 recommends forking `tree-sitter-markdown`; the verified evidence collected here says that grammar
 is disqualified by its own README, and the honest alternatives are (a) keep building document-core,
-(b) fork `markdown-rs` and build incrementality on top, or (c) write a *new* single-grammar
+(b) fork `markdown-rs` and build incrementality on top, or (c) write a _new_ single-grammar
 tree-sitter(-like) markdown+CriticMarkup grammar from scratch — each substantial engineering.
 
 ## Verified findings (Claude run; vote margins shown)
@@ -37,7 +37,7 @@ bindings and a dependency-free pure-C runtime. The "fast enough to parse on ever
 survived only **2-1** — it is a stated aim, and it covers the core C library, not the WASM +
 markdown-grammar configuration MarkText would actually run.
 
-### F2 — but both tree-sitter *markdown grammars* are disqualifying · 3-0 (all five sub-claims)
+### F2 — but both tree-sitter _markdown grammars_ are disqualifying · 3-0 (all five sub-claims)
 
 - The maintained `tree-sitter-grammars/tree-sitter-markdown` is **split into separate block and
   inline grammars requiring two parses** (`ts_parser_set_included_ranges`) — architecturally the
@@ -111,7 +111,7 @@ exist, and building one means writing a CommonMark parser from scratch.
    grammar's own README** (F2, verified verbatim 3-0). Gemini presents the dual block/inline
    grammar as a strength and proposes defining `{++`/`++}` "ambiguously as both inline lexical
    elements and block containers," resolved by GLR. The split-grammar design makes that a
-   *cross-grammar* problem GLR cannot see (inline content is a second parse over included ranges),
+   _cross-grammar_ problem GLR cannot see (inline content is a second parse over included ranges),
    and Gemini's report never mentions the grammar's correctness disclaimer, the two-parse
    architecture's conflict with the single-pass law, or the WASM static-linking caveat. A
    tree-sitter path is really option (c): a **new** single-grammar markdown+CM grammar — rewriting

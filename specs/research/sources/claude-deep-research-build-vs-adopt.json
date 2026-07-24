@@ -1,0 +1,303 @@
+{
+  "question": "Should a WYSIWYG markdown editor implement its custom markdown+CriticMarkup language (\"Profile 1\") on top of an existing hardened headless Markdown parser, or build its own from scratch? Evaluate the top 3 headless engines (TypeScript or Rust) against the requirements below with a per-engine gap analysis; prefer primary sources (READMEs, source code, extension API docs, test suites, issue trackers, real extension projects). Context: MarkText (Electron+Vue+TypeScript) is building a source-authoritative engine; Profile 1 = CommonMark 0.31.2 + GFM (tables, task lists, strikethrough, autolinks) + inline/block math + YAML front matter + diagram fences + footnotes + the five CriticMarkup forms ({++add++}, {--del--}, {~~old~>new~~}, {==highlight==}, {>>comment<<}) as intrinsic same-pass grammar productions. ~15k lines of custom TS engine exist; its markdown layer (~8.5k lines) is incomplete and incremental reparse is unbuilt. Hard requirements: (1) source-authoritative & lossless, exact UTF-16 code-unit offsets, byte-exact round-trip; (2) total language / error tolerance \u2014 every mid-edit prefix parses; unclosed CM markers degrade to literal text and never swallow the document; (3) CriticMarkup as intrinsic same-pass syntax via a PUBLIC extension API (no fork, no second scanner): recursive nesting incl. same form, arm-local delimiter containment (emphasis/links opened in an arm must close in that arm; nothing leaks across the ~> divider), literal precedence (markers inside code/math/HTML/front matter are data); (4) MULTI-BLOCK annotation spans \u2014 an annotation may open mid-paragraph and close mid-inline-context in a LATER paragraph, or enclose whole blockquotes/lists/tables; assess specifically whether each engine's extension model can express a construct opening mid-inline-context in one block and closing mid-inline-context in another, and whether that forces a fork; (5) O(n) full parse without pathological inputs AND incremental per-keystroke reparse (fragment reuse) provided or realistically buildable; (6) headless embedding in an Electron sandboxed renderer \u2014 for Rust, assess per-keystroke WASM boundary cost and UTF-8\u2192UTF-16 offset conversion burden; (7) MIT-compatible license, active maintenance, production hardening. Candidates (pick strongest 3, justify, add missed ones): @lezer/markdown, micromark, markdown-it (JS), marked, remark/mdast layer; Rust: markdown-rs, comrak, pulldown-cmark. Exclude Djot and tree-sitter grammars (evaluated separately). For each top-3 engine report with citations: exact CommonMark/GFM conformance claims AND documented deviations (e.g. does @lezer/markdown validate link reference definitions or parse [a][b] as a link without one \u2014 quote its README; what else does it skip for incrementality); extension API expressive power \u2014 can it define new inline delimiter pairs with custom pairing/containment resolution, new composite block constructs, constructs spanning block boundaries; cite REAL extension projects (GFM/math/frontmatter/directives/MDX for micromark; Table/TaskList/Strikethrough for lezer; community plugins) and any that hit the API's ceiling and forced forks; position fidelity and offset units; incrementality (provided/buildable/foreclosed \u2014 lezer TreeFragment reuse specifics); error tolerance on mid-edit states; performance benchmarks incl. known pathological cases (micromark constant factor vs marked/markdown-it; markdown-rs issue #113); maintenance health, license, notable production deployments (CodeMirror/Obsidian for lezer; remark ecosystem for micromark). Then produce a gap list per engine classified provided / buildable-on-public-API / fork-required / architecturally-impossible with relative effort and risk. Conclude: (a) ranked recommendation among the three; (b) honest build-vs-adopt verdict \u2014 is finishing the custom engine (conformance + incrementality unbuilt) more or less risky than adopting the best host and building the CriticMarkup layer, multi-block machinery, and a projections/views layer on top; (c) the single highest-risk technical unknown of the adoption path and a short spike to de-risk it.",
+  "summary": "Adoption beats finishing the custom engine for Profile 1's markdown core, and micromark is the strongest host: it is fully CommonMark-conformant with ~2k tests and fuzzing, lossless with per-code-unit positional info on every token, and its public extension API (proven by first-party GFM, math, frontmatter, directives, and MDX extensions plus user-definable resolveAll pairing/containment logic) covers every non-CriticMarkup Profile 1 feature and the mechanism a same-pass CriticMarkup inline extension needs. @lezer/markdown ranks second: it uniquely provides fragment-reuse incremental parsing out of the box and a public inline-delimiter API, but it deliberately deviates from CommonMark (unvalidated link references) and its extension model confines constructs to a single leaf block or single inline context \u2014 and the one real-world Lezer CriticMarkup grammar has a documented, author-acknowledged unclosed-delimiter failure that swallows the rest of the document, exactly what requirement 2 forbids. Critically, no shipped implementation anywhere \u2014 Fevol's Obsidian plugin, PyMdown, remark-critic-markup, or MultiMarkdown-6 \u2014 has ever done CriticMarkup as intrinsic same-pass grammar productions, and none supports multi-block spans; every practitioner chose a second scanner or preprocessor, and the co-creator's own parser (MMD-6) explicitly refuses cross-block and cross-span CriticMarkup. The single highest-risk unknown of the adoption path is therefore requirement 4 (multi-block annotation spans opening mid-inline in one block and closing mid-inline in a later one): it is unprecedented in every surveyed ecosystem, and the recommended de-risking spike is a micromark syntax extension prototype (or an out-of-band overlay design atop micromark's lossless token stream) proving a {++...++} span across two paragraphs with correct arm-local containment and literal-text degradation on unclosed markers.",
+  "findings": [
+    {
+      "claim": "micromark is fully CommonMark-conformant and production-hardened: it passes the entire ~650-test CommonMark suite plus 1.2k+ additional tests (~2k total), has 100% code coverage, and is fuzz-tested \u2014 satisfying the exact-conformance hard requirement.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/micromark/micromark"
+      ],
+      "evidence": "README states verbatim it 'passes all tests from CommonMark and has many more tests to match the CommonMark reference parsers... \u00b12k tests, 100% coverage, fuzz testing'; a 30-minute fuzz script exists in the repo, and the remark/unified ecosystem exercises this conformance in production at scale.",
+      "vote": "3-0"
+    },
+    {
+      "claim": "micromark satisfies the source-authoritative/lossless requirement natively: it is a concrete-token state machine in which every input byte is accounted for, and every token carries start/end positions with line, column, and offset in JS string indices \u2014 i.e., UTF-16 code units, exactly the offset unit MarkText requires with zero conversion burden.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/micromark/micromark"
+      ],
+      "evidence": "README: 'It's implemented as a state machine that emits concrete tokens, so that every byte is accounted for, with positional info.' micromark-util-types defines Point as {line (1-indexed), column (1-indexed), offset (0-indexed JS string position)}; tokens are named slices over JS string chunks. The UTF-16 characterization is an inference from pure-JS string indexing, not explicit documentation, but is technically sound.",
+      "vote": "3-0"
+    },
+    {
+      "claim": "micromark's public extension API covers almost all of Profile 1's non-CriticMarkup surface out of the box and is expressive enough for custom inline delimiter pairs with user-defined pairing and containment resolution \u2014 the exact mechanism a same-pass CriticMarkup inline extension needs. First-party extensions (GFM tables/task-lists/strikethrough/autolinks/footnotes, math, YAML frontmatter, generic directives, MDX.js) are all built on the public SyntaxExtension interface without forking; the strikethrough extension demonstrates character-keyed tokenizers, a custom resolveAll that matches closers to openers with extension-supplied logic, and nested-inline resolution via resolveAll over insideSpan constructs \u2014 no second scanner, no hardcoded core pairing.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/micromark/micromark",
+        "https://github.com/micromark/micromark-extension-gfm-strikethrough"
+      ],
+      "evidence": "README lists micromark-extension-gfm/-math/-frontmatter/-directive/-mdxjs as separate npm packages consuming the documented extensions option. Strikethrough's dev/lib/syntax.js registers {text: {[codes.tilde]: tokenizer}, insideSpan: {null: [tokenizer]}, attentionMarkers: {null: [codes.tilde]}}; its resolveAllStrikethrough walks the event stream matching equal-length delimiters and re-resolves nested content via resolveAll(insideSpan, events.slice(open+1, index), context). insideSpan/attentionMarkers/resolveAll are typed fields of the public Extension interface (micromark-util-types), and independent third-party packages (micromark-extension-wiki-link, micromark-extension-underline) reproduce the pattern. Caveats: most extensions share one principal author (wooorm; bus factor one), the resolver hooks are thinly documented ('see existing extensions'), and CriticMarkup's asymmetric multi-char delimiters plus the ~> divider need a custom resolver beyond what strikethrough shows \u2014 the hooks are the right mechanism but the CriticMarkup extension itself remains to be written. Diagram fences are ordinary code fences in core.",
+      "vote": "3-0 (three claims merged, each 3-0)"
+    },
+    {
+      "claim": "@lezer/markdown deliberately trades CommonMark conformance for single-pass incrementality: by its own README it does not validate link reference definitions, parsing [a][b] as a link even when no [b] reference exists \u2014 a documented deviation any adopter must either accept or paper over.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/lezer-parser/markdown/blob/main/README.md"
+      ],
+      "evidence": "README (main branch): 'in order to be single-pass and incremental, it doesn't do some things that a conforming CommonMark parser is expected to do... it doesn't validate link references, so it'll parse [a][b] and similar as a link, even if no [b] reference is declared.' Self-disclosed by the maintainer, the opposite of marketing.",
+      "vote": "3-0"
+    },
+    {
+      "claim": "@lezer/markdown has a genuinely public extension API (MarkdownConfig with defineNodes/parseBlock/parseInline, InlineContext.addDelimiter/findOpeningDelimiter/takeContent, DelimiterType.resolve) proven by first-party extensions built on the same exported surface: Strikethrough/Subscript/Superscript as ordinary InlineParsers with flanking-computed open/close flags and implicit resolve-based pairing, and GFM Table/TaskList as LeafBlockParsers (delimiter-row regex validation, per-cell parseInline) \u2014 so custom inline delimiter pairs and composite single-block constructs like CriticMarkup's inline forms are expressible without a fork.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/lezer-parser/markdown/blob/main/README.md",
+        "https://github.com/lezer-parser/markdown/blob/main/src/extension.ts"
+      ],
+      "evidence": "README documents addDelimiter ('open and close indicate whether this delimiter is opening, closing, or both') and DelimiterType.resolve ('matched automatically when a piece of inline content is finished'). src/extension.ts implements Strikethrough via cx.addDelimiter(StrikethroughDelim, pos, pos+2, ...) and Table via parseBlock: [{name: 'Table', leaf(...), endLeaf(...), before: 'SetextHeading'}]; all types used are re-exported from src/index.ts, i.e. the same surface third parties get (only two trivial character-class helpers are internal-only). Caveat: this proves the mechanism exists; sufficiency for CriticMarkup's arm-local ~> containment is unvalidated.",
+      "vote": "3-0 (three claims merged, each 3-0)"
+    },
+    {
+      "claim": "@lezer/markdown is the only surveyed engine where per-keystroke incremental reparse is provided rather than buildable: it consumes Lezer TreeFragments and reuses prior parse results at block boundaries, implemented in shipped code (FragmentCursor, reuseFragment) and driven per-keystroke in production by CodeMirror 6 and Obsidian.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/lezer-parser/markdown/blob/main/README.md"
+      ],
+      "evidence": "README: 'This is an incremental Markdown... parser' that 'consumes fragments of [Lezer-style syntax trees] for its incremental parsing.' src/markdown.ts implements createParse(input, fragments, ranges) with FragmentCursor.takeNodes and BlockContext.advance() calling reuseFragment; source comments note incremental parsing happens on block boundaries (an edit reparses its whole containing block).",
+      "vote": "3-0"
+    },
+    {
+      "claim": "@lezer/markdown's extension model confines custom constructs to a single leaf block or a single inline context \u2014 the complete first-party extension inventory shows no mechanism for a delimiter opened in one paragraph to be matched in a later paragraph, which puts Profile 1's multi-block annotation spans (requirement 4) at fork-required or architecturally-impossible on this engine.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/lezer-parser/markdown/blob/main/src/extension.ts"
+      ],
+      "evidence": "All extensions in src/extension.ts are either LeafBlockParsers operating on one contiguous LeafBlock (Table accumulates rows only within leaf.start..leaf.start+leaf.content.length; endLeaf only peeks one line ahead as a termination test) or inline parsers whose delimiters resolve within one block's inline pass (Strikethrough via addDelimiter; parseSubSuper scans only to cx.end). No construct carries delimiter state across block boundaries, consistent with Lezer's per-textblock InlineContext design. Scope caveat: this is what the first-party file demonstrates; it does not formally prove no composite BlockParser workaround exists elsewhere in the API.",
+      "vote": "3-0"
+    },
+    {
+      "claim": "No real-world CriticMarkup implementation is built as intrinsic same-pass grammar productions on any parser's public extension API \u2014 every surveyed production or community implementation chose a second scanner, preprocessor, or post-parse transform, exactly the architectures Profile 1 requirement 3 forbids. Fevol's Obsidian Commentator (the most prominent integration) and Zettlr's lang-criticmarkup both use standalone Lezer LR grammars overlaid beside markdown, not @lezer/markdown extensions; PyMdown Extensions injects tags via a regex preprocessor before the markdown parse; remark-critic-markup is a post-parse mdast text-node regex transform emitting raw HTML nodes, not a micromark tokenizer.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/Fevol/obsidian-criticmarkup",
+        "https://github.com/Fevol/criticmarkup-parser",
+        "https://facelessuser.github.io/pymdown-extensions/extensions/critic/",
+        "https://github.com/Benbinbin/remark-critic-markup",
+        "https://github.com/nathanlesage/lang-criticmarkup"
+      ],
+      "evidence": "Fevol's criticmarkup-parser README: 'This is a CriticMarkup grammar for CodeMirror's Lezer parser system' \u2014 package.json depends on @lezer/lr, not @lezer/markdown. PyMdown docs: 'a preprocessor to inject the critic tags before all other parsing and a post-processor to clean up.' remark-critic-markup's entire index.js is visit(ast, 'text', ...) with regex string replacement into html nodes (and it doesn't even implement real braced CriticMarkup \u2014 it skips the substitution form and alters the comment form). No micromark or @lezer/markdown-native CriticMarkup extension was found anywhere. This is precedent absence, not proof of impossibility \u2014 micromark's resolver hooks were never tried for CriticMarkup by anyone surveyed.",
+      "vote": "3-0 (three claims merged, each 3-0)"
+    },
+    {
+      "claim": "The strongest real-world attempts at CriticMarkup editing validate MarkText's hard requirements as genuinely difficult: Fevol's plugin, after ~2 years and 449 commits with a dedicated parser, still warns of data loss ('non-zero risk of text being removed... in suggestion mode', 'do not use this plugin in your main vault'), and its standalone Lezer grammar has an author-acknowledged, unresolved error-tolerance failure where an unclosed {++ swallows all subsequent text \u2014 escalated to the CodeMirror forum where Lezer's author Marijn Haverbeke concluded 'the thing you're trying to do may not match what Lezer can do very well.' This is precisely the failure mode requirement 2 (unclosed markers degrade to literal text) forbids.",
+      "confidence": "high",
+      "sources": [
+        "https://github.com/Fevol/obsidian-criticmarkup",
+        "https://github.com/Fevol/criticmarkup-parser",
+        "https://discuss.codemirror.net/t/proper-local-token-group-usage-and-incorrect-matching/5778"
+      ],
+      "evidence": "Both warnings are verbatim in the current READMEs as of 2026-07-24. Release 0.2.0 notes fixed exactly the arm-local containment class of bug ('Deleting in an addition or addition-part of a substitution will now actually delete the characters instead of marking them as a deletion'). Caveats: the unclosed-delimiter failure is in a standalone LR grammar, so it does not directly prove @lezer/markdown's InlineParser API (which is naturally error-tolerant \u2014 unresolved delimiters fall through as literal text) would fail the same way; and one beta plugin evidences difficulty, not inevitability. Repo quiet since Dec 2024, leaving the warnings operative.",
+      "vote": "3-0 (two claims merged, each 3-0)"
+    },
+    {
+      "claim": "The CriticMarkup co-creator's own production parser, MultiMarkdown-6, explicitly refuses both of Profile 1's hardest requirements: CM 'must be contained within a single block... CM that spans multiple blocks will not be recognized' (no precedent for requirement 4's multi-block spans), and 'CriticMarkup that crosses multiple MMD spans (e.g. {++** foo} bar**) will not properly manage the intended MultiMarkdown markup' (no arm-local delimiter containment, requirement 3). Fletcher Penney documents the architectural cause \u2014 CM is a separate layer atop Markdown, and a proper interleaving algorithm 'would be quite complex, with a huge number of edge cases.'",
+      "confidence": "high",
+      "sources": [
+        "https://fletcher.github.io/MultiMarkdown-6/syntax/critic.html"
+      ],
+      "evidence": "Both quotes verbatim from the official MMD-6 syntax docs, written by the CriticMarkup co-creator about his own parser \u2014 the highest-quality admission available that same-pass, arm-contained, multi-block CriticMarkup is unprecedented. Note the refuted-claims list: a companion claim that MMD-6 processes CM in a separate pre-pass was voted down 0-3, so MMD-6's internal architecture should not be characterized that way; only its documented limitations are established.",
+      "vote": "3-0 (two claims merged, each 3-0)"
+    },
+    {
+      "claim": "Bolt-on approaches demonstrably fail for WYSIWYG rendering of multi-block/mid-syntax spans: PyMdown's maintainer acknowledges the preprocessor-injection approach 'may create invalid HTML for the preview (especially in relation to lists or if breaking up Markdown syntax)' and has frozen the mode ('no plans to enhance the view mode any further') \u2014 direct evidence that CriticMarkup outside the parser cannot serve MarkText's rendered-preview use case, reinforcing that the intrinsic same-pass requirement is well-motivated, not gold-plating.",
+      "confidence": "high",
+      "sources": [
+        "https://facelessuser.github.io/pymdown-extensions/extensions/critic/"
+      ],
+      "evidence": "Quotes verbatim from maintainer docs; corroborated by issue #95 ('Critic viewing issues') and the docs' note that view mode was once slated for deprecation. The named failure domain (lists, breaking up Markdown syntax) exactly matches Profile 1's multi-block/mid-inline span requirement. Minor caveat: source says 'possibility' of invalid HTML, softer than guaranteed failure.",
+      "vote": "3-0"
+    },
+    {
+      "claim": "Synthesis/verdict (analyst judgment over the confirmed evidence): (a) Ranking \u2014 1. micromark (conformance, losslessness, native UTF-16 offsets, most expressive public inline extension API, remark-ecosystem production hardening; gap: incrementality not provided, must be built, plausibly via block-level content re-tokenization over its lossless token stream); 2. @lezer/markdown (incrementality and error tolerance provided, CodeMirror/Obsidian production deployment; gaps: documented conformance deviations, single-block extension ceiling making multi-block spans likely fork-required, and the discouraging Lezer-ecosystem CriticMarkup precedent); 3. no third engine earned verified support \u2014 the Rust candidates and markdown-it produced no surviving claims. (b) Build-vs-adopt \u2014 adopt: the custom engine still owes CommonMark+GFM conformance (~2k tests micromark already passes) plus incrementality, both higher-risk than writing a CriticMarkup extension on micromark's proven hooks; the truly novel work (multi-block spans, arm-local containment) is unprecedented everywhere and must be built regardless of path, so the host choice should minimize the non-novel work. (c) Highest-risk unknown \u2014 whether ANY host's public API can express a construct opening mid-inline in one block and closing mid-inline in a later block: no extension in either ecosystem does this, MMD-6 refuses it, and micromark's block/inline phase separation makes it unproven. De-risking spike (~1-2 weeks): build a micromark syntax extension for {==...==} spanning two paragraphs; if the flow/text phase boundary blocks it, prototype the fallback \u2014 single-block CM as same-pass extension plus a thin post-tokenization span-joining layer over micromark's lossless offsets \u2014 and verify unclosed markers degrade to literal text in both designs.",
+      "confidence": "medium",
+      "sources": [
+        "https://github.com/micromark/micromark",
+        "https://github.com/lezer-parser/markdown/blob/main/README.md",
+        "https://fletcher.github.io/MultiMarkdown-6/syntax/critic.html",
+        "https://github.com/Fevol/criticmarkup-parser"
+      ],
+      "evidence": "This finding is synthesis, not a directly verified claim: the ranking and verdict follow from the confirmed findings above but involve judgment, and the two-engine shortlist reflects evidence availability (no verified claims survived for Rust engines or markdown-it), not a verified conclusion that they are inferior. The multi-block-spike framing rests on confirmed absence of precedent (findings on lezer's single-block ceiling and MMD-6's refusal), while micromark's specific ceiling for multi-block constructs was not directly tested by any surviving claim.",
+      "vote": "synthesis (not independently voted)"
+    }
+  ],
+  "caveats": "Evidence coverage is uneven: all 22 surviving claims concern micromark, @lezer/markdown, and CriticMarkup precedent implementations \u2014 no claims about the Rust candidates (markdown-rs, comrak, pulldown-cmark), markdown-it, or marked survived verification, so the WASM-boundary/UTF-8-to-UTF-16 assessment (requirement 6), the performance-benchmark comparison (micromark's constant factor vs alternatives, markdown-rs issue #113), and quantitative maintenance-health metrics are unaddressed by verified evidence; the two-engine shortlist partly reflects this gap rather than a verified elimination. micromark's conformance and coverage numbers are self-reported (though the suites are public and runnable), and its resolver-hook API is thinly documented with an effective bus factor of one maintainer (wooorm). The UTF-16 offset characterization of micromark is a sound inference, not explicit documentation. The lezer single-block-ceiling finding is scoped to the first-party extension file \u2014 it does not formally prove no workaround exists in the full API. Fevol's unclosed-delimiter failure is in a standalone LR grammar, not an @lezer/markdown extension, so it is suggestive rather than probative about @lezer/markdown itself. Three related claims were refuted in verification (MMD-6's internal pre-pass architecture, PyMdown block-class multi-block support, remark-critic-markup's GFM-conflict rationale) \u2014 the synthesis avoids relying on them. Time-sensitivity: Fevol's plugin has been quiet since Dec 2024 and micromark/lezer repos were checked as of 2026-07-24; extension APIs and warnings could change. The final ranking/verdict/spike finding is analyst synthesis over the verified claims, not itself a 3-0-verified claim.",
+  "openQuestions": [
+    "Can micromark's flow/text phase separation express a construct that opens mid-inline-context in one block and closes mid-inline-context in a later block on the public API, or does the block/inline phase boundary force either a post-tokenization span-joining layer or a fork? (No surviving claim tested micromark's multi-block ceiling directly \u2014 this is the recommended spike.)",
+    "How large is the real incrementality gap for micromark \u2014 can per-keystroke reparse with fragment reuse be built over its lossless token stream at acceptable effort and constant factor, and what do head-to-head per-keystroke latency numbers look like versus @lezer/markdown's provided TreeFragment reuse on large documents?",
+    "Do the Rust engines (comrak, markdown-rs, pulldown-cmark) change the ranking once evaluated \u2014 specifically per-keystroke WASM boundary cost, UTF-8-to-UTF-16 offset conversion burden in an Electron sandboxed renderer, and whether their extension APIs (e.g. comrak's) can express custom inline delimiter pairs at all?",
+    "Can @lezer/markdown's composite BlockParser API (beyond the LeafBlockParser patterns in the first-party extension file) host a wrapper block that re-enters inline parsing across contained child blocks, which would rescue multi-block spans on lezer without a fork \u2014 or does the per-textblock InlineContext design foreclose it, as the Marijn Haverbeke forum exchange suggests?"
+  ],
+  "refuted": [
+    {
+      "claim": "MultiMarkdown-6, a canonical CriticMarkup-supporting implementation, does NOT parse CriticMarkup as intrinsic same-pass grammar; it processes CriticMarkup in a separate pre-pass before any other markdown parsing \u2014 the opposite of Profile 1's requirement (3) for same-pass grammar productions.",
+      "vote": "0-3",
+      "source": "https://fletcher.github.io/MultiMarkdown-6/syntax/critic.html"
+    },
+    {
+      "claim": "The preprocessor-injection approach does support multi-block CriticMarkup spans: the extension detects annotations surrounding block regions and marks them with a 'block' class, demonstrating that multi-block annotation spans (requirement 4) have precedent in a shipped implementation \u2014 but achieved via pre-parse text surgery rather than an extension API.",
+      "vote": "1-2",
+      "source": "https://facelessuser.github.io/pymdown-extensions/extensions/critic/"
+    },
+    {
+      "claim": "The plugin deliberately omits the CriticMarkup substitution form ({~~old~>new~~}) because its ~~ delimiters conflict with remark-gfm strikethrough \u2014 direct evidence that CriticMarkup delimiters collide with GFM syntax in the remark ecosystem and that this author chose to drop the form rather than resolve pairing/precedence.",
+      "vote": "1-2",
+      "source": "https://github.com/Benbinbin/remark-critic-markup"
+    }
+  ],
+  "unverified": [],
+  "sources": [
+    {
+      "url": "https://github.com/micromark/micromark",
+      "quality": "primary",
+      "angle": "Extension API expressiveness (primary docs)",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/lezer-parser/markdown/blob/main/README.md",
+      "quality": "primary",
+      "angle": "Extension API expressiveness (primary docs)",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/lezer-parser/markdown/blob/main/src/extension.ts",
+      "quality": "primary",
+      "angle": "Extension API expressiveness (primary docs)",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/orgs/micromark/discussions/62",
+      "quality": "forum",
+      "angle": "Extension API expressiveness (primary docs)",
+      "claimCount": 5
+    },
+    {
+      "url": "https://discuss.codemirror.net/t/combining-inline-and-block-behaviour-for-markdown-comments/6717",
+      "quality": "forum",
+      "angle": "Extension API expressiveness (primary docs)",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/micromark/micromark-extension-gfm-strikethrough",
+      "quality": "primary",
+      "angle": "Extension API expressiveness (primary docs)",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/Fevol/obsidian-criticmarkup",
+      "quality": "primary",
+      "angle": "CriticMarkup / multi-block span precedent",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/Fevol/criticmarkup-parser",
+      "quality": "primary",
+      "angle": "CriticMarkup / multi-block span precedent",
+      "claimCount": 5
+    },
+    {
+      "url": "https://fletcher.github.io/MultiMarkdown-6/syntax/critic.html",
+      "quality": "primary",
+      "angle": "CriticMarkup / multi-block span precedent",
+      "claimCount": 5
+    },
+    {
+      "url": "https://facelessuser.github.io/pymdown-extensions/extensions/critic/",
+      "quality": "primary",
+      "angle": "CriticMarkup / multi-block span precedent",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/Benbinbin/remark-critic-markup",
+      "quality": "primary",
+      "angle": "CriticMarkup / multi-block span precedent",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/wafer-li/markdown-it-criticmarkup",
+      "quality": "primary",
+      "angle": "CriticMarkup / multi-block span precedent",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/lezer-parser/markdown",
+      "quality": "primary",
+      "angle": "Incrementality, error tolerance, offsets",
+      "claimCount": 5
+    },
+    {
+      "url": "https://lezer.codemirror.net/docs/guide/",
+      "quality": "primary",
+      "angle": "Incrementality, error tolerance, offsets",
+      "claimCount": 5
+    },
+    {
+      "url": "https://lezer.codemirror.net/docs/ref/",
+      "quality": "primary",
+      "angle": "Incrementality, error tolerance, offsets",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/innodoc/markdown-benchmark",
+      "quality": "primary",
+      "angle": "Performance benchmarks & pathological inputs",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/micromark/micromark/discussions/29",
+      "quality": "primary",
+      "angle": "Performance benchmarks & pathological inputs",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/raphlinus/pulldown-cmark/issues/257",
+      "quality": "primary",
+      "angle": "Performance benchmarks & pathological inputs",
+      "claimCount": 5
+    },
+    {
+      "url": "https://securitylab.github.com/advisories/GHSL-2023-047_GHSL-2023-049_comrak/",
+      "quality": "primary",
+      "angle": "Performance benchmarks & pathological inputs",
+      "claimCount": 5
+    },
+    {
+      "url": "https://wasm-bindgen.github.io/wasm-bindgen/reference/types/str.html",
+      "quality": "primary",
+      "angle": "Rust-in-Electron & build-vs-adopt experience",
+      "claimCount": 4
+    },
+    {
+      "url": "https://github.com/wooorm/markdown-rs/pull/197",
+      "quality": "primary",
+      "angle": "Rust-in-Electron & build-vs-adopt experience",
+      "claimCount": 5
+    },
+    {
+      "url": "https://toastui.medium.com/the-need-for-a-new-markdown-parser-and-why-e6a7f1826137",
+      "quality": "primary",
+      "angle": "Rust-in-Electron & build-vs-adopt experience",
+      "claimCount": 5
+    },
+    {
+      "url": "https://keminglabs.com/blog/building-a-fast-electron-app-with-rust/",
+      "quality": "blog",
+      "angle": "Rust-in-Electron & build-vs-adopt experience",
+      "claimCount": 5
+    }
+  ],
+  "stats": {
+    "angles": 5,
+    "sourcesFetched": 23,
+    "claimsExtracted": 114,
+    "claimsVerified": 25,
+    "confirmed": 22,
+    "killed": 3,
+    "unverified": 0,
+    "afterSynthesis": 12,
+    "urlDupes": 1,
+    "budgetDropped": 6,
+    "agentCalls": 105
+  }
+}

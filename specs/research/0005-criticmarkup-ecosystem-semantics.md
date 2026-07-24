@@ -22,7 +22,7 @@ The ecosystem's "de-facto standard" is thinner than expected: only three impleme
 primary-source verification — **MultiMarkdown-6** (C, by CM co-creator Fletcher Penney), the
 **original CriticMarkup toolkit** (Python, the reference tooling), and **lang-criticmarkup**
 (Lezer/CodeMirror 6, by Zettlr's author). Everything they agree on, they agree on because they are
-all *Markdown-blind*: annotation arms are opaque text, straddling delimiters are unsupported, no
+all _Markdown-blind_: annotation arms are opaque text, straddling delimiters are unsupported, no
 escape mechanism exists, and none of them protects code spans from marker recognition. Where the
 editor-grade questions begin — literal precedence, mid-edit tolerance, structural interactions,
 multi-block rendering — the ecosystem offers either defects, divergence, or silence. **Best
@@ -34,11 +34,11 @@ Product ruling recorded in this document: **multi-block annotations stay** (owne
 
 ## The verified evidence base
 
-| Implementation | Architecture | Authority weight |
-| --- | --- | --- |
-| MultiMarkdown-6 (`fletcher/MultiMarkdown-6`) | Rendering: CM tokens integrated into the per-block inline token-pair engine. Accept/reject: Aho-Corasick source-text prepass (`critic_markup.c`), byte-range erasure, then normal Markdown parse | Co-creator's implementation; executable CuTest suite |
-| CriticMarkup toolkit (`CriticMarkup/CriticMarkup-toolkit`) | Five sequential whole-document `re.sub` passes → `<ins>/<del>/<mark>` HTML → pipe to a Markdown converter | The reference tooling (dormant since ~2013) |
-| lang-criticmarkup (`nathanlesage/lang-criticmarkup`) | Standalone Lezer grammar mounted over Markdown via `parseMixed` overlay | The only modern editor-grade grammar; small, single-author |
+| Implementation                                             | Architecture                                                                                                                                                                                     | Authority weight                                           |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| MultiMarkdown-6 (`fletcher/MultiMarkdown-6`)               | Rendering: CM tokens integrated into the per-block inline token-pair engine. Accept/reject: Aho-Corasick source-text prepass (`critic_markup.c`), byte-range erasure, then normal Markdown parse | Co-creator's implementation; executable CuTest suite       |
+| CriticMarkup toolkit (`CriticMarkup/CriticMarkup-toolkit`) | Five sequential whole-document `re.sub` passes → `<ins>/<del>/<mark>` HTML → pipe to a Markdown converter                                                                                        | The reference tooling (dormant since ~2013)                |
+| lang-criticmarkup (`nathanlesage/lang-criticmarkup`)       | Standalone Lezer grammar mounted over Markdown via `parseMixed` overlay                                                                                                                          | The only modern editor-grade grammar; small, single-author |
 
 Gemini's run additionally surveyed pancritic (Pandoc/LaTeX wrapper), Emacs `cm-mode.el`,
 vim-criticmarkup, markdown-it-criticmarkup, Obsidian Commentator (Fevol's grammar fork), Mist,
@@ -67,13 +67,13 @@ adversarial verification (mostly: never fetched/checked, not refuted), so they a
   implementation reasons (line-by-line parse; erratic multiline font-lock).
 
 **Profile 1 ruling (owner, 2026-07-24): multi-block spans stay.** The evidence base makes this
-*more* defensible than research 0001 assumed: the reference toolkit implements multi-paragraph
+_more_ defensible than research 0001 assumed: the reference toolkit implements multi-paragraph
 spans on purpose, MMD-6's own accept/reject honors them, and every "single block only" rule in the
 ecosystem is an artifact of a parser that couldn't cope (regex line loops, font-lock, per-block
 inline engines) — an engineering concession, not a language ruling. Profile 1's safe-point
 fork/reconvergence design (decision 11) is what makes the spec-faithful choice implementable at
 O(n). Compatibility footnote for the spec: multi-block documents degrade to literal text in MMD-6
-*rendering* while still transforming under MMD-6 *accept/reject* — both behaviors must appear in
+_rendering_ while still transforming under MMD-6 _accept/reject_ — both behaviors must appear in
 the interop notes.
 
 ### Q2 — Literal precedence: the ecosystem has none; modern divergence is mandatory · high (3-0)
@@ -87,7 +87,7 @@ demonstrates it.
 
 **Profile 1 position (already decided, aligned with the only defensible practice):** literal
 contexts win; ownership of each source run is one parser decision (`composeMarkdownLiteralRanges`,
-the one-lexer rule). This is a *knowing divergence from the reference tools* and the spec must say
+the one-lexer rule). This is a _knowing divergence from the reference tools_ and the spec must say
 so explicitly — with the compatibility consequence that documents relying on markers-inside-code
 behave differently in MMD.
 
@@ -101,7 +101,7 @@ implementation lets emphasis/link state cross an annotation boundary or the `~>`
 
 **Profile 1 position: ADR-0010's arm-local containment IS the consensus**, made precise: matching
 state begun inside an arm completes there or recovers at the arm boundary; nothing leaks past the
-closer. Profile 1 goes beyond the ecosystem by *parsing* Markdown inside arms as arm-local
+closer. Profile 1 goes beyond the ecosystem by _parsing_ Markdown inside arms as arm-local
 fragments (the ecosystem defers that to a later HTML pass) — an editor requirement, consistent
 with the containment consensus.
 
@@ -128,13 +128,13 @@ Markdown parse. This is independent confirmation of the Phase 0.5 amendment: a p
 genuine parse of projected source, not a selection over retained decisions.
 
 **Profile 1 position:** already aligned (REFERENCE_PROJECTION_CONVENTIONS is differential-tested
-against these exact processors). ADR-0013's contribution is doing the re-parse *without* the
+against these exact processors). ADR-0013's contribution is doing the re-parse _without_ the
 string-materialization step for convergent text — same semantics, better complexity.
 
 ### Q7 — Highlight+comment pairing: loose adjacency convention, not grammar · high (3-0)
 
 The toolkit codifies adjacency with a dedicated combined regex applied before the standalone
-comment pattern; lang-criticmarkup's own test fixture parses `{==…==}{>>…<<}` as two *sibling*
+comment pattern; lang-criticmarkup's own test fixture parses `{==…==}{>>…<<}` as two _sibling_
 nodes; MMD-6 gives the pair no special treatment (comment always erased). Standalone comments are
 anchored to nothing anywhere. Secondary: Mist/Zettlr link threads via front-matter IDs — an
 app-level convention on top, not parser identity.
@@ -174,14 +174,14 @@ start-missing/end-missing cases. Secondary (Gemini): lang-criticmarkup's README 
 `{++` "will match all subsequent tokens" in live editing — the document-swallowing hazard.
 
 **Profile 1 position:** literal degradation for unmated openers/closers, never consume-to-EOF, and
-*do not* reproduce MMD-6's stray-`~>` erasure (treat a divider outside a substitution as literal).
+_do not_ reproduce MMD-6's stray-`~>` erasure (treat a divider outside a substitution as literal).
 For the incremental parser this is also the error-tolerance requirement: an unclosed marker is a
 permanent mid-edit state and must parse to a bounded, recoverable structure every keystroke.
 
 ### Q11 — Parse architecture: the "orthogonal layer" position is real but does not survive editor requirements · high (3-0; one claim refuted 0-3)
 
 Penney's primary-source ruling: CriticMarkup "is orthogonal to… Markdown… a separate 'layer'…
-processed *before* parsing." The toolkit implements exactly that (five ordered regex passes —
+processed _before_ parsing." The toolkit implements exactly that (five ordered regex passes —
 cross-type interactions decided purely by pass order). **Correction established by this run:
 MMD-6's rendering path is NOT a prepass** — the claim was refuted 0-3. Rendering integrates CM
 tokens into the per-block inline token-pair engine, which is precisely why rendering inherits
@@ -192,7 +192,7 @@ the prepass; document-swallowing for the naive integrated grammar.
 
 **Profile 1 position:** the intrinsic single-pass architecture (decision 2 / the architectural
 law) has no ecosystem precedent — and the ecosystem's defects are the argument for it. The spec
-should present intrinsic parsing as the mechanism that *implements* the layer's documented
+should present intrinsic parsing as the mechanism that _implements_ the layer's documented
 semantics without the prepass's ordering bugs, and note MMD-6's render/accept asymmetry as the
 cautionary tale for two-authority designs.
 
@@ -232,7 +232,7 @@ an extension.
 2. **Differential oracles:** MMD-6's CuTest accept/reject matrix (including the three nesting
    cases and unclosed-marker passthrough) and the toolkit's five patterns + `\n\n` behaviors are
    concrete, runnable interop oracles to import into the corpus. The stray-`~>` erasure is a
-   documented *non-goal* (divergence).
+   documented _non-goal_ (divergence).
 3. **Error tolerance has a precedent shape:** unmated marker → literal, bounded recovery, never
    consume-to-EOF — matching the existing unclosed-fence safe-point treatment (an unclosed fence
    forks to EOF; an unclosed CM marker must not).

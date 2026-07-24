@@ -7,8 +7,8 @@
   parser evaluation), research 0005 (CriticMarkup ecosystem semantics, adversarially verified);
   the canonical CriticMarkup specification; owner rulings recorded 2026-07-24.
 - **Audience:** the document-core parser, its test corpus, adapters, and any future
-  reimplementation (including a port). This document defines the *language*; plan 0009 owns the
-  *architecture and migration*. Where implementation status lags this document, this document is
+  reimplementation (including a port). This document defines the _language_; plan 0009 owns the
+  _architecture and migration_. Where implementation status lags this document, this document is
   the target.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are to be interpreted as in RFC 2119.
@@ -103,13 +103,13 @@ therefore a new Profile (§14).
 
 Profile 1 recognizes exactly the five canonical forms, with exactly these delimiters:
 
-| Form         | Production                  | Payloads              |
-| ------------ | --------------------------- | --------------------- |
-| Addition     | `{++` *new* `++}`           | *new*                 |
-| Deletion     | `{--` *old* `--}`           | *old*                 |
-| Substitution | `{~~` *old* `~>` *new* `~~}`| *old* arm, *new* arm  |
-| Highlight    | `{==` *text* `==}`          | *text*                |
-| Comment      | `{>>` *metadata* `<<}`      | *metadata*            |
+| Form         | Production                   | Payloads             |
+| ------------ | ---------------------------- | -------------------- |
+| Addition     | `{++` _new_ `++}`            | _new_                |
+| Deletion     | `{--` _old_ `--}`            | _old_                |
+| Substitution | `{~~` _old_ `~>` _new_ `~~}` | _old_ arm, _new_ arm |
+| Highlight    | `{==` _text_ `==}`           | _text_               |
+| Comment      | `{>>` _metadata_ `<<}`       | _metadata_           |
 
 - **CM1.** Delimiters are exactly the ASCII sequences above. Profile 1 MUST NOT recognize
   HTML-entity or tag aliases (`{<del>`, `{&gt;&gt;`, …) or in-annotation metadata separators
@@ -139,21 +139,21 @@ Profile 1 recognizes exactly the five canonical forms, with exactly these delimi
   single-block confinement found in some renderers is a parser artifact Profile 1 rejects
   (research 0005 Q1). Structural consequences for the projections are handled by fork semantics
   (§10), not by refusing recognition. Bounds:
-  - **R3a.** An annotation MUST NOT start or end *inside* a literal range (§7) — but may
+  - **R3a.** An annotation MUST NOT start or end _inside_ a literal range (§7) — but may
     enclose one whole.
   - **R3b.** Within a table, each cell is a containment region: an annotation that opens inside
     a cell must close inside the same cell. An unescaped `|` retains its structural, cell-
     delimiting role even between CM markers; write `\|` for a literal pipe inside an annotation
     in a table. An annotation MAY instead enclose the entire table (open before its first row,
-    close after its last). Annotations spanning *some but not all* of a table's rows do not
-    form (openers/closers are literal). *(Profile 1 ruling — ecosystem silent, research 0005
-    Q9.)*
+    close after its last). Annotations spanning _some but not all_ of a table's rows do not
+    form (openers/closers are literal). _(Profile 1 ruling — ecosystem silent, research 0005
+    Q9.)_
 - **R4 — Substitution divider.** Exactly one `~>` at the top nesting level of a substitution's
-  payload divides *old* from *new*. A `~>` anywhere outside a substitution payload is literal
+  payload divides _old_ from _new_. A `~>` anywhere outside a substitution payload is literal
   text. Profile 1 deliberately diverges from MMD-6, which erases stray `~>` tokens (research
   0005 Q10); see §12. A substitution containing no top-level `~>` does not form (all its
   delimiters are literal). Additional top-level `~>` sequences after the first are payload text
-  of the *new* arm.
+  of the _new_ arm.
 - **R5 — Comment opacity.** A Comment's payload is opaque, unstructured metadata: no Markdown
   and no CriticMarkup is recognized inside `{>> … <<}`. The payload ends at the first
   subsequent `<<}` (subject to escaping, §8). Imported author initials, timestamps, or
@@ -187,8 +187,8 @@ footnote-definition tracking ranges.
 
 - **L1.** Inside a literal range, CM delimiters are data. `` `{++` `` is a code span containing
   four characters; a fenced code block containing `{++ … ++}` renders those bytes verbatim.
-  *(Profile 1 ruling: the reference tools protect nothing — research 0005 Q2 — and that
-  behavior is universally a defect class; Profile 1 diverges deliberately, see §12.)*
+  _(Profile 1 ruling: the reference tools protect nothing — research 0005 Q2 — and that
+  behavior is universally a defect class; Profile 1 diverges deliberately, see §12.)_
 - **L2.** Ownership is decided by one composed lexer in one pass: candidates are ordered by
   start offset (earliest start wins; on ties, the longer range), and once a range is owned, any
   construct starting inside it is data and cannot extend ownership past the owner's end
@@ -236,7 +236,7 @@ boundary for paired Markdown state**:
   per-view: each view resolves reference links against the definitions present in that view
   (§10) — a definition inside a Deletion exists in Original but not Revised.
 - **C4.** Table cell edges are containment regions per R3b. List-item and blockquote
-  boundaries are *not* containment boundaries for annotations (R3 allows spanning them); they
+  boundaries are _not_ containment boundaries for annotations (R3 allows spanning them); they
   are ordinary block structure inside multi-block payloads.
 
 ### 9.2 Block constructs inside payloads
@@ -262,7 +262,7 @@ markers are structural: `[x]`→`[ ]` changes are expressed as a Substitution ov
 
 CM inside front matter is literal (L1). An annotation MUST NOT begin before the front-matter
 close and end inside it, nor open inside and close after (R3a). Front matter is only ever the
-document head; an Addition cannot *create* front matter in a projection because a projection is
+document head; an Addition cannot _create_ front matter in a projection because a projection is
 a genuine parse of the projected source (§10) — if accepting an addition yields a leading
 `---` block, the Revised view has front matter. That is the intended consequence of P4.
 
@@ -284,10 +284,10 @@ Profile 1 documents are read through three views (plan 0009 decisions 10–13):
 
 | Form         | Original (reject-all) | Revised (accept-all) | Editing (Markup) view |
 | ------------ | --------------------- | -------------------- | --------------------- |
-| Addition     | ∅                     | *new*                | annotation shown      |
-| Deletion     | *old*                 | ∅                    | annotation shown      |
-| Substitution | *old*                 | *new*                | annotation shown      |
-| Highlight    | *text*                | *text*               | annotation shown      |
+| Addition     | ∅                     | _new_                | annotation shown      |
+| Deletion     | _old_                 | ∅                    | annotation shown      |
+| Substitution | _old_                 | _new_                | annotation shown      |
+| Highlight    | _text_                | _text_               | annotation shown      |
 | Comment      | ∅                     | ∅                    | annotation shown      |
 
 This table is normative and differential-tested against MMD-6's accept/reject processors (the
@@ -298,7 +298,7 @@ Nested annotations resolve recursively per the same table (N1 oracles).
   edit canonical content (plan 0009 decision 10).
 - **V2 — Views are reads.** One parse produces one structure; each view is a read of it by arm
   selection. Text that does not change across views is parsed exactly once. Where eliding or
-  keeping a marker changes *block structure* (a deletion spanning `# `, an addition containing
+  keeping a marker changes _block structure_ (a deletion spanning `# `, an addition containing
   a blank line), the parse forks across that region, computing both resolutions, and
   reconverges at the next **safe point**: a top-level blank line with no open fenced-code or
   HTML block. Worst case is the bounded O(views·n); the sparse-marker common case is O(n)
@@ -315,7 +315,7 @@ Nested annotations resolve recursively per the same table (N1 oracles).
   source-text edit followed by a genuine reparse (MMD-6; research 0005 Q6) — realized without
   string materialization for convergent text.
 - **V5 — Highlight/Comment relation.** A gapless, nonempty `{==text==}{>>note<<}` pair is
-  presented as one related Review item; the relation is *derived adjacency context*, not parser
+  presented as one related Review item; the relation is _derived adjacency context_, not parser
   identity, stored intent, or a grammar production (plan 0009 decision 6; toolkit convention;
   lang-criticmarkup sibling-node precedent). A standalone Comment anchors to its own source
   position only.
@@ -326,7 +326,7 @@ Nested annotations resolve recursively per the same table (N1 oracles).
   (P1). Typing `{++` and stopping is a stable state: the three characters are literal text
   (R2), the surrounding document is unaffected, and the next keystroke re-decides only per
   normal parsing.
-- **T2.** Recovery is always *degradation to literal text* — never dropped bytes, never an
+- **T2.** Recovery is always _degradation to literal text_ — never dropped bytes, never an
   error sentinel that changes downstream recognition, never consumption to end-of-document.
   MMD-6's unmated-marker passthrough (verified by compilation, research 0005 Q10) is the
   precedent; its stray-`~>` erasure is explicitly non-adopted (R4).
@@ -340,15 +340,15 @@ Nested annotations resolve recursively per the same table (N1 oracles).
 Deliberate, named divergences from reference implementations — each MUST appear in user-facing
 compatibility documentation:
 
-| # | Profile 1 behavior | Diverges from | Rationale |
-| - | --- | --- | --- |
-| D1 | Literal ranges win over CM markers (L1) | MMD-6 accept/reject and the toolkit consume markers inside code/math | Their behavior is an acknowledged defect class (patched piecemeal by MMD's own author) |
-| D2 | Multi-block annotations render (R3) | MMD-6 *rendering* treats them as literal (its accept/reject honors them) | Owner ruling; toolkit precedent; MMD's confinement is a parser artifact. Note MMD's own render/accept asymmetry when documenting interop |
-| D3 | Backslash escaping of delimiters (E1) | No reference tool has any escape | Natural consequence of intrinsic parsing; code-span escape (E2) remains the portable form |
-| D4 | Stray `~>` is literal (R4) | MMD-6 erases it under accept/reject | Error tolerance (T2) |
-| D5 | No `{<del>`-style aliases, no `@@` metadata (CM1) | Fevol/Commentator grammar | Not canonical CM; payload bytes must round-trip |
-| D6 | Recursive nesting incl. same-form (N1) | lang-criticmarkup/Fevol parse nested markers as flat text | MMD-6's tested recursion is the authoritative precedent |
-| D7 | Comments fully opaque (R5) | (matches toolkit/MMD erasure; noted because Highlight payload *is* parsed) | CM_STANDARD: comment payload is generic metadata |
+| #   | Profile 1 behavior                                | Diverges from                                                              | Rationale                                                                                                                                |
+| --- | ------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Literal ranges win over CM markers (L1)           | MMD-6 accept/reject and the toolkit consume markers inside code/math       | Their behavior is an acknowledged defect class (patched piecemeal by MMD's own author)                                                   |
+| D2  | Multi-block annotations render (R3)               | MMD-6 _rendering_ treats them as literal (its accept/reject honors them)   | Owner ruling; toolkit precedent; MMD's confinement is a parser artifact. Note MMD's own render/accept asymmetry when documenting interop |
+| D3  | Backslash escaping of delimiters (E1)             | No reference tool has any escape                                           | Natural consequence of intrinsic parsing; code-span escape (E2) remains the portable form                                                |
+| D4  | Stray `~>` is literal (R4)                        | MMD-6 erases it under accept/reject                                        | Error tolerance (T2)                                                                                                                     |
+| D5  | No `{<del>`-style aliases, no `@@` metadata (CM1) | Fevol/Commentator grammar                                                  | Not canonical CM; payload bytes must round-trip                                                                                          |
+| D6  | Recursive nesting incl. same-form (N1)            | lang-criticmarkup/Fevol parse nested markers as flat text                  | MMD-6's tested recursion is the authoritative precedent                                                                                  |
+| D7  | Comments fully opaque (R5)                        | (matches toolkit/MMD erasure; noted because Highlight payload _is_ parsed) | CM_STANDARD: comment payload is generic metadata                                                                                         |
 
 ## 13. Complexity and resource model
 
@@ -378,7 +378,7 @@ compatibility documentation:
 - **Y2.** Any change that alters the recognition, structure, projection, or round-trip of any
   existing byte sequence — pinned CommonMark/GFM version bumps, construct additions/removals,
   new escape rules, changed rulings — is a new Profile (`…-profile-2`), never a silent revision
-  of Profile 1. Bug fixes that make an implementation conform to *this document* are not
+  of Profile 1. Bug fixes that make an implementation conform to _this document_ are not
   version changes.
 - **Y3.** `markdownProfile` and `criticMarkupProfile` version two aspects of one grammar; they
   MUST NOT select peer pipelines (plan 0009 language contract).
