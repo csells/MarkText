@@ -60,6 +60,26 @@ export interface IDocumentCoreViewOptions {
     readonly parseConfiguration: ParseConfiguration;
 }
 
+/**
+ * What this view can do today. Structural commands are absent because the engine
+ * exposes text edits only; approximating them with text surgery would corrupt a
+ * document's structure, so they are declined rather than guessed at.
+ */
+export type DocumentCoreCapability
+    = | 'typing'
+        | 'deleting'
+        | 'search'
+        | 'table-of-contents'
+        | 'list-indentation'
+        | 'tables';
+
+const SUPPORTED_CAPABILITIES: ReadonlySet<DocumentCoreCapability> = new Set([
+    'typing',
+    'deleting',
+    'search',
+    'table-of-contents',
+]);
+
 export interface IDocumentCoreTocItem {
     readonly level: number;
     readonly content: string;
@@ -105,7 +125,29 @@ export interface IDocumentCoreView {
     /** @throws RangeError when the offset is outside the document. */
     setCursorByOffset: (modelOffset: number) => void;
     hasFocus: () => boolean;
+    focus: () => void;
     blur: () => void;
+    /** The mounted element the editor positions tooling against. */
+    domNode: () => HTMLElement;
+    /** Focus mode dims everything but the active block; a root class here. */
+    setFocusMode: (enabled: boolean) => void;
+    /** Called on every selection change; this view mounts no float layer yet. */
+    hideAllFloatTools: () => void;
+    /** Insert an image as Markdown the engine parses, not as a stray DOM node. */
+    pasteImage: (
+        modelOffset: number,
+        image: Readonly<{ src: string; alt?: string }>,
+    ) => Promise<void>;
+    /**
+     * Whether a capability is available, so callers can ask instead of
+     * discovering by exception.
+     */
+    supports: (capability: DocumentCoreCapability) => boolean;
+    /** @throws while the engine exposes no structural edits. */
+    setListIndentation: (
+        modelOffset: number,
+        direction: 'increase' | 'decrease',
+    ) => Promise<void>;
     /** The document outline, derived from the parser's headings. */
     getTOC: () => readonly IDocumentCoreTocItem[];
     /**
@@ -391,6 +433,42 @@ export async function createDocumentCoreView(
         host.ownerDocument.activeElement === host
         || host.contains(host.ownerDocument.activeElement);
 
+    const focus = (): void => {
+        if (!host.hasAttribute('tabindex'))
+            host.setAttribute('tabindex', '0');
+
+        host.focus();
+    };
+
+    const domNode = (): HTMLElement => host;
+
+    const setFocusMode = (enabled: boolean): void => {
+        host.classList.toggle('mu-focus-mode', enabled);
+    };
+
+    const hideAllFloatTools = (): void => {
+        // No float layer is mounted by this view yet. The editor calls this on
+        // every selection change, so it has to be a safe no-op.
+    };
+
+    const pasteImage = async (
+        modelOffset: number,
+        image: Readonly<{ src: string; alt?: string }>,
+    ): Promise<void> => {
+        // An image is document content, so it enters as source the engine
+        // parses rather than as a node this view inserts on its own.
+        await typeText(modelOffset, `![${image.alt ?? ''}](${image.src})`);
+    };
+
+    const supports = (capability: DocumentCoreCapability): boolean =>
+        SUPPORTED_CAPABILITIES.has(capability);
+
+    const setListIndentation = async (): Promise<void> => {
+        throw new Error(
+            'List indentation needs structural edits the engine does not expose yet',
+        );
+    };
+
     const blur = (): void => {
         if (hasFocus())
             (host.ownerDocument.activeElement as HTMLElement | null)?.blur();
@@ -410,6 +488,13 @@ export async function createDocumentCoreView(
     return {
         blur,
         deleteRange,
+        domNode,
+        focus,
+        hideAllFloatTools,
+        pasteImage,
+        setFocusMode,
+        setListIndentation,
+        supports,
         insertParagraph,
         pasteAsPlainText,
         replaceRange,
