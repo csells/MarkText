@@ -2558,6 +2558,26 @@ function parseMarkdownDocumentWithBoundaryEvidence(
     boundaryPolicy === undefined
       ? undefined
       : Object.freeze({
+        ...(trace === undefined
+          ? {}
+          : {
+            recordInlineCodeCloserQuery: Object.freeze((
+              start: number,
+              end: number
+            ): void => {
+              trace.recorder.recordInlineCodeCloserQuery(trace.view, start, end)
+            }),
+            recordInlineCodeCloserCandidate: Object.freeze((
+              start: number,
+              end: number
+            ): void => {
+              trace.recorder.recordInlineCodeCloserCandidate(
+                trace.view,
+                start,
+                end
+              )
+            })
+          }),
         matchingScopeAt: Object.freeze((offset: number) => {
           const scope = matchingScopeAt(boundaryPolicy, offset)
           return scope === undefined

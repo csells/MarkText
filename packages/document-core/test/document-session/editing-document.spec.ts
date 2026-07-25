@@ -64,7 +64,7 @@ describe('session editing document', () => {
 
   it('costs no re-parse to read, however often a view renders', async() => {
     const session = await openSession('# Title\n\nHello {++world++}.\n')
-    session.snapshot().editingDocument
+    expect(session.snapshot().editingDocument.root.childCount).toBe(2)
     __resetMarkdownDocumentParsesV1()
     for (let render = 0; render < 5; render += 1) {
       expect(session.snapshot().editingDocument.root.childCount).toBe(2)

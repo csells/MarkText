@@ -303,6 +303,14 @@ export interface MarkdownMatchingScopePolicy {
     openerStart: number,
     closerStart: number
   ) => number | undefined
+  // Planning-linearity instrumentation for the scope-aware inline-code closer
+  // lookup: one query per lookup request, one candidate per indexed probe.
+  // The R-4 gate asserts both stay linear in the number of backtick runs.
+  readonly recordInlineCodeCloserQuery?: (start: number, end: number) => void
+  readonly recordInlineCodeCloserCandidate?: (
+    start: number,
+    end: number
+  ) => void
   readonly rejectCrossScopeImageOpener: (
     bangStart: number,
     bracketStart: number
@@ -1491,6 +1499,53 @@ function continuesBlockContainer(
   return true
 }
 
+function firstRunStartAtLeast(
+  starts: readonly number[] | undefined,
+  after: number
+): number | undefined {
+  if (starts === undefined) {
+    return undefined
+  }
+  let low = 0
+  let high = starts.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if ((starts[middle] ?? Number.POSITIVE_INFINITY) < after) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  return starts[low]
+}
+
+// Closer lookups partition run starts by matching-scope id up front, so a
+// lookup never walks cross-scope candidates (that walk was quadratic on
+// scope-dense views — one rejected probe per later run, per opener). The
+// plain-reparse hazard the walk used to report survives as a single global
+// successor check: the one run an unconstrained reparse would actually pair
+// with is rejected when it sits in a different scope.
+function scopePartitionedRunStarts(
+  startsByLength: ReadonlyMap<number, readonly number[]>,
+  matchingPolicy: MarkdownMatchingScopePolicy
+): ReadonlyMap<number, ReadonlyMap<number, readonly number[]>> {
+  const buckets = new Map<number, Map<number, number[]>>()
+  for (const [length, starts] of startsByLength) {
+    const byScope = new Map<number, number[]>()
+    for (const start of starts) {
+      const scopeId = matchingPolicy.matchingScopeAt(start)?.id ?? -1
+      const bucket = byScope.get(scopeId)
+      if (bucket === undefined) {
+        byScope.set(scopeId, [start])
+      } else {
+        bucket.push(start)
+      }
+    }
+    buckets.set(length, byScope)
+  }
+  return buckets
+}
+
 function createNextBacktickRunStart(
   source: string,
   matchingPolicy?: MarkdownMatchingScopePolicy
@@ -1514,6 +1569,10 @@ function createNextBacktickRunStart(
     }
     offset = runEnd
   }
+  const scopedStarts =
+    matchingPolicy === undefined
+      ? undefined
+      : scopePartitionedRunStarts(startsByLength, matchingPolicy)
 
   return (
     markerLength: number,
@@ -1521,32 +1580,40 @@ function createNextBacktickRunStart(
     after: number,
     laneEnd: number
   ): number | undefined => {
-    const starts = startsByLength.get(markerLength) ?? []
-    let low = 0
-    let high = starts.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      if ((starts[middle] ?? Number.POSITIVE_INFINITY) < after) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
+    if (matchingPolicy === undefined || scopedStarts === undefined) {
+      const start = firstRunStartAtLeast(startsByLength.get(markerLength), after)
+      return start !== undefined && start < laneEnd ? start : undefined
     }
-    const openerScopeId = matchingPolicy?.matchingScopeAt(openerStart)?.id ?? -1
-    for (; low < starts.length; low += 1) {
-      const start = starts[low]
-      if (start === undefined || start >= laneEnd) {
-        return undefined
-      }
-      if (
-        matchingPolicy === undefined ||
-        (matchingPolicy.matchingScopeAt(start)?.id ?? -1) === openerScopeId
-      ) {
-        return start
-      }
-      matchingPolicy.rejectCrossScopeMatch(openerStart, start)
+    matchingPolicy.recordInlineCodeCloserQuery?.(openerStart, after)
+    const openerScopeId = matchingPolicy.matchingScopeAt(openerStart)?.id ?? -1
+    const sameScope = firstRunStartAtLeast(
+      scopedStarts.get(markerLength)?.get(openerScopeId),
+      after
+    )
+    const closer =
+      sameScope !== undefined && sameScope < laneEnd ? sameScope : undefined
+    if (closer !== undefined) {
+      matchingPolicy.recordInlineCodeCloserCandidate?.(
+        closer,
+        closer + markerLength
+      )
     }
-    return undefined
+    const globalNext = firstRunStartAtLeast(
+      startsByLength.get(markerLength),
+      after
+    )
+    if (
+      globalNext !== undefined &&
+      globalNext < laneEnd &&
+      globalNext !== closer
+    ) {
+      matchingPolicy.recordInlineCodeCloserCandidate?.(
+        globalNext,
+        globalNext + markerLength
+      )
+      matchingPolicy.rejectCrossScopeMatch(openerStart, globalNext)
+    }
+    return closer
   }
 }
 
@@ -1584,38 +1651,43 @@ function createNextMathRunStart(
     offset = runEnd
   }
 
+  const scopedStarts =
+    matchingPolicy === undefined
+      ? undefined
+      : scopePartitionedRunStarts(startsByLength, matchingPolicy)
+
   return (
     delimiterLength: number,
     openerStart: number,
     after: number,
     laneEnd: number
   ): number | undefined => {
-    const starts = startsByLength.get(delimiterLength) ?? []
-    let low = 0
-    let high = starts.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      if ((starts[middle] ?? Number.POSITIVE_INFINITY) < after) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
+    if (matchingPolicy === undefined || scopedStarts === undefined) {
+      const start = firstRunStartAtLeast(
+        startsByLength.get(delimiterLength),
+        after
+      )
+      return start !== undefined && start < laneEnd ? start : undefined
     }
-    const openerScopeId = matchingPolicy?.matchingScopeAt(openerStart)?.id ?? -1
-    for (; low < starts.length; low += 1) {
-      const start = starts[low]
-      if (start === undefined || start >= laneEnd) {
-        return undefined
-      }
-      if (
-        matchingPolicy === undefined ||
-        (matchingPolicy.matchingScopeAt(start)?.id ?? -1) === openerScopeId
-      ) {
-        return start
-      }
-      matchingPolicy.rejectCrossScopeMatch(openerStart, start)
+    const openerScopeId = matchingPolicy.matchingScopeAt(openerStart)?.id ?? -1
+    const sameScope = firstRunStartAtLeast(
+      scopedStarts.get(delimiterLength)?.get(openerScopeId),
+      after
+    )
+    const closer =
+      sameScope !== undefined && sameScope < laneEnd ? sameScope : undefined
+    const globalNext = firstRunStartAtLeast(
+      startsByLength.get(delimiterLength),
+      after
+    )
+    if (
+      globalNext !== undefined &&
+      globalNext < laneEnd &&
+      globalNext !== closer
+    ) {
+      matchingPolicy.rejectCrossScopeMatch(openerStart, globalNext)
     }
-    return undefined
+    return closer
   }
 }
 

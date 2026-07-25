@@ -369,9 +369,9 @@ export class SessionCoordinator {
         id: transitionId,
         // Insertion and deletion are both source edits; undo/redo name
         // themselves.
-        cause: intent.kind === 'insert-text'
-          || intent.kind === 'delete-text'
-          || intent.kind === 'replace-text'
+        cause: intent.kind === 'insert-text' ||
+          intent.kind === 'delete-text' ||
+          intent.kind === 'replace-text'
           ? 'source-edit'
           : intent.kind,
         history: prepared.history,
