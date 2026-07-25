@@ -153,12 +153,7 @@ describe('Profile 1 projection planning complexity', () => {
     expect(scopeRemapVisits(64)).toBeLessThanOrEqual(64 * 8)
   })
 
-  // Known red (R-4, single-line family): materializing arm-lane line-path
-  // prefixes walks the persistent chunk chain from scratch per prefix —
-  // O(prefixes × chain length) on a document that is one long line. The fix
-  // is an indexed chain (cumulative lengths or parent-memoized prefixes);
-  // until it lands this pins the measured shape so the burn-down has a gate.
-  it.fails('materializes line-path prefixes with amortized-linear chunk walks', () => {
+  it('materializes line-path prefixes with amortized-linear chunk walks', () => {
     const walks = (repetitions: number): number => {
       const source = '{~~o~>a~~}'.repeat(repetitions)
       const engine = createLanguageEngine()

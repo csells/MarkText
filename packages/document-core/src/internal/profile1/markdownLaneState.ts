@@ -1715,17 +1715,35 @@ function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
   if (cached !== undefined) {
     return cached
   }
-  const chunks: string[] = []
-  let current: MarkdownLinePath | undefined = path
-  while (current !== undefined) {
-    lineMaterializationChunkWalks += 1
-    chunks.push(current.text)
+  // Climb only the uncached suffix, then memoize every node on the way back
+  // down. Checkpoints along one line materialize sibling prefixes of the same
+  // chain, so per-node memoization makes the total walk amortized-linear in
+  // chain nodes — walking each prefix from scratch was the single-line
+  // family's measured superlinearity (R-4 gate in the linearity spec).
+  const pending: MarkdownLinePath[] = []
+  let base = ''
+  for (
+    let current: MarkdownLinePath | undefined = path;
+    current !== undefined;
     current = current.parent
+  ) {
+    const ancestor = materializedLinePaths.get(current)
+    if (ancestor !== undefined) {
+      base = ancestor
+      break
+    }
+    lineMaterializationChunkWalks += 1
+    pending.push(current)
   }
-  chunks.reverse()
-  const line = chunks.join('')
-  materializedLinePaths.set(path, line)
-  return line
+  for (let index = pending.length - 1; index >= 0; index -= 1) {
+    const node = pending[index]
+    if (node === undefined) {
+      continue
+    }
+    base += node.text
+    materializedLinePaths.set(node, base)
+  }
+  return base
 }
 
 function linePathSourceOffsetAt(
