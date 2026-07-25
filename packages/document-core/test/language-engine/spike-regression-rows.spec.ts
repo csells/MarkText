@@ -61,21 +61,44 @@ describe('research 0007 spike regression rows', () => {
     expect(revision.criticMarkup.rootCount).toBe(0)
   })
 
-  // DISCOVERED GAP (pinned red): Profile 1 L2 gives the in-arm inline-code
-  // literal ownership of the closer-lookalike bytes, so the addition must
-  // close at the SECOND ++}. document-core currently closes at the first —
-  // the closer scan is not consulting arm-local literal ownership at this
-  // boundary. The lezer spike held this ruling via its shared inline loop
-  // (research 0007 L2 row); fixing it is intrinsic-production work in the
-  // canonical parse (plan 0009 Phase 2 territory).
-  it.fails('lets a code span own a closer-lookalike; the annotation closes later (L2)', () => {
+  it('closes at the first closer even with an in-arm backtick open (C1 fixpoint ruling)', () => {
+    // Two self-consistent readings exist for an in-arm backtick whose
+    // completing run sits past the closer: defer the closer (the lezer host
+    // behavior research 0007 recorded) or let it stand. Profile 1 rules for
+    // standing, per C1: the completing run is OUTSIDE the arm, so the span
+    // may not form — both endpoints must be in-arm. The corpus row
+    // 'does not let a containing-arm literal erase its enclosing closer'
+    // pinned this before the spike existed; this row states it in the
+    // spike's vocabulary. (An attempted 'fix' toward the lezer reading was
+    // reverted when four corpus rows — including R5 comment opacity —
+    // defended this ruling.)
     const TICK = String.fromCharCode(96)
     const revision = open('{++a ' + TICK + 'x++}' + TICK + ' b++}\n')
     expect(revision.criticMarkup.rootCount).toBe(1)
     const addition = revision.criticMarkup.rootAt(0)
     expect(addition.kind).toBe('addition')
-    // The annotation must extend past the code span to the SECOND closer.
-    expect(addition.range.end).toBe(revision.source.text.indexOf('b++}') + 4)
+    expect(addition.range.end).toBe(revision.source.text.indexOf('++}') + 3)
+  })
+
+  it('never lets an unclosed code span swallow the closer (R2/R6)', () => {
+    const TICK = String.fromCharCode(96)
+    const revision = open('{++code ' + TICK + 'never closed++} tail\n')
+    expect(revision.criticMarkup.rootCount).toBe(1)
+    const addition = revision.criticMarkup.rootAt(0)
+    expect(addition.kind).toBe('addition')
+    // The backtick never completes, so the FIRST closer stands.
+    expect(addition.range.end).toBe(revision.source.text.indexOf('++}') + 3)
+  })
+
+  it('keeps cross-arm backtick pairing dead: an intervening opener kills completion (C1)', () => {
+    const TICK = String.fromCharCode(96)
+    const unit = '{~~o~>' + TICK + 'a~~}'
+    const revision = open(unit + unit + '\n')
+    // Two clean substitutions — the second arm's backtick may not complete
+    // the first arm's open span across the intervening opener.
+    expect(revision.criticMarkup.rootCount).toBe(2)
+    expect(revision.criticMarkup.rootAt(0).kind).toBe('substitution')
+    expect(revision.criticMarkup.rootAt(1).kind).toBe('substitution')
   })
 
   it('adjacent annotations never cross-pair (R2 pairing)', () => {

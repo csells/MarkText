@@ -193,6 +193,17 @@ footnote-definition tracking ranges.
   start offset (earliest start wins; on ties, the longer range), and once a range is owned, any
   construct starting inside it is data and cannot extend ownership past the owner's end
   (`composeMarkdownLiteralRanges` is the reference algorithm). Symmetrically, a literal-range
+  **L2a — the arm-boundary fixpoint (ruled 2026-07-25).** When an inline literal opens inside
+  an annotation payload and its would-be completing run lies at or past the payload's closer
+  candidate, two self-consistent readings exist: defer the closer (extending the arm until the
+  literal completes) or let it stand (the literal never completes; C1 forbids the
+  cross-boundary pair). Profile 1 rules for **the closer standing**: the arm ends at its first
+  unowned closer candidate, the open literal degrades per C1/T2, and no closer decision ever
+  requires lookahead past the candidate. Rationale: C1's both-endpoints-in-arm rule applied at
+  the smallest fixpoint; locality (decisions never depend on text beyond the candidate — the
+  R-6 and incrementality-friendly choice); and comment opacity (R5) falls out with no special
+  case. Diverges from the shared-loop reading the `@lezer/markdown` spike exhibited (research
+  0007's L2 row) — ledgered as D8.
   opener that begins inside an already-open CM payload is arm-local (§9.1): it must complete
   within the arm or it does not form.
 - **L3.** No consumer, projection, or adapter may re-recognize CriticMarkup in any flattened
@@ -340,15 +351,16 @@ Nested annotations resolve recursively per the same table (N1 oracles).
 Deliberate, named divergences from reference implementations — each MUST appear in user-facing
 compatibility documentation:
 
-| #   | Profile 1 behavior                                | Diverges from                                                              | Rationale                                                                                                                                |
-| --- | ------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Literal ranges win over CM markers (L1)           | MMD-6 accept/reject and the toolkit consume markers inside code/math       | Their behavior is an acknowledged defect class (patched piecemeal by MMD's own author)                                                   |
-| D2  | Multi-block annotations render (R3)               | MMD-6 _rendering_ treats them as literal (its accept/reject honors them)   | Owner ruling; toolkit precedent; MMD's confinement is a parser artifact. Note MMD's own render/accept asymmetry when documenting interop |
-| D3  | Backslash escaping of delimiters (E1)             | No reference tool has any escape                                           | Natural consequence of intrinsic parsing; code-span escape (E2) remains the portable form                                                |
-| D4  | Stray `~>` is literal (R4)                        | MMD-6 erases it under accept/reject                                        | Error tolerance (T2)                                                                                                                     |
-| D5  | No `{<del>`-style aliases, no `@@` metadata (CM1) | Fevol/Commentator grammar                                                  | Not canonical CM; payload bytes must round-trip                                                                                          |
-| D6  | Recursive nesting incl. same-form (N1)            | lang-criticmarkup/Fevol parse nested markers as flat text                  | MMD-6's tested recursion is the authoritative precedent                                                                                  |
-| D7  | Comments fully opaque (R5)                        | (matches toolkit/MMD erasure; noted because Highlight payload _is_ parsed) | CM_STANDARD: comment payload is generic metadata                                                                                         |
+| #   | Profile 1 behavior                                                                               | Diverges from                                                              | Rationale                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Literal ranges win over CM markers (L1)                                                          | MMD-6 accept/reject and the toolkit consume markers inside code/math       | Their behavior is an acknowledged defect class (patched piecemeal by MMD's own author)                                                   |
+| D2  | Multi-block annotations render (R3)                                                              | MMD-6 _rendering_ treats them as literal (its accept/reject honors them)   | Owner ruling; toolkit precedent; MMD's confinement is a parser artifact. Note MMD's own render/accept asymmetry when documenting interop |
+| D3  | Backslash escaping of delimiters (E1)                                                            | No reference tool has any escape                                           | Natural consequence of intrinsic parsing; code-span escape (E2) remains the portable form                                                |
+| D4  | Stray `~>` is literal (R4)                                                                       | MMD-6 erases it under accept/reject                                        | Error tolerance (T2)                                                                                                                     |
+| D5  | No `{<del>`-style aliases, no `@@` metadata (CM1)                                                | Fevol/Commentator grammar                                                  | Not canonical CM; payload bytes must round-trip                                                                                          |
+| D6  | Recursive nesting incl. same-form (N1)                                                           | lang-criticmarkup/Fevol parse nested markers as flat text                  | MMD-6's tested recursion is the authoritative precedent                                                                                  |
+| D7  | Comments fully opaque (R5)                                                                       | (matches toolkit/MMD erasure; noted because Highlight payload _is_ parsed) | CM_STANDARD: comment payload is generic metadata                                                                                         |
+| D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | The lezer-host shared-loop reading (research 0007) defers the closer       | C1 at the smallest fixpoint; closer decisions stay lookahead-free (R-6, incrementality)                                                  |
 
 ## 13. Complexity and resource model
 

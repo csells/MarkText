@@ -3762,12 +3762,14 @@ Gate-closure day. Each red-green with the full suite green (now 505 passing, 5 e
   corpus guards (five rulings hold; one real L2 divergence discovered and pinned: the CM
   closer scan does not consult arm-local inline-code ownership — Phase 2 intrinsic work with
   a failing-by-design test waiting); and the official CommonMark 0.31.2 corpus is a totality
-  gate (652/652 inputs complete with exact source; sampled mid-edit prefixes total). Remaining
-  queue: the L2 intrinsic fix (diagnosed: closer prescan bounds lanes before literals form —
-  the delimiter-policy suppression path that already handles openers is the extension point),
-  the structural-conformance differential design (doc-core renders no HTML), and the
-  validateProfile1SyntaxGraphCore constant-factor pass (linear but hot at ~14%). Original
-  gates:
+  gate (652/652 inputs complete with exact source; sampled mid-edit prefixes total). The "L2 gap" is RESOLVED
+  as not-a-gap: an attempted fix toward the lezer-host reading was defeated by four corpus rows
+  (including R5 comment opacity and the pre-existing 'containing-arm literal must not erase its
+  enclosing closer' pin) — the corpus's closer-stands semantics is the ratified ruling, now
+  spec'd as L2a with ledger entry D8, and the spike row restates it in the 0007 vocabulary.
+  Remaining queue: the structural-conformance differential design (doc-core renders no HTML)
+  and the validateProfile1SyntaxGraphCore constant-factor pass (linear but hot at ~14% —
+  opportunistic, no R-4 red exists). Original gates:
   cross-scope backtick/math closer lookup (scope-partitioned run buckets; one traced query per
   request), arm-termination fence planning (per-lane sorted fence index; was 8,256 probes for
   64 arms), and substitution scope remap (sorted segment walks; was 4,096 visits for 64
