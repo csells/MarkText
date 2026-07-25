@@ -3743,6 +3743,23 @@ review flagged step 2/5 as the one place the byte snapshot is _not_ trivially em
 be reviewed as a deliberate product change, not waved through; (2) the marker-elided-line block
 semantics settled in step 4 is a Profile 1 language choice.
 
+#### Progress landed (2026-07-25)
+
+Gate-closure day. Each red-green with the full suite green (now 505 passing, 5 expected-fail):
+
+- **Design obligations 4/5, first three projection quadratics measured and killed** via the
+  probe-then-index pattern (all gated in `projection-planning-linearity.spec.ts`):
+  cross-scope backtick/math closer lookup (scope-partitioned run buckets; one traced query per
+  request), arm-termination fence planning (per-lane sorted fence index; was 8,256 probes for
+  64 arms), and substitution scope remap (sorted segment walks; was 4,096 visits for 64
+  scopes). Substitution+blank-line documents now measure linear end-to-end (ratio 1.54 at
+  1024→2048 units, 4.5× absolute at 2048); single-line substitution runs ~2.5× faster.
+- **Obligation 1 audited** (architecture record `document-core-module-design.md`): the
+  balanced-sequence swap is not foreclosed; `PlainMarkdownLaneParse.lines` marked as the
+  replacement site.
+- **Boundary hardened**: desktop's doc-core dependency declared (was a phantom edge via
+  hoisting); dependency-policy spec now rejects any non-relative import in `src`.
+
 #### Progress landed (2026-07-23)
 
 Work already merged into the tree, each red-green with the suite green (document-core: 418 passing,
