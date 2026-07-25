@@ -3756,11 +3756,18 @@ Gate-closure day. Each red-green with the full suite green (now 505 passing, 5 e
   parse profile). Landed since: count/at accessors on
   CriticMarkupForest/MarkupProjection (Step A — arrays remain until the consumer sweep) and
   Disposable change subscriptions across the engine seam (host passes the view's disposer
-  through; the mirror detaches what it attached). Remaining queue: roots/runs consumer sweep +
-  array removal (~150 in-package test sites; external adapters clean), Phase 1 oracles
-  (micromark corpus + 0007 spike rows — needs the differential-comparison design, since
-  document-core renders no HTML), validateProfile1SyntaxGraphCore constant-factor pass (linear
-  but hot at ~14%). Original gates:
+  through; the mirror detaches what it attached). Landed since: the roots/runs closure is COMPLETE
+  (22-spec consumer sweep + six internal sites + the public interfaces dropped their array
+  fields — every revision collection now crosses the count/at seam); the 0007 spike rows are
+  corpus guards (five rulings hold; one real L2 divergence discovered and pinned: the CM
+  closer scan does not consult arm-local inline-code ownership — Phase 2 intrinsic work with
+  a failing-by-design test waiting); and the official CommonMark 0.31.2 corpus is a totality
+  gate (652/652 inputs complete with exact source; sampled mid-edit prefixes total). Remaining
+  queue: the L2 intrinsic fix (diagnosed: closer prescan bounds lanes before literals form —
+  the delimiter-policy suppression path that already handles openers is the extension point),
+  the structural-conformance differential design (doc-core renders no HTML), and the
+  validateProfile1SyntaxGraphCore constant-factor pass (linear but hot at ~14%). Original
+  gates:
   cross-scope backtick/math closer lookup (scope-partitioned run buckets; one traced query per
   request), arm-termination fence planning (per-lane sorted fence index; was 8,256 probes for
   64 arms), and substitution scope remap (sorted segment walks; was 4,096 visits for 64
