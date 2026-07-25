@@ -3753,9 +3753,14 @@ Gate-closure day. Each red-green with the full suite green (now 505 passing, 5 e
   parent-memoized fix, gate promoted to hard assertion). After the fourth, EVERY substitution
   family measures linear end-to-end (ratios 1.5–2.1 at 1024→2048 units; 3.4–4.2× absolute at
   2048 versus session start). Session-open defaults also landed (hosts state only source +
-  parse profile). Remaining queue: roots/runs count/at accessors + Disposable unification
-  (design-review refinements), Phase 1 oracles (micromark corpus + 0007 spike rows),
-  validateProfile1SyntaxGraphCore constant-factor pass (linear but hot at ~14%). Original gates:
+  parse profile). Landed since: count/at accessors on
+  CriticMarkupForest/MarkupProjection (Step A — arrays remain until the consumer sweep) and
+  Disposable change subscriptions across the engine seam (host passes the view's disposer
+  through; the mirror detaches what it attached). Remaining queue: roots/runs consumer sweep +
+  array removal (~150 in-package test sites; external adapters clean), Phase 1 oracles
+  (micromark corpus + 0007 spike rows — needs the differential-comparison design, since
+  document-core renders no HTML), validateProfile1SyntaxGraphCore constant-factor pass (linear
+  but hot at ~14%). Original gates:
   cross-scope backtick/math closer lookup (scope-partitioned run buckets; one traced query per
   request), arm-termination fence planning (per-lane sorted fence index; was 8,256 probes for
   64 arms), and substitution scope remap (sorted segment walks; was 4,096 visits for 64
