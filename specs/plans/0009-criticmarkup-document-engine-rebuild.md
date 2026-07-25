@@ -3747,8 +3747,15 @@ semantics settled in step 4 is a Profile 1 language choice.
 
 Gate-closure day. Each red-green with the full suite green (now 505 passing, 5 expected-fail):
 
-- **Design obligations 4/5, first three projection quadratics measured and killed** via the
-  probe-then-index pattern (all gated in `projection-planning-linearity.spec.ts`):
+- **Design obligations 4/5, first FOUR projection quadratics measured and killed** via the
+  probe-then-index pattern (all gated in `projection-planning-linearity.spec.ts`; the fourth —
+  per-prefix line-path materialization — landed via the pinned-red protocol: it.fails gate,
+  parent-memoized fix, gate promoted to hard assertion). After the fourth, EVERY substitution
+  family measures linear end-to-end (ratios 1.5–2.1 at 1024→2048 units; 3.4–4.2× absolute at
+  2048 versus session start). Session-open defaults also landed (hosts state only source +
+  parse profile). Remaining queue: roots/runs count/at accessors + Disposable unification
+  (design-review refinements), Phase 1 oracles (micromark corpus + 0007 spike rows),
+  validateProfile1SyntaxGraphCore constant-factor pass (linear but hot at ~14%). Original gates:
   cross-scope backtick/math closer lookup (scope-partitioned run buckets; one traced query per
   request), arm-termination fence planning (per-lane sorted fence index; was 8,256 probes for
   64 arms), and substitution scope remap (sorted segment walks; was 4,096 visits for 64
