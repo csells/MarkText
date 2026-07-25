@@ -17,6 +17,9 @@ export default [
       '.claude/**',
       '**/out/**',
       '**/dist/**',
+      // Imported conformance corpora are third-party data; CommonMark's own
+      // examples contain the irregular whitespace they exist to test.
+      'packages/document-core/test/fixtures/**',
       // The website ships with its own ESLint v8 config (React conventions).
       // The root config here is desktop-focused; mixing the two surfaces
       // pre-existing website style errors into desktop CI.
