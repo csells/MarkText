@@ -3306,7 +3306,7 @@ useful or green.
       actually exist. Side effect: the CriticMarkup-free Markdown container-depth budget row went green,
       because the kernel path emits the public `CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED` code.
       Verify with `pnpm -C packages/document-core exec vitest run
-  test/language-engine/architecture-gate.spec.ts` (5 passed, 3 expected-fail). Boundary: this
+test/language-engine/architecture-gate.spec.ts` (5 passed, 3 expected-fail). Boundary: this
       inverts ownership only for documents that need no CriticMarkup grammar. Every document
       containing CriticMarkup still runs the CM-first driver, still builds its CSTs from flattened
       projections, and still joins ownership and references post hoc — the three `it.fails` rows.
