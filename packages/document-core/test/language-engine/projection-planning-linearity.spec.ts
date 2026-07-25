@@ -129,6 +129,26 @@ describe('Profile 1 projection planning complexity', () => {
     expect(armTerminationProbes(64)).toBeLessThanOrEqual(64)
   })
 
+  it('remaps substitution scopes onto segments with indexed visits, not full sweeps', () => {
+    const scopeRemapVisits = (repetitions: number): number => {
+      const source = '{~~o~>a~~}'.repeat(repetitions)
+      const engine = createLanguageEngine()
+      const captured = captureProfileParseTraceV1(engine, () =>
+        engine.open(createSourceSnapshot(source), TEST_CONFIGURATION)
+      )
+      expect(captured.value.kind).toBe('complete')
+      return planningVisits(captured.trace.events).filter(
+        (event) =>
+          event.view === 'revised' && event.reason === 'scope-remap-visit'
+      ).length
+    }
+
+    // Each scope may touch only the segments it overlaps (plus an indexed
+    // lookup); visiting every segment for every scope is the remaining
+    // projection quadratic (R-4).
+    expect(scopeRemapVisits(64)).toBeLessThanOrEqual(64 * 8)
+  })
+
   it('fails closed instead of hiding nested trace work', () => {
     const engine = createLanguageEngine()
 

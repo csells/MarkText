@@ -2349,11 +2349,58 @@ function guardProjectionCandidate(
 function remapMatchingScopesByCanonicalIdentity(
   graph: Profile1SyntaxGraphCore,
   matchingScopes: readonly MappedMarkdownMatchingScope[],
-  segments: readonly MutableProjectionSegment[]
+  segments: readonly MutableProjectionSegment[],
+  probe?: (start: number, end: number) => void
 ): readonly MappedMarkdownMatchingScope[] {
   const laneById = new Map(
     graph.canonicalMarkdown.lanes.map((lane) => [lane.id, lane] as const)
   )
+  // Sorted views over the segment tape, built once per remap: a scope may
+  // touch only the segments it actually overlaps. Sweeping the whole tape per
+  // scope was the projection's second measured quadratic (4,096 visits for 64
+  // scopes). Canonical segments are keyed by their source interval, generated
+  // segments by their anchor position; both walks below are bounded by the
+  // scope's own overlap span.
+  const canonicalSegments = segments
+    .filter((segment) => segment.kind === 'canonical')
+    .sort((left, right) => left.sourceStart - right.sourceStart)
+  const generatedSegments = segments
+    .filter((segment) => segment.kind !== 'canonical')
+    .sort((left, right) => left.sourcePosition - right.sourcePosition)
+  const firstCanonicalTouching = (sourceStart: number): number => {
+    let low = 0
+    let high = canonicalSegments.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      const candidate = canonicalSegments[middle]
+      const candidateSourceEnd = candidate === undefined
+        ? Number.POSITIVE_INFINITY
+        : candidate.sourceStart +
+          candidate.projectedEnd - candidate.projectedStart
+      if (candidateSourceEnd <= sourceStart) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    return low
+  }
+  const firstGeneratedAtOrAfter = (sourcePosition: number): number => {
+    let low = 0
+    let high = generatedSegments.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if (
+        (generatedSegments[middle]?.sourcePosition ??
+          Number.POSITIVE_INFINITY) < sourcePosition
+      ) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    return low
+  }
   return Object.freeze(matchingScopes.map((scope) => {
     const lane = laneById.get(scope.id - 1)
     if (lane === undefined) {
@@ -2361,24 +2408,41 @@ function remapMatchingScopesByCanonicalIdentity(
     }
     let projectedStart = Number.POSITIVE_INFINITY
     let projectedEnd = Number.NEGATIVE_INFINITY
-    for (const segment of segments) {
-      if (segment.kind === 'canonical') {
-        const sourceEnd =
-          segment.sourceStart + segment.projectedEnd - segment.projectedStart
-        const overlapStart = Math.max(lane.range.start, segment.sourceStart)
-        const overlapEnd = Math.min(lane.range.end, sourceEnd)
-        if (overlapStart < overlapEnd) {
-          projectedStart = Math.min(
-            projectedStart,
-            segment.projectedStart + overlapStart - segment.sourceStart
-          )
-          projectedEnd = Math.max(
-            projectedEnd,
-            segment.projectedStart + overlapEnd - segment.sourceStart
-          )
-        }
-        continue
+    for (
+      let index = firstCanonicalTouching(lane.range.start);
+      index < canonicalSegments.length;
+      index += 1
+    ) {
+      const segment = canonicalSegments[index]
+      if (segment === undefined || segment.sourceStart >= lane.range.end) {
+        break
       }
+      probe?.(segment.projectedStart, segment.projectedEnd)
+      const sourceEnd =
+        segment.sourceStart + segment.projectedEnd - segment.projectedStart
+      const overlapStart = Math.max(lane.range.start, segment.sourceStart)
+      const overlapEnd = Math.min(lane.range.end, sourceEnd)
+      if (overlapStart < overlapEnd) {
+        projectedStart = Math.min(
+          projectedStart,
+          segment.projectedStart + overlapStart - segment.sourceStart
+        )
+        projectedEnd = Math.max(
+          projectedEnd,
+          segment.projectedStart + overlapEnd - segment.sourceStart
+        )
+      }
+    }
+    for (
+      let index = firstGeneratedAtOrAfter(lane.range.start);
+      index < generatedSegments.length;
+      index += 1
+    ) {
+      const segment = generatedSegments[index]
+      if (segment === undefined || segment.sourcePosition > lane.range.end) {
+        break
+      }
+      probe?.(segment.projectedStart, segment.projectedEnd)
       const belongsToLane =
         (lane.range.start < segment.sourcePosition &&
           segment.sourcePosition < lane.range.end) ||
@@ -3054,7 +3118,12 @@ function project(
   const retainedMatchingScopes = remapMatchingScopesByCanonicalIdentity(
     graph,
     matchingScopes,
-    guarded.segments
+    guarded.segments,
+    traceRecorder === undefined
+      ? undefined
+      : (start, end) => {
+        traceRecorder.recordScopeRemapVisit(traceView, start, end)
+      }
   )
   // Phase 0 forbidden-architecture fact (plan line 89): a published Markdown CST
   // produced by running the grammar over a flattened projected string cannot

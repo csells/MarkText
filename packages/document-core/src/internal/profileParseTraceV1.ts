@@ -42,6 +42,7 @@ export type ProfileParsePlanningReasonV1 =
   | 'inline-code-closer-query'
   | 'inline-code-closer-candidate'
   | 'arm-termination-fence-probe'
+  | 'scope-remap-visit'
 
 export type ProfileParseTraceEventV1 =
   | Readonly<{
@@ -96,6 +97,11 @@ export interface ProfileParseTraceRecorderV1 {
     end: number
   ) => void
   readonly recordArmTerminationFenceProbe: (
+    view: ProfileParseTraceViewV1,
+    start: number,
+    end: number
+  ) => void
+  readonly recordScopeRemapVisit: (
     view: ProfileParseTraceViewV1,
     start: number,
     end: number
@@ -156,6 +162,7 @@ export function captureProfileParseTraceV1<T>(
     recordArmTerminationFenceProbe: planningRecorder(
       'arm-termination-fence-probe'
     ),
+    recordScopeRemapVisit: planningRecorder('scope-remap-visit'),
     recordCanonicalSourceAdmission: Object.freeze((
       sourceLength: number
     ): void => {
