@@ -44,9 +44,13 @@ then the resolved string is passed to the Markdown parser.
 ([Critic grammar](https://github.com/fletcher/MultiMarkdown-5/blob/193c09a5362eb8a6c6433cd5d5f1d7db3efe986a/src/parser.leg#L1587-L1684),
 [resolve-before-parse pipeline](https://github.com/fletcher/MultiMarkdown-5/blob/193c09a5362eb8a6c6433cd5d5f1d7db3efe986a/src/parser.leg#L1815-L1847))
 
-MultiMarkdown 6 documents the same layering directly: CriticMarkup is processed before other
-MultiMarkdown. Its CLI also runs the accept/reject source transformer before parsing, and that
-transformer's tokenizer scans CriticMarkup delimiter strings independently of Markdown state.
+MultiMarkdown 6 splits into two code paths with different architectures (corrects an earlier
+revision that described MMD-6 as a uniform pre-pass; verification record in
+`specs/research/0005`). Its **accept/reject** path is a true prepass: the CLI runs the source
+transformer before parsing, and that transformer's Aho-Corasick tokenizer scans CriticMarkup
+delimiter strings independently of Markdown state. Its **rendering** path integrates CM tokens
+into the per-block inline token-pair engine. Consequence, undocumented upstream: the same
+multi-block annotation renders as literal text yet transforms under `--accept`.
 ([MMD 6 CriticMarkup guide](https://fletcher.github.io/MultiMarkdown-6/syntax/critic.html#the-criticmarkup-syntax),
 [CLI preprocessing](https://github.com/fletcher/MultiMarkdown-6/blob/3f729288baccc9aa8a2c74ce1bf77adf8bd17c37/src/main.c#L415-L427),
 [transformer tokenizer](https://github.com/fletcher/MultiMarkdown-6/blob/3f729288baccc9aa8a2c74ce1bf77adf8bd17c37/src/critic_markup.c#L67-L158))

@@ -1,35 +1,23 @@
 # 0009 — Source-Authoritative Intrinsic CriticMarkup Markdown Engine Rebuild
 
-- **Status:** In progress — Phase 0
+- **Status:** In progress — Phase 0.5 vertical slices; build-versus-adopt: research 0008
+  complete (sweep confirms no adoptable engine), owner ruling pending
 - **Created:** 2026-07-19
 - **Branch:** `feat/native-criticmarkup`
+- **Requirements:** ratified R-1…R-7 (owner, 2026-07-25) — see "Ratified core-parser requirements"
 - **Owns:** the architecture, migration, product behavior, and automated acceptance for the
   CriticMarkup rebuild
 - **Dogfooding:** explicitly outside completion; the user will do it afterward
 
-## Executive verdict
+## Orientation
 
-The current branch is not one cleanup wave away from a production-quality CriticMarkup
-implementation. It has substantial useful behavior and an unusually deep test corpus, but its
-authority runs in the wrong direction:
+This plan was opened on the verdict that the previous CriticMarkup implementation inverted
+authority — DOM-first mutation, with source fidelity, provenance, projections, and history
+reconstructed after the fact — and that no local patching could make that trustworthy. Its
+parser, UX, fixtures, sanitizers, and E2E work survive as requirements, oracles, and adapters;
+its architecture does not. (The full autopsy is in this file's git history.)
 
-```text
-DOM / mutable TState
-        ↓
-serialize reconstructed Markdown
-        ↓
-infer exact source edits and parser topology
-        ↓
-reparse, rebind, normalize, and repair
-```
-
-That design makes source fidelity, parser provenance, Track Changes, selection, history, comments,
-and every output sink coordinate after mutation. The branch's binding graphs, source trivia,
-mapped-state rebinding, rollback choreography, and hidden-comment caret repair are consequences of
-that inversion. More local patches can make individual tests green, but they cannot make the system
-simple, local, or trustworthy.
-
-The target reverses the authority:
+The target authority direction:
 
 ```text
 typed intent
@@ -45,12 +33,7 @@ atomic commit
 DOM, sidebar, menus, projections, persistence, and exports
 ```
 
-This is an editor-engine migration that eliminates the parser-sidecar architecture, not merely a
-swap from one sidecar to another. The existing CriticMarkup parser, UX, fixtures, sanitizers, and E2E
-work are valuable as requirements, oracles, and adapters. The current canonical-state, provenance,
-mutation, and rendering architecture is not the destination.
-
-And it reverses the *parse* model as well as the authority model (decisions 11-13, ADR-0013):
+And the parse model (decisions 11-13, ADR-0013):
 
 ```text
 one parse of the source, CriticMarkup markers as zero-width grammar events
@@ -105,20 +88,20 @@ short upstream CriticMarkup prose specification.
 
 The following architectures are forbidden in both the core and adapters:
 
-- a Markdown literal/excluded-range prepass whose ranges a *separate* CM scanner then owns (a declared
+- a Markdown literal/excluded-range prepass whose ranges a _separate_ CM scanner then owns (a declared
   block-phase→inline-phase order inside one co-progressing parser is not this);
 - a CM scanner or CM-first facade driving a partial Markdown sidecar;
 - a CM-only parse whose forest is later woven into a Markdown CST;
 - post-hoc topology, ownership, delimiter, or reference-resolution reconstruction;
-- re-*recognizing CriticMarkup* in any flattened Original, Revised, or Comment string. Under ADR-0013
+- re-_recognizing CriticMarkup_ in any flattened Original, Revised, or Comment string. Under ADR-0013
   a view is a **read** of the one parse by arm selection, not a per-view Markdown parse of an assembled
   string; text that does not change across views is parsed once (decision 11, invariant 21). A
   **Markdown-only** re-parse is permitted where it is genuinely required — confined to a divergent
   fork's elided span, or to materializing a view as canonical bytes (see the materialization sites
   below) — and always over source carrying an exact canonical segment map; the forbidden thing is a
-  *second CriticMarkup authority*, and re-parsing *convergent* text once per view is likewise forbidden
+  _second CriticMarkup authority_, and re-parsing _convergent_ text once per view is likewise forbidden
   as redundant work, not merely discouraged;
-- projector-only revision of an intrinsic parser decision — the guard may *add* generated protection
+- projector-only revision of an intrinsic parser decision — the guard may _add_ generated protection
   but may never flip an accepted marker to rejected; and
 - private marker recognition in Review, rendering, commands, clipboard/export, persistence, or UI.
 
@@ -144,23 +127,14 @@ parser foundation. See ADR-0009.
 
 ## Relationship to archived plans 0006, 0007, and 0008
 
-- Archived plan 0006 is the historical production-readiness source for the five forms, exact
-  persistence, projections, Track Changes, Review operations, security, performance, platform
-  builds, and final automated evidence.
-- Archived plan 0007 is the historical Comment UX source for sidebar composition, hidden bodies,
-  highlighted context, edit/remove, passive selection, context-menu editing, and a real mouse path
-  to Review from a completely hidden sidebar.
-- This plan has absorbed every surviving product outcome and automated acceptance obligation from
-  those plans and is the sole active CriticMarkup implementation and closure contract.
-- Every clause that prescribed mutable Muya state, bindings/rebinding, parser sidecars, serializer
-  normalization, Marked authority, legacy command facades, or legacy phase status is superseded.
-  Archived phase statuses, checkmarks, and evidence ledgers are regression oracles only and prove no
-  phase of this rebuild.
-- Archived plan 0008's local deepening suggestions are migration evidence for modules this plan
-  deletes. A concept survives only when this plan places it behind the new `DocumentRevision` or
-  `DocumentSession` seam.
-- Manual reachability walkthroughs, personal evaluation, and Print-to-PDF use are post-completion
-  dogfooding. They are not checkboxes, evidence, or blockers in this plan.
+This plan absorbed every surviving product outcome and automated acceptance obligation from
+archived plans 0006 (production readiness), 0007 (Comment UX), and 0008 (deepening) and is the
+sole active CriticMarkup implementation and closure contract. Archived statuses, checkmarks, and
+evidence ledgers are regression oracles only; every archived clause that prescribed mutable Muya
+state, bindings/rebinding, parser sidecars, serializer normalization, Marked authority, or legacy
+command facades is superseded. A concept from 0008 survives only where this plan places it behind
+the `DocumentRevision`/`DocumentSession` seam. Manual walkthroughs and dogfooding remain
+post-completion — never checkboxes, evidence, or blockers.
 
 The mutation acceptance taxonomy is explicit and self-contained: typing, Backspace/Delete,
 selection replacement, split/join, block conversion, table/list mutation, cut/paste, multi-match
@@ -176,6 +150,39 @@ contextual Review tool, command palette, and required persistent in-window mouse
 baseline surfaces. Additional toolbar or preference controls are out of scope. A future dedicated
 accessibility expansion remains out of scope, but the pointer, keyboard/caret, focus, and
 non-focus-stealing behaviors specified here remain mandatory automated acceptance.
+
+## Ratified core-parser requirements (owner, 2026-07-25)
+
+The owner ratified the parser-core requirement set question-by-question. These are the
+authoritative criteria for any engine question — build, adopt, fork, or harvest; the settled
+decisions below implement them, and the evidence facts behind each live in
+`specs/architecture/parser-core-verified-facts.md` (the SSOT this section points into).
+
+- **R-1 — Form-(a) multi-block spans.** One annotation may open mid-sentence and close
+  mid-sentence in a later block — crossing blank lines, headings, quotes, lists — recognized as
+  one first-class entity, read _and_ write. This is the only form that expresses paragraph-break
+  edits; the corpus (`block-spanning-addition`) and the vision doc already commit to it. Why no
+  existing engine can host this: facts §1 (the topology fact behind decision 2's graph).
+- **R-2 — One parse, one authority.** No second CM scanner, no overlay grammar, no post-parse
+  pairing (the architectural law above). Ratified as a requirement, not doctrine: every
+  two-authority design examined exhibits the failure class — facts §2.
+- **R-3 — Parse-once views.** Original/Revised/editing are reads of one parse (ADR-0013). The
+  load-bearing justification is node **identity** across views — one mounted AST, review items
+  that survive view switches, one segment-map source — not parse-count.
+- **R-4 — O(n): linear on real documents, bounded adversarial.** Linearity enforced by scaling
+  gates over the corpus in CI; adversarial inputs degrade deterministically under the limits
+  profile, never freeze. Current deltas against R-4 and their named fixes: facts §4; gated at
+  Phase 1 exit.
+- **R-5 — Incremental reparse: eventually, sequenced.** Correctness first; Phase 11 is
+  measurement-gated. Binding constraint now: nothing lands that forecloses fragment reuse
+  (decision 12).
+- **R-6 — Total error tolerance.** Every mid-edit prefix parses; unmatched markers degrade to
+  literal text and affect nothing later.
+- **R-7 — Block-oriented, updatable AST** exposed to the editor, with the lossless syntax graph
+  beside it as the cross-boundary authority (decisions 2, 13).
+
+**Build-versus-adopt gate:** the evidence record and its disposition live in Phase 0.5's
+"Build-versus-adopt" section below; the harvest list is facts §6.
 
 ## Settled decisions
 
@@ -229,7 +236,7 @@ non-focus-stealing behaviors specified here remain mandatory automated acceptanc
     projections. Changing that is a separate product design.
 
 11. **Parse once; read every view off one structure.** The engine parses a document once. Original,
-    Revised, and the editing (Markup) view are *reads* of one structure by arm selection (reject-all /
+    Revised, and the editing (Markup) view are _reads_ of one structure by arm selection (reject-all /
     accept-all / show-all), not separate reparses. Outside CriticMarkup marker regions the views are
     byte-identical, so text that does not change across views is parsed exactly once; the parse forks —
     recomputing both resolutions — only across a region where eliding a marker changes Markdown
@@ -890,7 +897,7 @@ Profile 1 freezes malformed diagnostic identity; parser implementation order is 
 | ------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `CM_UNMATCHED_CLOSER`                 | the exact three-code-unit closer                  | one per closer with no compatible open frame                                                                             |
 | `CM_NON_TOP_CLOSER`                   | the exact three-code-unit closer                  | one per closer; records found form and currently open top form                                                           |
-| `CM_UNTERMINATED_OPENER`              | the exact three-code-unit opener                  | one per still-open frame; Substitution metadata is exactly `{ separatorSeen: 'true' }` or `{ separatorSeen: 'false' }`    |
+| `CM_UNTERMINATED_OPENER`              | the exact three-code-unit opener                  | one per still-open frame; Substitution metadata is exactly `{ separatorSeen: 'true' }` or `{ separatorSeen: 'false' }`   |
 | `CM_SUBSTITUTION_SEPARATOR_MISSING`   | opener through its compatible closer              | one per closed Substitution candidate with no valid top-level separator; it emits no additional opener/closer diagnostic |
 | `CM_RESOURCE_SOURCE_UNITS_EXCEEDED`   | zero-width at the admitted source limit           | the sole diagnostic after first-failure preflight                                                                        |
 | `CM_RESOURCE_LOGICAL_NODES_EXCEEDED`  | the opener/token that would exceed the limit      | the sole diagnostic after first-failure preflight                                                                        |
@@ -956,9 +963,7 @@ interface ParseConfiguration {
   readonly criticMarkupProfile: CriticMarkupProfileId
   readonly markdownProfile: MarkdownProfileId
   readonly markdownOptions: MarkdownOptionsV1
-  readonly liveHtmlSafetyProfile:
-    | 'live-html-sanitized-v1'
-    | 'live-html-escaped-v1'
+  readonly liveHtmlSafetyProfile: 'live-html-sanitized-v1' | 'live-html-escaped-v1'
   readonly executionBudget: ExecutionBudgetId
 }
 
@@ -1116,12 +1121,36 @@ interface MarkdownNode {
 }
 
 type MarkdownNodeKind =
-  | 'document' | 'paragraph' | 'heading' | 'blockquote' | 'list' | 'list-item'
-  | 'thematic-break' | 'text' | 'soft-break' | 'hard-break' | 'emphasis'
-  | 'strong' | 'strikethrough' | 'link' | 'image' | 'inline-code' | 'code-block'
-  | 'inline-html' | 'html-block' | 'autolink' | 'definition' | 'front-matter'
-  | 'inline-math' | 'math-block' | 'diagram' | 'table' | 'table-row' | 'table-cell'
-  | 'footnote-definition' | 'footnote-reference'
+  | 'document'
+  | 'paragraph'
+  | 'heading'
+  | 'blockquote'
+  | 'list'
+  | 'list-item'
+  | 'thematic-break'
+  | 'text'
+  | 'soft-break'
+  | 'hard-break'
+  | 'emphasis'
+  | 'strong'
+  | 'strikethrough'
+  | 'link'
+  | 'image'
+  | 'inline-code'
+  | 'code-block'
+  | 'inline-html'
+  | 'html-block'
+  | 'autolink'
+  | 'definition'
+  | 'front-matter'
+  | 'inline-math'
+  | 'math-block'
+  | 'diagram'
+  | 'table'
+  | 'table-row'
+  | 'table-cell'
+  | 'footnote-definition'
+  | 'footnote-reference'
 
 interface ProjectionProvenance {
   /** Return the origin of one projected UTF-16 code unit. */
@@ -1320,11 +1349,7 @@ interface AuthoringConfigurationV1 {
   readonly listIndentation: 'dfm' | 'tab' | 1 | 2 | 3 | 4
   readonly preferLooseListItems: boolean
   readonly headingStyle: 'atx' | 'setext'
-  readonly frontMatterStyle:
-    | 'yaml'
-    | 'toml'
-    | 'json-semicolon'
-    | 'json-braces'
+  readonly frontMatterStyle: 'yaml' | 'toml' | 'json-semicolon' | 'json-braces'
   readonly tabSize: number
   readonly taskCheckPolicy: 'single' | 'cascade'
   readonly checkedTaskPlacement: 'in-place' | 'move-to-end'
@@ -2740,14 +2765,14 @@ remains available. Increasing the budget uses `reinterpret`, not an implicit con
     or changes identity as a side effect.
 
 21. Text that does not change across views is parsed exactly once. A document is parsed once and
-    every view is a *read* of that one structure by arm selection; the parse forks — recomputing both
+    every view is a _read_ of that one structure by arm selection; the parse forks — recomputing both
     resolutions — only across a region where eliding a marker changes Markdown structure, and
     **reconverges at the next safe point**: a top-level blank line at which no resolution has an open
     fenced-code or HTML block (the only CommonMark leaf blocks a blank line does not close). At a safe
     point both resolutions are in the identical document-root/nothing-open block state, so the tail
     parses identically and is parsed once. An inline marker never changes block structure; a
     block-structural marker reconverges within a block or two; the sole divergence that reaches EOF is
-    an *unclosed* fence/HTML block, which runs to EOF under plain CommonMark anyway (degenerate, not the
+    an _unclosed_ fence/HTML block, which runs to EOF under plain CommonMark anyway (degenerate, not the
     common case). A CriticMarkup-free document therefore parses exactly once. See ADR-0013,
     decision 11, and `specs/research/0002-criticmarkup-view-fork-reconvergence.md`. Measured by
     `__markdownDocumentParsesV1` — which, to be authoritative, **must instrument every full-parse entry
@@ -2764,42 +2789,42 @@ remains available. Increasing the budget uses `reinterpret`, not an implicit con
 
 ## Brutal current-to-target gap analysis
 
-| Concern            | Current branch                                                                                                            | Required target                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Canonical document | Mutable `TState[]` in `state/index.ts`; parser artifact is an invalidated cache                                           | Exact source plus immutable `DocumentRevision`                                                      |
-| Parse product      | `markdownToState` returns states, CM token document, analysis, and a separate binding graph                               | One atomic lossless Profile 1 syntax graph with native Markdown and CM productions                 |
-| Source fidelity    | Critic markers and Markdown spelling are woven through `sourceTrivia`; ordinary source may normalize                      | Every source unit is a CST/token leaf; no-op persistence is exact                                   |
-| Persistence        | `stateToMarkdown.generate()` reconstructs Markdown and weaves CM trivia                                                   | Save reads `revision.source` directly                                                               |
+| Concern            | Current branch                                                                                                            | Required target                                                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical document | Mutable `TState[]` in `state/index.ts`; parser artifact is an invalidated cache                                           | Exact source plus immutable `DocumentRevision`                                                                                                                                  |
+| Parse product      | `markdownToState` returns states, CM token document, analysis, and a separate binding graph                               | One atomic lossless Profile 1 syntax graph with native Markdown and CM productions                                                                                              |
+| Source fidelity    | Critic markers and Markdown spelling are woven through `sourceTrivia`; ordinary source may normalize                      | Every source unit is a CST/token leaf; no-op persistence is exact                                                                                                               |
+| Persistence        | `stateToMarkdown.generate()` reconstructs Markdown and weaves CM trivia                                                   | Save reads `revision.source` directly                                                                                                                                           |
 | Parser integration | Markdown literal ranges, provisional CM scan, projection rescans, final scan, and separate bindings                       | One intrinsic Profile 1 Markdown grammar; no CM pre/post-pass, CM-first driver, excluded ranges, flattened authoritative reparse, or post-hoc topology/ownership/reference join |
-| Literal editing    | CM is inert in code/math/HTML/destinations, but Track/enclosure policy has no complete parser-owned atomic owner contract | Complete-owner widening or typed rejection; whole-owner Track changes with literal arm reparses     |
-| Provenance         | Marked fork token ledgers plus located-token weaving and multiple path-domain binding graphs                              | Provenance emitted during syntax construction                                                       |
-| Live topology      | `rebindCriticMarkupStateBindings` maps old bindings through new live spans and carrier rank                               | No rebinding API exists                                                                             |
-| Mutation           | DOM/state mutates first, JSON ops are captured, source edits inferred, then state repaired or rolled back                 | Intent → source edits → candidate revision → atomic commit                                          |
-| Semantic encoding  | Serializer edits can activate CM/Markdown across old/new, cleanup, or changed stack/precedence contexts                   | Contextual codec proves intended meaning and protects every causal reclassification                 |
-| BOM/hash identity  | File BOM metadata, decoded source, runtime hashes, and parser/cache identity are not one frozen cross-platform contract   | Source-only leading-U+FEFF grammar plus framed Source/File/Semantic hash formats                    |
-| Resource identity  | Limits count implementation-shaped parser artifacts, so refactoring can move the boundary                                 | Versioned abstract `BudgetEvent` algebra with literal traces and stable accounting ID               |
-| Authored EOL       | Browser fields and structural planners can choose/normalize line endings independently                                    | One journaled nearest-owner EOL policy for every synthesized break                                  |
-| Async/input        | Renderer-side mutation and parsing have no serialized ticket, pending-input, stale-result, or save/close barrier contract | Worker-owned session actor, exact retained drafts, ordered tickets, and atomic publication          |
-| Track Changes      | Captures proposed state, serializes it, derives exact edits, reparses candidates, then replaces state                     | Decorates the ordinary source-native edit plan and proves projection laws                           |
-| History            | `ot-json1` operations over a lossy block tree                                                                             | Canonical source transactions plus selections/drafts                                                |
-| Selection          | DOM ranges and block paths are repeatedly reconciled and repaired                                                         | Revision/view model positions with one map                                                          |
-| Hidden comments    | DOM content exists and caret exclusion is corrective selection logic                                                      | Hidden content has no editable view positions                                                       |
-| Rendering          | Live blocks and static paths duplicate CM semantics and may reparse                                                       | Narrow `LiveRenderPlan` plus typed materializers                                                    |
-| Original/Revised   | Project text, parse it back into mutable state, and switch authority-like trees                                           | Graph-derived read-only CSTs/views; no flattened-string syntax discovery                            |
-| Comment relation   | Adjacency is promoted into ownership; current deletion code persists undocumented `{====}` in one edge                    | Independent syntax, derived UI context, residual survival, global hidden-Comment guard, no sentinel |
-| Draft safety       | Compose/edit state is split across controller, store, and mounted Vue state; context changes can cancel it                | Session-owned pinned draft with proven rebase or retained rejection                                 |
-| Commands/menus     | Bespoke facade calls and copied capability booleans allow label/type drift                                                | One typed intent and command-presentation model                                                     |
-| Nested mouse hit   | Comment-always-wins prose conflicts with deepest-item hit tests; context menus return one opaque target                   | View-plan hit ancestry: deepest action target plus nearest containing Comment                       |
-| Mouse access       | Sidebar rail works only when visible; native menu and in-progress UI patches do not yet prove a persistent in-window path | Always-visible pointer affordance plus real-pointer E2E from fully hidden state                     |
-| Source mode        | Whole-string handoff between CodeMirror and WYSIWYG authorities                                                           | Authoritative session `SourceDraft` plus acknowledged deltas and a nonauthoritative mirror          |
-| Durability         | No revision-atomic worker journal, ticket replay ledger, crash-safe compaction, or causal save generation                 | Versioned commit/outcome journal, recoverable compaction, exact leases, and per-target save CAS     |
-| Consumer policy    | View/clipboard/search/count/export behavior is spread across callers and Comment treatment is implicit                    | Checked-in normative matrix consumed by typed materializers and command presentation                |
-| Sinks/security     | Persistence, clipboard, static HTML, PDF, and print traverse different parse/render/sanitize paths                        | Typed materializers with sink brands; direct-source persistence                                     |
-| Error model        | Exceptions, booleans, strings, `null`, silent no-ops, and swallowed prevented input coexist                               | Exhaustive committed/rejected/noop outcomes                                                         |
-| Performance        | Final adapter has known quadratic scans and a prior >21-minute hostile case                                               | Indexed linear parse/planning and explicit budgets                                                  |
-| Tests              | Strong corpus mixed with accidental behavior; architecture tests often scan filenames/helper names                        | Standard/profile/recovery corpora plus behavioral, property, differential, and boundary tests       |
-| Gates              | Current final tree has historical evidence but outstanding lint/type/E2E/CI proof after later changes                     | Fresh final-tree automated evidence only                                                            |
-| Documentation      | Spec facts, MarkText extensions, current behavior, and settled promises contradict each other                             | One profile, glossary, ADR set, architecture, and user docs that agree                              |
+| Literal editing    | CM is inert in code/math/HTML/destinations, but Track/enclosure policy has no complete parser-owned atomic owner contract | Complete-owner widening or typed rejection; whole-owner Track changes with literal arm reparses                                                                                 |
+| Provenance         | Marked fork token ledgers plus located-token weaving and multiple path-domain binding graphs                              | Provenance emitted during syntax construction                                                                                                                                   |
+| Live topology      | `rebindCriticMarkupStateBindings` maps old bindings through new live spans and carrier rank                               | No rebinding API exists                                                                                                                                                         |
+| Mutation           | DOM/state mutates first, JSON ops are captured, source edits inferred, then state repaired or rolled back                 | Intent → source edits → candidate revision → atomic commit                                                                                                                      |
+| Semantic encoding  | Serializer edits can activate CM/Markdown across old/new, cleanup, or changed stack/precedence contexts                   | Contextual codec proves intended meaning and protects every causal reclassification                                                                                             |
+| BOM/hash identity  | File BOM metadata, decoded source, runtime hashes, and parser/cache identity are not one frozen cross-platform contract   | Source-only leading-U+FEFF grammar plus framed Source/File/Semantic hash formats                                                                                                |
+| Resource identity  | Limits count implementation-shaped parser artifacts, so refactoring can move the boundary                                 | Versioned abstract `BudgetEvent` algebra with literal traces and stable accounting ID                                                                                           |
+| Authored EOL       | Browser fields and structural planners can choose/normalize line endings independently                                    | One journaled nearest-owner EOL policy for every synthesized break                                                                                                              |
+| Async/input        | Renderer-side mutation and parsing have no serialized ticket, pending-input, stale-result, or save/close barrier contract | Worker-owned session actor, exact retained drafts, ordered tickets, and atomic publication                                                                                      |
+| Track Changes      | Captures proposed state, serializes it, derives exact edits, reparses candidates, then replaces state                     | Decorates the ordinary source-native edit plan and proves projection laws                                                                                                       |
+| History            | `ot-json1` operations over a lossy block tree                                                                             | Canonical source transactions plus selections/drafts                                                                                                                            |
+| Selection          | DOM ranges and block paths are repeatedly reconciled and repaired                                                         | Revision/view model positions with one map                                                                                                                                      |
+| Hidden comments    | DOM content exists and caret exclusion is corrective selection logic                                                      | Hidden content has no editable view positions                                                                                                                                   |
+| Rendering          | Live blocks and static paths duplicate CM semantics and may reparse                                                       | Narrow `LiveRenderPlan` plus typed materializers                                                                                                                                |
+| Original/Revised   | Project text, parse it back into mutable state, and switch authority-like trees                                           | Graph-derived read-only CSTs/views; no flattened-string syntax discovery                                                                                                        |
+| Comment relation   | Adjacency is promoted into ownership; current deletion code persists undocumented `{====}` in one edge                    | Independent syntax, derived UI context, residual survival, global hidden-Comment guard, no sentinel                                                                             |
+| Draft safety       | Compose/edit state is split across controller, store, and mounted Vue state; context changes can cancel it                | Session-owned pinned draft with proven rebase or retained rejection                                                                                                             |
+| Commands/menus     | Bespoke facade calls and copied capability booleans allow label/type drift                                                | One typed intent and command-presentation model                                                                                                                                 |
+| Nested mouse hit   | Comment-always-wins prose conflicts with deepest-item hit tests; context menus return one opaque target                   | View-plan hit ancestry: deepest action target plus nearest containing Comment                                                                                                   |
+| Mouse access       | Sidebar rail works only when visible; native menu and in-progress UI patches do not yet prove a persistent in-window path | Always-visible pointer affordance plus real-pointer E2E from fully hidden state                                                                                                 |
+| Source mode        | Whole-string handoff between CodeMirror and WYSIWYG authorities                                                           | Authoritative session `SourceDraft` plus acknowledged deltas and a nonauthoritative mirror                                                                                      |
+| Durability         | No revision-atomic worker journal, ticket replay ledger, crash-safe compaction, or causal save generation                 | Versioned commit/outcome journal, recoverable compaction, exact leases, and per-target save CAS                                                                                 |
+| Consumer policy    | View/clipboard/search/count/export behavior is spread across callers and Comment treatment is implicit                    | Checked-in normative matrix consumed by typed materializers and command presentation                                                                                            |
+| Sinks/security     | Persistence, clipboard, static HTML, PDF, and print traverse different parse/render/sanitize paths                        | Typed materializers with sink brands; direct-source persistence                                                                                                                 |
+| Error model        | Exceptions, booleans, strings, `null`, silent no-ops, and swallowed prevented input coexist                               | Exhaustive committed/rejected/noop outcomes                                                                                                                                     |
+| Performance        | Final adapter has known quadratic scans and a prior >21-minute hostile case                                               | Indexed linear parse/planning and explicit budgets                                                                                                                              |
+| Tests              | Strong corpus mixed with accidental behavior; architecture tests often scan filenames/helper names                        | Standard/profile/recovery corpora plus behavioral, property, differential, and boundary tests                                                                                   |
+| Gates              | Current final tree has historical evidence but outstanding lint/type/E2E/CI proof after later changes                     | Fresh final-tree automated evidence only                                                                                                                                        |
+| Documentation      | Spec facts, MarkText extensions, current behavior, and settled promises contradict each other                             | One profile, glossary, ADR set, architecture, and user docs that agree                                                                                                          |
 
 The clearest architectural alarms are concrete:
 
@@ -3261,7 +3286,7 @@ useful or green.
       `test/language-engine/architecture-gate.spec.ts` asserts the Phase 0 exit conditions directly.
       For CriticMarkup documents the three BLOCKING rows — a CM state machine owns progression,
       authoritative CSTs come from flattened projections, ownership facts are joined post hoc — are
-      pinned with `it.fails` and will start failing *because they pass* when the intrinsic kernel
+      pinned with `it.fails` and will start failing _because they pass_ when the intrinsic kernel
       lands, which is the signal to delete the `.fails`.
 
 - [x] 2026-07-22 — intrinsic-kernel beachhead for CriticMarkup-free documents (first real ownership
@@ -3281,7 +3306,7 @@ useful or green.
       actually exist. Side effect: the CriticMarkup-free Markdown container-depth budget row went green,
       because the kernel path emits the public `CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED` code.
       Verify with `pnpm -C packages/document-core exec vitest run
-      test/language-engine/architecture-gate.spec.ts` (5 passed, 3 expected-fail). Boundary: this
+    test/language-engine/architecture-gate.spec.ts` (5 passed, 3 expected-fail). Boundary: this
       inverts ownership only for documents that need no CriticMarkup grammar. Every document
       containing CriticMarkup still runs the CM-first driver, still builds its CSTs from flattened
       projections, and still joins ownership and references post hoc — the three `it.fails` rows.
@@ -3312,22 +3337,22 @@ known violation to retire as the trace gate takes over their assertions, not a s
 `ProfileParseTraceV1` did not observe any Phase 0 Red architectural fact until the 2026-07-22
 architecture-gate work; earlier rows citing it as architecture proof were overclaims.
 
-| Status | As-built obligation or remaining closure | Evidence and honest boundary |
-| --- | --- | --- |
-| [x] | Exact canonical source and immutable public revision seam | Focused opens retain the exact decoded UTF-16 string, immutable typed CM records, projections, diagnostics, and public provenance queries. This proves the seam, not the complete atomic graph. |
-| [x] | Basic syntax for all five standard forms | Separate public fixtures prove Addition, Deletion, Substitution, Highlight, and Comment with exact whole/marker/arm ranges and their basic Original/Revised behavior. This does not cover every delimiter/literal boundary. |
-| [x] | Complete empty forms and empty Substitution arms | Focused fixtures prove all complete empty unary forms plus empty-old, empty-new, and both-empty Substitution arms as syntax. |
-| [x] | Focused mixed nesting and recursive projection matrix | Same/mixed nesting, nested Comments, arm assignment, Comment elision from the two main projections, canonical provenance for retained units, and the 35-cell parent-carrier × child-form matrix are green. Mapped Comment display/folding products remain absent. |
-| [x] | Narrow protective-escape and Substitution-separator slice | Focused fixtures prove odd/even opener protection, first active top-level `~>`, a protected separator falling through to a later active separator, a code-owned separator, exact closer adjacency, and independent BOF front-matter/fence arms. The full provider-boundary matrix is not green. |
-| [x] | Narrow malformed-recovery slice | Focused fixtures prove the two specified descendant promotions, the unmatched closer family, selected non-top/unterminated diagnostics, stable ordering, and source losslessness. This is not the independent `MALFORMED_RECOVERY` corpus or a totality proof. |
-| [x] | Generic document-core CM products; no Addition-only compatibility layer in the new core | The Addition-specific parser/projector files and live-plan role are gone. Generic marks drive the dedicated Markup artifact and downstream tracer. Build and prepack clean `dist` first, and the packed-consumer test seeds a stale `additionParser.js` then proves it is absent from the installed tarball. Fixture names may describe Addition examples; production semantics may not special-case them. This claim is deliberately limited to the new core: legacy Muya still uniquely permits collapsed-caret Addition and manufactures `{++++}`; that obsolete authoring path must be removed during typed-intent migration. |
-| [ ] | One canonical Profile 1 Markdown graph with native CM productions | A retained source tape now partitions exact source into stable BOM/EOL/text/marker-candidate runs; accepted CM nodes retain edges to the exact marker runs; semantic ownership is gapless; and one immutable graph owns marker decisions, the CM forest, typed arm topology, mapped projection tapes, Original/Revised CSTs, and internal Comment arms. Parser-owned lane evidence now retains checkpoints, exact consumed tape slices, operation identity, emitted literal facts, and block summaries, and graph construction rejects divergence from that artifact instead of rebuilding topology solely from the forest. Original/Revised construction walks the graph. This is still not the required intrinsic graph: the CM facade rather than the Markdown parser owns source progression; the artifact is an execution trace rather than a canonical Profile 1 CST; projection CSTs are materialized by another grammar run over flattened strings; and provenance/ownership/reference facts are partly joined post hoc. The forest must become a derived index over parser-created CM nodes. This row therefore remains unchecked. |
-| [ ] | Integrated Markdown/CM state, precedence, and self-contained arm parsing | Targeted greens now cover inline code; backtick/tilde fences; an ordered persistent quote/list-item path for literal continuation and heterogeneous projected CST assembly; bounded CommonMark lazy paragraph continuation through quote/list paths; indented-code paragraph interruption; all currently supported raw/type-7/inline HTML boundaries; autolinks; link/image destinations and titles; multiline definitions and arm-scoped resolved reference links; YAML front matter; math/diagram providers; virtual BOM; zero-width CRLF; Comment/CM arm lanes; and the complete pinned CommonMark 0.31.2 emphasis/strong plus GFM 0.29 strikethrough example sets. One persistent checkpoint currently decides canonical literal ownership within the selected CM-driven lane, while a separate projected delimiter stack handles maximal runs, Unicode flanking, modulo-three matching, literal/link boundaries, and multiline container paragraphs. That split is not the target. The intrinsic Markdown parser must decide CM activity and Markdown ownership together, emit explicit arm-entry/termination events, contain matching state created inside each arm, and resume one unchanged enclosing state for the suffix. Canonical block/inline events, graph-retained reference edges, complete provider indexes, the remaining production manifests, and the generated boundary matrix also remain open. |
-| [ ] | Full deterministic resource accounting and iterative totality | Source-unit, accepted-CM-depth, exact accepted-depth materialization, and Markdown-depth checks across canonical/Original/Revised/Comment lanes are green with exact ranges. Markdown-depth failure is now emitted from the same retained lane run rather than a separate container preflight. Shared ancestry paths remove the known quadratic full-mark-array copy; indexed CM closers plus preindexed backtick/math runs remove known repeated scans; and delimiter matching uses bounded opener bottoms. `syntax-accounting-1.yml`, the 2,000,000 logical-event algebra/limit, full mixed-container depth semantics, full/incremental trace equality, stack/heap proof, and linear adversarial bounds remain open. Inline HTML/link/autolink terminators and current-line probes still inspect suffixes. The projection-time ranges-by-segments literal join has been deleted. |
-| [ ] | Total, idempotent boundary guard and verified fixed point | The previously throwing overlapping/malformed cases, constructed math, selected assembled/retargeted delimiters, BOF codec, and a source-idempotence case are green. The guard-local CM frame recognizer is gone: the Profile parser emits delimiter events and rejected candidates used by protection planning. The guard still lacks the frozen retained-decision/survivor/elision manifest, causal trace, exact Markdown-CST meaning proof, bounded parser-call contract, and independent whole corpus. Generated protection provenance is frozen as `sourcePosition` plus `affinity: 'next'`. |
-| [ ] | Mapped Original/Revised Markdown CSTs and isolated Comment views | `SourceOwnershipIndex` and immutable projected `MarkdownDocument` readers are implemented. Public reds prove ATX/setext headings, ordered/unordered/nested/interleaved containers, multiple blocks, pinned emphasis/strong/strikethrough behavior, links/reference links/images, tables/alignment, breaks, thematic breaks, footnotes, fenced code/math/diagram blocks inherited through CM arms, inline structure across CM boundaries, and multiline inline structure inside a list item. The graph retains both mapped tapes/CSTs and internal Comment lanes. This is not a complete Profile 1 Markdown CST: canonical CST/state-transition retention, the remaining production/trivia/token set, public Comment display/folding, `ReviewIndex`, `precedingChange`, `anchoredComment`, semantic indexes, and editable source/view maps remain open. |
-| [ ] | Complete parse-configuration validation | One centralized public seam currently validates the provisional profile and budget identifiers before parsing. It does not yet require/freeze the closed `MarkdownOptionsV1`, reject unknown object fields and wrong field types, or expose the target `live-html-sanitized-v1` / `live-html-escaped-v1` identities. The completed row must cover every field and independent `reinterpret`/semantic-hash vector. |
-| [ ] | Independent manifests, corpus, and product acceptance | File-backed, versioned fixtures now cover all 132 CommonMark 0.31.2 emphasis/strong examples and all three GFM 0.29 strikethrough examples through the public seam; focused inline expectations plus a read-only 50,000-case marker fuzz pass add bounded evidence. This is not the frozen complete `CM_STANDARD`, `MARKTEXT_PROFILE_1`, `MALFORMED_RECOVERY`, `markdown-profile-1.yml`, `syntax-accounting-1.yml`, literal-boundary, Comment, guard-trace, adversarial-depth, and product manifests. The remaining checked-in property/differential/reference evidence and schema validation stay open. |
+| Status | As-built obligation or remaining closure                                                | Evidence and honest boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------ | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [x]    | Exact canonical source and immutable public revision seam                               | Focused opens retain the exact decoded UTF-16 string, immutable typed CM records, projections, diagnostics, and public provenance queries. This proves the seam, not the complete atomic graph.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| [x]    | Basic syntax for all five standard forms                                                | Separate public fixtures prove Addition, Deletion, Substitution, Highlight, and Comment with exact whole/marker/arm ranges and their basic Original/Revised behavior. This does not cover every delimiter/literal boundary.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| [x]    | Complete empty forms and empty Substitution arms                                        | Focused fixtures prove all complete empty unary forms plus empty-old, empty-new, and both-empty Substitution arms as syntax.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| [x]    | Focused mixed nesting and recursive projection matrix                                   | Same/mixed nesting, nested Comments, arm assignment, Comment elision from the two main projections, canonical provenance for retained units, and the 35-cell parent-carrier × child-form matrix are green. Mapped Comment display/folding products remain absent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| [x]    | Narrow protective-escape and Substitution-separator slice                               | Focused fixtures prove odd/even opener protection, first active top-level `~>`, a protected separator falling through to a later active separator, a code-owned separator, exact closer adjacency, and independent BOF front-matter/fence arms. The full provider-boundary matrix is not green.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| [x]    | Narrow malformed-recovery slice                                                         | Focused fixtures prove the two specified descendant promotions, the unmatched closer family, selected non-top/unterminated diagnostics, stable ordering, and source losslessness. This is not the independent `MALFORMED_RECOVERY` corpus or a totality proof.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| [x]    | Generic document-core CM products; no Addition-only compatibility layer in the new core | The Addition-specific parser/projector files and live-plan role are gone. Generic marks drive the dedicated Markup artifact and downstream tracer. Build and prepack clean `dist` first, and the packed-consumer test seeds a stale `additionParser.js` then proves it is absent from the installed tarball. Fixture names may describe Addition examples; production semantics may not special-case them. This claim is deliberately limited to the new core: legacy Muya still uniquely permits collapsed-caret Addition and manufactures `{++++}`; that obsolete authoring path must be removed during typed-intent migration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| [ ]    | One canonical Profile 1 Markdown graph with native CM productions                       | A retained source tape now partitions exact source into stable BOM/EOL/text/marker-candidate runs; accepted CM nodes retain edges to the exact marker runs; semantic ownership is gapless; and one immutable graph owns marker decisions, the CM forest, typed arm topology, mapped projection tapes, Original/Revised CSTs, and internal Comment arms. Parser-owned lane evidence now retains checkpoints, exact consumed tape slices, operation identity, emitted literal facts, and block summaries, and graph construction rejects divergence from that artifact instead of rebuilding topology solely from the forest. Original/Revised construction walks the graph. This is still not the required intrinsic graph: the CM facade rather than the Markdown parser owns source progression; the artifact is an execution trace rather than a canonical Profile 1 CST; projection CSTs are materialized by another grammar run over flattened strings; and provenance/ownership/reference facts are partly joined post hoc. The forest must become a derived index over parser-created CM nodes. This row therefore remains unchecked.                                                                                                                                                                                                                                                                           |
+| [ ]    | Integrated Markdown/CM state, precedence, and self-contained arm parsing                | Targeted greens now cover inline code; backtick/tilde fences; an ordered persistent quote/list-item path for literal continuation and heterogeneous projected CST assembly; bounded CommonMark lazy paragraph continuation through quote/list paths; indented-code paragraph interruption; all currently supported raw/type-7/inline HTML boundaries; autolinks; link/image destinations and titles; multiline definitions and arm-scoped resolved reference links; YAML front matter; math/diagram providers; virtual BOM; zero-width CRLF; Comment/CM arm lanes; and the complete pinned CommonMark 0.31.2 emphasis/strong plus GFM 0.29 strikethrough example sets. One persistent checkpoint currently decides canonical literal ownership within the selected CM-driven lane, while a separate projected delimiter stack handles maximal runs, Unicode flanking, modulo-three matching, literal/link boundaries, and multiline container paragraphs. That split is not the target. The intrinsic Markdown parser must decide CM activity and Markdown ownership together, emit explicit arm-entry/termination events, contain matching state created inside each arm, and resume one unchanged enclosing state for the suffix. Canonical block/inline events, graph-retained reference edges, complete provider indexes, the remaining production manifests, and the generated boundary matrix also remain open. |
+| [ ]    | Full deterministic resource accounting and iterative totality                           | Source-unit, accepted-CM-depth, exact accepted-depth materialization, and Markdown-depth checks across canonical/Original/Revised/Comment lanes are green with exact ranges. Markdown-depth failure is now emitted from the same retained lane run rather than a separate container preflight. Shared ancestry paths remove the known quadratic full-mark-array copy; indexed CM closers plus preindexed backtick/math runs remove known repeated scans; and delimiter matching uses bounded opener bottoms. `syntax-accounting-1.yml`, the 2,000,000 logical-event algebra/limit, full mixed-container depth semantics, full/incremental trace equality, stack/heap proof, and linear adversarial bounds remain open. Inline HTML/link/autolink terminators and current-line probes still inspect suffixes. The projection-time ranges-by-segments literal join has been deleted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| [ ]    | Total, idempotent boundary guard and verified fixed point                               | The previously throwing overlapping/malformed cases, constructed math, selected assembled/retargeted delimiters, BOF codec, and a source-idempotence case are green. The guard-local CM frame recognizer is gone: the Profile parser emits delimiter events and rejected candidates used by protection planning. The guard still lacks the frozen retained-decision/survivor/elision manifest, causal trace, exact Markdown-CST meaning proof, bounded parser-call contract, and independent whole corpus. Generated protection provenance is frozen as `sourcePosition` plus `affinity: 'next'`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| [ ]    | Mapped Original/Revised Markdown CSTs and isolated Comment views                        | `SourceOwnershipIndex` and immutable projected `MarkdownDocument` readers are implemented. Public reds prove ATX/setext headings, ordered/unordered/nested/interleaved containers, multiple blocks, pinned emphasis/strong/strikethrough behavior, links/reference links/images, tables/alignment, breaks, thematic breaks, footnotes, fenced code/math/diagram blocks inherited through CM arms, inline structure across CM boundaries, and multiline inline structure inside a list item. The graph retains both mapped tapes/CSTs and internal Comment lanes. This is not a complete Profile 1 Markdown CST: canonical CST/state-transition retention, the remaining production/trivia/token set, public Comment display/folding, `ReviewIndex`, `precedingChange`, `anchoredComment`, semantic indexes, and editable source/view maps remain open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| [ ]    | Complete parse-configuration validation                                                 | One centralized public seam currently validates the provisional profile and budget identifiers before parsing. It does not yet require/freeze the closed `MarkdownOptionsV1`, reject unknown object fields and wrong field types, or expose the target `live-html-sanitized-v1` / `live-html-escaped-v1` identities. The completed row must cover every field and independent `reinterpret`/semantic-hash vector.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| [ ]    | Independent manifests, corpus, and product acceptance                                   | File-backed, versioned fixtures now cover all 132 CommonMark 0.31.2 emphasis/strong examples and all three GFM 0.29 strikethrough examples through the public seam; focused inline expectations plus a read-only 50,000-case marker fuzz pass add bounded evidence. This is not the frozen complete `CM_STANDARD`, `MARKTEXT_PROFILE_1`, `MALFORMED_RECOVERY`, `markdown-profile-1.yml`, `syntax-accounting-1.yml`, literal-boundary, Comment, guard-trace, adversarial-depth, and product manifests. The remaining checked-in property/differential/reference evidence and schema validation stay open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 The immediate closure order is therefore not “add more forms” and not “teach the CM facade more
 Markdown state”; those paths preserve the wrong owner. First invert or replace the parser so the
@@ -3365,25 +3390,25 @@ order.
 "disjoint, not invertible" — that `markdownParser.ts` and `markdownLaneState.ts` could not see each
 other and had to be merged from scratch. **That was wrong**, and the error mattered because it
 overstated the cost of the inversion. `markdownParser.ts:11` imports `parsePlainMarkdownLane` from
-`markdownLaneState.js` and calls it at `markdownParser.ts:2598`. The CST builder is already *layered
-on* the lane. The accurate structure is:
+`markdownLaneState.js` and calls it at `markdownParser.ts:2598`. The CST builder is already _layered
+on_ the lane. The accurate structure is:
 
 - **one scanner** — the lane state machine in `markdownLaneState.ts` (containers, fences, HTML,
   definitions, front matter, lazy continuation, literal ownership) — with
 - **two drivers over it**: the CriticMarkup driver in `profile1Document.ts` (`parseCriticMarkup`,
   marker-scan loop, frame stack) and the plain driver `parsePlainMarkdownLane`
   (`markdownLaneState.ts:3304`); and
-- **one CST builder**, `markdownParser.ts`, which runs on the *plain* driver only.
+- **one CST builder**, `markdownParser.ts`, which runs on the _plain_ driver only.
 
 So the inversion is not a merge of two parsers. It is: **collapse the two drivers into one, teach
 that one driver CriticMarkup, and make the CST builder consume its emissions instead of a flattened
 string.** The measured split below is real and still explains why neither file is a superset of the
 other, but it is a division of labour inside one stack, not two disconnected stacks:
 
-| Component | LOC | Decides CM? | Emits nodes? |
-| --- | --- | --- | --- |
-| `profile1Document.ts` + `profile1/markdownLaneState.ts` | ~6,470 | yes | **no** |
-| `profile1/markdownParser.ts` (the only CST builder) | 2,697 | **no** (0 `critic` mentions, 0 CM delimiter literals) | yes |
+| Component                                               | LOC    | Decides CM?                                           | Emits nodes? |
+| ------------------------------------------------------- | ------ | ----------------------------------------------------- | ------------ |
+| `profile1Document.ts` + `profile1/markdownLaneState.ts` | ~6,470 | yes                                                   | **no**       |
+| `profile1/markdownParser.ts` (the only CST builder)     | 2,697  | **no** (0 `critic` mentions, 0 CM delimiter literals) | yes          |
 
 `MarkdownLaneState`'s entire public surface returns `MarkdownCheckpoint`, `MarkdownLaneAdvance`,
 `boolean`, and `MarkdownContainerDepthFailure` — never a node, token, or block/inline event carrying
@@ -3422,7 +3447,7 @@ runs from the projection path on every `LanguageEngine.open`. A comment-free CM 
 runs `parseCriticMarkup` about five times (one canonical, plus a guard and a verifier run per
 projection) and six flattened Markdown parses. Reference resolution additionally completes a whole
 parse, builds its definition index from the finished forest, then discards and re-runs the entire
-pass — a post-hoc reference join (forbidden at line 89) with no fixed point, capped at two passes.
+pass — a post-hoc reference join (forbidden by the architectural law's list) with no fixed point, capped at two passes.
 
 **Corrected closure order.** The immediate next action is not another Markdown feature and not a
 direct assault on the inversion. It is to make the architecture observable, because every drift to
@@ -3435,7 +3460,7 @@ date was invisible to the suite:
    and it converts "we know we are on the wrong owner" from prose into a red test.
 2. Collapse the two drivers into one kernel behind that gate and teach it CriticMarkup, one
    increment at a time. The lane's state machine already owns raw-source progression, so the frame
-   stack and marker recognition move *into* it and the CST builder is rehosted onto its emissions.
+   stack and marker recognition move _into_ it and the CST builder is rehosted onto its emissions.
    (An earlier revision of this step read "grow the intrinsic kernel inside `markdownParser.ts`";
    that followed from the mistaken disjointness claim corrected above.)
 3. Delete the `parseCriticMarkup` driver loop, the execution-trace artifact, and the
@@ -3452,59 +3477,43 @@ driver that treats the Markdown lane as a node-less oracle. This section is the 
 fixes it and the migration that gets there. It supersedes the earlier "16 steps → 7 steps" ladder,
 whose archaeology is dropped; landed results are carried forward under **Progress** below.
 
-#### Build-versus-buy: build (settled, re-confirmed against 2026-07-22 deep research)
+#### Build-versus-adopt: the executed record and the gate
 
-The buy path was already taken here and failed: a patched `marked` fork plus ~1,556 LOC of
-CriticMarkup on top, all slated for deletion, because a render-oriented token stream cannot carry
-exact source, parser-created provenance, or projection identity.
+The buy path was tried here once and failed (a patched `marked` fork plus ~1,556 LOC of
+CriticMarkup on top, all slated for deletion). The question has since been executed to ground
+truth; the ratified-requirements section holds the criteria, and
+`parser-core-verified-facts.md` holds the facts:
 
-A dedicated deep-research pass (see `specs/research/0001-…`, 23 primary sources, adversarially
-verified) re-examined every candidate with fresh eyes. It **strengthened** the build decision and
-sharpened the reason:
+- **Research 0004** — Rust candidates: none survives losslessness + incrementality + intrinsic CM.
+- **Research 0005** — ecosystem CM semantics: no implementation anywhere parses CriticMarkup as
+  intrinsic same-pass productions; the reference tools are semantic oracles, not engines.
+- **Research 0006** — TS candidates (`micromark`, `@lezer/markdown`), adversarially verified:
+  each supplies exactly one hard half (conformance vs incrementality); lezer's single-block
+  ceiling verified there, micromark's form-(a) question deliberately left to the spikes.
+- **Research 0007** — executable spikes + adversarial review of the spikes: both hosts fail R-1
+  inside the parse (API-level blockers verified in host source); both host the
+  markers-on-own-lines enclosure subset; a fork would be an architecture transplant (core loop
+  - span graph + reuse re-keying) keeping only the CommonMark recognition layer — obtainable
+    through public test oracles without forking.
+- **Research 0008** — the owner-commissioned final wide sweep (markdig, goldmark,
+  intellij-markdown; incremental-parsing research; overlapping-span prior art; contrarian hunt):
+  no adoptable engine exists anywhere; no implementation — including Word's tracked-changes
+  model — treats a form-(a) span as one first-class in-pass entity; the sweep's prior-art
+  digest (Wagner & Graham, GODDAG, Peritext, OOXML boundary tokens) extends the harvest list.
 
-| Candidate | What it actually is | Why it does not replace this engine |
-| --- | --- | --- |
-| `@lezer/markdown` + `lang-criticmarkup` (the strongest candidate) | a single-pass, incremental, extensible Markdown parser, with CriticMarkup mounted as a `parseMixed` **overlay** | the overlay is a *second parser layered on the raw-source Markdown tree* — precisely the CM sidecar this plan's law (lines 84-93) forbids; `lang-criticmarkup` is a **source-editor highlighter**, not a document model — it produces no Original/Revised projection, no canonical provenance, no Accept/Reject round-trip |
-| `@lezer/markdown` alone, as the Markdown grammar | single-pass incremental CommonMark(-ish) | deliberately omits some conformant CommonMark behaviors (its own README); emits **one** compact tree for editor tooling, not lossless source or per-view projections; a runtime dependency (reverses decision 9). See the steelman below. |
-| `tree-sitter-markdown` | native (C/WASM) incremental grammar for tooling | native dependency; trees are for highlighting/structure, not lossless document modeling or projections |
-| `micromark` | intrinsic construct API, mdast for rendering | no CriticMarkup extension exists; renders rather than models; runtime dependency |
-| `remark-critic-markup` / `@gerhobbelt/markdown-it-criticmarkup` / Fevol `criticmarkup-parser` | small CriticMarkup utilities | render/highlight streams or single-maintainer plugins; none carry losslessness, provenance, projections, or budgets |
-| MultiMarkdown 6 | native CriticMarkup (our reference oracle) | C renderer; constrains CriticMarkup to a single block — a boundary we reject (we support cross-paragraph CM) |
-
-**The decisive finding: every candidate solves the *easy* half (parse Markdown, or highlight
-CriticMarkup) and leaves the entire *hard* half unbuilt** — lossless source as authority
-(ADR-0005/0007), provenance created with syntax (invariant 6), Original/Revised/Comment projections
-each a real parse of the elided view, Profile 1 boundary-safe escaping that round-trips under Accept
-All, arm-scoped references, resource budgets, and zero runtime dependencies. Those are the reason the
-engine exists, and no upstream supplies any of them.
-
-**Steelman for buying the Markdown half (the closest call), and why it still loses.** The coherent
-"buy" option is to drop `@lezer/markdown` in as the *per-view Markdown grammar* only — keeping the
-CriticMarkup authority, projections, provenance, and escaping in-house — which would delete ~4,200 LOC
-of hand-maintained CommonMark/GFM and inherit incremental fragment reuse for free. It loses on four
-counts: (1) it replaces the part the adversarial review said is *good and should be kept*, not the
-part that hurts (the deletable reconstruction layer and legacy); (2) it risks the locked, passing
-CommonMark 0.31.2 + GFM conformance the current grammar already banks, since `@lezer/markdown`
-omits conformant behaviors by design; (3) you still wrap it in a canonical-provenance and
-lossless-source layer, so the impedance-mismatch integration cost is real while the hard problems stay
-yours; (4) it reverses the zero-dependency policy (decision 9). Net: buying the Markdown half is
-coherent but low-value — it trades a working, conformant, dependency-free grammar for a dependency
-that solves a problem we do not have.
-
-**What the research *does* change: copy the techniques, not the code.** The ecosystem's low-lag
-mechanisms — fragment reuse, single-pass block/inline extension, main-thread time-slicing — are proven
-and are the right ones. `@lezer/markdown`'s `parseBlock`/`parseInline` extension model and its
-`TreeFragment` reuse contract are concrete templates to *study and reimplement*, not depend on. Those
-techniques land in **Phase 11** below, sequenced after the correctness rebuild.
+**Gate status: sweep complete; the sweep confirms the custom build; the owner's final ruling is
+pending.** What the research changes regardless: **copy the techniques, not the code** — the
+harvest list (facts §6) is imported into Phase 1 (conformance oracles) and Phase 11 (reuse
+template) either way.
 
 #### Target architecture: parse once, read every view off it (ADR 0013)
 
 > **Two retractions, 2026-07-22 — kept because they bound the real architecture.** A first draft
-> proposed "one scanner emits a view-tagged node stream; views are produced by *selecting* nodes by
+> proposed "one scanner emits a view-tagged node stream; views are produced by _selecting_ nodes by
 > view-set, not reparsing." A fresh-eyes adversarial review filed 15 flaws; 13 held, one proven live.
 > Its load-bearing proof stands:
 >
-> - **You cannot share one tokenization and select per view.** Elision changes character *adjacency*,
+> - **You cannot share one tokenization and select per view.** Elision changes character _adjacency_,
 >   and CommonMark recognition is adjacency-dependent: `a*{--X--}*b` → Original `a*X*b` (emphasis on
 >   `X`) vs Revised `a**b` (plain). The same source `*`s are emphasis delimiters in one view and
 >   literal in the other; no single tokenization selects into both trees.
@@ -3513,12 +3522,12 @@ techniques land in **Phase 11** below, sequenced after the correctness rebuild.
 >
 > A second draft then over-corrected to "keep N fully independent per-view parses," which re-parses the
 > shared text once per view and needs the flatten/codec machinery. **The committed architecture
-> (ADR 0013) is neither.** One parse *shares* the convergent regions — the bulk of any document, byte-
-> identical across views — and *forks* at a divergence, storing both fully-resolved sub-structures
+> (ADR 0013) is neither.** One parse _shares_ the convergent regions — the bulk of any document, byte-
+> identical across views — and _forks_ at a divergence, storing both fully-resolved sub-structures
 > there. A fork is a local re-parse of the divergent span, **not** a shared tokenization, so the proof
 > holds: forks are not shared. A fork **reconverges at the next safe point** (a top-level blank line
 > with no open fenced-code/HTML block — measured in `specs/research/0002`), so it is usually local
-> (a block or two); only an *unclosed* fence forks to EOF, which is degenerate under plain CommonMark
+> (a block or two); only an _unclosed_ fence forks to EOF, which is degenerate under plain CommonMark
 > too. Pervasive divergence degrades to the bounded `O(views · n)` ceiling; the common case (sparse
 > markers) is `O(n)`, and text that does not change across views is parsed once.
 
@@ -3526,7 +3535,7 @@ A CriticMarkup document is a **family of documents sharing one source tape** who
 everywhere except inside marker-divergent regions. The one parse recognizes the five forms and arms as
 zero-width grammar events, emits the block/inline AST — CriticMarkup nodes beside Markdown nodes — as
 it advances (decision 13), and records a fork wherever an elision changes structure. Original, Revised,
-and the editing view are *reads* of that AST by arm selection; no view re-recognizes CriticMarkup,
+and the editing view are _reads_ of that AST by arm selection; no view re-recognizes CriticMarkup,
 re-parses convergent text, or reconstructs structure afterward.
 
 ```text
@@ -3555,57 +3564,57 @@ retracted mechanism:
    CriticMarkup-free documents, and the clean verifier no longer recognizes CriticMarkup at all.)
 2. **Emit, don't reconstruct.** The Markdown lane emits no nodes today, so the canonical driver
    tape-records every oracle call and rebuilds topology, ownership, and edges afterward. Make the lane
-   *emit* block nodes and ownership runs as it advances; the ~1,198-LOC reconstruction layer then has
+   _emit_ block nodes and ownership runs as it advances; the ~1,198-LOC reconstruction layer then has
    nothing to do. This is the intrinsic-parser requirement (invariant 6) and it is independent of how
    views are parsed.
 3. **Boundary escaping moves to materialization, off the read path.** When an elision makes two
    retained runs adjacent, their fusion can (a) form Markdown syntax absent from the source — handled
    by the fork, which re-parses only that divergent span's elided text with the **Markdown grammar
-   only** — or (b) fuse into what *looks* like a CriticMarkup marker (`{{--a--}+{--b--}+x++}` →
-   `{++x++}` in Revised). Case (b) never affects a view *read*: CriticMarkup is recognized once over the
+   only** — or (b) fuse into what _looks_ like a CriticMarkup marker (`{{--a--}+{--b--}+x++}` →
+   `{++x++}` in Revised). Case (b) never affects a view _read_: CriticMarkup is recognized once over the
    real source and never re-recognized, so a fused `{++` is inert literal text on every read and inside
    every fork. It matters only when a view is **materialized as canonical bytes that get re-parsed** —
    re-parsing those bytes must mean the same, so that serialization applies the boundary-safe escapes
    (ADR-0010). Those sites are **every view→canonical-bytes path, not Accept-All alone**: Accept All
-   *and Reject All* both commit a boundary-safe projected source (invariant 5, line ~850), and copying
+   _and Reject All_ both commit a boundary-safe projected source (invariant 5, line ~850), and copying
    or exporting a clean Original/Revised view emits bytes another tool re-parses. So the escape codec is
    a **materialization obligation, not a per-view read scan** — it relocates to the materialization
-   sites rather than evaporating. What deletes is the redundant *recognition* on the read path (the
+   sites rather than evaporating. What deletes is the redundant _recognition_ on the read path (the
    guard's per-projection `parseCriticMarkup`), not the codec itself; earlier drafts of this section
    overstated the deletion by naming only Accept All.
 
 ##### How this reconciles with the architectural law
 
-The law (lines 77-93, already amended) forbids a **second CriticMarkup authority** during view
+The law (see "Primary architectural law", already amended) forbids a **second CriticMarkup authority** during view
 production and **post-hoc reconstruction** of identity the parse should have emitted. ADR 0013
 satisfies it more cleanly than a per-view reparse would: CriticMarkup is recognized exactly once; a
-view is a *read* of the one emitted AST (with local Markdown-only forks at divergences), never a fresh
+view is a _read_ of the one emitted AST (with local Markdown-only forks at divergences), never a fresh
 Markdown parse of a whole assembled string and never a CriticMarkup re-recognition; and the AST is
-emitted, not reconstructed. The escaping codec's *outputs* remain a serialization obligation at Accept
+emitted, not reconstructed. The escaping codec's _outputs_ remain a serialization obligation at Accept
 All; what deletes is the redundant recognition, the reconstruction layer, and the per-view flatten +
 escape scan.
 
 #### What deletes, what survives (adversarially verified)
 
-The reconstruction layer exists *only* because the Markdown lane emits no nodes: the driver must
+The reconstruction layer exists _only_ because the Markdown lane emits no nodes: the driver must
 tape-record every oracle call and rebuild topology afterward. Emit nodes as the scanner advances and
 it evaporates. Confirmed removals (LOC re-measured; refuted claims excluded):
 
-| Deletes | LOC | Why it exists today |
-| --- | --- | --- |
-| `canonicalMarkdownArtifact.ts` (whole file) | 500 | execution-trace of oracle calls, retained only to rebuild lane/branch topology |
-| graph post-hoc joins (`createOwnershipIndex` interval join, `createCriticMarkupEdges`, `validateProfile1SyntaxGraphCore`) | ~395 | re-derive ownership/edges/consistency from by-products of a parse that emitted no structure |
-| recorder plumbing in `parseCriticMarkupPass` | ~181 | every lane call shadowed by a `recordTransition` |
-| two-driver duplication + duplicate reference indexes | ~620 | a CM driver separate from the Markdown driver, each with its own index and two-pass rerun |
-| codec/guard *plumbing* (scope re-anchor, authenticated-delimiter lookup, evidence validation, side-channel policy) | ~672 | repair a flattened candidate in projected-offset space, then re-validate the repair |
+| Deletes                                                                                                                                                                                                                                   | LOC         | Why it exists today                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `canonicalMarkdownArtifact.ts` (whole file)                                                                                                                                                                                               | 500         | execution-trace of oracle calls, retained only to rebuild lane/branch topology                                          |
+| graph post-hoc joins (`createOwnershipIndex` interval join, `createCriticMarkupEdges`, `validateProfile1SyntaxGraphCore`)                                                                                                                 | ~395        | re-derive ownership/edges/consistency from by-products of a parse that emitted no structure                             |
+| recorder plumbing in `parseCriticMarkupPass`                                                                                                                                                                                              | ~181        | every lane call shadowed by a `recordTransition`                                                                        |
+| two-driver duplication + duplicate reference indexes                                                                                                                                                                                      | ~620        | a CM driver separate from the Markdown driver, each with its own index and two-pass rerun                               |
+| codec/guard _plumbing_ (scope re-anchor, authenticated-delimiter lookup, evidence validation, side-channel policy)                                                                                                                        | ~672        | repair a flattened candidate in projected-offset space, then re-validate the repair                                     |
 | **legacy outside document-core** — patched `marked` fork (~5,606) + muya `SourceProvenance`/`TokenGraphAuthority` transparent-marker views, `criticMarkupStateBindings`, `documentService`, `commentAnchorDeletion`, `nativeCriticMarkup` | **~19,000** | "hide CM from marked, then put it back" — the buy-path scaffolding in its purest form; already in the deletion manifest |
 
-| Survives (do **not** rewrite) | Note |
-| --- | --- |
-| the lane's ~2,300 LOC block/literal grammar + `markdownParser`'s ~1,900 LOC delimiter/inline/table grammar | this is CommonMark 0.31.2 + GFM conformance; keep it, make it *emit* instead of *answer* |
-| the six boundary-codec *kinds* and their emitted escapes | serialization law under ADR-0010 (Accept All re-opens the string) — the decision stays, the reparse-to-find-it goes |
-| `BofTextCodecV1`, clean-verification budget, `provenance.originAt` view↔source map | permanent Profile 1 fixtures; invariants 8, 9 |
-| arm fork/rejoin, arm-scoped reference visibility rule | correct today; relocates into the scanner |
+| Survives (do **not** rewrite)                                                                              | Note                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| the lane's ~2,300 LOC block/literal grammar + `markdownParser`'s ~1,900 LOC delimiter/inline/table grammar | this is CommonMark 0.31.2 + GFM conformance; keep it, make it _emit_ instead of _answer_                            |
+| the six boundary-codec _kinds_ and their emitted escapes                                                   | serialization law under ADR-0010 (Accept All re-opens the string) — the decision stays, the reparse-to-find-it goes |
+| `BofTextCodecV1`, clean-verification budget, `provenance.originAt` view↔source map                         | permanent Profile 1 fixtures; invariants 8, 9                                                                       |
+| arm fork/rejoin, arm-scoped reference visibility rule                                                      | correct today; relocates into the scanner                                                                           |
 
 The largest single win — the ~19,000-LOC legacy purge — is **independent of every design decision
 above** and can proceed whenever `@marktext/document-core` becomes the sole engine.
@@ -3624,8 +3633,8 @@ view-tagged-selection mechanism.
    the emitted AST (with local Markdown-only forks), so no assembled view string is reparsed and the
    synthesized-marker hazard cannot arise on a read — CriticMarkup is recognized once and never again.
    The boundary escape it guarded relocates to **Accept-All materialization** (below), the only place
-   Revised becomes bytes a fresh parse reopens. *(Partial: guard already skipped entirely when the
-   document has no CriticMarkup.)*
+   Revised becomes bytes a fresh parse reopens. _(Partial: guard already skipped entirely when the
+   document has no CriticMarkup.)_
 
 **Track B — emit, don't reconstruct (flips the BLOCKING gate rows).**
 
@@ -3641,7 +3650,7 @@ view-tagged-selection mechanism.
    `project()` reads of `lane.parseArtifact.transitions` (replaced by the emitted structure). Remove
    the driver duplication and the three `it.fails` markers. **Flips BLOCKING row 2** in the honest
    sense: the per-view parse is Markdown-only over an exact segment map, with no CriticMarkup
-   re-recognition and no post-hoc join. Per-view *Markdown* parsing remains — that is not the
+   re-recognition and no post-hoc join. Per-view _Markdown_ parsing remains — that is not the
    violation.
 
 **Track C — legacy purge (independent).**
@@ -3653,7 +3662,7 @@ view-tagged-selection mechanism.
 green baseline and diff each step. Two honest product decisions to record, not slip in: (1) step 2
 (guard hazard scan) and step 5 may **change some published bytes** — ≈360 spec lines and much of the
 1,002-line arm-boundary suite pin current strings via `open(original.source)` round-trips, and the
-review flagged step 2/5 as the one place the byte snapshot is *not* trivially empty, so that diff must
+review flagged step 2/5 as the one place the byte snapshot is _not_ trivially empty, so that diff must
 be reviewed as a deliberate product change, not waved through; (2) the marker-elided-line block
 semantics settled in step 4 is a Profile 1 language choice.
 
@@ -3688,7 +3697,7 @@ Instrumentation counters (`__criticMarkupRecognitionCountV1`, `__markdownDocumen
 **Sequencing, corrected 2026-07-22 (twice).** First correction: the bottleneck seemed to be that
 `@marktext/document-core` has zero production callers (~11,515 LOC parser vs ~1,848 LOC session
 surface, nothing in the app importing it), so a thin integration vertical slice was started to
-connect it. Second correction, from what that slice *found*: connecting the engine proved its output
+connect it. Second correction, from what that slice _found_: connecting the engine proved its output
 is **architecturally incomplete** — there is no canonical block AST for the editing view (increment
 2b), because the parse computes block structure for marker-ownership and discards it. **You cannot
 build the app's view layer on that output shape.** So the corrected sequence is:
@@ -3698,11 +3707,11 @@ build the app's view layer on that output shape.** So the corrected sequence is:
    intent dispatch. Keep the inline-run layer it produced (`renderMarkupPlan`); discard the
    block-structure hack (newline line-splitting) — that was building on the wrong output.
 2. **Engine architecture, directed (now).** Do Track B — emit block structure, ownership, and arm
-   events natively (the inversion) — *guided by those discovered requirements*, not as open-ended
+   events natively (the inversion) — _guided by those discovered requirements_, not as open-ended
    parser perfectionism. This is the one change that simultaneously gives the editor its block AST,
    deletes the ~1,198-LOC reconstruction layer, and achieves one authority.
 3. **App on the correct seam (after).** Rebuild the view layer (block nodes from the engine, inline
-   runs nested inside, gesture→intent, muya-as-view) on the *right* output — not the flat-run stub.
+   runs nested inside, gesture→intent, muya-as-view) on the _right_ output — not the flat-run stub.
 
 The discipline that keeps step 2 from becoming the research-project trap: it is **bounded by the
 app's known requirements** (step 1's list) and proven by red-green tests, not by an 11-phase ideal.
@@ -3710,9 +3719,10 @@ The engine becomes real when it emits the products the editor consumes — which
 then step 3.
 
 **The two engines (do not conflate them).**
-- *Language engine* = `document-core` (source-authoritative MD+CM, headless). Already a from-scratch
+
+- _Language engine_ = `document-core` (source-authoritative MD+CM, headless). Already a from-scratch
   rebuild; correct; keep going — but behind an integration seam, not in isolation.
-- *WYSIWYG engine* = `muya` (renders the document into an editable contenteditable surface). Measured
+- _WYSIWYG engine_ = `muya` (renders the document into an editable contenteditable surface). Measured
   ~42,800 LOC of selection/block/inline/editor **browser-knowledge core (KEEP — irreplaceable;
   contenteditable/IME/selection is the most expensive code in the product)** and ~48,000 LOC of
   CriticMarkup-authority + `marked` fork + mutable `state` **(DELETE — the wrong architecture that is
@@ -3722,9 +3732,9 @@ then step 3.
 contenteditable re-earns every browser bug from zero (a multi-month tar pit; the cross-block selection
 bug fixed earlier this branch is a taste). Do **not** finish the parser before integrating. **Gut
 muya, don't grow it:** strip the ~48k authority/CM machinery, keep the ~42k view core, and refactor it
-from *owning* the document to *rendering document-core's projection and translating gestures into typed
-intents*. ("Remake muya" = amputate the authority, keep the body.) ProseMirror as a view-only
-substrate is the one external option worth a *timeboxed spike* — only if muya's view proves too
+from _owning_ the document to _rendering document-core's projection and translating gestures into typed
+intents_. ("Remake muya" = amputate the authority, keep the body.) ProseMirror as a view-only
+substrate is the one external option worth a _timeboxed spike_ — only if muya's view proves too
 entangled to salvage; its inverted state-authority means you fight it.
 
 **The seam already exists.** `DocumentSession` exposes `MarkupLiveRenderPlan` (a flat `runs` list, each
@@ -3738,14 +3748,14 @@ working end-to-end in the app, then widen):
 
 1. **Render adapter: `LiveRenderPlan` → render-node tree.** A pure, DOM-free function mapping the
    plan's runs (with CriticMarkup marks) to a minimal renderable structure a view mounts. First line
-   of the view layer; testable headless. *(This turn.)*
+   of the view layer; testable headless. _(This turn.)_
 2. **Line grouping** (done) — split the flat run stream into lines at newlines, preserving CriticMarkup
    marks and model/source ranges across each split (`groupRenderLines`; a mark spanning a newline
    stays on both halves). This is the inline/line layer and is enough for the single-paragraph flow.
 
    **The canonical block AST is an engine responsibility, not the view's (corrected twice, 2026-07-22).**
-   The first correction here said "markdown block rendering is the view's job." *That was also wrong,
-   and it matters.* The editor edits the **canonical** (marker-bearing) view; to render it WYSIWYG it
+   The first correction here said "markdown block rendering is the view's job." _That was also wrong,
+   and it matters._ The editor edits the **canonical** (marker-bearing) view; to render it WYSIWYG it
    needs that view's block structure (headings, lists, blockquotes). If document-core does not emit it,
    the view must re-parse Markdown to get it — a **second Markdown authority in the editing path**, the
    exact original sin this rebuild exists to eliminate (and against the spirit of invariant 13). So the
@@ -3759,11 +3769,11 @@ working end-to-end in the app, then widen):
 
    This replaces the interim "N independent per-view parses over boundary-safe flattened strings"
    idea (itself a correction of the still-earlier "invert the lane" framing). That interim design
-   parsed the shared text once *per view* and needed the flatten/codec machinery; a CriticMarkup-free
+   parsed the shared text once _per view_ and needed the flatten/codec machinery; a CriticMarkup-free
    document parsed **twice** under it. The decision (user, 2026-07-22, in response to "why parse more
    than once if it hasn't changed?") is the single intrinsic parse. Forced by two facts together:
    per-view results are **irreducible** (eliding a marker changes block structure — `{--# --}Title`
-   heads in Original, not Revised), so no view derives from another by transform; *and* parse-once
+   heads in Original, not Revised), so no view derives from another by transform; _and_ parse-once
    forbids re-traversing the shared text per view. Only a single parse carrying per-view forks
    satisfies both.
 
@@ -3782,15 +3792,15 @@ working end-to-end in the app, then widen):
      boundary-edit planning parse was skipped where a view has no arm scopes and no arm terminations,
      because it provably plans nothing. Unary-form documents halved 4 → 2 and reference-definition
      index builds dropped 2 → 1 / 4 → 2 as a consequence.
-   **Metric correction (2026-07-23, found by implementing it).** Slices 2-3 were stated as "parses
-   once," measured by `__markdownDocumentParsesV1`. That metric **cannot express them**: a
-   marker-bearing document resolves to genuinely different text per view (`ab` vs `axb`), so Original
-   and Revised can never literally share one parse — the count has a floor of one per distinct view
-   text no matter how much work is shared. The invariant's real claim is that *unchanged text* is
-   parsed once, which is a statement about **source units, not calls**. Slices 2-3 are therefore
-   measured by `__markdownParsedUnitsV1`; parse count remains meaningful only where views share one
-   text exactly (slice 1, annotation-only). Today a 20-paragraph document with one tracked change
-   costs ~2× its length; the target is ~1× plus the divergent paragraph.
+     **Metric correction (2026-07-23, found by implementing it).** Slices 2-3 were stated as "parses
+     once," measured by `__markdownDocumentParsesV1`. That metric **cannot express them**: a
+     marker-bearing document resolves to genuinely different text per view (`ab` vs `axb`), so Original
+     and Revised can never literally share one parse — the count has a floor of one per distinct view
+     text no matter how much work is shared. The invariant's real claim is that _unchanged text_ is
+     parsed once, which is a statement about **source units, not calls**. Slices 2-3 are therefore
+     measured by `__markdownParsedUnitsV1`; parse count remains meaningful only where views share one
+     text exactly (slice 1, annotation-only). Today a 20-paragraph document with one tracked change
+     costs ~2× its length; the target is ~1× plus the divergent paragraph.
 
    - **Slice 2:** a marker that does not change block structure (an addition inside a paragraph) costs
      the document's length plus that paragraph, not twice the length; views differ only by inline arm
@@ -3799,20 +3809,20 @@ working end-to-end in the app, then widen):
      safe point (`specs/research/0002`, implemented as `safePointsOf`) — the hard core.
 
    **Two constraints established while building the foundation, both load-bearing for 2-3:**
-   - *Block sharing and inline sharing are different problems.* Reference definitions are
+   - _Block sharing and inline sharing are different problems._ Reference definitions are
      document-scoped, so a block with **no marker in it** can still diverge — verified:
      `[link]\n\n{++[link]: /url++}` resolves the first block to `text` in Original and `link` in
      Revised. Any plan keyed on marker positions alone is unsound; inline resolution needs a per-view
      definition index even where block structure is shared. Setext underlines and lazy continuation are
      the same shape of hazard.
-   - *Conservative over-approximation is the correct posture.* Over-marking a region divergent forgoes
+   - _Conservative over-approximation is the correct posture._ Over-marking a region divergent forgoes
      an optimization; under-marking one serves a view another view's tree. `forkPlanOf` refuses all
      sharing when a divergent region may carry a definition, pending parser-supplied definition ranges.
 
    Consequence for the muya gut: it is deeper than deleting the ~48k CriticMarkup/authority machinery —
    muya's own Markdown **block parsing** (inside the ~42k) must also be removed and replaced by reading
-   the engine's single forked structure. muya keeps the DOM/contenteditable/selection *mechanics*; it
-   stops *deciding* block structure. Keep the hands, replace the brain.
+   the engine's single forked structure. muya keeps the DOM/contenteditable/selection _mechanics_; it
+   stops _deciding_ block structure. Keep the hands, replace the brain.
    **2b/2c — DONE (2026-07-23).** The engine emits the editing view as a first-class projection with a
    block AST (`canonicalMarkupDocument`), for every CriticMarkup form including a Substitution's two
    arms, and `groupRenderBlocks` nests the marked inline runs under those engine-emitted blocks. The
@@ -3838,14 +3848,14 @@ working end-to-end in the app, then widen):
    render for block structure, so `EditorSnapshot` now serves `editingDocument` (no parse, tracks the
    revision, shares one coordinate space with `livePlan`).
 
-   *Remaining for this increment:* wiring behind the new-engine flag inside the real editor shell, and
+   _Remaining for this increment:_ wiring behind the new-engine flag inside the real editor shell, and
    replacing muya's own block parsing for the migrated flow — the view is proven but not yet the
    editor's default path.
 
 5. **Migrate flows one at a time**, deleting muya's authority + CM machinery as each lands, until muya
    is a pure view and the ~48k legacy is gone.
 
-   *De-risked, not yet started (2026-07-23).* The production view is proven in Chromium
+   _De-risked, not yet started (2026-07-23)._ The production view is proven in Chromium
    (`packages/muya/e2e/tests/document-core/production-view.spec.ts`, 6 cases): engine blocks render
    with CriticMarkup and no markers leak into view, heading levels are honoured, an edit commits and
    re-renders from the new revision, editing beside a tracked change leaves it intact, undo restores
@@ -3862,8 +3872,8 @@ working end-to-end in the app, then widen):
    Routing that one flow surfaced three constraints the rest of the migration must plan around:
 
    - **`editor.vue` is at its size guard.** It sat at 2132 lines against 2133, so it could not absorb
-     the seam. Diagram-theme selection was extracted to make room. *Every further flow will need
-     similar extraction first* — the guard is correct, and raising it spends the protection instead of
+     the seam. Diagram-theme selection was extracted to make room. _Every further flow will need
+     similar extraction first_ — the guard is correct, and raising it spends the protection instead of
      earning headroom.
    - **The engines disagreed on read shape.** Muya reads canonical Markdown synchronously,
      document-core only through an async flush lease, while the editor asks from change handlers and
@@ -3913,6 +3923,12 @@ app, not ahead of it. The first production caller is worth more than the next pa
 - Enable CommonMark 0.31, GFM 0.29, and each supported MarkText extension row one at a time through
   `LanguageEngine.open`.
 - Enable each literal-context option and delimiter-boundary row one at a time.
+- Enable the imported micromark conformance corpus (~2k cases, CommonMark 0.31.2 + GFM) plus
+  micromark's first-party math/front-matter extension suites as a differential oracle
+  (harvest list item 1), one family at a time, beside the existing spec rows.
+- Enable the research 0007 spike regression rows (containment both directions, same-form nesting,
+  divider hijack/first-wins/stray, unclosed-marker probes from `spikes/parser-hosts/` and its
+  adversarial review) as corpus rows.
 
 **Green**
 
@@ -3931,6 +3947,11 @@ app, not ahead of it. The first production caller is worth more than the next pa
 - Every decoded code unit is owned exactly once; no ranges overlap or leave a gap. Full-parse
   conformance and exact-source properties pass.
 - Parsing arbitrary user text is total and bounded.
+- R-4 scaling gates pass in CI: linear fit over the scale corpus for both the plain and CM
+  paths — the CM-path superlinearity (research 0003; expected to collapse under parse-once) is
+  verified gone — and adversarial families (unclosed-opener runs, delimiter runs, deep nesting)
+  stay linear-or-bounded under the limits profile, with cmark-style openers-bottom discipline
+  for delimiter runs (facts §4) — degrade, never freeze.
 
 ### Phase 2 — complete intrinsic CM productions and derive their products
 
@@ -4184,7 +4205,7 @@ browser/platform cells remain in Phase 7 and reuse these already-green protocol 
 ### Phase 5 — resumable-parse and deterministic-resource equivalence
 
 **Two dimensions, split by whether they are required to ship (decided 2026-07-23 from measured
-latency — `specs/research/0003`).** This phase proves equivalence across *three* execution modes, but
+latency — `specs/research/0003`).** This phase proves equivalence across _three_ execution modes, but
 they are not all hard exits:
 
 - **Full parse and checkpoint-restarted (resumable) parse are required.** Resumability is the
@@ -4192,7 +4213,7 @@ they are not all hard exits:
   primitive with the fork model (`specs/research/0002`). Measured full-parse cost is linear at
   ~12 ms/1k lines, so time-slicing alone delivers 0-lag up through large documents — this is the
   0-lag path, and it must be proven here.
-- **Incremental (edit-driven fragment reuse) is *defined but gated*.** Fragment reuse earns its keep
+- **Incremental (edit-driven fragment reuse) is _defined but gated_.** Fragment reuse earns its keep
   only on very large documents (tens of thousands of lines), so it is built only if Phase 11 step 3's
   measurement demands it. Until then the "fall back to a clean full parse" path (Green, below) is the
   shipped behavior, and every "incremental" row below is the **acceptance contract that activates when
@@ -4344,10 +4365,7 @@ interface DurableReplaceAdapter {
     target: NativeTargetCapability,
     record: PreparedReplaceRecord
   ): Promise<NativeReplaceResult>
-  discard(
-    target: NativeTargetCapability,
-    record: StagedWriteReceipt
-  ): Promise<void>
+  discard(target: NativeTargetCapability, record: StagedWriteReceipt): Promise<void>
 }
 ```
 
@@ -4625,8 +4643,8 @@ Manual dogfooding is not in this gate.
 
 This phase exists because a distinct goal was being conflated with the rebuild: **"clean O(n) full
 parse" is not "0-lag from the user's point of view."** The rebuild (Phases 0.5–10) delivers a correct,
-single-authority, dependency-free engine whose *full* parse is O(n). Perceived zero lag is a separate,
-*incremental-computation and scheduling* problem, and it is deliberately sequenced **after**
+single-authority, dependency-free engine whose _full_ parse is O(n). Perceived zero lag is a separate,
+_incremental-computation and scheduling_ problem, and it is deliberately sequenced **after**
 correctness — you cannot make an incremental parser trustworthy on top of an architecture that
 reconstructs provenance after the fact.
 
@@ -4640,12 +4658,12 @@ architecture-first.
 **Two perf facts specific to this engine, both verified in-tree:**
 
 - **Eager comment-display projections are O(comments × n).** `createCommentDisplayProjections` runs one
-  full per-view parse *per comment* on every `open()`. A review tool is slowest exactly when most
+  full per-view parse _per comment_ on every `open()`. A review tool is slowest exactly when most
   used. No upstream solves this because no surveyed editor emits per-view projections at all — it is
   ours alone to fix.
 - **Fragment reuse is unsafe until "emit-don't-reconstruct" (Phase 0.5 Track B) lands.** Incremental
   reuse is only correct when gated on a context key that includes parser-created provenance and lane
-  state. While provenance is *reconstructed after* the parse (today's 1,198-LOC layer), reuse would
+  state. While provenance is _reconstructed after_ the parse (today's 1,198-LOC layer), reuse would
   resurrect stale provenance. So Track B is the **precondition** for any incremental parsing — the
   correctness rebuild and the eventual 0-lag work are the same road, in order.
 
@@ -4670,7 +4688,10 @@ independent of everything):
    (the expected outcome for all but very large documents). Residual stall **> ~16 ms even
    viewport-first → proceed to step 4.**
 4. **Add fragment reuse to the canonical parse, only if step 3 demands it.** Study `@lezer/markdown`'s
-   `TreeFragment` reuse contract and reimplement it (do not depend on it). Gate reuse on a context key
+   `TreeFragment` reuse contract and reimplement it (do not depend on it) — the design is
+   spike-proven compatible with intrinsic CM (research 0007; figures in facts §4), and Wagner &
+   Graham's balanced-sequence and optimal-reuse results are the underlying theory (research
+   0008). Gate reuse on a context key
    that includes provenance/lane state (per the precondition above), and expect CommonMark non-locality
    (unclosed fence, lazy continuation, reference definition) to force a bounded reparse-suffix on those
    edits — scope reuse to the common intra-block edit, with a reparse-to-bounded-suffix fallback for
@@ -4682,45 +4703,45 @@ independent of everything):
 **Acceptance:** a real-gesture typing benchmark (sustained input on the realistic corpus) shows no
 frame exceeding the budget from step 3, with the automated suite and all invariants (especially
 invariant 7, full ≡ incremental equivalence) green. Block-locality — the ecosystem's cheapest lever —
-is unavailable here by product choice (we support cross-paragraph CriticMarkup), which is *why* the
+is unavailable here by product choice (we support cross-paragraph CriticMarkup), which is _why_ the
 other three levers carry the whole load.
 
 ## Product acceptance mapping
 
-| Requirement                                         | Required automated proof                                                                                                                                                                                                                                                                                            |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Requirement                                         | Required automated proof                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Intrinsic Profile 1 Markdown grammar                | Public canonical-graph fixtures plus `ProfileParseTraceV1` prove native CM node/event identity, shared Markdown/CM literal and delimiter decisions, CM across blocks, Markdown across CM boundaries, self-contained Substitution arms, nested/sequential Substitutions, arm-scoped references, exact provenance/ownership, explicit source/event/projection provenance for generated or rejected records, and full/incremental equivalence; dependency/runtime gates prove no CM-only scan, CM-first driver, forest reconstruction, post-hoc semantic join, or flattened projection parse establishes authoritative syntax |
-| Five CM forms and projections                       | Standard/Profile corpora, recursive 7×5 projection matrix, all-five nesting fixture, and literal projection properties                                                                                                                                                                                              |
-| Boundary-safe projection/resolution                 | Protective escape; retained-decision/survivor manifest; linear whole-candidate guarded run; responsible delimiter for retargeted nodes; one clean verifier parse; exact shared causes/affinity; `O(n)` unsafe-join scaling; idempotence, survivor-set, Accept All, and Reject All with literal expected source      |
-| Boundary-safe semantic editing                      | Every CM/Markdown delimiter split across inserted/retained and retained/retained joins; complete-vs-partial CM/literal enclosure; atomic literal-owner editing; exact-empty cleanup; literal canonical/projected/meaning expectations; no synthetic, duplicated, or retargeted node                                 |
-| Exact core source                                   | Code-unit identity over BOM/EOL/trivia/malformed/Unicode variants; source-only U+FEFF grammar matrix; versioned Source/File/Semantic hash known answers; persistence reads revision source by identity                                                                                                              |
-| Exact desktop persistence                           | File-backed no-op save×2/reopen, edit/save/reopen, autosave, pinned lease, native target-capability aliases, packaged native-module loading/fail-closed unsupported-capability proof, durable save-intent crash/reconciliation, all target-ordinal/write/rename/ack CAS orders, discard tombstone races, distinct Save As, monotonic receipts with byte/encoding/BOM evidence |
-| View and source-mode persistence                    | Save/autosave in Markup, Original, Revised, and Source; WYSIWYG↔Source no-op handoff; every path persists the same committed canonical revision                                                                                                                                                                     |
-| Track Changes                                       | Full source-native mutation taxonomy defined above across all forms × arms/boundaries × plain/empty/nested/block-spanning shapes; atomic literal owners; exact captured operations and source-edit composition; one semantic history entry; exact undo; projection/locality laws                                    |
-| Mutation failure and rejection                      | Preparation, composition, parse/resource, postcondition, mapping, journal, publication, observer, and effect injection matrix with atomic pre-commit failure, exact crash recovery, and one localized actionable non-focus-stealing rejection where applicable                                                      |
-| Malformed, nested, block-spanning, literal contexts | Profile/recovery corpus, every frozen manifest boundary, and property tests                                                                                                                                                                                                                                         |
-| Deterministic resource boundary                     | Versioned `syntax-accounting-1` traces, 16,384/16,385 cross-consumer matrix, exact other budget edges, full/incremental first-failure identity, no stack overflow/leakage, and SourceOnly semantic disablement plus exact persistence                                                                               |
-| Type-safe resolution and undo/redo                  | Change forms Accept/Reject; annotations Remove/Edit as defined; BOF/middle/EOF individual-vs-bulk semantic parity and exact no-protection parity; no legacy junction normalization; fresh transitions after reinterpretation; exact history for every structure                                                     |
-| Comments hidden from prose                          | Render-position-map tests plus real browser mouse/keyboard/IME tests at arbitrary nesting depth                                                                                                                                                                                                                     |
-| Comment context and anchor deletion                 | Gapless context after all four relevant forms; frozen root-Revised contribution atoms; root/pending exact outcomes; residual nested-node survival; global nested-Comment rejection; sequential partial/final Track off/on/undo/redo and adjacency matrix with no sentinel or data loss                              |
-| Sidebar composition and cards                       | Nonempty selection opens a focused composer; anchored card shows payload plus anchor preview; standalone Comment shows explicit unanchored state; flat list has no duplicate Highlight card                                                                                                                         |
-| Raw Comment command input                           | Add/Edit fixtures for nested CM, protection, active outer closer, whitespace/empty, CRLF/bare-CR/LF/mixed-EOL no-op/edit/Enter/paste/recovery, exact retained drafts, target survival, and payload-only undo                                                                                                        |
-| Sidebar create/edit/delete                          | One contiguous fresh-state E2E proving no modal, distinct anchor, one card, in-place edit, flat list, and prose-retaining removal                                                                                                                                                                                   |
-| Exact Add Comment persistence                       | Real desktop authoring and file reopen prove exactly `{==sel==}{>>note<<}` with no private bytes or normalization                                                                                                                                                                                                   |
-| Add Comment validity and gestures                   | Collapsed/hidden/stale/crossing/partial-CM/inside-literal/partial-literal/zero-contribution targets reject; positive Add Comment/Highlight wraps complete nested CM/literal owners; same/cross-paragraph × mouse/keyboard real-selection matrix                                                                     |
-| Passive selection                                   | Browser tests proving deepest visible item/innermost anchor versus persistent explicit parent focus, without open, scroll, focus jump, or edit                                                                                                                                                                      |
-| Native context-menu edit                            | Event-scoped Electron E2E with authenticated nested hit ancestry, deepest-item actions, nearest-anchor Edit Comment, and stale/wrong-frame rejection                                                                                                                                                                |
-| Contextual Review and navigation                    | List-item/block-spanning targeting, deterministic deepest-hit versus explicit parent focus, nested previous/next, focus restoration, and Markup↔Original/Revised projection handoff each have an independent browser row                                                                                            |
-| Review command surfaces                             | Native menu through Electron, command palette, and contextual Review tool each dispatch the same typed intent and observe the same result/rejection at their real boundary                                                                                                                                          |
-| Mouse Review access                                 | Separate real-pointer rows for the visible-rail Review icon and the persistent in-window control with panel and rail fully hidden; persistent-control activation preserves editor focus and selection                                                                                                               |
-| Draft and asynchronous input safety                 | Durable-before-paint admission, ambiguous-send reconciliation and gap tombstones, frozen wire hash/outcome envelopes, SourceDraft delta/resync, unmount/file switch/rebase/overlap/rapid typing/IME/cancel/recovery, all-draft preparePersistence gates, targeted CancelClose/final fences, exactly-once settlement |
-| Menu semantics/localization                         | Command-presentation contract tests for every legal/illegal item action and locale                                                                                                                                                                                                                                  |
-| Consumer projection policy                          | Every frozen Markup/Original/Revised × copy/cut/paste/search/replace/count/source/export/PDF/print cell, including raw/live/note/elided Comment handling                                                                                                                                                            |
-| HTML security                                       | Sink-specific opaque `TrustedHtml` type tests, hostile fixtures at every boundary, and actual artifacts                                                                                                                                                                                                             |
-| Performance and renderer responsiveness             | Deterministic scaling and ceilings plus maximum-document leading-delimiter heartbeat through worker, structured clone, checksum/delta staging, atomic swap, and current-viewport DOM mount                                                                                                                          |
-| Installed comment workflow                          | The complete select → focused compose → exact persisted pair → distinct anchor/card → edit → remove/save/reopen flow against a freshly installed or mounted distributable, not only unit tests or unpacked smoke                                                                                                    |
-| Installed full CriticMarkup workflow                | The installed/mounted artifact opens every corpus class; authors five forms; performs tracked inline/structural edits; resolves individual/all; switches views; exercises clipboard/search/source; save/autosave/reopen/undo/redo; and emits HTML/PDF/print                                                         |
-| Platform readiness                                  | Fresh hidden/unfocused build and named macOS arm64/Windows x64/Linux x64 build plus Review menu/keybinding jobs                                                                                                                                                                                                     |
+| Five CM forms and projections                       | Standard/Profile corpora, recursive 7×5 projection matrix, all-five nesting fixture, and literal projection properties                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Boundary-safe projection/resolution                 | Protective escape; retained-decision/survivor manifest; linear whole-candidate guarded run; responsible delimiter for retargeted nodes; one clean verifier parse; exact shared causes/affinity; `O(n)` unsafe-join scaling; idempotence, survivor-set, Accept All, and Reject All with literal expected source                                                                                                                                                                                                                                                                                                             |
+| Boundary-safe semantic editing                      | Every CM/Markdown delimiter split across inserted/retained and retained/retained joins; complete-vs-partial CM/literal enclosure; atomic literal-owner editing; exact-empty cleanup; literal canonical/projected/meaning expectations; no synthetic, duplicated, or retargeted node                                                                                                                                                                                                                                                                                                                                        |
+| Exact core source                                   | Code-unit identity over BOM/EOL/trivia/malformed/Unicode variants; source-only U+FEFF grammar matrix; versioned Source/File/Semantic hash known answers; persistence reads revision source by identity                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Exact desktop persistence                           | File-backed no-op save×2/reopen, edit/save/reopen, autosave, pinned lease, native target-capability aliases, packaged native-module loading/fail-closed unsupported-capability proof, durable save-intent crash/reconciliation, all target-ordinal/write/rename/ack CAS orders, discard tombstone races, distinct Save As, monotonic receipts with byte/encoding/BOM evidence                                                                                                                                                                                                                                              |
+| View and source-mode persistence                    | Save/autosave in Markup, Original, Revised, and Source; WYSIWYG↔Source no-op handoff; every path persists the same committed canonical revision                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Track Changes                                       | Full source-native mutation taxonomy defined above across all forms × arms/boundaries × plain/empty/nested/block-spanning shapes; atomic literal owners; exact captured operations and source-edit composition; one semantic history entry; exact undo; projection/locality laws                                                                                                                                                                                                                                                                                                                                           |
+| Mutation failure and rejection                      | Preparation, composition, parse/resource, postcondition, mapping, journal, publication, observer, and effect injection matrix with atomic pre-commit failure, exact crash recovery, and one localized actionable non-focus-stealing rejection where applicable                                                                                                                                                                                                                                                                                                                                                             |
+| Malformed, nested, block-spanning, literal contexts | Profile/recovery corpus, every frozen manifest boundary, and property tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Deterministic resource boundary                     | Versioned `syntax-accounting-1` traces, 16,384/16,385 cross-consumer matrix, exact other budget edges, full/incremental first-failure identity, no stack overflow/leakage, and SourceOnly semantic disablement plus exact persistence                                                                                                                                                                                                                                                                                                                                                                                      |
+| Type-safe resolution and undo/redo                  | Change forms Accept/Reject; annotations Remove/Edit as defined; BOF/middle/EOF individual-vs-bulk semantic parity and exact no-protection parity; no legacy junction normalization; fresh transitions after reinterpretation; exact history for every structure                                                                                                                                                                                                                                                                                                                                                            |
+| Comments hidden from prose                          | Render-position-map tests plus real browser mouse/keyboard/IME tests at arbitrary nesting depth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Comment context and anchor deletion                 | Gapless context after all four relevant forms; frozen root-Revised contribution atoms; root/pending exact outcomes; residual nested-node survival; global nested-Comment rejection; sequential partial/final Track off/on/undo/redo and adjacency matrix with no sentinel or data loss                                                                                                                                                                                                                                                                                                                                     |
+| Sidebar composition and cards                       | Nonempty selection opens a focused composer; anchored card shows payload plus anchor preview; standalone Comment shows explicit unanchored state; flat list has no duplicate Highlight card                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Raw Comment command input                           | Add/Edit fixtures for nested CM, protection, active outer closer, whitespace/empty, CRLF/bare-CR/LF/mixed-EOL no-op/edit/Enter/paste/recovery, exact retained drafts, target survival, and payload-only undo                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Sidebar create/edit/delete                          | One contiguous fresh-state E2E proving no modal, distinct anchor, one card, in-place edit, flat list, and prose-retaining removal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Exact Add Comment persistence                       | Real desktop authoring and file reopen prove exactly `{==sel==}{>>note<<}` with no private bytes or normalization                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Add Comment validity and gestures                   | Collapsed/hidden/stale/crossing/partial-CM/inside-literal/partial-literal/zero-contribution targets reject; positive Add Comment/Highlight wraps complete nested CM/literal owners; same/cross-paragraph × mouse/keyboard real-selection matrix                                                                                                                                                                                                                                                                                                                                                                            |
+| Passive selection                                   | Browser tests proving deepest visible item/innermost anchor versus persistent explicit parent focus, without open, scroll, focus jump, or edit                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Native context-menu edit                            | Event-scoped Electron E2E with authenticated nested hit ancestry, deepest-item actions, nearest-anchor Edit Comment, and stale/wrong-frame rejection                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Contextual Review and navigation                    | List-item/block-spanning targeting, deterministic deepest-hit versus explicit parent focus, nested previous/next, focus restoration, and Markup↔Original/Revised projection handoff each have an independent browser row                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Review command surfaces                             | Native menu through Electron, command palette, and contextual Review tool each dispatch the same typed intent and observe the same result/rejection at their real boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Mouse Review access                                 | Separate real-pointer rows for the visible-rail Review icon and the persistent in-window control with panel and rail fully hidden; persistent-control activation preserves editor focus and selection                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Draft and asynchronous input safety                 | Durable-before-paint admission, ambiguous-send reconciliation and gap tombstones, frozen wire hash/outcome envelopes, SourceDraft delta/resync, unmount/file switch/rebase/overlap/rapid typing/IME/cancel/recovery, all-draft preparePersistence gates, targeted CancelClose/final fences, exactly-once settlement                                                                                                                                                                                                                                                                                                        |
+| Menu semantics/localization                         | Command-presentation contract tests for every legal/illegal item action and locale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Consumer projection policy                          | Every frozen Markup/Original/Revised × copy/cut/paste/search/replace/count/source/export/PDF/print cell, including raw/live/note/elided Comment handling                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| HTML security                                       | Sink-specific opaque `TrustedHtml` type tests, hostile fixtures at every boundary, and actual artifacts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Performance and renderer responsiveness             | Deterministic scaling and ceilings plus maximum-document leading-delimiter heartbeat through worker, structured clone, checksum/delta staging, atomic swap, and current-viewport DOM mount                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Installed comment workflow                          | The complete select → focused compose → exact persisted pair → distinct anchor/card → edit → remove/save/reopen flow against a freshly installed or mounted distributable, not only unit tests or unpacked smoke                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Installed full CriticMarkup workflow                | The installed/mounted artifact opens every corpus class; authors five forms; performs tracked inline/structural edits; resolves individual/all; switches views; exercises clipboard/search/source; save/autosave/reopen/undo/redo; and emits HTML/PDF/print                                                                                                                                                                                                                                                                                                                                                                |
+| Platform readiness                                  | Fresh hidden/unfocused build and named macOS arm64/Windows x64/Linux x64 build plus Review menu/keybinding jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Tests that inspect filenames, helper names, line counts, or regex-match source text are not proof of
 these behaviors. Architectural boundaries should be enforced by package dependency rules, public

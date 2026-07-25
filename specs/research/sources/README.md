@@ -13,6 +13,7 @@ for provenance.
 | `gemini-criticmarkup-semantics-analysis.pdf` / `.txt`  | Gemini Deep Research report on the same question (independent run)                                                                                                                                                        | 0005       |
 | `claude-deep-research-build-vs-adopt.json`             | Full verified findings of the Claude deep-research run on building Profile 1 atop existing engines (12 findings, 22 claims 3-vote verified, 3 refuted)                                                                    | 0006 §7–§9 |
 | `gemini-headless-engines-evaluation.md`                | Gemini Deep Research report on the same build-vs-adopt question (independent run; markdown as delivered)                                                                                                                  | 0006 §8    |
+| `claude-deep-research-wide-sweep.json`                 | Full verified findings of the final wide engine sweep against the ratified R-1…R-7 set (12 findings, 21 claims verified — 19 at 3-0, 4 sub-claims refuted; markdig/goldmark/intellij-markdown walls verified to source)   | 0008       |
 
 Caution: the Gemini reports are the _unverified_ runs. Research 0005 documents specific
 Gemini claims that failed primary-source verification (MMD-6-rendering-as-prepass, the

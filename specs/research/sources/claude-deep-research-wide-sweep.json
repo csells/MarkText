@@ -1,0 +1,302 @@
+{
+  "question": "Final wide sweep before committing to a custom build: does ANY existing parser/engine \u2014 any language, any architecture, mainstream or research \u2014 satisfy or come materially close to this ratified requirement set for MarkText's Markdown+CriticMarkup core parser? And independently: what prior art exists for the hardest single requirement (form-a cross-block spans), even in non-adoptable systems? RATIFIED REQUIREMENTS (owner-approved 2026-07-25; these are the evaluation criteria, verbatim): R-1 FORM-A MULTI-BLOCK SPANS: one CriticMarkup annotation ({++add++}, {--del--}, {~~old~>new~~}, {==hl==}, {>>note<<}) may open mid-sentence in one paragraph and close mid-sentence in a later block, crossing blank lines, headings, blockquotes, lists \u2014 recognized as ONE first-class entity, read AND write; this expresses paragraph-break deletion/insertion. R-2 ONE PARSE, ONE AUTHORITY: CM recognized in the same single pass as Markdown \u2014 no regex prepass, no second scanner, no overlay grammar, no post-parse pairing that revises recognition decisions. R-3 PARSE-ONCE VIEWS: Original (reject-all) / Revised (accept-all) / editing views read off one parse with stable node identity across views. R-4 O(n) linear on real documents, adversarial inputs bounded (degrade, never freeze) \u2014 no unmitigated quadratic delimiter/reference behavior. R-5 incremental per-keystroke reparse eventually required \u2014 design must not foreclose fragment reuse. R-6 total error tolerance \u2014 every mid-edit prefix parses; unmatched markers degrade to literal text affecting nothing. R-7 exposes a block-oriented AST the editor can mount and update; note form-a spans crossing container boundaries are unrepresentable in a strictly-nested tree, so the engine needs a graph/overlay-span authority beside the tree (GODDAG-like). ADOPTABILITY (for engine candidates): embeddable in an Electron sandboxed TS renderer (TS/JS native, or WASM with per-keystroke boundary + UTF-8\u2192UTF-16 offset cost assessed), MIT-compatible license, active maintenance, real production hardening, CommonMark+GFM conformance. PRIOR RUNS ALREADY SWEPT (do not re-litigate; only revisit if new evidence): pulldown-cmark, comrak, markdown-rs, jotdown, tree-sitter grammars, rowan/Typst, micromark, @lezer/markdown, markdown-it JS+Rust, marked, remark/mdast, prosemirror-markdown \u2014 all failed R-1+R-2 on public APIs (verified). NEW GROUND TO SWEEP \u2014 five angles: (1) UNEVALUATED MAINSTREAM ENGINES: goldmark (Go \u2014 Hugo's engine, rich block+inline extension API with AST transformers: can its extension model express form-a spans? WASM/TinyGo embedding cost?); markdig (C# \u2014 pluggable pipeline, precise source spans: any cross-block inline extension precedent?); flexmark-java and commonmark-java (extension architectures, source fidelity); swift-markdown/cmark forks with sourcepos; intellij-markdown (Kotlin, IDE-grade error tolerance \u2014 incremental?); mistune/goldmark-like Python engines only if architecturally novel. For each: parse model, extension ceiling for form-a, error tolerance, incrementality, embeddability verdict with citations. (2) INCREMENTAL/RESILIENT PARSING RESEARCH: Tim Wagner's incremental GLR line, Harmonia; Eco/language boxes (Tratt); matklad's resilient-LL writings and rust-analyzer red-green practice applied to markdown; any academic or industrial incremental MARKDOWN parser; Lezer/tree-sitter design retrospectives on why markdown resists \u2014 anything that changes the R-1 feasibility calculus. (3) OVERLAPPING-SPAN PRIOR ART (the deep question): GODDAG structures, LMNL, TexMECS/CONCUR from overlapping-markup scholarship; Peritext (Ink & Switch) rich-text spans over plain text crossing block boundaries; ProseMirror/Word/Google-Docs track-changes internal representations of cross-block suggestions; standoff-annotation systems (Web Annotation, standoff-markup tools) \u2014 what representation and what pairing/recovery semantics do they use, and what transfers to a source-authoritative markdown+CM engine? (4) EDITOR-INTERNAL ENGINES: what do Typora, Obsidian live preview, Zettlr, Mist, Bear, Ulysses, iA Writer, Zed, JetBrains Markdown actually use for markdown(+annotations) parsing during interactive editing \u2014 any closed or open engine that parses annotation spans across blocks in one pass? (5) CONTRARIAN: does ANY implementation anywhere parse CriticMarkup form-a spans as first-class single-pass productions (search issue trackers, forks, academic tools, Quarto/pandoc ecosystems, docx-to-CM converters)? DELIVERABLES: per-candidate verdicts against R-1..R-7 with primary-source citations; a prior-art digest for the graph-beside-tree representation with design lessons for the custom engine; and the final answer: does anything adoptable exist (name it and the gap list), or is the custom build confirmed \u2014 in which case name the top 5 harvestable assets (algorithms, test corpora, representation designs) the custom engine should import, with sources.",
+  "summary": "The final sweep confirms the custom build. Every remaining unevaluated mainstream engine (markdig, goldmark, intellij-markdown) parses in the same strict block-then-inline two-phase architecture, so form-a cross-block CriticMarkup spans (R-1) sit above each engine's extension ceiling, and their only cross-block hooks are post-parse passes that violate R-2 \u2014 verified against parser source, not just docs. Nothing anywhere was found that parses CriticMarkup-style spans as first-class single-pass cross-block productions: even Microsoft Word's production tracked-changes model deliberately decomposes a cross-paragraph deletion into per-block deletions plus a deleted paragraph-mark flag, and Peritext (the strongest overlay-span prior art) explicitly scopes its published algorithm to within-paragraph inline formatting. However, the sweep yielded strong harvestable assets: Wagner & Graham's incremental parsing algorithms (O(t + s lg N), provably optimal node reuse, balanced sequences) de-risk R-4/R-5; @lezer/markdown is a working existence proof of hand-written single-pass incremental JS markdown parsing; and GODDAG multiple-parentage, Peritext gap-anchors, and OOXML boundary-token semantics together give the R-7 graph-beside-tree authority a well-grounded design vocabulary. Verdict: no adoptable engine exists; build the custom document-core engine and import the five assets listed in the final finding.",
+  "findings": [
+    {
+      "claim": "Markdig (C#) fails R-1 and R-2 at the architecture level: inline parsing is a strictly separate second phase run per-LeafBlock after the entire block tree is fixed, so a custom inline extension can never recognize one span opening in one block and closing in a later one; and even markdig's own within-block pairing (emphasis, links, tables) is resolved by temporary DelimiterInline nodes plus a post-processing step that rewires the inline linked list \u2014 exactly the post-parse pairing mechanism R-2 excludes.",
+      "confidence": "high",
+      "vote": "3-0, 3-0 (two merged claims)",
+      "sources": [
+        "https://github.com/xoofx/markdig/blob/master/site/docs/advanced/inline-parsers.md",
+        "https://github.com/xoofx/markdig/blob/master/src/Markdig/Parsers/MarkdownParser.cs",
+        "https://github.com/xoofx/markdig/blob/master/src/Markdig/Syntax/Inlines/Inline.cs"
+      ],
+      "evidence": "Official docs: inline parsers \"run during the second phase of parsing, after all blocks have been identified\" and \"Markdig implements this pattern with temporary delimiter nodes (subclasses of DelimiterInline) plus a post-processing step that rewires the inline linked-list into the final AST shape.\" Verifiers independently confirmed in MarkdownParser.cs that ProcessBlocks runs to completion (blockProcessor.CloseAll(true)) before ProcessInlines, and that Inline.Parent is a single ContainerInline rooted at one LeafBlock, making a cross-block inline entity unrepresentable. Known workarounds (DocumentProcessed rewriting, as used by the Abbreviations extension) are post-parse passes. Note: docs moved from doc/parsing-extensions.md to site/docs/advanced/ in Feb 2026; quotes verified verbatim at the new path."
+    },
+    {
+      "claim": "Goldmark (Go, Hugo's engine) fails R-1 and R-2: parsing is strictly two-phase (block structure fixed first, then per-block inline parsing with delimiter resolution deferred to end-of-block), an InlineParser physically cannot see another block's text because parseBlock resets the reader to only the current block's line segments, and the only whole-document hook is the post-parse ASTTransformer \u2014 so any cross-block CriticMarkup pairing on goldmark would be post-parse pairing that violates R-2. The precise ceiling: an inline extension triggered on '{' may consume across soft line breaks within one block, but never across block boundaries.",
+      "confidence": "high",
+      "vote": "3-0, 3-0, 3-0 (three merged claims)",
+      "sources": [
+        "https://github.com/yuin/goldmark",
+        "https://pkg.go.dev/github.com/yuin/goldmark/parser",
+        "https://github.com/yuin/goldmark/blob/master/parser/parser.go"
+      ],
+      "evidence": "README parsing diagram: \"Parse block elements into AST\" \u2192 \"Traverse AST and parse blocks\" \u2192 \"Process delimiters(emphasis) at the end of block parsing.\" Godoc: InlineParser.Parse \"can parse beyond the current line\" (unlike BlockParser's \"must not parse beyond the current line\"), but parser.go shows parseBlock calls block.Reset(parent.Lines()), scoping the text.Reader to the current block only, and ProcessDelimiters fires per block. ASTTransformers run in a loop after all recognition completes (parser.go lines ~906-908). Verifiers attempted the steelman (Context state + CloseBlocker pairing across blocks) and confirmed it still mutates already-recognized nodes \u2014 post-recognition pairing, failing R-2. No goldmark extension achieving in-pass cross-block inline spans exists anywhere that searches could find."
+    },
+    {
+      "claim": "intellij-markdown (Kotlin, JetBrains' IDE-grade parser) fails R-1 and R-2: parsing is two logical phases (block splitting, then inline parsing of the resulting blocks), and the entire extension surface \u2014 MarkdownFlavourDescriptor's getMarkerBlockProviders for blocks and ordered SequentialParser instances via getParserSequence for inlines \u2014 plugs into fixed slots inside that pipeline, so a registered inline parser only ever sees one block's tokens and cannot emit a production opening in one block and closing in a later one; escaping this requires replacing MarkdownParser itself.",
+      "confidence": "high",
+      "vote": "3-0, 3-0 (two merged claims)",
+      "sources": [
+        "https://github.com/JetBrains/markdown/blob/master/README.md",
+        "https://github.com/JetBrains/markdown/blob/master/src/commonMain/kotlin/org/intellij/markdown/parser/MarkdownParser.kt"
+      ],
+      "evidence": "README: \"The parsing process is held in two logical parts: 1. Splitting the document into blocks... 2. Parsing the inline structure of the resulting blocks.\" MarkdownParser.kt (verified at HEAD c4f9d62, 2026-07-24): doParse runs the block phase to completion (markerProcessor.processPosition loop + flushMarkers) before parseInline is invoked per leaf node (PARAGRAPH, ATX_CONTENT, SETEXT_CONTENT, GFM CELL), each with a fresh lexer bounded to that node's own range and a per-block TokensCache. Notably, today's HEAD adds parseStreaming/unstableStartOffset incremental machinery but leaves per-block inline confinement unchanged."
+    },
+    {
+      "claim": "@lezer/markdown is both the strongest existence proof and the clearest ceiling demonstration among JS engines: it is a production, hand-written, single-pass, incremental Markdown parser that reuses tree fragments per edit (proving R-5 is achievable in JS), yet its InlineParser extension mechanism runs only within inline-content regions already fixed by the block pass \u2014 the maintainer states flatly that inline elements cannot continue beyond a block's end \u2014 so R-1 remains above its public extension ceiling.",
+      "confidence": "high",
+      "vote": "3-0, 3-0 (two merged claims)",
+      "sources": [
+        "https://github.com/lezer-parser/markdown",
+        "https://code.haverbeke.berlin/lezer/markdown",
+        "https://discuss.codemirror.net/t/combining-inline-and-block-behaviour-for-markdown-comments/6717"
+      ],
+      "evidence": "README: \"This is an incremental Markdown (CommonMark with support for extension) parser\" that is deliberately \"single-pass and incremental\" (trading away link-reference validation). src/markdown.ts implements FragmentCursor, BlockContext.reuseFragment(), and createParse() accepting TreeFragments \u2014 verified in source, not prose. On the ceiling, verifiers confirmed parseInline creates a fresh per-leaf InlineContext, resolveMarkers pairs delimiters only within one context, and the leaf-accumulation loop breaks on blank lines before custom LeafBlockParsers are consulted. Marijn Haverbeke (maintainer): \"because Markdown divides the input into blocks before it does any inline parsing, you can't make inline elements continue beyond what would be the end of the block.\" Used in production via @codemirror/lang-markdown (Obsidian, Joplin). Note: GitHub repo archived 2026-04-15; development continues at code.haverbeke.berlin with npm releases current (1.7.2, 2026-07-15)."
+    },
+    {
+      "claim": "Wagner & Graham's incremental parsing work (TOPLAS 1998, the basis of tree-sitter) establishes that the custom engine's R-4/R-5 goals are achievable and supplies three importable results: (a) incremental reparse in O(t + s lg N) for t new terminals and s edit sites, location-independent and supporting mixed textual+structural multi-site edits; (b) provably optimal node reuse formulated independently of the parsing algorithm \u2014 unmodified subtrees and root-to-edit-path nodes are retained, and common edits modify no tree nodes at all \u2014 direct prior art for R-3's stable node identity; and (c) the finding that balancing of lengthy sequences is THE central requirement for real incremental behavior, a concrete design mandate for a Markdown document whose top level is a long flat block list.",
+      "confidence": "high",
+      "vote": "3-0, 3-0, 3-0 (three merged claims)",
+      "sources": [
+        "https://harmonia.cs.berkeley.edu/papers/twagner-parsing.pdf"
+      ],
+      "evidence": "All three quotes verified verbatim against the downloaded PDF: \"Our incremental parsing algorithm runs in O(t + s lg N) time... the location of the changes does not affect the running time\"; \"We present a new formulation of [optimal reuse] that is independent of the operation of the parsing algorithm... In common cases, such as changing an identifier spelling, our parser makes no modifications to the parse tree\" (and p.3 explicitly motivates reuse by preserving \"irreproducible user annotations\"); \"The central requirement for actual incremental behavior\u2014balancing of lengthy sequences\u2014has been ignored in all previous approaches.\" Qualifications: the lg N bound assumes balanced sequence representation (Section 7: unbounded-in-practice sequences must be associative sequences); the algorithms are LALR(1)/LR-based so transfer to a hand-written Markdown parser is at the level of technique, not code; Diekmann (2019) fixed several bugs in the as-published algorithms when reimplementing."
+    },
+    {
+      "claim": "Eco / language boxes (Diekmann & Tratt) \u2014 the flagship composed-language incremental editing system \u2014 offers no prior art for R-1 and is itself non-adoptable: language boxes are strictly nested (an embedded box is one token in the outer parse tree carrying its own separate tree, a tree-of-trees), with zero mechanism for a construct opening in one box and closing in another; and Eco is not source-authoritative \u2014 composed programs must be stored as parse trees in memory and on disk, incompatible with Git/Mercurial and readable only by Eco. Its main value is confirming the strictly-nested ceiling that R-7's graph-beside-tree authority is designed to escape.",
+      "confidence": "high",
+      "vote": "3-0, 3-0 (two merged claims)",
+      "sources": [
+        "https://diekmann.co.uk/diekmann_phd.pdf",
+        "https://soft-dev.org/pubs/html/diekmann_tratt__eco_a_language_composition_editor/"
+      ],
+      "evidence": "Thesis (verified verbatim, section 5.2.2): \"nested language boxes are therefore treated as tokens... a new node of type SQL is inserted into the parse tree and treated as any other token.\" Conclusion chapter: \"its support for language composition requires programs to be represented as parse trees internally as well as when they are saved to disk... composed programs written in Eco can currently only be read and edited in Eco,\" followed two sentences later by explicit Git/Mercurial incompatibility; plain-text export is one-way lossy. Verifiers grepped the full thesis for overlap mechanisms and found none (cross-box selection is handled by flattening to text and reparsing; cross-language scoping is post-parse name binding). Repo effectively dormant since Dec 2022, README still says not production-intended."
+    },
+    {
+      "claim": "Peritext (Ink & Switch) is the strongest transferable prior art for R-7's overlay-span authority \u2014 formatting is standoff operations anchored to stable per-character identities over a flat sequence, with each character exposing two anchor points (the gaps before and after it) where a span end may attach, explicitly contrasted with tree-structured representations \u2014 but it is NOT direct prior art for R-1: its published algorithm is scoped to inline formatting within a single paragraph, with block elements deferred, and even the later Automerge 2.2 block extension keeps text in exactly one block.",
+      "confidence": "high",
+      "vote": "3-0, 3-0 (two merged claims)",
+      "sources": [
+        "https://www.inkandswitch.com/peritext/",
+        "https://doi.org/10.1145/3555644",
+        "https://www.inkandswitch.com/dispatch-004/"
+      ],
+      "evidence": "Essay (verified verbatim): \"For each character, the internal data structure stores the opId, whether it has been deleted, and the set of operations anchored to the gaps before and after the character\"; and \"in this article we focus only on inline formatting such as bold, italic... which can occur within a single paragraph of text. In a future article we will extend our algorithm to support block elements.\" Backed by the peer-reviewed CSCW 2022 paper and corroborated by Weidner's CRDT survey and Loro's rich-text writeup. Ink & Switch's own dispatch-004 (May 2024) confirms the essay \"didn't address... block elements\"; Automerge 2.2's shipped block support states text \"should only ever be in a single block.\" Transfer note: Peritext's stable identities are CRDT opIds chosen for merge stability \u2014 the anchor-to-gap semantics transfers to a source-authoritative engine, the identity scheme must be re-derived from source offsets/provenance."
+    },
+    {
+      "claim": "GODDAG (Sperberg-McQueen & Huyssteen) supplies the formal grounding for R-7: overlapping spans are represented by relaxing single parenthood \u2014 \"Overlap is multiple parentage\" \u2014 so one span node can be dominated by containers in different hierarchies, and the paper establishes that strictly-nested tree notations (SGML/XML, and by extension any strictly-nested markdown AST) create structural difficulties for documents whose structures of interest are not properly nested, with every tree workaround (milestones, fragmentation, CONCUR) sacrificing first-class status. This is exactly the shape of a form-a span: shared content dominated by both its block container and its annotation span.",
+      "confidence": "high",
+      "vote": "3-0 and 2-1 (two merged claims)",
+      "sources": [
+        "https://cmsmcq.com/2000/poddp2000.html",
+        "https://www.researchgate.net/publication/221215914_GODDAG_A_data_structure_for_overlapping_hierarchies"
+      ],
+      "evidence": "Author's own full text (stronger than the ResearchGate copy): \"Overlap can be represented by graphs that are very like trees, but in which nodes may have multiple parents. Overlap is multiple parentage.\" Peer-reviewed (PODDP 2000 / Springer LNCS 2023) by the XML 1.0 co-editor. Nuances from verification: the restricted GODDAG relaxes exactly one constraint (single parenthood) and suffices for arbitrary overlapping markup; the generalized form relaxes more (for discontinuity, not overlap). The 2-1 claim's phrase \"inherently inadequate\" is stronger than the paper's own \"certain difficulties\" \u2014 the paper catalogs awkward-but-possible tree workarounds \u2014 but the operative premise (a span crossing container boundaries is unrepresentable as ONE first-class entity in a single-parent tree) is formally exact and independently corroborated."
+    },
+    {
+      "claim": "Contrarian evidence that R-1 is genuinely novel: OOXML/Word \u2014 the most battle-tested tracked-changes system in existence \u2014 deliberately avoids cross-block spans. A deleted paragraph break is represented not as a span crossing two blocks but as a w:del flag on the paragraph-mark token's run properties (w:p > w:pPr > w:rPr > w:del), whose normative semantics is block merging (\"the contents of this paragraph are... combined with the following paragraph\"); a user's logically single cross-paragraph deletion is decomposed into per-block content deletions plus deleted boundary markers, never one first-class spanning entity. This both confirms no mainstream precedent for R-1 and hands the custom engine its accept/reject semantics oracle for paragraph-break deletion.",
+      "confidence": "high",
+      "vote": "3-0, 3-0 (two merged claims)",
+      "sources": [
+        "https://c-rex.net/samples/ooxml/e1/part4/OOXML_P4_DOCX_del_topic_ID0EMM3V.html",
+        "https://learn.microsoft.com/en-us/office/open-xml/word/how-to-accept-all-revisions-in-a-word-processing-document"
+      ],
+      "evidence": "ECMA-376 Part 4 (verified verbatim at the mirror): \"the paragraph mark delimiting the end of a paragraph within a WordprocessingML document shall be treated as deleted (i.e. the contents of this paragraph are no longer delimited by this paragraph mark, and are combined with the following paragraph - but those contents shall not automatically be marked as deleted).\" The spec's own XML example shows no element spanning the two w:p blocks. Corroborated by Microsoft Learn's accept-revisions docs and an Okapi framework bug about the split representation. Scope caveat: OOXML does use paired cross-block range markers for moves and comments (w:moveFromRangeStart/End) \u2014 bracketing marker pairs, still not one first-class node \u2014 the boundary-token claim is scoped to deletion. Stable since ECMA-376:2006/ISO 29500."
+    },
+    {
+      "claim": "@blocknote/prosemirror-suggest-changes is the closest editor-world precedent for R-7's overlay authority: suggested changes are three overlay mark types (insertion, deletion, modification) layered onto the ProseMirror node tree \u2014 including marks applied directly to block nodes via AddNodeMarkStep \u2014 rather than nested tree nodes, with destructive edits intercepted and replaced by mark additions. But a cross-block suggestion remains mark FRAGMENTS grouped by a shared id attribute, not a single first-class entity, so it is prior art for the overlay-mark concept and the editor-mount projection pattern, not for R-1 itself.",
+      "confidence": "high",
+      "vote": "3-0",
+      "sources": [
+        "https://www.npmjs.com/package/@blocknote/prosemirror-suggest-changes",
+        "https://github.com/handlewithcarecollective/prosemirror-suggest-changes"
+      ],
+      "evidence": "Verified against the published npm tarball (v0.1.3), not just the page: README defines the three mark types verbatim and requires them as block marks (\"We need to allow these marks as block marks as well, to support block-level suggestions\"; doc: { marks: \"insertion modification deletion\" }); shipped dist/addNodeMarkStep.js applies marks to nodes via ProseMirror's AddNodeMarkStep; withSuggestChanges decorates transactions to substitute marks for destructive edits. MIT, actively maintained upstream (handlewithcarecollective). The per-node mark storage + shared-id grouping is a useful projection pattern for mounting form-a spans onto a block-tree editor view (R-3/R-7) while the engine's graph authority holds the single entity."
+    },
+    {
+      "claim": "FINAL VERDICT \u2014 no adoptable engine exists; the custom build is confirmed. Across five sweep angles and 21 verified claims, every engine with a public extension API (markdig, goldmark, intellij-markdown in this run; the 12 previously-swept engines by prior verification) fails R-1+R-2 for the same architectural reason: CommonMark's canonical block-then-inline two-phase strategy freezes block boundaries before any inline recognition, and every cross-block escape hatch is a post-parse pass. No implementation anywhere \u2014 mainstream, research, or production tracked-changes \u2014 parses form-a cross-block spans as first-class single-pass productions; systems that need the effect either decompose it (Word), scope it away (Peritext), or nest strictly (Eco, Lezer). The gap is real and the engine must be built.",
+      "confidence": "high",
+      "vote": "synthesis of 21 claims (19 at 3-0, 1 at 2-1)",
+      "sources": [
+        "https://github.com/xoofx/markdig/blob/master/site/docs/advanced/inline-parsers.md",
+        "https://github.com/yuin/goldmark",
+        "https://github.com/JetBrains/markdown",
+        "https://code.haverbeke.berlin/lezer/markdown",
+        "https://c-rex.net/samples/ooxml/e1/part4/OOXML_P4_DOCX_del_topic_ID0EMM3V.html",
+        "https://www.inkandswitch.com/peritext/"
+      ],
+      "evidence": "Convergence across independent architectures: markdig (\"after all blocks have been identified\"), goldmark (\"Process delimiters(emphasis) at the end of block parsing\"), intellij-markdown (\"two logical parts\"), and @lezer/markdown (maintainer: \"you can't make inline elements continue beyond what would be the end of the block\") all confirm the same two-phase ceiling by design, not accident \u2014 it mirrors the CommonMark spec appendix's recommended parsing strategy. The contrarian search for ANY first-class form-a implementation (Word/OOXML, Peritext, ProseMirror suggest-changes, Eco, GODDAG scholarship) found representation prior art but zero single-pass cross-block parse precedent. R-2's single-pass demand additionally disqualifies even markdig's and goldmark's own internal pairing mechanisms."
+    },
+    {
+      "claim": "TOP 5 HARVESTABLE ASSETS for the custom engine: (1) Wagner & Graham's incremental algorithms \u2014 the O(t + s lg N) reparse structure, the algorithm-independent optimal-node-reuse formulation (R-3 stable identity across reparses), and above all the balanced-sequence mandate for the top-level block list (R-4/R-5). (2) @lezer/markdown's implementation patterns \u2014 FragmentCursor/reuseFragment block-granular fragment reuse and its documented single-pass trade-offs (e.g., skipping link-reference validation) as precedent for principled CommonMark deviations. (3) Peritext's anchor semantics \u2014 spans attach to the gaps before/after stable atom identities, giving well-defined behavior when anchored content is edited (R-6 tolerance, R-3 view stability). (4) GODDAG's restricted multiple-parentage model \u2014 the formal shape of the graph-beside-tree authority: one leaf frontier, block hierarchy and annotation spans as co-equal dominators (R-7). (5) OOXML's deleted-paragraph-mark semantics as the accept/reject oracle \u2014 accept of a form-a deletion spanning a paragraph break means block merge, contents not implicitly deleted \u2014 plus prosemirror-suggest-changes' shared-id block-capable overlay marks as the projection pattern for mounting one graph entity onto the editor's block tree (R-3/R-7).",
+      "confidence": "high",
+      "vote": "synthesis",
+      "sources": [
+        "https://harmonia.cs.berkeley.edu/papers/twagner-parsing.pdf",
+        "https://code.haverbeke.berlin/lezer/markdown",
+        "https://www.inkandswitch.com/peritext/",
+        "https://cmsmcq.com/2000/poddp2000.html",
+        "https://c-rex.net/samples/ooxml/e1/part4/OOXML_P4_DOCX_del_topic_ID0EMM3V.html",
+        "https://www.npmjs.com/package/@blocknote/prosemirror-suggest-changes"
+      ],
+      "evidence": "Each asset is backed by a 3-0-verified finding above. The combination is deliberate: Wagner & Graham supply the incrementality theory the hand-written parser must approximate; Lezer supplies working JS code shape for block-granular fragment reuse; Peritext supplies anchor semantics for the span store; GODDAG supplies the formal data-structure justification R-7 already names; OOXML supplies battle-tested semantics for the single hardest user-visible operation (paragraph-break deletion accept/reject), and the ProseMirror plugin supplies the tree-projection pattern so form-a spans can render in a block-mounted editor without the authority ever being a tree."
+    }
+  ],
+  "caveats": "Citation staleness: markdig's docs moved from doc/parsing-extensions.md to site/docs/advanced/ (Feb 2026) \u2014 quotes verified at the new path but the original claim URLs 404; @lezer/markdown's GitHub repo was archived 2026-04-15 with development continuing at code.haverbeke.berlin (npm current at 1.7.2, 2026-07-15); Peritext's \"unpublished future work\" is slightly stale \u2014 Automerge 2.2 (Apr 2024) shipped block support, though it still confines text to a single block, so the R-1 conclusion stands. Four sharper sub-claims were refuted in verification (markdig per-document state scoping, goldmark BlockParser line-scoping as an R-1 cap, goldmark ASTTransformer as the only hook, GODDAG as an R-3 views template): the surviving conclusions do not depend on them, but \"structurally forecloses\" should be read precisely \u2014 stateful extensions CAN pair markers across blocks in several engines; what no engine can do is emit ONE first-class cross-block entity in-pass without post-parse revision, which is what R-1+R-2 jointly require. Coverage gaps: flexmark-java, commonmark-java, swift-markdown/cmark forks, and mistune were in the brief but produced no surviving verified claims \u2014 treat them as unassessed rather than cleared (their architectures are widely understood to be block-then-inline, but that was not verified here). Angle 4 (closed editor internals: Typora, Bear, Ulysses, iA Writer) is inherently unverifiable from primary sources; the negative result there is bounded by closed-source opacity, though Obsidian's use of @lezer/markdown is confirmed. Wagner & Graham's results carry an engineering asterisk: LR-based algorithms with known published bugs later fixed by Diekmann (2019), so transfer is at the level of technique and invariants, not code. One GODDAG sub-claim passed only 2-1 because \"inherently inadequate\" overstates the paper's \"certain difficulties\"; the merged finding uses the defensible narrow premise.",
+  "openQuestions": [
+    "intellij-markdown's HEAD now contains parseStreaming/unstableStartOffset incremental machinery (observed at c4f9d62, 2026-07-24) \u2014 does JetBrains' streaming work contain harvestable error-tolerance or incrementality techniques for the custom engine, even though its per-block inline confinement is unchanged?",
+    "flexmark-java, commonmark-java, swift-markdown, and mistune yielded no verified findings in this run \u2014 should a short confirmation pass close them out formally before the sweep is declared exhaustive, or is the universal two-phase pattern (now verified across 4 architectures plus 12 prior) sufficient to extrapolate?",
+    "What accept/reject semantics should a form-a span carry when its endpoints cross container TYPES (e.g., opens mid-paragraph, closes inside a blockquoted list item)? OOXML's boundary-token oracle covers only paragraph-mark deletion between sibling paragraphs; the general container-boundary case has no discovered precedent and must be designed from scratch.",
+    "Peritext's stable anchors are CRDT opIds; the custom engine is source-authoritative with revision provenance \u2014 what is the right analogue of a 'stable atom identity' for gap-anchoring when the authority is exact source text under incremental reparse (R-3 + R-5 interaction)?"
+  ],
+  "refuted": [
+    {
+      "claim": "The text a markdig InlineParser.Match sees is a StringSlice confined to the current LeafBlock's text, and processor.GetParserState is scoped to the current leaf processing pass \u2014 there is no documented per-document pairing state an inline extension could use to carry an open delimiter across blocks.",
+      "vote": "0-3",
+      "source": "https://github.com/xoofx/markdig/blob/master/doc/parsing-extensions.md"
+    },
+    {
+      "claim": "Goldmark's BlockParser contract is strictly line-scoped: both Open and Continue are forbidden from consuming input past the current line, so a custom block-level extension cannot recognize a multi-block CriticMarkup span as one production during block parsing \u2014 the block model structurally caps R-1 at the block layer.",
+      "vote": "0-3",
+      "source": "https://pkg.go.dev/github.com/yuin/goldmark/parser"
+    },
+    {
+      "claim": "Goldmark's only whole-document extension hook is ASTTransformer, whose Transform method receives the completed *ast.Document after block and inline parsing finish \u2014 so any cross-block CriticMarkup pairing built on goldmark would necessarily be a post-parse pass that revises recognition decisions, directly violating R-2 (one parse, one authority).",
+      "vote": "1-2",
+      "source": "https://pkg.go.dev/github.com/yuin/goldmark/parser"
+    },
+    {
+      "claim": "In a restricted GODDAG the leaf nodes form a single ordered sequence and every node dominates a contiguous subsequence of leaves, so multiple concurrent hierarchies are just multiple trees over one shared frontier \u2014 a direct design template for R-3's parse-once views (Original/Revised/editing) reading off one authority with stable node identity.",
+      "vote": "1-2",
+      "source": "https://www.researchgate.net/publication/221215914_GODDAG_A_data_structure_for_overlapping_hierarchies"
+    }
+  ],
+  "unverified": [],
+  "sources": [
+    {
+      "url": "https://github.com/xoofx/markdig/blob/master/doc/parsing-extensions.md",
+      "quality": "primary",
+      "angle": "Unevaluated mainstream engines \u2014 extension ceiling",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/yuin/goldmark",
+      "quality": "primary",
+      "angle": "Unevaluated mainstream engines \u2014 extension ceiling",
+      "claimCount": 5
+    },
+    {
+      "url": "https://pkg.go.dev/github.com/yuin/goldmark/parser",
+      "quality": "primary",
+      "angle": "Unevaluated mainstream engines \u2014 extension ceiling",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/JetBrains/markdown/blob/master/README.md",
+      "quality": "primary",
+      "angle": "Unevaluated mainstream engines \u2014 extension ceiling",
+      "claimCount": 5
+    },
+    {
+      "url": "https://harmonia.cs.berkeley.edu/papers/twagner-parsing.pdf",
+      "quality": "primary",
+      "angle": "Incremental & resilient parsing research",
+      "claimCount": 5
+    },
+    {
+      "url": "https://matklad.github.io/2023/05/21/resilient-ll-parsing-tutorial.html",
+      "quality": "blog",
+      "angle": "Incremental & resilient parsing research",
+      "claimCount": 5
+    },
+    {
+      "url": "https://matklad.github.io/2025/12/28/parsing-advances.html",
+      "quality": "blog",
+      "angle": "Incremental & resilient parsing research",
+      "claimCount": 4
+    },
+    {
+      "url": "https://diekmann.co.uk/diekmann_phd.pdf",
+      "quality": "primary",
+      "angle": "Incremental & resilient parsing research",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/lezer-parser/markdown",
+      "quality": "primary",
+      "angle": "Incremental & resilient parsing research",
+      "claimCount": 5
+    },
+    {
+      "url": "https://tratt.net/laurie/blog/2024/structured_editing_and_incremental_parsing.html",
+      "quality": "blog",
+      "angle": "Incremental & resilient parsing research",
+      "claimCount": 5
+    },
+    {
+      "url": "https://www.inkandswitch.com/peritext/",
+      "quality": "primary",
+      "angle": "Overlapping-span representations \u2014 GODDAG, Peritext, track changes",
+      "claimCount": 5
+    },
+    {
+      "url": "https://www.researchgate.net/publication/221215914_GODDAG_A_data_structure_for_overlapping_hierarchies",
+      "quality": "primary",
+      "angle": "Overlapping-span representations \u2014 GODDAG, Peritext, track changes",
+      "claimCount": 5
+    },
+    {
+      "url": "https://discuss.prosemirror.net/t/track-changes-w-marks/4091",
+      "quality": "forum",
+      "angle": "Overlapping-span representations \u2014 GODDAG, Peritext, track changes",
+      "claimCount": 5
+    },
+    {
+      "url": "https://c-rex.net/samples/ooxml/e1/part4/OOXML_P4_DOCX_del_topic_ID0EMM3V.html",
+      "quality": "primary",
+      "angle": "Overlapping-span representations \u2014 GODDAG, Peritext, track changes",
+      "claimCount": 5
+    },
+    {
+      "url": "https://www.npmjs.com/package/@blocknote/prosemirror-suggest-changes",
+      "quality": "primary",
+      "angle": "Overlapping-span representations \u2014 GODDAG, Peritext, track changes",
+      "claimCount": 5
+    },
+    {
+      "url": "https://www.balisage.net/Proceedings/vol3/print/Peroni01/BalisageVol3-Peroni01.html",
+      "quality": "primary",
+      "angle": "Overlapping-span representations \u2014 GODDAG, Peritext, track changes",
+      "claimCount": 5
+    },
+    {
+      "url": "https://multimarkdown.com/composer4/",
+      "quality": "primary",
+      "angle": "Editor-internal engines during live editing",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/fletcher/MultiMarkdown-6/issues/41",
+      "quality": "primary",
+      "angle": "Contrarian \u2014 any first-class CriticMarkup cross-block implementation",
+      "claimCount": 5
+    },
+    {
+      "url": "https://fletcher.github.io/MultiMarkdown-6/syntax/critic.html",
+      "quality": "primary",
+      "angle": "Contrarian \u2014 any first-class CriticMarkup cross-block implementation",
+      "claimCount": 5
+    },
+    {
+      "url": "https://github.com/Fevol/criticmarkup-parser",
+      "quality": "primary",
+      "angle": "Contrarian \u2014 any first-class CriticMarkup cross-block implementation",
+      "claimCount": 5
+    }
+  ],
+  "stats": {
+    "angles": 5,
+    "sourcesFetched": 20,
+    "claimsExtracted": 99,
+    "claimsVerified": 25,
+    "confirmed": 21,
+    "killed": 4,
+    "unverified": 0,
+    "afterSynthesis": 12,
+    "urlDupes": 2,
+    "budgetDropped": 8,
+    "agentCalls": 102
+  }
+}
