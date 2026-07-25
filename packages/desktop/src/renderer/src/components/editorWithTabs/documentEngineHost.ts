@@ -21,14 +21,24 @@ export interface LegacyEngineBinding<Selection = never> {
   readonly setContent?: (markdown: string) => void
   readonly replaceContent?: (markdown: string, selection?: Selection) => void
   readonly on?: (event: string, listener: () => void) => void
+  readonly off?: (event: string, listener: () => void) => void
 }
+
+/** What onChange hands back on both sides of the seam. */
+export interface EngineChangeSubscription {
+  readonly dispose: () => void
+}
+
+const NOOP_SUBSCRIPTION: EngineChangeSubscription = Object.freeze({
+  dispose: () => {}
+})
 
 /** The matching document-core view surface. */
 export interface DocumentCoreBinding<Selection = never> {
   readonly getMarkdownSync: () => string
   readonly setContent?: (markdown: string) => void
   readonly replaceContent?: (markdown: string, selection?: Selection) => void
-  readonly onChange?: (listener: () => void) => void
+  readonly onChange?: (listener: () => void) => EngineChangeSubscription
 }
 
 export interface DocumentEngineHostOptions<Selection = never> {
@@ -57,7 +67,7 @@ export interface DocumentEngineHost<Selection = never> {
    */
   readonly replaceContent: (markdown: string, selection?: Selection) => void
   /** Observe committed changes from the owning engine. */
-  readonly onChange: (listener: () => void) => void
+  readonly onChange: (listener: () => void) => EngineChangeSubscription
 }
 
 export function createDocumentEngineHost<Selection = never>(
@@ -76,7 +86,8 @@ export function createDocumentEngineHost<Selection = never>(
       setContent: (markdown: string) => binding.setContent?.(markdown),
       replaceContent: (markdown: string, selection?: Selection) =>
         binding.replaceContent?.(markdown, selection),
-      onChange: (listener: () => void) => binding.onChange?.(listener)
+      onChange: (listener: () => void) =>
+        binding.onChange?.(listener) ?? NOOP_SUBSCRIPTION
     })
   }
 
@@ -92,7 +103,12 @@ export function createDocumentEngineHost<Selection = never>(
       binding.replaceContent?.(markdown, selection),
     // Muya reports document changes as a 'json-change' event; the engine name
     // for it does not leak past this seam.
-    onChange: (listener: () => void) => binding.on?.('json-change', listener)
+    onChange: (listener: () => void) => {
+      binding.on?.('json-change', listener)
+      return Object.freeze({
+        dispose: () => binding.off?.('json-change', listener)
+      })
+    }
   })
 }
 

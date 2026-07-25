@@ -144,4 +144,40 @@ describe('write flows', () => {
     listeners.forEach(listener => listener())
     expect(seen).toBe(1)
   })
+
+  it('passes the document-core disposer through the seam', () => {
+    // The production view returns a Disposable from onChange; a host that
+    // swallows it leaves the subscription attached for the editor's lifetime.
+    let disposed = 0
+    const host = createDocumentEngineHost({
+      engine: 'document-core',
+      documentCore: {
+        getMarkdownSync: () => '',
+        onChange: () => ({ dispose: () => { disposed += 1 } })
+      }
+    })
+    const subscription = host.onChange(() => {})
+    subscription.dispose()
+    expect(disposed).toBe(1)
+  })
+
+  it('detaches a legacy subscription on dispose', () => {
+    const listeners = new Set<() => void>()
+    const muya = {
+      getMarkdown: () => '',
+      on: (event: string, listener: () => void) => {
+        if (event === 'json-change') listeners.add(listener)
+      },
+      off: (event: string, listener: () => void) => {
+        if (event === 'json-change') listeners.delete(listener)
+      }
+    }
+    const host = createDocumentEngineHost({ engine: 'legacy', legacy: muya })
+    let seen = 0
+    const subscription = host.onChange(() => { seen += 1 })
+    listeners.forEach(listener => listener())
+    subscription.dispose()
+    listeners.forEach(listener => listener())
+    expect(seen).toBe(1)
+  })
 })

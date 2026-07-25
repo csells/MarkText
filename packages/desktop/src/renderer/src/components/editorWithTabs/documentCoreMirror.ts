@@ -51,6 +51,7 @@ export function createDocumentCoreMirror<Selection = never>(
 ): DocumentCoreMirror<Selection> {
   const divergences: EngineDivergence[] = []
   let source = editor.getMarkdown()
+  const attachedChangeListeners = new Set<() => void>()
   let session: Awaited<ReturnType<typeof createDocumentSession>> | null = null
   let pending: Promise<void> = Promise.resolve()
   let disposed = false
@@ -109,9 +110,17 @@ export function createDocumentCoreMirror<Selection = never>(
       // the flag — dirty tracking, content updates and history all stopped,
       // because the host routed onChange to a binding that ignored it.
       onChange: (listener: () => void) => {
-        editor.on?.('json-change', () => {
+        const wrapped = (): void => {
           sync()
           listener()
+        }
+        editor.on?.('json-change', wrapped)
+        attachedChangeListeners.add(wrapped)
+        return Object.freeze({
+          dispose: () => {
+            attachedChangeListeners.delete(wrapped)
+            editor.off?.('json-change', wrapped)
+          }
         })
       },
       getMarkdownSync: () => {
@@ -137,6 +146,12 @@ export function createDocumentCoreMirror<Selection = never>(
     dispose: () => {
       disposed = true
       session = null
+      // Detach whatever this mirror attached; a disposed mirror must not keep
+      // syncing (or leaking) through the editor's event registry.
+      for (const wrapped of attachedChangeListeners) {
+        editor.off?.('json-change', wrapped)
+      }
+      attachedChangeListeners.clear()
     }
   })
 }
