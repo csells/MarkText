@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -26,7 +27,7 @@ describe('LanguageEngine.open boundary-safe projection', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'deletion', range: { start: 1, end: 8 } }
     ])
     expect(revision.projection('original').source).toBe('{z++x++}')
@@ -79,7 +80,7 @@ describe('LanguageEngine.open boundary-safe projection', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'highlight', range: { start: 3, end: 16 } }
     ])
     expect(revision.diagnostics.count).toBe(2)
@@ -96,7 +97,7 @@ describe('LanguageEngine.open boundary-safe projection', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([{
+    expect(rootsOf(revision.criticMarkup)).toEqual([{
       kind: 'addition',
       range: { start: 0, end: 18 },
       markers: {
@@ -152,7 +153,7 @@ describe('LanguageEngine.open boundary-safe projection', () => {
       if (reopened.kind !== 'complete') {
         throw new Error('Expected a complete reopened projection')
       }
-      expect(reopened.criticMarkup.roots).toEqual([])
+      expect(rootsOf(reopened.criticMarkup)).toEqual([])
       expect(reopened.projection(view).source).toBe(first)
     }
   })
@@ -180,7 +181,7 @@ describe('LanguageEngine.open boundary-safe projection', () => {
     if (reopened.kind !== 'complete') {
       throw new Error('Expected a complete reopened projection')
     }
-    expect(reopened.criticMarkup.roots).toEqual([])
+    expect(rootsOf(reopened.criticMarkup)).toEqual([])
     expect(reopened.projection('revised').source).toBe(revised.source)
   })
 })

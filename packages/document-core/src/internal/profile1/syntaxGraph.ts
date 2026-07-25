@@ -383,7 +383,11 @@ function createCriticMarkupEdges(
     tapeByRange.set(`${run.range.start}:${run.range.end}`, run)
   }
   const edges: CriticMarkupTapeEdge[] = []
-  const pending = [...forest.roots].reverse()
+  const pending: CriticMarkupNode[] = []
+  for (let ordinal = forest.rootCount - 1; ordinal >= 0; ordinal -= 1) {
+    pending.push(forest.rootAt(ordinal))
+  }
+  pending.reverse()
   while (pending.length > 0) {
     const node = pending.pop()
     if (node === undefined) {

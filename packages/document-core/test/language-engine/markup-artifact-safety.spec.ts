@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -25,11 +26,11 @@ describe('LanguageEngine.open Markup artifact safety', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'comment', range: { start: 1, end: 11 } }
     ])
     expect(revision.markup).not.toHaveProperty('source')
-    expect(revision.markup.runs).toEqual([
+    expect(runsOf(revision.markup)).toEqual([
       {
         text: '{',
         sourceRange: { start: 0, end: 1 },
@@ -53,7 +54,7 @@ describe('LanguageEngine.open Markup artifact safety', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
         range: { start: 0, end: 23 },
@@ -61,7 +62,7 @@ describe('LanguageEngine.open Markup artifact safety', () => {
       }
     ])
     expect(revision.markup).not.toHaveProperty('source')
-    expect(revision.markup.runs).toEqual([
+    expect(runsOf(revision.markup)).toEqual([
       {
         text: '\uFEFF---\ntitle: x\n---',
         sourceRange: { start: 3, end: 20 },

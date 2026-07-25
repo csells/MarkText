@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -29,7 +30,7 @@ describe('LanguageEngine.open malformed recovery', () => {
     }
 
     expect(revision.source.text).toBe(sourceText)
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'deletion',
         range: { start: 4, end: 15 },
@@ -74,7 +75,7 @@ describe('LanguageEngine.open malformed recovery', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'addition',
         range: { start: 4, end: 11 },
@@ -111,7 +112,7 @@ describe('LanguageEngine.open malformed recovery', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(
       Array.from({ length: revision.diagnostics.count }, (_, ordinal) =>
         revision.diagnostics.at(ordinal)

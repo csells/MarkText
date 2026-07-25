@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -26,7 +27,7 @@ describe('LanguageEngine.open BOF text codec', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
         range: { start: 1, end: 8 },

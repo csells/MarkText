@@ -89,7 +89,7 @@ describe('real document corpus', () => {
       // With no CriticMarkup the editing view IS the source; these documents
       // are ordinary Markdown, so any difference is the engine changing text it
       // was asked only to read.
-      if (revision.criticMarkup.roots.length === 0 && editing.source !== source) {
+      if (revision.criticMarkup.rootCount === 0 && editing.source !== source) {
         failures.push(path.relative(repoRoot, file))
       }
     }

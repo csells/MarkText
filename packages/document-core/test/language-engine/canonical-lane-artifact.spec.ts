@@ -26,7 +26,7 @@ describe('Profile 1 canonical Markdown parse artifact', () => {
     ])
 
     const branch = artifact.branches[0]
-    expect(branch?.node).toBe(parsed.criticMarkup.roots[0])
+    expect(branch?.node).toBe(parsed.criticMarkup.rootAt(0))
     const arm = branch?.arms[0]
     expect(arm).toBeDefined()
     expect(parsed.canonicalMarkdown.lanes[arm?.id ?? -1]?.parseArtifact).toBe(arm)

@@ -32,7 +32,9 @@ function freezeSourcePosition(position: AffineSourcePosition): AffineSourcePosit
 
 function createOrigins(revision: CompleteDocumentRevision): readonly ProjectedOriginSpan[] {
   const origins: ProjectedOriginSpan[] = []
-  for (const run of revision.markup.runs) {
+  const projection = revision.markup
+  for (let ordinal = 0; ordinal < projection.runCount; ordinal += 1) {
+    const run = projection.runAt(ordinal)
     const sourceLength = run.sourceRange.end - run.sourceRange.start
     if (run.text.length !== sourceLength) {
       throw new Error('Markup run text does not match its canonical source range')
@@ -49,8 +51,13 @@ function createRuns(
   revision: CompleteDocumentRevision
 ): readonly LiveRenderRun[] {
   let modelOffset = 0
+  const projection = revision.markup
+  const projectionRuns = Array.from(
+    { length: projection.runCount },
+    (_, ordinal) => projection.runAt(ordinal)
+  )
   return Object.freeze(
-    revision.markup.runs.map((run) => {
+    projectionRuns.map((run) => {
       const modelStart = modelOffset
       modelOffset += run.text.length
       const markKey = run.marks

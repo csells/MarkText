@@ -5,6 +5,7 @@ import {
   type CriticMarkupNode,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -81,8 +82,8 @@ describe('LanguageEngine.open recursive parent × child matrix', () => {
 
     expect(revision.projection('original').source).toBe(original)
     expect(revision.projection('revised').source).toBe(revised)
-    expect(revision.criticMarkup.roots).toHaveLength(1)
-    const root = revision.criticMarkup.roots[0]
+    expect(rootsOf(revision.criticMarkup)).toHaveLength(1)
+    const root = revision.criticMarkup.rootAt(0)
     expect(root?.kind).toBe(parentKind === 'root' ? childKind : parentKind)
     if (parentKind !== 'root') {
       const children = root?.arms.flatMap((arm) => arm.children) ?? []

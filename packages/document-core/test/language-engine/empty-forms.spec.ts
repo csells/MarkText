@@ -28,8 +28,8 @@ function open(
   if (revision.kind !== 'complete') {
     throw new Error('Expected a complete document revision')
   }
-  const root = revision.criticMarkup.roots[0]
-  if (root === undefined || revision.criticMarkup.roots.length !== 1) {
+  const root = revision.criticMarkup.rootAt(0)
+  if (root === undefined || revision.criticMarkup.rootCount !== 1) {
     throw new Error('Expected exactly one CriticMarkup root')
   }
   expect(revision.projection('original').source).toBe(expectedOriginal)

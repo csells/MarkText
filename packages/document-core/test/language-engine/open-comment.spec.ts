@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -28,7 +29,7 @@ describe('LanguageEngine.open Comment', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'comment',
         range: { start: 0, end: 14 },
@@ -64,8 +65,8 @@ describe('LanguageEngine.open Comment', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toHaveLength(1)
-    const outer = revision.criticMarkup.roots[0]
+    expect(rootsOf(revision.criticMarkup)).toHaveLength(1)
+    const outer = revision.criticMarkup.rootAt(0)
     expect(outer).toMatchObject({
       kind: 'comment',
       range: { start: 0, end: 23 },

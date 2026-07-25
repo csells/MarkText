@@ -1,6 +1,11 @@
 import type { RevisionId } from '../../documentSession.js'
-import type { CompleteDocumentRevision, CriticMarkupNode, SourceRange } from '../../revision.js'
+import type { CompleteDocumentRevision, CriticMarkupForest, CriticMarkupNode, SourceRange } from '../../revision.js'
 import { applySourceEdit, type SourceEdit } from './sourceTransaction.js'
+
+function forestRoots(forest: CriticMarkupForest): readonly CriticMarkupNode[] {
+  return Array.from({ length: forest.rootCount }, (_, ordinal) =>
+    forest.rootAt(ordinal))
+}
 
 export type MapDirection = 'forward' | 'backward'
 export type Affinity = 'previous' | 'next'
@@ -363,7 +368,7 @@ function buildNodePairMaps(
   const forward = new Map<CriticMarkupNode, CriticMarkupNode>()
   const backward = new Map<CriticMarkupNode, CriticMarkupNode>()
   const nextByRange = new Map<string, NodeRecord[]>()
-  for (const record of collectNodeRecords(nextRevision.criticMarkup.roots)) {
+  for (const record of collectNodeRecords(forestRoots(nextRevision.criticMarkup))) {
     const key = nodeKey(record.node)
     const candidates = nextByRange.get(key)
     if (candidates === undefined) {
@@ -373,7 +378,7 @@ function buildNodePairMaps(
     }
   }
 
-  for (const baseRecord of collectNodeRecords(baseRevision.criticMarkup.roots)) {
+  for (const baseRecord of collectNodeRecords(forestRoots(baseRevision.criticMarkup))) {
     const { node: baseNode } = baseRecord
     const range: AffineSourceRange = {
       start: { offset: baseNode.range.start, affinity: 'next' },

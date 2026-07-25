@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -29,7 +30,7 @@ describe('LanguageEngine.open Deletion', () => {
     }
 
     expect(revision.source.text).toBe(sourceText)
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'deletion',
         range: { start: 1, end: 10 },

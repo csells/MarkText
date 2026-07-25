@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -97,7 +98,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', arms: [{ children: [] }] }
     ])
     expect(revision.ownership.ownerAt(7)).toEqual({
@@ -122,7 +123,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
         range: { start: 0, end: 27 },
@@ -601,7 +602,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'substitution',
         arms: [
@@ -640,7 +641,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'addition',
         range: { start: 13, end: 48 },
@@ -739,7 +740,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', arms: [{ children: [] }] },
       { kind: 'addition', arms: [{ children: [] }] }
     ])
@@ -790,7 +791,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'comment', arms: [{ children: [] }] }
     ])
     expect(revision.diagnostics.count).toBe(0)
@@ -827,7 +828,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'substitution',
         range: { start: 0, end: 52 },
@@ -902,7 +903,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'comment', arms: [{ children: [] }] }
     ])
     expect(revision.diagnostics.count).toBe(0)
@@ -932,7 +933,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'comment',
         range: { start: 6, end: 30 },
@@ -977,7 +978,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'comment',
         range: { start: 0, end: 25 },
@@ -1026,7 +1027,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([{
+    expect(rootsOf(revision.criticMarkup)).toEqual([{
       kind: 'addition',
       range: { start: 0, end: 33 },
       markers: {
@@ -1075,7 +1076,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'highlight',
         range: { start: 0, end: 7 },
@@ -1126,7 +1127,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([{
+    expect(rootsOf(revision.criticMarkup)).toEqual([{
       kind: 'highlight',
       range: { start: 0, end: 7 },
       markers: {
@@ -1160,7 +1161,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([{
+    expect(rootsOf(revision.criticMarkup)).toEqual([{
       kind: 'addition',
       range: { start: 38, end: 50 },
       markers: {
@@ -1204,7 +1205,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([{
+    expect(rootsOf(revision.criticMarkup)).toEqual([{
       kind: 'addition',
       range: { start: 10, end: 22 },
       markers: {
@@ -1239,7 +1240,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.ownership.ownerAt(14)).toEqual({
       range: { start: 12, end: 29 },
       owner: {
@@ -1265,7 +1266,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.ownership.ownerAt(4)).toEqual({
       range: { start: 4, end: 17 },
       owner: {
@@ -1297,7 +1298,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.ownership.ownerAt(6)).toEqual({
       range: { start: 6, end: 19 },
       owner: {
@@ -1328,7 +1329,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([{
+    expect(rootsOf(revision.criticMarkup)).toEqual([{
       kind: 'addition',
       range: { start: 19, end: 31 },
       markers: {
@@ -1365,7 +1366,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([{
+    expect(rootsOf(revision.criticMarkup)).toEqual([{
       kind: 'addition',
       range: { start: 0, end: 38 },
       markers: {
@@ -1407,7 +1408,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([{
+    expect(rootsOf(revision.criticMarkup)).toEqual([{
       kind: 'addition',
       range: { start: 0, end: 27 },
       markers: {
@@ -1454,7 +1455,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'addition',
         range: { start: 12, end: 47 },
@@ -1508,7 +1509,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     expect(revision.diagnostics.count).toBe(0)
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'substitution',
         range: { start: 7, end: 77 },
@@ -1594,7 +1595,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', arms: [{ children: [] }] },
       {
         kind: 'addition',
@@ -1711,7 +1712,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', arms: [{ children: [] }] },
       { kind: 'addition', arms: [{ children: [] }] }
     ])
@@ -1732,7 +1733,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', arms: [{ children: [] }] }
     ])
     const root = revision.projection('revised').markdown.root

@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -28,7 +29,7 @@ describe('LanguageEngine.open protective escapes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     for (const view of ['original', 'revised'] as const) {
       const projection = revision.projection(view)
       expect(projection.source).toBe(sourceText)
@@ -55,7 +56,7 @@ describe('LanguageEngine.open protective escapes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'substitution',
         range: { start: 0, end: 14 },
@@ -84,7 +85,7 @@ describe('LanguageEngine.open protective escapes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([
+    expect(rootsOf(revision.criticMarkup)).toEqual([
       {
         kind: 'substitution',
         range: { start: 0, end: 13 },
@@ -113,7 +114,7 @@ describe('LanguageEngine.open protective escapes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'substitution',
         markers: { separator: { start: 9, end: 11 } },
@@ -137,7 +138,7 @@ describe('LanguageEngine.open protective escapes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
         range: { start: 0, end: 25 },
@@ -158,7 +159,7 @@ describe('LanguageEngine.open protective escapes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
         range: { start: 0, end: 13 },

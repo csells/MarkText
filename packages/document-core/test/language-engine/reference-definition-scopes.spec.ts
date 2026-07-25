@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -27,7 +28,7 @@ describe('Profile 1 reference-definition scopes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([{
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([{
       kind: 'substitution',
       arms: [
         { name: 'old', children: [] },
@@ -55,7 +56,7 @@ describe('Profile 1 reference-definition scopes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([{
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([{
       kind: 'substitution',
       arms: [
         { name: 'old', children: [] },
@@ -78,7 +79,7 @@ describe('Profile 1 reference-definition scopes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots.at(-1)).toMatchObject({
+    expect(rootsOf(revision.criticMarkup).at(-1)).toMatchObject({
       kind: 'comment',
       arms: [{ name: 'comment', children: [] }]
     })
@@ -101,8 +102,8 @@ describe('Profile 1 reference-definition scopes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toHaveLength(1)
-    expect(revision.criticMarkup.roots[0]).toMatchObject({ kind: 'comment' })
+    expect(rootsOf(revision.criticMarkup)).toHaveLength(1)
+    expect(revision.criticMarkup.rootAt(0)).toMatchObject({ kind: 'comment' })
     expect(
       revision.ownership.ownerAt(sourceText.indexOf('{++')).owner
     ).toMatchObject({
@@ -122,7 +123,7 @@ describe('Profile 1 reference-definition scopes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([{
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([{
       kind: 'comment',
       arms: [{
         name: 'comment',
@@ -142,7 +143,7 @@ describe('Profile 1 reference-definition scopes', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots.at(-1)).toMatchObject({
+    expect(rootsOf(revision.criticMarkup).at(-1)).toMatchObject({
       kind: 'addition',
       arms: [{
         name: 'content',

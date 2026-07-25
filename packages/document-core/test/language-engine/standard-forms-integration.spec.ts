@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -29,7 +30,7 @@ describe('LanguageEngine.open standard forms', () => {
     }
 
     expect(
-      revision.criticMarkup.roots.map((node) => ({ kind: node.kind, range: node.range }))
+      rootsOf(revision.criticMarkup).map((node) => ({ kind: node.kind, range: node.range }))
     ).toEqual([
       { kind: 'addition', range: { start: 2, end: 11 } },
       { kind: 'deletion', range: { start: 12, end: 21 } },

@@ -6,6 +6,7 @@ import {
   type MarkdownNode,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 type CompleteRevision = Extract<DocumentRevision, { readonly kind: 'complete' }>
 
@@ -38,7 +39,7 @@ function childKinds(node: MarkdownNode): readonly string[] {
 }
 
 function expectTwoCanonicalRoots(revision: CompleteRevision): void {
-  expect(revision.criticMarkup.roots.map((node) => ({
+  expect(rootsOf(revision.criticMarkup).map((node) => ({
     kind: node.kind,
     range: node.range
   }))).toEqual([
@@ -134,7 +135,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     })
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     const paragraph = clean.projection('revised').markdown.root.childAt(0)
     expect(childKinds(paragraph)).toEqual(['emphasis'])
@@ -185,7 +186,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     ])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     const cleanParagraph = clean.projection('revised').markdown.root.childAt(0)
     expect(childKinds(cleanParagraph)).toEqual(['text', 'emphasis', 'text'])
@@ -219,7 +220,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     expect(childKinds(paragraph.childAt(0))).toEqual(['text', 'emphasis'])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     const cleanParagraph = clean.projection('revised').markdown.root.childAt(0)
     expect(childKinds(cleanParagraph)).toEqual(['emphasis'])
@@ -277,7 +278,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     ])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     const cleanParagraph = clean.projection('revised').markdown.root.childAt(0)
     expect(childKinds(cleanParagraph)).toEqual([
@@ -332,7 +333,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     ])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     const cleanParagraph = clean.projection('revised').markdown.root.childAt(0)
     expect(childKinds(cleanParagraph)).toEqual(['text', 'emphasis', 'text'])
@@ -365,7 +366,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     ])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text', 'emphasis', 'text'])
@@ -442,7 +443,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     expect(childKinds(revised.markdown.root.childAt(0))).toEqual(['text'])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text'])
@@ -503,7 +504,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     })
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(clean.projection('revised').markdown.root.childAt(0).childAt(0))
       .toMatchObject({
@@ -553,7 +554,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     })
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(clean.projection('revised').markdown.root.childAt(0).childAt(0))
       .toMatchObject({
@@ -591,7 +592,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     expect(childKinds(revised.markdown.root.childAt(0))).toEqual(['text'])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text'])
@@ -615,7 +616,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     expect(childKinds(revised.markdown.root.childAt(0))).toEqual(['text'])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text'])
@@ -652,7 +653,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     ])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['inline-math'])
@@ -688,8 +689,8 @@ describe('Profile 1 self-contained Substitution arms', () => {
 
     const cleanOriginal = open(original.source)
     const cleanRevised = open(revised.source)
-    expect(cleanOriginal.criticMarkup.roots).toEqual([])
-    expect(cleanRevised.criticMarkup.roots).toEqual([])
+    expect(rootsOf(cleanOriginal.criticMarkup)).toEqual([])
+    expect(rootsOf(cleanRevised.criticMarkup)).toEqual([])
     expect(cleanOriginal.projection('revised').source).toBe(original.source)
     expect(cleanRevised.projection('revised').source).toBe(revised.source)
     expect(childKinds(cleanOriginal.projection('revised').markdown.root))
@@ -727,8 +728,8 @@ describe('Profile 1 self-contained Substitution arms', () => {
 
     const cleanOriginal = open(original.source)
     const cleanRevised = open(revised.source)
-    expect(cleanOriginal.criticMarkup.roots).toEqual([])
-    expect(cleanRevised.criticMarkup.roots).toEqual([])
+    expect(rootsOf(cleanOriginal.criticMarkup)).toEqual([])
+    expect(rootsOf(cleanRevised.criticMarkup)).toEqual([])
     expect(cleanOriginal.projection('revised').source).toBe(original.source)
     expect(cleanRevised.projection('revised').source).toBe(revised.source)
     expect(childKinds(cleanOriginal.projection('revised').markdown.root))
@@ -766,8 +767,8 @@ describe('Profile 1 self-contained Substitution arms', () => {
 
     const cleanOriginal = open(original.source)
     const cleanRevised = open(revised.source)
-    expect(cleanOriginal.criticMarkup.roots).toEqual([])
-    expect(cleanRevised.criticMarkup.roots).toEqual([])
+    expect(rootsOf(cleanOriginal.criticMarkup)).toEqual([])
+    expect(rootsOf(cleanRevised.criticMarkup)).toEqual([])
     expect(cleanOriginal.projection('revised').source).toBe(original.source)
     expect(cleanRevised.projection('revised').source).toBe(revised.source)
     expect(childKinds(cleanOriginal.projection('revised').markdown.root))
@@ -817,8 +818,8 @@ describe('Profile 1 self-contained Substitution arms', () => {
 
     const cleanOriginal = open(original.source)
     const cleanRevised = open(revised.source)
-    expect(cleanOriginal.criticMarkup.roots).toEqual([])
-    expect(cleanRevised.criticMarkup.roots).toEqual([])
+    expect(rootsOf(cleanOriginal.criticMarkup)).toEqual([])
+    expect(rootsOf(cleanRevised.criticMarkup)).toEqual([])
     expect(cleanOriginal.projection('revised').source).toBe(original.source)
     expect(cleanRevised.projection('revised').source).toBe(revised.source)
     expect(childKinds(cleanOriginal.projection('revised').markdown.root))
@@ -830,7 +831,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
   it('keeps a following CM sibling outside an unfinished arm-local link label', () => {
     const revision = open('{~~old~>[x~~}]({++literal++})')
 
-    expect(revision.criticMarkup.roots.map((node) => ({
+    expect(rootsOf(revision.criticMarkup).map((node) => ({
       kind: node.kind,
       range: node.range
     }))).toEqual([
@@ -857,7 +858,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     expect(childKinds(revised.markdown.root.childAt(0))).toEqual(['text'])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text'])
@@ -886,7 +887,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     })
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     const paragraph = clean.projection('revised').markdown.root.childAt(1)
     expect(childKinds(paragraph)).toEqual(['text'])
@@ -905,7 +906,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     expect(childKinds(revised.markdown.root.childAt(0))).toEqual(['text'])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text'])
@@ -924,7 +925,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     expect(childKinds(revised.markdown.root.childAt(0))).toEqual(['text'])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text'])
@@ -963,7 +964,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     ])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text', 'link'])
@@ -994,7 +995,7 @@ describe('Profile 1 self-contained Substitution arms', () => {
     ])
 
     const clean = open(revised.source)
-    expect(clean.criticMarkup.roots).toEqual([])
+    expect(rootsOf(clean.criticMarkup)).toEqual([])
     expect(clean.projection('revised').source).toBe(revised.source)
     expect(childKinds(clean.projection('revised').markdown.root.childAt(0)))
       .toEqual(['text', 'link'])

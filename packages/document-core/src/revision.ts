@@ -51,7 +51,6 @@ export type CriticMarkupNode =
   | UnaryCriticNode<'comment', 'comment'>
 
 export interface CriticMarkupForest {
-  readonly roots: readonly CriticMarkupNode[]
   readonly rootCount: number
   /** @throws RangeError outside [0, rootCount). */
   readonly rootAt: (ordinal: number) => CriticMarkupNode
@@ -181,7 +180,6 @@ export interface MarkupProjection {
    * source lane: Comment elisions and Substitution alternatives remain typed
    * discontinuities and must not be reparsed as concatenated text.
    */
-  readonly runs: readonly MarkupProjectionRun[]
   readonly runCount: number
   /** @throws RangeError outside [0, runCount). */
   readonly runAt: (ordinal: number) => MarkupProjectionRun

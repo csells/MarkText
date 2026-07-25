@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   createLanguageEngine,
   createSourceSnapshot,
+  type CriticMarkupNode,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const DESKTOP_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -122,7 +124,7 @@ describe('LanguageEngine.open resource budgets', () => {
         throw new Error('Expected a complete document revision')
       }
       expect(revision.source.text).toBe(sourceText)
-      expect(revision.criticMarkup.roots).toEqual([])
+      expect(rootsOf(revision.criticMarkup)).toEqual([])
       expect(revision.diagnostics.count).toBe(16_385)
       expect(revision.diagnostics.at(16_384)).toEqual({
         code: 'CM_UNTERMINATED_OPENER',
@@ -169,14 +171,14 @@ describe('LanguageEngine.open resource budgets', () => {
         throw new Error('Expected a complete document revision')
       }
       let depth = 0
-      let node = revision.criticMarkup.roots[0]
+      let node: CriticMarkupNode | undefined = revision.criticMarkup.rootAt(0)
       while (node !== undefined) {
         depth += 1
         node = node.arms[0].children[0]
       }
       expect(depth).toBe(admittedDepth)
-      expect(revision.markup.runs).toMatchObject([{ text: 'x' }])
-      expect(revision.markup.runs[0]?.marks).toHaveLength(admittedDepth)
+      expect(runsOf(revision.markup)).toMatchObject([{ text: 'x' }])
+      expect(revision.markup.runAt(0)?.marks).toHaveLength(admittedDepth)
       expect(revision.projection('original').source).toBe('')
       expect(revision.projection('revised').source).toBe('x')
     },

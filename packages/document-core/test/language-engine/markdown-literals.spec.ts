@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { rootsOf, runsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -28,7 +29,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.projection('original').source).toBe(sourceText)
     expect(revision.projection('revised').source).toBe(sourceText)
   })
@@ -43,7 +44,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
         range: { start: 0, end: 9 },
@@ -73,7 +74,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.projection('original').source).toBe(sourceText)
     expect(revision.projection('revised').source).toBe(sourceText)
   })
@@ -88,7 +89,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.projection('original').source).toBe(sourceText)
     expect(revision.projection('revised').source).toBe(sourceText)
   })
@@ -103,7 +104,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.projection('original').source).toBe(sourceText)
     expect(revision.projection('revised').source).toBe(sourceText)
   })
@@ -118,7 +119,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 29, end: 42 } }
     ])
     expect(revision.projection('original').source).toBe(
@@ -139,7 +140,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 13, end: 25 } }
     ])
     expect(revision.ownership.ownerAt(15)).toMatchObject({
@@ -159,7 +160,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 29, end: 42 } }
     ])
   })
@@ -174,7 +175,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 35, end: 48 } }
     ])
   })
@@ -194,7 +195,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'deletion', range: { start: 35, end: 48 } }
     ])
     expect(revision.ownership.ownerAt(12).owner).toEqual({
@@ -215,7 +216,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 17, end: 29 } }
     ])
     expect(revision.ownership.ownerAt(13).owner).toEqual({ kind: 'markdown-text' })
@@ -237,7 +238,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.projection('original').source).toBe(sourceText)
     expect(revision.projection('revised').source).toBe(sourceText)
   })
@@ -252,7 +253,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.ownership.ownerAt(8)).toMatchObject({
       owner: {
         kind: 'markdown-literal',
@@ -274,7 +275,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', arms: [{ children: [] }] }
     ])
     expect(revision.projection('original').source).toBe('')
@@ -291,7 +292,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.projection('original').source).toBe(sourceText)
     expect(revision.projection('revised').source).toBe(sourceText)
   })
@@ -306,7 +307,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.projection('original').source).toBe(sourceText)
     expect(revision.projection('revised').source).toBe(sourceText)
   })
@@ -322,7 +323,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 36, end: 48 } }
     ])
     expect(revision.projection('original').source).toBe(
@@ -343,7 +344,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 10, end: 22 } }
     ])
     expect(revision.projection('original').source).toBe('<![cdata[\n\n]]>')
@@ -360,7 +361,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.ownership.ownerAt(6)).toMatchObject({
       owner: {
         kind: 'markdown-literal',
@@ -382,7 +383,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 31, end: 43 } }
     ])
     expect(revision.ownership.ownerAt(10)).toMatchObject({
@@ -410,7 +411,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 34, end: 47 } }
     ])
     expect(revision.projection('original').source).toBe(
@@ -431,7 +432,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.ownership.ownerAt(15)).toMatchObject({
       owner: {
         kind: 'markdown-literal',
@@ -453,7 +454,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
         range: { start: 7, end: 19 },
@@ -477,7 +478,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 14, end: 27 } }
     ])
     expect(revision.projection('original').source).toBe('```\n<div>\n```\n')
@@ -495,7 +496,7 @@ describe('LanguageEngine.open Markdown literals', () => {
     }
 
     expect(
-      revision.criticMarkup.roots.map((node) => ({ kind: node.kind, range: node.range }))
+      rootsOf(revision.criticMarkup).map((node) => ({ kind: node.kind, range: node.range }))
     ).toEqual([{ kind: 'addition', range: { start: 38, end: 51 } }])
     expect(revision.projection('original').source).toBe(
       '<span title="{--literal--}">ok</span> '
@@ -515,7 +516,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 14, end: 26 } }
     ])
     expect(revision.projection('original').source).toBe(String.raw`\<span title="">`)
@@ -534,7 +535,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 6, end: 18 } }
     ])
     expect(revision.projection('original').source).toBe('<x @="">')
@@ -551,7 +552,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.projection('original').source).toBe(sourceText)
     expect(revision.projection('revised').source).toBe(sourceText)
   })
@@ -567,7 +568,7 @@ describe('LanguageEngine.open Markdown literals', () => {
     }
 
     expect(
-      revision.criticMarkup.roots.map((node) => ({ kind: node.kind, range: node.range }))
+      rootsOf(revision.criticMarkup).map((node) => ({ kind: node.kind, range: node.range }))
     ).toEqual([{ kind: 'addition', range: { start: 7, end: 20 } }])
     expect(revision.projection('original').source).toBe(
       '[label ](https://e.test/{--literal--} "{>>title<<}")'
@@ -587,7 +588,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.ownership.ownerAt(25)).toEqual({
       range: { start: 20, end: 39 },
       owner: {
@@ -612,7 +613,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
         range: { start: 25, end: 37 },
@@ -646,7 +647,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 3, end: 9 } }
     ])
     expect(revision.ownership.ownerAt(16)).toEqual({
@@ -671,7 +672,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 7, end: 20 } }
     ])
     expect(revision.projection('original').source).toBe('`[x](` )')
@@ -688,7 +689,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 10, end: 22 } }
     ])
     expect(revision.projection('original').source).toBe('[x](dest "" junk)')
@@ -705,7 +706,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 5, end: 17 } }
     ])
     expect(revision.projection('original').source).toBe('[x] ()')
@@ -724,7 +725,7 @@ describe('LanguageEngine.open Markdown literals', () => {
     }
 
     expect(
-      revision.criticMarkup.roots.map((node) => ({ kind: node.kind, range: node.range }))
+      rootsOf(revision.criticMarkup).map((node) => ({ kind: node.kind, range: node.range }))
     ).toEqual([{ kind: 'addition', range: { start: 74, end: 87 } }])
     expect(revision.projection('original').source).toBe(sourceText.slice(0, 74))
     expect(revision.projection('revised').source).toBe(`${sourceText.slice(0, 74)}visible`)
@@ -740,7 +741,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toEqual([])
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
     expect(revision.ownership.ownerAt(23)).toEqual({
       range: { start: 14, end: 37 },
       owner: {
@@ -763,7 +764,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 4, end: 16 } }
     ])
     expect(revision.projection('original').source).toBe('[]: \n')
@@ -780,7 +781,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 11, end: 23 } }
     ])
     expect(revision.projection('original').source).toBe('[ref]: a b \n')
@@ -798,7 +799,7 @@ describe('LanguageEngine.open Markdown literals', () => {
     }
 
     expect(
-      revision.criticMarkup.roots.map((node) => ({ kind: node.kind, range: node.range }))
+      rootsOf(revision.criticMarkup).map((node) => ({ kind: node.kind, range: node.range }))
     ).toEqual([{ kind: 'addition', range: { start: 29, end: 42 } }])
     expect(revision.projection('original').source).toBe(sourceText.slice(0, 29))
     expect(revision.projection('revised').source).toBe(`${sourceText.slice(0, 29)}visible`)
@@ -815,7 +816,7 @@ describe('LanguageEngine.open Markdown literals', () => {
     }
 
     expect(
-      revision.criticMarkup.roots.map((node) => ({ kind: node.kind, range: node.range }))
+      rootsOf(revision.criticMarkup).map((node) => ({ kind: node.kind, range: node.range }))
     ).toEqual([{ kind: 'addition', range: { start: 31, end: 44 } }])
     expect(revision.projection('original').source).toBe(sourceText.slice(0, 31))
     expect(revision.projection('revised').source).toBe(`${sourceText.slice(0, 31)}visible`)
@@ -831,7 +832,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       { kind: 'addition', range: { start: 0, end: 7 } },
       { kind: 'addition', range: { start: 8, end: 15 } }
     ])
@@ -850,7 +851,7 @@ describe('LanguageEngine.open Markdown literals', () => {
     }
 
     expect(
-      revision.criticMarkup.roots.map((node) => ({ kind: node.kind, range: node.range }))
+      rootsOf(revision.criticMarkup).map((node) => ({ kind: node.kind, range: node.range }))
     ).toEqual([
       { kind: 'addition', range: { start: 0, end: 7 } },
       { kind: 'addition', range: { start: 7, end: 14 } },
@@ -870,7 +871,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'comment',
         range: { start: 0, end: 26 },
@@ -891,8 +892,8 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toHaveLength(1)
-    expect(revision.criticMarkup.roots[0]).toMatchObject({
+    expect(rootsOf(revision.criticMarkup)).toHaveLength(1)
+    expect(revision.criticMarkup.rootAt(0)).toMatchObject({
       kind: 'addition',
       range: { start: 0, end: 34 },
       arms: [{ range: { start: 3, end: 31 }, children: [] }]
@@ -911,8 +912,8 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toHaveLength(1)
-    expect(revision.criticMarkup.roots[0]).toMatchObject({
+    expect(rootsOf(revision.criticMarkup)).toHaveLength(1)
+    expect(revision.criticMarkup.rootAt(0)).toMatchObject({
       kind: 'substitution',
       range: { start: 0, end: 54 },
       markers: {
@@ -939,7 +940,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'substitution',
         arms: [
@@ -963,7 +964,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'substitution',
         arms: [{ name: 'old', children: [] }, { name: 'new', children: [] }]
@@ -984,7 +985,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots).toMatchObject([
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'substitution',
         arms: [{ name: 'old', children: [] }, { name: 'new', children: [] }]
@@ -1005,7 +1006,7 @@ describe('LanguageEngine.open Markdown literals', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.criticMarkup.roots[0]).toMatchObject({
+    expect(revision.criticMarkup.rootAt(0)).toMatchObject({
       kind: 'substitution',
       arms: [
         { name: 'old', range: { start: 3, end: 28 }, children: [] },

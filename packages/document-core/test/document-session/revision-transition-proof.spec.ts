@@ -33,8 +33,8 @@ describe('RevisionKernel transition proof', () => {
       { base, next }
     )
     const proof = prepared.transition
-    const baseNode = baseRevision.criticMarkup.roots[0]
-    const nextNode = prepared.revision.criticMarkup.roots[0]
+    const baseNode = baseRevision.criticMarkup.rootAt(0)
+    const nextNode = prepared.revision.criticMarkup.rootAt(0)
     if (baseNode === undefined || nextNode === undefined) {
       throw new Error('Expected the Addition to survive in both revisions')
     }
@@ -286,7 +286,7 @@ describe('RevisionKernel transition proof', () => {
     if (baseRevision.kind !== 'complete') {
       throw new Error('Expected a complete base revision')
     }
-    const outer = baseRevision.criticMarkup.roots[0]
+    const outer = baseRevision.criticMarkup.rootAt(0)
     const inner = outer?.arms[0]?.children[0]
     if (outer === undefined || inner === undefined) {
       throw new Error('Expected nested Addition nodes')

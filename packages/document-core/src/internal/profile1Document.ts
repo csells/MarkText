@@ -3107,7 +3107,7 @@ function project(
   // source, there is no join, and no marker can be manufactured. Recognizing
   // CriticMarkup again to discover that is pure waste, so the guard is skipped
   // and its accepted-marker count is zero by construction.
-  const guarded = graph.criticMarkup.roots.length === 0
+  const guarded = graph.criticMarkup.rootCount === 0
     ? Object.freeze({
       source: bofSafe.source,
       segments: bofSafe.segments,
