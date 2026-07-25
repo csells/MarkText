@@ -1691,6 +1691,22 @@ function createNextMathRunStart(
   }
 }
 
+/**
+ * Test-only counter of line-path chunk visits during materialization. The
+ * R-4 gate tracks it because prefix materialization over one long line is
+ * O(prefixes x chain length) until the chain carries an index — the last
+ * measured projection superlinearity (single-line family).
+ */
+let lineMaterializationChunkWalks = 0
+
+export function __lineMaterializationChunkWalksV1(): number {
+  return lineMaterializationChunkWalks
+}
+
+export function __resetLineMaterializationChunkWalksV1(): void {
+  lineMaterializationChunkWalks = 0
+}
+
 function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
   if (path === undefined) {
     return ''
@@ -1702,6 +1718,7 @@ function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
   const chunks: string[] = []
   let current: MarkdownLinePath | undefined = path
   while (current !== undefined) {
+    lineMaterializationChunkWalks += 1
     chunks.push(current.text)
     current = current.parent
   }

@@ -8,6 +8,10 @@ import {
   captureProfileParseTraceV1,
   type ProfileParseTraceEventV1
 } from '../../src/internal/profileParseTraceV1.js'
+import {
+  __lineMaterializationChunkWalksV1,
+  __resetLineMaterializationChunkWalksV1
+} from '../../src/internal/profile1/markdownLaneState.js'
 
 type PlanningVisitEvent = Extract<
   ProfileParseTraceEventV1,
@@ -147,6 +151,26 @@ describe('Profile 1 projection planning complexity', () => {
     // lookup); visiting every segment for every scope is the remaining
     // projection quadratic (R-4).
     expect(scopeRemapVisits(64)).toBeLessThanOrEqual(64 * 8)
+  })
+
+  // Known red (R-4, single-line family): materializing arm-lane line-path
+  // prefixes walks the persistent chunk chain from scratch per prefix —
+  // O(prefixes × chain length) on a document that is one long line. The fix
+  // is an indexed chain (cumulative lengths or parent-memoized prefixes);
+  // until it lands this pins the measured shape so the burn-down has a gate.
+  it.fails('materializes line-path prefixes with amortized-linear chunk walks', () => {
+    const walks = (repetitions: number): number => {
+      const source = '{~~o~>a~~}'.repeat(repetitions)
+      const engine = createLanguageEngine()
+      __resetLineMaterializationChunkWalksV1()
+      const revision = engine.open(createSourceSnapshot(source), TEST_CONFIGURATION)
+      expect(revision.kind).toBe('complete')
+      return __lineMaterializationChunkWalksV1()
+    }
+
+    const small = walks(64)
+    const large = walks(128)
+    expect(large).toBeLessThanOrEqual(small * 3)
   })
 
   it('fails closed instead of hiding nested trace work', () => {
