@@ -49,10 +49,13 @@ export interface SessionConfiguration {
 export interface DocumentSessionOpenOptions {
   readonly source: SourceSnapshot
   readonly parseConfiguration: ParseConfiguration
-  readonly configuration: SessionConfiguration
-  readonly initialView: 'markup'
-  readonly trackChanges: false
-  readonly initialSelection: InitialModelSelection
+  // Every field below has exactly one legal value today and defaults to it;
+  // hosts state only what genuinely varies. New values are session-version
+  // decisions, not host extension points.
+  readonly configuration?: SessionConfiguration
+  readonly initialView?: 'markup'
+  readonly trackChanges?: false
+  readonly initialSelection?: InitialModelSelection
 }
 
 export interface RevisionDescriptor {

@@ -7,6 +7,7 @@ import type {
   Disposable,
   DocumentSession,
   DocumentSessionOpenOptions,
+  SessionConfiguration,
   DraftId,
   EditorIntent,
   EditorSnapshot,
@@ -195,7 +196,7 @@ export class SessionCoordinator {
   readonly #ids = new SessionIds()
   readonly #journal = new VolatileSessionJournal()
   readonly #worker: RevisionWorker
-  readonly #configuration: DocumentSessionOpenOptions['configuration']
+  readonly #configuration: SessionConfiguration
   readonly #listeners = new Set<SessionTransitionListener>()
   readonly #leases = new Map<SourceLeaseId, LeaseState>()
   #retainedDrafts: readonly PendingInputDraft[] = Object.freeze([])
@@ -212,14 +213,18 @@ export class SessionCoordinator {
     }
 
     this.#configuration = Object.freeze({
-      authoringTextPolicy: options.configuration.authoringTextPolicy
+      authoringTextPolicy:
+        options.configuration?.authoringTextPolicy ?? 'nearest-owner-eol-v1'
     })
     this.#worker = new RevisionWorker(
       engine,
       this.#session,
       this.#ids.revision(),
       revision,
-      options.initialSelection
+      options.initialSelection ?? Object.freeze({
+        anchor: Object.freeze({ offset: 0, affinity: 'next' as const }),
+        focus: Object.freeze({ offset: 0, affinity: 'next' as const })
+      })
     )
     this.#snapshot = this.#createSnapshot()
   }
