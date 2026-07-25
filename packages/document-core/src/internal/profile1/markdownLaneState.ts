@@ -230,6 +230,10 @@ export interface MarkdownReferenceDefinitionIndex
 export interface PlainMarkdownLaneParse {
   readonly literals: readonly MarkdownLiteralRange[]
   readonly containerDepthFailure: MarkdownContainerDepthFailure | undefined
+  // `lines` is the Wagner & Graham balanced-sequence replacement site (plan
+  // 0009, research obligation 1): absolute-offset records that the reuse path
+  // splices and shifting rebuilds. It must never cross out of internal/profile1
+  // — positional consumers outside would multiply before the Phase 5/11 swap.
   readonly lines: readonly PlainMarkdownLine[]
 }
 

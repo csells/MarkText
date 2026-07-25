@@ -61,6 +61,7 @@
     "@element-plus/icons-vue": "^2.3.2",
     "@hfelix/electron-localshortcut": "^4.0.1",
     "@marktext/file-icons": "^1.0.6",
+    "@marktext/document-core": "workspace:*",
     "@marktext/muyajs": "workspace:*",
     "@muyajs/core": "workspace:*",
     "@popperjs/core": "^2.11.8",

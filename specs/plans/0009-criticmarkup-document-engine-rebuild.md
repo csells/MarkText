@@ -3523,6 +3523,12 @@ plan-side contract so none silently evaporates.
    audit of the revision's top-level block representation NOW — if it is a flat array with
    positional invariants baked into consumers, note the seam where a balanced sequence slots
    in. Phase 5/11 make it real; Phase 0.5 must not make it harder.
+   **AUDITED 2026-07-25 (see `specs/architecture/document-core-module-design.md`): not
+   foreclosed.** The accessor seam (`childCount`/`childAt`/`nodeAt`) already isolates the
+   storage; the swap is one constructor site. Remaining closure work: `CriticMarkupForest.
+roots` and `MarkupProjection.runs` move to the count/at idiom; `PlainMarkdownLaneParse.
+lines` is marked as the internal replacement site and must not leak out of
+   `internal/profile1`.
 2. **Node identity policy = reuse policy (Phase 4/5).** Adopt W&G's algorithm-independent
    formulation: unchanged subtrees and the root-to-edit-path spine retain identity; common
    edits modify no nodes. R-3's "stable identity across views" and R-5's reuse are the same
