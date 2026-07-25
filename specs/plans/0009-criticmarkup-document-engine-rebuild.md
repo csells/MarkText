@@ -3306,7 +3306,7 @@ useful or green.
       actually exist. Side effect: the CriticMarkup-free Markdown container-depth budget row went green,
       because the kernel path emits the public `CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED` code.
       Verify with `pnpm -C packages/document-core exec vitest run
-    test/language-engine/architecture-gate.spec.ts` (5 passed, 3 expected-fail). Boundary: this
+  test/language-engine/architecture-gate.spec.ts` (5 passed, 3 expected-fail). Boundary: this
       inverts ownership only for documents that need no CriticMarkup grammar. Every document
       containing CriticMarkup still runs the CM-first driver, still builds its CSTs from flattened
       projections, and still joins ownership and references post hoc — the three `it.fails` rows.
@@ -3501,8 +3501,9 @@ truth; the ratified-requirements section holds the criteria, and
   model — treats a form-(a) span as one first-class in-pass entity; the sweep's prior-art
   digest (Wagner & Graham, GODDAG, Peritext, OOXML boundary tokens) extends the harvest list.
 
-**Gate status: sweep complete; the sweep confirms the custom build; the owner's final ruling is
-pending.** What the research changes regardless: **copy the techniques, not the code** — the
+**Gate status: sweep formally exhaustive (0008 + its four-family close-out addendum — every
+named open-source engine family examined; only closed-source editor internals remain opaque);
+the evidence confirms the custom build; the owner's final ruling is pending.** What the research changes regardless: **copy the techniques, not the code** — the
 harvest list (facts §6) is imported into Phase 1 (conformance oracles) and Phase 11 (reuse
 template) either way.
 

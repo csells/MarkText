@@ -43,11 +43,14 @@ boundaries on its public API; both host the markers-on-own-lines whole-block enc
 Three walls each, verified to host source, with the executable proof in `spikes/parser-hosts/`
 — mechanisms and kill details live in research 0007 (Verdict section and rule table).
 Research 0008 extended the same verdict to markdig, goldmark, and intellij-markdown (walls
-verified against parser source) and found the underlying cause universal among evaluated
-engines: CommonMark's block-then-inline two-phase strategy freezes block boundaries before any
-inline recognition, and every cross-block escape hatch is a post-parse pass. Four engine
-families remain unassessed, not cleared: flexmark-java, commonmark-java, swift-markdown,
-mistune (0008 caveats).
+verified against parser source), and its close-out addendum finished the census: flexmark-java
+and commonmark-java (3-0 panel-verified to source — per-block inline state reset/flushed at
+block granularity), swift-markdown (wholesale cmark-gfm delegation plus a segmenting
+directive pre-pass), and mistune (block phase to completion, per-block inline universe). The
+underlying cause is universal across every evaluated open-source engine: CommonMark's
+block-then-inline two-phase strategy freezes block boundaries before any inline recognition,
+and every cross-block escape hatch is a post-parse pass. Remaining unexamined: closed-source
+editor internals only.
 
 ## 4. Performance facts
 

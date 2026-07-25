@@ -45,10 +45,10 @@ must be read exactly — stateful extensions CAN pair markers across blocks in s
 what none can do is emit **one first-class cross-block entity in-pass without post-parse
 revision**, which is what R-1+R-2 jointly require. Four sharper sub-claims that overstated
 individual walls were refuted 0-3/1-2 and excluded; the surviving conclusions don't depend on
-them. flexmark-java, commonmark-java, swift-markdown, and mistune produced no surviving claims —
-**unassessed, not cleared** (their block-then-inline architecture is standard but was not
-verified here). Closed editors (Typora, Bear, Ulysses, iA Writer) are unverifiable from primary
-sources; Obsidian's use of @lezer/markdown is confirmed.
+them. flexmark-java, commonmark-java, swift-markdown, and mistune produced no surviving claims
+in this run — closed out in the addendum below (all four fail R-1+R-2). Closed editors (Typora,
+Bear, Ulysses, iA Writer) are unverifiable from primary sources; Obsidian's use of
+@lezer/markdown is confirmed.
 
 ## Prior-art digest (the sweep's real yield)
 
@@ -90,14 +90,66 @@ sources; Obsidian's use of @lezer/markdown is confirmed.
    list item). OOXML's oracle covers only sibling-paragraph merging; the general
    container-boundary case has **no precedent anywhere** and must be designed and specified —
    flagged for the language spec and the plan's corpus obligations.
-3. Open leads: intellij-markdown's `parseStreaming`/`unstableStartOffset` machinery as an
-   error-tolerance/incrementality harvest; a short confirmation pass over the four unassessed
-   engine families if the owner wants the sweep declared formally exhaustive.
+3. Open lead: intellij-markdown's `parseStreaming`/`unstableStartOffset` machinery as an
+   error-tolerance/incrementality harvest. (The four-family confirmation pass is done — see
+   the addendum.)
 
 ## Disposition
 
 This was the owner-commissioned closing check. With it, the evidence chain is:
 0004 (Rust) → 0005 (CM semantics) → 0006 (TS gap analysis) → 0007 (executed spikes) →
 0008 (wide sweep): five independent methods, one convergent answer. The build-versus-adopt gate
-in plan 0009 now awaits the owner's ruling with nothing left unexamined except the four
-explicitly-named unassessed families and closed-source editors.
+in plan 0009 now awaits the owner's ruling with nothing left unexamined except closed-source
+editors (the four previously-unassessed families are closed out in the addendum below).
+
+## Addendum (2026-07-25) — close-out of the four unassessed families
+
+At the owner's direction, a dedicated pass closed out flexmark-java, commonmark-java,
+swift-markdown, and mistune against the deciding pair R-1+R-2. Method: deep-research harness,
+102 agents; 25 claims 3-vote verified (all 3-0) covering flexmark-java and commonmark-java to
+source level; the run's synthesis step died on a usage limit, so swift-markdown and mistune
+claims are extracted-with-quotes and were then spot-verified directly against source by hand
+(files fetched and inspected; citations below). Raw claims:
+`sources/claude-deep-research-closeout-four-families.json`.
+
+**All four fail R-1+R-2 on their public APIs. The sweep is now formally exhaustive over every
+open-source engine family named in any phase of this research arc.**
+
+- **flexmark-java** (deepest extension surface of the four; 18 verified claims): strictly
+  two-phase (`DocumentParser.parse()` runs `PARSE_BLOCKS` to completion, then
+  `PARSE_INLINES`); inline recognition invoked per finalized block (`processInlines()`
+  iterates block parsers); delimiter/bracket state **reset at the start of every per-block
+  parse and flushed at its end** (`processDelimiters(null)` per block), so a pending `{++`
+  cannot survive into the next block; the complete `Parser.Builder` hook inventory attaches
+  only to the block phase, the per-block inline phase, or post-parse. The maintainer's own
+  guidance for paired custom constructs is a PostProcessor over the finished AST, with the
+  explicit caveat that already-made recognition decisions persist — the exact mechanism R-2
+  excludes. Harvest note: its celebrated source-fidelity/lossless AST is a **retrofit onto a
+  commonmark-java fork** — exact-source reconstruction at unchanged two-phase recognition —
+  confirming source fidelity and cross-block recognition are independent axes; its
+  position-preservation design is prior art for P2, nothing more.
+- **commonmark-java** (7 verified claims): the reference two-phase shape flexmark inherited —
+  per-block `InlineParserImpl.parse(SourceLines, Node)` with `reset(lines)` destroying
+  delimiter/bracket stacks between blocks, `processDelimiters(null)` flushing per block, the
+  public extension surface (InlineContentParserFactory, DelimiterProcessor) wired into that
+  per-block parser, and `postProcess(document)` running only after the whole parse.
+- **swift-markdown** (extracted claims + hand spot-verified): not a parser at all for these
+  purposes — `CommonMarkConverter.swift` delegates wholesale to cmark-gfm
+  (`cmark_parser_new/feed/finish`, verified in source); no user grammar extensions exist (only
+  cmark-gfm's precompiled extension set, not even runtime-toggleable on the shipped API); its
+  one grammar-level feature (block directives) is a Swift-side **pre-pass**
+  (`BlockDirectiveParser`'s `ParseContainer`/`.lineRun` segmentation, verified in source) that
+  feeds cmark independent per-segment sub-documents — so an inline construct cannot even span
+  two _segments_, let alone two blocks; the Swift layer above is `MarkupVisitor`/
+  `MarkupRewriter` post-parse tree rewriting.
+- **mistune** (extracted claims + hand spot-verified): strictly two-phase, verified in source —
+  `Markdown.parse` runs `self.block.parse(state)` to completion and inline parsing happens
+  during rendering; `InlineParser.__call__(s, env)` receives a single block's text as its
+  entire universe (`state.src = s`); block-plugin patterns must anchor at line starts
+  (documented "MUST startswith ^"), so a mid-sentence opener cannot start a block rule.
+
+No candidate produced a counterexample to the universal conclusion; no community extension in
+any of the four ecosystems was found to have crossed a block boundary in-pass. Evidence-grade
+note: flexmark/commonmark-java verdicts are 3-0 panel-verified; swift-markdown/mistune verdicts
+rest on extracted primary-source quotes plus direct source inspection — a lower formal grade,
+flagged here rather than silently blended.
