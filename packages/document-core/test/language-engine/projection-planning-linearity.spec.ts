@@ -109,6 +109,26 @@ describe('Profile 1 projection planning complexity', () => {
     expect(work.candidates).toBeLessThanOrEqual(repetitions)
   })
 
+  it('plans arm terminations with indexed fence probes, not lane rescans', () => {
+    const armTerminationProbes = (repetitions: number): number => {
+      const source = '{~~o~>a~~}'.repeat(repetitions)
+      const engine = createLanguageEngine()
+      const captured = captureProfileParseTraceV1(engine, () =>
+        engine.open(createSourceSnapshot(source), TEST_CONFIGURATION)
+      )
+      expect(captured.value.kind).toBe('complete')
+      return planningVisits(captured.trace.events).filter(
+        (event) =>
+          event.view === 'revised' &&
+          event.reason === 'arm-termination-fence-probe'
+      ).length
+    }
+
+    // One indexed probe per arm exit; a per-exit rescan of the parent lane's
+    // transitions is the quadratic this pins down (R-4).
+    expect(armTerminationProbes(64)).toBeLessThanOrEqual(64)
+  })
+
   it('fails closed instead of hiding nested trace work', () => {
     const engine = createLanguageEngine()
 

@@ -41,6 +41,7 @@ export type ProfileParsePlanningReasonV1 =
   | 'inline-code-extension-analysis'
   | 'inline-code-closer-query'
   | 'inline-code-closer-candidate'
+  | 'arm-termination-fence-probe'
 
 export type ProfileParseTraceEventV1 =
   | Readonly<{
@@ -90,6 +91,11 @@ export interface ProfileParseTraceRecorderV1 {
     end: number
   ) => void
   readonly recordInlineCodeCloserCandidate: (
+    view: ProfileParseTraceViewV1,
+    start: number,
+    end: number
+  ) => void
+  readonly recordArmTerminationFenceProbe: (
     view: ProfileParseTraceViewV1,
     start: number,
     end: number
@@ -146,6 +152,9 @@ export function captureProfileParseTraceV1<T>(
     recordInlineCodeCloserQuery: planningRecorder('inline-code-closer-query'),
     recordInlineCodeCloserCandidate: planningRecorder(
       'inline-code-closer-candidate'
+    ),
+    recordArmTerminationFenceProbe: planningRecorder(
+      'arm-termination-fence-probe'
     ),
     recordCanonicalSourceAdmission: Object.freeze((
       sourceLength: number

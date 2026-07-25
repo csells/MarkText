@@ -2493,33 +2493,74 @@ function soleLineEndingBeforeFence(
     : undefined
 }
 
-function followingFencedBlockLineEnding(
-  parentLane: CanonicalMarkdownLane,
-  branchEnd: number,
-  source: string
-): ProjectionLineEnding | undefined {
+// Sorted openStarts of every fence the lane's parse actually emitted, built
+// once per lane and shared by every view's projection (lanes are immutable).
+// Arm-exit termination planning was quadratic without this: each exit
+// rescanned the parent lane's full transition list (measured 8,256 probes for
+// 64 arms before the index).
+const ARM_TERMINATION_FENCE_INDEX = new WeakMap<
+  CanonicalMarkdownLane,
+  readonly number[]
+>()
+
+function armTerminationFenceOpens(
+  parentLane: CanonicalMarkdownLane
+): readonly number[] {
+  const cached = ARM_TERMINATION_FENCE_INDEX.get(parentLane)
+  if (cached !== undefined) {
+    return cached
+  }
+  const opens: number[] = []
   for (const transition of parentLane.parseArtifact.transitions) {
     const fence = transition.entryCheckpoint.fence
     if (
-      fence === undefined ||
-      fence.openStart <= branchEnd ||
-      !transition.emittedFacts.literals.some((literal) =>
+      fence !== undefined &&
+      transition.emittedFacts.literals.some((literal) =>
         literal.kind === fence.provider &&
         literal.start === fence.openStart
       )
     ) {
-      continue
-    }
-    const lineEnding = soleLineEndingBeforeFence(
-      source,
-      branchEnd,
-      fence.openStart
-    )
-    if (lineEnding !== undefined) {
-      return lineEnding
+      opens.push(fence.openStart)
     }
   }
-  return undefined
+  opens.sort((left, right) => left - right)
+  const frozen = Object.freeze(opens)
+  ARM_TERMINATION_FENCE_INDEX.set(parentLane, frozen)
+  return frozen
+}
+
+// The gap grammar (exactly one line ending plus at most three columns of
+// indentation) caps a matching fence at five code units past the branch end,
+// and a farther fence can never match because the nearer fence's own marker
+// bytes sit inside its gap — so only the successor fence needs probing.
+const ARM_TERMINATION_FENCE_GAP_LIMIT = 5
+
+function followingFencedBlockLineEnding(
+  parentLane: CanonicalMarkdownLane,
+  branchEnd: number,
+  source: string,
+  probe?: (start: number, end: number) => void
+): ProjectionLineEnding | undefined {
+  const opens = armTerminationFenceOpens(parentLane)
+  let low = 0
+  let high = opens.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if ((opens[middle] ?? Number.POSITIVE_INFINITY) <= branchEnd) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  const fenceStart = opens[low]
+  if (fenceStart === undefined) {
+    return undefined
+  }
+  probe?.(branchEnd, fenceStart)
+  if (fenceStart - branchEnd > ARM_TERMINATION_FENCE_GAP_LIMIT) {
+    return undefined
+  }
+  return soleLineEndingBeforeFence(source, branchEnd, fenceStart)
 }
 
 function canonicalLineEndingAt(
@@ -2840,7 +2881,16 @@ function project(
             followingFencedBlockLineEnding(
               task.parentLane,
               task.branchEnd,
-              source
+              source,
+              traceRecorder === undefined
+                ? undefined
+                : (start, end) => {
+                  traceRecorder.recordArmTerminationFenceProbe(
+                    traceView,
+                    start,
+                    end
+                  )
+                }
             )
           if (lineEnding !== undefined) {
             const sourceElision = paragraphSeparation?.indentationElision
