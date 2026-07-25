@@ -1612,7 +1612,17 @@ function createMarkupProjection(
     )
   )
   return Object.freeze({
-    runs: frozenRuns
+    runs: frozenRuns,
+    runCount: frozenRuns.length,
+    runAt: Object.freeze((ordinal: number): MarkupProjectionRun => {
+      const run = Number.isInteger(ordinal) ? frozenRuns[ordinal] : undefined
+      if (run === undefined) {
+        throw new RangeError(
+          `Markup projection run ordinal ${String(ordinal)} is outside [0, ${String(frozenRuns.length)})`
+        )
+      }
+      return run
+    })
   })
 }
 
@@ -3446,7 +3456,22 @@ export function parseProfile1Document(
   if (parsed.kind === 'resource-failure') {
     return Object.freeze({ kind: 'source-only', fatalDiagnostic: parsed.fatalDiagnostic })
   }
-  const criticMarkup = Object.freeze({ roots: parsed.roots })
+  const criticMarkupRoots = parsed.roots
+  const criticMarkup = Object.freeze({
+    roots: criticMarkupRoots,
+    rootCount: criticMarkupRoots.length,
+    rootAt: Object.freeze((ordinal: number): CriticMarkupNode => {
+      const root = Number.isInteger(ordinal)
+        ? criticMarkupRoots[ordinal]
+        : undefined
+      if (root === undefined) {
+        throw new RangeError(
+          `CriticMarkup root ordinal ${String(ordinal)} is outside [0, ${String(criticMarkupRoots.length)})`
+        )
+      }
+      return root
+    })
+  })
   // Phase 0 invariant 6 fact: canonical ownership is reconstructed by an
   // interval join over marker/EOL/literal spans after parsing, rather than
   // created with syntax. The kernel path still inherits this join; retiring it
