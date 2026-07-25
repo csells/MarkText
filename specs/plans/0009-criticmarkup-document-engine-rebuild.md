@@ -1,7 +1,7 @@
 # 0009 — Source-Authoritative Intrinsic CriticMarkup Markdown Engine Rebuild
 
-- **Status:** In progress — Phase 0.5 vertical slices; build-versus-adopt: research 0008
-  complete (sweep confirms no adoptable engine), owner ruling pending
+- **Status:** In progress — Phase 0.5 vertical slices; build-versus-adopt gate **CLOSED**
+  (owner ruling, 2026-07-25: custom + harvest — "all in on doc-core")
 - **Created:** 2026-07-19
 - **Branch:** `feat/native-criticmarkup`
 - **Requirements:** ratified R-1…R-7 (owner, 2026-07-25) — see "Ratified core-parser requirements"
@@ -3501,11 +3501,81 @@ truth; the ratified-requirements section holds the criteria, and
   model — treats a form-(a) span as one first-class in-pass entity; the sweep's prior-art
   digest (Wagner & Graham, GODDAG, Peritext, OOXML boundary tokens) extends the harvest list.
 
-**Gate status: sweep formally exhaustive (0008 + its four-family close-out addendum — every
-named open-source engine family examined; only closed-source editor internals remain opaque);
-the evidence confirms the custom build; the owner's final ruling is pending.** What the research changes regardless: **copy the techniques, not the code** — the
-harvest list (facts §6) is imported into Phase 1 (conformance oracles) and Phase 11 (reuse
-template) either way.
+**Gate status: CLOSED (owner ruling, 2026-07-25) — custom + harvest.** The sweep was formally
+exhaustive (0008 + its four-family close-out addendum — every named open-source engine family
+examined; only closed-source editor internals remain opaque) and produced no counterexample.
+The engine question is settled; future sessions build, they do not relitigate. **Copy the
+techniques, not the code** — the harvest list (facts §6) is imported into Phase 1 (conformance
+oracles) and Phase 11 (reuse template), and the research-derived design obligations are pinned
+in the phases they land in (see "Research-derived design obligations" below).
+
+#### Research-derived design obligations (2026-07-25, from the 0004–0008 arc + spikes)
+
+Twelve concrete design inputs the research produced, each pinned to the phase that owes it.
+Evidence lives in `parser-core-verified-facts.md` and research 0007/0008; this list is the
+plan-side contract so none silently evaporates.
+
+**Data structures**
+
+1. **Balanced-sequence block list (Phase 0.5 check → Phase 5/11 requirement).** Wagner &
+   Graham: balancing lengthy sequences is THE decisive structure for O(t + s·lg N) incremental
+   reparse. Decision 12 (nothing forecloses fragment reuse) therefore requires an explicit
+   audit of the revision's top-level block representation NOW — if it is a flat array with
+   positional invariants baked into consumers, note the seam where a balanced sequence slots
+   in. Phase 5/11 make it real; Phase 0.5 must not make it harder.
+2. **Node identity policy = reuse policy (Phase 4/5).** Adopt W&G's algorithm-independent
+   formulation: unchanged subtrees and the root-to-edit-path spine retain identity; common
+   edits modify no nodes. R-3's "stable identity across views" and R-5's reuse are the same
+   mechanism; specify identity once, in those terms.
+3. **Gap anchoring for span ends (Phase 2/4).** Peritext: annotation endpoints anchor to the
+   gaps before/after stable atoms, not to characters. Adopt as the span-store and
+   caret-semantics vocabulary (does typing at an addition's edge extend it — answer in gap
+   terms). Open design item: the source-authoritative analogue of a stable atom identity
+   under incremental reparse.
+
+**Parsing algorithms**
+
+4. **Pending-delimiter discipline; emit nothing before pairing is certain (Phase 0.5/2 — now).**
+   Proven twice in the spikes: per-opener lookahead scans go quadratic (6.5 s/24 KB), and eager
+   materialization at the substitution divider produced phantom nodes violating R-6. All CM
+   pairing state is pending-until-closer; recovery drops silently.
+5. **Openers-bottom delimiter resolution from day one (Phase 1 gate).** Stock @lezer/markdown
+   — production-grade — is adversarially quadratic and stack-overflows at ~6k nesting. Adopt
+   cmark's discipline now; iterative (not recursive) tree construction; adversarial scaling
+   gates in CI (already in Phase 1 exit).
+6. **Main-thread time-slicing, viewport first; no Web Worker (Phase 11, already encoded).**
+   Ecosystem-wide finding, thrice confirmed; synchronous projection reads make off-thread
+   parsing a tearing risk for no evidenced gain.
+
+**Semantics**
+
+7. **Container-type-crossing accept/reject MUST be specified (Language spec + Phase 3 corpus).**
+   The one genuinely unprecedented obligation: a form-(a) span opening mid-paragraph and
+   closing inside a blockquoted list item has accept/reject semantics defined NOWHERE.
+   OOXML's paragraph-mark rule (accept deleted mark = merge siblings) is the oracle for the
+   sibling-paragraph case only. Spec section + corpus rows required before the write path
+   grows.
+8. **Cross-block gesture→edit planning is novel territory (Phase 4/7/8).** The Word census:
+   everyone else normalizes to fragments at write time. Nobody has built
+   gesture→one-annotation planning for form-(a). No oracle exists — real-gesture E2E carries
+   disproportionate validation weight there (see the cross-block selection regression
+   history).
+9. **Render/accept agreement as an executable invariant (Phase 3/10).** MMD-6's undocumented
+   render/accept asymmetry is the two-authority disease. Parse-once makes agreement
+   structural; assert it anyway: corpus-wide invariant that projections and accept/reject
+   edits derive from one parse and agree.
+
+**Validation assets**
+
+10. **Imported oracles (Phase 1/3, already in Red bullets):** micromark's ~2k differential
+    corpus + extension suites; MMD-6's CuTest accept/reject matrix; the 0007 spike adversarial
+    rows.
+11. **Named re-key classes for reuse (Phase 5/11):** lezer's principled-deviation precedent —
+    reference-definition edits and unclosed-fence edits are the non-local classes fragment
+    reuse must re-key on (spec X4).
+12. **Fidelity ≠ recognition (standing).** flexmark's lossless AST is positions retrofitted
+    onto unchanged two-phase recognition — proof the two axes are independent. Source-fidelity
+    work never substitutes for recognition-shape work, and vice versa.
 
 #### Target architecture: parse once, read every view off it (ADR 0013)
 
