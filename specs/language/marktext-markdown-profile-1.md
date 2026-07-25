@@ -193,7 +193,7 @@ footnote-definition tracking ranges.
   start offset (earliest start wins; on ties, the longer range), and once a range is owned, any
   construct starting inside it is data and cannot extend ownership past the owner's end
   (`composeMarkdownLiteralRanges` is the reference algorithm). Symmetrically, a literal-range
-  **L2a — the arm-boundary fixpoint (ruled 2026-07-25).** When an inline literal opens inside
+  **L2a — the arm-boundary fixpoint (owner-ratified 2026-07-25; ADR-0014).** When an inline literal opens inside
   an annotation payload and its would-be completing run lies at or past the payload's closer
   candidate, two self-consistent readings exist: defer the closer (extending the arm until the
   literal completes) or let it stand (the literal never completes; C1 forbids the

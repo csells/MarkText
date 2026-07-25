@@ -66,6 +66,15 @@ source. A complete construct with both endpoints outside may enclose the whole
 Substitution.
 _Avoid_: route, branch-continuation lane
 
+**Standing closer**:
+An annotation's closer candidate always ends its annotation at the first
+unowned occurrence, even while an inline literal opened inside the arm is
+still awaiting its completing delimiter. The literal never completes across
+the boundary; its opener degrades to literal text. Typing a closer therefore
+always closes the annotation, and no closer decision depends on source beyond
+the candidate. (ADR-0014; Profile 1 rule L2a.)
+_Avoid_: deferred closer, extended arm, literal-first closing
+
 **Comment**:
 The unstructured metadata payload serialized by CriticMarkup as `{>>…<<}`.
 MarkText presents the whole payload as one note with a create, edit, and delete
