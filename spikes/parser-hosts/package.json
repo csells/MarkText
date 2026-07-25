@@ -1,0 +1,15 @@
+{
+  "name": "parser-host-spikes",
+  "private": true,
+  "type": "module",
+  "description": "Research 0006 §9 decision spikes: can @lezer/markdown or micromark host Profile 1's CriticMarkup?",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@lezer/common": "^1.5.2",
+    "@lezer/markdown": "^1.7.2",
+    "micromark": "^4.0.2",
+    "micromark-util-symbol": "^2.0.1"
+  }
+}

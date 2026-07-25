@@ -266,6 +266,11 @@ remainder, incrementality, is unbuilt everywhere except lezer.
    fragment-reuse design (research 0001) for Phases 5/11 — adopting their hardening even
    while declining their engines.
 
+> **Executed 2026-07-25 — outcome (3), both spikes failed the go/no-go.** Results, the
+> adversarial review of the spike itself, two review-contributed micromark designs, and two
+> newly found host-level hazards are in `specs/research/0007-host-engine-spike-results.md`;
+> runnable code in `spikes/parser-hosts/`.
+
 ## 10. Sources
 
 `lezer-parser/markdown` README (fetched 2026-07-24: incremental + extension API + the
