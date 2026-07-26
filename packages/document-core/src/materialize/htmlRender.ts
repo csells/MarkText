@@ -39,17 +39,21 @@ function renderInlineContent(
   for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
     const child = node.childAt(ordinal)
     const isBreak = child.kind === 'soft-break' || child.kind === 'hard-break'
-    let rendered = renderNode(document, child, 'inline')
+    let rendered: string
     if (child.kind === 'text') {
+      let raw = sliceRange(document.source, child)
       if (atLineStart) {
-        rendered = rendered.replace(/^[\t ]+/, '')
+        raw = raw.replace(/^[\t ]+/, '')
       }
       const next = ordinal + 1 < node.childCount
         ? node.childAt(ordinal + 1)
         : undefined
       if (next === undefined || next.kind === 'soft-break') {
-        rendered = rendered.replace(/[\t ]+$/, '')
+        raw = raw.replace(/[\t ]+$/, '')
       }
+      rendered = escapeHtml(decodeMarkdownText(raw))
+    } else {
+      rendered = renderNode(document, child, 'inline')
     }
     parts.push(rendered)
     atLineStart = isBreak
@@ -364,7 +368,8 @@ const NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze({
   DifferentialD: 'ⅆ',
   ClockwiseContourIntegral: '∲',
   ngE: '≧̸',
-  AElig: 'Æ'
+  AElig: 'Æ',
+  Dcaron: 'Ď'
 })
 
 /**

@@ -53,7 +53,16 @@ const ENABLED_SECTIONS: ReadonlySet<string> = new Set([
   'Backslash escapes',
   'Hard line breaks',
   'Soft line breaks',
-  'Textual content'
+  'Textual content',
+  'Autolinks',
+  'Images',
+  'Inlines',
+  'Precedence',
+  'Entity and numeric character references',
+  'Block quotes',
+  'List items',
+  'Lists',
+  'Emphasis and strong emphasis'
 ])
 
 describe('CommonMark 0.31.2 HTML conformance (materializer-backed)', () => {

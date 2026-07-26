@@ -53,6 +53,7 @@ interface MarkdownFrontMatterState {
 interface MarkdownIndentedCodeState {
   readonly openStart: number
   readonly lastCodeEnd: number
+  readonly container: MarkdownBlockContainer
 }
 
 interface MarkdownHtmlBlockState {
@@ -253,6 +254,8 @@ export interface PlainMarkdownLine {
   readonly contentEnd: number
   readonly end: number
   readonly blank: boolean
+  /** True when the line continues a paragraph lazily (no container match). */
+  readonly lazy: boolean
   readonly contentOffset: number
   readonly indentation: number
   readonly blockQuoteDepth: number
@@ -372,8 +375,11 @@ interface ActiveBlockquoteContainer {
 
 interface ActiveListContainer {
   readonly kind: 'list-item'
-  /** CommonMark W + N indentation relative to the containing block. */
+  /** CommonMark marker indent + W + N relative to the containing block. */
   readonly contentIndent: number
+  /** Item opened on a blank line and has not yet seen content: one more
+   * blank line closes it (CommonMark: at most one leading blank line). */
+  readonly awaitingContent: boolean
   readonly ordered: boolean
   readonly startNumber: number
   readonly delimiterCodeUnit: number
@@ -536,6 +542,9 @@ function consumeListPadding(
     paddingColumn = advanceColumn(paddingColumn, source.charCodeAt(paddingEnd))
     paddingEnd += 1
   }
+  if (paddingEnd >= contentEnd) {
+    return Object.freeze({ offset: paddingEnd, column: markerEndColumn + 1 })
+  }
   if (paddingColumn - markerEndColumn <= 4) {
     return Object.freeze({ offset: paddingEnd, column: paddingColumn })
   }
@@ -566,6 +575,8 @@ function analyzeContainerLine(
   const listContinuationIndentations: ListContinuationIndentationState[] = []
   let containerBaseColumn = column
   for (const inherited of inheritedContainers) {
+    const matchStartOffset = offset
+    const matchStartColumn = column
     if (inherited.kind === 'blockquote') {
       while (
         offset < line.contentEnd &&
@@ -579,6 +590,8 @@ function analyzeContainerLine(
         offset += 1
       }
       if (source.charCodeAt(offset) !== 62) {
+        offset = matchStartOffset
+        column = matchStartColumn
         break
       }
       column += 1
@@ -608,7 +621,9 @@ function analyzeContainerLine(
         ) {
           blankOffset += 1
         }
-        if (blankOffset !== line.contentEnd) {
+        if (blankOffset !== line.contentEnd || inherited.awaitingContent) {
+          offset = matchStartOffset
+          column = matchStartColumn
           break
         }
       } else {
@@ -622,7 +637,11 @@ function analyzeContainerLine(
         }))
       }
     }
-    activeContainers.push(inherited)
+    activeContainers.push(
+      inherited.kind === 'list-item' && inherited.awaitingContent
+        ? Object.freeze({ ...inherited, awaitingContent: false })
+        : inherited
+    )
     containerBaseColumn = column
   }
 
@@ -679,7 +698,6 @@ function analyzeContainerLine(
     ) {
       break
     }
-    const markerStartColumn = column
     while (offset < listMarker.end) {
       column = advanceColumn(column, source.charCodeAt(offset))
       offset += 1
@@ -687,14 +705,15 @@ function analyzeContainerLine(
     const padding = consumeListPadding(source, offset, line.contentEnd, column)
     offset = padding.offset
     column = padding.column
-    containerBaseColumn = column
     const container: ActiveListContainer = Object.freeze({
       kind: 'list-item',
-      contentIndent: column - markerStartColumn,
+      contentIndent: column - containerBaseColumn,
+      awaitingContent: offset >= line.contentEnd,
       ordered: listMarker.ordered,
       startNumber: listMarker.startNumber,
       delimiterCodeUnit: listMarker.delimiterCodeUnit
     })
+    containerBaseColumn = column
     activeContainers.push(container)
     openers.push(Object.freeze({
       kind: 'list-item',
@@ -852,6 +871,9 @@ function isLazyParagraphContinuation(
   state: ContainerLineState,
   previousLineLazy: boolean
 ): boolean {
+  if (state.indentation >= 4 && !state.blank && state.openers.length === 0) {
+    return true
+  }
   if (
     state.blank ||
     state.openers.length > 0 ||
@@ -2095,7 +2117,10 @@ export function createMarkdownLaneState(
       if (
         indentedCode !== undefined &&
         !probeState.blank &&
-        probeState.indentation < 4
+        (
+          probeState.indentation < 4 ||
+          !continuesBlockContainer(probeState, indentedCode.container)
+        )
       ) {
         completedLiterals.push(Object.freeze({
           kind: 'indented-code',
@@ -2186,7 +2211,8 @@ export function createMarkdownLaneState(
                 0
               )
             ),
-            lastCodeEnd: sourceLineEnd(source, lookaheadEnd, laneEnd)
+            lastCodeEnd: sourceLineEnd(source, lookaheadEnd, laneEnd),
+            container: blockContainerFrom(probeState)
           })
           activeContainers = probeState.activeContainers
           enclosingLabelInterrupted = true
@@ -2715,7 +2741,11 @@ export function createMarkdownLaneState(
       const lineEnteredWithFrontMatter = frontMatter !== undefined
       let lineOwnedByIndentedCode = false
       if (indentedCode !== undefined) {
-        if (!lineState.blank && lineState.indentation >= 4) {
+        if (
+          !lineState.blank &&
+          lineState.indentation >= 4 &&
+          continuesBlockContainer(lineState, indentedCode.container)
+        ) {
           indentedCode = Object.freeze({
             ...indentedCode,
             lastCodeEnd: sourceEnd
@@ -3378,6 +3408,7 @@ export function buildPlainMarkdownLine(
     contentEnd,
     end,
     blank: lineState.blank,
+    lazy: lineState.lazy,
     contentOffset: lineState.contentOffset,
     indentation: lineState.indentation,
     blockQuoteDepth: lineState.blockQuoteDepth,
@@ -3468,8 +3499,7 @@ function parsePlainMarkdownLanePass(
       checkpoint.lastLineLazy,
       checkpoint.fence !== undefined ||
         checkpoint.frontMatter !== undefined ||
-        checkpoint.htmlBlock !== undefined ||
-        checkpoint.indentedCode !== undefined
+        checkpoint.htmlBlock !== undefined
     ))
     const failure =
       advanceRange(start, contentEnd) ?? advanceRange(contentEnd, end)

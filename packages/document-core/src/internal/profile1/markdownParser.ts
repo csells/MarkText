@@ -1508,16 +1508,52 @@ function isMutableContainerNode(
   return 'mutable' in node && node.mutable
 }
 
-function containsBlankLine(source: string, start: number, end: number): boolean {
-  return start < end && /\n[\t ]*\n/.test(source.slice(start, end))
+function containsBlankLine(
+  blankLineStarts: readonly number[],
+  start: number,
+  end: number
+): boolean {
+  let low = 0
+  let high = blankLineStarts.length
+  while (low < high) {
+    const middle = low + ((high - low) >> 1)
+    if ((blankLineStarts[middle] ?? end) < start) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  const candidate = blankLineStarts[low]
+  return candidate !== undefined && candidate < end
+}
+
+function blankLineStartsOf(lines: readonly PlainMarkdownLine[]): readonly number[] {
+  const starts: number[] = []
+  for (const line of lines) {
+    if (!line.blank) {
+      continue
+    }
+    const deepest = line.containers.at(-1)
+    if (deepest?.kind === 'blockquote') {
+      continue
+    }
+    if (deepest?.kind === 'list-item' && !deepest.continued) {
+      continue
+    }
+    starts.push(line.start)
+  }
+  return starts
 }
 
 function finalizeMutableContainer(
   node: MutableContainerNode,
-  source: string
+  source: string,
+  blankLineStarts: readonly number[]
 ): MarkdownNode {
   const children = node.children.map((child) =>
-    isMutableContainerNode(child) ? finalizeMutableContainer(child, source) : child
+    isMutableContainerNode(child)
+      ? finalizeMutableContainer(child, source, blankLineStarts)
+      : child
   )
   let attributes = node.attributes
   if (node.kind === 'list') {
@@ -1529,12 +1565,12 @@ function finalizeMutableContainer(
       const item = children[index]
       const next = children[index + 1]
       if (item !== undefined && next !== undefined) {
-        loose = containsBlankLine(source, item.range.end, next.range.start)
+        loose = containsBlankLine(blankLineStarts, item.range.end, next.range.start)
       }
       if (!loose && item !== undefined) {
         for (let inner = 0; inner + 1 < item.childCount && !loose; inner += 1) {
           loose = containsBlankLine(
-            source,
+            blankLineStarts,
             item.childAt(inner).range.end,
             item.childAt(inner + 1).range.start
           )
@@ -1574,6 +1610,7 @@ function parseOrderedContainerSequence(
   }
 
   const root = mutableContainerNode('document', 0, source.length)
+  const blankLineStarts = blankLineStartsOf(lines)
   const stack: OpenContainerContext[] = []
   let paragraphOwner: MutableContainerNode | undefined
   let paragraph: MutableContainerNode | undefined
@@ -1611,7 +1648,21 @@ function parseOrderedContainerSequence(
       break
     }
     if (line.containers.length === 0) {
-      break
+      // Blank lines end the run only when no container line resumes after
+      // them: '* a / * / (blank) / * c' is one list with a dead middle item.
+      if (!line.blank) {
+        break
+      }
+      let probe = nextLineIndex
+      while (lines[probe]?.blank === true) {
+        probe += 1
+      }
+      if ((lines[probe]?.containers.length ?? 0) === 0) {
+        break
+      }
+      closeParagraph()
+      nextLineIndex = probe
+      continue
     }
 
     let reusedDepth = 0
@@ -1725,6 +1776,38 @@ function parseOrderedContainerSequence(
       continue
     }
 
+    if (
+      paragraph !== undefined &&
+      paragraphOwner === parent &&
+      paragraphLines.length > 0 &&
+      !line.lazy &&
+      line.containers.every((descriptor) => descriptor.continued)
+    ) {
+      const underlineLevel = setextUnderlineLevel(source, line)
+      if (underlineLevel !== undefined) {
+        const heading = createNode(
+          'heading',
+          paragraph.start,
+          line.contentEnd,
+          parseInlineLineSequence(
+            source,
+            paragraphLines,
+            constructs,
+            referenceDefinitions,
+            boundaryPolicy
+          ),
+          { level: underlineLevel, style: 'setext' }
+        )
+        parent.children[parent.children.indexOf(paragraph)] = heading
+        paragraphOwner = undefined
+        paragraph = undefined
+        paragraphLines = []
+        extendOpenContainers(line.contentEnd)
+        nextLineIndex += 1
+        continue
+      }
+    }
+
     const heading = parseAtxHeading(
       source,
       line.contentOffset,
@@ -1771,7 +1854,9 @@ function parseOrderedContainerSequence(
 
   return Object.freeze({
     nodes: Object.freeze(root.children.map((child) =>
-      isMutableContainerNode(child) ? finalizeMutableContainer(child, source) : child
+      isMutableContainerNode(child)
+        ? finalizeMutableContainer(child, source, blankLineStarts)
+        : child
     )),
     nextLineIndex
   })
@@ -1781,7 +1866,17 @@ function setextHeadingLevel(
   source: string,
   line: PlainMarkdownLine
 ): 1 | 2 | undefined {
-  if (line.indentation > 3 || line.blockQuoteDepth > 0 || line.listDepth > 0) {
+  if (line.blockQuoteDepth > 0 || line.listDepth > 0) {
+    return undefined
+  }
+  return setextUnderlineLevel(source, line)
+}
+
+function setextUnderlineLevel(
+  source: string,
+  line: PlainMarkdownLine
+): 1 | 2 | undefined {
+  if (line.indentation > 3) {
     return undefined
   }
   let start = line.contentOffset
@@ -2035,7 +2130,7 @@ function parseBlocks(
     if (line === undefined) {
       break
     }
-    if (line.blank) {
+    if (line.blank && !line.containers.some((container) => !container.continued)) {
       lineIndex += 1
       continue
     }
@@ -2139,7 +2234,7 @@ function parseBlocks(
         break
       }
       if (
-        nextLine.blank ||
+        (nextLine.blank && nextLine.listMarkers.length === 0) ||
         nextLine.blockQuoteDepth > 0 ||
         parseAtxHeading(
           source,
@@ -2149,7 +2244,7 @@ function parseBlocks(
           referenceDefinitions,
           boundaryPolicy
         ) !== undefined ||
-        nextLine.listMarkers.length > 0 ||
+        (nextLine.listMarkers.length > 0 && !nextLine.blank) ||
         isThematicBreak(source, nextLine) ||
         literals.some((candidate) =>
           (candidate.provider === 'fenced-code' ||
