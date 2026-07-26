@@ -59,6 +59,17 @@ Today's shape does **not** foreclose the Wagner & Graham balanced sequence:
   per-snapshot and tree-compatible; acceptable through Phase 0.5. Rule: no new consumer may
   store `blockIndex` across revisions.
 
+## HTML materialization (owner ruling, 2026-07-25)
+
+An AST→HTML mapping exists as a doc-core module: **not part of the parser** (a consumer of the
+revision's markdown/CM AST, peer to `view/markupRender`), **packaged and exported with
+doc-core** (any editor host gets HTML materialization without reimplementing it). This pulls
+the Phase 6 HTML materializer forward as the structural-conformance oracle: the CommonMark
+corpus's html column is compared against the real materializer through a cmark-style
+normalizer, so conformance tests exercise shipped behavior rather than a test-only shadow.
+Scope order: markdown-AST → HTML first (covers the corpus and the Original/Revised views);
+CM-decorated HTML (ins/del/mark conventions per research 0005) when export work needs it.
+
 ## Seam refinements (scheduled from the review)
 
 1. `DocumentSessionOpenOptions` forces four singleton-literal fields every host restates —

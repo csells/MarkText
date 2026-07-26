@@ -3767,8 +3767,12 @@ Gate-closure day. Each red-green with the full suite green (now 505 passing, 5 e
   (including R5 comment opacity and the pre-existing 'containing-arm literal must not erase its
   enclosing closer' pin) — the corpus's closer-stands semantics is the ratified ruling, now
   spec'd as L2a with ledger entry D8, and the spike row restates it in the 0007 vocabulary.
-  Remaining queue: the structural-conformance differential design (doc-core renders no HTML)
-  and the validateProfile1SyntaxGraphCore constant-factor pass (linear but hot at ~14% —
+  The structural-conformance design is RULED
+  (owner, 2026-07-25): an AST→HTML materializer module — outside the parser, packaged with
+  doc-core, Phase 6 pulled forward — becomes the corpus oracle (html column vs the real
+  materializer through a cmark-style normalizer; see the module design record). Remaining
+  queue: build that materializer red-green section-by-section against the corpus, and the
+  validateProfile1SyntaxGraphCore constant-factor pass (linear but hot at ~14% —
   opportunistic, no R-4 red exists). Original gates:
   cross-scope backtick/math closer lookup (scope-partitioned run buckets; one traced query per
   request), arm-termination fence planning (per-lane sorted fence index; was 8,256 probes for
