@@ -31,3 +31,15 @@ differently per view. None of that relaxes what is forbidden above: no stage may
 re-recognize CriticMarkup, discover syntax from a flattened string, or join
 identity after the fact. It adds one obligation instead — text that does not
 change across views is resolved once and shared, never re-parsed per view.
+
+The HTML serializer is the render-product case of this rule. It is a
+materializer packaged with document-core: a pure consumer of a revision's
+block/inline structure that walks parser-created nodes and emits HTML, sitting
+outside the parser exactly as the canonical-bytes and markup-render
+materializers do. It performs no recognition — no regex over source, no
+re-tokenization of node text, no discovery of syntax the graph does not
+already carry — and therefore can never become the second authority this
+decision forbids. Structural conformance runs through it: comparing its
+output for a corpus input against the specification's expected HTML tests the
+one intrinsic parse, which is only meaningful because the serializer adds no
+interpretation of its own.

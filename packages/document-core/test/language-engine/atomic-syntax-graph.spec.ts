@@ -769,8 +769,8 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       kind: 'link',
       range: { start: 0, end: 12 },
       attributes: {
-        destinationStart: 7,
-        destinationEnd: 12
+        destinationStart: 8,
+        destinationEnd: 11
       },
       childCount: 1
     })

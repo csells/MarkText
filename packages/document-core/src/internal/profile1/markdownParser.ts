@@ -940,10 +940,7 @@ function appendInlineRange(
           referenceDefinitions,
           boundaryPolicy
         ),
-        {
-          destinationStart: literal.start,
-          destinationEnd: literal.end
-        }
+        scanLinkTargetAttributes(source, literal.start + 1, literal.end - 1)
       ))
       offset = literal.end
       textStart = offset
@@ -1217,8 +1214,11 @@ function parseAtxHeading(
   }
   if (
     closingStart < contentEnd &&
-    closingStart > offset &&
-    (source.charCodeAt(closingStart - 1) === 32 || source.charCodeAt(closingStart - 1) === 9)
+    (
+      closingStart === offset ||
+      source.charCodeAt(closingStart - 1) === 32 ||
+      source.charCodeAt(closingStart - 1) === 9
+    )
   ) {
     contentEnd = closingStart - 1
     while (
@@ -1241,15 +1241,186 @@ function parseAtxHeading(
   return createNode('heading', start, end, children, { level })
 }
 
+// Code content is a line-level fact: container prefixes ('> ', list padding)
+// and the code indent live BEFORE each line's content offset, which only the
+// line records know. Extracting here keeps every consumer (HTML materializer,
+// editor view) off raw-slice re-derivation.
+function codeBlockAttributes(
+  source: string,
+  literal: MappedMarkdownLiteral,
+  lines: readonly PlainMarkdownLine[],
+  fromLineIndex: number
+): Readonly<Record<string, string | number | boolean>> {
+  const covered: PlainMarkdownLine[] = []
+  for (let index = fromLineIndex; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line === undefined || line.start >= literal.end) {
+      break
+    }
+    if (line.contentEnd >= literal.start) {
+      covered.push(line)
+    }
+  }
+  const lineText = (line: PlainMarkdownLine, stripColumns: number): string => {
+    const kept = Math.max(0, line.indentation - stripColumns)
+    return ' '.repeat(kept) + source.slice(line.contentOffset, line.contentEnd)
+  }
+  if (literal.provider === 'indented-code') {
+    const content = covered.map((line) => lineText(line, 4)).join('\n')
+    return Object.freeze({
+      provider: literal.provider,
+      content: content === '' ? '' : `${content}\n`
+    })
+  }
+  const opener = covered[0]
+  if (opener === undefined) {
+    return Object.freeze({ provider: literal.provider, content: '' })
+  }
+  const openerText = source.slice(opener.contentOffset, opener.contentEnd)
+  const markerMatch = /^([`~]+)(.*)$/.exec(openerText)
+  const info = (markerMatch?.[2] ?? '').trim()
+  const marker = markerMatch?.[1]?.charAt(0) ?? '`'
+  const fenceIndent = opener.indentation
+  const last = covered[covered.length - 1]
+  const closerPattern = new RegExp(`^\\${marker}+[\\t ]*$`)
+  const hasCloser =
+    covered.length > 1 &&
+    last !== undefined &&
+    last.indentation <= 3 &&
+    closerPattern.test(source.slice(last.contentOffset, last.contentEnd))
+  const interior = covered.slice(1, hasCloser ? covered.length - 1 : covered.length)
+  const content = interior.map((line) => lineText(line, fenceIndent)).join('\n')
+  return Object.freeze({
+    provider: literal.provider,
+    content: interior.length === 0 ? '' : `${content}\n`,
+    ...(info === '' ? {} : { info })
+  })
+}
+
+// The parser's own reading of a link target: the destination and optional
+// title CONTENT ranges inside an inline-link suffix or after a definition's
+// colon. Attached as node attributes so materializers never re-recognize
+// link syntax (ADR-0009).
+function scanLinkTargetAttributes(
+  source: string,
+  start: number,
+  end: number
+): Record<string, number> {
+  let offset = start
+  while (offset < end && isLinkWhitespace(source.charCodeAt(offset))) {
+    offset += 1
+  }
+  let destinationStart = offset
+  let destinationEnd = offset
+  if (source.charCodeAt(offset) === 60) {
+    destinationStart = offset + 1
+    offset += 1
+    while (offset < end) {
+      const codeUnit = source.charCodeAt(offset)
+      if (codeUnit === 92 && offset + 1 < end) {
+        offset += 2
+        continue
+      }
+      if (codeUnit === 62) {
+        break
+      }
+      offset += 1
+    }
+    destinationEnd = offset
+    offset += 1
+  } else {
+    let depth = 0
+    while (offset < end) {
+      const codeUnit = source.charCodeAt(offset)
+      if (codeUnit === 92 && offset + 1 < end) {
+        offset += 2
+        continue
+      }
+      if (codeUnit === 40) {
+        depth += 1
+      } else if (codeUnit === 41) {
+        if (depth === 0) {
+          break
+        }
+        depth -= 1
+      } else if (codeUnit <= 32 || codeUnit === 127) {
+        break
+      }
+      offset += 1
+    }
+    destinationEnd = offset
+  }
+  while (offset < end && isLinkWhitespace(source.charCodeAt(offset))) {
+    offset += 1
+  }
+  const titleOpen = source.charCodeAt(offset)
+  if (titleOpen !== 34 && titleOpen !== 39 && titleOpen !== 40) {
+    return { destinationStart, destinationEnd }
+  }
+  const titleClose = titleOpen === 40 ? 41 : titleOpen
+  const titleStart = offset + 1
+  offset = titleStart
+  while (offset < end) {
+    const codeUnit = source.charCodeAt(offset)
+    if (codeUnit === 92 && offset + 1 < end) {
+      offset += 2
+      continue
+    }
+    if (codeUnit === titleClose) {
+      break
+    }
+    offset += 1
+  }
+  return { destinationStart, destinationEnd, titleStart, titleEnd: offset }
+}
+
+function isLinkWhitespace(codeUnit: number): boolean {
+  return codeUnit === 32 || codeUnit === 9 || codeUnit === 10 || codeUnit === 13
+}
+
+function definitionAttributes(
+  source: string,
+  literal: MappedMarkdownLiteral
+): Record<string, string | number> {
+  for (let opener = literal.start; opener < literal.end; opener += 1) {
+    if (
+      source.charCodeAt(opener) !== 91 ||
+      hasOddBackslashRunBefore(source, opener, literal.start)
+    ) {
+      continue
+    }
+    for (let closer = opener + 1; closer + 1 < literal.end; closer += 1) {
+      const codeUnit = source.charCodeAt(closer)
+      if (codeUnit === 92 && closer + 1 < literal.end) {
+        closer += 1
+        continue
+      }
+      if (codeUnit === 91) {
+        break
+      }
+      if (codeUnit === 93 && source.charCodeAt(closer + 1) === 58) {
+        return {
+          label: normalizeMarkdownReferenceLabel(source, opener + 1, closer),
+          ...scanLinkTargetAttributes(source, closer + 2, literal.end)
+        }
+      }
+    }
+  }
+  return {}
+}
+
 function blockLiteralNode(
   source: string,
   literal: MappedMarkdownLiteral,
-  start: number = literal.start
+  start: number = literal.start,
+  lines?: readonly PlainMarkdownLine[],
+  fromLineIndex?: number
 ): MarkdownNode | undefined {
   if (literal.provider === 'fenced-code' || literal.provider === 'indented-code') {
-    return createNode('code-block', start, literal.end, [], {
-      provider: literal.provider
-    })
+    return createNode('code-block', start, literal.end, [],
+      lines !== undefined && fromLineIndex !== undefined
+        ? codeBlockAttributes(source, literal, lines, fromLineIndex)
+        : { provider: literal.provider })
   }
   if (literal.provider === 'html-block') {
     return createNode('html-block', start, literal.end)
@@ -1263,7 +1434,11 @@ function blockLiteralNode(
         ? 'footnote-definition'
         : 'definition',
       start,
-      literal.end
+      literal.end,
+      [],
+      literal.blockKind === 'footnote-definition'
+        ? EMPTY_ATTRIBUTES
+        : definitionAttributes(source, literal)
     )
   }
   if (literal.provider === 'diagram') {
@@ -1333,16 +1508,42 @@ function isMutableContainerNode(
   return 'mutable' in node && node.mutable
 }
 
-function finalizeMutableContainer(node: MutableContainerNode): MarkdownNode {
-  return createNode(
-    node.kind,
-    node.start,
-    node.end,
-    node.children.map((child) =>
-      isMutableContainerNode(child) ? finalizeMutableContainer(child) : child
-    ),
-    node.attributes
+function containsBlankLine(source: string, start: number, end: number): boolean {
+  return start < end && /\n[\t ]*\n/.test(source.slice(start, end))
+}
+
+function finalizeMutableContainer(
+  node: MutableContainerNode,
+  source: string
+): MarkdownNode {
+  const children = node.children.map((child) =>
+    isMutableContainerNode(child) ? finalizeMutableContainer(child, source) : child
   )
+  let attributes = node.attributes
+  if (node.kind === 'list') {
+    // A list is loose when a blank line separates two items, or separates two
+    // blocks inside one item. Trailing blanks after the last item are the
+    // following block's separation, not the list's.
+    let loose = false
+    for (let index = 0; index < children.length && !loose; index += 1) {
+      const item = children[index]
+      const next = children[index + 1]
+      if (item !== undefined && next !== undefined) {
+        loose = containsBlankLine(source, item.range.end, next.range.start)
+      }
+      if (!loose && item !== undefined) {
+        for (let inner = 0; inner + 1 < item.childCount && !loose; inner += 1) {
+          loose = containsBlankLine(
+            source,
+            item.childAt(inner).range.end,
+            item.childAt(inner + 1).range.start
+          )
+        }
+      }
+    }
+    attributes = Object.freeze({ ...attributes, tight: !loose })
+  }
+  return createNode(node.kind, node.start, node.end, children, attributes)
 }
 
 function sameContainerKind(
@@ -1513,7 +1714,7 @@ function parseOrderedContainerSequence(
     )
     const literalNode =
       literal !== undefined && literal.start >= line.start
-        ? blockLiteralNode(source, literal, line.contentOffset)
+        ? blockLiteralNode(source, literal, line.contentOffset, lines, nextLineIndex)
         : undefined
     if (literal !== undefined && literalNode !== undefined) {
       parent.children.push(literalNode)
@@ -1540,6 +1741,16 @@ function parseOrderedContainerSequence(
       continue
     }
 
+    if (isThematicBreakRun(source, line.contentOffset, line.contentEnd)) {
+      parent.children.push(
+        createNode('thematic-break', line.contentOffset, line.contentEnd)
+      )
+      extendOpenContainers(line.contentEnd)
+      closeParagraph()
+      nextLineIndex += 1
+      continue
+    }
+
     if (paragraphOwner !== parent || paragraph === undefined) {
       closeParagraph()
       paragraph = mutableContainerNode(
@@ -1560,7 +1771,7 @@ function parseOrderedContainerSequence(
 
   return Object.freeze({
     nodes: Object.freeze(root.children.map((child) =>
-      isMutableContainerNode(child) ? finalizeMutableContainer(child) : child
+      isMutableContainerNode(child) ? finalizeMutableContainer(child, source) : child
     )),
     nextLineIndex
   })
@@ -1599,13 +1810,10 @@ function setextHeadingLevel(
   return marker === 61 ? 1 : 2
 }
 
-function isThematicBreak(source: string, line: PlainMarkdownLine): boolean {
-  if (line.indentation > 3 || line.blockQuoteDepth > 0 || line.listDepth > 0) {
-    return false
-  }
+function isThematicBreakRun(source: string, start: number, end: number): boolean {
   let marker: number | undefined
   let count = 0
-  for (let offset = line.contentOffset; offset < line.contentEnd; offset += 1) {
+  for (let offset = start; offset < end; offset += 1) {
     const codeUnit = source.charCodeAt(offset)
     if (codeUnit === 32 || codeUnit === 9) {
       continue
@@ -1620,6 +1828,13 @@ function isThematicBreak(source: string, line: PlainMarkdownLine): boolean {
     count += 1
   }
   return count >= 3
+}
+
+function isThematicBreak(source: string, line: PlainMarkdownLine): boolean {
+  if (line.indentation > 3 || line.blockQuoteDepth > 0 || line.listDepth > 0) {
+    return false
+  }
+  return isThematicBreakRun(source, line.contentOffset, line.contentEnd)
 }
 
 interface TableCellRange {
@@ -1884,35 +2099,16 @@ function parseBlocks(
       }
       continue
     }
-    const setextLine = lines[lineIndex + 1]
-    const setextLevel =
-      setextLine === undefined ? undefined : setextHeadingLevel(source, setextLine)
-    if (setextLine !== undefined && setextLevel !== undefined) {
-      blocks.push(createNode(
-        'heading',
-        line.start,
-        setextLine.contentEnd,
-        parseInlineNodes(
-          source,
-          line.contentOffset,
-          line.contentEnd,
-          constructs,
-          referenceDefinitions,
-          boundaryPolicy
-        ),
-        { level: setextLevel, style: 'setext' }
-      ))
-      lineIndex += 2
-      continue
-    }
     if (isThematicBreak(source, line)) {
       blocks.push(createNode('thematic-break', line.start, line.contentEnd))
       lineIndex += 1
       continue
     }
     const literalNode =
-      literal !== undefined && literal.start === line.start
-        ? blockLiteralNode(source, literal)
+      literal !== undefined &&
+      literal.start >= line.start &&
+      literal.start <= line.contentOffset
+        ? blockLiteralNode(source, literal, literal.start, lines, lineIndex)
         : undefined
     if (literal !== undefined && literalNode !== undefined) {
       blocks.push(literalNode)
@@ -1929,10 +2125,20 @@ function parseBlocks(
     const paragraphStart = line.start
     let paragraphEnd = line.contentEnd
     let nextLineIndex = lineIndex + 1
+    let setextLevel: 1 | 2 | undefined
     while (nextLineIndex < lines.length) {
       const nextLine = lines[nextLineIndex]
+      if (nextLine === undefined) {
+        break
+      }
+      // A setext underline binds tighter than every paragraph interrupter
+      // that shares its shape ('---' is also a thematic break).
+      setextLevel = setextHeadingLevel(source, nextLine)
+      if (setextLevel !== undefined) {
+        nextLineIndex += 1
+        break
+      }
       if (
-        nextLine === undefined ||
         nextLine.blank ||
         nextLine.blockQuoteDepth > 0 ||
         parseAtxHeading(
@@ -1943,12 +2149,38 @@ function parseBlocks(
           referenceDefinitions,
           boundaryPolicy
         ) !== undefined ||
-        nextLine.listMarkers.length > 0
+        nextLine.listMarkers.length > 0 ||
+        isThematicBreak(source, nextLine) ||
+        literals.some((candidate) =>
+          (candidate.provider === 'fenced-code' ||
+            candidate.provider === 'html-block' ||
+            candidate.provider === 'diagram') &&
+          candidate.start >= nextLine.start &&
+          candidate.start <= nextLine.contentOffset &&
+          candidate.start < nextLine.contentEnd)
       ) {
         break
       }
       paragraphEnd = nextLine.contentEnd
       nextLineIndex += 1
+    }
+    if (setextLevel !== undefined) {
+      blocks.push(createNode(
+        'heading',
+        paragraphStart,
+        (lines[nextLineIndex - 1] ?? line).contentEnd,
+        parseInlineNodes(
+          source,
+          line.contentOffset,
+          paragraphEnd,
+          constructs,
+          referenceDefinitions,
+          boundaryPolicy
+        ),
+        { level: setextLevel, style: 'setext' }
+      ))
+      lineIndex = nextLineIndex
+      continue
     }
     blocks.push(createNode(
       'paragraph',

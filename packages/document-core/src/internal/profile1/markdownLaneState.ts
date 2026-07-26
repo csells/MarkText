@@ -398,6 +398,8 @@ interface ContainerLineState {
   readonly blank: boolean
   readonly indentation: number
   readonly contentOffset: number
+  /** End of THIS line's content — construct checks must never scan past it. */
+  readonly lineContentEnd: number
   readonly containerBaseColumn: number
   readonly openers: readonly MarkdownContainerOpener[]
   readonly lazy: boolean
@@ -457,12 +459,12 @@ function isAtxHeadingLine(source: string, state: ContainerLineState): boolean {
     return false
   }
   let offset = state.contentOffset
-  while (offset < source.length && source.charCodeAt(offset) === 35) {
+  while (offset < state.lineContentEnd && source.charCodeAt(offset) === 35) {
     offset += 1
   }
   const level = offset - state.contentOffset
   return level <= 6 &&
-    (offset === source.length || isSpaceOrTab(source.charCodeAt(offset)))
+    (offset === state.lineContentEnd || isSpaceOrTab(source.charCodeAt(offset)))
 }
 
 function findListMarker(
@@ -548,7 +550,8 @@ function analyzeContainerLine(
   line: SourceLine,
   inheritedContainers: readonly ActiveBlockContainer[],
   paragraphOpen: boolean,
-  previousLineLazy: boolean
+  previousLineLazy: boolean,
+  suppressNewContainers: boolean = false
 ): ContainerLineState {
   let offset = line.start
   let column = 0
@@ -625,7 +628,11 @@ function analyzeContainerLine(
 
   const inheritedMatchDepth = activeContainers.length
   const openers: MarkdownContainerOpener[] = []
-  while (offset < line.contentEnd) {
+  // Inside an open block literal (fence, front matter, HTML block, indented
+  // code) every byte is content: continued containers still match above, but
+  // a '>' or '-' here opens nothing.
+  const openerScanEnd = suppressNewContainers ? offset : line.contentEnd
+  while (offset < openerScanEnd) {
     while (offset < line.contentEnd && isSpaceOrTab(source.charCodeAt(offset))) {
       const nextColumn = advanceColumn(column, source.charCodeAt(offset))
       if (nextColumn - containerBaseColumn > 3) {
@@ -721,6 +728,7 @@ function analyzeContainerLine(
     blank: contentOffset === line.contentEnd,
     indentation: contentColumn - containerBaseColumn,
     contentOffset,
+    lineContentEnd: line.contentEnd,
     containerBaseColumn,
     openers: Object.freeze(openers),
     lazy: false
@@ -848,13 +856,13 @@ function isLazyParagraphContinuation(
     state.blank ||
     state.openers.length > 0 ||
     isAtxHeadingLine(source, state) ||
-    isThematicBreakFrom(source, state.contentOffset, source.length) ||
+    isThematicBreakFrom(source, state.contentOffset, state.lineContentEnd) ||
     (
       !previousLineLazy &&
-      isSetextUnderline(source, state.contentOffset, source.length)
+      isSetextUnderline(source, state.contentOffset, state.lineContentEnd)
     ) ||
     findMarkdownFenceOpening(
-      source,
+      source.slice(0, state.lineContentEnd),
       state.contentOffset,
       state.indentation,
       state.blank
@@ -3328,7 +3336,8 @@ export function buildPlainMarkdownLine(
   bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
   activeContainers: MarkdownCheckpoint['activeContainers'],
   paragraphOpen: boolean,
-  lastLineLazy: boolean
+  lastLineLazy: boolean,
+  literalOpen: boolean = false
 ): PlainMarkdownLine {
   const { start, contentEnd, end } = bounds
   const lineState = analyzeContainerLine(
@@ -3336,7 +3345,8 @@ export function buildPlainMarkdownLine(
     { start, contentEnd, end },
     activeContainers,
     paragraphOpen,
-    lastLineLazy
+    lastLineLazy,
+    literalOpen
   )
   let openerIndex = 0
   const containers = lineState.activeContainers.map(
@@ -3455,7 +3465,11 @@ function parsePlainMarkdownLanePass(
       bounds,
       checkpoint.activeContainers,
       checkpoint.paragraphOpen,
-      checkpoint.lastLineLazy
+      checkpoint.lastLineLazy,
+      checkpoint.fence !== undefined ||
+        checkpoint.frontMatter !== undefined ||
+        checkpoint.htmlBlock !== undefined ||
+        checkpoint.indentedCode !== undefined
     ))
     const failure =
       advanceRange(start, contentEnd) ?? advanceRange(contentEnd, end)
