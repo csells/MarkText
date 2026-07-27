@@ -122,6 +122,10 @@ export interface RevisionWorkerCheckpoint {
   readonly history: readonly HistoryEntry[]
   readonly historyCursor: number
   readonly historyIdentities: readonly string[]
+  // Parallel to historyIdentities: the canonical source each history position
+  // holds. Saved identity is content-addressed, so dirty state survives a
+  // document being edited back to the bytes on disk.
+  readonly historySourceHashes: readonly SourceHashV1[]
   readonly historyIdentitySequence: number
   readonly savedHistoryIdentity: string
 }
@@ -1649,6 +1653,7 @@ export class RevisionWorker {
   #history: HistoryEntry[] = []
   #historyCursor = 0
   #historyIdentities: string[]
+  #historySourceHashes: SourceHashV1[]
   #historyIdentitySequence = 0
   #savedHistoryIdentity: string
 
@@ -1666,6 +1671,7 @@ export class RevisionWorker {
     this.#trackChanges = recovery?.trackChanges ?? trackChanges
     const initialHistoryIdentity = `${String(session)}:history:0`
     this.#historyIdentities = [initialHistoryIdentity]
+    this.#historySourceHashes = [revision.sourceHash]
     this.#savedHistoryIdentity = initialHistoryIdentity
     if (
       recovery !== undefined &&
@@ -1740,6 +1746,7 @@ export class RevisionWorker {
       this.#history = recovery.history.map((entry) => freezeHistoryEntry(entry))
       this.#historyCursor = recovery.historyCursor
       this.#historyIdentities = [...recovery.historyIdentities]
+      this.#historySourceHashes = [...recovery.historySourceHashes]
       this.#historyIdentitySequence = recovery.historyIdentitySequence
       this.#savedHistoryIdentity = recovery.savedHistoryIdentity
     }
@@ -1772,10 +1779,18 @@ export class RevisionWorker {
     if (headIdentity === undefined) {
       throw new Error('Revision worker has no current history identity')
     }
+    // Dirty is a content comparison, never a position comparison: a document
+    // edited back to the bytes on disk is clean however history reached them,
+    // and a divergent replay is dirty even when the cursor returns to where it
+    // was saved. The saved position may have been compacted out of history, in
+    // which case its content is no longer knowable and the head is dirty.
+    const savedIndex = this.#historyIdentities.indexOf(this.#savedHistoryIdentity)
+    const savedSourceHash =
+      savedIndex === -1 ? undefined : this.#historySourceHashes[savedIndex]
     return Object.freeze({
       canUndo: this.#historyCursor > 0,
       canRedo: this.#historyCursor < this.#history.length,
-      dirty: headIdentity !== this.#savedHistoryIdentity,
+      dirty: savedSourceHash !== this.#state.revision.sourceHash,
       headIdentity,
       savedIdentity: this.#savedHistoryIdentity
     })
@@ -1851,6 +1866,7 @@ export class RevisionWorker {
       history: Object.freeze(this.#history.map((entry) => freezeHistoryEntry(entry))),
       historyCursor: this.#historyCursor,
       historyIdentities: Object.freeze([...this.#historyIdentities]),
+      historySourceHashes: Object.freeze([...this.#historySourceHashes]),
       historyIdentitySequence: this.#historyIdentitySequence,
       savedHistoryIdentity: this.#savedHistoryIdentity
     })
@@ -1875,6 +1891,7 @@ export class RevisionWorker {
     this.#history = restored.#history
     this.#historyCursor = restored.#historyCursor
     this.#historyIdentities = restored.#historyIdentities
+    this.#historySourceHashes = restored.#historySourceHashes
     this.#historyIdentitySequence = restored.#historyIdentitySequence
     this.#savedHistoryIdentity = restored.#savedHistoryIdentity
   }
@@ -5670,10 +5687,15 @@ export class RevisionWorker {
         0,
         this.#historyCursor + 1
       )
+      this.#historySourceHashes = this.#historySourceHashes.slice(
+        0,
+        this.#historyCursor + 1
+      )
       this.#historyIdentitySequence += 1
       this.#historyIdentities.push(
         `${String(this.#state.session)}:history:${this.#historyIdentitySequence}`
       )
+      this.#historySourceHashes.push(prepared.revision.sourceHash)
       this.#history.push(stableEntry)
       this.#historyCursor += 1
       let historyInsertUnits = this.#history.reduce(
@@ -5700,6 +5722,7 @@ export class RevisionWorker {
           0
         )
         this.#historyIdentities.shift()
+        this.#historySourceHashes.shift()
         this.#historyCursor -= 1
       }
     } else if (prepared.historyAction.kind === 'undo') {

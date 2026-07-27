@@ -548,6 +548,7 @@ function validateWorkerCheckpoint(value: unknown, path: string): void {
       'history',
       'historyCursor',
       'historyIdentities',
+      'historySourceHashes',
       'historyIdentitySequence',
       'savedHistoryIdentity'
     ]
@@ -609,6 +610,18 @@ function validateWorkerCheckpoint(value: unknown, path: string): void {
     new Set(identities).size !== identities.length
   ) {
     invalidJournalShape(`${path}.historyIdentities`)
+  }
+  // Content addresses run parallel to identities and, unlike them, repeat
+  // whenever a document returns to earlier bytes.
+  const sourceHashes = boundedArray(
+    field(worker, 'historySourceHashes', path),
+    `${path}.historySourceHashes`,
+    DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryEntries + 1
+  ).map((hash, index) =>
+    boundedString(hash, `${path}.historySourceHashes[${String(index)}]`)
+  )
+  if (sourceHashes.length !== identities.length) {
+    invalidJournalShape(`${path}.historySourceHashes`)
   }
   boundedInteger(
     field(worker, 'historyIdentitySequence', path),
