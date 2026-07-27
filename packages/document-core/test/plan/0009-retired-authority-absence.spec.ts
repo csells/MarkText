@@ -104,6 +104,72 @@ function activeDesignFiles(): readonly string[] {
   return Object.freeze(output.trim().split('\n').filter(Boolean))
 }
 
+interface SyntaxRecognizerHit {
+  readonly file: string
+  readonly line: number
+  readonly construct: string
+  readonly pattern: string
+}
+
+// Non-negotiable 2: recognition of Markdown or CriticMarkup syntax belongs to
+// the document-core grammar. A host regular expression that reproduces one of
+// these constructs is a second recognizer whether or not it has callers.
+const HOST_SYNTAX_CONSTRUCTS: readonly (readonly [string, RegExp])[] = Object.freeze([
+  Object.freeze(['code fence', /```/u] as const),
+  Object.freeze(['display math', /\\\$\\\$/u] as const),
+  Object.freeze(['table delimiter row', /\\\|[^/]*:?-\+:?/u] as const),
+  Object.freeze(['table row', /\\\|\[\^\\?\|\]\+\\\|/u] as const),
+  Object.freeze(['list marker', /\[\*\+-\]\\s/u] as const),
+  Object.freeze(['atx heading', /\^#\{1,6\}|\^#\+\\s/u] as const),
+  Object.freeze(['criticmarkup opener', /\\?\{\\?\+\\?\+|\\?\{--|\\?\{~~|\\?\{==|\\?\{>>/u] as const)
+])
+
+const REGEX_LITERAL =
+  /(?<![\w$)\]])\/(?![*/])(?:\\.|\[(?:\\.|[^\]\n])*\]|[^/\\\n])+\/[dgimsuvy]*/gu
+
+function hostProductionFiles(): readonly string[] {
+  const output = execFileSync(
+    'rg',
+    [
+      '--files',
+      'packages/desktop/src',
+      'packages/document-view/src',
+      '-g',
+      '*.{ts,vue}',
+      '-g',
+      '!**/__tests__/**'
+    ],
+    { cwd: REPO_ROOT, encoding: 'utf8' }
+  )
+  return Object.freeze(output.trim().split('\n').filter(Boolean))
+}
+
+function hostSyntaxRecognizers(): readonly SyntaxRecognizerHit[] {
+  const hits: SyntaxRecognizerHit[] = []
+  for (const file of hostProductionFiles()) {
+    const source = readFileSync(resolve(REPO_ROOT, file), 'utf8')
+    const lines = source.split(/\r?\n/u)
+    for (const [index, text] of lines.entries()) {
+      for (const literal of text.match(REGEX_LITERAL) ?? []) {
+        for (const [construct, probe] of HOST_SYNTAX_CONSTRUCTS) {
+          if (probe.test(literal)) {
+            hits.push(
+              Object.freeze({
+                file,
+                line: index + 1,
+                construct,
+                pattern: literal
+              })
+            )
+            break
+          }
+        }
+      }
+    }
+  }
+  return Object.freeze(hits)
+}
+
 describe('plan 0009 retired authority deletion', () => {
   it('proves every retired authority seed absent and document-core solely authoritative', () => {
     const manifest = rows()
@@ -462,5 +528,15 @@ describe('plan 0009 retired authority deletion', () => {
     expect(host).not.toContain('MARKTEXT_DOCUMENT_CORE_ENGINE')
     expect(host).not.toMatch(/\b(?:on|off)\s*:\s*\(/)
     expect(host).not.toContain('[key: string]')
+  })
+
+  it('fails on any host recognizer of Markdown or CriticMarkup syntax', () => {
+    const found = hostSyntaxRecognizers()
+    expect(
+      found,
+      `Non-negotiable 2: only the document-core grammar may pattern-match ` +
+        `Markdown or CriticMarkup syntax. Found:\n` +
+        found.map((hit) => `  ${hit.file}:${hit.line} ${hit.construct} ${hit.pattern}`).join('\n')
+    ).toEqual([])
   })
 })
