@@ -1,16 +1,15 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G1–G21 open
+- **Status:** RED — G1–G26 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-27
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
 - **Order:** P0 → P0.5 → P1 → … → P9 → P11 → P10
 - **Completion authority:** only P10 may declare this plan complete
 
-This is the single plan and incorporated audit; there is no separate audit
-document. Git history holds discarded designs and progress notes. The branch
-targets one parser, one document engine, and one MarkText host; code outside
-that architecture is deleted.
+This plan states the architecture MarkText is built to and the distance still to
+travel. It is the only architecture and completion authority; git history holds
+discarded designs and progress notes.
 
 ## 1. Authority and outcome
 
@@ -19,6 +18,7 @@ that architecture is deleted.
 | Product and Review experience              | `specs/vision/criticmarkup-vision.md`                           |
 | Profile 1 language                         | `specs/language/marktext-markdown-profile-1.md`                 |
 | Engine vocabulary                          | `packages/document-core/CONTEXT.md`                             |
+| Review and Comments vocabulary             | `CONTEXT.md`                                                    |
 | Verified parser facts                      | `specs/architecture/parser-core-verified-facts.md`              |
 | Architecture and completion rule           | this plan                                                       |
 | Exact tests, IDs, dependencies, and status | `specs/migration/0009-exit-gates.yml` and `0009-acceptance.yml` |
@@ -40,12 +40,136 @@ editing and consumers; one history; and one direct MarkText flow through
 Non-goals are external-file concurrent merge, collaboration metadata, runtime
 grammar plug-ins, editing Original/Revised, and manual testing as evidence.
 
-## 2. Non-negotiables
+## 2. Architecture and non-negotiables
+
+### Modules
+
+Each concern below has exactly one module, and that module's interface is the
+surface both callers and targets cross. A concern answered in two places is a
+defect regardless of whether any behavior is wrong; a concern with no module is
+the same defect, because it is answered wherever the last caller needed it. This
+list is complete when every concern the non-negotiables name appears in it once.
+
+- **Admission authority.** `admit(base, edits, class): Admitted | Rejected`,
+  where class is `typed-gesture`, `proven-candidate`, or `exact-replay`.
+  `Admitted` carries the candidate revision, the transition with its inverse
+  edits, and the admitted diagnostics; `Rejected` carries one named class. It
+  owns edit validation, resource limits, inverse derivation, and postcondition
+  proof, and it is the only caller of the language engine's `reopen` — nothing
+  else turns edits into a revision. It calls source authorship at most once per
+  candidate, before the parse, and never for `exact-replay`, whose bytes were
+  authored and proved when they were first admitted. The class is an ordinary
+  argument, discriminating in the type, never inferred from an argument's
+  presence.
+- **History.** One module owns the undo and redo record: what an entry contains,
+  the one-gesture-one-entry coalescing rule, the cursor, and the exhaustion
+  states. Its interface is `record(admitted)`, `undo(): Replay | null`,
+  `redo(): Replay | null`, and `state()`. A `Replay` is an exact edit set plus
+  the exact selections to restore; history hands it to admission under
+  `exact-replay` and never re-derives edits, calls the parser, or mints saved
+  identity.
+- **Saved identity.** One module owns the identity by which a revision is
+  recognized as the one on disk. It mints, compares, serializes, validates, and
+  recovers that identity as an opaque branded value derived from `SourceHashV1`
+  over exact canonical units; `FileHashV1` and `RevisionSemanticHashV1` are
+  never substituted for it, and their divergence under re-encoding is a stated
+  case. Dirty state is a comparison this module performs, never an expression a
+  caller writes, and every other module transports the value opaquely.
+- **Durable record.** One module owns crash-durable serialization of committed
+  work: `begin(ticket)`, `commit(record)`, `recover(): RecoveredHead`. It stores
+  the opaque saved identity, the admitted edit sets, and transition metadata; it
+  re-declares no field of an identity another module owns and publishes nothing
+  a consumer can query for syntax. Recovery rematerializes the exact revision
+  through admission and verifies it before semantic access resumes.
+- **Source authorship.** Every byte production writes into canonical source that
+  the user did not type is authored here: CriticMarkup marker composition, the
+  escape rule at changed joins, and the Track Changes carrier decision. Its
+  interface is `author(revision, range, input)` and `protect(revision, edits)`,
+  each returning exact replacement text, its authorship class, and the
+  diagnostic every authored byte emits — never a committed revision. Admission
+  decides whether the result is admitted; no caller composes marker syntax,
+  spells an escape, or branches on Track Changes inline.
+- **Coordinate authority.** One module answers every model↔source position
+  question — `sourcePositionAt`, `modelPositionAt`, `boundaryNear`,
+  `mapThroughEdits`, `nodeModelRange`, and every view length — under one
+  affinity rule. Views publish runs for rendering; runs are not a coordinate
+  substrate, and no consumer re-derives a mapping. `boundaryNear` is the only
+  nearest-visible-boundary answer: Review focus, caret snapping, and hidden-gap
+  resolution call it rather than restating its tie rule.
+- **Selection.** One module owns the caret and range as session state in both
+  Markup and canonical-source coordinates, and owns settlement. Its interface is
+  `select(range)`, `current()`, and one public `settled()` barrier every
+  consumer awaits. Positions cross this interface; the view reports gestures and
+  never computes a position it then submits. The barrier is production behavior
+  a real user gesture reaches.
+- **Intent seam.** One typed intent union, declared once in `document-core`, is
+  the only description of a document mutation. It has exactly three readers:
+  `prepare(intent)` in the engine, `dispatch(intent)` in the view, and a wire
+  schema derived from the union rather than restated beside it. Revision
+  identity is minted by the session on the prepared result, never passed in.
+  Adding an intent adds exactly one union arm — no facade method, dispatch
+  ladder, parallel command union, menu constant, or bus string restates it. The
+  seam publishes one capability snapshot per revision: a closed record whose
+  fields are exactly the preconditions the typed intents declare.
+- **Command record.** Availability is a property of a command. One record
+  carries id, an availability predicate over the capability snapshot, dispatch,
+  and its menu, accelerator, palette, and context projections. Every invocation
+  path resolves that one predicate before dispatch, registration rejects a
+  command no disable path can address, and one outcome presenter renders every
+  rejection. A predicate that consults renderer state, a store, a timed
+  round-trip, or a DOM query is not a predicate over the snapshot.
+- **Effect adapters.** Every external effect — print submission, native dialogs,
+  presentation mode — is an interface with a production adapter and an
+  automation adapter, bound once at one named composition-root module that is
+  the only place an adapter is chosen. No production module reads `process.env`,
+  and no environment value that selects production behavior is exported to the
+  renderer.
+- **Execution control and report.** One module owns the lifecycle of every unit
+  of engine work a budget names: stage allocation, checkpointing, cancellation,
+  acknowledgement, and the typed report each stage publishes — named stages,
+  counters, reuse engagement, and first-failure identity. The seam sits at the
+  report: measurement subscribes to what production already publishes and never
+  instruments a host, and no second work authority exists. A cancelled stage
+  publishes no revision and no partial accounting.
+- **Language engine.** One module owns Markdown and CriticMarkup recognition,
+  including which changed joins became syntax. `LanguageEngine` declares every
+  capability a caller may reach — `open`, `reopen`,
+  `inspectChangedCriticMarkerJoins`, `nextExecutionStage` — as ordinary
+  interface members; no capability is resolved through an instance-keyed side
+  channel, because a capability resolved at run time is invisible to
+  module-graph analysis. Its stated invariants: `reopen` accepts only a revision
+  this engine produced under an identical configuration, and `reopen` over
+  source S yields a revision indistinguishable from `open` over S. Complete
+  declaration is not runtime grammar selection.
+- **Grammar configuration.** One main-owned module turns persisted settings into
+  the process's single `ParseConfiguration` and strictly decodes any
+  configuration arriving over the wire: `configurationFor(settings)` and
+  `decode(unknown)`. Exactly one construction site exists. The renderer receives
+  a decoded configuration and never builds one, constructs a language engine, or
+  opens a revision — including for previews, theme samples, and Preferences.
+- **Consumer policy.** One module answers, for every named consumer — live,
+  text, HTML, clipboard, PDF, print — which projection it reads, which
+  sink-specific materializer renders it, and under which live-HTML safety
+  profile. It never selects a parse and never answers a coordinate question.
+  Per-Profile-1-kind exactness across the six sinks is this module's table, not
+  six tables. Every such question production answers is answered here.
+- **Persistence lease.** One module owns the ordered path from head to installed
+  bytes: `lease(reason)`, `release(lease)`, `installed(lease)`. Acquiring a
+  lease flushes admitted work first; while a lease is held the leased revision
+  cannot be replaced. Nothing else reads canonical source in order to write it,
+  and no module infers durability from a successful callback.
+- **Wire decoding.** One module owns closed-record admission and bounded
+  identities and coordinates, with one closed, enumerated rejection vocabulary
+  shared by every codec, so a target asserts a named class rather than a message
+  pattern. Channel codecs are schema declarations over it.
+
+### Non-negotiables
 
 1. Exact source and its immutable `DocumentRevision` are the sole authority.
    DOM, view strings, drafts, journals, and renderer state are derived data.
 2. Markdown and CriticMarkup are recognized in one canonical-source
-   progression. No whole-view grammar pass may reinterpret a materialized view.
+   progression. No whole-view grammar pass may reinterpret a materialized view,
+   and no production module outside the grammar pattern-matches either syntax.
 3. The parser emits nodes, edges, NodeId values, forks, ownership, references,
    provenance, diagnostics, and resolution boundaries. Consumers do not infer
    or reconstruct them.
@@ -70,9 +194,7 @@ grammar plug-ins, editing Original/Revised, and manual testing as evidence.
 11. No target drives, observes, or settles production through a seam that
     exists only for tests. Every precondition, barrier, observation, and
     submission a named target relies on is a public production affordance
-    reachable by a real user gesture. A production branch selected by a
-    test-mode environment variable, a substituted sink, an attribute set only
-    for tests, and a fixed sleep in place of a public barrier are not evidence.
+    reachable by a real user gesture.
 
 ## 3. Product, configuration, and budgets
 
@@ -84,16 +206,16 @@ grammar plug-ins, editing Original/Revised, and manual testing as evidence.
 | Highlight    | `{==text==}`     | `text`   | `text`  |
 | Comment      | `{>>note<<}`     | empty    | empty   |
 
-- Empty forms, recursive same-form nesting, and block-spanning forms are valid.
-  The first unowned top-level `~>` divides a Substitution.
-- Code, HTML, math, autolinks, link destinations, definitions, front matter,
-  diagrams, and footnote definitions own marker-looking literal text.
-- A Comment payload is a lossless isolated inline Profile 1 subdocument.
-  Original and Revised omit it; a Comment card lazily reads its Revised subtree.
-- A gapless Highlight + Comment appears as one Commented span while retaining
-  independent nodes. Add Comment writes exactly `{==selection==}{>>note<<}`.
-- Malformed or over-budget candidates degrade to exact literal source.
-  Hidden nested Comment loss rejects before mutation.
+- Formation, empty payloads, recursive nesting, block spanning, the dividing
+  `~>`, literal ownership by code, HTML, math, autolinks, link destinations,
+  definitions, front matter, diagrams, and footnote definitions, and degradation
+  to exact literal text — never to failure — are the language authority's rules.
+  This plan adds no language rule.
+- Comment payloads, Anchors, and the Commented span carry `CONTEXT.md`'s
+  meanings. A Comment payload is a lossless isolated inline Profile 1
+  subdocument that Original and Revised omit; Add Comment writes exactly
+  `{==selection==}{>>note<<}`; and hidden nested Comment loss rejects before
+  mutation.
 - Markup and Source are editable; Original and Revised are read-only. Save pins
   one revision lease. SourceOnly remains exact, editable, saveable, and visible.
 
@@ -128,241 +250,269 @@ and `desktop-v1` is the only accepted limits profile.
 Every limit has below/at/above cases. Full and fragment-reuse parses must emit
 identical accounting traces and first-failure identities. Doubling families
 grow by at most 2.25×; a 4,096-line open is under 5 seconds; interaction p95 is
-under 500 ms; maximum-document admission is at most 50 ms; main staging slices
-are at most 4 ms; cancellation acknowledgement and animation-heartbeat gaps are
-at most 100 ms; and the viewport settles within 10 seconds with bounded DOM and
-a working set of at most 2 GB. P11 records the green band below an 8 ms measured
-edit stall, requires equivalence-proven reuse above 16 ms, and validates the
-pre-measurement owner decision between. `performance-reuse-decision.yml` fixes
-that decision as `retain-equivalence-proven-reuse`; the timing run reports the
-band but cannot choose its own architecture.
+under 500 ms on the cold path; maximum-document admission is at most 50 ms; main
+staging slices are at most 4 ms; cancellation acknowledgement and
+animation-heartbeat gaps are at most 100 ms; and the viewport settles within 10
+seconds with bounded DOM and a working set of at most 2 GB. P11 records the
+green band below an 8 ms measured edit stall, requires equivalence-proven reuse
+above 16 ms, and validates the pre-measurement owner decision between.
+`performance-reuse-decision.yml` fixes that decision as
+`retain-equivalence-proven-reuse`; the timing run reports the band but cannot
+choose its own architecture.
 
 ## 4. Current gap ledger
 
-“Local proof” means the named behavior passed while the tree was changing; it
-is not frozen-tree evidence. A closure claim resting on uncommitted work is not
-closed.
+Each row states where the code stands against section 2 and what remains;
+section 5 governs what counts as evidence for closing one.
 
 <!-- Machine contract: 0009-evidence-collector.ts and 0009-final-closure.spec.ts
 parse the table below. Keep the heading above, the header cells "Area" and
 "Open before closure", the row labels "Document engine" and "P10 release
 proof", and the single-space cell padding exactly as written. -->
 <!-- prettier-ignore -->
-| Area | Established | Open before closure |
+| Area | Target | Open before closure |
 | --- | --- | --- |
-| Document engine | One intrinsic parser and fork graph own exact source, structure, identity, views, Review data, and typed mutation. Main owns sessions, persistence, recovery, Source mode, and every effect. Sole parser ownership is asserted but not yet independently provable (G5). | G1 (W1) |
-| Review and editor UX | Review, paragraph commands, Quick Insert, Table, diagrams, Image, selection, and locales reach typed session intents. | G2 (W1) |
-| Product authority | The five forms, projections, and the portable-byte promise match the vision. | G3 (W1) |
-| Evidence integrity | Every manifest target exists, is collected, and is unskipped. | G4–G9 (W2) |
-| Language, configuration, and coverage | Profile 1 semantics, exact fidelity, the frozen limit table, and the CommonMark 0.31.2 corpus are implemented and passing. | G10–G14 (W3) |
-| Absence and documentation truth | Retired authorities, discarded routes, and research artifacts are deleted; muya is absent from production. | G15–G16 (W4) |
-| P11 performance proof | The parser, views, facts, sparse 16,384-edit transform, exact source publication and recovery, conservative reuse cache, retained-`Text` transition, certified-reopen source-limit escape, and slow-edit DOM-selection race are locally green. | The post-fix Electron run is RED on edit and deletion latency, worker stall, renderer animation, working-set memory, and per-family reuse; measured values live in that run's artifact. Close them without changing any section 3 budget. Also G17–G19 (W5). |
-| P10 release proof | The design has detached clean passes, independent installed artifacts, authenticated downloads, content-addressed evidence, compact attestations, one-parent closure, and one atomic closure command. | G20–G21 (W6), and the executable-proof list under W6 below. |
+| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G1–G4 (W1) |
+| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5–G8, G26 (W2) |
+| Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9–G13 (W3) |
+| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G20 (W4) |
+| Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | G21–G22 (W5) |
+| P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6) |
+| P10 release proof | The section 7 P10 criteria. | G24–G25 (W6), and the executable-proof list under W6. |
 
 ### Gaps
 
 Every gap closes red–green under section 5 against a named target, and carries
 its own manifest row — which records its owning phase — before that phase may
-turn green. Three gaps are not single public behaviors and say so: G3 closes as
-a recorded ruling plus a divergence target, G9 as a two-sided sweep record over
-every named target, and G20 as a reproduction from retained records alone.
+turn green. Three gaps are not single public behaviors: G3, G9, and G24. An
+abbreviated citation is relative to `packages/document-core/src` in W1, W3, and
+W4, and to `packages/desktop/src` in W2, W5, and W6.
 
-**W1 — Correctness and product authority**
+**W1 — Document engine**
 
-- **G1 Undo and redo do not restore the exact prior revision.** History replay
-  re-derives edits through the candidate-protection path instead of re-applying
-  the recorded ones, so protection fires a second time on bytes it already
-  protected (`packages/document-core/src/internal/session/revisionWorker.ts:5604`,
-  `:5558-5570`); deleting one `+` from `{++new++}` and undoing commits
-  `\{++new++}`, and redo then commits `\{+new++}`. The obligation is general:
-  every undo and redo restores the exact UTF-16 source of the revision it
-  targets, for every intent, and candidate protection runs only when an edit is
-  first admitted. Dirty state is a second defect of the same shape —
-  `historyState()` reports `dirty: false` across a divergent undo because
-  history identities are positional tokens minted only when an edit is recorded
-  (`:5673-5676`) while undo only decrements the cursor (`:5704`), so the head
-  identity it compares against the saved identity (`:1778`) returns to the saved
-  value even though the committed bytes diverged, and save and close cannot
-  observe the divergence. Reachable from Source mode. Violates non-negotiable 6.
-  No existing test edits across a delimiter and then undoes.
-- **G2 Required commands are invocable when they are impossible.**
-  Availability is not a property of a command: only Review commands declare
-  `isAvailable` (`packages/desktop/src/renderer/src/commands/index.ts:464`),
-  main registers every accelerator through `electron-localshortcut` with no
-  availability check
-  (`packages/desktop/src/main/keyboard/shortcutHandler.ts:80-88`), and 12 of the
-  18 Edit-menu item rows declare no `id` at all — including the three paragraph
-  rows (`packages/desktop/src/main/menu/templates/edit.ts:92-112`) that no
-  disable path could address. Independently, three renderer handlers bare-return
-  in Source mode instead of rejecting visibly
-  (`packages/desktop/src/renderer/src/components/editorWithTabs/editor.vue:1186`,
-  `:1214`, `:1238`), two of them behind menu rows that do declare ids — so an
-  `id` alone is not the fix. Every command declares its availability; every
-  invocation path — menu, accelerator, palette, keybinding — resolves that one
-  predicate before dispatch; an unavailable command rejects visibly; and
-  registration rejects a command no disable path can address. Violates
-  non-negotiable 10.
-- **G3 The engine authors bytes the user did not type, under no recorded
-  authority.** `protectChangedSourceJoins` inserts backslashes into committed
-  source with no diagnostic and no rejection, while the product authority
-  states the editor “never silently rewrites your document”
-  (`specs/vision/criticmarkup-vision.md:53-54`). G3 closes as data: record the
-  ruling in `specs/migration/source-authorship-decision.yml` on the
-  `performance-reuse-decision.yml` pattern — permitted authorship class, the
-  diagnostic each authored byte emits, implementation targets, proof targets —
-  and bind one target that goes red when production authors a byte outside the
-  recorded class.
+- **G1 Undo and redo do not restore the exact prior revision.** There is no
+  admission authority: one private method serves new-candidate admission and
+  history replay, distinguished only by an optional argument
+  (`internal/session/revisionWorker.ts:5528`, `:5604`), so source authorship
+  fires a second time on bytes it already protected (`:5558-5570`), and replay
+  cannot be expressed. Deleting one `+` from `{++new++}` and undoing commits
+  `\{++new++}`; redo then commits `\{+new++}`. Reachable from Source mode.
+  Violates non-negotiable 6. Closure binds a target that edits across a
+  delimiter and undoes.
+- **G2 Saved identity is positional.** History identities are tokens minted only
+  when an edit is recorded (`internal/session/revisionWorker.ts:5673-5676`)
+  while undo decrements a cursor (`:5706`), so the head identity compared
+  against the saved identity (`:1778`) returns to the saved value even when the
+  committed bytes diverge. One concept has five maintainers — the worker, the
+  journal (`internal/session/sessionJournal.ts:534-621`), the coordinator, the
+  main session host, and the worker entry point — and the journal re-declares
+  its field list.
+- **G3 Byte authorship is unrecorded, and implemented twice.**
+  `protectChangedSourceJoins` inserts backslashes into committed source with no
+  diagnostic and no rejection, while the product authority states the editor
+  “never silently rewrites your document”
+  (`specs/vision/criticmarkup-vision.md:53-54`). The escape rule exists in two
+  copies that disagree on which closers they accept
+  (`internal/session/revisionWorker.ts:576-744`,
+  `packages/document-core/src/transformationKernel.ts:227-350`), and the Track
+  Changes carrier decision is an inline conditional at eleven call sites in one
+  module. G3 closes as data: record the ruling in
+  `specs/migration/source-authorship-decision.yml` on the
+  `performance-reuse-decision.yml` pattern — permitted authorship class,
+  implementation targets, proof targets — consolidate to one module, and bind
+  one target that goes red when production authors a byte outside the recorded
+  class.
+- **G4 Model↔source answers are re-derived in four modules.** The declared
+  authority (`markupCoordinateMap.ts:36-42`) is bypassed:
+  `internal/session/markupView.ts:94-112` publishes raw runs beside the derived
+  answers, and four consumers scan them with their own affinity and edge rules
+  (`internal/session/revisionWorker.ts:5467-5522`, `:321-365`,
+  `internal/session/sessionCoordinator.ts:434-473`,
+  `view/markupRender.ts:771-840`, and
+  `packages/document-view/src/documentCore/documentCoreInputAdapter.ts:156-193`).
+  A sixth answer with its own tie rule sits in the Review index
+  (`internal/session/sessionCoordinator.ts:483-497`). Violates non-negotiable 3.
 
-**W2 — Evidence integrity**
+**W2 — Host surfaces**
 
-Section 5 and non-negotiable 11 forbid every construct in G4–G8; each is a
-named target whose assertion cannot distinguish pass from fail. G7 and G8 close
-by removing the seam, not by repairing the assertion.
+- **G5 Availability is not a property of a command.** Only Review commands
+  declare `isAvailable` (`renderer/src/commands/index.ts:464`). Main registers
+  every accelerator with no availability check
+  (`main/keyboard/shortcutHandler.ts:80-88`); the palette and the accelerator
+  registry default to available; the context menu runs its own timed
+  round-trip; and 12 of the 18 Edit-menu rows declare no `id`, so no disable
+  path can address them (`main/menu/templates/edit.ts:11-172`). Three renderer
+  handlers bare-return in Source mode
+  (`renderer/src/components/editorWithTabs/editor.vue:1186`, `:1214`, `:1238`).
+  Violates non-negotiable 10. `common/commands/review.ts:14-44` carries the
+  record shape across five surfaces; generalize it.
+- **G6 Effects branch inside production.** A `proofPath` field on the production
+  request type selects a written proof over native print submission inside the
+  static sink host (`main/documentCore/staticSinkHost.ts:33`, `:48-53`,
+  `:244-259`); presentation mode binds its adapter by reading `process.env` at
+  module load (`main/presentationPolicy.ts:207-211`); and
+  `MARKTEXT_E2E_READONLY_BRIDGE` installs a main static-sink acceptance surface
+  and a renderer read-only bridge (`main/ipc/documentCore.ts:497-498`,
+  `renderer/src/components/editorWithTabs/editor.vue:1679`). The boot-info
+  allowlist exports `PERF_TESTING` and `MARKTEXT_E2E_READONLY_BRIDGE` to the
+  renderer (`main/ipc/bootInfo.ts:7-16`); it closes to values that select no
+  production behavior. Violates non-negotiable 11 and the section 2
+  effect-adapter rule; `specs/architecture/background-application-testing.md`
+  keeps its one production presentation policy.
+- **G7 A second document-open path exists.** A 373-line surface re-implements
+  the ticket, chunk, and complete protocol
+  (`main/documentCore/documentCorePerformanceSurface.ts:31-373`) under a grammar
+  fixed at module load instead of the settings-derived configuration production
+  admits (`:86-90`; compare `main/windows/editor.ts:1030-1035`), reached through
+  a `PERF_TESTING` global. The production host carries the numbers
+  (`main/documentCore/documentFileHost.ts:257-262`); the second path is deleted.
+- **G8 One intent is declared nine times.** A single block conversion is
+  restated as a menu constant, an IPC string, a bus string, a host facade
+  method, a parallel command-union variant, an `EditorIntent`, a `prepare*`
+  method, a dispatch-ladder arm, and a wire-codec arm
+  (`internal/session/revisionWorker.ts:1748-5465` exposes 36 `prepare*` methods;
+  `internal/session/sessionCoordinator.ts:1171-1354` holds no behavior;
+  `internal/session/intentCodec.ts:440-870` is a third;
+  `packages/document-view/src/documentCore/documentCoreView.ts:389-455` and
+  `packages/desktop/src/renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts:132-265`
+  mirror it again). Seven intents receive the kernel's postconditions and
+  thirty-four do not; every intent must receive them.
+  `packages/document-core/src/transformationKernel.ts:125-135` carries the
+  shape: two methods over 2,050 lines.
+- **G26 A second parse authority runs in the renderer.**
+  `renderer/src/util/markdownToHtml.ts:7-25` freezes a `ParseConfiguration` no
+  settings produce and calls `createLanguageEngine().open()` at `:26-35` for the
+  Preferences theme sample (`renderer/src/prefComponents/theme/index.vue:129`),
+  and `renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts:298`
+  exports a second configuration builder with no production caller, imported
+  only by unit specs. Both are deleted: the theme sample renders through a
+  main-owned materialization under the shipping configuration, and the specs
+  bind to the one main builder. Violates non-negotiables 2, 6, and 7.
 
-- **G4 The supply-chain mutation proof cannot fail.** Its fixture writes a
-  placeholder for `packages/document-view/e2e/playwright.config.ts`
-  (`packages/document-core/test/plan/0009-evidence-collector.spec.ts:195-197`)
-  while the validator requires that file to contain `reuseExistingServer: false`
-  (`packages/document-core/test/plan/0009-evidence-collector.ts:658`), so the
-  un-mutated fixture already throws `/supply-chain/i` and all 28 rows pass
-  regardless of detection. The two electron-builder rows have no detection logic
-  at all.
-- **G5 The P0.5 architecture gate is tautological.** Its owner and input trace
-  assertions read a vocabulary closed to single values emitted from
-  unconditional call sites, so they cannot fail, and a second parser that did
-  not self-report would be invisible. The gate must prove single ownership
-  without the parser's cooperation: derive syntax-decision ownership from the
-  module graph and fail when any module outside the grammar produces one. A
-  richer self-report is not a repair.
-- **G6 Reuse equivalence never proves reuse engaged.** The trace-identity test
-  primes the cache and compares traces without asserting any reuse counter, so
-  it may compare two full parses.
-- **G7 The print gate is proven by substitution.** A `proofPath` branch inside
-  the production static sink host substitutes `writePrintProof` — implemented
-  as `writePdf` — for native print submission. The A21 exception in section 5
-  is the only substitution this plan authorizes; print is not covered.
-- **G8 Selection evidence is synthetic.** A08 and A31 select through a
-  `TreeWalker`, a `Range`, and hand-dispatched untrusted events, and Review
-  evidence settles with fixed sleeps even though the public
-  `commitAuthoringSelection` barrier exists. G8 closes when every
-  selection-sensitive target drives selection with real input and settles on
-  the public barrier.
+**W3 — Evidence integrity**
+
+Section 5 and non-negotiable 11 forbid every construct in G10–G13; each is a
+named target whose assertion cannot distinguish pass from fail.
+
 - **G9 Mutation proof is one-sided, so a target that always fails counts as
-  proved.** G4 is that failure already. Every named target — A01–A32, D01–D11,
-  and every `phases[].target` in `0009-exit-gates.yml` — is proved twice: the
-  un-mutated tree passes it, and a stated mutation of the production behavior
-  it claims to prove makes it fail. A target that cannot pass its own baseline
-  is red, not proved. The mutation and both results are recorded per target and
-  retained with the evidence bundle (G20). Assertion presence is not proof. The
-  P1 gate never opens a corpus example.
+  proved.** Every target the manifests name is proved twice: the un-mutated tree
+  passes it, and a stated mutation of the production behavior it claims to prove
+  makes it fail. A target that cannot pass its own baseline is red, not proved.
+  The mutation and both results are recorded per target and retained with the
+  evidence bundle (G24). Assertion presence is not proof.
+- **G10 The supply-chain proof cannot fail.** Its fixture writes a placeholder
+  for `packages/document-view/e2e/playwright.config.ts`
+  (`test/plan/0009-evidence-collector.spec.ts:195-197`) while the validator
+  requires that file to contain `reuseExistingServer: false`
+  (`test/plan/0009-evidence-collector.ts:658`), so the un-mutated fixture throws
+  `/supply-chain/i` and all 28 rows pass regardless of detection. The two
+  electron-builder rows have no detection logic at all.
+- **G11 The architecture gate is tautological, and the engine hides what it
+  requires.** The gate's owner and input assertions read a vocabulary closed to
+  single values emitted from unconditional call sites, so they cannot fail, and
+  a second parser that did not self-report would be invisible. Ownership is
+  derived from the module graph. That requires `LanguageEngine` to stop reaching
+  two capabilities through instance-keyed `WeakMap`s (`languageEngine.ts:430-467`);
+  a capability resolved at run time is invisible to graph analysis. A richer
+  self-report is not a repair.
+- **G12 Reuse equivalence never proves reuse engaged.** The trace-identity
+  target primes the cache and compares traces without asserting reuse. Reuse
+  engagement is a field of the production execution report, not a counter added
+  for measurement; the target asserts the field and the equivalence separately.
+- **G13 Selection evidence is synthetic.** A08 and A31 select through a
+  `TreeWalker`, a `Range`, and hand-dispatched untrusted events, and Review
+  evidence settles with fixed sleeps instead of the public `settled()` barrier.
+  Every selection-sensitive target drives selection with real input and settles
+  on that barrier.
 
-**W3 — Language, configuration, and coverage**
+**W4 — Language, configuration, and coverage**
 
-- **G10 The base language is bound to no gate.** Neither manifest mentions
+- **G14 The base language is bound to no gate.** Neither manifest mentions
   CommonMark or GFM, so the passing 652-example 0.31.2 corpus and its totality
   gate turn nothing red, and GFM is bound only as 24 curated examples. The
   conformance suite also runs with `gfm: false` under `test-unbounded`, never
   under shipping `desktop-v1`.
-- **G11 Frozen corpora are narrower than the requirements they are named for.**
+- **G15 Frozen corpora are narrower than the requirements they are named for.**
   The A10 recovery corpus is four single-line cases and cannot prove “nested
   block and literal contexts,” and the MMD-6 differential and Fevol lexical
-  suites that the language authority makes mandatory have no target anywhere.
-- **G12 Closed claims with no manifest row.** Accessibility, image handling,
-  and per-Profile-1-kind exactness across the six sinks are each claimed closed
-  while no A or D row names them; `consumer-policy.yml` is a view × consumer
-  matrix, not a per-kind exactness matrix. Each needs a row. The image write
-  path is already main-derived and proved — the write root comes from
-  main-owned settings plus the main-resolved document path
+  suites the language authority makes mandatory have no target.
+- **G16 Closed claims with no manifest row.** No A or D row names
+  accessibility, image handling, or per-Profile-1-kind exactness across the six
+  sinks; `consumer-policy.yml` is a view × consumer matrix, not a per-kind
+  exactness matrix. The image write path is main-derived and proved — the write
+  root comes from main-owned settings plus the main-resolved document path
   (`packages/desktop/src/main/imageAssets/imageAssetService.ts:343-409`), the
   filename is a content hash (`:609-612`), and
   `packages/desktop/test/unit/specs/image-asset-mutation-authority.spec.ts:39`
   proves the request carries no destination field — but no row binds that proof.
-- **G13 The configuration is not closed, and tests can select a configuration
+- **G17 The configuration is not closed, and tests can select a configuration
   production cannot.** The decoder accepts `live-html-escaped-v1`, which
   branches no behavior yet changes the semantic hash, and `test-unbounded`,
-  which disables every parse-time hard limit in section 3 — decoded source
-  units, `BudgetEvent`s, Markdown container depth, and CriticMarkup depth
-  (`packages/document-core/src/configuration.ts:6-10`;
-  `packages/document-core/src/internal/profile1Document.ts:3910`, `:3927`,
-  `:3934`, `:4140`) — so any limit-bearing gate can run outside the limits it
-  proves. Closure requires that no test-only limits profile survive and that
-  each of the five rejection classes named in section 3 carry a decoder test;
-  `unsafe` currently has none
-  (`packages/document-core/test/language-engine/configuration-validation.spec.ts:74-134`
-  covers only unknown, missing, mistyped, and invalid).
-- **G14 Over-budget depth semantics are misimplemented, not undecided.**
-  Section 3 and the language authority agree that a depth-class limit degrades
-  to exact literal text, never to failure. The implementation and the A11 row
-  instead lose semantics document-wide one level past 16,384. Align the
-  implementation and retitle A11; no ruling is required.
+  which disables every parse-time hard limit in section 3
+  (`configuration.ts:6-10`; `internal/profile1Document.ts:3910`, `:3927`,
+  `:3934`, `:4140`), so any limit-bearing gate can run outside the limits it
+  proves. No test-only limits profile survives — including the roster in
+  `specs/language/marktext-markdown-profile-1.md:421` — and each of the five
+  rejection classes named in section 3 carries a decoder test; `unsafe` has
+  none.
+- **G18 Over-budget depth semantics are misimplemented.** The implementation and
+  the A11 row lose semantics document-wide one level past the section 3
+  CriticMarkup depth limit instead of degrading to literal text. Align the
+  implementation and retitle A11.
+- **G19 Consumer policy declares what production routes around.** Four exported
+  entry points have no production caller
+  (`materialize/consumerPolicy.ts:247`, `:821`, `:1075`, `:1220`) while
+  production classifies paste by hand
+  (`packages/desktop/src/main/ipc/documentClipboardPaste.ts:73-77`) and routes
+  replace and live rendering elsewhere. Production routes those questions
+  through the policy; deleting the declarations is rejected, because it leaves
+  G16's per-kind matrix with no owning module.
+- **G20 Closed-record decoding is restated twenty-two times.** Twenty-two codec
+  modules carry 22 independent `closedRecord` definitions at two strengths — six
+  check the prototype, sixteen do not. The rejection vocabulary is per-site, and
+  a hostile-input target asserts against a regular-expression alternation
+  instead of a named class.
 
-**W4 — Absence and documentation truth**
+**W5 — Absence and documentation truth**
 
-- **G15 The scanned surface is prose in the plan and a hardcoded list in the
-  test, so the two drift.** The P9 sweep runs its forbidden-symbol list over
-  code surfaces only and checks specs and ADRs for two citation strings, while
-  this plan claims it scans production, tests, configuration, and fixtures;
-  `specs/architecture/document-core-module-design.md:50-52` still presents the
-  deleted `shiftPlainMarkdownLane` in present tense, and tracked root files
-  outside `package.json` and `pnpm-workspace.yaml` — `eslint.config.js`,
-  `.npmrc`, `.gitignore`, `pnpm-lock.yaml`, `CONTEXT.md` — are never scanned
-  (`packages/document-core/test/plan/0009-retired-authority-absence.spec.ts:66-87`).
-  The sweep derives its surface from the tracked-file set minus a declared
-  exclusion list, applies the whole forbidden inventory to every file in it, and
-  fails when a tracked file is neither scanned nor excluded. This plan is the
-  one declared document exclusion, because its gap text must name retired
-  symbols to order their deletion, and a target proves it is the only such
-  entry. D09's fixed phrase list over six documents is retired by that rule.
-- **G16 Markdown syntax is recognized outside the parser.** Non-negotiable 2
-  becomes a P9-enforced property: no production module outside the
-  `document-core` grammar may pattern-match Markdown or CriticMarkup syntax,
-  and P9 fails on any such recognizer whether or not it has callers. The
-  exported `adjustCursor`
-  (`packages/desktop/src/renderer/src/util/index.ts:74`), which hand-recognizes
-  GFM tables, fences, math, and list markers with regexes and has no callers,
-  is the first instance and is deleted.
+- **G21 The scanned surface is narrower than the claim.** The P9 sweep runs its
+  forbidden-symbol list over code surfaces only and checks specs and ADRs for
+  two citation strings
+  (`packages/document-core/test/plan/0009-retired-authority-absence.spec.ts:66-105`,
+  `:190-195`, `:414-418`), so
+  `specs/architecture/document-core-module-design.md:50-52` presents a deleted
+  lane-rebuild function in present tense, and tracked root files outside
+  `package.json` and `pnpm-workspace.yaml` are never scanned. The sweep derives
+  its surface from the tracked-file set minus a declared exclusion list, applies
+  the whole forbidden inventory to every file in it, and fails when a tracked
+  file is neither scanned nor excluded. This plan is the one declared document
+  exclusion; its gap text must name retired symbols to order their deletion, and
+  a target proves it is the only entry. D09's fixed phrase list over six
+  documents is retired by that rule.
+- **G22 Syntax is recognized outside the parser.** Nothing enforces
+  non-negotiable 2's second clause; P9 must fail on any such recognizer whether
+  or not it has callers. The exported `adjustCursor`
+  (`renderer/src/util/index.ts:74`) hand-recognizes GFM tables, fences, math,
+  and list markers with regular expressions, has no callers, and is deleted.
 
-**W5 — P11**
+**W6 — Budgets and release**
 
-G17 and G19 are non-negotiable 11 violations; G19 closes through the P9 absence
-inventory, not the timing run.
-
-- **G17 A P11 performance test could not pass at HEAD.**
-  `packages/desktop/test/e2e/critic-markup-perf.spec.ts` — a P11 measurement no
-  manifest row names, unlike A29 and the P11 phase row, which both name
-  `document-core-max-document-perf.spec.ts` — waited on a `data-critic-warm`
-  attribute no production code sets; only the working tree replaces it with
-  public menu commands.
-- **G18 The interaction budget is never measured on the cold path,** because
-  both variants measure a deliberately warmed steady state. The 500 ms p95
-  covers the first interaction after open on an unwarmed session; the P11
-  target reports cold and warm separately and gates on the cold figure.
-- **G19 Ambient test-mode switches remain compiled into production.**
-  `PERF_TESTING`, `MARKTEXT_TEST_BACKGROUND`, and
-  `MARKTEXT_E2E_READONLY_BRIDGE` select production behavior and install main and
-  renderer globals (`packages/desktop/src/main/ipc/documentCore.ts:477-509`,
-  `packages/desktop/src/main/presentationPolicy.ts:208-209`,
-  `packages/desktop/src/renderer/src/components/editorWithTabs/editor.vue:1677-1679`),
-  and two of them are re-exported to the renderer through the boot-info
-  allowlist (`packages/desktop/src/main/ipc/bootInfo.ts:7-16`).
-
-**W6 — P10**
-
-- **G20 A green closure CI is not reproducible.** Section 7 requires compact
-  candidate, platform, and closure records to be retained; no open item covers
-  it. Retention closes when a target reconstructs the attestation of a
-  completed closure run from the retained records alone, without the original
-  workspace.
-- **G21 The release proof resolves tools from the ambient environment.** The
+- **G23 Measured budgets are unmet.** Edit and deletion latency, worker stall,
+  renderer animation, working-set memory, and per-family reuse are RED on the
+  maximum-document target. No current measurement observes the cold-path
+  interaction p95 at all. `packages/desktop/test/e2e/critic-markup-perf.spec.ts`
+  is a P11 measurement no manifest row names; it is bound or deleted.
+- **G24 A green closure CI is not reproducible.** Section 7 requires compact
+  candidate, platform, and closure records to be retained. Retention closes when
+  a target reconstructs the attestation of a completed closure run from the
+  retained records alone, without the original workspace.
+- **G25 The release proof resolves tools from the ambient environment.** The
   platform workflow invokes ambient `pnpm` in eight run steps
   (`.github/workflows/document-core-platform.yml:67`, `:91`, `:96`, `:185`,
-  `:191`, `:225`, `:257`, `:265`), and the pinned-Corepack bootstrap that
-  replaced `pnpm/action-setup` (`.github/actions/setup/action.yml:18-47`)
-  authenticates only its own install — it never puts a pinned `pnpm` on `PATH`,
-  so every one of those steps still resolves the runner's ambient binary. The
-  rule is general: every tool, checksum authority, rebuild, command body, and
-  the executed environment itself resolves from a pinned, authenticated,
-  recorded source.
+  `:191`, `:225`, `:257`, `:265`), and the pinned-Corepack bootstrap
+  (`.github/actions/setup/action.yml:18-47`) authenticates only its own install
+  — it never puts a pinned `pnpm` on `PATH`. The list below states the remaining
+  instances of the same rule.
 
 The P10 executable proofs stay RED until all of these hold:
 
@@ -383,34 +533,43 @@ The P10 executable proofs stay RED until all of these hold:
 
 ### Order of work
 
-Three orderings are real dependencies: the G3 ruling precedes G1's design; G9
-precedes any closure claim anywhere; and the W6 freeze is last because every
-earlier fix invalidates it. Everything else may land in any order, consistent
-with section 6. W1 and W2 lead by severity, not dependency — a
-document-corrupting engine and an invocable command that does nothing are
-shipping defects — and because W1's own targets land before the G9 sweep
-exists, they are included in that sweep, never exempted from it.
+Seven orderings are real dependencies:
 
-- **W1** — exit: undo and redo restore exact prior source across the frozen
-  intent matrix, dirty state tracks revision identity, and every invocation
-  path consults one availability predicate, all proved by real gestures.
-- **W2** — G9 runs after G4–G8 are repaired. No later workstream may be
-  declared closed before G9 passes.
-- **W3** — manifest rows land before the implementation work they gate. Exit:
-  no section 8 claim and no G12 claim — accessibility, image handling, per-kind
-  sink exactness — lacks a row, and every conformance corpus runs under
-  `desktop-v1`.
-- **W4** — exit: the scanned surface equals the tracked-file set minus a
-  declared exclusion list, and the sweep fails when a tracked file is neither
-  scanned nor excluded.
-- **W5** — exit: A29 and the P11 phase row pass on a frozen tree, cold path
-  included.
-- **W6** — after the P10 control plane closes, freeze: commit and push the
-  exact candidate, run two sequential `evidence/0009/pass-*` tags, publish
-  authenticated evidence, and create the atomic three-document closure child
-  with GREEN final-closure CI.
+- the G3 ruling precedes G1's design;
+- G4 precedes G13, because a real-gesture selection target asserts positions the
+  coordinate authority does not yet answer alone;
+- G8 precedes G5 and G20, because the capability snapshot a predicate reads and
+  the schema a codec derives are both published by the intent seam;
+- G6, G7, and G17 precede G9, because a mutation sweep over an
+  environment-selected adapter, a second open path, or an unbounded limits
+  profile mutates something production does not run;
+- G7 precedes G23, since a budget measured off the production open path proves
+  nothing;
+- G9 precedes any closure claim; and
+- the W6 freeze is last, because every earlier fix invalidates it and only its
+  evidence is retained.
 
-The whole sweep reruns after the freeze.
+Everything else may land in any order, consistent with section 6. W1 and W2
+additionally lead by severity — a document-corrupting engine and an invocable
+command that does nothing are shipping defects — and their targets are included
+in the G9 sweep, never exempted from it.
+
+- **W1** — exit: G1–G4 closed, each proved by real gestures.
+- **W2** — exit: G5–G8 and G26 closed.
+- **W3** — exit: G10–G13 repaired, G6, G7, and G17 landed, and G9 passing over
+  every named target. No later workstream may be declared closed before G9
+  passes.
+- **W4** — manifest rows land before the implementation work they gate. Exit:
+  G14–G20 closed, and no section 8 claim lacks a manifest row.
+- **W5** — exit: G21 and G22 closed.
+- **W6** — after budgets are met and the P10 control plane closes, freeze:
+  commit and push the exact candidate, run two sequential
+  `evidence/0009/pass-*` tags, publish authenticated evidence, and create the
+  atomic three-document closure child with GREEN final-closure CI.
+
+Workstreams order the work; phases order the evidence. Each gap's manifest row
+names its owning phase, and a workstream exit is a claim about behavior, never a
+phase status. The whole sweep reruns after the freeze.
 
 ## 5. Red–green protocol
 
@@ -425,22 +584,31 @@ For each vertical behavior:
 
 A skip, retry, conditional omission, assertion-free test, private-shape proxy,
 mock substituted for an Electron/installed/PDF/print/platform gate, incomplete
-physical-work counter, stale log, hand-written result, manual check, or claim
-resting on uncommitted work is not evidence. A focused green run never changes a
-manifest status by itself.
+physical-work counter, stale log, hand-written result, manual check, production
+branch selected by a test-mode environment variable, substituted sink, attribute
+set only for tests, fixed sleep in place of a public barrier, run over a
+changing tree, or claim resting on uncommitted work is not evidence. A focused
+green run never changes a manifest status by itself. When a deepening replaces a
+shallow module, the targets that reached past its interface are deleted, not
+layered.
 
-Two standing exceptions carry their own policy. Native Comment context editing
-uses a layered proof: Playwright's Electron API cannot select an OS-native
-context-menu row, and the non-presenting three-platform automation policy
-suppresses that popup, while a test-only `MenuItem` callback is barred by this
-section and non-negotiable 11. A21 therefore requires a real right-click to arm
-one exact parser-owned target, then a real user keybinding that invokes the
-one-shot typed edit command twice and proves the consumed command cannot reopen
-either nested card. A machine-owned real-Electron auxiliary target instruments
-`Menu.prototype.append` from the test process, captures only the production
-Comment row, verifies it is an actual Electron `MenuItem`, invokes it, and
-restores the prototype. Production exposes no observation hook. Both targets are
-required A21 evidence.
+Two standing exceptions carry their own policy.
+
+Native Comment context editing uses a layered proof: Playwright's Electron API
+cannot select an OS-native context-menu row, the non-presenting three-platform
+automation policy suppresses that popup, and a test-only `MenuItem` callback is
+barred by this section and non-negotiable 11. A21 requires two targets, both
+required evidence:
+
+- a real right-click that arms one exact parser-owned target, then a real user
+  keybinding that invokes the one-shot typed edit command twice and proves the
+  consumed command cannot reopen either nested card; and
+- a machine-owned real-Electron auxiliary target that instruments
+  `Menu.prototype.append` from the test process, captures only the production
+  Comment row, verifies it is an actual Electron `MenuItem`, invokes it, and
+  restores the prototype.
+
+Production exposes no observation hook.
 
 Windows Heading 1–6 are unbound by default because `Ctrl+Alt+digit` aliases
 AltGr on many layouts and `Ctrl+Shift+digit` yields no stable digit key. They
@@ -473,13 +641,8 @@ its manifest target, requirements, and dependencies are green.
 
 ## 7. Evidence status
 
-Most of the work described here is uncommitted. The section 4 ledger carries the
-current P11 and P10 run results; they are not repeated here.
-
-Every P10 mutation row must be re-proved against a fixture the un-mutated
-validator accepts (G4). No final source-freeze sweep or remote platform pass has
-been collected. Exact commands and counts belong in test output and the evidence
-bundle, not a progress diary.
+Exact commands and counts belong in test output and the evidence bundle, not a
+progress diary.
 
 P11 is **UNPROVEN** until the frozen tree passes its section 6 outcome against
 the unchanged section 3 budgets.
@@ -495,20 +658,16 @@ first-attempt macOS arm64, Windows x64, and Linux x64 records.
 
 Done means all of these are simultaneously true:
 
-- every section 2 non-negotiable is true of shipped production behavior;
+- every section 2 module owns its concern alone, and every section 2
+  non-negotiable is true of shipped production behavior;
 - real MarkText gestures provide exact source, selection, rejection, visible
   state, one-step undo/redo, save, reopen, and crash behavior;
-- every applicable Profile 1 kind is exact in live, text, HTML, clipboard, PDF,
-  and print output, including hostile input;
-- every G1–G21 gap is closed — including the G9 two-sided mutation sweep and
-  the G10 and G12 bindings — and every A01–A32 and D01–D11 row and phase
-  dependency is green;
-- P9 proves every named forbidden authority, route, export, fixture, design,
-  and document reference absent and unreferenced;
-- P11 meets every measured budget and records the reuse decision; and
-- P10 produces two genuine clean-tree passes plus successful macOS arm64,
-  Windows x64, and Linux x64 records for the final source candidate, followed
-  only by its verified closure child.
+- every applicable Profile 1 kind is exact in every non-negotiable 8 sink,
+  including hostile input;
+- every G1–G26 gap is closed, and every manifest row and phase dependency is
+  green; and
+- P9, P11, and P10 have met their section 6 outcomes under the section 7
+  conditions.
 
 Anything section 5 rules out as evidence — plus a timeout, stale build,
 unavailable platform, uncaptured installed flow, or dirty collector run — is
