@@ -59,6 +59,65 @@ export interface Profile1SyntaxIdentityRegistry {
   readonly finish: () => Profile1SyntaxGraph
 }
 
+/**
+ * Identity authority for intrinsic grammar inspection that will not publish a
+ * revision. It preserves unique parser-issued NodeIds and object interning,
+ * while deliberately retaining no graph, edge, ownership, or reference
+ * ledgers that only a materialized document can consume.
+ */
+export function createProfile1SyntaxInspectionRegistry(
+  sourceLength: number
+): Profile1SyntaxIdentityRegistry {
+  let nextNode = 1
+  const root = 'p1:0' as NodeId
+  const interned = new Map<string, object>()
+  const unavailable = (): never => {
+    throw new Error('Inspection syntax identity cannot materialize a graph')
+  }
+  return Object.freeze({
+    root,
+    emitNode: Object.freeze((
+      _kind: Profile1SyntaxNodeKind,
+      source: SyntaxSourceIdentity,
+      _semanticKey: string
+    ): NodeId => {
+      if (
+        source.range.start < 0 ||
+        source.range.end < source.range.start ||
+        source.range.end > sourceLength
+      ) {
+        throw new Error('Profile 1 inspection identity is outside source')
+      }
+      const nodeId = `p1:${String(nextNode)}` as NodeId
+      nextNode += 1
+      return nodeId
+    }),
+    emitEdge: Object.freeze((): void => {}),
+    internObject: Object.freeze(<Value extends object>(
+      nodeId: NodeId,
+      objectKey: string,
+      create: () => Value
+    ): Value => {
+      const key = `${nodeId}\u0000${objectKey}`
+      const existing = interned.get(key)
+      if (existing !== undefined) return existing as Value
+      const value = create()
+      interned.set(key, value)
+      return value
+    }),
+    emitOwnership: Object.freeze((): void => {}),
+    emitDefinition: Object.freeze((): void => {}),
+    emitReference: Object.freeze((): void => {}),
+    emitFootnoteDefinition: Object.freeze((): void => {}),
+    emitFootnoteReference: Object.freeze((): void => {}),
+    resolveFootnoteReference: Object.freeze((): void => {}),
+    referenceTargets: Object.freeze((): readonly NodeId[] =>
+      Object.freeze([])),
+    finishOwnership: Object.freeze(unavailable),
+    finish: Object.freeze(unavailable)
+  })
+}
+
 function sourceOffset(value: number): SourceOffset {
   return value as SourceOffset
 }

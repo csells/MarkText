@@ -1,4 +1,5 @@
 import {
+  createDocumentSearchQuery,
   modelPositionAtMarkupCoordinateMap,
   WireEnvelopeCodecV1,
   type DocumentSessionJournalCommit,
@@ -15,10 +16,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFileDocumentSessionJournalStorage } from 'main_renderer/documentCore/durableSessionJournalStorage'
 import {
-  createDocumentCoreMainSessionHost,
   decodeDocumentCorePublication,
   type DocumentCoreMainSessionHost
 } from 'main_renderer/documentCore/mainSessionHost'
+import {
+  createTestDocumentCoreMainSessionHost as createDocumentCoreMainSessionHost
+} from '../helpers/documentSessionHost'
 import {
   createDocumentCoreRemoteSession,
   type DocumentCoreRemoteSession,
@@ -28,6 +31,7 @@ import type {
   DocumentCoreCancelDispatchRequest,
   DocumentCoreCompleteDispatchRequest,
   DocumentCoreClipboardWriteRequest,
+  DocumentCoreExecutionReport,
   DocumentCoreMainDispatchRequest,
   DocumentCoreMainSelectRequest,
   DocumentCorePublication,
@@ -487,6 +491,183 @@ function removeTerminalOutcomeFromCutReceipt(rawReceipt: unknown): unknown {
 }
 
 describe('renderer client for the main-owned document session', () => {
+  it('publishes an authenticated compact source edit against the mounted base', async() => {
+    const directory = await mkdtemp(join(
+      tmpdir(),
+      'marktext-remote-source-edit-'
+    ))
+    directories.push(directory)
+    const host = createDocumentCoreMainSessionHost(
+      createFileDocumentSessionJournalStorage(directory)
+    )
+    const documentId = 'remote-source-edit'
+    const source = 'x'.repeat(1_000_000)
+    await admitDocument(host, documentId, `${documentId}-v1`, source)
+    const reports: DocumentCoreExecutionReport[] = []
+    const remote = await createDocumentCoreRemoteSession({
+      documentId: () => documentId,
+      onHistoryState: vi.fn(),
+      onExecutionReport: (_reportedDocumentId, report) => {
+        reports.push(report)
+      },
+      invoke: (channel, request) => invokeHost(host, channel, request)
+    })
+
+    const initial = remote.snapshot()
+    if (initial.kind !== 'complete') {
+      throw new Error('Expected a complete source-edit fixture')
+    }
+    const start = source.length - 1
+    await expect(remote.dispatch({
+      kind: 'replace-text',
+      target: {
+        ...initial.selection,
+        anchor: { offset: start, affinity: 'next' },
+        focus: { offset: source.length, affinity: 'previous' }
+      },
+      text: 'z'
+    })).resolves.toEqual({
+      kind: 'committed',
+      sourceEdits: [{ start, end: source.length, insert: 'z' }]
+    })
+
+    expect(remote.snapshot().source).toBe(`${source.slice(0, -1)}z`)
+    expect(reports.at(-1)?.operationKind).toBe('dispatch')
+    expect(reports.at(-1)?.serializedMemberBytes.sessionDelta)
+      .toBeLessThan(4_096)
+
+    await remote.close()
+    await host.close('renderer:1', documentId)
+  }, 30_000)
+
+  it('recovers the verified full head after rejecting a hostile source edit', async() => {
+    const directory = await mkdtemp(join(
+      tmpdir(),
+      'marktext-remote-source-recovery-'
+    ))
+    directories.push(directory)
+    const host = createDocumentCoreMainSessionHost(
+      createFileDocumentSessionJournalStorage(directory)
+    )
+    const documentId = 'remote-source-recovery'
+    await admitDocument(host, documentId, `${documentId}-v1`, 'alpha')
+    let corruptNextDispatch = true
+    const remote = await createDocumentCoreRemoteSession({
+      documentId: () => documentId,
+      onHistoryState: vi.fn(),
+      invoke: async(channel, request) => {
+        const response = await invokeHost(host, channel, request)
+        if (
+          channel !== 'mt::document-core::dispatch-complete' ||
+          !corruptNextDispatch
+        ) {
+          return response
+        }
+        corruptNextDispatch = false
+        return transformJsonPublicationMember(
+          response,
+          'sessionDelta',
+          value => ({
+            ...value,
+            sourceDelta: {
+              ...(value.sourceDelta as Record<string, unknown>),
+              baseRevisionId: 'hostile-revision'
+            }
+          })
+        )
+      }
+    })
+
+    const initial = remote.snapshot()
+    if (initial.kind !== 'complete') {
+      throw new Error('Expected a complete source-recovery fixture')
+    }
+    await expect(remote.dispatch({
+      kind: 'insert-text',
+      target: {
+        ...initial.selection,
+        anchor: { offset: 0, affinity: 'next' },
+        focus: { offset: 0, affinity: 'next' }
+      },
+      text: 'X'
+    })).rejects.toThrow(/exact base/i)
+
+    expect(remote.snapshot().source).toBe('Xalpha')
+    const recovered = remote.snapshot()
+    if (recovered.kind !== 'complete') {
+      throw new Error('Expected a recovered complete snapshot')
+    }
+    await expect(remote.dispatch({
+      kind: 'insert-text',
+      target: {
+        ...recovered.selection,
+        anchor: { offset: 1, affinity: 'next' },
+        focus: { offset: 1, affinity: 'next' }
+      },
+      text: 'Y'
+    })).resolves.toMatchObject({ kind: 'committed' })
+    expect(remote.snapshot().source).toBe('XYalpha')
+
+    await remote.close()
+    await host.close('renderer:1', documentId)
+  })
+
+  it('applies a maximum-shaped sorted edit set in one exact publication', async() => {
+    const directory = await mkdtemp(join(
+      tmpdir(),
+      'marktext-remote-many-source-edits-'
+    ))
+    directories.push(directory)
+    const host = createDocumentCoreMainSessionHost(
+      createFileDocumentSessionJournalStorage(directory)
+    )
+    const documentId = 'remote-many-source-edits'
+    const matchCount = 16_384
+    const source = `${Array.from(
+      { length: matchCount },
+      () => 'one'
+    ).join(' ')}\n`
+    await admitDocument(host, documentId, `${documentId}-v1`, source)
+    const remote = await createDocumentCoreRemoteSession({
+      documentId: () => documentId,
+      onHistoryState: vi.fn(),
+      invoke: (channel, request) => invokeHost(host, channel, request)
+    })
+    const initial = remote.snapshot()
+    if (initial.kind !== 'complete') {
+      throw new Error('Expected a complete many-edit fixture')
+    }
+
+    const outcome = await remote.dispatch({
+      kind: 'replace-current-matches',
+      target: initial.selection,
+      query: createDocumentSearchQuery('one'),
+      replacement: 'two'
+    })
+    expect(outcome).toMatchObject({ kind: 'committed' })
+    if (outcome.kind !== 'committed') {
+      throw new Error('Expected a committed many-edit outcome')
+    }
+    expect(outcome.sourceEdits).toHaveLength(matchCount)
+    expect(outcome.sourceEdits[0]).toEqual({
+      start: 0,
+      end: 3,
+      insert: 'two'
+    })
+    expect(outcome.sourceEdits.at(-1)).toEqual({
+      start: (matchCount - 1) * 4,
+      end: (matchCount - 1) * 4 + 3,
+      insert: 'two'
+    })
+    expect(remote.snapshot().source).toBe(`${Array.from(
+      { length: matchCount },
+      () => 'two'
+    ).join(' ')}\n`)
+
+    await remote.close()
+    await host.close('renderer:1', documentId)
+  }, 30_000)
+
   it('mounts clean projections with their retained Markup model length', async() => {
     const directory = await mkdtemp(join(
       tmpdir(),
@@ -1321,7 +1502,9 @@ describe('renderer client for the main-owned document session', () => {
       consumer: 'cut',
       selection: { start: 1, end: 4 }
     })).rejects.toThrow(/requires committed|missing-outcome/i)
-    expect(remote.snapshot().source).toBe('Hello')
+    // Main committed the cut before its terminal member was damaged. Recovery
+    // mounts that verified committed head before surfacing the protocol error.
+    expect(remote.snapshot().source).toBe('Ho')
     await remote.close()
   })
 
@@ -1693,9 +1876,9 @@ describe('renderer client for the main-owned document session', () => {
     await expect(remote.dispatch({ kind: 'undo' })).rejects.toThrow(
       /checksum-failure/
     )
-    // The main commit happened, but an unverified renderer publication cannot
-    // replace the last mounted snapshot. Recovery/resync is explicit.
-    expect(remote.snapshot().source).toBe('alpha beta')
+    // The damaged undo publication never mounts. Automatic recovery attaches
+    // the verified main-owned head produced by that already-committed undo.
+    expect(remote.snapshot().source).toBe('alpha')
   })
 
   it('cancels an exposed ticket without terminating the main-owned session', async() => {

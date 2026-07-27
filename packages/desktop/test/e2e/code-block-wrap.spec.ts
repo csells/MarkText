@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown } from './helpers'
+import { closeElectron, launchWithMarkdown } from './helpers'
 
 // Coverage for the "Wrap Code Blocks" and "Code Block Line Numbers"
 // editor preferences.
@@ -47,7 +47,7 @@ test.describe('Code block wrap + line-numbers preferences', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   // Item 99: wrap preference toggles white-space on .document-view-code-block .document-view-code.

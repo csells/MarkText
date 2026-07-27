@@ -111,11 +111,14 @@ export function createParseExecutionAccumulator(
           })
           assertProgressValue('source units', next.sourceUnits)
           assertProgressValue('logical nodes', next.logicalNodes)
-          control?.checkpoint(next)
+          // The work named by this checkpoint has already happened. Record it
+          // before the host callback can throw for cancellation, so a later
+          // stage resumes from the same monotone total the host observed.
           sourceUnits = next.sourceUnits
           logicalNodes = next.logicalNodes
           localSourceUnits = progress.sourceUnits
           localLogicalNodes = progress.logicalNodes
+          control?.checkpoint(next)
         })
       })
     }),

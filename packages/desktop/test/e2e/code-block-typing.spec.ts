@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   getMarkdownContent,
   setSourceMarkdown,
@@ -26,7 +27,7 @@ test.describe('Code block typing — real-keyboard fenced conversion (item 95)',
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test.beforeEach(async() => {

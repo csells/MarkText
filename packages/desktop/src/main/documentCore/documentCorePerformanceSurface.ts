@@ -33,6 +33,8 @@ export interface DocumentCorePerformanceSurface {
     documentId: string
   ) => Readonly<{
     readonly admission: DocumentCoreOpenCompletion
+    readonly ticketAdmissionMs: number
+    readonly maximumMainStageMs: number
     readonly resources: ReturnType<DocumentCoreMainSessionHost['resourceCounts']>
   }>
   readonly runFileAdmission: (
@@ -66,6 +68,8 @@ export interface DocumentCorePerformanceSurface {
   ) => Promise<Readonly<{
     readonly sourceLength: number
     readonly executionThreadId: number
+    readonly ticketAdmissionMs: number
+    readonly maximumMainStageMs: number
     readonly cancellationMs: number
     readonly terminalAfterCancellationMs: number
     readonly cancellationKind: string
@@ -326,12 +330,15 @@ export function createDocumentCorePerformanceSurface(
         codec.publish(
           recoveredPublication.envelope,
           recoveredPublication.baseSnapshotId
-        )
+        ),
+        mounted
       )
       await sessions.close(staged.ownerId, staged.documentId)
       return Object.freeze({
         sourceLength: staged.sourceLength,
         executionThreadId: staged.executionThreadId,
+        ticketAdmissionMs: staged.ticketAdmissionMs,
+        maximumMainStageMs: staged.maximumMainStageMs,
         cancellationMs,
         terminalAfterCancellationMs,
         cancellationKind: cancelled.kind,
@@ -350,10 +357,15 @@ export function createDocumentCorePerformanceSurface(
     }
 
   return Object.freeze({
-    readAdmission: (documentId: string) => Object.freeze({
-      admission: files.readAdmission(documentId),
-      resources: sessions.resourceCounts()
-    }),
+    readAdmission: (documentId: string) => {
+      const staging = files.readAdmissionPerformance(documentId)
+      return Object.freeze({
+        admission: files.readAdmission(documentId),
+        ticketAdmissionMs: staging.ticketAdmissionMs,
+        maximumMainStageMs: staging.maximumMainStageMs,
+        resources: sessions.resourceCounts()
+      })
+    },
     runFileAdmission,
     cancelFileAdmission,
     cancelDispatchAndRecoverFile

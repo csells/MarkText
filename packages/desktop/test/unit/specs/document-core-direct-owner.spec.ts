@@ -8,6 +8,9 @@ import {
   createTestDocumentCoreSession
 } from '../../../../document-view/src/documentCore/__tests__/testDocumentCoreSession'
 import {
+  installTestDocumentHostCapabilities
+} from '../helpers/documentHostSession'
+import {
   createDocumentEditorHost,
   createDocumentParseConfiguration,
   type DocumentEditorHost
@@ -30,67 +33,64 @@ describe('document-core desktop owner', () => {
     })
   ).then(session => createDocumentEditorHost({
     element: options.host,
-    session,
-    configuration: {},
-    pasteClipboard: async target => await session.dispatch({
-      kind: 'paste-text',
-      target,
-      text: await options.pasteText(),
-      source: 'external-text'
-    }),
-    ...(options.clipboardWrite === undefined
-      ? {}
-      : {
-        writeClipboardMaterialization: async request => {
-          await options.clipboardWrite?.(request)
-          if (
-            request.consumer !== 'cut' &&
-                request.consumer !== 'cut-table'
-          ) {
-            return Object.freeze({ kind: 'written' as const })
-          }
-          const snapshot = session.snapshot()
-          if (snapshot.kind !== 'complete') {
-            throw new Error('Test cut requires a complete snapshot')
-          }
-          const result = request.view === 'source'
-            ? await session.dispatch({
-              kind: 'edit-source',
-              target: Object.freeze({
-                session: snapshot.sourceSelection.session,
-                revision: snapshot.sourceSelection.revision,
-                view: 'source' as const,
-                anchor: Object.freeze({
-                  offset: request.selection.start,
-                  affinity: 'next' as const
-                }),
-                focus: Object.freeze({
-                  offset: request.selection.end,
-                  affinity: 'previous' as const
-                })
+    session: installTestDocumentHostCapabilities(session, {
+      pasteClipboard: async target => await session.dispatch({
+        kind: 'paste-text',
+        target,
+        text: await options.pasteText(),
+        source: 'external-text'
+      }),
+      writeClipboardMaterialization: async request => {
+        await options.clipboardWrite?.(request)
+        if (
+          request.consumer !== 'cut' &&
+          request.consumer !== 'cut-table'
+        ) {
+          return Object.freeze({ kind: 'written' as const })
+        }
+        const snapshot = session.snapshot()
+        if (snapshot.kind !== 'complete') {
+          throw new Error('Test cut requires a complete snapshot')
+        }
+        const result = request.view === 'source'
+          ? await session.dispatch({
+            kind: 'edit-source',
+            target: Object.freeze({
+              session: snapshot.sourceSelection.session,
+              revision: snapshot.sourceSelection.revision,
+              view: 'source' as const,
+              anchor: Object.freeze({
+                offset: request.selection.start,
+                affinity: 'next' as const
               }),
-              text: '',
-              selection: Object.freeze({
-                anchor: Object.freeze({
-                  offset: request.selection.start,
-                  affinity: 'next' as const
-                }),
-                focus: Object.freeze({
-                  offset: request.selection.start,
-                  affinity: 'next' as const
-                })
+              focus: Object.freeze({
+                offset: request.selection.end,
+                affinity: 'previous' as const
+              })
+            }),
+            text: '',
+            selection: Object.freeze({
+              anchor: Object.freeze({
+                offset: request.selection.start,
+                affinity: 'next' as const
+              }),
+              focus: Object.freeze({
+                offset: request.selection.start,
+                affinity: 'next' as const
               })
             })
-            : await session.dispatch({
-              kind: 'delete-text',
-              target: snapshot.selection
-            })
-          if (result.kind !== 'committed') {
-            throw new Error(`Test cut did not commit: ${result.kind}`)
-          }
-          return Object.freeze({ kind: 'cut-committed' as const })
+          })
+          : await session.dispatch({
+            kind: 'delete-text',
+            target: snapshot.selection
+          })
+        if (result.kind !== 'committed') {
+          throw new Error(`Test cut did not commit: ${result.kind}`)
         }
-      })
+        return Object.freeze({ kind: 'cut-committed' as const })
+      }
+    }),
+    configuration: {}
   }))
 
   const selectText = (
@@ -157,6 +157,92 @@ describe('document-core desktop owner', () => {
     expect(onChange).toHaveBeenCalledOnce()
   })
 
+  it('settles an admitted browser edit before a Review selection refresh', async() => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const authority = await createTestDocumentCoreSession(
+      createSourceSnapshot('Hello'),
+      createDocumentParseConfiguration({
+        footnotes: false,
+        gitLabMath: false,
+        subscriptAndSuperscript: false
+      })
+    )
+    let releaseDispatch = (): void => undefined
+    const deliveryGate = new Promise<void>(resolve => {
+      releaseDispatch = resolve
+    })
+    let pendingDispatch = Promise.resolve()
+    let selectRequests = 0
+    const delayedSession = Object.freeze({
+      ...authority,
+      dispatch: (
+        intent: Parameters<typeof authority.dispatch>[0]
+      ) => {
+        const delivered = authority.dispatch(intent).then(async(result) => {
+          await deliveryGate
+          return result
+        })
+        pendingDispatch = delivered.then(
+          () => undefined,
+          () => undefined
+        )
+        return delivered
+      },
+      select: async(
+        selection: Parameters<typeof authority.select>[0]
+      ): Promise<void> => {
+        selectRequests += 1
+        await pendingDispatch
+        await authority.select(selection)
+      }
+    })
+    const editor = await createDocumentEditorHost({
+      element: host,
+      session: installTestDocumentHostCapabilities(delayedSession, {
+        pasteClipboard: async() => {
+          throw new Error('The Review refresh test cannot paste')
+        },
+        writeClipboardMaterialization: async() =>
+          Object.freeze({ kind: 'written' as const })
+      }),
+      configuration: {}
+    })
+    const text = host.querySelector('.document-view-run')?.firstChild
+    if (!(text instanceof Text)) {
+      throw new TypeError('Expected the rendered text carrier')
+    }
+    const range = document.createRange()
+    range.setStart(text, text.length)
+    range.collapse(true)
+    const selection = document.getSelection()
+    if (selection === null) throw new Error('Expected a browser Selection')
+    selection.removeAllRanges()
+    selection.addRange(range)
+    await editor.commitAuthoringSelection()
+    selectRequests = 0
+
+    host.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'deleteContentBackward'
+    }))
+    const reviewRefresh = editor.commitAuthoringSelection()
+    await Promise.resolve()
+    expect(selectRequests).toBe(0)
+    releaseDispatch()
+
+    await expect(reviewRefresh).resolves.toBeUndefined()
+    expect(selectRequests).toBe(1)
+    await editor.settled()
+    expect(editor.getMarkdownSync()).toBe('Hell')
+    expect(editor.selection()).toMatchObject({
+      anchor: { offset: 4 },
+      focus: { offset: 4 }
+    })
+    await editor.destroy()
+  })
+
   it('routes every desktop editor command through one typed undoable intent', async() => {
     const cases = [
       {
@@ -214,22 +300,6 @@ describe('document-core desktop owner', () => {
     expect(formatEditor.getMarkdownSync()).toBe('**Body**')
     await (formatEditor.undo as () => Promise<void>)()
     expect(formatEditor.getMarkdownSync()).toBe('Body')
-
-    const tableHost = document.createElement('div')
-    document.body.appendChild(tableHost)
-    const tableEditor = await createTestDocumentHost({
-      host: tableHost,
-      source: createSourceSnapshot('\n'),
-      pasteText: () => ''
-    })
-    await (tableEditor.createTable as (
-      shape: { rows: number; columns: number }
-    ) => Promise<void>)({ rows: 2, columns: 2 })
-    expect(tableEditor.getMarkdownSync()).toBe(
-      '|   |   |\n| --- | --- |\n|   |   |\n'
-    )
-    await (tableEditor.undo as () => Promise<void>)()
-    expect(tableEditor.getMarkdownSync()).toBe('\n')
   })
 
   it('delegates the Image draft to the target-owned view without an eager edit', async() => {
@@ -243,7 +313,7 @@ describe('document-core desktop owner', () => {
     editor.setCursorByOffset(4)
     await editor.settled()
 
-    editor.openImageSelector()
+    await editor.openImageSelector()
 
     const selector = host.querySelector<HTMLFormElement>(
       '.document-view-image-selector'

@@ -49,12 +49,12 @@ MarkText key bindings for Linux. Please see [general key bindings](KEYBINDINGS.m
 
 | Id                          | Default                                       | Description                              |
 | --------------------------- | --------------------------------------------- | ---------------------------------------- |
-| `paragraph.heading-1`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd> | Set line as heading 1                    |
-| `paragraph.heading-2`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>2</kbd> | Set line as heading 2                    |
-| `paragraph.heading-3`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>3</kbd> | Set line as heading 3                    |
-| `paragraph.heading-4`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>4</kbd> | Set line as heading 4                    |
-| `paragraph.heading-5`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>5</kbd> | Set line as heading 5                    |
-| `paragraph.heading-6`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>6</kbd> | Set line as heading 6                    |
+| `paragraph.heading-1`       | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>   | Set line as heading 1                    |
+| `paragraph.heading-2`       | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>2</kbd>   | Set line as heading 2                    |
+| `paragraph.heading-3`       | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>3</kbd>   | Set line as heading 3                    |
+| `paragraph.heading-4`       | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>4</kbd>   | Set line as heading 4                    |
+| `paragraph.heading-5`       | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>5</kbd>   | Set line as heading 5                    |
+| `paragraph.heading-6`       | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>6</kbd>   | Set line as heading 6                    |
 | `paragraph.upgrade-heading` | <kbd>Ctrl</kbd>+<kbd>Plus</kbd>               | Upgrade a heading                        |
 | `paragraph.degrade-heading` | <kbd>Ctrl</kbd>+<kbd>-</kbd>                  | Degrade a heading                        |
 | `paragraph.table`           | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Insert a table                           |

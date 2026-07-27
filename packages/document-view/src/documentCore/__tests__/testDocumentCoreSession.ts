@@ -185,14 +185,26 @@ async function createTestDocumentCoreSessionHarness(
                 reason: result.reason,
             });
         }
-        return Object.freeze({ kind: result.kind });
+        if (result.kind === 'committed') {
+            return Object.freeze({
+                kind: result.kind,
+                sourceEdits: result.transition.edits,
+            });
+        }
+        return Object.freeze({
+            kind: result.kind,
+            sourceEdits: Object.freeze([]),
+        });
     };
 
     const reconfigureMarkdownOptions = async (
         patch: DocumentCoreMarkdownOptionPatch,
     ): Promise<DocumentCoreViewDispatchResult> => {
         await session.reconfigureMarkdownOptions(patch).completion;
-        return Object.freeze({ kind: 'state-changed' as const });
+        return Object.freeze({
+            kind: 'state-changed' as const,
+            sourceEdits: Object.freeze([]),
+        });
     };
 
     const viewSession: IDocumentCoreViewSession = Object.freeze({

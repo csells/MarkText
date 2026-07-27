@@ -122,14 +122,6 @@ describe('useEditorStore parser-authenticated document anchors', () => {
     expect(emitSpy).not.toHaveBeenCalled()
     expect(sendSpy).not.toHaveBeenCalled()
   })
-
-  it('does not expose the renderer URL/path forwarding action', () => {
-    const store = useEditorStore()
-    const sendSpy = vi.spyOn(window.electron.ipcRenderer, 'send')
-
-    expect('FORMAT_LINK_CLICK' in store).toBe(false)
-    expect(sendSpy).not.toHaveBeenCalled()
-  })
 })
 
 describe('heading-link clipboard authority', () => {

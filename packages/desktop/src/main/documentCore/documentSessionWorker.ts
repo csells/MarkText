@@ -36,6 +36,7 @@ import {
   type ParseExecutionProgress,
   type Profile1PhysicalTraversalCountsV1,
   type ReviewIndex,
+  type RevisionSourceEdit,
   type SourceModelSelection,
   type StaticConsumer,
   type StaticConsumerRequest,
@@ -55,7 +56,8 @@ import type {
   DocumentCoreOpenCompletion,
   DocumentCorePersistenceLeaseResult,
   DocumentCorePublication,
-  DocumentCoreReloadCompletion
+  DocumentCoreReloadCompletion,
+  DocumentCoreSessionSourceDelta
 } from '../../shared/types/documentCore'
 import {
   encodeDocumentCoreLiveDeltaV1,
@@ -294,7 +296,7 @@ interface PortableSessionMember {
   readonly snapshotId: string
   readonly revisionId: string
   readonly kind: 'complete' | 'source-only'
-  readonly source: string
+  readonly sourceDelta: DocumentCoreSessionSourceDelta
   readonly sourceHash: string
   readonly semanticHash: string
   readonly parseConfiguration: ParseConfiguration
@@ -597,7 +599,9 @@ function reloadCompletion(
 
 function portableMembers(
   snapshot: EditorSnapshot,
-  historyState: DocumentCoreHistoryState
+  historyState: DocumentCoreHistoryState,
+  baseRevision?: EditorSnapshot['revision'],
+  sourceEdits?: readonly RevisionSourceEdit[]
 ): Readonly<{
     session: PortableSessionMember
     live?: PortableLiveMember
@@ -609,7 +613,12 @@ function portableMembers(
     snapshotId: snapshot.id,
     revisionId: descriptor.id,
     kind: snapshot.kind,
-    source: descriptor.source,
+    sourceDelta: sourceDeltaBetween(
+      baseRevision,
+      descriptor.source,
+      descriptor.sourceHash,
+      sourceEdits
+    ),
     sourceHash: descriptor.sourceHash,
     semanticHash: descriptor.semanticHash,
     parseConfiguration: descriptor.configuration,
@@ -650,6 +659,40 @@ function portableMembers(
       ),
       listItems: listItemsOf(snapshot.displayDocument.root)
     })
+  })
+}
+
+function sourceDeltaBetween(
+  base: EditorSnapshot['revision'] | undefined,
+  next: string,
+  nextSourceHash: EditorSnapshot['revision']['sourceHash'],
+  edits: readonly RevisionSourceEdit[] | undefined
+): DocumentCoreSessionSourceDelta {
+  if (base === undefined) {
+    return Object.freeze({ kind: 'full' as const, text: next })
+  }
+  const baseIdentity = Object.freeze({
+    baseRevisionId: base.id,
+    baseSourceHash: base.sourceHash,
+    baseSemanticHash: base.semanticHash,
+    baseSourceLength: base.source.length
+  })
+  if (edits === undefined || edits.length === 0) {
+    if (
+      next.length !== base.source.length ||
+      nextSourceHash !== base.sourceHash
+    ) {
+      throw new Error('A retained source publication changed source identity')
+    }
+    return Object.freeze({
+      kind: 'retain' as const,
+      ...baseIdentity
+    })
+  }
+  return Object.freeze({
+    kind: 'edit' as const,
+    ...baseIdentity,
+    edits: Object.freeze([...edits])
   })
 }
 
@@ -700,18 +743,31 @@ function publishDispatchResult(
     baseSnapshotId,
     snapshot,
     transitionId,
-    terminalOutcome(result)
+    terminalOutcome(result),
+    result.kind === 'committed' || result.kind === 'state-changed'
+      ? result.transition.before.revision
+      : result.snapshot.revision,
+    result.kind === 'committed' ? result.transition.edits : EMPTY_SOURCE_EDITS
   )
 }
+
+const EMPTY_SOURCE_EDITS: readonly RevisionSourceEdit[] = Object.freeze([])
 
 function publishSnapshot(
   baseSnapshotId: string,
   snapshot: EditorSnapshot,
   transitionId: string,
-  outcome?: Readonly<Record<string, unknown>>
+  outcome?: Readonly<Record<string, unknown>>,
+  baseRevision?: EditorSnapshot['revision'],
+  sourceEdits?: readonly RevisionSourceEdit[]
 ): DocumentCoreWorkerPublication {
   publicationSequence += 1
-  const portable = portableMembers(snapshot, historyStateOf(activeSession()))
+  const portable = portableMembers(
+    snapshot,
+    historyStateOf(activeSession()),
+    baseRevision,
+    sourceEdits
+  )
   const members = {
     ...(portable.live === undefined
       ? {}
@@ -724,7 +780,7 @@ function publishSnapshot(
           }
           return encodeJson(
             encodeDocumentCoreLiveDeltaV1(
-              portable.session.source,
+              snapshot.revision.source,
               portable.live,
               Object.freeze({
                 projection: portable.review.projection,
@@ -942,6 +998,7 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
   if (command.kind === 'reconfigure-markdown-options') {
     assertBase(command.baseSnapshotId)
     beginExecutionOperation('reconfigure', command.executionGeneration)
+    const baseRevision = activeSession().snapshot().revision
     const result = await activeSession()
       .reconfigureMarkdownOptions(command.patch).completion
     return publishSnapshot(
@@ -952,7 +1009,9 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
         schema: 'document-core-terminal-outcome-1',
         kind: 'state-changed',
         cause: 'markdown-options'
-      })
+      }),
+      baseRevision,
+      EMPTY_SOURCE_EDITS
     )
   }
 
@@ -988,6 +1047,7 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
   if (command.kind === 'select') {
     assertBase(command.baseSnapshotId)
     beginExecutionOperation('select', command.executionGeneration)
+    const baseRevision = activeSession().snapshot().revision
     if (command.view === 'source') {
       activeSession().selectSource(command.selection)
     } else {
@@ -996,7 +1056,10 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
     return publishSnapshot(
       command.baseSnapshotId,
       activeSession().snapshot(),
-      `selection-state:${threadId}:${publicationSequence + 1}`
+      `selection-state:${threadId}:${publicationSequence + 1}`,
+      undefined,
+      baseRevision,
+      EMPTY_SOURCE_EDITS
     )
   }
 

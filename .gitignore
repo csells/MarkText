@@ -15,7 +15,8 @@ temp/
 logs/
 test-results/
 playwright-report/
-specs/migration/0009-final-evidence.yml
+specs/migration/0009-candidate-evidence.yml
+specs/migration/0009-closure-attestation.yml
 specs/migration/0009-evidence/
 *.min.json
 .claude/settings.local.json

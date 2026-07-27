@@ -6,10 +6,10 @@ import type { MarkdownDocument } from './revision.js'
  *
  * This is one primitive serving two jobs. A CriticMarkup fork reconverges at the
  * next safe point: past it both resolutions are in identical block state, so the
- * remaining source parses the same for every view and is parsed once
- * (`specs/research/0002`). An incremental parse needs the same positions to pick
- * a restart boundary after an edit (`specs/research/0001`). Building it twice
- * would risk two answers to one question.
+ * remaining source parses the same for every view and is parsed once. An
+ * incremental parse needs the same positions to pick a restart boundary after
+ * an edit. ADR-0013 records the shared invariant; building it twice would risk
+ * two answers to one question.
  *
  * It is *derived from the parse*, never re-scanned. A separate scanner deciding
  * where blocks begin would be a second authority disagreeing with the parser —

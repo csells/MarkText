@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import {
   clearRendererErrors,
   clickMenuById,
+  closeElectron,
   expectNoRendererErrors,
   focusEditor,
   launchWithMarkdown,
@@ -97,8 +98,9 @@ const keyboardSelect = async(
   count: number
 ): Promise<void> => {
   await placeCaret(page, startOffset)
-  for (let index = 0; index < count; index++)
+  for (let index = 0; index < count; index++) {
     await page.keyboard.press('Shift+ArrowRight')
+  }
   await page.waitForTimeout(200)
 }
 
@@ -107,7 +109,7 @@ const keyboardSelect = async(
 const mouseDragSelect = async(page: Page, needle: string): Promise<void> => {
   const rects = await page.evaluate((text) => {
     const contents = Array.from(
-      document.querySelectorAll('.editor-component .document-view-content')
+      document.querySelectorAll('.editor-component .document-view-block')
     ) as HTMLElement[]
     const content = contents.find((el) => (el.textContent ?? '').includes(text))
     if (!content) return null
@@ -163,7 +165,7 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
   let page: Page
 
   test.afterEach(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('programmatic range → menu wraps the selection', async() => {
@@ -313,7 +315,7 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
   let page: Page
 
   test.afterEach(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('an authored cross-paragraph span renders and round-trips', async() => {
@@ -326,56 +328,59 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
     await page.waitForTimeout(300)
 
     expect(await readCanonicalMarkdown(page)).toBe(source)
-    const criticSpans = await page.evaluate(() =>
-      document.querySelectorAll('.editor-component .document-view-critic-markup').length)
-    expect(criticSpans).toBeGreaterThan(0)
+    const highlights = page.locator('.editor-component mark')
+    await expect(highlights).toHaveCount(2)
+    expect(await highlights.allTextContents()).toEqual([
+      'time for all good men',
+      'I wish I were'
+    ])
+    await expect(page.locator(
+      '.editor-component [data-critic-type="comment"]'
+    )).toHaveCount(1)
     await expectNoRendererErrors(app)
   })
 
   test('real keyboard cross-paragraph selection wraps the whole span', async() => {
-    const launched = await launchWithMarkdown(
+    const source =
       'now is the time for all good men\n\nI wish I were in the land of cotton!\n'
-    )
+    const launched = await launchWithMarkdown(source)
     app = launched.app
     page = launched.page
     await focusEditor(page)
     await clearRendererErrors(app)
 
-    await placeCaret(page, 11)
-    await page.keyboard.press('Shift+ArrowDown')
-    await page.waitForTimeout(200)
+    await keyboardSelect(page, 11, 28)
+    await expect.poll(() => page.evaluate(() =>
+      window.getSelection()?.toString()
+    )).toBe('time for all good men\n\nI wish')
     await addCommentViaSidebar(page, app, 'xnote')
 
-    const md = await readCanonicalMarkdown(page)
-    expect(md).toContain('{==time for all good men')
-    expect(md).toContain('I wish')
-    expect(md).toContain('==}{>>xnote<<}')
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+      'now is the {==time for all good men\n\nI wish==}{>>xnote<<}' +
+      ' I were in the land of cotton!\n'
+    )
     await expectNoRendererErrors(app)
   })
 
-  // HARNESS LIMITATION, not a product gap: Playwright's scripted mouse drag
-  // does not register a drag-*selection* across a document-view block boundary in this
-  // Electron harness (the drag yields an empty selection), though same-paragraph
-  // scripted drags do select. The cross-paragraph MOUSE path is covered by
-  // transitivity — same-paragraph real mouse drag (mouseup commit) passes, and
-  // real keyboard cross-paragraph (Editor.focus cross-block restore) passes —
-  // and both meet in this exact code path. Un-fixme if the harness gains
-  // cross-block drag-select support.
+  // Cross-block mouse selection is its own public gesture. This must prove the
+  // exact browser selection before opening the compose UI and the exact source
+  // afterward; same-paragraph and keyboard tests are not substitutes.
   test('real mouse cross-paragraph drag wraps the whole span', async() => {
-    const launched = await launchWithMarkdown(
+    const source =
       'now is the time for all good men\n\nI wish I were in the land of cotton!\n'
-    )
+    const launched = await launchWithMarkdown(source)
     app = launched.app
     page = launched.page
     await focusEditor(page)
     await clearRendererErrors(app)
+    await placeCaret(page, 0)
 
     // Drag from "time" on line 1 down into "wish" on line 2.
     const rects = await page.evaluate(() => {
       const contents = Array.from(
-        document.querySelectorAll('.editor-component .document-view-content')
+        document.querySelectorAll('.editor-component .document-view-block')
       ) as HTMLElement[]
-      const find = (needle: string) => {
+      const find = (needle: string, edge: 'start' | 'end') => {
         const content = contents.find((el) => (el.textContent ?? '').includes(needle))
         if (!content) return null
         const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT)
@@ -385,15 +390,18 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
           if (index >= 0) {
             const range = document.createRange()
             range.setStart(node, index)
-            range.setEnd(node, index + 1)
+            range.setEnd(node, index + needle.length)
             const r = range.getBoundingClientRect()
-            return { x: r.left, y: r.top + r.height / 2 }
+            return {
+              x: edge === 'start' ? r.left + 1 : r.right - 1,
+              y: r.top + r.height / 2
+            }
           }
         }
         return null
       }
-      const start = find('time')
-      const end = find('wish')
+      const start = find('time', 'start')
+      const end = find('wish', 'end')
       return start && end ? { start, end } : null
     })
     if (!rects) throw new TypeError('Could not locate drag endpoints.')
@@ -402,11 +410,15 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
     await page.mouse.move(rects.end.x, rects.end.y, { steps: 10 })
     await page.mouse.up()
     await page.waitForTimeout(200)
+    await expect.poll(() => page.evaluate(() =>
+      window.getSelection()?.toString()
+    )).toBe('time for all good men\n\nI wish')
     await addCommentViaSidebar(page, app, 'dnote')
 
-    const md = await readCanonicalMarkdown(page)
-    expect(md).toContain('{==time')
-    expect(md).toContain('==}{>>dnote<<}')
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+      'now is the {==time for all good men\n\nI wish==}{>>dnote<<}' +
+      ' I were in the land of cotton!\n'
+    )
     await expectNoRendererErrors(app)
   })
 })

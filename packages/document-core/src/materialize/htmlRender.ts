@@ -4,6 +4,10 @@ import type {
   NodeId,
   ViewRange
 } from '../revision.js'
+import {
+  PARSE_SOURCE_CHECKPOINT_INTERVAL,
+  type ParseExecutionTracker
+} from '../parseExecutionControl.js'
 
 export interface MarkdownStaticHeadingAnchor {
   readonly node: MarkdownNode
@@ -1216,9 +1220,6 @@ export interface MarkdownTextValueSegment {
   }>
 }
 
-const MARKDOWN_TEXT_TOKEN =
-  /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])|&#[Xx]([0-9a-fA-F]{1,6});|&#([0-9]{1,7});|&([A-Za-z][A-Za-z0-9]{1,31});/g
-
 /**
  * Decode parser-owned text while retaining the exact input boundary map.
  *
@@ -1227,9 +1228,19 @@ const MARKDOWN_TEXT_TOKEN =
  */
 export function markdownTextValueSegments(
   text: string,
-  inputStart = 0
+  inputStart = 0,
+  execution?: ParseExecutionTracker
 ): readonly MarkdownTextValueSegment[] {
   const segments: MarkdownTextValueSegment[] = []
+  let identityStart = 0
+  let cursor = 0
+  let reported = 0
+  const report = (): void => {
+    if (cursor - reported >= PARSE_SOURCE_CHECKPOINT_INTERVAL) {
+      execution?.examineSource(cursor - reported)
+      reported = cursor
+    }
+  }
   const appendIdentity = (from: number, to: number): void => {
     if (to <= from) return
     segments.push(Object.freeze({
@@ -1241,54 +1252,129 @@ export function markdownTextValueSegments(
       })
     }))
   }
-  MARKDOWN_TEXT_TOKEN.lastIndex = 0
-  let cursor = 0
-  for (
-    let match = MARKDOWN_TEXT_TOKEN.exec(text);
-    match !== null;
-    match = MARKDOWN_TEXT_TOKEN.exec(text)
-  ) {
-    const start = match.index
-    const end = start + match[0].length
-    appendIdentity(cursor, start)
-    const escaped = match[1]
-    const hex = match[2]
-    const dec = match[3]
-    const named = match[4]
-    const value = escaped !== undefined
-      ? escaped
-      : hex !== undefined
-        ? codePointToString(Number.parseInt(hex, 16))
-        : dec !== undefined
-          ? codePointToString(Number.parseInt(dec, 10))
-          : named === undefined
-            ? match[0]
-            : NAMED_ENTITIES[named] ?? match[0]
-    if (value === match[0]) {
-      appendIdentity(start, end)
-      cursor = end
+
+  while (cursor < text.length) {
+    const start = cursor
+    let end = cursor
+    let value: string | undefined
+    if (
+      text.charCodeAt(cursor) === 92 &&
+      cursor + 1 < text.length &&
+      isEscapableMarkdownPunctuation(text.charCodeAt(cursor + 1))
+    ) {
+      end = cursor + 2
+      value = text[cursor + 1]
+    } else if (text.charCodeAt(cursor) === 38) {
+      let tokenCursor = cursor + 1
+      if (text.charCodeAt(tokenCursor) === 35) {
+        tokenCursor += 1
+        const hexadecimal =
+          text.charCodeAt(tokenCursor) === 88 ||
+          text.charCodeAt(tokenCursor) === 120
+        if (hexadecimal) tokenCursor += 1
+        const digitsStart = tokenCursor
+        const maximumDigits = hexadecimal ? 6 : 7
+        while (tokenCursor < text.length &&
+          tokenCursor - digitsStart < maximumDigits) {
+          const code = text.charCodeAt(tokenCursor)
+          const digit = hexadecimal
+            ? (code >= 48 && code <= 57) ||
+              (code >= 65 && code <= 70) ||
+              (code >= 97 && code <= 102)
+            : code >= 48 && code <= 57
+          if (!digit) break
+          tokenCursor += 1
+        }
+        if (
+          tokenCursor > digitsStart &&
+          text.charCodeAt(tokenCursor) === 59
+        ) {
+          end = tokenCursor + 1
+          value = codePointToString(Number.parseInt(
+            text.slice(digitsStart, tokenCursor),
+            hexadecimal ? 16 : 10
+          ))
+        }
+      } else {
+        const nameStart = tokenCursor
+        const first = text.charCodeAt(tokenCursor)
+        if ((first >= 65 && first <= 90) || (first >= 97 && first <= 122)) {
+          tokenCursor += 1
+          while (tokenCursor < text.length && tokenCursor - nameStart < 32) {
+            const code = text.charCodeAt(tokenCursor)
+            if (!(
+              (code >= 48 && code <= 57) ||
+              (code >= 65 && code <= 90) ||
+              (code >= 97 && code <= 122)
+            )) break
+            tokenCursor += 1
+          }
+          if (
+            tokenCursor - nameStart >= 2 &&
+            text.charCodeAt(tokenCursor) === 59
+          ) {
+            end = tokenCursor + 1
+            const raw = text.slice(start, end)
+            value = NAMED_ENTITIES[
+              text.slice(nameStart, tokenCursor)
+            ] ?? raw
+          }
+        }
+      }
+    }
+
+    if (value === undefined) {
+      cursor += 1
+      report()
       continue
     }
-    const tokenStart = inputStart + start
-    const tokenEnd = inputStart + end
+    const raw = text.slice(start, end)
+    if (value === raw) {
+      cursor = end
+      report()
+      continue
+    }
+    appendIdentity(identityStart, start)
     segments.push(Object.freeze({
       text: value,
       boundaryMapping: 'collapsed' as const,
       inputRange: Object.freeze({
-        start: tokenStart,
-        end: tokenEnd
+        start: inputStart + start,
+        end: inputStart + end
       })
     }))
     cursor = end
+    identityStart = end
+    report()
   }
-  appendIdentity(cursor, text.length)
+  appendIdentity(identityStart, text.length)
+  execution?.examineSource(cursor - reported)
   return Object.freeze(segments)
 }
 
-export function markdownTextValue(text: string): string {
-  return markdownTextValueSegments(text)
-    .map((segment) => segment.text)
-    .join('')
+function isEscapableMarkdownPunctuation(codeUnit: number): boolean {
+  return (
+    (codeUnit >= 33 && codeUnit <= 47) ||
+    (codeUnit >= 58 && codeUnit <= 64) ||
+    (codeUnit >= 91 && codeUnit <= 96) ||
+    (codeUnit >= 123 && codeUnit <= 126)
+  )
+}
+
+export function markdownTextValue(
+  text: string,
+  execution?: ParseExecutionTracker
+): string {
+  const segments = markdownTextValueSegments(text, 0, execution)
+  if (execution !== undefined) {
+    let outputUnits = 0
+    for (const segment of segments) {
+      outputUnits += segment.text.length
+      execution.examineParserWork(1)
+    }
+    execution.examineParserWork(outputUnits)
+  }
+  return segments.map((segment) => segment.text).join('')
 }
 
 function codePointToString(codePoint: number): string {

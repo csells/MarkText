@@ -11,6 +11,7 @@ import {
   type CriticMarkupReviewAction
 } from '../../../common/commands/review'
 import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
+import { PARAGRAPH_DOCUMENT_ACTIONS } from '@shared/types/paragraphDocumentAction'
 
 export { default as QuickOpenCommand } from './quickOpen'
 export { default as SpellcheckerLanguageCommand } from './spellcheckerLanguage'
@@ -253,127 +254,127 @@ const commands: CommandDescriptor[] = [
   {
     id: 'paragraph.heading-1',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'heading 1'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading1))
     }
   },
   {
     id: 'paragraph.heading-2',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'heading 2'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading2))
     }
   },
   {
     id: 'paragraph.heading-3',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'heading 3'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading3))
     }
   },
   {
     id: 'paragraph.heading-4',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'heading 4'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading4))
     }
   },
   {
     id: 'paragraph.heading-5',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'heading 5'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading5))
     }
   },
   {
     id: 'paragraph.heading-6',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'heading 6'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading6))
     }
   },
   {
     id: 'paragraph.upgrade-heading',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'upgrade heading'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.upgradeHeading))
     }
   },
   {
     id: 'paragraph.degrade-heading',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'degrade heading'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.degradeHeading))
     }
   },
   {
     id: 'paragraph.table',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'table'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.table))
     }
   },
   {
     id: 'paragraph.code-fence',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'pre'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.codeFence))
     }
   },
   {
     id: 'paragraph.quote-block',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'blockquote'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.quoteBlock))
     }
   },
   {
     id: 'paragraph.math-formula',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'mathblock'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.mathFormula))
     }
   },
   {
     id: 'paragraph.html-block',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'html'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.htmlBlock))
     }
   },
   {
     id: 'paragraph.order-list',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'ol-bullet'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.orderedList))
     }
   },
   {
     id: 'paragraph.bullet-list',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'ul-bullet'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.bulletList))
     }
   },
   {
     id: 'paragraph.task-list',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'ul-task'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.taskList))
     }
   },
   {
     id: 'paragraph.loose-list-item',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'loose-list-item'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.looseListItem))
     }
   },
   {
     id: 'paragraph.paragraph',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'paragraph'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.paragraph))
     }
   },
   {
     id: 'paragraph.reset-paragraph',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'reset-to-paragraph'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.paragraph))
     }
   },
   {
     id: 'paragraph.horizontal-line',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'hr'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.horizontalLine))
     }
   },
   {
     id: 'paragraph.front-matter',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', 'front-matter'))
+      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.frontMatter))
     }
   },
 

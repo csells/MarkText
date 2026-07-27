@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { type Menu, type MenuItemConstructorOptions } from 'electron'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 // `@/store/editor` transitively imports `@/config`, which reads
 // `window.path.sep` at module load (normally injected by the preload bridge).
@@ -238,5 +240,96 @@ describe('menu template accelerators match the platform keybinding tables (Parag
     expect(isEqualAccelerator(accel(keybindingsWindows, 'view.source-code-mode'), 'Ctrl+E')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsDarwin, 'view.source-code-mode'), 'Command+Option+S')).toBe(true)
     expect(isEqualAccelerator(accel(keybindingsWindows, 'view.focus-mode'), 'Ctrl+Shift+J')).toBe(true)
+  })
+
+  it('keeps every block-authoring accelerator in the platform keybinding authority', () => {
+    const expected = {
+      Darwin: {
+        'paragraph.paragraph': 'Command+0',
+        'paragraph.horizontal-line': 'Command+Option+-',
+        'paragraph.front-matter': 'Command+Option+Y',
+        'paragraph.heading-1': 'Command+1',
+        'paragraph.heading-2': 'Command+2',
+        'paragraph.heading-3': 'Command+3',
+        'paragraph.heading-4': 'Command+4',
+        'paragraph.heading-5': 'Command+5',
+        'paragraph.heading-6': 'Command+6',
+        'paragraph.table': 'Command+Shift+T',
+        'paragraph.math-formula': 'Command+Option+M',
+        'paragraph.html-block': 'Command+Option+J',
+        'paragraph.code-fence': 'Command+Option+C',
+        'paragraph.quote-block': 'Command+Option+Q',
+        'paragraph.order-list': 'Command+Option+O',
+        'paragraph.bullet-list': 'Command+Option+U',
+        'paragraph.task-list': 'Command+Option+X'
+      },
+      Linux: {
+        'paragraph.paragraph': 'Ctrl+Shift+0',
+        'paragraph.horizontal-line': 'Ctrl+_',
+        'paragraph.front-matter': 'Ctrl+Shift+Y',
+        'paragraph.heading-1': 'Ctrl+Alt+1',
+        'paragraph.heading-2': 'Ctrl+Alt+2',
+        'paragraph.heading-3': 'Ctrl+Alt+3',
+        'paragraph.heading-4': 'Ctrl+Alt+4',
+        'paragraph.heading-5': 'Ctrl+Alt+5',
+        'paragraph.heading-6': 'Ctrl+Alt+6',
+        'paragraph.table': 'Ctrl+Shift+T',
+        'paragraph.math-formula': 'Ctrl+Alt+M',
+        'paragraph.html-block': 'Ctrl+Alt+H',
+        'paragraph.code-fence': 'Ctrl+Shift+K',
+        'paragraph.quote-block': 'Ctrl+Shift+Q',
+        'paragraph.order-list': 'Ctrl+G',
+        'paragraph.bullet-list': 'Ctrl+H',
+        'paragraph.task-list': 'Ctrl+Shift+X'
+      },
+      Windows: {
+        'paragraph.paragraph': 'Ctrl+Shift+0',
+        'paragraph.horizontal-line': 'Ctrl+Shift+U',
+        'paragraph.front-matter': 'Ctrl+Alt+Y',
+        'paragraph.heading-1': '',
+        'paragraph.heading-2': '',
+        'paragraph.heading-3': '',
+        'paragraph.heading-4': '',
+        'paragraph.heading-5': '',
+        'paragraph.heading-6': '',
+        'paragraph.table': 'Ctrl+Shift+T',
+        'paragraph.math-formula': 'Ctrl+Alt+N',
+        'paragraph.html-block': 'Ctrl+Alt+H',
+        'paragraph.code-fence': 'Ctrl+Shift+K',
+        'paragraph.quote-block': 'Ctrl+Shift+Q',
+        'paragraph.order-list': 'Ctrl+G',
+        'paragraph.bullet-list': 'Ctrl+H',
+        'paragraph.task-list': 'Ctrl+Alt+X'
+      }
+    } as const
+    const maps = {
+      Darwin: keybindingsDarwin,
+      Linux: keybindingsLinux,
+      Windows: keybindingsWindows
+    } as const
+
+    for (const platform of Object.keys(expected) as Array<keyof typeof expected>) {
+      for (const [id, accelerator] of Object.entries(expected[platform])) {
+        expect(maps[platform].get(id), `${platform}:${id}`).toBe(accelerator)
+      }
+    }
+  })
+
+  it('documents the actual Windows and Linux heading bindings', () => {
+    const docs = resolve(__dirname, '../../../../website/content/docs/end-user')
+    const windows = readFileSync(resolve(docs, 'KEYBINDINGS_WINDOWS.md'), 'utf8')
+    const linux = readFileSync(resolve(docs, 'KEYBINDINGS_LINUX.md'), 'utf8')
+
+    for (let level = 1; level <= 6; level += 1) {
+      expect(windows).toContain(
+        `| \`paragraph.heading-${String(level)}\`       | User-defined`
+      )
+      expect(linux).toContain(
+        `| \`paragraph.heading-${String(level)}\`       | ` +
+        `<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>${String(level)}</kbd>`
+      )
+    }
+    expect(windows).toContain('AltGr')
+    expect(windows).toContain('no Windows default')
   })
 })

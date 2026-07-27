@@ -72,8 +72,8 @@ function sourceHashOracle(source: string): string {
   }
   return createHash('sha256')
     .update('marktext:SourceHashV1\0', 'ascii')
-    .update(uint64BigEndian(BigInt(source.length)))
     .update(units)
+    .update(uint64BigEndian(BigInt(source.length)))
     .digest('hex')
 }
 

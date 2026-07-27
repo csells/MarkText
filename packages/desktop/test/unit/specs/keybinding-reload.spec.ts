@@ -87,4 +87,49 @@ describe('Keybindings.setUserKeybindings live re-registration (#3681)', () => {
 
     expect(register).not.toHaveBeenCalled()
   })
+
+  it('unbinds the old stroke without registering a renderer fallback', async() => {
+    const kb = makeKeybindings()
+    const win = { isDestroyed: () => false } as unknown as WinArg
+    const oldAccelerator = kb.getAccelerator('paragraph.code-fence')
+    expect(oldAccelerator).not.toBeNull()
+    register.mockClear()
+    unregister.mockClear()
+
+    await kb.setUserKeybindings(
+      new Map([['paragraph.code-fence', '']]),
+      [win]
+    )
+
+    expect(kb.getAccelerator('paragraph.code-fence')).toBeNull()
+    expect(unregister).toHaveBeenCalledWith(win, oldAccelerator)
+    expect(register).not.toHaveBeenCalledWith(
+      win,
+      oldAccelerator,
+      expect.any(Function)
+    )
+  })
+
+  it('rebinds one stroke to one command callback that consumes the event', async() => {
+    const kb = makeKeybindings()
+    const win = { isDestroyed: () => false } as unknown as WinArg
+    const execute = vi.mocked(kb.commandManager.execute)
+    const accelerator = 'CmdOrCtrl+Alt+Shift+K'
+    register.mockClear()
+
+    await kb.setUserKeybindings(
+      new Map([['paragraph.code-fence', accelerator]]),
+      [win]
+    )
+
+    const registration = register.mock.calls.find(
+      ([registeredWindow, registeredAccelerator]) =>
+        registeredWindow === win && registeredAccelerator === accelerator
+    )
+    expect(registration).toBeDefined()
+    const callback = registration?.[2] as (() => boolean) | undefined
+    expect(callback?.()).toBe(true)
+    expect(execute).toHaveBeenCalledOnce()
+    expect(execute).toHaveBeenCalledWith('paragraph.code-fence', win)
+  })
 })

@@ -467,8 +467,9 @@ A conforming implementation MUST pass:
 ## 16. References
 
 Plan 0009 (`specs/plans/0009-criticmarkup-document-engine-rebuild.md`) — settled decisions,
-ADRs, language contract. Research 0004/0005 (`specs/research/`) — verified ecosystem evidence
-behind every ruling above. CommonMark 0.31.2; GFM spec; CriticMarkup toolkit README (canonical
-prose spec); `fletcher/MultiMarkdown-6` `src/critic_markup.c` (projection evidence);
+ADRs, language contract. The active architecture evidence records the verified
+host-parser facts behind the rulings above. CommonMark 0.31.2; GFM spec;
+CriticMarkup toolkit README (canonical prose spec); `fletcher/MultiMarkdown-6`
+`src/critic_markup.c` (projection evidence);
 `nathanlesage/lang-criticmarkup` and `Fevol/criticmarkup-parser` (lexical fixtures and
 cautionary precedents).

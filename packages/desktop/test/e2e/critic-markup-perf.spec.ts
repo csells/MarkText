@@ -2,6 +2,7 @@ import * as os from 'node:os'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 import {
+  closeElectron,
   clickMenuById,
   expectNoCapturedErrors,
   launchWithMarkdown
@@ -58,7 +59,7 @@ test.describe('document-core CriticMarkup performance budgets', () => {
   test.afterEach(async() => {
     if (app) {
       await expectNoCapturedErrors(app)
-      await app.close()
+      await closeElectron(app)
     }
   })
 
@@ -82,12 +83,21 @@ test.describe('document-core CriticMarkup performance budgets', () => {
     app = launched.app
     page = launched.page
     await expect(page.locator('.editor-component')).toContainText('review')
-    // Measure the steady interactive state: the engine warms its read-only
-    // projection cache right after open and flags completion on the editor
-    // root. Racing that warmup would time the one-off open-adjacent parse,
-    // not view-switch latency.
-    await expect(page.locator('.editor-component[data-critic-warm="true"]'))
-      .toBeAttached({ timeout: 30000 })
+    // Establish steady state through the current public projection commands.
+    // No synthetic readiness attribute is a document-core completion
+    // contract; an explicit round-trip proves both publications completed
+    // before the measured samples begin.
+    await clickMenuById(app, 'reviewShowOriginalMenuItem')
+    await expect(page.locator(
+      '.editor-component[data-critic-projection="original"]'
+    )).toBeAttached()
+    await clickMenuById(app, 'reviewShowMarkedMenuItem')
+    await expect(page.locator(
+      '.editor-component[data-critic-projection="marked"]'
+    )).toBeAttached()
+    await page.evaluate(async() => await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    ))
 
     const timed = async(action: () => Promise<void>): Promise<number> => {
       const startedAt = Date.now()

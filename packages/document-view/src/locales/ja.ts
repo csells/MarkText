@@ -40,6 +40,8 @@ export const ja = {
         'Vega Chart': 'Vegaチャート',
         'Mermaid': 'Mermaid',
         'Plantuml': 'Plantuml',
+        'Flowchart': 'フローチャート',
+        'Sequence': 'シーケンス図',
         'basic blocks': '基礎ブロック',
         'headings': 'タイトル',
         'advanced blocks': '高級ブロック',

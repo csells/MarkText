@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   getMarkdownContent,
   expectNoRendererErrors,
@@ -66,7 +67,7 @@ test.describe('SimpleImageViewer (Space-to-preview + Esc close)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test.beforeEach(async() => {

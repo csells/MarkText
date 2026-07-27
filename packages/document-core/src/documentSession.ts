@@ -452,6 +452,34 @@ export type BlockConversion =
   | Readonly<{ readonly kind: 'thematic-break' }>
   | Readonly<{ readonly kind: 'front-matter' }>
 
+export type DiagramFenceLanguage =
+  | 'vega-lite'
+  | 'mermaid'
+  | 'plantuml'
+  | 'flowchart'
+  | 'sequence'
+
+export type QuickInsertConversion = Exclude<
+  BlockConversion,
+  | Readonly<{ readonly kind: 'heading-shift' }>
+  | Readonly<{ readonly kind: 'loose-list-item' }>
+>
+
+export type QuickInsertBlock =
+  | Readonly<{
+    readonly kind: 'conversion'
+    readonly conversion: QuickInsertConversion
+  }>
+  | Readonly<{
+    readonly kind: 'diagram'
+    readonly language: DiagramFenceLanguage
+  }>
+  | Readonly<{
+    readonly kind: 'table'
+    readonly rows: number
+    readonly columns: number
+  }>
+
 /**
  * Convert every complete top-level block named by one authenticated Markup
  * selection.
@@ -473,7 +501,7 @@ export interface ConvertBlockIntent {
 export interface QuickInsertBlockIntent {
   readonly kind: 'quick-insert-block'
   readonly target: ModelSelection
-  readonly conversion: BlockConversion
+  readonly block: QuickInsertBlock
 }
 
 /**
@@ -758,11 +786,18 @@ export interface RevisionTransitionDescriptor {
   readonly next: RevisionId
 }
 
+export interface RevisionSourceEdit {
+  readonly start: number
+  readonly end: number
+  readonly insert: string
+}
+
 export interface RevisionChangedTransition {
   readonly kind: 'revision-changed'
   readonly id: SessionTransitionId
   readonly cause: 'source-edit' | 'undo' | 'redo'
   readonly history: 'record' | 'none'
+  readonly edits: readonly RevisionSourceEdit[]
   readonly before: EditorSnapshot
   readonly after: EditorSnapshot
   readonly revision: RevisionTransitionDescriptor

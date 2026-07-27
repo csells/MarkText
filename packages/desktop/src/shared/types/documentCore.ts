@@ -178,6 +178,33 @@ export interface DocumentCoreHistoryState {
   readonly savedIdentity: string
 }
 
+export interface DocumentCoreSourceEditDelta {
+  readonly start: number
+  readonly end: number
+  readonly insert: string
+}
+
+export type DocumentCoreSessionSourceDelta =
+  | Readonly<{
+    readonly kind: 'full'
+    readonly text: string
+  }>
+  | Readonly<{
+    readonly kind: 'retain'
+    readonly baseRevisionId: string
+    readonly baseSourceHash: SourceHashV1
+    readonly baseSemanticHash: RevisionSemanticHashV1
+    readonly baseSourceLength: number
+  }>
+  | Readonly<{
+    readonly kind: 'edit'
+    readonly baseRevisionId: string
+    readonly baseSourceHash: SourceHashV1
+    readonly baseSemanticHash: RevisionSemanticHashV1
+    readonly baseSourceLength: number
+    readonly edits: readonly DocumentCoreSourceEditDelta[]
+  }>
+
 export function freezeDocumentCoreHistoryState(
   value: unknown
 ): DocumentCoreHistoryState {

@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
+  closeElectron,
   launchWithDoc,
   waitForMenuReady,
   enterSourceMode,
@@ -18,7 +19,7 @@ import {
 // toggles and a real on-disk save, with no false-dirty / reformat.
 //
 // Basic round-trip + the modified indicator are each covered in isolation
-// (editor-input.spec.ts, parity-source-undo-saved.spec.ts), and per-fixture
+// (editor-input.spec.ts and source persistence coverage), and per-fixture
 // DOM render is covered by fixture-render.spec.ts. Engine-level byte stability
 // has focused document-core coverage. The missing slice
 // is one desktop doc with all block types + the full desktop save path:
@@ -72,7 +73,7 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
     // Restore the fixture to its original bytes regardless of test outcome so
     // the working tree is left untouched.
     try {

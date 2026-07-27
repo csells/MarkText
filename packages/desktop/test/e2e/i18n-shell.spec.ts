@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, sendIpcToRenderer, waitForMenuReady } from './helpers'
+import { closeElectron, launchWithMarkdown, sendIpcToRenderer, waitForMenuReady } from './helpers'
 
 // Checklist item 278 — switching the UI language must re-translate the Vue
 // shell (menu bar / command palette / preferences tabs), not just the engine
-// hints covered by parity-cursor-lang.spec.ts (G8).
+// hints covered by this shell's locale and cursor assertions.
 //
 // We drive the command palette: its search input placeholder is rendered by
 // Vue via `t('commandPalette.placeholder')`. Reading it in English, switching
@@ -55,7 +55,7 @@ test.describe('i18n shell — language switch re-translates the Vue shell', () =
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('command palette placeholder re-translates en -> zh-CN', async() => {

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { focusEditor, launchWithMarkdown } from './helpers'
+import { closeElectron, focusEditor, launchWithMarkdown } from './helpers'
 
 // Regression: selecting a word and opening the find bar (Cmd+F) must prefill
 // the find input with the selection and run the search. The target view can
@@ -20,7 +20,7 @@ test.describe('Find bar prefill from selection', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('double-click word prefills the find input and counts matches', async() => {

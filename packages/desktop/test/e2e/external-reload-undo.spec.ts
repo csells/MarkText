@@ -1,6 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import {
+  closeElectron,
   clickMenuById,
   enterSourceMode,
   getMarkdownContent,
@@ -36,7 +37,7 @@ test.describe('External disk reload', () => {
         )
         .toBe(true)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 
@@ -74,7 +75,7 @@ test.describe('External disk reload', () => {
         )
         .toBeGreaterThan(captured * 0.5)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 })

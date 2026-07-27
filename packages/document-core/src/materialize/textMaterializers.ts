@@ -5,6 +5,10 @@ import type {
   MarkdownReferenceIndex,
   ViewRange
 } from '../revision.js'
+import {
+  PARSE_SOURCE_CHECKPOINT_INTERVAL,
+  type ParseExecutionTracker
+} from '../parseExecutionControl.js'
 import { markdownTextValue } from './htmlRender.js'
 
 export type MaterializerView = 'markup' | 'original' | 'revised'
@@ -29,6 +33,24 @@ export interface ProjectedText<
   readonly kind: 'projected-text'
   readonly view: View
   readonly text: string
+}
+
+function joinText(
+  values: readonly string[],
+  separator: string,
+  execution?: ParseExecutionTracker
+): string {
+  if (execution !== undefined && values.length > 0) {
+    let contentUnits = 0
+    for (const value of values) {
+      contentUnits += value.length
+      execution.examineParserWork(1)
+    }
+    execution.examineParserWork(
+      contentUnits + separator.length * (values.length - 1)
+    )
+  }
+  return values.join(separator)
 }
 
 function sourceSlice(document: MarkdownDocument, node: MarkdownNode): string {
@@ -57,16 +79,57 @@ function intersects(
     (node.range.start < range.end && node.range.end > range.start)
 }
 
-function inlineCodeText(document: MarkdownDocument, node: MarkdownNode): string {
-  const raw = sourceSlice(document, node)
+function inlineCodeText(
+  document: MarkdownDocument,
+  node: MarkdownNode,
+  execution?: ParseExecutionTracker
+): string {
   const markerLength = Number(node.attributes['markerLength'] ?? 1)
-  let content = raw.slice(markerLength, raw.length - markerLength)
-    .replace(/\r\n|\r|\n/g, ' ')
+  const contentStart = node.range.start + markerLength
+  const contentEnd = node.range.end - markerLength
+  const pieces: string[] = []
+  let sliceStart = contentStart
+  let offset = contentStart
+  let reportedOffset = contentStart
+  let hasNonWhitespace = false
+  while (offset < contentEnd) {
+    const codeUnit = document.source.charCodeAt(offset)
+    if (codeUnit === 10 || codeUnit === 13) {
+      pieces.push(document.source.slice(sliceStart, offset), ' ')
+      offset += codeUnit === 13 &&
+        offset + 1 < contentEnd &&
+        document.source.charCodeAt(offset + 1) === 10
+        ? 2
+        : 1
+      sliceStart = offset
+    } else {
+      const scalarUnits =
+        codeUnit >= 0xd800 &&
+        codeUnit <= 0xdbff &&
+        offset + 1 < contentEnd &&
+        document.source.charCodeAt(offset + 1) >= 0xdc00 &&
+        document.source.charCodeAt(offset + 1) <= 0xdfff
+          ? 2
+          : 1
+      const next = offset + scalarUnits
+      hasNonWhitespace ||= codeUnit <= 0x7f
+        ? codeUnit !== 32 && !(codeUnit >= 9 && codeUnit <= 13)
+        : !/^\s$/u.test(document.source.slice(offset, next))
+      offset = next
+    }
+    if (offset - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL) {
+      execution?.examineSource(offset - reportedOffset)
+      reportedOffset = offset
+    }
+  }
+  execution?.examineSource(offset - reportedOffset)
+  pieces.push(document.source.slice(sliceStart, contentEnd))
+  let content = joinText(pieces, '', execution)
   if (
     content.length >= 2 &&
     content.startsWith(' ') &&
     content.endsWith(' ') &&
-    content.trim() !== ''
+    hasNonWhitespace
   ) {
     content = content.slice(1, -1)
   }
@@ -80,7 +143,8 @@ interface PlainTextFootnotes {
 
 function createPlainTextFootnotes(
   document: MarkdownDocument,
-  range: ViewRange | undefined
+  range: ViewRange | undefined,
+  execution?: ParseExecutionTracker
 ): PlainTextFootnotes {
   const ordinals = new Map<string, number>()
   for (
@@ -88,6 +152,7 @@ function createPlainTextFootnotes(
     ordinal < document.references.footnoteReferenceCount;
     ordinal += 1
   ) {
+    execution?.examineParserWork(1)
     const reference = document.references.footnoteReferenceAt(ordinal)
     if (
       reference.definition !== undefined &&
@@ -114,7 +179,8 @@ function childText(
   node: MarkdownNode,
   separator: string,
   footnotes: PlainTextFootnotes,
-  range?: ViewRange
+  range?: ViewRange,
+  execution?: ParseExecutionTracker
 ): string {
   const values: string[] = []
   for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
@@ -122,21 +188,24 @@ function childText(
       document,
       node.childAt(ordinal),
       footnotes,
-      range
+      range,
+      execution
     )
     if (value.length > 0) {
       values.push(value)
     }
   }
-  return values.join(separator)
+  return joinText(values, separator, execution)
 }
 
 function nodeText(
   document: MarkdownDocument,
   node: MarkdownNode,
   footnotes: PlainTextFootnotes,
-  range?: ViewRange
+  range?: ViewRange,
+  execution?: ParseExecutionTracker
 ): string {
+  execution?.examineParserWork(1)
   if (!intersects(node, range)) {
     return ''
   }
@@ -146,9 +215,9 @@ function nodeText(
     case 'list':
     case 'list-item':
     case 'table':
-      return childText(document, node, '\n', footnotes, range)
+      return childText(document, node, '\n', footnotes, range, execution)
     case 'table-row':
-      return childText(document, node, '\t', footnotes, range)
+      return childText(document, node, '\t', footnotes, range, execution)
     case 'paragraph':
     case 'heading':
     case 'emphasis':
@@ -157,19 +226,25 @@ function nodeText(
     case 'subscript':
     case 'superscript':
     case 'table-cell':
-      return childText(document, node, '', footnotes, range)
+      return childText(document, node, '', footnotes, range, execution)
     case 'link':
     case 'image':
       return document.references.linkForNode(node.nodeId) === undefined
-        ? markdownTextValue(selectedSourceSlice(document, node, range))
-        : childText(document, node, '', footnotes, range)
+        ? markdownTextValue(
+          selectedSourceSlice(document, node, range),
+          execution
+        )
+        : childText(document, node, '', footnotes, range, execution)
     case 'text':
-      return markdownTextValue(selectedSourceSlice(document, node, range))
+      return markdownTextValue(
+        selectedSourceSlice(document, node, range),
+        execution
+      )
     case 'soft-break':
     case 'hard-break':
       return '\n'
     case 'inline-code':
-      return inlineCodeText(document, node)
+      return inlineCodeText(document, node, execution)
     case 'inline-math':
       return String(node.attributes['content'] ?? '')
     case 'code-block':
@@ -187,7 +262,10 @@ function nodeText(
         ? footnotes.ordinals.get(label)
         : undefined
       return ordinal === undefined
-        ? markdownTextValue(selectedSourceSlice(document, node, range))
+        ? markdownTextValue(
+          selectedSourceSlice(document, node, range),
+          execution
+        )
         : `[${String(ordinal)}]`
     }
     case 'thematic-break':
@@ -202,12 +280,18 @@ function nodeText(
 
 function semanticPlainText(
   document: MarkdownDocument,
-  range?: ViewRange
+  range?: ViewRange,
+  execution?: ParseExecutionTracker
 ): string {
-  const footnotes = createPlainTextFootnotes(document, range)
-  const body = nodeText(document, document.root, footnotes, range)
+  const footnotes = createPlainTextFootnotes(document, range, execution)
+  const body = nodeText(
+    document,
+    document.root,
+    footnotes,
+    range,
+    execution
+  )
   const definitions = [...footnotes.ordinals.entries()]
-    .sort((left, right) => left[1] - right[1])
     .map(([label, ordinal]) => {
       const definition =
         footnotes.references.footnoteDefinitionForLabel(label)?.node
@@ -218,14 +302,18 @@ function semanticPlainText(
         document,
         definition,
         '\n',
-        footnotes
+        footnotes,
+        undefined,
+        execution
       )
       return `${String(ordinal)}. ${content}`
     })
     .filter((value) => value.length > 0)
-  return [body, ...definitions]
-    .filter((value) => value.length > 0)
-    .join('\n')
+  return joinText(
+    [body, ...definitions].filter((value) => value.length > 0),
+    '\n',
+    execution
+  )
 }
 
 /**
@@ -261,10 +349,35 @@ export function materializeMarkdownNodeTexts(
   }))
 }
 
+/**
+ * Materialize disjoint parser-owned subtrees against one shared reference
+ * context. Facts consumers use this seam so N paragraph questions traverse
+ * the N paragraph subtrees once rather than restarting at the document root.
+ */
+export function materializeMarkdownNodeTextsWithSharedContext(
+  document: MarkdownDocument,
+  nodes: readonly MarkdownNode[],
+  execution?: ParseExecutionTracker
+): readonly string[] {
+  const footnotes = createPlainTextFootnotes(
+    document,
+    undefined,
+    execution
+  )
+  return Object.freeze(nodes.map((node) => nodeText(
+    document,
+    node,
+    footnotes,
+    undefined,
+    execution
+  )))
+}
+
 export function materializeProjectedText<View extends MaterializerView>(
   revision: DocumentRevision,
   view: View,
-  range?: ViewRange
+  range?: ViewRange,
+  execution?: ParseExecutionTracker
 ): ProjectedText<View> {
   if (revision.kind !== 'complete') {
     throw new Error(
@@ -288,7 +401,7 @@ export function materializeProjectedText<View extends MaterializerView>(
   return Object.freeze({
     kind: 'projected-text' as const,
     view,
-    text: semanticPlainText(projection.markdown, range)
+    text: semanticPlainText(projection.markdown, range, execution)
   })
 }
 

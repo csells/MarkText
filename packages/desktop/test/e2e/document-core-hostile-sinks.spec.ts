@@ -272,6 +272,14 @@ test.describe('document-core hostile sinks', () => {
       expect(artifact.subarray(0, 5).toString('latin1')).toBe('%PDF-')
       expect(artifact.subarray(-6).toString('latin1')).toContain('%%EOF')
     }
+    await test.info().attach('hostile-pdf', {
+      path: pdfPath,
+      contentType: 'application/pdf'
+    })
+    await test.info().attach('hostile-print-proof', {
+      path: printPath,
+      contentType: 'application/pdf'
+    })
 
     // A raw hostile image would fetch the probe URL from any Chromium-backed
     // live, PDF, or print render. Zero requests proves all of those consumers

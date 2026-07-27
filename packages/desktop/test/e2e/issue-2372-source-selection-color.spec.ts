@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, clickMenuById, enterSourceMode } from './helpers'
+import { closeElectron, launchWithMarkdown, clickMenuById, enterSourceMode } from './helpers'
 
 // #2372 — in source-code mode the dark themes (railscasts) rendered the
 // selection at #272935, almost identical to the #2b2b2b editor background, so a
@@ -27,7 +27,7 @@ test.describe('#2372 source-mode selection colour', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('selection background is the visible editor selection colour, not near-background', async() => {

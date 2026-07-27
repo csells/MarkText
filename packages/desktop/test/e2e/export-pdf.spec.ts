@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
 import * as zlib from 'node:zlib'
 import { CRITIC_MARKUP_CORPUS } from '../fixtures/profile1Adversarial'
-import { clickMenuById, launchWithMarkdown } from './helpers'
+import { closeElectron, clickMenuById, launchWithMarkdown } from './helpers'
 
 // Exercise Chromium's real PDF producer against the hidden MarkText editor
 // window. Native save-dialog composition and cancellation are unit-tested at
@@ -156,7 +156,7 @@ test.describe('hidden Electron PDF generation (item 231)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('prints the real editor window to a non-empty PDF artifact', async() => {
@@ -207,13 +207,16 @@ test.describe('hidden Electron PDF generation — CriticMarkup projections', () 
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   // Byte-level artifact checks shared by both projections: real %PDF bytes,
   // one rendered page, and the artifact persisted to the test output dir with
   // the exact byte count that came out of the PDF producer.
-  const expectPdfArtifact = (data: Buffer, artifactName: string): void => {
+  const expectPdfArtifact = async(
+    data: Buffer,
+    artifactName: string
+  ): Promise<void> => {
     expect(data.length).toBeGreaterThan(500)
     expect(data.subarray(0, 5).toString('latin1')).toBe('%PDF-')
     expect(data.subarray(-6).toString('latin1')).toContain('%%EOF')
@@ -221,13 +224,17 @@ test.describe('hidden Electron PDF generation — CriticMarkup projections', () 
     const artifactPath = test.info().outputPath(artifactName)
     fs.writeFileSync(artifactPath, data)
     expect(fs.statSync(artifactPath).size).toBe(data.length)
+    await test.info().attach(artifactName.replace(/\.pdf$/u, ''), {
+      path: artifactPath,
+      contentType: 'application/pdf'
+    })
   }
 
   test('prints all five Critic forms and the Original projection to distinct PDF artifacts', async() => {
     await expect(page.locator('.editor-component')).toContainText('focus')
 
     const marked = await printHiddenEditorToPdf(app, page)
-    expectPdfArtifact(marked, 'critic-marked.pdf')
+    await expectPdfArtifact(marked, 'critic-marked.pdf')
 
     // Switch the live document to the Original projection through the real
     // Review menu; the printed artifact must follow the projected content.
@@ -239,7 +246,7 @@ test.describe('hidden Electron PDF generation — CriticMarkup projections', () 
     await expect(page.locator('.editor-component')).not.toContainText('new')
 
     const original = await printHiddenEditorToPdf(app, page)
-    expectPdfArtifact(original, 'critic-original.pdf')
+    await expectPdfArtifact(original, 'critic-original.pdf')
 
     // Content-level projection proof: the Marked artifact renders the
     // addition payload; the Original projection must drop it while keeping

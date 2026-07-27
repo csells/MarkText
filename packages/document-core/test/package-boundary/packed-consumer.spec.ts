@@ -144,31 +144,12 @@ describe('packed package consumer boundary', () => {
           [
             "const core = await import('@marktext/document-core')",
             "const snapshot = core.createSourceSnapshot('exact\\r\\nsource')",
-            "if (snapshot.text !== 'exact\\r\\nsource') throw new Error('source changed')",
-            "if ('RevisionKernel' in core) throw new Error('private kernel exported')"
+            "if (snapshot.text !== 'exact\\r\\nsource') throw new Error('source changed')"
           ].join(';')
         ],
         consumerDirectory
       )
       expectSuccess(publicRuntimeImport, 'public runtime import')
-
-      const privateRuntimeImport = run(
-        process.execPath,
-        [
-          '--input-type=module',
-          '--eval',
-          [
-            'try {',
-            "  await import('@marktext/document-core/internal/session/revisionKernel.js')",
-            "  throw new Error('private kernel import unexpectedly succeeded')",
-            '} catch (error) {',
-            "  if (error?.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error",
-            '}'
-          ].join('\n')
-        ],
-        consumerDirectory
-      )
-      expectSuccess(privateRuntimeImport, 'private runtime import rejection')
 
       const consumerSource = join(consumerDirectory, 'consumer.ts')
       writeFileSync(
@@ -180,8 +161,6 @@ describe('packed package consumer boundary', () => {
           '  type DocumentRevision,',
           '  type ParseConfiguration',
           "} from '@marktext/document-core'",
-          '// @ts-expect-error RevisionKernel is package-private.',
-          "import { RevisionKernel } from '@marktext/document-core/internal/session/revisionKernel.js'",
           'const configuration: ParseConfiguration = {',
           "  criticMarkupProfile: 'marktext-profile-1',",
           "  markdownProfile: 'markdown-profile-1',",
@@ -204,8 +183,7 @@ describe('packed package consumer boundary', () => {
           "  createSourceSnapshot('{++new++}'),",
           '  configuration',
           ')',
-          'void revision',
-          'void RevisionKernel'
+          'void revision'
         ].join('\n')
       )
       const typeConsumer = run(

@@ -9,22 +9,22 @@
     {
       "id": "ascii",
       "text": "A",
-      "sha256": "d129baeebcd504374960615b2089c8ca24878fa0c4fd5ec7cf8c69adf3b79017"
+      "sha256": "4f55f1496f69d9a80b9ed6915f5ea8c3ead68cb158b695b3408d0e0a8f43bd79"
     },
     {
       "id": "crlf",
       "text": "\r\n",
-      "sha256": "6514b8df775b8dcb0a239cdbc7d5266b670cb6283703ec206e212e8016a3a105"
+      "sha256": "5a973a271b5404cd737b0e77916a65076af8d9f4b2733f1913e2a0b2353538a6"
     },
     {
       "id": "astral",
       "text": "😀",
-      "sha256": "72365f45c67a4e5442088c38c32ac271cb73424293572cf162786ddc92b6248b"
+      "sha256": "2b3588d5ea062dc6ed90b6bbe24927f27d723f1f01b06a198b6306d9c0626930"
     },
     {
       "id": "lone-high-surrogate",
       "utf16": [55296],
-      "sha256": "50a9cb6d8a1180af1cf826ecb7aae1479f5ea05a215aa4a943255ef19e239b12"
+      "sha256": "7509483ca18a39e16c6fcea696c6275dcd735dabc8bcb926b0a27b8f8fb13dc7"
     }
   ],
   "file": [
@@ -66,7 +66,7 @@
           "accountingSchema": "syntax-accounting-1"
         }
       },
-      "sha256": "d09bf83464924e9e96dc85d20a1d24e95ba2e06d3be578e4842aeb12f2bf3379"
+      "sha256": "9fcc925bd4e580ffd60a7ce9aadcadd3075774333f20dcd129af1328ca57eb4a"
     }
   ]
 }

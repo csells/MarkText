@@ -7,8 +7,6 @@ import type {
 } from '@marktext/document-view'
 import {
   modelPositionAtMarkupCoordinateMap,
-  revisionSemanticHashV1,
-  sourceHashV1,
   WIRE_MEMBER_ORDER_V1,
   WireEnvelopeCodecV1,
   type ClipboardConsumerRequest,
@@ -43,6 +41,11 @@ import {
 import {
   decodeDocumentCoreLiveDeltaV1
 } from '@shared/documentCoreLiveWire'
+import {
+  retainDocumentCoreSourceVerification,
+  verifyDocumentCoreSourceDelta,
+  type VerifiedDocumentCoreSourceDelta
+} from '@shared/documentCoreSourceDelta'
 import type {
   DocumentCoreCancelDispatchRequest,
   DocumentCoreCompleteDispatchRequest,
@@ -157,7 +160,13 @@ interface SessionDeltaBase {
   readonly sourceSelection: SourceModelSelection
   readonly historyState: DocumentCoreHistoryState
   readonly facts: DocumentFacts
+  readonly sourceVerification: VerifiedDocumentCoreSourceDelta
 }
+
+const sourceEditsByPortableSnapshot = new WeakMap<
+  DocumentCorePortableSnapshot,
+  VerifiedDocumentCoreSourceDelta['sourceEdits']
+>()
 
 type SessionDelta =
   | Readonly<SessionDeltaBase & {
@@ -513,14 +522,17 @@ function decodeDocumentFacts(value: unknown): DocumentFacts {
  * a caller-controlled prototype or unvalidated member.
  */
 
-function decodeSessionDelta(bytes: Uint8Array): SessionDelta {
+function decodeSessionDelta(
+  bytes: Uint8Array,
+  base?: DocumentCorePortableSnapshot
+): SessionDelta {
   const raw = decodeJsonRecord(bytes, 'Session delta')
   const commonFields = [
     'schema',
     'snapshotId',
     'revisionId',
     'kind',
-    'source',
+    'sourceDelta',
     'sourceHash',
     'semanticHash',
     'parseConfiguration',
@@ -542,7 +554,6 @@ function decodeSessionDelta(bytes: Uint8Array): SessionDelta {
   )
   if (
     session.schema !== 'document-core-session-delta-1' ||
-    typeof session.source !== 'string' ||
     typeof session.sourceHash !== 'string' ||
     !/^[0-9a-f]{64}$/.test(session.sourceHash) ||
     typeof session.semanticHash !== 'string' ||
@@ -550,21 +561,17 @@ function decodeSessionDelta(bytes: Uint8Array): SessionDelta {
   ) {
     throw new TypeError('Session delta has an invalid shape')
   }
-  const source = session.source
   const parseConfiguration = freezeDocumentCoreParseConfiguration(
     session.parseConfiguration
   )
-  const sourceHash = sourceHashV1(source)
-  const semanticHash = revisionSemanticHashV1(
-    sourceHash,
+  const sourceVerification = verifyDocumentCoreSourceDelta(
+    session.sourceDelta,
+    base,
+    session.sourceHash,
+    session.semanticHash,
     parseConfiguration
   )
-  if (
-    session.sourceHash !== sourceHash ||
-    session.semanticHash !== semanticHash
-  ) {
-    throw new TypeError('Session delta has invalid source or semantic hashes')
-  }
+  const { source, sourceHash, semanticHash } = sourceVerification
   const revisionId = nonemptyString(
     session.revisionId,
     'Session delta.revisionId'
@@ -593,7 +600,8 @@ function decodeSessionDelta(bytes: Uint8Array): SessionDelta {
     parseConfiguration,
     sourceSelection,
     historyState: freezeDocumentCoreHistoryState(rawHistory),
-    facts: decodeDocumentFacts(session.facts)
+    facts: decodeDocumentFacts(session.facts),
+    sourceVerification
   })
   if (kind === 'source-only') {
     const selection = decodeModelSelection(
@@ -775,11 +783,12 @@ function modelPositionAt(
 }
 
 function decodeSnapshot(
-  publication: Extract<WirePublicationResultV1, { kind: 'published' }>
+  publication: Extract<WirePublicationResultV1, { kind: 'published' }>,
+  base?: DocumentCorePortableSnapshot
 ): DocumentCorePortableSnapshot | undefined {
   const sessionBytes = publication.members.sessionDelta
   if (sessionBytes === undefined) return undefined
-  const session = decodeSessionDelta(sessionBytes)
+  const session = decodeSessionDelta(sessionBytes, base)
   if (session.snapshotId !== publication.mountedSnapshotId) {
     throw new TypeError('Session delta does not name the mounted snapshot')
   }
@@ -805,6 +814,11 @@ function decodeSnapshot(
       blocks: noBlocks,
       fatalDiagnostic: session.fatalDiagnostic
     })
+    retainDocumentCoreSourceVerification(snapshot, session.sourceVerification)
+    sourceEditsByPortableSnapshot.set(
+      snapshot,
+      session.sourceVerification.sourceEdits
+    )
     return snapshot
   }
   const reviewBytes = publication.members.reviewDelta
@@ -868,6 +882,11 @@ function decodeSnapshot(
     outline: live.outline,
     listItems: live.listItems
   })
+  retainDocumentCoreSourceVerification(snapshot, session.sourceVerification)
+  sourceEditsByPortableSnapshot.set(
+    snapshot,
+    session.sourceVerification.sourceEdits
+  )
   return snapshot
 }
 
@@ -942,7 +961,13 @@ function isRejectionCode(value: unknown): value is RejectionCode {
 }
 
 interface DecodedTerminalOutcome {
-  readonly result: DocumentCoreViewDispatchResult
+  readonly result:
+    | Readonly<{ readonly kind: 'committed' }>
+    | Readonly<{ readonly kind: 'state-changed' }>
+    | Exclude<
+      DocumentCoreViewDispatchResult,
+      Readonly<{ readonly kind: 'committed' | 'state-changed' }>
+    >
   readonly transitionId: string | null
 }
 
@@ -1723,21 +1748,27 @@ export async function createDocumentCoreRemoteSession(
       expectedOperations
     )
     const decodedOutcome = decodeOutcome(verified)
-    const outcome = decodedOutcome?.result
-    if (requiredOutcome !== undefined && outcome?.kind !== requiredOutcome) {
+    const terminalOutcome = decodedOutcome?.result
+    if (
+      requiredOutcome !== undefined &&
+      terminalOutcome?.kind !== requiredOutcome
+    ) {
       throw new Error(
         `Document-core publication requires ${requiredOutcome}, received ` +
-        `${outcome?.kind ?? 'missing-outcome'}`
+        `${terminalOutcome?.kind ?? 'missing-outcome'}`
       )
     }
-    const next = decodeSnapshot(verified)
+    const next = decodeSnapshot(
+      verified,
+      expectedBase === undefined ? undefined : portable
+    )
     if (verified.transitionId !== null && next === undefined) {
       throw new Error(
         'Document-core state transition has no complete snapshot'
       )
     }
     if (
-      outcome?.kind === 'committed' &&
+      terminalOutcome?.kind === 'committed' &&
       decodedOutcome?.transitionId !== verified.transitionId
     ) {
       throw new Error(
@@ -1755,7 +1786,33 @@ export async function createDocumentCoreRemoteSession(
     if (next !== undefined) {
       options.onHistoryState(documentId, next.historyState)
     }
-    return outcome
+    if (terminalOutcome?.kind === 'committed') {
+      if (next === undefined) {
+        throw new Error('Committed publication has no authoritative snapshot')
+      }
+      const sourceEdits = sourceEditsByPortableSnapshot.get(next)
+      if (sourceEdits === undefined || sourceEdits.length === 0) {
+        throw new Error('Committed publication has no exact source edits')
+      }
+      return Object.freeze({
+        kind: 'committed' as const,
+        sourceEdits
+      })
+    }
+    if (terminalOutcome?.kind === 'state-changed') {
+      if (next === undefined) {
+        throw new Error('State publication has no authoritative snapshot')
+      }
+      const sourceEdits = sourceEditsByPortableSnapshot.get(next)
+      if (sourceEdits === undefined || sourceEdits.length !== 0) {
+        throw new Error('State publication unexpectedly changes source')
+      }
+      return Object.freeze({
+        kind: 'state-changed' as const,
+        sourceEdits: Object.freeze([])
+      })
+    }
+    return terminalOutcome
   }
 
   const attach = async(documentId: string): Promise<void> => {
@@ -1769,6 +1826,44 @@ export async function createDocumentCoreRemoteSession(
     }
     activeDocumentId = documentId
     openedDocuments.add(documentId)
+  }
+
+  const applyMounted = async(
+    response: unknown,
+    expectedBase: string,
+    documentId: string,
+    expectedOperations:
+    readonly DocumentCoreExecutionOperationKind[] = ['dispatch'],
+    requiredOutcome?: DocumentCoreViewDispatchResult['kind']
+  ): Promise<DocumentCoreViewDispatchResult | undefined> => {
+    try {
+      return apply(
+        response,
+        expectedBase,
+        documentId,
+        expectedOperations,
+        requiredOutcome
+      )
+    } catch (publicationError) {
+      // Main may have committed even when a hostile or damaged publication
+      // cannot be mounted. Reattach the verified full head before exposing the
+      // failure so the next renderer request never starts from a stale base.
+      const recovery = await options.invoke(
+        'mt::document-core::attach',
+        Object.freeze({ documentId })
+      )
+      apply(recovery, undefined, documentId, ['attach', 'recovery'])
+      throw publicationError
+    }
+  }
+
+  const requireTerminalOutcome = (
+    outcome: DocumentCoreViewDispatchResult | undefined
+  ): DocumentCoreViewDispatchResult => {
+    if (outcome === undefined) {
+      throw new Error('Document-core transition has no terminal outcome')
+    }
+    return outcome
   }
 
   await attach(options.documentId())
@@ -1851,14 +1946,12 @@ export async function createDocumentCoreRemoteSession(
       }),
       (channel, request) => options.invoke(channel, request)
     )
-    return apply(
+    return requireTerminalOutcome(await applyMounted(
       response,
       baseSnapshotId,
       documentId,
       ['dispatch']
-    ) ?? Object.freeze({
-      kind: 'committed' as const
-    })
+    ))
   })
 
   const dispatch = (
@@ -1904,12 +1997,12 @@ export async function createDocumentCoreRemoteSession(
               reason: 'cancelled' as const
             })
           }
-          return apply(
+          return requireTerminalOutcome(await applyMounted(
             response.publication,
             baseSnapshotId,
             documentId,
             ['dispatch']
-          ) ?? Object.freeze({ kind: 'committed' as const })
+          ))
         }
       }
       const request: DocumentCoreMainDispatchRequest = {
@@ -1941,14 +2034,12 @@ export async function createDocumentCoreRemoteSession(
           'mt::document-core::dispatch-complete',
           completeRequest
         )
-        const outcome = apply(
+        const outcome = requireTerminalOutcome(await applyMounted(
           response,
           baseSnapshotId,
           documentId,
           ['dispatch']
-        ) ?? Object.freeze({
-          kind: 'committed' as const
-        })
+        ))
         return outcome
       } finally {
         activeTickets.delete(ticket.ticketId)
@@ -1974,7 +2065,12 @@ export async function createDocumentCoreRemoteSession(
         'mt::document-core::select',
         request
       )
-      apply(response, baseSnapshotId, documentId, ['select'])
+      await applyMounted(
+        response,
+        baseSnapshotId,
+        documentId,
+        ['select']
+      )
     })
   }
   const select = (selection: InitialModelSelection): Promise<void> =>
@@ -1999,14 +2095,13 @@ export async function createDocumentCoreRemoteSession(
         'mt::document-core::reconfigure-markdown-options',
         request
       )
-      return apply(
+      return requireTerminalOutcome(await applyMounted(
         response,
         baseSnapshotId,
         documentId,
-        ['reconfigure']
-      ) ?? Object.freeze({
-        kind: 'state-changed' as const
-      })
+        ['reconfigure'],
+        'state-changed'
+      ))
     })
   }
 
@@ -2035,7 +2130,7 @@ export async function createDocumentCoreRemoteSession(
       return Object.freeze({ kind: 'written' as const })
     }
     if (receipt.kind === 'cut-committed') {
-      const outcome = apply(
+      const outcome = await applyMounted(
         receipt.publication,
         baseSnapshotId,
         documentId,

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   sendIpcToRenderer,
   focusEditor,
@@ -24,7 +25,7 @@ test.describe('Find bar', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('Find action reveals .search-bar', async() => {
@@ -160,7 +161,7 @@ test.describe('Find bar — realtime counter and highlights (item 180)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('typed query shows "1 / 3" and one active + two inactive highlights', async() => {
@@ -187,7 +188,7 @@ test.describe('Find bar — find next / previous navigation (items 152, 181)', (
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('findNext cycles 1/3 -> 2/3 -> 3/3 -> wraps to 1/3, keeping one active highlight', async() => {
@@ -234,7 +235,7 @@ test.describe('Find bar — option toggles re-run the search (items 185, 186, 18
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('case-sensitive toggle drops the match count and gains the active class', async() => {
@@ -334,7 +335,7 @@ test.describe('Find bar — replace single / all dirty the tab (items 153, 183, 
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('replace-single changes exactly one occurrence and flags the tab unsaved (item 183)', async() => {
@@ -427,7 +428,7 @@ test.describe('Find bar — left arrow toggles replace mode (item 191)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('left-arrow shows the replace row, then hides it again', async() => {
@@ -460,7 +461,7 @@ test.describe('Find bar — Escape clears highlights and restores the cursor (it
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('Escape after a query clears every highlight and selects the active match', async() => {
@@ -499,7 +500,7 @@ test.describe('Find bar — suppressed in source-code mode (item 194)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('the WYSIWYG search bar is not mounted while in source-code mode', async() => {

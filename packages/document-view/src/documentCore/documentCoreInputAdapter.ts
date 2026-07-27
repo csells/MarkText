@@ -89,13 +89,48 @@ function containsPoint(host: HTMLElement, node: Node): boolean {
     return node === host || host.contains(node);
 }
 
-function rangeElementForPoint(host: HTMLElement, node: Node): Element {
+function containsModelPoint(host: HTMLElement, node: Node): boolean {
+    if (!containsPoint(host, node))
+        return false;
+    if (node === host)
+        return true;
+
     const origin = node instanceof Element ? node : node.parentElement;
     const element = origin?.closest(MODEL_RANGE_SELECTOR);
+    return element !== null
+        && element !== undefined
+        && host.contains(element);
+}
+
+function rangeElementForPoint(host: HTMLElement, node: Node): Element {
+    const origin = node instanceof Element ? node : node.parentElement;
+    const element = origin?.closest(RUN_RANGE_SELECTOR)
+        ?? origin?.closest(MODEL_RANGE_SELECTOR);
     if (!element || !host.contains(element))
         throw new RangeError('Browser selection is outside the document-core view');
 
     return element;
+}
+
+function directTextOffsetWithin(
+    element: Element,
+    node: Node,
+    offset: number,
+): number | undefined {
+    if (!(node instanceof Text))
+        return undefined;
+
+    let current: Node = node;
+    while (current.parentNode !== element) {
+        const parent = current.parentNode;
+        if (parent === null || parent.childNodes.length !== 1)
+            return undefined;
+        current = parent;
+    }
+    if (element.childNodes.length !== 1)
+        return undefined;
+
+    return Math.max(0, Math.min(node.data.length, offset));
 }
 
 function textOffsetWithin(
@@ -103,6 +138,10 @@ function textOffsetWithin(
     node: Node,
     offset: number,
 ): number {
+    const direct = directTextOffsetWithin(element, node, offset);
+    if (direct !== undefined)
+        return direct;
+
     const range = element.ownerDocument.createRange();
     range.selectNodeContents(element);
     try {
@@ -184,11 +223,15 @@ export function documentCoreInputRange(
         range.startContainer,
         range.startOffset,
     );
-    const end = modelOffsetAtDomPoint(
-        host,
-        range.endContainer,
-        range.endOffset,
-    );
+    const end =
+        range.startContainer === range.endContainer
+        && range.startOffset === range.endOffset
+            ? start
+            : modelOffsetAtDomPoint(
+                host,
+                range.endContainer,
+                range.endOffset,
+            );
     return Object.freeze({
         start: Math.min(start, end),
         end: Math.max(start, end),
@@ -331,7 +374,7 @@ export function documentCoreSelectionIsMounted(host: HTMLElement): boolean {
     }
 
     return (
-        containsPoint(host, selection.anchorNode)
-        && containsPoint(host, selection.focusNode)
+        containsModelPoint(host, selection.anchorNode)
+        && containsModelPoint(host, selection.focusNode)
     );
 }

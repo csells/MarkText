@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import {
+  closeElectron,
   enterSourceMode,
   exitSourceMode,
   launchElectron,
@@ -49,7 +50,7 @@ test.describe('main-owned relative image display authority', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
     for (const dir of createdDirs) {
       try {
         fs.rmSync(dir, { recursive: true, force: true })

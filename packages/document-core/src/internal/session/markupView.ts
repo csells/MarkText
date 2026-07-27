@@ -6,14 +6,15 @@ import {
   type MarkupCoordinateMapV1
 } from '../../markupCoordinateMap.js'
 import type { CompleteDocumentRevision } from '../../revision.js'
-import type { AffineSourcePosition } from './revisionTransition.js'
+
+type SourcePosition = ModelPosition
 
 export interface MarkupView {
   readonly modelLength: number
   readonly runs: readonly LiveRenderRun[]
   readonly coordinateMap: MarkupCoordinateMapV1
-  readonly sourcePositionAt: (position: ModelPosition) => AffineSourcePosition
-  readonly modelPositionAt: (position: AffineSourcePosition) => ModelPosition | null
+  readonly sourcePositionAt: (position: ModelPosition) => SourcePosition
+  readonly modelPositionAt: (position: SourcePosition) => ModelPosition | null
 }
 
 function createCoordinateMap(
@@ -93,11 +94,11 @@ function createRuns(
 export function createMarkupView(revision: CompleteDocumentRevision): MarkupView {
   const coordinateMap = createCoordinateMap(revision)
   const sourcePositionAt = Object.freeze(
-    (position: ModelPosition): AffineSourcePosition =>
+    (position: ModelPosition): SourcePosition =>
       sourcePositionAtMarkupCoordinateMap(coordinateMap, position)
   )
   const modelPositionAt = Object.freeze(
-    (position: AffineSourcePosition): ModelPosition | null =>
+    (position: SourcePosition): ModelPosition | null =>
       visibleModelPositionAtMarkupCoordinateMap(coordinateMap, position)
   )
 

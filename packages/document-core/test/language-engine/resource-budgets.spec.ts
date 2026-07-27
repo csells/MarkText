@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks'
 import { describe, expect, it } from 'vitest'
 import {
   createLanguageEngine,
@@ -28,19 +29,54 @@ const DESKTOP_CONFIGURATION: ParseConfiguration = {
 
 describe('LanguageEngine.open resource budgets', () => {
   it(
-    'admits exact decoded source-unit values below and at desktop-v1',
+    'admits exact decoded source-unit values below and at desktop-v1 within parser headroom',
     () => {
+      const elapsedByUnits: Array<Readonly<{
+        readonly units: number
+        readonly elapsedMs: number
+        readonly maximumCheckpointGapMs: number
+      }>> = []
       for (const units of [31_999_999, 32_000_000]) {
         const sourceText = 'x'.repeat(units)
-        const revision = createLanguageEngine().open(
+        const startedAt = performance.now()
+        let previousCheckpointAt = startedAt
+        let maximumCheckpointGapMs = 0
+        const revision = createLanguageEngine({
+          checkpoint(): void {
+            const checkpointAt = performance.now()
+            maximumCheckpointGapMs = Math.max(
+              maximumCheckpointGapMs,
+              checkpointAt - previousCheckpointAt
+            )
+            previousCheckpointAt = checkpointAt
+          }
+        }).open(
           createSourceSnapshot(sourceText),
           DESKTOP_CONFIGURATION
         )
+        const completedAt = performance.now()
+        maximumCheckpointGapMs = Math.max(
+          maximumCheckpointGapMs,
+          completedAt - previousCheckpointAt
+        )
+        elapsedByUnits.push(Object.freeze({
+          units,
+          elapsedMs: completedAt - startedAt,
+          maximumCheckpointGapMs
+        }))
 
         expect(revision.kind, String(units)).toBe('complete')
         expect(revision.source.text.length, String(units)).toBe(units)
         expect(revision.source.text, String(units)).toBe(sourceText)
       }
+      expect(
+        Math.max(...elapsedByUnits.map((row) => row.elapsedMs)),
+        JSON.stringify(elapsedByUnits)
+      ).toBeLessThanOrEqual(7_500)
+      expect(
+        Math.max(...elapsedByUnits.map((row) => row.maximumCheckpointGapMs)),
+        JSON.stringify(elapsedByUnits)
+      ).toBeLessThanOrEqual(100)
     },
     120_000
   )
@@ -65,6 +101,44 @@ describe('LanguageEngine.open resource budgets', () => {
       metadata: { limit: '32000000', observed: '32000001' }
     })
   })
+
+  it(
+    'applies the decoded source-unit preflight before certified revision reuse',
+    () => {
+      const admittedUnits = 32_000_000
+      const admittedSource = 'x'.repeat(admittedUnits)
+      const engine = createLanguageEngine()
+      const admitted = engine.open(
+        createSourceSnapshot(admittedSource),
+        DESKTOP_CONFIGURATION
+      )
+      expect(admitted.kind).toBe('complete')
+
+      const aboveLimitSource = `${admittedSource}x`
+      const reopened = engine.reopen(
+        admitted,
+        createSourceSnapshot(aboveLimitSource),
+        Object.freeze([{
+          start: admittedUnits,
+          end: admittedUnits,
+          insert: 'x'
+        }])
+      )
+
+      expect(reopened.kind).toBe('source-only')
+      if (reopened.kind !== 'source-only') {
+        throw new Error('Expected a source-only reopened document revision')
+      }
+      expect(reopened.source.text).toBe(aboveLimitSource)
+      expect(reopened.fatalDiagnostic).toEqual({
+        kind: 'resource',
+        code: 'CM_RESOURCE_SOURCE_UNITS_EXCEEDED',
+        range: { start: admittedUnits, end: admittedUnits },
+        metadata: { limit: '32000000', observed: '32000001' }
+      })
+    },
+    120_000
+  )
 
   it('returns exact source-only state at the first Markdown container beyond desktop-v1', () => {
     const sourceText = `${'> '.repeat(129)}text\n`

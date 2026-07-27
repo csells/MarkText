@@ -1,4 +1,8 @@
-import { createLanguageEngine, type LanguageEngine } from './languageEngine.js'
+import {
+  createLanguageEngine,
+  inspectLanguageEngineChangedCriticMarkerJoins,
+  type LanguageEngine
+} from './languageEngine.js'
 import type {
   CompleteDocumentRevision,
   CriticMarkupArm,
@@ -13,6 +17,13 @@ import type {
   SourceRange
 } from './revision.js'
 import { createSourceSnapshot } from './sourceSnapshot.js'
+import { applyExactSourceEdits } from './exactSourceEdits.js'
+import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
+import {
+  buildSourceCandidateDraft,
+  protectSourceCandidateDraft,
+  type SourceCandidateDraft
+} from './internal/session/sourceCandidate.js'
 
 export interface TransformationSourceEdit {
   readonly start: number
@@ -75,6 +86,7 @@ export type TransformationIntent =
 export type TransformationRejectionReason =
   | 'target-not-found'
   | 'wrong-target-kind'
+  | 'invalid-command-argument'
   | 'invalid-source-range'
   | 'selection-collapsed'
   | 'empty-comment-anchor'
@@ -130,11 +142,9 @@ interface NodeRecord {
   readonly revisedPathVisible: boolean
 }
 
-interface CandidateDraft {
+interface ProtectedCandidate {
   readonly text: string
-  /** One entry per UTF-16 code unit; null denotes transform-created source. */
-  readonly origins: readonly (number | null)[]
-  readonly joins: readonly number[]
+  readonly edits: readonly TransformationSourceEdit[]
 }
 
 type CandidateExpectation =
@@ -369,29 +379,68 @@ function recordsOf(
   revision: CompleteDocumentRevision
 ): readonly NodeRecord[] {
   const records: NodeRecord[] = []
-  const visit = (
-    siblings: readonly CriticMarkupNode[],
-    hasChangeAncestor: boolean,
+  const roots = rootsOf(revision)
+  const pending: Array<Readonly<{
+    node: CriticMarkupNode
+    siblings: readonly CriticMarkupNode[]
+    siblingIndex: number
+    hasChangeAncestor: boolean
     revisedPathVisible: boolean
-  ): void => {
-    siblings.forEach((node, siblingIndex) => {
-      records.push(Object.freeze({
+  }>> = []
+  for (let index = roots.length - 1; index >= 0; index -= 1) {
+    const node = roots[index]
+    if (node !== undefined) {
+      pending.push({
         node,
-        siblings,
-        siblingIndex,
-        hasChangeAncestor,
-        revisedPathVisible
-      }))
-      for (const arm of node.arms) {
-        visit(
-          arm.children,
-          hasChangeAncestor || isChange(node),
-          revisedPathVisible && armSurvivesRevised(node, arm.name)
-        )
-      }
-    })
+        siblings: roots,
+        siblingIndex: index,
+        hasChangeAncestor: false,
+        revisedPathVisible: true
+      })
+    }
   }
-  visit(rootsOf(revision), false, true)
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (current === undefined) {
+      continue
+    }
+    records.push(Object.freeze({
+      node: current.node,
+      siblings: current.siblings,
+      siblingIndex: current.siblingIndex,
+      hasChangeAncestor: current.hasChangeAncestor,
+      revisedPathVisible: current.revisedPathVisible
+    }))
+    for (
+      let armIndex = current.node.arms.length - 1;
+      armIndex >= 0;
+      armIndex -= 1
+    ) {
+      const arm = current.node.arms[armIndex]
+      if (arm === undefined) {
+        continue
+      }
+      for (
+        let childIndex = arm.children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.children[childIndex]
+        if (child !== undefined) {
+          pending.push({
+            node: child,
+            siblings: arm.children,
+            siblingIndex: childIndex,
+            hasChangeAncestor:
+              current.hasChangeAncestor || isChange(current.node),
+            revisedPathVisible:
+              current.revisedPathVisible &&
+              armSurvivesRevised(current.node, arm.name)
+          })
+        }
+      }
+    }
+  }
   return records
 }
 
@@ -510,52 +559,86 @@ function editWouldLoseNestedComment(
   )
 }
 
-function armHasRevisedAtom(
-  arm: CriticMarkupArm<CriticMarkupArmName>
-): boolean {
-  let cursor = rangeStart(arm.range)
-  for (const child of arm.children) {
-    if (cursor < rangeStart(child.range) || nodeHasRevisedAtom(child)) {
+function nodeHasRevisedAtom(node: CriticMarkupNode): boolean {
+  const pending = [node]
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (current === undefined) {
+      continue
+    }
+    const arm = current.kind === 'addition' || current.kind === 'highlight'
+      ? current.arms[0]
+      : current.kind === 'substitution'
+        ? current.arms[1]
+        : undefined
+    if (arm === undefined) {
+      continue
+    }
+    let cursor = rangeStart(arm.range)
+    for (const child of arm.children) {
+      if (cursor < rangeStart(child.range)) {
+        return true
+      }
+      pending.push(child)
+      cursor = rangeEnd(child.range)
+    }
+    if (cursor < rangeEnd(arm.range)) {
       return true
     }
-    cursor = rangeEnd(child.range)
-  }
-  return cursor < rangeEnd(arm.range)
-}
-
-function nodeHasRevisedAtom(node: CriticMarkupNode): boolean {
-  if (node.kind === 'addition' || node.kind === 'highlight') {
-    return armHasRevisedAtom(
-      node.arms[0] as CriticMarkupArm<CriticMarkupArmName>
-    )
-  }
-  if (node.kind === 'substitution') {
-    return armHasRevisedAtom(
-      node.arms[1] as CriticMarkupArm<CriticMarkupArmName>
-    )
   }
   return false
 }
 
 function wouldLoseHiddenComment(
   node: CriticMarkupNode,
-  decision: ChangeResolutionDecision
+  decision: ChangeResolutionDecision,
+  nodesContainingComment?: ReadonlySet<NodeId>
 ): boolean {
+  const armContainsComment = (
+    arm: CriticMarkupArm<CriticMarkupArmName>
+  ): boolean => nodesContainingComment === undefined
+    ? armHasComment(arm)
+    : arm.children.some((child) => nodesContainingComment.has(child.nodeId))
   if (node.kind === 'addition') {
     return decision === 'reject' &&
-      armHasComment(node.arms[0] as CriticMarkupArm<CriticMarkupArmName>)
+      armContainsComment(
+        node.arms[0] as CriticMarkupArm<CriticMarkupArmName>
+      )
   }
   if (node.kind === 'deletion') {
     return decision === 'accept' &&
-      armHasComment(node.arms[0] as CriticMarkupArm<CriticMarkupArmName>)
+      armContainsComment(
+        node.arms[0] as CriticMarkupArm<CriticMarkupArmName>
+      )
   }
   if (node.kind === 'substitution') {
     const discarded = decision === 'accept' ? node.arms[0] : node.arms[1]
-    return armHasComment(
+    return armContainsComment(
       discarded as CriticMarkupArm<CriticMarkupArmName>
     )
   }
   return false
+}
+
+function nodesContainingComment(
+  records: readonly NodeRecord[]
+): ReadonlySet<NodeId> {
+  const containing = new Set<NodeId>()
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const node = records[index]?.node
+    if (
+      node !== undefined &&
+      (
+        node.kind === 'comment' ||
+        node.arms.some((arm) =>
+          arm.children.some((child) => containing.has(child.nodeId))
+        )
+      )
+    ) {
+      containing.add(node.nodeId)
+    }
+  }
+  return containing
 }
 
 function selectedArm(
@@ -580,51 +663,102 @@ function selectedArm(
   return null
 }
 
-function renderArmResolvingChanges(
-  source: string,
-  arm: CriticMarkupArm<CriticMarkupArmName>,
-  decision: ChangeResolutionDecision
-): string {
-  let cursor = rangeStart(arm.range)
-  let rendered = ''
-  for (const child of arm.children) {
-    rendered += source.slice(cursor, rangeStart(child.range))
-    rendered += isChange(child)
-      ? renderResolvedChange(source, child, decision)
-      : renderCarrierResolvingChanges(source, child, decision)
-    cursor = rangeEnd(child.range)
-  }
-  return rendered + source.slice(cursor, rangeEnd(arm.range))
-}
-
-function renderCarrierResolvingChanges(
-  source: string,
-  node: CriticMarkupNode,
-  decision: ChangeResolutionDecision
-): string {
-  let cursor = rangeStart(node.range)
-  let rendered = ''
-  for (const arm of node.arms) {
-    rendered += source.slice(cursor, rangeStart(arm.range))
-    rendered += renderArmResolvingChanges(
-      source,
-      arm as CriticMarkupArm<CriticMarkupArmName>,
-      decision
-    )
-    cursor = rangeEnd(arm.range)
-  }
-  return rendered + source.slice(cursor, rangeEnd(node.range))
-}
-
 function renderResolvedChange(
   source: string,
   node: CriticMarkupNode,
   decision: ChangeResolutionDecision
 ): string {
-  const arm = selectedArm(node, decision)
-  return arm === null
-    ? ''
-    : renderArmResolvingChanges(source, arm, decision)
+  type RenderTask =
+    | Readonly<{
+      readonly kind: 'source'
+      readonly start: number
+      readonly end: number
+    }>
+    | Readonly<{
+      readonly kind: 'arm'
+      readonly arm: CriticMarkupArm<CriticMarkupArmName>
+    }>
+    | Readonly<{
+      readonly kind: 'node'
+      readonly node: CriticMarkupNode
+      readonly resolve: boolean
+    }>
+  const rendered: string[] = []
+  const pending: RenderTask[] = [{ kind: 'node', node, resolve: true }]
+  while (pending.length > 0) {
+    const task = pending.pop()
+    if (task === undefined) {
+      continue
+    }
+    if (task.kind === 'source') {
+      rendered.push(source.slice(task.start, task.end))
+      continue
+    }
+    if (task.kind === 'node') {
+      if (task.resolve) {
+        const arm = selectedArm(task.node, decision)
+        if (arm !== null) {
+          pending.push({ kind: 'arm', arm })
+        }
+        continue
+      }
+      let cursor = rangeEnd(task.node.range)
+      for (
+        let armIndex = task.node.arms.length - 1;
+        armIndex >= 0;
+        armIndex -= 1
+      ) {
+        const arm = task.node.arms[armIndex]
+        if (arm === undefined) {
+          continue
+        }
+        pending.push({
+          kind: 'source',
+          start: rangeEnd(arm.range),
+          end: cursor
+        })
+        pending.push({
+          kind: 'arm',
+          arm: arm as CriticMarkupArm<CriticMarkupArmName>
+        })
+        cursor = rangeStart(arm.range)
+      }
+      pending.push({
+        kind: 'source',
+        start: rangeStart(task.node.range),
+        end: cursor
+      })
+      continue
+    }
+    let cursor = rangeEnd(task.arm.range)
+    for (
+      let childIndex = task.arm.children.length - 1;
+      childIndex >= 0;
+      childIndex -= 1
+    ) {
+      const child = task.arm.children[childIndex]
+      if (child === undefined) {
+        continue
+      }
+      pending.push({
+        kind: 'source',
+        start: rangeEnd(child.range),
+        end: cursor
+      })
+      pending.push({
+        kind: 'node',
+        node: child,
+        resolve: isChange(child)
+      })
+      cursor = rangeStart(child.range)
+    }
+    pending.push({
+      kind: 'source',
+      start: rangeStart(task.arm.range),
+      end: cursor
+    })
+  }
+  return rendered.join('')
 }
 
 function validSourceRange(
@@ -693,16 +827,29 @@ function allCriticMarkupNodes(
   revision: CompleteDocumentRevision
 ): readonly CriticMarkupNode[] {
   const nodes: CriticMarkupNode[] = []
-  const visit = (node: CriticMarkupNode): void => {
+  const pending = [...rootsOf(revision)].reverse()
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) {
+      continue
+    }
     nodes.push(node)
-    for (const arm of node.arms) {
-      for (const child of arm.children) {
-        visit(child)
+    for (let armIndex = node.arms.length - 1; armIndex >= 0; armIndex -= 1) {
+      const arm = node.arms[armIndex]
+      if (arm === undefined) {
+        continue
+      }
+      for (
+        let childIndex = arm.children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.children[childIndex]
+        if (child !== undefined) {
+          pending.push(child)
+        }
       }
     }
-  }
-  for (const root of rootsOf(revision)) {
-    visit(root)
   }
   return Object.freeze(nodes)
 }
@@ -1002,36 +1149,44 @@ function criticMarkupIntersectionReason(
   range: SourceRange,
   nodes: readonly CriticMarkupNode[]
 ): TransformationRejectionReason | undefined {
-  for (const node of nodes) {
-    if (!rangesOverlap(range, node.range)) {
+  const pending: Array<Readonly<{
+    nodes: readonly CriticMarkupNode[]
+    index: number
+  }>> = [{ nodes, index: 0 }]
+  while (pending.length > 0) {
+    const frame = pending.pop()
+    if (frame === undefined) {
       continue
     }
-    if (node.kind === 'comment') {
-      return 'selection-includes-hidden-comment'
-    }
-    if (rangeContains(range, node.range)) {
-      continue
-    }
-    const containingArm = node.arms.find((arm) =>
-      rangeContains(arm.range, range)
-    )
-    if (containingArm !== undefined) {
-      const nested = criticMarkupIntersectionReason(
-        range,
-        containingArm.children
-      )
-      if (nested !== undefined) {
-        return nested
+    for (let index = frame.index; index < frame.nodes.length; index += 1) {
+      const node = frame.nodes[index]
+      if (node === undefined || !rangesOverlap(range, node.range)) {
+        continue
       }
-      continue
+      if (node.kind === 'comment') {
+        return 'selection-includes-hidden-comment'
+      }
+      if (rangeContains(range, node.range)) {
+        continue
+      }
+      const containingArm = node.arms.find((arm) =>
+        rangeContains(arm.range, range)
+      )
+      if (containingArm !== undefined) {
+        if (index + 1 < frame.nodes.length) {
+          pending.push({ nodes: frame.nodes, index: index + 1 })
+        }
+        pending.push({ nodes: containingArm.children, index: 0 })
+        break
+      }
+      if (
+        node.kind === 'substitution' &&
+        node.arms.filter((arm) => rangesOverlap(range, arm.range)).length > 1
+      ) {
+        return 'selection-crosses-syntax-boundary'
+      }
+      return 'selection-partially-intersects-critic-markup'
     }
-    if (
-      node.kind === 'substitution' &&
-      node.arms.filter((arm) => rangesOverlap(range, arm.range)).length > 1
-    ) {
-      return 'selection-crosses-syntax-boundary'
-    }
-    return 'selection-partially-intersects-critic-markup'
   }
   return undefined
 }
@@ -1192,7 +1347,12 @@ function authoringOpaqueRanges(
   const selectedStart = rangeStart(range)
   const selectedEnd = rangeEnd(range)
   const ranges: PayloadOpaqueRange[] = []
-  const visit = (node: CriticMarkupNode): void => {
+  const pending = [...rootsOf(revision)].reverse()
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) {
+      continue
+    }
     const nodeStart = rangeStart(node.range)
     const nodeEnd = rangeEnd(node.range)
     if (nodeStart >= selectedStart && nodeEnd <= selectedEnd) {
@@ -1200,16 +1360,24 @@ function authoringOpaqueRanges(
         start: nodeStart - selectedStart,
         end: nodeEnd - selectedStart
       }))
-      return
+      continue
     }
-    for (const arm of node.arms) {
-      for (const child of arm.children) {
-        visit(child)
+    for (let armIndex = node.arms.length - 1; armIndex >= 0; armIndex -= 1) {
+      const arm = node.arms[armIndex]
+      if (arm === undefined) {
+        continue
+      }
+      for (
+        let childIndex = arm.children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.children[childIndex]
+        if (child !== undefined) {
+          pending.push(child)
+        }
       }
     }
-  }
-  for (const root of rootsOf(revision)) {
-    visit(root)
   }
   for (const owner of markdownLiteralOwners(revision)) {
     const ownerStart = rangeStart(owner.ownerRange)
@@ -1262,211 +1430,127 @@ function sortedNonoverlapping(
   return true
 }
 
-function buildCandidateDraft(
-  source: string,
-  edits: readonly TransformationSourceEdit[]
-): CandidateDraft {
-  const units: string[] = []
-  const origins: Array<number | null> = []
-  const joins: number[] = []
-  let sourceCursor = 0
-
-  const appendOriginal = (start: number, end: number): void => {
-    for (let offset = start; offset < end; offset += 1) {
-      units.push(source[offset] ?? '')
-      origins.push(offset)
-    }
-  }
-
-  for (const edit of edits) {
-    appendOriginal(sourceCursor, edit.start)
-    joins.push(units.length)
-    for (let offset = 0; offset < edit.insert.length; offset += 1) {
-      units.push(edit.insert[offset] ?? '')
-      origins.push(null)
-    }
-    joins.push(units.length)
-    sourceCursor = edit.end
-  }
-  appendOriginal(sourceCursor, source.length)
-
-  return Object.freeze({
-    text: units.join(''),
-    origins: Object.freeze(origins),
-    joins: Object.freeze(joins)
-  })
-}
-
-function protectionPositions(
-  revision: CompleteDocumentRevision,
-  joins: readonly number[]
-): readonly number[] {
-  const positions = new Set<number>()
-  for (let index = 0; index < revision.ownership.count; index += 1) {
-    const run = revision.ownership.at(index)
-    if (run.owner.kind !== 'critic-marker') {
-      continue
-    }
-    const start = rangeStart(run.range)
-    const end = rangeEnd(run.range)
-    if (!joins.some((join) => start < join && join < end)) {
-      continue
-    }
-    positions.add(
-      run.owner.role === 'close' ? end - 1 : start
-    )
-  }
-  return Object.freeze([...positions].sort((left, right) => right - left))
-}
-
 function protectChangedJoins(
   engine: LanguageEngine,
   revision: CompleteDocumentRevision,
-  draft: CandidateDraft
-): CandidateDraft | null {
-  const parsed = engine.open(
+  draft: SourceCandidateDraft,
+  edits: readonly TransformationSourceEdit[]
+): ProtectedCandidate | null {
+  const inspection = inspectLanguageEngineChangedCriticMarkerJoins(
+    engine,
     createSourceSnapshot(draft.text),
-    revision.configuration
+    revision.configuration,
+    draft.joins
   )
-  if (parsed.kind !== 'complete') {
+  if (inspection.kind === 'source-only') {
     return null
   }
 
-  const units = draft.text.split('')
-  const origins = [...draft.origins]
-  for (const position of protectionPositions(parsed, draft.joins)) {
-    units.splice(position, 0, '\\')
-    origins.splice(position, 0, null)
-  }
-  if (
-    units[0] === '\uFEFF' &&
+  const positions = inspection.protectionPositions
+  const removeUnexpectedBom =
+    draft.text.startsWith('\uFEFF') &&
     !revision.source.text.startsWith('\uFEFF')
-  ) {
-    units.splice(0, 1, ...'&#xFEFF;'.split(''))
-    origins.splice(0, 1, ...Array<null>(8).fill(null))
+  if (positions.length === 0 && !removeUnexpectedBom) {
+    return Object.freeze({
+      text: draft.text,
+      edits
+    })
   }
+
+  const protectedDraft = protectSourceCandidateDraft(
+    revision.source.text,
+    draft,
+    positions,
+    removeUnexpectedBom
+  )
   return Object.freeze({
-    text: units.join(''),
-    origins: Object.freeze(origins),
-    joins: draft.joins
+    text: protectedDraft.text,
+    edits: protectedDraft.edits
   })
-}
-
-function exactEditsFromOrigins(
-  source: string,
-  candidate: CandidateDraft
-): readonly TransformationSourceEdit[] {
-  const edits: TransformationSourceEdit[] = []
-  let sourceCursor = 0
-  let candidateCursor = 0
-
-  while (
-    sourceCursor < source.length ||
-    candidateCursor < candidate.text.length
-  ) {
-    if (
-      candidateCursor < candidate.origins.length &&
-      candidate.origins[candidateCursor] === sourceCursor
-    ) {
-      sourceCursor += 1
-      candidateCursor += 1
-      continue
-    }
-
-    const editStart = sourceCursor
-    const insertStart = candidateCursor
-    let anchorCursor = candidateCursor
-    while (
-      anchorCursor < candidate.origins.length &&
-      candidate.origins[anchorCursor] === null
-    ) {
-      anchorCursor += 1
-    }
-    const anchor = candidate.origins[anchorCursor]
-    if (anchor === undefined) {
-      const insert = candidate.text.slice(insertStart)
-      if (sourceCursor < source.length || insert.length > 0) {
-        edits.push(stableEdit(sourceCursor, source.length, insert))
-      }
-      break
-    }
-
-    const anchorOffset = anchor ?? source.length
-    const insert = candidate.text.slice(insertStart, anchorCursor)
-    if (anchorOffset > editStart || insert.length > 0) {
-      edits.push(stableEdit(editStart, anchorOffset, insert))
-    }
-    sourceCursor = anchorOffset
-    candidateCursor = anchorCursor
-  }
-
-  return Object.freeze(edits)
 }
 
 function applyExactEdits(
   source: string,
   edits: readonly TransformationSourceEdit[]
 ): string {
-  let result = source
-  for (let index = edits.length - 1; index >= 0; index -= 1) {
-    const edit = edits[index]
-    if (edit === undefined) {
-      continue
-    }
-    result =
-      result.slice(0, edit.start) +
-      edit.insert +
-      result.slice(edit.end)
-  }
-  return result
+  return applyExactSourceEdits(source, edits, 'Transformation source edit')
 }
 
-function editTouchesNode(
-  edit: TransformationSourceEdit,
-  node: CriticMarkupNode
-): boolean {
-  const start = rangeStart(node.range)
-  const end = rangeEnd(node.range)
-  if (edit.start === edit.end) {
-    return start < edit.start && edit.start < end
-  }
-  return edit.start < end && start < edit.end
+interface SourceEditDeltaIndex {
+  readonly touches: (start: number, end: number) => boolean
+  readonly mapStart: (offset: number) => number
+  readonly mapEnd: (offset: number) => number
 }
 
-function mapStart(
-  offset: number,
+function createSourceEditDeltaIndex(
   edits: readonly TransformationSourceEdit[]
-): number {
-  let mapped = offset
+): SourceEditDeltaIndex {
+  const allEnds: number[] = []
+  const allPrefixDeltas: number[] = [0]
+  const replacementEnds: number[] = []
+  const replacementPrefixDeltas: number[] = [0]
+  const insertionEnds: number[] = []
+  const insertionPrefixDeltas: number[] = [0]
+
   for (const edit of edits) {
     const delta = edit.insert.length - (edit.end - edit.start)
-    if (
-      edit.end < offset ||
-      edit.end === offset ||
-      (edit.start === edit.end && edit.start <= offset)
-    ) {
-      mapped += delta
+    allEnds.push(edit.end)
+    allPrefixDeltas.push((allPrefixDeltas.at(-1) ?? 0) + delta)
+    if (edit.start === edit.end) {
+      insertionEnds.push(edit.end)
+      insertionPrefixDeltas.push(
+        (insertionPrefixDeltas.at(-1) ?? 0) + delta
+      )
+    } else {
+      replacementEnds.push(edit.end)
+      replacementPrefixDeltas.push(
+        (replacementPrefixDeltas.at(-1) ?? 0) + delta
+      )
     }
   }
-  return mapped
-}
 
-function mapEnd(
-  offset: number,
-  edits: readonly TransformationSourceEdit[]
-): number {
-  let mapped = offset
-  for (const edit of edits) {
-    const delta = edit.insert.length - (edit.end - edit.start)
-    if (
-      edit.end < offset ||
-      (edit.end === offset && edit.start !== edit.end) ||
-      (edit.start === edit.end && edit.start < offset)
-    ) {
-      mapped += delta
+  const deltaAt = (
+    positions: readonly number[],
+    prefixDeltas: readonly number[],
+    offset: number,
+    inclusive: boolean
+  ): number => {
+    let low = 0
+    let high = positions.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      const position = positions[middle] ?? Number.POSITIVE_INFINITY
+      if (position < offset || (inclusive && position === offset)) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
     }
+    return prefixDeltas[low] ?? 0
   }
-  return mapped
+
+  return Object.freeze({
+    touches: Object.freeze((start: number, end: number): boolean => {
+      let low = 0
+      let high = edits.length
+      while (low < high) {
+        const middle = low + Math.floor((high - low) / 2)
+        if ((edits[middle]?.end ?? Number.POSITIVE_INFINITY) <= start) {
+          low = middle + 1
+        } else {
+          high = middle
+        }
+      }
+      const candidate = edits[low]
+      return candidate !== undefined && candidate.start < end
+    }),
+    mapStart: Object.freeze((offset: number): number =>
+      offset + deltaAt(allEnds, allPrefixDeltas, offset, true)),
+    mapEnd: Object.freeze((offset: number): number =>
+      offset +
+        deltaAt(replacementEnds, replacementPrefixDeltas, offset, true) +
+        deltaAt(insertionEnds, insertionPrefixDeltas, offset, false))
+  })
 }
 
 function preservesUntargetedNodes(
@@ -1474,21 +1558,33 @@ function preservesUntargetedNodes(
   candidate: CompleteDocumentRevision,
   edits: readonly TransformationSourceEdit[]
 ): boolean {
-  const candidateNodes = recordsOf(candidate).map(({ node }) => node)
+  const nodeKey = (
+    kind: CriticMarkupNode['kind'],
+    start: number,
+    end: number
+  ): string => `${kind}:${start}:${end}`
+  const candidateNodes = new Set(
+    recordsOf(candidate).map(({ node }) => nodeKey(
+      node.kind,
+      rangeStart(node.range),
+      rangeEnd(node.range)
+    ))
+  )
+  const editIndex = createSourceEditDeltaIndex(edits)
   for (const { node } of recordsOf(before)) {
-    if (edits.some((edit) => editTouchesNode(edit, node))) {
+    const start = rangeStart(node.range)
+    const end = rangeEnd(node.range)
+    if (editIndex.touches(start, end)) {
       continue
     }
-    const expectedStart = mapStart(rangeStart(node.range), edits)
-    const expectedEnd = mapEnd(rangeEnd(node.range), edits)
-    const raw = sourceOf(before.source.text, node.range)
-    const survivor = candidateNodes.find((next) =>
-      next.kind === node.kind &&
-      rangeStart(next.range) === expectedStart &&
-      rangeEnd(next.range) === expectedEnd &&
-      sourceOf(candidate.source.text, next.range) === raw
-    )
-    if (survivor === undefined) {
+    const expectedStart = editIndex.mapStart(start)
+    const expectedEnd = editIndex.mapEnd(end)
+    // Exact-edit construction already proves that an untouched source slice
+    // is copied code-unit-for-code-unit to its mapped range. With identical
+    // parse configuration, the indexed kind and mapped envelope are the
+    // remaining structural survivor proof; rescanning every nested slice here
+    // would turn a sibling edit beside a deep tree quadratic.
+    if (!candidateNodes.has(nodeKey(node.kind, expectedStart, expectedEnd))) {
       return false
     }
   }
@@ -1542,6 +1638,12 @@ function commitCandidate(
   before: CompleteDocumentRevision,
   plan: PlannedTransformation
 ): TransformationResult {
+  if (
+    plan.edits.length >
+      DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction
+  ) {
+    return rejected(before, 'invalid-command-argument')
+  }
   if (!sortedNonoverlapping(plan.edits, before.source.text.length)) {
     return rejected(before, 'semantic-postcondition-failed')
   }
@@ -1553,21 +1655,26 @@ function commitCandidate(
     })
   }
 
-  const draft = buildCandidateDraft(before.source.text, plan.edits)
-  const protectedDraft = protectChangedJoins(engine, before, draft)
-  if (protectedDraft === null) {
+  const draft = buildSourceCandidateDraft(before.source.text, plan.edits)
+  const protectedCandidate = protectChangedJoins(
+    engine,
+    before,
+    draft,
+    plan.edits
+  )
+  if (protectedCandidate === null) {
     return rejected(before, 'candidate-source-only')
   }
-  const edits = exactEditsFromOrigins(before.source.text, protectedDraft)
+  const edits = protectedCandidate.edits
   if (
     !sortedNonoverlapping(edits, before.source.text.length) ||
-    applyExactEdits(before.source.text, edits) !== protectedDraft.text
+    applyExactEdits(before.source.text, edits) !== protectedCandidate.text
   ) {
     return rejected(before, 'semantic-postcondition-failed')
   }
 
   const opened: DocumentRevision = engine.open(
-    createSourceSnapshot(protectedDraft.text),
+    createSourceSnapshot(protectedCandidate.text),
     before.configuration
   )
   if (opened.kind !== 'complete') {
@@ -1623,12 +1730,21 @@ function planResolveAll(
   decision: ChangeResolutionDecision
 ): PlannedTransformation | TransformationRejectionReason {
   const changes = records.filter(({ node }) => isChange(node))
-  if (changes.some(({ node }) => wouldLoseHiddenComment(node, decision))) {
+  const commentIndex = nodesContainingComment(records)
+  if (changes.some(({ node }) =>
+    wouldLoseHiddenComment(node, decision, commentIndex)
+  )) {
     return 'hidden-comment-loss'
   }
   const maximal = changes.filter(({ hasChangeAncestor }) =>
     !hasChangeAncestor
   )
+  if (
+    maximal.length >
+      DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction
+  ) {
+    return 'invalid-command-argument'
+  }
   const edits = maximal
     .map(({ node }) =>
       stableEdit(

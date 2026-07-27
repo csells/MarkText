@@ -21,6 +21,7 @@ import type {
     ModelRange,
     NodeId,
     ParseConfiguration,
+    QuickInsertBlock,
     RejectionCode,
     ReviewIndex,
     SearchMatchRange,
@@ -37,6 +38,11 @@ import {
     documentCoreSelectionRange,
     restoreDocumentCoreSelection as restoreBrowserSelection,
 } from './documentCoreInputAdapter';
+import {
+    forgetDocumentCoreTextPublication,
+    patchDocumentCoreTextPublication,
+    rememberDocumentCoreTextPublication,
+} from './patchDocumentCoreTextPublication';
 import { renderDocumentCoreBlocks } from './renderBlocks';
 import { en } from '../locales/en';
 import type { ILocale } from '../i18n/types';
@@ -71,65 +77,148 @@ const PIXEL_OPTIONS: ReadonlySet<AppearanceOption> = new Set([
 interface QuickInsertChoice {
     readonly label: string;
     readonly title: keyof typeof en.resource;
-    readonly conversion: BlockConversion;
+    readonly block:
+        | Exclude<QuickInsertBlock, Readonly<{ readonly kind: 'table' }>>
+        | Readonly<{ readonly kind: 'table' }>;
 }
 
 const QUICK_INSERT_CHOICES: readonly QuickInsertChoice[] = Object.freeze([
-    { label: 'paragraph', title: 'Paragraph', conversion: { kind: 'paragraph' } },
+    {
+        label: 'paragraph',
+        title: 'Paragraph',
+        block: { kind: 'conversion', conversion: { kind: 'paragraph' } },
+    },
     {
         label: 'thematic-break',
         title: 'Horizontal Line',
-        conversion: { kind: 'thematic-break' },
+        block: {
+            kind: 'conversion',
+            conversion: { kind: 'thematic-break' },
+        },
     },
     {
         label: 'frontmatter',
         title: 'Front Matter',
-        conversion: { kind: 'front-matter' },
+        block: { kind: 'conversion', conversion: { kind: 'front-matter' } },
     },
     ...Array.from({ length: 6 }, (_, index): QuickInsertChoice => ({
         label: `atx-heading ${String(index + 1)}`,
         title: `Heading ${String(index + 1)}` as QuickInsertChoice['title'],
-        conversion: {
-            kind: 'heading',
-            level: (index + 1) as 1 | 2 | 3 | 4 | 5 | 6,
+        block: {
+            kind: 'conversion',
+            conversion: {
+                kind: 'heading',
+                level: (index + 1) as 1 | 2 | 3 | 4 | 5 | 6,
+            },
         },
     })),
     {
+        label: 'table',
+        title: 'Table Block',
+        block: { kind: 'table' },
+    },
+    {
         label: 'math-block',
         title: 'Display Math',
-        conversion: { kind: 'math-block' },
+        block: { kind: 'conversion', conversion: { kind: 'math-block' } },
     },
     {
         label: 'html-block',
         title: 'HTML Block',
-        conversion: { kind: 'html-block' },
+        block: { kind: 'conversion', conversion: { kind: 'html-block' } },
     },
     {
         label: 'code-block',
         title: 'Code Block',
-        conversion: { kind: 'code-block' },
+        block: { kind: 'conversion', conversion: { kind: 'code-block' } },
     },
     {
         label: 'block-quote',
         title: 'Quote Block',
-        conversion: { kind: 'blockquote' },
+        block: { kind: 'conversion', conversion: { kind: 'blockquote' } },
     },
     {
         label: 'order-list',
         title: 'Order List',
-        conversion: { kind: 'ordered-list' },
+        block: { kind: 'conversion', conversion: { kind: 'ordered-list' } },
     },
     {
         label: 'bullet-list',
         title: 'Bullet List',
-        conversion: { kind: 'unordered-list' },
+        block: { kind: 'conversion', conversion: { kind: 'unordered-list' } },
     },
     {
         label: 'task-list',
         title: 'To-do List',
-        conversion: { kind: 'task-list' },
+        block: { kind: 'conversion', conversion: { kind: 'task-list' } },
+    },
+    {
+        label: 'vega-lite',
+        title: 'Vega Chart',
+        block: { kind: 'diagram', language: 'vega-lite' },
+    },
+    {
+        label: 'mermaid',
+        title: 'Mermaid',
+        block: { kind: 'diagram', language: 'mermaid' },
+    },
+    {
+        label: 'plantuml',
+        title: 'Plantuml',
+        block: { kind: 'diagram', language: 'plantuml' },
+    },
+    {
+        label: 'flowchart',
+        title: 'Flowchart',
+        block: { kind: 'diagram', language: 'flowchart' },
+    },
+    {
+        label: 'sequence',
+        title: 'Sequence',
+        block: { kind: 'diagram', language: 'sequence' },
     },
 ]);
+
+const decodeTableShape = (value: unknown): DocumentCoreTableShape => {
+    if (
+        value === null
+        || typeof value !== 'object'
+        || Array.isArray(value)
+        || Object.getPrototypeOf(value) !== Object.prototype
+        || Reflect.ownKeys(value).length !== 2
+        || !Object.prototype.hasOwnProperty.call(value, 'rows')
+        || !Object.prototype.hasOwnProperty.call(value, 'columns')
+    ) {
+        throw new TypeError('Table shape must be a closed dimensions record');
+    }
+    const { rows, columns } = value as Record<string, unknown>;
+    if (
+        !Number.isSafeInteger(rows)
+        || !Number.isSafeInteger(columns)
+        || (rows as number) < 1
+        || (rows as number) > 30
+        || (columns as number) < 1
+        || (columns as number) > 20
+    ) {
+        throw new RangeError('Table shape is outside 1–30 rows by 1–20 columns');
+    }
+    return Object.freeze({
+        rows: rows as number,
+        columns: columns as number,
+    });
+};
+
+const sameSelection = (
+    left: ModelSelection,
+    right: ModelSelection,
+): boolean =>
+    left.session === right.session
+    && left.revision === right.revision
+    && left.view === right.view
+    && left.anchor.offset === right.anchor.offset
+    && left.anchor.affinity === right.anchor.affinity
+    && left.focus.offset === right.focus.offset
+    && left.focus.affinity === right.focus.affinity;
 
 /**
  * A minimal editing view driven entirely by `@marktext/document-core`.
@@ -146,6 +235,14 @@ export interface IDocumentCoreViewOptions {
     readonly session: IDocumentCoreViewSession;
     /** Initial locale for target-owned editor chrome such as table tools. */
     readonly locale?: ILocale;
+    /**
+     * Ask the host for dimensions only. The adapter receives no document,
+     * revision, selection, or mutation capability; the view retains and
+     * authenticates the target captured by the originating gesture.
+     */
+    readonly requestTableShape?: (
+        signal: AbortSignal,
+    ) => Promise<DocumentCoreTableShape | null>;
     /** Main-owned clipboard materializer for every copy and cut surface. */
     readonly clipboardWrite?: (
         request: Readonly<{
@@ -181,6 +278,11 @@ export interface IDocumentCoreViewOptions {
         DocumentCoreImageSourceResolution
         | Promise<DocumentCoreImageSourceResolution>
     );
+}
+
+export interface DocumentCoreTableShape {
+    readonly rows: number;
+    readonly columns: number;
 }
 
 export interface DocumentCoreImageSourceRequest {
@@ -237,8 +339,21 @@ export type DocumentCoreViewSnapshot
     = | IDocumentCoreViewCompleteSnapshot
         | IDocumentCoreViewSourceOnlySnapshot;
 
+export interface DocumentCoreViewSourceEdit {
+    readonly start: number;
+    readonly end: number;
+    readonly insert: string;
+}
+
 export type DocumentCoreViewDispatchResult =
-    | Readonly<{ kind: 'committed' | 'state-changed' }>
+    | Readonly<{
+        kind: 'committed';
+        sourceEdits: readonly DocumentCoreViewSourceEdit[];
+    }>
+    | Readonly<{
+        kind: 'state-changed';
+        sourceEdits: readonly DocumentCoreViewSourceEdit[];
+    }>
     | Readonly<{ kind: 'rejected'; reason: RejectionCode }>
     | Readonly<{ kind: 'noop'; reason: 'empty-insertion' }>
     | Readonly<{ kind: 'cancelled'; reason: 'cancelled' }>;
@@ -314,15 +429,6 @@ export type DocumentCoreEditorCommand
         readonly kind: 'paste-text';
         readonly text: string;
         readonly source: 'external-text';
-    }>
-    | Readonly<{
-        readonly kind: 'quick-insert';
-        readonly block: 'code-block' | 'blockquote';
-    }>
-    | Readonly<{
-        readonly kind: 'create-table';
-        readonly rows: number;
-        readonly columns: number;
     }>
     | Readonly<{
         readonly kind: 'insert-table-row';
@@ -675,7 +781,9 @@ export interface IDocumentCoreView {
      * Open the target-owned Image draft for the authenticated current
      * selection. Opening and cancelling never dispatch a document intent.
      */
-    openImageSelector: () => void;
+    openImageSelector: () => Promise<void>;
+    /** Capture one target, ask the host for dimensions, then commit or cancel. */
+    requestTable: () => Promise<void>;
     /** Replace target-owned chrome strings without rebuilding the document. */
     setLocale: (locale: ILocale) => void;
     /** Reinterpret parser-owned Markdown feature switches in one publication. */
@@ -725,6 +833,8 @@ export interface IDocumentCoreView {
     destroy: () => Promise<void>;
 }
 
+let quickInsertInstanceSequence = 0;
+
 export async function createDocumentCoreView(
     options: IDocumentCoreViewOptions,
 ): Promise<IDocumentCoreView> {
@@ -748,6 +858,11 @@ export async function createDocumentCoreView(
     let tableDragAnchor: HTMLElement | null = null;
     let quickInsertOverlay: HTMLElement | null = null;
     let quickInsertActiveIndex = 0;
+    const quickInsertListboxId =
+        `document-view-quick-insert-${String(++quickInsertInstanceSequence)}`;
+    const pendingTableShapeRequests = new Set<AbortController>();
+    let destroyPromise: Promise<void> | null = null;
+    let destroying = false;
     let imageSelectorWrapper: HTMLElement | null = null;
     let selectedImageSrc: string | null = null;
     let suppressNextTableClick = false;
@@ -767,6 +882,8 @@ export async function createDocumentCoreView(
     let selectionIdle = true;
     let browserInputFailure: unknown;
     let selectionFailure: unknown;
+    let browserInputIdle = true;
+    let deferredBrowserSelection = false;
     let restoringBrowserSelection = false;
     let ignoredProgrammaticSelection: Readonly<{
         range: Readonly<{ start: number; end: number }>;
@@ -776,6 +893,7 @@ export async function createDocumentCoreView(
     let browserInputGeneration = 0;
     let imageRenderGeneration = 0;
     const session = options.session;
+    let mountedSnapshot: DocumentCoreViewSnapshot | null = null;
     const parseConfiguration = session.snapshot().parseConfiguration;
     const committedMarkdownOptions = {
         footnotes: parseConfiguration.markdownOptions.footnotes,
@@ -830,6 +948,18 @@ export async function createDocumentCoreView(
             : snapshot.source;
     };
     const activeSelection = () => session.snapshot().selection;
+    const selectionMatches = (
+        current: InitialModelSelection,
+        requested: InitialModelSelection,
+    ): boolean =>
+        current.anchor.offset === requested.anchor.offset
+        && current.anchor.affinity === requested.anchor.affinity
+        && current.focus.offset === requested.focus.offset
+        && current.focus.affinity === requested.focus.affinity;
+    const abortPendingTableShapeRequests = (): void => {
+        for (const request of pendingTableShapeRequests)
+            request.abort();
+    };
     const getReviewIndex = (): ReviewIndex => {
         const snapshot = session.snapshot();
         return snapshot.kind === 'complete'
@@ -850,6 +980,9 @@ export async function createDocumentCoreView(
     const selectSession = (
         selection: InitialModelSelection,
     ): Promise<void> => {
+        if (!selectionMatches(activeSelection(), selection))
+            abortPendingTableShapeRequests();
+
         let result: Promise<void>;
         if (selectionIdle) {
             selectionIdle = false;
@@ -1024,6 +1157,11 @@ export async function createDocumentCoreView(
         quickInsertOverlay?.remove();
         quickInsertOverlay = null;
         quickInsertActiveIndex = 0;
+        host.removeAttribute('aria-controls');
+        host.removeAttribute('aria-activedescendant');
+        host.removeAttribute('aria-autocomplete');
+        host.removeAttribute('aria-haspopup');
+        host.removeAttribute('aria-expanded');
         host.removeAttribute('data-quick-insert-placeholder');
         for (const paragraph of host.querySelectorAll<HTMLElement>(
             '.document-view-paragraph[data-quick-insert-placeholder]',
@@ -1032,9 +1170,188 @@ export async function createDocumentCoreView(
         }
     };
 
-    const refreshQuickInsert = (): void => {
-        clearQuickInsert();
+    const capturedQuickInsertTargetIsCurrent = (
+        target: ModelSelection,
+    ): boolean => {
+        const current = session.snapshot();
+        return destroyPromise === null
+            && current.kind === 'complete'
+            && current.projection === 'marked'
+            && current.revisionId === target.revision
+            && sameSelection(current.selection, target);
+    };
+
+    const restoreQuickInsertFocus = (): void => {
+        const current = session.snapshot();
+        if (
+            destroyPromise !== null
+            || current.kind !== 'complete'
+            || current.projection !== 'marked'
+        ) {
+            return;
+        }
+        host.focus();
+        restoreDocumentCoreSelection(
+            host,
+            current.selection.anchor,
+            current.selection.focus,
+        );
+    };
+
+    const requestTableShapeForTarget = async (
+        target: ModelSelection,
+    ): Promise<DocumentCoreTableShape | null> => {
+        if (options.requestTableShape === undefined)
+            return null;
+
+        const cancellation = new AbortController();
+        pendingTableShapeRequests.add(cancellation);
+        let response: DocumentCoreTableShape | null;
+        try {
+            response = await options.requestTableShape(cancellation.signal);
+        }
+        catch (error) {
+            if (cancellation.signal.aborted)
+                return null;
+            throw error;
+        }
+        finally {
+            pendingTableShapeRequests.delete(cancellation);
+        }
+        if (!capturedQuickInsertTargetIsCurrent(target))
+            return null;
+        if (response === null) {
+            restoreQuickInsertFocus();
+            return null;
+        }
+        return decodeTableShape(response);
+    };
+
+    const activateQuickInsertChoice = async (
+        choice: QuickInsertChoice,
+        target: ModelSelection,
+    ): Promise<void> => {
+        let block: QuickInsertBlock;
+        if (choice.block.kind === 'table') {
+            const shape = await requestTableShapeForTarget(target);
+            if (shape === null)
+                return;
+            block = Object.freeze({ kind: 'table', ...shape });
+        }
+        else {
+            block = choice.block;
+        }
+        if (!capturedQuickInsertTargetIsCurrent(target))
+            return;
+        await dispatchIntent({ kind: 'quick-insert-block', target, block });
+        restoreQuickInsertFocus();
+    };
+
+    const requestTable = async (): Promise<void> => {
+        await pendingSelection;
+        await commitSelection();
+        const selection = completeSnapshot().selection;
+        const target = Object.freeze({
+            ...selection,
+            anchor: Object.freeze({ ...selection.anchor }),
+            focus: Object.freeze({ ...selection.focus }),
+        });
+        const shape = await requestTableShapeForTarget(target);
+        if (shape === null || !capturedQuickInsertTargetIsCurrent(target))
+            return;
+        await dispatchIntent({ kind: 'create-table', target, ...shape });
+        restoreQuickInsertFocus();
+    };
+
+    const quickInsertChoicesForQuery = (
+        query: string,
+    ): readonly QuickInsertChoice[] => QUICK_INSERT_CHOICES.filter(choice =>
+        choice.label.toLocaleLowerCase().includes(query)
+        || translate(choice.title).toLocaleLowerCase().includes(query));
+
+    type QuickInsertQuery =
+        | Readonly<{ readonly kind: 'not-triggered' }>
+        | Readonly<{ readonly kind: 'bounded-no-match' }>
+        | Readonly<{ readonly kind: 'query'; readonly value: string }>;
+    const QUICK_INSERT_NOT_TRIGGERED: QuickInsertQuery = Object.freeze({
+        kind: 'not-triggered',
+    });
+    const QUICK_INSERT_BOUNDED_NO_MATCH: QuickInsertQuery = Object.freeze({
+        kind: 'bounded-no-match',
+    });
+    const quickInsertQuery = (
+        snapshot: IDocumentCoreViewCompleteSnapshot,
+        range: ModelRange,
+    ): QuickInsertQuery => {
+        const length = range.end - range.start;
+        if (length === 0)
+            return QUICK_INSERT_NOT_TRIGGERED;
+        const marker = snapshot.modelText[range.start];
+        if (marker !== '/' && marker !== '、')
+            return QUICK_INSERT_NOT_TRIGGERED;
+        const maximumQueryLength = QUICK_INSERT_CHOICES.reduce(
+            (maximum, choice) => Math.max(
+                maximum,
+                choice.label.toLocaleLowerCase().length,
+                translate(choice.title).toLocaleLowerCase().length,
+            ),
+            0,
+        );
+        if (length - 1 > maximumQueryLength)
+            return QUICK_INSERT_BOUNDED_NO_MATCH;
+        const paragraphText = snapshot.modelText.slice(
+            range.start,
+            range.end,
+        );
+        const match = /^[/、]([^\s]*)$/u.exec(paragraphText);
+        return match === null
+            ? QUICK_INSERT_NOT_TRIGGERED
+            : Object.freeze({
+                kind: 'query' as const,
+                value: (match[1] ?? '').toLocaleLowerCase(),
+            });
+    };
+
+    const currentQuickInsertTarget = (
+        renderedTarget: ModelSelection,
+        paragraphNodeId: string,
+        choice: QuickInsertChoice,
+    ): ModelSelection | null => {
         const snapshot = session.snapshot();
+        if (
+            destroyPromise !== null
+            || snapshot.kind !== 'complete'
+            || snapshot.projection !== 'marked'
+            || snapshot.selection.session !== renderedTarget.session
+            || snapshot.selection.anchor.offset
+                !== snapshot.selection.focus.offset
+        ) {
+            return null;
+        }
+        const offset = snapshot.selection.anchor.offset;
+        const block = snapshot.blocks.find(candidate =>
+            candidate.kind === 'paragraph'
+            && candidate.modelRange.start <= offset
+            && offset <= candidate.modelRange.end);
+        if (block === undefined || block.tree.key !== paragraphNodeId)
+            return null;
+        const query = quickInsertQuery(snapshot, block.modelRange);
+        if (query.kind !== 'query')
+            return null;
+        if (!quickInsertChoicesForQuery(query.value).includes(choice))
+            return null;
+        return Object.freeze({
+            ...snapshot.selection,
+            anchor: Object.freeze({ ...snapshot.selection.anchor }),
+            focus: Object.freeze({ ...snapshot.selection.focus }),
+        });
+    };
+
+    const refreshQuickInsert = (
+        publishedSnapshot?: DocumentCoreViewSnapshot,
+    ): void => {
+        clearQuickInsert();
+        const snapshot = publishedSnapshot ?? session.snapshot();
         if (
             snapshot.kind !== 'complete'
             || snapshot.projection !== 'marked'
@@ -1067,44 +1384,59 @@ export async function createDocumentCoreView(
         if (paragraph === undefined)
             return;
 
-        const paragraphText = snapshot.modelText.slice(
-            block.modelRange.start,
-            block.modelRange.end,
-        );
-        if (paragraphText.length === 0 && !hideQuickInsertHint) {
+        if (
+            block.modelRange.start === block.modelRange.end
+            && !hideQuickInsertHint
+        ) {
             paragraph.setAttribute(
                 'data-quick-insert-placeholder',
                 translate('Type / to insert...'),
             );
         }
 
-        const match = /^[/、]([^\s]*)$/u.exec(paragraphText);
-        if (match === null)
+        const query = quickInsertQuery(snapshot, block.modelRange);
+        if (query.kind === 'not-triggered')
             return;
-
-        const query = (match[1] ?? '').toLocaleLowerCase();
-        const choices = QUICK_INSERT_CHOICES.filter(choice =>
-            choice.label.toLocaleLowerCase().includes(query)
-            || translate(choice.title).toLocaleLowerCase().includes(query));
-        if (choices.length === 0)
-            return;
-
+        const choices = query.kind === 'bounded-no-match'
+            ? Object.freeze([])
+            : quickInsertChoicesForQuery(query.value);
         const overlay = host.ownerDocument.createElement('div');
         overlay.className = 'document-view-quick-insert';
-        overlay.setAttribute('role', 'listbox');
-        overlay.setAttribute('aria-label', translate('Type / to insert...'));
-        overlay.dataset.localeKey = 'Type / to insert...';
         overlay.setAttribute('contenteditable', 'false');
+        const listbox = host.ownerDocument.createElement('div');
+        listbox.className = 'document-view-quick-insert-listbox';
+        listbox.id = quickInsertListboxId;
+        listbox.setAttribute('role', 'listbox');
+        listbox.setAttribute('aria-label', translate('Type / to insert...'));
+        listbox.dataset.localeKey = 'Type / to insert...';
+        listbox.tabIndex = 0;
+        overlay.appendChild(listbox);
+        host.setAttribute('aria-controls', listbox.id);
+        host.setAttribute('aria-haspopup', 'listbox');
+        host.setAttribute('aria-autocomplete', 'list');
 
         const target = Object.freeze({
             ...snapshot.selection,
             anchor: Object.freeze({ ...snapshot.selection.anchor }),
             focus: Object.freeze({ ...snapshot.selection.focus }),
         });
+        if (choices.length === 0) {
+            const status = host.ownerDocument.createElement('div');
+            status.setAttribute('role', 'status');
+            status.setAttribute('aria-live', 'polite');
+            status.dataset.localeKey = 'No result';
+            status.dataset.localeText = 'true';
+            status.textContent = translate('No result');
+            overlay.appendChild(status);
+        }
         choices.forEach((choice, index) => {
             const button = host.ownerDocument.createElement('button');
             button.type = 'button';
             button.className = 'document-view-quick-insert-item';
+            button.id = `${quickInsertListboxId}-option-${choice.label.replace(
+                /[^a-z0-9_-]+/giu,
+                '-',
+            )}`;
             button.dataset.label = choice.label;
             button.dataset.localeKey = choice.title;
             button.dataset.localeText = 'true';
@@ -1119,14 +1451,29 @@ export async function createDocumentCoreView(
             button.addEventListener('click', event => {
                 event.preventDefault();
                 event.stopPropagation();
-                enqueueBrowserInput(() => dispatchIntent({
-                    kind: 'quick-insert-block',
-                    target,
-                    conversion: choice.conversion,
-                }));
+                clearQuickInsert();
+                enqueueBrowserInput(async () => {
+                    const liveTarget = currentQuickInsertTarget(
+                        target,
+                        block.tree.key,
+                        choice,
+                    );
+                    if (liveTarget === null)
+                        return;
+                    await activateQuickInsertChoice(choice, liveTarget);
+                });
             });
-            overlay.appendChild(button);
+            listbox.appendChild(button);
         });
+        if (choices[0] !== undefined) {
+            const activeId =
+                `${quickInsertListboxId}-option-${choices[0].label.replace(
+                    /[^a-z0-9_-]+/giu,
+                    '-',
+                )}`;
+            host.setAttribute('aria-activedescendant', activeId);
+            listbox.setAttribute('aria-activedescendant', activeId);
+        }
 
         const cursor = selectionCursor();
         const hostBounds = host.getBoundingClientRect();
@@ -1140,6 +1487,7 @@ export async function createDocumentCoreView(
     };
 
     const render = (restoreSelection = false): void => {
+        forgetDocumentCoreTextPublication(host);
         imageRenderGeneration += 1;
         const generation = imageRenderGeneration;
         selectedImageSrc = null;
@@ -1161,6 +1509,7 @@ export async function createDocumentCoreView(
             host.dataset.documentMode = 'source-only';
             delete host.dataset.criticProjection;
             host.setAttribute('contenteditable', 'true');
+            host.setAttribute('aria-readonly', 'false');
             if (restoreSelection) {
                 restoreDocumentCoreSelection(
                     host,
@@ -1169,6 +1518,8 @@ export async function createDocumentCoreView(
                 );
             }
             clearQuickInsert();
+            rememberDocumentCoreTextPublication(host, snapshot);
+            mountedSnapshot = snapshot;
             return;
         }
 
@@ -1237,9 +1588,10 @@ export async function createDocumentCoreView(
             button.dataset.documentCommand = 'copy-heading-link';
             button.className = 'document-view-heading-link-copy';
             button.dataset.localeKey = 'Copy anchor link to this heading';
+            button.dataset.localeSuffix = `: ${item.content}`;
             button.setAttribute(
                 'aria-label',
-                translate('Copy anchor link to this heading'),
+                `${translate('Copy anchor link to this heading')}: ${item.content}`,
             );
             button.addEventListener('click', (event) => {
                 event.preventDefault();
@@ -1280,7 +1632,11 @@ export async function createDocumentCoreView(
             open.dataset.documentCommand = 'navigate-link';
             open.dataset.localeKey = 'Open link';
             open.dataset.localeText = 'true';
-            open.setAttribute('aria-label', translate('Open link'));
+            open.dataset.localeSuffix = `: ${link.getAttribute('href') ?? ''}`;
+            open.setAttribute(
+                'aria-label',
+                `${translate('Open link')}: ${link.getAttribute('href') ?? ''}`,
+            );
             open.textContent = translate('Open link');
             open.addEventListener('click', (event) => {
                 event.preventDefault();
@@ -1399,6 +1755,10 @@ export async function createDocumentCoreView(
             'contenteditable',
             snapshot.projection === 'marked' ? 'true' : 'false',
         );
+        host.setAttribute(
+            'aria-readonly',
+            snapshot.projection === 'marked' ? 'false' : 'true',
+        );
         if (restoreSelection && snapshot.projection === 'marked') {
             restoreDocumentCoreSelection(
                 host,
@@ -1406,16 +1766,38 @@ export async function createDocumentCoreView(
                 snapshot.selection.focus,
             );
         }
-        refreshQuickInsert();
+        refreshQuickInsert(snapshot);
+        rememberDocumentCoreTextPublication(host, snapshot);
+        mountedSnapshot = snapshot;
     };
 
     const settle = async (
         completion: Promise<DocumentCoreViewDispatchResult>,
         restoreSelection = documentCoreSelectionIsMounted(host),
     ): Promise<void> => {
-        const result = await completion;
+        const before = mountedSnapshot ?? session.snapshot();
+        let result: DocumentCoreViewDispatchResult;
+        try {
+            result = await completion;
+        }
+        catch (error) {
+            // A remote authority can recover and mount its verified full head
+            // before rejecting a damaged transition publication. Render that
+            // current authority state before the original failure escapes, so
+            // the DOM never remains on a stale base.
+            if (!destroying) {
+                render(restoreSelection);
+                for (const listener of listeners)
+                    listener();
+            }
+            throw error;
+        }
         if (result.kind === 'rejected') {
-            if (getTrackChanges() && result.reason !== undefined) {
+            if (
+                !destroying
+                && getTrackChanges()
+                && result.reason !== undefined
+            ) {
                 const rejection = Object.freeze({
                     beforeMarkdown: session.snapshot().source,
                     reason: result.reason,
@@ -1427,8 +1809,36 @@ export async function createDocumentCoreView(
         }
         if (result.kind === 'cancelled')
             throw new Error('Intent was cancelled');
+        // Session authority may finish an already-admitted transaction while
+        // destruction drains it. Its committed state remains authoritative,
+        // but a destroyed view must never publish that state back into the DOM.
+        if (destroying)
+            return;
 
-        render(restoreSelection);
+        const after = session.snapshot();
+        const patched = result.kind === 'committed'
+            && patchDocumentCoreTextPublication(
+                host,
+                before,
+                after,
+                result.sourceEdits,
+            );
+        if (patched) {
+            mountedSnapshot = after;
+            clearQuickInsert();
+            if (restoreSelection) {
+                restoreDocumentCoreSelection(
+                    host,
+                    after.selection.anchor,
+                    after.selection.focus,
+                );
+            }
+            refreshQuickInsert(after);
+            rememberDocumentCoreTextPublication(host, after);
+        }
+        else {
+            render(restoreSelection);
+        }
         for (const listener of listeners)
             listener();
     };
@@ -1584,25 +1994,6 @@ export async function createDocumentCoreView(
                 target,
                 text: command.text,
                 source: command.source,
-            });
-            return;
-        }
-        if (command.kind === 'quick-insert') {
-            await dispatchIntent({
-                kind: 'convert-block',
-                target,
-                conversion: command.block === 'code-block'
-                    ? { kind: 'code-block' }
-                    : { kind: 'blockquote' },
-            });
-            return;
-        }
-        if (command.kind === 'create-table') {
-            await dispatchIntent({
-                kind: 'create-table',
-                target,
-                rows: command.rows,
-                columns: command.columns,
             });
             return;
         }
@@ -2120,6 +2511,8 @@ export async function createDocumentCoreView(
     const selectSource = async (
         selection: InitialModelSelection,
     ): Promise<void> => {
+        if (!selectionMatches(session.snapshot().sourceSelection, selection))
+            abortPendingTableShapeRequests();
         await session.selectSource(selection);
         publishSelection();
     };
@@ -2418,9 +2811,18 @@ export async function createDocumentCoreView(
             ...en.resource,
             ...locale.resource,
         };
-        for (const element of host.querySelectorAll<HTMLElement>(
-            '[data-locale-key]',
-        )) {
+        const localizedElements = [
+            ...host.querySelectorAll<HTMLElement>('[data-locale-key]'),
+            ...(tableTools === null
+                ? []
+                : [
+                    tableTools,
+                    ...tableTools.querySelectorAll<HTMLElement>(
+                        '[data-locale-key]',
+                    ),
+                ]),
+        ];
+        for (const element of localizedElements) {
             const key = element.dataset.localeKey;
             if (key === undefined)
                 continue;
@@ -2428,7 +2830,10 @@ export async function createDocumentCoreView(
             const label = translate(key);
             if (element.dataset.localeText === 'true')
                 element.textContent = label;
-            element.setAttribute('aria-label', label);
+            element.setAttribute(
+                'aria-label',
+                label + (element.dataset.localeSuffix ?? ''),
+            );
         }
         refreshQuickInsert();
     };
@@ -2702,7 +3107,6 @@ export async function createDocumentCoreView(
         if (cell === null)
             return;
 
-        event.preventDefault();
         tableDragAnchor = cell;
         suppressNextTableClick = false;
         activateTableRectangle(cell, cell);
@@ -3036,6 +3440,7 @@ export async function createDocumentCoreView(
 
     const enqueueBrowserInput = (operation: () => Promise<void>): void => {
         const generation = ++browserInputGeneration;
+        browserInputIdle = false;
         pendingBrowserInput = pendingBrowserInput
             .then(operation)
             .catch((error: unknown) => {
@@ -3045,6 +3450,15 @@ export async function createDocumentCoreView(
                 if (browserInputGeneration === generation) {
                     browserDraftTarget = null;
                     lastBrowserDomRange = null;
+                    browserInputIdle = true;
+                    if (destroying) {
+                        deferredBrowserSelection = false;
+                        return;
+                    }
+                    if (deferredBrowserSelection) {
+                        deferredBrowserSelection = false;
+                        synchronizeBrowserSelection();
+                    }
                 }
             });
     };
@@ -3215,6 +3629,7 @@ export async function createDocumentCoreView(
                             ? {}
                             : { title: title.value }),
                     }), true);
+                    focus();
                 }
                 finally {
                     submitting = false;
@@ -3224,11 +3639,21 @@ export async function createDocumentCoreView(
             });
         });
 
+        const window = document.defaultView;
+        host.appendChild(wrapper);
         const bounds = anchor?.getBoundingClientRect()
             ?? host.getBoundingClientRect();
-        const window = document.defaultView;
-        const leftLimit = Math.max(8, (window?.innerWidth ?? 360) - 336);
-        const topLimit = Math.max(8, (window?.innerHeight ?? 240) - 224);
+        const selectorBounds = wrapper.getBoundingClientRect();
+        const selectorWidth = selectorBounds.width || 320;
+        const selectorHeight = selectorBounds.height || 224;
+        const leftLimit = Math.max(
+            8,
+            (window?.innerWidth ?? 360) - selectorWidth - 8,
+        );
+        const topLimit = Math.max(
+            8,
+            (window?.innerHeight ?? 240) - selectorHeight - 8,
+        );
         wrapper.style.left = `${String(Math.max(
             8,
             Math.min(bounds.left, leftLimit),
@@ -3237,7 +3662,6 @@ export async function createDocumentCoreView(
             8,
             Math.min(bounds.bottom + 6, topLimit),
         ))}px`;
-        host.appendChild(wrapper);
         imageSelectorWrapper = wrapper;
         src.focus();
         window?.requestAnimationFrame(() => {
@@ -3246,7 +3670,9 @@ export async function createDocumentCoreView(
         });
     };
 
-    const openImageSelector = (): void => {
+    const openImageSelector = async (): Promise<void> => {
+        await pendingSelection;
+        await commitSelection();
         const snapshot = completeSnapshot();
         showImageSelector(
             snapshot.selection,
@@ -3407,6 +3833,13 @@ export async function createDocumentCoreView(
                         index === quickInsertActiveIndex ? 'true' : 'false',
                     );
                 });
+                const active = items[quickInsertActiveIndex];
+                if (active !== undefined) {
+                    host.setAttribute('aria-activedescendant', active.id);
+                    quickInsertOverlay.querySelector('[role="listbox"]')
+                        ?.setAttribute('aria-activedescendant', active.id);
+                    active.scrollIntoView({ block: 'nearest' });
+                }
                 return;
             }
             if (event.key === 'Enter' && items.length > 0) {
@@ -3421,45 +3854,10 @@ export async function createDocumentCoreView(
                 clearQuickInsert();
                 return;
             }
-        }
-
-        const quickBlock =
-            event.altKey
-            && (event.metaKey || event.ctrlKey)
-            && !event.shiftKey
-                ? event.code === 'KeyC'
-                    ? 'code-block'
-                    : event.code === 'KeyQ'
-                        ? 'blockquote'
-                        : null
-                : null;
-        if (quickBlock !== null) {
-            const snapshot = completeSnapshot();
-            const selection = snapshot.selection;
-            const context = getSelectionContext();
-            const paragraph = [...context.blockPath]
-                .reverse()
-                .find(node => node.kind === 'paragraph');
-            if (
-                selection.anchor.offset === selection.focus.offset
-                && (
-                    snapshot.blocks.length === 0
-                    || (
-                        paragraph !== undefined
-                        && modelText()
-                            .slice(paragraph.range.start, paragraph.range.end)
-                            .trim().length === 0
-                    )
-                )
-            ) {
-                event.preventDefault();
-                event.stopPropagation();
-                enqueueBrowserInput(() => executeCommand({
-                    kind: 'quick-insert',
-                    block: quickBlock,
-                }));
+            if (event.key === 'Tab') {
+                clearQuickInsert();
+                return;
             }
-            return;
         }
 
         if (
@@ -3480,8 +3878,8 @@ export async function createDocumentCoreView(
         }
     };
 
-    const handleBrowserSelection = (): void => {
-        if (restoringBrowserSelection)
+    const synchronizeBrowserSelection = (): void => {
+        if (destroying || restoringBrowserSelection)
             return;
         if (!documentCoreSelectionIsMounted(host))
             return;
@@ -3514,8 +3912,30 @@ export async function createDocumentCoreView(
         }).then(publishSelection, () => undefined);
     };
 
+    const handleBrowserSelection = (): void => {
+        if (restoringBrowserSelection)
+            return;
+        if (!browserInputIdle) {
+            // The mounted range still names the pre-edit publication. Read it
+            // only after the admitted input publishes and restores its
+            // authoritative browser selection.
+            deferredBrowserSelection = true;
+            return;
+        }
+        synchronizeBrowserSelection();
+    };
+
     const settled = async (): Promise<void> => {
-        await Promise.all([pendingBrowserInput, pendingSelection]);
+        let observedBrowserInput: Promise<void>;
+        let observedSelection: Promise<void>;
+        do {
+            observedBrowserInput = pendingBrowserInput;
+            observedSelection = pendingSelection;
+            await Promise.all([observedBrowserInput, observedSelection]);
+        } while (
+            observedBrowserInput !== pendingBrowserInput
+            || observedSelection !== pendingSelection
+        );
         while (pendingImageResolutions.size > 0) {
             await Promise.allSettled([...pendingImageResolutions]);
         }
@@ -3531,11 +3951,12 @@ export async function createDocumentCoreView(
         }
     };
 
-    let destroyPromise: Promise<void> | null = null;
     const destroy = (): Promise<void> => {
         if (destroyPromise !== null)
             return destroyPromise;
 
+        destroying = true;
+        deferredBrowserSelection = false;
         host.removeEventListener('beforeinput', handleBeforeInput);
         host.removeEventListener('compositionstart', handleCompositionStart);
         host.removeEventListener('compositionend', handleCompositionEnd);
@@ -3555,26 +3976,58 @@ export async function createDocumentCoreView(
             'mousedown',
             handleDocumentMouseDown,
         );
+        for (const request of pendingTableShapeRequests)
+            request.abort();
+        pendingTableShapeRequests.clear();
         dismissTransientTools();
+        forgetDocumentCoreTextPublication(host);
         imageRenderGeneration += 1;
         headingElements = new Map();
         host.removeAttribute('contenteditable');
+        host.removeAttribute('role');
+        host.removeAttribute('aria-multiline');
+        host.removeAttribute('aria-readonly');
+        host.removeAttribute('aria-expanded');
         listeners.clear();
         interactionListeners.clear();
         trackChangeRejectionListeners.clear();
         selectionListeners.clear();
         destroyPromise = (async () => {
-            await Promise.allSettled([
-                pendingBrowserInput,
-                pendingSelection,
-                ...pendingImageResolutions,
-            ]);
+            let observedBrowserInput: Promise<void>;
+            let observedSelection: Promise<void>;
+            let observedImages: readonly Promise<void>[];
+            do {
+                observedBrowserInput = pendingBrowserInput;
+                observedSelection = pendingSelection;
+                observedImages = [...pendingImageResolutions];
+                await Promise.allSettled([
+                    observedBrowserInput,
+                    observedSelection,
+                    ...observedImages,
+                ]);
+            } while (
+                observedBrowserInput !== pendingBrowserInput
+                || observedSelection !== pendingSelection
+                || pendingImageResolutions.size > 0
+            );
+            // Pending work is fail-closed once destruction begins. Repeat the
+            // teardown for non-publication async work such as image resolution.
+            dismissTransientTools();
+            forgetDocumentCoreTextPublication(host);
+            headingElements = new Map();
+            host.removeAttribute('contenteditable');
+            host.removeAttribute('role');
+            host.removeAttribute('aria-multiline');
+            host.removeAttribute('aria-readonly');
+            host.removeAttribute('aria-expanded');
             await session.close();
         })();
         return destroyPromise;
     };
 
     host.setAttribute('contenteditable', 'true');
+    host.setAttribute('role', 'textbox');
+    host.setAttribute('aria-multiline', 'true');
     host.setAttribute('autocorrect', 'false');
     host.setAttribute('autocomplete', 'off');
     host.addEventListener('beforeinput', handleBeforeInput);
@@ -3610,6 +4063,7 @@ export async function createDocumentCoreView(
         focus,
         dismissTransientTools,
         openImageSelector,
+        requestTable,
         insertTableRow,
         pasteImage,
         reconfigureMarkdownOptions,

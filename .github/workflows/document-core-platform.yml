@@ -2,25 +2,45 @@ name: builds and exercises Review on macOS Windows and Linux
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'evidence/0009/**'
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - 'packages/document-core/**'
-      - 'packages/document-view/**'
-      - 'packages/desktop/**'
-      - 'specs/migration/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/document-core-platform.yml'
+
+permissions:
+  actions: read
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The candidate tree and Electron's committed checksums own binary identity. Never allow
+# inherited runner/repository variables to redirect or disable that authentication.
+env:
+  ELECTRON_CUSTOM_DIR: ''
+  ELECTRON_CUSTOM_FILENAME: ''
+  ELECTRON_CUSTOM_VERSION: ''
+  ELECTRON_INSTALL_ARCH: ''
+  ELECTRON_INSTALL_PLATFORM: ''
+  ELECTRON_MIRROR: ''
+  ELECTRON_NIGHTLY_MIRROR: ''
+  ELECTRON_OVERRIDE_DIST_PATH: ''
+  electron_config_cache: ''
+  electron_use_remote_checksums: ''
+  force_no_cache: ''
+  npm_config_arch: ''
+  npm_config_electron_use_remote_checksums: ''
+  npm_config_platform: ''
+
 jobs:
   document-core-review:
     name: document-core-review-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -30,27 +50,29 @@ jobs:
             arch: arm64
             e2ePrefix: ''
           - name: windows-x64
-            os: windows-latest
+            os: windows-2025
             arch: x64
             e2ePrefix: ''
           - name: linux-x64
-            os: ubuntu-latest
+            os: ubuntu-22.04
             arch: x64
             e2ePrefix: 'xvfb-run --auto-servernum '
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
       - uses: ./.github/actions/setup
 
       - name: Prepare Electron runtime
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
-            sudo apt-get update
-            sudo apt-get install -y \
-              libx11-dev libxkbfile-dev libsecret-1-dev libfontconfig-dev \
-              xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-              libdrm2 libgtk-3-0 libgbm1 libasound2t64
+            command -v xvfb-run >/dev/null
+            test -f /usr/include/X11/Xlib.h
+            test -f /usr/include/X11/XKBlib.h
+            pkg-config --exists libsecret-1
+            pkg-config --exists fontconfig
             export USE_ELECTRON_CLANG=0
           fi
           if [[ "$RUNNER_OS" == "macOS" ]]; then
@@ -75,6 +97,225 @@ jobs:
         run: >-
           ${{ matrix.e2ePrefix }}pnpm --filter marktext exec playwright test
           --config test/e2e/playwright.config.ts
+          --project=unpacked
           test/e2e/document-core-review-workflow.spec.ts
         env:
           MARKTEXT_TEST_BACKGROUND: '1'
+
+      - name: Write compact platform attestation
+        shell: bash
+        env:
+          EVIDENCE_COMMIT: ${{ github.sha }}
+          EVIDENCE_JOB: document-core-review-${{ matrix.name }}
+          EVIDENCE_PLATFORM: ${{ matrix.name }}
+          EVIDENCE_REF_NAME: ${{ github.ref_name }}
+          EVIDENCE_REF_TYPE: ${{ github.ref_type }}
+          EVIDENCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVIDENCE_RUN_ID: ${{ github.run_id }}
+          EVIDENCE_WORKFLOW: ${{ github.workflow }}
+          EVIDENCE_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          node --input-type=module -e '
+            import { mkdirSync, writeFileSync } from "node:fs";
+            const directory = "test-results/0009-platform";
+            const path = directory + "/" + process.env.EVIDENCE_PLATFORM + ".json";
+            const runnerImageOs = process.env.ImageOS;
+            const runnerImageVersion = process.env.ImageVersion;
+            if (!runnerImageOs || !runnerImageVersion) {
+              throw new Error("GitHub hosted-runner image identity is unavailable");
+            }
+            mkdirSync(directory, { recursive: true });
+            const attestation = {
+              schema: "marktext-0009-platform-attestation-v1",
+              state: "verified",
+              candidateCommit: process.env.EVIDENCE_COMMIT,
+              refName: process.env.EVIDENCE_REF_NAME,
+              refType: process.env.EVIDENCE_REF_TYPE,
+              workflow: process.env.EVIDENCE_WORKFLOW,
+              workflowRef: process.env.EVIDENCE_WORKFLOW_REF,
+              runId: process.env.EVIDENCE_RUN_ID,
+              runAttempt: process.env.EVIDENCE_RUN_ATTEMPT,
+              job: process.env.EVIDENCE_JOB,
+              platform: process.env.EVIDENCE_PLATFORM,
+              arch: process.arch,
+              os: process.platform,
+              node: process.version,
+              runnerImageOs,
+              runnerImageVersion,
+              verifiedAt: new Date().toISOString()
+            };
+            writeFileSync(path, JSON.stringify(attestation, null, 2) + "\n");
+          '
+
+      - name: Upload compact platform attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: document-core-platform-${{ matrix.name }}-${{ github.sha }}
+          path: test-results/0009-platform/${{ matrix.name }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+  document-core-closure-proof:
+    name: document-core-closure-proof
+    needs: document-core-review
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+
+      - name: Classify Plan 0009 closure state
+        id: closure-state
+        shell: bash
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync, readFileSync } from "node:fs";
+            const plan = readFileSync(
+              "specs/plans/0009-criticmarkup-document-engine-rebuild.md",
+              "utf8"
+            );
+            const state = /^- \*\*Status:\*\* GREEN\b/mu.test(plan) ? "green" : "red";
+            appendFileSync(process.env.GITHUB_OUTPUT, "state=" + state + "\n");
+          '
+
+      - uses: ./.github/actions/setup
+        if: steps.closure-state.outputs.state == 'green'
+
+      - name: Prove GREEN closure or admit RED candidate
+        if: steps.closure-state.outputs.state == 'green'
+        run: pnpm verify:0009:ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Execute the final Plan 0009 closure target
+        if: steps.closure-state.outputs.state == 'green'
+        run: >-
+          pnpm -C packages/document-core exec vitest run
+          test/plan/0009-final-closure.spec.ts
+          --config vitest.config.ts
+          --allowOnly=false
+          --retry=0
+
+      - name: Upload compact closure attestation
+        if: steps.closure-state.outputs.state == 'green'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: document-core-closure-attestation-${{ github.sha }}
+          path: specs/migration/0009-closure-attestation.yml
+          if-no-files-found: error
+          retention-days: 90
+
+  document-core-candidate-publication:
+    name: document-core-candidate-publication
+    if: >-
+      github.ref_type == 'tag' &&
+      startsWith(github.ref_name, 'evidence/0009/publish-')
+    needs:
+      - document-core-review
+      - document-core-closure-proof
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+      - uses: ./.github/actions/setup
+
+      - name: Prepare Electron runtime
+        shell: bash
+        run: |
+          export CXXFLAGS="-std=gnu++20 -stdlib=libc++"
+          pnpm tsx scripts/postinstall.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          npm_config_user_agent: 'pnpm'
+
+      - name: Bind publication tag to candidate and source runs
+        id: publication
+        shell: bash
+        run: |
+          prefix="evidence/0009/publish-${GITHUB_SHA}-"
+          if [[ "$GITHUB_REF_NAME" != "$prefix"* ]]; then
+            echo "Publication tag is not bound to this candidate" >&2
+            exit 1
+          fi
+          run_pair="${GITHUB_REF_NAME#"$prefix"}"
+          if [[ ! "$run_pair" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]]; then
+            echo "Publication tag must encode exactly two numeric source runs" >&2
+            exit 1
+          fi
+          run_one="${run_pair%%-*}"
+          run_two="${run_pair##*-}"
+          if [[ "$run_one" == "$run_two" ]]; then
+            echo "Publication requires two distinct source runs" >&2
+            exit 1
+          fi
+          echo "run-one=$run_one" >> "$GITHUB_OUTPUT"
+          echo "run-two=$run_two" >> "$GITHUB_OUTPUT"
+
+      - name: Collect two complete candidate passes
+        run: >-
+          pnpm evidence:0009 --
+          --github-run ${{ steps.publication.outputs.run-one }}
+          --github-run ${{ steps.publication.outputs.run-two }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Production-validate complete candidate evidence
+        run: pnpm validate:0009:candidate
+
+      - name: Stage normalized content-addressed evidence
+        id: artifact
+        shell: bash
+        env:
+          EVIDENCE_COMMIT: ${{ github.sha }}
+          EVIDENCE_REF_NAME: ${{ github.ref_name }}
+          EVIDENCE_REF_TYPE: ${{ github.ref_type }}
+          EVIDENCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVIDENCE_RUN_ID: ${{ github.run_id }}
+          EVIDENCE_RUN_ONE: ${{ steps.publication.outputs.run-one }}
+          EVIDENCE_RUN_TWO: ${{ steps.publication.outputs.run-two }}
+          EVIDENCE_WORKFLOW: ${{ github.workflow }}
+          EVIDENCE_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          staging="$RUNNER_TEMP/marktext-0009-publication"
+          mkdir -p "$staging/specs/migration"
+          cp specs/migration/0009-candidate-evidence.yml "$staging/specs/migration/"
+          cp -R specs/migration/0009-evidence "$staging/specs/migration/"
+          evidence_sha="$(shasum -a 256 specs/migration/0009-candidate-evidence.yml | awk '{print $1}')"
+          artifact_name="document-core-candidate-evidence-${GITHUB_SHA}-${evidence_sha}"
+          EVIDENCE_ARTIFACT_NAME="$artifact_name" EVIDENCE_SHA256="$evidence_sha" \
+            EVIDENCE_STAGING="$staging" node --input-type=module -e '
+              import { writeFileSync } from "node:fs";
+              const attestation = {
+                schema: "marktext-0009-publication-attestation-v1",
+                state: "verified",
+                candidateCommit: process.env.EVIDENCE_COMMIT,
+                publicationRunId: process.env.EVIDENCE_RUN_ID,
+                runAttempt: process.env.EVIDENCE_RUN_ATTEMPT,
+                refName: process.env.EVIDENCE_REF_NAME,
+                refType: process.env.EVIDENCE_REF_TYPE,
+                workflow: process.env.EVIDENCE_WORKFLOW,
+                workflowRef: process.env.EVIDENCE_WORKFLOW_REF,
+                sourceRunIds: [process.env.EVIDENCE_RUN_ONE, process.env.EVIDENCE_RUN_TWO],
+                evidenceSha256: process.env.EVIDENCE_SHA256,
+                artifactName: process.env.EVIDENCE_ARTIFACT_NAME,
+                verifiedAt: new Date().toISOString()
+              };
+              writeFileSync(
+                process.env.EVIDENCE_STAGING + "/0009-publication-attestation.json",
+                JSON.stringify(attestation, null, 2) + "\n"
+              );
+            '
+          echo "name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "staging=$staging" >> "$GITHUB_OUTPUT"
+
+      - name: Publish complete candidate evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.staging }}/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

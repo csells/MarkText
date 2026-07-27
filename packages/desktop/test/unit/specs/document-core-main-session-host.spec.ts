@@ -17,10 +17,12 @@ import { createFileDocumentSessionJournalStorage } from 'main_renderer/documentC
 import type { DocumentCorePublication } from '@shared/types/documentCore'
 import {
   consumeDocumentCoreHostHtml,
-  createDocumentCoreMainSessionHost,
   decodeDocumentCorePublication,
   type DocumentCoreMainSessionHost
 } from 'main_renderer/documentCore/mainSessionHost'
+import {
+  createTestDocumentCoreMainSessionHost as createDocumentCoreMainSessionHost
+} from '../helpers/documentSessionHost'
 import {
   decodeDocumentCoreMainDispatchRequest
 } from 'main_renderer/ipc/documentCoreRuntimeCodec'
@@ -204,6 +206,45 @@ function pauseAfterFirstDurableWrite(
 }
 
 describe('main-owned document-core session host', () => {
+  it('rejects a fabricated portable base without a verified source replica', async() => {
+    const host = createDocumentCoreMainSessionHost(await temporaryStorage())
+    const codec = new WireEnvelopeCodecV1()
+    const opened = await openHost(host, 'renderer:1', {
+      documentId: 'document-fabricated-base',
+      durabilityKey: 'durable-fabricated-base',
+      source: createSourceSnapshot('alpha'),
+      parseConfiguration: configuration
+    })
+    const initial = decodeDocumentCorePublication(
+      codec.publish(opened.envelope, opened.baseSnapshotId)
+    )
+    if (initial.kind !== 'complete') {
+      throw new Error('Expected a complete fabricated-base fixture')
+    }
+    const edited = await host.dispatch('renderer:1', {
+      documentId: 'document-fabricated-base',
+      baseSnapshotId: initial.snapshotId,
+      intent: {
+        kind: 'insert-text',
+        target: {
+          ...initial.selection,
+          anchor: { offset: 5, affinity: 'next' },
+          focus: { offset: 5, affinity: 'next' }
+        },
+        text: '!'
+      }
+    })
+    const published = codec.publish(edited.envelope, edited.baseSnapshotId)
+    const fabricated = Object.freeze({ ...initial })
+
+    expect(() => decodeDocumentCorePublication(published, fabricated))
+      .toThrow(/unverified base/i)
+    expect(decodeDocumentCorePublication(published, initial).source)
+      .toBe('alpha!')
+
+    await host.close('renderer:1', 'document-fabricated-base')
+  })
+
   it('decodes clean projections with their retained Markup coordinate space', async() => {
     const host = createDocumentCoreMainSessionHost(await temporaryStorage())
     const documentId = 'document-clean-projections'
@@ -215,13 +256,19 @@ describe('main-owned document-core session host', () => {
       parseConfiguration: configuration
     })
     const codec = new WireEnvelopeCodecV1()
-    const publish = (publication: DocumentCorePublication) =>
-      decodeDocumentCorePublication(codec.publish(
+    let mounted = decodeDocumentCorePublication(codec.publish(
+      opened.envelope,
+      opened.baseSnapshotId
+    ))
+    const publish = (publication: DocumentCorePublication) => {
+      mounted = decodeDocumentCorePublication(codec.publish(
         publication.envelope,
         publication.baseSnapshotId
-      ))
+      ), mounted)
+      return mounted
+    }
 
-    const marked = publish(opened)
+    const marked = mounted
     if (marked.kind !== 'complete') {
       throw new Error('Expected a complete Markup snapshot')
     }
@@ -339,7 +386,8 @@ describe('main-owned document-core session host', () => {
       reason: 'stale-selection'
     })
     const bravoAfterRejection = decodeDocumentCorePublication(
-      decodedRejection
+      decodedRejection,
+      bravo
     )
     expect(bravoAfterRejection.source).toBe('bravo')
 
@@ -586,7 +634,8 @@ describe('main-owned document-core session host', () => {
       throw new Error('Expected one cut publication')
     }
     const cutSnapshot = decodeDocumentCorePublication(
-      codec.publish(committed.envelope, committed.baseSnapshotId)
+      codec.publish(committed.envelope, committed.baseSnapshotId),
+      openedSnapshot
     )
     expect(cutSnapshot.source).toBe('Ho')
     expect(cutSnapshot.historyState).toMatchObject({
@@ -600,7 +649,8 @@ describe('main-owned document-core session host', () => {
       intent: { kind: 'undo' }
     })
     const undoneSnapshot = decodeDocumentCorePublication(
-      codec.publish(undone.envelope, undone.baseSnapshotId)
+      codec.publish(undone.envelope, undone.baseSnapshotId),
+      cutSnapshot
     )
     expect(undoneSnapshot.source).toBe('Hello')
     expect(undoneSnapshot.historyState).toMatchObject({
@@ -666,7 +716,8 @@ describe('main-owned document-core session host', () => {
       throw new Error('Expected a Source cut publication')
     }
     const cutSnapshot = decodeDocumentCorePublication(
-      codec.publish(committed.envelope, committed.baseSnapshotId)
+      codec.publish(committed.envelope, committed.baseSnapshotId),
+      openedSnapshot
     )
     expect(cutSnapshot.source).toBe('Ho')
     const undone = await host.dispatch('renderer:1', {
@@ -675,7 +726,8 @@ describe('main-owned document-core session host', () => {
       intent: { kind: 'undo' }
     })
     const undoneSnapshot = decodeDocumentCorePublication(
-      codec.publish(undone.envelope, undone.baseSnapshotId)
+      codec.publish(undone.envelope, undone.baseSnapshotId),
+      cutSnapshot
     )
     expect(undoneSnapshot.source).toBe('Hello')
     await host.close('renderer:1', 'clipboard-source-cut')
@@ -733,7 +785,8 @@ describe('main-owned document-core session host', () => {
       throw new Error('Expected a table cut publication')
     }
     const cutSnapshot = decodeDocumentCorePublication(
-      codec.publish(committed.envelope, committed.baseSnapshotId)
+      codec.publish(committed.envelope, committed.baseSnapshotId),
+      openedSnapshot
     )
     expect(cutSnapshot.source).toBe([
       '| a | b | c |',
@@ -748,7 +801,8 @@ describe('main-owned document-core session host', () => {
       intent: { kind: 'undo' }
     })
     const undoneSnapshot = decodeDocumentCorePublication(
-      codec.publish(undone.envelope, undone.baseSnapshotId)
+      codec.publish(undone.envelope, undone.baseSnapshotId),
+      cutSnapshot
     )
     expect(undoneSnapshot.source).toBe(source)
     await host.close('renderer:1', 'clipboard-table-cut')
@@ -1466,11 +1520,24 @@ describe('main-owned document-core session host', () => {
         baseSnapshotId: snapshot.snapshotId,
         intent: { kind: 'insert-text', target, text: '!' }
       })
+      const verifiedCommit = new WireEnvelopeCodecV1().publish(
+        committed.envelope,
+        committed.baseSnapshotId
+      )
+      expect(verifiedCommit.kind).toBe('published')
+      if (verifiedCommit.kind !== 'published') {
+        throw new Error('Expected the next dispatch publication to verify')
+      }
+      const committedOutcome = JSON.parse(new TextDecoder().decode(
+        verifiedCommit.members.terminalOutcomeDelta
+      )) as { readonly kind?: unknown }
+      expect(
+        committedOutcome,
+        JSON.stringify(committedOutcome)
+      ).toMatchObject({ kind: 'committed' })
       const committedSnapshot = decodeDocumentCorePublication(
-        new WireEnvelopeCodecV1().publish(
-          committed.envelope,
-          committed.baseSnapshotId
-        )
+        verifiedCommit,
+        snapshot
       )
       expect(committedSnapshot.source.length).toBe(source.length + 1)
       expect(committedSnapshot.source.endsWith('!')).toBe(true)
@@ -1542,7 +1609,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         editedPublication.envelope,
         editedPublication.baseSnapshotId
-      )
+      ),
+      initial
     )
     expect(edited.historyState).toMatchObject({
       canUndo: true,
@@ -1578,7 +1646,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         undonePublication.envelope,
         undonePublication.baseSnapshotId
-      )
+      ),
+      edited
     )
     expect(undone.source).toBe('A')
     expect(undone.historyState).toMatchObject({
@@ -1598,7 +1667,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         redonePublication.envelope,
         redonePublication.baseSnapshotId
-      )
+      ),
+      undone
     )
     expect(redone.source).toBe('AB')
     expect(redone.historyState).toMatchObject({
@@ -1618,7 +1688,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         secondUndoPublication.envelope,
         secondUndoPublication.baseSnapshotId
-      )
+      ),
+      redone
     )
     if (secondUndo.kind !== 'complete') {
       throw new Error('Expected complete snapshot')
@@ -1640,7 +1711,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         divergentPublication.envelope,
         divergentPublication.baseSnapshotId
-      )
+      ),
+      secondUndo
     )
     expect(divergent.source).toBe('AC')
     expect(divergent.historyState).toMatchObject({
@@ -1709,7 +1781,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         editedPublication.envelope,
         editedPublication.baseSnapshotId
-      )
+      ),
+      initial
     )
     const lease = await host.preparePersistence(
       'renderer:1',
@@ -1791,7 +1864,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         enabledPublication.envelope,
         enabledPublication.baseSnapshotId
-      )
+      ),
+      initial
     )
     expect(enabled.source).toBe(initial.source)
     expect(enabled.historyState).toEqual(initial.historyState)
@@ -1828,7 +1902,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         disabledPublication.envelope,
         disabledPublication.baseSnapshotId
-      )
+      ),
+      enabled
     )
     expect(disabled.source).toBe(initial.source)
     expect(disabled.historyState).toEqual(initial.historyState)
@@ -1883,7 +1958,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         trackedPublication.envelope,
         trackedPublication.baseSnapshotId
-      )
+      ),
+      snapshot
     )
     if (tracked.kind !== 'complete') {
       throw new Error('Expected a complete tracked snapshot')
@@ -1927,7 +2003,8 @@ describe('main-owned document-core session host', () => {
       }
     })
     const changedSnapshot = decodeDocumentCorePublication(
-      new WireEnvelopeCodecV1().publish(changed.envelope, changed.baseSnapshotId)
+      new WireEnvelopeCodecV1().publish(changed.envelope, changed.baseSnapshotId),
+      openedSnapshot
     )
     expect(changedSnapshot.source).toBe('alpha beta')
     expect(changedSnapshot.historyState).toMatchObject({
@@ -1996,7 +2073,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         committedPublication.envelope,
         committedPublication.baseSnapshotId
-      )
+      ),
+      initial
     )
     if (committed.kind !== 'complete') {
       throw new Error('Expected a complete snapshot')
@@ -2070,7 +2148,8 @@ describe('main-owned document-core session host', () => {
       codec.publish(
         undonePublication.envelope,
         undonePublication.baseSnapshotId
-      )
+      ),
+      recovered
     )
     expect(undone.source).toBe('alpha beta')
     await host.close('renderer:2', 'document-worker-recovery')
@@ -2230,7 +2309,8 @@ describe('main-owned document-core session host', () => {
       new WireEnvelopeCodecV1().publish(
         committedAfterCancellation.envelope,
         committedAfterCancellation.baseSnapshotId
-      )
+      ),
+      snapshot
     )
     expect(committedSnapshot.source).toBe('kept alive')
     expect(execution.isAlive).toBe(true)
@@ -2241,4 +2321,60 @@ describe('main-owned document-core session host', () => {
       admitted.ticketId
     )).rejects.toThrow(/already consumed/)
   })
+
+  it('keeps repeated deep-document edits bounded and observes retained parser work', async() => {
+    const host = createDocumentCoreMainSessionHost(await temporaryStorage())
+    const codec = new WireEnvelopeCodecV1()
+    const depth = 12_000
+    const source = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
+    const opened = await openHost(host, 'renderer:1', {
+      documentId: 'deep-repeated-edit',
+      durabilityKey: 'durable-deep-repeated-edit',
+      source: createSourceSnapshot(source),
+      parseConfiguration: configuration
+    })
+    let snapshot = decodeDocumentCorePublication(
+      codec.publish(opened.envelope, opened.baseSnapshotId)
+    )
+    if (snapshot.kind !== 'complete') {
+      throw new Error('Expected a complete deep-document snapshot')
+    }
+    const executions: DocumentCorePublication['execution'][] = []
+
+    for (const text of ['a', 'b']) {
+      const target = {
+        ...snapshot.selection,
+        anchor: {
+          offset: snapshot.markupModelLength,
+          affinity: 'next' as const
+        },
+        focus: {
+          offset: snapshot.markupModelLength,
+          affinity: 'next' as const
+        }
+      }
+      const committed = await host.dispatch('renderer:1', {
+        documentId: 'deep-repeated-edit',
+        baseSnapshotId: snapshot.snapshotId,
+        intent: { kind: 'insert-text', target, text }
+      })
+      executions.push(committed.execution)
+      snapshot = decodeDocumentCorePublication(
+        codec.publish(committed.envelope, committed.baseSnapshotId),
+        snapshot
+      )
+      if (snapshot.kind !== 'complete') {
+        throw new Error('Deep-document edit became SourceOnly')
+      }
+    }
+
+    expect(snapshot.source).toContain('xab')
+    expect(Math.max(...executions.map(
+      execution => execution.operationElapsedMs
+    ))).toBeLessThanOrEqual(500)
+    expect(Math.min(...executions.map(
+      execution => execution.operationForkAstRegionReuses
+    ))).toBeGreaterThan(0)
+    await host.close('renderer:1', 'deep-repeated-edit')
+  }, 30_000)
 })

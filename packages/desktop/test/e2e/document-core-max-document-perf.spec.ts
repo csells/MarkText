@@ -11,7 +11,12 @@ import type { ElectronApplication, Page } from 'playwright'
 import type {
   DocumentCorePerformanceSurface
 } from '../../src/main/documentCore/documentCorePerformanceSurface'
-import { measuredDoublingRatio } from './documentCorePerformanceMath'
+import {
+  aggregateMainStageMeasurements,
+  isUsableBoundedViewport,
+  measuredDoublingRatio,
+  type BoundedViewportObservation
+} from './documentCorePerformanceMath'
 import {
   closeElectron,
   expectNoCapturedErrors,
@@ -21,6 +26,9 @@ import {
 } from './helpers'
 
 const MAX_SOURCE_UNITS = 32_000_000
+// Session identity hash, revision hash, intrinsic indexing, and parser-owned
+// document facts are four separately checkpointed source-work stages on open.
+const MAXIMUM_OPEN_SOURCE_WORK_UNITS = MAX_SOURCE_UNITS * 4
 const OPEN_ADMISSION_BUDGET_MS = 50
 const MAIN_STAGE_BUDGET_MS = 4
 const CANCELLATION_BUDGET_MS = 100
@@ -51,6 +59,13 @@ type ReuseMeasurementBand =
   | 'green'
   | 'owner-decision'
   | 'reuse-required'
+type ReuseAssessment =
+  | 'green-no-reuse-needed'
+  | 'green-reuse-retained'
+  | 'owner-decision-reuse-retained'
+  | 'owner-decision-reuse-unobserved'
+  | 'reuse-required-and-proven'
+  | 'reuse-required-but-unobserved'
 
 interface PerformanceReuseDecision {
   readonly schema: 'marktext-performance-reuse-decision-v1'
@@ -152,6 +167,11 @@ interface ScaleEditFamilyResult {
     readonly mode: string | null
     readonly sourceLength: number
     readonly executionThreadId: number | null
+    readonly documentId: string
+  }>
+  readonly mainAdmission: Readonly<{
+    readonly ticketAdmissionMs: number
+    readonly maximumMainStageMs: number
   }>
   readonly sampleCount: number
   readonly browserInputLatencyMs: Readonly<{
@@ -166,6 +186,11 @@ interface ScaleEditFamilyResult {
     readonly p95: number
     readonly maximum: number
   }>
+  readonly worstResidualParseStallMs: number
+  readonly measurementBand: ReuseMeasurementBand
+  readonly reuseAssessment: ReuseAssessment
+  readonly measuredFragmentReuses: number
+  readonly measuredFragmentEmissions: number
   readonly renderer: Readonly<{
     readonly maximumGapMs: number
     readonly samples: number
@@ -355,6 +380,33 @@ function percentile(values: readonly number[], quantile: number): number {
   return value
 }
 
+function reuseMeasurementBand(stallMs: number): ReuseMeasurementBand {
+  return stallMs < GREEN_NO_REUSE_STALL_MS
+    ? 'green'
+    : stallMs <= REQUIRED_REUSE_STALL_MS
+      ? 'owner-decision'
+      : 'reuse-required'
+}
+
+function assessMeasuredReuse(
+  band: ReuseMeasurementBand,
+  measuredReuses: number
+): ReuseAssessment {
+  if (band === 'green') {
+    return measuredReuses === 0
+      ? 'green-no-reuse-needed'
+      : 'green-reuse-retained'
+  }
+  if (band === 'owner-decision') {
+    return measuredReuses > 0
+      ? 'owner-decision-reuse-retained'
+      : 'owner-decision-reuse-unobserved'
+  }
+  return measuredReuses > 0
+    ? 'reuse-required-and-proven'
+    : 'reuse-required-but-unobserved'
+}
+
 test.describe('document-core maximum-document responsiveness', () => {
   test.describe.configure({ timeout: 1_200_000 })
 
@@ -527,6 +579,40 @@ test.describe('document-core maximum-document responsiveness', () => {
       }).__mtMaximumDocumentAdmission = state
     }, path.basename(filePath))
 
+    const observeMaximumViewport = async():
+    Promise<BoundedViewportObservation> => await launched.page.evaluate(
+      ({ filename, sourceUnits }) => {
+        const root = document.querySelector<HTMLElement>(
+          '.editor-component.document-view-container'
+        )
+        const activeTab = document.querySelector('.editor-tabs li.active')
+        const carrier = root?.querySelector<HTMLElement>(
+          `[data-model-start="0"][data-model-end="${String(sourceUnits)}"]`
+        ) ?? null
+        const bounds = root?.getBoundingClientRect()
+        return {
+          targetActive: activeTab?.textContent?.includes(filename) === true,
+          connected: root?.isConnected === true,
+          mode: root?.dataset.documentMode ?? null,
+          contentEditable: root?.getAttribute('contenteditable') ?? null,
+          ariaReadOnly: root?.getAttribute('aria-readonly') ?? null,
+          domNodes: root?.querySelectorAll('*').length ?? 0,
+          carrierStart:
+            carrier === null ? null : Number(carrier.dataset.modelStart),
+          carrierEnd:
+            carrier === null ? null : Number(carrier.dataset.modelEnd),
+          width: bounds?.width ?? 0,
+          height: bounds?.height ?? 0
+        }
+      },
+      {
+        filename: path.basename(filePath),
+        sourceUnits: MAX_SOURCE_UNITS
+      }
+    )
+    // This clock starts before the public open-file event. The measured
+    // terminal is the first stable, laid-out, editable viewport for the exact
+    // target document with its full carrier range and bounded DOM.
     const mountedOpenStartedAt = performance.now()
     const productionOpenDispatchMs = await app.evaluate(
       ({ app: electronApp }, pathname) => {
@@ -536,6 +622,96 @@ test.describe('document-core maximum-document responsiveness', () => {
       },
       filePath
     )
+    const viewportBudgetDeadline =
+      mountedOpenStartedAt + VIEWPORT_MOUNT_BUDGET_MS
+    const viewportTerminalDeadline = mountedOpenStartedAt + TERMINAL_BUDGET_MS
+    let viewportBudgetObservation: BoundedViewportObservation | null = null
+    let viewportObservation = await observeMaximumViewport()
+    for (;;) {
+      const observedAt = performance.now()
+      if (
+        viewportBudgetObservation === null &&
+        observedAt >= viewportBudgetDeadline
+      ) {
+        viewportBudgetObservation = viewportObservation
+      }
+      if (isUsableBoundedViewport(viewportObservation, {
+        sourceUnits: MAX_SOURCE_UNITS,
+        maximumDomNodes: VIEWPORT_DOM_NODE_BUDGET
+      })) {
+        // Require the same complete, bounded viewport across two presentation
+        // frames instead of accepting a transient mount mutation.
+        await launched.page.evaluate(async() => await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        ))
+        viewportObservation = await observeMaximumViewport()
+        if (isUsableBoundedViewport(viewportObservation, {
+          sourceUnits: MAX_SOURCE_UNITS,
+          maximumDomNodes: VIEWPORT_DOM_NODE_BUDGET
+        })) {
+          break
+        }
+      }
+      if (observedAt >= viewportTerminalDeadline) {
+        throw new Error(
+          'Maximum document never produced a usable bounded viewport: ' +
+          JSON.stringify({ viewportBudgetObservation, viewportObservation })
+        )
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 50))
+      viewportObservation = await observeMaximumViewport()
+    }
+    const viewportMountMs = performance.now() - mountedOpenStartedAt
+    viewportBudgetObservation ??= viewportObservation
+    const viewportAdmission = await page.evaluate(() => {
+      const state = (window as unknown as {
+        __mtMaximumDocumentAdmission?: {
+          readonly receivedAt: number | null
+          readonly presentedAt: number | null
+        }
+      }).__mtMaximumDocumentAdmission
+      const documentId = document.querySelector(
+        '.editor-tabs li.active'
+      )?.getAttribute('data-id')
+      if (
+        state?.receivedAt === null ||
+        state?.receivedAt === undefined ||
+        state.presentedAt === null ||
+        documentId === null ||
+        documentId === undefined
+      ) {
+        throw new Error('Maximum document has no viewport admission evidence')
+      }
+      return Object.freeze({
+        documentId,
+        rendererAdmissionMs: state.presentedAt - state.receivedAt
+      })
+    })
+    const productionAdmission = await app.evaluate((_electron, documentId) => {
+      const surface = (
+        globalThis as typeof globalThis & {
+          __mtDocumentCorePerformance?: DocumentCorePerformanceSurface
+        }
+      ).__mtDocumentCorePerformance
+      if (surface === undefined) {
+        throw new Error('Main-only document performance surface is absent')
+      }
+      return surface.readAdmission(documentId)
+    }, viewportAdmission.documentId)
+    expect(viewportMountMs, JSON.stringify({
+      viewportMountMs,
+      viewportBudgetObservation,
+      viewportObservation,
+      workerOperationElapsedMs:
+        productionAdmission.admission.execution.operationElapsedMs,
+      workerOwningThreadStallMs:
+        productionAdmission.admission.execution.operationOwningThreadStallMs,
+      workerMaximumCheckpointGapMs:
+        productionAdmission.admission.execution.operationMaximumCheckpointGapMs,
+      ticketAdmissionMs: productionAdmission.ticketAdmissionMs,
+      maximumMainStageMs: productionAdmission.maximumMainStageMs,
+      rendererAdmissionMs: viewportAdmission.rendererAdmissionMs
+    })).toBeLessThanOrEqual(VIEWPORT_MOUNT_BUDGET_MS)
     await waitForEditor(page, TERMINAL_BUDGET_MS)
     await expect.poll(
       () => launched.page.evaluate(() =>
@@ -544,32 +720,8 @@ test.describe('document-core maximum-document responsiveness', () => {
       { timeout: TERMINAL_BUDGET_MS }
     ).toBe(MAX_SOURCE_UNITS)
     const mountedTerminalMs = performance.now() - mountedOpenStartedAt
-    const rendererAdmissionMs = await page.evaluate(() => {
-      const state = (window as unknown as {
-        __mtMaximumDocumentAdmission?: {
-          readonly receivedAt: number | null
-          readonly presentedAt: number | null
-        }
-      }).__mtMaximumDocumentAdmission
-      if (
-        state?.receivedAt === null ||
-        state?.receivedAt === undefined ||
-        state.presentedAt === null
-      ) {
-        throw new Error('Maximum document has no renderer admission evidence')
-      }
-      return state.presentedAt - state.receivedAt
-    })
+    const rendererAdmissionMs = viewportAdmission.rendererAdmissionMs
 
-    const mountStartedAt = performance.now()
-    await expect(page.locator(
-      '.editor-component.document-view-container'
-    )).toHaveAttribute(
-      'data-document-mode',
-      /^(?:semantic|source-only)$/,
-      { timeout: VIEWPORT_MOUNT_BUDGET_MS }
-    )
-    const viewportMountMs = performance.now() - mountStartedAt
     const mounted = await page.evaluate(() => {
       const root = document.querySelector(
         '.editor-component.document-view-container'
@@ -601,17 +753,7 @@ test.describe('document-core maximum-document responsiveness', () => {
         execution
       }
     })
-    const productionAdmission = await app.evaluate((_electron, documentId) => {
-      const surface = (
-        globalThis as typeof globalThis & {
-          __mtDocumentCorePerformance?: DocumentCorePerformanceSurface
-        }
-      ).__mtDocumentCorePerformance
-      if (surface === undefined) {
-        throw new Error('Main-only document performance surface is absent')
-      }
-      return surface.readAdmission(documentId)
-    }, mounted.documentId)
+    expect(mounted.documentId).toBe(viewportAdmission.documentId)
     const mountedAppProcesses = await app.evaluate(({ app: electronApp }) =>
       electronApp.getAppMetrics().map((metric) => Object.freeze({
         type: metric.type,
@@ -694,7 +836,8 @@ test.describe('document-core maximum-document responsiveness', () => {
         startedAt: 0,
         handlerReturnedAt: null as number | null,
         defaultPrevented: false,
-        beforeReport: bridge.readLastExecutionReport()
+        beforeReport: bridge.readLastExecutionReport(),
+        text
       }
       root.addEventListener('beforeinput', () => {
         state.startedAt = performance.now()
@@ -713,14 +856,32 @@ test.describe('document-core maximum-document responsiveness', () => {
     })
     expect(maximumDocumentEditAdmission.sourceLength).toBe(MAX_SOURCE_UNITS)
     const maximumDocumentEditStartedAt = performance.now()
-    await page.keyboard.insertText('z')
+    await page.keyboard.insertText('.')
     await page.waitForFunction(
       ({ expectedLength, beforeReport }) => {
         const bridge = window.__marktextE2EReadOnly
         const source = bridge?.readCanonicalMarkdown()
         const execution = bridge?.readLastExecutionReport()
+        const root = document.querySelector<HTMLElement>(
+          '.editor-component.document-view-container'
+        )
+        const renderedFinalUnit = [
+          ...(root?.querySelectorAll<HTMLElement>(
+            '.document-view-run[data-model-end]'
+          ) ?? [])
+        ].filter((carrier) =>
+          !carrier.classList.contains('document-view-atomic')
+        ).reduce<HTMLElement | null>(
+          (selected, candidate) => selected === null ||
+            Number(candidate.dataset.modelEnd) >=
+              Number(selected.dataset.modelEnd)
+            ? candidate
+            : selected,
+          null
+        )?.textContent?.at(-1)
         return source?.length === expectedLength &&
-          source.endsWith('z') &&
+          source.endsWith('.') &&
+          renderedFinalUnit === '.' &&
           execution !== null &&
           execution !== undefined &&
           execution !== beforeReport &&
@@ -741,6 +902,7 @@ test.describe('document-core maximum-document responsiveness', () => {
           readonly startedAt: number
           readonly handlerReturnedAt: number | null
           readonly defaultPrevented: boolean
+          readonly text: Text
         }
       }).__mtMaximumDocumentEdit
       const execution = bridge?.readLastExecutionReport()
@@ -754,9 +916,188 @@ test.describe('document-core maximum-document responsiveness', () => {
       ) {
         throw new Error('Maximum document edit has no terminal evidence')
       }
+      const root = document.querySelector<HTMLElement>(
+        '.editor-component.document-view-container'
+      )
+      const carrier = [
+        ...(root?.querySelectorAll<HTMLElement>(
+          '.document-view-run[data-model-end]'
+        ) ?? [])
+      ].filter((candidate) =>
+        !candidate.classList.contains('document-view-atomic')
+      ).reduce<HTMLElement | null>(
+        (selected, candidate) => selected === null ||
+          Number(candidate.dataset.modelEnd) >=
+            Number(selected.dataset.modelEnd)
+          ? candidate
+          : selected,
+        null
+      )
       return {
         sourceLength: bridge?.readCanonicalMarkdown().length ?? -1,
         finalUnit: bridge?.readCanonicalMarkdown().at(-1) ?? null,
+        retainedTextIdentity: carrier?.lastChild === state.text,
+        retainedTextConnected: state.text.isConnected,
+        renderedFinalUnit: carrier?.textContent?.at(-1) ?? null,
+        browserHandlerMs: state.handlerReturnedAt - state.startedAt,
+        defaultPrevented: state.defaultPrevented,
+        execution
+      }
+    })
+
+    const maximumDocumentDeletionAdmission = await page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>(
+        '.editor-component.document-view-container'
+      )
+      const bridge = window.__marktextE2EReadOnly
+      const carrier = [
+        ...(root?.querySelectorAll<HTMLElement>(
+          '.document-view-run[data-model-end]'
+        ) ?? [])
+      ].filter((candidate) =>
+        !candidate.classList.contains('document-view-atomic')
+      ).reduce<HTMLElement | null>(
+        (selected, candidate) => selected === null ||
+          Number(candidate.dataset.modelEnd) >=
+            Number(selected.dataset.modelEnd)
+          ? candidate
+          : selected,
+        null
+      )
+      const text = carrier?.lastChild
+      if (
+        root === null ||
+        bridge === undefined ||
+        !(text instanceof Text) ||
+        text.length < 1
+      ) {
+        throw new Error('Maximum document has no deletion text carrier')
+      }
+      const range = document.createRange()
+      range.setStart(text, text.length)
+      range.collapse(true)
+      const selection = document.getSelection()
+      if (selection === null) {
+        throw new Error('Maximum document deletion has no browser Selection')
+      }
+      selection.removeAllRanges()
+      selection.addRange(range)
+      root.focus()
+      document.dispatchEvent(new Event('selectionchange'))
+      root.dispatchEvent(new KeyboardEvent('keyup', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true
+      }))
+
+      const state = {
+        startedAt: 0,
+        handlerReturnedAt: null as number | null,
+        defaultPrevented: false,
+        beforeReport: bridge.readLastExecutionReport(),
+        text
+      }
+      root.addEventListener('beforeinput', () => {
+        state.startedAt = performance.now()
+      }, { capture: true, once: true })
+      root.addEventListener('beforeinput', (event) => {
+        state.handlerReturnedAt = performance.now()
+        state.defaultPrevented = event.defaultPrevented
+      }, { once: true })
+      ;(window as unknown as {
+        __mtMaximumDocumentDeletion?: typeof state
+      }).__mtMaximumDocumentDeletion = state
+      return {
+        beforeReport: state.beforeReport,
+        sourceLength: bridge.readCanonicalMarkdown().length
+      }
+    })
+    expect(maximumDocumentDeletionAdmission.sourceLength)
+      .toBe(MAX_SOURCE_UNITS)
+    const maximumDocumentDeletionStartedAt = performance.now()
+    await page.keyboard.press('Backspace')
+    await page.waitForFunction(
+      ({ expectedLength, beforeReport }) => {
+        const bridge = window.__marktextE2EReadOnly
+        const source = bridge?.readCanonicalMarkdown()
+        const execution = bridge?.readLastExecutionReport()
+        const root = document.querySelector<HTMLElement>(
+          '.editor-component.document-view-container'
+        )
+        const renderedFinalUnit = [
+          ...(root?.querySelectorAll<HTMLElement>(
+            '.document-view-run[data-model-end]'
+          ) ?? [])
+        ].filter((carrier) =>
+          !carrier.classList.contains('document-view-atomic')
+        ).reduce<HTMLElement | null>(
+          (selected, candidate) => selected === null ||
+            Number(candidate.dataset.modelEnd) >=
+              Number(selected.dataset.modelEnd)
+            ? candidate
+            : selected,
+          null
+        )?.textContent?.at(-1)
+        return source?.length === expectedLength &&
+          source.endsWith('x') &&
+          renderedFinalUnit === 'x' &&
+          execution !== null &&
+          execution !== undefined &&
+          execution !== beforeReport &&
+          execution.operationKind === 'dispatch'
+      },
+      {
+        expectedLength: MAX_SOURCE_UNITS - 1,
+        beforeReport: maximumDocumentDeletionAdmission.beforeReport
+      },
+      { timeout: TERMINAL_BUDGET_MS }
+    )
+    const maximumDocumentDeletionTerminalMs =
+      performance.now() - maximumDocumentDeletionStartedAt
+    const maximumDocumentDeletion = await page.evaluate(() => {
+      const bridge = window.__marktextE2EReadOnly
+      const state = (window as unknown as {
+        __mtMaximumDocumentDeletion?: {
+          readonly startedAt: number
+          readonly handlerReturnedAt: number | null
+          readonly defaultPrevented: boolean
+          readonly text: Text
+        }
+      }).__mtMaximumDocumentDeletion
+      const execution = bridge?.readLastExecutionReport()
+      if (
+        state === undefined ||
+        state.startedAt <= 0 ||
+        state.handlerReturnedAt === null ||
+        execution === null ||
+        execution === undefined ||
+        execution.operationKind !== 'dispatch'
+      ) {
+        throw new Error('Maximum document deletion has no terminal evidence')
+      }
+      const root = document.querySelector<HTMLElement>(
+        '.editor-component.document-view-container'
+      )
+      const carrier = [
+        ...(root?.querySelectorAll<HTMLElement>(
+          '.document-view-run[data-model-end]'
+        ) ?? [])
+      ].filter((candidate) =>
+        !candidate.classList.contains('document-view-atomic')
+      ).reduce<HTMLElement | null>(
+        (selected, candidate) => selected === null ||
+          Number(candidate.dataset.modelEnd) >=
+            Number(selected.dataset.modelEnd)
+          ? candidate
+          : selected,
+        null
+      )
+      return {
+        sourceLength: bridge?.readCanonicalMarkdown().length ?? -1,
+        finalUnit: bridge?.readCanonicalMarkdown().at(-1) ?? null,
+        retainedTextIdentity: carrier?.lastChild === state.text,
+        retainedTextConnected: state.text.isConnected,
+        renderedFinalUnit: carrier?.textContent?.at(-1) ?? null,
         browserHandlerMs: state.handlerReturnedAt - state.startedAt,
         defaultPrevented: state.defaultPrevented,
         execution
@@ -819,6 +1160,10 @@ test.describe('document-core maximum-document responsiveness', () => {
         upperCount: fixture.upperCount,
         lowerElapsedMs,
         upperElapsedMs,
+        lowerTicketAdmissionMs: lower.ticketAdmissionMs,
+        upperTicketAdmissionMs: upper.ticketAdmissionMs,
+        lowerMaximumMainStageMs: lower.maximumMainStageMs,
+        upperMaximumMainStageMs: upper.maximumMainStageMs,
         lowerTerminalMs: lower.terminalMs,
         upperTerminalMs: upper.terminalMs,
         ratio: measuredDoublingRatio(lowerElapsedMs, upperElapsedMs),
@@ -875,6 +1220,7 @@ test.describe('document-core maximum-document responsiveness', () => {
 
     const metrics = {
       productionOpenDispatchMs,
+      productionTicketAdmissionMs: productionAdmission.ticketAdmissionMs,
       rendererAdmissionMs,
       maximumDocumentTicketAdmissionMs: cancelled.ticketAdmissionMs,
       admissionMs: Math.max(
@@ -885,6 +1231,8 @@ test.describe('document-core maximum-document responsiveness', () => {
       terminalMs: mountedTerminalMs,
       maximumDocumentEditTerminalMs,
       maximumDocumentEdit,
+      maximumDocumentDeletionTerminalMs,
+      maximumDocumentDeletion,
       executionThreadId:
         productionAdmission.admission.execution.executionThreadId,
       workerExecution: productionAdmission.admission.execution,
@@ -892,10 +1240,6 @@ test.describe('document-core maximum-document responsiveness', () => {
       serializedMemberBytes: mounted.execution.serializedMemberBytes,
       serializedPayloadBytes: mounted.execution.serializedPayloadBytes,
       nodeCheckpoint: nodeCheckpoint.admission.execution,
-      maximumMainStageMs: Math.max(
-        nodeCheckpoint.maximumMainStageMs,
-        cancelled.maximumMainStageMs
-      ),
       maximumAnimationGapMs: rendererLoop.maximumGapMs,
       rendererAnimationSamples: rendererLoop.samples,
       rendererMemoryAfterMount,
@@ -912,6 +1256,10 @@ test.describe('document-core maximum-document responsiveness', () => {
       dispatchCancellationTerminalMs:
         dispatchCancellation.terminalAfterCancellationMs,
       dispatchCancellationKind: dispatchCancellation.cancellationKind,
+      dispatchCancellationTicketAdmissionMs:
+        dispatchCancellation.ticketAdmissionMs,
+      dispatchCancellationMaximumMainStageMs:
+        dispatchCancellation.maximumMainStageMs,
       dispatchStayedOnBase: dispatchCancellation.cancelledStayedOnBase,
       dispatchCancelledExecution: dispatchCancellation.cancelledExecution,
       dispatchRecoveredExecution: dispatchCancellation.recoveredExecution,
@@ -999,13 +1347,33 @@ test.describe('document-core maximum-document responsiveness', () => {
         },
         family.filePath
       )
-      await waitForEditor(page, TERMINAL_BUDGET_MS)
+      try {
+        await waitForEditor(page, TERMINAL_BUDGET_MS)
+      } catch (error) {
+        throw new Error(
+          `Scale edit family ${family.id} failed to mount its editor`,
+          { cause: error }
+        )
+      }
       await expect.poll(
         () => launchedScale.page.evaluate(() =>
           window.__marktextE2EReadOnly?.readCanonicalMarkdown().length ?? -1
         ),
         { timeout: TERMINAL_BUDGET_MS }
       ).toBe(family.source.length)
+      await expect.poll(
+        () => launchedScale.page.evaluate(() => [
+          ...document.querySelectorAll<HTMLElement>(
+            '.document-view-run[data-model-end]'
+          )
+        ].some((carrier) =>
+          !carrier.classList.contains('document-view-atomic')
+        )),
+        {
+          message: `${family.id} must mount an editable text carrier`,
+          timeout: TERMINAL_BUDGET_MS
+        }
+      ).toBe(true)
       const openMs = performance.now() - openedAt
 
       await app.evaluate(() => {
@@ -1034,7 +1402,15 @@ test.describe('document-core maximum-document responsiveness', () => {
           '.editor-component.document-view-container'
         )
         const bridge = window.__marktextE2EReadOnly
-        if (root === null || bridge === undefined) {
+        const documentId = document.querySelector(
+          '.editor-tabs li.active'
+        )?.getAttribute('data-id')
+        if (
+          root === null ||
+          bridge === undefined ||
+          documentId === null ||
+          documentId === undefined
+        ) {
           throw new Error('Scale document has no mounted production editor')
         }
         type Sample = {
@@ -1154,8 +1530,17 @@ test.describe('document-core maximum-document responsiveness', () => {
         if (carrier === null) {
           throw new Error('Scale document has no editable text carrier')
         }
-        const text = carrier.lastChild
-        if (text === null || text.nodeType !== Node.TEXT_NODE) {
+        const walker = document.createTreeWalker(
+          carrier,
+          NodeFilter.SHOW_TEXT
+        )
+        let text: Text | null = null
+        let candidate = walker.nextNode()
+        while (candidate !== null) {
+          if (candidate instanceof Text) text = candidate
+          candidate = walker.nextNode()
+        }
+        if (text === null) {
           throw new Error('Scale document has no editable text carrier')
         }
         const range = document.createRange()
@@ -1178,12 +1563,31 @@ test.describe('document-core maximum-document responsiveness', () => {
           __mtScaleEditInput?: typeof state
         }).__mtScaleEditInput = state
         return {
+          documentId,
           mode: root.dataset.documentMode ?? null,
           sourceLength: bridge.readCanonicalMarkdown().length,
           executionThreadId:
             bridge.readLastExecutionReport()?.executionThreadId ?? null
         }
       }, SCALE_EDIT_SAMPLES)
+      const scaleMainAdmission = await app.evaluate(
+        (_electron, documentId) => {
+          const surface = (
+            globalThis as typeof globalThis & {
+              __mtDocumentCorePerformance?: DocumentCorePerformanceSurface
+            }
+          ).__mtDocumentCorePerformance
+          if (surface === undefined) {
+            throw new Error('Main-only document performance surface is absent')
+          }
+          const admission = surface.readAdmission(documentId)
+          return {
+            ticketAdmissionMs: admission.ticketAdmissionMs,
+            maximumMainStageMs: admission.maximumMainStageMs
+          }
+        },
+        mountedScale.documentId
+      )
 
       await page.waitForTimeout(50)
       for (let sample = 0; sample < SCALE_EDIT_SAMPLES; sample += 1) {
@@ -1265,6 +1669,20 @@ test.describe('document-core maximum-document responsiveness', () => {
       const workerStalls = browser.samples.map(
         (sample) => sample.execution.operationOwningThreadStallMs
       )
+      const worstFamilyStallMs = Math.max(...workerStalls)
+      const familyMeasurementBand = reuseMeasurementBand(
+        worstFamilyStallMs
+      )
+      const familyMeasuredReuses = browser.samples.reduce(
+        (total, sample) =>
+          total + sample.execution.operationForkAstRegionReuses,
+        0
+      )
+      const familyMeasuredEmissions = browser.samples.reduce(
+        (total, sample) =>
+          total + sample.execution.operationForkAstRegionEmissions,
+        0
+      )
       scaleEditFamilies.push(Object.freeze({
         id: family.id,
         axis: family.axis,
@@ -1274,6 +1692,7 @@ test.describe('document-core maximum-document responsiveness', () => {
         initialSourceUnits: family.source.length,
         openMs,
         mounted: mountedScale,
+        mainAdmission: scaleMainAdmission,
         sampleCount: browser.samples.length,
         browserInputLatencyMs: Object.freeze({
           values: Object.freeze(inputLatencies),
@@ -1287,6 +1706,14 @@ test.describe('document-core maximum-document responsiveness', () => {
           p95: percentile(workerStalls, 0.95),
           maximum: Math.max(...workerStalls)
         }),
+        worstResidualParseStallMs: worstFamilyStallMs,
+        measurementBand: familyMeasurementBand,
+        reuseAssessment: assessMeasuredReuse(
+          familyMeasurementBand,
+          familyMeasuredReuses
+        ),
+        measuredFragmentReuses: familyMeasuredReuses,
+        measuredFragmentEmissions: familyMeasuredEmissions,
         renderer: Object.freeze({
           maximumGapMs: browser.maximumAnimationGapMs,
           samples: browser.animationSamples
@@ -1305,6 +1732,50 @@ test.describe('document-core maximum-document responsiveness', () => {
         await closeElectron(completedScaleApp)
       }
     }
+
+    const expectedMainStagePaths = Object.freeze([
+      'production-open',
+      'logical-node-checkpoint-open',
+      'open-cancellation',
+      'dispatch-cancellation-open',
+      ...SCALE_FAMILY_IDS.flatMap(id => [
+        `scale-doubling:${id}:lower`,
+        `scale-doubling:${id}:upper`
+      ]),
+      ...SCALE_FAMILY_IDS.map(id => `scale-edit:${id}:production-open`)
+    ])
+    const mainStageEvidence = aggregateMainStageMeasurements([
+      {
+        path: 'production-open',
+        maximumMs: productionAdmission.maximumMainStageMs
+      },
+      {
+        path: 'logical-node-checkpoint-open',
+        maximumMs: nodeCheckpoint.maximumMainStageMs
+      },
+      {
+        path: 'open-cancellation',
+        maximumMs: cancelled.maximumMainStageMs
+      },
+      {
+        path: 'dispatch-cancellation-open',
+        maximumMs: dispatchCancellation.maximumMainStageMs
+      },
+      ...scaleDoubling.flatMap(result => [
+        {
+          path: `scale-doubling:${result.id}:lower`,
+          maximumMs: result.lowerMaximumMainStageMs
+        },
+        {
+          path: `scale-doubling:${result.id}:upper`,
+          maximumMs: result.upperMaximumMainStageMs
+        }
+      ]),
+      ...scaleEditFamilies.map(family => ({
+        path: `scale-edit:${family.id}:production-open`,
+        maximumMs: family.mainAdmission.maximumMainStageMs
+      }))
+    ])
 
     const scaleWorkerStalls = scaleEditFamilies.flatMap(
       (family) => family.workerOwningThreadStallMs.values
@@ -1327,21 +1798,13 @@ test.describe('document-core maximum-document responsiveness', () => {
       0
     )
     const ownerDecision = performanceReuseDecision()
-    const measurementBand: ReuseMeasurementBand =
-      worstResidualParseStallMs < GREEN_NO_REUSE_STALL_MS
-        ? 'green'
-        : worstResidualParseStallMs <= REQUIRED_REUSE_STALL_MS
-          ? 'owner-decision'
-          : 'reuse-required'
-    const reuseAssessment = measurementBand === 'green'
-      ? measuredFragmentReuses === 0
-        ? 'green-no-reuse-needed'
-        : 'green-reuse-retained'
-      : measurementBand === 'owner-decision'
-        ? 'owner-decision-reuse-retained'
-        : measuredFragmentReuses > 0
-          ? 'reuse-required-and-proven'
-          : 'reuse-required-but-unobserved'
+    const measurementBand = reuseMeasurementBand(
+      worstResidualParseStallMs
+    )
+    const reuseAssessment = assessMeasuredReuse(
+      measurementBand,
+      measuredFragmentReuses
+    )
     const scaleEdit = Object.freeze({
       schema: 'document-core-scale-edit-report-1',
       manifest: 'specs/migration/profile1-adversarial.yml',
@@ -1376,6 +1839,8 @@ test.describe('document-core maximum-document responsiveness', () => {
       machine: MACHINE_RECORD,
       mountedTerminalMs,
       viewportMountMs,
+      viewportBudgetObservation,
+      viewportObservation,
       mounted,
       mountedAppProcesses,
       mountedAppWorkingSetBytes,
@@ -1387,6 +1852,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       appProcesses,
       appWorkingSetBytes,
       appPeakWorkingSetBytes,
+      mainStageEvidence,
       scaleEdit,
       ...metrics
     }
@@ -1433,14 +1899,40 @@ test.describe('document-core maximum-document responsiveness', () => {
       metrics.workerExecution.operationElapsedMs,
       JSON.stringify(report)
     ).toBeLessThanOrEqual(TERMINAL_BUDGET_MS)
+    expect(
+      metrics.workerExecution.operationMaximumCheckpointGapMs,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(HEARTBEAT_BUDGET_MS)
     expect(metrics.workerExecution.sourceUnits, JSON.stringify(report))
-      .toBe(MAX_SOURCE_UNITS)
+      .toBe(metrics.workerExecution.operationSourceUnits)
+    expect(metrics.workerExecution.operationSourceUnits, JSON.stringify(report))
+      .toBe(MAXIMUM_OPEN_SOURCE_WORK_UNITS)
+    expect(
+      metrics.workerExecution.operationIntrinsicSourceTraversals,
+      JSON.stringify(report)
+    ).toBe(1)
+    expect(
+      metrics.workerExecution.operationIntrinsicSourceUnits,
+      JSON.stringify(report)
+    ).toBe(MAX_SOURCE_UNITS)
     expect(metrics.attachedExecution.operationKind, JSON.stringify(report))
       .toBe('attach')
     expect(metrics.maximumDocumentEdit.sourceLength, JSON.stringify(report))
       .toBe(MAX_SOURCE_UNITS)
     expect(metrics.maximumDocumentEdit.finalUnit, JSON.stringify(report))
-      .toBe('z')
+      .toBe('.')
+    expect(
+      metrics.maximumDocumentEdit.retainedTextIdentity,
+      JSON.stringify(report)
+    ).toBe(true)
+    expect(
+      metrics.maximumDocumentEdit.retainedTextConnected,
+      JSON.stringify(report)
+    ).toBe(true)
+    expect(
+      metrics.maximumDocumentEdit.renderedFinalUnit,
+      JSON.stringify(report)
+    ).toBe('.')
     expect(
       metrics.maximumDocumentEdit.defaultPrevented,
       JSON.stringify(report)
@@ -1481,6 +1973,91 @@ test.describe('document-core maximum-document responsiveness', () => {
       metrics.maximumDocumentEdit.execution.operationForkAstRegionReuses,
       JSON.stringify(report)
     ).toBeGreaterThan(0)
+    expect(
+      metrics.maximumDocumentEdit.execution.serializedMemberBytes.sessionDelta,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(4_096)
+    expect(
+      metrics.maximumDocumentEdit.execution.serializedMemberBytes.livePlanDelta,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(4_096)
+    expect(
+      metrics.maximumDocumentEdit.execution.serializedPayloadBytes,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(12_288)
+    expect(
+      metrics.maximumDocumentDeletion.sourceLength,
+      JSON.stringify(report)
+    ).toBe(MAX_SOURCE_UNITS - 1)
+    expect(metrics.maximumDocumentDeletion.finalUnit, JSON.stringify(report))
+      .toBe('x')
+    expect(
+      metrics.maximumDocumentDeletion.retainedTextIdentity,
+      JSON.stringify(report)
+    ).toBe(true)
+    expect(
+      metrics.maximumDocumentDeletion.retainedTextConnected,
+      JSON.stringify(report)
+    ).toBe(true)
+    expect(
+      metrics.maximumDocumentDeletion.renderedFinalUnit,
+      JSON.stringify(report)
+    ).toBe('x')
+    expect(
+      metrics.maximumDocumentDeletion.defaultPrevented,
+      JSON.stringify(report)
+    ).toBe(true)
+    expect(
+      metrics.maximumDocumentDeletion.browserHandlerMs,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(MAIN_STAGE_BUDGET_MS)
+    expect(
+      metrics.maximumDocumentDeletionTerminalMs,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(MAXIMUM_DOCUMENT_EDIT_BUDGET_MS)
+    expect(
+      metrics.maximumDocumentDeletion.execution.operationElapsedMs,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(MAXIMUM_DOCUMENT_EDIT_BUDGET_MS)
+    expect(
+      metrics.maximumDocumentDeletion.execution.operationOwningThreadStallMs,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(HEARTBEAT_BUDGET_MS)
+    expect(
+      metrics.maximumDocumentDeletion.execution
+        .operationIntrinsicSourceTraversals,
+      JSON.stringify(report)
+    ).toBe(0)
+    expect(
+      metrics.maximumDocumentDeletion.execution.operationIntrinsicSourceUnits,
+      JSON.stringify(report)
+    ).toBe(0)
+    expect(
+      metrics.maximumDocumentDeletion.execution.operationForkAstRegionEmissions,
+      JSON.stringify(report)
+    ).toBe(0)
+    expect(
+      metrics.maximumDocumentDeletion.execution.operationForkAstRegionUnits,
+      JSON.stringify(report)
+    ).toBe(0)
+    expect(
+      metrics.maximumDocumentDeletion.execution.operationForkAstRegionReuses,
+      JSON.stringify(report)
+    ).toBeGreaterThan(0)
+    expect(
+      metrics.maximumDocumentDeletion.execution.serializedMemberBytes
+        .sessionDelta,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(4_096)
+    expect(
+      metrics.maximumDocumentDeletion.execution.serializedMemberBytes
+        .livePlanDelta,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(4_096)
+    expect(
+      metrics.maximumDocumentDeletion.execution.serializedPayloadBytes,
+      JSON.stringify(report)
+    ).toBeLessThanOrEqual(12_288)
     expect(
       metrics.attachedExecution.executionThreadId,
       JSON.stringify(report)
@@ -1529,7 +2106,11 @@ test.describe('document-core maximum-document responsiveness', () => {
       metrics.workerExecution.workerProcessRssBytes,
       JSON.stringify(report)
     ).toBeLessThanOrEqual(APP_WORKING_SET_BUDGET_BYTES)
-    expect(metrics.maximumMainStageMs, JSON.stringify(report))
+    expect(
+      mainStageEvidence.measurements.map(({ path }) => path),
+      JSON.stringify(report)
+    ).toEqual(expectedMainStagePaths)
+    expect(mainStageEvidence.maximumMs, JSON.stringify(report))
       .toBeLessThanOrEqual(MAIN_STAGE_BUDGET_MS)
     expect(metrics.terminalMs, JSON.stringify(report))
       .toBeLessThanOrEqual(TERMINAL_BUDGET_MS)
@@ -1638,6 +2219,36 @@ test.describe('document-core maximum-document responsiveness', () => {
         family.browserInputLatencyMs.p95,
         JSON.stringify(report)
       ).toBeLessThanOrEqual(500)
+      expect(family.worstResidualParseStallMs, JSON.stringify(report))
+        .toBe(family.workerOwningThreadStallMs.maximum)
+      expect(family.measurementBand, JSON.stringify(report))
+        .toBe(reuseMeasurementBand(family.worstResidualParseStallMs))
+      expect(family.reuseAssessment, JSON.stringify(report)).toBe(
+        assessMeasuredReuse(
+          family.measurementBand,
+          family.measuredFragmentReuses
+        )
+      )
+      expect(family.measuredFragmentReuses, JSON.stringify(report)).toBe(
+        family.samples.reduce(
+          (total, sample) =>
+            total + sample.execution.operationForkAstRegionReuses,
+          0
+        )
+      )
+      expect(family.measuredFragmentEmissions, JSON.stringify(report)).toBe(
+        family.samples.reduce(
+          (total, sample) =>
+            total + sample.execution.operationForkAstRegionEmissions,
+          0
+        )
+      )
+      expect(family.measuredFragmentEmissions, JSON.stringify(report))
+        .toBeGreaterThanOrEqual(0)
+      if (family.measurementBand !== 'green') {
+        expect(family.measuredFragmentReuses, JSON.stringify(report))
+          .toBeGreaterThan(0)
+      }
       for (const sample of family.samples) {
         expect(sample.defaultPrevented, JSON.stringify(report)).toBe(true)
         expect(sample.browserHandlerMs, JSON.stringify(report))
@@ -1666,6 +2277,14 @@ test.describe('document-core maximum-document responsiveness', () => {
           sample.execution.operationForkAstRegionEmissions,
           JSON.stringify(report)
         ).toBeGreaterThanOrEqual(0)
+        if (reuseMeasurementBand(
+          sample.execution.operationOwningThreadStallMs
+        ) !== 'green') {
+          expect(
+            sample.execution.operationForkAstRegionReuses,
+            JSON.stringify(report)
+          ).toBeGreaterThan(0)
+        }
       }
     }
     expect(

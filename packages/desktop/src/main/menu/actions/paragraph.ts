@@ -4,6 +4,10 @@ import type { CommandManager } from '../../commands'
 import type {
   DocumentSelectionMenuState
 } from '../../../shared/types/documentSelection'
+import {
+  PARAGRAPH_DOCUMENT_ACTIONS,
+  type ParagraphDocumentAction
+} from '../../../shared/types/paragraphDocumentAction'
 
 type Win = BrowserWindow | null | undefined
 
@@ -17,90 +21,93 @@ const CROSS_BLOCK_ENABLED_PARAGRAPH: readonly string[] = [
   'taskListMenuItem'
 ]
 
-const transformEditorElement = (win: Win, type: string): void => {
+const dispatchParagraphAction = (
+  win: Win,
+  action: ParagraphDocumentAction
+): void => {
   if (win && win.webContents) {
-    win.webContents.send('mt::editor-paragraph-action', { type })
+    win.webContents.send('mt::editor-paragraph-action', action)
   }
 }
 
 export const bulletList = (win: Win): void => {
-  transformEditorElement(win, 'ul-bullet')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.bulletList)
 }
 
 export const codeFence = (win: Win): void => {
-  transformEditorElement(win, 'pre')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.codeFence)
 }
 
 export const degradeHeading = (win: Win): void => {
-  transformEditorElement(win, 'degrade heading')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.degradeHeading)
 }
 
 export const frontMatter = (win: Win): void => {
-  transformEditorElement(win, 'front-matter')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.frontMatter)
 }
 
 export const heading1 = (win: Win): void => {
-  transformEditorElement(win, 'heading 1')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.heading1)
 }
 
 export const heading2 = (win: Win): void => {
-  transformEditorElement(win, 'heading 2')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.heading2)
 }
 
 export const heading3 = (win: Win): void => {
-  transformEditorElement(win, 'heading 3')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.heading3)
 }
 
 export const heading4 = (win: Win): void => {
-  transformEditorElement(win, 'heading 4')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.heading4)
 }
 
 export const heading5 = (win: Win): void => {
-  transformEditorElement(win, 'heading 5')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.heading5)
 }
 
 export const heading6 = (win: Win): void => {
-  transformEditorElement(win, 'heading 6')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.heading6)
 }
 
 export const horizontalLine = (win: Win): void => {
-  transformEditorElement(win, 'hr')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.horizontalLine)
 }
 
 export const htmlBlock = (win: Win): void => {
-  transformEditorElement(win, 'html')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.htmlBlock)
 }
 
 export const looseListItem = (win: Win): void => {
-  transformEditorElement(win, 'loose-list-item')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.looseListItem)
 }
 
 export const mathFormula = (win: Win): void => {
-  transformEditorElement(win, 'mathblock')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.mathFormula)
 }
 
 export const orderedList = (win: Win): void => {
-  transformEditorElement(win, 'ol-order')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.orderedList)
 }
 
 export const paragraph = (win: Win): void => {
-  transformEditorElement(win, 'paragraph')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.paragraph)
 }
 
 export const quoteBlock = (win: Win): void => {
-  transformEditorElement(win, 'blockquote')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.quoteBlock)
 }
 
 export const table = (win: Win): void => {
-  transformEditorElement(win, 'table')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.table)
 }
 
 export const taskList = (win: Win): void => {
-  transformEditorElement(win, 'ul-task')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.taskList)
 }
 
 export const increaseHeading = (win: Win): void => {
-  transformEditorElement(win, 'upgrade heading')
+  dispatchParagraphAction(win, PARAGRAPH_DOCUMENT_ACTIONS.upgradeHeading)
 }
 
 // --- Commands -------------------------------------------------------------

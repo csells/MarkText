@@ -1,4 +1,8 @@
 import type { SourceOffset, SourceRange } from '../../revision.js'
+import {
+  PARSE_SOURCE_CHECKPOINT_INTERVAL,
+  type ParseExecutionTracker
+} from '../../parseExecutionControl.js'
 
 export type Profile1CriticKind =
   | 'addition'
@@ -133,9 +137,18 @@ export function markerCandidateFromRole(
   })
 }
 
+const certifiedSimpleTextTapes = new WeakSet<readonly TapeRun[]>()
+
+export function tapeCertifiesSimpleTextSource(
+  tape: readonly TapeRun[]
+): boolean {
+  return certifiedSimpleTextTapes.has(tape)
+}
+
 export function scanSourceTape(
   source: string,
-  retainedCandidates?: readonly RetainedMarkerCandidate[]
+  retainedCandidates?: readonly RetainedMarkerCandidate[],
+  execution?: ParseExecutionTracker
 ): readonly TapeRun[] {
   const tape: TapeRun[] = []
   const retainedByStart =
@@ -147,6 +160,18 @@ export function scanSourceTape(
       ]))
   let textStart = 0
   let offset = 0
+  let reportedOffset = 0
+  let certifiedSimpleText = source.length > 0
+  let simpleTextAlphanumericUnits = 0
+  const reportThrough = (end: number): void => {
+    if (
+      execution !== undefined &&
+      end - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      execution.examineParserWork(end - reportedOffset)
+      reportedOffset = end
+    }
+  }
 
   const append = (role: TapeRole, start: number, end: number): void => {
     if (start === end) {
@@ -167,10 +192,20 @@ export function scanSourceTape(
       appendText(offset)
       append('virtual-bom', offset, offset + 1)
       offset += 1
+      reportThrough(offset)
       textStart = offset
       continue
     }
     const codeUnit = source.charCodeAt(offset)
+    if (
+      (codeUnit >= 48 && codeUnit <= 57) ||
+      (codeUnit >= 65 && codeUnit <= 90) ||
+      (codeUnit >= 97 && codeUnit <= 122)
+    ) {
+      simpleTextAlphanumericUnits += 1
+    } else if (!(codeUnit === 46 && offset === source.length - 1)) {
+      certifiedSimpleText = false
+    }
     if (codeUnit === 10 || codeUnit === 13) {
       appendText(offset)
       const isCrLf =
@@ -180,6 +215,7 @@ export function scanSourceTape(
       const end = offset + (isCrLf ? 2 : 1)
       append(isCrLf ? 'eol-crlf' : codeUnit === 13 ? 'eol-cr' : 'eol-lf', offset, end)
       offset = end
+      reportThrough(offset)
       textStart = end
       continue
     }
@@ -187,6 +223,7 @@ export function scanSourceTape(
     const marker = retainedByStart === undefined ? findMarker(source, offset) : undefined
     if (retained === undefined && marker === undefined) {
       offset += 1
+      reportThrough(offset)
       continue
     }
 
@@ -198,11 +235,27 @@ export function scanSourceTape(
       end
     )
     offset = end
+    reportThrough(offset)
     textStart = end
   }
 
+  execution?.examineParserWork(source.length - reportedOffset)
   appendText(source.length)
-  return Object.freeze(tape)
+  const frozen = Object.freeze(tape)
+  const hasTerminalPeriod = source.charCodeAt(source.length - 1) === 46
+  const firstCodeUnit = source.charCodeAt(0)
+  const terminalPeriodCannotBeAListMarker =
+    !hasTerminalPeriod ||
+    (firstCodeUnit >= 65 && firstCodeUnit <= 90) ||
+    (firstCodeUnit >= 97 && firstCodeUnit <= 122)
+  if (
+    certifiedSimpleText &&
+    simpleTextAlphanumericUnits > 0 &&
+    terminalPeriodCannotBeAListMarker
+  ) {
+    certifiedSimpleTextTapes.add(frozen)
+  }
+  return frozen
 }
 
 export function assertLosslessTape(source: string, tape: readonly TapeRun[]): void {

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   setSourceMarkdown,
   getMarkdownContent
@@ -81,7 +82,7 @@ test.describe('List Tab/Shift-Tab nesting (items 30, 42)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('Tab nests the second bullet item under the first; Shift-Tab flattens it', async() => {

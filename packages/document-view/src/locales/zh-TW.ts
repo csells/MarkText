@@ -40,6 +40,8 @@ export const zhTW = {
         'Vega Chart': 'Vega 圖',
         'Mermaid': 'Mermaid',
         'Plantuml': 'Plantuml',
+        'Flowchart': '流程圖',
+        'Sequence': '時序圖',
         'basic blocks': '基礎區塊',
         'headings': '標題',
         'advanced blocks': '進階區塊',

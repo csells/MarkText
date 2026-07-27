@@ -56,9 +56,8 @@ An inline marker changes no block structure; a block-structural marker
 reconverges within a block or two; the sole divergence that reaches end of
 document is an *unclosed* fenced-code or HTML block, which runs to EOF under
 plain CommonMark regardless of CriticMarkup — degenerate input, not the common
-case. This is measured, not asserted, in
-`specs/research/0002-criticmarkup-view-fork-reconvergence.md`, which reads the
-reconvergence points off correct Original/Revised trees.
+case. The executable block-fork and safe-point suites measure this against
+correct Original/Revised trees.
 
 The editing view is exempt from the clean-projection verification that Original
 and Revised must pass, and the asymmetry is principled. That verification proves

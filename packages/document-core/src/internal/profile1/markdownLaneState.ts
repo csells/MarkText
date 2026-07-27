@@ -14,6 +14,10 @@ import {
   findMarkdownFenceOpening,
   isMarkdownFenceCloser
 } from './markdownFence.js'
+import {
+  PARSE_SOURCE_CHECKPOINT_INTERVAL,
+  type ParseExecutionTracker
+} from '../../parseExecutionControl.js'
 
 interface MarkdownLinePath {
   readonly parent: MarkdownLinePath | undefined
@@ -1902,17 +1906,30 @@ function scopePartitionedRunStarts(
 
 function createNextBacktickRunStart(
   source: string,
-  matchingPolicy?: MarkdownMatchingScopePolicy
+  matchingPolicy?: MarkdownMatchingScopePolicy,
+  execution?: ParseExecutionTracker
 ): NextBacktickRunStart {
   const startsByLength = new Map<number, number[]>()
+  let reportedOffset = 0
+  const reportThrough = (offset: number): void => {
+    if (
+      execution !== undefined &&
+      offset - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      execution.examineParserWork(offset - reportedOffset)
+      reportedOffset = offset
+    }
+  }
   for (let offset = 0; offset < source.length;) {
     if (source.charCodeAt(offset) !== 96) {
       offset += 1
+      reportThrough(offset)
       continue
     }
     let runEnd = offset + 1
     while (runEnd < source.length && source.charCodeAt(runEnd) === 96) {
       runEnd += 1
+      reportThrough(runEnd)
     }
     const markerLength = runEnd - offset
     const starts = startsByLength.get(markerLength)
@@ -1922,7 +1939,9 @@ function createNextBacktickRunStart(
       starts.push(offset)
     }
     offset = runEnd
+    reportThrough(offset)
   }
+  execution?.examineParserWork(source.length - reportedOffset)
   const scopedStarts =
     matchingPolicy === undefined
       ? undefined
@@ -1977,17 +1996,30 @@ function isMarkdownWhitespace(codeUnit: number): boolean {
 
 function createNextMathRunStart(
   source: string,
-  matchingPolicy?: MarkdownMatchingScopePolicy
+  matchingPolicy?: MarkdownMatchingScopePolicy,
+  execution?: ParseExecutionTracker
 ): NextMathRunStart {
   const startsByLength = new Map<number, number[]>()
+  let reportedOffset = 0
+  const reportThrough = (offset: number): void => {
+    if (
+      execution !== undefined &&
+      offset - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      execution.examineParserWork(offset - reportedOffset)
+      reportedOffset = offset
+    }
+  }
   for (let offset = 0; offset < source.length;) {
     if (source.charCodeAt(offset) !== 36) {
       offset += 1
+      reportThrough(offset)
       continue
     }
     let runEnd = offset + 1
     while (runEnd < source.length && source.charCodeAt(runEnd) === 36) {
       runEnd += 1
+      reportThrough(runEnd)
     }
     const delimiterLength = runEnd - offset
     const canClose =
@@ -2003,7 +2035,9 @@ function createNextMathRunStart(
       }
     }
     offset = runEnd
+    reportThrough(offset)
   }
+  execution?.examineParserWork(source.length - reportedOffset)
 
   const scopedStarts =
     matchingPolicy === undefined
@@ -2157,15 +2191,29 @@ function probeSourceOffsetAt(
     : suffixSourceStart + textOffset - textLength
 }
 
-function sourceLineContentEnd(source: string, start: number, limit: number): number {
+function sourceLineContentEnd(
+  source: string,
+  start: number,
+  limit: number,
+  execution?: ParseExecutionTracker
+): number {
   let end = start
+  let reportedEnd = start
   while (
     end < limit &&
     source.charCodeAt(end) !== 10 &&
     source.charCodeAt(end) !== 13
   ) {
     end += 1
+    if (
+      execution !== undefined &&
+      end - reportedEnd >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      execution.examineParserWork(end - reportedEnd)
+      reportedEnd = end
+    }
   }
+  execution?.examineParserWork(end - reportedEnd)
   return end
 }
 
@@ -2298,29 +2346,35 @@ export function createMarkdownLaneState(
   gfmEnabled: boolean = true,
   mathEnabled: boolean = true,
   gitLabMathEnabled: boolean = true,
-  footnotesEnabled: boolean = true
+  footnotesEnabled: boolean = true,
+  execution?: ParseExecutionTracker,
+  hasCriticMarkupCandidate?: boolean
 ): MarkdownLaneState {
-  const lineBlockProbeCanPersist = ![
-    '{++',
-    '++}',
-    '{--',
-    '--}',
-    '{~~',
-    '~>',
-    '~~}',
-    '{==',
-    '==}',
-    '{>>',
-    '<<}'
-  ].some((marker) => source.includes(marker))
+  const lineBlockProbeCanPersist = hasCriticMarkupCandidate === undefined
+    ? ![
+      '{++',
+      '++}',
+      '{--',
+      '--}',
+      '{~~',
+      '~>',
+      '~~}',
+      '{==',
+      '==}',
+      '{>>',
+      '<<}'
+    ].some((marker) => source.includes(marker))
+    : !hasCriticMarkupCandidate
   const linePathsWithBlockProbe = new WeakSet<MarkdownLinePath>()
   const nextBacktickRunStart = createNextBacktickRunStart(
     source,
-    matchingScopePolicy
+    matchingScopePolicy,
+    execution
   )
   const nextMathRunStart = createNextMathRunStart(
     source,
-    matchingScopePolicy
+    matchingScopePolicy,
+    execution
   )
   const matchingScopeAtOffset = (
     offset: number
@@ -2472,7 +2526,12 @@ export function createMarkdownLaneState(
     ) {
       const inheritedPrefix = materializeMarkdownLine(checkpoint.linePath)
       const visibleThroughRun = inheritedPrefix + text
-      const lookaheadEnd = sourceLineContentEnd(source, sourceEnd, laneEnd)
+      const lookaheadEnd = sourceLineContentEnd(
+        source,
+        sourceEnd,
+        laneEnd,
+        execution
+      )
       const probeLine = visibleThroughRun + source.slice(sourceEnd, lookaheadEnd)
       const probeState = analyzeContainerLine(
         probeLine,
@@ -2481,6 +2540,25 @@ export function createMarkdownLaneState(
         paragraphOpen,
         lastLineLazy
       )
+      if (firstContainerDepthFailure === undefined) {
+        const excess = firstExcessContainer(probeState)
+        if (excess !== undefined) {
+          const mapOffset = (virtualOffset: number): number =>
+            probeSourceOffsetAt(
+              checkpoint.linePath,
+              inheritedPrefix.length,
+              textSourceStart,
+              text.length,
+              sourceEnd,
+              virtualOffset
+            )
+          firstContainerDepthFailure = Object.freeze({
+            start: mapOffset(excess.start),
+            end: mapOffset(excess.end - 1) + 1,
+            observed: excess.observed
+          })
+        }
+      }
       if (
         fence !== undefined &&
         lineStart !== fence.openLineStart &&
@@ -3594,7 +3672,12 @@ export function createMarkdownLaneState(
         completedLiterals: Object.freeze([])
       })
     }
-    const contentEnd = sourceLineContentEnd(source, markerOffset, laneEnd)
+    const contentEnd = sourceLineContentEnd(
+      source,
+      markerOffset,
+      laneEnd,
+      execution
+    )
     const lineText =
       materializeMarkdownLine(checkpoint.linePath) +
       source.slice(markerOffset, contentEnd)
@@ -3780,6 +3863,13 @@ export function createMarkdownLaneState(
       (checkpoint: MarkdownCheckpoint): MarkdownContainerDepthFailure | undefined => {
         if (checkpoint.firstContainerDepthFailure !== undefined) {
           return checkpoint.firstContainerDepthFailure
+        }
+        if (
+          checkpoint.linePath !== undefined &&
+          lineBlockProbeCanPersist &&
+          linePathsWithBlockProbe.has(checkpoint.linePath)
+        ) {
+          return undefined
         }
         const pendingLine = materializeMarkdownLine(checkpoint.linePath)
         if (pendingLine.length === 0) {

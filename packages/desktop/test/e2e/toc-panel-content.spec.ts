@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, clickMenuById, waitForEditor } from './helpers'
+import { closeElectron, launchWithMarkdown, clickMenuById, waitForEditor } from './helpers'
 
 // Item 240 — TOC/outline panel CONTENT + live update.
 //
@@ -88,7 +88,7 @@ test.describe('TOC panel content + live update', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('el-tree labels match the document headings in order', async() => {

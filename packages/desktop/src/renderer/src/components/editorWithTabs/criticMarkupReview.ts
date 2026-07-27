@@ -7,7 +7,8 @@ import { decodeCriticMarkupSidebarItemAction } from '@shared/types/criticMarkup'
 import {
   REVIEW_COMMAND_DESCRIPTORS,
   isCriticMarkupReviewAction,
-  isReviewCommandAvailable
+  isReviewCommandAvailable,
+  type CriticMarkupReviewAction
 } from '../../../../common/commands/review'
 import type {
   ICriticMarkupReviewActions,
@@ -74,6 +75,31 @@ const mutationOutcome = (
 ): CriticMarkupReviewCommandOutcome => changed ? EXECUTED : STALE
 
 const noTextRequest: CriticMarkupTextRequest = async() => null
+
+const SELECTION_SENSITIVE_REVIEW_ACTIONS: ReadonlySet<CriticMarkupReviewAction> =
+  new Set([
+    'mark-addition',
+    'mark-deletion',
+    'suggest-replacement',
+    'mark-highlight',
+    'add-comment',
+    'previous',
+    'next',
+    'accept-current',
+    'reject-current'
+  ])
+
+export async function settleCriticMarkupReviewSelection(
+  editor: ICriticMarkupReviewActions,
+  value: unknown
+): Promise<void> {
+  if (
+    isCriticMarkupReviewAction(value) &&
+    SELECTION_SENSITIVE_REVIEW_ACTIONS.has(value)
+  ) {
+    await editor.commitAuthoringSelection()
+  }
+}
 
 export async function executeCriticMarkupReviewAction(
   editor: ICriticMarkupReviewActions,

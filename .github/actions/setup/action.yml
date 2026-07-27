@@ -10,17 +10,40 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install pnpm
-      uses: pnpm/action-setup@v4.4.0
-
     - name: Install Node.js
-      uses: actions/setup-node@v4.4.0
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: ${{ inputs.node-version }}
-        cache: 'pnpm'
+
+    - name: Enable content-addressed pnpm
+      shell: bash
+      run: |
+        package_manager='pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800'
+        corepack_cli="$(node --input-type=module -e '
+          import { dirname, resolve } from "node:path";
+          process.stdout.write(resolve(
+            dirname(process.execPath),
+            process.platform === "win32"
+              ? "node_modules/corepack/dist/corepack.js"
+              : "../lib/node_modules/corepack/dist/corepack.js"
+          ));
+        ')"
+        export MARKTEXT_COREPACK_CLI_PATH="$corepack_cli"
+        export MARKTEXT_COREPACK_VERSION='0.34.0'
+        export MARKTEXT_COREPACK_LAUNCHER_SHA256='3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9'
+        export MARKTEXT_COREPACK_BUNDLE_SHA256='bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829'
+        test "$(node scripts/runPinnedCorepack.mjs "$package_manager" --version)" = "10.33.4"
+        {
+          echo "MARKTEXT_COREPACK_CLI_PATH=$MARKTEXT_COREPACK_CLI_PATH"
+          echo "MARKTEXT_COREPACK_VERSION=$MARKTEXT_COREPACK_VERSION"
+          echo "MARKTEXT_COREPACK_LAUNCHER_SHA256=$MARKTEXT_COREPACK_LAUNCHER_SHA256"
+          echo "MARKTEXT_COREPACK_BUNDLE_SHA256=$MARKTEXT_COREPACK_BUNDLE_SHA256"
+        } >> "$GITHUB_ENV"
 
     - name: Install Dependencies
       shell: bash
-      run: pnpm install --frozen-lockfile --ignore-scripts
+      run: |
+        package_manager='pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800'
+        node scripts/runPinnedCorepack.mjs "$package_manager" install --frozen-lockfile --ignore-scripts
       env:
         GITHUB_TOKEN: ${{ github.token }}

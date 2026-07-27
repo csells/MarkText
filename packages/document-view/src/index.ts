@@ -31,6 +31,7 @@ export type {
     DocumentCoreClipboardWriteResult,
     DocumentCoreImageSourceRequest,
     DocumentCoreImageSourceResolution,
+    DocumentCoreTableShape,
     DocumentCoreViewDispatchResult,
     DocumentCoreEditorCommand,
     DocumentCoreViewSnapshot,

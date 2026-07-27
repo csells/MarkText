@@ -133,12 +133,23 @@ export function createIntrinsicProfile1SourceProgression(
   const closerStartsByKind = new Map<Profile1CriticKind, number[]>()
   const substitutionSeparatorStarts: number[] = []
   const physicalLineStarts = [0]
+  const sourceStepBoundaryStarts: number[] = []
+  const lineEndingEndByStart = new Map<number, number>()
   let hasDefinitionCandidate = false
   for (let offset = 0; offset < source.length; offset += 1) {
     const codeUnit = source.charCodeAt(offset)
-    if (codeUnit === 10 && source.charCodeAt(offset - 1) !== 13) {
-      physicalLineStarts.push(offset + 1)
+    if (codeUnit === 10) {
+      sourceStepBoundaryStarts.push(offset)
+      lineEndingEndByStart.set(offset, offset + 1)
+      if (source.charCodeAt(offset - 1) !== 13) {
+        physicalLineStarts.push(offset + 1)
+      }
     } else if (codeUnit === 13) {
+      sourceStepBoundaryStarts.push(offset)
+      lineEndingEndByStart.set(
+        offset,
+        source.charCodeAt(offset + 1) === 10 ? offset + 2 : offset + 1
+      )
       physicalLineStarts.push(
         source.charCodeAt(offset + 1) === 10 ? offset + 2 : offset + 1
       )
@@ -154,6 +165,7 @@ export function createIntrinsicProfile1SourceProgression(
     if (marker === undefined) {
       continue
     }
+    sourceStepBoundaryStarts.push(offset)
     delimiterByStart.set(offset, Object.freeze({
       kind: 'delimiter',
       definition: marker.definition,
@@ -191,6 +203,7 @@ export function createIntrinsicProfile1SourceProgression(
     )
 
   let cursor = 0
+  let sourceStepBoundaryOrdinal = 0
   const next = (): IntrinsicProfile1SourceStep | undefined => {
     if (cursor >= source.length) {
       return undefined
@@ -199,25 +212,18 @@ export function createIntrinsicProfile1SourceProgression(
     if (delimiter !== undefined) {
       return delimiter
     }
-    let end = cursor
-    const firstCodeUnit = source.charCodeAt(end)
-    if (firstCodeUnit === 10 || firstCodeUnit === 13) {
-      end +=
-        firstCodeUnit === 13 && source.charCodeAt(end + 1) === 10
-          ? 2
-          : 1
-    } else {
-      end += 1
-      while (
-        end < source.length &&
-        end - cursor < PARSE_SOURCE_CHECKPOINT_INTERVAL &&
-        source.charCodeAt(end) !== 10 &&
-        source.charCodeAt(end) !== 13 &&
-        !delimiterByStart.has(end)
-      ) {
-        end += 1
-      }
+    const lineEndingEnd = lineEndingEndByStart.get(cursor)
+    const boundaryStart = cursor + 1
+    while (
+      (sourceStepBoundaryStarts[sourceStepBoundaryOrdinal] ?? source.length) <
+        boundaryStart
+    ) {
+      sourceStepBoundaryOrdinal += 1
     }
+    const end = lineEndingEnd ?? Math.min(
+      cursor + PARSE_SOURCE_CHECKPOINT_INTERVAL,
+      sourceStepBoundaryStarts[sourceStepBoundaryOrdinal] ?? source.length
+    )
     return Object.freeze({
       kind: 'markdown-text',
       start: cursor,
@@ -240,7 +246,10 @@ export function createIntrinsicProfile1SourceProgression(
       ) {
         throw new Error('Intrinsic Profile 1 grammar consumed outside its next token')
       }
-      execution?.examineSource(end - cursor)
+      // The canonical indexing pass already examined these exact source units.
+      // Consumption is still cooperatively cancellable, but it is parser work
+      // over the indexed authority rather than a second source scan.
+      execution?.examineParserWork(end - cursor)
       cursor = end
     }),
     nextCloserStart: Object.freeze((
@@ -409,6 +418,7 @@ let activeMarkdownSyntaxIdentity: ActiveMarkdownSyntaxIdentity | undefined
 let activeMarkdownGfmEnabled = true
 let activeMarkdownFootnotesEnabled = true
 let activeMarkdownSubscriptAndSuperscriptEnabled = false
+let activeMarkdownExecution: ParseExecutionTracker | undefined
 
 function stableAttributesKey(
   attributes: Readonly<Record<string, string | number | boolean>>
@@ -1479,7 +1489,18 @@ function appendInlineRange(
   }
   let textStart = start
   let offset = start
+  let reportedOffset = start
+  const reportThrough = (end: number): void => {
+    if (
+      activeMarkdownExecution !== undefined &&
+      end - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      activeMarkdownExecution.examineParserWork(end - reportedOffset)
+      reportedOffset = end
+    }
+  }
   while (offset < end) {
+    reportThrough(offset)
     const literal = constructs.get(offset)
     const construct = literal?.construct
     if (
@@ -1592,7 +1613,13 @@ function appendInlineRange(
     }
     const extendedAutolink =
       activeMarkdownGfmEnabled
-        ? findGfmExtendedAutolink(source, offset, end, start)
+        ? findGfmExtendedAutolink(
+          source,
+          offset,
+          end,
+          start,
+          activeMarkdownExecution
+        )
         : undefined
     if (extendedAutolink !== undefined) {
       if (textStart < offset) {
@@ -1756,6 +1783,7 @@ function appendInlineRange(
     }
     offset += 1
   }
+  activeMarkdownExecution?.examineParserWork(end - reportedOffset)
   if (textStart < end) {
     appendNode(createNode('text', textStart, end))
   }
@@ -3529,12 +3557,180 @@ interface MarkdownAstRegionTemplate {
   readonly nodes: readonly MarkdownAstNodeTemplate[]
 }
 
+let markdownAstCacheTemplateConstructions = 0
+
+export function __markdownAstCacheTemplateConstructionsV1(): number {
+  return markdownAstCacheTemplateConstructions
+}
+
+export function __resetMarkdownAstCacheTemplateConstructionsV1(): void {
+  markdownAstCacheTemplateConstructions = 0
+}
+
 const astRegionCaches =
   new WeakMap<
     MarkdownAstRegionCacheIdentity,
     Map<string, MarkdownAstRegionTemplate>
   >()
 const MAX_RETAINED_FRAGMENT_ENTRIES = 32_768
+export const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1 = 4 * 1_024 * 1_024
+const RETAINED_STRING_HEADER_BYTES = 16
+const RETAINED_OBJECT_HEADER_BYTES = 24
+const RETAINED_REFERENCE_BYTES = 8
+const RETAINED_SCALAR_BYTES = 8
+// One retained key/value also owns a Map node, a FIFO queue record, and its
+// array slot. This deliberately rounds their combined fixed cost upward.
+const RETAINED_CACHE_ENTRY_BYTES = 96
+// Minimum charged by retainedValueBytes for one template: its object/slots and
+// field labels, the shortest node-kind string, two scalars, and the newly
+// allocated attributes object and children array. Child slots only add cost.
+const RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES =
+  RETAINED_OBJECT_HEADER_BYTES + 5 * RETAINED_REFERENCE_BYTES +
+  ['kind', 'start', 'end', 'attributes', 'children'].reduce(
+    (bytes, field) => bytes + retainedStringBytes(field),
+    0
+  ) +
+  retainedStringBytes('text') + 2 * RETAINED_SCALAR_BYTES +
+  2 * RETAINED_OBJECT_HEADER_BYTES
+
+interface RetainedFragmentEntry {
+  readonly cache: Readonly<{
+    delete: (key: string) => boolean
+  }>
+  readonly key: string
+  readonly keyBytes: number
+  readonly valueBytes: number
+}
+
+interface RetainedFragmentBudget {
+  entries: number
+  keyBytes: number
+  valueBytes: number
+  queue: Array<RetainedFragmentEntry | undefined>
+  queueCursor: number
+}
+
+const retainedFragmentBudgets = new WeakMap<object, RetainedFragmentBudget>()
+
+export interface Profile1MarkdownReuseRetentionV1 {
+  readonly entries: number
+  readonly keyBytes: number
+  readonly valueBytes: number
+  readonly overheadBytes: number
+  readonly retainedBytes: number
+  readonly maximumRetainedBytes: number
+}
+
+function retainedStringBytes(value: string): number {
+  return RETAINED_STRING_HEADER_BYTES + value.length * 2
+}
+
+function fragmentSourceCanFit(source: string): boolean {
+  return retainedStringBytes(source) + RETAINED_CACHE_ENTRY_BYTES <=
+    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+}
+
+function retainedValueBytes(value: unknown, seen: Set<object>): number {
+  if (typeof value === 'string') {
+    return retainedStringBytes(value)
+  }
+  if (value === null || typeof value !== 'object') {
+    return RETAINED_SCALAR_BYTES
+  }
+  if (seen.has(value)) {
+    return 0
+  }
+  seen.add(value)
+  if (Array.isArray(value)) {
+    return RETAINED_OBJECT_HEADER_BYTES +
+      value.length * RETAINED_REFERENCE_BYTES +
+      value.reduce(
+        (total, entry) => total + retainedValueBytes(entry, seen),
+        0
+      )
+  }
+  if (value instanceof Map) {
+    let bytes = RETAINED_OBJECT_HEADER_BYTES +
+      value.size * 2 * RETAINED_REFERENCE_BYTES
+    for (const [key, entry] of value) {
+      bytes += retainedValueBytes(key, seen) + retainedValueBytes(entry, seen)
+    }
+    return bytes
+  }
+  if (value instanceof Set) {
+    let bytes = RETAINED_OBJECT_HEADER_BYTES +
+      value.size * RETAINED_REFERENCE_BYTES
+    for (const entry of value) {
+      bytes += retainedValueBytes(entry, seen)
+    }
+    return bytes
+  }
+  const entries = Object.entries(value)
+  return RETAINED_OBJECT_HEADER_BYTES +
+    entries.length * RETAINED_REFERENCE_BYTES +
+    entries.reduce(
+      (total, [key, entry]) => total +
+        retainedStringBytes(key) + retainedValueBytes(entry, seen),
+      0
+    )
+}
+
+function fragmentMapRetention(cache: ReadonlyMap<string, unknown>): Readonly<{
+  readonly entries: number
+  readonly keyBytes: number
+  readonly valueBytes: number
+}> {
+  let keyBytes = 0
+  let valueBytes = 0
+  for (const [key, value] of cache) {
+    keyBytes += retainedStringBytes(key)
+    valueBytes += retainedValueBytes(value, new Set())
+  }
+  return Object.freeze({ entries: cache.size, keyBytes, valueBytes })
+}
+
+function createRetainedFragmentBudget(): RetainedFragmentBudget {
+  return {
+    entries: 0,
+    keyBytes: 0,
+    valueBytes: 0,
+    queue: [],
+    queueCursor: 0
+  }
+}
+
+function registerRetainedFragmentCache(
+  cache: object,
+  budget: RetainedFragmentBudget
+): void {
+  retainedFragmentBudgets.set(cache, budget)
+}
+
+function retainedFragmentBudget(cache: object): RetainedFragmentBudget {
+  const budget = retainedFragmentBudgets.get(cache)
+  if (budget === undefined) {
+    throw new Error('Markdown reuse cache is detached from its retention budget')
+  }
+  return budget
+}
+
+function evictOldestFragmentEntry(budget: RetainedFragmentBudget): void {
+  const entry = budget.queue[budget.queueCursor]
+  budget.queue[budget.queueCursor] = undefined
+  budget.queueCursor += 1
+  if (entry !== undefined && entry.cache.delete(entry.key)) {
+    budget.entries -= 1
+    budget.keyBytes -= entry.keyBytes
+    budget.valueBytes -= entry.valueBytes
+  }
+  if (
+    budget.queueCursor >= 256 &&
+    budget.queueCursor * 2 >= budget.queue.length
+  ) {
+    budget.queue = budget.queue.slice(budget.queueCursor)
+    budget.queueCursor = 0
+  }
+}
 
 function retainFragmentEntry<Value>(
   cache: Map<string, Value>,
@@ -3544,13 +3740,26 @@ function retainFragmentEntry<Value>(
   if (cache.has(key)) {
     return
   }
-  if (cache.size >= MAX_RETAINED_FRAGMENT_ENTRIES) {
-    const oldest = cache.keys().next().value
-    if (oldest !== undefined) {
-      cache.delete(oldest)
-    }
+  const budget = retainedFragmentBudget(cache)
+  const keyBytes = retainedStringBytes(key)
+  const valueBytes = retainedValueBytes(value, new Set())
+  const retainedBytes = keyBytes + valueBytes + RETAINED_CACHE_ENTRY_BYTES
+  if (retainedBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1) {
+    return
+  }
+  while (
+    budget.entries >= MAX_RETAINED_FRAGMENT_ENTRIES ||
+    budget.keyBytes + budget.valueBytes +
+      budget.entries * RETAINED_CACHE_ENTRY_BYTES + retainedBytes >
+      PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+  ) {
+    evictOldestFragmentEntry(budget)
   }
   cache.set(key, value)
+  budget.entries += 1
+  budget.keyBytes += keyBytes
+  budget.valueBytes += valueBytes
+  budget.queue.push({ cache, key, keyBytes, valueBytes })
 }
 
 const POSITIONAL_MARKDOWN_ATTRIBUTES = new Set([
@@ -3573,8 +3782,12 @@ const POSITIONAL_MARKDOWN_ATTRIBUTES = new Set([
 
 function markdownAstNodeTemplate(
   node: MarkdownNode,
-  regionStart: number
+  regionStart: number,
+  cacheRetention: boolean = false
 ): MarkdownAstNodeTemplate {
+  if (cacheRetention) {
+    markdownAstCacheTemplateConstructions += 1
+  }
   return Object.freeze({
     kind: node.kind,
     start: node.range.start - regionStart,
@@ -3589,7 +3802,11 @@ function markdownAstNodeTemplate(
     )),
     children: Object.freeze(Array.from(
       { length: node.childCount },
-      (_, ordinal) => markdownAstNodeTemplate(node.childAt(ordinal), regionStart)
+      (_, ordinal) => markdownAstNodeTemplate(
+        node.childAt(ordinal),
+        regionStart,
+        cacheRetention
+      )
     ))
   })
 }
@@ -3614,6 +3831,91 @@ function markdownAstNodeFromTemplate(
       markdownAstNodeFromTemplate(child, regionStart)),
     attributes
   )
+}
+
+function markdownAstNodeAtOffset(
+  node: MarkdownNode,
+  offset: number
+): MarkdownNode {
+  const attributes = Object.freeze(Object.fromEntries(
+    Object.entries(node.attributes).map(([key, value]) => [
+      key,
+      POSITIONAL_MARKDOWN_ATTRIBUTES.has(key) && typeof value === 'number'
+        ? value + offset
+        : value
+    ])
+  ))
+  return createNode(
+    node.kind,
+    node.range.start + offset,
+    node.range.end + offset,
+    Array.from(
+      { length: node.childCount },
+      (_, ordinal) => markdownAstNodeAtOffset(node.childAt(ordinal), offset)
+    ),
+    attributes
+  )
+}
+
+function astRegionTemplateBaseBytes(
+  key: string,
+  source: string,
+  linesKey: string,
+  literalsKey: string
+): number {
+  const emptyTemplate = {
+    source,
+    linesKey,
+    literalsKey,
+    nodes: Object.freeze([])
+  }
+  return retainedStringBytes(key) +
+    retainedValueBytes(emptyTemplate, new Set()) +
+    RETAINED_CACHE_ENTRY_BYTES
+}
+
+function astRegionTemplateCanFit(
+  key: string,
+  source: string,
+  linesKey: string,
+  literalsKey: string
+): boolean {
+  return astRegionTemplateBaseBytes(key, source, linesKey, literalsKey) <=
+    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+}
+
+function astRegionTemplateNodesCanFit(
+  key: string,
+  source: string,
+  linesKey: string,
+  literalsKey: string,
+  nodes: readonly MarkdownNode[]
+): boolean {
+  let minimumBytes = astRegionTemplateBaseBytes(
+    key,
+    source,
+    linesKey,
+    literalsKey
+  ) + nodes.length * RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES
+  if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1) {
+    return false
+  }
+  const pending = [...nodes]
+  while (pending.length !== 0) {
+    const node = pending.pop()
+    if (node === undefined) {
+      continue
+    }
+    minimumBytes +=
+      node.childCount * RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES
+    if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1) {
+      return false
+    }
+    for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
+      pending.push(node.childAt(ordinal))
+    }
+  }
+  return true
 }
 
 function markdownAstRegionLinesKey(
@@ -4022,38 +4324,59 @@ function emitMarkdownAstRegions(
       (() => {
         const created = new Map<string, MarkdownAstRegionTemplate>()
         astRegionCaches.set(reuseCache, created)
+        registerRetainedFragmentCache(
+          created,
+          retainedFragmentBudget(reuseCache)
+        )
         return created
       })()
   for (const region of regions) {
     const regionSource = source.slice(region.start, region.end)
-    const linesKey = markdownAstRegionLinesKey(region.lines, region.start)
-    const literalsKey = markdownAstRegionLiteralsKey(
-      region.literals,
-      region.start
-    )
     const regionBoundaryPolicy =
       boundaryPolicy?.scopeRuns.some(
         (scope) => scope.start < region.end && region.start < scope.end
       ) === true
         ? boundaryPolicy
         : undefined
+    const sourceCanFitCache =
+      cache !== undefined && fragmentSourceCanFit(regionSource)
     const hasReferenceSyntax =
-      regionSource.includes('[') || regionSource.includes(']')
+      sourceCanFitCache &&
+      (regionSource.includes('[') || regionSource.includes(']'))
     const cacheable =
-      cache !== undefined &&
+      sourceCanFitCache &&
       regionBoundaryPolicy === undefined &&
       (!hasReferenceSyntax || referenceDefinitions.cacheKey !== undefined)
-    const key = cacheable
-      ? JSON.stringify([
-        activeMarkdownGfmEnabled,
-        activeMarkdownFootnotesEnabled,
-        activeMarkdownSubscriptAndSuperscriptEnabled,
-        referenceDefinitions.cacheKey,
+    const linesKey = cacheable
+      ? markdownAstRegionLinesKey(region.lines, region.start)
+      : undefined
+    const literalsKey = cacheable
+      ? markdownAstRegionLiteralsKey(region.literals, region.start)
+      : undefined
+    const serializedKey =
+      cacheable && linesKey !== undefined && literalsKey !== undefined
+        ? JSON.stringify([
+          activeMarkdownGfmEnabled,
+          activeMarkdownFootnotesEnabled,
+          activeMarkdownSubscriptAndSuperscriptEnabled,
+          referenceDefinitions.cacheKey,
+          regionSource,
+          linesKey,
+          literalsKey
+        ])
+        : undefined
+    const key =
+      serializedKey !== undefined &&
+      linesKey !== undefined &&
+      literalsKey !== undefined &&
+      astRegionTemplateCanFit(
+        serializedKey,
         regionSource,
         linesKey,
         literalsKey
-      ])
-      : undefined
+      )
+        ? serializedKey
+        : undefined
     const cached = key === undefined ? undefined : cache?.get(key)
     if (
       cached !== undefined &&
@@ -4077,19 +4400,35 @@ function emitMarkdownAstRegions(
       regionBoundaryPolicy,
       region.start
     )
+    if (
+      key === undefined ||
+      cache === undefined ||
+      linesKey === undefined ||
+      literalsKey === undefined ||
+      !astRegionTemplateNodesCanFit(
+        key,
+        regionSource,
+        linesKey,
+        literalsKey,
+        localNodes
+      )
+    ) {
+      for (const node of localNodes) {
+        blocks.push(markdownAstNodeAtOffset(node, region.start))
+      }
+      continue
+    }
     const templates = Object.freeze(localNodes.map((node) =>
-      markdownAstNodeTemplate(node, 0)))
+      markdownAstNodeTemplate(node, 0, true)))
     for (const template of templates) {
       blocks.push(markdownAstNodeFromTemplate(template, region.start))
     }
-    if (key !== undefined && cache !== undefined) {
-      retainFragmentEntry(cache, key, Object.freeze({
-        source: regionSource,
-        linesKey,
-        literalsKey,
-        nodes: templates
-      }))
-    }
+    retainFragmentEntry(cache, key, Object.freeze({
+      source: regionSource,
+      linesKey,
+      literalsKey,
+      nodes: templates
+    }))
   }
   return Object.freeze(blocks)
 }
@@ -4111,7 +4450,8 @@ function containsPosition(
 
 function withMappedMarkdownIdentity<Value>(
   lane: MappedMarkdownLane,
-  emit: () => Value
+  emit: () => Value,
+  execution?: ParseExecutionTracker
 ): Value {
   const syntaxIdentity = lane.syntaxIdentity
   if (syntaxIdentity === undefined) {
@@ -4122,6 +4462,7 @@ function withMappedMarkdownIdentity<Value>(
   const previousFootnotesEnabled = activeMarkdownFootnotesEnabled
   const previousSubscriptAndSuperscriptEnabled =
     activeMarkdownSubscriptAndSuperscriptEnabled
+  const previousExecution = activeMarkdownExecution
   activeMarkdownSyntaxIdentity = {
     registry: syntaxIdentity.registry,
     sourceAt: syntaxIdentity.sourceAt
@@ -4130,6 +4471,7 @@ function withMappedMarkdownIdentity<Value>(
   activeMarkdownFootnotesEnabled = lane.footnotesEnabled ?? true
   activeMarkdownSubscriptAndSuperscriptEnabled =
     lane.subscriptAndSuperscriptEnabled ?? false
+  activeMarkdownExecution = execution
   try {
     return emit()
   } finally {
@@ -4138,6 +4480,7 @@ function withMappedMarkdownIdentity<Value>(
     activeMarkdownFootnotesEnabled = previousFootnotesEnabled
     activeMarkdownSubscriptAndSuperscriptEnabled =
       previousSubscriptAndSuperscriptEnabled
+    activeMarkdownExecution = previousExecution
   }
 }
 
@@ -4961,7 +5304,8 @@ function emitIntrinsicForkRegionNodes(
   lane: MappedMarkdownLane,
   facts: PlainMarkdownLaneParseWithDefinitions,
   reuseCache: MarkdownAstRegionCacheIdentity,
-  boundaryPolicy: InlineBoundaryPolicy | undefined
+  boundaryPolicy: InlineBoundaryPolicy | undefined,
+  execution?: ParseExecutionTracker
 ): readonly MarkdownNode[] {
   return withMappedMarkdownIdentity(lane, () => {
     if (facts.referenceDefinitions.definitionStart !== undefined) {
@@ -4981,7 +5325,7 @@ function emitIntrinsicForkRegionNodes(
         boundaryPolicy,
         reuseCache
       )
-  })
+  }, execution)
 }
 
 function materializeIntrinsicForkRegionNodes(
@@ -5617,18 +5961,26 @@ function createIntrinsicCanonicalFactIndex(
   forkGraph: IntrinsicProfile1ForkGraph
 ): IntrinsicCanonicalFactIndex {
   const linesByStart = new Map<number, PlainMarkdownLine[]>()
+  const lineKeysByStart = new Map<number, Set<string>>()
   const literalByKey = new Map<string, MarkdownLiteralRange>()
   const failureByKey = new Map<string, MarkdownContainerDepthFailure>()
   for (const graphLane of forkGraph.lanes) {
     for (const transition of graphLane.transitions) {
       for (const line of transition.emittedFacts.lines) {
         const existing = linesByStart.get(line.start)
+        const key = `${String(line.end)}:${String(line.contentEnd)}`
         if (existing === undefined) {
           linesByStart.set(line.start, [line])
-        } else if (!existing.some((candidate) =>
-          candidate.end === line.end &&
-          candidate.contentEnd === line.contentEnd)) {
-          existing.push(line)
+          lineKeysByStart.set(line.start, new Set([key]))
+        } else {
+          const existingKeys = lineKeysByStart.get(line.start)
+          if (existingKeys === undefined) {
+            throw new Error('Canonical line fact index is internally incomplete')
+          }
+          if (!existingKeys.has(key)) {
+            existing.push(line)
+            existingKeys.add(key)
+          }
         }
       }
       for (const literal of transition.emittedFacts.literals) {
@@ -5785,9 +6137,13 @@ function parseIntrinsicForkRegionFacts(
     selectionOffset
   )
   const retainedFacts = intrinsicCanonicalRegionFacts(canonicalFacts, lane)
-  const reuseKey = retainedFacts === undefined &&
-      boundary.matchingScopePolicy === undefined
-    ? JSON.stringify([
+  let reuseKey: string | undefined
+  if (
+    retainedFacts === undefined &&
+    boundary.matchingScopePolicy === undefined &&
+    fragmentSourceCanFit(lane.source)
+  ) {
+    const serialized = JSON.stringify([
       lane.source,
       lane.frontMatterEnabled ?? true,
       lane.gfmEnabled ?? true,
@@ -5796,7 +6152,13 @@ function parseIntrinsicForkRegionFacts(
       lane.footnotesEnabled ?? true,
       localReferenceDefinitions.cacheKey
     ])
-    : undefined
+    if (
+      retainedStringBytes(serialized) + RETAINED_CACHE_ENTRY_BYTES <=
+        PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+    ) {
+      reuseKey = serialized
+    }
+  }
   const parsed = retainedFacts ??
     (reuseKey === undefined ? undefined : reuse.get(reuseKey)) ??
     parseIntrinsicForkMarkdownLaneFacts(
@@ -6021,10 +6383,33 @@ export interface Profile1MarkdownReuseCache {
 
 export function createProfile1MarkdownReuseCache():
 Profile1MarkdownReuseCache {
-  return {
-    astRegions: {},
-    admittedRegionFacts: new Map()
-  }
+  const astRegions = {}
+  const admittedRegionFacts = new Map<string, PlainMarkdownLaneParse>()
+  const budget = createRetainedFragmentBudget()
+  registerRetainedFragmentCache(astRegions, budget)
+  registerRetainedFragmentCache(admittedRegionFacts, budget)
+  return { astRegions, admittedRegionFacts }
+}
+
+export function profile1MarkdownReuseRetentionV1(
+  reuseCache: Profile1MarkdownReuseCache
+): Profile1MarkdownReuseRetentionV1 {
+  const ast = fragmentMapRetention(
+    astRegionCaches.get(reuseCache.astRegions) ?? new Map()
+  )
+  const admitted = fragmentMapRetention(reuseCache.admittedRegionFacts)
+  const entries = ast.entries + admitted.entries
+  const keyBytes = ast.keyBytes + admitted.keyBytes
+  const valueBytes = ast.valueBytes + admitted.valueBytes
+  const overheadBytes = entries * RETAINED_CACHE_ENTRY_BYTES
+  return Object.freeze({
+    entries,
+    keyBytes,
+    valueBytes,
+    overheadBytes,
+    retainedBytes: keyBytes + valueBytes + overheadBytes,
+    maximumRetainedBytes: PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+  })
 }
 
 export function createProfile1MarkdownForkParser(
@@ -6138,7 +6523,8 @@ export function createProfile1MarkdownForkParser(
             region.lane,
             emitted.facts,
             emittedRegionCache,
-            emitted.boundaryPolicy
+            emitted.boundaryPolicy,
+            execution
           )
           children.push(...materializeIntrinsicForkRegionNodes(
             request.lane,
@@ -6256,7 +6642,8 @@ export function createProfile1MarkdownForkParser(
           localLane,
           emitted.facts,
           emittedRegionCache,
-          emitted.boundaryPolicy
+          emitted.boundaryPolicy,
+          execution
         )
         const localEdits = planBoundaryProjectionEdits(
           localLane.source,

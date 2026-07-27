@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   expectNoRendererErrors,
   launchWithMarkdown,
   readCanonicalMarkdown
@@ -37,7 +38,7 @@ test.describe('In-document anchor link click scrolls the editor (item 236)', () 
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('the rendered link resolves its href to the in-doc anchor and the heading is present', async() => {

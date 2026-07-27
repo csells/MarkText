@@ -11,10 +11,9 @@ import {
 /**
  * Safe points — the shared primitive for forking and for incremental reuse.
  *
- * `specs/research/0002` established that a CriticMarkup fork reconverges at the
- * next position where block-parser state is canonical and empty, and
- * `specs/research/0001` establishes that an incremental parse needs exactly the
- * same thing to choose a restart boundary. Build it once, serve both.
+ * ADR-0013 requires a CriticMarkup fork to reconverge at the next position where
+ * block-parser state is canonical and empty; incremental parsing needs the same
+ * position as its restart boundary. Build it once, serve both.
  *
  * It is derived from the parse rather than re-scanned, so it cannot become a
  * second authority disagreeing with the parser about where blocks begin (the

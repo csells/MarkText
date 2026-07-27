@@ -1,3 +1,8 @@
+import {
+  PARSE_SOURCE_CHECKPOINT_INTERVAL,
+  type ParseExecutionTracker
+} from '../../parseExecutionControl.js'
+
 export function hasEvenBackslashRunBefore(source: string, offset: number): boolean {
   let backslashes = 0
   for (let index = offset - 1; index >= 0 && source.charCodeAt(index) === 92; index -= 1) {
@@ -285,12 +290,22 @@ function isGfmDomainCodeUnit(codeUnit: number): boolean {
 function gfmDomainEnd(
   source: string,
   start: number,
-  limit: number
+  limit: number,
+  execution?: ParseExecutionTracker
 ): number | undefined {
   let end = start
+  let reportedEnd = start
   while (end < limit && isGfmDomainCodeUnit(source.charCodeAt(end))) {
     end += 1
+    if (
+      execution !== undefined &&
+      end - reportedEnd >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      execution.examineParserWork(end - reportedEnd)
+      reportedEnd = end
+    }
   }
+  execution?.examineParserWork(end - reportedEnd)
   while (end > start && source.charCodeAt(end - 1) === 46) {
     end -= 1
   }
@@ -324,7 +339,8 @@ const GFM_TRAILING_URL_PUNCTUATION = new Set([
 function trimGfmAutolinkPath(
   source: string,
   start: number,
-  candidateEnd: number
+  candidateEnd: number,
+  execution?: ParseExecutionTracker
 ): number {
   let end = candidateEnd
   while (
@@ -335,13 +351,22 @@ function trimGfmAutolinkPath(
   }
   let openingParentheses = 0
   let closingParentheses = 0
+  let reportedOffset = start
   for (let offset = start; offset < end; offset += 1) {
     if (source.charCodeAt(offset) === 40) {
       openingParentheses += 1
     } else if (source.charCodeAt(offset) === 41) {
       closingParentheses += 1
     }
+    if (
+      execution !== undefined &&
+      offset + 1 - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      execution.examineParserWork(offset + 1 - reportedOffset)
+      reportedOffset = offset + 1
+    }
   }
+  execution?.examineParserWork(end - reportedOffset)
   while (
     end > start &&
     source.charCodeAt(end - 1) === 41 &&
@@ -367,7 +392,8 @@ function gfmUrlAutolink(
   source: string,
   offset: number,
   end: number,
-  floor: number
+  floor: number,
+  execution?: ParseExecutionTracker
 ): GfmExtendedAutolink | undefined {
   if (!isGfmUrlBoundary(source, offset, floor)) {
     return undefined
@@ -384,19 +410,38 @@ function gfmUrlAutolink(
   if (!www && schemeLength === 0) {
     return undefined
   }
-  const domainEnd = gfmDomainEnd(source, offset + schemeLength, end)
+  const domainEnd = gfmDomainEnd(
+    source,
+    offset + schemeLength,
+    end,
+    execution
+  )
   if (domainEnd === undefined) {
     return undefined
   }
   let candidateEnd = domainEnd
+  let reportedEnd = candidateEnd
   while (
     candidateEnd < end &&
     source.charCodeAt(candidateEnd) > 32 &&
     source.charCodeAt(candidateEnd) !== 60
   ) {
     candidateEnd += 1
+    if (
+      execution !== undefined &&
+      candidateEnd - reportedEnd >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      execution.examineParserWork(candidateEnd - reportedEnd)
+      reportedEnd = candidateEnd
+    }
   }
-  candidateEnd = trimGfmAutolinkPath(source, offset, candidateEnd)
+  execution?.examineParserWork(candidateEnd - reportedEnd)
+  candidateEnd = trimGfmAutolinkPath(
+    source,
+    offset,
+    candidateEnd,
+    execution
+  )
   if (candidateEnd < domainEnd) {
     return undefined
   }
@@ -421,7 +466,8 @@ function isGfmEmailLocalCodeUnit(codeUnit: number): boolean {
 function gfmEmailAutolink(
   source: string,
   offset: number,
-  end: number
+  end: number,
+  execution?: ParseExecutionTracker
 ): GfmExtendedAutolink | undefined {
   const protocolLength =
     source.startsWith('mailto:', offset)
@@ -438,14 +484,23 @@ function gfmEmailAutolink(
     return undefined
   }
   let at = localStart
+  let reportedAt = localStart
   while (at < end && isGfmEmailLocalCodeUnit(source.charCodeAt(at))) {
     at += 1
+    if (
+      execution !== undefined &&
+      at - reportedAt >= PARSE_SOURCE_CHECKPOINT_INTERVAL
+    ) {
+      execution.examineParserWork(at - reportedAt)
+      reportedAt = at
+    }
   }
+  execution?.examineParserWork(at - reportedAt)
   if (at === localStart || source.charCodeAt(at) !== 64) {
     return undefined
   }
   const domainStart = at + 1
-  const domainEnd = gfmDomainEnd(source, domainStart, end)
+  const domainEnd = gfmDomainEnd(source, domainStart, end, execution)
   if (domainEnd === undefined) {
     return undefined
   }
@@ -470,11 +525,12 @@ export function findGfmExtendedAutolink(
   source: string,
   offset: number,
   end: number,
-  floor: number
+  floor: number,
+  execution?: ParseExecutionTracker
 ): GfmExtendedAutolink | undefined {
   return (
-    gfmUrlAutolink(source, offset, end, floor) ??
-    gfmEmailAutolink(source, offset, end)
+    gfmUrlAutolink(source, offset, end, floor, execution) ??
+    gfmEmailAutolink(source, offset, end, execution)
   )
 }
 

@@ -154,4 +154,156 @@ describe('DocumentSession Review index', () => {
       { modelRange: null, focusOffset: 2 }
     ])
   })
+
+  it('indexes and edits the accepted maximum-depth Review hierarchy iteratively', async() => {
+    const depth = 16_384
+    const source = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
+    const session = await createDocumentSession({
+      source: createSourceSnapshot(source),
+      parseConfiguration: TEST_CONFIGURATION,
+      initialSelection: {
+        anchor: { offset: 1, affinity: 'previous' },
+        focus: { offset: 1, affinity: 'previous' }
+      }
+    })
+    const snapshot = session.snapshot()
+    if (
+      snapshot.kind !== 'complete' ||
+      snapshot.revision.selection === null
+    ) {
+      throw new Error('Expected the maximum-depth Markup snapshot')
+    }
+    const first = snapshot.reviewIndex.items[0]
+    const last = snapshot.reviewIndex.items.at(-1)
+
+    expect(snapshot.reviewIndex.items).toHaveLength(depth)
+    expect(first).toMatchObject({
+      kind: 'addition',
+      depth: 0,
+      parent: null,
+      modelRange: { start: 0, end: 1 }
+    })
+    expect(last).toMatchObject({
+      kind: 'addition',
+      depth: depth - 1,
+      modelRange: { start: 0, end: 1 }
+    })
+    expect(last?.parent).toBe(snapshot.reviewIndex.items.at(-2)?.nodeId)
+
+    await expect(session.dispatch({
+      kind: 'insert-text',
+      target: snapshot.revision.selection,
+      text: '!'
+    }).completion).resolves.toMatchObject({ kind: 'committed' })
+    const edited = session.snapshot()
+    if (edited.kind !== 'complete') {
+      throw new Error('Expected the edited maximum-depth Markup snapshot')
+    }
+    expect(edited.revision.source).toBe(
+      `${'{++'.repeat(depth)}x!${'++}'.repeat(depth)}`
+    )
+    expect(edited.reviewIndex.items).toHaveLength(depth)
+  }, 30_000)
+
+  it('publishes authoring and bulk-resolves through the accepted maximum depth iteratively', async() => {
+    const depth = 16_384
+    const session = await createDocumentSession({
+      source: createSourceSnapshot(
+        `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
+      ),
+      parseConfiguration: TEST_CONFIGURATION,
+      initialSelection: {
+        anchor: { offset: 0, affinity: 'next' },
+        focus: { offset: 1, affinity: 'previous' }
+      }
+    })
+    const before = session.snapshot()
+    if (before.kind !== 'complete') {
+      throw new Error('Expected the maximum-depth Markup snapshot')
+    }
+
+    expect(before.reviewIndex.authoring).toMatchObject({
+      canCreateAddition: true,
+      canCreateDeletion: false,
+      canCreateSubstitution: false,
+      canCreateHighlight: true,
+      canCreateComment: true
+    })
+    await expect(session.dispatch({
+      kind: 'resolve-all-changes',
+      decision: 'accept'
+    }).completion).resolves.toMatchObject({ kind: 'committed' })
+    const after = session.snapshot()
+    if (after.kind !== 'complete') {
+      throw new Error('Expected the resolved maximum-depth Markup snapshot')
+    }
+    expect(after.revision.source).toBe('x')
+    expect(after.reviewIndex.items).toEqual([])
+  }, 30_000)
+
+  it('rejects all maximum-depth additions without subtree rescans', async() => {
+    const depth = 16_384
+    const session = await createDocumentSession({
+      source: createSourceSnapshot(
+        `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
+      ),
+      parseConfiguration: TEST_CONFIGURATION
+    })
+    const startedAt = performance.now()
+
+    await expect(session.dispatch({
+      kind: 'resolve-all-changes',
+      decision: 'reject'
+    }).completion).resolves.toMatchObject({ kind: 'committed' })
+    const elapsedMs = performance.now() - startedAt
+
+    expect(session.snapshot().revision.source).toBe('')
+    expect(
+      elapsedMs,
+      `maximum-depth reject-all took ${elapsedMs.toFixed(3)}ms`
+    ).toBeLessThanOrEqual(1_000)
+  }, 30_000)
+
+  it('authors beside an untouched maximum-depth tree with linear scaling', async() => {
+    const measure = async(depth: number): Promise<number> => {
+      const nested = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
+      const session = await createDocumentSession({
+        source: createSourceSnapshot(`${nested} tail`),
+        parseConfiguration: TEST_CONFIGURATION,
+        initialSelection: {
+          anchor: { offset: 2, affinity: 'next' },
+          focus: { offset: 6, affinity: 'previous' }
+        }
+      })
+      const before = session.snapshot()
+      if (
+        before.kind !== 'complete' ||
+        before.revision.selection === null
+      ) {
+        throw new Error('Expected the deep sibling authoring target')
+      }
+
+      const startedAt = performance.now()
+      await expect(session.dispatch({
+        kind: 'author-critic-markup',
+        target: before.revision.selection,
+        input: { kind: 'highlight' }
+      }).completion).resolves.toMatchObject({ kind: 'committed' })
+      const elapsedMs = performance.now() - startedAt
+      const after = session.snapshot()
+      if (after.kind !== 'complete') {
+        throw new Error('Expected the authored deep sibling snapshot')
+      }
+      expect(after.revision.source).toBe(`${nested} {==tail==}`)
+      expect(after.reviewIndex.items).toHaveLength(depth + 1)
+      return elapsedMs
+    }
+    const lowerMs = await measure(8_192)
+    const upperMs = await measure(16_384)
+
+    expect(
+      upperMs / Math.max(lowerMs, 1),
+      `sibling-author lower=${lowerMs.toFixed(3)}ms upper=${upperMs.toFixed(3)}ms`
+    ).toBeLessThanOrEqual(2.25)
+  }, 30_000)
 })

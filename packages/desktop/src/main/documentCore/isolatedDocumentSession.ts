@@ -3,10 +3,7 @@ import type {
   DocumentSessionJournalStorage,
   DocumentSessionJournalValue
 } from '@marktext/document-core'
-import {
-  Worker,
-  type WorkerOptions
-} from 'node:worker_threads'
+import { Worker } from 'node:worker_threads'
 import path from 'node:path'
 import type {
   DocumentCoreWorkerCommand,
@@ -38,32 +35,15 @@ export class DocumentSessionWorkerExitError extends Error {
   }
 }
 
-function workerOptions(
-  executionControl: SharedArrayBuffer
-): Readonly<{
-    entry: URL | string
-    options: WorkerOptions
-  }> {
-  const workerData: DocumentCoreWorkerData = Object.freeze({
-    executionControl
-  })
-  if (process.env.VITEST === 'true') {
-    return Object.freeze({
-      entry: path.resolve(
-        process.cwd(),
-        'src/main/documentCore/documentSessionWorker.ts'
-      ),
-      options: Object.freeze({
-        execArgv: ['--import', 'tsx'],
-        workerData
-      })
-    })
-  }
-  return Object.freeze({
-    entry: path.join(__dirname, 'documentSessionWorker.js'),
-    options: Object.freeze({ workerData })
-  })
+export interface DocumentSessionWorkerLaunchDescriptor {
+  readonly entry: URL | string
+  readonly execArgv?: readonly string[]
 }
+
+const productionWorkerLaunch: DocumentSessionWorkerLaunchDescriptor =
+  Object.freeze({
+    entry: path.join(__dirname, 'documentSessionWorker.js')
+  })
 
 function revivedError(record: Readonly<{
   name: string
@@ -74,53 +54,6 @@ function revivedError(record: Readonly<{
   error.name = record.name
   if (record.stack !== undefined) error.stack = record.stack
   return error
-}
-
-function rehomeWorkerBytesForTest(value: unknown): unknown {
-  if (
-    process.env.VITEST !== 'true' ||
-    value === null ||
-    typeof value !== 'object' ||
-    !('envelope' in value) ||
-    value.envelope === null ||
-    typeof value.envelope !== 'object' ||
-    !('members' in value.envelope) ||
-    !Array.isArray(value.envelope.members)
-  ) {
-    return value
-  }
-  return {
-    ...value,
-    envelope: {
-      ...value.envelope,
-      members: value.envelope.members.map((member: unknown) => {
-        if (
-          member === null ||
-          typeof member !== 'object' ||
-          !('chunks' in member) ||
-          !Array.isArray(member.chunks)
-        ) {
-          return member
-        }
-        return {
-          ...member,
-          chunks: member.chunks.map((chunk: unknown) => {
-            if (
-              chunk === null ||
-              typeof chunk !== 'object' ||
-              !('bytes' in chunk)
-            ) {
-              return chunk
-            }
-            return {
-              ...chunk,
-              bytes: new Uint8Array(chunk.bytes as ArrayLike<number>)
-            }
-          })
-        }
-      })
-    }
-  }
 }
 
 /**
@@ -144,15 +77,23 @@ export class IsolatedDocumentSession {
 
   constructor(
     storage: DocumentSessionJournalStorage,
-    onUnexpectedExit?: (error: DocumentSessionWorkerExitError) => void
+    onUnexpectedExit?: (error: DocumentSessionWorkerExitError) => void,
+    launch: DocumentSessionWorkerLaunchDescriptor = productionWorkerLaunch
   ) {
     this.#storage = storage
     const executionControl = new SharedArrayBuffer(
       DOCUMENT_CORE_EXECUTION_CONTROL_WORDS * Int32Array.BYTES_PER_ELEMENT
     )
     this.#executionControl = new Int32Array(executionControl)
-    const resolved = workerOptions(executionControl)
-    this.#worker = new Worker(resolved.entry, resolved.options)
+    const workerData: DocumentCoreWorkerData = Object.freeze({
+      executionControl
+    })
+    this.#worker = new Worker(launch.entry, {
+      workerData,
+      ...(launch.execArgv === undefined
+        ? {}
+        : { execArgv: [...launch.execArgv] })
+    })
     this.#worker.unref()
     this.executionThreadId = this.#worker.threadId
     this.#worker.on('message', (message: DocumentCoreWorkerToMainMessage) => {
@@ -321,7 +262,7 @@ export class IsolatedDocumentSession {
     if (pending === undefined) return
     this.#pending.delete(message.requestId)
     if (message.error === undefined) {
-      pending.resolve(rehomeWorkerBytesForTest(message.result))
+      pending.resolve(message.result)
     } else {
       pending.reject(revivedError(message.error))
     }

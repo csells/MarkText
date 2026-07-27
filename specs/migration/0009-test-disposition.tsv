@@ -1,6 +1,7 @@
 path	disposition	phase	status	reason
 packages/document-core/test/language-engine/__scratch-census.spec.ts	delete	P0	complete	Assertion-free corpus log writer is not acceptance evidence
 packages/document-core/test/language-engine/__scratch-dbg.spec.ts	delete	P0	complete	Assertion-free debug log writer is not acceptance evidence
+packages/document-core/test/document-session/revision-transition-proof.spec.ts	delete	P9	complete	The unused second source-edit and reparse kernel is deleted; DocumentSession owns the only transaction path
 packages/desktop/test/e2e/document-core-engine.spec.ts	delete	P9	complete	Flag-on and flag-off engine comparison is invalid after the sole-authority cutover
 packages/desktop/test/e2e/document-engine-seam.spec.ts	delete	P9	complete	The unconditional document-core owner replaces the comparison seam
 packages/desktop/test/unit/specs/critic-markup-print-security.spec.ts	delete	P9	complete	Retired renderer print service no longer owns static materialization

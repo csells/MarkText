@@ -7,3 +7,5 @@ L05	packages/muya/src/criticMarkup/documentService.ts	CriticMarkupDocumentServic
 L06	packages/muya/src/utils/marked/criticMarkupDocument.ts	CriticMarkup parse and projection exports	LanguageEngine and materializers	P9	P9	absent
 L07	packages/muya/src/utils/marked/extensions/nativeCriticMarkup.ts	native CriticMarkup extension exports	intrinsic parser and LiveRenderPlan	P9	P9	absent
 L08	packages/muya/src/history/index.ts	JSON-operation history	session transaction history	P9	P9	absent
+L09	packages/document-core/src/internal/session/revisionKernel.ts	RevisionKernel	DocumentSession typed-intent transaction owner	P9	P9	absent
+L10	packages/document-core/src/internal/session/revisionTransition.ts	createRevisionTransition	DocumentSession revision descriptors and MarkupCoordinateMap	P9	P9	absent

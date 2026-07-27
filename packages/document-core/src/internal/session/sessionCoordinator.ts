@@ -390,65 +390,94 @@ const READ_ONLY_AUTHORING = Object.freeze({
   canCreateComment: false
 })
 
-function modelRangeForReviewNode(
-  view: MarkupView,
-  nodeId: NodeId
-): ModelRange | null {
-  let start = Infinity
-  let end = -Infinity
-  for (const run of view.runs) {
-    if (!run.marks.some((mark) => mark.nodeId === nodeId)) {
-      continue
-    }
-    start = Math.min(start, run.modelRange.start)
-    end = Math.max(end, run.modelRange.end)
-  }
-  return Number.isFinite(start) && Number.isFinite(end)
-    ? Object.freeze({ start, end })
-    : null
+interface MutableModelRange {
+  start: number
+  end: number
 }
 
-function focusOffsetForReviewNode(
-  view: MarkupView,
-  node: CriticMarkupNode,
-  modelRange: ModelRange | null
-): number {
-  if (modelRange !== null) {
-    return modelRange.start
-  }
-  const target = Number(node.range.start)
-  let previous:
-    | { readonly source: number, readonly model: number }
-    | undefined
-  let next:
-    | { readonly source: number, readonly model: number }
-    | undefined
+interface ReviewViewLookup {
+  readonly modelRangeFor: (nodeId: NodeId) => ModelRange | null
+  readonly focusOffsetFor: (sourceOffset: number) => number
+}
 
+function createReviewViewLookup(view: MarkupView): ReviewViewLookup {
+  const mutableRanges = new Map<NodeId, MutableModelRange>()
   for (const run of view.runs) {
-    const sourceStart = Number(run.sourceRange.start)
-    const sourceEnd = Number(run.sourceRange.end)
-    if (sourceEnd <= target) {
-      previous = Object.freeze({
-        source: sourceEnd,
-        model: run.modelRange.end
-      })
-    }
-    if (next === undefined && sourceStart >= target) {
-      next = Object.freeze({
-        source: sourceStart,
-        model: run.modelRange.start
-      })
+    for (const mark of run.marks) {
+      const range = mutableRanges.get(mark.nodeId)
+      if (range === undefined) {
+        mutableRanges.set(mark.nodeId, {
+          start: run.modelRange.start,
+          end: run.modelRange.end
+        })
+      } else {
+        range.start = Math.min(range.start, run.modelRange.start)
+        range.end = Math.max(range.end, run.modelRange.end)
+      }
     }
   }
-  if (previous === undefined) {
-    return next?.model ?? 0
+  const modelRanges = new Map<NodeId, ModelRange>()
+  for (const [nodeId, range] of mutableRanges) {
+    modelRanges.set(nodeId, Object.freeze({
+      start: range.start,
+      end: range.end
+    }))
   }
-  if (next === undefined) {
-    return previous.model
+
+  const runAt = (index: number): MarkupView['runs'][number] => {
+    const run = view.runs[index]
+    if (run === undefined) {
+      throw new Error('Review view run lookup is internally incomplete')
+    }
+    return run
   }
-  return target - previous.source <= next.source - target
-    ? previous.model
-    : next.model
+  const boundaryFocusOffset = (target: number): number => {
+    let low = 0
+    let high = view.runs.length - 1
+    let previousIndex = -1
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2)
+      if (Number(runAt(middle).sourceRange.end) <= target) {
+        previousIndex = middle
+        low = middle + 1
+      } else {
+        high = middle - 1
+      }
+    }
+
+    low = 0
+    high = view.runs.length - 1
+    let nextIndex = view.runs.length
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2)
+      if (Number(runAt(middle).sourceRange.start) >= target) {
+        nextIndex = middle
+        high = middle - 1
+      } else {
+        low = middle + 1
+      }
+    }
+
+    const previous = previousIndex < 0 ? undefined : runAt(previousIndex)
+    const next = nextIndex >= view.runs.length ? undefined : runAt(nextIndex)
+    if (previous === undefined) {
+      return next?.modelRange.start ?? 0
+    }
+    if (next === undefined) {
+      return previous.modelRange.end
+    }
+    return target - Number(previous.sourceRange.end) <=
+      Number(next.sourceRange.start) - target
+      ? previous.modelRange.end
+      : next.modelRange.start
+  }
+
+  return Object.freeze({
+    modelRangeFor: Object.freeze(
+      (nodeId: NodeId): ModelRange | null => modelRanges.get(nodeId) ?? null
+    ),
+    focusOffsetFor: Object.freeze(boundaryFocusOffset)
+  })
 }
 
 function createReviewIndex(
@@ -458,7 +487,7 @@ function createReviewIndex(
 ): ReviewIndex {
   const items: ReviewIndexItem[] = []
   const commentedSpans: ReviewCommentedSpan[] = []
-  const modelRanges = new Map<NodeId, ModelRange | null>()
+  const lookup = createReviewViewLookup(view)
   const revisedProvenance = revision.projection('revised').provenance
 
   const itemFor = (
@@ -466,8 +495,7 @@ function createReviewIndex(
     depth: number,
     parent: NodeId | null
   ): ReviewIndexItem => {
-    const modelRange = modelRangeForReviewNode(view, node.nodeId)
-    modelRanges.set(node.nodeId, modelRange)
+    const modelRange = lookup.modelRangeFor(node.nodeId)
     return Object.freeze({
       nodeId: node.nodeId,
       kind: node.kind,
@@ -476,7 +504,9 @@ function createReviewIndex(
         end: node.range.end
       }),
       modelRange,
-      focusOffset: focusOffsetForReviewNode(view, node, modelRange),
+      focusOffset: modelRange?.start ?? lookup.focusOffsetFor(
+        Number(node.range.start)
+      ),
       depth,
       parent,
       commentRevisedText:
@@ -500,20 +530,83 @@ function createReviewIndex(
     })
   }
 
-  const visitSiblings = (
-    siblings: readonly CriticMarkupNode[],
-    depth: number,
-    parent: NodeId | null
-  ): void => {
-    for (const node of siblings) {
-      items.push(itemFor(node, depth, parent))
-      for (const arm of node.arms) {
-        visitSiblings(arm.children, depth + 1, node.nodeId)
-      }
+  type ReviewTraversalTask =
+    | Readonly<{
+      readonly kind: 'siblings'
+      readonly siblings: readonly CriticMarkupNode[]
+      readonly depth: number
+      readonly parent: NodeId | null
+    }>
+    | Readonly<{
+      readonly kind: 'node'
+      readonly node: CriticMarkupNode
+      readonly depth: number
+      readonly parent: NodeId | null
+    }>
+    | Readonly<{
+      readonly kind: 'commented-spans'
+      readonly siblings: readonly CriticMarkupNode[]
+    }>
+
+  const roots = Array.from(
+    { length: revision.criticMarkup.rootCount },
+    (_, index) => revision.criticMarkup.rootAt(index)
+  )
+  const pending: ReviewTraversalTask[] = [{
+    kind: 'siblings',
+    siblings: roots,
+    depth: 0,
+    parent: null
+  }]
+  while (pending.length > 0) {
+    const task = pending.pop()
+    if (task === undefined) {
+      continue
     }
-    for (let index = 0; index + 1 < siblings.length; index += 1) {
-      const highlight = siblings[index]
-      const comment = siblings[index + 1]
+    if (task.kind === 'siblings') {
+      pending.push({
+        kind: 'commented-spans',
+        siblings: task.siblings
+      })
+      for (
+        let index = task.siblings.length - 1;
+        index >= 0;
+        index -= 1
+      ) {
+        const node = task.siblings[index]
+        if (node !== undefined) {
+          pending.push({
+            kind: 'node',
+            node,
+            depth: task.depth,
+            parent: task.parent
+          })
+        }
+      }
+      continue
+    }
+    if (task.kind === 'node') {
+      items.push(itemFor(task.node, task.depth, task.parent))
+      for (
+        let armIndex = task.node.arms.length - 1;
+        armIndex >= 0;
+        armIndex -= 1
+      ) {
+        const children = task.node.arms[armIndex]?.children
+        if (children !== undefined && children.length > 0) {
+          pending.push({
+            kind: 'siblings',
+            siblings: children,
+            depth: task.depth + 1,
+            parent: task.node.nodeId
+          })
+        }
+      }
+      continue
+    }
+    for (let index = 0; index + 1 < task.siblings.length; index += 1) {
+      const highlight = task.siblings[index]
+      const comment = task.siblings[index + 1]
       if (
         highlight?.kind !== 'highlight' ||
         comment?.kind !== 'comment' ||
@@ -530,8 +623,8 @@ function createReviewIndex(
       ) {
         continue
       }
-      const modelRange = modelRanges.get(highlight.nodeId)
-      if (modelRange === undefined || modelRange === null) {
+      const modelRange = lookup.modelRangeFor(highlight.nodeId)
+      if (modelRange === null) {
         continue
       }
       commentedSpans.push(Object.freeze({
@@ -545,12 +638,6 @@ function createReviewIndex(
       }))
     }
   }
-
-  const roots = Array.from(
-    { length: revision.criticMarkup.rootCount },
-    (_, index) => revision.criticMarkup.rootAt(index)
-  )
-  visitSiblings(roots, 0, null)
   return Object.freeze({
     authoring,
     items: Object.freeze(items),
@@ -635,6 +722,7 @@ export class SessionCoordinator {
       ...this.#configuration,
       trackChanges: this.#worker.trackChanges
     })
+    this.#worker.prepareDocumentFacts()
     this.#snapshot = this.#createSnapshot()
   }
 
@@ -1115,7 +1203,7 @@ export class SessionCoordinator {
       } else if (intent.kind === 'quick-insert-block') {
         prepared = this.#worker.prepareQuickInsertBlock(
           intent.target,
-          intent.conversion,
+          intent.block,
           next
         )
       } else if (intent.kind === 'duplicate-block') {
@@ -1264,6 +1352,10 @@ export class SessionCoordinator {
       } else {
         prepared = this.#worker.prepareTransformation(intent, next)
       }
+      // Facts are part of the candidate publication. Complete their
+      // checkpointed, cancellable work before journal begin/worker commit so
+      // cancellation cannot leave a committed head with no snapshot.
+      this.#worker.prepareDocumentFacts(prepared.revision)
       const transitionId = this.#ids.transition()
       if (await this.#journal.beginCommit(ticket) === 'cancelled') {
         this.#ids.restore(rollbackIds)
@@ -1283,6 +1375,7 @@ export class SessionCoordinator {
         // themselves.
         cause,
         history: prepared.history,
+        edits: prepared.transition.edits,
         before,
         after,
         revision: Object.freeze({

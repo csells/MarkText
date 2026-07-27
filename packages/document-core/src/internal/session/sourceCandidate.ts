@@ -63,10 +63,6 @@ function appendPiece(target: CandidatePiece[], piece: CandidatePiece): void {
     target[target.length - 1] = sourcePiece(previous.start, piece.end)
     return
   }
-  if (previous?.kind === 'insert' && piece.kind === 'insert') {
-    target[target.length - 1] = insertPiece(previous.text + piece.text)
-    return
-  }
   target.push(piece)
 }
 
@@ -142,33 +138,14 @@ export function buildSourceCandidateDraft(
   })
 }
 
-function slicePieces(
-  pieces: readonly CandidatePiece[],
+function slicedPiece(
+  piece: CandidatePiece,
   start: number,
   end: number
-): readonly CandidatePiece[] {
-  const sliced: CandidatePiece[] = []
-  let cursor = 0
-  for (const piece of pieces) {
-    const length = pieceLength(piece)
-    const pieceStart = cursor
-    const pieceEnd = cursor + length
-    cursor = pieceEnd
-    const overlapStart = Math.max(start, pieceStart)
-    const overlapEnd = Math.min(end, pieceEnd)
-    if (overlapStart >= overlapEnd) {
-      continue
-    }
-    const localStart = overlapStart - pieceStart
-    const localEnd = overlapEnd - pieceStart
-    appendPiece(
-      sliced,
-      piece.kind === 'source'
-        ? sourcePiece(piece.start + localStart, piece.start + localEnd)
-        : insertPiece(piece.text.slice(localStart, localEnd))
-    )
-  }
-  return Object.freeze(sliced)
+): CandidatePiece {
+  return piece.kind === 'source'
+    ? sourcePiece(piece.start + start, piece.start + end)
+    : insertPiece(piece.text.slice(start, end))
 }
 
 function applyCandidateEdits(
@@ -181,19 +158,42 @@ function applyCandidateEdits(
   )
   validateSourceEdits(candidateLength, edits)
   const next: CandidatePiece[] = []
-  let cursor = 0
-  for (const edit of edits) {
-    for (const piece of slicePieces(pieces, cursor, edit.start)) {
-      appendPiece(next, piece)
+  let candidateOffset = 0
+  let pieceIndex = 0
+  let pieceOffset = 0
+  const advanceTo = (target: number, retain: boolean): void => {
+    while (candidateOffset < target) {
+      const piece = pieces[pieceIndex]
+      if (piece === undefined) {
+        throw new Error('Source candidate pieces do not cover their text')
+      }
+      const length = pieceLength(piece)
+      const consumed = Math.min(
+        target - candidateOffset,
+        length - pieceOffset
+      )
+      if (retain) {
+        appendPiece(
+          next,
+          slicedPiece(piece, pieceOffset, pieceOffset + consumed)
+        )
+      }
+      candidateOffset += consumed
+      pieceOffset += consumed
+      if (pieceOffset === length) {
+        pieceIndex += 1
+        pieceOffset = 0
+      }
     }
+  }
+  for (const edit of edits) {
+    advanceTo(edit.start, true)
+    advanceTo(edit.end, false)
     if (edit.insert.length > 0) {
       appendPiece(next, insertPiece(edit.insert))
     }
-    cursor = edit.end
   }
-  for (const piece of slicePieces(pieces, cursor, candidateLength)) {
-    appendPiece(next, piece)
-  }
+  advanceTo(candidateLength, true)
   return Object.freeze(next)
 }
 
@@ -203,31 +203,31 @@ function exactSourceEditsFromPieces(
 ): readonly SourceEdit[] {
   const edits: SourceEdit[] = []
   let sourceCursor = 0
-  let insert = ''
+  let insertParts: string[] = []
 
   for (const piece of pieces) {
     if (piece.kind === 'insert') {
-      insert += piece.text
+      insertParts.push(piece.text)
       continue
     }
     if (piece.start < sourceCursor) {
       throw new Error('Source candidate provenance is not monotone')
     }
-    if (piece.start > sourceCursor || insert.length > 0) {
+    if (piece.start > sourceCursor || insertParts.length > 0) {
       edits.push(Object.freeze({
         start: sourceCursor,
         end: piece.start,
-        insert
+        insert: insertParts.join('')
       }))
-      insert = ''
+      insertParts = []
     }
     sourceCursor = piece.end
   }
-  if (sourceCursor < sourceLength || insert.length > 0) {
+  if (sourceCursor < sourceLength || insertParts.length > 0) {
     edits.push(Object.freeze({
       start: sourceCursor,
       end: sourceLength,
-      insert
+      insert: insertParts.join('')
     }))
   }
   return Object.freeze(edits)
@@ -239,9 +239,19 @@ export function protectSourceCandidateDraft(
   protectionPositions: readonly number[],
   protectsIntroducedBom: boolean
 ): ProtectedSourceCandidate {
-  const distinctPositions = [...new Set(protectionPositions)].sort(
-    (left, right) => left - right
-  )
+  const distinctPositions: number[] = []
+  let previousPosition = -1
+  for (const position of protectionPositions) {
+    if (
+      !Number.isSafeInteger(position) ||
+      position < previousPosition ||
+      position > draft.text.length
+    ) {
+      throw new RangeError('Protection positions must be ordered positions')
+    }
+    if (position !== previousPosition) distinctPositions.push(position)
+    previousPosition = position
+  }
   let pieces = applyCandidateEdits(
     draft.pieces,
     distinctPositions.map((position) =>

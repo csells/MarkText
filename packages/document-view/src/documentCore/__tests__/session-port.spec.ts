@@ -120,15 +120,22 @@ describe('document-core view session port', () => {
             modelPositionAt: position => position,
             dispatch: async (intent: EditorIntent) => {
                 intents.push(intent);
-                if (intent.kind === 'insert-text') {
-                    const offset = intent.target.anchor.offset;
-                    snapshot = remoteSnapshot(
-                        snapshot.source.slice(0, offset)
-                        + intent.text
-                        + snapshot.source.slice(offset),
-                    );
-                }
-                return { kind: 'committed' as const };
+                if (intent.kind !== 'insert-text')
+                    throw new Error('Fixture expects one insertion');
+                const offset = intent.target.anchor.offset;
+                snapshot = remoteSnapshot(
+                    snapshot.source.slice(0, offset)
+                    + intent.text
+                    + snapshot.source.slice(offset),
+                );
+                return {
+                    kind: 'committed' as const,
+                    sourceEdits: Object.freeze([{
+                        start: offset,
+                        end: offset,
+                        insert: intent.text,
+                    }]),
+                };
             },
             select: async (_selection: InitialModelSelection) => {},
             selectSource: async (_selection: InitialModelSelection) => {},
@@ -152,7 +159,10 @@ describe('document-core view session port', () => {
                         ...patch,
                     },
                 });
-                return { kind: 'state-changed' as const };
+                return {
+                    kind: 'state-changed' as const,
+                    sourceEdits: Object.freeze([]),
+                };
             },
             close: async () => {},
         };
@@ -225,7 +235,10 @@ describe('document-core view session port', () => {
         const port: IDocumentCoreViewSession = {
             snapshot: () => remoteSnapshot(source),
             modelPositionAt: position => position,
-            dispatch: async () => ({ kind: 'committed' as const }),
+            dispatch: async () => ({
+                kind: 'committed' as const,
+                sourceEdits: Object.freeze([]),
+            }),
             select: async () => {},
             selectSource: async () => {},
             attachDocument: async () => {},
@@ -235,7 +248,10 @@ describe('document-core view session port', () => {
                     fail = false;
                     throw new Error('publication failed');
                 }
-                return { kind: 'state-changed' as const };
+                return {
+                    kind: 'state-changed' as const,
+                    sourceEdits: Object.freeze([]),
+                };
             },
             close: async () => {},
         };
@@ -265,7 +281,10 @@ describe('document-core view session port', () => {
         const port: IDocumentCoreViewSession = {
             snapshot: () => remoteSnapshot(source),
             modelPositionAt: position => position,
-            dispatch: async () => ({ kind: 'committed' as const }),
+            dispatch: async () => ({
+                kind: 'committed' as const,
+                sourceEdits: Object.freeze([]),
+            }),
             select: async (selection) => {
                 selectedOffsets.push(selection.focus.offset);
                 if (selectedOffsets.length === 1) {
@@ -276,7 +295,10 @@ describe('document-core view session port', () => {
             selectSource: async () => {},
             attachDocument: async () => {},
             reconfigureMarkdownOptions: async () => (
-                { kind: 'state-changed' as const }
+                {
+                    kind: 'state-changed' as const,
+                    sourceEdits: Object.freeze([]),
+                }
             ),
             close: async () => {},
         };
@@ -311,14 +333,20 @@ describe('document-core view session port', () => {
                     affinity: position.affinity,
                 });
             },
-            dispatch: async () => ({ kind: 'committed' as const }),
+            dispatch: async () => ({
+                kind: 'committed' as const,
+                sourceEdits: Object.freeze([]),
+            }),
             select: async selection => {
                 selections.push(selection);
             },
             selectSource: async () => {},
             attachDocument: async () => {},
             reconfigureMarkdownOptions: async () => (
-                { kind: 'state-changed' as const }
+                {
+                    kind: 'state-changed' as const,
+                    sourceEdits: Object.freeze([]),
+                }
             ),
             close: async () => {},
         };

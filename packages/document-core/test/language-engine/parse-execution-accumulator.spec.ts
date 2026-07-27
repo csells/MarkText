@@ -66,4 +66,35 @@ describe('parse execution progress accumulator', () => {
       }
     ])
   })
+
+  it('keeps the next stage monotone after a checkpoint cancels', () => {
+    const cancellation = new Error('cancelled-at-checkpoint')
+    const observed: ParseExecutionProgress[] = []
+    let cancel = true
+    const accumulator = createParseExecutionAccumulator({
+      checkpoint: (progress) => {
+        observed.push(progress)
+        if (cancel) throw cancellation
+      }
+    })
+
+    expect(() => accumulator.stage().checkpoint({
+      sourceUnits: 4_096,
+      logicalNodes: 0
+    })).toThrow(cancellation)
+    cancel = false
+    accumulator.stage().checkpoint({
+      sourceUnits: 1,
+      logicalNodes: 0
+    })
+
+    expect(observed).toEqual([
+      { sourceUnits: 4_096, logicalNodes: 0 },
+      { sourceUnits: 4_097, logicalNodes: 0 }
+    ])
+    expect(accumulator.progress()).toEqual({
+      sourceUnits: 4_097,
+      logicalNodes: 0
+    })
+  })
 })

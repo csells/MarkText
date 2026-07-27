@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   clickMenuById,
   enterSourceMode,
@@ -11,7 +12,7 @@ import {
 // from the active application menu — the same Menu instance that
 // `viewLayoutChanged` (main/menu/actions/view.ts) mutates after the renderer
 // round-trips `mt::view-layout-changed`. Mirrors menu-sanity.spec.ts:60 and
-// parity-pg1-menu-state.spec.ts:23.
+// the live menu-state assertions below.
 const viewModeMenuItem = async(
   app: ElectronApplication,
   id: string
@@ -66,7 +67,7 @@ test.describe('View modes', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('Toggle focus mode adds and removes .focus on .editor-wrapper', async() => {
@@ -195,7 +196,7 @@ test.describe('View modes — focus mode dims non-active blocks (item 250)', () 
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('item 250: active top-level block is full opacity, siblings are dimmed', async() => {
@@ -284,7 +285,7 @@ test.describe('View modes — typewriter scrolling (item 173)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   // Caret block bounding-box top relative to the scroll container's viewport.

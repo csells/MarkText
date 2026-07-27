@@ -99,9 +99,10 @@ describe('one CriticMarkup Review snapshot/controller protocol', () => {
     const helpers = fs.readFileSync(criticPlatformE2eHelpersPath, 'utf8')
     expect(workflow).toContain('document-core-review-workflow.spec.ts')
     expect(workflow).toContain('macos-15')
-    expect(workflow).toContain('windows-latest')
-    expect(workflow).toContain('ubuntu-latest')
-    expect(workflow).toContain("'packages/document-view/**'")
+    expect(workflow).toContain('windows-2025')
+    expect(workflow).toContain('ubuntu-22.04')
+    expect(workflow).not.toMatch(/(?:macos|windows|ubuntu)-latest/u)
+    expect(workflow).not.toMatch(/^ {4}paths:/mu)
     expect(e2e).toContain('selectTextByKeyboard')
     expect(e2e).toContain('pressApplicationMenuAccelerator')
     expect(e2e).toContain("{ button: 'right' }")
@@ -126,13 +127,29 @@ describe('one CriticMarkup Review snapshot/controller protocol', () => {
     expect(layeredAcceleratorInput).toContain('isBackgroundTestRun')
     expect(layeredAcceleratorInput).toContain('assertBackgroundRuntimePolicy')
     expect(layeredAcceleratorInput).toContain('webContents.sendInputEvent')
-    expect(layeredAcceleratorInput).toContain("type: 'keyDown'")
-    expect(layeredAcceleratorInput).toContain("type: 'keyUp'")
+    expect(layeredAcceleratorInput).toContain("await emit('keyDown')")
+    expect(layeredAcceleratorInput).toContain("await emit('keyUp')")
     expect(layeredAcceleratorInput).toContain(
       'CDP event to the DOM without emitting Electron'
     )
     expect(layeredAcceleratorInput).toContain(
       'No command callback is invoked'
+    )
+    const modeBranch = layeredAcceleratorInput.indexOf(
+      'if (isBackgroundTestRun)'
+    )
+    expect(modeBranch).toBeGreaterThanOrEqual(0)
+    expect(modeBranch).toBeLessThan(
+      layeredAcceleratorInput.indexOf('page.keyboard.press')
+    )
+    expect(modeBranch).toBeLessThan(
+      layeredAcceleratorInput.indexOf('webContents.sendInputEvent')
+    )
+    expect(layeredAcceleratorInput).toContain(
+      "toEqual(['keyDown', 'keyUp'])"
+    )
+    expect(layeredAcceleratorInput).not.toContain(
+      '.some(input => matchesStroke'
     )
     expect(layeredAcceleratorInput).not.toMatch(
       /item\.click|Reflect\.apply|sendIpcToRenderer|commandManager|cmd::execute|mt::execute-command-by-id/

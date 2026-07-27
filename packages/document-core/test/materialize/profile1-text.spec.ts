@@ -71,6 +71,18 @@ describe('Profile 1 semantic text', () => {
       .toBe('before[^missing] after')
   })
 
+  it('decodes escapes and valid entity boundaries without consuming near-misses', () => {
+    const revision = open(
+      String.raw`\* \a \[ &#65; &#x41; &#X1F600; &amp; &unknown; ` +
+      '&#0; &#x110000; &#12345678; &#x1234567; &a;'
+    )
+
+    expect(materializeProjectedText(revision, 'revised').text).toBe(
+      String.raw`* \a [ A A 😀 & &unknown; ` +
+      '� � &#12345678; &#x1234567; &a;'
+    )
+  })
+
   it('uses view-selected extension content without exposing CriticMarkup', () => {
     const revision = open(
       '{~~$old$~>$new$~~}\n\n' +

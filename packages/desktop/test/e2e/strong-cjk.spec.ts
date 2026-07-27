@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, setSourceMarkdown } from './helpers'
+import { closeElectron, launchWithMarkdown, setSourceMarkdown } from './helpers'
 
 test.describe('Strong emphasis with CJK boundaries (#4307)', () => {
   let app: ElectronApplication
@@ -13,7 +13,7 @@ test.describe('Strong emphasis with CJK boundaries (#4307)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   // ENGINE #4307 (now fixed): the @marktext/document-view markdown parser recognises strong

@@ -14,6 +14,7 @@ import {
   executeCriticMarkupSidebarItemAction,
   buildCriticMarkupSidebarState,
   presentCriticMarkupReviewCommandOutcome,
+  settleCriticMarkupReviewSelection,
   type CriticMarkupReviewCommandNotificationSink,
   type CriticMarkupReviewCommandOutcome,
   type CriticMarkupTextRequest
@@ -88,6 +89,7 @@ export function useCriticMarkupReviewController(
   let lastSnapshot: ICriticMarkupReviewSnapshot | null = null
   let contextVersion = 0
   let stopped = false
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
   const publishMenuState = (state: CriticMarkupReviewMenuState): void => {
     reviewStore.UPDATE_COMMAND_STATE(state)
@@ -178,14 +180,25 @@ export function useCriticMarkupReviewController(
       return
     }
 
-    // Capture the live selection into the model before the compose box takes
-    // focus, so the note wraps the text the user actually selected rather than
-    // a stale range.
-    if (action === 'add-comment') {
-      await targetEditor.commitAuthoringSelection()
+    const targetVersion = contextVersion
+    if (refreshTimer) {
+      clearTimeout(refreshTimer)
+      refreshTimer = null
+    }
+    await settleCriticMarkupReviewSelection(targetEditor, action)
+    if (
+      targetEditor !== connectedEditor ||
+      targetDocumentId !== options.documentId.value ||
+      options.sourceCode.value ||
+      targetVersion !== contextVersion
+    ) {
+      presentCommandOutcome(
+        CRITIC_MARKUP_REVIEW_COMMAND_OUTCOMES.stale,
+        targetDocumentId
+      )
+      return
     }
 
-    const targetVersion = contextVersion
     let outcome = await executeCriticMarkupReviewAction(
       targetEditor,
       action,
@@ -373,7 +386,6 @@ export function useCriticMarkupReviewController(
   // mouse drag, which emits no engine review event. Debounce it (it is very
   // frequent) into a review refresh so the live range is committed and the
   // capabilities track the selection.
-  let refreshTimer: ReturnType<typeof setTimeout> | null = null
   const onSelectionChange = (): void => {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(() => {

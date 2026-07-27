@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, focusEditor, enterSourceMode, exitSourceMode } from './helpers'
+import { closeElectron, launchWithMarkdown, focusEditor, enterSourceMode, exitSourceMode } from './helpers'
 
 // #3531 — Paragraph and Format commands target the semantic surface, so they
 // must be greyed out in Source mode and re-enabled on return.
@@ -32,7 +32,7 @@ test.describe('paragraph/format menus disabled in source mode (#3531)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('menus are enabled in WYSIWYG, disabled in source mode, restored on exit', async() => {
@@ -64,7 +64,7 @@ test.describe('menus reflect cursor context after exiting source mode (#3531)', 
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('a cursor in a code block keeps Format items disabled after a source-mode round-trip', async() => {

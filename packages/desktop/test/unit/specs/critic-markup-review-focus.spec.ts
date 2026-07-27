@@ -180,6 +180,40 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
     }
   })
 
+  it('settles an immediate live selection before resolving the current item', async() => {
+    const engine = new FakeReviewEngine()
+    let releaseSelection: (() => void) | undefined
+    engine.commitAuthoringSelection.mockImplementation(() =>
+      new Promise<void>((resolve) => {
+        releaseSelection = resolve
+      })
+    )
+    const app = mountController(engine)
+    try {
+      await flushMicrotasks()
+
+      bus.emit('critic-markup-review', 'accept-current')
+      await flushMicrotasks()
+
+      expect(engine.commitAuthoringSelection).toHaveBeenCalledTimes(1)
+      expect(engine.resolveCriticMarkup).not.toHaveBeenCalled()
+
+      engine.snapshot = {
+        ...engine.snapshot,
+        currentItemId: itemB.id
+      }
+      releaseSelection?.()
+      await flushMicrotasks()
+
+      expect(engine.resolveCriticMarkup).toHaveBeenCalledWith('accept', {
+        revisionId: 'revision:1',
+        nodeId: itemB.id
+      })
+    } finally {
+      app.unmount()
+    }
+  })
+
   it('keeps DOM focus in the editor across accept and reject — the desktop layer never grabs it', async() => {
     const engine = new FakeReviewEngine()
     // Stand-in for the focused contenteditable editor surface.

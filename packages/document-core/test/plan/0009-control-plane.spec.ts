@@ -112,7 +112,9 @@ const EXACT_RETIRED_AUTHORITY_SEEDS: Readonly<Record<string, string>> = Object.f
   L05: 'packages/muya/src/criticMarkup/documentService.ts',
   L06: 'packages/muya/src/utils/marked/criticMarkupDocument.ts',
   L07: 'packages/muya/src/utils/marked/extensions/nativeCriticMarkup.ts',
-  L08: 'packages/muya/src/history/index.ts'
+  L08: 'packages/muya/src/history/index.ts',
+  L09: 'packages/document-core/src/internal/session/revisionKernel.ts',
+  L10: 'packages/document-core/src/internal/session/revisionTransition.ts'
 })
 
 const EXACT_SCRATCH_TESTS = Object.freeze([
@@ -333,7 +335,8 @@ function vitestCollection(
 function playwrightCollection(
   targetPath: string,
   packageRoot: string,
-  configPath: string
+  configPath: string,
+  project: 'evidence-unpacked' | 'installed' | 'unpacked'
 ): readonly RunnerCollectedTest[] {
   const absoluteTarget = resolve(REPO_ROOT, targetPath)
   const listed = commandJson(
@@ -345,6 +348,7 @@ function playwrightCollection(
       configPath,
       '--list',
       '--forbid-only',
+      `--project=${project}`,
       '--reporter=json'
     ],
     packageRoot,
@@ -391,10 +395,24 @@ function configuredCollection(targetPath: string): readonly RunnerCollectedTest[
     )
   } else if (targetPath.startsWith('packages/desktop/test/e2e/')) {
     const packageRoot = resolve(REPO_ROOT, 'packages/desktop')
+    const specialist = new Set([
+      'packages/desktop/test/e2e/document-core-hostile-sinks.spec.ts',
+      'packages/desktop/test/e2e/export-pdf.spec.ts',
+      'packages/desktop/test/e2e/xss.spec.ts',
+      'packages/desktop/test/e2e/context-isolation.spec.ts',
+      'packages/desktop/test/e2e/critic-markup-perf.spec.ts',
+      'packages/desktop/test/e2e/document-core-max-document-perf.spec.ts'
+    ])
+    const project = targetPath.includes('/installed-')
+      ? 'installed'
+      : specialist.has(targetPath)
+        ? 'unpacked'
+        : 'evidence-unpacked'
     collected = playwrightCollection(
       targetPath,
       packageRoot,
-      resolve(packageRoot, 'test/e2e/playwright.config.ts')
+      resolve(packageRoot, 'test/e2e/playwright.config.ts'),
+      project
     )
   } else {
     throw new Error(`${targetPath} has no configured ordinary test runner`)
@@ -574,7 +592,7 @@ describe('plan 0009 machine-checked control plane', () => {
     }
   })
 
-  it('tracks all eight retired authority seed deletions', () => {
+  it('tracks every retired authority seed deletion', () => {
     const rows = readTsv('criticmarkup-retired-authority-deletion.tsv')
     expectExactIds(
       rows.map((row) => row.id ?? ''),

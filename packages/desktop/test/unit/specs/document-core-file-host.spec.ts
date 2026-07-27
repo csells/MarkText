@@ -37,10 +37,13 @@ import {
   createDocumentCorePerformanceSurface
 } from 'main_renderer/documentCore/documentCorePerformanceSurface'
 import {
-  createDocumentCoreMainSessionHost,
   decodeDocumentCorePublication,
-  type DocumentCoreMainSessionHost
+  type DocumentCoreMainSessionHost,
+  type DocumentCorePortableSnapshot
 } from 'main_renderer/documentCore/mainSessionHost'
+import {
+  createTestDocumentCoreMainSessionHost as createDocumentCoreMainSessionHost
+} from '../helpers/documentSessionHost'
 
 const configuration: ParseConfiguration = Object.freeze({
   markdownProfile: 'markdown-profile-1',
@@ -235,12 +238,14 @@ async function open(
 
 function decode(
   publication: Awaited<ReturnType<DocumentCoreMainSessionHost['dispatch']>>,
-  codec = new WireEnvelopeCodecV1()
+  codec = new WireEnvelopeCodecV1(),
+  base?: DocumentCorePortableSnapshot
 ) {
   return {
     codec,
     snapshot: decodeDocumentCorePublication(
-      codec.publish(publication.envelope, publication.baseSnapshotId)
+      codec.publish(publication.envelope, publication.baseSnapshotId),
+      base
     )
   }
 }
@@ -454,6 +459,47 @@ describe('main-owned document-core file host', () => {
     ])
   })
 
+  it('reports main staging for the production file-host open path', async() => {
+    const { fileHost, sessionHost } = await createHarness()
+    const opened = await open(fileHost, 'x'.repeat(300_000))
+    const performanceSurface = createDocumentCorePerformanceSurface(
+      sessionHost,
+      fileHost
+    )
+
+    const result = performanceSurface.readAdmission(opened.documentId)
+
+    expect(result).toMatchObject({
+      ticketAdmissionMs: expect.any(Number),
+      maximumMainStageMs: expect.any(Number),
+      admission: opened.admission
+    })
+    expect(result.ticketAdmissionMs).toBeGreaterThanOrEqual(0)
+    expect(result.maximumMainStageMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('retains main staging evidence through dispatch cancellation and recovery', async() => {
+    const { directory, fileHost, sessionHost } = await createHarness()
+    const pathname = join(directory, 'dispatch-cancellation.md')
+    await writeFile(pathname, 'd'.repeat(300_000), 'utf8')
+    const performanceSurface = createDocumentCorePerformanceSurface(
+      sessionHost,
+      fileHost
+    )
+
+    const result = await performanceSurface.cancelDispatchAndRecoverFile(
+      pathname
+    )
+
+    expect(result).toMatchObject({
+      ticketAdmissionMs: expect.any(Number),
+      maximumMainStageMs: expect.any(Number),
+      recoveredSourceLength: 300_001
+    })
+    expect(result.ticketAdmissionMs).toBeGreaterThanOrEqual(0)
+    expect(result.maximumMainStageMs).toBeGreaterThanOrEqual(0)
+  })
+
   it('saves one main-owned lease and marks exactly that revision persisted after the write', async() => {
     const compareExchange = vi.fn<
       DocumentCoreFileSurface['compareExchange']
@@ -540,7 +586,7 @@ describe('main-owned document-core file host', () => {
       opened.documentId,
       expect.any(String)
     )
-    expect(decode(edited, decoded.codec).snapshot.source).toBe('new')
+    expect(decode(edited, decoded.codec, before).snapshot.source).toBe('new')
   })
 
   it('rejects a hostile disk replacement before write and recovers only after explicit keep', async() => {
@@ -1713,7 +1759,11 @@ describe('main-owned document-core file host', () => {
       baseSnapshotId: attached.snapshot.snapshotId,
       intent: { kind: 'undo' }
     })
-    const undone = decode(undoPublication, attached.codec).snapshot
+    const undone = decode(
+      undoPublication,
+      attached.codec,
+      attached.snapshot
+    ).snapshot
     expect(undone.source).toBe('before')
     expect(undone.historyState.dirty).toBe(true)
     expect(initial.snapshot.source).toBe('before')

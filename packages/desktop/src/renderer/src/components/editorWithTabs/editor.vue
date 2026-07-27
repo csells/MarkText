@@ -7,6 +7,7 @@
     <div
       ref="editorRef"
       class="editor-component"
+      :aria-label="t('preferences.editor.title')"
       :aria-hidden="sourceCode || imageViewerVisible ? 'true' : undefined"
       :inert="sourceCode || imageViewerVisible || undefined"
     />
@@ -18,18 +19,16 @@
     />
     <el-dialog
       v-model="dialogTableVisible"
-      :show-close="isShowClose"
+      :title="t('editor.insertTable.title')"
+      :show-close="false"
       :modal="true"
       class="ag-insert-table-dialog"
       width="454px"
       center
       dir="ltr"
+      @opened="focusTableRows"
+      @closed="cancelTableShapeRequest"
     >
-      <template #title>
-        <div class="dialog-title">
-          {{ t('editor.insertTable.title') }}
-        </div>
-      </template>
       <el-form
         :model="tableChecker"
         :inline="true"
@@ -56,7 +55,7 @@
       </el-form>
       <template #footer>
         <div class="dialog-footer">
-          <el-button @click="dialogTableVisible = false">
+          <el-button @click="cancelTableShapeRequest">
             {{ t('common.cancel') }}
           </el-button>
           <el-button
@@ -90,7 +89,6 @@ import {
   type DocumentSelectionContext
 } from '@marktext/document-view'
 import {
-  type BlockConversion,
   type ConsumerView,
   type InlineFormat
 } from '@marktext/document-core'
@@ -165,6 +163,7 @@ import { useDocumentSurfaceContext } from './useDocumentSurfaceContext'
 import {
   documentSurfaceFromProjection
 } from '@shared/types/documentSurface'
+import { decodeParagraphDocumentAction } from '@shared/types/paragraphDocumentAction'
 import type {
   SourceModeCopyRequest,
   SourceModeDocumentPort,
@@ -189,6 +188,7 @@ import {
 import {
   applyDesktopDocumentViewLocale
 } from './documentViewLocale'
+import { createTableShapeDialogRequest } from './tableShapeDialogRequest'
 
 // Importing the retained view package injects the document-core editor CSS.
 import '@marktext/document-view'
@@ -254,7 +254,6 @@ const resolveEditorFont = (family: string): string =>
 const resolveCodeFont = (family: string): string => `${family}, ${DEFAULT_CODE_FONT_FAMILY}`
 const selectionChange = ref<DocumentSelectionContext | null>(null)
 const editor = shallowRef<DesktopEditorInstance | null>(null)
-const isShowClose = ref(false)
 const dialogTableVisible = ref(false)
 const imageViewerVisible = ref(false)
 const tableChecker = reactive({
@@ -272,6 +271,22 @@ const criticMarkupPromptDialog = ref<{
   request: CriticMarkupTextRequest
   cancel: () => void
 } | null>(null)
+
+const tableShapeDialogRequest = createTableShapeDialogRequest({
+  open: () => {
+    tableChecker.rows = 4
+    tableChecker.columns = 3
+    dialogTableVisible.value = true
+    nextTick(() => rowInput.value?.focus())
+  },
+  close: () => {
+    dialogTableVisible.value = false
+  }
+})
+const requestTableShape = (signal: AbortSignal) =>
+  tableShapeDialogRequest.request(signal)
+const cancelTableShapeRequest = (): void => tableShapeDialogRequest.cancel()
+const focusTableRows = (): void => rowInput.value?.focus()
 
 // Non-reactive variables
 let spellchecker: SpellChecker | null = null
@@ -309,38 +324,6 @@ const serializeCursor = (
     anchor: { offset: selection.anchor.offset },
     focus: { offset: selection.focus.offset }
   }
-}
-
-const blockConversionForCommand = (type: string): BlockConversion => {
-  const heading = /^heading ([1-6])$/.exec(type)
-  if (heading !== null) {
-    return {
-      kind: 'heading',
-      level: Number(heading[1]) as 1 | 2 | 3 | 4 | 5 | 6
-    }
-  }
-  const conversions: Readonly<Record<string, BlockConversion>> = {
-    'upgrade heading': { kind: 'heading-shift', direction: 'promote' },
-    'degrade heading': { kind: 'heading-shift', direction: 'demote' },
-    paragraph: { kind: 'paragraph' },
-    'reset-to-paragraph': { kind: 'paragraph' },
-    blockquote: { kind: 'blockquote' },
-    'ul-bullet': { kind: 'unordered-list' },
-    'ol-bullet': { kind: 'ordered-list' },
-    'ol-order': { kind: 'ordered-list' },
-    'ul-task': { kind: 'task-list' },
-    'loose-list-item': { kind: 'loose-list-item' },
-    pre: { kind: 'code-block' },
-    mathblock: { kind: 'math-block' },
-    html: { kind: 'html-block' },
-    hr: { kind: 'thematic-break' },
-    'front-matter': { kind: 'front-matter' }
-  }
-  const conversion = conversions[type]
-  if (conversion === undefined) {
-    throw new TypeError(`Unknown document block command: ${type}`)
-  }
-  return conversion
 }
 
 const inlineFormatForCommand = (type: string): InlineFormat => {
@@ -462,6 +445,7 @@ watch(focus, (value) => {
 // the CURRENT cursor context rather than blanket-enabling everything (#3531).
 watch(sourceCode, (isSource) => {
   if (isSource) {
+    cancelTableShapeRequest()
     window.electron.ipcRenderer.send(
       'mt::set-editor-format-menus-enabled',
       false
@@ -652,6 +636,9 @@ watch(spellcheckerLanguage, (value, oldValue) => {
 })
 
 watch(currentFile, (value, oldValue) => {
+  if (value?.id !== oldValue?.id) {
+    cancelTableShapeRequest()
+  }
   if (value && value !== oldValue) {
     scrollToCursor(0)
     // Hide float tools if needed.
@@ -1191,28 +1178,23 @@ const publishDocumentClipboardMenuState = (hasSelection: boolean): void => {
   )
 }
 
-const handleEditParagraph = (type: unknown) => {
-  if (typeof type !== 'string') {
-    throw new TypeError('Paragraph commands require a string type.')
-  }
+const handleEditParagraph = (value: unknown) => {
+  const action = decodeParagraphDocumentAction(value)
   // These commands act on the semantic view, so block them in Source mode
   // (mirrors handleUndo/handleSelectAll) — otherwise the Insert Table wizard
   // could target the hidden surface (#3531).
   if (sourceCode.value) {
     return
   }
-  if (type === 'table') {
-    tableChecker.rows = 4
-    tableChecker.columns = 3
-    dialogTableVisible.value = true
-    nextTick(() => {
-      rowInput.value?.focus()
-    })
+  if (action.kind === 'request-table') {
+    const targetEditor = editor.value
+    if (targetEditor === null) return
+    reportAsyncTask(targetEditor.requestTable(), 'Create table')
   } else {
     const targetEditor = editor.value
     if (targetEditor === null) return
     reportAsyncTask(
-      targetEditor.convertBlock(blockConversionForCommand(type)).then(() => {
+      targetEditor.convertBlock(action.conversion).then(() => {
         if (editor.value !== targetEditor) return
         // Re-sync the menu so a no-op action (e.g. "Paragraph" inside a
         // list/quote) does not leave the clicked checkbox item checked. A real
@@ -1259,7 +1241,7 @@ const handleInlineFormat = (type: unknown) => {
   const targetEditor = editor.value
   if (targetEditor === null) return
   if (type === 'image') {
-    targetEditor.openImageSelector()
+    reportAsyncTask(targetEditor.openImageSelector(), 'Open Image selector')
     return
   }
   reportAsyncTask(
@@ -1301,13 +1283,7 @@ useCriticMarkupRejectionNotifier({
 })
 
 const handleDialogTableConfirm = () => {
-  dialogTableVisible.value = false
-  const targetEditor = editor.value
-  if (targetEditor === null) return
-  reportAsyncTask(
-    targetEditor.createTable(tableChecker),
-    'Create table'
-  )
+  tableShapeDialogRequest.confirm(tableChecker)
 }
 
 interface FileLoadedPayload {
@@ -1422,6 +1398,9 @@ const flushActiveEditor = (event?: unknown) => {
     }
     return event as FlushActiveEditorRequest
   })()
+  // A dimensions dialog cannot outlive a persistence/lifecycle barrier. Its
+  // pending view operation precedes flush in the host queue, so settle it first.
+  cancelTableShapeRequest()
   const target = editor.value
   const settle = async (): Promise<void> => {
     // The Source textarea admits gestures through its own serial queue before
@@ -1555,6 +1534,7 @@ useEditorLifecycle(async () => {
   const mountedEditor = markRaw(await createDocumentEditorHost({
     element: ele,
     session: remoteSession,
+    requestTableShape,
     configuration: {
       fontSize: fontSize.value,
       lineHeight: lineHeight.value,
@@ -1810,6 +1790,7 @@ useEditorLifecycle(async () => {
   // desktop caches its derived source, counts, cursor, TOC, and block plan for
   // presentation only.
   editor.value.subscribeDocumentChange(() => {
+    cancelTableShapeRequest()
     // There is a chance that this event is fired AFTER the tab is switched. If we purely rely on this.currentFile later on
     // it can cause invalid updates. Hence, we need the id to identify changes as part of each tab
     if (!editor.value) return
@@ -1948,6 +1929,7 @@ useEditorLifecycle(async () => {
 
   document.addEventListener('keyup', keyup)
 }, () => {
+  cancelTableShapeRequest()
   disposeDocumentCoreTabCloser()
   disposeDocumentCoreTabCloser = () => {}
   disposeSourceModeDocumentPort()

@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
-  clickMenuById,
   placeCaretInEditor,
   sendIpcToRenderer,
   setSourceMarkdown,
@@ -10,7 +10,12 @@ import {
   expectNoRendererErrors,
   clearRendererErrors
 } from './helpers'
-import { redo, undo } from './documentCoreReviewE2e'
+import {
+  pointForText,
+  pressApplicationMenuAccelerator,
+  redo,
+  undo
+} from './documentCoreReviewE2e'
 
 // Format -> Image target-owned workflow.
 //
@@ -77,7 +82,7 @@ test.describe('Format -> Image edit tool wiring', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test.beforeEach(async() => {
@@ -99,7 +104,7 @@ test.describe('Format -> Image edit tool wiring', () => {
   })
 
   test('Format -> Image menu item opens the edit tool with a focused src input', async() => {
-    await clickMenuById(app, 'imageMenuItem')
+    await pressApplicationMenuAccelerator(page, app, 'imageMenuItem')
 
     await page.waitForSelector(srcInput, { state: 'attached', timeout: 5000 })
     await expect.poll(() => toolShown(page), { timeout: 5000 }).toBe(true)
@@ -136,7 +141,7 @@ test.describe('Format -> Image edit tool wiring', () => {
   })
 
   test('Escape cancels a populated draft without mutating the document', async() => {
-    await clickMenuById(app, 'imageMenuItem')
+    await pressApplicationMenuAccelerator(page, app, 'imageMenuItem')
     const src = page.locator(srcInput)
     await expect(src).toBeFocused()
     await src.fill('images/not-committed.png')
@@ -147,11 +152,12 @@ test.describe('Format -> Image edit tool wiring', () => {
 
     await expect(page.locator('.document-view-image-selector')).toHaveCount(0)
     await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expect(page.locator('.editor-component')).toBeFocused()
     await expectNoRendererErrors(app)
   })
 
   test('submit commits exact Image source in one undo/redo step', async() => {
-    await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
+    await pressApplicationMenuAccelerator(page, app, 'imageMenuItem')
     const selector = page.locator('.document-view-image-selector')
     await selector.locator('input.src').fill('images/cat.png')
     await selector.locator('input.alt').fill('cat')
@@ -161,6 +167,7 @@ test.describe('Format -> Image edit tool wiring', () => {
     const inserted = '![cat](images/cat.png "Cat")\n'
     await expect.poll(() => readCanonicalMarkdown(page)).toBe(inserted)
     await expect(selector).toHaveCount(0)
+    await expect(page.locator('.editor-component')).toBeFocused()
 
     await undo(app)
     await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
@@ -189,8 +196,31 @@ test.describe('Format -> Image edit tool wiring', () => {
 
     const edited = 'A ![new](assets/new.png "New") Z\n'
     await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+    await expect(page.locator('.editor-component')).toBeFocused()
     await undo(app)
     await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await redo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
     await expectNoRendererErrors(app)
+  })
+
+  test('captures a no-delay browser selection before the Image accelerator', async() => {
+    await setSourceMarkdown(page, app, 'First\n\nSecond\n')
+    await expect(page.locator('.editor-component')).toContainText('Second')
+    const point = await pointForText(page, 'Second')
+    await page.mouse.dblclick(point.x, point.y)
+    await pressApplicationMenuAccelerator(page, app, 'imageMenuItem')
+
+    const selector = page.locator('.document-view-image-selector')
+    await selector.locator('input.src').fill('images/live.png')
+    await selector.locator('button[type="submit"]').click()
+
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+      'First\n\n![](images/live.png)\n'
+    )
+    await undo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+      'First\n\nSecond\n'
+    )
   })
 })

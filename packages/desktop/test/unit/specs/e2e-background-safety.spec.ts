@@ -11,6 +11,7 @@ import {
 } from '../../e2e/helpers'
 
 describe('e2e background safety', () => {
+  const e2ePath = path.resolve(__dirname, '../../e2e')
   const packagePath = path.resolve(__dirname, '../../../package.json')
   const helpersPath = path.resolve(__dirname, '../../e2e/helpers.ts')
   const installedFixturePath = path.resolve(
@@ -20,6 +21,19 @@ describe('e2e background safety', () => {
   const criticMarkupE2ePath = path.resolve(__dirname, '../../e2e/critic-markup-review.spec.ts')
 
   it('loads the one-worker Playwright config in fail-closed background mode', () => {
+    const installedArtifactSpecs = [
+      '**/installed-document-core-comment.spec.ts',
+      '**/installed-document-core-full-flow.spec.ts',
+      '**/packaged-smoke.spec.ts'
+    ]
+    const specialistEvidenceSpecs = [
+      '**/document-core-hostile-sinks.spec.ts',
+      '**/export-pdf.spec.ts',
+      '**/xss.spec.ts',
+      '**/context-isolation.spec.ts',
+      '**/critic-markup-perf.spec.ts',
+      '**/document-core-max-document-perf.spec.ts'
+    ]
     const packageJson = JSON.parse(
       fs.readFileSync(packagePath, 'utf-8')
     ) as { scripts: Record<string, string> }
@@ -40,8 +54,21 @@ describe('e2e background safety', () => {
     expect(playwrightConfig.workers).toBe(1)
     expect(playwrightConfig.projects?.map((project) => project.name)).toEqual([
       'unpacked',
+      'evidence-unpacked',
       'installed'
     ])
+    expect(playwrightConfig.projects?.find(
+      (project) => project.name === 'unpacked'
+    )?.testIgnore).toEqual(installedArtifactSpecs)
+    expect(playwrightConfig.projects?.find(
+      (project) => project.name === 'evidence-unpacked'
+    )?.testIgnore).toEqual([
+      ...installedArtifactSpecs,
+      ...specialistEvidenceSpecs
+    ])
+    expect(playwrightConfig.projects?.find(
+      (project) => project.name === 'installed'
+    )?.testMatch).toEqual(installedArtifactSpecs)
     expect(helpers).toContain('MARKTEXT_TEST_INTERACTIVE')
     expect(helpers).not.toContain(": process.platform === 'darwin'")
   })
@@ -160,5 +187,20 @@ describe('e2e background safety', () => {
     )
     expect(launchElectron).not.toContain('app.close()')
     expect(installedLaunch).not.toContain('app.close()')
+  })
+
+  it('routes every E2E spec teardown through the background-safe closer', () => {
+    const directCloseSites = fs.readdirSync(e2ePath)
+      .filter((entry) => entry.endsWith('.spec.ts'))
+      .flatMap((entry) => fs.readFileSync(
+        path.join(e2ePath, entry),
+        'utf8'
+      ).split('\n').flatMap((line, index) =>
+        /\bapp\.close\s*\(/u.test(line)
+          ? [`${entry}:${index + 1}`]
+          : []
+      ))
+
+    expect(directCloseSites).toEqual([])
   })
 })

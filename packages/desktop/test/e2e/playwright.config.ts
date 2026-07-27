@@ -6,6 +6,15 @@ const installedArtifactSpecs = [
   '**/packaged-smoke.spec.ts'
 ]
 
+const specialistEvidenceSpecs = [
+  '**/document-core-hostile-sinks.spec.ts',
+  '**/export-pdf.spec.ts',
+  '**/xss.spec.ts',
+  '**/context-isolation.spec.ts',
+  '**/critic-markup-perf.spec.ts',
+  '**/document-core-max-document-perf.spec.ts'
+]
+
 export default defineConfig({
   forbidOnly: true,
   retries: 0,
@@ -15,6 +24,10 @@ export default defineConfig({
     {
       name: 'unpacked',
       testIgnore: installedArtifactSpecs
+    },
+    {
+      name: 'evidence-unpacked',
+      testIgnore: [...installedArtifactSpecs, ...specialistEvidenceSpecs]
     },
     {
       name: 'installed',

@@ -17,6 +17,7 @@ export {
   type CanonicalSourceLease,
   type CancelledSessionTicketOutcome,
   type BlockConversion,
+  type DiagramFenceLanguage,
   type DispatchResult,
   type DispatchTicket,
   type Disposable,
@@ -53,6 +54,9 @@ export {
   type FormatTextIntent,
   type InitialModelSelection,
   type InlineFormat,
+  type QuickInsertBlock,
+  type QuickInsertConversion,
+  type QuickInsertBlockIntent,
   type InsertTextIntent,
   type InsertParagraphIntent,
   type InsertParagraphBreakIntent,
@@ -96,6 +100,7 @@ export {
   type ReviewIndex,
   type ReviewIndexItem,
   type RevisionChangedTransition,
+  type RevisionSourceEdit,
   type RevisionDescriptor,
   type RevisionId,
   type RevisionTransitionDescriptor,
@@ -193,6 +198,12 @@ export {
   type RevisionSemanticHashV1,
   type SourceHashV1
 } from './hashCodec.js'
+export {
+  openVerifiedSourceReplicaV1,
+  retainVerifiedSourceReplicaV1,
+  reviseVerifiedSourceReplicaV1,
+  type VerifiedSourceReplicaV1
+} from './verifiedSourceReplica.js'
 export {
   WIRE_MEMBER_ORDER_V1,
   WireEnvelopeCodecV1,

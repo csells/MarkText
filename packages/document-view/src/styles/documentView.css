@@ -131,14 +131,19 @@
     z-index: 2147483000;
     display: grid;
     min-width: 180px;
-    max-height: min(360px, calc(100vh - 32px));
     padding: 4px;
-    overflow-y: auto;
+    overflow-y: visible;
     color: var(--document-view-tool-color, #202124);
     background: var(--document-view-tool-background, #fff);
     border: 1px solid var(--document-view-tool-border, #c9cdd2);
     border-radius: 6px;
     box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+}
+
+.document-view-quick-insert-listbox {
+    display: grid;
+    max-height: min(360px, calc(100vh - 40px));
+    overflow-y: auto;
 }
 
 .document-view-quick-insert-item {

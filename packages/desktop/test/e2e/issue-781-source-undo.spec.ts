@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   waitForMenuReady,
   enterSourceMode,
@@ -50,6 +51,6 @@ test.describe('Issue #781 — undo/redo in source code mode', () => {
     await redo(app)
     await expect.poll(() => sourceValue(page)).toContain('saved baseline SRCKEY')
 
-    await app.close()
+    await closeElectron(app)
   })
 })

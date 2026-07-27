@@ -401,6 +401,23 @@ describe('Profile 1 direct DOM', () => {
         expect(host.textContent).not.toContain('{++');
     });
 
+    it('bounds DOM wrappers for the accepted 12,000-deep Review tree', async () => {
+        const depth = 12_000;
+        const source = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`;
+        const { host, view } = await mount(source, DESKTOP_CONFIGURATION);
+
+        await view.settled();
+        expect(host.textContent).toBe('x');
+        expect(host.querySelectorAll('ins')).toHaveLength(1);
+        expect(host.querySelectorAll('.document-view-run')).toHaveLength(1);
+
+        await view.typeText(1, '!');
+        await view.settled();
+        expect(view.modelText()).toBe('x!');
+        expect(host.textContent).toBe('x!');
+        expect(host.querySelectorAll('ins')).toHaveLength(1);
+    }, 30_000);
+
     it.each([
         {
             source: 'A \\* B\n',

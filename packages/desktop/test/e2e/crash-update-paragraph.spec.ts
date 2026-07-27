@@ -12,6 +12,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   clickMenuById,
   clearRendererErrors,
   expectNoRendererErrors,
@@ -64,7 +65,7 @@ test.describe('Crash: updateParagraph null block', () => {
 
       await expectNoRendererErrors(app)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 
@@ -102,7 +103,7 @@ test.describe('Crash: updateParagraph null block', () => {
 
       await expectNoRendererErrors(app)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 
@@ -122,7 +123,7 @@ test.describe('Crash: updateParagraph null block', () => {
       expect(hasHeading + hasParagraph).toBeGreaterThan(0)
       await expectNoRendererErrors(app)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 })

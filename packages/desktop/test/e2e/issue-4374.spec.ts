@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from 'playwright'
 import {
+  closeElectron,
   clearRendererErrors,
   clickMenuById,
   expectNoRendererErrors,
@@ -219,7 +220,7 @@ test.describe('parser-owned paragraph breaks in nested list content', () => {
         ).toBe(false)
         await expectNoRendererErrors(app)
       } finally {
-        await app.close()
+        await closeElectron(app)
       }
     })
   }

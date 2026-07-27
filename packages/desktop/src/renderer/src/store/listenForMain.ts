@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import bus from '../bus'
 import { useLayoutStore } from './layout'
+import { decodeParagraphDocumentAction } from '@shared/types/paragraphDocumentAction'
 
 type EditorEditAction =
   | 'undo'
@@ -40,28 +41,6 @@ const decodeEditorEditAction = (value: unknown): EditorEditAction => {
   }
 }
 
-type ParagraphAction =
-  | 'ul-bullet'
-  | 'pre'
-  | 'degrade heading'
-  | 'front-matter'
-  | 'heading 1'
-  | 'heading 2'
-  | 'heading 3'
-  | 'heading 4'
-  | 'heading 5'
-  | 'heading 6'
-  | 'hr'
-  | 'html'
-  | 'loose-list-item'
-  | 'mathblock'
-  | 'ol-order'
-  | 'paragraph'
-  | 'blockquote'
-  | 'table'
-  | 'ul-task'
-  | 'upgrade heading'
-
 const actionTypeFromClosedEnvelope = (
   value: unknown,
   label: string
@@ -74,35 +53,6 @@ const actionTypeFromClosedEnvelope = (
     throw new TypeError(`${label} action fields are not closed`)
   }
   return (value as Readonly<{ type?: unknown }>).type
-}
-
-const decodeParagraphAction = (value: unknown): ParagraphAction => {
-  const type = actionTypeFromClosedEnvelope(value, 'Paragraph')
-  switch (type) {
-    case 'ul-bullet':
-    case 'pre':
-    case 'degrade heading':
-    case 'front-matter':
-    case 'heading 1':
-    case 'heading 2':
-    case 'heading 3':
-    case 'heading 4':
-    case 'heading 5':
-    case 'heading 6':
-    case 'hr':
-    case 'html':
-    case 'loose-list-item':
-    case 'mathblock':
-    case 'ol-order':
-    case 'paragraph':
-    case 'blockquote':
-    case 'table':
-    case 'ul-task':
-    case 'upgrade heading':
-      return type
-    default:
-      throw new TypeError(`Unknown paragraph action: ${String(type)}`)
-  }
 }
 
 type InlineFormatAction =
@@ -201,7 +151,7 @@ export const useListenForMainStore = defineStore('listenForMain', () => {
 
   function LISTEN_FOR_PARAGRAPH_INLINE_STYLE(): void {
     window.electron.ipcRenderer.on('mt::editor-paragraph-action', (_e, value) => {
-      bus.emit('paragraph', decodeParagraphAction(value))
+      bus.emit('paragraph', decodeParagraphDocumentAction(value))
     })
     window.electron.ipcRenderer.on('mt::editor-format-action', (_e, value) => {
       bus.emit('format', decodeInlineFormatAction(value))

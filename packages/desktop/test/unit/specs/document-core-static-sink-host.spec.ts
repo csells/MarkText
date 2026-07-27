@@ -1,4 +1,5 @@
 import {
+  WireEnvelopeCodecV1,
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
@@ -9,9 +10,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentCoreExportOptions } from '@shared/types/documentCore'
 import { createFileDocumentSessionJournalStorage } from 'main_renderer/documentCore/durableSessionJournalStorage'
 import {
-  createDocumentCoreMainSessionHost,
+  decodeDocumentCorePublication,
   type DocumentCoreMainSessionHost
 } from 'main_renderer/documentCore/mainSessionHost'
+import {
+  createTestDocumentCoreMainSessionHost as createDocumentCoreMainSessionHost
+} from '../helpers/documentSessionHost'
 import {
   createDocumentCoreStaticSinkHost,
   type DocumentCoreStaticSinkSurface
@@ -111,12 +115,35 @@ async function sessionHost() {
     0,
     source.text
   )
-  await host.completeOpen(
+  const admission = await host.completeOpen(
     'renderer:1',
     'static-document',
     ticket.ticketId
   )
-  return host
+  if ('envelope' in admission) {
+    throw new Error('Initial source admission unexpectedly published')
+  }
+  const attachment = await host.startOpen('renderer:1', {
+    documentId: 'static-document',
+    durabilityKey: 'durable-static-document',
+    sourceLength: 0,
+    parseConfiguration: configuration
+  })
+  const publication = await host.completeOpen(
+    'renderer:1',
+    'static-document',
+    attachment.ticketId
+  )
+  if (!('envelope' in publication)) {
+    throw new Error('Renderer attachment returned no publication')
+  }
+  const snapshot = decodeDocumentCorePublication(
+    new WireEnvelopeCodecV1().publish(
+      publication.envelope,
+      publication.baseSnapshotId
+    )
+  )
+  return Object.freeze({ host, revisionId: snapshot.revisionId })
 }
 
 describe('main-owned document-core static sink host', () => {
@@ -135,15 +162,16 @@ describe('main-owned document-core static sink host', () => {
       writePdf,
       submitPrint: vi.fn(async() => {})
     }
+    const session = await sessionHost()
     const sinks = createDocumentCoreStaticSinkHost(
-      await sessionHost(),
+      session.host,
       surface,
       decorator()
     )
 
     const htmlReceipt = await sinks.execute('renderer:1', {
       documentId: 'static-document',
-      revisionId: 'revision-1',
+      revisionId: session.revisionId,
       consumer: 'styled-html',
       view: 'markup',
       targetPath: '/tmp/review.html',
@@ -151,7 +179,7 @@ describe('main-owned document-core static sink host', () => {
     })
     const pdfReceipt = await sinks.execute('renderer:1', {
       documentId: 'static-document',
-      revisionId: 'revision-1',
+      revisionId: session.revisionId,
       consumer: 'pdf',
       view: 'revised',
       targetPath: '/tmp/review.pdf',
@@ -195,8 +223,9 @@ describe('main-owned document-core static sink host', () => {
       _targetPath: string,
       _html: string
     ) => 733)
+    const session = await sessionHost()
     const sinks = createDocumentCoreStaticSinkHost(
-      await sessionHost(),
+      session.host,
       {
         writeStyledHtml: vi.fn(async(
           _targetPath: string,
@@ -214,14 +243,14 @@ describe('main-owned document-core static sink host', () => {
 
     const printed = await sinks.execute('renderer:1', {
       documentId: 'static-document',
-      revisionId: 'revision-1',
+      revisionId: session.revisionId,
       consumer: 'print',
       view: 'markup',
       options: exportOptions
     })
     const proof = await sinks.execute('renderer:1', {
       documentId: 'static-document',
-      revisionId: 'revision-1',
+      revisionId: session.revisionId,
       consumer: 'print',
       view: 'markup',
       proofPath: '/tmp/print-proof.pdf',
@@ -253,8 +282,9 @@ describe('main-owned document-core static sink host', () => {
       writePdf: vi.fn(async() => 0),
       submitPrint: vi.fn(async() => {})
     }
+    const session = await sessionHost()
     const sinks = createDocumentCoreStaticSinkHost(
-      await sessionHost(),
+      session.host,
       surface,
       decorator()
     )

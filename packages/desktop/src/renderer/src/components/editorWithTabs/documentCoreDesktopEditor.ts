@@ -3,13 +3,10 @@ import type {
   ICriticMarkupReviewItem,
   ICriticMarkupReviewSnapshot,
   ICriticMarkupTrackChangeRejection,
-  DocumentCoreImageSourceRequest,
-  DocumentCoreImageSourceResolution,
+  DocumentCoreTableShape,
   DocumentSelectionContext,
-  DocumentCoreViewDispatchResult,
   DocumentViewOptions,
   DocumentCoreViewSnapshot,
-  IDocumentCoreViewSession,
   ILocale,
   TCriticMarkupAuthorInput,
   TCriticMarkupDecision,
@@ -18,11 +15,9 @@ import type {
 import { createDocumentCoreView, en } from '@marktext/document-view'
 import type {
   BlockConversion,
-  ClipboardConsumerRequest,
   DocumentSearchQuery,
   DocumentFacts,
   InlineFormat,
-  ModelSelection,
   NodeId,
   ParseConfiguration,
   ReviewIndexItem
@@ -34,6 +29,9 @@ import type {
 } from '@shared/types/imageAsset'
 import { decodeCriticMarkupCommandTarget } from '@shared/types/criticMarkup'
 import bus from '@/bus'
+import type {
+  DocumentCoreRemoteSession
+} from './documentCoreRemoteSession'
 
 interface DocumentCoreDesktopTocItem {
   readonly nodeId: NodeId
@@ -80,34 +78,11 @@ function sameSearchQuery(
 
 export interface DocumentHostOptions {
   readonly element: HTMLElement
-  readonly session: IDocumentCoreViewSession & Partial<{
-    readonly registerImageAsset: (
-      documentId: string,
-      source: ImageAssetSource,
-      storage: ImageAssetStorage
-    ) => Readonly<{ src: string; cancel: () => void }>
-    readonly activateDocument: (documentId: string) => Promise<void>
-    readonly resolveImageSource: (
-      request: DocumentCoreImageSourceRequest
-    ) => Promise<DocumentCoreImageSourceResolution>
-    readonly writeClipboardMaterialization: (
-      request: ClipboardConsumerRequest & Readonly<{ revisionId: string }>
-    ) => Promise<Readonly<{
-      readonly kind: 'written' | 'cut-committed'
-    }>>
-    readonly pasteClipboard: (
-      target: ModelSelection
-    ) => Promise<DocumentCoreViewDispatchResult>
-  }>
+  readonly session: DocumentCoreRemoteSession
   readonly configuration: DocumentHostConfiguration
-  readonly writeClipboardMaterialization?: (
-    request: ClipboardConsumerRequest & Readonly<{ revisionId: string }>
-  ) => Promise<Readonly<{
-    readonly kind: 'written' | 'cut-committed'
-  }>>
-  readonly pasteClipboard?: (
-    target: ModelSelection
-  ) => Promise<DocumentCoreViewDispatchResult>
+  readonly requestTableShape?: (
+    signal: AbortSignal
+  ) => Promise<DocumentCoreTableShape | null>
 }
 
 export interface DocumentHostSnapshot {
@@ -218,7 +193,7 @@ export interface DocumentEditorHost {
   readonly configure: (options: DocumentHostConfiguration) => Promise<void>
   readonly setFocusMode: (enabled: boolean) => void
   readonly dismissTransientTools: () => void
-  readonly openImageSelector: () => void
+  readonly openImageSelector: () => Promise<void>
   readonly hasFocus: () => boolean
   readonly focus: () => void
   readonly blur: () => void
@@ -247,9 +222,6 @@ export interface DocumentEditorHost {
   readonly insertFootnote: (
     footnote: Readonly<{ label: string; content: string }>
   ) => Promise<void>
-  readonly quickInsert: (
-    block: 'code-block' | 'blockquote'
-  ) => Promise<void>
   readonly setListIndentation: (
     direction: 'increase' | 'decrease'
   ) => Promise<void>
@@ -258,9 +230,7 @@ export interface DocumentEditorHost {
   readonly duplicateBlock: () => Promise<void>
   readonly deleteBlock: () => Promise<void>
   readonly formatText: (format: InlineFormat) => Promise<void>
-  readonly createTable: (
-    shape: Readonly<{ rows: number; columns: number }>
-  ) => Promise<void>
+  readonly requestTable: () => Promise<void>
   readonly insertTableRow: (location?: 'before' | 'after') => Promise<void>
   readonly copyAsMarkdown: () => Promise<void>
   readonly copyAsHtml: () => Promise<void>
@@ -477,29 +447,18 @@ export async function createDocumentEditorHost(
   options: DocumentHostOptions
 ): Promise<DocumentEditorHost> {
   assertDocumentHostConfiguration(options.configuration)
-  const clipboardWrite =
-    options.session.writeClipboardMaterialization ??
-    options.writeClipboardMaterialization ??
-    (async() => {
-      throw new Error('The desktop host did not install its clipboard sink')
-    })
+  const clipboardWrite = options.session.writeClipboardMaterialization
   const clipboardRevisionId = (): string =>
     options.session.snapshot().revisionId
-  const clipboardPaste =
-    options.session.pasteClipboard ??
-    options.pasteClipboard ??
-    (async() => {
-      throw new Error(
-        'The desktop host did not install its clipboard paste transaction'
-      )
-    })
+  const clipboardPaste = options.session.pasteClipboard
   const view = await createDocumentCoreView({
     host: options.element,
     session: options.session,
     clipboardPaste,
-    ...(options.session.resolveImageSource === undefined
+    ...(options.requestTableShape === undefined
       ? {}
-      : { resolveImageSource: options.session.resolveImageSource }),
+      : { requestTableShape: options.requestTableShape }),
+    resolveImageSource: options.session.resolveImageSource,
     clipboardWrite: request => {
       return clipboardWrite({
         revisionId: clipboardRevisionId(),
@@ -1135,7 +1094,7 @@ export async function createDocumentEditorHost(
     getMarkdownSync: () => view.getMarkdownSync(),
     getProjection: () => view.getProjection(),
     attachDocument: (documentId: string) => {
-      const activation = options.session.activateDocument?.(documentId)
+      const activation = options.session.activateDocument(documentId)
       return enqueue(async() => {
         await activation
         await view.attachDocument(documentId)
@@ -1175,11 +1134,6 @@ export async function createDocumentEditorHost(
     })),
     insertImageAsset: (image) => {
       const register = options.session.registerImageAsset
-      if (register === undefined) {
-        return Promise.reject(
-          new Error('The document session has no image asset authority')
-        )
-      }
       const registered = register(
         image.documentId,
         image.source,
@@ -1349,7 +1303,7 @@ export async function createDocumentEditorHost(
     },
     openImageSelector: () => {
       removeReviewTool()
-      view.openImageSelector()
+      return enqueue(() => view.openImageSelector())
     },
     hasFocus: () => view.hasFocus(),
     focus: () => view.focus(),
@@ -1479,12 +1433,6 @@ export async function createDocumentEditorHost(
         content: footnote.content
       }))
     },
-    quickInsert: (block: 'code-block' | 'blockquote') => {
-      return enqueue(() => view.executeCommand({
-        kind: 'quick-insert',
-        block
-      }))
-    },
     setListIndentation: (direction: 'increase' | 'decrease') => {
       return enqueue(() => view.executeCommand({
         kind: 'set-list-indentation',
@@ -1526,13 +1474,7 @@ export async function createDocumentEditorHost(
         format
       }))
     },
-    createTable: (shape: Readonly<{ rows: number; columns: number }>) => {
-      return enqueue(() => view.executeCommand({
-        kind: 'create-table',
-        rows: shape.rows,
-        columns: shape.columns
-      }))
-    },
+    requestTable: () => enqueue(() => view.requestTable()),
     insertTableRow: (location: 'before' | 'after' = 'after') => {
       return enqueue(() => view.executeCommand({
         kind: 'insert-table-row',
@@ -1550,6 +1492,11 @@ export async function createDocumentEditorHost(
     },
     commitAuthoringSelection: () =>
       enqueue(async() => {
+        // Review refreshes are debounced independently of browser input. A
+        // slow remote edit must publish and restore its authoritative caret
+        // before this boundary reads the mounted DOM range; otherwise the
+        // queued select can carry pre-edit offsets into the next revision.
+        await view.settled()
         await view.commitSelection()
         publishReview()
         publishSelection(view.getSelectionContext())

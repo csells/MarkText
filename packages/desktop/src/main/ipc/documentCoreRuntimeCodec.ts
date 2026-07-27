@@ -8,6 +8,8 @@ import {
   type ModelPosition,
   type ModelSelection,
   type NodeId,
+  type QuickInsertBlock,
+  type QuickInsertConversion,
   type SourceModelSelection,
   type SourceRange,
   decodeDocumentSearchQuery
@@ -26,7 +28,8 @@ import { freezeDocumentCoreExportOptions } from '../../shared/types/documentCore
 
 const MAX_IDENTIFIER_UNITS = 1_024
 const MAX_DOCUMENT_UNITS = 32_000_000
-const MAX_TABLE_DIMENSION = 10_000
+const MAX_TABLE_ROWS = 30
+const MAX_TABLE_COLUMNS = 20
 const MAX_FILENAME_UNITS = 255
 
 type ClosedRecord = Readonly<Record<string, unknown>>
@@ -276,6 +279,77 @@ function blockConversion(value: unknown): BlockConversion {
   return Object.freeze({ kind })
 }
 
+function quickInsertConversion(value: unknown): QuickInsertConversion {
+  const conversion = blockConversion(value)
+  if (
+    conversion.kind === 'heading-shift' ||
+    conversion.kind === 'loose-list-item'
+  ) {
+    throw new TypeError(
+      `Quick Insert conversion ${conversion.kind} is not a published choice`
+    )
+  }
+  return conversion
+}
+
+function quickInsertBlock(value: unknown): QuickInsertBlock {
+  const base = closedRecord(value, 'intent.quick-insert-block.block', ['kind'], [
+    'conversion',
+    'language',
+    'rows',
+    'columns'
+  ])
+  const kind = oneOf(
+    base.kind,
+    'intent.quick-insert-block.block.kind',
+    ['conversion', 'diagram', 'table']
+  )
+  if (kind === 'conversion') {
+    closedRecord(value, 'intent.quick-insert-block.block', [
+      'kind',
+      'conversion'
+    ])
+    return Object.freeze({
+      kind,
+      conversion: quickInsertConversion(base.conversion)
+    })
+  }
+  if (kind === 'diagram') {
+    closedRecord(value, 'intent.quick-insert-block.block', [
+      'kind',
+      'language'
+    ])
+    return Object.freeze({
+      kind,
+      language: oneOf(
+        base.language,
+        'intent.quick-insert-block.block.language',
+        ['vega-lite', 'mermaid', 'plantuml', 'flowchart', 'sequence']
+      )
+    })
+  }
+  closedRecord(value, 'intent.quick-insert-block.block', [
+    'kind',
+    'rows',
+    'columns'
+  ])
+  return Object.freeze({
+    kind,
+    rows: integer(
+      base.rows,
+      'intent.quick-insert-block.block.rows',
+      1,
+      MAX_TABLE_ROWS
+    ),
+    columns: integer(
+      base.columns,
+      'intent.quick-insert-block.block.columns',
+      1,
+      MAX_TABLE_COLUMNS
+    )
+  })
+}
+
 function authoringInput(value: unknown): CriticMarkupAuthoringInput {
   const base = closedRecord(
     value,
@@ -317,6 +391,7 @@ function editorIntent(value: unknown): EditorIntent {
     'format',
     'replacement',
     'conversion',
+    'block',
     'location',
     'direction',
     'language',
@@ -419,8 +494,7 @@ function editorIntent(value: unknown): EditorIntent {
         replacement: text(record.replacement, 'intent.replace-structure.replacement')
       }) as EditorIntent
     }
-    case 'convert-block':
-    case 'quick-insert-block': {
+    case 'convert-block': {
       const record = closedRecord(
         value,
         `intent.${kind}`,
@@ -429,6 +503,17 @@ function editorIntent(value: unknown): EditorIntent {
       return Object.freeze({
         ...withTarget(record, kind),
         conversion: blockConversion(record.conversion)
+      }) as EditorIntent
+    }
+    case 'quick-insert-block': {
+      const record = closedRecord(
+        value,
+        `intent.${kind}`,
+        ['kind', 'target', 'block']
+      )
+      return Object.freeze({
+        ...withTarget(record, kind),
+        block: quickInsertBlock(record.block)
       }) as EditorIntent
     }
     case 'insert-paragraph':
@@ -571,12 +656,12 @@ function editorIntent(value: unknown): EditorIntent {
       )
       return Object.freeze({
         ...withTarget(record, kind),
-        rows: integer(record.rows, `intent.${kind}.rows`, 1, MAX_TABLE_DIMENSION),
+        rows: integer(record.rows, `intent.${kind}.rows`, 1, MAX_TABLE_ROWS),
         columns: integer(
           record.columns,
           `intent.${kind}.columns`,
           1,
-          MAX_TABLE_DIMENSION
+          MAX_TABLE_COLUMNS
         )
       }) as EditorIntent
     }

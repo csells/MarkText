@@ -8,8 +8,12 @@ import {
   createTestDocumentCoreSession
 } from '../../../../document-view/src/documentCore/__tests__/testDocumentCoreSession'
 import {
+  installTestDocumentHostCapabilities
+} from '../helpers/documentHostSession'
+import {
   createDocumentEditorHost,
-  createDocumentParseConfiguration
+  createDocumentParseConfiguration,
+  type DocumentHostOptions
 } from '@/components/editorWithTabs/documentCoreDesktopEditor'
 
 const parseConfiguration = createDocumentParseConfiguration({
@@ -18,13 +22,31 @@ const parseConfiguration = createDocumentParseConfiguration({
   subscriptAndSuperscript: false
 })
 
-const standaloneSession = (
+const standaloneSession = async(
   source: string,
-  configuration = parseConfiguration
-) => createTestDocumentCoreSession(
-  createSourceSnapshot(source),
-  configuration
-)
+  configuration = parseConfiguration,
+  clipboard: Readonly<{
+    writeClipboardMaterialization?:
+      DocumentHostOptions['session']['writeClipboardMaterialization']
+    pasteText?: string
+  }> = {}
+): Promise<DocumentHostOptions['session']> => {
+  const session = await createTestDocumentCoreSession(
+    createSourceSnapshot(source),
+    configuration
+  )
+  return installTestDocumentHostCapabilities(session, {
+    writeClipboardMaterialization:
+      clipboard.writeClipboardMaterialization ??
+      (async() => Object.freeze({ kind: 'written' as const })),
+    pasteClipboard: target => session.dispatch({
+      kind: 'paste-text',
+      target,
+      text: clipboard.pasteText ?? '',
+      source: 'external-text'
+    })
+  })
+}
 
 describe('target document host', () => {
   it('publishes parser-owned blocks and selection through closed subscriptions', async() => {
@@ -61,7 +83,9 @@ describe('target document host', () => {
       'kind',
       'on',
       'off',
-      'getState'
+      'getState',
+      'quickInsert',
+      'createTable'
     ]))
   })
 
@@ -142,9 +166,10 @@ describe('target document host', () => {
     )
     const host = await createDocumentEditorHost({
       element: document.createElement('div'),
-      session: await standaloneSession('word'),
-      configuration: {},
-      writeClipboardMaterialization
+      session: await standaloneSession('word', parseConfiguration, {
+        writeClipboardMaterialization
+      }),
+      configuration: {}
     })
 
     await host.copySource({ start: 0, end: 4 })
@@ -166,17 +191,15 @@ describe('target document host', () => {
   it('routes target tools and clipboard paste through closed semantic commands', async() => {
     const element = document.createElement('div')
     document.body.appendChild(element)
-    const session = await standaloneSession('before word after')
+    const session = await standaloneSession(
+      'before word after',
+      parseConfiguration,
+      { pasteText: 'pasted' }
+    )
     const host = await createDocumentEditorHost({
       element,
       session,
-      configuration: {},
-      pasteClipboard: target => session.dispatch({
-        kind: 'paste-text',
-        target,
-        text: 'pasted',
-        source: 'external-text'
-      })
+      configuration: {}
     })
     host.setSelection(7, 11)
     await host.settled()
@@ -228,6 +251,27 @@ describe('target document host', () => {
     expect(host.getMarkdown()).toBe('```typescript\nconst x = 1\n```\n')
     await host.undo()
     expect(host.getMarkdown()).toBe('```js\nconst x = 1\n```\n')
+  })
+
+  it('requests only Table dimensions before committing the captured target', async() => {
+    const requestTableShape = vi.fn(async() => ({ rows: 1, columns: 1 }))
+    const host = await createDocumentEditorHost({
+      element: document.createElement('div'),
+      session: await standaloneSession('\n'),
+      configuration: {},
+      requestTableShape
+    })
+    host.setCursorByOffset(0)
+    await host.settled()
+
+    await host.requestTable()
+
+    expect(requestTableShape).toHaveBeenCalledWith(expect.any(AbortSignal))
+    expect(host.getMarkdown()).toBe('|   |\n| --- |\n')
+    await host.undo()
+    expect(host.getMarkdown()).toBe('\n')
+    await host.redo()
+    expect(host.getMarkdown()).toBe('|   |\n| --- |\n')
   })
 
   it('uses the active document-view locale for the pointer Review action', async() => {

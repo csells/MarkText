@@ -269,6 +269,149 @@ describe('document-core browser input', () => {
         view.destroy();
     });
 
+    it('defers a browser selectionchange until its admitted edit is published', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const authority = await createTestDocumentCoreSession(
+            createSourceSnapshot('Hello'),
+            PARSE_CONFIGURATION,
+        );
+        let releaseDispatch = (): void => undefined;
+        const deliveryGate = new Promise<void>(resolve => {
+            releaseDispatch = resolve;
+        });
+        let reportMainCommit = (): void => undefined;
+        const mainCommitted = new Promise<void>(resolve => {
+            reportMainCommit = resolve;
+        });
+        let pendingDispatch = Promise.resolve();
+        const session = Object.freeze({
+            ...authority,
+            dispatch: (
+                intent: Parameters<typeof authority.dispatch>[0],
+            ) => {
+                const delivered = authority.dispatch(intent).then(
+                    async (result) => {
+                        reportMainCommit();
+                        await deliveryGate;
+                        return result;
+                    },
+                );
+                pendingDispatch = delivered.then(
+                    () => undefined,
+                    () => undefined,
+                );
+                return delivered;
+            },
+            select: async (
+                selection: Parameters<typeof authority.select>[0],
+            ): Promise<void> => {
+                await pendingDispatch;
+                await authority.select(selection);
+            },
+        });
+        const view = await createSessionBackedDocumentCoreView({
+            host,
+            session,
+        });
+        placeCaret(textNodeContaining(host, 'Hello'), 5);
+        await view.commitSelection();
+
+        beforeInput(host, 'deleteContentBackward');
+        await mainCommitted;
+        document.dispatchEvent(new Event('selectionchange'));
+        releaseDispatch();
+
+        await expect(view.settled()).resolves.toBeUndefined();
+        expect(view.getMarkdownSync()).toBe('Hell');
+        expect(view.getSelection()).toEqual({ start: 4, end: 4 });
+        await view.destroy();
+    });
+
+    it('does not synchronize a deferred selection after destruction begins', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const authority = await createTestDocumentCoreSession(
+            createSourceSnapshot('Hello'),
+            PARSE_CONFIGURATION,
+        );
+        let releaseDispatch = (): void => undefined;
+        const deliveryGate = new Promise<void>(resolve => {
+            releaseDispatch = resolve;
+        });
+        let reportMainCommit = (): void => undefined;
+        const mainCommitted = new Promise<void>(resolve => {
+            reportMainCommit = resolve;
+        });
+        let pendingDispatch = Promise.resolve();
+        let selectRequests = 0;
+        let closeRequests = 0;
+        const session = Object.freeze({
+            ...authority,
+            dispatch: (
+                intent: Parameters<typeof authority.dispatch>[0],
+            ) => {
+                const delivered = authority.dispatch(intent).then(
+                    async (result) => {
+                        reportMainCommit();
+                        await deliveryGate;
+                        return result;
+                    },
+                );
+                pendingDispatch = delivered.then(
+                    () => undefined,
+                    () => undefined,
+                );
+                return delivered;
+            },
+            select: async (
+                selection: Parameters<typeof authority.select>[0],
+            ): Promise<void> => {
+                selectRequests += 1;
+                await pendingDispatch;
+                await authority.select(selection);
+            },
+            close: async (): Promise<void> => {
+                closeRequests += 1;
+                await authority.close();
+            },
+        });
+        const view = await createSessionBackedDocumentCoreView({
+            host,
+            session,
+        });
+        placeCaret(textNodeContaining(host, 'Hello'), 5);
+        await view.commitSelection();
+        selectRequests = 0;
+
+        beforeInput(host, 'deleteContentBackward');
+        await mainCommitted;
+        document.dispatchEvent(new Event('selectionchange'));
+        const contenteditableMutations: MutationRecord[] = [];
+        const observer = new MutationObserver(records => {
+            contenteditableMutations.push(...records);
+        });
+        observer.observe(host, {
+            attributes: true,
+            attributeFilter: ['contenteditable'],
+            attributeOldValue: true,
+        });
+        const destroyed = view.destroy();
+        releaseDispatch();
+        await destroyed;
+        contenteditableMutations.push(...observer.takeRecords());
+        observer.disconnect();
+
+        expect(selectRequests).toBe(0);
+        expect(closeRequests).toBe(1);
+        expect(
+            contenteditableMutations.filter(mutation =>
+                mutation.oldValue === null
+            ),
+        ).toHaveLength(0);
+        expect(host.hasAttribute('contenteditable')).toBe(false);
+    });
+
     it.each([
         {
             title: 'backspace',

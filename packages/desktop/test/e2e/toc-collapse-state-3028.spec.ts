@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, clickMenuById, waitForEditor } from './helpers'
+import { closeElectron, launchWithMarkdown, clickMenuById, waitForEditor } from './helpers'
 
 // #3028 — collapsing a heading in the TOC must survive a document edit.
 //
@@ -84,7 +84,7 @@ test.describe('TOC collapse state survives edits (#3028)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('a collapsed heading stays collapsed after a content edit', async() => {

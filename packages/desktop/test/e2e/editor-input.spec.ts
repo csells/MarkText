@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   getMarkdownContent,
   enterSourceMode,
@@ -22,7 +23,7 @@ test.describe('Editor input and source-mode roundtrip', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('Initial markdown is loaded into the editor', async() => {
@@ -102,7 +103,7 @@ test.describe('Title-bar word counter (item 24)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('the counter is mounted and starts in word ("W") mode', async() => {
@@ -194,7 +195,7 @@ test.describe('Edit > Select All (item 169)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('Select All escalates the selection to the whole WYSIWYG document', async() => {

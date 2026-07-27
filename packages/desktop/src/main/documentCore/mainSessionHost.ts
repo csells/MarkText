@@ -1,5 +1,4 @@
 import {
-  revisionSemanticHashV1,
   sourceHashV1,
   type ClipboardBundle,
   type ClipboardConsumerRequest,
@@ -34,6 +33,11 @@ import {
   freezeDocumentCoreReviewIndex
 } from '../../shared/types/documentCore'
 import { decodeDocumentCoreLiveDeltaV1 } from '../../shared/documentCoreLiveWire'
+import {
+  retainDocumentCoreSourceVerification,
+  verifyDocumentCoreSourceDelta,
+  type VerifiedDocumentCoreSourceDelta
+} from '../../shared/documentCoreSourceDelta'
 import type {
   DocumentCoreDispatchTicketReceipt,
   DocumentCoreAppendOpenChunkReceipt,
@@ -53,7 +57,10 @@ import type {
 import {
   DOCUMENT_CORE_SOURCE_CHUNK_UNITS
 } from './documentSessionWorkerProtocol'
-import { IsolatedDocumentSession } from './isolatedDocumentSession'
+import {
+  IsolatedDocumentSession,
+  type DocumentSessionWorkerLaunchDescriptor
+} from './isolatedDocumentSession'
 
 export type {
   DocumentCoreMainDispatchRequest,
@@ -65,6 +72,13 @@ export type {
   PortableCompleteSnapshot,
   PortableSourceOnlySnapshot
 } from '../../shared/types/documentCore'
+
+export interface DocumentCoreMainSessionHostDependencies {
+  readonly workerLaunch: DocumentSessionWorkerLaunchDescriptor | undefined
+}
+
+const productionDependencies: DocumentCoreMainSessionHostDependencies =
+  Object.freeze({ workerLaunch: undefined })
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 const hostedHtml = new WeakMap<object, string>()
@@ -279,6 +293,7 @@ interface PortableSessionMember {
   readonly historyState: DocumentCoreHistoryState
   readonly facts: DocumentFacts
   readonly fatalDiagnostic?: ResourceDiagnostic
+  readonly sourceVerification: VerifiedDocumentCoreSourceDelta
 }
 
 interface PortableReviewMember {
@@ -504,7 +519,8 @@ function portableDiagnostic(
 }
 
 function decodePortableSessionMember(
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  base?: DocumentCorePortableSnapshot
 ): PortableSessionMember {
   const raw = decodeJsonRecord(bytes, 'Session delta')
   if (raw.kind !== 'complete' && raw.kind !== 'source-only') {
@@ -516,7 +532,7 @@ function decodePortableSessionMember(
     'snapshotId',
     'revisionId',
     'kind',
-    'source',
+    'sourceDelta',
     'sourceHash',
     'semanticHash',
     'parseConfiguration',
@@ -533,25 +549,21 @@ function decodePortableSessionMember(
       : commonFields
   )
   if (
-    session.schema !== 'document-core-session-delta-1' ||
-    typeof session.source !== 'string'
+    session.schema !== 'document-core-session-delta-1'
   ) {
     throw new TypeError('Session delta has an invalid shape')
   }
-  const source = session.source
   const parseConfiguration = freezeDocumentCoreParseConfiguration(
     session.parseConfiguration
   )
-  const sourceHash = sourceHashV1(source)
-  if (
-    session.sourceHash !== sourceHash ||
-    session.semanticHash !== revisionSemanticHashV1(
-      sourceHash,
-      parseConfiguration
-    )
-  ) {
-    throw new TypeError('Session delta has invalid source or semantic hashes')
-  }
+  const sourceVerification = verifyDocumentCoreSourceDelta(
+    session.sourceDelta,
+    base,
+    session.sourceHash,
+    session.semanticHash,
+    parseConfiguration
+  )
+  const { source, sourceHash, semanticHash } = sourceVerification
   const revisionId = boundedString(
     session.revisionId,
     'Session delta.revisionId'
@@ -597,12 +609,13 @@ function decodePortableSessionMember(
     kind,
     source,
     sourceHash,
-    semanticHash: session.semanticHash as RevisionSemanticHashV1,
+    semanticHash,
     parseConfiguration,
     selection,
     sourceSelection,
     historyState,
     facts: portableFacts(session.facts),
+    sourceVerification,
     ...(kind === 'source-only'
       ? {
         fatalDiagnostic: portableDiagnostic(
@@ -1008,7 +1021,8 @@ function adoptMaterialization<Result>(result: Result): Result {
  * ordering and every checksum.
  */
 export function decodeDocumentCorePublication(
-  publication: WirePublicationResultV1
+  publication: WirePublicationResultV1,
+  base?: DocumentCorePortableSnapshot
 ): DocumentCorePortableSnapshot {
   if (publication.kind !== 'published') {
     throw new Error(
@@ -1019,7 +1033,7 @@ export function decodeDocumentCorePublication(
   if (sessionBytes === undefined) {
     throw new TypeError('Document-core publication has no session delta')
   }
-  const session = decodePortableSessionMember(sessionBytes)
+  const session = decodePortableSessionMember(sessionBytes, base)
   const historyState = session.historyState
   const parseConfiguration = session.parseConfiguration
   if (session.snapshotId !== publication.mountedSnapshotId) {
@@ -1032,7 +1046,7 @@ export function decodeDocumentCorePublication(
     if (session.selection.view !== 'source') {
       throw new TypeError('SourceOnly publication has no Source selection')
     }
-    return Object.freeze({
+    const snapshot: DocumentCorePortableSnapshot = Object.freeze({
       schema: 'document-core-portable-snapshot-1',
       snapshotId: session.snapshotId,
       revisionId: session.revisionId,
@@ -1049,6 +1063,8 @@ export function decodeDocumentCorePublication(
       blocks: Object.freeze([]) as readonly [],
       fatalDiagnostic: session.fatalDiagnostic
     })
+    retainDocumentCoreSourceVerification(snapshot, session.sourceVerification)
+    return snapshot
   }
   if (session.selection.view !== 'markup') {
     throw new TypeError('Complete publication has no Markup selection')
@@ -1085,7 +1101,7 @@ export function decodeDocumentCorePublication(
     }
   }
   const reviewIndex = review.reviewIndex
-  return Object.freeze({
+  const snapshot: DocumentCorePortableSnapshot = Object.freeze({
     schema: 'document-core-portable-snapshot-1',
     snapshotId: session.snapshotId,
     revisionId: session.revisionId,
@@ -1108,20 +1124,27 @@ export function decodeDocumentCorePublication(
     outline: Object.freeze(live.outline),
     listItems: Object.freeze(live.listItems)
   })
+  retainDocumentCoreSourceVerification(snapshot, session.sourceVerification)
+  return snapshot
 }
 
 export function createDocumentCoreMainSessionHost(
   storage: DocumentSessionJournalStorage,
-  observeExecution?: (execution: IsolatedDocumentSession) => void
+  observeExecution?: (execution: IsolatedDocumentSession) => void,
+  dependencies: DocumentCoreMainSessionHostDependencies = productionDependencies
 ): DocumentCoreMainSessionHost {
   const sessions = new Map<string, HostedSession>()
   let nextOpenTicket = 0
 
   const workerFor = (documentId: string): IsolatedDocumentSession => {
-    const worker = new IsolatedDocumentSession(storage, (error) => {
-      const hosted = sessions.get(documentId)
-      if (hosted?.worker === worker) hosted.workerFailure = error
-    })
+    const worker = new IsolatedDocumentSession(
+      storage,
+      (error) => {
+        const hosted = sessions.get(documentId)
+        if (hosted?.worker === worker) hosted.workerFailure = error
+      },
+      dependencies.workerLaunch
+    )
     observeExecution?.(worker)
     return worker
   }

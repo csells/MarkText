@@ -6,15 +6,18 @@ import type {
   MarkupModelSelection,
   ModelPosition,
   ModelSelection,
+  QuickInsertBlock,
   RejectionCode,
   RevisionId,
   SessionId,
   SourceModelSelection
 } from '../../documentSession.js'
 import {
+  inspectLanguageEngineChangedCriticMarkerJoins,
   nextLanguageEngineExecutionStage,
   type LanguageEngine
 } from '../../languageEngine.js'
+import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
 import type {
   CompleteDocumentRevision,
   CriticMarkupNode,
@@ -67,6 +70,7 @@ import {
   protectSourceCandidateDraft
 } from './sourceCandidate.js'
 import type { SourceEdit } from './sourceTransaction.js'
+import { applyExactSourceEdits } from '../../exactSourceEdits.js'
 
 export class IntentRejection extends Error {
   readonly code: RejectionCode
@@ -164,28 +168,6 @@ interface AppliedSourceEdits {
   readonly inverseEdits: readonly SourceEdit[]
 }
 
-function changedJoinProtectionPositions(
-  revision: CompleteDocumentRevision,
-  joins: readonly number[]
-): readonly number[] {
-  const positions = new Set<number>()
-  for (let index = 0; index < revision.ownership.count; index += 1) {
-    const run = revision.ownership.at(index)
-    if (run.owner.kind !== 'critic-marker') {
-      continue
-    }
-    const start = Number(run.range.start)
-    const end = Number(run.range.end)
-    if (!joins.some((join) => start < join && join < end)) {
-      continue
-    }
-    positions.add(run.owner.role === 'close' ? end - 1 : start)
-  }
-  return Object.freeze(
-    [...positions].sort((left, right) => right - left)
-  )
-}
-
 function protectChangedSourceJoins(
   engine: LanguageEngine,
   before: CompleteDocumentRevision,
@@ -195,29 +177,36 @@ function protectChangedSourceJoins(
     readonly revision: DocumentRevision
   }> {
   const draft = buildSourceCandidateDraft(before.source.text, edits)
-  const parsed = engine.reopen(
-    before,
+  const inspection = inspectLanguageEngineChangedCriticMarkerJoins(
+    engine,
     createSourceSnapshot(draft.text),
-    edits
+    before.configuration,
+    draft.joins
   )
-  if (parsed.kind !== 'complete') {
+  if (inspection.kind === 'source-only') {
+    const revision = engine.reopen(
+      before,
+      createSourceSnapshot(draft.text),
+      edits
+    )
     return Object.freeze({
       transaction: applySourceEdits(before.source.text, edits, draft.text),
-      revision: parsed
+      revision
     })
   }
 
-  const protectionPositions = changedJoinProtectionPositions(
-    parsed,
-    draft.joins
-  )
+  const protectionPositions = inspection.protectionPositions
   const protectsIntroducedBom =
     draft.text.startsWith('\uFEFF') &&
     !before.source.text.startsWith('\uFEFF')
   if (protectionPositions.length === 0 && !protectsIntroducedBom) {
     return Object.freeze({
       transaction: applySourceEdits(before.source.text, edits, draft.text),
-      revision: parsed
+      revision: engine.reopen(
+        before,
+        createSourceSnapshot(draft.text),
+        edits
+      )
     })
   }
 
@@ -265,16 +254,11 @@ function applySourceEdits(
 
   let nextSource = exactCandidateSource ?? source
   if (exactCandidateSource === undefined) {
-    for (let index = stable.length - 1; index >= 0; index -= 1) {
-      const edit = stable[index]
-      if (edit === undefined) {
-        continue
-      }
-      nextSource =
-        nextSource.slice(0, edit.start) +
-        edit.insert +
-        nextSource.slice(edit.end)
-    }
+    nextSource = applyExactSourceEdits(
+      source,
+      stable,
+      'Session source edit'
+    )
   }
 
   let delta = 0
@@ -767,43 +751,73 @@ function trackCarrierContext(
     range: CriticMarkupNode['arms'][number]['range']
   ): boolean =>
     start >= Number(range.start) && end <= Number(range.end)
-  const candidates: TrackCarrierContext[] = []
-  const visit = (node: CriticMarkupNode, depth: number): void => {
-    for (const arm of node.arms) {
+  const deepest = new Map<
+    Exclude<TrackCarrierPolicy, 'plain'>,
+    TrackCarrierContext
+  >()
+  const pending: Array<Readonly<{
+    node: CriticMarkupNode
+    depth: number
+  }>> = []
+  for (
+    let index = revision.criticMarkup.rootCount - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    pending.push({ node: revision.criticMarkup.rootAt(index), depth: 0 })
+  }
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (current === undefined) {
+      continue
+    }
+    for (
+      let armIndex = current.node.arms.length - 1;
+      armIndex >= 0;
+      armIndex -= 1
+    ) {
+      const arm = current.node.arms[armIndex]
+      if (arm === undefined) {
+        continue
+      }
       if (!contains(arm.range)) {
         continue
       }
       let policy: Exclude<TrackCarrierPolicy, 'plain'> | undefined
-      if (node.kind === 'addition' && arm.name === 'content') {
+      if (current.node.kind === 'addition' && arm.name === 'content') {
         policy = 'direct'
-      } else if (node.kind === 'highlight' && arm.name === 'content') {
+      } else if (current.node.kind === 'highlight' && arm.name === 'content') {
         policy = 'stable'
-      } else if (node.kind === 'deletion' && arm.name === 'content') {
+      } else if (current.node.kind === 'deletion' && arm.name === 'content') {
         policy = 'read-only'
-      } else if (node.kind === 'substitution') {
+      } else if (current.node.kind === 'substitution') {
         policy = arm.name === 'new' ? 'direct' : 'read-only'
       }
-      if (policy !== undefined) {
-        candidates.push(Object.freeze({ depth, policy, node, arm }))
+      const prior = policy === undefined ? undefined : deepest.get(policy)
+      if (policy !== undefined && (prior === undefined || current.depth > prior.depth)) {
+        deepest.set(policy, Object.freeze({
+          depth: current.depth,
+          policy,
+          node: current.node,
+          arm
+        }))
       }
-      for (const child of arm.children) {
-        visit(child, depth + 1)
+      for (
+        let childIndex = arm.children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.children[childIndex]
+        if (child !== undefined) {
+          pending.push({ node: child, depth: current.depth + 1 })
+        }
       }
     }
   }
-  for (let index = 0; index < revision.criticMarkup.rootCount; index += 1) {
-    visit(revision.criticMarkup.rootAt(index), 0)
-  }
-  const deepest = (
-    policy: Exclude<TrackCarrierPolicy, 'plain'>
-  ): TrackCarrierContext | undefined =>
-    candidates
-      .filter((candidate) => candidate.policy === policy)
-      .sort((left, right) => right.depth - left.depth)[0]
   return (
-    deepest('read-only') ??
-    deepest('direct') ??
-    deepest('stable') ??
+    deepest.get('read-only') ??
+    deepest.get('direct') ??
+    deepest.get('stable') ??
     Object.freeze({ policy: 'plain' as const, depth: -1 })
   )
 }
@@ -833,24 +847,55 @@ function exhaustedHighlightAt(
   end: number
 ): ExhaustedHighlight | undefined {
   const candidates: ExhaustedHighlight[] = []
-  const visit = (node: CriticMarkupNode, depth: number): void => {
-    if (node.kind === 'highlight') {
-      const arm = node.arms[0]
+  const pending: Array<Readonly<{
+    node: CriticMarkupNode
+    depth: number
+  }>> = []
+  for (
+    let index = revision.criticMarkup.rootCount - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    pending.push({ node: revision.criticMarkup.rootAt(index), depth: 0 })
+  }
+  while (pending.length > 0) {
+    const current = pending.pop()
+    if (current === undefined) {
+      continue
+    }
+    if (current.node.kind === 'highlight') {
+      const arm = current.node.arms[0]
       if (
         start >= Number(arm.range.start) &&
         end <= Number(arm.range.end)
       ) {
-        candidates.push(Object.freeze({ node, arm, depth }))
+        candidates.push(Object.freeze({
+          node: current.node,
+          arm,
+          depth: current.depth
+        }))
       }
     }
-    for (const arm of node.arms) {
-      for (const child of arm.children) {
-        visit(child, depth + 1)
+    for (
+      let armIndex = current.node.arms.length - 1;
+      armIndex >= 0;
+      armIndex -= 1
+    ) {
+      const arm = current.node.arms[armIndex]
+      if (arm === undefined) {
+        continue
+      }
+      for (
+        let childIndex = arm.children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.children[childIndex]
+        if (child !== undefined) {
+          pending.push({ node: child, depth: current.depth + 1 })
+        }
       }
     }
-  }
-  for (let index = 0; index < revision.criticMarkup.rootCount; index += 1) {
-    visit(revision.criticMarkup.rootAt(index), 0)
   }
   const coverage = new Map<
     NodeId,
@@ -962,7 +1007,19 @@ function payloadOpaqueRanges(
   end: number
 ): readonly TextRange[] {
   const ranges: TextRange[] = []
-  const visit = (node: CriticMarkupNode): void => {
+  const pending: CriticMarkupNode[] = []
+  for (
+    let index = revision.criticMarkup.rootCount - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    pending.push(revision.criticMarkup.rootAt(index))
+  }
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) {
+      continue
+    }
     const nodeStart = Number(node.range.start)
     const nodeEnd = Number(node.range.end)
     if (nodeStart >= start && nodeEnd <= end) {
@@ -970,16 +1027,24 @@ function payloadOpaqueRanges(
         start: nodeStart - start,
         end: nodeEnd - start
       }))
-      return
+      continue
     }
-    for (const arm of node.arms) {
-      for (const child of arm.children) {
-        visit(child)
+    for (let armIndex = node.arms.length - 1; armIndex >= 0; armIndex -= 1) {
+      const arm = node.arms[armIndex]
+      if (arm === undefined) {
+        continue
+      }
+      for (
+        let childIndex = arm.children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.children[childIndex]
+        if (child !== undefined) {
+          pending.push(child)
+        }
       }
     }
-  }
-  for (let index = 0; index < revision.criticMarkup.rootCount; index += 1) {
-    visit(revision.criticMarkup.rootAt(index))
   }
   for (let index = 0; index < revision.ownership.count; index += 1) {
     const run = revision.ownership.at(index)
@@ -1268,6 +1333,28 @@ const EMPTY_TABLE_CELL_SOURCE: TableCellSource = Object.freeze({
   opaqueRanges: Object.freeze([])
 })
 
+const validTableShape = (rows: number, columns: number): boolean =>
+  Number.isSafeInteger(rows) &&
+  Number.isSafeInteger(columns) &&
+  rows >= 1 &&
+  rows <= 30 &&
+  columns >= 1 &&
+  columns <= 20
+
+const blankGfmTable = (
+  rows: number,
+  columns: number,
+  eol: string
+): string => {
+  const row = `|${'   |'.repeat(columns)}`
+  const delimiter = `|${' --- |'.repeat(columns)}`
+  return [
+    row,
+    delimiter,
+    ...Array.from({ length: rows - 1 }, () => row)
+  ].join(eol)
+}
+
 function plainTableCellSource(text: string): TableCellSource {
   return Object.freeze({ text, opaqueRanges: Object.freeze([]) })
 }
@@ -1400,14 +1487,36 @@ function criticMarkupNodesOf(
   revision: CompleteDocumentRevision
 ): readonly CriticMarkupNode[] {
   const nodes: CriticMarkupNode[] = []
-  const collect = (node: CriticMarkupNode): void => {
-    nodes.push(node)
-    for (const arm of node.arms) {
-      for (const child of arm.children) collect(child)
-    }
+  const pending: CriticMarkupNode[] = []
+  for (
+    let ordinal = revision.criticMarkup.rootCount - 1;
+    ordinal >= 0;
+    ordinal -= 1
+  ) {
+    pending.push(revision.criticMarkup.rootAt(ordinal))
   }
-  for (let ordinal = 0; ordinal < revision.criticMarkup.rootCount; ordinal += 1) {
-    collect(revision.criticMarkup.rootAt(ordinal))
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) {
+      continue
+    }
+    nodes.push(node)
+    for (let armIndex = node.arms.length - 1; armIndex >= 0; armIndex -= 1) {
+      const arm = node.arms[armIndex]
+      if (arm === undefined) {
+        continue
+      }
+      for (
+        let childIndex = arm.children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.children[childIndex]
+        if (child !== undefined) {
+          pending.push(child)
+        }
+      }
+    }
   }
   return Object.freeze(nodes)
 }
@@ -1636,6 +1745,15 @@ export class RevisionWorker {
     }
   }
 
+  prepareDocumentFacts(
+    revision: DocumentRevision = this.#state.revision
+  ): void {
+    materializeDocumentFacts(
+      revision,
+      nextLanguageEngineExecutionStage(this.#engine)
+    )
+  }
+
   get state(): WorkerState {
     return this.#state
   }
@@ -1780,6 +1898,7 @@ export class RevisionWorker {
       createSourceSnapshot(previous.revision.source.text),
       configuration
     )
+    this.prepareDocumentFacts(revision)
     if (revision.kind === 'source-only') {
       this.#state = Object.freeze({
         session: previous.session,
@@ -2577,7 +2696,8 @@ export class RevisionWorker {
         completeSource.trim().length === 0 &&
         (
           conversion.kind === 'code-block' ||
-          conversion.kind === 'blockquote'
+          conversion.kind === 'blockquote' ||
+          conversion.kind === 'thematic-break'
         )
       ) {
         const trailingEol =
@@ -2586,7 +2706,9 @@ export class RevisionWorker {
             : ''
         const replacement = conversion.kind === 'code-block'
           ? `\`\`\`${eol}${eol}\`\`\`${trailingEol}`
-          : `> ${trailingEol}`
+          : conversion.kind === 'blockquote'
+            ? `> ${trailingEol}`
+            : `---${trailingEol}`
         const wholeDocumentTarget = Object.freeze({
           ...target,
           anchor: Object.freeze({
@@ -2856,7 +2978,7 @@ export class RevisionWorker {
 
   prepareQuickInsertBlock(
     target: ModelSelection,
-    conversion: BlockConversion,
+    insertion: QuickInsertBlock,
     next: RevisionId
   ): PreparedWorkerCommit {
     const state = this.#state
@@ -2872,6 +2994,8 @@ export class RevisionWorker {
 
     const document = state.revision.projection('editing').markdown
     const root = document.root
+    const source = state.revision.source.text
+    const emptyDocument = source.trim().length === 0
     const block = Array.from(
       { length: root.childCount },
       (_, ordinal) => root.childAt(ordinal)
@@ -2880,63 +3004,164 @@ export class RevisionWorker {
       from >= candidate.range.start &&
       from <= candidate.range.end
     )
-    if (block === undefined) {
+    if (block === undefined && !emptyDocument) {
       throw new IntentRejection('wrong-target-kind')
     }
-    const query = document.source
-      .slice(block.range.start, block.range.end)
-      .trim()
-    if (!/^[/、]\S*$/u.test(query)) {
+    const query = block === undefined
+      ? ''
+      : document.source.slice(block.range.start, block.range.end).trim()
+    if (!emptyDocument && !/^[/、]\S*$/u.test(query)) {
       throw new IntentRejection('wrong-target-kind')
     }
 
-    const source = state.revision.source.text
     const eol = source.includes('\r\n')
       ? '\r\n'
       : source.includes('\r')
         ? '\r'
         : '\n'
-    const replacement = (() => {
-      if (conversion.kind === 'heading') {
-        return `${'#'.repeat(conversion.level)} `
+    if (
+      insertion.kind === 'conversion' &&
+      (
+        (
+          insertion.conversion.kind === 'front-matter' &&
+          !state.revision.configuration.markdownOptions.frontMatter
+        ) ||
+        (
+          insertion.conversion.kind === 'math-block' &&
+          !state.revision.configuration.markdownOptions.math
+        )
+      )
+    ) {
+      throw new IntentRejection('invalid-command-argument')
+    }
+    const replacementAndCaret = (() => {
+      if (insertion.kind === 'diagram') {
+        const replacement =
+          `\`\`\`${insertion.language}${eol}${eol}\`\`\``
+        return Object.freeze({
+          replacement,
+          caret: 3 + insertion.language.length + eol.length
+        })
       }
-      if (conversion.kind === 'paragraph') return ''
-      if (conversion.kind === 'blockquote') return '> '
-      if (conversion.kind === 'unordered-list') return '- '
-      if (conversion.kind === 'ordered-list') return '1. '
-      if (conversion.kind === 'task-list') return '- [ ] '
+      if (insertion.kind === 'table') {
+        if (
+          !state.revision.configuration.markdownOptions.gfm ||
+          !validTableShape(insertion.rows, insertion.columns)
+        ) {
+          throw new IntentRejection('invalid-command-argument')
+        }
+        return Object.freeze({
+          replacement: blankGfmTable(
+            insertion.rows,
+            insertion.columns,
+            eol
+          ),
+          caret: 2
+        })
+      }
+      const conversion = insertion.conversion
+      if (conversion.kind === 'heading') {
+        const replacement = `${'#'.repeat(conversion.level)} `
+        return Object.freeze({ replacement, caret: replacement.length })
+      }
+      if (conversion.kind === 'paragraph') {
+        return Object.freeze({ replacement: '', caret: 0 })
+      }
+      if (conversion.kind === 'blockquote') {
+        return Object.freeze({ replacement: '> ', caret: 2 })
+      }
+      if (conversion.kind === 'unordered-list') {
+        return Object.freeze({ replacement: '- ', caret: 2 })
+      }
+      if (conversion.kind === 'ordered-list') {
+        return Object.freeze({ replacement: '1. ', caret: 3 })
+      }
+      if (conversion.kind === 'task-list') {
+        return Object.freeze({ replacement: '- [ ] ', caret: 6 })
+      }
       if (conversion.kind === 'code-block') {
-        return `\`\`\`${eol}${eol}\`\`\``
+        return Object.freeze({
+          replacement: `\`\`\`${eol}${eol}\`\`\``,
+          caret: 3 + eol.length
+        })
       }
       if (conversion.kind === 'math-block') {
-        return `$$${eol}${eol}$$`
+        return Object.freeze({
+          replacement: `$$${eol}${eol}$$`,
+          caret: 2 + eol.length
+        })
       }
       if (conversion.kind === 'html-block') {
-        return `<div>${eol}${eol}</div>`
+        return Object.freeze({
+          replacement: `<div>${eol}${eol}</div>`,
+          caret: 5 + eol.length
+        })
       }
-      if (conversion.kind === 'thematic-break') return '---'
-      if (conversion.kind === 'front-matter' && block.range.start === 0) {
-        return `---${eol}${eol}---`
+      if (conversion.kind === 'thematic-break') {
+        return Object.freeze({ replacement: '---', caret: 3 })
+      }
+      if (
+        conversion.kind === 'front-matter' &&
+        (emptyDocument || block?.range.start === 0)
+      ) {
+        return Object.freeze({
+          replacement: `---${eol}${eol}---`,
+          caret: 3 + eol.length
+        })
       }
       throw new IntentRejection('wrong-target-kind')
     })()
-    const blockTarget = Object.freeze({
-      ...target,
-      anchor: Object.freeze({
-        offset: block.range.start,
-        affinity: 'next' as const
-      }),
-      focus: Object.freeze({
-        offset: block.range.end,
-        affinity: 'previous' as const
+    const trailingEol =
+      emptyDocument && (source.endsWith('\n') || source.endsWith('\r'))
+        ? eol
+        : ''
+    const replacement = replacementAndCaret.replacement + trailingEol
+    const caretOffsetWithinReplacement = replacementAndCaret.caret
+
+    if (emptyDocument && source.length === 0 && replacement.length > 0) {
+      const insert = this.#trackChanges
+        ? serializeAddition(replacement)
+        : replacement
+      return this.#prepareEdit(
+        Object.freeze({ start: 0, end: 0, insert }),
+        0,
+        target,
+        next,
+        caretOffsetWithinReplacement + (this.#trackChanges ? 3 : 0)
+      )
+    }
+
+    const blockTarget = emptyDocument
+      ? Object.freeze({
+        ...target,
+        anchor: Object.freeze({ offset: 0, affinity: 'next' as const }),
+        focus: Object.freeze({
+          offset: state.markupView.modelLength,
+          affinity: 'previous' as const
+        })
       })
-    })
+      : (() => {
+        if (block === undefined) {
+          throw new Error('Quick Insert block target invariant was violated')
+        }
+        return Object.freeze({
+          ...target,
+          anchor: Object.freeze({
+            offset: block.range.start,
+            affinity: 'next' as const
+          }),
+          focus: Object.freeze({
+            offset: block.range.end,
+            affinity: 'previous' as const
+          })
+        })
+      })()
     return this.prepareStructureReplacement(
       blockTarget,
       replacement,
       next,
       target,
-      replacement.length
+      caretOffsetWithinReplacement
     )
   }
 
@@ -3685,12 +3910,7 @@ export class RevisionWorker {
     assertSelection(target, state)
     if (
       !state.revision.configuration.markdownOptions.gfm ||
-      !Number.isInteger(rows) ||
-      !Number.isInteger(columns) ||
-      rows < 2 ||
-      rows > 100 ||
-      columns < 1 ||
-      columns > 100
+      !validTableShape(rows, columns)
     ) {
       throw new IntentRejection('invalid-command-argument')
     }
@@ -3700,13 +3920,7 @@ export class RevisionWorker {
       : source.includes('\r')
         ? '\r'
         : '\n'
-    const row = `|${'   |'.repeat(columns)}`
-    const delimiter = `|${' --- |'.repeat(columns)}`
-    const table = [
-      row,
-      delimiter,
-      ...Array.from({ length: rows - 1 }, () => row)
-    ].join(eol)
+    const table = blankGfmTable(rows, columns, eol)
     const root = state.revision.projection('editing').markdown.root
     const position = Math.min(target.anchor.offset, target.focus.offset)
     const block = Array.from(

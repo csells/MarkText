@@ -5,7 +5,8 @@ import {
   type DocumentSession,
   type EditorIntent,
   type InitialModelSelection,
-  type ParseConfiguration
+  type ParseConfiguration,
+  type QuickInsertBlock
 } from '@marktext/document-core'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
@@ -160,7 +161,7 @@ describe('DocumentSession target-owned editor command intents', () => {
     )
   })
 
-  it('replaces an authenticated slash query with one semantic block', async() => {
+  it('replaces an authenticated slash query with one closed block choice', async() => {
     const source = '/'
     const session = await open(source, selection(1))
 
@@ -169,11 +170,467 @@ describe('DocumentSession target-owned editor command intents', () => {
       {
         kind: 'quick-insert-block',
         target: targetOf(session),
-        conversion: { kind: 'heading', level: 1 }
+        block: {
+          kind: 'conversion',
+          conversion: { kind: 'heading', level: 1 }
+        }
       },
       '# ',
       source
     )
+  })
+
+  it('inserts every documented Quick Insert conversion exactly', async() => {
+    const cases: readonly Readonly<{
+      query: string
+      block: QuickInsertBlock
+      expected: string
+      caret: number
+    }>[] = [
+      {
+        query: 'paragraph',
+        block: { kind: 'conversion', conversion: { kind: 'paragraph' } },
+        expected: '\r\n',
+        caret: 0
+      },
+      {
+        query: 'horizontal-line',
+        block: {
+          kind: 'conversion',
+          conversion: { kind: 'thematic-break' }
+        },
+        expected: '---\r\n',
+        caret: 3
+      },
+      {
+        query: 'front-matter',
+        block: { kind: 'conversion', conversion: { kind: 'front-matter' } },
+        expected: '---\r\n\r\n---\r\n',
+        caret: 5
+      },
+      {
+        query: 'heading-1',
+        block: {
+          kind: 'conversion',
+          conversion: { kind: 'heading', level: 1 }
+        },
+        expected: '# \r\n',
+        caret: 2
+      },
+      {
+        query: 'heading-2',
+        block: {
+          kind: 'conversion',
+          conversion: { kind: 'heading', level: 2 }
+        },
+        expected: '## \r\n',
+        caret: 3
+      },
+      {
+        query: 'heading-3',
+        block: {
+          kind: 'conversion',
+          conversion: { kind: 'heading', level: 3 }
+        },
+        expected: '### \r\n',
+        caret: 4
+      },
+      {
+        query: 'heading-4',
+        block: {
+          kind: 'conversion',
+          conversion: { kind: 'heading', level: 4 }
+        },
+        expected: '#### \r\n',
+        caret: 5
+      },
+      {
+        query: 'heading-5',
+        block: {
+          kind: 'conversion',
+          conversion: { kind: 'heading', level: 5 }
+        },
+        expected: '##### \r\n',
+        caret: 6
+      },
+      {
+        query: 'heading-6',
+        block: {
+          kind: 'conversion',
+          conversion: { kind: 'heading', level: 6 }
+        },
+        expected: '###### \r\n',
+        caret: 7
+      },
+      {
+        query: 'display-math',
+        block: { kind: 'conversion', conversion: { kind: 'math-block' } },
+        expected: '$$\r\n\r\n$$\r\n',
+        caret: 4
+      },
+      {
+        query: 'html',
+        block: { kind: 'conversion', conversion: { kind: 'html-block' } },
+        expected: '<div>\r\n\r\n</div>\r\n',
+        caret: 7
+      },
+      {
+        query: 'code',
+        block: { kind: 'conversion', conversion: { kind: 'code-block' } },
+        expected: '```\r\n\r\n```\r\n',
+        caret: 5
+      },
+      {
+        query: 'quote',
+        block: { kind: 'conversion', conversion: { kind: 'blockquote' } },
+        expected: '> \r\n',
+        caret: 2
+      },
+      {
+        query: 'ordered-list',
+        block: { kind: 'conversion', conversion: { kind: 'ordered-list' } },
+        expected: '1. \r\n',
+        caret: 3
+      },
+      {
+        query: 'bullet-list',
+        block: { kind: 'conversion', conversion: { kind: 'unordered-list' } },
+        expected: '- \r\n',
+        caret: 2
+      },
+      {
+        query: 'task-list',
+        block: { kind: 'conversion', conversion: { kind: 'task-list' } },
+        expected: '- [ ] \r\n',
+        caret: 6
+      }
+    ]
+
+    for (const row of cases) {
+      const source = `/${row.query}\r\n`
+      const session = await open(source, selection(source.length - 2))
+      await expectOneStep(
+        session,
+        {
+          kind: 'quick-insert-block',
+          target: targetOf(session),
+          block: row.block
+        },
+        row.expected,
+        source,
+        { anchor: row.caret, focus: row.caret }
+      )
+      await expect(session.dispatch({ kind: 'redo' }).completion)
+        .resolves.toMatchObject({ kind: 'committed' })
+      expect(session.snapshot().revision.source).toBe(row.expected)
+    }
+  })
+
+  it.each([
+    ['vega-lite', '```vega-lite\r\n\r\n```\r\n', 14],
+    ['mermaid', '```mermaid\r\n\r\n```\r\n', 12],
+    ['plantuml', '```plantuml\r\n\r\n```\r\n', 13],
+    ['flowchart', '```flowchart\r\n\r\n```\r\n', 14],
+    ['sequence', '```sequence\r\n\r\n```\r\n', 13]
+  ] as const)('inserts the exact %s diagram fence with exact history', async(
+    language,
+    expected,
+    caret
+  ) => {
+    const source = `/${language}\r\n`
+    const session = await open(source, selection(1 + language.length))
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'quick-insert-block',
+        target: targetOf(session),
+        block: { kind: 'diagram', language }
+      },
+      expected,
+      source,
+      {
+        anchor: caret,
+        focus: caret
+      }
+    )
+    await expect(session.dispatch({ kind: 'redo' }).completion)
+      .resolves.toMatchObject({ kind: 'committed' })
+    expect(session.snapshot().revision.source).toBe(expected)
+  })
+
+  it('inserts a diagram into a truly empty document', async() => {
+    const session = await open('', selection(0))
+    const expected = '```mermaid\n\n```'
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'quick-insert-block',
+        target: targetOf(session),
+        block: { kind: 'diagram', language: 'mermaid' }
+      },
+      expected,
+      '',
+      { anchor: 11, focus: 11 }
+    )
+  })
+
+  it('replaces a whitespace-only document and preserves its EOL', async() => {
+    const source = '\r\n'
+    const session = await open(source, selection(0))
+    const expected = '```sequence\r\n\r\n```\r\n'
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'quick-insert-block',
+        target: targetOf(session),
+        block: { kind: 'diagram', language: 'sequence' }
+      },
+      expected,
+      source,
+      { anchor: 13, focus: 13 }
+    )
+  })
+
+  it('tracks one Quick Insert replacement as one exact undo step', async() => {
+    const source = '/mermaid'
+    const session = await open(source, selection(source.length), true)
+    const expected = '{--/mermaid--}{++```mermaid\n\n```++}'
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'quick-insert-block',
+        target: targetOf(session),
+        block: { kind: 'diagram', language: 'mermaid' }
+      },
+      expected,
+      source
+    )
+    await expect(session.dispatch({ kind: 'redo' }).completion)
+      .resolves.toMatchObject({ kind: 'committed' })
+    expect(session.snapshot().revision.source).toBe(expected)
+  })
+
+  it('tracks Quick Insert into an empty document as one addition', async() => {
+    const session = await open('', selection(0), true)
+    const expected = '{++|   |\n| --- |++}'
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'quick-insert-block',
+        target: targetOf(session),
+        block: { kind: 'table', rows: 1, columns: 1 }
+      },
+      expected,
+      '',
+      { anchor: 2, focus: 2 }
+    )
+    await expect(session.dispatch({ kind: 'redo' }).completion)
+      .resolves.toMatchObject({ kind: 'committed' })
+    expect(session.snapshot().revision.source).toBe(expected)
+  })
+
+  it('inserts the minimum 1×1 GFM table and preserves the source EOL', async() => {
+    const source = '/table\n'
+    const session = await open(source, selection(6))
+    const expected = '|   |\n| --- |\n'
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'quick-insert-block',
+        target: targetOf(session),
+        block: { kind: 'table', rows: 1, columns: 1 }
+      },
+      expected,
+      source,
+      { anchor: 2, focus: 2 }
+    )
+    await expect(session.dispatch({ kind: 'redo' }).completion)
+      .resolves.toMatchObject({ kind: 'committed' })
+    expect(session.snapshot().revision.source).toBe(expected)
+  })
+
+  it('inserts the maximum 30×20 GFM table exactly', async() => {
+    const source = '/table\r\n'
+    const session = await open(source, selection(6))
+    const header =
+      '|   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |'
+    const delimiter =
+      '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+    const expected = [
+      header,
+      delimiter,
+      ...Array.from({ length: 29 }, () => header),
+      ''
+    ].join('\r\n')
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'quick-insert-block',
+        target: targetOf(session),
+        block: { kind: 'table', rows: 30, columns: 20 }
+      },
+      expected,
+      source,
+      { anchor: 2, focus: 2 }
+    )
+    await expect(session.dispatch({ kind: 'redo' }).completion)
+      .resolves.toMatchObject({ kind: 'committed' })
+    expect(session.snapshot().revision.source).toBe(expected)
+  })
+
+  it('accepts every host table shape from 1–30 rows by 1–20 columns', async() => {
+    for (let rows = 1; rows <= 30; rows += 1) {
+      for (let columns = 1; columns <= 20; columns += 1) {
+        const session = await open('/table', selection(6))
+        await expect(session.dispatch({
+          kind: 'quick-insert-block',
+          target: targetOf(session),
+          block: { kind: 'table', rows, columns }
+        }).completion).resolves.toMatchObject({ kind: 'committed' })
+
+        const lines = session.snapshot().revision.source.split('\n')
+        expect(lines).toHaveLength(rows + 1)
+        expect(lines[0]?.match(/\|/g)).toHaveLength(columns + 1)
+        expect(lines[1]?.match(/\|/g)).toHaveLength(columns + 1)
+        expect(lines.at(-1)?.match(/\|/g)).toHaveLength(columns + 1)
+        await expect(session.close().completion)
+          .resolves.toEqual({ kind: 'closed' })
+      }
+    }
+  })
+
+  it('rejects a Quick Insert table when GFM is disabled without history', async() => {
+    const session = await createDocumentSession({
+      source: createSourceSnapshot('/table'),
+      parseConfiguration: {
+        ...TEST_CONFIGURATION,
+        markdownOptions: {
+          ...TEST_CONFIGURATION.markdownOptions,
+          gfm: false
+        }
+      },
+      initialSelection: selection(6)
+    })
+    const before = session.historyState()
+
+    await expect(session.dispatch({
+      kind: 'quick-insert-block',
+      target: targetOf(session),
+      block: { kind: 'table', rows: 1, columns: 1 }
+    }).completion).resolves.toMatchObject({
+      kind: 'rejected',
+      reason: 'invalid-command-argument'
+    })
+    expect(session.snapshot().revision.source).toBe('/table')
+    expect(session.historyState()).toEqual(before)
+  })
+
+  it.each([
+    {
+      option: 'frontMatter' as const,
+      block: {
+        kind: 'conversion' as const,
+        conversion: { kind: 'front-matter' as const }
+      }
+    },
+    {
+      option: 'math' as const,
+      block: {
+        kind: 'conversion' as const,
+        conversion: { kind: 'math-block' as const }
+      }
+    }
+  ])('rejects Quick Insert when $option support is disabled', async({
+    option,
+    block
+  }) => {
+    const session = await createDocumentSession({
+      source: createSourceSnapshot('/choice'),
+      parseConfiguration: {
+        ...TEST_CONFIGURATION,
+        markdownOptions: {
+          ...TEST_CONFIGURATION.markdownOptions,
+          [option]: false
+        }
+      },
+      initialSelection: selection(7)
+    })
+    const before = session.historyState()
+
+    await expect(session.dispatch({
+      kind: 'quick-insert-block',
+      target: targetOf(session),
+      block
+    }).completion).resolves.toMatchObject({
+      kind: 'rejected',
+      reason: 'invalid-command-argument'
+    })
+    expect(session.snapshot().revision.source).toBe('/choice')
+    expect(session.historyState()).toEqual(before)
+  })
+
+  it.each([
+    { kind: 'diagram', language: 'dot' },
+    {
+      kind: 'conversion',
+      conversion: { kind: 'heading-shift', direction: 'promote' }
+    },
+    { kind: 'conversion', conversion: { kind: 'loose-list-item' } },
+    { kind: 'table', rows: 0, columns: 1 },
+    { kind: 'table', rows: 31, columns: 1 },
+    { kind: 'table', rows: 1, columns: 0 },
+    { kind: 'table', rows: 1, columns: 21 }
+  ])('rejects an invalid closed Quick Insert choice %# before mutation', async(block) => {
+    const session = await open('/x', selection(2))
+    const before = session.historyState()
+
+    expect(() => session.dispatch({
+      kind: 'quick-insert-block',
+      target: targetOf(session),
+      block
+    } as unknown as EditorIntent)).toThrow()
+    expect(session.snapshot().revision.source).toBe('/x')
+    expect(session.historyState()).toEqual(before)
+  })
+
+  it('rejects a stale Quick Insert target atomically', async() => {
+    const session = await open('/', selection(1))
+    const stale = targetOf(session)
+    await expect(session.dispatch({
+      kind: 'insert-text',
+      target: stale,
+      text: 'x'
+    }).completion).resolves.toMatchObject({ kind: 'committed' })
+    const beforeRejected = session.snapshot()
+    const historyBeforeRejected = session.historyState()
+
+    await expect(session.dispatch({
+      kind: 'quick-insert-block',
+      target: stale,
+      block: { kind: 'diagram', language: 'mermaid' }
+    }).completion).resolves.toMatchObject({
+      kind: 'rejected',
+      reason: 'stale-selection',
+      snapshot: beforeRejected
+    })
+    expect(session.snapshot()).toBe(beforeRejected)
+    expect(session.historyState()).toEqual(historyBeforeRejected)
+
+    await expect(session.dispatch({ kind: 'undo' }).completion)
+      .resolves.toMatchObject({ kind: 'committed' })
+    expect(session.snapshot().revision.source).toBe('/')
+    await expect(session.dispatch({ kind: 'undo' }).completion)
+      .resolves.toMatchObject({
+        kind: 'rejected',
+        reason: 'nothing-to-undo'
+      })
   })
 
   it('converts the selected block to a heading as one exact undo step', async() => {
@@ -459,6 +916,22 @@ describe('DocumentSession target-owned editor command intents', () => {
     }
   })
 
+  it('creates a thematic break in a whitespace-only document', async() => {
+    const source = '\n'
+    const session = await open(source, selection(0))
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'convert-block',
+        target: targetOf(session),
+        conversion: { kind: 'thematic-break' }
+      },
+      '---\n',
+      source
+    )
+  })
+
   it('creates a GFM table through one semantic intent and one undo step', async() => {
     const source = '\r\n'
     const session = await open(source, selection(0))
@@ -477,6 +950,23 @@ describe('DocumentSession target-owned editor command intents', () => {
         '|   |   |   |',
         ''
       ].join('\r\n'),
+      source
+    )
+  })
+
+  it('creates the minimum 1×1 GFM table through the ordinary table intent', async() => {
+    const source = '\n'
+    const session = await open(source, selection(0))
+
+    await expectOneStep(
+      session,
+      {
+        kind: 'create-table',
+        target: targetOf(session),
+        rows: 1,
+        columns: 1
+      },
+      '|   |\n| --- |\n',
       source
     )
   })

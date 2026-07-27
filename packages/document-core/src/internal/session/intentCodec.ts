@@ -1,5 +1,6 @@
 import type {
   BlockConversion,
+  DiagramFenceLanguage,
   CriticMarkupProjection,
   EditorIntent,
   InitialModelSelection,
@@ -7,6 +8,7 @@ import type {
   ModelPosition,
   ModelSelection,
   MarkupModelSelection,
+  QuickInsertBlock,
   SourceModelSelection
 } from '../../documentSession.js'
 import type { NodeId, SourceOffset, SourceRange } from '../../revision.js'
@@ -49,6 +51,14 @@ const SIMPLE_BLOCK_CONVERSIONS = new Set<BlockConversion['kind']>([
   'html-block',
   'thematic-break',
   'front-matter'
+])
+
+const DIAGRAM_FENCE_LANGUAGES = new Set<DiagramFenceLanguage>([
+  'vega-lite',
+  'mermaid',
+  'plantuml',
+  'flowchart',
+  'sequence'
 ])
 
 type ClosedRecord = Readonly<Record<string, unknown>>
@@ -313,6 +323,66 @@ function blockConversion(value: unknown, path: string): BlockConversion {
   return Object.freeze({ kind: stableKind }) as BlockConversion
 }
 
+function quickInsertBlock(value: unknown, path: string): QuickInsertBlock {
+  const base = record(value, path)
+  const kind = stringValue(
+    dataField(base, 'kind', path),
+    `${path}.kind`,
+    MAXIMUM_METADATA_UNITS,
+    false
+  )
+  if (kind === 'conversion') {
+    const stable = closedRecord(value, path, ['kind', 'conversion'])
+    const conversion = blockConversion(
+      dataField(stable, 'conversion', path),
+      `${path}.conversion`
+    )
+    if (
+      conversion.kind === 'heading-shift' ||
+      conversion.kind === 'loose-list-item'
+    ) {
+      fail(`${path}.conversion.kind is not supported`)
+    }
+    return Object.freeze({
+      kind,
+      conversion
+    })
+  }
+  if (kind === 'diagram') {
+    const stable = closedRecord(value, path, ['kind', 'language'])
+    return Object.freeze({
+      kind,
+      language: enumValue(
+        dataField(stable, 'language', path),
+        `${path}.language`,
+        DIAGRAM_FENCE_LANGUAGES
+      )
+    })
+  }
+  if (kind === 'table') {
+    const stable = closedRecord(value, path, [
+      'kind',
+      'rows',
+      'columns'
+    ])
+    const rows = boundedInteger(
+      dataField(stable, 'rows', path),
+      `${path}.rows`,
+      30
+    )
+    const columns = boundedInteger(
+      dataField(stable, 'columns', path),
+      `${path}.columns`,
+      20
+    )
+    if (rows < 1 || columns < 1) {
+      fail(`${path} table shape is not supported`)
+    }
+    return Object.freeze({ kind, rows, columns })
+  }
+  return fail(`${path}.kind is not supported`)
+}
+
 function criticMarkupInput(
   value: unknown,
   path: string
@@ -454,7 +524,7 @@ export function decodeEditorIntent(value: unknown): EditorIntent {
         )
       })
     }
-    if (kind === 'convert-block' || kind === 'quick-insert-block') {
+    if (kind === 'convert-block') {
       const stable = closedRecord(value, 'root', ['kind', 'target', 'conversion'])
       return Object.freeze({
         kind,
@@ -465,6 +535,17 @@ export function decodeEditorIntent(value: unknown): EditorIntent {
         conversion: blockConversion(
           dataField(stable, 'conversion', 'root'),
           'convert-block.conversion'
+        )
+      })
+    }
+    if (kind === 'quick-insert-block') {
+      const stable = closedRecord(value, 'root', ['kind', 'target', 'block'])
+      return Object.freeze({
+        kind,
+        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+        block: quickInsertBlock(
+          dataField(stable, 'block', 'root'),
+          `${kind}.block`
         )
       })
     }
@@ -588,14 +669,24 @@ export function decodeEditorIntent(value: unknown): EditorIntent {
         'root',
         ['kind', 'target', 'rows', 'columns']
       )
+      const rows = boundedInteger(
+        dataField(stable, 'rows', 'root'),
+        `${kind}.rows`,
+        30
+      )
+      const columns = boundedInteger(
+        dataField(stable, 'columns', 'root'),
+        `${kind}.columns`,
+        20
+      )
+      if (rows < 1 || columns < 1) {
+        fail(`${kind} table shape is not supported`)
+      }
       return Object.freeze({
         kind,
         target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        rows: boundedInteger(dataField(stable, 'rows', 'root'), `${kind}.rows`),
-        columns: boundedInteger(
-          dataField(stable, 'columns', 'root'),
-          `${kind}.columns`
-        )
+        rows,
+        columns
       })
     }
     if (kind === 'insert-table-row' || kind === 'insert-table-column') {

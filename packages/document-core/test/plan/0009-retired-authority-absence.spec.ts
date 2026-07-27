@@ -63,18 +63,41 @@ function rows(): readonly RetiredAuthorityRow[] {
   )
 }
 
-function productionSources(): readonly string[] {
+function authoritySurfaceFiles(): readonly string[] {
   const output = execFileSync(
     'rg',
     [
       '--files',
       'packages',
+      'scripts',
+      '.github',
+      'package.json',
+      'pnpm-workspace.yaml',
       '-g',
-      '*.{ts,tsx,vue,js,mjs,cjs,css}',
+      '*.{ts,tsx,vue,js,mjs,cjs,css,scss,json,yml,yaml,toml,md,html,txt}',
       '-g',
-      '!**/test/**',
+      '!packages/website/content/docs/**',
       '-g',
-      '!**/__tests__/**'
+      '!packages/document-core/test/plan/0009-control-plane.spec.ts',
+      '-g',
+      '!packages/document-core/test/plan/0009-retired-authority-absence.spec.ts'
+    ],
+    { cwd: REPO_ROOT, encoding: 'utf8' }
+  )
+  return Object.freeze(output.trim().split('\n').filter(Boolean))
+}
+
+function activeDesignFiles(): readonly string[] {
+  const output = execFileSync(
+    'rg',
+    [
+      '--files',
+      'docs/adr',
+      'specs',
+      '-g',
+      '*.{md,json,yml,yaml,tsv}',
+      '-g',
+      '!specs/research/**'
     ],
     { cwd: REPO_ROOT, encoding: 'utf8' }
   )
@@ -84,7 +107,7 @@ function productionSources(): readonly string[] {
 describe('plan 0009 retired authority deletion', () => {
   it('proves every retired authority seed absent and document-core solely authoritative', () => {
     const manifest = rows()
-    expect(manifest).toHaveLength(8)
+    expect(manifest).toHaveLength(10)
     for (const row of manifest) {
       expect(row.status, row.id).toBe('absent')
       expect(existsSync(resolve(REPO_ROOT, row.path)), row.path).toBe(false)
@@ -96,6 +119,9 @@ describe('plan 0009 retired authority deletion', () => {
       'StateMutationCapture',
       'normalizeDeletedCommentAnchors',
       'CriticMarkupDocumentService',
+      'RevisionKernel',
+      'createRevisionTransition',
+      'NodeSurvivalMap',
       'parseCriticMarkupDocument',
       'nativeCriticMarkup',
       'getRecommendTitleFromMarkdownString',
@@ -106,13 +132,81 @@ describe('plan 0009 retired authority deletion', () => {
       'DEFINITION_LIKE',
       ['json', 'change'].join('-')
     ]
-    const survivingReferences = productionSources().flatMap((path) => {
+    const alternateLanguageAuthorities = [
+      'parseMarkdownDocument',
+      'planMarkdownArmBoundaryProjectionEdits',
+      'parseMarkdownDocumentWithBoundaryEvidence',
+      'verifyCleanProjectedMarkdownV1',
+      'parsePlainMarkdownLaneReusing',
+      'shiftPlainMarkdownLane',
+      'PlainMarkdownLaneReuse',
+      'laneSafeOffsets',
+      'recordProjectedMarkdownTraversalV1',
+      'recordProjectedAstTraversalV1',
+      'recordProjectedAstCacheReuseV1',
+      'recordProjectedBoundaryGrammarTraversalV1',
+      'isMarkdownTextTapeRole'
+    ]
+    const authorityFiles = authoritySurfaceFiles()
+    expect(authorityFiles).toEqual(expect.arrayContaining([
+      '.github/workflows/document-core-platform.yml',
+      'package.json',
+      'packages/desktop/static/locales/en.json',
+      'packages/desktop/test/unit/data/common/Blockquotes.md',
+      'packages/document-core/test/language-engine/' +
+        'commonmark-corpus-totality.spec.ts',
+      'scripts/minifyLocaleJson.ts'
+    ]))
+    const survivingReferences = authorityFiles.flatMap((path) => {
       const source = readFileSync(resolve(REPO_ROOT, path), 'utf8')
-      return forbidden
+      return [...forbidden, ...alternateLanguageAuthorities]
         .filter((symbol) => source.includes(symbol))
         .map((symbol) => `${path}:${symbol}`)
     })
     expect(survivingReferences).toEqual([])
+
+    const staleFixtureVocabulary = authorityFiles.flatMap((path) => {
+      const source = readFileSync(resolve(REPO_ROOT, path), 'utf8')
+      const findings: string[] = []
+      if (/\bparity-[a-z0-9-]+\.spec\.ts\b/i.test(source)) {
+        findings.push(`${path}:retired-parity-fixture`)
+      }
+      if (/\blocale parity\b/i.test(source)) {
+        findings.push(`${path}:retired-locale-parity-vocabulary`)
+      }
+      return findings
+    })
+    expect(staleFixtureVocabulary).toEqual([])
+
+    expect(
+      existsSync(resolve(REPO_ROOT, 'specs/research')),
+      'discarded design research belongs only in Git history'
+    ).toBe(false)
+    expect(activeDesignFiles()).toEqual(expect.arrayContaining([
+      'specs/migration/0009-exit-gates.yml',
+      'specs/plans/0009-criticmarkup-document-engine-rebuild.md',
+      'specs/vision/criticmarkup-vision.md'
+    ]))
+    const staleResearchCitations = [
+      ...authorityFiles,
+      ...activeDesignFiles()
+    ].filter(path => readFileSync(resolve(REPO_ROOT, path), 'utf8')
+      .includes('specs/research/'))
+    expect(staleResearchCitations).toEqual([])
+
+    for (const retiredTest of [
+      'packages/document-core/test/language-engine/' +
+        'alternate-parser-absence.spec.ts',
+      'packages/document-core/test/language-engine/' +
+        'projection-clean-verifier.spec.ts',
+      'packages/document-core/test/language-engine/lane-reuse.spec.ts',
+      'packages/document-core/test/language-engine/lane-splice.spec.ts',
+      'packages/document-core/test/document-session/' +
+        'revision-transition-proof.spec.ts'
+    ]) {
+      expect(existsSync(resolve(REPO_ROOT, retiredTest)), retiredTest)
+        .toBe(false)
+    }
 
     const parserFactConsumers = new Map([
       [
@@ -317,12 +411,7 @@ describe('plan 0009 retired authority deletion', () => {
       'the executable competing-parser spike must not remain'
     ).toBe(false)
 
-    const historicalRecords = [
-      'specs/architecture/parser-core-verified-facts.md',
-      'specs/research/0006-profile1-on-existing-engines-gap-analysis.md',
-      'specs/research/0007-host-engine-spike-results.md'
-    ]
-    const executableSpikeCitations = historicalRecords.filter((path) => {
+    const executableSpikeCitations = activeDesignFiles().filter((path) => {
       const source = readFileSync(resolve(REPO_ROOT, path), 'utf8')
       return source.includes('spikes/parser-hosts')
     })
@@ -343,7 +432,7 @@ describe('plan 0009 retired authority deletion', () => {
     }
     expect(viewPackage.name).toBe('@marktext/document-view')
 
-    const survivingOldIdentity = productionSources().flatMap((path) => {
+    const survivingOldIdentity = authorityFiles.flatMap((path) => {
       const source = readFileSync(resolve(REPO_ROOT, path), 'utf8')
       const findings: string[] = []
       if (/@muyajs\/|@marktext\/muyajs/.test(source)) {

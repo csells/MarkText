@@ -221,7 +221,20 @@ const intentCases = Object.freeze([
   {
     kind: 'quick-insert-block',
     target: markupSelection,
-    conversion: { kind: 'heading', level: 1 }
+    block: {
+      kind: 'conversion',
+      conversion: { kind: 'heading', level: 1 }
+    }
+  },
+  {
+    kind: 'quick-insert-block',
+    target: markupSelection,
+    block: { kind: 'diagram', language: 'mermaid' }
+  },
+  {
+    kind: 'quick-insert-block',
+    target: markupSelection,
+    block: { kind: 'table', rows: 1, columns: 1 }
   },
   { kind: 'duplicate-block', target: markupSelection },
   { kind: 'delete-block', target: markupSelection },
@@ -336,6 +349,23 @@ const intentCases = Object.freeze([
 ])
 
 describe('document-core main IPC runtime codec', () => {
+  it('rejects block conversions that are not Quick Insert choices', () => {
+    for (const conversion of [
+      { kind: 'heading-shift', direction: 'promote' },
+      { kind: 'loose-list-item' }
+    ]) {
+      expect(() => decodeDocumentCoreMainDispatchRequest({
+        documentId: 'document:1',
+        baseSnapshotId: 'snapshot:1',
+        intent: {
+          kind: 'quick-insert-block',
+          target: markupSelection,
+          block: { kind: 'conversion', conversion }
+        }
+      })).toThrow(/Quick Insert conversion/)
+    }
+  })
+
   it.each(requestCases)('decodes and deeply freezes a valid $label request', ({ value, decode }) => {
     const decoded = decode(structuredClone(value))
     expect(decoded).toEqual(value)

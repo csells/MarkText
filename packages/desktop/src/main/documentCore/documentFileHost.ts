@@ -126,6 +126,12 @@ export interface DocumentCoreOpenedFile {
   readonly admission: DocumentCoreOpenCompletion
 }
 
+export interface DocumentCoreFileAdmissionPerformance {
+  readonly schema: 'document-core-file-admission-performance-1'
+  readonly ticketAdmissionMs: number
+  readonly maximumMainStageMs: number
+}
+
 export interface DocumentCoreRecoverFileRequest {
   readonly documentId: string
   readonly parseConfiguration: ParseConfiguration
@@ -251,6 +257,9 @@ export interface DocumentCoreFileHost {
   readonly readAdmission: (
     documentId: string
   ) => DocumentCoreOpenCompletion
+  readonly readAdmissionPerformance: (
+    documentId: string
+  ) => DocumentCoreFileAdmissionPerformance
   readonly close: (ownerId: string, documentId: string) => Promise<void>
   readonly dispose: () => Promise<void>
 }
@@ -268,6 +277,7 @@ interface HostedFile {
   fileSnapshot: FileSnapshotV1
   fileByteHash: DocumentCoreFileByteHash
   admission: DocumentCoreOpenCompletion | null
+  admissionPerformance: DocumentCoreFileAdmissionPerformance | null
   externalConflict: boolean
   saveQueue: Promise<void>
   closeOperation: Promise<void> | null
@@ -674,6 +684,7 @@ export function createDocumentCoreFileHost(
         ? null
         : snapshotByteHash(fileSnapshot),
       admission: null,
+      admissionPerformance: null,
       externalConflict: false,
       saveQueue: Promise.resolve(),
       closeOperation: null
@@ -685,28 +696,39 @@ export function createDocumentCoreFileHost(
     let ticketId: string | null = null
     let admitted = false
     try {
+      const ticketStartedAt = performance.now()
       const ticket = await sessions.startOpen(ownerId, {
         documentId,
         durabilityKey,
         sourceLength: fileSnapshot.source.text.length,
         parseConfiguration: request.parseConfiguration
       })
+      const ticketAdmissionMs = performance.now() - ticketStartedAt
       ticketId = ticket.ticketId
       if (!ticket.requiresSource) {
         throw new Error('A new main-owned file unexpectedly reused a session')
       }
       let ordinal = 0
+      let maximumMainStageMs = 0
       for (
         let start = 0;
         start < fileSnapshot.source.text.length;
         start += ticket.chunkUnits
       ) {
-        await sessions.appendOpenChunk(
+        const callerStageStartedAt = performance.now()
+        const staged = sessions.appendOpenChunk(
           ownerId,
           documentId,
           ticket.ticketId,
           ordinal,
           fileSnapshot.source.text.slice(start, start + ticket.chunkUnits)
+        )
+        const callerStageMs = performance.now() - callerStageStartedAt
+        const receipt = await staged
+        maximumMainStageMs = Math.max(
+          maximumMainStageMs,
+          callerStageMs,
+          receipt.mainStageMs
         )
         ordinal += 1
       }
@@ -719,6 +741,11 @@ export function createDocumentCoreFileHost(
         throw new Error('A new main-owned file returned a renderer publication')
       }
       hosted.admission = admission
+      hosted.admissionPerformance = Object.freeze({
+        schema: 'document-core-file-admission-performance-1',
+        ticketAdmissionMs,
+        maximumMainStageMs
+      })
       admitted = true
       await metadataStorage.write(metadataFor(hosted))
       return Object.freeze({
@@ -819,6 +846,7 @@ export function createDocumentCoreFileHost(
         ? null
         : snapshotByteHash(diskSnapshot),
       admission: null,
+      admissionPerformance: null,
       externalConflict,
       saveQueue: Promise.resolve(),
       closeOperation: null
@@ -1549,6 +1577,19 @@ export function createDocumentCoreFileHost(
     return admission
   }
 
+  const readAdmissionPerformance = (
+    documentId: string
+  ): DocumentCoreFileAdmissionPerformance => {
+    assertUsable()
+    const admissionPerformance = hostedFor(documentId).admissionPerformance
+    if (admissionPerformance === null) {
+      throw new Error(
+        `Document ${documentId} has no completed admission performance`
+      )
+    }
+    return admissionPerformance
+  }
+
   const closeHosted = (
     hosted: HostedFile,
     ownerId?: string,
@@ -1636,6 +1677,7 @@ export function createDocumentCoreFileHost(
     inspectOwned,
     descriptionsUnderPath,
     readAdmission,
+    readAdmissionPerformance,
     close,
     dispose
   })

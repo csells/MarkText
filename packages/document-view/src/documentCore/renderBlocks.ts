@@ -154,7 +154,21 @@ function wrapReviewElements(
     end: number,
 ): Node {
     let result = content;
-    for (const semantic of [...elements].reverse()) {
+    // ReviewIndex retains the complete node hierarchy. DOM wrappers carry only
+    // the three presentation states, so repeated wrappers add no Review
+    // identity and can make an otherwise valid deep document crash a renderer.
+    // Keep each element's innermost occurrence and its effective cascade order;
+    // this bounds every text carrier to at most ins/del/mark.
+    const seen = new Set<MarkupRenderElement>();
+    const effective: MarkupRenderElement[] = [];
+    for (let index = elements.length - 1; index >= 0; index -= 1) {
+        const semantic = elements[index];
+        if (semantic !== undefined && !seen.has(semantic)) {
+            seen.add(semantic);
+            effective.push(semantic);
+        }
+    }
+    for (const semantic of effective) {
         const wrapper = document.createElement(semantic);
         setModelRange(wrapper, start, end);
         wrapper.appendChild(result);

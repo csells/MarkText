@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchElectron } from './helpers'
+import { closeElectron, launchElectron } from './helpers'
 
 test.describe('Check Launch MarkText', () => {
   let app: ElectronApplication
@@ -13,7 +13,7 @@ test.describe('Check Launch MarkText', () => {
   })
 
   test.afterAll(async() => {
-    await app.close()
+    await closeElectron(app)
   })
 
   test('Empty MarkText', async() => {

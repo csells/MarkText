@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   launchWithDoc,
   clickMenuById,
@@ -11,7 +12,14 @@ import {
   getMarkdownContent,
   readCanonicalMarkdown
 } from './helpers'
-import { redo, undo } from './documentCoreReviewE2e'
+import {
+  placeCaretAfter,
+  pointForText,
+  prepareApplicationMenuAccelerator,
+  pressApplicationMenuAccelerator,
+  redo,
+  undo
+} from './documentCoreReviewE2e'
 
 const resetTo = async(page: Page, app: ElectronApplication, text: string) => {
   await setSourceMarkdown(page, app, text + '\n')
@@ -29,7 +37,7 @@ test.describe('Paragraph block transforms', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test.beforeEach(async() => {
@@ -88,6 +96,9 @@ test.describe('Paragraph block transforms', () => {
   test('Horizontal rule', async() => {
     await resetTo(page, app, '')
     await clickMenuById(app, 'horizontalLineMenuItem')
+    await expect
+      .poll(() => readCanonicalMarkdown(page), { timeout: 5000 })
+      .toBe('---\n')
     const present = await page
       .locator('.editor-component hr, .editor-component figure[data-role="HR"]')
       .first()
@@ -119,6 +130,50 @@ test.describe('Paragraph block transforms', () => {
     expect(ok).toBe(true)
   })
 
+  test('every configured non-Table paragraph accelerator has exact source and history', async() => {
+    const cases = [
+      ['heading1MenuItem', 'sample text\n', '# sample text\n'],
+      ['heading2MenuItem', 'sample text\n', '## sample text\n'],
+      ['heading3MenuItem', 'sample text\n', '### sample text\n'],
+      ['heading4MenuItem', 'sample text\n', '#### sample text\n'],
+      ['heading5MenuItem', 'sample text\n', '##### sample text\n'],
+      ['heading6MenuItem', 'sample text\n', '###### sample text\n'],
+      ['upgradeHeadingMenuItem', '## sample text\n', '# sample text\n'],
+      ['degradeHeadingMenuItem', '## sample text\n', '### sample text\n'],
+      ['codeFencesMenuItem', 'sample text\n', '```\nsample text\n```\n'],
+      ['quoteBlockMenuItem', 'sample text\n', '> sample text\n'],
+      ['mathBlockMenuItem', 'sample text\n', '$$\nsample text\n$$\n'],
+      ['htmlBlockMenuItem', 'sample text\n', '<div>\nsample text\n</div>\n'],
+      ['orderListMenuItem', 'sample text\n', '1. sample text\n'],
+      ['bulletListMenuItem', 'sample text\n', '- sample text\n'],
+      ['taskListMenuItem', 'sample text\n', '- [ ] sample text\n'],
+      ['looseListItemMenuItem', '- one\n- two\n', '- one\n\n- two\n'],
+      ['paragraphMenuItem', '## sample text\n', 'sample text\n'],
+      ['horizontalLineMenuItem', 'sample text\n', '---\n'],
+      ['frontMatterMenuItem', 'sample text\n', '---\nsample text\n---\n']
+    ] as const
+
+    for (const [menuId, source, expected] of cases) {
+      await setSourceMarkdown(page, app, source)
+      await placeCaretInEditor(page)
+      const accelerator = await app.evaluate(({ Menu }, id) =>
+        Menu.getApplicationMenu()?.getMenuItemById(id)?.accelerator ?? null,
+      menuId)
+
+      if (accelerator === null) {
+        expect(process.platform).toBe('win32')
+        expect(menuId).toMatch(/^heading[1-6]MenuItem$/)
+        continue
+      }
+
+      await pressApplicationMenuAccelerator(page, app, menuId)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+      await undo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+      await redo(app)
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    }
+  })
 })
 
 // Paragraph › Table owns the desktop creation path. This proof drives the
@@ -134,7 +189,7 @@ test.describe('Insert table dialog', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('opens the picker dialog, confirms, and inserts the 4x3 default table', async() => {
@@ -142,10 +197,9 @@ test.describe('Insert table dialog', () => {
     await setSourceMarkdown(page, app, '\n')
     await placeCaretInEditor(page)
 
-    // Paragraph › Table → main sends mt::editor-paragraph-action {type:'table'}
-    // → renderer bus 'paragraph' → handleEditParagraph opens the dialog and
-    // seeds tableChecker to rows=4, columns=3.
-    await clickMenuById(app, 'tableMenuItem')
+    // The registered Table accelerator executes the one Desktop-owned command
+    // and opens the dimensions-only dialog with its 4×3 defaults.
+    await pressApplicationMenuAccelerator(page, app, 'tableMenuItem')
 
     const dialog = page.locator('.ag-insert-table-dialog')
     await dialog.waitFor({ state: 'visible', timeout: 5000 })
@@ -155,10 +209,11 @@ test.describe('Insert table dialog', () => {
     const rows = await dialog.locator('.el-input-number input').first().inputValue()
     expect(rows).toBe('4')
 
-    // Confirm via the primary OK button (handleDialogTableConfirm →
-    // editor.createTable(tableChecker)).
+    // Confirm through the dimensions-only adapter. The view retained the
+    // original target and owns the single authenticated table intent.
     await dialog.locator('.el-button--primary').click()
     await dialog.waitFor({ state: 'hidden', timeout: 5000 })
+    await expect(page.locator('.editor-component')).toBeFocused()
 
     const expected = [
       '|   |   |   |',
@@ -185,6 +240,84 @@ test.describe('Insert table dialog', () => {
     await redo(app)
     await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
   })
+
+  test('Escape and Cancel restore focus without mutating the document', async() => {
+    for (const cancel of ['Escape', 'Cancel'] as const) {
+      await setSourceMarkdown(page, app, '\n')
+      await placeCaretInEditor(page)
+      await pressApplicationMenuAccelerator(page, app, 'tableMenuItem')
+      const dialog = page.getByRole('dialog', { name: 'Insert Table' })
+      await expect(dialog).toBeVisible()
+      if (cancel === 'Escape') {
+        await page.keyboard.press('Escape')
+      } else {
+        await dialog.getByRole('button', { name: 'Cancel' }).click()
+      }
+      await expect(dialog).toBeHidden()
+      await expect(page.locator('.editor-component')).toBeFocused()
+      await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    }
+  })
+
+  test('captures a no-delay pointer selection that differs from the model cursor', async() => {
+    await setSourceMarkdown(page, app, 'First\n\nSecond\n')
+    await expect(page.locator('.editor-component')).toContainText('Second')
+    await placeCaretAfter(page, 'Second')
+    const point = await pointForText(page, 'First')
+    const pressTable = await prepareApplicationMenuAccelerator(
+      page,
+      app,
+      'tableMenuItem'
+    )
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.tablePointerSelection
+      const capture = (): void => {
+        const selection = window.getSelection()
+        if (
+          selection === null ||
+          selection.rangeCount !== 1 ||
+          selection.toString() !== 'First'
+        ) return
+        const range = selection.getRangeAt(0)
+        const modelOffset = (node: Node, offset: number): number | null => {
+          const origin = node instanceof Element ? node : node.parentElement
+          const carrier = origin?.closest<HTMLElement>('[data-model-start]')
+          if (
+            carrier === null ||
+            carrier === undefined ||
+            node.nodeType !== Node.TEXT_NODE
+          ) return null
+          return Number(carrier.dataset.modelStart) + offset
+        }
+        document.documentElement.dataset.tablePointerSelection = JSON.stringify({
+          text: selection.toString(),
+          start: modelOffset(range.startContainer, range.startOffset),
+          end: modelOffset(range.endContainer, range.endOffset)
+        })
+        document.removeEventListener('selectionchange', capture)
+      }
+      document.addEventListener('selectionchange', capture)
+    })
+
+    await page.mouse.dblclick(point.x, point.y)
+    await pressTable()
+
+    const dialog = page.getByRole('dialog', { name: 'Insert Table' })
+    await expect.poll(() => page.evaluate(() => {
+      const value = document.documentElement.dataset.tablePointerSelection
+      return value === undefined ? null : JSON.parse(value)
+    })).toEqual({ text: 'First', start: 0, end: 5 })
+    await dialog.getByRole('spinbutton', { name: 'Rows' }).fill('1')
+    await dialog.getByRole('spinbutton', { name: 'Columns' }).fill('1')
+    await dialog.getByRole('button', { name: 'OK' }).click()
+
+    const expected = 'First\n\n|   |\n| --- |\n\nSecond\n'
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await undo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+      'First\n\nSecond\n'
+    )
+  })
 })
 
 // Item 89 — desktop source-mode round-trip for a GFM table with mixed column
@@ -206,7 +339,7 @@ test.describe('Table source-mode round-trip + modified indicator (item 89)', () 
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('source mode preserves the left/center/right alignment markers', async() => {
@@ -241,7 +374,7 @@ test.describe('Table source-mode round-trip + modified indicator (item 89)', () 
   test('editing a table cell marks the tab as unsaved', async() => {
     // Sanity: a freshly loaded file starts clean.
     expect(
-      await page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))
+      await page.evaluate(() => !!document.querySelector('.tabs-container > li.active.unsaved'))
     ).toBe(false)
 
     // Click into the first table cell so the engine's active block is a cell,
@@ -251,11 +384,15 @@ test.describe('Table source-mode round-trip + modified indicator (item 89)', () 
     await page.waitForTimeout(150)
     await page.keyboard.type('X', { delay: 0 })
 
+    await expect
+      .poll(() => readCanonicalMarkdown(page), { timeout: 5000 })
+      .toContain('X')
+
     // The edit dirties the tab; poll because the indicator flips on the
     // asynchronous verified publication.
     await expect
       .poll(
-        () => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')),
+        () => page.evaluate(() => !!document.querySelector('.tabs-container > li.active.unsaved')),
         { timeout: 5000 }
       )
       .toBe(true)

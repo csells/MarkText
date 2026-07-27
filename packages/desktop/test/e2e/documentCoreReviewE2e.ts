@@ -238,9 +238,10 @@ const acceleratorStroke = (accelerator: string): AcceleratorStroke => {
 
 const matchesStroke = (
   input: ObservedElectronKeyInput,
-  stroke: AcceleratorStroke
+  stroke: AcceleratorStroke,
+  type: 'keyDown' | 'keyUp'
 ): boolean =>
-  input.type === 'keyDown' &&
+  input.type === type &&
   input.key.toLocaleLowerCase() === stroke.keyCode.toLocaleLowerCase() &&
   input.alt === stroke.alt &&
   input.control === stroke.control &&
@@ -248,60 +249,81 @@ const matchesStroke = (
   input.shift === stroke.shift
 
 /**
- * Playwright's key event is always the first layer. Hidden background windows
- * can deliver that CDP event to the DOM without emitting Electron's
- * `before-input-event`, which is the production shortcut owner's boundary.
- * Only after proving that exact gap do background tests inject the same
- * physical keyDown/keyUp through WebContents. No command callback is invoked
- * directly, so localshortcut, CommandManager, and renderer dispatch all remain
- * under test.
+ * Choose the physical input path before emitting the stroke. A hidden window
+ * can deliver Playwright's CDP event to the DOM without emitting Electron's
+ * `before-input-event`, so background runs use WebContents and interactive
+ * runs use Playwright. No command callback is invoked directly: localshortcut,
+ * CommandManager, and renderer dispatch all remain under test.
  */
+const prepareAccelerator = async(
+  page: Page,
+  app: ElectronApplication,
+  accelerator: string
+): Promise<() => Promise<void>> => {
+  const stroke = acceleratorStroke(accelerator)
+  const observation = await observeElectronInput(app, page)
+  if (isBackgroundTestRun) {
+    await assertBackgroundRuntimePolicy(app)
+  } else {
+    await page.bringToFront()
+  }
+  return async() => {
+    let emittedStrokeTypes: readonly ['keyDown', 'keyUp']
+    if (isBackgroundTestRun) {
+      const emit = async(type: 'keyDown' | 'keyUp') =>
+        await app.evaluate(({ BrowserWindow }, payload) => {
+          const target = BrowserWindow.getAllWindows().find(window =>
+            !window.isDestroyed() &&
+            window.webContents.id === payload.webContentsId
+          )
+          if (target === undefined) {
+            throw new Error(
+              `Electron input target ${payload.webContentsId} was destroyed`
+            )
+          }
+          target.webContents.sendInputEvent({
+            type: payload.type,
+            keyCode: payload.keyCode,
+            modifiers: [...payload.modifiers]
+          })
+          return payload.type
+        }, {
+          type,
+          webContentsId: observation.webContentsId,
+          keyCode: stroke.keyCode,
+          modifiers: stroke.modifiers
+        })
+      const keyDown = await emit('keyDown')
+      const keyUp = await emit('keyUp')
+      if (keyDown !== 'keyDown' || keyUp !== 'keyUp') {
+        throw new Error('Electron did not accept one complete physical stroke')
+      }
+      emittedStrokeTypes = [
+        keyDown,
+        keyUp
+      ]
+    } else {
+      await page.keyboard.press(toPlaywrightAccelerator(accelerator))
+      emittedStrokeTypes = ['keyDown', 'keyUp']
+    }
+    expect(emittedStrokeTypes).toEqual(['keyDown', 'keyUp'])
+
+    await expect.poll(async() => {
+      const inputs = await electronInputsSince(app, observation)
+      return inputs
+        .filter(input => matchesStroke(input, stroke, 'keyDown'))
+        .map(input => input.type)
+    }).toEqual(['keyDown'])
+  }
+}
+
 const pressAccelerator = async(
   page: Page,
   app: ElectronApplication,
   accelerator: string
 ): Promise<void> => {
-  const stroke = acceleratorStroke(accelerator)
-  const observation = await observeElectronInput(app, page)
-  await page.bringToFront()
-  await page.keyboard.press(toPlaywrightAccelerator(accelerator))
-  if (
-    (await electronInputsSince(app, observation))
-      .some(input => matchesStroke(input, stroke))
-  ) {
-    return
-  }
-  if (!isBackgroundTestRun) {
-    throw new Error(
-      `Foreground key input ${accelerator} did not reach before-input-event`
-    )
-  }
-  await assertBackgroundRuntimePolicy(app)
-  await app.evaluate(({ BrowserWindow }, payload) => {
-    const target = BrowserWindow.getAllWindows().find(window =>
-      !window.isDestroyed() &&
-      window.webContents.id === payload.webContentsId
-    )
-    if (target === undefined) {
-      throw new Error(
-        `Electron input target ${payload.webContentsId} was destroyed`
-      )
-    }
-    const input = {
-      keyCode: payload.keyCode,
-      modifiers: [...payload.modifiers]
-    }
-    target.webContents.sendInputEvent({ type: 'keyDown', ...input })
-    target.webContents.sendInputEvent({ type: 'keyUp', ...input })
-  }, {
-    webContentsId: observation.webContentsId,
-    keyCode: stroke.keyCode,
-    modifiers: stroke.modifiers
-  })
-  await expect.poll(async() =>
-    (await electronInputsSince(app, observation))
-      .some(input => matchesStroke(input, stroke))
-  ).toBe(true)
+  const press = await prepareAccelerator(page, app, accelerator)
+  await press()
 }
 
 export const pressUserKeybinding = async(
@@ -312,13 +334,11 @@ export const pressUserKeybinding = async(
   await pressAccelerator(page, app, accelerator)
 }
 
-export async function pressApplicationMenuAccelerator(
-  page: Page,
+export async function applicationMenuAccelerator(
   app: ElectronApplication,
   menuId: string
-): Promise<void> {
-  await expect.poll(() => reviewMenuEnabled(app, menuId)).toBe(true)
-  const accelerator = await app.evaluate(({ Menu }, id) => {
+): Promise<string> {
+  return app.evaluate(({ Menu }, id) => {
     const item = Menu.getApplicationMenu()?.getMenuItemById(id)
     if (item === undefined || item === null) {
       throw new Error(`Application menu item ${id} is unavailable`)
@@ -328,7 +348,32 @@ export async function pressApplicationMenuAccelerator(
     }
     return item.accelerator
   }, menuId)
+}
+
+export async function pressApplicationMenuAccelerator(
+  page: Page,
+  app: ElectronApplication,
+  menuId: string
+): Promise<void> {
+  await expect.poll(() => reviewMenuEnabled(app, menuId)).toBe(true)
+  const accelerator = await applicationMenuAccelerator(app, menuId)
   await pressAccelerator(page, app, accelerator)
+}
+
+/**
+ * Authenticate one menu-owned physical stroke before a timing-sensitive
+ * browser gesture. The returned function emits the already-resolved stroke;
+ * it performs no menu lookup, enablement poll, focus change, or input-observer
+ * setup between that gesture and keyDown.
+ */
+export async function prepareApplicationMenuAccelerator(
+  page: Page,
+  app: ElectronApplication,
+  menuId: string
+): Promise<() => Promise<void>> {
+  await expect.poll(() => reviewMenuEnabled(app, menuId)).toBe(true)
+  const accelerator = await applicationMenuAccelerator(app, menuId)
+  return prepareAccelerator(page, app, accelerator)
 }
 
 export async function placeCaretAfter(

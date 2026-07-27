@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import {
   WireEnvelopeCodecV1,
@@ -147,6 +148,35 @@ describe('WireEnvelopeCodecV1', () => {
     expect(Buffer.from(published.members.reviewDelta ?? []).toString('utf8')).toBe(
       'review'
     )
+  })
+
+  it('accepts authenticated Uint8Array chunks from a foreign JavaScript realm', () => {
+    const codec = new WireEnvelopeCodecV1()
+    const envelope = encodeVector(vector('all-members'))
+    const foreignEnvelope = {
+      ...envelope,
+      members: envelope.members.map(member => ({
+        ...member,
+        chunks: member.chunks.map(chunk => ({
+          ...chunk,
+          bytes: runInNewContext(
+            `Uint8Array.from(${JSON.stringify([...chunk.bytes])})`
+          ) as Uint8Array
+        }))
+      }))
+    } as WireEnvelopeV1
+
+    const published = codec.publish(
+      foreignEnvelope,
+      foreignEnvelope.baseSnapshotId
+    )
+    expect(published.kind).toBe('published')
+    if (published.kind !== 'published') {
+      throw new Error('Expected a foreign-realm publication to validate')
+    }
+    for (const bytes of Object.values(published.members)) {
+      expect(bytes).toBeInstanceOf(Uint8Array)
+    }
   })
 
   it('keeps the prior snapshot mounted for corruption, gaps, missing members, and base mismatch', () => {

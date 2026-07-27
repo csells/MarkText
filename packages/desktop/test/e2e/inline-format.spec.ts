@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, clickMenuById } from './helpers'
+import { closeElectron, launchWithMarkdown, clickMenuById } from './helpers'
 
 // Inline formatting requires a live selection established through public
 // editor gestures. This file owns the real menu and IPC path; focused core
@@ -29,7 +29,7 @@ test.describe('Inline format menu wiring', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   for (const id of formatMenuIds) {

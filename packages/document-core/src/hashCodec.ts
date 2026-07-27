@@ -513,6 +513,14 @@ function writeUtf16(
   execution?: ParseExecutionTracker
 ): void {
   writeUint64(hash, BigInt(value.length))
+  writeUtf16Payload(hash, value, execution)
+}
+
+function writeUtf16Payload(
+  hash: Sha256,
+  value: string,
+  execution?: ParseExecutionTracker
+): void {
   for (
     let start = 0;
     start < value.length;
@@ -559,8 +567,10 @@ function createFramedHash(name: string): Sha256 {
 }
 
 /**
- * SHA-256 of `marktext:SourceHashV1\0`, an unsigned 64-bit code-unit count,
- * and the exact decoded UTF-16 units in big-endian order.
+ * SHA-256 of `marktext:SourceHashV1\0`, the exact decoded UTF-16 units in
+ * big-endian order, and an unsigned 64-bit code-unit count. The trailing count
+ * keeps the identity length-framed while allowing an exact edit to resume the
+ * streaming hash from the nearest unchanged source checkpoint.
  */
 export function sourceHashV1(
   source: string,
@@ -570,7 +580,8 @@ export function sourceHashV1(
   const execution = executionControl === undefined
     ? undefined
     : createParseExecutionTracker(executionControl)
-  writeUtf16(hash, source, execution)
+  writeUtf16Payload(hash, source, execution)
+  writeUint64(hash, BigInt(source.length))
   execution?.finish()
   return hash.digestHex() as SourceHashV1
 }
@@ -583,12 +594,12 @@ export function sourceHashV1WithCache(
   const execution = executionControl === undefined
     ? undefined
     : createParseExecutionTracker(executionControl)
-  writeUint64(hash, BigInt(source.length))
   const checkpoints: SourceHashCheckpointV1[] = [{
     sourceOffset: 0,
     hash: hash.snapshot()
   }]
   writeUtf16From(hash, source, 0, execution, checkpoints)
+  writeUint64(hash, BigInt(source.length))
   execution?.finish()
   return Object.freeze({
     hash: hash.digestHex() as SourceHashV1,
@@ -605,11 +616,8 @@ export function reopenSourceHashV1WithCache(
   edits: readonly SourceHashEditV1[],
   executionControl?: ParseExecutionControl
 ): SourceHashWithCacheV1 {
-  const preservesLength =
-    previous.sourceLength === source.length &&
-    edits.every((edit) => edit.end - edit.start === edit.insert.length)
   const firstEdit = edits[0]
-  if (!preservesLength || firstEdit === undefined) {
+  if (firstEdit === undefined) {
     return sourceHashV1WithCache(source, executionControl)
   }
   const checkpointOffset =
@@ -633,6 +641,7 @@ export function reopenSourceHashV1WithCache(
     execution,
     checkpoints
   )
+  writeUint64(hash, BigInt(source.length))
   execution?.finish()
   return Object.freeze({
     hash: hash.digestHex() as SourceHashV1,

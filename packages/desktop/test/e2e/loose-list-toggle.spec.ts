@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   clickMenuById,
   setSourceMarkdown,
@@ -37,7 +38,7 @@ test.describe('Loose/tight list-item toggle', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   // FIXME(headless): the loose/tight menu toggle acts on the engine's active

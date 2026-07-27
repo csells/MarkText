@@ -76,6 +76,7 @@ describe('DocumentSession', () => {
       kind: 'revision-changed',
       cause: 'source-edit',
       history: 'record',
+      edits: [{ start: 1, end: 1, insert: 'b' }],
       revision: {
         base: before.revision.id,
         next: afterInsert.revision.id
@@ -112,6 +113,7 @@ describe('DocumentSession', () => {
       kind: 'revision-changed',
       cause: 'undo',
       history: 'none',
+      edits: [{ start: 1, end: 2, insert: '' }],
       revision: {
         base: afterInsert.revision.id,
         next: afterUndo.revision.id

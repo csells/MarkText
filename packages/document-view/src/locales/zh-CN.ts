@@ -40,6 +40,8 @@ export const zhCN = {
         'Vega Chart': 'Vega 图',
         'Mermaid': 'Mermaid',
         'Plantuml': 'Plantuml',
+        'Flowchart': '流程图',
+        'Sequence': '时序图',
         'basic blocks': '基础块',
         'headings': '标题',
         'advanced blocks': '高级块',

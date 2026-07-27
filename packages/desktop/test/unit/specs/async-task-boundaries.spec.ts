@@ -41,7 +41,11 @@ describe('async renderer task boundaries', () => {
       /reportAsyncTask\(\s*targetEditor\.redo\(\),\s*'Redo'/
     )
     expect(editor).toMatch(
-      /reportAsyncTask\(\s*targetEditor\.createTable\([^]*'Create table'/
+      /reportAsyncTask\(\s*targetEditor\.requestTable\(\),\s*'Create table'/
+    )
+    expect(editor).not.toContain('createTable(tableChecker)')
+    expect(editor).toMatch(
+      /const flushActiveEditor[^]*cancelTableShapeRequest\(\)[^]*target\?\.flush\(\)/
     )
     expect(editor).toMatch(
       /reportAsyncTask\(\s*targetEditor\.insertParagraph\([^]*'Insert paragraph'/

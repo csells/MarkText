@@ -6,6 +6,7 @@
 import { test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   clearRendererErrors,
   expectNoRendererErrors
@@ -21,7 +22,7 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
   let page: Page
 
   test.afterEach(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('custom-protocol navigation is rejected without a renderer crash', async() => {

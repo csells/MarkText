@@ -1,4 +1,4 @@
-ew.source-code-m# Key Bindings for Windows
+# Key Bindings for Windows
 
 MarkText key bindings for Windows. Please see [general key bindings](KEYBINDINGS.md) for information how to use custom key bindings.
 
@@ -47,14 +47,18 @@ MarkText key bindings for Windows. Please see [general key bindings](KEYBINDINGS
 
 #### Paragraph menu
 
+Heading 1–6 intentionally have no Windows default. `Ctrl+Alt+digit` collides
+with AltGr on many layouts, while `Ctrl+Shift+digit` does not produce a stable
+digit key across layouts. Assign these commands in `keybindings.json` if wanted.
+
 | Id                          | Default                                       | Description                              |
 | --------------------------- | --------------------------------------------- | ---------------------------------------- |
-| `paragraph.heading-1`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd> | Set line as heading 1                    |
-| `paragraph.heading-2`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>2</kbd> | Set line as heading 2                    |
-| `paragraph.heading-3`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>3</kbd> | Set line as heading 3                    |
-| `paragraph.heading-4`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>4</kbd> | Set line as heading 4                    |
-| `paragraph.heading-5`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>5</kbd> | Set line as heading 5                    |
-| `paragraph.heading-6`       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>6</kbd> | Set line as heading 6                    |
+| `paragraph.heading-1`       | User-defined                                  | Set line as heading 1                    |
+| `paragraph.heading-2`       | User-defined                                  | Set line as heading 2                    |
+| `paragraph.heading-3`       | User-defined                                  | Set line as heading 3                    |
+| `paragraph.heading-4`       | User-defined                                  | Set line as heading 4                    |
+| `paragraph.heading-5`       | User-defined                                  | Set line as heading 5                    |
+| `paragraph.heading-6`       | User-defined                                  | Set line as heading 6                    |
 | `paragraph.upgrade-heading` | <kbd>Ctrl</kbd>+<kbd>Plus</kbd>               | Upgrade a heading                        |
 | `paragraph.degrade-heading` | <kbd>Ctrl</kbd>+<kbd>-</kbd>                  | Degrade a heading                        |
 | `paragraph.table`           | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Insert a table                           |

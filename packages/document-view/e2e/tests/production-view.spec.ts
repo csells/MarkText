@@ -86,4 +86,31 @@ test.describe('document-core production view', () => {
         await expect(host.locator('p').first()).toHaveText('a');
         await expect(host.locator('p').last()).toHaveText('b');
     });
+
+    test('exposes Quick Insert in the Chromium accessibility tree', async ({ page }) => {
+        const host = await mount(page, '');
+        await host.focus();
+        await page.evaluate(() => window.__documentCoreView.typeText(0, '/'));
+
+        const snapshot = await host.ariaSnapshot();
+        await expect(host).toHaveAttribute('aria-multiline', 'true');
+        await expect(host).toHaveAttribute('aria-autocomplete', 'list');
+        expect(await host.getAttribute('aria-expanded')).toBeNull();
+        const listbox = host.getByRole('listbox');
+        await expect(listbox).toHaveAttribute('tabindex', '0');
+        await expect(listbox).toHaveCSS('overflow-y', 'auto');
+        await expect(host.locator('.document-view-quick-insert'))
+            .toHaveCSS('overflow-y', 'visible');
+        expect(snapshot).toMatch(/^- textbox "Document editor":/mu);
+        expect(snapshot).toContain('- listbox "Type / to insert...":');
+        expect(snapshot).toContain('- option "Paragraph" [selected]');
+
+        await page.evaluate(() =>
+            window.__documentCoreView.typeText(1, 'missing'));
+        const noResultSnapshot = await host.ariaSnapshot();
+        expect(noResultSnapshot).toContain(
+            '- listbox "Type / to insert..."',
+        );
+        expect(noResultSnapshot).toContain('- status: No result');
+    });
 });

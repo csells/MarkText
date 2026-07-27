@@ -30,7 +30,7 @@ export default defineConfig({
     webServer: {
         command: 'pnpm exec vite --config vite.config.ts',
         url: 'http://127.0.0.1:5174/document-core-view/index.html',
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: false,
         timeout: 120_000,
         stdout: 'pipe',
         stderr: 'pipe',

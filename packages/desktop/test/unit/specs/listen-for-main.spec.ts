@@ -48,26 +48,24 @@ const EDIT_ACTIONS = [
 ] as const
 
 const PARAGRAPH_ACTIONS = [
-  'ul-bullet',
-  'pre',
-  'degrade heading',
-  'front-matter',
-  'heading 1',
-  'heading 2',
-  'heading 3',
-  'heading 4',
-  'heading 5',
-  'heading 6',
-  'hr',
-  'html',
-  'loose-list-item',
-  'mathblock',
-  'ol-order',
-  'paragraph',
-  'blockquote',
-  'table',
-  'ul-task',
-  'upgrade heading'
+  { kind: 'convert-block', conversion: { kind: 'unordered-list' } },
+  { kind: 'convert-block', conversion: { kind: 'code-block' } },
+  { kind: 'convert-block', conversion: { kind: 'heading-shift', direction: 'demote' } },
+  { kind: 'convert-block', conversion: { kind: 'front-matter' } },
+  ...([1, 2, 3, 4, 5, 6] as const).map(level => ({
+    kind: 'convert-block' as const,
+    conversion: { kind: 'heading' as const, level }
+  })),
+  { kind: 'convert-block', conversion: { kind: 'thematic-break' } },
+  { kind: 'convert-block', conversion: { kind: 'html-block' } },
+  { kind: 'convert-block', conversion: { kind: 'loose-list-item' } },
+  { kind: 'convert-block', conversion: { kind: 'math-block' } },
+  { kind: 'convert-block', conversion: { kind: 'ordered-list' } },
+  { kind: 'convert-block', conversion: { kind: 'paragraph' } },
+  { kind: 'convert-block', conversion: { kind: 'blockquote' } },
+  { kind: 'request-table' },
+  { kind: 'convert-block', conversion: { kind: 'task-list' } },
+  { kind: 'convert-block', conversion: { kind: 'heading-shift', direction: 'promote' } }
 ] as const
 
 const INLINE_FORMAT_ACTIONS = [
@@ -187,7 +185,7 @@ describe('listenForMain command boundary', () => {
 
     try {
       expect(() => listener(undefined, {
-        type: 'paragraph',
+        kind: 'request-table',
         extra: true
       })).toThrow(TypeError)
       expect(paragraphListener).not.toHaveBeenCalled()
@@ -206,9 +204,34 @@ describe('listenForMain command boundary', () => {
 
     try {
       for (const action of PARAGRAPH_ACTIONS) {
-        listener(undefined, { type: action })
+        listener(undefined, action)
       }
       expect(routed).toEqual(PARAGRAPH_ACTIONS)
+    } finally {
+      bus.off('paragraph', paragraphListener)
+    }
+  })
+
+  it('rejects every superseded paragraph token instead of translating aliases', () => {
+    const paragraphListener = vi.fn()
+    bus.on('paragraph', paragraphListener)
+    const store = useListenForMainStore()
+    store.LISTEN_FOR_PARAGRAPH_INLINE_STYLE()
+    const listener = registeredIpcListener('mt::editor-paragraph-action')
+
+    try {
+      for (const token of [
+        'pre',
+        'mathblock',
+        'ol-order',
+        'ol-bullet',
+        'reset-to-paragraph',
+        'heading 1',
+        'table'
+      ]) {
+        expect(() => listener(undefined, { type: token })).toThrow(TypeError)
+      }
+      expect(paragraphListener).not.toHaveBeenCalled()
     } finally {
       bus.off('paragraph', paragraphListener)
     }

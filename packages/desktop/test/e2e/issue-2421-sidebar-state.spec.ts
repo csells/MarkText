@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown } from './helpers'
+import { closeElectron, launchWithMarkdown } from './helpers'
 
 // #2421 — toggling the sidebar via its left-column icons must not lose state.
 // Two bugs: (1) collapsing to the icon strip persisted the clamped 220px width
@@ -34,7 +34,7 @@ test.describe('#2421 sidebar state survives icon toggle', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('collapsing then re-expanding preserves a widened sidebar width', async() => {

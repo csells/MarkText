@@ -43,9 +43,21 @@ const factoryLeak: DocumentHostOptions = {
   // @ts-expect-error factories cannot defer or replace the attached session
   sessionFactory: {} as never
 }
+const clipboardWriteLeak: DocumentHostOptions = {
+  ...validOptions,
+  // @ts-expect-error clipboard materialization belongs only to the session
+  writeClipboardMaterialization: {} as never
+}
+const clipboardPasteLeak: DocumentHostOptions = {
+  ...validOptions,
+  // @ts-expect-error clipboard paste belongs only to the session
+  pasteClipboard: {} as never
+}
 Object.freeze([
   missingSession,
   sourceLeak,
   parseConfigurationLeak,
-  factoryLeak
+  factoryLeak,
+  clipboardWriteLeak,
+  clipboardPasteLeak
 ])

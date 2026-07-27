@@ -413,7 +413,8 @@ export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> =
   await page.waitForFunction(
     () => {
       const el = document.querySelector('.editor-component')
-      return el && el.children.length > 0
+      return el?.getAttribute('role') === 'textbox' &&
+        el.getAttribute('contenteditable') === 'true'
     },
     null,
     { timeout }

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   waitForMenuReady,
   getMarkdownContent,
@@ -74,7 +75,7 @@ test.describe('Checklist 32 — task list autoCheck cascade via a real checkbox 
   })
 
   test.afterAll(async() => {
-    await app.close()
+    await closeElectron(app)
   })
 
   test('with autoCheck ON, clicking the parent flips both descendants + saves "- [x]" x3', async() => {

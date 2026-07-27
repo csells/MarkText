@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   createDocumentSession,
   createSourceSnapshot,
+  DocumentExecutionCancelledError,
+  PARSE_SOURCE_CHECKPOINT_INTERVAL,
   type ParseConfiguration
 } from '@marktext/document-core'
 
@@ -77,6 +79,44 @@ describe('DocumentSession main-owned file reload', () => {
       snapshot: before
     })
     expect(session.snapshot()).toBe(before)
+    await expect(session.dispatch({ kind: 'undo' }).completion)
+      .resolves.toMatchObject({
+        kind: 'rejected',
+        reason: 'nothing-to-undo'
+      })
+  })
+
+  it('cancels candidate facts before publishing or recording the revision', async() => {
+    let latestSourceUnits = 0
+    let cancelAt = Number.POSITIVE_INFINITY
+    const session = await createDocumentSession({
+      source: createSourceSnapshot('before'),
+      parseConfiguration: TEST_CONFIGURATION,
+      executionControl: {
+        checkpoint: progress => {
+          latestSourceUnits = progress.sourceUnits
+          if (progress.sourceUnits >= cancelAt) {
+            throw new DocumentExecutionCancelledError()
+          }
+        }
+      }
+    })
+    const before = session.snapshot()
+    const candidate = 'x'.repeat(65_536)
+    // A full-source commit performs the candidate hash and canonical parser
+    // pass before its facts stage. Arm inside that third candidate pass.
+    cancelAt = latestSourceUnits + candidate.length * 2 +
+      PARSE_SOURCE_CHECKPOINT_INTERVAL * 2
+
+    const result = await session.dispatch({
+      kind: 'reload-source-from-file',
+      source: candidate
+    }).completion
+
+    expect(result).toMatchObject({ kind: 'cancelled', reason: 'cancelled' })
+    expect(latestSourceUnits).toBe(cancelAt)
+    expect(session.snapshot()).toBe(before)
+    expect(session.snapshot().revision.source).toBe('before')
     await expect(session.dispatch({ kind: 'undo' }).completion)
       .resolves.toMatchObject({
         kind: 'rejected',

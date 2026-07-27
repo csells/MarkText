@@ -8,6 +8,7 @@ import {
   closeDocumentCore,
   launchDocumentCoreWithKeybindings,
   openReviewSidebar,
+  pointForText,
   pressApplicationMenuAccelerator,
   pressUserKeybinding,
   selectWordByPointer
@@ -105,4 +106,33 @@ test.describe('document-core Review command surfaces', () => {
     )
     await expectNoRendererErrors(app)
   })
+})
+
+test('an immediate pointer selection is settled before Accept Current', async() => {
+  const source = 'one {++first++} two {++second++}\n'
+  const launched = await launchDocumentCoreWithKeybindings(source, {
+    'review.accept-current': 'CmdOrCtrl+Alt+Shift+A'
+  })
+  try {
+    const point = await pointForText(launched.page, 'second')
+    await launched.page.mouse.dblclick(point.x, point.y)
+    await pressUserKeybinding(
+      launched.page,
+      launched.app,
+      'CmdOrCtrl+Alt+Shift+A'
+    )
+
+    await expect.poll(() => readCanonicalMarkdown(launched.page)).toBe(
+      'one {++first++} two second\n'
+    )
+    await pressApplicationMenuAccelerator(
+      launched.page,
+      launched.app,
+      'editUndoMenuItem'
+    )
+    await expect.poll(() => readCanonicalMarkdown(launched.page)).toBe(source)
+    await expectNoRendererErrors(launched.app)
+  } finally {
+    await closeDocumentCore(launched.app)
+  }
 })

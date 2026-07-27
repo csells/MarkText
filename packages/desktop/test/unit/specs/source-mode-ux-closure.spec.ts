@@ -63,6 +63,17 @@ describe('Source mode localized and honest UX', () => {
     )
   })
 
+  it('gives the semantic editor a localized accessible name', () => {
+    const editor = read(
+      'src/renderer/src/components/editorWithTabs/editor.vue'
+    )
+
+    expect(editor).toContain(
+      ':aria-label="t(\'preferences.editor.title\')"'
+    )
+    expect(editor).not.toContain('aria-label="Document editor"')
+  })
+
   it('ships every Source UX message in every locale artifact', () => {
     const localeRoot = path.resolve(desktopRoot, 'static/locales')
     const localeFiles = fs.readdirSync(localeRoot)

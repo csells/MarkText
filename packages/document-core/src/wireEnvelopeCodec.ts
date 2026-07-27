@@ -185,6 +185,11 @@ function isClosedRecord(
     keys.every(key => typeof key === 'string' && allowed.has(key))
 }
 
+function isUint8Array(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) &&
+    Object.prototype.toString.call(value) === '[object Uint8Array]'
+}
+
 function decodeEnvelope(value: unknown): WireEnvelopeV1 | null {
   if (!isClosedRecord(value, [
     'schema',
@@ -253,7 +258,7 @@ function decodeEnvelope(value: unknown): WireEnvelopeV1 | null {
         !Number.isInteger(rawChunk.count) ||
         Number(rawChunk.count) < 0 ||
         Number(rawChunk.count) > 0xffff_ffff ||
-        !(rawChunk.bytes instanceof Uint8Array) ||
+        !isUint8Array(rawChunk.bytes) ||
         !isWireHash(rawChunk.hash)
       ) {
         return null
@@ -261,7 +266,7 @@ function decodeEnvelope(value: unknown): WireEnvelopeV1 | null {
       chunks.push(Object.freeze({
         index: Number(rawChunk.index),
         count: Number(rawChunk.count),
-        bytes: rawChunk.bytes.slice(),
+        bytes: Uint8Array.from(rawChunk.bytes),
         hash: rawChunk.hash
       }))
     }
@@ -444,7 +449,7 @@ function classifyMembers(
         return Object.freeze({ kind: 'invalid', reason: 'gap' })
       }
       if (
-        !(chunk.bytes instanceof Uint8Array) ||
+        !isUint8Array(chunk.bytes) ||
         chunk.bytes.length > MAX_CHUNK_BYTES_V1 ||
         !HASH.test(chunk.hash)
       ) {

@@ -9,6 +9,7 @@
 import { test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   placeCaretInEditor,
   typeIntoEditor,
@@ -29,7 +30,7 @@ test.describe('Issue #2800: typing <pre>...</pre> does not crash', () => {
   })
 
   test.afterEach(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('typing literal <pre>test</pre> and continuing does not crash', async() => {

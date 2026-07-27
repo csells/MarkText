@@ -40,6 +40,8 @@ export const de = {
         'Vega Chart': 'Vega-Diagramm',
         'Mermaid': 'Mermaid',
         'Plantuml': 'Plantuml',
+        'Flowchart': 'Flussdiagramm',
+        'Sequence': 'Sequenzdiagramm',
         'basic blocks': 'Grundblöcke',
         'headings': 'Überschriften',
         'advanced blocks': 'Erweiterte Blöcke',

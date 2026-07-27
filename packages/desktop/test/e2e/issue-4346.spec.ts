@@ -6,6 +6,7 @@
 import { test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  closeElectron,
   launchWithMarkdown,
   placeCaretInEditor,
   setSourceMarkdown,
@@ -26,7 +27,7 @@ test.describe('Issue #4346: list-block null guards', () => {
   })
 
   test.afterEach(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('select-all delete inside a single-item list does not crash', async() => {

@@ -140,6 +140,27 @@ describe('live table tools', () => {
         )).toBeNull();
     });
 
+    it('preserves native caret placement on a table-cell pointerdown', async () => {
+        const source = [
+            '| a |',
+            '| --- |',
+            '| one |',
+            '',
+        ].join('\n');
+        const { host } = await mount(source);
+        const cell = host.querySelector('tbody td');
+        expect(cell).not.toBeNull();
+        const pointerdown = new MouseEvent('pointerdown', {
+            bubbles: true,
+            buttons: 1,
+            cancelable: true,
+        });
+
+        cell?.dispatchEvent(pointerdown);
+
+        expect(pointerdown.defaultPrevented).toBe(false);
+    });
+
     it('updates a mounted toolbar from the host locale resource', async () => {
         const source = [
             '| a |',

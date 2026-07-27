@@ -20,10 +20,10 @@ import {
  * blocks themselves: `{--# --}Title` is a heading in Original and a paragraph in
  * Revised; `a{++\n\n++}b` is one paragraph in Original and two in Revised.
  *
- * The claim under test is the reconvergence property (`specs/research/0002`): a
- * block fork cannot leak past the next safe point, so even a structural change
- * costs only its own region and the untouched majority is still analysed once.
- * Correctness first — a cheap wrong tree is worse than an expensive right one.
+ * The claim under test is ADR-0013's reconvergence property: a block fork cannot
+ * leak past the next safe point, so even a structural change costs only its own
+ * region and the untouched majority is still analysed once. Correctness first —
+ * a cheap wrong tree is worse than an expensive right one.
  */
 
 const TEST_CONFIGURATION: ParseConfiguration = {
