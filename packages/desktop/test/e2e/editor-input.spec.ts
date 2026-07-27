@@ -34,10 +34,10 @@ test.describe('Editor input and source-mode roundtrip', () => {
   test('Toggling source mode preserves content', async() => {
     await enterSourceMode(page, app)
     const md = await page.evaluate(() => {
-      const cm = document.querySelector('.source-code .CodeMirror') as
-        | (Element & { CodeMirror: { getValue(): string } })
-        | null
-      return cm ? cm.CodeMirror.getValue() : ''
+      const input = document.querySelector(
+        '.source-code-input'
+      ) as HTMLTextAreaElement | null
+      return input?.value ?? ''
     })
     expect(md).toContain('# Hello')
     await exitSourceMode(page, app)
@@ -58,11 +58,10 @@ test.describe('Editor input and source-mode roundtrip', () => {
 // `.word-count > span.text-center-vertical` renders `${HASH[show].short}
 // ${wordCount[show]}` where `show` cycles word -> paragraph -> character -> all
 // on click (handleWordClick). The counter value flows from
-// editor.vue json-change -> LISTEN_FOR_CONTENT_CHANGE -> store/editor.ts tab
+// editor.vue verified publication -> LISTEN_FOR_CONTENT_CHANGE -> store tab
 // wordCount -> app.vue currentFile.wordCount -> the title-bar `word-count` prop.
-// The engine wordCount algorithm itself is unit-covered in
-// packages/muya/src/utils/__tests__/wordCount.spec.ts; this spec only locks the
-// desktop title-bar wiring (the value tracks edits + follows the active mode).
+// The engine word-count policy has focused unit coverage; this spec locks the
+// desktop title-bar wiring as edits and active mode change.
 // ---------------------------------------------------------------------------
 
 const WORD_COUNT_TEXT = '.word-count .text-center-vertical'
@@ -78,12 +77,8 @@ const counterValue = async(page: Page): Promise<number> => {
   return match ? Number(match[1]) : NaN
 }
 
-// Mirror of the engine's wordCount algorithm
-// (packages/muya/src/utils/index.ts) so the test can derive the EXPECTED
-// title-bar value from the exact markdown that is actually loaded — the engine
-// algorithm itself is already unit-covered in
-// packages/muya/src/utils/__tests__/wordCount.spec.ts; this is only used to
-// pin the desktop title-bar's value/mode wiring to the live document.
+// Mirror the public word-count policy so the test can derive the expected
+// title-bar value from the exact Markdown loaded into the live document.
 const expectedCount = (markdown: string): { word: number; paragraph: number; character: number; all: number } => {
   const paragraph = markdown.split(/\n{2,}/).filter((line) => line).length
   const removedChinese = markdown.replace(/[一-龥]/g, '')
@@ -126,7 +121,7 @@ test.describe('Title-bar word counter (item 24)', () => {
     await placeCaretInEditor(page)
     await typeIntoEditor(page, ' four five 你好')
 
-    // The counter updates async after the json-change round-trip; it must have
+    // The counter updates after the verified publication; it must have
     // strictly increased over the pre-typing baseline.
     await expect.poll(() => counterValue(page), { timeout: 5000 }).toBeGreaterThan(before)
 
@@ -182,9 +177,8 @@ test.describe('Title-bar word counter (item 24)', () => {
 // calls editor.value.selectAll() ONLY when editor.value.hasFocus(); when focus
 // is in an INPUT/TEXTAREA it does a field .select() and skips the editor.
 // No prior unit/e2e covers the menu-driven selectAll (issue-4346 uses a DOM
-// range, not the menu action). The engine escalation rules are unit-covered in
-// packages/muya/src/selection/__tests__/selectAll.spec.ts; this spec locks the
-// desktop IPC + focus-branch wiring against the real engine.
+// range, not the menu action). Engine selection escalation has focused unit
+// coverage; this spec locks the desktop IPC and focus-branch wiring.
 // ---------------------------------------------------------------------------
 
 test.describe('Edit > Select All (item 169)', () => {

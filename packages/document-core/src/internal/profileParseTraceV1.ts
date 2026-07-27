@@ -6,43 +6,15 @@ export type ProfileParseTraceViewV1 =
   | 'comment-display'
   | 'editing'
 
-/**
- * Which component consumed canonical source and decided where the next
- * construct begins. Phase 0 requires `markdown-kernel`: the Profile 1 Markdown
- * parser owns source progression and emits CriticMarkup as grammar productions.
- * `criticmarkup-driver` records the current, target-incompatible ownership in
- * which a CriticMarkup state machine consumes the tape and consults a Markdown
- * lane for literal-ownership answers only.
- */
-export type ProfileParseProgressionOwnerV1 =
-  | 'criticmarkup-driver'
-  | 'markdown-kernel'
+export type ProfileParseProgressionOwnerV1 = 'markdown-kernel'
 
-/**
- * What an authoritative Markdown CST was built from. Phase 0 forbids
- * `flattened-projection`: a published CST reparsed from a flattened Original,
- * Revised, or Comment string cannot share parser-created identity with the
- * canonical CriticMarkup nodes.
- */
-export type ProfileParseCstInputV1 =
-  | 'canonical-source'
-  | 'flattened-projection'
-
-/**
- * A semantic fact reconstructed after parsing rather than created with syntax.
- * Phase 0 invariant 6 forbids all of these.
- */
-export type ProfileParsePostHocJoinV1 =
-  | 'reference-definitions'
-  | 'source-ownership'
-  | 'matching-scopes'
+export type ProfileParseCstInputV1 = 'canonical-source'
 
 export type ProfileParsePlanningReasonV1 =
   | 'inline-code-extension-analysis'
   | 'inline-code-closer-query'
   | 'inline-code-closer-candidate'
   | 'arm-termination-fence-probe'
-  | 'scope-remap-visit'
 
 export type ProfileParseTraceEventV1 =
   | Readonly<{
@@ -66,14 +38,6 @@ export type ProfileParseTraceEventV1 =
     readonly kind: 'authoritative-markdown-parse'
     readonly input: ProfileParseCstInputV1
     readonly view?: ProfileParseTraceViewV1
-  }>
-  | Readonly<{
-    readonly kind: 'post-hoc-join'
-    readonly join: ProfileParsePostHocJoinV1
-  }>
-  | Readonly<{
-    readonly kind: 'canonical-reparse'
-    readonly reason: 'reference-definitions'
   }>
 
 export interface ProfileParseTraceV1 {
@@ -101,11 +65,6 @@ export interface ProfileParseTraceRecorderV1 {
     start: number,
     end: number
   ) => void
-  readonly recordScopeRemapVisit: (
-    view: ProfileParseTraceViewV1,
-    start: number,
-    end: number
-  ) => void
   readonly recordCanonicalSourceAdmission: (sourceLength: number) => void
   readonly recordSourceProgression: (
     owner: ProfileParseProgressionOwnerV1
@@ -114,8 +73,6 @@ export interface ProfileParseTraceRecorderV1 {
     input: ProfileParseCstInputV1,
     view?: ProfileParseTraceViewV1
   ) => void
-  readonly recordPostHocJoin: (join: ProfileParsePostHocJoinV1) => void
-  readonly recordCanonicalReparse: (reason: 'reference-definitions') => void
 }
 
 const ACTIVE_RECORDERS = new WeakMap<
@@ -162,7 +119,6 @@ export function captureProfileParseTraceV1<T>(
     recordArmTerminationFenceProbe: planningRecorder(
       'arm-termination-fence-probe'
     ),
-    recordScopeRemapVisit: planningRecorder('scope-remap-visit'),
     recordCanonicalSourceAdmission: Object.freeze((
       sourceLength: number
     ): void => {
@@ -185,16 +141,6 @@ export function captureProfileParseTraceV1<T>(
           ? { kind: 'authoritative-markdown-parse', input }
           : { kind: 'authoritative-markdown-parse', input, view }
       ))
-    }),
-    recordPostHocJoin: Object.freeze((
-      join: ProfileParsePostHocJoinV1
-    ): void => {
-      events.push(Object.freeze({ kind: 'post-hoc-join', join }))
-    }),
-    recordCanonicalReparse: Object.freeze((
-      reason: 'reference-definitions'
-    ): void => {
-      events.push(Object.freeze({ kind: 'canonical-reparse', reason }))
     })
   })
   const recorders = ACTIVE_RECORDERS.get(engine) ?? []

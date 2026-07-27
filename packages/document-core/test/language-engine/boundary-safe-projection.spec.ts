@@ -4,12 +4,21 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
-import { rootsOf, runsOf } from '../helpers/collections.js'
+import { rootsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -160,7 +169,10 @@ describe('LanguageEngine.open boundary-safe projection', () => {
 
   it('protects CM when elision invalidates a canonical definition dependency', () => {
     const revision = createLanguageEngine().open(
-      createSourceSnapshot('p{--\n--}[r]: /{++y++}'),
+      // The canonical blank line makes `[r]` a real definition. Revised
+      // elides it, joining `[r]` to the open `p` paragraph; the destination
+      // then stops being literal and its marker spelling needs protection.
+      createSourceSnapshot('p{--\n\n--}[r]: /{++y++}'),
       TEST_CONFIGURATION
     )
     if (revision.kind !== 'complete') {

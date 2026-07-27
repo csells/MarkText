@@ -1,0 +1,18 @@
+intent	form	arm	carrier	precondition	expected_transform	expected_undo
+insert	none	none	plain	editable-caret	wrap inserted text in one Addition	restore exact base source and selection
+insert	addition	content	pending-revised	editable-caret	insert directly into Addition content	restore exact Addition spelling
+insert	deletion	content	pending-original	hidden-revised	reject without source or history change	no history entry
+delete	none	none	plain	nonempty-selection	wrap selected source in one Deletion	restore exact base source and selection
+delete	addition	content	pending-revised	complete-selection	remove selected Addition content directly	restore exact Addition spelling
+delete	highlight	content	stable-carrier	no-hidden-comment	remove selected content and retain a valid residual Highlight	restore exact Highlight and selection
+replace	none	none	plain	nonempty-selection	write one Substitution with exact old and new arms	restore exact base source and selection
+replace	substitution	old	pending-original	read-only-arm	reject without source or history change	no history entry
+replace	substitution	new	pending-revised	editable-selection	edit the new arm directly	restore exact Substitution spelling
+format	none	none	plain	complete-target	wrap the semantic target inside one Addition when formatting adds source	restore exact base source and selection
+format	addition	content	pending-revised	complete-target	apply formatting directly inside the Addition	restore exact Addition spelling
+structure	none	none	block	complete-block-target	record removed block spelling as Deletion and added spelling as Addition	restore exact block source and selection
+structure	highlight	content	stable-carrier	complete-block-target	preserve Highlight carrier while tracking the structural source edit	restore exact Highlight and block spelling
+paste	none	none	plain	external-text	write one Addition containing the semantic paste result	restore exact base source and selection
+paste	addition	content	pending-revised	raw-source-import	insert imported source directly inside the Addition after profile validation	restore exact Addition spelling
+ime	none	none	plain	composition-committed	write the entire committed composition as one Addition	restore exact base source and pre-composition selection
+ime	addition	content	pending-revised	composition-committed	insert the entire committed composition directly in the Addition	restore exact Addition spelling and pre-composition selection

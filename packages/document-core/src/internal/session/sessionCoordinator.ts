@@ -2,11 +2,17 @@ import type {
   AdmissionResult,
   CanonicalSourceChunk,
   CanonicalSourceLease,
+  CriticMarkupProjection,
   DispatchResult,
   DispatchTicket,
   Disposable,
+  DocumentHistoryState,
+  DocumentCoreMarkdownOptionPatch,
   DocumentSession,
+  DocumentSessionDurability,
   DocumentSessionOpenOptions,
+  DocumentLiveRenderPlan,
+  EffectAcknowledgementResult,
   SessionConfiguration,
   DraftId,
   EditorIntent,
@@ -19,7 +25,9 @@ import type {
   LeaseReleaseReason,
   LeaseReleaseResult,
   LiveRenderPlanId,
+  MarkupModelSelection,
   MarkupLiveRenderPlan,
+  ModelRange,
   ModelPosition,
   ModelSelection,
   PendingInputDraft,
@@ -27,26 +35,101 @@ import type {
   RevisionChangedTransition,
   RevisionDescriptor,
   RevisionId,
+  ReviewCommentedSpan,
+  ReviewIndex,
+  ReviewIndexItem,
   SessionOperation,
   SessionOperationId,
+  SessionStaticMaterializationResult,
+  SessionCancelResult,
+  SessionCloseResult,
+  SessionClipboardMaterializationResult,
+  SessionLifecycleStatus,
+  SessionMarkdownReconfigurationResult,
   SessionId,
   SessionStateChangedTransition,
+  SessionEffect,
+  SessionEffectId,
+  SessionTicketOutcome,
   SessionTransition,
   SessionTransitionId,
   SessionTransitionListener,
-  SourceLeaseId
+  SourceLeaseId,
+  SourceModelSelection
 } from '../../documentSession.js'
+import {
+  authenticateCanonicalSourceLease
+} from './canonicalSourceLeaseAuthority.js'
+import type {
+  CompleteDocumentRevision,
+  CriticMarkupNode,
+  NodeId,
+  ProjectedMarkdown,
+  SourceRange
+} from '../../revision.js'
+import {
+  revisionSemanticHashV1,
+  sourceHashV1
+} from '../../hashCodec.js'
+import type { RevisionSemanticHashV1 } from '../../hashCodec.js'
+import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
+import {
+  materializeClipboardConsumer,
+  materializeStaticConsumer,
+  type ClipboardConsumerRequest,
+  type CutPreparation,
+  type StaticConsumer,
+  type StaticConsumerRequest
+} from '../../materialize/consumerPolicy.js'
+import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
 import { createLanguageEngine } from '../../languageEngine.js'
+import {
+  createParseExecutionAccumulator,
+  DocumentExecutionCancelledError,
+  type ParseExecutionControl
+} from '../../parseExecutionControl.js'
+import { createMemoryDocumentSessionJournalStorage } from '../../sessionJournalStorage.js'
+import { createSourceSnapshot } from '../../sourceSnapshot.js'
 import type { MarkupView } from './markupView.js'
 import { IntentRejection, RevisionWorker } from './revisionWorker.js'
-import { VolatileSessionJournal } from './sessionJournal.js'
+import {
+  DurableSessionJournal,
+  type SessionIdCheckpoint,
+  type SessionRecoveryCheckpoint
+} from './sessionJournal.js'
+import { decodeEditorIntent } from './intentCodec.js'
 
 const EMPTY_EFFECTS = Object.freeze([]) as readonly []
-let nextSessionOrdinal = 0
 
-function createSessionId(): SessionId {
-  nextSessionOrdinal += 1
-  return `session-${nextSessionOrdinal}` as SessionId
+function createSessionId(identityNamespace: string | undefined): SessionId {
+  const nonce = (
+    globalThis as {
+      readonly crypto?: { readonly randomUUID?: () => string }
+    }
+  ).crypto?.randomUUID?.()
+  if (
+    typeof nonce !== 'string' ||
+    nonce.length === 0 ||
+    nonce.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(nonce) ||
+    (
+      identityNamespace !== undefined &&
+      (
+        identityNamespace.length === 0 ||
+        identityNamespace.length > 800 ||
+        !/^[A-Za-z0-9._:-]+$/.test(identityNamespace)
+      )
+    )
+  ) {
+    throw new TypeError(
+      'Document session identity namespace must be a bounded wire identity'
+    )
+  }
+  return (
+    identityNamespace === undefined
+      ? `session:${nonce}`
+      : `session:${identityNamespace}:${nonce}`
+  ) as SessionId
 }
 
 interface LeaseState {
@@ -57,6 +140,17 @@ interface LeaseState {
   released: boolean
 }
 
+interface LiveTicketState {
+  readonly id: IntentId
+  phase: 'admitting' | 'admitted' | 'preparing' | 'terminal'
+  cancelRequested: boolean
+  admission: Promise<AdmissionResult>
+  completion: Promise<DispatchResult> | undefined
+  cancelPersistence:
+    | Promise<'requested' | 'too-late' | 'already-terminal' | 'unknown-ticket'>
+    | undefined
+}
+
 function copyPosition(position: ModelPosition): ModelPosition {
   return Object.freeze({
     offset: position.offset,
@@ -64,41 +158,38 @@ function copyPosition(position: ModelPosition): ModelPosition {
   })
 }
 
-function copySelection(selection: ModelSelection): ModelSelection {
+function copySelection<Selection extends ModelSelection>(
+  selection: Selection
+): Selection {
   return Object.freeze({
     session: selection.session,
     revision: selection.revision,
     view: selection.view,
     anchor: copyPosition(selection.anchor),
     focus: copyPosition(selection.focus)
+  }) as Selection
+}
+
+function copyDraft(draft: PendingInputDraft): PendingInputDraft {
+  return Object.freeze({
+    id: draft.id,
+    ticketIds: Object.freeze([...draft.ticketIds]),
+    sequence: draft.sequence,
+    submittedAgainst: draft.submittedAgainst,
+    text: draft.text,
+    target: copySelection(draft.target),
+    reason: draft.reason,
+    status: 'blocked' as const,
+    allowedActions: Object.freeze(['retry', 'discard'] as const)
   })
 }
 
-function snapshotIntent(intent: EditorIntent): EditorIntent {
-  if (intent.kind === 'insert-text') {
-    return Object.freeze({
-      kind: 'insert-text' as const,
-      target: copySelection(intent.target),
-      text: intent.text
-    })
-  }
-  if (intent.kind === 'replace-text') {
-    return Object.freeze({
-      kind: 'replace-text' as const,
-      target: copySelection(intent.target),
-      text: intent.text
-    })
-  }
-  if (intent.kind === 'delete-text') {
-    return Object.freeze({
-      kind: 'delete-text' as const,
-      target: copySelection(intent.target)
-    })
-  }
-  return Object.freeze({ kind: intent.kind })
+function copyEffect(effect: SessionEffect): SessionEffect {
+  return Object.freeze({ ...effect })
 }
 
 class SessionIds {
+  readonly #session: SessionId
   #revision = 0
   #snapshot = 0
   #intent = 0
@@ -107,50 +198,111 @@ class SessionIds {
   #lease = 0
   #draft = 0
   #plan = 0
+  #effect = 0
+
+  constructor(
+    session: SessionId,
+    checkpoint: SessionIdCheckpoint | undefined = undefined
+  ) {
+    this.#session = session
+    if (checkpoint !== undefined) {
+      this.restore(checkpoint)
+    }
+  }
+
+  checkpoint(): SessionIdCheckpoint {
+    return Object.freeze({
+      revision: this.#revision,
+      snapshot: this.#snapshot,
+      intent: this.#intent,
+      operation: this.#operation,
+      transition: this.#transition,
+      lease: this.#lease,
+      draft: this.#draft,
+      plan: this.#plan,
+      effect: this.#effect
+    })
+  }
+
+  restore(checkpoint: SessionIdCheckpoint): void {
+    for (const value of Object.values(checkpoint)) {
+      if (!Number.isInteger(value) || value < 0) {
+        throw new Error('Session id checkpoint contains an invalid ordinal')
+      }
+    }
+    this.#revision = checkpoint.revision
+    this.#snapshot = checkpoint.snapshot
+    this.#intent = checkpoint.intent
+    this.#operation = checkpoint.operation
+    this.#transition = checkpoint.transition
+    this.#lease = checkpoint.lease
+    this.#draft = checkpoint.draft
+    this.#plan = checkpoint.plan
+    this.#effect = checkpoint.effect
+  }
 
   revision(): RevisionId {
     this.#revision += 1
-    return `revision-${this.#revision}` as RevisionId
+    return `${String(this.#session)}:revision:${this.#revision}` as RevisionId
   }
 
   snapshot(): EditorSnapshotId {
     this.#snapshot += 1
-    return `snapshot-${this.#snapshot}` as EditorSnapshotId
+    return `${String(this.#session)}:snapshot:${this.#snapshot}` as EditorSnapshotId
   }
 
   intent(): IntentId {
     this.#intent += 1
-    return `intent-${this.#intent}` as IntentId
+    return `${String(this.#session)}:intent:${this.#intent}` as IntentId
   }
 
   operation(): SessionOperationId {
     this.#operation += 1
-    return `operation-${this.#operation}` as SessionOperationId
+    return `${String(this.#session)}:operation:${this.#operation}` as SessionOperationId
   }
 
   transition(): SessionTransitionId {
     this.#transition += 1
-    return `transition-${this.#transition}` as SessionTransitionId
+    return `${String(this.#session)}:transition:${this.#transition}` as SessionTransitionId
   }
 
   lease(): SourceLeaseId {
     this.#lease += 1
-    return `lease-${this.#lease}` as SourceLeaseId
+    return `${String(this.#session)}:lease:${this.#lease}` as SourceLeaseId
   }
 
   draft(): DraftId {
     this.#draft += 1
-    return `draft-${this.#draft}` as DraftId
+    return `${String(this.#session)}:draft:${this.#draft}` as DraftId
   }
 
   plan(): LiveRenderPlanId {
     this.#plan += 1
-    return `plan-${this.#plan}` as LiveRenderPlanId
+    return `${String(this.#session)}:plan:${this.#plan}` as LiveRenderPlanId
+  }
+
+  effect(): SessionEffectId {
+    this.#effect += 1
+    return `${String(this.#session)}:effect:${this.#effect}` as SessionEffectId
   }
 }
 
 function createDescriptor(worker: RevisionWorker): RevisionDescriptor {
   const state = worker.state
+  if (!('markupView' in state)) {
+    return Object.freeze({
+      session: state.session,
+      id: state.id,
+      kind: 'source-only' as const,
+      configuration: state.revision.configuration,
+      sourceLength: state.revision.source.text.length,
+      source: state.revision.source.text,
+      sourceHash: state.revision.sourceHash,
+      semanticHash: state.revision.semanticHash,
+      fatalDiagnostic: state.revision.fatalDiagnostic,
+      selection: state.selection
+    })
+  }
   return Object.freeze({
     session: state.session,
     id: state.id,
@@ -158,6 +310,8 @@ function createDescriptor(worker: RevisionWorker): RevisionDescriptor {
     configuration: state.revision.configuration,
     sourceLength: state.revision.source.text.length,
     source: state.revision.source.text,
+    sourceHash: state.revision.sourceHash,
+    semanticHash: state.revision.semanticHash,
     diagnostics: Object.freeze({ count: state.revision.diagnostics.count }),
     selection: state.selection
   })
@@ -169,7 +323,7 @@ function createLiveRenderPlan(
   revision: RevisionId,
   view: MarkupView
 ): MarkupLiveRenderPlan {
-  const selectionAt = Object.freeze((selection: InitialModelSelection): ModelSelection => {
+  const selectionAt = Object.freeze((selection: InitialModelSelection): MarkupModelSelection => {
     view.sourcePositionAt(selection.anchor)
     view.sourcePositionAt(selection.focus)
     return Object.freeze({
@@ -187,73 +341,510 @@ function createLiveRenderPlan(
     editable: true as const,
     modelLength: view.modelLength,
     runs: view.runs,
+    coordinateMap: view.coordinateMap,
+    sourcePositionAt: view.sourcePositionAt,
+    modelPositionAt: view.modelPositionAt,
     selectionAt
   })
 }
 
+function createReadOnlyLiveRenderPlan(
+  id: LiveRenderPlanId,
+  revision: RevisionId,
+  view: 'original' | 'revised',
+  document: ProjectedMarkdown
+): DocumentLiveRenderPlan {
+  const source = document.source
+  const runs = source.length === 0
+    ? Object.freeze([])
+    : Object.freeze([
+      Object.freeze({
+        key: `${view}:0:${source.length}`,
+        marks: Object.freeze([]),
+        text: source,
+        modelRange: Object.freeze({ start: 0, end: source.length }),
+        // A read-only projection has its own coordinate space. This member is
+        // transported only for the common render-run shape; no edit maps it
+        // back as canonical source.
+        sourceRange: Object.freeze({
+          start: 0,
+          end: source.length
+        }) as SourceRange
+      })
+    ])
+  return Object.freeze({
+    id,
+    revision,
+    view,
+    editable: false as const,
+    modelLength: source.length,
+    runs
+  })
+}
+
+const READ_ONLY_AUTHORING = Object.freeze({
+  canCreateAddition: false,
+  canCreateDeletion: false,
+  canCreateSubstitution: false,
+  canCreateHighlight: false,
+  canCreateComment: false
+})
+
+function modelRangeForReviewNode(
+  view: MarkupView,
+  nodeId: NodeId
+): ModelRange | null {
+  let start = Infinity
+  let end = -Infinity
+  for (const run of view.runs) {
+    if (!run.marks.some((mark) => mark.nodeId === nodeId)) {
+      continue
+    }
+    start = Math.min(start, run.modelRange.start)
+    end = Math.max(end, run.modelRange.end)
+  }
+  return Number.isFinite(start) && Number.isFinite(end)
+    ? Object.freeze({ start, end })
+    : null
+}
+
+function focusOffsetForReviewNode(
+  view: MarkupView,
+  node: CriticMarkupNode,
+  modelRange: ModelRange | null
+): number {
+  if (modelRange !== null) {
+    return modelRange.start
+  }
+  const target = Number(node.range.start)
+  let previous:
+    | { readonly source: number, readonly model: number }
+    | undefined
+  let next:
+    | { readonly source: number, readonly model: number }
+    | undefined
+
+  for (const run of view.runs) {
+    const sourceStart = Number(run.sourceRange.start)
+    const sourceEnd = Number(run.sourceRange.end)
+    if (sourceEnd <= target) {
+      previous = Object.freeze({
+        source: sourceEnd,
+        model: run.modelRange.end
+      })
+    }
+    if (next === undefined && sourceStart >= target) {
+      next = Object.freeze({
+        source: sourceStart,
+        model: run.modelRange.start
+      })
+    }
+  }
+  if (previous === undefined) {
+    return next?.model ?? 0
+  }
+  if (next === undefined) {
+    return previous.model
+  }
+  return target - previous.source <= next.source - target
+    ? previous.model
+    : next.model
+}
+
+function createReviewIndex(
+  revision: CompleteDocumentRevision,
+  view: MarkupView,
+  authoring: ReviewIndex['authoring']
+): ReviewIndex {
+  const items: ReviewIndexItem[] = []
+  const commentedSpans: ReviewCommentedSpan[] = []
+  const modelRanges = new Map<NodeId, ModelRange | null>()
+  const revisedProvenance = revision.projection('revised').provenance
+
+  const itemFor = (
+    node: CriticMarkupNode,
+    depth: number,
+    parent: NodeId | null
+  ): ReviewIndexItem => {
+    const modelRange = modelRangeForReviewNode(view, node.nodeId)
+    modelRanges.set(node.nodeId, modelRange)
+    return Object.freeze({
+      nodeId: node.nodeId,
+      kind: node.kind,
+      sourceRange: Object.freeze({
+        start: node.range.start,
+        end: node.range.end
+      }),
+      modelRange,
+      focusOffset: focusOffsetForReviewNode(view, node, modelRange),
+      depth,
+      parent,
+      commentRevisedText:
+        node.kind === 'comment'
+          ? revision.commentDisplay(node).source
+          : null,
+      oldContent:
+        node.kind === 'substitution'
+          ? revision.source.text.slice(
+            Number(node.arms[0].range.start),
+            Number(node.arms[0].range.end)
+          )
+          : null,
+      newContent:
+        node.kind === 'substitution'
+          ? revision.source.text.slice(
+            Number(node.arms[1].range.start),
+            Number(node.arms[1].range.end)
+          )
+          : null
+    })
+  }
+
+  const visitSiblings = (
+    siblings: readonly CriticMarkupNode[],
+    depth: number,
+    parent: NodeId | null
+  ): void => {
+    for (const node of siblings) {
+      items.push(itemFor(node, depth, parent))
+      for (const arm of node.arms) {
+        visitSiblings(arm.children, depth + 1, node.nodeId)
+      }
+    }
+    for (let index = 0; index + 1 < siblings.length; index += 1) {
+      const highlight = siblings[index]
+      const comment = siblings[index + 1]
+      if (
+        highlight?.kind !== 'highlight' ||
+        comment?.kind !== 'comment' ||
+        Number(highlight.range.end) !== Number(comment.range.start)
+      ) {
+        continue
+      }
+      const content = highlight.arms[0].range
+      if (
+        !revisedProvenance.canonicalSourceRangeIntersects(
+          Number(content.start),
+          Number(content.end)
+        )
+      ) {
+        continue
+      }
+      const modelRange = modelRanges.get(highlight.nodeId)
+      if (modelRange === undefined || modelRange === null) {
+        continue
+      }
+      commentedSpans.push(Object.freeze({
+        highlight: highlight.nodeId,
+        comment: comment.nodeId,
+        sourceRange: Object.freeze({
+          start: highlight.range.start,
+          end: comment.range.end
+        }),
+        modelRange
+      }))
+    }
+  }
+
+  const roots = Array.from(
+    { length: revision.criticMarkup.rootCount },
+    (_, index) => revision.criticMarkup.rootAt(index)
+  )
+  visitSiblings(roots, 0, null)
+  return Object.freeze({
+    authoring,
+    items: Object.freeze(items),
+    commentedSpans: Object.freeze(commentedSpans)
+  })
+}
+
 export class SessionCoordinator {
-  readonly #session = createSessionId()
-  readonly #ids = new SessionIds()
-  readonly #journal = new VolatileSessionJournal()
+  readonly #session: SessionId
+  readonly #ids: SessionIds
+  readonly #journal: DurableSessionJournal
   readonly #worker: RevisionWorker
-  readonly #configuration: SessionConfiguration
+  #configuration: SessionConfiguration
+  #projection: CriticMarkupProjection = 'marked'
   readonly #listeners = new Set<SessionTransitionListener>()
   readonly #leases = new Map<SourceLeaseId, LeaseState>()
+  readonly #liveTickets = new Map<IntentId, LiveTicketState>()
   #retainedDrafts: readonly PendingInputDraft[] = Object.freeze([])
+  #effects: readonly SessionEffect[] = Object.freeze([])
+  #lifecycle: SessionLifecycleStatus = 'open'
+  #reopenSemanticHashes: readonly RevisionSemanticHashV1[] = Object.freeze([])
   #clientSequence = 0
   #settledWatermark = 0
   #mailbox: Promise<void> = Promise.resolve()
   #snapshot: EditorSnapshot
 
-  constructor(options: DocumentSessionOpenOptions) {
-    const engine = createLanguageEngine()
-    const revision = engine.open(options.source, options.parseConfiguration)
-    if (revision.kind !== 'complete') {
-      throw new Error('The Phase 0 session tracer requires a complete revision')
-    }
-
+  constructor(
+    options: DocumentSessionOpenOptions,
+    journal: DurableSessionJournal,
+    recovery: SessionRecoveryCheckpoint | null
+  ) {
+    const engine = createLanguageEngine(options.executionControl)
+    this.#journal = journal
     this.#configuration = Object.freeze({
       authoringTextPolicy:
-        options.configuration?.authoringTextPolicy ?? 'nearest-owner-eol-v1'
+        options.configuration?.authoringTextPolicy ?? 'nearest-owner-eol-v1',
+      trackChanges: options.trackChanges ?? false
     })
-    this.#worker = new RevisionWorker(
-      engine,
-      this.#session,
-      this.#ids.revision(),
-      revision,
-      options.initialSelection ?? Object.freeze({
-        anchor: Object.freeze({ offset: 0, affinity: 'next' as const }),
-        focus: Object.freeze({ offset: 0, affinity: 'next' as const })
-      })
-    )
+    if (recovery === null) {
+      this.#session = createSessionId(options.identityNamespace)
+      this.#ids = new SessionIds(this.#session)
+      const revision = engine.open(options.source, options.parseConfiguration)
+      this.#worker = new RevisionWorker(
+        engine,
+        this.#session,
+        this.#ids.revision(),
+        revision,
+        options.initialSelection ?? Object.freeze({
+          anchor: Object.freeze({ offset: 0, affinity: 'next' as const }),
+          focus: Object.freeze({ offset: 0, affinity: 'next' as const })
+        }),
+        options.trackChanges ?? false
+      )
+    } else {
+      this.#session = recovery.worker.session
+      this.#ids = new SessionIds(this.#session, recovery.ids)
+      const revision = engine.open(
+        createSourceSnapshot(recovery.worker.source),
+        recovery.worker.configuration
+      )
+      this.#worker = new RevisionWorker(
+        engine,
+        recovery.worker.session,
+        recovery.worker.id,
+        revision,
+        recovery.worker.selection,
+        options.trackChanges ?? false,
+        recovery.worker
+      )
+      this.#retainedDrafts = Object.freeze(
+        recovery.retainedDrafts.map((draft) => copyDraft(draft))
+      )
+      this.#clientSequence = recovery.clientSequence
+      this.#settledWatermark = recovery.settledWatermark
+      this.#effects = Object.freeze(recovery.effects.map((effect) => copyEffect(effect)))
+      this.#lifecycle = recovery.lifecycle
+      this.#reopenSemanticHashes = Object.freeze(
+        [...recovery.reopenSemanticHashes] as RevisionSemanticHashV1[]
+      )
+    }
+    this.#configuration = Object.freeze({
+      ...this.#configuration,
+      trackChanges: this.#worker.trackChanges
+    })
     this.#snapshot = this.#createSnapshot()
+  }
+
+  checkpoint(
+    retainedDrafts: readonly PendingInputDraft[] = this.#retainedDrafts,
+    settledWatermark: number = this.#settledWatermark,
+    effects: readonly SessionEffect[] = this.#effects,
+    lifecycle: SessionLifecycleStatus = this.#lifecycle
+  ): SessionRecoveryCheckpoint {
+    return Object.freeze({
+      worker: this.#worker.checkpoint(),
+      ids: this.#ids.checkpoint(),
+      retainedDrafts: Object.freeze(retainedDrafts.map((draft) => copyDraft(draft))),
+      clientSequence: this.#clientSequence,
+      settledWatermark,
+      effects: Object.freeze(effects.map((effect) => copyEffect(effect))),
+      lifecycle,
+      reopenSemanticHashes: this.#reopenSemanticHashes
+    })
+  }
+
+  async recoverPendingIngress(): Promise<void> {
+    for (const record of this.#journal.pendingIngress()) {
+      if (record.cancelRequested || this.#lifecycle !== 'open') {
+        await this.#settleCancelled(
+          record.ticket,
+          record.sequence,
+          record.submittedAgainst
+        )
+        continue
+      }
+      await this.#commitIntent(
+        record.ticket,
+        record.sequence,
+        record.submittedAgainst,
+        decodeEditorIntent(record.intent)
+      )
+    }
   }
 
   client(): DocumentSession {
     const snapshot = Object.freeze(() => this.#snapshot)
-    const dispatch = Object.freeze((intent: EditorIntent) => this.#dispatch(intent))
+    const historyState = Object.freeze(() => this.#worker.historyState())
+    const markPersisted = Object.freeze((headIdentity: string) =>
+      this.#markPersisted(headIdentity)
+    )
+    const dispatch = Object.freeze((
+      intent: EditorIntent,
+      beforePrepare?: Promise<void>
+    ) => this.#dispatch(intent, beforePrepare))
+    const reconfigureMarkdownOptions = Object.freeze(
+      (patch: DocumentCoreMarkdownOptionPatch) =>
+        this.#reconfigureMarkdownOptions(patch)
+    )
     const preparePersistence = Object.freeze((reason: PersistenceReason) =>
       this.#requestSourceLease('prepare-persistence', reason)
     )
     const flush = Object.freeze((reason: FlushReason) => this.#flush(reason))
+    const materializeStatic = Object.freeze(
+      <Consumer extends StaticConsumer>(
+        request: StaticConsumerRequest<Consumer>
+      ) => this.#materializeStatic(request)
+    )
+    const materializeClipboard = Object.freeze(
+      (request: ClipboardConsumerRequest) =>
+        this.#materializeClipboard(request)
+    )
     const select = Object.freeze((selection: InitialModelSelection) => {
+      if (this.#lifecycle !== 'open') {
+        throw new Error('Document session is closed')
+      }
       this.#worker.moveSelection(selection)
       // Republish so the caret is visible to the next reader. No revision is
       // committed and no transition is emitted: the document did not change,
       // and retained drafts are untouched.
       this.#snapshot = this.#createSnapshot()
     })
+    const selectSource = Object.freeze((selection: InitialModelSelection) => {
+      if (this.#lifecycle !== 'open') {
+        throw new Error('Document session is closed')
+      }
+      this.#worker.moveSourceSelection(selection)
+      this.#snapshot = this.#createSnapshot()
+    })
     const subscribe = Object.freeze((listener: SessionTransitionListener) =>
       this.#subscribe(listener)
+    )
+    const ticketOutcome = Object.freeze((ticket: IntentId) =>
+      this.#journal.ticketOutcome(ticket)
+    )
+    const effects = Object.freeze(() =>
+      Object.freeze(this.#effects.map((effect) => copyEffect(effect)))
+    )
+    const cancel = Object.freeze((ticket: IntentId) => this.#cancel(ticket))
+    const close = Object.freeze(() => this.#close())
+    const status = Object.freeze(() => this.#lifecycle)
+    const acknowledgeEffect = Object.freeze((effect: SessionEffectId) =>
+      this.#acknowledgeEffect(effect)
     )
 
     return Object.freeze({
       snapshot,
+      historyState,
+      markPersisted,
       dispatch,
+      reconfigureMarkdownOptions,
       preparePersistence,
       flush,
+      materializeStatic,
+      materializeClipboard,
       select,
+      selectSource,
+      ticketOutcome,
+      effects,
+      cancel,
+      close,
+      status,
+      acknowledgeEffect,
       subscribe
+    })
+  }
+
+  #reconfigureMarkdownOptions(
+    patch: DocumentCoreMarkdownOptionPatch
+  ): SessionOperation<SessionMarkdownReconfigurationResult> {
+    if (this.#lifecycle !== 'open') {
+      throw new Error('Document session is closed')
+    }
+    if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+      throw new TypeError('Markdown option patch must be a closed record')
+    }
+    const allowed = new Set([
+      'footnotes',
+      'gitLabMath',
+      'subscriptAndSuperscript'
+    ])
+    for (const [key, value] of Object.entries(patch)) {
+      if (!allowed.has(key) || typeof value !== 'boolean') {
+        throw new TypeError(`Invalid Markdown option patch field ${key}`)
+      }
+    }
+    const stablePatch = Object.freeze({ ...patch })
+    const id = this.#ids.operation()
+    const clientSequence = this.#nextClientSequence()
+    const completion = this.#enqueue(
+      async(): Promise<SessionMarkdownReconfigurationResult> => {
+        const current = this.#worker.state.revision.configuration
+        if (
+          (
+            stablePatch.footnotes === undefined ||
+            stablePatch.footnotes === current.markdownOptions.footnotes
+          ) &&
+          (
+            stablePatch.gitLabMath === undefined ||
+            stablePatch.gitLabMath === current.markdownOptions.gitLabMath
+          ) &&
+          (
+            stablePatch.subscriptAndSuperscript === undefined ||
+            stablePatch.subscriptAndSuperscript ===
+              current.markdownOptions.subscriptAndSuperscript
+          )
+        ) {
+          return Object.freeze({
+            kind: 'reconfigured' as const,
+            snapshot: this.#snapshot,
+            historyState: this.#worker.historyState()
+          })
+        }
+        const previous = this.#worker.checkpoint()
+        const configuration = Object.freeze({
+          ...current,
+          markdownOptions: Object.freeze({
+            ...current.markdownOptions,
+            ...stablePatch
+          })
+        })
+        this.#worker.reconfigure(configuration)
+        try {
+          await this.#journal.checkpoint(this.checkpoint())
+        } catch (error) {
+          this.#worker.restore(previous)
+          throw error
+        }
+        this.#snapshot = this.#createSnapshot()
+        return Object.freeze({
+          kind: 'reconfigured' as const,
+          snapshot: this.#snapshot,
+          historyState: this.#worker.historyState()
+        })
+      }
+    )
+    return Object.freeze({ id, clientSequence, completion })
+  }
+
+  async #markPersisted(
+    headIdentity: string
+  ): Promise<DocumentHistoryState> {
+    if (this.#lifecycle !== 'open') {
+      throw new Error('Document session is closed')
+    }
+    return await this.#enqueue(async() => {
+      const previous = this.#worker.historyState().savedIdentity
+      this.#worker.markPersisted(headIdentity)
+      try {
+        await this.#journal.checkpoint(this.checkpoint())
+      } catch (error) {
+        this.#worker.markPersisted(previous)
+        throw error
+      }
+      return this.#worker.historyState()
     })
   }
 
@@ -262,45 +853,133 @@ export class SessionCoordinator {
     retainedPlan?: MarkupLiveRenderPlan
   ): EditorSnapshot {
     const state = this.#worker.state
+    const pending = Object.freeze({
+      retained: retainedDrafts,
+      status: retainedDrafts.length === 0 ? ('idle' as const) : ('blocked' as const)
+    })
+    if (!('markupView' in state)) {
+      const revision = createDescriptor(this.#worker)
+      if (revision.kind !== 'source-only') {
+        throw new Error('SourceOnly worker produced a complete descriptor')
+      }
+      return Object.freeze({
+        kind: 'source-only' as const,
+        id: this.#ids.snapshot(),
+        configuration: this.#configuration,
+        facts: materializeDocumentFacts(state.revision),
+        sourceSelection: this.#worker.sourceSelection(),
+        revision,
+        view: 'source' as const,
+        pending
+      })
+    }
+    const projected =
+      this.#projection === 'marked'
+        ? state.revision.projection('editing')
+        : state.revision.projection(this.#projection)
     const livePlan =
       retainedPlan ??
-      createLiveRenderPlan(this.#ids.plan(), state.session, state.id, state.markupView)
+      createLiveRenderPlan(
+        this.#ids.plan(),
+        state.session,
+        state.id,
+        state.markupView
+      )
+    const displayPlan =
+      this.#projection === 'marked'
+        ? livePlan
+        : createReadOnlyLiveRenderPlan(
+          this.#ids.plan(),
+          state.id,
+          this.#projection,
+          projected
+        )
+    const revision = createDescriptor(this.#worker)
+    if (revision.kind !== 'complete') {
+      throw new Error('Complete worker produced a SourceOnly descriptor')
+    }
     return Object.freeze({
       kind: 'complete' as const,
       id: this.#ids.snapshot(),
       configuration: this.#configuration,
-      revision: createDescriptor(this.#worker),
+      facts: materializeDocumentFacts(state.revision),
+      sourceSelection: this.#worker.sourceSelection(),
+      revision,
       view: 'markup' as const,
+      projection: this.#projection,
       livePlan,
+      displayPlan,
+      reviewIndex: createReviewIndex(
+        state.revision,
+        state.markupView,
+        this.#projection === 'marked'
+          ? this.#worker.criticMarkupAuthoringCapabilities()
+          : READ_ONLY_AUTHORING
+      ),
       // Straight off the retained revision: the editing projection is lazy and
       // reuses an existing view when the text matches, so serving it here costs
       // no parse and spares the view re-parsing to learn its own structure.
       editingDocument: state.revision.projection('editing').markdown,
-      pending: Object.freeze({
-        retained: retainedDrafts,
-        status: retainedDrafts.length === 0 ? ('idle' as const) : ('blocked' as const)
-      })
+      displayDocument: projected.markdown,
+      pending
     })
   }
 
-  #dispatch(intent: EditorIntent): DispatchTicket {
-    const stableIntent = snapshotIntent(intent)
+  #dispatch(
+    intent: EditorIntent,
+    beforePrepare: Promise<void> = Promise.resolve()
+  ): DispatchTicket {
+    if (this.#lifecycle !== 'open') {
+      throw new Error('Document session is closed')
+    }
+    const stableIntent = decodeEditorIntent(intent)
     const id = this.#ids.intent()
     const clientSequence = this.#nextClientSequence()
     const submittedAgainst = this.#worker.state.id
-    const admission = this.#journal
-      .appendIngress(id, clientSequence, submittedAgainst, stableIntent)
+    const state: LiveTicketState = {
+      id,
+      phase: 'admitting',
+      cancelRequested: false,
+      admission: Promise.resolve(
+        Object.freeze({
+          kind: 'admitted' as const,
+          sequence: clientSequence,
+          submittedAgainst
+        })
+      ),
+      completion: undefined,
+      cancelPersistence: undefined
+    }
+    const admission: Promise<AdmissionResult> = this.#journal
+      .appendIngress(
+        id,
+        clientSequence,
+        submittedAgainst,
+        stableIntent,
+        this.checkpoint()
+      )
       .then(
-        (): AdmissionResult =>
-          Object.freeze({
+        (): AdmissionResult => {
+          state.phase = 'admitted'
+          return Object.freeze({
             kind: 'admitted' as const,
             sequence: clientSequence,
             submittedAgainst
           })
+        }
       )
+    state.admission = admission
+    this.#liveTickets.set(id, state)
     const completion = this.#enqueue(() =>
-      this.#completeAdmittedDispatch(admission, id, clientSequence, stableIntent)
+      this.#completeAdmittedDispatch(
+        state,
+        id,
+        clientSequence,
+        stableIntent,
+        beforePrepare
+      )
     )
+    state.completion = completion
 
     return Object.freeze({
       id,
@@ -311,13 +990,46 @@ export class SessionCoordinator {
   }
 
   async #completeAdmittedDispatch(
-    admission: Promise<AdmissionResult>,
+    state: LiveTicketState,
     id: IntentId,
     clientSequence: number,
-    intent: EditorIntent
+    intent: EditorIntent,
+    beforePrepare: Promise<void>
   ): Promise<DispatchResult> {
-    const admitted = await admission
-    return this.#commitIntent(id, clientSequence, admitted.submittedAgainst, intent)
+    try {
+      const admitted = await state.admission
+      if (state.cancelRequested) {
+        const decision = await state.cancelPersistence
+        if (decision === 'requested') {
+          return this.#settleCancelled(
+            id,
+            clientSequence,
+            admitted.submittedAgainst
+          )
+        }
+      }
+      await beforePrepare
+      if (state.cancelRequested) {
+        const decision = await state.cancelPersistence
+        if (decision === 'requested') {
+          return this.#settleCancelled(
+            id,
+            clientSequence,
+            admitted.submittedAgainst
+          )
+        }
+      }
+      state.phase = 'preparing'
+      return await this.#commitIntent(
+        id,
+        clientSequence,
+        admitted.submittedAgainst,
+        intent
+      )
+    } finally {
+      state.phase = 'terminal'
+      this.#liveTickets.delete(id)
+    }
   }
 
   async #commitIntent(
@@ -328,13 +1040,15 @@ export class SessionCoordinator {
   ): Promise<DispatchResult> {
     const before = this.#snapshot
     if (intent.kind === 'insert-text' && intent.text.length === 0) {
-      await this.#journal.appendDispatchOutcome(
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'noop' as const,
         ticket,
         sequence,
-        'noop',
-        this.#worker.state.id,
-        'empty-insertion'
-      )
+        submittedAgainst,
+        reason: 'empty-insertion' as const,
+        revision: this.#worker.state.id
+      })
+      await this.#journal.settle(ticket, this.checkpoint(this.#retainedDrafts, sequence), outcome)
       this.#settledWatermark = sequence
       return Object.freeze({
         kind: 'noop' as const,
@@ -342,43 +1056,232 @@ export class SessionCoordinator {
         snapshot: this.#snapshot
       })
     }
+    if (intent.kind === 'set-track-changes') {
+      return this.#commitTrackChangesState(
+        ticket,
+        sequence,
+        submittedAgainst,
+        intent.enabled
+      )
+    }
+    if (intent.kind === 'set-projection') {
+      return this.#commitProjectionState(
+        ticket,
+        sequence,
+        submittedAgainst,
+        intent.projection
+      )
+    }
+    const rollbackWorker = this.#worker.checkpoint()
+    const rollbackIds = this.#ids.checkpoint()
     const next = this.#ids.revision()
 
     try {
+      if (this.#projection !== 'marked') {
+        throw new IntentRejection('read-only-projection')
+      }
       let prepared
       if (intent.kind === 'insert-text') {
         prepared = this.#worker.prepareInsertion(intent.target, intent.text, next)
       } else if (intent.kind === 'replace-text') {
         prepared = this.#worker.prepareReplacement(intent.target, intent.text, next)
+      } else if (intent.kind === 'replace-current-matches') {
+        prepared = this.#worker.prepareCurrentMatchReplacement(
+          intent.target,
+          intent.query,
+          intent.replacement,
+          next
+        )
       } else if (intent.kind === 'delete-text') {
         prepared = this.#worker.prepareDeletion(intent.target, next)
+      } else if (intent.kind === 'format-text') {
+        prepared = this.#worker.prepareFormatting(
+          intent.target,
+          intent.format,
+          next
+        )
+      } else if (intent.kind === 'replace-structure') {
+        prepared = this.#worker.prepareStructureReplacement(
+          intent.target,
+          intent.replacement,
+          next
+        )
+      } else if (intent.kind === 'convert-block') {
+        prepared = this.#worker.prepareBlockConversion(
+          intent.target,
+          intent.conversion,
+          next
+        )
+      } else if (intent.kind === 'quick-insert-block') {
+        prepared = this.#worker.prepareQuickInsertBlock(
+          intent.target,
+          intent.conversion,
+          next
+        )
+      } else if (intent.kind === 'duplicate-block') {
+        prepared = this.#worker.prepareBlockDuplication(intent.target, next)
+      } else if (intent.kind === 'delete-block') {
+        prepared = this.#worker.prepareBlockDeletion(intent.target, next)
+      } else if (intent.kind === 'insert-paragraph') {
+        prepared = this.#worker.prepareParagraphInsertion(
+          intent.target,
+          intent.location,
+          next
+        )
+      } else if (intent.kind === 'insert-paragraph-break') {
+        prepared = this.#worker.prepareSemanticBreak(
+          intent.target,
+          'paragraph',
+          next
+        )
+      } else if (intent.kind === 'insert-line-break') {
+        prepared = this.#worker.prepareSemanticBreak(
+          intent.target,
+          'line',
+          next
+        )
+      } else if (intent.kind === 'set-list-indentation') {
+        prepared = this.#worker.prepareListIndentation(
+          intent.target,
+          intent.direction,
+          next
+        )
+      } else if (intent.kind === 'set-task-checked') {
+        prepared = this.#worker.prepareTaskChecked(
+          intent.target,
+          intent.checked,
+          intent.cascade,
+          next
+        )
+      } else if (intent.kind === 'set-code-language') {
+        prepared = this.#worker.prepareCodeLanguage(
+          intent.target,
+          intent.language,
+          next
+        )
+      } else if (intent.kind === 'insert-link') {
+        prepared = this.#worker.prepareLinkInsertion(
+          intent.target,
+          intent.href,
+          intent.title,
+          next
+        )
+      } else if (intent.kind === 'insert-image') {
+        prepared = this.#worker.prepareImageInsertion(
+          intent.target,
+          {
+            src: intent.src,
+            alt: intent.alt,
+            ...(intent.title === undefined ? {} : { title: intent.title })
+          },
+          next
+        )
+      } else if (intent.kind === 'insert-footnote') {
+        prepared = this.#worker.prepareFootnoteInsertion(
+          intent.target,
+          intent.label,
+          intent.content,
+          next
+        )
+      } else if (intent.kind === 'create-table') {
+        prepared = this.#worker.prepareTableCreation(
+          intent.target,
+          intent.rows,
+          intent.columns,
+          next
+        )
+      } else if (intent.kind === 'insert-table-row') {
+        prepared = this.#worker.prepareTableRowInsertion(
+          intent.target,
+          intent.location,
+          next
+        )
+      } else if (intent.kind === 'remove-table-row') {
+        prepared = this.#worker.prepareTableRowRemoval(intent.target, next)
+      } else if (intent.kind === 'insert-table-column') {
+        prepared = this.#worker.prepareTableColumnInsertion(
+          intent.target,
+          intent.location,
+          next
+        )
+      } else if (intent.kind === 'remove-table-column') {
+        prepared = this.#worker.prepareTableColumnRemoval(intent.target, next)
+      } else if (intent.kind === 'align-table-column') {
+        prepared = this.#worker.prepareTableColumnAlignment(
+          intent.target,
+          intent.alignment,
+          next
+        )
+      } else if (intent.kind === 'move-table-row') {
+        prepared = this.#worker.prepareTableRowMove(
+          intent.target,
+          intent.direction,
+          next
+        )
+      } else if (intent.kind === 'move-table-column') {
+        prepared = this.#worker.prepareTableColumnMove(
+          intent.target,
+          intent.direction,
+          next
+        )
+      } else if (intent.kind === 'delete-table-cell-contents') {
+        prepared = this.#worker.prepareTableCellContentsDeletion(
+          intent.target,
+          next
+        )
+      } else if (intent.kind === 'paste-text') {
+        prepared = this.#worker.preparePaste(
+          intent.target,
+          intent.text,
+          intent.source,
+          next
+        )
+      } else if (intent.kind === 'commit-composition') {
+        prepared = this.#worker.prepareCompositionCommit(
+          intent.target,
+          intent.text,
+          next
+        )
+      } else if (intent.kind === 'author-critic-markup') {
+        prepared = this.#worker.prepareCriticMarkupAuthoring(
+          intent.target,
+          intent.input,
+          next
+        )
+      } else if (intent.kind === 'reload-source-from-file') {
+        prepared = this.#worker.prepareSourceCommit(intent.source, next)
+      } else if (intent.kind === 'edit-source') {
+        prepared = this.#worker.prepareSourceEdit(
+          intent.target,
+          intent.text,
+          intent.selection,
+          next
+        )
       } else if (intent.kind === 'undo') {
         prepared = this.#worker.prepareUndo(next)
-      } else {
+      } else if (intent.kind === 'redo') {
         prepared = this.#worker.prepareRedo(next)
+      } else {
+        prepared = this.#worker.prepareTransformation(intent, next)
       }
       const transitionId = this.#ids.transition()
-
-      await this.#journal.appendCommit(
-        ticket,
-        sequence,
-        transitionId,
-        prepared.transition,
-        prepared.revision.source.text
-      )
+      if (await this.#journal.beginCommit(ticket) === 'cancelled') {
+        this.#ids.restore(rollbackIds)
+        return this.#settleCancelled(ticket, sequence, submittedAgainst)
+      }
       this.#worker.commit(prepared)
 
       const after = this.#createSnapshot()
+      const cause =
+        intent.kind === 'undo' || intent.kind === 'redo'
+          ? intent.kind
+          : ('source-edit' as const)
       const transition: RevisionChangedTransition = Object.freeze({
         kind: 'revision-changed' as const,
         id: transitionId,
         // Insertion and deletion are both source edits; undo/redo name
         // themselves.
-        cause: intent.kind === 'insert-text' ||
-          intent.kind === 'delete-text' ||
-          intent.kind === 'replace-text'
-          ? 'source-edit'
-          : intent.kind,
+        cause,
         history: prepared.history,
         before,
         after,
@@ -388,14 +1291,89 @@ export class SessionCoordinator {
         }),
         effects: EMPTY_EFFECTS
       })
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'committed' as const,
+        ticket,
+        sequence,
+        submittedAgainst,
+        transition: transitionId,
+        cause,
+        history: prepared.history,
+        revision: Object.freeze({
+          base: prepared.transition.base,
+          next: prepared.transition.next
+        }),
+        sourceHash: prepared.revision.sourceHash,
+        semanticHash: prepared.revision.semanticHash
+      })
+
+      try {
+        await this.#journal.settle(
+          ticket,
+          this.checkpoint(this.#retainedDrafts, sequence),
+          outcome
+        )
+      } catch (error) {
+        this.#worker.restore(rollbackWorker)
+        this.#ids.restore(rollbackIds)
+        throw error
+      }
 
       this.#snapshot = after
       this.#settledWatermark = sequence
       this.#publish(transition)
       return Object.freeze({ kind: 'committed' as const, transition })
     } catch (error) {
+      if (error instanceof DocumentExecutionCancelledError) {
+        if (this.#worker.state.id !== rollbackWorker.id) {
+          this.#worker.restore(rollbackWorker)
+        }
+        this.#ids.restore(rollbackIds)
+        return this.#settleCancelled(
+          ticket,
+          sequence,
+          submittedAgainst
+        )
+      }
       if (!(error instanceof IntentRejection)) {
-        throw error
+        if (this.#worker.state.id !== rollbackWorker.id) {
+          this.#worker.restore(rollbackWorker)
+        }
+        this.#ids.restore(rollbackIds)
+        const effect: SessionEffect = Object.freeze({
+          id: this.#ids.effect(),
+          kind: 'dispatch-failure' as const,
+          ticket,
+          code: 'precommit-failed' as const,
+          status: 'pending' as const
+        })
+        const effects = Object.freeze([...this.#effects, effect])
+        const outcome: SessionTicketOutcome = Object.freeze({
+          kind: 'rejected' as const,
+          ticket,
+          sequence,
+          submittedAgainst,
+          reason: 'precommit-failed' as const,
+          revision: rollbackWorker.id,
+          effect
+        })
+        await this.#journal.settle(
+          ticket,
+          this.checkpoint(
+            this.#retainedDrafts,
+            sequence,
+            effects
+          ),
+          outcome
+        )
+        this.#effects = effects
+        this.#settledWatermark = sequence
+        return Object.freeze({
+          kind: 'rejected' as const,
+          reason: 'precommit-failed' as const,
+          snapshot: before,
+          effect
+        })
       }
 
       let retainedDraft: PendingInputDraft | undefined
@@ -419,7 +1397,10 @@ export class SessionCoordinator {
       let after = this.#snapshot
       let stateTransition: SessionStateChangedTransition | undefined
       if (retainedDraft !== undefined) {
-        after = this.#createSnapshot(retainedDrafts, before.livePlan)
+        after = this.#createSnapshot(
+          retainedDrafts,
+          before.kind === 'complete' ? before.livePlan : undefined
+        )
         stateTransition = Object.freeze({
           kind: 'session-state-changed' as const,
           id: this.#ids.transition(),
@@ -430,15 +1411,35 @@ export class SessionCoordinator {
         })
       }
 
-      await this.#journal.appendDispatchOutcome(
-        ticket,
-        sequence,
-        'rejected',
-        this.#worker.state.id,
-        error.code,
-        retainedDraft,
-        stateTransition?.id
-      )
+      const outcome: SessionTicketOutcome =
+        retainedDraft === undefined
+          ? Object.freeze({
+            kind: 'rejected' as const,
+            ticket,
+            sequence,
+            submittedAgainst,
+            reason: error.code,
+            revision: this.#worker.state.id
+          })
+          : Object.freeze({
+            kind: 'rejected' as const,
+            ticket,
+            sequence,
+            submittedAgainst,
+            reason: error.code,
+            revision: this.#worker.state.id,
+            retainedDraft
+          })
+      try {
+        await this.#journal.settle(
+          ticket,
+          this.checkpoint(retainedDrafts, sequence),
+          outcome
+        )
+      } catch (journalError) {
+        this.#ids.restore(rollbackIds)
+        throw journalError
+      }
       this.#settledWatermark = sequence
 
       if (retainedDraft !== undefined && stateTransition !== undefined) {
@@ -461,14 +1462,674 @@ export class SessionCoordinator {
     }
   }
 
+  async #commitProjectionState(
+    ticket: IntentId,
+    sequence: number,
+    submittedAgainst: RevisionId,
+    projection: CriticMarkupProjection
+  ): Promise<DispatchResult> {
+    const before = this.#snapshot
+    if (before.kind === 'source-only') {
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'rejected' as const,
+        ticket,
+        sequence,
+        submittedAgainst,
+        reason: 'source-only-revision' as const,
+        revision: this.#worker.state.id
+      })
+      await this.#journal.settle(
+        ticket,
+        this.checkpoint(this.#retainedDrafts, sequence),
+        outcome
+      )
+      this.#settledWatermark = sequence
+      return Object.freeze({
+        kind: 'rejected' as const,
+        reason: 'source-only-revision' as const,
+        snapshot: before
+      })
+    }
+    if (this.#projection === projection) {
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'rejected' as const,
+        ticket,
+        sequence,
+        submittedAgainst,
+        reason: 'no-source-change' as const,
+        revision: this.#worker.state.id
+      })
+      await this.#journal.settle(
+        ticket,
+        this.checkpoint(this.#retainedDrafts, sequence),
+        outcome
+      )
+      this.#settledWatermark = sequence
+      return Object.freeze({
+        kind: 'rejected' as const,
+        reason: 'no-source-change' as const,
+        snapshot: before
+      })
+    }
+
+    const rollbackIds = this.#ids.checkpoint()
+    const rollbackProjection = this.#projection
+    const transitionId = this.#ids.transition()
+    try {
+      if (await this.#journal.beginCommit(ticket) === 'cancelled') {
+        this.#ids.restore(rollbackIds)
+        return this.#settleCancelled(ticket, sequence, submittedAgainst)
+      }
+      this.#projection = projection
+      const after = this.#createSnapshot()
+      const transition: SessionStateChangedTransition = Object.freeze({
+        kind: 'session-state-changed' as const,
+        id: transitionId,
+        coalescing: 'break' as const,
+        before,
+        after,
+        effects: EMPTY_EFFECTS
+      })
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'state-changed' as const,
+        ticket,
+        sequence,
+        submittedAgainst,
+        transition: transitionId,
+        revision: this.#worker.state.id,
+        trackChanges: this.#worker.trackChanges,
+        projection
+      })
+      await this.#journal.settle(
+        ticket,
+        this.checkpoint(this.#retainedDrafts, sequence),
+        outcome
+      )
+      this.#snapshot = after
+      this.#settledWatermark = sequence
+      this.#publish(transition)
+      return Object.freeze({
+        kind: 'state-changed' as const,
+        transition
+      })
+    } catch {
+      this.#projection = rollbackProjection
+      this.#ids.restore(rollbackIds)
+      const effect: SessionEffect = Object.freeze({
+        id: this.#ids.effect(),
+        kind: 'dispatch-failure' as const,
+        ticket,
+        code: 'precommit-failed' as const,
+        status: 'pending' as const
+      })
+      const effects = Object.freeze([...this.#effects, effect])
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'rejected' as const,
+        ticket,
+        sequence,
+        submittedAgainst,
+        reason: 'precommit-failed' as const,
+        revision: this.#worker.state.id,
+        effect
+      })
+      await this.#journal.settle(
+        ticket,
+        this.checkpoint(this.#retainedDrafts, sequence, effects),
+        outcome
+      )
+      this.#effects = effects
+      this.#settledWatermark = sequence
+      return Object.freeze({
+        kind: 'rejected' as const,
+        reason: 'precommit-failed' as const,
+        snapshot: before,
+        effect
+      })
+    }
+  }
+
+  async #commitTrackChangesState(
+    ticket: IntentId,
+    sequence: number,
+    submittedAgainst: RevisionId,
+    enabled: boolean
+  ): Promise<DispatchResult> {
+    const before = this.#snapshot
+    if (this.#worker.trackChanges === enabled) {
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'rejected' as const,
+        ticket,
+        sequence,
+        submittedAgainst,
+        reason: 'no-source-change' as const,
+        revision: this.#worker.state.id
+      })
+      await this.#journal.settle(
+        ticket,
+        this.checkpoint(this.#retainedDrafts, sequence),
+        outcome
+      )
+      this.#settledWatermark = sequence
+      return Object.freeze({
+        kind: 'rejected' as const,
+        reason: 'no-source-change' as const,
+        snapshot: before
+      })
+    }
+
+    const rollbackWorker = this.#worker.checkpoint()
+    const rollbackIds = this.#ids.checkpoint()
+    const rollbackConfiguration = this.#configuration
+    const transitionId = this.#ids.transition()
+    try {
+      if (await this.#journal.beginCommit(ticket) === 'cancelled') {
+        this.#ids.restore(rollbackIds)
+        return this.#settleCancelled(ticket, sequence, submittedAgainst)
+      }
+      this.#worker.setTrackChanges(enabled)
+      this.#configuration = Object.freeze({
+        ...this.#configuration,
+        trackChanges: enabled
+      })
+      const after = this.#createSnapshot(
+        this.#retainedDrafts,
+        before.kind === 'complete' ? before.livePlan : undefined
+      )
+      const transition: SessionStateChangedTransition = Object.freeze({
+        kind: 'session-state-changed' as const,
+        id: transitionId,
+        coalescing: 'break' as const,
+        before,
+        after,
+        effects: EMPTY_EFFECTS
+      })
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'state-changed' as const,
+        ticket,
+        sequence,
+        submittedAgainst,
+        transition: transitionId,
+        revision: this.#worker.state.id,
+        trackChanges: enabled,
+        projection: this.#projection
+      })
+      await this.#journal.settle(
+        ticket,
+        this.checkpoint(this.#retainedDrafts, sequence),
+        outcome
+      )
+      this.#snapshot = after
+      this.#settledWatermark = sequence
+      this.#publish(transition)
+      return Object.freeze({
+        kind: 'state-changed' as const,
+        transition
+      })
+    } catch {
+      this.#worker.restore(rollbackWorker)
+      this.#ids.restore(rollbackIds)
+      this.#configuration = rollbackConfiguration
+      const effect: SessionEffect = Object.freeze({
+        id: this.#ids.effect(),
+        kind: 'dispatch-failure' as const,
+        ticket,
+        code: 'precommit-failed' as const,
+        status: 'pending' as const
+      })
+      const effects = Object.freeze([...this.#effects, effect])
+      const outcome: SessionTicketOutcome = Object.freeze({
+        kind: 'rejected' as const,
+        ticket,
+        sequence,
+        submittedAgainst,
+        reason: 'precommit-failed' as const,
+        revision: rollbackWorker.id,
+        effect
+      })
+      await this.#journal.settle(
+        ticket,
+        this.checkpoint(this.#retainedDrafts, sequence, effects),
+        outcome
+      )
+      this.#effects = effects
+      this.#settledWatermark = sequence
+      return Object.freeze({
+        kind: 'rejected' as const,
+        reason: 'precommit-failed' as const,
+        snapshot: before,
+        effect
+      })
+    }
+  }
+
+  async #settleCancelled(
+    ticket: IntentId,
+    sequence: number,
+    submittedAgainst: RevisionId
+  ): Promise<DispatchResult> {
+    const outcome: SessionTicketOutcome = Object.freeze({
+      kind: 'cancelled' as const,
+      ticket,
+      sequence,
+      submittedAgainst,
+      reason: 'cancelled' as const,
+      revision: this.#worker.state.id
+    })
+    await this.#journal.settle(
+      ticket,
+      this.checkpoint(
+        this.#retainedDrafts,
+        Math.max(this.#settledWatermark, sequence)
+      ),
+      outcome
+    )
+    this.#settledWatermark = Math.max(this.#settledWatermark, sequence)
+    return Object.freeze({
+      kind: 'cancelled' as const,
+      reason: 'cancelled' as const,
+      snapshot: this.#snapshot
+    })
+  }
+
+  #requestCancellation(
+    state: LiveTicketState
+  ): Promise<'requested' | 'too-late' | 'already-terminal' | 'unknown-ticket'> {
+    if (state.phase === 'preparing' || state.phase === 'terminal') {
+      return Promise.resolve('too-late')
+    }
+    state.cancelRequested = true
+    state.cancelPersistence ??= state.admission.then(() =>
+      this.#journal.requestCancel(state.id, this.checkpoint())
+    )
+    return state.cancelPersistence
+  }
+
+  #cancel(ticket: IntentId): SessionOperation<SessionCancelResult> {
+    const id = this.#ids.operation()
+    const clientSequence = this.#nextClientSequence()
+    const terminal = this.#journal.ticketOutcome(ticket)
+    if (terminal !== null) {
+      return Object.freeze({
+        id,
+        clientSequence,
+        completion: Promise.resolve(
+          Object.freeze({
+            kind: 'already-terminal' as const,
+            ticket,
+            outcome: terminal.kind
+          })
+        )
+      })
+    }
+
+    const state = this.#liveTickets.get(ticket)
+    if (state === undefined) {
+      return Object.freeze({
+        id,
+        clientSequence,
+        completion: Promise.resolve(
+          Object.freeze({ kind: 'unknown-ticket' as const, ticket })
+        )
+      })
+    }
+
+    const requested = this.#requestCancellation(state)
+    const completion = Object.freeze(async(): Promise<SessionCancelResult> => {
+      const decision = await requested
+      if (decision === 'too-late') {
+        return Object.freeze({ kind: 'too-late' as const, ticket })
+      }
+      if (decision === 'unknown-ticket') {
+        return Object.freeze({ kind: 'unknown-ticket' as const, ticket })
+      }
+      const dispatch = state.completion
+      if (dispatch !== undefined) {
+        await dispatch
+      }
+      const outcome = this.#journal.ticketOutcome(ticket)
+      if (outcome?.kind === 'cancelled') {
+        return Object.freeze({ kind: 'cancelled' as const, ticket })
+      }
+      if (outcome !== null) {
+        return Object.freeze({
+          kind: 'already-terminal' as const,
+          ticket,
+          outcome: outcome.kind
+        })
+      }
+      return Object.freeze({ kind: 'too-late' as const, ticket })
+    })()
+    return Object.freeze({ id, clientSequence, completion })
+  }
+
+  #close(): SessionOperation<SessionCloseResult> {
+    const id = this.#ids.operation()
+    const clientSequence = this.#nextClientSequence()
+    if (this.#lifecycle === 'closed') {
+      return Object.freeze({
+        id,
+        clientSequence,
+        completion: Promise.resolve(
+          Object.freeze({ kind: 'already-closed' as const })
+        )
+      })
+    }
+    if (this.#lifecycle === 'closing') {
+      return Object.freeze({
+        id,
+        clientSequence,
+        completion: Promise.resolve(
+          Object.freeze({ kind: 'already-closing' as const })
+        )
+      })
+    }
+
+    this.#lifecycle = 'closing'
+    for (const state of this.#liveTickets.values()) {
+      this.#requestCancellation(state).catch(() => undefined)
+    }
+    const completion = this.#finishClose().then(
+      (): SessionCloseResult => Object.freeze({ kind: 'closed' as const })
+    )
+    return Object.freeze({ id, clientSequence, completion })
+  }
+
+  async #finishClose(): Promise<void> {
+    await Promise.all(
+      [...this.#liveTickets.values()].map(async(state) => {
+        try {
+          await state.completion
+        } catch {
+          // A failed stale writer cannot keep a replacement coordinator open.
+        }
+      })
+    )
+    const effects = Object.freeze(
+      this.#effects.map((effect): SessionEffect =>
+        effect.status === 'pending'
+          ? Object.freeze({ ...effect, status: 'cancelled' as const })
+          : effect
+      )
+    )
+    await this.#journal.checkpoint(
+      this.checkpoint(
+        this.#retainedDrafts,
+        this.#settledWatermark,
+        effects,
+        'closed'
+      )
+    )
+    this.#effects = effects
+    this.#lifecycle = 'closed'
+    for (const lease of this.#leases.values()) {
+      lease.released = true
+    }
+    this.#leases.clear()
+    this.#listeners.clear()
+  }
+
+  async finishRecoveredClose(): Promise<void> {
+    if (this.#lifecycle === 'closing') {
+      await this.#finishClose()
+    }
+  }
+
+  #acknowledgeEffect(
+    effectId: SessionEffectId
+  ): SessionOperation<EffectAcknowledgementResult> {
+    const id = this.#ids.operation()
+    const clientSequence = this.#nextClientSequence()
+    const completion = this.#enqueue(async(): Promise<EffectAcknowledgementResult> => {
+      const effect = this.#effects.find((candidate) => candidate.id === effectId)
+      if (effect === undefined) {
+        return Object.freeze({
+          kind: 'unknown-effect' as const,
+          effect: effectId
+        })
+      }
+      if (effect.status !== 'pending') {
+        return Object.freeze({
+          kind: 'already-terminal' as const,
+          effect: effectId,
+          status: effect.status
+        })
+      }
+      const effects = Object.freeze(
+        this.#effects.map((candidate): SessionEffect =>
+          candidate.id === effectId
+            ? Object.freeze({ ...candidate, status: 'acknowledged' as const })
+            : candidate
+        )
+      )
+      await this.#journal.checkpoint(
+        this.checkpoint(
+          this.#retainedDrafts,
+          this.#settledWatermark,
+          effects
+        )
+      )
+      this.#effects = effects
+      return Object.freeze({
+        kind: 'acknowledged' as const,
+        effect: effectId
+      })
+    })
+    return Object.freeze({ id, clientSequence, completion })
+  }
+
   #flush(reason: FlushReason): SessionOperation<FlushResult> {
     return this.#requestSourceLease('flush', reason)
+  }
+
+  #materializeStatic<Consumer extends StaticConsumer>(
+    request: StaticConsumerRequest<Consumer>
+  ): SessionOperation<SessionStaticMaterializationResult<Consumer>> {
+    if (this.#lifecycle !== 'open') {
+      throw new Error('Document session is closed')
+    }
+    const id = this.#ids.operation()
+    const clientSequence = this.#nextClientSequence()
+    const stableRequest = Object.freeze({
+      consumer: request.consumer,
+      view: request.view,
+      structure: Object.freeze({
+        headingAnchors: request.structure.headingAnchors,
+        tableOfContents: Object.freeze({
+          title: request.structure.tableOfContents.title,
+          includeTopHeading:
+            request.structure.tableOfContents.includeTopHeading
+        })
+      })
+    }) as StaticConsumerRequest<Consumer>
+    const completion = this.#enqueue(
+      (): SessionStaticMaterializationResult<Consumer> => {
+        const state = this.#worker.state
+        if (!('markupView' in state)) {
+          return Object.freeze({
+            kind: 'unavailable' as const,
+            reason: 'source-only-revision' as const,
+            revision: Object.freeze({
+              kind: 'source-only' as const,
+              session: state.session,
+              id: state.id,
+              fatalDiagnostic: state.revision.fatalDiagnostic
+            })
+          })
+        }
+        return Object.freeze({
+          kind: 'materialized' as const,
+          revision: Object.freeze({
+            kind: 'complete' as const,
+            session: state.session,
+            id: state.id,
+            sourceHash: state.revision.sourceHash,
+            semanticHash: state.revision.semanticHash
+          }),
+          artifact: materializeStaticConsumer(
+            state.revision,
+            stableRequest
+          )
+        })
+      }
+    )
+    return Object.freeze({ id, clientSequence, completion })
+  }
+
+  #preflightCut(
+    preparation: CutPreparation,
+    consumer: 'cut' | 'cut-table'
+  ): void {
+    const state = this.#worker.state
+    const range = preparation.selection
+    const next = `${String(state.id)}:cut-preflight` as RevisionId
+    if (preparation.view === 'source') {
+      if (consumer !== 'cut') {
+        throw new TypeError('Source cut cannot use a table consumer')
+      }
+      const retained = 'markupView' in state
+        ? state.sourceSelection
+        : state.selection
+      const target: SourceModelSelection = Object.freeze({
+        session: state.session,
+        revision: state.id,
+        view: 'source',
+        anchor: Object.freeze({
+          offset: range.start,
+          affinity: (
+            retained.anchor.offset === range.start
+              ? retained.anchor.affinity
+              : 'next'
+          )
+        }),
+        focus: Object.freeze({
+          offset: range.end,
+          affinity: (
+            retained.focus.offset === range.end
+              ? retained.focus.affinity
+              : range.start === range.end
+                ? 'next'
+                : 'previous'
+          )
+        })
+      })
+      this.#worker.prepareSourceEdit(
+        target,
+        '',
+        Object.freeze({
+          anchor: Object.freeze({
+            offset: range.start,
+            affinity: 'next'
+          }),
+          focus: Object.freeze({
+            offset: range.start,
+            affinity: 'next'
+          })
+        }),
+        next
+      )
+      return
+    }
+
+    if (!('markupView' in state)) {
+      throw new TypeError('Markup cut requires a complete revision')
+    }
+    const retained = state.selection
+    const retainedStart = Math.min(
+      retained.anchor.offset,
+      retained.focus.offset
+    )
+    const retainedEnd = Math.max(
+      retained.anchor.offset,
+      retained.focus.offset
+    )
+    const target: MarkupModelSelection = (
+      retainedStart === range.start &&
+      retainedEnd === range.end
+    )
+      ? retained
+      : Object.freeze({
+        session: state.session,
+        revision: state.id,
+        view: 'markup',
+        anchor: Object.freeze({
+          offset: range.start,
+          affinity: 'next'
+        }),
+        focus: Object.freeze({
+          offset: range.end,
+          affinity: range.start === range.end ? 'next' : 'previous'
+        })
+      })
+    if (consumer === 'cut-table') {
+      this.#worker.prepareTableCellContentsDeletion(target, next)
+      return
+    }
+    this.#worker.prepareDeletion(target, next)
+  }
+
+  #materializeClipboard(
+    request: ClipboardConsumerRequest
+  ): SessionOperation<SessionClipboardMaterializationResult> {
+    if (this.#lifecycle !== 'open') {
+      throw new Error('Document session is closed')
+    }
+    const id = this.#ids.operation()
+    const clientSequence = this.#nextClientSequence()
+    const stableRequest: ClipboardConsumerRequest =
+      request.consumer === 'copy-heading-link'
+        ? Object.freeze({
+          consumer: request.consumer,
+          view: request.view,
+          targetNodeId: request.targetNodeId
+        })
+        : Object.freeze({
+          consumer: request.consumer,
+          view: request.view,
+          selection: Object.freeze({ ...request.selection })
+        })
+    const completion = this.#enqueue(() => {
+      const state = this.#worker.state
+      if (!('markupView' in state)) {
+        return Object.freeze({
+          kind: 'unavailable' as const,
+          reason: 'source-only-revision' as const
+        })
+      }
+      const artifact = materializeClipboardConsumer(
+        state.revision,
+        stableRequest
+      )
+      if (artifact.kind === 'cut-preparation') {
+        if (
+          stableRequest.consumer !== 'cut' &&
+          stableRequest.consumer !== 'cut-table'
+        ) {
+          throw new TypeError('Cut preparation has no cut consumer')
+        }
+        this.#preflightCut(artifact, stableRequest.consumer)
+      }
+      return Object.freeze({
+        kind: 'materialized' as const,
+        revision: Object.freeze({
+          kind: 'complete' as const,
+          session: state.session,
+          id: state.id,
+          sourceHash: state.revision.sourceHash,
+          semanticHash: state.revision.semanticHash
+        }),
+        artifact
+      })
+    })
+    return Object.freeze({ id, clientSequence, completion })
   }
 
   #requestSourceLease(
     operation: 'flush' | 'prepare-persistence',
     reason: FlushReason | PersistenceReason
   ): SessionOperation<FlushResult> {
+    if (this.#lifecycle !== 'open') {
+      throw new Error('Document session is closed')
+    }
     const id = this.#ids.operation()
     const clientSequence = this.#nextClientSequence()
     const completion = this.#enqueue(() =>
@@ -479,17 +2140,12 @@ export class SessionCoordinator {
   }
 
   async #performSourceLease(
-    id: SessionOperationId,
-    clientSequence: number,
-    operation: 'flush' | 'prepare-persistence',
-    reason: FlushReason | PersistenceReason
+    _id: SessionOperationId,
+    _clientSequence: number,
+    _operation: 'flush' | 'prepare-persistence',
+    _reason: FlushReason | PersistenceReason
   ): Promise<FlushResult> {
-    await this.#journal.appendOperation(
-      id,
-      clientSequence,
-      `${operation}:${reason}`,
-      this.#worker.state.id
-    )
+    await this.#journal.checkpoint(this.checkpoint())
 
     const watermark = this.#settledWatermark
     if (this.#retainedDrafts.length > 0) {
@@ -509,12 +2165,29 @@ export class SessionCoordinator {
       released: false
     }
     this.#leases.set(leaseState.id, leaseState)
+    const previousReopenSemanticHashes = this.#reopenSemanticHashes
+    this.#reopenSemanticHashes = Object.freeze(
+      [
+        ...this.#reopenSemanticHashes.filter(
+          (hash) => hash !== revision.semanticHash
+        ),
+        revision.semanticHash
+      ].slice(-DOCUMENT_RESOURCE_POLICY_V1.maximumJournalOutcomes)
+    )
+    try {
+      await this.#journal.checkpoint(this.checkpoint())
+    } catch (error) {
+      this.#leases.delete(leaseState.id)
+      this.#reopenSemanticHashes = previousReopenSemanticHashes
+      throw error
+    }
     const source = this.#createLease(leaseState)
 
     return Object.freeze({
       kind: 'flushed' as const,
       watermark,
       revision,
+      facts: this.#snapshot.facts,
       source
     })
   }
@@ -523,13 +2196,14 @@ export class SessionCoordinator {
     const readChunks = Object.freeze(() => this.#createChunkStream(state))
     const release = Object.freeze((reason: LeaseReleaseReason) => this.#releaseLease(state, reason))
 
-    return Object.freeze({
+    return authenticateCanonicalSourceLease(Object.freeze({
       id: state.id,
       watermark: state.watermark,
       revision: state.revision,
+      sourceHash: state.revision.sourceHash,
       readChunks,
       release
-    })
+    }))
   }
 
   #createChunkStream(state: LeaseState): AsyncIterable<CanonicalSourceChunk> {
@@ -571,12 +2245,12 @@ export class SessionCoordinator {
   }
 
   async #performRelease(
-    id: SessionOperationId,
-    clientSequence: number,
+    _id: SessionOperationId,
+    _clientSequence: number,
     state: LeaseState,
-    reason: LeaseReleaseReason
+    _reason: LeaseReleaseReason
   ): Promise<LeaseReleaseResult> {
-    await this.#journal.appendOperation(id, clientSequence, `release:${reason}`, state.revision.id)
+    await this.#journal.checkpoint(this.checkpoint())
     if (state.released) {
       return Object.freeze({ kind: 'already-terminal' as const, lease: state.id })
     }
@@ -626,6 +2300,72 @@ export class SessionCoordinator {
   }
 }
 
-export function createSessionCoordinator(options: DocumentSessionOpenOptions): SessionCoordinator {
-  return new SessionCoordinator(options)
+export async function createSessionCoordinator(
+  options: DocumentSessionOpenOptions
+): Promise<SessionCoordinator> {
+  const execution = options.executionControl === undefined
+    ? undefined
+    : createParseExecutionAccumulator(options.executionControl)
+  const configuration = Object.freeze({
+    authoringTextPolicy:
+      options.configuration?.authoringTextPolicy ?? 'nearest-owner-eol-v1'
+  })
+  const identity = [
+    revisionSemanticHashV1(
+      sourceHashV1(options.source.text, execution?.stage()),
+      options.parseConfiguration
+    ),
+    configuration.authoringTextPolicy
+  ].join(':')
+  const storage =
+    options.durability?.storage ?? createMemoryDocumentSessionJournalStorage()
+  const journal = await DurableSessionJournal.open(
+    storage,
+    options.durability?.key ?? 'ephemeral',
+    identity
+  )
+  const coordinator = new SessionCoordinator(
+    execution === undefined
+      ? options
+      : Object.freeze({
+        ...options,
+        executionControl: execution.stage()
+      }),
+    journal,
+    journal.recoveryCheckpoint
+  )
+  await journal.initialize(coordinator.checkpoint())
+  await coordinator.recoverPendingIngress()
+  await coordinator.finishRecoveredClose()
+  return coordinator
+}
+
+export async function recoverSessionCoordinator(
+  durability: DocumentSessionDurability,
+  executionControl?: ParseExecutionControl
+): Promise<SessionCoordinator> {
+  const journal = await DurableSessionJournal.recover(
+    durability.storage,
+    durability.key
+  )
+  const recovery = journal.recoveryCheckpoint
+  if (recovery === null) {
+    throw new Error('Document session journal has no recovery checkpoint')
+  }
+  const options: DocumentSessionOpenOptions = Object.freeze({
+    source: createSourceSnapshot(recovery.worker.source),
+    parseConfiguration: recovery.worker.configuration,
+    configuration: Object.freeze({
+      authoringTextPolicy: 'nearest-owner-eol-v1' as const
+    }),
+    initialView: 'markup' as const,
+    trackChanges: recovery.worker.trackChanges,
+    initialSelection: recovery.worker.selection,
+    durability,
+    ...(executionControl === undefined ? {} : { executionControl })
+  })
+  const coordinator = new SessionCoordinator(options, journal, recovery)
+  await coordinator.recoverPendingIngress()
+  await coordinator.finishRecoveredClose()
+  return coordinator
 }

@@ -13,16 +13,6 @@ thirdPartyChecker.getLicenses(desktopRoot, (err, packages) => {
     return
   }
 
-  // The vendored Marked fork is a private workspace package, so
-  // license-checker never sees it — but its upstream sources ship in the
-  // bundle and must be attributed from the fork's own LICENSE.
-  const markedForkRoot = path.resolve(__dirname, '..', 'packages/marked')
-  const markedForkVersion = require(path.join(markedForkRoot, 'package.json')).version
-  packages[`marked@${markedForkVersion}`] = {
-    licenses: 'MIT',
-    licenseText: fs.readFileSync(path.join(markedForkRoot, 'LICENSE'), 'utf8')
-  }
-
   let summary = ''
   let licenseList = ''
   let index = 1

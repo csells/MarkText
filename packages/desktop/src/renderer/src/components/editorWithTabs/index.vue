@@ -13,8 +13,6 @@
       />
       <source-code
         v-if="sourceCode"
-        :markdown="markdown"
-        :muya-index-cursor="muyaIndexCursor"
         :text-direction="textDirection"
       />
     </div>
@@ -36,7 +34,6 @@ defineProps<{
   // (see src/shared/types/files.ts); align here instead of forcing every
   // caller to widen.
   cursor: unknown
-  muyaIndexCursor?: unknown
   sourceCode: boolean
   showTabBar: boolean
   textDirection: string

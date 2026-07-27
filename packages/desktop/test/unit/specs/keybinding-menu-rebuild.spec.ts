@@ -39,7 +39,10 @@ vi.mock('common/filesystem', () => ({
 // macOS so the settings window also owns a (non-null) menu that must rebuild.
 vi.mock('main_renderer/config', () => ({ isLinux: false, isOsx: true, isWindows: false }))
 
-vi.mock('main_renderer/menu/actions/edit', () => ({ updateSidebarMenu: vi.fn() }))
+vi.mock('main_renderer/menu/actions/edit', () => ({
+  setSemanticClipboardMenuState: vi.fn(),
+  updateSidebarMenu: vi.fn()
+}))
 vi.mock('main_renderer/menu/actions/format', () => ({ updateFormatMenu: vi.fn() }))
 vi.mock('main_renderer/menu/actions/paragraph', () => ({ updateSelectionMenus: vi.fn() }))
 vi.mock('main_renderer/menu/actions/view', () => ({ viewLayoutChanged: vi.fn() }))

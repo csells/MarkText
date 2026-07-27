@@ -3,19 +3,23 @@ import path from 'path'
 import Store, { type Schema } from 'electron-store'
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import log from 'electron-log'
-import { isWindows } from '../config'
 import { hasSameKeys } from '../utils'
-import { onInternalChannel } from '../utils/internalIpc'
+import { emitInternalChannel, onInternalChannel } from '../utils/internalIpc'
 import { getSupportedLanguages, isLanguageSupported } from 'common/i18n'
 import { TypedEmitter } from '@shared/types/typedEmitter'
-import type { IUserPreferences } from '@shared/types/preferences'
+import {
+  assertPersistedPreferencePatch,
+  assertRendererPreferencePatch,
+  rendererPreferencePatch,
+  type IUserPreferences,
+  type PersistedPreferenceKey
+} from '@shared/types/preferences'
 import schema from './schema.json'
 
 const PREFERENCES_FILE_NAME = 'preferences'
 
-// The Preference class extends EventEmitter but does not currently emit any
-// events itself — keep the event map empty until concrete events are added.
-type PreferenceEvents = Record<string, unknown[]>
+// The preference store has no event namespace of its own.
+type PreferenceEvents = Record<never, never[]>
 
 // Structural subset of EnvPaths/AppPaths — only `preferencesPath` is read here.
 interface AppPaths {
@@ -44,17 +48,7 @@ class Preference extends TypedEmitter<PreferenceEvents> {
     )
     this.store = new Store<IUserPreferences>({
       schema: schema as unknown as Schema<IUserPreferences>,
-      name: PREFERENCES_FILE_NAME,
-      migrations: {
-        '0.18.6': (store) => {
-          if (store.get('startUpAction') === 'lastState') {
-            store.set('startUpAction', 'openLastFolder')
-          }
-        }
-      },
-      beforeEachMigration: (_store, context) => {
-        log.info(`Preferences migration: ${context.fromVersion} -> ${context.toVersion}`)
-      }
+      name: PREFERENCES_FILE_NAME
     })
 
     this.staticPath = path.join(global.__static, 'preference.json')
@@ -88,7 +82,7 @@ class Preference extends TypedEmitter<PreferenceEvents> {
 
     // I don't know why `this.store.size` is 3 when first load, so I just check file existed.
     if (!this.hasPreferencesFile) {
-      this.store.set(defaultSettings)
+      this.store.set(assertPersistedPreferencePatch(defaultSettings))
     } else {
       // Because `this.getAll()` will return a plainObject, so we can not use `hasOwnProperty` method
       // const plainObject = () => Object.create(null)
@@ -107,7 +101,7 @@ class Preference extends TypedEmitter<PreferenceEvents> {
         for (const key of userSettingKeys) {
           if (!defaultSettingKeys.includes(key)) {
             delete userSetting[key]
-            this.store.delete(key)
+            this.store.delete(key as keyof IUserPreferences)
           }
         }
 
@@ -132,9 +126,9 @@ class Preference extends TypedEmitter<PreferenceEvents> {
     return this.store.store as IUserPreferences
   }
 
-  setItem(key: string, value: unknown): void {
-    this.store.set(key, value)
-    ipcMain.emit('broadcast-preferences-changed', { [key]: value })
+  setItem(key: PersistedPreferenceKey, value: unknown): void {
+    this.store.set(key, value as never)
+    emitInternalChannel('broadcast-preferences-changed', { [key]: value })
   }
 
   getItem<T = unknown>(key: string): T {
@@ -146,23 +140,12 @@ class Preference extends TypedEmitter<PreferenceEvents> {
    *
    * @param settings A settings object or subset object with key/value entries.
    */
-  setItems(settings: Record<string, unknown> | null | undefined): void {
-    if (!settings) {
-      log.error('Cannot change settings without entires: object is undefined or null.')
-      return
-    }
-
-    Object.keys(settings).forEach((key) => {
-      this.setItem(key, settings[key])
+  setItems(settings: unknown): void {
+    const validated = assertPersistedPreferencePatch(settings)
+    Object.keys(validated).forEach((key) => {
+      const preferenceKey = key as PersistedPreferenceKey
+      this.setItem(preferenceKey, validated[preferenceKey])
     })
-  }
-
-  getPreferredEol(): 'lf' | 'crlf' {
-    const endOfLine = this.getItem<string>('endOfLine')
-    if (endOfLine === 'lf') {
-      return 'lf'
-    }
-    return endOfLine === 'crlf' || isWindows ? 'crlf' : 'lf'
   }
 
   exportJSON(): void {
@@ -177,17 +160,20 @@ class Preference extends TypedEmitter<PreferenceEvents> {
     ipcMain.on('mt::ask-for-user-preference', (e) => {
       const win = BrowserWindow.fromWebContents(e.sender)
       if (win) {
-        win.webContents.send('mt::user-preference', this.getAll())
+        win.webContents.send(
+          'mt::user-preference',
+          rendererPreferencePatch(this.getAll())
+        )
       }
     })
-    ipcMain.on('mt::set-user-preference', (_e, settings: Record<string, unknown>) => {
-      this.setItems(settings)
+    ipcMain.on('mt::set-user-preference', (_e, settings: unknown) => {
+      this.setItems(assertRendererPreferencePatch(settings))
     })
     ipcMain.on('mt::cmd-toggle-autosave', () => {
       this.setItem('autoSave', !this.getItem('autoSave'))
     })
 
-    onInternalChannel('set-user-preference', (settings: Record<string, unknown>) => {
+    onInternalChannel('set-user-preference', (settings: unknown) => {
       this.setItems(settings)
     })
   }

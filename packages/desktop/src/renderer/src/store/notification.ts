@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import notice, { type NotifyOptions } from '../services/notification'
 import { t } from '../i18n'
+import { openExternalResource } from '../services/presentationEffects'
 
 export const useNotificationStore = defineStore('notification', () => {
   function listenForNotification(): void {
@@ -24,7 +25,7 @@ export const useNotificationStore = defineStore('notification', () => {
         showConfirm: true
       })
       await notice.notify(options)
-      window.electron.shell.openExternal('http://pandoc.org')
+      await openExternalResource('pandoc-home')
     })
   }
 

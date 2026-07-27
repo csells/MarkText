@@ -9,7 +9,16 @@ import { rootsOf, runsOf } from '../helpers/collections.js'
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -1064,7 +1073,7 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     expect(revision.projection('revised').source).toBe('x$code {--literal--}$')
   })
 
-  it('uses virtual-lane backslash parity across zero-width CM markers', () => {
+  it('keeps an escaped closer protected before an inline HTML literal', () => {
     const revision = createLanguageEngine().open(
       createSourceSnapshot(String.raw`{==\==}<a title="{++active++}">`),
       TEST_CONFIGURATION
@@ -1075,48 +1084,28 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
-    expect(revision.diagnostics.count).toBe(0)
-    expect(rootsOf(revision.criticMarkup)).toEqual([
-      {
-        kind: 'highlight',
-        range: { start: 0, end: 7 },
-        markers: {
-          open: { start: 0, end: 3 },
-          close: { start: 4, end: 7 }
-        },
-        arms: [{
-          name: 'content',
-          range: { start: 3, end: 4 },
-          children: []
-        }]
-      },
-      {
-        kind: 'addition',
-        range: { start: 17, end: 29 },
-        markers: {
-          open: { start: 17, end: 20 },
-          close: { start: 26, end: 29 }
-        },
-        arms: [{
-          name: 'content',
-          range: { start: 20, end: 26 },
-          children: []
-        }]
-      }
-    ])
-    expect(revision.ownership.ownerAt(7).owner).toEqual({
-      kind: 'markdown-text'
+    expect(revision.diagnostics.count).toBe(1)
+    expect(revision.diagnostics.at(0)).toEqual({
+      code: 'CM_UNTERMINATED_OPENER',
+      range: { start: 0, end: 3 },
+      metadata: {}
+    })
+    expect(rootsOf(revision.criticMarkup)).toEqual([])
+    expect(revision.ownership.ownerAt(7).owner).toMatchObject({
+      kind: 'markdown-literal',
+      provider: 'inline-html'
     })
     expect(revision.ownership.ownerAt(17).owner).toMatchObject({
-      kind: 'critic-marker',
-      form: 'addition',
-      role: 'open'
+      kind: 'markdown-literal',
+      provider: 'inline-html'
     })
-    expect(revision.projection('original').source).toBe(String.raw`\<a title="">`)
-    expect(revision.projection('revised').source).toBe(String.raw`\<a title="active">`)
+    expect(revision.projection('original').source)
+      .toBe(String.raw`{==\==}<a title="{++active++}">`)
+    expect(revision.projection('revised').source)
+      .toBe(String.raw`{==\==}<a title="{++active++}">`)
   })
 
-  it('uses virtual-lane backslash parity to escape a CM opener', () => {
+  it('does not let an escaped closer complete its open frame', () => {
     const revision = createLanguageEngine().open(
       createSourceSnapshot(String.raw`{==\==}{++active++}`),
       TEST_CONFIGURATION
@@ -1127,26 +1116,33 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       throw new Error('Expected a complete document revision')
     }
 
+    expect(revision.diagnostics.at(0)).toEqual({
+      code: 'CM_UNTERMINATED_OPENER',
+      range: { start: 0, end: 3 },
+      metadata: {}
+    })
     expect(rootsOf(revision.criticMarkup)).toEqual([{
-      kind: 'highlight',
-      range: { start: 0, end: 7 },
+      kind: 'addition',
+      range: { start: 7, end: 19 },
       markers: {
-        open: { start: 0, end: 3 },
-        close: { start: 4, end: 7 }
+        open: { start: 7, end: 10 },
+        close: { start: 16, end: 19 }
       },
       arms: [{
         name: 'content',
-        range: { start: 3, end: 4 },
+        range: { start: 10, end: 16 },
         children: []
       }]
     }])
-    expect(revision.ownership.ownerAt(7).owner).toEqual({
-      kind: 'markdown-text'
+    expect(revision.ownership.ownerAt(7).owner).toMatchObject({
+      kind: 'critic-marker',
+      form: 'addition',
+      role: 'open'
     })
     expect(revision.projection('original').source)
-      .toBe(String.raw`\{++active++}`)
+      .toBe(String.raw`{==\==}`)
     expect(revision.projection('revised').source)
-      .toBe(String.raw`\{++active++}`)
+      .toBe(String.raw`{==\==}active`)
   })
 
   it('invalidates an outer link label after resolving a nested link', () => {
@@ -1684,7 +1680,15 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
     }
 
     const table = revision.projection('revised').markdown.root.childAt(0)
-    expect(table).toMatchObject({ kind: 'table', childCount: 2 })
+    expect(table).toMatchObject({
+      kind: 'table',
+      attributes: {
+        columns: 2,
+        delimiterStart: 10,
+        delimiterEnd: 25
+      },
+      childCount: 2
+    })
     expect(table.childAt(0)).toMatchObject({ kind: 'table-row', childCount: 2 })
     expect(table.childAt(0).childAt(0)).toMatchObject({
       kind: 'table-cell',
@@ -1706,7 +1710,13 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       '{++```math\n{==math literal==}\n```++}'
     const revision = createLanguageEngine().open(
       createSourceSnapshot(sourceText),
-      TEST_CONFIGURATION
+      {
+        ...TEST_CONFIGURATION,
+        markdownOptions: {
+          ...TEST_CONFIGURATION.markdownOptions,
+          gitLabMath: true
+        }
+      }
     )
     if (revision.kind !== 'complete') {
       throw new Error('Expected a complete document revision')
@@ -1717,8 +1727,98 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       { kind: 'addition', arms: [{ children: [] }] }
     ])
     const revised = revision.projection('revised').markdown.root
-    expect(revised.childAt(0)).toMatchObject({ kind: 'diagram' })
-    expect(revised.childAt(1)).toMatchObject({ kind: 'math-block' })
+    expect(revised.childAt(0)).toMatchObject({
+      kind: 'diagram',
+      attributes: {
+        language: 'mermaid',
+        content: '{--diagram literal--}\n'
+      }
+    })
+    expect(revised.childAt(1)).toMatchObject({
+      kind: 'math-block',
+      attributes: {
+        syntax: 'fenced',
+        content: '{==math literal==}\n'
+      }
+    })
+  })
+
+  it('emits exact visible-content ranges for every atomic Markdown node', () => {
+    const sourceText =
+      '`inline-code` <i>inline-html</i> $inline-math$\n\n' +
+      '```js\nblock-code\n```\n\n' +
+      '<div>\nhtml-block\n</div>\n\n' +
+      '```mermaid\ndiagram-body\n```\n\n' +
+      '$$\nmath-body\n$$\n'
+    const revision = createLanguageEngine().open(
+      createSourceSnapshot(sourceText),
+      {
+        ...TEST_CONFIGURATION,
+        markdownOptions: {
+          ...TEST_CONFIGURATION.markdownOptions,
+          gitLabMath: true
+        }
+      }
+    )
+    if (revision.kind !== 'complete') {
+      throw new Error('Expected a complete document revision')
+    }
+
+    const nodes: Array<Readonly<{
+      readonly kind: string
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly childCount: number
+      readonly childAt: (ordinal: number) => unknown
+    }>> = []
+    const pending = [revision.projection('revised').markdown.root]
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (node === undefined) {
+        continue
+      }
+      nodes.push(node)
+      for (let ordinal = node.childCount - 1; ordinal >= 0; ordinal -= 1) {
+        pending.push(node.childAt(ordinal) as typeof node)
+      }
+    }
+    const atomic = (kind: string) => {
+      const node = nodes.find((candidate) => candidate.kind === kind)
+      if (node === undefined) {
+        throw new Error(`Missing ${kind}`)
+      }
+      return node
+    }
+    const expected = (
+      kind: string,
+      content: string,
+      occurrence: number = 0
+    ): void => {
+      let start = -1
+      let from = 0
+      for (let index = 0; index <= occurrence; index += 1) {
+        start = sourceText.indexOf(content, from)
+        from = start + content.length
+      }
+      expect(atomic(kind).attributes).toMatchObject({
+        content,
+        contentStart: start,
+        contentEnd: start + content.length
+      })
+    }
+
+    expected('inline-code', 'inline-code')
+    expected('inline-html', '<i>')
+    const inlineHtmlNodes = nodes.filter((node) => node.kind === 'inline-html')
+    expect(inlineHtmlNodes.at(-1)?.attributes).toMatchObject({
+      content: '</i>',
+      contentStart: sourceText.indexOf('</i>'),
+      contentEnd: sourceText.indexOf('</i>') + 4
+    })
+    expected('inline-math', 'inline-math')
+    expected('code-block', 'block-code\n')
+    expected('html-block', '<div>\nhtml-block\n</div>\n')
+    expected('diagram', 'diagram-body\n')
+    expected('math-block', 'math-body\n')
   })
 
   it('materializes thematic breaks, images, and footnotes from CM lanes', () => {
@@ -1727,7 +1827,13 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       '[^n]: body {--literal--}++}'
     const revision = createLanguageEngine().open(
       createSourceSnapshot(sourceText),
-      TEST_CONFIGURATION
+      {
+        ...TEST_CONFIGURATION,
+        markdownOptions: {
+          ...TEST_CONFIGURATION.markdownOptions,
+          footnotes: true
+        }
+      }
     )
     if (revision.kind !== 'complete') {
       throw new Error('Expected a complete document revision')
@@ -1744,6 +1850,17 @@ describe('LanguageEngine.open atomic Markdown and CriticMarkup graph', () => {
       kind: 'footnote-reference',
       attributes: { label: 'n' }
     })
-    expect(root.childAt(2)).toMatchObject({ kind: 'footnote-definition' })
+    expect(root.childAt(2)).toMatchObject({
+      kind: 'footnote-definition',
+      attributes: {
+        label: 'n',
+        content: 'body {--literal--}'
+      },
+      childCount: 1
+    })
+    expect(root.childAt(2).childAt(0)).toMatchObject({
+      kind: 'paragraph',
+      childCount: 1
+    })
   })
 })

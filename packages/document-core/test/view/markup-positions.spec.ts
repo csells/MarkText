@@ -12,6 +12,7 @@ import {
   type MarkupRenderBlock,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { completeSnapshot } from '../helpers/completeSnapshot.js'
 
 /**
  * Integration vertical slice, increment 3 — the view↔model coordinate bridge.
@@ -25,7 +26,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -58,7 +68,7 @@ async function viewOf(source: string): Promise<{
       focus: { offset: 0, affinity: 'next' }
     }
   })
-  const runs = renderMarkupPlan(session.snapshot().livePlan)
+  const runs = renderMarkupPlan(completeSnapshot(session).livePlan)
   return {
     blocks: groupRenderBlocks(canonicalMarkupDocument(revisionFor(source)), runs),
     modelText: runs.map((run) => run.text).join('')

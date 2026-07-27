@@ -15,13 +15,10 @@
 </template>
 
 <script setup lang="ts">
-import { useEditorStore } from '@/store/editor'
 import { t } from '../../i18n'
 
-const editorStore = useEditorStore()
-
 const newFile = () => {
-  editorStore.NEW_UNTITLED_TAB({})
+  window.electron.ipcRenderer.send('mt::cmd-new-tab')
 }
 </script>
 

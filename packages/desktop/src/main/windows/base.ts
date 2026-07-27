@@ -4,6 +4,7 @@ import { TypedEmitter } from '@shared/types/typedEmitter'
 import type Accessor from '../app/accessor'
 import { getThemeBackgroundColor } from '../../common/theme'
 import { presentationPolicy } from '../presentationPolicy'
+import type { IUserPreferences } from '@shared/types/preferences'
 
 /**
  * A MarkText window.
@@ -46,14 +47,14 @@ export interface BaseWindowEvents {
 // Subset of preference accessor used while building the renderer URL. Fields are
 // optional to mirror `IUserPreferences` (the real `Preference.getAll()` return).
 export interface PreferenceLike {
-  getAll(): {
-    codeFontFamily?: string
-    codeFontSize?: number
-    hideScrollbar?: boolean
-    theme?: string
-    titleBarStyle?: string
-    [key: string]: unknown
-  }
+  getAll(): Pick<
+    IUserPreferences,
+    | 'codeFontFamily'
+    | 'codeFontSize'
+    | 'hideScrollbar'
+    | 'theme'
+    | 'titleBarStyle'
+  >
 }
 
 export interface EnvLike {

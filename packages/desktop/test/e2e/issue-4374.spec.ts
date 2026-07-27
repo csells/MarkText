@@ -1,152 +1,226 @@
-// Regression guard for issue #4374:
-//   TypeError: Cannot set properties of undefined (setting 'nextSibling')
-//     at ContentState.chopBlockByCursor (enterCtrl.js)
-//     at ContentState.enterHandler (enterCtrl.js)
-//
-// Root cause: enterHandler() walked up from <p> to the parent <li> and
-// then called chopBlockByCursor(li.children[0], start.key, ...) — assuming
-// the active line lives in li.children[0] (or [1] for task lists). When
-// the list item carries multiple content blocks (loose list paragraphs,
-// trailing paragraph after a sublist, etc.), the caret's span isn't a
-// child of children[0], so findIndex returns -1 and the next statement
-// crashes on `children[-1].nextSibling = null`.
-//
-// Fix (packages/muyajs/lib/contentState/enterCtrl.js): capture the active
-// paragraph before promoting `block` to its `li` parent, locate it inside
-// li.children, and move any blocks AFTER it (sublist + trailing
-// paragraphs) into the new list item. Added a defensive `index === -1`
-// early-return inside chopBlockByCursor.
 import { expect, test } from '@playwright/test'
-import type { ElectronApplication, Page } from 'playwright'
+import type { Page } from 'playwright'
 import {
   clearRendererErrors,
+  clickMenuById,
   expectNoRendererErrors,
   launchWithMarkdown,
-  placeCaretInEditor,
-  setSourceMarkdown
+  readCanonicalMarkdown
 } from './helpers'
+import { reviewMenuEnabled } from './documentCoreReviewE2e'
 
-const placeCaretInSpanContaining = async(page: Page, needle: string) => {
-  await page.evaluate((text) => {
-    const spans = document.querySelectorAll('.editor-component span.mu-paragraph-content')
-    let target: HTMLElement | null = null
-    for (const span of spans) {
-      if ((span.textContent ?? '').includes(text)) {
-        target = span as HTMLElement
-        break
-      }
-    }
-    if (!target) return
-    const range = document.createRange()
-    range.selectNodeContents(target)
-    range.collapse(false) // caret at end
-    const sel = window.getSelection()
-    sel?.removeAllRanges()
-    sel?.addRange(range)
-    document.dispatchEvent(new Event('selectionchange'))
-  }, needle)
-  await page.waitForTimeout(150)
+interface ParagraphBreakCase {
+  readonly name: string
+  readonly source: string
+  readonly needle: string
+  readonly caretOffset: number
+  readonly expected: string
+  readonly expectedCaretText: string
+  readonly expectedCaretOffset: number
 }
 
-test.describe('Issue #4374: enterHandler chopBlockByCursor nextSibling crash', () => {
-  let app: ElectronApplication
-  let page: Page
-
-  test.beforeEach(async() => {
-    const launched = await launchWithMarkdown('# Repro\n\n')
-    app = launched.app
-    page = launched.page
-    await placeCaretInEditor(page)
-    await clearRendererErrors(app)
-  })
-
-  test.afterEach(async() => {
-    if (app) await app.close()
-  })
-
-  test('Enter inside the second paragraph of a loose list item does not crash', async() => {
-    const md = '# Doc\n\n- first paragraph\n\n  second paragraph\n\n- another item\n'
-    await setSourceMarkdown(page, app, md)
-    await page.waitForTimeout(500)
-    await placeCaretInSpanContaining(page, 'second paragraph')
-    await clearRendererErrors(app)
-
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(300)
-    await expectNoRendererErrors(app)
-  })
-
-  test('Enter in the trailing paragraph of a task list item does not crash', async() => {
-    const md = '# Doc\n\n- [ ] task line\n\n  trailing paragraph\n'
-    await setSourceMarkdown(page, app, md)
-    await page.waitForTimeout(500)
-    await placeCaretInSpanContaining(page, 'trailing paragraph')
-    await clearRendererErrors(app)
-
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(300)
-    await expectNoRendererErrors(app)
-  })
-
-  test('Enter in a paragraph after a nested sublist in a loose item does not crash', async() => {
-    const md =
+const CASES: readonly ParagraphBreakCase[] = Object.freeze([
+  {
+    name: 'second paragraph in a loose item',
+    source:
       '# Doc\n\n' +
-      '- main paragraph\n' +
-      '\n' +
+      '- first paragraph\n\n' +
+      '  second paragraph\n\n' +
+      '- another item\n',
+    needle: 'second paragraph',
+    caretOffset: 'second paragraph'.length,
+    expected:
+      '# Doc\n\n' +
+      '- first paragraph\n\n' +
+      '  second paragraph\n\n\n\n' +
+      '- another item\n',
+    expectedCaretText: 'another item',
+    expectedCaretOffset: 0
+  },
+  {
+    name: 'trailing paragraph in a task item',
+    source:
+      '# Doc\n\n' +
+      '- [ ] task line\n\n' +
+      '  trailing paragraph\n',
+    needle: 'trailing paragraph',
+    caretOffset: 'trailing paragraph'.length,
+    expected:
+      '# Doc\n\n' +
+      '- [ ] task line\n\n' +
+      '  trailing paragraph\n\n\n',
+    expectedCaretText: 'trailing paragraph',
+    expectedCaretOffset: 'trailing paragraph'.length
+  },
+  {
+    name: 'paragraph after a nested list',
+    source:
+      '# Doc\n\n' +
+      '- main paragraph\n\n' +
       '  - sub one\n' +
-      '  - sub two\n' +
-      '\n' +
-      '  tail paragraph\n'
-    await setSourceMarkdown(page, app, md)
-    await page.waitForTimeout(500)
-    await placeCaretInSpanContaining(page, 'tail paragraph')
-    await clearRendererErrors(app)
+      '  - sub two\n\n' +
+      '  tail paragraph\n',
+    needle: 'tail paragraph',
+    caretOffset: 'tail paragraph'.length,
+    expected:
+      '# Doc\n\n' +
+      '- main paragraph\n\n' +
+      '  - sub one\n' +
+      '  - sub two\n\n' +
+      '  tail paragraph\n\n\n',
+    expectedCaretText: 'tail paragraph',
+    expectedCaretOffset: 'tail paragraph'.length
+  },
+  {
+    name: 'middle of a loose-item paragraph',
+    source:
+      '# Doc\n\n' +
+      '- alpha\n\n' +
+      '  beta gamma delta\n',
+    needle: 'beta gamma delta',
+    caretOffset: 'beta'.length,
+    expected:
+      '# Doc\n\n' +
+      '- alpha\n\n' +
+      '  beta\n\n gamma delta\n',
+    expectedCaretText: 'gamma delta',
+    expectedCaretOffset: 0
+  },
+  {
+    name: 'end of an ordinary list item',
+    source:
+      '# Doc\n\n' +
+      '- one\n' +
+      '- two\n',
+    needle: 'one',
+    caretOffset: 'one'.length,
+    expected:
+      '# Doc\n\n' +
+      '- one\n\n\n' +
+      '- two\n',
+    expectedCaretText: 'two',
+    expectedCaretOffset: 0
+  }
+])
 
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(300)
-    await expectNoRendererErrors(app)
+interface PublicSelection {
+  readonly text: string
+  readonly collapsed: boolean
+  readonly anchorText: string | null
+  readonly anchorOffset: number
+  readonly focusText: string | null
+  readonly focusOffset: number
+  readonly editorFocused: boolean
+}
+
+const readPublicSelection = (page: Page): Promise<PublicSelection | null> =>
+  page.evaluate(() => {
+    const root = document.querySelector('.editor-component')
+    const selection = window.getSelection()
+    if (
+      root === null ||
+      selection === null ||
+      selection.anchorNode === null ||
+      selection.focusNode === null
+    ) {
+      return null
+    }
+    const active = document.activeElement
+    return {
+      text: selection.toString(),
+      collapsed: selection.isCollapsed,
+      anchorText: selection.anchorNode.textContent,
+      anchorOffset: selection.anchorOffset,
+      focusText: selection.focusNode.textContent,
+      focusOffset: selection.focusOffset,
+      editorFocused: active === root || (active !== null && root.contains(active))
+    }
   })
 
-  test('Enter mid-paragraph in second paragraph of loose list item does not crash', async() => {
-    const md = '# Doc\n\n- alpha\n\n  beta gamma delta\n'
-    await setSourceMarkdown(page, app, md)
-    await page.waitForTimeout(500)
-    await placeCaretInSpanContaining(page, 'beta gamma delta')
-    await page.keyboard.press('Home')
-    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight')
-    await clearRendererErrors(app)
+const placeCaret = async(
+  page: Page,
+  needle: string,
+  offset: number
+): Promise<void> => {
+  const placed = await page.evaluate(({ text, textOffset }) => {
+    const root = document.querySelector('.editor-component') as HTMLElement | null
+    if (root === null) return false
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text
+      const start = node.data.indexOf(text)
+      if (start < 0) continue
+      const range = document.createRange()
+      range.setStart(node, start + textOffset)
+      range.collapse(true)
+      const selection = window.getSelection()
+      if (selection === null) return false
+      root.focus()
+      selection.removeAllRanges()
+      selection.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+      return true
+    }
+    return false
+  }, { text: needle, textOffset: offset })
+  if (!placed) {
+    throw new Error(`Could not place caret in ${JSON.stringify(needle)}`)
+  }
+  await page.waitForTimeout(180)
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+}
 
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(300)
-    await expectNoRendererErrors(app)
+const expectCaret = async(
+  page: Page,
+  text: string,
+  offset: number
+): Promise<void> => {
+  await expect.poll(() => readPublicSelection(page)).toMatchObject({
+    text: '',
+    collapsed: true,
+    anchorText: text,
+    anchorOffset: offset,
+    focusText: text,
+    focusOffset: offset,
+    editorFocused: true
   })
+}
 
-  test('Enter at end of a single-paragraph list item still creates a new item', async() => {
-    // Sanity check that the historical [p] / [p, sublist] code paths still
-    // behave: a single-paragraph normal list item splitting on Enter must
-    // continue to yield a new list item, not regress to a paragraph break.
-    const md = '# Doc\n\n- one\n- two\n'
-    await setSourceMarkdown(page, app, md)
-    await page.waitForTimeout(500)
+test.describe('parser-owned paragraph breaks in nested list content', () => {
+  test.describe.configure({ timeout: 120000 })
 
-    const liCountBefore = await page.evaluate(
-      () => document.querySelectorAll('.editor-component ul > li').length
-    )
+  for (const row of CASES) {
+    test(`commits and undoes one exact break: ${row.name}`, async() => {
+      const launched = await launchWithMarkdown(row.source)
+      const { app, page } = launched
+      try {
+        await placeCaret(page, row.needle, row.caretOffset)
+        await expectCaret(page, row.needle, row.caretOffset)
+        await clearRendererErrors(app)
 
-    await placeCaretInSpanContaining(page, 'one')
-    await clearRendererErrors(app)
+        await page.keyboard.press('Enter')
+        await expect.poll(() => readCanonicalMarkdown(page)).toBe(row.expected)
+        await expectCaret(
+          page,
+          row.expectedCaretText,
+          row.expectedCaretOffset
+        )
+        await expect.poll(() =>
+          reviewMenuEnabled(app, 'editUndoMenuItem')
+        ).toBe(true)
 
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(200)
-    await page.keyboard.type('inserted', { delay: 5 })
-    await page.waitForTimeout(200)
-
-    const liCountAfter = await page.evaluate(
-      () => document.querySelectorAll('.editor-component ul > li').length
-    )
-    // Splitting `- one` into `- one` + `- inserted` must yield one more <li>,
-    // not collapse to a paragraph break or duplicate the original item.
-    expect(liCountAfter).toBe(liCountBefore + 1)
-    await expectNoRendererErrors(app)
-  })
+        await clickMenuById(app, 'editUndoMenuItem')
+        await expect.poll(() => readCanonicalMarkdown(page)).toBe(row.source)
+        await expectCaret(page, row.needle, row.caretOffset)
+        await expect.poll(() =>
+          reviewMenuEnabled(app, 'editUndoMenuItem')
+        ).toBe(false)
+        await expectNoRendererErrors(app)
+      } finally {
+        await app.close()
+      }
+    })
+  }
 })

@@ -21,21 +21,21 @@ const buildLongDoc = (): string => {
 }
 
 // Read the live editor scroll container's scrollTop. The scroll container is
-// muya's root element (`.mu-editor`, which also carries `.editor-component`),
-// NOT `.mu-container` (the inner scrollPage that holds the headings).
+// the view root, which carries both `.document-view-container` and
+// `.editor-component`.
 const getScrollTop = (page: Page): Promise<number> =>
   page.evaluate(() => {
     const el = document.querySelector('.editor-component') as HTMLElement | null
     return el ? el.scrollTop : -1
   })
 
-// Returns the index (in document order, among `.mu-container > hN`) of the
+// Returns the index (in document order, among `.document-view-container > hN`) of the
 // top-level heading whose text matches `text`, or -1. The live ATX heading
 // renders its `# ` syntax marker as part of `textContent`, so we strip leading
 // `#`/whitespace before comparing against the clean TOC label text.
 const headingIndexByText = (page: Page, text: string): Promise<number> =>
   page.evaluate((needle) => {
-    const sel = '.mu-container > h1, .mu-container > h2, .mu-container > h3, .mu-container > h4, .mu-container > h5, .mu-container > h6'
+    const sel = '.document-view-container > h1, .document-view-container > h2, .document-view-container > h3, .document-view-container > h4, .document-view-container > h5, .document-view-container > h6'
     const headings = Array.from(document.querySelectorAll(sel))
     const normalize = (s: string) => s.replace(/^[#\s]+/, '').trim()
     return headings.findIndex((h) => normalize(h.textContent || '') === needle)
@@ -49,7 +49,7 @@ const isHeadingInViewport = (page: Page, index: number): Promise<boolean> =>
   page.evaluate((idx) => {
     const container = document.querySelector('.editor-component') as HTMLElement | null
     if (!container) return false
-    const sel = '.mu-container > h1, .mu-container > h2, .mu-container > h3, .mu-container > h4, .mu-container > h5, .mu-container > h6'
+    const sel = '.document-view-container > h1, .document-view-container > h2, .document-view-container > h3, .document-view-container > h4, .document-view-container > h5, .document-view-container > h6'
     const headings = Array.from(document.querySelectorAll(sel))
     const target = headings[idx] as HTMLElement | undefined
     if (!target) return false
@@ -94,7 +94,7 @@ test.describe('TOC sidebar click scrolls the live editor', () => {
     await showSidebar(app, page)
     await clickMenuById(app, 'tocMenuItem')
     await page.waitForSelector('.side-bar-toc .el-tree', { state: 'visible', timeout: 10000 })
-    // The TOC is seeded from `editor.getTOC()` on mount / json-change. Wait
+    // The TOC is seeded from each verified document publication. Wait
     // until every heading has rendered a tree node before clicking.
     await page.waitForFunction(
       (count) => document.querySelectorAll('.side-bar-toc .el-tree-node__label').length >= count,
@@ -121,7 +121,7 @@ test.describe('TOC sidebar click scrolls the live editor', () => {
     expect(await isHeadingInViewport(page, targetIndex)).toBe(false)
 
     // Click the matching el-tree node label (the real user path: this fires the
-    // `scroll-to-header` bus event with the heading's slug).
+    // `scroll-to-header` bus event with the parser NodeId).
     const label = tocLabel(page, targetText)
     await label.click()
 

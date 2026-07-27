@@ -87,7 +87,7 @@
           :notes="t('preferences.general.sidebar.excludePatternsNotes')"
           :input="projectPaths.join(',')"
           :on-change="(value) => onSelectChange('treePathExcludePatterns', value.split(','))"
-          more="https://github.com/isaacs/minimatch"
+          more="minimatch-reference"
         />
 
         <cur-select

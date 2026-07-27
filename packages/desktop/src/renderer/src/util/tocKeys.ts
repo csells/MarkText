@@ -1,35 +1,29 @@
 export interface KeyedTocNode {
   key: string
   label: unknown
-  slug: unknown
+  nodeId: string
   children: KeyedTocNode[]
 }
 
 interface TocLike {
   label?: unknown
-  slug?: unknown
-  githubSlug?: unknown
+  nodeId?: unknown
   children?: TocLike[]
 }
 
-// Give each TOC node a stable key so el-tree can preserve the user's
-// expand/collapse state. The key is the heading's content-derived `githubSlug`,
-// deduplicated in document order so duplicate headings stay distinct. This is
-// stable across content edits (#3028) AND across a document reload / tab switch
-// (#3791) — unlike the per-render object id `slug`, which every switch rebuilds.
-// `slug` is still carried for the click-to-scroll anchor payload.
+// Parser NodeId is both the tree key and the click-to-scroll payload. It is
+// already unique within the document, so the sidebar does not manufacture a
+// second identity from heading text or document order.
 export function deriveKeyedToc(nodes: TocLike[]): KeyedTocNode[] {
-  const seen = new Map<string, number>()
   const assign = (list: TocLike[]): KeyedTocNode[] =>
     list.map((node) => {
-      const base =
-        typeof node.githubSlug === 'string' && node.githubSlug ? node.githubSlug : 'heading'
-      const count = seen.get(base) ?? 0
-      seen.set(base, count + 1)
+      if (typeof node.nodeId !== 'string' || node.nodeId.length === 0) {
+        throw new TypeError('TOC node requires a parser NodeId')
+      }
       return {
-        key: count === 0 ? base : `${base}-${count}`,
+        key: node.nodeId,
         label: node.label,
-        slug: node.slug,
+        nodeId: node.nodeId,
         children: assign(node.children ?? [])
       }
     })

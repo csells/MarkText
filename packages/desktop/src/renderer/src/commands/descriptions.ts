@@ -1,5 +1,8 @@
 import { t } from '../i18n'
-import { REVIEW_COMMAND_DESCRIPTORS } from '../../../common/commands/review'
+import {
+  REVIEW_COMMAND_DESCRIPTORS,
+  REVIEW_CONTEXT_EDIT_COMMAND
+} from '../../../common/commands/review'
 
 const COMMAND_KEY_MAP: Record<string, string> = {
   // ============================================
@@ -31,9 +34,6 @@ const COMMAND_KEY_MAP: Record<string, string> = {
   'file.toggle-auto-save': 'commands.file.toggleAutoSave',
 
   // File settings
-  'file.change-encoding': 'commands.file.changeEncoding',
-  'file.line-ending': 'commands.file.changeLineEnding',
-  'file.trailing-newline': 'commands.file.trailingNewline',
   'file.preferences': 'commands.file.preferences',
 
   // File operations
@@ -148,6 +148,7 @@ const COMMAND_KEY_MAP: Record<string, string> = {
     descriptor.id,
     descriptor.descriptionKey
   ])),
+  [REVIEW_CONTEXT_EDIT_COMMAND.id]: REVIEW_CONTEXT_EDIT_COMMAND.descriptionKey,
 
   // ============================================
   // # Window Management

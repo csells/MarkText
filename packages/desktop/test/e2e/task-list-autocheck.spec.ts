@@ -12,11 +12,9 @@ import {
 // Checklist item 32 — task list + autoCheck cascade, driven by clicking a REAL
 // nested checkbox in the built Electron app.
 //
-// The cascade itself is unit-covered in
-// packages/muya/src/block/gfm/taskListCheckbox/__tests__/parityAutoCheck.spec.ts
-// (it drives `update(checked, 'user')` directly). The slice NOT covered there is
-// the end-to-end path of a real DOM click on the rendered `input[type=checkbox]`:
-// the engine renders task checkboxes as `input.mu-task-list-checkbox` in
+// Cover the end-to-end path of a real DOM click on the rendered
+// `input[type=checkbox]`:
+// the engine renders task checkboxes as `input.document-view-task-list-checkbox` in
 // Electron's Chromium (not a span — that branch is Firefox-only). Clicking the
 // native input toggles its `.checked`, then the engine's click handler reads
 // `event.target.checked` and runs `update(checked, 'user')`.

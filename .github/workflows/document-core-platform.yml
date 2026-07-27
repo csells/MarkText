@@ -1,0 +1,80 @@
+name: builds and exercises Review on macOS Windows and Linux
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'packages/document-core/**'
+      - 'packages/document-view/**'
+      - 'packages/desktop/**'
+      - 'specs/migration/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/document-core-platform.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  document-core-review:
+    name: document-core-review-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-15
+            arch: arm64
+            e2ePrefix: ''
+          - name: windows-x64
+            os: windows-latest
+            arch: x64
+            e2ePrefix: ''
+          - name: linux-x64
+            os: ubuntu-latest
+            arch: x64
+            e2ePrefix: 'xvfb-run --auto-servernum '
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Prepare Electron runtime
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              libx11-dev libxkbfile-dev libsecret-1-dev libfontconfig-dev \
+              xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+              libdrm2 libgtk-3-0 libgbm1 libasound2t64
+            export USE_ELECTRON_CLANG=0
+          fi
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            export CXXFLAGS="-std=gnu++20 -stdlib=libc++"
+          fi
+          pnpm tsx scripts/postinstall.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          npm_config_user_agent: 'pnpm'
+
+      - name: Verify runner architecture
+        run: >-
+          node -e "if (process.arch !== '${{ matrix.arch }}')
+          { throw new Error('Expected ${{ matrix.arch }}, got ' + process.arch) }"
+
+      - name: Build document-core and desktop
+        run: |
+          pnpm -C packages/document-core check:platform
+          pnpm --filter marktext run build
+
+      - name: Exercise Review through real Electron events
+        run: >-
+          ${{ matrix.e2ePrefix }}pnpm --filter marktext exec playwright test
+          --config test/e2e/playwright.config.ts
+          test/e2e/document-core-review-workflow.spec.ts
+        env:
+          MARKTEXT_TEST_BACKGROUND: '1'

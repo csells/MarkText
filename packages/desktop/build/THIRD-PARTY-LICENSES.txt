@@ -7,81 +7,45 @@ This file contains all third-party packages that are bundled and shipped with Ma
 # Summary
 -------------------------------------------------
 
-1. @electron-toolkit/preload (MIT)
-2. @electron-toolkit/utils (MIT)
-3. @element-plus/icons-vue (MIT)
-4. @floating-ui/dom (MIT)
-5. @hfelix/electron-localshortcut (MIT)
-6. @intlify/core-base (MIT)
-7. @marktext/file-icons (MIT)
-8. @popperjs/core (MIT)
-9. @vscode/ripgrep (MIT)
-10. arg (MIT)
-11. axios (MIT)
-12. ced ((ISC AND Apache-2.0))
-13. chokidar (MIT)
-14. codemirror (MIT)
-15. command-exists (MIT)
-16. deep-equal (MIT)
-17. dom-autoscroller (MIT)
-18. dompurify ((MPL-2.0 OR Apache-2.0))
-19. dragula (MIT)
-20. electron-log (MIT)
-21. electron-store (MIT)
-22. electron-updater (MIT)
-23. electron-window-state (MIT)
-24. element-plus (MIT)
-25. execall (MIT)
-26. fast-diff (Apache-2.0)
-27. flowchart.js (MIT)
-28. font-list (MIT)
-29. fs-extra (MIT)
-30. fuse.js (Apache-2.0)
-31. fuzzaldrin (MIT)
-32. github-markdown-css (MIT)
-33. html-tags (MIT)
-34. iso-639-1 (MIT)
-35. joplin-turndown-plugin-gfm (MIT)
-36. katex (MIT)
-37. keytar (MIT)
-38. lodash (MIT)
-39. marked-highlight (MIT)
-40. mermaid (MIT)
-41. mitt (MIT)
-42. ms (MIT)
-43. native-keymap (MIT)
-44. ot-json1 (ISC)
-45. ot-text-unicode (ISC)
-46. pathe (MIT)
-47. pinia (MIT)
-48. plantuml-encoder (MIT)
-49. plist (MIT)
-50. prismjs (MIT)
-51. rxjs (Apache-2.0)
-52. snabbdom-to-html (MIT)
-53. snabbdom (MIT)
-54. snapsvg-cjs (MIT)
-55. turndown (MIT)
-56. underscore (MIT)
-57. vega-embed (BSD-3-Clause)
-58. vega-lite (BSD-3-Clause)
-59. vega (BSD-3-Clause)
-60. vue-i18n (MIT)
-61. vue-router (MIT)
-62. webfontloader (Apache-2.0)
-63. write-file-atomic (ISC)
-64. marked (MIT)
+1. @electron-toolkit/utils (MIT)
+2. @element-plus/icons-vue (MIT)
+3. @hfelix/electron-localshortcut (MIT)
+4. @intlify/core-base (MIT)
+5. @marktext/file-icons (MIT)
+6. @vscode/ripgrep (MIT)
+7. arg (MIT)
+8. axios (MIT)
+9. chokidar (MIT)
+10. command-exists (MIT)
+11. deep-equal (MIT)
+12. dom-autoscroller (MIT)
+13. dompurify ((MPL-2.0 OR Apache-2.0))
+14. dragula (MIT)
+15. electron-log (MIT)
+16. electron-store (MIT)
+17. electron-updater (MIT)
+18. electron-window-state (MIT)
+19. element-plus (MIT)
+20. font-list (MIT)
+21. fs-extra (MIT)
+22. iso-639-1 (MIT)
+23. keytar (MIT)
+24. lodash (MIT)
+25. mitt (MIT)
+26. ms (MIT)
+27. native-keymap (MIT)
+28. pathe (MIT)
+29. pinia (MIT)
+30. plist (MIT)
+31. underscore (MIT)
+32. vue-i18n (MIT)
+33. vue-router (MIT)
+34. write-file-atomic (ISC)
 
 
 -------------------------------------------------
 # Licenses
 -------------------------------------------------
-
-# @electron-toolkit/preload (MIT)
--------------------------------------------------
-undefined
-
-
 
 # @electron-toolkit/utils (MIT)
 -------------------------------------------------
@@ -90,12 +54,6 @@ undefined
 
 
 # @element-plus/icons-vue (MIT)
--------------------------------------------------
-undefined
-
-
-
-# @floating-ui/dom (MIT)
 -------------------------------------------------
 undefined
 
@@ -119,12 +77,6 @@ undefined
 
 
 
-# @popperjs/core (MIT)
--------------------------------------------------
-undefined
-
-
-
 # @vscode/ripgrep (MIT)
 -------------------------------------------------
 undefined
@@ -143,19 +95,7 @@ undefined
 
 
 
-# ced ((ISC AND Apache-2.0))
--------------------------------------------------
-undefined
-
-
-
 # chokidar (MIT)
--------------------------------------------------
-undefined
-
-
-
-# codemirror (MIT)
 -------------------------------------------------
 undefined
 
@@ -221,24 +161,6 @@ undefined
 
 
 
-# execall (MIT)
--------------------------------------------------
-undefined
-
-
-
-# fast-diff (Apache-2.0)
--------------------------------------------------
-undefined
-
-
-
-# flowchart.js (MIT)
--------------------------------------------------
-undefined
-
-
-
 # font-list (MIT)
 -------------------------------------------------
 undefined
@@ -251,43 +173,7 @@ undefined
 
 
 
-# fuse.js (Apache-2.0)
--------------------------------------------------
-undefined
-
-
-
-# fuzzaldrin (MIT)
--------------------------------------------------
-undefined
-
-
-
-# github-markdown-css (MIT)
--------------------------------------------------
-undefined
-
-
-
-# html-tags (MIT)
--------------------------------------------------
-undefined
-
-
-
 # iso-639-1 (MIT)
--------------------------------------------------
-undefined
-
-
-
-# joplin-turndown-plugin-gfm (MIT)
--------------------------------------------------
-undefined
-
-
-
-# katex (MIT)
 -------------------------------------------------
 undefined
 
@@ -300,18 +186,6 @@ undefined
 
 
 # lodash (MIT)
--------------------------------------------------
-undefined
-
-
-
-# marked-highlight (MIT)
--------------------------------------------------
-undefined
-
-
-
-# mermaid (MIT)
 -------------------------------------------------
 undefined
 
@@ -335,18 +209,6 @@ undefined
 
 
 
-# ot-json1 (ISC)
--------------------------------------------------
-undefined
-
-
-
-# ot-text-unicode (ISC)
--------------------------------------------------
-undefined
-
-
-
 # pathe (MIT)
 -------------------------------------------------
 undefined
@@ -359,73 +221,13 @@ undefined
 
 
 
-# plantuml-encoder (MIT)
--------------------------------------------------
-undefined
-
-
-
 # plist (MIT)
 -------------------------------------------------
 undefined
 
 
 
-# prismjs (MIT)
--------------------------------------------------
-undefined
-
-
-
-# rxjs (Apache-2.0)
--------------------------------------------------
-undefined
-
-
-
-# snabbdom-to-html (MIT)
--------------------------------------------------
-undefined
-
-
-
-# snabbdom (MIT)
--------------------------------------------------
-undefined
-
-
-
-# snapsvg-cjs (MIT)
--------------------------------------------------
-undefined
-
-
-
-# turndown (MIT)
--------------------------------------------------
-undefined
-
-
-
 # underscore (MIT)
--------------------------------------------------
-undefined
-
-
-
-# vega-embed (BSD-3-Clause)
--------------------------------------------------
-undefined
-
-
-
-# vega-lite (BSD-3-Clause)
--------------------------------------------------
-undefined
-
-
-
-# vega (BSD-3-Clause)
 -------------------------------------------------
 undefined
 
@@ -443,66 +245,9 @@ undefined
 
 
 
-# webfontloader (Apache-2.0)
--------------------------------------------------
-undefined
-
-
-
 # write-file-atomic (ISC)
 -------------------------------------------------
 undefined
-
-
-
-# marked (MIT)
--------------------------------------------------
-# License information
-
-## Contribution License Agreement
-
-If you contribute code to this project, you are implicitly allowing your code
-to be distributed under the MIT license. You are also implicitly verifying that
-all code is your original work. `</legalese>`
-
-## Marked
-
-Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/)
-Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-
-## Markdown
-
-Copyright © 2004, John Gruber
-http://daringfireball.net/
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-* Neither the name “Markdown” nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-This software is provided by the copyright holders and contributors “as is” and any express or implied warranties, including, but not limited to, the implied warranties of merchantability and fitness for a particular purpose are disclaimed. In no event shall the copyright owner or contributors be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute goods or services; loss of use, data, or profits; or business interruption) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this software, even if advised of the possibility of such damage.
-
-
 
 
 

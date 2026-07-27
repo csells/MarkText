@@ -10,7 +10,7 @@ import { launchWithMarkdown, clickMenuById, waitForEditor } from './helpers'
 // their nesting match the document's heading hierarchy, nor that the tree
 // updates LIVE when a heading is renamed / added.
 //
-// Flow under test: editing the editor -> engine `json-change` ->
+// Flow under test: committed edit -> verified publication ->
 // editor.vue LISTEN_FOR_CONTENT_CHANGE({ toc: editor.getTOC() }) ->
 // store UPDATE_TOC -> listToTree -> toc.vue `el-tree` re-render.
 
@@ -112,7 +112,7 @@ test.describe('TOC panel content + live update', () => {
     // Place the caret at the end of the "B1" heading and append " Renamed".
     await page.evaluate(() => {
       const headings = Array.from(
-        document.querySelectorAll('.mu-container h1, .mu-container h2, .mu-container h3')
+        document.querySelectorAll('.document-view-container h1, .document-view-container h2, .document-view-container h3')
       ) as HTMLElement[]
       const normalize = (s: string) => s.replace(/^[#\s]+/, '').trim()
       const target = headings.find((h) => normalize(h.textContent || '') === 'B1')
@@ -132,7 +132,7 @@ test.describe('TOC panel content + live update', () => {
     })
     await page.keyboard.type(' Renamed', { delay: 0 })
 
-    // json-change -> UPDATE_TOC -> el-tree re-render. Poll until reflected.
+    // Verified publication -> UPDATE_TOC -> el-tree re-render.
     await expect
       .poll(() => readTocLabels(page), { timeout: 8000 })
       .toEqual(['A', 'B', 'B1 Renamed', 'C'])
@@ -151,10 +151,10 @@ test.describe('TOC panel content + live update', () => {
     // Click directly on the last heading ("C") so the engine sets it as the
     // active content block, move the caret to the end, then split with Enter
     // and type a new ATX heading. Clicking the real DOM node (rather than a
-    // synthetic range) is what makes muya commit `activeContentBlock`, so the
+    // synthetic range) is what commits the active content block, so the
     // subsequent Enter creates a fresh block instead of editing inside "C".
     const cContent = page
-      .locator('.mu-container h2 .mu-atxheading-content')
+      .locator('.document-view-container h2 .document-view-atxheading-content')
       .filter({ hasText: 'C' })
       .last()
     await cContent.click()

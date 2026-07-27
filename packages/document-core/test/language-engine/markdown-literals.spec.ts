@@ -4,12 +4,21 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
-import { rootsOf, runsOf } from '../helpers/collections.js'
+import { rootsOf } from '../helpers/collections.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -557,6 +566,27 @@ describe('LanguageEngine.open Markdown literals', () => {
     expect(revision.projection('revised').source).toBe(sourceText)
   })
 
+  it('gives a GFM extended autolink literal ownership before CriticMarkup', () => {
+    const sourceText =
+      'www.example.com/{++literal++}\n' +
+      '{++visible++}'
+    const revision = createLanguageEngine().open(
+      createSourceSnapshot(sourceText),
+      TEST_CONFIGURATION
+    )
+    if (revision.kind !== 'complete') {
+      throw new Error('Expected a complete document revision')
+    }
+
+    expect(rootsOf(revision.criticMarkup)).toMatchObject([
+      { kind: 'addition', range: { start: 30, end: 43 } }
+    ])
+    expect(revision.projection('original').source).toBe(sourceText.slice(0, 30))
+    expect(revision.projection('revised').source).toBe(
+      `${sourceText.slice(0, 30)}visible`
+    )
+  })
+
   it('keeps link destinations and titles literal but recognizes CM in visible labels', () => {
     const sourceText = '[label {++visible++}](https://e.test/{--literal--} "{>>title<<}")'
     const revision = createLanguageEngine().open(
@@ -718,7 +748,13 @@ describe('LanguageEngine.open Markdown literals', () => {
       '[ref]: https://e.test/{++literal++} "{--title--}"\n[^note]: {==footnote==}\n{++visible++}'
     const revision = createLanguageEngine().open(
       createSourceSnapshot(sourceText),
-      TEST_CONFIGURATION
+      {
+        ...TEST_CONFIGURATION,
+        markdownOptions: {
+          ...TEST_CONFIGURATION.markdownOptions,
+          footnotes: true
+        }
+      }
     )
     if (revision.kind !== 'complete') {
       throw new Error('Expected a complete document revision')

@@ -3,20 +3,20 @@ import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { launchElectron, waitForEditor, waitForMenuReady } from './helpers'
+import {
+  enterSourceMode,
+  exitSourceMode,
+  launchElectron,
+  readCanonicalMarkdown,
+  waitForEditor,
+  waitForMenuReady
+} from './helpers'
 
-// Checklist 122 — integration coverage for the Phase G "G1" blocker: a
-// relative-path image (`![](assets/cat.png)`) in a saved document must resolve
-// to a DIRNAME-anchored `file://` URL so Chromium can load it off disk. The
-// engine-unit half is pinned by packages/muya/src/utils/__tests__/image.spec.ts
-// (getImageSrc). This spec drives the REAL built Electron app: it saves a doc
-// next to a sibling `assets/cat.png`, opens it (so the renderer populates
-// `window.DIRNAME` from the document directory), and asserts the rendered
-// `<img>` src is `file://<docDir>/assets/cat.png` — not the broken,
-// non-anchored `file://assets/cat.png` form the migration regressed to.
+// A saved document's relative image crosses a main-owned path resolver and is
+// exposed to Chromium only through an opaque, revision-bound custom-protocol
+// capability. Renderer globals and DOM never receive the native directory.
 
-// A 1x1 transparent PNG so `loadImage` resolves (the engine swaps the wrapper
-// to `.mu-image-success` only when the file actually loads off disk).
+// A 1x1 transparent PNG that Chromium can load from disk.
 const ONE_BY_ONE_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
@@ -33,7 +33,7 @@ const writeDocWithRelativeImage = (): { docPath: string; docDir: string } => {
   return { docPath, docDir }
 }
 
-test.describe('Relative-path image resolves to a DIRNAME-anchored file:// URL', () => {
+test.describe('main-owned relative image display authority', () => {
   let app: ElectronApplication | null = null
   let page: Page
   let docDir: string
@@ -59,60 +59,36 @@ test.describe('Relative-path image resolves to a DIRNAME-anchored file:// URL', 
     }
   })
 
-  test('window.DIRNAME tracks the opened document directory', async() => {
-    // The renderer populates window.DIRNAME from the open file's dirname; the
-    // engine reads it to anchor relative image paths (image.ts getImageSrc).
-    await expect
-      .poll(async() => page.evaluate(() => window.DIRNAME), { timeout: 10000 })
-      .toBeTruthy()
-    const dirname = await page.evaluate(() => window.DIRNAME)
-    // file:// URLs always use forward slashes, and so does the engine's
-    // resolveRelativePath; compare against the normalised doc dir.
-    expect(dirname.replace(/\\/g, '/')).toBe(docDir.replace(/\\/g, '/'))
+  test('does not publish document directory authority to renderer', async() => {
+    expect(await page.evaluate(() => 'DIRNAME' in window)).toBe(false)
   })
 
-  test('renders an <img> whose src is file://<docDir>/assets/cat.png', async() => {
-    const imgLocator = page.locator('.editor-component .mu-image-container img')
+  test('renders through an opaque capability without exposing a file URL', async() => {
+    const imgLocator = page.locator('.editor-component img.document-view-image')
     await imgLocator.first().waitFor({ state: 'attached', timeout: 10000 })
 
-    // Wait for loadImageAsync to settle: a successful off-disk load swaps the
-    // wrapper to `.mu-image-success` and sets the <img> src to the resolved
-    // (optionally cache-busted) file:// URL.
-    await expect
-      .poll(async() => page.locator('.editor-component .mu-inline-image.mu-image-success').count(), {
-        timeout: 10000
-      })
-      .toBeGreaterThanOrEqual(1)
-
-    const src = await imgLocator.first().getAttribute('src')
-    expect(src).not.toBeNull()
-    const value = src as string
-
-    // DIRNAME-anchored: must be a real file:// URL, never the regressed
-    // non-anchored `file://assets/cat.png` (no leading slash after file://).
-    expect(value.startsWith('file://')).toBe(true)
-    expect(value).not.toContain('file://file://')
-
-    // Strip any cache-busting query (`?mucache=…`/`&mucache=…`) the engine
-    // appends to local files, then assert the path ends with the anchored
-    // relative path and contains the document directory.
-    const withoutQuery = value.split('?')[0]
-    expect(withoutQuery.endsWith('assets/cat.png')).toBe(true)
-    const expectedSrc = `file://${docDir.replace(/\\/g, '/')}/assets/cat.png`
-    expect(withoutQuery).toBe(expectedSrc)
+    await expect.poll(async() => imgLocator.first().evaluate(image => ({
+      complete: (image as HTMLImageElement).complete,
+      naturalWidth: (image as HTMLImageElement).naturalWidth
+    }))).toEqual({ complete: true, naturalWidth: 1 })
+    const src = await imgLocator.first().getAttribute('src') ?? ''
+    expect(src).toMatch(/^marktext-image:\/\/asset\/[a-zA-Z0-9_-]+$/)
+    expect(src).not.toContain('file:')
+    expect(src).not.toContain(docDir)
+    expect(src).not.toContain('assets/cat.png')
   })
 
-  test('the anchored file:// URL points at a file that exists on disk', async() => {
-    const src = await page
-      .locator('.editor-component .mu-image-container img')
-      .first()
-      .getAttribute('src')
-    expect(src).not.toBeNull()
-    const withoutQuery = (src as string).split('?')[0]
-    // Convert the file:// URL back to a filesystem path and confirm the engine
-    // resolved it to the on-disk sibling we wrote in setup.
-    const onDiskPath = withoutQuery.replace(/^file:\/\//, '')
-    expect(fs.existsSync(onDiskPath)).toBe(true)
-    expect(onDiskPath).toBe(path.join(docDir, 'assets', 'cat.png').replace(/\\/g, '/'))
+  test('keeps the authored source exact across Source and Markup surfaces', async() => {
+    const source = '![a cat](assets/cat.png)\n'
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await enterSourceMode(page, app as ElectronApplication)
+    await expect(page.locator('.source-code-input')).toHaveValue(source)
+    await exitSourceMode(page, app as ElectronApplication)
+    const image = page.locator('.editor-component img.document-view-image').first()
+    await image.waitFor({ state: 'attached', timeout: 10000 })
+    await expect.poll(async() => image.evaluate(element =>
+      (element as HTMLImageElement).naturalWidth
+    )).toBe(1)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
   })
 })

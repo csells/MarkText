@@ -3,6 +3,12 @@ import path from 'path'
 import writeFileAtomic from 'write-file-atomic'
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { TypedEmitter } from '@shared/types/typedEmitter'
+import {
+  decodeBufferedState,
+  decodeWindowUiCheckpointIntent,
+  type BufferedState,
+  type WindowUiCheckpointIntent
+} from '@shared/types/bufferedState'
 import type BaseWindow from '../windows/base'
 
 interface EditorBufferStorePaths {
@@ -14,25 +20,26 @@ interface BufferStoreEntry {
   filePath: string
 }
 
-interface BufferStoreContent {
-  tabs: Array<{ isSaved: boolean; [key: string]: unknown }>
-  [key: string]: unknown
-}
-
 interface EditorWindow {
   id: number
   win: BaseWindow
 }
 
-// No instance-level events emitted; kept as TypedEmitter for parity with the
-// other main classes.
+// The store owns no instance-level events today; the empty map satisfies the
+// shared TypedEmitter contract used by main-process services.
 type EditorBufferStoreEvents = Record<string, unknown[]>
+
+type CheckpointAuthority = (
+  windowId: number,
+  intent: WindowUiCheckpointIntent
+) => BufferedState
 
 class EditorBufferStore extends TypedEmitter<EditorBufferStoreEvents> {
   editorBufferStorePath: string
   bufferStores: Record<string, BufferStoreEntry> | null
   serviceName: string
   encryptKeys: string[]
+  private checkpointAuthority: CheckpointAuthority | null
 
   constructor(paths: EditorBufferStorePaths) {
     super()
@@ -45,8 +52,16 @@ class EditorBufferStore extends TypedEmitter<EditorBufferStoreEvents> {
     this.bufferStores = null
     this.serviceName = 'marktext'
     this.encryptKeys = []
+    this.checkpointAuthority = null
 
     this.init()
+  }
+
+  configureCheckpointAuthority(authority: CheckpointAuthority): void {
+    if (this.checkpointAuthority !== null) {
+      throw new Error('Window UI checkpoint authority is already configured')
+    }
+    this.checkpointAuthority = authority
   }
 
   init(): void {
@@ -68,14 +83,13 @@ class EditorBufferStore extends TypedEmitter<EditorBufferStoreEvents> {
     return this.bufferStores
   }
 
-  clearBufferStoresWithAllSaved(): void {
+  clearEmptyBufferStores(): void {
     this.bufferStores = this.getAllBufferStores()
 
     for (const id in this.bufferStores) {
       try {
         const buffer = this.readBufferStoreFile(this.bufferStores[id].filePath)
-        const allSaved = buffer.tabs.every((file) => file.isSaved)
-        if (buffer.tabs.length === 0 || allSaved) {
+        if (buffer.tabs.length === 0) {
           try {
             fs.unlinkSync(this.bufferStores[id].filePath)
           } catch (e) {
@@ -112,8 +126,7 @@ class EditorBufferStore extends TypedEmitter<EditorBufferStoreEvents> {
       }
       try {
         const buffer = this.readBufferStoreFile(this.bufferStores[restoreBufferId].filePath)
-        const allSaved = buffer.tabs.every((file) => file.isSaved)
-        if (buffer.tabs.length === 0 || allSaved) {
+        if (buffer.tabs.length === 0) {
           fs.unlinkSync(this.bufferStores[restoreBufferId].filePath)
           delete this.bufferStores[restoreBufferId]
         }
@@ -161,40 +174,42 @@ class EditorBufferStore extends TypedEmitter<EditorBufferStoreEvents> {
     return this.bufferStores[restoreBufferId]
   }
 
-  readBufferStoreFile(filePath: string): BufferStoreContent {
+  readBufferStoreFile(filePath: string): BufferedState {
     const content = fs.readFileSync(filePath, 'utf8')
     if (!content.trim()) {
       throw new Error('Buffer store file is empty.')
     }
 
-    const buffer = JSON.parse(content) as BufferStoreContent
-    if (!buffer || !Array.isArray(buffer.tabs)) {
-      throw new Error('Invalid editor buffer state.')
-    }
-
-    return buffer
+    return decodeBufferedState(JSON.parse(content) as unknown)
   }
 
   writeBufferStoreFile(filePath: string, newState: unknown): void {
-    // Durable atomic write: write-file-atomic writes to a temp file, fsyncs it,
-    // then renames it over the target. The previous temp-file + rename here was
-    // namespace-atomic (crash-safe) but omitted the fsync, so a power loss could
-    // still leave this crash-recovery buffer — which holds unsaved tab content —
-    // truncated or zero-filled, the same gap the document save path had (#3786).
-    writeFileAtomic.sync(filePath, JSON.stringify(newState), 'utf8')
+    const decoded = decodeBufferedState(newState)
+    writeFileAtomic.sync(filePath, JSON.stringify(decoded), 'utf8')
   }
 
   updateBufferState(e: IpcMainInvokeEvent, newState: unknown): boolean {
+    const intent = decodeWindowUiCheckpointIntent(newState)
     const win = BrowserWindow.fromWebContents(e.sender)
-    const restoreBufferId = (win as unknown as { restoreBufferId?: string })?.restoreBufferId
+    if (!win) {
+      throw new Error(
+        'Window UI checkpoint requires a sender-owned BrowserWindow'
+      )
+    }
+    const restoreBufferId =
+      (win as unknown as { restoreBufferId?: string }).restoreBufferId
 
     if (!restoreBufferId) {
       console.warn('No restoreBufferId found for window, skipping buffer state update')
       return false
     }
+    if (this.checkpointAuthority === null) {
+      throw new Error('Window UI checkpoint authority is not configured')
+    }
 
+    const authorized = this.checkpointAuthority(win.id, intent)
     const bufferStore = this.getBufferStoreInfo(restoreBufferId)
-    this.writeBufferStoreFile(bufferStore.filePath, newState)
+    this.writeBufferStoreFile(bufferStore.filePath, authorized)
     return true
   }
 

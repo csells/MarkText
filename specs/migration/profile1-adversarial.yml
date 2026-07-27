@@ -1,0 +1,1356 @@
+{
+  "schema": "marktext-language-corpus-v1",
+  "id": "PROFILE1_ADVERSARIAL",
+  "authority": "marktext-profile-1",
+  "version": "profile1-adversarial-corpus-1",
+  "source": "specs/language/marktext-markdown-profile-1.md",
+  "cases": [
+    {
+      "id": "P1A-ALL-FIVE-CANONICAL-FORMS",
+      "tags": [
+        "syntax",
+        "canonical",
+        "adjacent"
+      ],
+      "source": "A {++new++} {--old--} {~~old~>new~~} {==focus==}{>>note<<}.\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "deletion",
+        "substitution",
+        "highlight",
+        "comment"
+      ],
+      "criticSourcePreorder": [
+        "{++new++}",
+        "{--old--}",
+        "{~~old~>new~~}",
+        "{==focus==}",
+        "{>>note<<}"
+      ],
+      "originalSource": "A  old old focus.\n",
+      "revisedSource": "A new  new focus.\n"
+    },
+    {
+      "id": "P1A-EMPTY-FORMS-AND-SUBSTITUTION-ARMS",
+      "tags": [
+        "syntax",
+        "empty"
+      ],
+      "source": "{++++}|{----}|{~~~>new~~}|{~~old~>~~}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "deletion",
+        "substitution",
+        "substitution"
+      ],
+      "criticSourcePreorder": [
+        "{++++}",
+        "{----}",
+        "{~~~>new~~}",
+        "{~~old~>~~}"
+      ],
+      "originalSource": "|||old\n",
+      "revisedSource": "||new|\n"
+    },
+    {
+      "id": "P1A-MIXED-NESTED-FORMS",
+      "tags": [
+        "syntax",
+        "nested"
+      ],
+      "source": "{++outer {--inner--} {==focus==}++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "deletion",
+        "highlight"
+      ],
+      "criticSourcePreorder": [
+        "{++outer {--inner--} {==focus==}++}",
+        "{--inner--}",
+        "{==focus==}"
+      ],
+      "originalSource": "\n",
+      "revisedSource": "outer  focus\n"
+    },
+    {
+      "id": "P1A-SAME-TYPE-NESTED-ADDITIONS",
+      "tags": [
+        "syntax",
+        "nested",
+        "same-type"
+      ],
+      "source": "{++outer {++inner++} tail++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++outer {++inner++} tail++}",
+        "{++inner++}"
+      ],
+      "originalSource": "\n",
+      "revisedSource": "outer inner tail\n"
+    },
+    {
+      "id": "P1A-MALFORMED-OUTER-RECOVERS-INNER-AND-LATER-ITEMS",
+      "tags": [
+        "syntax",
+        "malformed",
+        "recovery"
+      ],
+      "source": "{++unfinished {--complete--} and {~~bad no separator~~} {==later==}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "deletion",
+        "highlight"
+      ],
+      "criticSourcePreorder": [
+        "{--complete--}",
+        "{==later==}"
+      ],
+      "originalSource": "{++unfinished complete and {~~bad no separator~~} later\n",
+      "revisedSource": "{++unfinished  and {~~bad no separator~~} later\n"
+    },
+    {
+      "id": "P1A-MULTIPLE-SUBSTITUTION-SEPARATORS-RECOVER-LATER-ITEM",
+      "tags": [
+        "syntax",
+        "malformed",
+        "recovery"
+      ],
+      "source": "{~~a~>b~>c~~} {++later++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "substitution",
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{~~a~>b~>c~~}",
+        "{++later++}"
+      ],
+      "originalSource": "a \n",
+      "revisedSource": "b~>c later\n"
+    },
+    {
+      "id": "P1A-DANGLING-MISMATCHED-ZERO-AND-MULTIPLE-SEPARATORS",
+      "tags": [
+        "syntax",
+        "malformed",
+        "recovery",
+        "dangling-close",
+        "mismatched-close",
+        "zero-separator",
+        "multiple-separator"
+      ],
+      "source": "orphan ++} {++wrong--} {~~zero~~} {~~many~>one~>two~~} {--later--}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "substitution",
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{~~many~>one~>two~~}",
+        "{--later--}"
+      ],
+      "originalSource": "orphan ++} {++wrong--} {~~zero~~} many later\n",
+      "revisedSource": "orphan ++} {++wrong--} {~~zero~~} one\\~>two \n"
+    },
+    {
+      "id": "P1A-ESCAPED-OPENER-AND-CLOSER-LIKE-PAYLOAD",
+      "tags": [
+        "syntax",
+        "escape"
+      ],
+      "source": "\\{++literal++} {++a\\++}b++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++a\\++}b++}"
+      ],
+      "originalSource": "\\{++literal++} \n",
+      "revisedSource": "\\{++literal++} a\\++}b\n"
+    },
+    {
+      "id": "P1A-ODD-AND-EVEN-BACKSLASH-RUNS-AT-DELIMITERS",
+      "tags": [
+        "syntax",
+        "escape",
+        "odd-even"
+      ],
+      "source": "odd \\{++literal++} even \\\\{++live++}\n{++close \\++} inside \\\\++}\n{~~old \\~> still old \\\\~>new~~}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "addition",
+        "substitution"
+      ],
+      "criticSourcePreorder": [
+        "{++live++}",
+        "{++close \\++} inside \\\\++}",
+        "{~~old \\~> still old \\\\~>new~~}"
+      ],
+      "originalSource": "odd \\{++literal++} even \\\\\n\nold \\~> still old \\\\\n",
+      "revisedSource": "odd \\{++literal++} even \\\\live\nclose \\++} inside \\\\\nnew\n"
+    },
+    {
+      "id": "P1A-BLOCK-SPANNING-ADDITION",
+      "tags": [
+        "syntax",
+        "block-spanning"
+      ],
+      "source": "before {++one\n\n# two++} after\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++one\n\n# two++}"
+      ],
+      "originalSource": "before  after\n",
+      "revisedSource": "before one\n\n# two after\n"
+    },
+    {
+      "id": "P1A-NESTED-BLOCK-SPANNING-ADDITION-AND-DELETION",
+      "tags": [
+        "syntax",
+        "nested",
+        "block-spanning"
+      ],
+      "source": "before {++outer\n\n# {--inner\n\ntail--} end++} after\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{++outer\n\n# {--inner\n\ntail--} end++}",
+        "{--inner\n\ntail--}"
+      ],
+      "originalSource": "before  after\n",
+      "revisedSource": "before outer\n\n#  end after\n"
+    },
+    {
+      "id": "P1A-INLINE-FENCED-AND-INDENTED-CODE-CONTEXTS",
+      "tags": [
+        "context",
+        "code",
+        "literal-context"
+      ],
+      "source": "`{++inline++}` {++visible++}\n\n```md\n{--fenced--}\n```\n\n    {==indented==}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++visible++}"
+      ],
+      "originalSource": "`{++inline++}` \n\n```md\n{--fenced--}\n```\n\n    {==indented==}\n",
+      "revisedSource": "`{++inline++}` visible\n\n```md\n{--fenced--}\n```\n\n    {==indented==}\n"
+    },
+    {
+      "id": "P1A-SOFT-WRAPPED-INLINE-CODE-SPAN",
+      "tags": [
+        "context",
+        "code",
+        "soft-wrap",
+        "literal-context"
+      ],
+      "source": "before `{++literal\ncontinued++}` after {--visible--}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{--visible--}"
+      ],
+      "originalSource": "before `{++literal\ncontinued++}` after visible\n",
+      "revisedSource": "before `{++literal\ncontinued++}` after \n"
+    },
+    {
+      "id": "P1A-FENCED-CODE-INSIDE-BLOCKQUOTE-AND-LIST",
+      "tags": [
+        "context",
+        "code",
+        "fence",
+        "blockquote",
+        "list",
+        "literal-context"
+      ],
+      "source": "> ```md\n> {++quoted literal++}\n> ```\n\n- ```md\n  {--listed literal--}\n  ```\n\n{==visible==}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "highlight"
+      ],
+      "criticSourcePreorder": [
+        "{==visible==}"
+      ],
+      "originalSource": "> ```md\n> {++quoted literal++}\n> ```\n\n- ```md\n  {--listed literal--}\n  ```\n\nvisible\n",
+      "revisedSource": "> ```md\n> {++quoted literal++}\n> ```\n\n- ```md\n  {--listed literal--}\n  ```\n\nvisible\n"
+    },
+    {
+      "id": "P1A-ORDINARY-GFM-STRIKE-BESIDE-SUBSTITUTION",
+      "tags": [
+        "syntax",
+        "gfm-strikethrough"
+      ],
+      "source": "~~ordinary~~ {~~old~>new~~}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "substitution"
+      ],
+      "criticSourcePreorder": [
+        "{~~old~>new~~}"
+      ],
+      "originalSource": "~~ordinary~~ old\n",
+      "revisedSource": "~~ordinary~~ new\n"
+    },
+    {
+      "id": "P1A-BOM-CRLF-AND-ASTRAL-BOUNDARIES",
+      "tags": [
+        "bytes",
+        "bom",
+        "crlf",
+        "astral"
+      ],
+      "source": "﻿😀 {++🚀++}\r\n{--旧--}\r\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{++🚀++}",
+        "{--旧--}"
+      ],
+      "originalSource": "﻿😀 \r\n旧\r\n",
+      "revisedSource": "﻿😀 🚀\r\n\r\n"
+    },
+    {
+      "id": "P1A-YAML-FRONT-MATTER",
+      "tags": [
+        "front-matter",
+        "literal-context"
+      ],
+      "source": "---\ntitle: \"{++literal++}\"\n---\n\nBody\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [],
+      "criticSourcePreorder": [],
+      "originalSource": "---\ntitle: \"{++literal++}\"\n---\n\nBody\n",
+      "revisedSource": "---\ntitle: \"{++literal++}\"\n---\n\nBody\n"
+    },
+    {
+      "id": "P1A-TOML-FRONT-MATTER",
+      "tags": [
+        "front-matter",
+        "literal-context"
+      ],
+      "source": "+++\ntitle = \"{++literal++}\"\n+++\n\nBody\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++literal++}"
+      ],
+      "originalSource": "+++\ntitle = \"\"\n+++\n\nBody\n",
+      "revisedSource": "+++\ntitle = \"literal\"\n+++\n\nBody\n"
+    },
+    {
+      "id": "P1A-SEMICOLON-JSON-FRONT-MATTER",
+      "tags": [
+        "front-matter",
+        "literal-context"
+      ],
+      "source": ";;;\n{\"title\":\"{++literal++}\"}\n;;;\n\nBody\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++literal++}"
+      ],
+      "originalSource": ";;;\n{\"title\":\"\"}\n;;;\n\nBody\n",
+      "revisedSource": ";;;\n{\"title\":\"literal\"}\n;;;\n\nBody\n"
+    },
+    {
+      "id": "P1A-BRACE-JSON-FRONT-MATTER",
+      "tags": [
+        "front-matter",
+        "literal-context"
+      ],
+      "source": "{\n\"title\":\"{++literal++}\"\n}\n\nBody\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++literal++}"
+      ],
+      "originalSource": "{\n\"title\":\"\"\n}\n\nBody\n",
+      "revisedSource": "{\n\"title\":\"literal\"\n}\n\nBody\n"
+    },
+    {
+      "id": "P1A-UNTERMINATED-YAML-FRONT-MATTER-LOOKING-PREFIX",
+      "tags": [
+        "front-matter-lookalike",
+        "recovery"
+      ],
+      "source": "---\ntitle: {++visible++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++visible++}"
+      ],
+      "originalSource": "---\ntitle: \n",
+      "revisedSource": "---\ntitle: visible\n"
+    },
+    {
+      "id": "P1A-BARE-YAML-FRONT-MATTER-LOOKING-PREFIX",
+      "tags": [
+        "front-matter-lookalike",
+        "recovery"
+      ],
+      "source": "---\n\n{++visible++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++visible++}"
+      ],
+      "originalSource": "---\n\n\n",
+      "revisedSource": "---\n\nvisible\n"
+    },
+    {
+      "id": "P1A-YAML-FRONT-MATTER-OPTION-DISABLED",
+      "tags": [
+        "front-matter-disabled",
+        "parser-options"
+      ],
+      "source": "---\ntitle: \"{++visible++}\"\n---\n\nBody\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++visible++}"
+      ],
+      "originalSource": "---\ntitle: \"\"\n---\n\nBody\n",
+      "revisedSource": "---\ntitle: \"visible\"\n---\n\nBody\n"
+    },
+    {
+      "id": "P1A-IDENTICAL-SUBSTITUTION-ARMS-WITH-LITERAL-LINK-DESTINATIONS",
+      "tags": [
+        "substitution",
+        "repeated-text",
+        "link-destination"
+      ],
+      "source": "{~~[x](u{++v++})~>[x](u{++v++})~~}",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "substitution"
+      ],
+      "criticSourcePreorder": [
+        "{~~[x](u{++v++})~>[x](u{++v++})~~}"
+      ],
+      "originalSource": "[x](u{++v++})",
+      "revisedSource": "[x](u{++v++})"
+    },
+    {
+      "id": "P1A-SUBSTITUTION-NEW-ARM-INLINE-MATH-OWNS-INNER-CRITIC-BYTES",
+      "tags": [
+        "substitution",
+        "semantic-arm",
+        "math",
+        "literal-context"
+      ],
+      "source": "{~~placeholder~>$x + {++literal++}$~~}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": true,
+        "gitLabMath": true,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "substitution"
+      ],
+      "criticSourcePreorder": [
+        "{~~placeholder~>$x + {++literal++}$~~}"
+      ],
+      "originalSource": "placeholder\n",
+      "revisedSource": "$x + {++literal++}$\n"
+    },
+    {
+      "id": "P1A-ADDITIONS-CONSTRUCT-INLINE-MATH-DELIMITERS",
+      "tags": [
+        "addition",
+        "constructed-context",
+        "math"
+      ],
+      "source": "{++$++}x{++$++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": true,
+        "gitLabMath": true,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++$++}",
+        "{++$++}"
+      ],
+      "originalSource": "x\n",
+      "revisedSource": "$x$\n"
+    },
+    {
+      "id": "P1A-THREE-ROOT-ADDITIONS-CONSTRUCT-INLINE-MATH",
+      "tags": [
+        "addition",
+        "constructed-context",
+        "math",
+        "adjacent"
+      ],
+      "source": "{++$++}{++x++}{++$++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": true,
+        "gitLabMath": true,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "addition",
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++$++}",
+        "{++x++}",
+        "{++$++}"
+      ],
+      "originalSource": "\n",
+      "revisedSource": "$x$\n"
+    },
+    {
+      "id": "P1A-COMMENT-ARM-INLINE-CODE-OWNS-INNER-CRITIC-BYTES",
+      "tags": [
+        "comment",
+        "semantic-arm",
+        "code",
+        "literal-context"
+      ],
+      "source": "{>>note `{++literal++}`<<}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "comment"
+      ],
+      "criticSourcePreorder": [
+        "{>>note `{++literal++}`<<}"
+      ],
+      "originalSource": "\n",
+      "revisedSource": "\n"
+    },
+    {
+      "id": "P1A-HEADINGS-EMPHASIS-AND-LINE-BREAKS",
+      "tags": [
+        "context",
+        "heading",
+        "emphasis",
+        "line-break"
+      ],
+      "source": "# {++ATX++} **{==bold==}** {--gone--}\n\nSetext {~~old~>new~~}\n----------------------\n\nSoft {==line\nbreak==}  \nhard {++end++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "highlight",
+        "deletion",
+        "substitution",
+        "highlight",
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++ATX++}",
+        "{==bold==}",
+        "{--gone--}",
+        "{~~old~>new~~}",
+        "{==line\nbreak==}",
+        "{++end++}"
+      ],
+      "originalSource": "#  **bold** gone\n\nSetext old\n----------------------\n\nSoft line\nbreak  \nhard \n",
+      "revisedSource": "# ATX **bold** \n\nSetext new\n----------------------\n\nSoft line\nbreak  \nhard end\n"
+    },
+    {
+      "id": "P1A-LINKS-IMAGES-AUTOLINKS-AND-REFERENCE-DEFINITIONS",
+      "tags": [
+        "context",
+        "link",
+        "image",
+        "autolink",
+        "reference-definition",
+        "literal-context"
+      ],
+      "source": "[label {++new++}](https://e.test/{--dest--} \"{==title==}\") ![{++new++}](img/{--path--}.png \"{>>image title<<}\") <https://e.test/{++auto++}>\n\n[id]: https://e.test/{++ref-dest++} \"{--ref-title--}\"\n\n[ref {~~old~>new~~}][id] ![{--ref alt--}][id]\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "addition",
+        "substitution",
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{++new++}",
+        "{++new++}",
+        "{~~old~>new~~}",
+        "{--ref alt--}"
+      ],
+      "originalSource": "[label ](https://e.test/{--dest--} \"{==title==}\") ![](img/{--path--}.png \"{>>image title<<}\") <https://e.test/{++auto++}>\n\n[id]: https://e.test/{++ref-dest++} \"{--ref-title--}\"\n\n[ref old][id] ![ref alt][id]\n",
+      "revisedSource": "[label new](https://e.test/{--dest--} \"{==title==}\") ![new](img/{--path--}.png \"{>>image title<<}\") <https://e.test/{++auto++}>\n\n[id]: https://e.test/{++ref-dest++} \"{--ref-title--}\"\n\n[ref new][id] ![][id]\n"
+    },
+    {
+      "id": "P1A-REPEATED-IDENTICAL-LINK-LABELS-AND-IMAGE-ALTERNATIVES",
+      "tags": [
+        "context",
+        "link",
+        "image",
+        "image-alt",
+        "repeated-text",
+        "plain-text-owner"
+      ],
+      "source": "[same {++x++}](u) [same {++x++}](u) ![{--alt--}](img.png) ![{--alt--}](img.png)\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "addition",
+        "deletion",
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{++x++}",
+        "{++x++}",
+        "{--alt--}",
+        "{--alt--}"
+      ],
+      "originalSource": "[same ](u) [same ](u) ![alt](img.png) ![alt](img.png)\n",
+      "revisedSource": "[same x](u) [same x](u) ![](img.png) ![](img.png)\n"
+    },
+    {
+      "id": "P1A-INLINE-AND-ALL-RAW-HTML-BLOCK-CLASSES",
+      "tags": [
+        "context",
+        "html",
+        "literal-context"
+      ],
+      "source": "<script>\n{++script literal++}\n</script>\n\n<!-- {--comment literal--} -->\n\n<?review {==pi literal==}?>\n\n<!DOCTYPE html {--declaration literal--}>\n\n<![CDATA[{~~old literal~>new literal~~}]]>\n\n<div data-review=\"{++attribute literal++}\">\n{--block literal--}\n</div>\n\n<x-review data-review=\"{==type seven literal==}\">\n\ninline <span title=\"{++inline attribute++}\">{++visible++}</span> {--outside--}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{++visible++}",
+        "{--outside--}"
+      ],
+      "originalSource": "<script>\n{++script literal++}\n</script>\n\n<!-- {--comment literal--} -->\n\n<?review {==pi literal==}?>\n\n<!DOCTYPE html {--declaration literal--}>\n\n<![CDATA[{~~old literal~>new literal~~}]]>\n\n<div data-review=\"{++attribute literal++}\">\n{--block literal--}\n</div>\n\n<x-review data-review=\"{==type seven literal==}\">\n\ninline <span title=\"{++inline attribute++}\"></span> outside\n",
+      "revisedSource": "<script>\n{++script literal++}\n</script>\n\n<!-- {--comment literal--} -->\n\n<?review {==pi literal==}?>\n\n<!DOCTYPE html {--declaration literal--}>\n\n<![CDATA[{~~old literal~>new literal~~}]]>\n\n<div data-review=\"{++attribute literal++}\">\n{--block literal--}\n</div>\n\n<x-review data-review=\"{==type seven literal==}\">\n\ninline <span title=\"{++inline attribute++}\">visible</span> \n"
+    },
+    {
+      "id": "P1A-ACTIVE-INLINE-BLOCK-GITLAB-MATH-AND-DIAGRAM-CONTEXTS",
+      "tags": [
+        "context",
+        "math",
+        "gitlab",
+        "diagram",
+        "literal-context"
+      ],
+      "source": "Inline $x + {++inline math++}$ and {++visible++}.\n\n$$\n{--block math--}\n$$\n\n```math\n{==gitlab math==}\n```\n\n```mermaid\n{>>diagram<<}\n```\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": true,
+        "gitLabMath": true,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++visible++}"
+      ],
+      "originalSource": "Inline $x + {++inline math++}$ and .\n\n$$\n{--block math--}\n$$\n\n```math\n{==gitlab math==}\n```\n\n```mermaid\n{>>diagram<<}\n```\n",
+      "revisedSource": "Inline $x + {++inline math++}$ and visible.\n\n$$\n{--block math--}\n$$\n\n```math\n{==gitlab math==}\n```\n\n```mermaid\n{>>diagram<<}\n```\n"
+    },
+    {
+      "id": "P1A-MATH-OPTION-DISABLED-MAKES-DOLLAR-CONTENT-SEMANTIC",
+      "tags": [
+        "context",
+        "math-disabled",
+        "parser-options"
+      ],
+      "source": "Math disabled: $x {++addition++}$ and $$ {--deletion--} $$.\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{++addition++}",
+        "{--deletion--}"
+      ],
+      "originalSource": "Math disabled: $x $ and $$ deletion $$.\n",
+      "revisedSource": "Math disabled: $x addition$ and $$  $$.\n"
+    },
+    {
+      "id": "P1A-NESTED-TIGHT-LOOSE-LIST-BLOCKQUOTE-LAZY-AND-TAB-CONTEXTS",
+      "tags": [
+        "context",
+        "list",
+        "blockquote",
+        "lazy-continuation",
+        "tab",
+        "literal-context"
+      ],
+      "source": "- tight {++tight++}\n  - nested {~~old~>new~~}\n- sibling {==focus==}\n\n- loose first\n\n  > quote {++quoted++}\n  >\n  > lazy continuation {--old quote--}\n\n1. ordered\n   continuation {++lazy++}\n\noutside\n\n\t{--tab literal--}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "substitution",
+        "highlight",
+        "addition",
+        "deletion",
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++tight++}",
+        "{~~old~>new~~}",
+        "{==focus==}",
+        "{++quoted++}",
+        "{--old quote--}",
+        "{++lazy++}"
+      ],
+      "originalSource": "- tight \n  - nested old\n- sibling focus\n\n- loose first\n\n  > quote \n  >\n  > lazy continuation old quote\n\n1. ordered\n   continuation \n\noutside\n\n\t{--tab literal--}\n",
+      "revisedSource": "- tight tight\n  - nested new\n- sibling focus\n\n- loose first\n\n  > quote quoted\n  >\n  > lazy continuation \n\n1. ordered\n   continuation lazy\n\noutside\n\n\t{--tab literal--}\n"
+    },
+    {
+      "id": "P1A-REPEATED-TABLE-CELLS-AND-ESCAPED-PIPES",
+      "tags": [
+        "context",
+        "table",
+        "repeated-text",
+        "escaped-pipe"
+      ],
+      "source": "| repeated | repeated | escaped |\n| --- | --- | --- |\n| {++same++} | {++same++} | a\\|b {~~old~>new~~} |\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "addition",
+        "substitution"
+      ],
+      "criticSourcePreorder": [
+        "{++same++}",
+        "{++same++}",
+        "{~~old~>new~~}"
+      ],
+      "originalSource": "| repeated | repeated | escaped |\n| --- | --- | --- |\n|  |  | a\\|b old |\n",
+      "revisedSource": "| repeated | repeated | escaped |\n| --- | --- | --- |\n| same | same | a\\|b new |\n"
+    },
+    {
+      "id": "P1A-FOOTNOTE-BODY-NESTED-LIST-AND-DEFINITION-CONTEXTS",
+      "tags": [
+        "context",
+        "footnote",
+        "nested-list",
+        "reference-definition",
+        "literal-context"
+      ],
+      "source": "Text[^n] {++outside++}.\n\n[^n]: intro {++inside++}\n\n    - nested {~~old~>new~~}\n    - code `{--literal--}`\n\n    [inner]: https://e.test/{==literal==} \"{>>literal<<}\"\n\n    tail {==focus==}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": true,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++outside++}"
+      ],
+      "originalSource": "Text[^n] .\n\n[^n]: intro {++inside++}\n\n    - nested {~~old~>new~~}\n    - code `{--literal--}`\n\n    [inner]: https://e.test/{==literal==} \"{>>literal<<}\"\n\n    tail {==focus==}\n",
+      "revisedSource": "Text[^n] outside.\n\n[^n]: intro {++inside++}\n\n    - nested {~~old~>new~~}\n    - code `{--literal--}`\n\n    [inner]: https://e.test/{==literal==} \"{>>literal<<}\"\n\n    tail {==focus==}\n"
+    },
+    {
+      "id": "P1A-NO-FINAL-NEWLINE-REPEATED-BLANKS-ASTRAL-AND-IDENTICAL-TEXT",
+      "tags": [
+        "bytes",
+        "no-final-newline",
+        "repeated-blanks",
+        "astral",
+        "repeated-text"
+      ],
+      "source": "same {++same++} same {++same++}\n\n\n😀 {~~same~>same~~}",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition",
+        "addition",
+        "substitution"
+      ],
+      "criticSourcePreorder": [
+        "{++same++}",
+        "{++same++}",
+        "{~~same~>same~~}"
+      ],
+      "originalSource": "same  same \n\n\n😀 same",
+      "revisedSource": "same same same same\n\n\n😀 same"
+    },
+    {
+      "id": "P1A-HOSTILE-ADDITION-HTML-AND-URL",
+      "tags": [
+        "hostile",
+        "addition",
+        "security"
+      ],
+      "source": "{++<img src=x onerror=\"globalThis.__criticXss=1\"><script>globalThis.__criticXss=2</script>[click](javascript:alert(1))++}",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++<img src=x onerror=\"globalThis.__criticXss=1\"><script>globalThis.__criticXss=2</script>[click](javascript:alert(1))++}"
+      ],
+      "originalSource": "",
+      "revisedSource": "<img src=x onerror=\"globalThis.__criticXss=1\"><script>globalThis.__criticXss=2</script>[click](javascript:alert(1))",
+      "staticMaterialization": "must-remain-inert"
+    },
+    {
+      "id": "P1A-HOSTILE-COMMENT-TITLE",
+      "tags": [
+        "hostile",
+        "comment",
+        "security"
+      ],
+      "source": "{>>\"><img src=x onerror=\"globalThis.__criticXss=3\"><<}",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "comment"
+      ],
+      "criticSourcePreorder": [
+        "{>>\"><img src=x onerror=\"globalThis.__criticXss=3\"><<}"
+      ],
+      "originalSource": "",
+      "revisedSource": "",
+      "staticMaterialization": "must-remain-inert"
+    },
+    {
+      "id": "P1A-HOSTILE-DELETION-HTML-EVENTS-SCRIPT-AND-URL",
+      "tags": [
+        "hostile",
+        "deletion",
+        "security"
+      ],
+      "source": "{--<svg onload=\"globalThis.__criticXss=4\"><a href=\"javascript:alert(4)\">old</a><script>globalThis.__criticXss=5</script></svg>--}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "deletion"
+      ],
+      "criticSourcePreorder": [
+        "{--<svg onload=\"globalThis.__criticXss=4\"><a href=\"javascript:alert(4)\">old</a><script>globalThis.__criticXss=5</script></svg>--}"
+      ],
+      "originalSource": "<svg onload=\"globalThis.__criticXss=4\"><a href=\"javascript:alert(4)\">old</a><script>globalThis.__criticXss=5</script></svg>\n",
+      "revisedSource": "\n",
+      "staticMaterialization": "must-remain-inert"
+    },
+    {
+      "id": "P1A-HOSTILE-SUBSTITUTION-BOTH-ARMS",
+      "tags": [
+        "hostile",
+        "substitution",
+        "security"
+      ],
+      "source": "{~~<img src=\"javascript:alert(5)\" onerror=\"globalThis.__criticXss=6\">old~><svg onload=\"globalThis.__criticXss=7\"><a href=\"data:text/html,evil\">new</a></svg>~~}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "substitution"
+      ],
+      "criticSourcePreorder": [
+        "{~~<img src=\"javascript:alert(5)\" onerror=\"globalThis.__criticXss=6\">old~><svg onload=\"globalThis.__criticXss=7\"><a href=\"data:text/html,evil\">new</a></svg>~~}"
+      ],
+      "originalSource": "<img src=\"javascript:alert(5)\" onerror=\"globalThis.__criticXss=6\">old\n",
+      "revisedSource": "<svg onload=\"globalThis.__criticXss=7\"><a href=\"data:text/html,evil\">new</a></svg>\n",
+      "staticMaterialization": "must-remain-inert"
+    },
+    {
+      "id": "P1A-HOSTILE-HIGHLIGHT-MARKDOWN-IMAGE-FIELDS",
+      "tags": [
+        "hostile",
+        "highlight",
+        "image",
+        "security"
+      ],
+      "source": "{==![alt\" onerror=\"globalThis.__criticXss=8](javascript:alert%288%29 'title\" onload=\"globalThis.__criticXss=9')==}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "highlight"
+      ],
+      "criticSourcePreorder": [
+        "{==![alt\" onerror=\"globalThis.__criticXss=8](javascript:alert%288%29 'title\" onload=\"globalThis.__criticXss=9')==}"
+      ],
+      "originalSource": "![alt\" onerror=\"globalThis.__criticXss=8](javascript:alert%288%29 'title\" onload=\"globalThis.__criticXss=9')\n",
+      "revisedSource": "![alt\" onerror=\"globalThis.__criticXss=8](javascript:alert%288%29 'title\" onload=\"globalThis.__criticXss=9')\n",
+      "staticMaterialization": "must-remain-inert"
+    },
+    {
+      "id": "P1A-HOSTILE-HIGHLIGHT-QUOTE-BREAKING-ATTRIBUTES",
+      "tags": [
+        "hostile",
+        "highlight",
+        "attribute",
+        "security"
+      ],
+      "source": "{==<span title=\"safe&quot; onfocus=&quot;globalThis.__criticXss=10\" onmouseover=\"globalThis.__criticXss=11\">focus</span>==}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "highlight"
+      ],
+      "criticSourcePreorder": [
+        "{==<span title=\"safe&quot; onfocus=&quot;globalThis.__criticXss=10\" onmouseover=\"globalThis.__criticXss=11\">focus</span>==}"
+      ],
+      "originalSource": "<span title=\"safe&quot; onfocus=&quot;globalThis.__criticXss=10\" onmouseover=\"globalThis.__criticXss=11\">focus</span>\n",
+      "revisedSource": "<span title=\"safe&quot; onfocus=&quot;globalThis.__criticXss=10\" onmouseover=\"globalThis.__criticXss=11\">focus</span>\n",
+      "staticMaterialization": "must-remain-inert"
+    },
+    {
+      "id": "P1A-OPENER-ON-OWN-LINE-BLOCK-SPANNING-ADDITION",
+      "tags": [
+        "syntax",
+        "block-spanning",
+        "boundary-trivia"
+      ],
+      "source": "intro:\n\n{++\n- first\n- second\n++}\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": true,
+        "math": true,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++\n- first\n- second\n++}"
+      ],
+      "originalSource": "intro:\n\n\n",
+      "revisedSource": "intro:\n\n\n- first\n- second\n\n"
+    },
+    {
+      "id": "P1A-HOSTILE-CROSS-BLOCK-ADDITION",
+      "tags": [
+        "hostile",
+        "addition",
+        "block-spanning",
+        "security"
+      ],
+      "source": "before {++<img src=\"javascript:alert(12)\" onerror=\"globalThis.__criticXss=12\">\n\n# [jump](vbscript:msgbox(12))\n\npayload++} after\n",
+      "markdownOptions": {
+        "schema": "markdown-options-1",
+        "gfm": true,
+        "frontMatter": false,
+        "math": false,
+        "gitLabMath": false,
+        "footnotes": false,
+        "subscriptAndSuperscript": true
+      },
+      "criticKindsPreorder": [
+        "addition"
+      ],
+      "criticSourcePreorder": [
+        "{++<img src=\"javascript:alert(12)\" onerror=\"globalThis.__criticXss=12\">\n\n# [jump](vbscript:msgbox(12))\n\npayload++}"
+      ],
+      "originalSource": "before  after\n",
+      "revisedSource": "before <img src=\"javascript:alert(12)\" onerror=\"globalThis.__criticXss=12\">\n\n# [jump](vbscript:msgbox(12))\n\npayload after\n",
+      "staticMaterialization": "must-remain-inert"
+    }
+  ],
+  "scaleFamilies": [
+    {
+      "id": "P1S-ORDINARY-4096-LINES",
+      "axis": "long-ordinary-source",
+      "sourceShape": "4,096 ordinary Markdown, JSON, and link lines",
+      "target": "complete parse with exact source and no CriticMarkup nodes"
+    },
+    {
+      "id": "P1S-MALFORMED-16000-OPENERS",
+      "axis": "long-malformed-source",
+      "sourceShape": "16,000 incomplete Addition openers",
+      "target": "deterministic complete parse with exact literal recovery"
+    },
+    {
+      "id": "P1S-DEEP-12000-ADDITIONS",
+      "axis": "deep-accepted-criticmarkup",
+      "sourceShape": "12,000 nested balanced Additions around one payload",
+      "target": "iterative parse, projection, traversal, and indexed lookup"
+    },
+    {
+      "id": "P1S-DEEP-1024-CONTEXTS",
+      "axis": "deep-markdown-context-ownership",
+      "sourceShape": "1,024 nested balanced Additions around one payload",
+      "target": "one intrinsic grammar traversal with exact projections"
+    },
+    {
+      "id": "P1S-BLOCKQUOTE-DEPTH-5000",
+      "axis": "markdown-container-limit",
+      "sourceShape": "5,000 nested blockquotes around one Addition",
+      "target": "deterministic configured-limit diagnostic without stack overflow"
+    },
+    {
+      "id": "P1S-WIDE-257-ADDITIONS",
+      "axis": "wide-dense-criticmarkup",
+      "sourceShape": "257 adjacent Additions",
+      "target": "complete indexed traversal and exact Original/Revised projections"
+    },
+    {
+      "id": "P1S-LITERAL-PREFIX-1024",
+      "axis": "many-literal-provider-ranges",
+      "sourceShape": "1,024 disjoint literal-provider ranges before one Addition",
+      "target": "literal ownership remains exact and the final Addition is recognized"
+    }
+  ]
+}

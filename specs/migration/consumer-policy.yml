@@ -1,0 +1,286 @@
+{
+  "schema": "marktext-consumer-policy-v1",
+  "terms": {
+    "canonicalSlice": "minimum exact source hull mapped from the selected view range, including fully covered hidden and syntax spans",
+    "projectedText": "decoded plain text from the selected view meaning tree, never projected Markdown spelling",
+    "reviewHtml": "sanitized HTML with semantic ins, del, mark, and annotation roles",
+    "cleanHtml": "sanitized HTML with no CriticMarkup nodes or annotation metadata"
+  },
+  "cells": [
+    {
+      "view": "markup",
+      "consumer": "normal-copy",
+      "behavior": "text/plain and the private source flavor are the exact canonical slice; text/html is Review HTML"
+    },
+    {
+      "view": "markup",
+      "consumer": "copy-rich",
+      "behavior": "Review HTML with projected Markup-visible plain-text fallback"
+    },
+    {
+      "view": "markup",
+      "consumer": "copy-html",
+      "behavior": "plain text containing serialized sanitized Review HTML"
+    },
+    {
+      "view": "markup",
+      "consumer": "copy-markdown",
+      "behavior": "exact canonical slice independent of active projection"
+    },
+    {
+      "view": "markup",
+      "consumer": "cut",
+      "behavior": "Normal Copy bundle; a matching clipboard receipt authorizes one semantic deletion"
+    },
+    {
+      "view": "markup",
+      "consumer": "paste",
+      "behavior": "private source flavor and explicit Markdown are raw syntax imports; external text and safe HTML are semantic edits"
+    },
+    {
+      "view": "markup",
+      "consumer": "search",
+      "behavior": "exact canonical source including Markdown, CriticMarkup markers, and Comment payload"
+    },
+    {
+      "view": "markup",
+      "consumer": "replace",
+      "behavior": "only authenticated editable visible hits; any syntax, hidden, or read-only hit rejects Replace All atomically"
+    },
+    {
+      "view": "markup",
+      "consumer": "count",
+      "behavior": "committed canonical source including markers and Comment payload"
+    },
+    {
+      "view": "markup",
+      "consumer": "static-html",
+      "behavior": "sanitized Review HTML"
+    },
+    {
+      "view": "markup",
+      "consumer": "styled-html",
+      "behavior": "styled sanitized Review HTML"
+    },
+    {
+      "view": "markup",
+      "consumer": "pdf",
+      "behavior": "artifact rendered from sink-branded styled Review HTML"
+    },
+    {
+      "view": "markup",
+      "consumer": "print",
+      "behavior": "captured print rendered from sink-branded styled Review HTML"
+    },
+    {
+      "view": "markup",
+      "consumer": "persistence",
+      "behavior": "exact committed canonical revision through a pinned source lease"
+    },
+    {
+      "view": "original",
+      "consumer": "normal-copy",
+      "behavior": "projected Original plain text plus clean HTML"
+    },
+    {
+      "view": "original",
+      "consumer": "copy-rich",
+      "behavior": "clean Original HTML plus projected Original plain text"
+    },
+    {
+      "view": "original",
+      "consumer": "copy-html",
+      "behavior": "plain text containing serialized clean Original HTML"
+    },
+    {
+      "view": "original",
+      "consumer": "copy-markdown",
+      "behavior": "exact canonical slice mapped from the selected Original range"
+    },
+    {
+      "view": "original",
+      "consumer": "cut",
+      "behavior": "disabled because Original is read-only"
+    },
+    {
+      "view": "original",
+      "consumer": "paste",
+      "behavior": "disabled because Original is read-only"
+    },
+    {
+      "view": "original",
+      "consumer": "search",
+      "behavior": "projected Original plain text"
+    },
+    {
+      "view": "original",
+      "consumer": "replace",
+      "behavior": "disabled because Original is read-only"
+    },
+    {
+      "view": "original",
+      "consumer": "count",
+      "behavior": "committed canonical source, identical to every view"
+    },
+    {
+      "view": "original",
+      "consumer": "static-html",
+      "behavior": "sanitized clean Original HTML"
+    },
+    {
+      "view": "original",
+      "consumer": "styled-html",
+      "behavior": "styled sanitized clean Original HTML"
+    },
+    {
+      "view": "original",
+      "consumer": "pdf",
+      "behavior": "artifact rendered from sink-branded clean Original HTML"
+    },
+    {
+      "view": "original",
+      "consumer": "print",
+      "behavior": "captured print rendered from sink-branded clean Original HTML"
+    },
+    {
+      "view": "original",
+      "consumer": "persistence",
+      "behavior": "exact committed canonical revision through a pinned source lease"
+    },
+    {
+      "view": "revised",
+      "consumer": "normal-copy",
+      "behavior": "projected Revised plain text plus clean HTML"
+    },
+    {
+      "view": "revised",
+      "consumer": "copy-rich",
+      "behavior": "clean Revised HTML plus projected Revised plain text"
+    },
+    {
+      "view": "revised",
+      "consumer": "copy-html",
+      "behavior": "plain text containing serialized clean Revised HTML"
+    },
+    {
+      "view": "revised",
+      "consumer": "copy-markdown",
+      "behavior": "exact canonical slice mapped from the selected Revised range"
+    },
+    {
+      "view": "revised",
+      "consumer": "cut",
+      "behavior": "disabled because Revised is read-only"
+    },
+    {
+      "view": "revised",
+      "consumer": "paste",
+      "behavior": "disabled because Revised is read-only"
+    },
+    {
+      "view": "revised",
+      "consumer": "search",
+      "behavior": "projected Revised plain text"
+    },
+    {
+      "view": "revised",
+      "consumer": "replace",
+      "behavior": "disabled because Revised is read-only"
+    },
+    {
+      "view": "revised",
+      "consumer": "count",
+      "behavior": "committed canonical source, identical to every view"
+    },
+    {
+      "view": "revised",
+      "consumer": "static-html",
+      "behavior": "sanitized clean Revised HTML"
+    },
+    {
+      "view": "revised",
+      "consumer": "styled-html",
+      "behavior": "styled sanitized clean Revised HTML"
+    },
+    {
+      "view": "revised",
+      "consumer": "pdf",
+      "behavior": "artifact rendered from sink-branded clean Revised HTML"
+    },
+    {
+      "view": "revised",
+      "consumer": "print",
+      "behavior": "captured print rendered from sink-branded clean Revised HTML"
+    },
+    {
+      "view": "revised",
+      "consumer": "persistence",
+      "behavior": "exact committed canonical revision through a pinned source lease"
+    }
+  ],
+  "sourceMode": [
+    {
+      "consumer": "normal-copy",
+      "behavior": "exact acknowledged raw SourceDraft selection"
+    },
+    {
+      "consumer": "copy-rich",
+      "behavior": "disabled"
+    },
+    {
+      "consumer": "copy-html",
+      "behavior": "disabled"
+    },
+    {
+      "consumer": "copy-markdown",
+      "behavior": "exact acknowledged raw SourceDraft selection"
+    },
+    {
+      "consumer": "cut",
+      "behavior": "exact acknowledged raw SourceDraft selection followed by an acknowledged source delta"
+    },
+    {
+      "consumer": "paste",
+      "behavior": "ordered acknowledged raw SourceDraft delta"
+    },
+    {
+      "consumer": "search",
+      "behavior": "exact acknowledged SourceDraft"
+    },
+    {
+      "consumer": "replace",
+      "behavior": "ordered acknowledged raw SourceDraft delta"
+    },
+    {
+      "consumer": "count",
+      "behavior": "exact acknowledged draft, visibly labeled draft-derived"
+    },
+    {
+      "consumer": "static-html",
+      "behavior": "requires an explicit view and a committed complete revision"
+    },
+    {
+      "consumer": "styled-html",
+      "behavior": "requires an explicit view and a committed complete revision"
+    },
+    {
+      "consumer": "pdf",
+      "behavior": "requires an explicit view and a committed complete revision"
+    },
+    {
+      "consumer": "print",
+      "behavior": "requires an explicit view and a committed complete revision"
+    },
+    {
+      "consumer": "persistence",
+      "behavior": "atomically commit the named acknowledged draft version and lease that exact revision; block on dirty invalid or unacknowledged input"
+    }
+  ],
+  "commentPolicy": [
+    "Canonical save, Source, Markup normal copy, Copy Markdown, Markup search, and canonical count include exact Comment source.",
+    "Live Markup prose hides Comment markers and payload and exposes only its typed indicator and separate Review card.",
+    "Markup Review HTML removes Comment payload from prose, emits one annotation reference, and renders a sanitized Revised subtree note.",
+    "Clipboard Review HTML includes intersecting notes; whole-document static, styled, PDF, and print Review outputs include every note.",
+    "Original and Revised text, HTML, search, PDF, and print elide the complete Comment subtree."
+  ]
+}

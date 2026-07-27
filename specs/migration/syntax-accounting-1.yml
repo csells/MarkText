@@ -1,0 +1,245 @@
+{
+  "schema": "marktext-syntax-accounting-v1",
+  "id": "syntax-accounting-1",
+  "events": [
+    {
+      "kind": "TapeRun",
+      "order": 10,
+      "range": "exact canonical UTF-16 source run",
+      "key": "source start, frozen lexical role, source end, emission ordinal",
+      "maximalization": "One event for each maximal contiguous source run with the same frozen lexical role; CRLF is one EOL run and each complete CriticMarkup delimiter or separator is one run."
+    },
+    {
+      "kind": "MarkdownNode",
+      "order": 20,
+      "range": "smallest canonical source envelope of the production",
+      "key": "parser-emitted syntax identity",
+      "maximalization": "One event for each unique Markdown syntax node emitted into the intrinsic fork graph. Original, Revised, Editing, and Comment selections reuse a shared node identity instead of charging duplicate trees."
+    },
+    {
+      "kind": "CriticNode",
+      "order": 30,
+      "range": "complete accepted CriticMarkup form",
+      "key": "source start, form kind, source end",
+      "maximalization": "One event for each accepted CriticMarkup form, including forms inside Comment payloads."
+    },
+    {
+      "kind": "MarkerNode",
+      "order": 40,
+      "range": "exact accepted opener, separator, or closer",
+      "key": "owning CriticNode identity and marker role",
+      "maximalization": "One event for every accepted opener and closer and every accepted Substitution separator."
+    },
+    {
+      "kind": "ArmNode",
+      "order": 50,
+      "range": "exact payload range, including an empty range",
+      "key": "owning CriticNode identity and arm name",
+      "maximalization": "One event for each unary payload and two events for each Substitution old/new pair."
+    },
+    {
+      "kind": "ProjectionSegment",
+      "order": 60,
+      "range": "canonical source range represented by the segment",
+      "key": "emitted fork selection, affine-map identity, ordinal",
+      "maximalization": "One event for each maximal projection run in each distinct emitted fork selection. Aliased selections are charged once."
+    }
+  ],
+  "uncounted": [
+    "caches",
+    "diagnostics",
+    "indexes",
+    "history",
+    "checkpoints",
+    "physical-helper-objects"
+  ],
+  "limits": {
+    "profile": "desktop-v1",
+    "decodedSourceUnits": 32000000,
+    "budgetEvents": 2000000,
+    "markdownContainerDepth": 128,
+    "criticMarkupDepth": 16384
+  },
+  "examples": [
+    {
+      "id": "SA1-EMPTY",
+      "source": "",
+      "eventCounts": {
+        "TapeRun": 0,
+        "MarkdownNode": 2,
+        "CriticNode": 0,
+        "MarkerNode": 0,
+        "ArmNode": 0,
+        "ProjectionSegment": 0
+      },
+      "total": 2
+    },
+    {
+      "id": "SA1-PLAIN",
+      "source": "x",
+      "eventCounts": {
+        "TapeRun": 1,
+        "MarkdownNode": 4,
+        "CriticNode": 0,
+        "MarkerNode": 0,
+        "ArmNode": 0,
+        "ProjectionSegment": 1
+      },
+      "total": 6
+    },
+    {
+      "id": "SA1-ALL-FIVE",
+      "source": "{++++}{----}{~~~>~~}{====}{>><<}",
+      "eventCounts": {
+        "TapeRun": 11,
+        "MarkdownNode": 3,
+        "CriticNode": 5,
+        "MarkerNode": 11,
+        "ArmNode": 6,
+        "ProjectionSegment": 0
+      },
+      "total": 36
+    },
+    {
+      "id": "SA1-NESTED",
+      "source": "{++{--x--}++}",
+      "eventCounts": {
+        "TapeRun": 5,
+        "MarkdownNode": 5,
+        "CriticNode": 2,
+        "MarkerNode": 4,
+        "ArmNode": 2,
+        "ProjectionSegment": 1
+      },
+      "total": 19
+    },
+    {
+      "id": "SA1-LITERAL",
+      "source": "`{++x++}`",
+      "eventCounts": {
+        "TapeRun": 1,
+        "MarkdownNode": 4,
+        "CriticNode": 0,
+        "MarkerNode": 0,
+        "ArmNode": 0,
+        "ProjectionSegment": 1
+      },
+      "total": 6
+    },
+    {
+      "id": "SA1-MALFORMED",
+      "source": "{++x",
+      "eventCounts": {
+        "TapeRun": 2,
+        "MarkdownNode": 4,
+        "CriticNode": 0,
+        "MarkerNode": 0,
+        "ArmNode": 0,
+        "ProjectionSegment": 2
+      },
+      "total": 8
+    },
+    {
+      "id": "SA1-COMMENT-DISPLAY",
+      "source": "{>>x<<}",
+      "eventCounts": {
+        "TapeRun": 3,
+        "MarkdownNode": 5,
+        "CriticNode": 1,
+        "MarkerNode": 2,
+        "ArmNode": 1,
+        "ProjectionSegment": 1
+      },
+      "total": 13
+    }
+  ],
+  "generators": [
+    {
+      "id": "exact-empty-cm-event-family",
+      "fixedEvents": 2,
+      "units": [
+        {
+          "argument": "emptyAdditions",
+          "source": "{++++}",
+          "events": 6
+        },
+        {
+          "argument": "emptyComments",
+          "source": "{>><<}",
+          "events": 7
+        }
+      ]
+    }
+  ],
+  "boundaryVectors": [
+    {
+      "id": "SA1-SOURCE-UNITS",
+      "dimension": "decodedSourceUnits",
+      "limit": 32000000,
+      "generator": "plain-text-utf16-units",
+      "cases": [
+        { "relation": "below", "value": 31999999, "expected": "complete" },
+        { "relation": "at", "value": 32000000, "expected": "complete" },
+        { "relation": "above", "value": 32000001, "expected": "source-only", "diagnosticCode": "CM_RESOURCE_SOURCE_UNITS_EXCEEDED" }
+      ]
+    },
+    {
+      "id": "SA1-BUDGET-EVENTS",
+      "dimension": "budgetEvents",
+      "limit": 2000000,
+      "generator": "exact-empty-cm-event-family",
+      "cases": [
+        {
+          "relation": "below",
+          "value": 1999999,
+          "expected": "complete",
+          "generatorArguments": {
+            "emptyAdditions": 333327,
+            "emptyComments": 5
+          }
+        },
+        {
+          "relation": "at",
+          "value": 2000000,
+          "expected": "complete",
+          "generatorArguments": {
+            "emptyAdditions": 333333,
+            "emptyComments": 0
+          }
+        },
+        {
+          "relation": "above",
+          "value": 2000001,
+          "expected": "source-only",
+          "diagnosticCode": "CM_RESOURCE_LOGICAL_NODES_EXCEEDED",
+          "generatorArguments": {
+            "emptyAdditions": 333332,
+            "emptyComments": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "SA1-MARKDOWN-DEPTH",
+      "dimension": "markdownContainerDepth",
+      "limit": 128,
+      "generator": "nested-blockquotes",
+      "cases": [
+        { "relation": "below", "value": 127, "expected": "complete" },
+        { "relation": "at", "value": 128, "expected": "complete" },
+        { "relation": "above", "value": 129, "expected": "source-only", "diagnosticCode": "CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED" }
+      ]
+    },
+    {
+      "id": "SA1-CRITICMARKUP-DEPTH",
+      "dimension": "criticMarkupDepth",
+      "limit": 16384,
+      "generator": "nested-additions",
+      "cases": [
+        { "relation": "below", "value": 16383, "expected": "complete" },
+        { "relation": "at", "value": 16384, "expected": "complete" },
+        { "relation": "above", "value": 16385, "expected": "source-only", "diagnosticCode": "CM_RESOURCE_CM_DEPTH_EXCEEDED" }
+      ]
+    }
+  ]
+}

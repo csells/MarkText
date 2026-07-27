@@ -6,8 +6,8 @@ import type {
   MarkupMark,
   MarkupProjection,
   MarkupProjectionRun,
-  MarkdownDocument,
-  MarkdownNode,
+  MarkdownOptionsV1,
+  NodeId,
   ProjectedCodeUnitOrigin,
   ProjectionProvenance,
   ResourceDiagnostic,
@@ -17,6 +17,7 @@ import type {
   SyntaxDiagnostic,
   UnaryCriticNode
 } from '../revision.js'
+import { DOCUMENT_RESOURCE_POLICY_V1 } from '../resourcePolicy.js'
 import {
   composeMarkdownLiteralRanges,
   type MarkdownContainerDepthFailure,
@@ -26,22 +27,26 @@ import {
   createMarkdownLaneState,
   type MarkdownArmMode,
   type MarkdownCheckpoint,
-  type MarkdownPendingLineBlockFact,
-  type MarkdownReferenceDefinitionLookup
+  type MarkdownLaneState,
+  type MarkdownPendingLineBlockFact
 } from './profile1/markdownLaneState.js'
 import {
-  createProfile1ReferenceDefinitionIndex
-} from './profile1/referenceDefinitionIndex.js'
+  __markerBearingIntrinsicTraversalsV1,
+  __resetMarkerBearingIntrinsicTraversalsV1,
+  recordCommentProjectionPreparationV1,
+  recordIntrinsicSourceTraversalV1
+} from './profile1/physicalTraversalAccounting.js'
 import {
-  createCanonicalMarkdownParseRecorder,
-  type CanonicalMarkdownArmBoundaryEvent,
-  type CanonicalMarkdownParseArtifact,
-  type CanonicalMarkdownParseLaneHandle
-} from './profile1/canonicalMarkdownArtifact.js'
+  createIntrinsicProfile1ForkRecorder,
+  type IntrinsicProfile1ArmBoundaryEvent,
+  type IntrinsicProfile1ForkBranch,
+  type IntrinsicProfile1ForkGraph,
+  type IntrinsicProfile1ForkLane,
+  type IntrinsicProfile1ForkLaneHandle
+} from './profile1/intrinsicProfile1ForkGraph.js'
 import {
   assertLosslessTape,
   findMarker,
-  isMarkdownTextTapeRole,
   markerCandidateFromRole,
   scanSourceTape,
   type CanonicalMarkerDecision,
@@ -59,23 +64,44 @@ import type {
   Profile1SyntaxGraph,
   Profile1SyntaxGraphCore,
   Profile1ProjectedMarkdown,
-  MappedProjectionSegment,
-  CanonicalMarkdownCriticBranch,
-  CanonicalMarkdownLane
+  MappedProjectionSegment
 } from './profile1/syntaxGraph.js'
 import {
-  planMarkdownArmBoundaryProjectionEdits,
-  type PlainMarkdownLaneReuseCache,
-  parseMarkdownDocument,
+  createIntrinsicProfile1SourceProgression,
+  createProfile1MarkdownReuseCache,
+  createProfile1MarkdownForkParser,
+  type MappedMarkdownLane,
+  type Profile1MarkdownForkAstRequest,
+  type Profile1MarkdownParse,
+  type Profile1MarkdownForkParser,
+  type Profile1MarkdownReuseCache,
   type MarkdownArmBoundaryProjectionEdit,
   type MappedMarkdownCanonicalIdentityRun,
-  type MappedMarkdownMatchingScope,
-  type Profile1MarkdownParse
+  type MappedMarkdownMatchingScope
 } from './profile1/markdownParser.js'
+import {
+  createProfile1SyntaxIdentityRegistry,
+  defineNodeId,
+  type Profile1SyntaxIdentityRegistry,
+  type SyntaxSourceIdentity
+} from './profile1/syntaxIdentity.js'
 import type {
   ProfileParseTraceRecorderV1,
   ProfileParseTraceViewV1
 } from './profileParseTraceV1.js'
+import type {
+  Profile1CanonicalReferenceDefinitionLookup
+} from './profile1/referenceDefinitionIndex.js'
+import {
+  createProfile1SyntaxAccountingRecorderV1,
+  type Profile1SyntaxAccountingRecorderV1,
+  type Profile1SyntaxAccountingTraceV1
+} from './profile1/syntaxAccounting.js'
+import {
+  createParseExecutionTracker,
+  type ParseExecutionControl,
+  type ParseExecutionTracker
+} from '../parseExecutionControl.js'
 
 type ImplementedUnaryNode =
   | UnaryCriticNode<'addition', 'content'>
@@ -86,104 +112,19 @@ type ImplementedUnaryNode =
 type ImplementedNode = ImplementedUnaryNode | SubstitutionNode
 type ImplementedKind = ImplementedNode['kind']
 
-interface MarkdownNodeComparison {
-  readonly expected: MarkdownNode
-  readonly clean: MarkdownNode
-}
-
-/**
- * Compares a graph-retained projected Markdown product with the independently
- * parsed clean candidate. The clean product is verification evidence only and
- * is never returned to a consumer.
- */
-export function verifyCleanProjectedMarkdownV1(
-  expected: MarkdownDocument,
-  clean: MarkdownDocument
-): void {
-  if (expected.source !== clean.source) {
-    throw new Error('Clean projection Markdown mismatch: source')
-  }
-  const pending: MarkdownNodeComparison[] = [{
-    expected: expected.root,
-    clean: clean.root
-  }]
-  while (pending.length > 0) {
-    const comparison = pending.pop()
-    if (comparison === undefined) {
-      continue
-    }
-    const expectedNode = comparison.expected
-    const cleanNode = comparison.clean
-    if (
-      expectedNode.kind !== cleanNode.kind ||
-      expectedNode.range.start !== cleanNode.range.start ||
-      expectedNode.range.end !== cleanNode.range.end ||
-      expectedNode.childCount !== cleanNode.childCount
-    ) {
-      throw new Error('Clean projection Markdown mismatch: node topology')
-    }
-    const expectedAttributeKeys = Object.keys(expectedNode.attributes).sort()
-    const cleanAttributeKeys = Object.keys(cleanNode.attributes).sort()
-    if (expectedAttributeKeys.length !== cleanAttributeKeys.length) {
-      throw new Error('Clean projection Markdown mismatch: node attributes')
-    }
-    for (let index = 0; index < expectedAttributeKeys.length; index += 1) {
-      const expectedKey = expectedAttributeKeys[index]
-      const cleanKey = cleanAttributeKeys[index]
-      if (
-        expectedKey === undefined ||
-        cleanKey !== expectedKey ||
-        expectedNode.attributes[expectedKey] !== cleanNode.attributes[cleanKey]
-      ) {
-        throw new Error('Clean projection Markdown mismatch: node attributes')
-      }
-    }
-    for (let ordinal = expectedNode.childCount - 1; ordinal >= 0; ordinal -= 1) {
-      pending.push({
-        expected: expectedNode.childAt(ordinal),
-        clean: cleanNode.childAt(ordinal)
-      })
-    }
-  }
-}
-
 interface ParseFrame {
   readonly definition: FormDefinition
   readonly open: TapeRun
   readonly children: readonly [CriticMarkupNode[], CriticMarkupNode[]]
   readonly continuationCheckpoint: MarkdownCheckpoint
   readonly armMode: MarkdownArmMode
-  readonly artifactParentLane: CanonicalMarkdownParseLaneHandle
-  readonly artifactArmLanes: CanonicalMarkdownParseLaneHandle[]
-  currentArtifactLane: CanonicalMarkdownParseLaneHandle
+  readonly forkParentLane: IntrinsicProfile1ForkLaneHandle
+  readonly forkArmLanes: IntrinsicProfile1ForkLaneHandle[]
+  currentForkLane: IntrinsicProfile1ForkLaneHandle
   currentCheckpoint: MarkdownCheckpoint
   enclosingLabelPreservedByAllArms: boolean
   separator?: TapeRun
 }
-
-type Profile1DelimiterEvent =
-  | Readonly<{
-    readonly kind: Profile1CriticKind
-    readonly role: 'open'
-    readonly range: SourceRange
-    readonly parentOpenRange: SourceRange | null
-  }>
-  | Readonly<{
-    readonly kind: 'substitution'
-    readonly role: 'separator'
-    readonly range: SourceRange
-    readonly openerRange: SourceRange
-  }>
-  | Readonly<{
-    readonly kind: Profile1CriticKind
-    readonly role: 'close'
-    readonly range: SourceRange
-    readonly action: 'matched' | 'non-top' | 'unmatched'
-    readonly openerRange?: SourceRange
-    readonly topOpenRange?: SourceRange
-  }>
-
-type Profile1DelimiterPolicy = (event: Profile1DelimiterEvent) => boolean
 
 interface ParseResult {
   readonly kind: 'complete'
@@ -191,10 +132,10 @@ interface ParseResult {
   readonly roots: readonly CriticMarkupNode[]
   readonly diagnostics: readonly SyntaxDiagnostic[]
   readonly markerDecisions: readonly CanonicalMarkerDecision[]
-  readonly canonicalMarkdownParse: CanonicalMarkdownParseArtifact
+  readonly forkGraph: IntrinsicProfile1ForkGraph
+  readonly markdownLane: MarkdownLaneState
+  readonly referenceDefinitions: Profile1CanonicalReferenceDefinitionLookup
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
-  readonly rejectedDelimiters: readonly Profile1DelimiterEvent[]
-  readonly projectedMarkdown?: Profile1MarkdownParse
 }
 
 interface ParseResourceFailure {
@@ -226,7 +167,7 @@ type MutableProjectionSegment =
 
 interface LaneTask {
   readonly kind: 'lane'
-  readonly lane: CanonicalMarkdownLane
+  readonly lane: IntrinsicProfile1ForkLane
 }
 
 interface AppendTask {
@@ -238,9 +179,9 @@ interface AppendTask {
 interface ArmBoundaryTask {
   readonly kind: 'arm-boundary'
   readonly laneId: number
-  readonly event: CanonicalMarkdownArmBoundaryEvent
-  readonly lane: CanonicalMarkdownLane
-  readonly parentLane: CanonicalMarkdownLane
+  readonly event: IntrinsicProfile1ArmBoundaryEvent
+  readonly lane: IntrinsicProfile1ForkLane
+  readonly parentLane: IntrinsicProfile1ForkLane
   readonly branchEnd: number
 }
 
@@ -269,7 +210,9 @@ interface MarkPath {
   readonly depth: number
 }
 
-export type Profile1DocumentProducts = Profile1SyntaxGraph
+export type Profile1DocumentProducts = Profile1SyntaxGraph & Readonly<{
+  readonly accountingTrace?: Profile1SyntaxAccountingTraceV1
+}>
 
 export interface Profile1SourceOnlyProducts {
   readonly kind: 'source-only'
@@ -277,6 +220,17 @@ export interface Profile1SourceOnlyProducts {
 }
 
 export type Profile1DocumentResult = Profile1DocumentProducts | Profile1SourceOnlyProducts
+
+export interface Profile1DocumentReuseCache {
+  readonly markdown: Profile1MarkdownReuseCache
+}
+
+export function createProfile1DocumentReuseCache():
+Profile1DocumentReuseCache {
+  return Object.freeze({
+    markdown: createProfile1MarkdownReuseCache()
+  })
+}
 
 const DIAGNOSTIC_ORDER: Readonly<Record<SyntaxDiagnostic['code'], number>> = Object.freeze({
   CM_UNMATCHED_CLOSER: 0,
@@ -293,9 +247,18 @@ const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
   comment: 'Comment'
 })
 
-const DESKTOP_SOURCE_UNIT_LIMIT = 32_000_000
+const DESKTOP_BUDGET_EVENT_LIMIT = 2_000_000
 const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128
 const DESKTOP_CM_DEPTH_LIMIT = 16_384
+const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptionsV1 = Object.freeze({
+  schema: 'markdown-options-1',
+  gfm: true,
+  frontMatter: true,
+  math: true,
+  gitLabMath: false,
+  footnotes: false,
+  subscriptAndSuperscript: true
+})
 
 function sourceOffset(value: number): SourceOffset {
   return value as SourceOffset
@@ -305,63 +268,170 @@ function sourceRange(start: number, end: number): SourceRange {
   return Object.freeze({ start: sourceOffset(start), end: sourceOffset(end) })
 }
 
-function createUnaryNode(frame: ParseFrame, close: TapeRun): ImplementedUnaryNode {
+function emitCriticMarkerEdges(
+  registry: Profile1SyntaxIdentityRegistry,
+  nodeId: NodeId,
+  nodeKind: ImplementedKind,
+  markers: readonly Readonly<{
+    readonly role: 'open' | 'separator' | 'close'
+    readonly range: SourceRange
+  }>[]
+): void {
+  for (const marker of markers) {
+    const semanticKey =
+      `critic-marker:${nodeId}:${marker.role}:${marker.range.start}:${marker.range.end}`
+    const markerId = registry.emitNode(
+      'source-leaf',
+      Object.freeze({ key: semanticKey, range: marker.range }),
+      semanticKey
+    )
+    registry.emitEdge('marker', nodeId, markerId, marker.role)
+    registry.emitOwnership(
+      marker.range,
+      Object.freeze(defineNodeId({
+        kind: 'critic-marker' as const,
+        form: nodeKind,
+        role: marker.role,
+        nodeRange: sourceRange(
+          markers[0]?.range.start ?? marker.range.start,
+          markers.at(-1)?.range.end ?? marker.range.end
+        )
+      }, nodeId))
+    )
+  }
+}
+
+function createUnaryNode(
+  frame: ParseFrame,
+  close: TapeRun,
+  registry: Profile1SyntaxIdentityRegistry
+): ImplementedUnaryNode {
   const children = Object.freeze([...frame.children[0]])
   const range = sourceRange(frame.open.range.start, close.range.end)
+  const semanticKey =
+    `critic:${frame.definition.kind}:${range.start}:${range.end}`
+  const nodeId = registry.emitNode(
+    frame.definition.kind,
+    Object.freeze({ key: semanticKey, range }),
+    semanticKey
+  )
   const markers = Object.freeze({ open: frame.open.range, close: close.range })
-  if (frame.definition.kind === 'comment') {
-    const commentArm: CriticMarkupArm<'comment'> = Object.freeze({
-      name: 'comment',
-      range: sourceRange(frame.open.range.end, close.range.start),
+  const createArm = <Name extends 'content' | 'comment'>(
+    name: Name
+  ): CriticMarkupArm<Name> => {
+    const armRange = sourceRange(frame.open.range.end, close.range.start)
+    const armKey = `critic-arm:${nodeId}:${name}`
+    const armId = registry.emitNode(
+      'critic-arm',
+      Object.freeze({ key: armKey, range: armRange }),
+      armKey
+    )
+    registry.emitEdge('critic-arm', nodeId, armId, name)
+    for (const child of children) {
+      registry.emitEdge('contains', armId, child.nodeId)
+    }
+    return Object.freeze(defineNodeId({
+      name,
+      range: armRange,
       children
-    })
-    return Object.freeze({
-      kind: 'comment',
+    }, armId))
+  }
+  if (frame.definition.kind === 'comment') {
+    const commentArm = createArm('comment')
+    const node = Object.freeze(defineNodeId({
+      kind: 'comment' as const,
       range,
       markers,
       arms: Object.freeze([commentArm]) as readonly [CriticMarkupArm<'comment'>]
-    })
+    }, nodeId))
+    emitCriticMarkerEdges(registry, nodeId, 'comment', Object.freeze([
+      Object.freeze({ role: 'open', range: frame.open.range }),
+      Object.freeze({ role: 'close', range: close.range })
+    ]))
+    return node
   }
-  const arm: CriticMarkupArm<'content'> = Object.freeze({
-    name: 'content',
-    range: sourceRange(frame.open.range.end, close.range.start),
-    children
-  })
+  const arm = createArm('content')
   const common = {
     range,
     markers,
     arms: Object.freeze([arm]) as readonly [CriticMarkupArm<'content'>]
   }
+  let node: ImplementedUnaryNode
   if (frame.definition.kind === 'addition') {
-    return Object.freeze({ kind: 'addition', ...common })
+    node = Object.freeze(defineNodeId({
+      kind: 'addition' as const,
+      ...common
+    }, nodeId))
+  } else if (frame.definition.kind === 'deletion') {
+    node = Object.freeze(defineNodeId({
+      kind: 'deletion' as const,
+      ...common
+    }, nodeId))
+  } else if (frame.definition.kind === 'highlight') {
+    node = Object.freeze(defineNodeId({
+      kind: 'highlight' as const,
+      ...common
+    }, nodeId))
+  } else {
+    throw new Error('Substitution cannot be created as a unary CriticMarkup node')
   }
-  if (frame.definition.kind === 'deletion') {
-    return Object.freeze({ kind: 'deletion', ...common })
-  }
-  if (frame.definition.kind === 'highlight') {
-    return Object.freeze({ kind: 'highlight', ...common })
-  }
-  throw new Error('Substitution cannot be created as a unary CriticMarkup node')
+  emitCriticMarkerEdges(registry, nodeId, node.kind, Object.freeze([
+    Object.freeze({ role: 'open', range: frame.open.range }),
+    Object.freeze({ role: 'close', range: close.range })
+  ]))
+  return node
 }
 
-function createSubstitutionNode(frame: ParseFrame, close: TapeRun): SubstitutionNode | undefined {
+function createSubstitutionNode(
+  frame: ParseFrame,
+  close: TapeRun,
+  registry: Profile1SyntaxIdentityRegistry
+): SubstitutionNode | undefined {
   const separator = frame.separator
   if (separator === undefined) {
     return undefined
   }
-  const oldArm: CriticMarkupArm<'old'> = Object.freeze({
-    name: 'old',
-    range: sourceRange(frame.open.range.end, separator.range.start),
-    children: Object.freeze([...frame.children[0]])
-  })
-  const newArm: CriticMarkupArm<'new'> = Object.freeze({
-    name: 'new',
-    range: sourceRange(separator.range.end, close.range.start),
-    children: Object.freeze([...frame.children[1]])
-  })
-  return Object.freeze({
-    kind: 'substitution',
-    range: sourceRange(frame.open.range.start, close.range.end),
+  const range = sourceRange(frame.open.range.start, close.range.end)
+  const semanticKey = `critic:substitution:${range.start}:${range.end}`
+  const nodeId = registry.emitNode(
+    'substitution',
+    Object.freeze({ key: semanticKey, range }),
+    semanticKey
+  )
+  const createArm = <Name extends 'old' | 'new'>(
+    name: Name,
+    armRange: SourceRange,
+    children: readonly CriticMarkupNode[]
+  ): CriticMarkupArm<Name> => {
+    const armKey = `critic-arm:${nodeId}:${name}`
+    const armId = registry.emitNode(
+      'critic-arm',
+      Object.freeze({ key: armKey, range: armRange }),
+      armKey
+    )
+    registry.emitEdge('critic-arm', nodeId, armId, name)
+    for (const child of children) {
+      registry.emitEdge('contains', armId, child.nodeId)
+    }
+    return Object.freeze(defineNodeId({
+      name,
+      range: armRange,
+      children
+    }, armId))
+  }
+  const oldArm = createArm(
+    'old',
+    sourceRange(frame.open.range.end, separator.range.start),
+    Object.freeze([...frame.children[0]])
+  )
+  const newArm = createArm(
+    'new',
+    sourceRange(separator.range.end, close.range.start),
+    Object.freeze([...frame.children[1]])
+  )
+  const node = Object.freeze(defineNodeId({
+    kind: 'substitution' as const,
+    range,
     markers: Object.freeze({
       open: frame.open.range,
       separator: separator.range,
@@ -371,7 +441,13 @@ function createSubstitutionNode(frame: ParseFrame, close: TapeRun): Substitution
       CriticMarkupArm<'old'>,
       CriticMarkupArm<'new'>
     ]
-  })
+  }, nodeId))
+  emitCriticMarkerEdges(registry, nodeId, 'substitution', Object.freeze([
+    Object.freeze({ role: 'open', range: frame.open.range }),
+    Object.freeze({ role: 'separator', range: separator.range }),
+    Object.freeze({ role: 'close', range: close.range })
+  ]))
+  return node
 }
 
 function createDiagnostic(
@@ -398,6 +474,138 @@ function createResourceDiagnostic(
 
 function compareNodes(left: CriticMarkupNode, right: CriticMarkupNode): number {
   return left.range.start - right.range.start || left.range.end - right.range.end
+}
+
+function emitTapeAccounting(
+  accounting: Profile1SyntaxAccountingRecorderV1,
+  tape: readonly TapeRun[]
+): void {
+  for (let ordinal = 0; ordinal < tape.length; ordinal += 1) {
+    const run = tape[ordinal]
+    if (run !== undefined) {
+      accounting.emit(
+        'TapeRun',
+        run.range,
+        `${run.role}/${String(run.range.start)}/${String(run.range.end)}/${String(ordinal)}`
+      )
+    }
+  }
+}
+
+function emitProjectionAccounting(
+  accounting: Profile1SyntaxAccountingRecorderV1,
+  key: string,
+  projection: PreparedProfile1Projection
+): void {
+  for (
+    let ordinal = 0;
+    ordinal < projection.mappedTape.length;
+    ordinal += 1
+  ) {
+    const segment = projection.mappedTape[ordinal]
+    if (segment === undefined) {
+      continue
+    }
+    const range = segment.kind === 'canonical'
+      ? sourceRange(
+        segment.sourceStart,
+        segment.sourceStart +
+          segment.projectedEnd -
+          segment.projectedStart
+      )
+      : sourceRange(segment.sourcePosition, segment.sourcePosition)
+    accounting.emit(
+      'ProjectionSegment',
+      range,
+      `${key}/${segment.kind}/${String(ordinal)}/` +
+        (
+          segment.kind === 'canonical'
+            ? `${String(segment.sourceRunId)}/${String(segment.sourceStart)}`
+            : `${String(segment.sourcePosition)}/${segment.affinity}`
+        )
+    )
+  }
+}
+
+function plainParagraphLineRanges(
+  source: string
+): readonly SourceRange[] | undefined {
+  if (source.length === 0) {
+    return undefined
+  }
+  const ranges: SourceRange[] = []
+  let start = 0
+  while (start < source.length) {
+    let end = start
+    while (
+      end < source.length &&
+      source.charCodeAt(end) !== 10 &&
+      source.charCodeAt(end) !== 13
+    ) {
+      end += 1
+    }
+    const content = source.slice(start, end)
+    if (content.length === 0 || !/^[\p{L}\p{N} ]+$/u.test(content)) {
+      return undefined
+    }
+    ranges.push(sourceRange(start, end))
+    if (end === source.length) {
+      break
+    }
+    if (
+      source.charCodeAt(end) === 13 &&
+      source.charCodeAt(end + 1) === 10
+    ) {
+      end += 2
+    } else {
+      end += 1
+    }
+    start = end
+  }
+  return Object.freeze(ranges)
+}
+
+/**
+ * A plain nonblank line sequence has a closed exact event algebra before AST
+ * allocation: the canonical graph root, one shared projected fork alternative,
+ * and one projection segment per canonical tape run. This preflight prevents a
+ * high-node paragraph from allocating its way to a limit that is already
+ * mathematically determined.
+ */
+function plainParagraphBudgetEventFailure(
+  source: string,
+  parsed: ParseResult
+): ResourceDiagnostic | undefined {
+  if (parsed.roots.length !== 0) {
+    return undefined
+  }
+  const lines = plainParagraphLineRanges(source)
+  if (lines === undefined) {
+    return undefined
+  }
+  const markdownNodesPerView = 2 * lines.length + 1
+  const total =
+    parsed.tape.length +
+    1 +
+    markdownNodesPerView +
+    parsed.tape.length
+  if (total <= DESKTOP_BUDGET_EVENT_LIMIT) {
+    return undefined
+  }
+
+  const eventAfterTape = DESKTOP_BUDGET_EVENT_LIMIT - parsed.tape.length
+  const markdownEventCount = 1 + markdownNodesPerView
+  const failureRange =
+    eventAfterTape < markdownEventCount
+      ? sourceRange(0, source.length)
+      : parsed.tape[eventAfterTape - markdownEventCount]?.range ??
+        sourceRange(source.length, source.length)
+  return createResourceDiagnostic(
+    'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+    sourceRange(failureRange.start, failureRange.start),
+    DESKTOP_BUDGET_EVENT_LIMIT,
+    DESKTOP_BUDGET_EVENT_LIMIT + 1
+  )
 }
 
 function appendNode(
@@ -546,28 +754,42 @@ function finalizeCanonicalTape(
   })
 }
 
-function parseCriticMarkupPass(
+function parseIntrinsicProfile1Pass(
   source: string,
+  syntaxIdentity: Profile1SyntaxIdentityRegistry,
   cmDepthLimit: number = Number.POSITIVE_INFINITY,
-  referenceDefinitions: MarkdownReferenceDefinitionLookup = new Set(),
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
-  delimiterPolicy?: Profile1DelimiterPolicy
+  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  execution?: ParseExecutionTracker
 ): ParseOutcome {
+  const sourceProgression = createIntrinsicProfile1SourceProgression(
+    source,
+    execution
+  )
+  recordIntrinsicSourceTraversalV1(
+    sourceProgression.hasCriticMarkupCandidate,
+    source.length
+  )
   const markdownLane = createMarkdownLaneState(
     source,
     markdownDepthLimit,
-    referenceDefinitions
+    sourceProgression.referenceDefinitions,
+    undefined,
+    markdownOptions.frontMatter,
+    markdownOptions.gfm,
+    markdownOptions.math,
+    markdownOptions.gitLabMath,
+    markdownOptions.footnotes
   )
   const roots: CriticMarkupNode[] = []
   const frames: ParseFrame[] = []
   const framesByKind = new Map<ImplementedKind, ParseFrame[]>()
   const diagnostics: SyntaxDiagnostic[] = []
   const markerDecisions: CanonicalMarkerDecision[] = []
-  const rejectedDelimiters: Profile1DelimiterEvent[] = []
   const stagedMarkdownLiterals: MarkdownLiteralRange[] = []
   let firstMarkdownDepthFailure: MarkdownContainerDepthFailure | undefined
   let rootMarkdownCheckpoint = markdownLane.emptyCheckpoint
-  const markdownArtifact = createCanonicalMarkdownParseRecorder(
+  const forkRecorder = createIntrinsicProfile1ForkRecorder(
     source.length,
     rootMarkdownCheckpoint
   )
@@ -589,8 +811,8 @@ function parseCriticMarkupPass(
   }
   const currentMarkdownCheckpoint = (): MarkdownCheckpoint =>
     frames.at(-1)?.currentCheckpoint ?? rootMarkdownCheckpoint
-  const currentMarkdownArtifactLane = (): CanonicalMarkdownParseLaneHandle =>
-    frames.at(-1)?.currentArtifactLane ?? markdownArtifact.root
+  const currentForkLane = (): IntrinsicProfile1ForkLaneHandle =>
+    frames.at(-1)?.currentForkLane ?? forkRecorder.root
   const replaceCurrentMarkdownCheckpoint = (checkpoint: MarkdownCheckpoint): void => {
     noteMarkdownDepthFailure(checkpoint)
     const frame = frames.at(-1)
@@ -620,73 +842,27 @@ function parseCriticMarkupPass(
       laneEnd,
       boundaryEnd
     )
-    markdownArtifact.recordTransition(
-      currentMarkdownArtifactLane(),
+    forkRecorder.recordTransition(
+      currentForkLane(),
       'advance',
       entryCheckpoint,
       advanced.checkpoint,
       run.range.start,
       run.range.end,
-      advanced.completedLiterals
+      advanced.completedLiterals,
+      advanced.completedLines
     )
     stagedMarkdownLiterals.push(...advanced.completedLiterals)
     replaceCurrentMarkdownCheckpoint(advanced.checkpoint)
   }
-  const closerStartsByKind = new Map<ImplementedKind, number[]>()
-  const substitutionSeparatorStarts: number[] = []
-  for (let offset = 0; offset < source.length; offset += 1) {
-    const marker = findMarker(source, offset)
-    if (
-      marker?.role === 'separator' &&
-      marker.definition.kind === 'substitution'
-    ) {
-      substitutionSeparatorStarts.push(offset)
-      continue
-    }
-    if (marker?.role !== 'close') {
-      continue
-    }
-    const kind = marker.definition.kind as ImplementedKind
-    const starts = closerStartsByKind.get(kind)
-    if (starts === undefined) {
-      closerStartsByKind.set(kind, [offset])
-    } else {
-      starts.push(offset)
-    }
-  }
-  const nextCloserStart = (kind: ImplementedKind, start: number): number => {
-    const starts = closerStartsByKind.get(kind) ?? []
-    let low = 0
-    let high = starts.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      if ((starts[middle] ?? Number.POSITIVE_INFINITY) < start) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
-    }
-    return starts[low] ?? source.length
-  }
-  const nextSubstitutionSeparatorStart = (start: number): number => {
-    let low = 0
-    let high = substitutionSeparatorStarts.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      if (
-        (substitutionSeparatorStarts[middle] ?? Number.POSITIVE_INFINITY) < start
-      ) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
-    }
-    return substitutionSeparatorStarts[low] ?? source.length
-  }
+  const nextCloserStart = (
+    kind: ImplementedKind,
+    start: number
+  ): number => sourceProgression.nextCloserStart(kind, start)
   const nextLaneBoundary = (frame: ParseFrame, start: number): number =>
     frame.definition.kind === 'substitution' && frame.separator === undefined
       ? Math.min(
-        nextSubstitutionSeparatorStart(start),
+        sourceProgression.nextSubstitutionSeparatorStart(start),
         nextCloserStart(frame.definition.kind, start)
       )
       : nextCloserStart(frame.definition.kind, start)
@@ -709,51 +885,31 @@ function parseCriticMarkupPass(
       range: sourceRange(start, end)
     }))
   }
-
-  let sourceCursor = 0
-  const rejectDelimiter = (event: Profile1DelimiterEvent): boolean => {
-    if (delimiterPolicy === undefined || delimiterPolicy(event)) {
-      return false
-    }
-    rejectedDelimiters.push(event)
-    appendMarkdownRange(sourceCursor, sourceCursor + 1)
-    sourceCursor += 1
-    return true
+  const rejectStandingDelimiterCandidate = (candidateStart: number): void => {
+    sourceProgression.referenceDefinitions.rejectDelimiterCandidate?.(
+      candidateStart
+    )
   }
-  while (sourceCursor < source.length) {
-    const foundMarker = findMarker(source, sourceCursor)
-    if (foundMarker === undefined) {
-      let textEnd = sourceCursor
-      const firstCodeUnit = source.charCodeAt(textEnd)
-      if (firstCodeUnit === 10 || firstCodeUnit === 13) {
-        textEnd +=
-          firstCodeUnit === 13 && source.charCodeAt(textEnd + 1) === 10
-            ? 2
-            : 1
-      } else {
-        textEnd += 1
-        while (
-          textEnd < source.length &&
-          source.charCodeAt(textEnd) !== 10 &&
-          source.charCodeAt(textEnd) !== 13 &&
-          findMarker(source, textEnd) === undefined
-        ) {
-          textEnd += 1
-        }
-      }
-      appendMarkdownRange(sourceCursor, textEnd)
-      sourceCursor = textEnd
+
+  while (true) {
+    const sourceStep = sourceProgression.next()
+    if (sourceStep === undefined) {
+      break
+    }
+    if (sourceStep.kind === 'markdown-text') {
+      appendMarkdownRange(sourceStep.start, sourceStep.end)
+      sourceProgression.consume(sourceStep.end)
       continue
     }
 
-    const definition = foundMarker.definition
+    const definition = sourceStep.definition
     const kind = definition.kind as ImplementedKind
-    const markerRole = foundMarker.role
+    const markerRole = sourceStep.role
     const run = createTemporaryRun(
       definition.kind,
       markerRole,
-      sourceCursor,
-      sourceCursor + foundMarker.length
+      sourceStep.start,
+      sourceStep.end
     )
 
     const currentFrame = frames[frames.length - 1]
@@ -767,8 +923,8 @@ function parseCriticMarkupPass(
         ? source.length
         : nextCloserStart(currentFrame.definition.kind, run.range.start)
     )
-    markdownArtifact.recordTransition(
-      currentMarkdownArtifactLane(),
+    forkRecorder.recordTransition(
+      currentForkLane(),
       'prepare-for-marker',
       checkpoint,
       preparedForMarker.checkpoint,
@@ -790,8 +946,8 @@ function parseCriticMarkupPass(
         checkpoint,
         run.range.start
       )
-      markdownArtifact.recordTransition(
-        currentMarkdownArtifactLane(),
+      forkRecorder.recordTransition(
+        currentForkLane(),
         'release-at-boundary',
         checkpoint,
         released.checkpoint,
@@ -806,11 +962,11 @@ function parseCriticMarkupPass(
       }
     }
     if (
-      (markerRole === 'open' || markerRole === 'separator') &&
       markdownLane.markerIsProtected(checkpoint)
     ) {
-      appendMarkdownRange(sourceCursor, sourceCursor + 1)
-      sourceCursor += 1
+      rejectStandingDelimiterCandidate(run.range.start)
+      appendMarkdownRange(sourceStep.start, sourceStep.start + 1)
+      sourceProgression.consume(sourceStep.start + 1)
       continue
     }
     // The Markdown lane is the single owner of literal precedence. (A second
@@ -821,21 +977,16 @@ function parseCriticMarkupPass(
       markdownLane.markerIsLiteralOwned(checkpoint) &&
       !compatibleActiveFrameCloser
     if (insideLiteral) {
-      appendMarkdownRange(sourceCursor, sourceCursor + 1)
-      sourceCursor += 1
+      if (markerRole === 'open' || markerRole === 'separator') {
+        rejectStandingDelimiterCandidate(run.range.start)
+      }
+      appendMarkdownRange(sourceStep.start, sourceStep.start + 1)
+      sourceProgression.consume(sourceStep.start + 1)
       continue
     }
 
     if (markerRole === 'open') {
       const parent = frames[frames.length - 1]
-      if (rejectDelimiter(Object.freeze({
-        kind: definition.kind,
-        role: 'open',
-        range: run.range,
-        parentOpenRange: parent?.open.range ?? null
-      }))) {
-        continue
-      }
       const continuationCheckpoint = currentMarkdownCheckpoint()
       const armMode: MarkdownArmMode =
         definition.kind === 'comment'
@@ -848,11 +999,11 @@ function parseCriticMarkupPass(
         run.range.end,
         armMode
       )
-      const artifactParentLane = currentMarkdownArtifactLane()
-      const artifactArmLane = markdownArtifact.forkLane(armStartCheckpoint)
+      const forkParentLane = currentForkLane()
+      const forkArmLane = forkRecorder.forkLane(armStartCheckpoint)
       if (definition.kind === 'substitution') {
-        markdownArtifact.recordArmBoundary(
-          artifactArmLane,
+        forkRecorder.recordArmBoundary(
+          forkArmLane,
           Object.freeze({
             kind: 'substitution-arm-boundary',
             role: 'enter',
@@ -875,9 +1026,9 @@ function parseCriticMarkupPass(
         children: [[], []],
         continuationCheckpoint,
         armMode,
-        artifactParentLane,
-        artifactArmLanes: [artifactArmLane],
-        currentArtifactLane: artifactArmLane,
+        forkParentLane,
+        forkArmLanes: [forkArmLane],
+        currentForkLane: forkArmLane,
         currentCheckpoint: armStartCheckpoint,
         enclosingLabelPreservedByAllArms: true
       }
@@ -888,7 +1039,7 @@ function parseCriticMarkupPass(
       } else {
         sameKindFrames.push(nextFrame)
       }
-      sourceCursor = run.range.end
+      sourceProgression.consume(run.range.end)
       continue
     }
 
@@ -899,42 +1050,35 @@ function parseCriticMarkupPass(
         frame.definition.kind === 'substitution' &&
         frame.separator === undefined
       ) {
-        if (rejectDelimiter(Object.freeze({
-          kind: 'substitution',
-          role: 'separator',
-          range: run.range,
-          openerRange: frame.open.range
-        }))) {
-          continue
-        }
         const finishedArm = markdownLane.finishLane(
           frame.currentCheckpoint,
           run.range.start
         )
-        markdownArtifact.recordTransition(
-          frame.currentArtifactLane,
+        forkRecorder.recordTransition(
+          frame.currentForkLane,
           'finish-lane',
           frame.currentCheckpoint,
           finishedArm.checkpoint,
           run.range.start,
           run.range.start,
-          finishedArm.completedLiterals
+          finishedArm.completedLiterals,
+          finishedArm.completedLines
         )
         stagedMarkdownLiterals.push(...finishedArm.completedLiterals)
         noteMarkdownDepthFailure(finishedArm.checkpoint)
         frame.currentCheckpoint = finishedArm.checkpoint
         frame.enclosingLabelPreservedByAllArms &&=
           !finishedArm.checkpoint.enclosingLabelInterrupted
-        markdownArtifact.recordArmBoundary(
-          frame.currentArtifactLane,
+        forkRecorder.recordArmBoundary(
+          frame.currentForkLane,
           Object.freeze({
             kind: 'substitution-arm-boundary',
             role: 'exit',
             sourcePosition: sourceOffset(run.range.start)
           })
         )
-        markdownArtifact.sealLane(
-          frame.currentArtifactLane,
+        forkRecorder.sealLane(
+          frame.currentForkLane,
           frame.currentCheckpoint
         )
         const nextArmCheckpoint = markdownLane.enterArm(
@@ -942,17 +1086,17 @@ function parseCriticMarkupPass(
           run.range.end,
           frame.armMode
         )
-        const nextArtifactArm = markdownArtifact.forkLane(nextArmCheckpoint)
-        markdownArtifact.recordArmBoundary(
-          nextArtifactArm,
+        const nextForkArm = forkRecorder.forkLane(nextArmCheckpoint)
+        forkRecorder.recordArmBoundary(
+          nextForkArm,
           Object.freeze({
             kind: 'substitution-arm-boundary',
             role: 'enter',
             sourcePosition: sourceOffset(run.range.end)
           })
         )
-        frame.artifactArmLanes.push(nextArtifactArm)
-        frame.currentArtifactLane = nextArtifactArm
+        frame.forkArmLanes.push(nextForkArm)
+        frame.currentForkLane = nextForkArm
         frame.separator = run
         frame.currentCheckpoint = nextArmCheckpoint
         markerDecisions.push(
@@ -967,7 +1111,7 @@ function parseCriticMarkupPass(
       } else {
         appendRunAsMarkdownText(run)
       }
-      sourceCursor = run.range.end
+      sourceProgression.consume(run.range.end)
       continue
     }
 
@@ -975,40 +1119,6 @@ function parseCriticMarkupPass(
       frame === undefined || frame.definition.kind === kind
         ? undefined
         : framesByKind.get(kind)?.at(-1)
-    const closeEvent: Profile1DelimiterEvent =
-      frame === undefined
-        ? Object.freeze({
-          kind,
-          role: 'close',
-          range: run.range,
-          action: 'unmatched'
-        })
-        : frame.definition.kind === kind
-          ? Object.freeze({
-            kind,
-            role: 'close',
-            range: run.range,
-            action: 'matched',
-            openerRange: frame.open.range
-          })
-          : compatibleFrame === undefined
-            ? Object.freeze({
-              kind,
-              role: 'close',
-              range: run.range,
-              action: 'unmatched'
-            })
-            : Object.freeze({
-              kind,
-              role: 'close',
-              range: run.range,
-              action: 'non-top',
-              openerRange: compatibleFrame.open.range,
-              topOpenRange: frame.open.range
-            })
-    if (rejectDelimiter(closeEvent)) {
-      continue
-    }
 
     if (frame === undefined) {
       markerDecisions.push(
@@ -1022,7 +1132,7 @@ function parseCriticMarkupPass(
       )
       diagnostics.push(createDiagnostic('CM_UNMATCHED_CLOSER', run.range))
       appendRunAsMarkdownText(run)
-      sourceCursor = run.range.end
+      sourceProgression.consume(run.range.end)
       continue
     }
     if (frame.definition.kind !== kind) {
@@ -1054,7 +1164,7 @@ function parseCriticMarkupPass(
           : createDiagnostic('CM_UNMATCHED_CLOSER', run.range)
       )
       appendRunAsMarkdownText(run)
-      sourceCursor = run.range.end
+      sourceProgression.consume(run.range.end)
       continue
     }
     markerDecisions.push(
@@ -1076,21 +1186,22 @@ function parseCriticMarkupPass(
       frame.currentCheckpoint,
       run.range.start
     )
-    markdownArtifact.recordTransition(
-      frame.currentArtifactLane,
+    forkRecorder.recordTransition(
+      frame.currentForkLane,
       'finish-lane',
       frame.currentCheckpoint,
       finishedLane.checkpoint,
       run.range.start,
       run.range.start,
-      finishedLane.completedLiterals
+      finishedLane.completedLiterals,
+      finishedLane.completedLines
     )
     frame.currentCheckpoint = finishedLane.checkpoint
     frame.enclosingLabelPreservedByAllArms &&=
       !finishedLane.checkpoint.enclosingLabelInterrupted
     if (frame.definition.kind === 'substitution') {
-      markdownArtifact.recordArmBoundary(
-        frame.currentArtifactLane,
+      forkRecorder.recordArmBoundary(
+        frame.currentForkLane,
         Object.freeze({
           kind: 'substitution-arm-boundary',
           role: 'exit',
@@ -1098,16 +1209,16 @@ function parseCriticMarkupPass(
         })
       )
     }
-    markdownArtifact.sealLane(
-      frame.currentArtifactLane,
+    forkRecorder.sealLane(
+      frame.currentForkLane,
       frame.currentCheckpoint
     )
     noteMarkdownDepthFailure(finishedLane.checkpoint)
     stagedMarkdownLiterals.push(...finishedLane.completedLiterals)
     const node =
       frame.definition.kind === 'substitution'
-        ? createSubstitutionNode(frame, run)
-        : createUnaryNode(frame, run)
+        ? createSubstitutionNode(frame, run, syntaxIdentity)
+        : createUnaryNode(frame, run, syntaxIdentity)
     if (node === undefined) {
       diagnostics.push(
         createDiagnostic(
@@ -1124,12 +1235,12 @@ function parseCriticMarkupPass(
         source.length,
         source.length
       )
-      markdownArtifact.promoteBranches(
-        frame.artifactArmLanes,
-        frame.artifactParentLane
+      forkRecorder.promoteBranches(
+        frame.forkArmLanes,
+        frame.forkParentLane
       )
-      markdownArtifact.recordTransition(
-        frame.artifactParentLane,
+      forkRecorder.recordTransition(
+        frame.forkParentLane,
         'malformed-recovery',
         frame.continuationCheckpoint,
         advanced.checkpoint,
@@ -1138,17 +1249,21 @@ function parseCriticMarkupPass(
         Object.freeze([
           ...finishedLane.completedLiterals,
           ...advanced.completedLiterals
+        ]),
+        Object.freeze([
+          ...(finishedLane.completedLines ?? []),
+          ...(advanced.completedLines ?? [])
         ])
       )
       stagedMarkdownLiterals.push(...advanced.completedLiterals)
       replaceCurrentMarkdownCheckpoint(advanced.checkpoint)
-      sourceCursor = run.range.end
+      sourceProgression.consume(run.range.end)
       continue
     }
-    markdownArtifact.acceptBranch(
-      frame.artifactParentLane,
+    forkRecorder.acceptBranch(
+      frame.forkParentLane,
       node,
-      frame.artifactArmLanes
+      frame.forkArmLanes
     )
     appendNode(node, frames, roots)
     const rejoinedCheckpoint = markdownLane.finishArm(
@@ -1161,8 +1276,8 @@ function parseCriticMarkupPass(
       frame.enclosingLabelPreservedByAllArms,
       frames.length === 0
     )
-    markdownArtifact.recordTransition(
-      frame.artifactParentLane,
+    forkRecorder.recordTransition(
+      frame.forkParentLane,
       'rejoin-carrier',
       frame.continuationCheckpoint,
       rejoinedCheckpoint,
@@ -1171,7 +1286,7 @@ function parseCriticMarkupPass(
       Object.freeze([])
     )
     replaceCurrentMarkdownCheckpoint(rejoinedCheckpoint)
-    sourceCursor = run.range.end
+    sourceProgression.consume(run.range.end)
   }
 
   for (const frame of frames) {
@@ -1193,12 +1308,12 @@ function parseCriticMarkupPass(
     if (frame === undefined) {
       continue
     }
-    markdownArtifact.promoteBranches(
-      frame.artifactArmLanes,
-      frame.artifactParentLane
+    forkRecorder.promoteBranches(
+      frame.forkArmLanes,
+      frame.forkParentLane
     )
-    markdownArtifact.recordTransition(
-      frame.artifactParentLane,
+    forkRecorder.recordTransition(
+      frame.forkParentLane,
       'unterminated-recovery',
       frame.continuationCheckpoint,
       frame.continuationCheckpoint,
@@ -1212,14 +1327,15 @@ function parseCriticMarkupPass(
     rootMarkdownCheckpoint,
     source.length
   )
-  markdownArtifact.recordTransition(
-    markdownArtifact.root,
+  forkRecorder.recordTransition(
+    forkRecorder.root,
     'finish-lane',
     rootMarkdownCheckpoint,
     finishedRootLane.checkpoint,
     source.length,
     source.length,
-    finishedRootLane.completedLiterals
+    finishedRootLane.completedLiterals,
+    finishedRootLane.completedLines
   )
   rootMarkdownCheckpoint = finishedRootLane.checkpoint
   noteMarkdownDepthFailure(finishedRootLane.checkpoint)
@@ -1248,9 +1364,17 @@ function parseCriticMarkupPass(
     })
   }
   const canonical = finalizeCanonicalTape(source, markerDecisions)
-  const canonicalMarkdownParse = markdownArtifact.finish(
+  const forkGraph = forkRecorder.finish(
     canonical.tape,
     rootMarkdownCheckpoint
+  )
+  const markdownLiterals = finalizeAuthenticatedMarkdownLiterals(
+    Object.freeze([]),
+    stagedMarkdownLiterals,
+    roots
+  )
+  sourceProgression.referenceDefinitions.finalizeAcceptedDefinitions(
+    markdownLiterals
   )
   return Object.freeze({
     kind: 'complete',
@@ -1258,13 +1382,10 @@ function parseCriticMarkupPass(
     roots: Object.freeze(roots),
     diagnostics: finalizeDiagnostics(diagnostics),
     markerDecisions: canonical.markerDecisions,
-    canonicalMarkdownParse,
-    rejectedDelimiters: Object.freeze(rejectedDelimiters),
-    markdownLiterals: finalizeAuthenticatedMarkdownLiterals(
-      Object.freeze([]),
-      stagedMarkdownLiterals,
-      roots
-    )
+    forkGraph,
+    markdownLane,
+    referenceDefinitions: sourceProgression.referenceDefinitions,
+    markdownLiterals
   })
 }
 
@@ -1272,75 +1393,37 @@ function parseCriticMarkupPass(
  * Test-only counter of full CriticMarkup recognitions. Phase 0.5 drives the
  * "one CriticMarkup authority per open" property by shrinking this from ~5
  * (canonical + per-projection guard + per-projection verifier) to 1. It counts
- * `parseCriticMarkup`, not `parseCriticMarkupPass`, so the reference-resolution
- * second pass inside one recognition is deliberately not double-counted.
+ * `parseIntrinsicProfile1`, not each internal block/inline phase, so one
+ * canonical grammar admission remains one recognition.
  */
-let criticMarkupRecognitionCount = 0
-
 export function __criticMarkupRecognitionCountV1(): number {
-  return criticMarkupRecognitionCount
+  return __markerBearingIntrinsicTraversalsV1()
 }
 
 export function __resetCriticMarkupRecognitionCountV1(): void {
-  criticMarkupRecognitionCount = 0
+  __resetMarkerBearingIntrinsicTraversalsV1()
 }
 
-function parseCriticMarkup(
+function parseIntrinsicProfile1(
   source: string,
+  syntaxIdentity: Profile1SyntaxIdentityRegistry,
   cmDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
-  delimiterPolicy?: Profile1DelimiterPolicy,
-  projectedMarkdownDepthLimit?: number,
-  traceRecorder?: ProfileParseTraceRecorderV1
+  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  execution?: ParseExecutionTracker
 ): ParseOutcome {
-  criticMarkupRecognitionCount += 1
-  const blockStage = parseCriticMarkupPass(
+  const discovery = parseIntrinsicProfile1Pass(
     source,
+    syntaxIdentity,
     cmDepthLimit,
-    undefined,
     markdownDepthLimit,
-    delimiterPolicy
+    markdownOptions,
+    execution
   )
-  if (blockStage.kind !== 'complete') {
-    return blockStage
+  if (discovery.kind !== 'complete') {
+    return discovery
   }
-  // Phase 0 invariant 6 fact: reference-definition scope is discovered from a
-  // finished forest after the parse, then the entire pass is discarded and
-  // re-run with that index. Both the join and the reparse are recorded so the
-  // architecture gate can assert their absence once definitions become
-  // parser-created edges.
-  const referenceDefinitions = createProfile1ReferenceDefinitionIndex(
-    source,
-    blockStage.roots,
-    blockStage.markdownLiterals
-  )
-  if (referenceDefinitions.size !== 0) {
-    traceRecorder?.recordPostHocJoin('reference-definitions')
-    traceRecorder?.recordCanonicalReparse('reference-definitions')
-  }
-  const completed = referenceDefinitions.size === 0
-    ? blockStage
-    : parseCriticMarkupPass(
-      source,
-      cmDepthLimit,
-      referenceDefinitions,
-      markdownDepthLimit,
-      delimiterPolicy
-    )
-  if (
-    completed.kind !== 'complete' ||
-    projectedMarkdownDepthLimit === undefined ||
-    completed.roots.length !== 0
-  ) {
-    return completed
-  }
-  return Object.freeze({
-    ...completed,
-    projectedMarkdown: parseMarkdownDocument(
-      { source },
-      projectedMarkdownDepthLimit
-    )
-  })
+  return discovery
 }
 
 interface NodeAtDepth {
@@ -1398,11 +1481,40 @@ function freezeSegment(segment: MutableProjectionSegment): MappedProjectionSegme
   return Object.freeze({ ...segment })
 }
 
+function canonicalIdentityRunsFor(
+  segments: readonly MutableProjectionSegment[]
+): readonly MappedMarkdownCanonicalIdentityRun[] {
+  return Object.freeze(segments.flatMap(
+    (segment): readonly MappedMarkdownCanonicalIdentityRun[] =>
+      segment.kind === 'generated'
+        ? Object.freeze([])
+        : Object.freeze([Object.freeze({
+          candidateStart: segment.projectedStart,
+          candidateEnd: segment.projectedEnd,
+          sourceRunId: segment.sourceRunId,
+          sourceStart: segment.sourceStart
+        })])
+  ))
+}
+
 function createProvenance(
   projectedLength: number,
   mutableSegments: readonly MutableProjectionSegment[]
 ): ProjectionProvenance {
   const segments = Object.freeze(mutableSegments.map(freezeSegment))
+  const canonicalSegments = Object.freeze(
+    segments.flatMap((segment) =>
+      segment.kind === 'generated'
+        ? Object.freeze([])
+        : Object.freeze([Object.freeze({
+          sourceStart: segment.sourceStart,
+          sourceEnd:
+            segment.sourceStart +
+            segment.projectedEnd -
+            segment.projectedStart
+        })])
+    )
+  )
   const originAt = Object.freeze((projectedOffset: number): ProjectedCodeUnitOrigin => {
     if (
       !Number.isInteger(projectedOffset) ||
@@ -1441,7 +1553,165 @@ function createProvenance(
     }
     throw new Error('Projection provenance has an uncovered code unit')
   })
-  return Object.freeze({ originAt })
+  const canonicalSourceRangeIntersects = Object.freeze((
+    sourceStart: number,
+    sourceEnd: number
+  ): boolean => {
+    if (
+      !Number.isInteger(sourceStart) ||
+      !Number.isInteger(sourceEnd) ||
+      sourceStart < 0 ||
+      sourceEnd < sourceStart
+    ) {
+      throw new RangeError('Canonical source range is invalid')
+    }
+    if (sourceStart === sourceEnd) {
+      return false
+    }
+
+    let low = 0
+    let high = canonicalSegments.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if ((canonicalSegments[middle]?.sourceEnd ?? Infinity) <= sourceStart) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    return (canonicalSegments[low]?.sourceStart ?? Infinity) < sourceEnd
+  })
+  return Object.freeze({ originAt, canonicalSourceRangeIntersects })
+}
+
+function projectedSyntaxSourceIdentity(
+  segments: readonly MutableProjectionSegment[],
+  projectedStart: number,
+  projectedEnd: number,
+  sourceLength: number,
+  emptySourcePosition: number = 0
+): SyntaxSourceIdentity {
+  if (
+    !Number.isInteger(projectedStart) ||
+    !Number.isInteger(projectedEnd) ||
+    projectedStart < 0 ||
+    projectedEnd < projectedStart
+  ) {
+    throw new Error('Projected syntax identity has an invalid view range')
+  }
+  const pieces: string[] = []
+  let sourceStart = sourceLength
+  let sourceEnd = 0
+  const includeSourceRange = (start: number, end: number): void => {
+    sourceStart = Math.min(sourceStart, start)
+    sourceEnd = Math.max(sourceEnd, end)
+  }
+
+  if (projectedStart === projectedEnd) {
+    let previousLow = 0
+    let previousHigh = segments.length
+    while (previousLow < previousHigh) {
+      const middle =
+        previousLow + Math.floor((previousHigh - previousLow) / 2)
+      if (
+        (segments[middle]?.projectedEnd ?? Number.POSITIVE_INFINITY) <=
+        projectedStart
+      ) {
+        previousLow = middle + 1
+      } else {
+        previousHigh = middle
+      }
+    }
+    const previous = segments[previousLow - 1]
+    let nextLow = 0
+    let nextHigh = segments.length
+    while (nextLow < nextHigh) {
+      const middle = nextLow + Math.floor((nextHigh - nextLow) / 2)
+      if (
+        (segments[middle]?.projectedStart ?? Number.POSITIVE_INFINITY) <
+        projectedStart
+      ) {
+        nextLow = middle + 1
+      } else {
+        nextHigh = middle
+      }
+    }
+    const next = segments[nextLow]
+    const anchor = next ?? previous
+    if (anchor === undefined) {
+      return Object.freeze({
+        key: `point:${String(emptySourcePosition)}`,
+        range: sourceRange(emptySourcePosition, emptySourcePosition)
+      })
+    }
+    const position = anchor.kind === 'canonical'
+      ? anchor.sourceStart + Math.min(
+        Math.max(projectedStart - anchor.projectedStart, 0),
+        anchor.projectedEnd - anchor.projectedStart
+      )
+      : anchor.sourcePosition
+    return Object.freeze({
+      key: `point:${String(position)}`,
+      range: sourceRange(position, position)
+    })
+  }
+
+  let segmentLow = 0
+  let segmentHigh = segments.length
+  while (segmentLow < segmentHigh) {
+    const middle =
+      segmentLow + Math.floor((segmentHigh - segmentLow) / 2)
+    if (
+      (segments[middle]?.projectedEnd ?? Number.POSITIVE_INFINITY) <=
+      projectedStart
+    ) {
+      segmentLow = middle + 1
+    } else {
+      segmentHigh = middle
+    }
+  }
+  for (
+    let index = segmentLow;
+    index < segments.length;
+    index += 1
+  ) {
+    const segment = segments[index]
+    if (
+      segment === undefined ||
+      segment.projectedStart >= projectedEnd
+    ) {
+      break
+    }
+    const overlapStart = Math.max(projectedStart, segment.projectedStart)
+    const overlapEnd = Math.min(projectedEnd, segment.projectedEnd)
+    if (overlapStart >= overlapEnd) {
+      continue
+    }
+    if (segment.kind === 'canonical') {
+      const canonicalStart =
+        segment.sourceStart + overlapStart - segment.projectedStart
+      const canonicalEnd = canonicalStart + overlapEnd - overlapStart
+      includeSourceRange(canonicalStart, canonicalEnd)
+      pieces.push(
+        `c:${String(segment.sourceRunId)}:${String(canonicalStart)}:${String(canonicalEnd)}`
+      )
+    } else {
+      includeSourceRange(segment.sourcePosition, segment.sourcePosition)
+      pieces.push(
+        `g:${String(segment.sourcePosition)}:${segment.affinity}:${String(overlapEnd - overlapStart)}`
+      )
+    }
+  }
+  if (pieces.length === 0) {
+    throw new Error('Projected syntax identity is outside its mapped tape')
+  }
+  if (sourceStart === sourceLength && sourceEnd === 0) {
+    sourceStart = 0
+  }
+  return Object.freeze({
+    key: pieces.join('|'),
+    range: sourceRange(sourceStart, Math.max(sourceStart, sourceEnd))
+  })
 }
 
 function appendMark(markPath: MarkPath | undefined, mark: MarkupMark): MarkPath {
@@ -1466,18 +1736,26 @@ function markupNodeTasks(
         start: node.arms[0].range.start,
         end: node.arms[0].range.end,
         nodes: node.arms[0].children,
-        markPath: appendMark(markPath, { kind: 'substitution', arm: 'old' })
+        markPath: appendMark(
+          markPath,
+          defineNodeId({ kind: 'substitution', arm: 'old' }, node.nodeId)
+        )
       }),
       Object.freeze({
         kind: 'markup-range',
         start: node.arms[1].range.start,
         end: node.arms[1].range.end,
         nodes: node.arms[1].children,
-        markPath: appendMark(markPath, { kind: 'substitution', arm: 'new' })
+        markPath: appendMark(
+          markPath,
+          defineNodeId({ kind: 'substitution', arm: 'new' }, node.nodeId)
+        )
       })
     ])
   }
-  const mark: MarkupMark = Object.freeze({ kind: node.kind })
+  const mark: MarkupMark = Object.freeze(
+    defineNodeId({ kind: node.kind }, node.nodeId)
+  )
   const arm = node.arms[0]
   return Object.freeze([
     Object.freeze({
@@ -1634,11 +1912,11 @@ type ProjectionView = 'original' | 'revised' | 'editing'
 // including both Substitution arms, old then new. Comments contribute no text to
 // any view (their bodies live in the sidebar).
 function selectedCanonicalArms(
-  branch: CanonicalMarkdownCriticBranch,
+  branch: IntrinsicProfile1ForkBranch,
   view: ProjectionView
-): readonly CanonicalMarkdownLane[] {
+): readonly IntrinsicProfile1ForkLane[] {
   const node = branch.node
-  const show = (lane: CanonicalMarkdownLane | undefined): readonly CanonicalMarkdownLane[] =>
+  const show = (lane: IntrinsicProfile1ForkLane | undefined): readonly IntrinsicProfile1ForkLane[] =>
     lane === undefined ? EMPTY_CANONICAL_LANES : [lane]
   if (node.kind === 'addition') {
     return view === 'original' ? EMPTY_CANONICAL_LANES : show(branch.arms[0])
@@ -1663,7 +1941,7 @@ function selectedCanonicalArms(
   throw new Error('CriticMarkup projection reached an unknown form')
 }
 
-const EMPTY_CANONICAL_LANES: readonly CanonicalMarkdownLane[] = Object.freeze([])
+const EMPTY_CANONICAL_LANES: readonly IntrinsicProfile1ForkLane[] = Object.freeze([])
 
 interface PlannedProtection {
   readonly candidateOffset: number
@@ -1683,6 +1961,37 @@ interface PlannedGeneratedReplacement {
   readonly text: string
   readonly sourcePosition: number
   readonly affinity: 'previous' | 'next'
+}
+
+interface ProjectionCodecResult {
+  readonly source: string
+  readonly segments: readonly MutableProjectionSegment[]
+  readonly mapOffset: (
+    candidateOffset: number,
+    affinity: 'previous' | 'next'
+  ) => number
+}
+
+function unchangedProjectionCodecResult(
+  source: string,
+  segments: readonly MutableProjectionSegment[]
+): ProjectionCodecResult {
+  return Object.freeze({
+    source,
+    segments,
+    mapOffset: Object.freeze((offset: number): number => offset)
+  })
+}
+
+function mapMatchingScopesThrough(
+  scopes: readonly MappedMarkdownMatchingScope[],
+  codec: ProjectionCodecResult
+): readonly MappedMarkdownMatchingScope[] {
+  return Object.freeze(scopes.map((scope) => Object.freeze({
+    ...scope,
+    start: codec.mapOffset(scope.start, 'previous'),
+    end: codec.mapOffset(scope.end, 'previous')
+  })))
 }
 
 function projectionOriginAt(
@@ -1831,63 +2140,28 @@ function applyGeneratedInsertions(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
   insertions: readonly PlannedGeneratedInsertion[]
-): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
-  if (insertions.length === 0) {
-    return Object.freeze({ source: candidateSource, segments: candidateSegments })
-  }
-  const orderedInsertions = [...insertions].sort((left, right) =>
-    left.candidateOffset - right.candidateOffset
-  )
-  const chunks: string[] = []
-  const segments: MutableProjectionSegment[] = []
-  let candidateCursor = 0
-  let projectedLength = 0
-  for (const insertion of orderedInsertions) {
-    if (
-      insertion.candidateOffset < candidateCursor ||
-      insertion.candidateOffset > candidateSource.length ||
-      insertion.text.length === 0
-    ) {
-      throw new Error('Projection codec insertion is invalid')
-    }
-    chunks.push(candidateSource.slice(candidateCursor, insertion.candidateOffset))
-    appendProjectionRange(
-      segments,
-      candidateSegments,
-      candidateCursor,
-      insertion.candidateOffset,
-      projectedLength
-    )
-    projectedLength += insertion.candidateOffset - candidateCursor
-    chunks.push(insertion.text)
-    segments.push({
-      kind: 'generated',
-      projectedStart: projectedLength,
-      projectedEnd: projectedLength + insertion.text.length,
-      sourcePosition: insertion.sourcePosition,
-      affinity: insertion.affinity
-    })
-    projectedLength += insertion.text.length
-    candidateCursor = insertion.candidateOffset
-  }
-  chunks.push(candidateSource.slice(candidateCursor))
-  appendProjectionRange(
-    segments,
+): ProjectionCodecResult {
+  return applyGeneratedCodecEdits(
+    candidateSource,
     candidateSegments,
-    candidateCursor,
-    candidateSource.length,
-    projectedLength
+    insertions.map((insertion): PlannedGeneratedReplacement =>
+      Object.freeze({
+        candidateStart: insertion.candidateOffset,
+        candidateEnd: insertion.candidateOffset,
+        text: insertion.text,
+        sourcePosition: insertion.sourcePosition,
+        affinity: insertion.affinity
+      }))
   )
-  return Object.freeze({ source: chunks.join(''), segments: Object.freeze(segments) })
 }
 
 function applyGeneratedCodecEdits(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
   replacements: readonly PlannedGeneratedReplacement[]
-): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
+): ProjectionCodecResult {
   if (replacements.length === 0) {
-    return Object.freeze({ source: candidateSource, segments: candidateSegments })
+    return unchangedProjectionCodecResult(candidateSource, candidateSegments)
   }
   const orderedReplacements = [...replacements].sort((left, right) =>
     left.candidateStart - right.candidateStart ||
@@ -1935,14 +2209,55 @@ function applyGeneratedCodecEdits(
     candidateSource.length,
     projectedLength
   )
-  return Object.freeze({ source: chunks.join(''), segments: Object.freeze(segments) })
+  const mapOffset = Object.freeze((
+    candidateOffset: number,
+    affinity: 'previous' | 'next'
+  ): number => {
+    if (
+      !Number.isInteger(candidateOffset) ||
+      candidateOffset < 0 ||
+      candidateOffset > candidateSource.length
+    ) {
+      throw new RangeError('Projection codec offset is outside its candidate')
+    }
+    let delta = 0
+    for (const replacement of orderedReplacements) {
+      const removedLength =
+        replacement.candidateEnd - replacement.candidateStart
+      const insertedLength = replacement.text.length
+      if (candidateOffset < replacement.candidateStart) {
+        break
+      }
+      if (
+        candidateOffset === replacement.candidateStart &&
+        removedLength === 0
+      ) {
+        return candidateOffset + delta +
+          (affinity === 'next' ? insertedLength : 0)
+      }
+      if (candidateOffset < replacement.candidateEnd) {
+        return replacement.candidateStart + delta +
+          (affinity === 'next' ? insertedLength : 0)
+      }
+      delta += insertedLength - removedLength
+      if (candidateOffset === replacement.candidateEnd) {
+        return candidateOffset + delta
+      }
+    }
+    return candidateOffset + delta
+  })
+  return Object.freeze({
+    source: chunks.join(''),
+    segments: Object.freeze(segments),
+    mapOffset
+  })
 }
 
 function applyProtections(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
   protections: readonly PlannedProtection[]
-): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
+): ProjectionCodecResult {
   return applyGeneratedInsertions(
     candidateSource,
     candidateSegments,
@@ -1963,10 +2278,20 @@ function forestContainsKind(
   nodes: readonly CriticMarkupNode[],
   kinds: ReadonlySet<CriticMarkupNode['kind']>
 ): boolean {
-  return nodes.some((node) =>
-    kinds.has(node.kind) ||
-    node.arms.some((arm) => forestContainsKind(arm.children, kinds))
-  )
+  const pending = [...nodes]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) {
+      continue
+    }
+    if (kinds.has(node.kind)) {
+      return true
+    }
+    for (const arm of node.arms) {
+      pending.push(...arm.children)
+    }
+  }
+  return false
 }
 
 /** The forms Original and Revised resolve differently; the rest render alike. */
@@ -1978,36 +2303,11 @@ const EDITING_DIFFERS_FROM_REVISED: ReadonlySet<CriticMarkupNode['kind']> =
 const EDITING_DIFFERS_FROM_ORIGINAL: ReadonlySet<CriticMarkupNode['kind']> =
   new Set(['addition', 'substitution'])
 
-/**
- * An already-built projection whose text is byte-identical to the editing view,
- * or `undefined` when the editing view is genuinely its own text.
- *
- * The editing view shows Addition, Deletion and Highlight content and hides
- * Comment bodies. Revised differs from it only by dropping Deletions, and
- * Original only by dropping Additions; a Substitution differs from both because
- * the editing view shows old *and* new. So with no Deletions or Substitutions
- * the editing view is Revised, and with no Additions or Substitutions it is
- * Original — and parsing those same bytes again would be pure waste.
- */
-function reusableEditingProjection(
-  roots: readonly CriticMarkupNode[],
-  original: Profile1ProjectedMarkdown,
-  revised: Profile1ProjectedMarkdown
-): Profile1ProjectedMarkdown | undefined {
-  if (!forestContainsKind(roots, EDITING_DIFFERS_FROM_REVISED)) {
-    return revised
-  }
-  if (!forestContainsKind(roots, EDITING_DIFFERS_FROM_ORIGINAL)) {
-    return original
-  }
-  return undefined
-}
-
 function applyMarkdownArmBoundaryProjectionEdits(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
   edits: readonly MarkdownArmBoundaryProjectionEdit[]
-): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
+): ProjectionCodecResult {
   const insertions: PlannedGeneratedInsertion[] = []
   const replacements: PlannedGeneratedReplacement[] = []
   for (const edit of edits) {
@@ -2227,258 +2527,241 @@ function applyMarkdownArmBoundaryProjectionEdits(
 function encodeMovedBofText(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[]
-): Readonly<{ source: string; segments: readonly MutableProjectionSegment[] }> {
+): ProjectionCodecResult {
   if (candidateSource.charCodeAt(0) !== 0xfeff) {
-    return Object.freeze({ source: candidateSource, segments: candidateSegments })
+    return unchangedProjectionCodecResult(candidateSource, candidateSegments)
   }
   const origin = projectionOriginAt(candidateSegments, 0)
   if (origin.kind === 'canonical' && origin.sourceOffset === 0) {
-    return Object.freeze({ source: candidateSource, segments: candidateSegments })
+    return unchangedProjectionCodecResult(candidateSource, candidateSegments)
   }
   const sourcePosition = origin.kind === 'canonical' ? origin.sourceOffset : origin.sourcePosition
   const entity = '&#xFEFF;'
-  const segments: MutableProjectionSegment[] = [
-    {
-      kind: 'generated',
-      projectedStart: 0,
-      projectedEnd: entity.length,
+  return applyGeneratedCodecEdits(
+    candidateSource,
+    candidateSegments,
+    Object.freeze([Object.freeze({
+      candidateStart: 0,
+      candidateEnd: 1,
+      text: entity,
       sourcePosition,
-      affinity: 'next'
-    }
-  ]
-  appendProjectionRange(segments, candidateSegments, 1, candidateSource.length, entity.length)
-  return Object.freeze({
-    source: `${entity}${candidateSource.slice(1)}`,
-    segments: Object.freeze(segments)
-  })
+      affinity: 'next' as const
+    })])
+  )
 }
 
 function guardProjectionCandidate(
   candidateSource: string,
   candidateSegments: readonly MutableProjectionSegment[],
-  markerDecisions: readonly CanonicalMarkerDecision[]
+  markerDecisions: readonly CanonicalMarkerDecision[],
+  projectedMarkdownLiterals: readonly MarkdownLiteralRange[]
 ): Readonly<{
     source: string
     segments: readonly MutableProjectionSegment[]
     acceptedMarkerCount: number
+    mapOffset: (
+      candidateOffset: number,
+      affinity: 'previous' | 'next'
+    ) => number
   }> {
   const decisionByIdentity = new Map<string, CanonicalMarkerDecision>()
   for (const decision of markerDecisions) {
     decisionByIdentity.set(`${decision.runId}:${decision.kind}:${decision.role}`, decision)
   }
 
-  const canonicalRunId = (range: SourceRange): number | undefined =>
-    canonicalMarkerIdentity(
-      candidateSegments,
-      range.start,
-      range.end - range.start
-    )?.sourceRunId
-  const delimiterPolicy: Profile1DelimiterPolicy = (event): boolean => {
-    const markerIdentity = canonicalMarkerIdentity(
-      candidateSegments,
-      event.range.start,
-      event.range.end - event.range.start
-    )
-    const decision =
-      markerIdentity === undefined
-        ? undefined
-        : decisionByIdentity.get(
-          `${markerIdentity.sourceRunId}:${event.kind}:${event.role}`
-        )
-    if (decision === undefined || decision.role !== event.role) {
-      return false
+  /*
+   * The intrinsic fork parser supplies Markdown literal ownership for this
+   * branch. The canonical parse already emitted the complete delimiter
+   * decision stream, so a projection may retain only decisions with the same
+   * source identity and stack topology.
+   */
+  let literalIndex = 0
+  const markerIsMarkdownOwned = (
+    markerStart: number,
+    compatibleCloser: boolean
+  ): boolean => {
+    while (
+      (projectedMarkdownLiterals[literalIndex]?.end ?? Number.POSITIVE_INFINITY) <=
+      markerStart
+    ) {
+      literalIndex += 1
     }
-    if (event.role === 'open' && decision.role === 'open') {
-      return decision.parentOpenRunId === (
-        event.parentOpenRange === null
-          ? null
-          : canonicalRunId(event.parentOpenRange)
-      )
+    const literal = projectedMarkdownLiterals[literalIndex]
+    return !compatibleCloser &&
+      literal !== undefined &&
+      literal.start <= markerStart &&
+      markerStart < literal.end
+  }
+  const markerIsBackslashProtected = (markerStart: number): boolean => {
+    let precedingBackslashes = 0
+    for (
+      let offset = markerStart - 1;
+      offset >= 0 && candidateSource.charCodeAt(offset) === 92;
+      offset -= 1
+    ) {
+      precedingBackslashes += 1
     }
-    if (event.role === 'separator' && decision.role === 'separator') {
-      return decision.openerRunId === canonicalRunId(event.openerRange)
-    }
-    if (event.role !== 'close' || decision.role !== 'close') {
-      return false
-    }
-    return (
-      decision.action === event.action &&
-      decision.openerRunId === (
-        event.openerRange === undefined
-          ? undefined
-          : canonicalRunId(event.openerRange)
-      ) &&
-      decision.topOpenRunId === (
-        event.topOpenRange === undefined
-          ? undefined
-          : canonicalRunId(event.topOpenRange)
-      )
-    )
+    return precedingBackslashes % 2 === 1
   }
 
-  const candidateParse = parseCriticMarkup(
-    candidateSource,
-    Number.POSITIVE_INFINITY,
-    Number.POSITIVE_INFINITY,
-    delimiterPolicy
-  )
-  if (candidateParse.kind !== 'complete') {
-    throw new Error('Projection guard candidate parse exceeded an internal resource budget')
+  type RetainedOpen = Readonly<{
+    readonly kind: Profile1CriticKind
+    readonly runId: number
+    readonly separatorSeen: boolean
+  }>
+  const retainedStack: RetainedOpen[] = []
+  const canonicalDecisionAt = (
+    markerStart: number,
+    markerLength: number,
+    kind: Profile1CriticKind,
+    role: MarkerRole
+  ): CanonicalMarkerDecision | undefined => {
+    const markerIdentity = canonicalMarkerIdentity(
+      candidateSegments,
+      markerStart,
+      markerLength
+    )
+    return markerIdentity === undefined
+      ? undefined
+      : decisionByIdentity.get(
+        `${markerIdentity.sourceRunId}:${kind}:${role}`
+      )
   }
+  const topologyMatches = (
+    decision: CanonicalMarkerDecision | undefined,
+    kind: Profile1CriticKind,
+    role: MarkerRole
+  ): boolean => {
+    if (decision === undefined || decision.kind !== kind || decision.role !== role) {
+      return false
+    }
+    const top = retainedStack.at(-1)
+    if (role === 'open' && decision.role === 'open') {
+      return decision.parentOpenRunId === (top?.runId ?? null)
+    }
+    if (role === 'separator' && decision.role === 'separator') {
+      return (
+        top?.kind === 'substitution' &&
+        !top.separatorSeen &&
+        decision.openerRunId === top.runId
+      )
+    }
+    if (role !== 'close' || decision.role !== 'close') {
+      return false
+    }
+    let compatible: RetainedOpen | undefined
+    for (let index = retainedStack.length - 1; index >= 0; index -= 1) {
+      const open = retainedStack[index]
+      if (open?.kind === kind) {
+        compatible = open
+        break
+      }
+    }
+    const action =
+      top === undefined
+        ? 'unmatched'
+        : top.kind === kind
+          ? 'matched'
+          : compatible === undefined
+            ? 'unmatched'
+            : 'non-top'
+    return decision.action === action &&
+      decision.openerRunId === compatible?.runId &&
+      decision.topOpenRunId === (
+        action === 'non-top' ? top?.runId : undefined
+      )
+  }
+
   const protections: PlannedProtection[] = []
   const protectedOffsets = new Set<number>()
-  for (const rejected of candidateParse.rejectedDelimiters) {
-    const candidateOffset =
-      rejected.role === 'close' ? rejected.range.end - 1 : rejected.range.start
-    if (protectedOffsets.has(candidateOffset)) {
+  let retainedRootCount = 0
+  let candidateOffset = 0
+  while (candidateOffset < candidateSource.length) {
+    const marker = findMarker(candidateSource, candidateOffset)
+    if (marker === undefined) {
+      candidateOffset += 1
       continue
     }
-    protectedOffsets.add(candidateOffset)
-    const responsibleOrigin = projectionOriginAt(candidateSegments, candidateOffset)
-    protections.push(Object.freeze({
+    const kind = marker.definition.kind
+    const top = retainedStack.at(-1)
+    const compatibleCloser =
+      marker.role === 'close' && top?.kind === kind
+    if (
+      markerIsBackslashProtected(candidateOffset) ||
+      markerIsMarkdownOwned(candidateOffset, compatibleCloser)
+    ) {
+      candidateOffset += 1
+      continue
+    }
+    const decision = canonicalDecisionAt(
       candidateOffset,
-      sourcePosition:
-        responsibleOrigin.kind === 'canonical'
-          ? responsibleOrigin.sourceOffset
-          : responsibleOrigin.sourcePosition
-    }))
+      marker.length,
+      kind,
+      marker.role
+    )
+    if (!topologyMatches(decision, kind, marker.role)) {
+      const protectionOffset =
+        marker.role === 'close'
+          ? candidateOffset + marker.length - 1
+          : candidateOffset
+      if (!protectedOffsets.has(protectionOffset)) {
+        protectedOffsets.add(protectionOffset)
+        const responsibleOrigin = projectionOriginAt(
+          candidateSegments,
+          protectionOffset
+        )
+        protections.push(Object.freeze({
+          candidateOffset: protectionOffset,
+          sourcePosition:
+            responsibleOrigin.kind === 'canonical'
+              ? responsibleOrigin.sourceOffset
+              : responsibleOrigin.sourcePosition
+        }))
+      }
+      // The canonical recognizer consumes one code unit for a rejected
+      // delimiter so overlapping spellings remain observable.
+      candidateOffset += 1
+      continue
+    }
+    if (decision === undefined) {
+      throw new Error('Projection delimiter topology lost its canonical decision')
+    }
+    if (decision.role === 'open') {
+      retainedStack.push(Object.freeze({
+        kind,
+        runId: decision.runId,
+        separatorSeen: false
+      }))
+    } else if (decision.role === 'separator') {
+      const retained = retainedStack.pop()
+      if (retained === undefined) {
+        throw new Error('Projection separator lost its retained opener')
+      }
+      retainedStack.push(Object.freeze({
+        ...retained,
+        separatorSeen: true
+      }))
+    } else if (decision.action === 'matched') {
+      if (
+        retainedStack.length === 1 &&
+        (
+          top?.kind !== 'substitution' ||
+          top.separatorSeen
+        )
+      ) {
+        retainedRootCount += 1
+      }
+      retainedStack.pop()
+    }
+    candidateOffset += marker.length
   }
   const protected_ = applyProtections(candidateSource, candidateSegments, protections)
-  // The accepted count is the projection's own "no synthetic CriticMarkup"
-  // evidence: markers are elided from a view, so a well-formed candidate accepts
-  // none. Escaping only adds backslashes to rejected markers and cannot create
-  // an accepted one, so this pre-escape count equals a re-parse of the escaped
-  // candidate — which is why the clean verifier no longer needs its own parse.
   return Object.freeze({
     source: protected_.source,
     segments: protected_.segments,
-    acceptedMarkerCount: candidateParse.roots.length
+    acceptedMarkerCount: retainedRootCount,
+    mapOffset: protected_.mapOffset
   })
-}
-
-function remapMatchingScopesByCanonicalIdentity(
-  graph: Profile1SyntaxGraphCore,
-  matchingScopes: readonly MappedMarkdownMatchingScope[],
-  segments: readonly MutableProjectionSegment[],
-  probe?: (start: number, end: number) => void
-): readonly MappedMarkdownMatchingScope[] {
-  const laneById = new Map(
-    graph.canonicalMarkdown.lanes.map((lane) => [lane.id, lane] as const)
-  )
-  // Sorted views over the segment tape, built once per remap: a scope may
-  // touch only the segments it actually overlaps. Sweeping the whole tape per
-  // scope was the projection's second measured quadratic (4,096 visits for 64
-  // scopes). Canonical segments are keyed by their source interval, generated
-  // segments by their anchor position; both walks below are bounded by the
-  // scope's own overlap span.
-  const canonicalSegments = segments
-    .filter((segment) => segment.kind === 'canonical')
-    .sort((left, right) => left.sourceStart - right.sourceStart)
-  const generatedSegments = segments
-    .filter((segment) => segment.kind !== 'canonical')
-    .sort((left, right) => left.sourcePosition - right.sourcePosition)
-  const firstCanonicalTouching = (sourceStart: number): number => {
-    let low = 0
-    let high = canonicalSegments.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      const candidate = canonicalSegments[middle]
-      const candidateSourceEnd = candidate === undefined
-        ? Number.POSITIVE_INFINITY
-        : candidate.sourceStart +
-          candidate.projectedEnd - candidate.projectedStart
-      if (candidateSourceEnd <= sourceStart) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
-    }
-    return low
-  }
-  const firstGeneratedAtOrAfter = (sourcePosition: number): number => {
-    let low = 0
-    let high = generatedSegments.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      if (
-        (generatedSegments[middle]?.sourcePosition ??
-          Number.POSITIVE_INFINITY) < sourcePosition
-      ) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
-    }
-    return low
-  }
-  return Object.freeze(matchingScopes.map((scope) => {
-    const lane = laneById.get(scope.id - 1)
-    if (lane === undefined) {
-      throw new Error('Projected Substitution scope lost its canonical lane')
-    }
-    let projectedStart = Number.POSITIVE_INFINITY
-    let projectedEnd = Number.NEGATIVE_INFINITY
-    for (
-      let index = firstCanonicalTouching(lane.range.start);
-      index < canonicalSegments.length;
-      index += 1
-    ) {
-      const segment = canonicalSegments[index]
-      if (segment === undefined || segment.sourceStart >= lane.range.end) {
-        break
-      }
-      probe?.(segment.projectedStart, segment.projectedEnd)
-      const sourceEnd =
-        segment.sourceStart + segment.projectedEnd - segment.projectedStart
-      const overlapStart = Math.max(lane.range.start, segment.sourceStart)
-      const overlapEnd = Math.min(lane.range.end, sourceEnd)
-      if (overlapStart < overlapEnd) {
-        projectedStart = Math.min(
-          projectedStart,
-          segment.projectedStart + overlapStart - segment.sourceStart
-        )
-        projectedEnd = Math.max(
-          projectedEnd,
-          segment.projectedStart + overlapEnd - segment.sourceStart
-        )
-      }
-    }
-    for (
-      let index = firstGeneratedAtOrAfter(lane.range.start);
-      index < generatedSegments.length;
-      index += 1
-    ) {
-      const segment = generatedSegments[index]
-      if (segment === undefined || segment.sourcePosition > lane.range.end) {
-        break
-      }
-      probe?.(segment.projectedStart, segment.projectedEnd)
-      const belongsToLane =
-        (lane.range.start < segment.sourcePosition &&
-          segment.sourcePosition < lane.range.end) ||
-        (segment.sourcePosition === lane.range.start &&
-          segment.affinity === 'next') ||
-        (segment.sourcePosition === lane.range.end &&
-          segment.affinity === 'previous')
-      if (belongsToLane) {
-        projectedStart = Math.min(projectedStart, segment.projectedStart)
-        projectedEnd = Math.max(projectedEnd, segment.projectedEnd)
-      }
-    }
-    if (
-      !Number.isFinite(projectedStart) ||
-      !Number.isFinite(projectedEnd) ||
-      projectedStart >= projectedEnd
-    ) {
-      throw new Error('Projected Substitution scope lost its retained content')
-    }
-    return Object.freeze({
-      id: scope.id,
-      start: projectedStart,
-      end: projectedEnd,
-      depth: scope.depth
-    })
-  }))
 }
 
 type ProjectionLineEnding = '\n' | '\r' | '\r\n'
@@ -2503,7 +2786,7 @@ function lastProjectionLineEnding(
 }
 
 function terminalArmFenceEdit(
-  lane: CanonicalMarkdownLane,
+  lane: IntrinsicProfile1ForkLane,
   candidateOffset: number,
   sourcePosition: number,
   source: string
@@ -2512,11 +2795,11 @@ function terminalArmFenceEdit(
   { readonly kind: 'terminate-fenced-block-fragment' }
 > | undefined {
   for (
-    let transitionIndex = lane.parseArtifact.transitions.length - 1;
+    let transitionIndex = lane.transitions.length - 1;
     transitionIndex >= 0;
     transitionIndex -= 1
   ) {
-    const transition = lane.parseArtifact.transitions[transitionIndex]
+    const transition = lane.transitions[transitionIndex]
     if (transition?.operation !== 'finish-lane') {
       continue
     }
@@ -2573,19 +2856,19 @@ function soleLineEndingBeforeFence(
 // rescanned the parent lane's full transition list (measured 8,256 probes for
 // 64 arms before the index).
 const ARM_TERMINATION_FENCE_INDEX = new WeakMap<
-  CanonicalMarkdownLane,
+  IntrinsicProfile1ForkLane,
   readonly number[]
 >()
 
 function armTerminationFenceOpens(
-  parentLane: CanonicalMarkdownLane
+  parentLane: IntrinsicProfile1ForkLane
 ): readonly number[] {
   const cached = ARM_TERMINATION_FENCE_INDEX.get(parentLane)
   if (cached !== undefined) {
     return cached
   }
   const opens: number[] = []
-  for (const transition of parentLane.parseArtifact.transitions) {
+  for (const transition of parentLane.transitions) {
     const fence = transition.entryCheckpoint.fence
     if (
       fence !== undefined &&
@@ -2610,7 +2893,7 @@ function armTerminationFenceOpens(
 const ARM_TERMINATION_FENCE_GAP_LIMIT = 5
 
 function followingFencedBlockLineEnding(
-  parentLane: CanonicalMarkdownLane,
+  parentLane: IntrinsicProfile1ForkLane,
   branchEnd: number,
   source: string,
   probe?: (start: number, end: number) => void
@@ -2638,7 +2921,7 @@ function followingFencedBlockLineEnding(
 }
 
 function canonicalLineEndingAt(
-  parentLane: CanonicalMarkdownLane,
+  parentLane: IntrinsicProfile1ForkLane,
   branchEnd: number,
   source: string
 ): ProjectionLineEnding | undefined {
@@ -2655,7 +2938,7 @@ function canonicalLineEndingAt(
   }
   const lineEndingEnd = branchEnd + lineEnding.length
   let consumedCursor = branchEnd
-  for (const transition of parentLane.parseArtifact.transitions) {
+  for (const transition of parentLane.transitions) {
     for (const slice of transition.consumed) {
       if (slice.range.end <= consumedCursor) {
         continue
@@ -2673,9 +2956,9 @@ function canonicalLineEndingAt(
 }
 
 function armCreatedTerminalParagraph(
-  lane: CanonicalMarkdownLane
+  lane: IntrinsicProfile1ForkLane
 ): MarkdownPendingLineBlockFact | undefined {
-  const entry = lane.parseArtifact.entryCheckpoint
+  const entry = lane.entryCheckpoint
   if (
     entry.linePath !== undefined ||
     entry.paragraphOpen ||
@@ -2685,11 +2968,11 @@ function armCreatedTerminalParagraph(
   }
   let terminal: MarkdownPendingLineBlockFact | undefined
   for (
-    let index = lane.parseArtifact.transitions.length - 1;
+    let index = lane.transitions.length - 1;
     index >= 0;
     index -= 1
   ) {
-    const transition = lane.parseArtifact.transitions[index]
+    const transition = lane.transitions[index]
     if (transition?.operation === 'finish-lane') {
       terminal = transition.emittedFacts.block.pendingLine
       break
@@ -2704,7 +2987,7 @@ function armCreatedTerminalParagraph(
 }
 
 function laneRetainsUnchangedSourceRange(
-  lane: CanonicalMarkdownLane,
+  lane: IntrinsicProfile1ForkLane,
   start: number,
   end: number
 ): boolean {
@@ -2729,7 +3012,7 @@ function laneRetainsUnchangedSourceRange(
 }
 
 function followingCanonicalLineMergingParagraph(
-  parentLane: CanonicalMarkdownLane,
+  parentLane: IntrinsicProfile1ForkLane,
   branchEnd: number,
   lineEnding: ProjectionLineEnding
 ): MarkdownPendingLineBlockFact | undefined {
@@ -2741,7 +3024,7 @@ function followingCanonicalLineMergingParagraph(
   )) {
     return undefined
   }
-  for (const transition of parentLane.parseArtifact.transitions) {
+  for (const transition of parentLane.transitions) {
     const pendingLine = transition.emittedFacts.block.pendingLine
     if (
       transition.exitCheckpoint.lineStart >= suffixStart &&
@@ -2765,7 +3048,7 @@ interface TerminalArmParagraphSeparation {
 function terminalListIndentationElision(
   terminal: MarkdownPendingLineBlockFact,
   following: MarkdownPendingLineBlockFact,
-  parentLane: CanonicalMarkdownLane,
+  parentLane: IntrinsicProfile1ForkLane,
   branchEnd: number,
   lineEnding: ProjectionLineEnding
 ): Readonly<{ readonly sourceStart: number; readonly sourceEnd: number }> |
@@ -2807,8 +3090,8 @@ function terminalListIndentationElision(
 }
 
 function terminalArmParagraphSeparation(
-  lane: CanonicalMarkdownLane,
-  parentLane: CanonicalMarkdownLane,
+  lane: IntrinsicProfile1ForkLane,
+  parentLane: IntrinsicProfile1ForkLane,
   branchEnd: number,
   source: string
 ): TerminalArmParagraphSeparation | undefined {
@@ -2840,15 +3123,31 @@ function terminalArmParagraphSeparation(
     : Object.freeze({ lineEnding, indentationElision })
 }
 
-function project(
+interface PreparedProfile1Projection {
+  readonly source: string
+  readonly mappedTape: readonly MappedProjectionSegment[]
+  readonly provenance: ProjectionProvenance
+  readonly forkLane: IntrinsicProfile1ForkLane
+  readonly markdownLane: MappedMarkdownLane
+  readonly traceView: ProfileParseTraceViewV1
+}
+
+function prepareProjection(
   graph: Profile1SyntaxGraphCore,
   view: ProjectionView,
-  lane: CanonicalMarkdownLane = graph.canonicalMarkdown.root,
+  lane: IntrinsicProfile1ForkLane = graph.forkGraph.root,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   traceRecorder?: ProfileParseTraceRecorderV1,
   traceView: ProfileParseTraceViewV1 = view,
-  reuseCache?: PlainMarkdownLaneReuseCache
-): Profile1ProjectedMarkdown {
+  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  forkParser?: Profile1MarkdownForkParser
+): PreparedProfile1Projection {
+  if (forkParser === undefined) {
+    throw new Error('Projected Markdown requires the revision intrinsic fork parser')
+  }
+  if (traceView === 'comment-display') {
+    recordCommentProjectionPreparationV1(lane.range.end - lane.range.start)
+  }
   const source = graph.source
   const chunks: string[] = []
   const segments: MutableCanonicalProjectionSegment[] = []
@@ -2939,11 +3238,11 @@ function project(
         if (terminalFence !== undefined) {
           armTerminationEdits.push(terminalFence)
         } else if (
-          task.lane.parseArtifact.exitCheckpoint.linePath !== undefined &&
-          task.lane.parseArtifact.exitCheckpoint.frontMatter === undefined &&
-          task.lane.parseArtifact.exitCheckpoint.indentedCode === undefined &&
-          task.lane.parseArtifact.exitCheckpoint.htmlBlock === undefined &&
-          task.lane.parseArtifact.exitCheckpoint.definition === undefined
+          task.lane.exitCheckpoint.linePath !== undefined &&
+          task.lane.exitCheckpoint.frontMatter === undefined &&
+          task.lane.exitCheckpoint.indentedCode === undefined &&
+          task.lane.exitCheckpoint.htmlBlock === undefined &&
+          task.lane.exitCheckpoint.definition === undefined
         ) {
           const paragraphSeparation = terminalArmParagraphSeparation(
             task.lane,
@@ -3014,7 +3313,7 @@ function project(
         continue
       }
       for (const arm of selectedCanonicalArms(item, view)) {
-        const boundaries = arm.parseArtifact.armBoundaries
+        const boundaries = arm.armBoundaries
         // A Substitution arm carries parser-owned enter/exit boundary events; a
         // unary-form arm has none. Key on that, so the editing view's two
         // Substitution arms each emit their boundary pair without special-casing
@@ -3071,24 +3370,24 @@ function project(
   }
 
   const projectedSource = chunks.join('')
-  const canonicalIdentityRuns = Object.freeze(segments.map(
-    (segment): MappedMarkdownCanonicalIdentityRun => Object.freeze({
-      candidateStart: segment.projectedStart,
-      candidateEnd: segment.projectedEnd,
-      sourceRunId: segment.sourceRunId,
-      sourceStart: segment.sourceStart
-    })
-  ))
+  const canonicalIdentityRuns = canonicalIdentityRunsFor(segments)
   // Boundary edits arise only from Substitution-arm scopes and arm terminations
   // (with no scopes the boundary policy is undefined). With neither, planning
-  // provably yields no edits, so skip the full document parse it would run — a
-  // CriticMarkup-free view is then parsed exactly once (its authoritative CST),
-  // never a second time to discover boundary edits it has none of.
+  // provably yields no edits, so the intrinsic fork parser skips that branch
+  // analysis.
   const armBoundaryProjectionEdits =
     matchingScopes.length === 0 && armTerminationEdits.length === 0
       ? EMPTY_ARM_BOUNDARY_PROJECTION_EDITS
-      : planMarkdownArmBoundaryProjectionEdits({
+      : forkParser.planArmBoundaryEdits(lane, {
         source: projectedSource,
+        forkView: view,
+        frontMatterEnabled: markdownOptions.frontMatter,
+        gfmEnabled: markdownOptions.gfm,
+        mathEnabled: markdownOptions.math,
+        gitLabMathEnabled: markdownOptions.gitLabMath,
+        footnotesEnabled: markdownOptions.footnotes,
+        subscriptAndSuperscriptEnabled:
+          markdownOptions.subscriptAndSuperscript,
         matchingScopes: Object.freeze(matchingScopes),
         canonicalIdentityRuns,
         armTerminationEdits: Object.freeze(armTerminationEdits)
@@ -3100,132 +3399,182 @@ function project(
     segments,
     armBoundaryProjectionEdits
   )
+  let retainedMatchingScopes = mapMatchingScopesThrough(
+    matchingScopes,
+    armSafe
+  )
   const bofSafe = encodeMovedBofText(armSafe.source, armSafe.segments)
+  retainedMatchingScopes = mapMatchingScopesThrough(
+    retainedMatchingScopes,
+    bofSafe
+  )
   // The boundary guard exists to catch CriticMarkup that the projection itself
   // synthesized where elision made two non-adjacent canonical runs adjacent. A
   // document with no CriticMarkup elides nothing: every view is the canonical
   // source, there is no join, and no marker can be manufactured. Recognizing
   // CriticMarkup again to discover that is pure waste, so the guard is skipped
   // and its accepted-marker count is zero by construction.
-  const guarded = graph.criticMarkup.rootCount === 0
-    ? Object.freeze({
-      source: bofSafe.source,
-      segments: bofSafe.segments,
-      acceptedMarkerCount: 0
-    })
-    : guardProjectionCandidate(
-      bofSafe.source,
-      bofSafe.segments,
-      graph.markerDecisions
-    )
+  const needsProjectionGuard =
+    graph.criticMarkup.rootCount !== 0 &&
+    CRITIC_MARKER_TOKEN.test(bofSafe.source)
+  const projectedMarkdownLiterals =
+    needsProjectionGuard
+      ? forkParser.admitLiteralFacts(
+        lane,
+        Object.freeze({
+          source: bofSafe.source,
+          forkView: view,
+          frontMatterEnabled: markdownOptions.frontMatter,
+          gfmEnabled: markdownOptions.gfm,
+          mathEnabled: markdownOptions.math,
+          gitLabMathEnabled: markdownOptions.gitLabMath,
+          footnotesEnabled: markdownOptions.footnotes,
+          subscriptAndSuperscriptEnabled:
+            markdownOptions.subscriptAndSuperscript,
+          matchingScopes: retainedMatchingScopes,
+          canonicalIdentityRuns: canonicalIdentityRunsFor(bofSafe.segments)
+        }),
+        markdownDepthLimit,
+        traceRecorder === undefined
+          ? undefined
+          : Object.freeze({ view: traceView, recorder: traceRecorder })
+      )
+      : Object.freeze([])
+  const guarded =
+    !needsProjectionGuard
+      ? Object.freeze({
+        ...unchangedProjectionCodecResult(bofSafe.source, bofSafe.segments),
+        acceptedMarkerCount: 0
+      })
+      : guardProjectionCandidate(
+        bofSafe.source,
+        bofSafe.segments,
+        graph.markerDecisions,
+        projectedMarkdownLiterals
+      )
+  retainedMatchingScopes = mapMatchingScopesThrough(
+    retainedMatchingScopes,
+    guarded
+  )
   const mappedTape = Object.freeze(guarded.segments.map(freezeSegment))
-  // Phase 0 invariant 6 fact: parser-owned arm scopes are re-anchored onto the
-  // flattened candidate by canonical identity after the fact. A projection with
-  // no arm scopes performs no such join.
-  if (matchingScopes.length !== 0) {
-    traceRecorder?.recordPostHocJoin('matching-scopes')
-  }
-  const retainedMatchingScopes = remapMatchingScopesByCanonicalIdentity(
-    graph,
-    matchingScopes,
-    guarded.segments,
-    traceRecorder === undefined
-      ? undefined
-      : (start, end) => {
-        traceRecorder.recordScopeRemapVisit(traceView, start, end)
-      }
-  )
-  // Phase 0 forbidden-architecture fact (plan line 89): a published Markdown CST
-  // produced by running the grammar over a flattened projected string cannot
-  // share parser-created identity with a canonical CriticMarkup node.
-  //
-  // When the guarded candidate is byte-identical to canonical source, nothing
-  // was flattened: offsets map 1:1 onto canonical source, so this is a canonical
-  // parse and the identity objection does not arise. That equality is the
-  // condition, not the absence of CriticMarkup — a projection that elides or
-  // generates even one code unit is still a flattened reparse.
-  traceRecorder?.recordAuthoritativeMarkdownParse(
-    guarded.source === graph.source ? 'canonical-source' : 'flattened-projection',
-    traceView
-  )
-  const markdownParse = parseMarkdownDocument({
-    source: guarded.source,
-    matchingScopes: retainedMatchingScopes
-  }, markdownDepthLimit, reuseCache)
-  // Phase 0.5 step 1: the clean verifier no longer recognizes CriticMarkup. It
-  // needs only (a) proof the projection synthesized no CriticMarkup — supplied
-  // by the guard's accepted-marker count — and (b) a matching-scope-free
-  // Markdown CST to compare the scope-constrained parse against, which is a
-  // plain `parseMarkdownDocument` (CriticMarkup-blind by construction).
+  const guardedIdentityRuns = canonicalIdentityRunsFor(guarded.segments)
   if (guarded.acceptedMarkerCount !== 0) {
     throw new Error('Boundary-safe projection verification produced synthetic CriticMarkup')
-  }
-  // The clean verification proves that constraining the parse to the
-  // parser-owned Substitution-arm scopes did not change the Markdown structure.
-  // With no scopes to constrain it, the "clean" parse takes byte-identical
-  // inputs to the scoped one, so the comparison is a tautology and the second
-  // parse is pure waste. Views that do carry arm scopes still verify.
-  //
-  // The editing view is exempt, and must be. Its premise is materialization:
-  // Original and Revised can be committed as canonical bytes (Accept All /
-  // Reject All) and reparsed with no scopes, so scoped must equal unscoped
-  // there. The editing view is never materialized — the marker-bearing
-  // canonical source is what is saved — and it is the one view that shows BOTH
-  // Substitution arms, adjacent. Arm scoping is therefore load-bearing rather
-  // than incidental (ADR-0010: matching state created in an arm finishes in
-  // that arm), so `{~~*x*~>*y*~~}` must keep one emphasis per arm instead of
-  // pairing `*` across the junction. Requiring the unscoped reading to agree
-  // would demand exactly the cross-arm pairing ADR-0010 forbids.
-  const cleanMarkdownParse =
-    retainedMatchingScopes.length === 0 || view === 'editing'
-      ? markdownParse
-      : parseMarkdownDocument({ source: guarded.source }, markdownDepthLimit)
-  if (cleanMarkdownParse !== markdownParse) {
-    verifyCleanProjectedMarkdownV1(
-      markdownParse.document,
-      cleanMarkdownParse.document
-    )
-  }
-  const expectedDepthFailure = markdownParse.containerDepthFailure
-  const cleanDepthFailure = cleanMarkdownParse.containerDepthFailure
-  if (
-    expectedDepthFailure?.start !== cleanDepthFailure?.start ||
-    expectedDepthFailure?.end !== cleanDepthFailure?.end ||
-    expectedDepthFailure?.observed !== cleanDepthFailure?.observed
-  ) {
-    throw new Error('Clean projection Markdown mismatch: container depth')
   }
   return Object.freeze({
     source: guarded.source,
     mappedTape,
     provenance: createProvenance(guarded.source.length, mappedTape),
+    forkLane: lane,
+    markdownLane: Object.freeze({
+      source: guarded.source,
+      forkView: view,
+      frontMatterEnabled: markdownOptions.frontMatter,
+      gfmEnabled: markdownOptions.gfm,
+      mathEnabled: markdownOptions.math,
+      gitLabMathEnabled: markdownOptions.gitLabMath,
+      footnotesEnabled: markdownOptions.footnotes,
+      subscriptAndSuperscriptEnabled:
+        markdownOptions.subscriptAndSuperscript,
+      matchingScopes: retainedMatchingScopes,
+      canonicalIdentityRuns: guardedIdentityRuns,
+      syntaxIdentity: Object.freeze({
+        registry: graph.syntaxIdentity,
+        sourceAt: Object.freeze((
+          start: number,
+          end: number
+        ): SyntaxSourceIdentity =>
+          projectedSyntaxSourceIdentity(
+            guarded.segments,
+            start,
+            end,
+            graph.source.length,
+            lane.range.start
+          ))
+      })
+    }),
+    traceView
+  })
+}
+
+function materializePreparedProjection(
+  _graph: Profile1SyntaxGraphCore,
+  prepared: PreparedProfile1Projection,
+  markdownParse: Profile1MarkdownParse
+): Profile1ProjectedMarkdown {
+  return Object.freeze({
+    source: prepared.source,
+    mappedTape: prepared.mappedTape,
+    provenance: prepared.provenance,
     markdown: markdownParse.document,
     markdownDepthFailure: markdownParse.containerDepthFailure
   })
 }
 
-function createCommentDisplayProjections(
+interface CommentDisplayProjections {
+  readonly all: () => readonly Profile1ProjectedMarkdown[]
+  readonly byNodeId: (
+    comment: NodeId
+  ) => Profile1ProjectedMarkdown | undefined
+}
+
+interface PreparedCommentDisplayProjection {
+  readonly nodeId: NodeId
+  readonly key: string
+  readonly projection: PreparedProfile1Projection
+}
+
+function prepareCommentDisplayProjections(
   graph: Profile1SyntaxGraphCore,
   markdownDepthLimit: number,
-  traceRecorder?: ProfileParseTraceRecorderV1
-): readonly Profile1ProjectedMarkdown[] {
-  const displays: Profile1ProjectedMarkdown[] = []
-  for (const branch of graph.canonicalMarkdown.branches) {
-    if (branch.node.kind === 'comment') {
-      const armLane = branch.arms[0]
-      if (armLane !== undefined) {
-        displays.push(project(
-          graph,
-          'revised',
-          armLane,
-          markdownDepthLimit,
-          traceRecorder,
-          'comment-display'
-        ))
-      }
+  traceRecorder: ProfileParseTraceRecorderV1 | undefined,
+  markdownOptions: MarkdownOptionsV1,
+  forkParser: Profile1MarkdownForkParser
+): readonly PreparedCommentDisplayProjection[] {
+  return Object.freeze(graph.forkGraph.branches.flatMap((branch) => {
+    if (branch.node.kind !== 'comment') {
+      return Object.freeze([])
     }
-  }
-  return Object.freeze(displays)
+    const armLane = branch.arms[0]
+    if (armLane === undefined) {
+      return Object.freeze([])
+    }
+    const projection = prepareProjection(
+      graph,
+      'revised',
+      armLane,
+      markdownDepthLimit,
+      traceRecorder,
+      'comment-display',
+      markdownOptions,
+      forkParser
+    )
+    return Object.freeze([Object.freeze({
+      nodeId: branch.node.nodeId,
+      key: `comment:${branch.node.nodeId}`,
+      projection
+    })])
+  }))
+}
+
+function createCommentDisplayProjections(
+  displays: readonly Readonly<{
+    readonly nodeId: NodeId
+    readonly projection: Profile1ProjectedMarkdown
+  }>[]
+): CommentDisplayProjections {
+  const stableDisplays = Object.freeze([...displays])
+  const displayByNodeId = new Map(
+    stableDisplays.map((display) =>
+      [display.nodeId, display.projection] as const)
+  )
+  const all = Object.freeze(stableDisplays.map((display) => display.projection))
+  return Object.freeze({
+    all: Object.freeze((): readonly Profile1ProjectedMarkdown[] => all),
+    byNodeId: Object.freeze((
+      comment: NodeId
+    ): Profile1ProjectedMarkdown | undefined => displayByNodeId.get(comment))
+  })
 }
 
 function projectedMarkdownDepthDiagnostic(
@@ -3282,181 +3631,118 @@ function createDiagnosticIndex(items: readonly SyntaxDiagnostic[]): DiagnosticIn
 }
 
 /**
- * Every CriticMarkup node and every CriticMarkup diagnostic requires at least
- * one of these ten marker tokens in the source. A document containing none of
- * them is pure Profile 1 Markdown: it has no CM forest, no marker decisions and
- * no CM diagnostics, so no CriticMarkup state machine is needed to parse it.
- *
- * The test is deliberately a necessary condition only. A false positive costs
- * nothing but the legacy path; a false negative is impossible, because a marker
- * token cannot be recognized without appearing literally in the source.
+ * Recognition accounting is zero only when the intrinsic lexer emitted no
+ * CriticMarkup delimiter candidate. The unified grammar still owns and parses
+ * every document; this necessary-condition check only classifies its work.
  */
 const CRITIC_MARKER_TOKEN = /\{(?:\+\+|--|~~|==|>>)|(?:\+\+|--|~~|==|<<)\}/
-
-/**
- * Phase 0 intrinsic-kernel beachhead.
- *
- * Hands canonical source straight to the Profile 1 Markdown lane. The Markdown
- * parser owns source progression here and its parse is the authoritative CST:
- * no marker scan drives the loop, no parse frame or marker decision exists, and
- * nothing is flattened and reparsed. This is the ownership direction Phase 0
- * requires, proven first on the documents that need no CriticMarkup grammar at
- * all; extending it to documents that do contain CM is the remaining work.
- */
-function parseMarkdownOnlyPass(
-  source: string,
-  markdownDepthLimit: number,
-  traceRecorder?: ProfileParseTraceRecorderV1
-): ParseOutcome {
-  traceRecorder?.recordSourceProgression('markdown-kernel')
-  const markdownLane = createMarkdownLaneState(
-    source,
-    markdownDepthLimit,
-    undefined
-  )
-  const canonical = finalizeCanonicalTape(source, Object.freeze([]))
-  let checkpoint = markdownLane.emptyCheckpoint
-  const markdownArtifact = createCanonicalMarkdownParseRecorder(
-    source.length,
-    checkpoint
-  )
-  const stagedMarkdownLiterals: MarkdownLiteralRange[] = []
-  let firstMarkdownDepthFailure: MarkdownContainerDepthFailure | undefined
-  const noteMarkdownDepthFailure = (
-    candidate: MarkdownCheckpoint
-  ): void => {
-    const failure = markdownLane.containerDepthFailure(candidate)
-    if (
-      failure !== undefined &&
-      (
-        firstMarkdownDepthFailure === undefined ||
-        failure.start < firstMarkdownDepthFailure.start ||
-        (
-          failure.start === firstMarkdownDepthFailure.start &&
-          failure.end < firstMarkdownDepthFailure.end
-        )
-      )
-    ) {
-      firstMarkdownDepthFailure = failure
-    }
-  }
-
-  for (const run of canonical.tape) {
-    if (!isMarkdownTextTapeRole(run.role)) {
-      continue
-    }
-    const entryCheckpoint = checkpoint
-    const advanced = markdownLane.advance(
-      entryCheckpoint,
-      run.range.start,
-      run.range.end,
-      0,
-      source.length,
-      source.length
-    )
-    markdownArtifact.recordTransition(
-      markdownArtifact.root,
-      'advance',
-      entryCheckpoint,
-      advanced.checkpoint,
-      run.range.start,
-      run.range.end,
-      advanced.completedLiterals
-    )
-    checkpoint = advanced.checkpoint
-    noteMarkdownDepthFailure(checkpoint)
-    stagedMarkdownLiterals.push(...advanced.completedLiterals)
-  }
-
-  const finishedRootLane = markdownLane.finishLane(checkpoint, source.length)
-  markdownArtifact.recordTransition(
-    markdownArtifact.root,
-    'finish-lane',
-    checkpoint,
-    finishedRootLane.checkpoint,
-    source.length,
-    source.length,
-    finishedRootLane.completedLiterals
-  )
-  checkpoint = finishedRootLane.checkpoint
-  noteMarkdownDepthFailure(checkpoint)
-  stagedMarkdownLiterals.push(...finishedRootLane.completedLiterals)
-
-  if (firstMarkdownDepthFailure !== undefined) {
-    return Object.freeze({
-      kind: 'resource-failure',
-      fatalDiagnostic: createResourceDiagnostic(
-        'CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED',
-        sourceRange(
-          firstMarkdownDepthFailure.start,
-          firstMarkdownDepthFailure.end
-        ),
-        markdownDepthLimit,
-        firstMarkdownDepthFailure.observed
-      )
-    })
-  }
-
-  return Object.freeze({
-    kind: 'complete',
-    tape: canonical.tape,
-    roots: Object.freeze([]),
-    diagnostics: Object.freeze([]),
-    markerDecisions: canonical.markerDecisions,
-    canonicalMarkdownParse: markdownArtifact.finish(canonical.tape, checkpoint),
-    rejectedDelimiters: Object.freeze([]),
-    markdownLiterals: finalizeAuthenticatedMarkdownLiterals(
-      Object.freeze([]),
-      stagedMarkdownLiterals,
-      Object.freeze([])
-    )
-  })
-}
 
 export function parseProfile1Document(
   source: string,
   executionBudget: ExecutionBudgetId,
-  traceRecorder?: ProfileParseTraceRecorderV1
+  traceRecorder?: ProfileParseTraceRecorderV1,
+  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  captureAccountingTrace: boolean = false,
+  executionControl?: ParseExecutionControl,
+  reuseCache?: Profile1DocumentReuseCache
 ): Profile1DocumentResult {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
-  if (usesDesktopLimits && source.length > DESKTOP_SOURCE_UNIT_LIMIT) {
-    return Object.freeze({
+  const execution = createParseExecutionTracker(executionControl)
+  const accounting = createProfile1SyntaxAccountingRecorderV1(
+    usesDesktopLimits,
+    captureAccountingTrace,
+    execution
+  )
+  const syntaxIdentity = createProfile1SyntaxIdentityRegistry(
+    source.length,
+    accounting
+  )
+  const finishResult = <Result extends Profile1DocumentResult>(
+    result: Result
+  ): Result => {
+    execution.finish()
+    return result
+  }
+  if (
+    usesDesktopLimits &&
+    source.length > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits
+  ) {
+    return finishResult(Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: createResourceDiagnostic(
         'CM_RESOURCE_SOURCE_UNITS_EXCEEDED',
-        sourceRange(DESKTOP_SOURCE_UNIT_LIMIT, DESKTOP_SOURCE_UNIT_LIMIT),
-        DESKTOP_SOURCE_UNIT_LIMIT,
+        sourceRange(
+          DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits,
+          DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits
+        ),
+        DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits,
         source.length
       )
-    })
+    }))
   }
   traceRecorder?.recordCanonicalSourceAdmission(source.length)
   const markdownDepthLimit = usesDesktopLimits
     ? DESKTOP_MARKDOWN_DEPTH_LIMIT
     : Number.POSITIVE_INFINITY
-  // A source with no CriticMarkup marker token needs no CriticMarkup grammar,
-  // so it takes the intrinsic-kernel path where the Markdown parser owns
-  // progression. Everything else still runs the legacy CM-first driver, in
-  // which a CriticMarkup state machine consumes canonical source and consults a
-  // Markdown lane — the target-incompatible ownership Phase 0 must remove.
-  const usesCriticMarkupDriver = CRITIC_MARKER_TOKEN.test(source)
-  if (usesCriticMarkupDriver) {
-    traceRecorder?.recordSourceProgression('criticmarkup-driver')
-  }
-  const parsed = usesCriticMarkupDriver
-    ? parseCriticMarkup(
-      source,
-      usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
-      markdownDepthLimit,
-      undefined,
-      undefined,
-      traceRecorder
-    )
-    : parseMarkdownOnlyPass(source, markdownDepthLimit, traceRecorder)
+  traceRecorder?.recordSourceProgression('markdown-kernel')
+  const parsed = parseIntrinsicProfile1(
+    source,
+    syntaxIdentity,
+    usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
+    markdownDepthLimit,
+    markdownOptions,
+    execution
+  )
   if (parsed.kind === 'resource-failure') {
-    return Object.freeze({ kind: 'source-only', fatalDiagnostic: parsed.fatalDiagnostic })
+    return finishResult(Object.freeze({
+      kind: 'source-only',
+      fatalDiagnostic: parsed.fatalDiagnostic
+    }))
+  }
+  emitTapeAccounting(accounting, parsed.tape)
+  if (usesDesktopLimits) {
+    const plainParagraphFailure = plainParagraphBudgetEventFailure(
+      source,
+      parsed
+    )
+    if (plainParagraphFailure !== undefined) {
+      return finishResult(Object.freeze({
+        kind: 'source-only',
+        fatalDiagnostic: plainParagraphFailure
+      }))
+    }
   }
   const criticMarkupRoots = parsed.roots
+  for (const root of criticMarkupRoots) {
+    syntaxIdentity.emitEdge('contains', syntaxIdentity.root, root.nodeId, 'critic')
+  }
+  for (const run of parsed.tape) {
+    if (!run.role.startsWith('eol-')) {
+      continue
+    }
+    syntaxIdentity.emitOwnership(
+      run.range,
+      Object.freeze({
+        kind: 'trivia',
+        role: 'line-ending',
+        spelling: run.role.slice('eol-'.length) as 'lf' | 'cr' | 'crlf'
+      })
+    )
+  }
+  for (const literal of parsed.markdownLiterals) {
+    if (literal.start >= literal.end) {
+      continue
+    }
+    const ownerRange = sourceRange(literal.start, literal.end)
+    syntaxIdentity.emitOwnership(
+      ownerRange,
+      Object.freeze({
+        kind: 'markdown-literal',
+        provider: literal.kind,
+        ownerRange
+      })
+    )
+  }
   const criticMarkup = Object.freeze({
     roots: criticMarkupRoots,
     rootCount: criticMarkupRoots.length,
@@ -3472,81 +3758,207 @@ export function parseProfile1Document(
       return root
     })
   })
-  // Phase 0 invariant 6 fact: canonical ownership is reconstructed by an
-  // interval join over marker/EOL/literal spans after parsing, rather than
-  // created with syntax. The kernel path still inherits this join; retiring it
-  // requires parser-created ownership, which is later Phase 0 work.
-  if (usesCriticMarkupDriver) {
-    traceRecorder?.recordPostHocJoin('source-ownership')
-  }
   const graphCore = createProfile1SyntaxGraphCore(
     source,
+    syntaxIdentity,
     criticMarkup,
     parsed.markdownLiterals,
     parsed.tape,
     parsed.markerDecisions,
-    parsed.canonicalMarkdownParse
+    parsed.forkGraph
   )
-  // One cache spanning the view projections: Original is analysed in full, and
-  // Revised reuses every region the two views share, re-analysing only where a
-  // marker actually resolves differently (ADR-0013 slice 2).
-  const laneReuse: PlainMarkdownLaneReuseCache = {}
-  const original = project(
+  const forkParser = createProfile1MarkdownForkParser(
+    graphCore.forkGraph,
+    parsed.referenceDefinitions,
+    execution,
+    reuseCache?.markdown
+  )
+  traceRecorder?.recordAuthoritativeMarkdownParse('canonical-source')
+  const originalPrepared = prepareProjection(
     graphCore,
     'original',
     undefined,
     markdownDepthLimit,
     traceRecorder,
     undefined,
-    laneReuse
+    markdownOptions,
+    forkParser
   )
-  // ADR 0013: parse once and read every view off it. Original and Revised differ
-  // only where a form resolves differently between them — Additions, Deletions
-  // and Substitutions. A document carrying none of those (no CriticMarkup at
-  // all, or only Highlights and Comments, which both views render identically)
-  // is byte-identical across the two views, so Revised reads Original's parse
-  // instead of re-parsing unchanged text.
-  const revised = forestContainsKind(criticMarkup.roots, VIEW_DIVERGENT_KINDS)
-    ? project(
+  const hasDistinctRevised = forestContainsKind(
+    criticMarkup.roots,
+    VIEW_DIVERGENT_KINDS
+  )
+  const revisedPrepared = hasDistinctRevised
+    ? prepareProjection(
       graphCore,
       'revised',
       undefined,
       markdownDepthLimit,
       traceRecorder,
       undefined,
-      laneReuse
+      markdownOptions,
+      forkParser
     )
-    : original
-  const commentDisplays = createCommentDisplayProjections(
+    : originalPrepared
+  const editingUsesRevised = !forestContainsKind(
+    criticMarkup.roots,
+    EDITING_DIFFERS_FROM_REVISED
+  )
+  const editingUsesOriginal = !editingUsesRevised && !forestContainsKind(
+    criticMarkup.roots,
+    EDITING_DIFFERS_FROM_ORIGINAL
+  )
+  const editingPrepared =
+    editingUsesRevised
+      ? revisedPrepared
+      : editingUsesOriginal
+        ? originalPrepared
+        : prepareProjection(
+          graphCore,
+          'editing',
+          undefined,
+          markdownDepthLimit,
+          undefined,
+          undefined,
+          markdownOptions,
+          forkParser
+        )
+  const preparedCommentDisplays = prepareCommentDisplayProjections(
     graphCore,
     markdownDepthLimit,
-    traceRecorder
+    traceRecorder,
+    markdownOptions,
+    forkParser
   )
+  const rootOriginalKey = 'root:original'
+  const rootRevisedKey = hasDistinctRevised
+    ? 'root:revised'
+    : rootOriginalKey
+  const rootEditingKey =
+    editingPrepared === revisedPrepared
+      ? rootRevisedKey
+      : editingPrepared === originalPrepared
+        ? rootOriginalKey
+        : 'root:editing'
+  const requestByKey = new Map<string, Profile1MarkdownForkAstRequest>()
+  const preparedByKey = new Map<string, PreparedProfile1Projection>()
+  const addRequest = (
+    key: string,
+    prepared: PreparedProfile1Projection
+  ): void => {
+    if (requestByKey.has(key)) {
+      return
+    }
+    preparedByKey.set(key, prepared)
+    requestByKey.set(key, Object.freeze({
+      key,
+      role: prepared.traceView,
+      forkLane: prepared.forkLane,
+      lane: prepared.markdownLane
+    }))
+  }
+  addRequest(rootOriginalKey, originalPrepared)
+  addRequest(rootRevisedKey, revisedPrepared)
+  addRequest(rootEditingKey, editingPrepared)
+  for (const comment of preparedCommentDisplays) {
+    addRequest(comment.key, comment.projection)
+  }
+  for (const [key, request] of requestByKey) {
+    const prepared = preparedByKey.get(key)
+    if (prepared === undefined || prepared.markdownLane !== request.lane) {
+      throw new Error('Fork AST accounting lost its prepared projection')
+    }
+    emitProjectionAccounting(accounting, key, prepared)
+  }
+  const forkAst = forkParser.emitAst(Object.freeze([...requestByKey.values()]))
+  const original = materializePreparedProjection(
+    graphCore,
+    originalPrepared,
+    forkAst.read(rootOriginalKey)
+  )
+  const revised = rootRevisedKey === rootOriginalKey
+    ? original
+    : materializePreparedProjection(
+      graphCore,
+      revisedPrepared,
+      forkAst.read(rootRevisedKey)
+    )
+  const commentDisplayReaders = createCommentDisplayProjections(
+    Object.freeze(preparedCommentDisplays.map((comment) => Object.freeze({
+      nodeId: comment.nodeId,
+      projection: materializePreparedProjection(
+        graphCore,
+        comment.projection,
+        forkAst.read(comment.key)
+      )
+    })))
+  )
+  if (usesDesktopLimits) {
+    const overflow = accounting.firstEventBeyond(DESKTOP_BUDGET_EVENT_LIMIT)
+    const budgetFailure = overflow === undefined
+      ? undefined
+      : createResourceDiagnostic(
+        'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+        sourceRange(overflow.range.start, overflow.range.start),
+        DESKTOP_BUDGET_EVENT_LIMIT,
+        overflow.observed
+      )
+    if (budgetFailure !== undefined) {
+      return finishResult(Object.freeze({
+        kind: 'source-only',
+        fatalDiagnostic: budgetFailure
+      }))
+    }
+  }
+  const commentDisplays = (): readonly Profile1ProjectedMarkdown[] => {
+    return commentDisplayReaders.all()
+  }
+  const commentDisplay = (comment: NodeId): Profile1ProjectedMarkdown => {
+    const display = commentDisplayReaders.byNodeId(comment)
+    if (display === undefined) {
+      throw new RangeError('Comment identity is outside this revision')
+    }
+    return display
+  }
+  let editingCache =
+    rootEditingKey === rootRevisedKey
+      ? revised
+      : rootEditingKey === rootOriginalKey
+        ? original
+        : undefined
+  const editing = (): Profile1ProjectedMarkdown => {
+    editingCache ??= materializePreparedProjection(
+      graphCore,
+      editingPrepared,
+      forkAst.read(rootEditingKey)
+    )
+    return editingCache
+  }
   const projectedDepthDiagnostic = usesDesktopLimits
     ? projectedMarkdownDepthDiagnostic(
-      Object.freeze([original, revised, ...commentDisplays]),
+      Object.freeze([
+        original,
+        revised
+      ]),
       DESKTOP_MARKDOWN_DEPTH_LIMIT
     )
     : undefined
   if (projectedDepthDiagnostic !== undefined) {
-    return Object.freeze({ kind: 'source-only', fatalDiagnostic: projectedDepthDiagnostic })
+    return finishResult(Object.freeze({
+      kind: 'source-only',
+      fatalDiagnostic: projectedDepthDiagnostic
+    }))
   }
-  // Lazy: the editing view is computed only when the editor's block layer reads
-  // it, so it never adds a parse to open(). It also reuses an existing
-  // projection whenever one already covers identical text, rather than parsing
-  // the same bytes twice (invariant 21).
-  let editingCache: Profile1ProjectedMarkdown | undefined
-  const editing = (): Profile1ProjectedMarkdown => {
-    editingCache ??= reusableEditingProjection(criticMarkup.roots, original, revised) ??
-      project(graphCore, 'editing', undefined, markdownDepthLimit)
-    return editingCache
-  }
-  return finalizeProfile1SyntaxGraph(graphCore, {
+  const finalized = finalizeProfile1SyntaxGraph(graphCore, {
     diagnostics: createDiagnosticIndex(parsed.diagnostics),
     markup: createMarkupProjection(source, criticMarkup.roots),
     original,
     revised,
     commentDisplays,
+    commentDisplay: Object.freeze(commentDisplay),
     editing
   })
+  return finishResult(captureAccountingTrace
+    ? Object.freeze({ ...finalized, accountingTrace: accounting.trace() })
+    : finalized)
 }

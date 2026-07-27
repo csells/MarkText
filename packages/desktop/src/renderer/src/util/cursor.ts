@@ -1,6 +1,4 @@
-import type { Muya } from '@muyajs/core'
-
-// A source-mode (CodeMirror) index cursor: `{ anchor, focus }` in `{ line, ch }`
+// A source index cursor: `{ anchor, focus }` in `{ line, ch }`
 // coordinates. Carried by folder-search jumps and the source -> WYSIWYG handoff.
 // Both `line` AND `ch` must be present numbers — otherwise the engine clamps a
 // missing `ch` to 0 and restores the caret to the wrong column.
@@ -24,17 +22,25 @@ export const isIndexCursor = (cursor: unknown): cursor is IndexCursor => {
   return !!c && isIndexPosition(c.anchor) && isIndexPosition(c.focus)
 }
 
-type CursorEditor = Pick<Muya, 'setCursor' | 'setCursorByOffset'>
+interface CursorEditor {
+  setCursorByOffset: (cursor: IndexCursor | number) => void
+}
 
-// Restore a persisted caret onto the live editor, picking the right engine API
-// for the cursor's shape. An index cursor (`{ line, ch }`) must go through
-// `setCursorByOffset`, which resolves the offsets against the block tree;
-// `setCursor` only understands block-key cursors (`{ offset, anchorPath }`) and
-// silently no-ops on a `{ line, ch }` cursor.
+const serializedFocusOffset = (cursor: unknown): number | null => {
+  const value = cursor as { focus?: { offset?: unknown } } | null
+  return typeof value?.focus?.offset === 'number' && Number.isFinite(value.focus.offset)
+    ? value.focus.offset
+    : null
+}
+
+// Both persisted cursor forms resolve through the document engine's one
+// source-coordinate API. Browser block identities are deliberately not
+// serialized or accepted by the desktop host.
 export const applyCursor = (editor: CursorEditor, cursor: unknown): void => {
   if (isIndexCursor(cursor)) {
     editor.setCursorByOffset(cursor)
-  } else if (cursor) {
-    editor.setCursor(cursor as Parameters<Muya['setCursor']>[0])
+    return
   }
+  const offset = serializedFocusOffset(cursor)
+  if (offset !== null) editor.setCursorByOffset(offset)
 }

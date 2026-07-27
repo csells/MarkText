@@ -20,10 +20,10 @@ import {
 // Basic round-trip + the modified indicator are each covered in isolation
 // (editor-input.spec.ts, parity-source-undo-saved.spec.ts), and per-fixture
 // DOM render is covered by fixture-render.spec.ts. Engine-level byte stability
-// is covered in packages/muya/test/spec/roundTrip.spec.ts. The MISSING slice
+// has focused document-core coverage. The missing slice
 // is one desktop doc with all block types + the full desktop save path:
 //   editor (loaded with a real file) -> Cmd/Ctrl+S (mt::editor-ask-file-save)
-//   -> store FILE_SAVE -> mt::response-file-save -> main writeMarkdownFile
+//   -> store FILE_SAVE -> main-owned document-core save transaction
 //   -> mt::tab-saved -> the tab's unsaved dot clears.
 //
 // The fixture lives at test/e2e/data/all-blocks.md. It is written in the
@@ -67,7 +67,7 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
     app = launched.app
     page = launched.page
     await waitForMenuReady(app)
-    // Let muya finish the initial render of every block.
+    // Let the live view finish the initial render of every block.
     await page.waitForTimeout(800)
   })
 
@@ -96,8 +96,8 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
         ol: q('ol'),
         task: q('input[type="checkbox"]'),
         table: q('table'),
-        code: q('pre.mu-container-block, .mu-code-block, pre'),
-        link: q('.mu-link[href], a[href]')
+        code: q('pre.document-view-container-block, .document-view-code-block, pre'),
+        link: q('a[href]')
       }
     })
     expect(counts.h1).toBeGreaterThanOrEqual(1)
@@ -128,10 +128,10 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
     for (let i = 0; i < 2; i++) {
       await enterSourceMode(page, app)
       const inSource = await page.evaluate(() => {
-        const cm = document.querySelector('.source-code .CodeMirror') as
-          | (Element & { CodeMirror?: { getValue(): string } })
-          | null
-        return cm && cm.CodeMirror ? cm.CodeMirror.getValue() : null
+        const input = document.querySelector(
+          '.source-code-input'
+        ) as HTMLTextAreaElement | null
+        return input?.value ?? null
       })
       expect(inSource).toBe(original)
       await exitSourceMode(page, app)

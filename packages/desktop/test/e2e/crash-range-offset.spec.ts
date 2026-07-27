@@ -10,10 +10,8 @@
 //   #3737 — delete a code block with the keyboard Backspace at the start of
 //           its first line, instead of clicking the "delete" button.
 //
-// As of develop (post-electron-vite refactor), none of these recipes
-// reproduce the crash anymore — the existing clamp at
-// src/muya/lib/selection/index.js:528 plus other cumulative fixes appear to
-// have closed the bug surface. The tests assert zero
+// None of these recipes may reproduce the historical crash. The tests assert
+// zero
 // `mt::handle-renderer-error` IPC events (captured via the helper installed
 // by launchElectron); if they start failing, the offset clamp has regressed.
 import { expect, test } from '@playwright/test'
@@ -64,10 +62,7 @@ test.describe('Crash: setStart Range offset', () => {
   })
 
   test('Issue #3737: backspace at start of a code block does not crash', async() => {
-    // Build a code block via the markdown source-mode round-trip.
-    // (Code blocks are rendered as CodeMirror instances inside Muya; the
-    // crash from #3737 happens when the user backspaces from the first
-    // character of the code into the block container.)
+    // Build a code block via the source input.
     const { setSourceMarkdown } = await import('./helpers')
     await setSourceMarkdown(page, app, '# Doc\n\n```js\nconst x = 1\n```\n\nafter\n')
     await page.waitForTimeout(400)
@@ -75,7 +70,9 @@ test.describe('Crash: setStart Range offset', () => {
 
     // Click into the code block.
     await page.evaluate(() => {
-      const block = document.querySelector('.editor-component .CodeMirror, .editor-component pre.mu-active')
+      const block = document.querySelector(
+        '.editor-component pre.document-view-active'
+      )
       if (block) (block as HTMLElement).click()
     })
     await page.waitForTimeout(150)
@@ -152,7 +149,7 @@ test.describe('Crash: setStart Range offset', () => {
 
     // Click into the first list item and press Enter several times
     await page.evaluate(() => {
-      const first = document.querySelector('.editor-component ul li span.mu-paragraph-content') as HTMLElement | null
+      const first = document.querySelector('.editor-component ul li span.document-view-run') as HTMLElement | null
       if (!first) return
       const range = document.createRange()
       range.selectNodeContents(first)
@@ -222,7 +219,7 @@ test.describe('Crash: paste-induced setCursorRange', () => {
       '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>' +
       '<p>And inline math: <span class="math">a+b</span></p>'
     await page.evaluate((h) => {
-      const target = document.querySelector('.editor-component span.mu-paragraph-content') as HTMLElement | null
+      const target = document.querySelector('.editor-component span.document-view-run') as HTMLElement | null
       if (!target) return
       const range = document.createRange()
       range.selectNodeContents(target)
@@ -244,7 +241,7 @@ test.describe('Crash: paste-induced setCursorRange', () => {
   test('Paste then immediate cursor-shuffle does not crash', async() => {
     const html = '<p>x<b>y</b>z <em>e</em><code>c</code></p>'.repeat(20)
     await page.evaluate((h) => {
-      const target = document.querySelector('.editor-component span.mu-paragraph-content') as HTMLElement | null
+      const target = document.querySelector('.editor-component span.document-view-run') as HTMLElement | null
       if (!target) return
       const range = document.createRange()
       range.selectNodeContents(target)

@@ -1,9 +1,10 @@
-import { Menu, ipcMain, type BrowserWindow } from 'electron'
+import { Menu, type BrowserWindow } from 'electron'
 import { isOsx } from '../../config'
 import { COMMANDS } from '../../commands'
 import { zoomIn, zoomOut } from '../../windows/utils'
 import { presentationPolicy } from '../../presentationPolicy'
 import type { CommandManager } from '../../commands'
+import { emitInternalChannel } from '../../utils/internalIpc'
 
 export const minimizeWindow = (win: BrowserWindow | null | undefined): void => {
   if (win) {
@@ -17,7 +18,7 @@ export const minimizeWindow = (win: BrowserWindow | null | undefined): void => {
 
 export const toggleAlwaysOnTop = (win: BrowserWindow | null | undefined): void => {
   if (win) {
-    ipcMain.emit('window-toggle-always-on-top', win)
+    emitInternalChannel('window-toggle-always-on-top', win)
   }
 }
 

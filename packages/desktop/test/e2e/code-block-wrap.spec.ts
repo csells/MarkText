@@ -2,14 +2,12 @@ import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import { launchWithMarkdown } from './helpers'
 
-// Post-migration (muyajs -> @muyajs/core) coverage backfill for the
-// "Wrap Code Blocks" and "Code Block Line Numbers" editor preferences.
+// Coverage for the "Wrap Code Blocks" and "Code Block Line Numbers"
+// editor preferences.
 //
-// The wrap preference is implemented via muya.setOptions({ wrapCodeBlocks }),
-// which toggles a .mu-code-wrap class on the editor root. Muya's stylesheet
-// then applies `white-space: pre-wrap` to .mu-code-wrap .mu-code-block .mu-code.
-// These tests prove the round-trip (renderer -> main store -> broadcast ->
-// Pinia watcher -> muya.setOptions) takes effect live.
+// The wrap preference toggles a .document-view-code-wrap class on the editor
+// root. The view stylesheet then applies `white-space: pre-wrap` to code
+// blocks. These tests prove the main-store-to-live-view round trip.
 //
 // The actual visual wrapping / horizontal scroll behaviour is not asserted here
 // (that remains manual); we assert the load-bearing computed style + class.
@@ -17,7 +15,7 @@ import { launchWithMarkdown } from './helpers'
 const CODE_DOC =
   '# wrap smoke\n\n```js\nconst aVeryLongUnbrokenStringWithNoSpacesAtAllToForceHorizontalOverflow = 1\nconst b = 2\n```\n'
 
-const CODE_SELECTOR = '.mu-code-block .mu-code'
+const CODE_SELECTOR = '.document-view-code-block .document-view-code'
 
 const setPreference = async(
   app: ElectronApplication,
@@ -44,7 +42,7 @@ test.describe('Code block wrap + line-numbers preferences', () => {
     const launched = await launchWithMarkdown(CODE_DOC)
     app = launched.app
     page = launched.page
-    // The fenced code block renders into pre.mu-code-block > code.mu-code.
+    // The fenced code block renders into pre.document-view-code-block > code.document-view-code.
     await page.waitForSelector(CODE_SELECTOR, { state: 'attached', timeout: 15000 })
   })
 
@@ -52,10 +50,10 @@ test.describe('Code block wrap + line-numbers preferences', () => {
     if (app) await app.close()
   })
 
-  // Item 99: wrap preference toggles white-space on .mu-code-block .mu-code.
-  test('wrapCodeBlocks toggles computed white-space on .mu-code-block .mu-code', async() => {
+  // Item 99: wrap preference toggles white-space on .document-view-code-block .document-view-code.
+  test('wrapCodeBlocks toggles computed white-space on .document-view-code-block .document-view-code', async() => {
     // Default preference is wrapCodeBlocks: false, so the editor root has no
-    // .mu-code-wrap class and white-space is pre. Establish the baseline first.
+    // .document-view-code-wrap class and white-space is pre. Establish the baseline first.
     await expect.poll(() => readWhiteSpace(page), { timeout: 10000 }).toBe('pre')
 
     // Enable wrapping -> selector should resolve to `pre-wrap`.
@@ -68,13 +66,13 @@ test.describe('Code block wrap + line-numbers preferences', () => {
     await expect.poll(() => readWhiteSpace(page), { timeout: 10000 }).toBe('pre')
   })
 
-  // Item 44: line-numbers preference toggles the `mu-line-numbers` class on the
-  // .mu-code-block pre, applied live via muya.setOptions(..., forceRender=true).
-  test('codeBlockLineNumbers toggles the mu-line-numbers class on the code block', async() => {
+  // Item 44: the line-numbers preference toggles
+  // `document-view-line-numbers` on the live code block.
+  test('codeBlockLineNumbers toggles the document-view-line-numbers class on the code block', async() => {
     const hasLineNumbers = async(): Promise<boolean> => {
       return await page.evaluate(() => {
-        const pre = document.querySelector('.mu-code-block')
-        return !!pre && pre.classList.contains('mu-line-numbers')
+        const pre = document.querySelector('.document-view-code-block')
+        return !!pre && pre.classList.contains('document-view-line-numbers')
       })
     }
 
@@ -82,7 +80,7 @@ test.describe('Code block wrap + line-numbers preferences', () => {
     await expect.poll(hasLineNumbers, { timeout: 10000 }).toBe(false)
 
     // Enabling forces a re-render that re-creates the code block with the
-    // `mu-line-numbers` class on the pre.
+    // `document-view-line-numbers` class on the pre.
     await setPreference(app, page, { codeBlockLineNumbers: true })
     await expect.poll(hasLineNumbers, { timeout: 10000 }).toBe(true)
 
@@ -102,14 +100,14 @@ test.describe('Code block wrap + line-numbers preferences', () => {
     await setPreference(app, page, { codeBlockLineNumbers: true })
     await page.waitForFunction(
       () => {
-        const pre = document.querySelector('.mu-code-block')
-        return !!pre && pre.classList.contains('mu-line-numbers')
+        const pre = document.querySelector('.document-view-code-block')
+        return !!pre && pre.classList.contains('document-view-line-numbers')
       },
       null,
       { timeout: 10000 }
     )
 
-    // The newly-rendered .mu-code must still pick up the muya wrap CSS.
+    // A newly rendered code block must still pick up the live wrap CSS.
     await expect.poll(() => readWhiteSpace(page), { timeout: 10000 }).toBe('pre-wrap')
 
     // Restore defaults so the suite leaves no global preference state behind.

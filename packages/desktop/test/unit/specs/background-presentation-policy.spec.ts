@@ -156,6 +156,18 @@ describe('central background presentation policy', () => {
     expect(interactive.runInteractiveNative('screen-capture', operation)).toBe(7)
     expect(operation).toHaveBeenCalledTimes(1)
   })
+
+  it('suppresses native menu presentation without executing an item in background mode', () => {
+    const popup = vi.fn()
+    const background = makePolicy(true)
+    const interactive = makePolicy(false)
+
+    expect(background.popupMenu({ popup }, { x: 10, y: 20 })).toBe(false)
+    expect(popup).not.toHaveBeenCalled()
+
+    expect(interactive.popupMenu({ popup }, { x: 10, y: 20 })).toBe(true)
+    expect(popup).toHaveBeenCalledWith({ x: 10, y: 20 })
+  })
 })
 
 describe('background presentation architecture fitness', () => {

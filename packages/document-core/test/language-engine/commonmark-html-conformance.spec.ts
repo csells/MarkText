@@ -12,7 +12,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: false,
+    frontMatter: false,
+    math: false,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: false
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -26,6 +35,12 @@ interface SpecExample {
   readonly html: string
 }
 
+interface PendingExample {
+  readonly example: number
+  readonly reason: string
+  readonly currentHtml: string
+}
+
 const CORPUS: readonly SpecExample[] = JSON.parse(
   readFileSync(
     resolve(
@@ -36,34 +51,18 @@ const CORPUS: readonly SpecExample[] = JSON.parse(
   )
 )
 
-// Sections the HTML materializer has taken green so far. Each addition is a
-// red-green slice: enabling a section is the red, the serializer work is the
-// green, and a section may never leave this list. When every corpus section
-// is enabled the structural-conformance obligation (plan 0009; module design
-// record, HTML materialization ruling) is discharged for CommonMark 0.31.2.
-const ENABLED_SECTIONS: ReadonlySet<string> = new Set([
-  'Thematic breaks',
-  'ATX headings',
-  'Setext headings',
-  'Indented code blocks',
-  'Fenced code blocks',
-  'Paragraphs',
-  'Blank lines',
-  'Code spans',
-  'Backslash escapes',
-  'Hard line breaks',
-  'Soft line breaks',
-  'Textual content',
-  'Autolinks',
-  'Images',
-  'Inlines',
-  'Precedence',
-  'Entity and numeric character references',
-  'Block quotes',
-  'List items',
-  'Lists',
-  'Emphasis and strong emphasis'
-])
+const PENDING: readonly PendingExample[] = JSON.parse(
+  readFileSync(
+    resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../fixtures/commonmark-0.31.2-pending.json'
+    ),
+    'utf8'
+  )
+)
+const PENDING_BY_EXAMPLE = new Map(
+  PENDING.map((entry) => [entry.example, entry] as const)
+)
 
 describe('CommonMark 0.31.2 HTML conformance (materializer-backed)', () => {
   const engine = createLanguageEngine()
@@ -78,10 +77,12 @@ describe('CommonMark 0.31.2 HTML conformance (materializer-backed)', () => {
   }
 
   for (const [section, examples] of bySection) {
-    const run = ENABLED_SECTIONS.has(section) ? it : it.skip
-    run(`section: ${section} (${examples.length} examples)`, () => {
+    it(`section: ${section} (${examples.length} examples)`, () => {
       const failures: string[] = []
       for (const example of examples) {
+        if (PENDING_BY_EXAMPLE.has(example.example)) {
+          continue
+        }
         const revision = engine.open(
           createSourceSnapshot(example.markdown),
           TEST_CONFIGURATION
@@ -103,11 +104,39 @@ describe('CommonMark 0.31.2 HTML conformance (materializer-backed)', () => {
     })
   }
 
-  it('every corpus section is either enabled or known-pending', () => {
-    // New spec versions may add sections; this trips so the list is curated
-    // rather than silently skipping unknown ground.
-    for (const section of ENABLED_SECTIONS) {
-      expect(bySection.has(section), `unknown section ${section}`).toBe(true)
+  it('pins every pending example to one demonstrated mismatch', () => {
+    const corpusByExample = new Map(
+      CORPUS.map((example) => [example.example, example] as const)
+    )
+    for (const pending of PENDING) {
+      const example = corpusByExample.get(pending.example)
+      expect(example, `unknown pending example #${pending.example}`).toBeDefined()
+      expect(pending.reason.length).toBeGreaterThan(0)
+      if (example === undefined) {
+        continue
+      }
+      const revision = engine.open(
+        createSourceSnapshot(example.markdown),
+        TEST_CONFIGURATION
+      )
+      expect(revision.kind).toBe('complete')
+      if (revision.kind !== 'complete') {
+        continue
+      }
+      const html = renderMarkdownHtml(revision.projection('revised').markdown)
+      expect(html, `stale pending output for #${pending.example}`).toBe(
+        pending.currentHtml
+      )
+      expect(html, `pending example #${pending.example} is now conformant`).not
+        .toBe(example.html)
     }
+  })
+
+  it('has no duplicate pending examples', () => {
+    expect(PENDING_BY_EXAMPLE.size).toBe(PENDING.length)
+  })
+
+  it('has no pending CommonMark example', () => {
+    expect(PENDING).toEqual([])
   })
 })

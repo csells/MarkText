@@ -20,7 +20,8 @@ test.describe('#2372 source-mode selection colour', () => {
     await clickMenuById(app, 'dark') // a railscasts dark theme
     await page.waitForFunction(() => document.body.classList.contains('dark'), null, { timeout: 5000 })
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => !!document.querySelector('.source-code .CodeMirror.cm-s-railscasts'), null, {
+    await page.waitForSelector('.source-code-input', {
+      state: 'visible',
       timeout: 5000
     })
   })
@@ -30,16 +31,18 @@ test.describe('#2372 source-mode selection colour', () => {
   })
 
   test('selection background is the visible editor selection colour, not near-background', async() => {
-    // Select all via the real CodeMirror instance so it renders .CodeMirror-selected.
     await page.evaluate(() => {
-      const cm = (document.querySelector('.source-code .CodeMirror') as Element & { CodeMirror?: { focus: () => void; execCommand: (c: string) => void } }).CodeMirror
-      cm!.focus()
-      cm!.execCommand('selectAll')
+      const input = document.querySelector(
+        '.source-code-input'
+      ) as HTMLTextAreaElement
+      input.focus()
+      input.select()
     })
-    await page.waitForSelector('.source-code .CodeMirror-selected', { state: 'attached', timeout: 5000 })
 
     const { selBg, selectionColor } = await page.evaluate(() => {
-      const sel = document.querySelector('.source-code .CodeMirror-selected') as HTMLElement
+      const input = document.querySelector(
+        '.source-code-input'
+      ) as HTMLTextAreaElement
       // Resolve --selection-color (what the WYSIWYG editor uses) to its computed
       // rgb form so we can compare against the rendered selection background.
       const probe = document.createElement('div')
@@ -47,7 +50,8 @@ test.describe('#2372 source-mode selection colour', () => {
       document.body.appendChild(probe)
       const selectionColor = getComputedStyle(probe).backgroundColor
       probe.remove()
-      return { selBg: getComputedStyle(sel).backgroundColor, selectionColor }
+      const selBg = getComputedStyle(input, '::selection').backgroundColor
+      return { selBg, selectionColor }
     })
 
     // Source-mode selection now matches the editor's --selection-color

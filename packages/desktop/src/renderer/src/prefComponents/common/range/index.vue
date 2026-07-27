@@ -36,6 +36,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import LinkIcon from '@/components/icons/LinkIcon.vue'
+import { openExternalResource } from '@/services/presentationEffects'
 import type { PrefControlBaseProps } from '../types'
 
 interface RangeProps extends PrefControlBaseProps {
@@ -49,7 +50,6 @@ interface RangeProps extends PrefControlBaseProps {
 
 const props = withDefaults(defineProps<RangeProps>(), {
   description: '',
-  more: '',
   unit: '',
   disable: false
 })
@@ -66,8 +66,8 @@ watch(
 )
 
 const handleMoreClick = () => {
-  if (typeof props.more === 'string') {
-    window.electron.shell.openExternal(props.more)
+  if (props.more) {
+    openExternalResource(props.more)
   }
 }
 

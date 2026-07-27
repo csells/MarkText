@@ -6,7 +6,7 @@
 // `@shared/types/ipc` so channel names, argument tuples and return shapes
 // are checked at the call site.
 
-import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import pathe from 'pathe'
 
@@ -17,6 +17,20 @@ import type {
   IpcMainEventChannels,
   BootInfo
 } from '@shared/types/ipc'
+import type {
+  UploaderAvailabilityRequest,
+  UploaderUploadRequest
+} from '@shared/types/uploader'
+import type {
+  UploaderDeletionClipboardRequest
+} from '@shared/types/clipboardTransactions'
+import type {
+  ProjectSearchErrorEnvelope,
+  ProjectSearchMatchEnvelope,
+  ProjectSearchProgressEnvelope,
+  ProjectSearchRequest,
+  ProjectSearchTerminalEnvelope
+} from '@shared/types/projectSearch'
 
 type RendererEventListener<K extends keyof IpcMainEventChannels> = (
   event: IpcRendererEvent,
@@ -67,18 +81,6 @@ const ipcWrapper = {
   }
 }
 
-const shellAPI = {
-  openExternal: (url: string) => invoke('mt::shell::open-external', url),
-  showItemInFolder: (fullPath: string) => send('mt::shell::show-item', fullPath),
-  openPath: (fullPath: string) => invoke('mt::shell::open-path', fullPath)
-}
-
-const clipboardAPI = {
-  writeText: (text: string) => send('mt::clipboard::write-text', text),
-  readText: () => invoke('mt::clipboard::read-text'),
-  guessFilePath: () => invoke('mt::clipboard::guess-file-path')
-}
-
 const webFrameAPI = {
   setZoomFactor: (factor: number): void => {
     if (typeof factor === 'number' && factor > 0) webFrame.setZoomFactor(factor)
@@ -86,10 +88,6 @@ const webFrameAPI = {
   setZoomLevel: (level: number): void => {
     if (typeof level === 'number') webFrame.setZoomLevel(level)
   }
-}
-
-const webUtilsAPI = {
-  getPathForFile: (file: File): string => webUtils.getPathForFile(file)
 }
 
 const windowControlAPI = {
@@ -156,70 +154,60 @@ const isSamePathSync = (pathA: string, pathB: string, isNormalized: boolean = fa
 }
 
 const fileUtilsAPI = {
-  isFile: (p: string) => invoke('mt::fs::is-file', p),
-  isDirectory: (p: string) => invoke('mt::fs::is-directory', p),
-  emptyDir: (p: string) => invoke('mt::fs::empty-dir', p),
-  copy: (src: string, dest: string) => invoke('mt::fs::copy', src, dest),
-  ensureDir: (p: string) => invoke('mt::fs::ensure-dir', p),
-  outputFile: (p: string, data: string | Uint8Array) => invoke('mt::fs::output-file', p, data),
-  move: (src: string, dest: string) => invoke('mt::fs::move', src, dest),
-  stat: (p: string) => invoke('mt::fs::stat', p),
-  writeFile: (p: string, data: string | Uint8Array) => invoke('mt::fs::write-file', p, data),
-  readFile: (p: string, encoding?: string) => invoke('mt::fs::read-file', p, encoding),
-  pathExists: (p: string) => invoke('mt::fs::path-exists', p),
-  unlink: (p: string) => invoke('mt::fs::unlink', p),
-  readdir: (p: string) => invoke('mt::fs::readdir', p),
-  isExecutable: (p: string) => invoke('mt::fs::is-executable', p),
   // Pure-string predicates — synchronous, no IPC for the common case.
   isChildOfDirectory,
   hasMarkdownExtension,
   isSamePathSync,
-  // isImageFile needs an fs.statSync; keep it async via IPC.
-  isImageFile: (p: string) => invoke('mt::paths::is-image', p),
   MARKDOWN_INCLUSIONS: bootInfo?.MARKDOWN_INCLUSIONS || []
-}
-
-const commandAPI = {
-  exists: (name: string) => invoke('mt::cmd::exists', name)
 }
 
 const i18nAPI = {
   loadTranslations: (language: string) => invoke('mt::i18n::load', language)
 }
 
-type RipgrepHandler = (payload: unknown) => void
 const ripgrepAPI = {
-  start: (req: unknown) => invoke('mt::rg::start', req),
+  start: (request: ProjectSearchRequest) =>
+    invoke('mt::rg::start', request),
   cancel: (searchId: string) => send('mt::rg::cancel', searchId),
-  onMatch: (handler: RipgrepHandler) => {
-    const sub = (_e: IpcRendererEvent, payload: unknown) => handler(payload)
+  onMatch: (handler: (payload: ProjectSearchMatchEnvelope) => void) => {
+    const sub = (_e: IpcRendererEvent, payload: ProjectSearchMatchEnvelope) =>
+      handler(payload)
     ipcRenderer.on('mt::rg::match', sub)
     return () => ipcRenderer.removeListener('mt::rg::match', sub)
   },
-  onProgress: (handler: RipgrepHandler) => {
-    const sub = (_e: IpcRendererEvent, payload: unknown) => handler(payload)
+  onProgress: (handler: (payload: ProjectSearchProgressEnvelope) => void) => {
+    const sub = (_e: IpcRendererEvent, payload: ProjectSearchProgressEnvelope) =>
+      handler(payload)
     ipcRenderer.on('mt::rg::progress', sub)
     return () => ipcRenderer.removeListener('mt::rg::progress', sub)
   },
-  onDone: (handler: RipgrepHandler) => {
-    const sub = (_e: IpcRendererEvent, payload: unknown) => handler(payload)
+  onDone: (handler: (payload: ProjectSearchTerminalEnvelope) => void) => {
+    const sub = (_e: IpcRendererEvent, payload: ProjectSearchTerminalEnvelope) =>
+      handler(payload)
     ipcRenderer.on('mt::rg::done', sub)
     return () => ipcRenderer.removeListener('mt::rg::done', sub)
   },
-  onError: (handler: RipgrepHandler) => {
-    const sub = (_e: IpcRendererEvent, payload: unknown) => handler(payload)
+  onError: (handler: (payload: ProjectSearchErrorEnvelope) => void) => {
+    const sub = (_e: IpcRendererEvent, payload: ProjectSearchErrorEnvelope) =>
+      handler(payload)
     ipcRenderer.on('mt::rg::error', sub)
     return () => ipcRenderer.removeListener('mt::rg::error', sub)
   },
-  onCancelled: (handler: RipgrepHandler) => {
-    const sub = (_e: IpcRendererEvent, payload: unknown) => handler(payload)
+  onCancelled: (handler: (payload: ProjectSearchTerminalEnvelope) => void) => {
+    const sub = (_e: IpcRendererEvent, payload: ProjectSearchTerminalEnvelope) =>
+      handler(payload)
     ipcRenderer.on('mt::rg::cancelled', sub)
     return () => ipcRenderer.removeListener('mt::rg::cancelled', sub)
   }
 }
 
 const uploaderAPI = {
-  uploadImage: (req: unknown) => invoke('mt::uploader::upload', req)
+  uploadImage: (request: UploaderUploadRequest) =>
+    invoke('mt::uploader::upload', request),
+  inspectAvailability: (request: UploaderAvailabilityRequest) =>
+    invoke('mt::uploader::availability', request),
+  copyDeletionUrl: (request: UploaderDeletionClipboardRequest) =>
+    invoke('mt::uploader::copy-deletion-url', request)
 }
 
 const fontsAPI = {
@@ -227,11 +215,9 @@ const fontsAPI = {
 }
 
 const electronAPI = {
+  buildCommit: bootInfo?.buildCommit ?? 'unavailable',
   ipcRenderer: ipcWrapper,
-  shell: shellAPI,
-  clipboard: clipboardAPI,
   webFrame: webFrameAPI,
-  webUtils: webUtilsAPI,
   process: {
     platform: bootInfo?.platform || process.platform,
     arch: bootInfo?.arch,
@@ -286,10 +272,8 @@ const processShim = {
 try {
   contextBridge.exposeInMainWorld('electron', electronAPI)
   contextBridge.exposeInMainWorld('process', processShim)
-  contextBridge.exposeInMainWorld('rgPath', bootInfo?.paths?.ripgrepBinary || '')
   contextBridge.exposeInMainWorld('fileUtils', fileUtilsAPI)
   contextBridge.exposeInMainWorld('path', pathAPI)
-  contextBridge.exposeInMainWorld('commandExists', commandAPI)
   contextBridge.exposeInMainWorld('i18nUtils', i18nAPI)
   contextBridge.exposeInMainWorld('ripgrep', ripgrepAPI)
   contextBridge.exposeInMainWorld('uploader', uploaderAPI)

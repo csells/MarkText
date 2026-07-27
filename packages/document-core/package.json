@@ -32,7 +32,9 @@
     "lint": "eslint src test vitest.config.ts",
     "prepack": "pnpm run build",
     "test": "vitest run",
+    "test:platform": "vitest run --exclude test/plan/0009-final-closure.spec.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "check:platform": "pnpm run lint && pnpm run typecheck && pnpm run test:platform && pnpm run build",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "devDependencies": {

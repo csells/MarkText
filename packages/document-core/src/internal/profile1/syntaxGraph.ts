@@ -3,11 +3,10 @@ import type {
   CriticMarkupNode,
   DiagnosticIndex,
   MarkupProjection,
+  NodeId,
+  Profile1SyntaxGraph as PublicProfile1SyntaxGraph,
   ProjectedMarkdown,
-  SourceOffset,
-  SourceOwner,
   SourceOwnershipIndex,
-  SourceOwnershipRun,
   SourceRange
 } from '../../revision.js'
 import type {
@@ -15,67 +14,28 @@ import type {
   MarkdownLiteralRange
 } from './markdownLiterals.js'
 import type {
-  CanonicalMarkdownParseArtifact,
-  CanonicalMarkdownParseBranch,
-  CanonicalMarkdownParseLane,
-  CanonicalMarkdownParseLaneOwner
-} from './canonicalMarkdownArtifact.js'
+  IntrinsicProfile1ForkGraph
+} from './intrinsicProfile1ForkGraph.js'
 import {
   markerCandidateFromRole,
   type CanonicalMarkerDecision,
   type MarkerRole,
   type TapeRun
 } from './sourceTape.js'
-
-interface OwnedSpan {
-  readonly start: number
-  readonly end: number
-  readonly owner: SourceOwner
-}
+import type {
+  Profile1SyntaxIdentityRegistry
+} from './syntaxIdentity.js'
 
 export interface Profile1SyntaxGraphCore {
   readonly source: string
+  readonly syntaxIdentity: Profile1SyntaxIdentityRegistry
   readonly canonicalTape: readonly TapeRun[]
   readonly markerDecisions: readonly CanonicalMarkerDecision[]
   readonly criticMarkup: CriticMarkupForest
   readonly criticMarkupEdges: readonly CriticMarkupTapeEdge[]
-  readonly canonicalMarkdownParse: CanonicalMarkdownParseArtifact
-  readonly canonicalMarkdown: CanonicalMarkdownGraph
+  readonly forkGraph: IntrinsicProfile1ForkGraph
   readonly ownership: SourceOwnershipIndex
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
-}
-
-export type CanonicalMarkdownLaneOwner = CanonicalMarkdownParseLaneOwner
-
-export interface CanonicalMarkdownSourceItem {
-  readonly kind: 'source'
-  readonly sourceRunId: number
-  readonly range: SourceRange
-}
-
-export interface CanonicalMarkdownCriticBranch {
-  readonly kind: 'critic-branch'
-  readonly node: CriticMarkupNode
-  readonly arms: readonly CanonicalMarkdownLane[]
-  readonly parseArtifact: CanonicalMarkdownParseBranch
-}
-
-export type CanonicalMarkdownLaneItem =
-  | CanonicalMarkdownSourceItem
-  | CanonicalMarkdownCriticBranch
-
-export interface CanonicalMarkdownLane {
-  readonly id: number
-  readonly owner: CanonicalMarkdownLaneOwner
-  readonly range: SourceRange
-  readonly items: readonly CanonicalMarkdownLaneItem[]
-  readonly parseArtifact: CanonicalMarkdownParseLane
-}
-
-export interface CanonicalMarkdownGraph {
-  readonly root: CanonicalMarkdownLane
-  readonly lanes: readonly CanonicalMarkdownLane[]
-  readonly branches: readonly CanonicalMarkdownCriticBranch[]
 }
 
 export interface CriticMarkupTapeEdge {
@@ -108,13 +68,15 @@ export interface Profile1ProjectedMarkdown extends ProjectedMarkdown {
 
 export interface Profile1SyntaxGraph extends Profile1SyntaxGraphCore {
   readonly kind: 'complete'
+  readonly syntax: PublicProfile1SyntaxGraph
   readonly diagnostics: DiagnosticIndex
   readonly markup: MarkupProjection
   readonly original: Profile1ProjectedMarkdown
   readonly revised: Profile1ProjectedMarkdown
-  readonly commentDisplays: readonly Profile1ProjectedMarkdown[]
-  // The editing (Markup) view's block AST, computed lazily on first read so it
-  // never runs during open() — only the editor's block layer forces it.
+  readonly commentDisplays: () => readonly Profile1ProjectedMarkdown[]
+  readonly commentDisplay: (comment: NodeId) => Profile1ProjectedMarkdown
+  // The editing selection is admitted during open(); this accessor only
+  // materializes the already-emitted selection on first read.
   readonly editing: () => Profile1ProjectedMarkdown
 }
 
@@ -123,236 +85,9 @@ export interface Profile1SyntaxGraphProducts {
   readonly markup: MarkupProjection
   readonly original: Profile1ProjectedMarkdown
   readonly revised: Profile1ProjectedMarkdown
-  readonly commentDisplays: readonly Profile1ProjectedMarkdown[]
+  readonly commentDisplays: () => readonly Profile1ProjectedMarkdown[]
+  readonly commentDisplay: (comment: NodeId) => Profile1ProjectedMarkdown
   readonly editing: () => Profile1ProjectedMarkdown
-}
-
-function sourceOffset(value: number): SourceOffset {
-  return value as SourceOffset
-}
-
-function sourceRange(start: number, end: number): SourceRange {
-  return Object.freeze({ start: sourceOffset(start), end: sourceOffset(end) })
-}
-
-function collectMarkerSpans(edges: readonly CriticMarkupTapeEdge[]): readonly OwnedSpan[] {
-  const spans: OwnedSpan[] = []
-  for (const edge of edges) {
-    const node = edge.node
-    const appendMarker = (
-      role: 'open' | 'separator' | 'close',
-      run: TapeRun
-    ): void => {
-      spans.push(Object.freeze({
-        start: run.range.start,
-        end: run.range.end,
-        owner: Object.freeze({
-          kind: 'critic-marker',
-          form: node.kind,
-          role,
-          nodeRange: node.range
-        })
-      }))
-    }
-    appendMarker('open', edge.open)
-    if (edge.separator !== undefined) {
-      appendMarker('separator', edge.separator)
-    }
-    appendMarker('close', edge.close)
-  }
-  spans.sort((left, right) => left.start - right.start || left.end - right.end)
-  return Object.freeze(spans)
-}
-
-function collectTriviaSpans(tape: readonly TapeRun[]): readonly OwnedSpan[] {
-  const spans: OwnedSpan[] = []
-  for (const run of tape) {
-    if (!run.role.startsWith('eol-')) {
-      continue
-    }
-    spans.push(Object.freeze({
-      start: run.range.start,
-      end: run.range.end,
-      owner: Object.freeze({
-        kind: 'trivia',
-        role: 'line-ending',
-        spelling: run.role.slice('eol-'.length) as 'lf' | 'cr' | 'crlf'
-      })
-    }))
-  }
-  return Object.freeze(spans)
-}
-
-function collectLiteralSpans(
-  source: string,
-  literals: readonly MarkdownLiteralRange[]
-): readonly OwnedSpan[] {
-  const spans = literals
-    .filter((literal) => literal.start < literal.end)
-    .map((literal): OwnedSpan => {
-      if (literal.start < 0 || literal.end > source.length) {
-        throw new Error('Markdown literal ownership is outside canonical source')
-      }
-      const ownerRange = sourceRange(literal.start, literal.end)
-      return Object.freeze({
-        start: literal.start,
-        end: literal.end,
-        owner: Object.freeze({
-          kind: 'markdown-literal',
-          provider: literal.kind,
-          ownerRange
-        })
-      })
-    })
-    .sort((left, right) => left.start - right.start || right.end - left.end)
-  return Object.freeze(spans)
-}
-
-function containingSpan(
-  spans: readonly OwnedSpan[],
-  start: number,
-  end: number
-): OwnedSpan | undefined {
-  let low = 0
-  let high = spans.length
-  while (low < high) {
-    const middle = low + Math.floor((high - low) / 2)
-    if ((spans[middle]?.start ?? Number.POSITIVE_INFINITY) <= start) {
-      low = middle + 1
-    } else {
-      high = middle
-    }
-  }
-  for (let index = low - 1; index >= 0; index -= 1) {
-    const span = spans[index]
-    if (span === undefined) {
-      continue
-    }
-    if (span.end <= start) {
-      break
-    }
-    if (span.start <= start && end <= span.end) {
-      return span
-    }
-  }
-  return undefined
-}
-
-function sameRange(left: SourceRange, right: SourceRange): boolean {
-  return left.start === right.start && left.end === right.end
-}
-
-function sameOwner(left: SourceOwner, right: SourceOwner): boolean {
-  if (left.kind !== right.kind) {
-    return false
-  }
-  if (left.kind === 'markdown-text' && right.kind === 'markdown-text') {
-    return true
-  }
-  if (left.kind === 'trivia' && right.kind === 'trivia') {
-    return left.role === right.role && left.spelling === right.spelling
-  }
-  if (left.kind === 'markdown-literal' && right.kind === 'markdown-literal') {
-    return left.provider === right.provider && sameRange(left.ownerRange, right.ownerRange)
-  }
-  if (left.kind === 'critic-marker' && right.kind === 'critic-marker') {
-    return (
-      left.form === right.form &&
-      left.role === right.role &&
-      sameRange(left.nodeRange, right.nodeRange)
-    )
-  }
-  return false
-}
-
-function createOwnershipIndex(
-  source: string,
-  tape: readonly TapeRun[],
-  edges: readonly CriticMarkupTapeEdge[],
-  markdownLiterals: readonly MarkdownLiteralRange[]
-): SourceOwnershipIndex {
-  const markerSpans = collectMarkerSpans(edges)
-  const eolSpans = collectTriviaSpans(tape)
-  const literalSpans = collectLiteralSpans(source, markdownLiterals)
-  const boundaries = new Set<number>([0, source.length])
-  if (source.charCodeAt(0) === 0xfeff) {
-    boundaries.add(1)
-  }
-  for (const spans of [markerSpans, eolSpans, literalSpans]) {
-    for (const span of spans) {
-      boundaries.add(span.start)
-      boundaries.add(span.end)
-    }
-  }
-  const orderedBoundaries = [...boundaries].sort((left, right) => left - right)
-  const runs: SourceOwnershipRun[] = []
-  for (let index = 0; index + 1 < orderedBoundaries.length; index += 1) {
-    const start = orderedBoundaries[index]
-    const end = orderedBoundaries[index + 1]
-    if (start === undefined || end === undefined || start === end) {
-      continue
-    }
-    const eol = containingSpan(eolSpans, start, end)
-    const marker = containingSpan(markerSpans, start, end)
-    const literal = containingSpan(literalSpans, start, end)
-    const owner: SourceOwner =
-      start === 0 && end <= 1 && source.charCodeAt(0) === 0xfeff
-        ? Object.freeze({ kind: 'trivia', role: 'virtual-bom' })
-        : eol?.owner ?? marker?.owner ?? literal?.owner ?? Object.freeze({ kind: 'markdown-text' })
-    const previous = runs.at(-1)
-    if (previous !== undefined && previous.range.end === start && sameOwner(previous.owner, owner)) {
-      runs[runs.length - 1] = Object.freeze({
-        range: sourceRange(previous.range.start, end),
-        owner: previous.owner
-      })
-    } else {
-      runs.push(Object.freeze({ range: sourceRange(start, end), owner }))
-    }
-  }
-
-  let nextOffset = 0
-  for (const run of runs) {
-    if (run.range.start !== nextOffset || run.range.end <= run.range.start) {
-      throw new Error('Profile 1 source ownership is not a gapless partition')
-    }
-    nextOffset = run.range.end
-  }
-  if (nextOffset !== source.length) {
-    throw new Error('Profile 1 source ownership does not cover canonical source')
-  }
-
-  const frozenRuns = Object.freeze(runs)
-  const at = Object.freeze((ordinal: number): SourceOwnershipRun => {
-    if (!Number.isInteger(ordinal) || ordinal < 0 || ordinal >= frozenRuns.length) {
-      throw new RangeError('Source ownership ordinal is outside the revision')
-    }
-    const run = frozenRuns[ordinal]
-    if (run === undefined) {
-      throw new Error('Source ownership index invariant failed')
-    }
-    return run
-  })
-  const ownerAt = Object.freeze((offset: number): SourceOwnershipRun => {
-    if (!Number.isInteger(offset) || offset < 0 || offset >= source.length) {
-      throw new RangeError('Source offset is outside the revision')
-    }
-    let low = 0
-    let high = frozenRuns.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      if ((frozenRuns[middle]?.range.end ?? Number.POSITIVE_INFINITY) <= offset) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
-    }
-    const run = frozenRuns[low]
-    if (run === undefined || offset < run.range.start) {
-      throw new Error('Source ownership index invariant failed')
-    }
-    return run
-  })
-  return Object.freeze({ count: frozenRuns.length, at, ownerAt })
 }
 
 function tapeRunForRange(
@@ -426,97 +161,26 @@ function createCriticMarkupEdges(
   return Object.freeze(edges)
 }
 
-function createCanonicalMarkdownGraph(
-  artifact: CanonicalMarkdownParseArtifact
-): CanonicalMarkdownGraph {
-  const lanes = artifact.lanes.map((parseArtifact): CanonicalMarkdownLane => ({
-    id: parseArtifact.id,
-    owner: parseArtifact.owner,
-    range: parseArtifact.range,
-    items: Object.freeze([]),
-    parseArtifact
-  }))
-  const laneByArtifact = new Map(
-    artifact.lanes.map((parseArtifact, index) => [parseArtifact, lanes[index]])
-  )
-  const branchByArtifact = new Map<
-    CanonicalMarkdownParseBranch,
-    CanonicalMarkdownCriticBranch
-  >()
-  const branches = artifact.branches.map((parseArtifact) => {
-    const branch = Object.freeze({
-      kind: 'critic-branch' as const,
-      node: parseArtifact.node,
-      arms: Object.freeze(parseArtifact.arms.map((arm) => {
-        const lane = laneByArtifact.get(arm)
-        if (lane === undefined) {
-          throw new Error('Canonical Markdown parser artifact has a detached arm lane')
-        }
-        return lane
-      })),
-      parseArtifact
-    })
-    branchByArtifact.set(parseArtifact, branch)
-    return branch
-  })
-  for (let laneIndex = 0; laneIndex < artifact.lanes.length; laneIndex += 1) {
-    const parseLane = artifact.lanes[laneIndex]
-    const lane = lanes[laneIndex]
-    if (parseLane === undefined || lane === undefined) {
-      throw new Error('Canonical Markdown parser artifact lane identity diverged')
-    }
-    const items = parseLane.items.map((item): CanonicalMarkdownLaneItem => {
-      if (item.kind === 'source') {
-        return item
-      }
-      const branch = branchByArtifact.get(item)
-      if (branch === undefined) {
-        throw new Error('Canonical Markdown parser artifact has a detached branch')
-      }
-      return branch
-    })
-    ;(lane as { items: readonly CanonicalMarkdownLaneItem[] }).items =
-      Object.freeze(items)
-  }
-  for (let index = lanes.length - 1; index >= 0; index -= 1) {
-    Object.freeze(lanes[index])
-  }
-  return Object.freeze({
-    root: lanes[artifact.root.id] as CanonicalMarkdownLane,
-    lanes: Object.freeze(lanes),
-    branches: Object.freeze(branches)
-  })
-}
-
 function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
-  if (
-    core.canonicalMarkdown.root.parseArtifact !==
-      core.canonicalMarkdownParse.root ||
-    core.canonicalMarkdown.lanes.length !== core.canonicalMarkdownParse.lanes.length ||
-    core.canonicalMarkdown.branches.length !==
-      core.canonicalMarkdownParse.branches.length
-  ) {
-    throw new Error('Canonical Markdown graph diverged from its parser artifact')
-  }
-  if (core.canonicalMarkdown.lanes[0] !== core.canonicalMarkdown.root) {
-    throw new Error('Canonical Markdown root lane identity diverged')
+  if (core.forkGraph.lanes[0] !== core.forkGraph.root) {
+    throw new Error('Intrinsic Profile 1 root lane identity diverged')
   }
   const edgeNodes = new Set(core.criticMarkupEdges.map((edge) => edge.node))
   const branchNodes = new Set(
-    core.canonicalMarkdown.branches.map((branch) => branch.node)
+    core.forkGraph.branches.map((branch) => branch.node)
   )
   if (
     edgeNodes.size !== core.criticMarkupEdges.length ||
-    branchNodes.size !== core.canonicalMarkdown.branches.length ||
+    branchNodes.size !== core.forkGraph.branches.length ||
     edgeNodes.size !== branchNodes.size
   ) {
     throw new Error(
-      'CriticMarkup graph identities diverged from the canonical Markdown parser artifact'
+      'CriticMarkup graph identities diverged from the intrinsic Profile 1 fork parser graph'
     )
   }
   for (const node of edgeNodes) {
     if (!branchNodes.has(node)) {
-      throw new Error('CriticMarkup node is missing its canonical Markdown branch')
+      throw new Error('CriticMarkup node is missing its intrinsic Profile 1 fork branch')
     }
   }
   for (const decision of core.markerDecisions) {
@@ -529,14 +193,13 @@ function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
       throw new Error('Marker decision is detached from its canonical tape run')
     }
   }
-  for (let ordinal = 0; ordinal < core.canonicalMarkdown.lanes.length; ordinal += 1) {
-    const lane = core.canonicalMarkdown.lanes[ordinal]
+  for (let ordinal = 0; ordinal < core.forkGraph.lanes.length; ordinal += 1) {
+    const lane = core.forkGraph.lanes[ordinal]
     if (
       lane === undefined ||
-      lane.id !== ordinal ||
-      lane.parseArtifact !== core.canonicalMarkdownParse.lanes[ordinal]
+      lane.id !== ordinal
     ) {
-      throw new Error('Canonical Markdown lane identity is unstable')
+      throw new Error('Intrinsic Profile 1 fork lane identity is unstable')
     }
     let cursor = lane.range.start
     for (const item of lane.items) {
@@ -548,7 +211,7 @@ function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
           item.range.start < run.range.start ||
           item.range.end > run.range.end
         ) {
-          throw new Error('Canonical Markdown source slice is detached from its tape run')
+          throw new Error('Intrinsic Profile 1 fork source slice is detached from its tape run')
         }
         cursor = item.range.end
         continue
@@ -557,12 +220,12 @@ function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
         item.node.range.start !== cursor ||
         item.arms.length !== item.node.arms.length
       ) {
-        throw new Error('Canonical Markdown CM branch does not partition its lane')
+        throw new Error('Intrinsic Profile 1 fork CM branch does not partition its lane')
       }
       for (let armIndex = 0; armIndex < item.arms.length; armIndex += 1) {
         const armLane = item.arms[armIndex]
         const arm = item.node.arms[armIndex]
-        const boundaries = armLane?.parseArtifact.armBoundaries ?? []
+        const boundaries = armLane?.armBoundaries ?? []
         if (
           armLane === undefined ||
           arm === undefined ||
@@ -572,7 +235,7 @@ function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
           armLane.owner.node !== item.node ||
           armLane.owner.arm !== arm.name
         ) {
-          throw new Error('Canonical Markdown arm lane is detached from its CM arm')
+          throw new Error('Intrinsic Profile 1 fork arm lane is detached from its CM arm')
         }
         if (
           item.node.kind === 'substitution'
@@ -584,14 +247,14 @@ function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
             : boundaries.length !== 0
         ) {
           throw new Error(
-            'Canonical Markdown arm boundary events diverged from parser topology'
+            'Intrinsic Profile 1 fork arm boundary events diverged from parser topology'
           )
         }
       }
       cursor = item.node.range.end
     }
     if (cursor !== lane.range.end) {
-      throw new Error('Canonical Markdown lane is not a gapless branching partition')
+      throw new Error('Intrinsic Profile 1 fork lane is not a gapless branching partition')
     }
   }
 }
@@ -642,30 +305,25 @@ function validateMappedProjection(
 
 export function createProfile1SyntaxGraphCore(
   source: string,
+  syntaxIdentity: Profile1SyntaxIdentityRegistry,
   criticMarkup: CriticMarkupForest,
   markdownLiterals: readonly MarkdownLiteralRange[],
   canonicalTape: readonly TapeRun[],
   markerDecisions: readonly CanonicalMarkerDecision[],
-  canonicalMarkdownParse: CanonicalMarkdownParseArtifact
+  forkGraph: IntrinsicProfile1ForkGraph
 ): Profile1SyntaxGraphCore {
   const stableLiterals = Object.freeze([...markdownLiterals])
   const stableTape = Object.freeze([...canonicalTape])
   const criticMarkupEdges = createCriticMarkupEdges(stableTape, criticMarkup)
-  const canonicalMarkdown = createCanonicalMarkdownGraph(canonicalMarkdownParse)
   const core = Object.freeze({
     source,
+    syntaxIdentity,
     canonicalTape: stableTape,
     markerDecisions: Object.freeze([...markerDecisions]),
     criticMarkup,
     criticMarkupEdges,
-    canonicalMarkdownParse,
-    canonicalMarkdown,
-    ownership: createOwnershipIndex(
-      source,
-      stableTape,
-      criticMarkupEdges,
-      stableLiterals
-    ),
+    forkGraph,
+    ownership: syntaxIdentity.finishOwnership(source),
     markdownLiterals: stableLiterals
   })
   validateProfile1SyntaxGraphCore(core)
@@ -678,24 +336,61 @@ export function finalizeProfile1SyntaxGraph(
 ): Profile1SyntaxGraph {
   validateMappedProjection(core, products.original)
   validateMappedProjection(core, products.revised)
-  for (const commentDisplay of products.commentDisplays) {
-    validateMappedProjection(core, commentDisplay)
+  let commentDisplaysCache: readonly Profile1ProjectedMarkdown[] | undefined
+  const commentDisplays = (): readonly Profile1ProjectedMarkdown[] => {
+    if (commentDisplaysCache === undefined) {
+      commentDisplaysCache = Object.freeze([...products.commentDisplays()])
+      for (const commentDisplay of commentDisplaysCache) {
+        validateMappedProjection(core, commentDisplay)
+      }
+    }
+    return commentDisplaysCache
   }
+  const commentDisplay = (comment: NodeId): Profile1ProjectedMarkdown => {
+    const display = products.commentDisplay(comment)
+    validateMappedProjection(core, display)
+    return display
+  }
+  let syntaxCache: PublicProfile1SyntaxGraph | undefined
+  const finishSyntax = (): PublicProfile1SyntaxGraph => {
+    if (syntaxCache === undefined) {
+      // Comment Markdown is admitted into the unified graph during open().
+      // Touch the display collection before freezing its public enumeration.
+      commentDisplays()
+      syntaxCache = core.syntaxIdentity.finish()
+    }
+    return syntaxCache
+  }
+  const syntax: PublicProfile1SyntaxGraph = Object.freeze({
+    root: core.syntaxIdentity.root,
+    get nodeCount(): number {
+      return finishSyntax().nodeCount
+    },
+    nodeAt: Object.freeze((ordinal: number) =>
+      finishSyntax().nodeAt(ordinal)),
+    get edgeCount(): number {
+      return finishSyntax().edgeCount
+    },
+    edgeAt: Object.freeze((ordinal: number) =>
+      finishSyntax().edgeAt(ordinal))
+  })
   return Object.freeze({
     kind: 'complete',
     source: core.source,
+    syntaxIdentity: core.syntaxIdentity,
+    syntax,
     canonicalTape: core.canonicalTape,
     markerDecisions: core.markerDecisions,
     criticMarkup: core.criticMarkup,
     criticMarkupEdges: core.criticMarkupEdges,
-    canonicalMarkdownParse: core.canonicalMarkdownParse,
-    canonicalMarkdown: core.canonicalMarkdown,
+    forkGraph: core.forkGraph,
     diagnostics: products.diagnostics,
     ownership: core.ownership,
     markup: products.markup,
     original: products.original,
     revised: products.revised,
-    commentDisplays: Object.freeze([...products.commentDisplays]),
+    commentDisplays: Object.freeze(commentDisplays),
+    commentDisplay: Object.freeze(commentDisplay),
     editing: products.editing,
     markdownLiterals: core.markdownLiterals
   })

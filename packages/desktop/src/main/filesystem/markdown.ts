@@ -1,159 +1,168 @@
-import fsPromises from 'fs/promises'
-import path from 'path'
-import log from 'electron-log'
-import iconv from 'iconv-lite'
-import { LINE_ENDING_REG, LF_LINE_ENDING_REG, CRLF_LINE_ENDING_REG } from '../config'
+import fsPromises from 'node:fs/promises'
+import path from 'node:path'
 import { isDirectory2 } from 'common/filesystem'
 import { isMarkdownFile } from 'common/filesystem/paths'
-import { normalizeAndResolvePath, writeFile } from '../filesystem'
-import { guessEncoding } from './encoding'
-import type { Encoding } from 'common/encoding'
-import type { LineEnding } from '@shared/types/files'
-
-interface MarkdownDocumentOptions {
-  adjustLineEndingOnSave: boolean
-  lineEnding: LineEnding
-  encoding: Encoding
-}
+import { normalizeAndResolvePath } from '../filesystem'
+import {
+  decodeFileSnapshot,
+  type FileEncodingV1,
+  type FileSnapshotV1
+} from '@marktext/document-core'
 
 interface MarkdownDocumentRaw {
-  markdown: string
-  filename: string
+  readonly markdown: string
+  readonly filename: string
+  readonly pathname: string
+}
+
+const documentCoreFileSnapshots = new Map<string, FileSnapshotV1>()
+
+/**
+ * Return a defensive exact-byte snapshot retained by the most recent file
+ * admission. This is main-process state and never crosses into renderer tab
+ * payloads.
+ */
+export const getDocumentCoreFileSnapshot = (
   pathname: string
-  encoding: Encoding
-  lineEnding: LineEnding
-  adjustLineEndingOnSave: boolean
-  trimTrailingNewline: number
-  isMixedLineEndings: boolean
+): FileSnapshotV1 | null => {
+  const retained = documentCoreFileSnapshots.get(path.resolve(pathname))
+  if (retained === undefined) return null
+  return decodeFileSnapshot(
+    retained.readOriginalBytes(),
+    retained.encoding
+  )
 }
 
-const getLineEnding = (lineEnding: LineEnding): string => {
-  if (lineEnding === 'lf') {
-    return '\n'
-  } else if (lineEnding === 'crlf') {
-    return '\r\n'
+const startsWith = (
+  bytes: Uint8Array,
+  signature: readonly number[]
+): boolean => signature.every((byte, index) => bytes[index] === byte)
+
+const textPlausibility = (source: string): number => {
+  let score = 0
+  for (let index = 0; index < source.length; index += 1) {
+    const unit = source.charCodeAt(index)
+    if (
+      unit === 0x09 ||
+      unit === 0x0a ||
+      unit === 0x0d ||
+      (unit >= 0x20 && unit <= 0x7e)
+    ) {
+      score += 4
+    } else if (unit === 0 || unit < 0x20) {
+      score -= 8
+    } else if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = source.charCodeAt(index + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        score += 2
+        index += 1
+      } else {
+        score -= 1
+      }
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      score -= 1
+    }
   }
-
-  // This should not happen but use fallback value.
-  log.error(`Invalid end of line character: expected "lf" or "crlf" but got "${lineEnding}".`)
-  return '\n'
+  return score
 }
 
-const convertLineEndings = (text: string, lineEnding: LineEnding): string => {
-  return text.replace(LINE_ENDING_REG, getLineEnding(lineEnding))
+const inferBomlessUtf16 = (
+  bytes: Uint8Array
+): Readonly<{ snapshot: FileSnapshotV1; score: number }> | null => {
+  if (bytes.length % 2 !== 0) return null
+  const littleEndian = decodeFileSnapshot(bytes, 'utf-16le')
+  const bigEndian = decodeFileSnapshot(bytes, 'utf-16be')
+  const littleScore = textPlausibility(littleEndian.source.text)
+  const bigScore = textPlausibility(bigEndian.source.text)
+  if (littleScore === bigScore) return null
+  return Object.freeze({
+    snapshot: littleScore > bigScore ? littleEndian : bigEndian,
+    score: Math.max(littleScore, bigScore)
+  })
 }
 
 /**
- * Special function to normalize directory and markdown file paths.
- * Returns the normalized path and a directory hint, or null if it's not a
- * directory or markdown file.
+ * Decode only the exact encodings the document file contract can retain.
+ * BOM-bearing files are deterministic. BOM-less UTF-16 is admitted only when
+ * one byte order is strictly more text-like; ambiguous byte streams are
+ * rejected visibly instead of being normalized through an unrelated codec.
+ */
+export const decodeDocumentFileSnapshot = (
+  bytes: Uint8Array
+): FileSnapshotV1 => {
+  if (startsWith(bytes, [0xef, 0xbb, 0xbf])) {
+    return decodeFileSnapshot(bytes, 'utf-8')
+  }
+  if (startsWith(bytes, [0xff, 0xfe])) {
+    return decodeFileSnapshot(bytes, 'utf-16le')
+  }
+  if (startsWith(bytes, [0xfe, 0xff])) {
+    return decodeFileSnapshot(bytes, 'utf-16be')
+  }
+
+  let utf16Candidate:
+    | Readonly<{ snapshot: FileSnapshotV1; score: number }>
+    | null = null
+  if (bytes.includes(0)) {
+    utf16Candidate = inferBomlessUtf16(bytes)
+    // Ordinary BOM-less UTF-16 ASCII is also syntactically valid UTF-8 with a
+    // NUL after every character. Prefer the clear UTF-16 byte-order signal.
+    if (utf16Candidate !== null && utf16Candidate.score > 0) {
+      return utf16Candidate.snapshot
+    }
+  }
+
+  try {
+    return decodeFileSnapshot(bytes, 'utf-8')
+  } catch {
+    // An invalid UTF-8 stream may still be exact BOM-less UTF-16.
+  }
+
+  if (bytes.length % 2 !== 0) {
+    throw new TypeError(
+      'File is not valid UTF-8 or an identifiable UTF-16 byte stream'
+    )
+  }
+  utf16Candidate ??= inferBomlessUtf16(bytes)
+  if (utf16Candidate === null) {
+    throw new TypeError(
+      'BOM-less UTF-16 byte order is ambiguous; file admission was rejected'
+    )
+  }
+  return utf16Candidate.snapshot
+}
+
+export const detectDocumentFileEncoding = (
+  bytes: Uint8Array
+): FileEncodingV1 => decodeDocumentFileSnapshot(bytes).encoding
+
+/**
+ * Normalize a directory or Markdown pathname for the window router.
  */
 export const normalizeMarkdownPath = (
   pathname: string
 ): { isDir: boolean; path: string } | null => {
   const isDir = isDirectory2(pathname)
-  if (isDir || isMarkdownFile(pathname)) {
-    const resolved = normalizeAndResolvePath(pathname)
-    if (resolved) {
-      return { isDir, path: resolved }
-    } else {
-      console.error(`[ERROR] Cannot resolve "${pathname}".`)
-    }
-  }
+  if (!isDir && !isMarkdownFile(pathname)) return null
+  const resolved = normalizeAndResolvePath(pathname)
+  if (resolved) return { isDir, path: resolved }
+  console.error(`[ERROR] Cannot resolve "${pathname}".`)
   return null
 }
 
 /**
- * Write the content into a file.
- */
-export const writeMarkdownFile = (
-  pathname: string,
-  content: string,
-  options: MarkdownDocumentOptions
-): Promise<void> => {
-  const { adjustLineEndingOnSave, lineEnding } = options
-  const { encoding, isBom } = options.encoding
-  const extension = path.extname(pathname) || '.md'
-
-  if (adjustLineEndingOnSave) {
-    content = convertLineEndings(content, lineEnding)
-  }
-
-  const buffer = iconv.encode(content, encoding, { addBOM: isBom })
-
-  return writeFile(pathname, buffer, extension, undefined)
-}
-
-/**
- * Reads the contents of a markdown file.
+ * Read and retain one exact file snapshot for main-owned admission.
  */
 export const loadMarkdownFile = async(
-  pathname: string,
-  preferredEol: LineEnding,
-  autoGuessEncoding: boolean = true,
-  trimTrailingNewline: number = 2,
-  autoNormalizeLineEndings: boolean = false
+  pathname: string
 ): Promise<MarkdownDocumentRaw> => {
-  // TODO: Use streams to not buffer the file multiple times and only guess
-  //       encoding on the first 256/512 bytes.
-
-  const buffer = await fsPromises.readFile(path.resolve(pathname))
-
-  const encoding = guessEncoding(buffer, autoGuessEncoding)
-  const supported = iconv.encodingExists(encoding.encoding)
-  if (!supported) {
-    throw new Error(`"${encoding.encoding}" encoding is not supported.`)
-  }
-
-  let markdown = iconv.decode(buffer, encoding.encoding)
-
-  // Detect line ending
-  const isLf = LF_LINE_ENDING_REG.test(markdown)
-  const isCrlf = CRLF_LINE_ENDING_REG.test(markdown)
-  const isMixedLineEndings = isLf && isCrlf
-  const isUnknownEnding = !isLf && !isCrlf
-  let lineEnding: LineEnding = preferredEol
-  if (isLf && !isCrlf) {
-    lineEnding = 'lf'
-  } else if (isCrlf && !isLf) {
-    lineEnding = 'crlf'
-  }
-
-  let adjustLineEndingOnSave = false
-
-  if (isMixedLineEndings || isUnknownEnding || lineEnding !== 'lf') {
-    markdown = convertLineEndings(markdown, 'lf')
-    // MarkText always uses LF internally. If the user did not request LF line
-    // endings, we need to adjust on save.
-    adjustLineEndingOnSave = !autoNormalizeLineEndings && lineEnding !== 'lf'
-  }
-
-  // Detect final newline
-  if (trimTrailingNewline === 2) {
-    if (!markdown) {
-      trimTrailingNewline = 3
-    } else {
-      const lastIndex = markdown.length - 1
-      if (lastIndex >= 1 && markdown[lastIndex] === '\n' && markdown[lastIndex - 1] === '\n') {
-        trimTrailingNewline = 2
-      } else if (markdown[lastIndex] === '\n') {
-        trimTrailingNewline = 1
-      } else {
-        trimTrailingNewline = 0
-      }
-    }
-  }
-
-  const filename = path.basename(pathname)
-
-  return {
-    markdown,
-    filename,
-    pathname,
-    encoding,
-    lineEnding,
-    adjustLineEndingOnSave,
-    trimTrailingNewline,
-    isMixedLineEndings
-  }
+  const resolvedPath = path.resolve(pathname)
+  const bytes = await fsPromises.readFile(resolvedPath)
+  const snapshot = decodeDocumentFileSnapshot(bytes)
+  documentCoreFileSnapshots.set(resolvedPath, snapshot)
+  return Object.freeze({
+    markdown: snapshot.source.text,
+    filename: path.basename(pathname),
+    pathname
+  })
 }

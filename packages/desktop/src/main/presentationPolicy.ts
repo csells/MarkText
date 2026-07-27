@@ -41,6 +41,10 @@ interface WindowStatePresentationSurface {
   setAlwaysOnTop(flag: boolean): void
 }
 
+interface NativeMenuPresentationSurface<T> {
+  popup(options: T): void
+}
+
 interface PresentationPolicyOptions {
   background: boolean
   nativeSurface: ElectronPresentationSurface
@@ -51,7 +55,10 @@ export class PresentationPolicy {
   private readonly guard: BackgroundPresentationGuard
   private readonly nativeSurface: ElectronPresentationSurface
 
-  constructor({ background, nativeSurface }: PresentationPolicyOptions) {
+  constructor({
+    background,
+    nativeSurface
+  }: PresentationPolicyOptions) {
     this.background = background
     this.nativeSurface = nativeSurface
     this.guard = new BackgroundPresentationGuard(background)
@@ -123,8 +130,10 @@ export class PresentationPolicy {
     return operation()
   }
 
-  popupMenu<T>(menu: { popup(options: T): void }, options: T): void {
-    this.runInteractiveNative('menu.popup', () => menu.popup(options))
+  popupMenu<T>(menu: NativeMenuPresentationSurface<T>, options: T): boolean {
+    if (!this.guard.allowsPresentation()) return false
+    menu.popup(options)
+    return true
   }
 
   showMessageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue>

@@ -23,7 +23,7 @@ const safeMessageCompiler: MessageCompiler = (message, context) => {
   }
 }
 
-// vue-i18n's options type intersection between Composition + Legacy modes is
+// vue-i18n's options type intersection between its two API modes is
 // notoriously difficult to satisfy with mixed shapes; we cast the options once
 // at the call site rather than spreading `any` further.
 const i18n = createI18n({

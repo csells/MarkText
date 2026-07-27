@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { resolve, dirname } from 'path'
 import type { PluginOption } from 'vite'
 import { defineConfig } from 'electron-vite'
@@ -9,6 +10,23 @@ import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+const repositoryRoot = resolve(__dirname, '../..')
+
+const buildCommit = (): string => {
+  const commit = execFileSync(
+    'git',
+    ['rev-parse', '--verify', 'HEAD'],
+    { cwd: repositoryRoot, encoding: 'utf8' }
+  ).trim()
+  if (!/^[0-9a-f]{40}$/.test(commit)) {
+    throw new Error(
+      'MarkText builds require one full checked-out Git commit identity'
+    )
+  }
+  return commit
+}
+
+const BUILD_COMMIT = buildCommit()
 
 export default defineConfig({
   main: {
@@ -17,17 +35,29 @@ export default defineConfig({
     // electron-vite still builds the main and preload processes into commonJS
     // hence, we need to "exclude" (in order to NOT externalise) ESonly modules so that they can be converted to commonJS and can be required() afterwards correctly
     build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          documentSessionWorker: resolve(
+            __dirname,
+            'src/main/documentCore/documentSessionWorker.ts'
+          )
+        }
+      },
       externalizeDeps: {
         // Bundle electron-store + plist inline so they are available as a
         // CommonJS require() after electron-vite converts the main process
         // output. plist 5 ships ESM-only (no CJS `exports` entry), so leaving
         // it externalized makes the main process `require('plist')` throw
-        // ERR_PACKAGE_PATH_NOT_EXPORTED at startup.
-        exclude: ['electron-store', 'plist'],
+        // ERR_PACKAGE_PATH_NOT_EXPORTED at startup. document-core's workspace
+        // export is TypeScript with ESM `.js` specifiers, which Electron's Node
+        // loader also cannot execute directly.
+        exclude: ['@marktext/document-core', 'electron-store', 'plist'],
         include: ['native-keymap']
       }
     },
     define: {
+      MARKTEXT_BUILD_COMMIT: JSON.stringify(BUILD_COMMIT),
       MARKTEXT_VERSION: JSON.stringify(packageJson.version),
       MARKTEXT_VERSION_STRING: JSON.stringify(`v${packageJson.version}`)
     },
@@ -35,8 +65,8 @@ export default defineConfig({
       alias: {
         '@': resolve(__dirname, 'src/renderer/src'),
         common: resolve(__dirname, 'src/common'),
-        muya: resolve(__dirname, '../muyajs'),
-        '@shared': resolve(__dirname, 'src/shared')
+        '@shared': resolve(__dirname, 'src/shared'),
+        '@marktext/document-view': resolve(__dirname, '../document-view/src/index.ts')
       },
       extensions: ['.mjs', '.ts', '.js', '.json']
     }
@@ -55,7 +85,6 @@ export default defineConfig({
       alias: {
         '@': resolve(__dirname, 'src/renderer/src'),
         common: resolve(__dirname, 'src/common'),
-        muya: resolve(__dirname, '../muyajs'),
         '@shared': resolve(__dirname, 'src/shared')
       },
       extensions: ['.mjs', '.ts', '.js', '.json']
@@ -66,8 +95,8 @@ export default defineConfig({
     // The renderer runs in a sandboxed Chromium context (contextIsolation: true,
     // nodeIntegration: false, sandbox: true). All Node access must go through
     // the preload → IPC bridge. Aliasing `path` → `pathe` lets the shared
-    // `common/*` helpers and muya keep their `import path from 'path'`
-    // statements without pulling in Node's path module. `pathe` always uses
+    // `common/*` helpers keep their `import path from 'path'` statements
+    // without pulling in Node's path module. `pathe` always uses
     // `/` separators and handles Windows drive letters correctly.
     assetsInclude: ['**/*.md'],
     // Some bundled deps (e.g. `custom-event` via `dragula`) reference the
@@ -81,8 +110,8 @@ export default defineConfig({
       alias: {
         '@': resolve(__dirname, 'src/renderer/src'),
         common: resolve(__dirname, 'src/common'),
-        muya: resolve(__dirname, '../muyajs'),
         '@shared': resolve(__dirname, 'src/shared'),
+        '@marktext/document-view': resolve(__dirname, '../document-view/src/index.ts'),
         path: 'pathe'
       },
       extensions: ['.mjs', '.ts', '.js', '.json', '.vue']

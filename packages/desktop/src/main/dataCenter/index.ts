@@ -9,11 +9,18 @@ import { ensureDirSync } from 'common/filesystem'
 import { IMAGE_EXTENSIONS } from 'common/filesystem/paths'
 import { TypedEmitter } from '@shared/types/typedEmitter'
 import { presentationPolicy } from '../presentationPolicy'
+import { mintImageSourceCapability } from '../imageAssets/imageSourceCapability'
+import { emitInternalChannel } from '../utils/internalIpc'
+import {
+  registerUploaderConfigurationHandlers
+} from '../ipc/uploaderConfiguration'
+import {
+  verifyUploaderExecutable
+} from '../uploader/uploaderService'
 
 const DATA_CENTER_NAME = 'dataCenter'
 
-// No events emitted directly on `this`. ipcMain.emit is used for cross-
-// process broadcasts but those don't fire through this instance.
+// No events are emitted directly on this store.
 type DataCenterEvents = Record<string, unknown[]>
 
 interface DataCenterPaths {
@@ -54,20 +61,38 @@ class DataCenter extends TypedEmitter<DataCenterEvents> {
       screenshotFolderPath: path.join(this.userDataPath, 'screenshot'),
       webImages: [],
       cloudImages: [],
-      currentUploader: 'picgo'
+      currentUploader: 'picgo',
+      cliScript: ''
     }
 
     if (!this.hasDataCenterFile) {
       this.store.set(defaultData)
       ensureDirSync(this.store.get('screenshotFolderPath') as string)
-    } else {
-      // Migrate legacy uploader values that no longer exist
-      const stored = this.store.get('currentUploader') as string | undefined
-      if (stored === 'none' || stored === 'github') {
-        this.store.set('currentUploader', 'picgo')
-      }
     }
     this._listenForIpcMain()
+    registerUploaderConfigurationHandlers({
+      resolveWindow: sender =>
+        BrowserWindow.fromWebContents(
+          sender as Parameters<typeof BrowserWindow.fromWebContents>[0]
+        ),
+      chooseExecutable: async window => {
+        const { filePaths } = await presentationPolicy.showOpenDialog(
+          window as BrowserWindow,
+          { properties: ['openFile'] }
+        )
+        return filePaths[0] ?? null
+      },
+      verifyExecutable: verifyUploaderExecutable,
+      persistSelection: async kind => {
+        await this.setItem(
+          'currentUploader',
+          kind === 'picgo' ? 'picgo' : 'cliScript'
+        )
+      },
+      persistExecutable: async pathname => {
+        await this.setItem('cliScript', pathname)
+      }
+    })
   }
 
   async getAll(): Promise<Record<string, unknown>> {
@@ -105,17 +130,14 @@ class DataCenter extends TypedEmitter<DataCenterEvents> {
       items.push(item)
     }
 
-    ipcMain.emit('broadcast-web-image-added', { type: key, item })
     return this.store.set(key, items)
   }
 
   removeImage(type: string, url: string): unknown {
     const items = this.store.get(type) as unknown[]
     const index = items.indexOf(url)
-    const item = items[index]
     if (index === -1) return
     items.splice(index, 1)
-    ipcMain.emit('broadcast-web-image-removed', { type, item })
     return this.store.set(type, items)
   }
 
@@ -134,7 +156,7 @@ class DataCenter extends TypedEmitter<DataCenterEvents> {
     if (key === 'screenshotFolderPath') {
       ensureDirSync(value as string)
     }
-    ipcMain.emit('broadcast-user-data-changed', { [key]: value })
+    emitInternalChannel('broadcast-user-data-changed', { [key]: value })
     if (encryptKeys.includes(key)) {
       try {
         return await keytar.setPassword(serviceName, key, value as string)
@@ -161,10 +183,6 @@ class DataCenter extends TypedEmitter<DataCenterEvents> {
   }
 
   _listenForIpcMain(): void {
-    ipcMain.on('set-image-folder-path', (newPath) => {
-      this.setItem('imageFolderPath', newPath)
-    })
-
     ipcMain.on('mt::ask-for-user-data', async(e) => {
       const win = BrowserWindow.fromWebContents(e.sender)
       if (!win) return
@@ -172,29 +190,20 @@ class DataCenter extends TypedEmitter<DataCenterEvents> {
       win.webContents.send('mt::user-preference', userData)
     })
 
-    ipcMain.on('mt::ask-for-modify-image-folder-path', async(e, imagePath?: string) => {
-      if (!imagePath) {
-        const win = BrowserWindow.fromWebContents(e.sender)
-        if (!win) return
-        const { filePaths } = await presentationPolicy.showOpenDialog(win, {
-          properties: ['openDirectory', 'createDirectory']
-        })
-        if (filePaths && filePaths[0]) {
-          imagePath = filePaths[0]
-        }
-      }
-      if (imagePath) {
-        this.setItem('imageFolderPath', imagePath)
-      }
-    })
-
-    ipcMain.on('mt::set-user-data', (_e, userData: Record<string, unknown>) => {
-      this.setItems(userData)
-    })
-
-    ipcMain.handle('mt::ask-for-image-path', async(e) => {
+    ipcMain.on('mt::ask-for-modify-image-folder-path', async(e) => {
       const win = BrowserWindow.fromWebContents(e.sender)
-      if (!win) return ''
+      if (!win) return
+      const { filePaths } = await presentationPolicy.showOpenDialog(win, {
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (filePaths && filePaths[0]) {
+        this.setItem('imageFolderPath', filePaths[0])
+      }
+    })
+
+    ipcMain.handle('mt::image-assets::select-native-source', async(e) => {
+      const win = BrowserWindow.fromWebContents(e.sender)
+      if (!win) return null
       const { filePaths } = await presentationPolicy.showOpenDialog(win, {
         properties: ['openFile'],
         filters: [
@@ -206,10 +215,9 @@ class DataCenter extends TypedEmitter<DataCenterEvents> {
       })
 
       if (filePaths && filePaths[0]) {
-        return filePaths[0]
-      } else {
-        return ''
+        return mintImageSourceCapability(e.sender, filePaths[0])
       }
+      return null
     })
   }
 }

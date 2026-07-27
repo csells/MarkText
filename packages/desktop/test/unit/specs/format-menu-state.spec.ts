@@ -23,7 +23,6 @@ vi.mock('main_renderer/i18n', () => ({ t: (key: string) => key }))
 
 import { createSelectionFormatState } from '@/store/editor'
 import { updateFormatMenu } from 'main_renderer/menu/actions/format'
-import inlineFormatIcons from '@muyajs/core/ui/inlineFormatToolbar/config'
 import keybindingsWindows from 'main_renderer/keyboard/keybindingsWindows'
 import keybindingsLinux from 'main_renderer/keyboard/keybindingsLinux'
 import keybindingsDarwin from 'main_renderer/keyboard/keybindingsDarwin'
@@ -31,8 +30,6 @@ import { isEqualAccelerator } from 'common/keybinding'
 import paragraphTemplate from 'main_renderer/menu/templates/paragraph'
 import editTemplate from 'main_renderer/menu/templates/edit'
 import viewTemplate from 'main_renderer/menu/templates/view'
-
-interface IInlineFormatIcon { type: string, shortcut?: string }
 
 // Mimic the Electron application menu surface `updateFormatMenu` touches:
 // `getMenuItemById('formatMenuItem')` returning an object whose
@@ -64,17 +61,28 @@ const checkedIds = (menu: ReturnType<typeof makeMenu>) =>
   menu.items.filter((i) => i.checked).map((i) => i.id)
 
 describe('createSelectionFormatState', () => {
-  it('keys html_tag tokens by their tag (u/sup/sub/mark), not "html_tag"', () => {
+  it('keys parser-owned inline formats for the native menu', () => {
     const state = createSelectionFormatState([
-      { type: 'html_tag', tag: 'u' },
-      { type: 'html_tag', tag: 'sup' },
-      { type: 'html_tag', tag: 'sub' },
-      { type: 'html_tag', tag: 'mark' },
-      { type: 'strong' }
+      'underline',
+      'superscript',
+      'subscript',
+      'highlight',
+      'strong'
     ])
 
-    expect(state).toEqual({ u: true, sup: true, sub: true, mark: true, strong: true })
-    expect(state.html_tag).toBeUndefined()
+    expect(state).toEqual({
+      strong: true,
+      em: false,
+      u: true,
+      sup: true,
+      sub: true,
+      mark: true,
+      inline_code: false,
+      inline_math: false,
+      del: false,
+      link: false,
+      image: false
+    })
   })
 })
 
@@ -82,10 +90,10 @@ describe('updateFormatMenu', () => {
   it('checks underline/superscript/subscript/highlight when the caret is inside them', () => {
     const menu = makeMenu(FORMAT_MENU_IDS)
     const state = createSelectionFormatState([
-      { type: 'html_tag', tag: 'u' },
-      { type: 'html_tag', tag: 'sup' },
-      { type: 'html_tag', tag: 'sub' },
-      { type: 'html_tag', tag: 'mark' }
+      'underline',
+      'superscript',
+      'subscript',
+      'highlight'
     ])
 
     updateFormatMenu(menu as unknown as Menu, state)
@@ -95,9 +103,9 @@ describe('updateFormatMenu', () => {
     )
   })
 
-  it('still checks the existing inline formats (strong/em/...)', () => {
+  it('checks strong and emphasis formats', () => {
     const menu = makeMenu(FORMAT_MENU_IDS)
-    const state = createSelectionFormatState([{ type: 'strong' }, { type: 'em' }])
+    const state = createSelectionFormatState(['strong', 'emphasis'])
 
     updateFormatMenu(menu as unknown as Menu, state)
 
@@ -111,86 +119,6 @@ describe('updateFormatMenu', () => {
     updateFormatMenu(menu as unknown as Menu, createSelectionFormatState([]))
 
     expect(checkedIds(menu)).toEqual([])
-  })
-})
-
-// Two surfaces advertise inline-format shortcuts to the user:
-//  - the desktop Format menu accelerators (keybindings*.ts → menu/templates/format.ts)
-//  - the muya InlineFormatToolbar (`@muyajs/core` config.ts → tooltip badge)
-// They are NOT derived from a single source, so they can drift. The test env is
-// non-osx (jsdom userAgent has no "Mac"), so the toolbar config renders with the
-// `Ctrl` COMMAND_KEY — line it up against the non-osx (Windows/Linux) keybindings.
-describe('Format-menu accelerators vs muya inlineFormatToolbar shortcuts', () => {
-  // muya toolbar `type` → desktop keybinding id (menu item accelerator source).
-  const TYPE_TO_KEYBINDING: Readonly<Record<string, string>> = {
-    strong: 'format.strong',
-    em: 'format.emphasis',
-    u: 'format.underline',
-    del: 'format.strike',
-    mark: 'format.highlight',
-    inline_code: 'format.inline-code',
-    inline_math: 'format.inline-math',
-    link: 'format.hyperlink',
-    image: 'format.image',
-    clear: 'format.clear-format'
-  }
-
-  // Canonical form so display notation (`⇧+Ctrl+H`, `⌘`) and Electron accelerator
-  // notation (`Ctrl+Shift+H`, `Command`) compare equal: sorted modifier set + key.
-  const normalizeShortcut = (raw: string | undefined | null): string => {
-    if (!raw) return ''
-    const mods = new Set<string>()
-    let key = ''
-    for (const part of raw.split('+').map((p) => p.trim()).filter(Boolean)) {
-      const lower = part.toLowerCase()
-      if (lower === 'ctrl' || lower === 'control' || lower === '⌃') mods.add('ctrl')
-      else if (lower === 'cmd' || lower === 'command' || lower === '⌘') mods.add('cmd')
-      else if (lower === 'cmdorctrl' || lower === 'commandorcontrol') mods.add('cmdorctrl')
-      else if (lower === 'shift' || lower === '⇧') mods.add('shift')
-      else if (lower === 'alt' || lower === 'option' || lower === '⌥') mods.add('alt')
-      else key = lower
-    }
-    return [...[...mods].sort(), `KEY=${key}`].join('+')
-  }
-
-  const toolbarShortcutOf = (type: string): string | undefined =>
-    (inlineFormatIcons as IInlineFormatIcon[]).find((i) => i.type === type)?.shortcut
-
-  it('confirms the test env is the non-osx (Ctrl) variant', () => {
-    // The toolbar config picks COMMAND_KEY from `isOsx`; jsdom is non-osx here.
-    expect(toolbarShortcutOf('strong')).toBe('Ctrl+B')
-  })
-
-  // strong/em are the requested reconcilable mapping, plus the rest of the set
-  // that agrees once notation is normalized.
-  const RECONCILABLE = ['strong', 'em', 'u', 'del', 'mark', 'inline_math', 'link', 'image', 'clear'] as const
-
-  it.each(RECONCILABLE)(
-    'toolbar shortcut for "%s" matches the Format-menu accelerator (Windows + Linux)',
-    (type) => {
-      const kbId = TYPE_TO_KEYBINDING[type]
-      const toolbar = normalizeShortcut(toolbarShortcutOf(type))
-      expect(toolbar).not.toBe('')
-      expect(normalizeShortcut(keybindingsWindows.get(kbId))).toBe(toolbar)
-      expect(normalizeShortcut(keybindingsLinux.get(kbId))).toBe(toolbar)
-    }
-  )
-
-  // After #4611 the toolbar advertises the real defaults — Ctrl+` for inline code
-  // and ⇧+Ctrl+M for inline math — so the tooltips agree with the keybindings.
-  // inline_math now matches the Format menu on every platform (covered by
-  // RECONCILABLE above). inline_code matches on Windows (Ctrl+`) but still
-  // diverges on Linux, which intentionally binds Ctrl+Y (see #4611 / #3630).
-  it('inlineCode toolbar matches Windows but diverges from the Linux accelerator (Ctrl+Y)', () => {
-    const toolbar = normalizeShortcut(toolbarShortcutOf('inline_code'))
-    expect(toolbar).toBe(normalizeShortcut('Ctrl+`'))
-    // Windows binds Ctrl+` too, so toolbar and menu now agree there.
-    expect(normalizeShortcut(keybindingsWindows.get('format.inline-code'))).toBe(toolbar)
-    // Linux intentionally binds Ctrl+Y, which still diverges from the toolbar.
-    expect(normalizeShortcut(keybindingsLinux.get('format.inline-code'))).toBe(
-      normalizeShortcut('Ctrl+Y')
-    )
-    expect(normalizeShortcut(keybindingsLinux.get('format.inline-code'))).not.toBe(toolbar)
   })
 })
 

@@ -47,10 +47,7 @@
       "findNext": "查找下一个",
       "findPrevious": "查找上一个",
       "findInFolder": "在文件夹中查找",
-      "screenshot": "截图",
-      "lineEnding": "行结束符",
-      "lineEndingCrlf": "CRLF (Windows)",
-      "lineEndingLf": "LF (Unix/macOS)"
+      "screenshot": "截图"
     },
     "paragraph": {
       "title": "段落",
@@ -268,6 +265,7 @@
       "summary": "{count} 个审阅项目",
       "trackChanges": "跟踪更改",
       "unavailable": "此视图无法使用审阅功能。",
+      "actionUnavailable": "此审阅操作已不可用。请刷新审阅后重试。",
       "empty": "没有审阅项目",
       "removeComment": "删除批注",
       "removeHighlight": "移除突出显示",
@@ -408,7 +406,6 @@
       "items": {
         "autoSave": "自动保存正在编辑的内容",
         "autoSaveDelay": "文件保存前的延迟时间（毫秒）",
-        "autoNormalizeLineEndings": "打开文件时自动规范化行尾。禁用时按原样打开文件",
         "titleBarStyle": "标题栏样式（仅限 Windows 和 Linux 系统）",
         "openFilesInNewWindow": "在新窗口中打开文件",
         "openFolderInNewWindow": "通过菜单在新窗口中打开文件夹",
@@ -427,32 +424,13 @@
         "editorLineWidth": "定义编辑器区域的最大宽度。允许空字符串或 ch（字符）、px（像素）或 %（百分比）后缀",
         "codeFontSize": "代码块中的字体大小，范围是 12 ~ 18",
         "codeFontFamily": "代码块中使用的字体系列",
-        "codeBlockLineNumbers": "是否显示行号",
-        "trimUnnecessaryCodeBlockEmptyLines": "修剪代码块开头和结尾的空行",
         "autoPairBracket": "编辑时自动配对括号",
         "autoPairMarkdownSyntax": "自动完成 Markdown 语法",
         "autoPairQuote": "自动完成引号",
-        "endOfLine": "每行末尾使用的换行符。默认值为 default，会选择您操作系统的默认换行符",
-        "defaultEncoding": "默认文件编码",
-        "autoGuessEncoding": "打开文件时尝试自动猜测文件编码",
-        "trimTrailingNewline": "修剪尾随换行符选项",
         "textDirection": "文本书写方向",
         "hideQuickInsertHint": "隐藏快速创建段落的提示",
         "hideLinkPopup": "当光标悬停在链接上时隐藏链接弹出窗口",
         "autoCheck": "是否自动检查相关任务",
-        "preferLooseListItem": "首选列表类型",
-        "bulletListMarker": "项目符号列表中使用的标记",
-        "orderListDelimiter": "有序列表中使用的分隔符",
-        "preferHeadingStyle": "MarkText 中的首选标题样式",
-        "tabSize": "用 x 个空格替换制表符",
-        "listIndentation": "选择列表的缩进",
-        "frontmatterType": "前言类型",
-        "superSubScript": "启用 Pandoc 的 Markdown 扩展上标和下标",
-        "footnote": "启用 Pandoc 的 Markdown 扩展脚注",
-        "isHtmlEnabled": "启用 HTML 渲染",
-        "isGitlabCompatibilityEnabled": "启用 GitLab 兼容模式",
-        "sequenceTheme": "序列图主题",
-        "plantumlServer": "PlantUML 服务器 URL",
         "theme": "选择 MarkText 中使用的主题",
         "followSystemTheme": "跟随系统主题",
         "lightModeTheme": "系统处于浅色模式时使用的主题",
@@ -465,7 +443,10 @@
         "imageRelativeDirectoryBase": "相对图片的复制位置",
         "imageRelativeDirectoryName": "相对图片文件夹名称",
         "fileSortOrder": "打开文件夹中文件的排序顺序：升序或降序",
-        "openedFilesInSidebar": "是否在侧边栏中显示已打开文件"
+        "openedFilesInSidebar": "是否在侧边栏中显示已打开文件",
+        "subscriptAndSuperscript": "启用 Pandoc 的 Markdown 扩展上标和下标",
+        "footnotes": "启用 Pandoc 的 Markdown 扩展脚注",
+        "gitLabMath": "Enable GitLab Math syntax"
       }
     },
     "categories": {
@@ -559,34 +540,13 @@
       "codeBlock": {
         "title": "代码块",
         "fontSize": "字体大小",
-        "fontFamily": "字体系列",
-        "showLineNumbers": "显示行号",
-        "removeEmptyLines": "删除空行"
+        "fontFamily": "字体系列"
       },
       "writingBehavior": {
         "title": "写作行为",
         "autoCloseBrackets": "自动关闭括号",
         "autoCompleteMarkdown": "自动完成 Markdown",
         "autoCloseQuotes": "自动关闭引号"
-      },
-      "fileRepresentation": {
-        "title": "文件表示",
-        "tabWidth": "制表符宽度",
-        "lineSeparator": "行分隔符",
-        "defaultEncoding": "默认文件编码",
-        "autoDetectEncoding": "自动检测编码",
-        "trailingNewlines": {
-          "title": "尾随换行符",
-          "doNothing": "不做任何操作",
-          "ensureOne": "确保有一个",
-          "preserve": "保留",
-          "trimAll": "删除所有尾随换行符"
-        },
-        "endOfLine": {
-          "default": "默认",
-          "crlf": "CRLF (Windows)",
-          "lf": "LF (Unix/macOS)"
-        }
       },
       "misc": {
         "title": "杂项",
@@ -598,7 +558,6 @@
         "hideQuickInsertHint": "隐藏快速插入提示",
         "hideLinkPopup": "隐藏链接弹出窗口",
         "autoCheck": "自动检查",
-        "autoNormalizeLineEndings": "打开时自动将行尾规范化为 LF",
         "wrapCodeBlocks": "换行代码块"
       }
     },
@@ -666,53 +625,9 @@
       "title": "Markdown",
       "extensions": {
         "title": "扩展",
-        "superSubScript": "上标/下标",
-        "footnote": "脚注",
-        "footnoteNotes": "脚注注释",
-        "frontmatterType": {
-          "jsonBrace": "带大括号的 JSON",
-          "jsonSemicolon": "带分号的 JSON",
-          "title": "前置元数据类型"
-        }
-      },
-      "diagrams": {
-        "title": "图表",
-        "sequenceTheme": {
-          "title": "序列图主题",
-          "handDrawn": "手绘",
-          "simple": "简单"
-        },
-        "plantumlServer": {
-          "title": "PlantUML 服务器 URL"
-        }
-      },
-      "misc": {
-        "preferHeadingStyle": {
-          "title": "首选标题样式",
-          "atx": "ATX 样式",
-          "setext": "Setext 样式"
-        },
-        "title": "杂项"
-      },
-      "compatibility": {
-        "enableGitlab": "启用 GitLab 兼容性",
-        "enableHtml": "启用 HTML 支持",
-        "title": "兼容性"
-      },
-      "lists": {
-        "bulletListMarker": "无序列表标记",
-        "listIndentation": {
-          "dfm": "DFM 样式",
-          "fourSpaces": "四个空格",
-          "oneSpace": "一个空格",
-          "tab": "制表符",
-          "threeSpaces": "三个空格",
-          "twoSpaces": "两个空格",
-          "title": "列表缩进"
-        },
-        "orderListDelimiter": "有序列表分隔符",
-        "preferLooseListItem": "首选宽松列表项",
-        "title": "列表"
+        "subscriptAndSuperscript": "上标/下标",
+        "footnotes": "脚注",
+        "gitLabMath": "GitLab Math"
       }
     },
     "theme": {
@@ -790,8 +705,6 @@
       "moveFile": "移动文件",
       "renameFile": "重命名文件",
       "quickOpen": "快速打开",
-      "changeEncoding": "更改编码",
-      "trailingNewline": "尾随换行",
       "print": "打印",
       "preferences": "偏好设置",
       "closeTab": "关闭标签页",
@@ -802,8 +715,7 @@
       "exportFile": "导出文件",
       "exportFilePdf": "导出为 PDF",
       "zoom": "缩放",
-      "checkUpdate": "检查更新",
-      "changeLineEnding": "更改行结束符"
+      "checkUpdate": "检查更新"
     },
     "edit": {
       "undo": "撤销",
@@ -1001,6 +913,7 @@
       "replacementPlaceholder": "输入替换文本",
       "trackChangeRejected": {
         "title": "未能记录此次编辑",
+        "unknownReason": "跟踪更改无法记录这次编辑，文档保持原样。请重试，或先关闭跟踪更改再进行这次改动。",
         "unmappableSourceEdit": "跟踪更改无法记录这次编辑，文档保持原样。请尝试较小的编辑，或先关闭跟踪更改再进行这次改动。",
         "parserConflict": "跟踪更改无法将这次编辑与文档的 Markdown 内容对应起来，文档保持原样。请尝试较小的编辑，或先关闭跟踪更改再进行这次改动。",
         "unmappableTrackedSelection": "跟踪更改无法将所选内容映射到被跟踪的文档，文档保持原样。请重新选择文本后重试，或先关闭跟踪更改再进行这次改动。",
@@ -1012,12 +925,30 @@
       "rows": "行",
       "columns": "列"
     },
+    "imageViewer": {
+      "label": "图片预览"
+    },
     "notifications": {
       "notificationNotFound": "未找到通知"
     },
     "sourceCode": {
       "cursorNullComment": "光标位置无注释",
-      "imageStructureDeletedComment": "图片结构注释已删除"
+      "imageStructureDeletedComment": "图片结构注释已删除",
+      "label": "源代码",
+      "operationFailed": "源代码{operation}操作失败。已恢复经验证的文档。",
+      "operations": {
+        "edit": "编辑",
+        "undo": "撤销",
+        "redo": "重做",
+        "paste": "粘贴",
+        "cut": "剪切",
+        "copy": "复制",
+        "selection": "选择",
+        "attachment": "连接",
+        "headingSelection": "标题选择"
+      },
+      "semanticClipboardUnavailableTitle": "命令不可用",
+      "semanticClipboardUnavailable": "源代码模式不支持复制为富文本、复制为 HTML 和粘贴为纯文本。请改用复制、剪切或粘贴。"
     },
     "export": {
       "error": "导出错误",

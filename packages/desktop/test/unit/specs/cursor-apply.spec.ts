@@ -3,7 +3,6 @@ import { applyCursor, isIndexCursor } from '@/util/cursor'
 
 describe('applyCursor', () => {
   const makeEditor = () => ({
-    setCursor: vi.fn(),
     setCursorByOffset: vi.fn(() => true)
   })
 
@@ -14,30 +13,26 @@ describe('applyCursor', () => {
     applyCursor(editor, cursor)
 
     expect(editor.setCursorByOffset).toHaveBeenCalledWith(cursor)
-    expect(editor.setCursor).not.toHaveBeenCalled()
   })
 
-  it('routes a block-key cursor to setCursor', () => {
+  it('restores a serialized document cursor by its focus offset', () => {
     const editor = makeEditor()
     const cursor = {
       anchor: { offset: 1 },
-      focus: { offset: 4 },
-      anchorPath: ['p', 0],
-      focusPath: ['p', 0]
+      focus: { offset: 4 }
     }
 
     applyCursor(editor, cursor)
 
-    expect(editor.setCursor).toHaveBeenCalledWith(cursor)
-    expect(editor.setCursorByOffset).not.toHaveBeenCalled()
+    expect(editor.setCursorByOffset).toHaveBeenCalledWith(4)
   })
 
-  it('does nothing for a null cursor', () => {
+  it('does nothing for null or malformed cursors', () => {
     const editor = makeEditor()
 
     applyCursor(editor, null)
+    applyCursor(editor, { anchor: { offset: 1 } })
 
-    expect(editor.setCursor).not.toHaveBeenCalled()
     expect(editor.setCursorByOffset).not.toHaveBeenCalled()
   })
 })

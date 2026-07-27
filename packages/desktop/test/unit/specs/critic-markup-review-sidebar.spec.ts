@@ -26,6 +26,31 @@ const comment: CriticMarkupSidebarItem = {
   anchorId: 'highlight-1',
   anchorText: 'selected text'
 }
+const reviewTarget = Object.freeze({
+  revisionId: 'revision:1',
+  nodeId: comment.id
+})
+const firstChange: CriticMarkupSidebarItem = {
+  id: 'addition-1',
+  type: 'addition',
+  path: [0, 'text'],
+  start: 0,
+  end: 3,
+  sourceStart: 0,
+  sourceEnd: 7,
+  raw: '{++one++}',
+  content: 'one'
+}
+const secondChange: CriticMarkupSidebarItem = {
+  ...firstChange,
+  id: 'addition-2',
+  start: 4,
+  end: 7,
+  sourceStart: 8,
+  sourceEnd: 17,
+  raw: '{++two++}',
+  content: 'two'
+}
 
 const i18n = createI18n({
   legacy: false,
@@ -53,6 +78,48 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     }
   })
 
+  it('publishes Review region, projection, card-group, and active-item semantics', () => {
+    const store = useCriticMarkupReviewStore()
+    store.UPDATE({
+      documentId: 'document:1',
+      revisionId: 'revision:1',
+      available: true,
+      items: [comment],
+      currentItemId: comment.id,
+      trackChanges: false,
+      projection: 'original'
+    })
+    const wrapper = mount(ReviewSidebar, {
+      global: {
+        plugins: [i18n],
+        stubs: { ElSwitch: true }
+      }
+    })
+
+    expect(wrapper.get('.side-bar-review').attributes()).toMatchObject({
+      role: 'region',
+      'aria-label': 'sideBar.review.title'
+    })
+    expect(wrapper.get('.summary').attributes('aria-live')).toBe('polite')
+    expect(wrapper.get('el-switch-stub').attributes('aria-label'))
+      .toBe('sideBar.review.trackChanges')
+    expect(wrapper.get('.projection-picker').attributes()).toMatchObject({
+      role: 'group',
+      'aria-label': 'menu.review.display'
+    })
+    expect(
+      wrapper.findAll('.projection-picker button')
+        .map(button => button.attributes('aria-pressed'))
+    ).toEqual(['false', 'true', 'false'])
+    const card = wrapper.get('.review-card')
+    const focus = wrapper.get('.review-card-focus')
+    expect(card.attributes('role')).toBe('group')
+    expect(card.attributes('aria-labelledby')).toBe(focus.attributes('id'))
+    expect(focus.attributes('aria-current')).toBe('true')
+
+    wrapper.unmount()
+  })
+
   it('does not scroll when the caret passively selects a comment card', async() => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
@@ -61,7 +128,8 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     })
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [comment],
       currentItemId: null,
@@ -87,7 +155,8 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
   it('opens the inline editor when the comment card is clicked', async() => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [comment],
       currentItemId: comment.id,
@@ -106,13 +175,180 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
 
     const editor = wrapper.get<HTMLTextAreaElement>('.comment-edit textarea')
     expect(editor.element.value).toBe(comment.content)
+    expect(editor.attributes('aria-label')).toBe('sideBar.review.edit')
+    wrapper.unmount()
+  })
+
+  it('returns keyboard focus to the comment card when inline editing is cancelled', async() => {
+    const store = useCriticMarkupReviewStore()
+    store.UPDATE({
+      documentId: 'document:1',
+      revisionId: 'revision:1',
+      available: true,
+      items: [comment],
+      currentItemId: comment.id,
+      trackChanges: false,
+      projection: 'marked'
+    })
+    const wrapper = mount(ReviewSidebar, {
+      attachTo: document.body,
+      global: {
+        plugins: [i18n],
+        stubs: { ElSwitch: true }
+      }
+    })
+
+    const card = wrapper.get<HTMLButtonElement>('.review-card-focus')
+    card.element.focus()
+    await card.trigger('click')
+    await nextTick()
+    const textarea = wrapper.get<HTMLTextAreaElement>('.comment-edit textarea')
+    expect(document.activeElement).toBe(textarea.element)
+
+    await textarea.trigger('keydown', { key: 'Escape' })
+    await nextTick()
+    expect(document.activeElement).toBe(
+      wrapper.get<HTMLButtonElement>('.review-card-focus').element
+    )
+
+    wrapper.unmount()
+  })
+
+  it('moves keyboard focus to the next Review card after an action removes its card', async() => {
+    const store = useCriticMarkupReviewStore()
+    store.UPDATE({
+      documentId: 'document:1',
+      revisionId: 'revision:1',
+      available: true,
+      items: [firstChange, secondChange],
+      currentItemId: firstChange.id,
+      trackChanges: false,
+      projection: 'marked'
+    })
+    const wrapper = mount(ReviewSidebar, {
+      attachTo: document.body,
+      global: {
+        plugins: [i18n],
+        stubs: { ElSwitch: true }
+      }
+    })
+
+    const accept = wrapper.findAll<HTMLButtonElement>('.review-card .accept')[0]
+    if (!accept) throw new TypeError('Expected the first Accept action')
+    accept.element.focus()
+    await accept.trigger('click')
+    store.UPDATE({
+      ...store.snapshot,
+      revisionId: 'revision:2',
+      items: [secondChange],
+      currentItemId: secondChange.id
+    })
+    await nextTick()
+    await nextTick()
+
+    const remaining = wrapper.get<HTMLButtonElement>('.review-card-focus')
+    expect(remaining.attributes('data-critic-id')).toBeUndefined()
+    expect(
+      remaining.element.closest<HTMLElement>('.review-card')?.dataset.criticId
+    ).toBe(secondChange.id)
+    expect(document.activeElement).toBe(remaining.element)
+
+    wrapper.unmount()
+  })
+
+  it('restores Review card focus after the editor projection handoff completes', async() => {
+    const store = useCriticMarkupReviewStore()
+    store.UPDATE({
+      documentId: 'document:1',
+      revisionId: 'revision:1',
+      available: true,
+      items: [firstChange, secondChange],
+      currentItemId: firstChange.id,
+      trackChanges: false,
+      projection: 'revised'
+    })
+    const wrapper = mount(ReviewSidebar, {
+      attachTo: document.body,
+      global: {
+        plugins: [i18n],
+        stubs: { ElSwitch: true }
+      }
+    })
+    const editorSurface = document.createElement('div')
+    editorSurface.tabIndex = 0
+    document.body.appendChild(editorSurface)
+
+    const accept = wrapper.findAll<HTMLButtonElement>('.review-card .accept')[0]
+    if (!accept) throw new TypeError('Expected the first Accept action')
+    accept.element.focus()
+    await accept.trigger('click')
+    store.UPDATE({
+      ...store.snapshot,
+      revisionId: 'revision:2',
+      items: [secondChange],
+      currentItemId: secondChange.id,
+      projection: 'marked'
+    })
+    nextTick(() => editorSurface.focus())
+    await nextTick()
+    await nextTick()
+
+    expect(document.activeElement).toBe(
+      wrapper.get<HTMLButtonElement>('.review-card-focus').element
+    )
+
+    wrapper.unmount()
+    editorSurface.remove()
+  })
+
+  it('returns focus to an edited comment card after its committed revision publishes', async() => {
+    const store = useCriticMarkupReviewStore()
+    store.UPDATE({
+      documentId: 'document:1',
+      revisionId: 'revision:1',
+      available: true,
+      items: [comment],
+      currentItemId: comment.id,
+      trackChanges: false,
+      projection: 'marked'
+    })
+    const wrapper = mount(ReviewSidebar, {
+      attachTo: document.body,
+      global: {
+        plugins: [i18n],
+        stubs: { ElSwitch: true }
+      }
+    })
+
+    const card = wrapper.get<HTMLButtonElement>('.review-card-focus')
+    card.element.focus()
+    await card.trigger('click')
+    await nextTick()
+    expect(document.activeElement).toBe(
+      wrapper.get<HTMLTextAreaElement>('.comment-edit textarea').element
+    )
+
+    store.UPDATE({
+      ...store.snapshot,
+      revisionId: 'revision:2',
+      items: [{ ...comment, raw: '{>>edited<<}', content: 'edited' }]
+    })
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.find('.comment-edit').exists()).toBe(false)
+    expect(document.activeElement).toBe(
+      wrapper.get<HTMLButtonElement>('.review-card-focus').element
+    )
+
     wrapper.unmount()
   })
 
   it('drops an edit draft when another file reuses the same source-derived id', async() => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [comment],
       currentItemId: comment.id,
@@ -129,7 +365,8 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     await wrapper.get('.review-card-focus').trigger('click')
     await wrapper.get('.comment-edit textarea').setValue('draft for file one')
     store.UPDATE({
-      fileId: 'file-2',
+      documentId: 'document:2',
+      revisionId: 'revision:2',
       available: true,
       items: [
         {
@@ -156,7 +393,8 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     }
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [whitespaceComment],
       currentItemId: whitespaceComment.id,
@@ -179,7 +417,7 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
 
       expect(edit).toHaveBeenCalledWith(
         expect.objectContaining({
-          target: whitespaceComment,
+          target: reviewTarget,
           text: ' note '
         })
       )
@@ -192,7 +430,8 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
   it('preserves intentional boundary whitespace when a new comment is submitted', async() => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [],
       currentItemId: null,
@@ -210,6 +449,8 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     bus.on('critic-markup-comment-submit', submit)
 
     try {
+      expect(wrapper.get('.comment-compose textarea').attributes('aria-label'))
+        .toBe('sideBar.review.commentPlaceholder')
       await wrapper.get('.comment-compose textarea').setValue(' note ')
       await wrapper.get('.comment-compose .submit').trigger('click')
 
@@ -223,14 +464,18 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
   it('consumes a native Edit Comment request that arrived before the panel mounted', async() => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [comment],
       currentItemId: comment.id,
       trackChanges: false,
       projection: 'marked'
     })
-    store.REQUEST_COMMENT_EDIT({ fileId: 'file-1', target: comment })
+    store.REQUEST_COMMENT_EDIT({
+      documentId: 'document:1',
+      target: reviewTarget
+    })
 
     const wrapper = mount(ReviewSidebar, {
       global: {
@@ -251,14 +496,18 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
   it('retains a native Edit Comment request until its exact target is published', async() => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [],
       currentItemId: null,
       trackChanges: false,
       projection: 'marked'
     })
-    store.REQUEST_COMMENT_EDIT({ fileId: 'file-1', target: comment })
+    store.REQUEST_COMMENT_EDIT({
+      documentId: 'document:1',
+      target: reviewTarget
+    })
 
     const wrapper = mount(ReviewSidebar, {
       global: {
@@ -269,10 +518,14 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     await nextTick()
 
     expect(wrapper.find('.comment-edit').exists()).toBe(false)
-    expect(store.commentEditRequest).toEqual({ fileId: 'file-1', target: comment })
+    expect(store.commentEditRequest).toEqual({
+      documentId: 'document:1',
+      target: reviewTarget
+    })
 
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [comment],
       currentItemId: comment.id,
@@ -292,7 +545,8 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
   it('does not reset an unsaved draft when Edit Comment is requested again', async() => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [comment],
       currentItemId: comment.id,
@@ -308,7 +562,10 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
 
     await wrapper.get('.review-card-focus').trigger('click')
     await wrapper.get('.comment-edit textarea').setValue('unsaved draft')
-    store.REQUEST_COMMENT_EDIT({ fileId: 'file-1', target: comment })
+    store.REQUEST_COMMENT_EDIT({
+      documentId: 'document:1',
+      target: reviewTarget
+    })
     await nextTick()
     await nextTick()
 
@@ -322,7 +579,8 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
   it('drops a draft after a synchronous file-away and file-back publication', async() => {
     const store = useCriticMarkupReviewStore()
     const fileOne = {
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [comment],
       currentItemId: comment.id,
@@ -339,7 +597,11 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
 
     await wrapper.get('.review-card-focus').trigger('click')
     await wrapper.get('.comment-edit textarea').setValue('draft for file one')
-    store.UPDATE({ ...fileOne, fileId: 'file-2' })
+    store.UPDATE({
+      ...fileOne,
+      documentId: 'document:2',
+      revisionId: 'revision:2'
+    })
     store.UPDATE(fileOne)
     await nextTick()
 
@@ -347,10 +609,11 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     wrapper.unmount()
   })
 
-  it('ignores a delayed acknowledgement after the draft changes away and back', async() => {
+  it('ignores a delayed acknowledgement after the editor cancels and reopens', async() => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [comment],
       currentItemId: comment.id,
@@ -363,9 +626,9 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
         stubs: { ElSwitch: true }
       }
     })
-    let submission: CriticMarkupCommentEditSubmission | null = null
+    const submissions: CriticMarkupCommentEditSubmission[] = []
     const capture = (value: unknown): void => {
-      if (isCriticMarkupCommentEditSubmission(value)) submission = value
+      if (isCriticMarkupCommentEditSubmission(value)) submissions.push(value)
     }
     bus.on('critic-markup-comment-edit', capture)
 
@@ -373,19 +636,41 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
       await wrapper.get('.review-card-focus').trigger('click')
       await wrapper.get('.comment-edit textarea').setValue('draft A')
       await wrapper.get('.comment-edit .submit').trigger('click')
-      expect(submission).not.toBeNull()
+      expect(submissions).toHaveLength(1)
+      expect(wrapper.get('.comment-edit textarea').attributes('disabled'))
+        .toBeDefined()
 
-      await wrapper.get('.comment-edit textarea').setValue('draft B')
-      await wrapper.get('.comment-edit textarea').setValue('draft A')
-      submission!.acknowledge({ outcome: 'saved' })
+      await wrapper.get('.comment-edit button:not(.submit)').trigger('click')
+      await wrapper.get('.review-card-focus').trigger('click')
+      await wrapper.get('.comment-edit textarea').setValue('new draft')
+      const pendingSubmission = submissions[0]
+      if (pendingSubmission === undefined) {
+        throw new TypeError('Expected the pending comment-edit submission')
+      }
+      pendingSubmission.acknowledge({ outcome: 'saved' })
       await nextTick()
 
       expect(wrapper.get<HTMLTextAreaElement>('.comment-edit textarea').element.value).toBe(
-        'draft A'
+        'new draft'
       )
     } finally {
       bus.off('critic-markup-comment-edit', capture)
       wrapper.unmount()
     }
+  })
+
+  it('requires document identity on the renderer-local edit command', () => {
+    const acknowledge = vi.fn()
+    expect(isCriticMarkupCommentEditSubmission({
+      target: reviewTarget,
+      text: 'note',
+      acknowledge
+    })).toBe(false)
+    expect(isCriticMarkupCommentEditSubmission({
+      documentId: 'document:1',
+      target: reviewTarget,
+      text: 'note',
+      acknowledge
+    })).toBe(true)
   })
 })

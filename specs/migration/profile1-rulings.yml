@@ -1,0 +1,50 @@
+{
+  "schema": "marktext-language-corpus-v1",
+  "id": "PROFILE1_RULINGS",
+  "authority": "marktext-profile-1",
+  "version": "profile1-rulings-corpus-1",
+  "source": "specs/language/marktext-markdown-profile-1.md",
+  "cases": [
+    {
+      "id": "P1R-MULTIBLOCK-ADDITION",
+      "source": "before {++first\n\nsecond++} after\n",
+      "rootKinds": ["addition"],
+      "criticKindsPreorder": ["addition"],
+      "originalSource": "before  after\n",
+      "revisedSource": "before first\n\nsecond after\n"
+    },
+    {
+      "id": "P1R-RECURSIVE-SAME-FORM",
+      "source": "{++outer {++inner++} end++}",
+      "rootKinds": ["addition"],
+      "criticKindsPreorder": ["addition", "addition"],
+      "originalSource": "",
+      "revisedSource": "outer inner end"
+    },
+    {
+      "id": "P1R-CODE-OWNS-MARKERS",
+      "source": "`{++literal++}` and {++visible++}\n",
+      "rootKinds": ["addition"],
+      "criticKindsPreorder": ["addition"],
+      "originalSource": "`{++literal++}` and \n",
+      "revisedSource": "`{++literal++}` and visible\n"
+    },
+    {
+      "id": "P1R-BACKSLASH-PROTECTS-OPENER",
+      "source": "\\{++literal++} {++active++}\n",
+      "rootKinds": ["addition"],
+      "criticKindsPreorder": ["addition"],
+      "originalSource": "\\{++literal++} \n",
+      "revisedSource": "\\{++literal++} active\n",
+      "diagnosticCodes": ["CM_UNMATCHED_CLOSER"]
+    },
+    {
+      "id": "P1R-COMMENT-SUBDOCUMENT",
+      "source": "{>>**note** {++nested++}<<}",
+      "rootKinds": ["comment"],
+      "criticKindsPreorder": ["comment", "addition"],
+      "originalSource": "",
+      "revisedSource": ""
+    }
+  ]
+}

@@ -1,21 +1,19 @@
 import { defineStore } from 'pinia'
+import { reportAsyncFailure } from '@marktext/document-view'
+import type {
+  WindowLayoutMenuState
+} from '@shared/types/documentSelection'
 import bus from '../bus'
 import { setLanguage } from '../i18n'
 
 // Finite-value unions where the runtime currently constrains the field.
 // We keep these as plain strings everywhere else to avoid forcing prematurely
 // narrow casts on consumers that read raw values from disk.
-export type EndOfLine = 'default' | 'lf' | 'crlf'
 export type TitleBarStyle = 'custom' | 'native'
-export type StartUpAction = 'restoreAll' | 'lastSession' | 'blank'
+export type StartUpAction = 'folder' | 'openLastFolder' | 'blank' | 'restoreAll'
 export type TextDirection = 'ltr' | 'rtl'
-export type BulletListMarker = '*' | '+' | '-'
-export type OrderListDelimiter = '.' | ')'
-export type PreferHeadingStyle = 'atx' | 'setext'
-export type FrontmatterType = '-' | ';' | '{' | '+'
-export type SequenceTheme = 'hand' | 'simple'
 export type ImageInsertAction = 'folder' | 'path' | 'upload'
-export type ImageRelativeDirectoryBase = 'file' | 'root'
+export type ImageRelativeDirectoryBase = 'file' | 'folder'
 export type FileSortBy = 'created' | 'modified' | 'title'
 export type FileSortOrder = 'asc' | 'desc'
 
@@ -23,15 +21,15 @@ export interface PreferencesState {
   // ----- General -----
   autoSave: boolean
   autoSaveDelay: number
-  titleBarStyle: TitleBarStyle | string
+  titleBarStyle: TitleBarStyle
   openFilesInNewWindow: boolean
   openFolderInNewWindow: boolean
   zoom: number
   hideScrollbar: boolean
   wordWrapInToc: boolean
-  fileSortBy: FileSortBy | string
-  fileSortOrder: FileSortOrder | string
-  startUpAction: StartUpAction | string
+  fileSortBy: FileSortBy
+  fileSortOrder: FileSortOrder
+  startUpAction: StartUpAction
   restoreLayoutState: boolean
   defaultDirectoryToOpen: string
   lastOpenedFolder: string
@@ -44,8 +42,6 @@ export interface PreferencesState {
   lineHeight: number
   codeFontSize: number
   codeFontFamily: string
-  codeBlockLineNumbers: boolean
-  trimUnnecessaryCodeBlockEmptyLines: boolean
   wrapCodeBlocks: boolean
   editorLineWidth: string
 
@@ -53,35 +49,18 @@ export interface PreferencesState {
   autoPairBracket: boolean
   autoPairMarkdownSyntax: boolean
   autoPairQuote: boolean
-  endOfLine: EndOfLine | string
-  defaultEncoding: string
-  autoGuessEncoding: boolean
-  autoNormalizeLineEndings: boolean
-
-  trimTrailingNewline: number
-  textDirection: TextDirection | string
+  textDirection: TextDirection
   hideQuickInsertHint: boolean
-  imageInsertAction: ImageInsertAction | string
+  imageInsertAction: ImageInsertAction
   imagePreferRelativeDirectory: boolean
-  imageRelativeDirectoryBase: ImageRelativeDirectoryBase | string
+  imageRelativeDirectoryBase: ImageRelativeDirectoryBase
   imageRelativeDirectoryName: string
   hideLinkPopup: boolean
   autoCheck: boolean
 
-  preferLooseListItem: boolean
-  bulletListMarker: BulletListMarker | string
-  orderListDelimiter: OrderListDelimiter | string
-  preferHeadingStyle: PreferHeadingStyle | string
-  tabSize: number
-  listIndentation: number
-  frontmatterType: FrontmatterType | string
-  superSubScript: boolean
-  footnote: boolean
-  isHtmlEnabled: boolean
-  isGitlabCompatibilityEnabled: boolean
-  sequenceTheme: SequenceTheme | string
-  plantumlServer: string
-
+  subscriptAndSuperscript: boolean
+  footnotes: boolean
+  gitLabMath: boolean
   // ----- Theme -----
   theme: string
   followSystemTheme: boolean
@@ -100,13 +79,6 @@ export interface PreferencesState {
   sourceCodeModeEnabled: boolean
   openedFilesInSidebar: boolean
 
-  // ----- Search -----
-  searchExclusions: string[]
-  searchMaxFileSize: string
-  searchIncludeHidden: boolean
-  searchNoIgnore: boolean
-  searchFollowSymlinks: boolean
-
   watcherUsePolling: boolean
 
   // ----- Edit modes (per-window, not persisted) -----
@@ -123,12 +95,7 @@ export interface PreferencesState {
 }
 
 interface SingleSetPreferencePayload {
-  type: keyof PreferencesState | string
-  value: unknown
-}
-
-interface SetUserDataPayload {
-  type: string
+  type: keyof PreferencesState
   value: unknown
 }
 
@@ -147,7 +114,7 @@ export const usePreferencesStore = defineStore('preferences', {
     zoom: 1.0,
     hideScrollbar: false,
     wordWrapInToc: false,
-    fileSortBy: 'created',
+    fileSortBy: 'modified',
     fileSortOrder: 'asc',
     startUpAction: 'restoreAll',
     restoreLayoutState: true,
@@ -161,45 +128,26 @@ export const usePreferencesStore = defineStore('preferences', {
     lineHeight: 1.6,
     codeFontSize: 14,
     codeFontFamily: 'DejaVu Sans Mono',
-    codeBlockLineNumbers: false,
-    trimUnnecessaryCodeBlockEmptyLines: true,
-    wrapCodeBlocks: false,
+    wrapCodeBlocks: true,
     editorLineWidth: '',
 
     autoPairBracket: true,
     autoPairMarkdownSyntax: true,
     autoPairQuote: true,
-    endOfLine: 'default',
-    defaultEncoding: 'utf8',
-    autoGuessEncoding: true,
-    autoNormalizeLineEndings: false,
-
-    trimTrailingNewline: 2,
     textDirection: 'ltr',
     hideQuickInsertHint: false,
-    imageInsertAction: 'folder',
+    imageInsertAction: 'path',
     imagePreferRelativeDirectory: false,
     imageRelativeDirectoryBase: 'file',
     imageRelativeDirectoryName: 'assets',
     hideLinkPopup: false,
     autoCheck: false,
 
-    preferLooseListItem: true,
-    bulletListMarker: '-',
-    orderListDelimiter: '.',
-    preferHeadingStyle: 'atx',
-    tabSize: 4,
-    listIndentation: 1,
-    frontmatterType: '-',
-    superSubScript: false,
-    footnote: false,
-    isHtmlEnabled: true,
-    isGitlabCompatibilityEnabled: false,
-    sequenceTheme: 'hand',
-    plantumlServer: 'https://www.plantuml.com/plantuml',
-
+    subscriptAndSuperscript: false,
+    footnotes: false,
+    gitLabMath: false,
     theme: 'light',
-    followSystemTheme: true,
+    followSystemTheme: false,
     lightModeTheme: 'light',
     darkModeTheme: 'dark',
     customCss: '',
@@ -213,12 +161,6 @@ export const usePreferencesStore = defineStore('preferences', {
     tabBarVisibility: false,
     sourceCodeModeEnabled: false,
     openedFilesInSidebar: true,
-
-    searchExclusions: [],
-    searchMaxFileSize: '',
-    searchIncludeHidden: false,
-    searchNoIgnore: false,
-    searchFollowSymlinks: true,
 
     watcherUsePolling: false,
 
@@ -242,16 +184,17 @@ export const usePreferencesStore = defineStore('preferences', {
   },
 
   actions: {
-    SET_USER_PREFERENCE(preference: Partial<PreferencesState> | Record<string, unknown>): void {
+    SET_USER_PREFERENCE(preference: Partial<PreferencesState>): void {
       const oldLanguage = this.language
+      const state = this.$state as unknown as Record<string, unknown>
 
       Object.keys(preference).forEach((key) => {
+        if (!Object.hasOwn(state, key)) {
+          throw new TypeError(`Unknown renderer preference: ${key}`)
+        }
         const incoming = (preference as Record<string, unknown>)[key]
-        if (
-          typeof incoming !== 'undefined' &&
-          typeof (this as unknown as Record<string, unknown>)[key] !== 'undefined'
-        ) {
-          ;(this as unknown as Record<string, unknown>)[key] = incoming
+        if (typeof incoming !== 'undefined') {
+          state[key] = incoming
         }
       })
 
@@ -282,7 +225,7 @@ export const usePreferencesStore = defineStore('preferences', {
 
     SET_SINGLE_PREFERENCE({ type, value }: SingleSetPreferencePayload): void {
       // Update local state
-      ;(this as unknown as Record<string, unknown>)[type as string] = value
+      ;(this as unknown as Record<string, unknown>)[type] = value
 
       // Update i18n language if language preference changed
       if (type === 'language' && typeof value === 'string') {
@@ -290,15 +233,45 @@ export const usePreferencesStore = defineStore('preferences', {
       }
 
       // save to electron-store
-      window.electron.ipcRenderer.send('mt::set-user-preference', { [type as string]: value })
+      window.electron.ipcRenderer.send('mt::set-user-preference', { [type]: value })
     },
 
-    SET_USER_DATA({ type, value }: SetUserDataPayload): void {
-      window.electron.ipcRenderer.send('mt::set-user-data', { [type]: value })
+    async SELECT_UPLOADER(
+      kind: 'picgo' | 'custom-cli'
+    ): Promise<boolean> {
+      try {
+        const receipt = await window.electron.ipcRenderer.invoke(
+          'mt::uploader::select',
+          {
+            schema: 'uploader-selection-1',
+            kind
+          }
+        )
+        this.currentUploader =
+          receipt.kind === 'custom-cli' ? 'cliScript' : 'picgo'
+        return true
+      } catch (error) {
+        reportAsyncFailure(error, 'Uploader selection')
+        return false
+      }
     },
 
-    SET_IMAGE_FOLDER_PATH(value?: string): void {
-      window.electron.ipcRenderer.send('mt::ask-for-modify-image-folder-path', value)
+    async CHOOSE_CUSTOM_UPLOADER_EXECUTABLE(): Promise<string | null> {
+      try {
+        const receipt = await window.electron.ipcRenderer.invoke(
+          'mt::uploader::choose-custom-executable'
+        )
+        if (!receipt.selected) return null
+        this.cliScript = receipt.executablePath
+        return receipt.executablePath
+      } catch (error) {
+        reportAsyncFailure(error, 'Uploader executable selection')
+        return null
+      }
+    },
+
+    SET_IMAGE_FOLDER_PATH(): void {
+      window.electron.ipcRenderer.send('mt::ask-for-modify-image-folder-path')
     },
 
     SELECT_DEFAULT_DIRECTORY_TO_OPEN(): void {
@@ -310,25 +283,36 @@ export const usePreferencesStore = defineStore('preferences', {
         bus.emit('show-command-palette')
       })
       window.electron.ipcRenderer.on('mt::toggle-view-mode-entry', (_event, entryName) => {
+        if (
+          entryName !== 'sourceCode' &&
+          entryName !== 'typewriter' &&
+          entryName !== 'focus'
+        ) return
         this.TOGGLE_VIEW_MODE(entryName)
         const target = this as unknown as Record<string, unknown>
-        this.DISPATCH_EDITOR_VIEW_STATE({ [entryName]: target[entryName] })
+        this.DISPATCH_EDITOR_VIEW_STATE({
+          [entryName]: target[entryName] === true
+        })
       })
     },
 
     // Toggle a view option and notify main process to toggle menu item.
     LISTEN_TOGGLE_VIEW(): void {
       bus.on('view:toggle-view-entry', (entryName) => {
-        const name = entryName as string
+        if (
+          entryName !== 'sourceCode' &&
+          entryName !== 'typewriter' &&
+          entryName !== 'focus'
+        ) return
+        const name = entryName
         this.TOGGLE_VIEW_MODE(name)
         const target = this as unknown as Record<string, unknown>
-        this.DISPATCH_EDITOR_VIEW_STATE({ [name]: target[name] })
+        this.DISPATCH_EDITOR_VIEW_STATE({ [name]: target[name] === true })
       })
     },
 
-    DISPATCH_EDITOR_VIEW_STATE(viewState: Record<string, unknown>): void {
-      const { windowId } = window.marktext?.env ?? { windowId: -1 }
-      window.electron.ipcRenderer.send('mt::view-layout-changed', windowId, viewState)
+    DISPATCH_EDITOR_VIEW_STATE(viewState: WindowLayoutMenuState): void {
+      window.electron.ipcRenderer.send('mt::view-layout-changed', viewState)
     }
   }
 })

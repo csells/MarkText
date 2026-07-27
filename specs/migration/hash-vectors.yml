@@ -1,0 +1,72 @@
+{
+  "schema": "marktext-hash-vectors-v1",
+  "source": [
+    {
+      "id": "empty",
+      "text": "",
+      "sha256": "d832189c8b3158e865f8cc65f442b662c5c99487f26bb6a65b355cee0180d32e"
+    },
+    {
+      "id": "ascii",
+      "text": "A",
+      "sha256": "d129baeebcd504374960615b2089c8ca24878fa0c4fd5ec7cf8c69adf3b79017"
+    },
+    {
+      "id": "crlf",
+      "text": "\r\n",
+      "sha256": "6514b8df775b8dcb0a239cdbc7d5266b670cb6283703ec206e212e8016a3a105"
+    },
+    {
+      "id": "astral",
+      "text": "😀",
+      "sha256": "72365f45c67a4e5442088c38c32ac271cb73424293572cf162786ddc92b6248b"
+    },
+    {
+      "id": "lone-high-surrogate",
+      "utf16": [55296],
+      "sha256": "50a9cb6d8a1180af1cf826ecb7aae1479f5ea05a215aa4a943255ef19e239b12"
+    }
+  ],
+  "file": [
+    {
+      "id": "empty",
+      "bytes": [],
+      "sha256": "220773d2297ce58df52500bc4a90d5430bda6ca00ff97e5c8e0f0b1a1c83d353"
+    },
+    {
+      "id": "binary",
+      "bytes": [0, 255],
+      "sha256": "cde80e20700417b6748a4d33ba617230af8481165a0fdcd63596f779901f5446"
+    },
+    {
+      "id": "utf8-astral",
+      "bytes": [240, 159, 152, 128],
+      "sha256": "2f163e13c67507cd76c00ab059d3635c3c9c7583d58db776ddf5bbef1ce0ad93"
+    }
+  ],
+  "semantic": [
+    {
+      "id": "review-desktop",
+      "text": "a{++x++}b\r\n",
+      "configuration": {
+        "criticMarkupProfile": "marktext-profile-1",
+        "markdownProfile": "markdown-profile-1",
+        "markdownOptions": {
+          "schema": "markdown-options-1",
+          "gfm": true,
+          "frontMatter": true,
+          "math": true,
+          "gitLabMath": false,
+          "footnotes": false,
+          "subscriptAndSuperscript": true
+        },
+        "liveHtmlSafetyProfile": "live-html-sanitized-v1",
+        "executionBudget": {
+          "limitsProfile": "desktop-v1",
+          "accountingSchema": "syntax-accounting-1"
+        }
+      },
+      "sha256": "d09bf83464924e9e96dc85d20a1d24e95ba2e06d3be578e4842aeb12f2bf3379"
+    }
+  ]
+}

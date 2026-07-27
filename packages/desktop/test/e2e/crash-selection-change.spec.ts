@@ -1,11 +1,9 @@
 // Regression guard for "selectionChange: expected cursor but cursor is null"
-// (issues #4160, #3942 — thrown at src/muya/lib/contentState/paragraphCtrl.js:27).
+// (issues #4160 and #3942).
 //
-// The throw is reachable when both the DOM selection has been cleared and
-// `this.cursor` is null. We attempt the closest user-action recipe (lose DOM
-// selection, then invoke a format menu item that calls selectionChange). On
-// current develop these recipes pass — the model-cursor fallback at
-// paragraphCtrl.js:18-22 catches the transient DOM-selection-loss case.
+// Clear the browser selection, then invoke a format command. The mounted
+// document view must recover from its parser-authenticated session selection
+// without crashing or inventing a second cursor authority.
 import { test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {

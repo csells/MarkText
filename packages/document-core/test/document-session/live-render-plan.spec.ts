@@ -4,11 +4,24 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import {
+  completeSnapshot,
+  requireCompleteSnapshot
+} from '../helpers/completeSnapshot.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -31,7 +44,7 @@ describe('DocumentSession Markup live plan', () => {
       }
     })
 
-    const opened = session.snapshot()
+    const opened = completeSnapshot(session)
     expect(opened.livePlan).toMatchObject({
       revision: opened.revision.id,
       view: 'markup',
@@ -58,11 +71,12 @@ describe('DocumentSession Markup live plan', () => {
     if (result.kind !== 'committed') {
       throw new Error('Expected the plan-authenticated insertion to commit')
     }
-    expect(result.transition.after.livePlan).toMatchObject({
-      revision: result.transition.after.revision.id,
+    const after = requireCompleteSnapshot(result.transition.after)
+    expect(after.livePlan).toMatchObject({
+      revision: after.revision.id,
       modelLength: 6
     })
-    expect(result.transition.after.revision.selection).toMatchObject({
+    expect(after.revision.selection).toMatchObject({
       anchor: { offset: 6, affinity: 'next' },
       focus: { offset: 6, affinity: 'next' }
     })
@@ -100,7 +114,7 @@ describe('DocumentSession Markup live plan', () => {
       }
     })
 
-    expect(session.snapshot().livePlan).toMatchObject({
+    expect(completeSnapshot(session).livePlan).toMatchObject({
       modelLength: 7,
       runs: [
         { text: 'A', marks: [] },
@@ -129,7 +143,7 @@ describe('DocumentSession Markup live plan', () => {
       }
     })
 
-    const opened = session.snapshot()
+    const opened = completeSnapshot(session)
     expect(opened.livePlan).toMatchObject({
       modelLength: 7,
       runs: [
@@ -159,7 +173,8 @@ describe('DocumentSession Markup live plan', () => {
     if (result.kind !== 'committed') {
       throw new Error('Expected the discontinuity-mapped insertion to commit')
     }
-    expect(result.transition.after.livePlan.runs.map((run) => run.text).join('')).toBe(
+    const after = requireCompleteSnapshot(result.transition.after)
+    expect(after.livePlan.runs.map((run) => run.text).join('')).toBe(
       '{q++x++}'
     )
 

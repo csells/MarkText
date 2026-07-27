@@ -8,22 +8,54 @@ const read = (relativePath: string): string =>
   fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8')
 
 describe('async renderer task boundaries', () => {
-  it('reports every synchronous callback that launches async clipboard/image work', () => {
-    const clipboard = read('packages/muya/src/clipboard/index.ts')
-    const dragDrop = read('packages/muya/src/editor/dragDropImage.ts')
+  it('reports desktop callbacks that launch asynchronous editor work', () => {
     const editor = read(
       'packages/desktop/src/renderer/src/components/editorWithTabs/editor.vue'
     )
 
-    expect(clipboard).toMatch(
-      /reportAsyncTask\(\s*this\.pasteHandler\(event\),\s*'Clipboard paste'/
-    )
-    expect(dragDrop.match(/reportAsyncTask\(/g)).toHaveLength(2)
     expect(editor).toMatch(
-      /reportAsyncTask\(\s*editor\.value\.pasteAsPlainText\(\),\s*'Paste as plain text'/
+      /reportAsyncTask\(\s*targetEditor\.pasteAsPlainText\(\),\s*'Paste as plain text'/
     )
     expect(editor).toMatch(
-      /reportAsyncTask\(\s*editor\.value\.pasteImage\(filePath\),\s*'Screenshot image insertion'/
+      /isImageSourceCapability\(source\)[^]*reportAsyncTask\(\s*insertPersistedImage\(source\),\s*'Screenshot image insertion'/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*targetEditor\.convertBlock\([^]*'Paragraph conversion'/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*operation,\s*`Paragraph \$\{action\}`/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*targetEditor\.formatText\([^]*'Inline formatting'/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*targetEditor\.configure\(options\),\s*context/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*targetEditor\.replaceCurrentWord\([^]*'Replace misspelling'/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*targetEditor\.undo\(\),\s*'Undo'/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*targetEditor\.redo\(\),\s*'Redo'/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*targetEditor\.createTable\([^]*'Create table'/
+    )
+    expect(editor).toMatch(
+      /reportAsyncTask\(\s*targetEditor\.insertParagraph\([^]*'Insert paragraph'/
+    )
+    expect(editor).not.toMatch(/pasteImage\(filePath\)/)
+
+    const review = read(
+      'packages/desktop/src/renderer/src/components/editorWithTabs/useCriticMarkupReviewController.ts'
+    )
+    expect(review).toMatch(
+      /reportAsyncTask\(\s*handleReviewAction\(action\),\s*'CriticMarkup Review action'/
+    )
+    expect(review).toMatch(
+      /reportAsyncTask\(\s*executeCriticMarkupSidebarItemAction\([^]*'CriticMarkup sidebar action'/
     )
   })
 })

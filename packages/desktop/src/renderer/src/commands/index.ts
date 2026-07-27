@@ -4,16 +4,16 @@ import { delay, isOsx } from '@/util'
 import { isUpdatable } from './utils'
 import getCommandDescriptionById from './descriptions'
 import { t } from '../i18n'
+import { openExternalResource } from '../services/presentationEffects'
 import {
   REVIEW_COMMAND_DESCRIPTORS,
+  isReviewCommandAvailable,
   type CriticMarkupReviewAction
 } from '../../../common/commands/review'
+import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
 
-export { default as FileEncodingCommand } from './fileEncoding'
-export { default as LineEndingCommand } from './lineEnding'
 export { default as QuickOpenCommand } from './quickOpen'
 export { default as SpellcheckerLanguageCommand } from './spellcheckerLanguage'
-export { default as TrailingNewlineCommand } from './trailingNewline'
 
 // Command shapes here are heterogeneous (some have `execute`, some have
 // `subcommands` + `executeSubcommand`, some have `shortcut`, etc.). Mirrors
@@ -24,6 +24,7 @@ export interface CommandSubcommand {
   description?: string
   value?: unknown
   execute?: () => void | Promise<void>
+  isAvailable?: () => boolean
 }
 
 export interface CommandDescriptor {
@@ -32,6 +33,7 @@ export interface CommandDescriptor {
   shortcut?: string[]
   subcommands?: CommandSubcommand[]
   execute?: () => void | Promise<void>
+  isAvailable?: () => boolean
   executeSubcommand?: (commandId: string, value?: unknown) => void | Promise<void>
 }
 
@@ -58,8 +60,8 @@ export class RootCommand {
 }
 
 const focusEditorAndExecute = (fn: () => void): void => {
-  setTimeout(() => bus.emit('editor-focus'), 10)
-  setTimeout(() => fn(), 150)
+  bus.emit('editor-focus')
+  fn()
 }
 
 const executeReviewAction = (action: CriticMarkupReviewAction): void => {
@@ -81,7 +83,7 @@ const commands: CommandDescriptor[] = [
   {
     id: 'file.new-tab',
     execute: async() => {
-      bus.emit('mt::new-untitled-tab', { selected: true, markdown: '' })
+      window.electron.ipcRenderer.send('mt::cmd-new-tab')
     }
   },
   {
@@ -217,37 +219,30 @@ const commands: CommandDescriptor[] = [
   {
     id: 'edit.find',
     execute: async() => {
-      await delay(150)
       bus.emit('find', 'find')
     }
   },
-  // TODO: Find next/previous doesn't work.
-  // {
-  //   id: 'edit.find-next',
-  //   description: 'Edit: Find Next',
-  //   execute: async () => {
-  //     await delay(150)
-  //     bus.emit('findNext', 'findNext')
-  //   }
-  // }, {
-  //   id: 'edit.find-previous',
-  //   description: 'Edit: Find Previous',
-  //   execute: async () => {
-  //     await delay(150)
-  //     bus.emit('findPrev', 'findPrev')
-  //   }
-  // },
+  {
+    id: 'edit.find-next',
+    execute: async() => {
+      bus.emit('findNext', 'findNext')
+    }
+  },
+  {
+    id: 'edit.find-previous',
+    execute: async() => {
+      bus.emit('findPrev', 'findPrev')
+    }
+  },
   {
     id: 'edit.replace',
     execute: async() => {
-      await delay(150)
       bus.emit('replace', 'replace')
     }
   },
   {
     id: 'edit.find-in-folder',
     execute: async() => {
-      await delay(150)
       bus.emit('mt::editor-edit-action', 'findInFolder')
     }
   },
@@ -463,9 +458,13 @@ const commands: CommandDescriptor[] = [
   // --------------------------------------------------------------------------
   // CriticMarkup Review
 
-  ...REVIEW_COMMAND_DESCRIPTORS.map(({ id, action }) => ({
-    id,
-    execute: async() => executeReviewAction(action)
+  ...REVIEW_COMMAND_DESCRIPTORS.map((descriptor) => ({
+    id: descriptor.id,
+    isAvailable: () => isReviewCommandAvailable(
+      descriptor,
+      useCriticMarkupReviewStore().commandState
+    ),
+    execute: async() => executeReviewAction(descriptor.action)
   })),
 
   // --------------------------------------------------------------------------
@@ -598,6 +597,9 @@ const commands: CommandDescriptor[] = [
       }
     ],
     executeSubcommand: async(_, theme) => {
+      if (typeof theme !== 'string') {
+        throw new TypeError('Theme command requires a theme id')
+      }
       window.electron.ipcRenderer.send('mt::set-user-preference', { theme })
     }
   },
@@ -651,6 +653,9 @@ const commands: CommandDescriptor[] = [
       }
     ],
     executeSubcommand: async(_, value) => {
+      if (value !== 'ltr' && value !== 'rtl') {
+        throw new TypeError('Text direction must be ltr or rtl')
+      }
       window.electron.ipcRenderer.send('mt::set-user-preference', { textDirection: value })
     }
   },
@@ -673,17 +678,13 @@ const commands: CommandDescriptor[] = [
   {
     id: 'docs.user-guide',
     execute: async() => {
-      window.electron.shell.openExternal(
-        'https://marktext.me/docs/basics'
-      )
+      await openExternalResource('documentation-basics')
     }
   },
   {
     id: 'docs.markdown-syntax',
     execute: async() => {
-      window.electron.shell.openExternal(
-        'https://marktext.me/docs/markdown-syntax'
-      )
+      await openExternalResource('documentation-markdown-syntax')
     }
   },
 

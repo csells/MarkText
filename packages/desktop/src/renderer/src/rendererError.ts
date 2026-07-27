@@ -8,10 +8,8 @@ export interface IRendererFailurePayload {
 export type IRendererErrorPayload = IRendererFailurePayload
 
 interface IRendererErrorHandlerOptions {
-  shouldSuppress: (error: Error) => boolean
   log: (error: Error) => void
   send: (payload: IRendererErrorPayload) => void
-  warn: (error: Error) => void
   fallback: (event: Event) => void
 }
 
@@ -91,10 +89,8 @@ export function rendererFailureFromEvent(event: Event): Error | null {
 }
 
 export function createRendererErrorHandler({
-  shouldSuppress,
   log,
   send,
-  warn,
   fallback
 }: IRendererErrorHandlerOptions): (event: Event) => void {
   return (event: Event): void => {
@@ -103,11 +99,6 @@ export function createRendererErrorHandler({
       fallback(event)
       return
     }
-    if (shouldSuppress(error)) {
-      warn(error)
-      return
-    }
-
     log(error)
     send(serializeRendererFailure(error))
   }

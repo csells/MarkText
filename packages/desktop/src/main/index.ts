@@ -15,6 +15,9 @@ import { t } from './i18n'
 import { registerSandboxIpcHandlers } from './ipc'
 import { presentationPolicy } from './presentationPolicy'
 import { exceptionReporter } from './exceptionReporting'
+import {
+  registerImageDisplayScheme
+} from './imageAssets/imageDisplayProtocolRegistration'
 
 // Set version strings into global and process.versions
 process.env.MARKTEXT_VERSION = MARKTEXT_VERSION
@@ -67,6 +70,7 @@ if (args['--disable-gpu']) {
 }
 
 presentationPolicy.configureApplication(app)
+registerImageDisplayScheme()
 
 // Single instance lock (except macOS & development)
 if (!process.mas && process.env.NODE_ENV !== 'development') {

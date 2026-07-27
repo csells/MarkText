@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithDoc } from './helpers'
+import { launchWithDoc, readCanonicalMarkdown } from './helpers'
 
 type FixtureAssertion = (ctx: { page: Page }) => Promise<void>
 
@@ -13,7 +13,7 @@ const runFixture = (name: string, relativePath: string, assertion: FixtureAssert
       const launched = await launchWithDoc(relativePath)
       app = launched.app
       page = launched.page
-      // Allow Muya to finish rendering blocks.
+      // Allow the live view to finish rendering blocks.
       await page.waitForTimeout(800)
     })
 
@@ -29,9 +29,9 @@ const runFixture = (name: string, relativePath: string, assertion: FixtureAssert
 
 runFixture('table', 'test/e2e/data/table.md', async({ page }) => {
   await page.waitForSelector('.editor-component table', { state: 'attached', timeout: 10000 })
-  // The @muyajs/core engine renders rows directly under <table> (no <tbody>).
-  const cellCount = await page.locator('.editor-component table td').count()
-  expect(cellCount).toBeGreaterThanOrEqual(6)
+  await expect(page.locator('.editor-component table thead th')).toHaveCount(3)
+  await expect(page.locator('.editor-component table tbody tr')).toHaveCount(3)
+  await expect(page.locator('.editor-component table tbody td')).toHaveCount(9)
 })
 
 runFixture('lists', 'test/e2e/data/lists.md', async({ page }) => {
@@ -43,7 +43,7 @@ runFixture('lists', 'test/e2e/data/lists.md', async({ page }) => {
 
 runFixture('code', 'test/e2e/data/code.md', async({ page }) => {
   const codeBlocks = await page
-    .locator('.editor-component pre, .editor-component .mu-code-block, .editor-component code')
+    .locator('.editor-component pre, .editor-component .document-view-code-block, .editor-component code')
     .count()
   expect(codeBlocks).toBeGreaterThan(0)
 })
@@ -55,13 +55,14 @@ runFixture('blockquote', 'test/e2e/data/blockquote.md', async({ page }) => {
 })
 
 runFixture('link-image', 'test/e2e/data/link-image.md', async({ page }) => {
-  // The engine renders an inline markdown link as an editable
-  // `span.mu-link[href]`, not an `<a href>`.
-  await page.waitForSelector('.editor-component .mu-link[href]', {
+  // The target view exposes inline links as real link elements.
+  await page.waitForSelector('.editor-component a[href]', {
     state: 'attached',
     timeout: 10000
   })
-  const linkCount = await page.locator('.editor-component .mu-link[href]').count()
+  const linkCount = await page.locator(
+    '.editor-component a[href]'
+  ).count()
   expect(linkCount).toBeGreaterThanOrEqual(1)
 })
 
@@ -72,20 +73,26 @@ runFixture('gfm', 'test/e2e/data/gfm.md', async({ page }) => {
 })
 
 runFixture('frontmatter', 'test/e2e/data/frontmatter.md', async({ page }) => {
-  const hasFront = await page
-    .locator('.editor-component .mu-front-matter, .editor-component pre.mu-front-matter')
-    .first()
-    .waitFor({ state: 'attached', timeout: 10000 })
-    .then(() => true)
-    .catch(() => false)
-  const h1 = await page.locator('.editor-component h1').count()
-  expect(hasFront || h1 > 0).toBe(true)
+  await expect(page.locator('.editor-component h1')).toHaveText(
+    'After front matter'
+  )
+  await expect(page.locator(
+    '.editor-component [data-markdown-kind="front-matter"]'
+  )).toHaveCount(0)
+  await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    '---\n' +
+    'title: Front matter fixture\n' +
+    'author: Tester\n' +
+    '---\n\n' +
+    '# After front matter\n\n' +
+    'Body paragraph follows the YAML block.\n'
+  )
 })
 
 runFixture('math', 'test/e2e/data/math.md', async({ page }) => {
-  // KaTeX renders to .katex; fall back to muya math container if KaTeX has not run yet.
+  // KaTeX renders to .katex; the semantic math container exists first.
   const ok = await page
-    .locator('.editor-component .katex, .editor-component .mu-math-block')
+    .locator('.editor-component .katex, .editor-component .document-view-math-block')
     .first()
     .waitFor({ state: 'attached', timeout: 15000 })
     .then(() => true)
@@ -102,8 +109,8 @@ runFixture('formatted', 'test/e2e/data/formatted.md', async({ page }) => {
   expect(code).toBeGreaterThan(0)
 })
 
-// Regression coverage for marktext#4341 — a ul nested inside an ol li (and
-// vice versa) was rewritten into a paragraph by the legacy muya lexer.
+// Contract coverage for marktext#4341: mixed nested lists remain lists in both
+// directions instead of being rewritten as paragraphs.
 runFixture('nested-mixed-lists', 'test/e2e/data/nested-mixed-lists.md', async({ page }) => {
   await page.waitForSelector('.editor-component ol li ul li', { state: 'attached', timeout: 10000 })
   await page.waitForSelector('.editor-component ul li ol li', { state: 'attached', timeout: 10000 })

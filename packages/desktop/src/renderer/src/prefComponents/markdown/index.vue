@@ -4,124 +4,24 @@
     <compound>
       <template #head>
         <h6 class="title">
-          {{ t('preferences.markdown.lists.title') }}
-        </h6>
-      </template>
-      <template #children>
-        <bool
-          :description="t('preferences.markdown.lists.preferLooseListItem')"
-          :bool="preferLooseListItem"
-          :on-change="(value) => onSelectChange('preferLooseListItem', value)"
-          more="https://spec.commonmark.org/0.29/#loose"
-        />
-        <cur-select
-          :description="t('preferences.markdown.lists.bulletListMarker')"
-          :value="bulletListMarker"
-          :options="bulletListMarkerOptions"
-          :on-change="(value) => onSelectChange('bulletListMarker', value)"
-          more="https://spec.commonmark.org/0.29/#bullet-list-marker"
-        />
-        <cur-select
-          :description="t('preferences.markdown.lists.orderListDelimiter')"
-          :value="orderListDelimiter"
-          :options="orderListDelimiterOptions"
-          :on-change="(value) => onSelectChange('orderListDelimiter', value)"
-          more="https://spec.commonmark.org/0.29/#ordered-list"
-        />
-        <cur-select
-          :description="t('preferences.markdown.lists.listIndentation.title')"
-          :value="listIndentation"
-          :options="getListIndentationOptions()"
-          :on-change="(value) => onSelectChange('listIndentation', value)"
-        />
-      </template>
-    </compound>
-
-    <compound>
-      <template #head>
-        <h6 class="title">
           {{ t('preferences.markdown.extensions.title') }}
         </h6>
       </template>
       <template #children>
-        <cur-select
-          :description="t('preferences.markdown.extensions.frontmatterType.title')"
-          :value="frontmatterType"
-          :options="getFrontmatterTypeOptions()"
-          :on-change="(value) => onSelectChange('frontmatterType', value)"
+        <bool
+          :description="t('preferences.markdown.extensions.subscriptAndSuperscript')"
+          :bool="subscriptAndSuperscript"
+          :on-change="(value) => onSelectChange('subscriptAndSuperscript', value)"
         />
         <bool
-          :description="t('preferences.markdown.extensions.superSubScript')"
-          :bool="superSubScript"
-          :on-change="(value) => onSelectChange('superSubScript', value)"
-          more="https://pandoc.org/MANUAL.html#superscripts-and-subscripts"
+          :description="t('preferences.markdown.extensions.footnotes')"
+          :bool="footnotes"
+          :on-change="(value) => onSelectChange('footnotes', value)"
         />
         <bool
-          :description="t('preferences.markdown.extensions.footnote')"
-          :notes="t('preferences.markdown.extensions.footnoteNotes')"
-          :bool="footnote"
-          :on-change="(value) => onSelectChange('footnote', value)"
-          more="https://pandoc.org/MANUAL.html#footnotes"
-        />
-      </template>
-    </compound>
-
-    <compound>
-      <template #head>
-        <h6 class="title">
-          {{ t('preferences.markdown.compatibility.title') }}
-        </h6>
-      </template>
-      <template #children>
-        <bool
-          :description="t('preferences.markdown.compatibility.enableHtml')"
-          :bool="isHtmlEnabled"
-          :on-change="(value) => onSelectChange('isHtmlEnabled', value)"
-        />
-        <bool
-          :description="t('preferences.markdown.compatibility.enableGitlab')"
-          :bool="isGitlabCompatibilityEnabled"
-          :on-change="(value) => onSelectChange('isGitlabCompatibilityEnabled', value)"
-        />
-      </template>
-    </compound>
-
-    <compound>
-      <template #head>
-        <h6 class="title">
-          {{ t('preferences.markdown.diagrams.title') }}
-        </h6>
-      </template>
-      <template #children>
-        <cur-select
-          :description="t('preferences.markdown.diagrams.sequenceTheme.title')"
-          :value="sequenceTheme"
-          :options="getSequenceThemeOptions()"
-          :on-change="(value) => onSelectChange('sequenceTheme', value)"
-          more="https://bramp.github.io/js-sequence-diagrams/"
-        />
-        <text-box
-          :description="t('preferences.markdown.diagrams.plantumlServer.title')"
-          :input="plantumlServer"
-          :on-change="(value) => onSelectChange('plantumlServer', value)"
-          :default-value="'https://www.plantuml.com/plantuml'"
-        />
-      </template>
-    </compound>
-
-    <compound>
-      <template #head>
-        <h6 class="title">
-          {{ t('preferences.markdown.misc.title') }}
-        </h6>
-      </template>
-      <template #children>
-        <cur-select
-          :description="t('preferences.markdown.misc.preferHeadingStyle.title')"
-          :value="preferHeadingStyle"
-          :options="getPreferHeadingStyleOptions()"
-          :on-change="(value) => onSelectChange('preferHeadingStyle', value)"
-          :disable="true"
+          :description="t('preferences.markdown.extensions.gitLabMath')"
+          :bool="gitLabMath"
+          :on-change="(value) => onSelectChange('gitLabMath', value)"
         />
       </template>
     </compound>
@@ -129,43 +29,22 @@
 </template>
 
 <script setup lang="ts">
+import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
-import Compound from '../common/compound/index.vue'
 import { usePreferencesStore } from '@/store/preferences'
 import type { PreferencesState } from '@/store/preferences'
 import Bool from '../common/bool/index.vue'
-import CurSelect from '../common/select/index.vue'
-import TextBox from '../common/textBox/index.vue'
-import {
-  bulletListMarkerOptions,
-  orderListDelimiterOptions,
-  getPreferHeadingStyleOptions,
-  getListIndentationOptions,
-  getFrontmatterTypeOptions,
-  getSequenceThemeOptions
-} from './config'
-import { storeToRefs } from 'pinia'
+import Compound from '../common/compound/index.vue'
 
 const { t } = useI18n()
-
 const preferenceStore = usePreferencesStore()
-
 const {
-  preferLooseListItem,
-  bulletListMarker,
-  orderListDelimiter,
-  preferHeadingStyle,
-  listIndentation,
-  frontmatterType,
-  superSubScript,
-  footnote,
-  isHtmlEnabled,
-  isGitlabCompatibilityEnabled,
-  sequenceTheme,
-  plantumlServer
+  subscriptAndSuperscript,
+  footnotes,
+  gitLabMath
 } = storeToRefs(preferenceStore)
 
-const onSelectChange = (type: keyof PreferencesState, value: unknown): void => {
+const onSelectChange = (type: keyof PreferencesState, value: boolean): void => {
   preferenceStore.SET_SINGLE_PREFERENCE({ type, value })
 }
 </script>

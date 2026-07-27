@@ -108,7 +108,6 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useLayoutStore } from '@/store/layout'
 import { useProjectStore } from '@/store/project'
 import { useEditorStore } from '@/store/editor'
-import { usePreferencesStore } from '@/store/preferences'
 import { storeToRefs } from 'pinia'
 import bus from '../../bus'
 import log from 'electron-log'
@@ -125,7 +124,6 @@ const { t } = useI18n()
 const layoutStore = useLayoutStore()
 const projectStore = useProjectStore()
 const editorStore = useEditorStore()
-const preferencesStore = usePreferencesStore()
 
 let searcherCancelCallback: (() => void) | null = null
 const ripgrepDirectorySearcher = new RipgrepDirectorySearcher()
@@ -143,13 +141,6 @@ const searchEl = ref<HTMLInputElement | null>(null)
 const { rightColumn, showSideBar } = storeToRefs(layoutStore)
 const { currentFile } = storeToRefs(editorStore)
 const { projectTree } = storeToRefs(projectStore)
-const {
-  searchExclusions,
-  searchMaxFileSize,
-  searchIncludeHidden,
-  searchNoIgnore,
-  searchFollowSymlinks
-} = storeToRefs(preferencesStore)
 
 const searchMatches = computed(() => currentFile.value?.searchMatches)
 
@@ -178,8 +169,6 @@ const search = (): void => {
     return
   }
 
-  const { pathname: rootDirectoryPath } = projectTree.value
-
   if (searcherRunning.value && searcherCancelCallback) {
     searcherCancelCallback()
   }
@@ -200,7 +189,7 @@ const search = (): void => {
   const newSearchResult: SearchResult[] = []
   // Keep a handle on the cancellable thenable separately from the chained
   // `.then().catch()` (which is a plain `Promise<void>` and loses `cancel`).
-  const cancellable = ripgrepDirectorySearcher.search([rootDirectoryPath], keyword.value, {
+  const cancellable = ripgrepDirectorySearcher.search(keyword.value, {
     didMatch: (res: unknown) => {
       if (canceled) return
       newSearchResult.push(res as SearchResult)
@@ -218,13 +207,6 @@ const search = (): void => {
     isCaseSensitive: isCaseSensitive.value,
     isWholeWord: isWholeWord.value,
     isRegexp: isRegexp.value,
-
-    // Options loaded from settings
-    exclusions: searchExclusions.value,
-    maxFileSize: searchMaxFileSize.value || null,
-    includeHidden: searchIncludeHidden.value,
-    noIgnore: searchNoIgnore.value,
-    followSymlinks: searchFollowSymlinks.value,
 
     // Only search markdown files
     inclusions: window.fileUtils.MARKDOWN_INCLUSIONS
@@ -255,7 +237,7 @@ const handleFindInFolder = (executeSearch: boolean | unknown = true): void => {
     if (searchEl.value) {
       searchEl.value.focus()
       // `searchMatches.value` may carry a `selectedText` populated elsewhere
-      // (legacy contract from CodeMirror / find-in-page). Narrow defensively.
+      // by the find-in-page contract. Narrow defensively.
       const selectedText = (searchMatches.value as { selectedText?: string } | undefined)
         ?.selectedText
       if (selectedText) {

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
 import * as zlib from 'node:zlib'
-import { CRITIC_MARKUP_CORPUS } from '../../../muya/src/criticMarkup/__tests__/sharedCorpus'
+import { CRITIC_MARKUP_CORPUS } from '../fixtures/profile1Adversarial'
 import { clickMenuById, launchWithMarkdown } from './helpers'
 
 // Exercise Chromium's real PDF producer against the hidden MarkText editor

@@ -1,0 +1,19 @@
+{
+  "schema": "marktext-performance-reuse-decision-v1",
+  "plan": "0009",
+  "measurement": "P11",
+  "ambiguousBandMs": {
+    "lowerInclusive": 8,
+    "upperInclusive": 16
+  },
+  "decision": "retain-equivalence-proven-reuse",
+  "rationale": "The parser already has equivalence-proven reuse. Retaining it avoids a second performance architecture and keeps maximum-document edits responsive.",
+  "implementation": [
+    "packages/document-core/src/languageEngine.ts",
+    "packages/document-core/src/internal/profile1/markdownParser.ts"
+  ],
+  "proofTargets": [
+    "packages/document-core/test/language-engine/fragment-reuse-equivalence.spec.ts",
+    "packages/desktop/test/e2e/document-core-max-document-perf.spec.ts"
+  ]
+}

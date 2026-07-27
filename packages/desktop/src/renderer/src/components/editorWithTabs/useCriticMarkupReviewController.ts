@@ -2,32 +2,37 @@ import { onBeforeUnmount, watch, type Ref } from 'vue'
 import type {
   ICriticMarkupReviewEditor,
   ICriticMarkupReviewSnapshot
-} from '@muyajs/core'
+} from '@marktext/document-view'
+import { reportAsyncTask } from '@marktext/document-view'
 import bus from '@/bus'
 import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
 import { createCommentComposer } from './commentComposer'
 import { isCriticMarkupCommentEditSubmission } from './criticMarkupCommentEdit'
 import {
+  CRITIC_MARKUP_REVIEW_COMMAND_OUTCOMES,
   executeCriticMarkupReviewAction,
   executeCriticMarkupSidebarItemAction,
   buildCriticMarkupSidebarState,
+  presentCriticMarkupReviewCommandOutcome,
+  type CriticMarkupReviewCommandNotificationSink,
+  type CriticMarkupReviewCommandOutcome,
   type CriticMarkupTextRequest
 } from './criticMarkupReview'
 import {
+  decodeCriticMarkupEditorContextRequest,
   isCriticMarkupCommentEditRequest,
-  type CriticMarkupEditorContextRequest,
-  type CriticMarkupReviewAction,
   type CriticMarkupReviewMenuState,
-  type CriticMarkupSidebarItem,
-  type CriticMarkupSidebarItemAction
+  type CriticMarkupSidebarItem
 } from '@shared/types/criticMarkup'
 
 interface CriticMarkupReviewControllerOptions {
   editor: Readonly<Ref<ICriticMarkupReviewEditor | null>>
-  fileId: Readonly<Ref<string | null>>
+  documentId: Readonly<Ref<string | null>>
   sourceCode: Readonly<Ref<boolean>>
   requestText: CriticMarkupTextRequest
   cancelTextRequest: () => void
+  commandNotificationSink: CriticMarkupReviewCommandNotificationSink
+  translate: (key: string) => string
 }
 
 const unavailableMenuState = (): CriticMarkupReviewMenuState => ({
@@ -37,6 +42,7 @@ const unavailableMenuState = (): CriticMarkupReviewMenuState => ({
   canCreateSubstitution: false,
   canCreateHighlight: false,
   canCreateComment: false,
+  canNavigate: false,
   canResolveCurrent: false,
   canResolveAll: false,
   trackChanges: false,
@@ -52,6 +58,7 @@ const menuStateFromSnapshot = (
   canCreateSubstitution: snapshot.canCreateSubstitution,
   canCreateHighlight: snapshot.canCreateHighlight,
   canCreateComment: snapshot.canCreateComment,
+  canNavigate: snapshot.canNavigate,
   canResolveCurrent: snapshot.canResolveCurrent,
   canResolveAll: snapshot.canResolveAll,
   trackChanges: snapshot.trackChanges,
@@ -65,24 +72,25 @@ export function useCriticMarkupReviewController(
   // A comment is composed in the sidebar, not a modal. Opening composition
   // flips the store's `composing` signal; the sidebar container reveals the
   // Review compose box, and the box's submit/cancel (bus) resolve the request.
-  // muya keeps its cached source selection across the focus change, so the
-  // note still wraps the originally selected span.
+  // The editor keeps its source selection across the focus change, so the note
+  // still wraps the originally selected span.
   const commentComposer = createCommentComposer((active) => {
     reviewStore.SET_COMPOSING(active)
     if (active) {
       // Release editor focus (and hide the inline critic tool) as the compose
-      // box takes over. muya keeps its cached source selection, so the note
+      // box takes over. The editor keeps its cached source selection, so the note
       // still wraps the originally selected span.
       bus.emit('editor-blur')
     }
   })
   let connectedEditor: ICriticMarkupReviewEditor | null = null
-  let snapshotListener: ((snapshot: ICriticMarkupReviewSnapshot) => void) | null = null
+  let reviewSubscription: Readonly<{ dispose: () => void }> | null = null
   let lastSnapshot: ICriticMarkupReviewSnapshot | null = null
   let contextVersion = 0
   let stopped = false
 
   const publishMenuState = (state: CriticMarkupReviewMenuState): void => {
+    reviewStore.UPDATE_COMMAND_STATE(state)
     window.electron.ipcRenderer.send('mt::update-review-menu', state)
   }
 
@@ -96,24 +104,24 @@ export function useCriticMarkupReviewController(
     sourceEditor: ICriticMarkupReviewEditor,
     snapshot: ICriticMarkupReviewSnapshot
   ): void => {
-    const fileId = options.fileId.value
+    const documentId = options.documentId.value
     if (
       stopped ||
       sourceEditor !== connectedEditor ||
       options.sourceCode.value ||
-      !fileId
+      !documentId
     ) {
       return
     }
 
     lastSnapshot = snapshot
-    reviewStore.UPDATE(buildCriticMarkupSidebarState(fileId, snapshot))
+    reviewStore.UPDATE(buildCriticMarkupSidebarState(documentId, snapshot))
     publishMenuState(menuStateFromSnapshot(snapshot))
   }
 
   const publishCurrent = (): void => {
     const sourceEditor = connectedEditor
-    if (!sourceEditor || options.sourceCode.value || !options.fileId.value) {
+    if (!sourceEditor || options.sourceCode.value || !options.documentId.value) {
       clear()
       return
     }
@@ -121,10 +129,8 @@ export function useCriticMarkupReviewController(
   }
 
   const disconnectEditor = (): void => {
-    if (connectedEditor && snapshotListener) {
-      connectedEditor.off('critic-markup-review-change', snapshotListener)
-    }
-    snapshotListener = null
+    reviewSubscription?.dispose()
+    reviewSubscription = null
     connectedEditor = null
   }
 
@@ -134,8 +140,9 @@ export function useCriticMarkupReviewController(
     connectedEditor = nextEditor
     if (connectedEditor) {
       const sourceEditor = connectedEditor
-      snapshotListener = (snapshot) => publishSnapshot(sourceEditor, snapshot)
-      connectedEditor.on('critic-markup-review-change', snapshotListener)
+      reviewSubscription = connectedEditor.subscribeReview(
+        (snapshot) => publishSnapshot(sourceEditor, snapshot)
+      )
     }
     publishCurrent()
   }
@@ -147,22 +154,41 @@ export function useCriticMarkupReviewController(
     return contextVersion
   }
 
+  const presentCommandOutcome = (
+    outcome: CriticMarkupReviewCommandOutcome,
+    documentId: string
+  ): void => {
+    presentCriticMarkupReviewCommandOutcome(
+      outcome,
+      documentId,
+      options.commandNotificationSink,
+      options.translate
+    )
+  }
+
   const handleReviewAction = async(action: unknown): Promise<void> => {
     const targetEditor = connectedEditor
-    const targetFileId = options.fileId.value
-    if (!targetEditor || !targetFileId || options.sourceCode.value) return
+    const targetDocumentId = options.documentId.value
+    if (!targetDocumentId) return
+    if (!targetEditor || options.sourceCode.value) {
+      presentCommandOutcome(
+        CRITIC_MARKUP_REVIEW_COMMAND_OUTCOMES.unavailable,
+        targetDocumentId
+      )
+      return
+    }
 
     // Capture the live selection into the model before the compose box takes
     // focus, so the note wraps the text the user actually selected rather than
     // a stale range.
     if (action === 'add-comment') {
-      targetEditor.commitAuthoringSelection()
+      await targetEditor.commitAuthoringSelection()
     }
 
     const targetVersion = contextVersion
-    await executeCriticMarkupReviewAction(
+    let outcome = await executeCriticMarkupReviewAction(
       targetEditor,
-      action as CriticMarkupReviewAction,
+      action,
       async(kind) => {
         // A comment's text comes from the sidebar compose box; every other
         // text-bearing action (substitution) still uses the prompt modal.
@@ -172,7 +198,7 @@ export function useCriticMarkupReviewController(
         if (
           value === null ||
           targetEditor !== connectedEditor ||
-          targetFileId !== options.fileId.value ||
+          targetDocumentId !== options.documentId.value ||
           options.sourceCode.value ||
           targetVersion !== contextVersion
         ) {
@@ -181,6 +207,18 @@ export function useCriticMarkupReviewController(
         return value
       }
     )
+    if (
+      outcome.kind === 'cancelled' &&
+      (
+        targetEditor !== connectedEditor ||
+        targetDocumentId !== options.documentId.value ||
+        options.sourceCode.value ||
+        targetVersion !== contextVersion
+      )
+    ) {
+      outcome = CRITIC_MARKUP_REVIEW_COMMAND_OUTCOMES.stale
+    }
+    presentCommandOutcome(outcome, targetDocumentId)
   }
 
   const handleCommentSubmit = (text: unknown): void => {
@@ -191,17 +229,28 @@ export function useCriticMarkupReviewController(
     commentComposer.cancel()
   }
 
-  const handleCommentEdit = (payload: unknown): void => {
+  const handleCommentEdit = async(payload: unknown): Promise<void> => {
     const targetEditor = connectedEditor
     if (!isCriticMarkupCommentEditSubmission(payload)) return
 
     let saved = false
-    if (targetEditor && options.fileId.value && !options.sourceCode.value) {
+    const snapshot = targetEditor?.getCriticMarkupReviewSnapshot()
+    if (
+      targetEditor &&
+      payload.documentId === options.documentId.value &&
+      !options.sourceCode.value &&
+      snapshot?.revisionId === payload.target.revisionId &&
+      snapshot.items.some(item =>
+        item.type === 'comment' && item.id === payload.target.nodeId)
+    ) {
       try {
-        saved = targetEditor.editCriticMarkupComment(payload.target, payload.text)
+        saved = await targetEditor.editCriticMarkupComment(
+          payload.target,
+          payload.text
+        )
       } catch {
-        // The engine normally fails closed with `false`. Treat an unexpected
-        // exception the same way at this UI boundary so the draft is retained.
+        // A rejected main-owned mutation is a normal terminal failure at this
+        // boundary. The negative acknowledgement keeps the user's draft.
       }
     }
     payload.acknowledge({ outcome: saved ? 'saved' : 'rejected' })
@@ -209,14 +258,26 @@ export function useCriticMarkupReviewController(
 
   const handleSidebarAction = (payload: unknown): void => {
     const targetEditor = connectedEditor
-    const fileId = options.fileId.value
-    if (!targetEditor || !fileId || options.sourceCode.value) return
+    const documentId = options.documentId.value
+    if (!documentId) return
+    if (!targetEditor || options.sourceCode.value) {
+      presentCommandOutcome(
+        CRITIC_MARKUP_REVIEW_COMMAND_OUTCOMES.unavailable,
+        documentId
+      )
+      return
+    }
 
-    executeCriticMarkupSidebarItemAction(
-      targetEditor,
-      payload as CriticMarkupSidebarItemAction,
-      lastSnapshot?.projection ?? 'marked',
-      fileId
+    reportAsyncTask(
+      executeCriticMarkupSidebarItemAction(
+        targetEditor,
+        payload,
+        lastSnapshot?.projection ?? 'marked',
+        documentId
+      ).then((outcome) => {
+        presentCommandOutcome(outcome, documentId)
+      }),
+      'CriticMarkup sidebar action'
     )
   }
 
@@ -226,22 +287,20 @@ export function useCriticMarkupReviewController(
 
   const handleEditorContextQuery = (
     _event: unknown,
-    request: CriticMarkupEditorContextRequest
+    value: unknown
   ): void => {
-    if (
-      !request ||
-      typeof request.requestId !== 'string' ||
-      !Number.isFinite(request.x) ||
-      !Number.isFinite(request.y)
-    ) {
+    let request
+    try {
+      request = decodeCriticMarkupEditorContextRequest(value)
+    } catch {
       return
     }
 
     const targetEditor = connectedEditor
-    const fileId = options.fileId.value
-    let target: CriticMarkupSidebarItem | null = null
+    const documentId = options.documentId.value
+    let item: CriticMarkupSidebarItem | null = null
     try {
-      target = targetEditor && fileId && !options.sourceCode.value
+      item = targetEditor && documentId && !options.sourceCode.value
         ? targetEditor.getCriticMarkupCommentAtPoint(request.x, request.y)
         : null
     } catch {
@@ -249,46 +308,45 @@ export function useCriticMarkupReviewController(
       // This IPC boundary fails closed so the main process can show the normal
       // context menu instead of surfacing an obsolete Edit Comment target.
     }
-    window.electron.ipcRenderer.send('mt::cm-editor-context-response', target && fileId
-      ? { requestId: request.requestId, fileId, target }
-      : { requestId: request.requestId, fileId: null, target: null })
+    const snapshot = item && targetEditor
+      ? targetEditor.getCriticMarkupReviewSnapshot()
+      : null
+    window.electron.ipcRenderer.send(
+      'mt::cm-editor-context-response',
+      item && snapshot && documentId
+        ? {
+          requestId: request.requestId,
+          documentId,
+          target: {
+            revisionId: snapshot.revisionId,
+            nodeId: item.id
+          }
+        }
+        : { requestId: request.requestId, documentId: null, target: null }
+    )
   }
-
-  const isExactLiveComment = (
-    live: CriticMarkupSidebarItem,
-    target: CriticMarkupSidebarItem
-  ): boolean => live.type === 'comment' && target.type === 'comment' &&
-    live.id === target.id &&
-    live.start === target.start &&
-    live.end === target.end &&
-    live.sourceStart === target.sourceStart &&
-    live.sourceEnd === target.sourceEnd &&
-    live.raw === target.raw &&
-    live.content === target.content &&
-    live.anchorId === target.anchorId &&
-    live.anchorText === target.anchorText &&
-    live.path.length === target.path.length &&
-    live.path.every((part, index) => part === target.path[index])
 
   const handleNativeCommentEdit = (
     _event: unknown,
     request: unknown
   ): void => {
     const targetEditor = connectedEditor
-    const fileId = options.fileId.value
+    const documentId = options.documentId.value
     if (
       !targetEditor ||
-      !fileId ||
+      !documentId ||
       options.sourceCode.value ||
       !isCriticMarkupCommentEditRequest(request) ||
-      request.fileId !== fileId
+      request.documentId !== documentId
     ) {
       return
     }
 
-    const live = targetEditor.getCriticMarkupReviewSnapshot().items.find(item =>
-      isExactLiveComment(item, request.target))
-    if (live) reviewStore.REQUEST_COMMENT_EDIT({ fileId, target: live })
+    const snapshot = targetEditor.getCriticMarkupReviewSnapshot()
+    const live = snapshot.revisionId === request.target.revisionId &&
+      snapshot.items.some(item =>
+        item.type === 'comment' && item.id === request.target.nodeId)
+    if (live) reviewStore.REQUEST_COMMENT_EDIT(request)
   }
 
   // A bare selection change (notably a same-block mouse drag) emits no engine
@@ -297,10 +355,16 @@ export function useCriticMarkupReviewController(
   // the blur when a menu or the compose box takes focus — the selection is gone
   // by the time an authoring command runs), then re-read the live snapshot so
   // canCreateComment and the rest track the current selection.
-  const handleRefresh = (): void => {
+  const handleRefresh = async(): Promise<void> => {
     const targetEditor = connectedEditor
     if (targetEditor && !options.sourceCode.value) {
-      targetEditor.commitAuthoringSelection()
+      await targetEditor.commitAuthoringSelection()
+      if (
+        targetEditor !== connectedEditor ||
+        options.sourceCode.value
+      ) {
+        return
+      }
     }
     publishCurrent()
   }
@@ -314,16 +378,32 @@ export function useCriticMarkupReviewController(
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(() => {
       refreshTimer = null
-      handleRefresh()
+      reportAsyncTask(handleRefresh(), 'CriticMarkup Review refresh')
     }, 120)
   }
 
-  bus.on('critic-markup-review', handleReviewAction)
+  const observeReviewAction = (action: unknown): void => {
+    reportAsyncTask(
+      handleReviewAction(action),
+      'CriticMarkup Review action'
+    )
+  }
+  const observeCommentEdit = (payload: unknown): void => {
+    reportAsyncTask(
+      handleCommentEdit(payload),
+      'CriticMarkup comment edit'
+    )
+  }
+  const observeRefresh = (): void => {
+    reportAsyncTask(handleRefresh(), 'CriticMarkup Review refresh')
+  }
+
+  bus.on('critic-markup-review', observeReviewAction)
   bus.on('critic-markup-review-item', handleSidebarAction)
   bus.on('critic-markup-comment-submit', handleCommentSubmit)
   bus.on('critic-markup-comment-cancel', handleCommentCancel)
-  bus.on('critic-markup-comment-edit', handleCommentEdit)
-  bus.on('critic-markup-refresh', handleRefresh)
+  bus.on('critic-markup-comment-edit', observeCommentEdit)
+  bus.on('critic-markup-refresh', observeRefresh)
   bus.on('file-loaded', handleDocumentContextChange)
   bus.on('file-changed', handleDocumentContextChange)
   document.addEventListener('selectionchange', onSelectionChange)
@@ -345,7 +425,7 @@ export function useCriticMarkupReviewController(
     { immediate: true, flush: 'sync' }
   )
   const stopContextWatch = watch(
-    [options.fileId, options.sourceCode],
+    [options.documentId, options.sourceCode],
     () => {
       const version = invalidateContext()
       clear()
@@ -361,12 +441,12 @@ export function useCriticMarkupReviewController(
     invalidateContext()
     stopEditorWatch()
     stopContextWatch()
-    bus.off('critic-markup-review', handleReviewAction)
+    bus.off('critic-markup-review', observeReviewAction)
     bus.off('critic-markup-review-item', handleSidebarAction)
     bus.off('critic-markup-comment-submit', handleCommentSubmit)
     bus.off('critic-markup-comment-cancel', handleCommentCancel)
-    bus.off('critic-markup-comment-edit', handleCommentEdit)
-    bus.off('critic-markup-refresh', handleRefresh)
+    bus.off('critic-markup-comment-edit', observeCommentEdit)
+    bus.off('critic-markup-refresh', observeRefresh)
     bus.off('file-loaded', handleDocumentContextChange)
     bus.off('file-changed', handleDocumentContextChange)
     document.removeEventListener('selectionchange', onSelectionChange)

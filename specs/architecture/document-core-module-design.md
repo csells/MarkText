@@ -7,10 +7,10 @@
 
 ## Verdict
 
-document-core is a **deep module at a real seam**: three independent adapters (desktop
-`documentEngineHost` mirror facade, muya `documentCoreView` production view, e2e
-`browserAdapter` tracer) consume one small public entry; dependency direction is strictly
-one-way (zero runtime deps; `boundary-policy.json` forbids muya/marked/vue/pinia/electron);
+document-core is a **deep module at a real seam**: the main-owned session host,
+`@marktext/document-view`, and static materializers consume one small public
+entry; dependency direction is strictly one-way (zero runtime dependencies;
+`boundary-policy.json` forbids document-view/marked/vue/pinia/electron);
 nothing MT-specific flows in through any adapter — hosts pass only source text, doc-core-owned
 `ParseConfiguration` profile IDs, and model selections. The exercised host surface is five
 functions plus documented UTF-16/revision invariants, hiding parsing, revisions, leases, and
@@ -22,7 +22,7 @@ earning its keep.
 - Public entry sealed by the exports map; `packed-consumer.spec.ts` proves deep imports fail at
   runtime and type level; zero deep-import consumers exist in the workspace.
 - Pure ES2022: no DOM/Electron/Node globals in `src` (tsconfig `types: []` makes DOM references
-  a typecheck failure); CI runs the full package check plus a browser walking-tracer.
+  a typecheck failure); CI runs the full package check plus the real browser view.
 - **Fixed 2026-07-25:** the desktop's phantom dependency (imported doc-core via hoisting
   without declaring it) — now a declared `workspace:*` edge; and the enforcement gap where
   boundary policy checked manifests but not actual `src` import statements — the
@@ -63,12 +63,29 @@ Today's shape does **not** foreclose the Wagner & Graham balanced sequence:
 
 An AST→HTML mapping exists as a doc-core module: **not part of the parser** (a consumer of the
 revision's markdown/CM AST, peer to `view/markupRender`), **packaged and exported with
-doc-core** (any editor host gets HTML materialization without reimplementing it). This pulls
-the Phase 6 HTML materializer forward as the structural-conformance oracle: the CommonMark
-corpus's html column is compared against the real materializer through a cmark-style
-normalizer, so conformance tests exercise shipped behavior rather than a test-only shadow.
-Scope order: markdown-AST → HTML first (covers the corpus and the Original/Revised views);
-CM-decorated HTML (ins/del/mark conventions per research 0005) when export work needs it.
+doc-core** (any editor host gets HTML materialization without reimplementing it). CommonMark
+and Profile 1 corpora compare literal expected HTML with that shipped materializer, so tests
+exercise the public behavior rather than a test-only renderer.
+
+Profile 1 extensions have one safe dependency-free base representation:
+
+- subscript and superscript use semantic `<sub>` and `<sup>` elements;
+- inline math uses `<span class="math-inline">` and math blocks use
+  `<pre class="math-block"><code>`, with parser-owned content HTML-escaped;
+- diagrams use `<pre class="diagram" data-language="…"><code>`, preserving a safe readable
+  base representation without host enhancement; and
+- resolved footnotes use numbered references plus a final semantic footnote section, while
+  unresolved references stay literal.
+
+Product hosts may enhance math or diagram nodes visually, but the target-owned base representation and
+its hostile-content behavior are complete public semantics. CriticMarkup-decorated HTML uses
+only inert `ins`, `del`, and `mark` wrappers plus sanitized Comment-note references.
+
+Semantic text/search materialization follows the same emitted tree: subscript,
+superscript, and inline math expose their content; math and diagram blocks
+expose parser-owned block content; table cells are tab-separated; resolved
+footnotes use numbered references and a final numbered body; unresolved
+references remain literal. No text consumer re-reads Markdown delimiters.
 
 ## Seam refinements (scheduled from the review)
 
@@ -81,6 +98,5 @@ CM-decorated HTML (ins/del/mark conventions per research 0005) when export work 
 3. Before any future publish: split the entry into the session + render-plan surface every
    editor host needs vs parser-level/forensic exports (only unit tests use
    `createLanguageEngine` et al. today).
-4. One engine-owned view↔model coordinate mapping: when selection mapping lands in the
-   production view, build it on `modelOffsetAt`/`viewPositionAt` and migrate the e2e tracer
-   off its hand-rolled DOM mapping.
+4. Keep one engine-owned view↔model coordinate mapping. The production view
+   consumes parser-issued ranges and must not infer model positions from DOM.

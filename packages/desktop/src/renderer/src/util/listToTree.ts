@@ -1,11 +1,11 @@
 // Generic list-to-tree builder driven by the `lvl` property each item carries.
-// The classic call-site is the TOC: an ordered list of `{ lvl, content, slug }`
-// records becomes a nested hierarchy where each entry's parent is the most
-// recently seen entry with a smaller `lvl`.
+// The TOC call site preserves parser NodeId and anchor slug while nesting each
+// entry below the most recently seen entry with a smaller `lvl`.
 
 export interface ListItem {
   lvl: number | null
   content?: unknown
+  nodeId?: unknown
   slug?: unknown
 }
 
@@ -13,8 +13,8 @@ export interface TreeNode<T extends ListItem = ListItem> {
   parent: TreeNode<T> | null
   lvl: number | null
   label: unknown
+  nodeId: unknown
   slug: unknown
-  githubSlug: unknown
   children: Array<TreeNode<T>>
 }
 
@@ -22,25 +22,23 @@ class Node<T extends ListItem> implements TreeNode<T> {
   parent: TreeNode<T> | null
   lvl: number | null
   label: unknown
+  nodeId: unknown
   slug: unknown
-  githubSlug: unknown
   children: Array<TreeNode<T>>
 
   constructor(item: {
     parent: TreeNode<T> | null
     lvl: number | null
     content?: unknown
+    nodeId?: unknown
     slug?: unknown
-    githubSlug?: unknown
   }) {
-    const { parent, lvl, content, slug, githubSlug } = item
+    const { parent, lvl, content, nodeId, slug } = item
     this.parent = parent
     this.lvl = lvl
     this.label = content
+    this.nodeId = nodeId
     this.slug = slug
-    // Carried through for the TOC: a content-derived id that, unlike `slug`
-    // (a per-render object id), survives a document reload / tab switch (#3791).
-    this.githubSlug = githubSlug
     this.children = []
   }
 

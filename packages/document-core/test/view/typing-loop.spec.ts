@@ -13,6 +13,7 @@ import {
   type MarkupViewPosition,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { completeSnapshot } from '../helpers/completeSnapshot.js'
 
 /**
  * Integration vertical slice, increment 3 (end to end) — the typing loop.
@@ -26,7 +27,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -63,12 +73,12 @@ function renderTree(
   session: DocumentSession,
   source: string
 ): readonly MarkupRenderBlock[] {
-  const runs = renderMarkupPlan(session.snapshot().livePlan)
+  const runs = renderMarkupPlan(completeSnapshot(session).livePlan)
   return groupRenderBlocks(canonicalMarkupDocument(revisionFor(source)), runs)
 }
 
 function modelText(session: DocumentSession): string {
-  return renderMarkupPlan(session.snapshot().livePlan)
+  return renderMarkupPlan(completeSnapshot(session).livePlan)
     .map((run) => run.text)
     .join('')
 }
@@ -119,7 +129,7 @@ describe('the typing loop', () => {
 
     // The addition is still an addition — editing plain text near a tracked
     // change must not accept, reject, or disturb it.
-    const runs = renderMarkupPlan(session.snapshot().livePlan)
+    const runs = renderMarkupPlan(completeSnapshot(session).livePlan)
     expect(runs.map((run) => ({ text: run.text, elements: run.elements })))
       .toEqual([
         { text: 'Oh, Hello ', elements: [] },

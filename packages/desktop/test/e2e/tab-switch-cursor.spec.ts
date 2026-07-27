@@ -5,9 +5,7 @@ import { launchWithMarkdown, sendIpcToRenderer, waitForMenuReady } from './helpe
 const tabSelector = '.tabs-container > li'
 
 // Place a collapsed caret at character offset `ch` inside the Nth (0-based)
-// paragraph content span, then nudge the engine to commit its active block
-// (the engine derives `activeContentBlock` from keyup/click on the editor
-// root). Mirrors the deterministic injection used by parity-cursor-lang.spec.
+// paragraph text, then publish the browser selection to the document host.
 const placeCaretInParagraph = (
   page: Page,
   index: number,
@@ -18,7 +16,7 @@ const placeCaretInParagraph = (
       const root = document.querySelector('.editor-component') as HTMLElement | null
       if (!root) return false
       root.focus()
-      const spans = Array.from(root.querySelectorAll('span.mu-paragraph-content'))
+      const spans = Array.from(root.querySelectorAll('span.document-view-run'))
       const target = spans[paragraphIndex] as HTMLElement | undefined
       if (!target) return false
       const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT)
@@ -56,10 +54,10 @@ const readCaret = (page: Page): Promise<{ index: number; offset: number } | null
       sel.anchorNode.nodeType === Node.TEXT_NODE
         ? sel.anchorNode.parentElement
         : (sel.anchorNode as Element)
-    const content = anchorEl?.closest('span.mu-paragraph-content') as Element | null
+    const content = anchorEl?.closest('span.document-view-run') as Element | null
     if (!content) return null
     const spans = Array.from(
-      document.querySelectorAll('.editor-component span.mu-paragraph-content')
+      document.querySelectorAll('.editor-component span.document-view-run')
     )
     return { index: spans.indexOf(content), offset: sel.anchorOffset }
   })
@@ -107,11 +105,8 @@ test.describe('Tab switch restores the per-tab caret', () => {
   })
 })
 
-// Item 252 — switching tabs restores each tab's OWN engine undo/redo history.
-// The `json-change` handler stashes `editor.getHistory()` per tab id in
-// `engineHistoryByTab`; the `file-changed` handler replays it via
-// `editor.setHistory(...)` after the `setContent` swap, so an undo issued on a
-// returned-to tab walks that tab's history — not the tab that was last active.
+// Switching tabs mounts each tab's retained main-owned document session, so an
+// undo issued after returning to a tab walks that document's history.
 test.describe('Tab switch restores the per-tab undo history', () => {
   let app: ElectronApplication
   let page: Page
@@ -133,7 +128,7 @@ test.describe('Tab switch restores the per-tab undo history', () => {
   // a new undo boundary at the intended position.
   const placeCaretAt = async(paragraph: number, offset: number): Promise<void> => {
     await expect.poll(() => placeCaretInParagraph(page, paragraph, offset)).toBe(true)
-    // The synthetic keyup above establishes Muya's active block, but a newly
+    // The synthetic keyup above establishes the active block, but a newly
     // activated tab can briefly route it through the quick-insert palette.
     // Dismiss that transient overlay after the active-block nudge; otherwise
     // the DOM caret can be correct while typed keys are intercepted.
@@ -147,7 +142,7 @@ test.describe('Tab switch restores the per-tab undo history', () => {
   const paragraphText = (index: number): Promise<string> =>
     page.evaluate((i) => {
       const spans = Array.from(
-        document.querySelectorAll('.editor-component span.mu-paragraph-content')
+        document.querySelectorAll('.editor-component span.document-view-run')
       )
       return spans[i]?.textContent ?? ''
     }, index)
@@ -158,7 +153,7 @@ test.describe('Tab switch restores the per-tab undo history', () => {
     await placeCaretAt(0, 5)
     await page.keyboard.type(' AEDIT', { delay: 0 })
     await expect.poll(() => paragraphText(0)).toBe('alpha AEDIT')
-    // Let the trailing async `json-change` stash A's full snapshot + history.
+    // Let the trailing verified publication stash A's snapshot and history.
     await page.waitForTimeout(300)
 
     // Open tab B (auto-selected) with its own body, then build B's history.
@@ -174,8 +169,8 @@ test.describe('Tab switch restores the per-tab undo history', () => {
     await placeCaretAt(0, 4)
     await page.keyboard.type(' BEDIT', { delay: 0 })
     await expect.poll(() => paragraphText(0)).toBe('beta BEDIT')
-    // The engine's `json-change` (which stashes the per-tab markdown + history)
-    // is async and may trail the last keystroke — let it land before switching
+    // The verified publication that caches per-tab source and history is async
+    // and may trail the last keystroke — let it land before switching
     // away, or the stashed snapshot loses the final character.
     await page.waitForTimeout(300)
 

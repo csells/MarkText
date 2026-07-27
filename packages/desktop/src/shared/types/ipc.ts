@@ -7,10 +7,6 @@
  *   - IpcSyncChannels        : renderer → main, synchronous
  *   - IpcMainEventChannels   : main → renderer, push events (renderer .on)
  *
- * Channel names are typed strictly; argument and return shapes are
- * intentionally permissive (`unknown[]` / `unknown`) during the migration.
- * Concrete types tighten as each handler/caller converts in commits 5–8.
- *
  * To register a new channel:
  *   1. Add an entry to the appropriate interface here.
  *   2. Wire the handler in src/main (ipcMain.handle / ipcMain.on / webContents.send).
@@ -19,16 +15,8 @@
 
 import type { IKeyboardLayoutInfo, IKeyboardMapping } from 'native-keymap'
 import type {
-  MarkdownDocument,
-  TabOptions,
   BootstrapEditorConfig,
-  PageOptions,
-  ExportType,
-  SaveOptions,
-  SerializedStat,
-  LineEnding,
-  FileChangeDetail,
-  UnsavedFile
+  ExportType
 } from './files'
 import type { BufferedState as BufferedStateType } from './bufferedState'
 import type {
@@ -38,33 +26,224 @@ import type {
   CriticMarkupReviewMenuState
 } from './criticMarkup'
 import type { MenuTemplate, MenuPopupPosition } from './menu'
+import type {
+  DocumentFormatMenuState,
+  DocumentSelectionMenuState,
+  WindowLayoutMenuState
+} from './documentSelection'
+import type {
+  DocumentClipboardMenuState,
+  DocumentSurfaceContextRequest,
+  DocumentSurfaceContextResponse
+} from './documentSurface'
+import type { RendererPreferences } from './preferences'
+import type {
+  ImageAssetActivationReceipt,
+  ImageAssetActivationRequest,
+  ImageAssetInsertReceipt,
+  ImageAssetInsertRequest,
+  ImageDisplayReceipt,
+  ImageDisplayRequest,
+  ImageSourceCapability
+} from './imageAsset'
+import type {
+  UploaderAvailabilityReceipt,
+  UploaderAvailabilityRequest,
+  UploaderCustomExecutableReceipt,
+  UploaderSelectionReceipt,
+  UploaderSelectionRequest,
+  UploaderUploadReceipt,
+  UploaderUploadRequest
+} from './uploader'
+import type {
+  DocumentRevealRequest,
+  ExternalResourceOpenRequest,
+  ImageFolderOpenRequest,
+  ProjectRevealRequest,
+  StaticOutputRevealRequest
+} from './presentationEffects'
+import type {
+  ProjectCreateIntent,
+  ProjectCreateReceipt
+} from './projectCreate'
+import type {
+  ProjectRelocateIntent,
+  ProjectRelocateReceipt
+} from './projectRelocation'
+import type {
+  ProjectDeleteIntent,
+  ProjectDeleteReceipt
+} from './projectDeletion'
+import type {
+  ProjectCopyIntent,
+  ProjectCopyReceipt
+} from './projectCopy'
+import type {
+  ProjectDocumentOpenReceipt,
+  ProjectDocumentOpenRequest
+} from './projectDocumentOpen'
+import type {
+  DocumentImportBinaryReceipt,
+  DocumentImportBinaryRequest
+} from './documentImport'
+import type {
+  DocumentClipboardPasteRequest,
+  DocumentPathClipboardReceipt,
+  DocumentPathClipboardRequest,
+  UploaderDeletionClipboardReceipt,
+  UploaderDeletionClipboardRequest
+} from './clipboardTransactions'
+import type {
+  ProjectSearchErrorEnvelope,
+  ProjectSearchMatchEnvelope,
+  ProjectSearchProgressEnvelope,
+  ProjectSearchRequest,
+  ProjectSearchStartReceipt,
+  ProjectSearchTerminalEnvelope
+} from './projectSearch'
+import type {
+  DocumentCoreCancelDispatchRequest,
+  DocumentCoreAttachRequest,
+  DocumentCoreClipboardWriteReceipt,
+  DocumentCoreClipboardWriteRequest,
+  DocumentCoreCompleteDispatchRequest,
+  DocumentCoreDispatchTicketReceipt,
+  DocumentCoreLifecycleIntent,
+  DocumentCoreLifecycleReceipt,
+  DocumentCoreMainDispatchRequest,
+  DocumentCoreMainSelectRequest,
+  DocumentCoreOpenLinkReceipt,
+  DocumentCoreOpenLinkRequest,
+  DocumentCorePublication,
+  DocumentCoreReconfigureMarkdownOptionsRequest,
+  DocumentCoreRelocateRequest,
+  DocumentCorePathReceipt,
+  DocumentCoreResolveExternalChangeRequest,
+  DocumentCoreExternalChangeResult,
+  DocumentCoreSaveReceipt,
+  DocumentCoreSaveRequest,
+  DocumentCoreStaticSinkReceipt,
+  DocumentCoreStaticSinkRequest,
+  DocumentCoreExportThemeDescriptor,
+  DocumentCoreTabDescriptor
+} from './documentCore'
+import type { SessionCancelResult } from '@marktext/document-core'
 
 // =================================================================
 // Invoke channels (renderer → main, returns Promise<T>)
 // =================================================================
 
 export interface IpcInvokeChannels {
-  'mt::ask-for-image-path': { args: []; ret: string }
+  'mt::project::create': {
+    args: [intent: ProjectCreateIntent]
+    ret: ProjectCreateReceipt
+  }
+  'mt::project::relocate': {
+    args: [intent: ProjectRelocateIntent]
+    ret: ProjectRelocateReceipt
+  }
+  'mt::project::delete': {
+    args: [intent: ProjectDeleteIntent]
+    ret: ProjectDeleteReceipt
+  }
+  'mt::project::copy': {
+    args: [intent: ProjectCopyIntent]
+    ret: ProjectCopyReceipt
+  }
+  'mt::project::open-document': {
+    args: [request: ProjectDocumentOpenRequest]
+    ret: ProjectDocumentOpenReceipt
+  }
+  'mt::document-import::binary': {
+    args: [request: DocumentImportBinaryRequest]
+    ret: DocumentImportBinaryReceipt
+  }
+  'mt::document::copy-path': {
+    args: [request: DocumentPathClipboardRequest]
+    ret: DocumentPathClipboardReceipt
+  }
+  'mt::document::paste-clipboard': {
+    args: [request: DocumentClipboardPasteRequest]
+    ret: DocumentCorePublication
+  }
+  'mt::uploader::copy-deletion-url': {
+    args: [request: UploaderDeletionClipboardRequest]
+    ret: UploaderDeletionClipboardReceipt
+  }
+  'mt::document-core::attach': {
+    args: [request: DocumentCoreAttachRequest]
+    ret: DocumentCorePublication
+  }
+  'mt::document-core::save': {
+    args: [request: DocumentCoreSaveRequest]
+    ret: DocumentCoreSaveReceipt
+  }
+  'mt::document-core::relocate': {
+    args: [request: DocumentCoreRelocateRequest]
+    ret: DocumentCorePathReceipt | null
+  }
+  'mt::document-core::resolve-external-change': {
+    args: [request: DocumentCoreResolveExternalChangeRequest]
+    ret: DocumentCoreExternalChangeResult
+  }
+  'mt::document-core::lifecycle': {
+    args: [intent: DocumentCoreLifecycleIntent]
+    ret: DocumentCoreLifecycleReceipt
+  }
+  'mt::document-core::write-clipboard': {
+    args: [request: DocumentCoreClipboardWriteRequest]
+    ret: DocumentCoreClipboardWriteReceipt
+  }
+  'mt::document-core::open-link': {
+    args: [request: DocumentCoreOpenLinkRequest]
+    ret: DocumentCoreOpenLinkReceipt
+  }
+  'mt::document-core::dispatch-start': {
+    args: [request: DocumentCoreMainDispatchRequest]
+    ret: DocumentCoreDispatchTicketReceipt
+  }
+  'mt::document-core::dispatch-complete': {
+    args: [request: DocumentCoreCompleteDispatchRequest]
+    ret: DocumentCorePublication
+  }
+  'mt::document-core::dispatch-cancel': {
+    args: [request: DocumentCoreCancelDispatchRequest]
+    ret: SessionCancelResult
+  }
+  'mt::document-core::reconfigure-markdown-options': {
+    args: [request: DocumentCoreReconfigureMarkdownOptionsRequest]
+    ret: DocumentCorePublication
+  }
+  'mt::document-core::materialize-static': {
+    args: [request: DocumentCoreStaticSinkRequest]
+    ret: DocumentCoreStaticSinkReceipt
+  }
+  'mt::document-core::list-export-themes': {
+    args: []
+    ret: readonly DocumentCoreExportThemeDescriptor[]
+  }
+  'mt::document-core::select': {
+    args: [request: DocumentCoreMainSelectRequest]
+    ret: DocumentCorePublication
+  }
+  'mt::image-assets::activate-document': {
+    args: [request: ImageAssetActivationRequest]
+    ret: ImageAssetActivationReceipt
+  }
+  'mt::image-assets::insert': {
+    args: [request: ImageAssetInsertRequest]
+    ret: ImageAssetInsertReceipt
+  }
+  'mt::image-assets::resolve-display': {
+    args: [request: ImageDisplayRequest]
+    ret: ImageDisplayReceipt
+  }
+  'mt::image-assets::select-native-source': {
+    args: []
+    ret: ImageSourceCapability | null
+  }
   'mt::boot-info-async': { args: []; ret: BootInfo }
-  'mt::clipboard::guess-file-path': { args: []; ret: string | null }
-  'mt::clipboard::read-text': { args: []; ret: string }
-  'mt::cmd::exists': { args: [name: string]; ret: boolean }
   'mt::fonts::list': { args: []; ret: string[] }
-  'mt::fs-trash-item': { args: [pathname: string]; ret: void }
-  'mt::fs::copy': { args: [src: string, dest: string]; ret: void }
-  'mt::fs::empty-dir': { args: [path: string]; ret: void }
-  'mt::fs::ensure-dir': { args: [path: string]; ret: void }
-  'mt::fs::is-directory': { args: [path: string]; ret: boolean }
-  'mt::fs::is-executable': { args: [path: string]; ret: boolean }
-  'mt::fs::is-file': { args: [path: string]; ret: boolean }
-  'mt::fs::move': { args: [src: string, dest: string]; ret: void }
-  'mt::fs::output-file': { args: [path: string, data: string | Uint8Array]; ret: void }
-  'mt::fs::path-exists': { args: [path: string]; ret: boolean }
-  'mt::fs::read-file': { args: [path: string, encoding?: string]; ret: string | Uint8Array }
-  'mt::fs::readdir': { args: [path: string]; ret: string[] }
-  'mt::fs::stat': { args: [path: string]; ret: SerializedStat }
-  'mt::fs::unlink': { args: [path: string]; ret: void }
-  'mt::fs::write-file': { args: [path: string, data: string | Uint8Array]; ret: void }
   'mt::i18n::is-supported': { args: [lang: string]; ret: boolean }
   'mt::i18n::load': { args: [language: string]; ret: Record<string, unknown> }
   'mt::i18n::supported': { args: []; ret: string[] }
@@ -74,21 +253,56 @@ export interface IpcInvokeChannels {
     ret: { defaultKeybindings: Map<string, string>; userKeybindings: Map<string, string> }
   }
   'mt::keybinding-save-user-keybindings': { args: [bindings: unknown]; ret: boolean }
-  'mt::paths::is-image': { args: [path: string]; ret: boolean }
-  'mt::rg::start': { args: [req: unknown]; ret: { searchId: string } }
-  'mt::shell::open-external': { args: [url: string]; ret: void }
-  'mt::shell::open-path': { args: [fullPath: string]; ret: string }
+  'mt::rg::start': {
+    args: [request: ProjectSearchRequest]
+    ret: ProjectSearchStartReceipt
+  }
+  'mt::external-resource::open': {
+    args: [request: ExternalResourceOpenRequest]
+    ret: boolean
+  }
+  'mt::document::reveal': {
+    args: [request: DocumentRevealRequest]
+    ret: boolean
+  }
+  'mt::project::reveal': {
+    args: [request: ProjectRevealRequest]
+    ret: boolean
+  }
+  'mt::image-folder::open': {
+    args: [request: ImageFolderOpenRequest]
+    ret: boolean
+  }
+  'mt::static-output::reveal': {
+    args: [request: StaticOutputRevealRequest]
+    ret: boolean
+  }
   'mt::spellchecker-get-available-dictionaries': { args: []; ret: string[] }
   'mt::spellchecker-get-custom-dictionary-words': { args: []; ret: string[] }
   'mt::spellchecker-remove-word': { args: [word: string]; ret: boolean }
   'mt::spellchecker-set-enabled': { args: [enabled: boolean]; ret: void }
   'mt::spellchecker-switch-language': { args: [language: string]; ret: void }
-  'mt::uploader::upload': { args: [req: unknown]; ret: unknown }
+  'mt::uploader::availability': {
+    args: [request: UploaderAvailabilityRequest]
+    ret: UploaderAvailabilityReceipt
+  }
+  'mt::uploader::upload': {
+    args: [request: UploaderUploadRequest]
+    ret: UploaderUploadReceipt
+  }
+  'mt::uploader::select': {
+    args: [request: UploaderSelectionRequest]
+    ret: UploaderSelectionReceipt
+  }
+  'mt::uploader::choose-custom-executable': {
+    args: []
+    ret: UploaderCustomExecutableReceipt
+  }
   'mt::win::is-fullscreen': { args: []; ret: boolean }
   'mt::win::is-maximized': { args: []; ret: boolean }
   // Main derives the BrowserWindow via BrowserWindow.fromWebContents(e.sender);
   // no need to pass windowId. Payload is the editor+project+layout snapshot.
-  'update-buffer-state': { args: [payload: unknown]; ret: void }
+  'update-buffer-state': { args: [payload: unknown]; ret: boolean }
 }
 
 // =================================================================
@@ -96,91 +310,46 @@ export interface IpcInvokeChannels {
 // =================================================================
 
 export interface IpcSendChannels {
-  'app-create-editor-window': [config?: unknown]
-  'app-create-settings-window': []
-  'app-open-directory-by-id': [windowId: number, dirPath: string]
-  'app-open-file-by-id': [windowId: number, filePath: string, options?: unknown]
-  'app-open-files-by-id': [windowId: number, filePaths: string[], options?: unknown]
-  'app-open-markdown-by-id': [windowId: number, markdown: string, options?: unknown]
-  'broadcast-preferences-changed': [partial: unknown]
-  'broadcast-user-data-changed': [partial: unknown]
-  'menu-add-recently-used': [filePath: string]
-  'menu-clear-recently-used': []
   'mt::NEED_UPDATE': [payload?: unknown]
-  'mt::add-recently-used-document': [filePath: string]
   'mt::app-try-quit': []
-  'mt::ask-for-image-auto-path': [payload: unknown]
-  'mt::ask-for-modify-image-folder-path': [imagePath?: string]
+  'mt::ask-for-modify-image-folder-path': []
   'mt::ask-for-open-project-in-sidebar': []
   'mt::ask-for-user-data': []
   'mt::ask-for-user-preference': []
   'mt::check-for-update': []
-  'mt::clipboard::write-text': [text: string]
   'mt::cm-editor-context-response': [response: CriticMarkupEditorContextResponse]
-  'mt::close-window': []
-  'mt::close-window-confirm': [unsavedFiles: UnsavedFile[]]
+  'mt::document-surface-context-response': [
+    response: DocumentSurfaceContextResponse
+  ]
   'mt::cmd-close-window': []
   'mt::cmd-import-file': []
   'mt::cmd-new-editor-window': []
   'mt::cmd-open-file': []
+  'mt::cmd-new-tab': []
   'mt::cmd-open-folder': []
   'mt::cmd-toggle-autosave': []
-  'mt::editor-selection-changed': [windowId: number, state: unknown]
-  'mt::format-link-click': [payload: { data: unknown; dirname: string }]
+  'mt::editor-selection-changed': [state: DocumentSelectionMenuState]
   'mt::get-current-language': []
   'mt::handle-renderer-error': [error: unknown]
   'mt::keybinding-debug-dump-keyboard-info': []
   'mt::make-screenshot': []
   'mt::menu::popup': [template: MenuTemplate, position?: MenuPopupPosition]
   'mt::menu::popup-application': [position?: MenuPopupPosition]
-  'mt::open-file': [filePath: string, options?: unknown]
-  'mt::open-file-by-window-id': [windowId: number, filePath: string, options?: unknown]
   'mt::open-keybindings-config': []
   'mt::open-setting-window': []
-  'mt::rename': [payload: { id: string; pathname: string; newPathname: string; currentFile?: unknown }]
   'mt::request-keybindings': []
-  'mt::set-editor-format-menus-enabled': [windowId: number, enabled: boolean]
+  'mt::set-editor-format-menus-enabled': [enabled: boolean]
+  'mt::set-document-clipboard-menu-state': [
+    state: DocumentClipboardMenuState
+  ]
   'mt::update-review-menu': [state: CriticMarkupReviewMenuState]
-  'mt::response-export': [
-    payload: {
-      type: ExportType
-      title: string
-      content: string
-      filename: string
-      pathname: string
-      pageOptions: PageOptions
-    }
-  ]
-  'mt::response-file-move-to': [payload: { id: string; pathname: string }]
-  'mt::response-file-save': [
-    id: string,
-    filename: string,
-    pathname: string,
-    markdown: string,
-    options: SaveOptions,
-    defaultPath: string
-  ]
-  'mt::response-file-save-as': [
-    id: string,
-    filename: string,
-    pathname: string,
-    markdown: string,
-    options: SaveOptions,
-    defaultPath: string
-  ]
-  'mt::response-print': []
   'mt::rg::cancel': [searchId: string]
-  'mt::save-and-close-tabs': [tabs: unknown[]]
-  'mt::save-tabs': [tabs: unknown[]]
   'mt::select-default-directory-to-open': []
-  'mt::set-user-data': [partial: unknown]
-  'mt::set-user-preference': [partial: unknown]
-  'mt::shell::open-external': [url: string]
-  'mt::shell::show-item': [fullPath: string]
-  'mt::update-format-menu': [windowId: number, state: Record<string, boolean>]
-  'mt::update-line-ending-menu': [windowId: number, lineEnding: LineEnding]
-  'mt::update-sidebar-menu': [windowId: number, visible: boolean]
-  'mt::view-layout-changed': [windowId: number, layout: unknown]
+  'mt::set-user-preference': [partial: Partial<RendererPreferences>]
+  'mt::update-format-menu': [state: DocumentFormatMenuState]
+  'mt::update-history-menu': [state: { canUndo: boolean; canRedo: boolean }]
+  'mt::update-sidebar-menu': [visible: boolean]
+  'mt::view-layout-changed': [layout: WindowLayoutMenuState]
   'mt::win::close': []
   'mt::win::maximize': []
   'mt::win::minimize': []
@@ -188,25 +357,8 @@ export interface IpcSendChannels {
   'mt::win::toggle-fullscreen': []
   'mt::win::toggle-maximize': []
   'mt::win::unmaximize': []
-  'mt::window-add-file-path': [windowId: number, filePath: string]
   'mt::window-initialized': []
-  'mt::window-tab-closed': [pathname: string]
   'mt::window-toggle-always-on-top': []
-  'mt::window::drop': [payload: unknown]
-  'screen-capture': [payload: unknown]
-  'set-image-folder-path': [path: string]
-  'set-user-preference': [partial: unknown]
-  'watcher-unwatch-all-by-id': [windowId: number]
-  'watcher-unwatch-directory': [windowId: number, path: string]
-  'watcher-unwatch-file': [windowId: number, path: string]
-  'watcher-watch-directory': [windowId: number, path: string]
-  'watcher-watch-file': [windowId: number, path: string]
-  'window-add-file-path': [windowId: number, filePath: string]
-  'window-change-file-path': [windowId: number, oldPath: string, newPath: string]
-  'window-close-by-id': [windowId: number]
-  'window-file-saved': [windowId: number, tabId: string]
-  'window-reload-by-id': [windowId: number]
-  'window-toggle-always-on-top': [windowId: number]
 }
 
 // =================================================================
@@ -237,6 +389,9 @@ export interface IpcMainEventChannels {
   'mt::cm-insert-paragraph': [direction: 'before' | 'after']
   'mt::cm-paste-as-plain-text': []
   'mt::cm-query-editor-context': [request: CriticMarkupEditorContextRequest]
+  'mt::query-document-surface-context': [
+    request: DocumentSurfaceContextRequest
+  ]
   'mt::current-language': [language: string]
   'mt::editor-ask-file-save': []
   'mt::editor-ask-file-save-as': []
@@ -247,31 +402,24 @@ export interface IpcMainEventChannels {
   'mt::editor-paragraph-action': [payload: { type: string }]
   'mt::editor-rename-file': []
   'mt::execute-command-by-id': [commandId: string]
-  'mt::export-success': [payload: { type: string; filePath: string }]
   'mt::file-saved': [tabId: string]
-  'mt::force-close-tabs-by-id': [tabIds: string[]]
+  'mt::document-core::closed': [documentIds: readonly string[]]
+  'mt::document-core::saved': [receipt: DocumentCoreSaveReceipt]
+  'mt::document-core::tab-opened': [descriptor: DocumentCoreTabDescriptor]
+  'mt::document-core::external-change': [result: DocumentCoreExternalChangeResult]
   'mt::invalidate-image-cache': []
   'mt::keybindings-response': [bindings: unknown]
-  'mt::load-state': [state: BufferedStateType]
+  'mt::document-core::restore-window-ui': [state: BufferedStateType]
   'mt::menu::click': [menuId: string]
   'mt::menu::closed': []
-  'mt::new-untitled-tab': [selected?: boolean, markdown?: string]
   'mt::open-directory': [directoryPath: string]
-  'mt::open-new-tab': [
-    markdownDocument: MarkdownDocument | null,
-    options?: TabOptions,
-    selected?: boolean
-  ]
   'mt::pandoc-not-exists': [opts: Record<string, unknown>]
-  'mt::print-service-clearup': []
-  'mt::rg::cancelled': [payload: unknown]
-  'mt::rg::done': [payload: unknown]
-  'mt::rg::error': [payload: unknown]
-  'mt::rg::match': [payload: unknown]
-  'mt::rg::progress': [payload: unknown]
-  'mt::screenshot-captured': [filePath: string]
-  'mt::set-line-ending': [lineEnding: LineEnding]
-  'mt::set-pathname': [payload: { id: string; pathname: string; filename: string }]
+  'mt::rg::cancelled': [payload: ProjectSearchTerminalEnvelope]
+  'mt::rg::done': [payload: ProjectSearchTerminalEnvelope]
+  'mt::rg::error': [payload: ProjectSearchErrorEnvelope]
+  'mt::rg::match': [payload: ProjectSearchMatchEnvelope]
+  'mt::rg::progress': [payload: ProjectSearchProgressEnvelope]
+  'mt::screenshot-captured': [source: ImageSourceCapability | null]
   'mt::set-view-layout': [layout: unknown]
   'mt::show-command-palette': []
   'mt::show-export-dialog': [type: ExportType]
@@ -280,15 +428,12 @@ export interface IpcMainEventChannels {
   'mt::spelling-show-switch-language': []
   'mt::switch-tab-by-file_path': [filePath: string]
   'mt::switch-tab-by-index': [index: number]
-  'mt::tab-save-failure': [tabId: string, message: string]
-  'mt::tab-saved': [tabId: string]
   'mt::tabs-cycle-left': []
   'mt::tabs-cycle-right': []
   'mt::toggle-view-layout-entry': [entry: string]
   'mt::toggle-view-mode-entry': [entry: string]
-  'mt::update-file': [payload: { type: 'add' | 'change' | 'unlink'; change: FileChangeDetail }]
   'mt::update-object-tree': [payload: unknown]
-  'mt::user-preference': [partial: unknown]
+  'mt::user-preference': [partial: Partial<RendererPreferences>]
   'mt::window-active-status': [active: boolean]
   'mt::window-enter-full-screen': []
   'mt::window-leave-full-screen': []
@@ -313,6 +458,7 @@ export interface KeyboardInfo {
 }
 
 export interface BootInfo {
+  buildCommit: string
   platform: NodeJS.Platform
   arch: string
   versions: Record<string, string>
@@ -321,7 +467,6 @@ export interface BootInfo {
     resources: string
     userData: string
     cwd: string
-    ripgrepBinary: string
   }
   isUpdatable: boolean
   MARKDOWN_INCLUSIONS: string[]

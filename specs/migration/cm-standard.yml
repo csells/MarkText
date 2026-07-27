@@ -1,0 +1,57 @@
+{
+  "schema": "marktext-language-corpus-v1",
+  "id": "CM_STANDARD",
+  "authority": "canonical-criticmarkup",
+  "version": "cm-standard-corpus-1",
+  "source": "https://criticmarkup.com/spec.php",
+  "cases": [
+    {
+      "id": "CMS-ADDITION",
+      "source": "A {++new++} word.\n",
+      "rootKinds": ["addition"],
+      "criticKindsPreorder": ["addition"],
+      "originalSource": "A  word.\n",
+      "revisedSource": "A new word.\n"
+    },
+    {
+      "id": "CMS-DELETION",
+      "source": "A {--lost--} word.\n",
+      "rootKinds": ["deletion"],
+      "criticKindsPreorder": ["deletion"],
+      "originalSource": "A lost word.\n",
+      "revisedSource": "A  word.\n"
+    },
+    {
+      "id": "CMS-SUBSTITUTION",
+      "source": "A {~~bad~>good~~} word.\n",
+      "rootKinds": ["substitution"],
+      "criticKindsPreorder": ["substitution"],
+      "originalSource": "A bad word.\n",
+      "revisedSource": "A good word.\n"
+    },
+    {
+      "id": "CMS-HIGHLIGHT",
+      "source": "A {==marked==} word.\n",
+      "rootKinds": ["highlight"],
+      "criticKindsPreorder": ["highlight"],
+      "originalSource": "A marked word.\n",
+      "revisedSource": "A marked word.\n"
+    },
+    {
+      "id": "CMS-COMMENT",
+      "source": "A{>>note<<} word.\n",
+      "rootKinds": ["comment"],
+      "criticKindsPreorder": ["comment"],
+      "originalSource": "A word.\n",
+      "revisedSource": "A word.\n"
+    },
+    {
+      "id": "CMS-RELATED-COMMENT",
+      "source": "{==selected==}{>>why<<}\n",
+      "rootKinds": ["highlight", "comment"],
+      "criticKindsPreorder": ["highlight", "comment"],
+      "originalSource": "selected\n",
+      "revisedSource": "selected\n"
+    }
+  ]
+}

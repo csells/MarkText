@@ -8,7 +8,7 @@ import type {
   ICriticMarkupReviewEditor,
   ICriticMarkupReviewItem,
   ICriticMarkupReviewSnapshot
-} from '@muyajs/core'
+} from '@marktext/document-view'
 
 // The controller publishes menu state through the preload IPC surface.
 vi.hoisted(() => {
@@ -51,6 +51,7 @@ const capabilities = {
   canCreateSubstitution: true,
   canCreateHighlight: true,
   canCreateComment: true,
+  canNavigate: true,
   canResolveCurrent: true,
   canResolveAll: true,
   trackChanges: true,
@@ -59,14 +60,15 @@ const capabilities = {
 
 /**
  * Engine stand-in honoring the Review contract this flow relies on: a
- * resolution reseats the caret inside the editor (the engine's job — see the
- * muya resolve/`setCursor` path and its specs) and then publishes the next
+ * resolution reseats the caret inside the editor (the engine's job) and then
+ * publishes the next
  * snapshot, in that order. The desktop layer must ride that flow and never
  * touch DOM focus itself.
  */
 class FakeReviewEngine {
   snapshot: ICriticMarkupReviewSnapshot = {
     ...capabilities,
+    revisionId: 'revision:1',
     items: [itemA, itemB],
     currentItemId: itemA.id
   }
@@ -75,17 +77,19 @@ class FakeReviewEngine {
 
   private readonly listeners = new Set<(snapshot: ICriticMarkupReviewSnapshot) => void>()
 
-  on = vi.fn((_event: string, listener: (snapshot: ICriticMarkupReviewSnapshot) => void) => {
+  subscribeReview = vi.fn((listener: (snapshot: ICriticMarkupReviewSnapshot) => void) => {
     this.listeners.add(listener)
-  })
-
-  off = vi.fn((_event: string, listener: (snapshot: ICriticMarkupReviewSnapshot) => void) => {
-    this.listeners.delete(listener)
+    return {
+      dispose: () => this.listeners.delete(listener)
+    }
   })
 
   getCriticMarkupReviewSnapshot = vi.fn(() => this.snapshot)
 
-  resolveCriticMarkup = vi.fn((_decision: 'accept' | 'reject', _target?: { raw: string }) => {
+  resolveCriticMarkup = vi.fn(async(_decision: 'accept' | 'reject', _target: {
+    revisionId: string
+    nodeId: string
+  }) => {
     this.caretReseatCount += 1
     const remaining = this.snapshot.items.filter((item) => item !== itemA)
     this.snapshot = {
@@ -97,13 +101,13 @@ class FakeReviewEngine {
     return true
   })
 
-  createCriticMarkup = vi.fn(() => true)
+  createCriticMarkup = vi.fn(async() => true)
   focusCriticMarkup = vi.fn(() => itemA)
   navigateCriticMarkup = vi.fn(() => itemA)
-  resolveAllCriticMarkup = vi.fn(() => 0)
-  editCriticMarkupComment = vi.fn(() => true)
+  resolveAllCriticMarkup = vi.fn(async() => 0)
+  editCriticMarkupComment = vi.fn(async() => true)
   commitAuthoringSelection = vi.fn()
-  setOptions = vi.fn()
+  configure = vi.fn(async() => {})
 }
 
 const mountController = (engine: FakeReviewEngine): App => {
@@ -116,10 +120,12 @@ const mountController = (engine: FakeReviewEngine): App => {
       setup() {
         useCriticMarkupReviewController({
           editor: shallowRef(engine as unknown as ICriticMarkupReviewEditor),
-          fileId: ref('file-1'),
+          documentId: ref('document:1'),
           sourceCode: ref(false),
           requestText: async() => null,
-          cancelTextRequest: () => {}
+          cancelTextRequest: () => {},
+          commandNotificationSink: { pushTabNotification: () => {} },
+          translate: key => key
         })
         return () => h('div')
       }
@@ -151,13 +157,19 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
       expect(store.snapshot.currentItemId).toBe(itemA.id)
 
       bus.emit('critic-markup-review-item', {
-        fileId: 'file-1',
+        documentId: 'document:1',
         action: 'accept',
-        target: itemA
+        target: {
+          revisionId: 'revision:1',
+          nodeId: itemA.id
+        }
       })
       await flushMicrotasks()
 
-      expect(engine.resolveCriticMarkup).toHaveBeenCalledWith('accept', itemA)
+      expect(engine.resolveCriticMarkup).toHaveBeenCalledWith('accept', {
+        revisionId: 'revision:1',
+        nodeId: itemA.id
+      })
       expect(engine.caretReseatCount).toBe(1)
       // The sidebar follows the engine's post-resolution focus; it never
       // fabricates its own current item.
@@ -184,17 +196,20 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
 
       // Sidebar pointer/keyboard path: accept the focused item by target.
       bus.emit('critic-markup-review-item', {
-        fileId: 'file-1',
+        documentId: 'document:1',
         action: 'accept',
-        target: itemA
+        target: {
+          revisionId: 'revision:1',
+          nodeId: itemA.id
+        }
       })
       // Menu/keybinding path: reject the current (focused) item.
       bus.emit('critic-markup-review', 'reject-current')
       await flushMicrotasks()
 
       expect(engine.resolveCriticMarkup.mock.calls).toEqual([
-        ['accept', itemA],
-        ['reject']
+        ['accept', { revisionId: 'revision:1', nodeId: itemA.id }],
+        ['reject', { revisionId: 'revision:1', nodeId: itemB.id }]
       ])
       expect(elementFocus).not.toHaveBeenCalled()
       expect(windowFocus).not.toHaveBeenCalled()
@@ -231,9 +246,28 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
     try {
       await flushMicrotasks()
 
-      const target = { ...itemA, type: 'comment' as const, raw: '{>>old<<}', content: 'old' }
+      const liveComment = {
+        ...itemA,
+        type: 'comment' as const,
+        raw: '{>>old<<}',
+        content: 'old'
+      }
+      engine.snapshot = {
+        ...engine.snapshot,
+        items: [liveComment],
+        currentItemId: liveComment.id
+      }
+      const target = {
+        revisionId: 'revision:1',
+        nodeId: liveComment.id
+      }
       const acknowledge = vi.fn()
-      bus.emit('critic-markup-comment-edit', { target, text: 'new note', acknowledge })
+      bus.emit('critic-markup-comment-edit', {
+        documentId: 'document:1',
+        target,
+        text: 'new note',
+        acknowledge
+      })
       await flushMicrotasks()
 
       expect(engine.editCriticMarkupComment).toHaveBeenCalledWith(target, 'new note')
@@ -259,14 +293,17 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
       expect(source, file).not.toMatch(/\.focus\(|autofocus/)
     }
 
-    // The sidebar's ONLY DOM focus writes are its own compose and edit
-    // textareas — composing or editing a comment is a deliberate focus move
-    // into the sidebar. It never focuses the editor, and never uses a bare
-    // autofocus.
+    // The sidebar owns only deliberate in-sidebar focus moves: compose/edit
+    // textareas and the Review region fallback used when an action removes the
+    // last card. It never focuses the editor and never uses bare autofocus.
     const review = fs.readFileSync(path.join(rendererRoot, 'components/sideBar/review.vue'), 'utf8')
     expect(review).not.toMatch(/autofocus/)
     const focusTargets = [...review.matchAll(/(\w+)\.value\?\.focus\(/g)].map(match => match[1])
     expect(focusTargets.length).toBeGreaterThan(0)
-    expect(focusTargets.every(name => name === 'composeInput' || name === 'editInput')).toBe(true)
+    expect(focusTargets.every(name =>
+      name === 'composeInput' ||
+      name === 'editInput' ||
+      name === 'reviewRegion'
+    )).toBe(true)
   })
 })

@@ -1,58 +1,47 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { deriveKeyedToc } from '@/util/tocKeys'
 
-// #3791: the TOC's collapse state is remembered by these keys. They must be
-// derived from the content-based `githubSlug` so they survive a tab switch
-// (which rebuilds every heading block with a fresh object-identity `slug`),
-// not only same-tab edits (#3028).
-
 const flatKeys = (nodes: ReturnType<typeof deriveKeyedToc>): string[] =>
-  nodes.flatMap((n) => [n.key, ...flatKeys(n.children)])
+  nodes.flatMap((node) => [node.key, ...flatKeys(node.children)])
 
 describe('deriveKeyedToc', () => {
-  it('keys nodes by githubSlug, deduplicated in document order', () => {
+  it('uses parser NodeId as the tree key even when heading text repeats', () => {
     const keyed = deriveKeyedToc([
-      { label: 'Intro', slug: 'uid-1', githubSlug: 'intro', children: [] },
-      { label: 'Intro', slug: 'uid-2', githubSlug: 'intro', children: [] }
+      { label: 'Intro', nodeId: 'heading:first', children: [] },
+      { label: 'Intro', nodeId: 'heading:second', children: [] }
     ])
-    expect(keyed.map((n) => n.key)).toEqual(['intro', 'intro-1'])
+
+    expect(keyed.map((node) => node.key)).toEqual([
+      'heading:first',
+      'heading:second'
+    ])
   })
 
-  it('produces identical keys when the same document is rebuilt with fresh slugs (tab switch)', () => {
-    // Same headings/content, different per-render object-identity slugs — this
-    // is exactly what Editor.setContent does when you switch back to a tab.
-    const doc = (p: string) => [
+  it('preserves parser identity through nested tree projection', () => {
+    const keyed = deriveKeyedToc([
       {
         label: 'A',
-        slug: `${p}-1`,
-        githubSlug: 'a',
-        children: [{ label: 'B', slug: `${p}-2`, githubSlug: 'b', children: [] }]
+        nodeId: 'heading:a',
+        children: [{
+          label: 'B',
+          nodeId: 'heading:b',
+          children: []
+        }]
       },
-      { label: 'C', slug: `${p}-3`, githubSlug: 'c', children: [] }
-    ]
+      { label: 'C', nodeId: 'heading:c', children: [] }
+    ])
 
-    const before = deriveKeyedToc(doc('old'))
-    const after = deriveKeyedToc(doc('new'))
-
-    // Keys are stable across the rebuild, so collapse state keyed by them
-    // survives the switch (they would differ if keyed by `slug`).
-    expect(flatKeys(after)).toEqual(flatKeys(before))
-    expect(flatKeys(after)).toEqual(['a', 'b', 'c'])
+    expect(flatKeys(keyed)).toEqual([
+      'heading:a',
+      'heading:b',
+      'heading:c'
+    ])
+    expect(keyed[0]?.children[0]?.nodeId).toBe('heading:b')
   })
 
-  it('falls back to a stable placeholder for unsluggable headings', () => {
-    const keyed = deriveKeyedToc([
-      { label: '🎉', slug: 'uid-1', githubSlug: '', children: [] },
-      { label: '🎊', slug: 'uid-2', githubSlug: '', children: [] }
-    ])
-    expect(keyed.map((n) => n.key)).toEqual(['heading', 'heading-1'])
-  })
-
-  it('preserves slug (for the scroll-to-heading payload) while keying by githubSlug', () => {
-    const keyed = deriveKeyedToc([
-      { label: 'A', slug: 'uid-42', githubSlug: 'a', children: [] }
-    ])
-    expect(keyed[0].slug).toBe('uid-42')
-    expect(keyed[0].key).toBe('a')
+  it('rejects a TOC node without parser identity', () => {
+    expect(() => deriveKeyedToc([
+      { label: 'No identity', children: [] }
+    ])).toThrow(/parser NodeId/u)
   })
 })

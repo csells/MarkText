@@ -7,6 +7,7 @@ import {
   type DocumentSession,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { completeSnapshot } from '../helpers/completeSnapshot.js'
 
 /**
  * Edit fidelity over real documents.
@@ -29,7 +30,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -58,7 +68,7 @@ function seededRandom(seed: number): () => number {
 }
 
 function modelText(session: DocumentSession): string {
-  return session.snapshot().livePlan.runs.map((run) => run.text).join('')
+  return completeSnapshot(session).livePlan.runs.map((run) => run.text).join('')
 }
 
 async function settle(

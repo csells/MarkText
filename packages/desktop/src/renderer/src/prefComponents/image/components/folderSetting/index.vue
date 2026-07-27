@@ -6,14 +6,14 @@
     <text-box
       :description="t('preferences.image.folderSetting.globalFolder')"
       :input="imageFolderPath"
-      :regex-validator="/^(?:$|([a-zA-Z]:)?[\/\\].*$)/"
+      :disable="true"
       :default-value="folderPathPlaceholder"
-      :on-change="(value) => modifyImageFolderPath(value)"
+      :on-change="() => {}"
     />
     <div>
       <el-button
         size="mini"
-        @click="modifyImageFolderPath(undefined)"
+        @click="modifyImageFolderPath"
       >
         {{ t('preferences.image.folderSetting.open') }}
       </el-button>
@@ -28,7 +28,7 @@
       <template #head>
         <bool
           :description="t('preferences.image.folderSetting.preferRelative')"
-          more="https://marktext.me/docs/images"
+          more="documentation-images"
           :bool="imagePreferRelativeDirectory"
           :on-change="(value) => onSelectChange('imagePreferRelativeDirectory', value)"
         />
@@ -68,6 +68,9 @@ import Compound from '@/prefComponents/common/compound/index.vue'
 import CurSelect from '@/prefComponents/common/select/index.vue'
 import TextBox from '@/prefComponents/common/textBox/index.vue'
 import type { PrefSelectOption } from '@/prefComponents/common/types'
+import {
+  openConfiguredImageFolder
+} from '@/services/presentationEffects'
 
 const { t } = useI18n()
 
@@ -97,13 +100,11 @@ const relativeDirectoryNamePlaceholder = computed<string>(
 
 // methods
 const openImageFolder = (): void => {
-  window.electron.shell.openPath(imageFolderPath.value)
+  openConfiguredImageFolder()
 }
 
-const modifyImageFolderPath = (value: string | undefined): void => {
-  // Passing `undefined` is the documented way to ask the main process to
-  // open a folder picker (see `mt::ask-for-modify-image-folder-path`).
-  preferenceStore.SET_IMAGE_FOLDER_PATH(value)
+const modifyImageFolderPath = (): void => {
+  preferenceStore.SET_IMAGE_FOLDER_PATH()
 }
 
 const onSelectChange = (type: keyof PreferencesState, value: unknown): void => {

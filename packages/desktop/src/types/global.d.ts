@@ -1,7 +1,6 @@
 // Renderer-side global declarations: build-time defines (electron-vite
 // `define` block in electron.vite.config.ts), the contextBridge surface
-// exposed by src/preload/index.ts, and a handful of legacy globals that
-// survived the sandbox migration.
+// exposed by src/preload/index.ts, and renderer globals used by the app shell.
 
 import type {
   IpcInvokeChannels,
@@ -11,7 +10,25 @@ import type {
   BootInfo
 } from '@shared/types/ipc'
 import type { MenuTemplate, MenuPopupPosition } from '@shared/types/menu'
-import type { SerializedStat } from '@shared/types/files'
+import type { DocumentCoreExecutionReport } from '@shared/types/documentCore'
+import type {
+  UploaderAvailabilityReceipt,
+  UploaderAvailabilityRequest,
+  UploaderUploadReceipt,
+  UploaderUploadRequest
+} from '@shared/types/uploader'
+import type {
+  UploaderDeletionClipboardReceipt,
+  UploaderDeletionClipboardRequest
+} from '@shared/types/clipboardTransactions'
+import type {
+  ProjectSearchErrorEnvelope,
+  ProjectSearchMatchEnvelope,
+  ProjectSearchProgressEnvelope,
+  ProjectSearchRequest,
+  ProjectSearchStartReceipt,
+  ProjectSearchTerminalEnvelope
+} from '@shared/types/projectSearch'
 
 declare global {
   // eslint-disable-next-line camelcase
@@ -23,6 +40,7 @@ declare global {
   }> | undefined
 
   // ---- Build-time defines (electron-vite `define`) ----
+  const MARKTEXT_BUILD_COMMIT: string
   const MARKTEXT_VERSION: string
   const MARKTEXT_VERSION_STRING: string
   const __static: string
@@ -50,25 +68,9 @@ declare global {
     removeAllListeners(channel: keyof IpcMainEventChannels | string): void
   }
 
-  interface ElectronShellAPI {
-    openExternal(url: string): Promise<void>
-    showItemInFolder(fullPath: string): void
-    openPath(fullPath: string): Promise<string>
-  }
-
-  interface ElectronClipboardAPI {
-    writeText(text: string): void
-    readText(): Promise<string>
-    guessFilePath(): Promise<string | null>
-  }
-
   interface ElectronWebFrameAPI {
     setZoomFactor(factor: number): void
     setZoomLevel(level: number): void
-  }
-
-  interface ElectronWebUtilsAPI {
-    getPathForFile(file: File): string
   }
 
   interface ElectronWindowControlAPI {
@@ -86,11 +88,9 @@ declare global {
   }
 
   interface ElectronAPI {
+    buildCommit: string
     ipcRenderer: ElectronIpcRenderer
-    shell: ElectronShellAPI
-    clipboard: ElectronClipboardAPI
     webFrame: ElectronWebFrameAPI
-    webUtils: ElectronWebUtilsAPI
     process: {
       platform: NodeJS.Platform
       arch?: string
@@ -105,24 +105,9 @@ declare global {
   }
 
   interface FileUtilsAPI {
-    isFile(p: string): Promise<boolean>
-    isDirectory(p: string): Promise<boolean>
-    emptyDir(p: string): Promise<void>
-    copy(src: string, dest: string): Promise<void>
-    ensureDir(p: string): Promise<void>
-    outputFile(p: string, data: string | Uint8Array): Promise<void>
-    move(src: string, dest: string): Promise<void>
-    stat(p: string): Promise<SerializedStat>
-    writeFile(p: string, data: string | Uint8Array): Promise<void>
-    readFile(p: string, encoding?: string): Promise<string | Uint8Array>
-    pathExists(p: string): Promise<boolean>
-    unlink(p: string): Promise<void>
-    readdir(p: string): Promise<string[]>
-    isExecutable(p: string): Promise<boolean>
     isChildOfDirectory(dir: string, child: string): boolean
     hasMarkdownExtension(filename: string): boolean
     isSamePathSync(a: string, b: string, isNormalized?: boolean): boolean
-    isImageFile(p: string): Promise<boolean>
     MARKDOWN_INCLUSIONS: string[]
   }
 
@@ -147,26 +132,28 @@ declare global {
     delimiter: string
   }
 
-  interface CommandExistsAPI {
-    exists(name: string): Promise<boolean>
-  }
-
   interface I18nUtilsAPI {
     loadTranslations(language: string): Promise<Record<string, unknown>>
   }
 
   interface RipgrepAPI {
-    start(req: unknown): Promise<{ searchId: string }>
+    start(request: ProjectSearchRequest): Promise<ProjectSearchStartReceipt>
     cancel(searchId: string): void
-    onMatch(handler: (payload: unknown) => void): () => void
-    onProgress(handler: (payload: unknown) => void): () => void
-    onDone(handler: (payload: unknown) => void): () => void
-    onError(handler: (payload: unknown) => void): () => void
-    onCancelled(handler: (payload: unknown) => void): () => void
+    onMatch(handler: (payload: ProjectSearchMatchEnvelope) => void): () => void
+    onProgress(handler: (payload: ProjectSearchProgressEnvelope) => void): () => void
+    onDone(handler: (payload: ProjectSearchTerminalEnvelope) => void): () => void
+    onError(handler: (payload: ProjectSearchErrorEnvelope) => void): () => void
+    onCancelled(handler: (payload: ProjectSearchTerminalEnvelope) => void): () => void
   }
 
   interface UploaderAPI {
-    uploadImage(req: unknown): Promise<unknown>
+    uploadImage(request: UploaderUploadRequest): Promise<UploaderUploadReceipt>
+    inspectAvailability(
+      request: UploaderAvailabilityRequest
+    ): Promise<UploaderAvailabilityReceipt>
+    copyDeletionUrl(
+      request: UploaderDeletionClipboardRequest
+    ): Promise<UploaderDeletionClipboardReceipt>
   }
 
   interface FontsAPI {
@@ -184,36 +171,39 @@ declare global {
   }
 
   interface MarkTextE2EReadOnlyBridge {
-    /** Read the active Muya document without entering source mode or mutating it. */
+    /** Read the active canonical document without entering source mode or mutating it. */
     readCanonicalMarkdown(): string
+    /** Read the latest worker-local production operation measurement. */
+    readLastExecutionReport(): DocumentCoreExecutionReport | null
+    /** Read the immutable identity needed to exercise a closed static sink. */
+    readStaticSinkIdentity(): Readonly<{
+      documentId: string
+      revisionId: string
+      view: 'markup' | 'original' | 'revised'
+    }>
   }
 
   interface Window {
     electron: ElectronAPI
     fileUtils: FileUtilsAPI
     path: PathAPI
-    commandExists: CommandExistsAPI
     i18nUtils: I18nUtilsAPI
     ripgrep: RipgrepAPI
     uploader: UploaderAPI
     fonts: FontsAPI
     process: ProcessShim
-    rgPath: string
-    // Set by the legacy editor store at runtime; consumed by muya internals.
-    DIRNAME: string
     /** Present only when the explicit E2E read-only bridge flag is enabled. */
     __marktextE2EReadOnly?: MarkTextE2EReadOnlyBridge
     marktext?: {
       env?: { windowId: number; [key: string]: unknown }
       initialState?: {
-        codeFontFamily?: string | null
-        codeFontSize?: string | null
+        codeFontFamily?: string
+        codeFontSize?: number
         hideScrollbar?: boolean
-        theme?: string | null
-        titleBarStyle?: string | null
-        [key: string]: unknown
+        theme?: string
+        titleBarStyle?: 'custom' | 'native'
       }
-      paths?: { ripgrepBinaryPath?: string; [key: string]: unknown }
+      paths?: { [key: string]: unknown }
       [key: string]: unknown
     }
   }

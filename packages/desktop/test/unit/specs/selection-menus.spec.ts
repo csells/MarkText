@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { type Menu } from 'electron'
 
 import { updateSelectionMenus } from 'main_renderer/menu/actions/paragraph'
+import type { DocumentSelectionMenuState } from '@shared/types/documentSelection'
 
 // Real paragraph submenu ids (see src/main/menu/templates/paragraph.ts). The
 // source reads the paragraph entry via getMenuItemById('paragraphMenuEntry').
@@ -65,11 +66,29 @@ type FakeMenu = ReturnType<typeof makeMenu>
 const enabledIds = (items: FakeMenu['paragraphItems']) =>
   items.filter((i) => i.enabled).map((i) => i.id)
 
+const selectionState = (
+  overrides: Partial<DocumentSelectionMenuState> = {}
+): DocumentSelectionMenuState => ({
+  activeBlockKinds: ['paragraph'],
+  headingLevel: null,
+  isDisabled: false,
+  isMultiblock: false,
+  isLooseList: false,
+  isTaskList: false,
+  isOrderedList: false,
+  isUnorderedList: false,
+  isCodeLike: false,
+  isCodeBlock: false,
+  isTable: false,
+  hasFrontMatter: false,
+  ...overrides
+})
+
 describe('updateSelectionMenus', () => {
   it('disables every Paragraph submenu item when the selection is disabled (table/multi-block)', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: {}, isDisabled: true })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({ isDisabled: true }))
 
     expect(enabledIds(menu.paragraphItems)).toEqual([])
     expect(menu.paragraphItems.every((i) => i.enabled === false)).toBe(true)
@@ -78,7 +97,7 @@ describe('updateSelectionMenus', () => {
   it('leaves the Format submenu fully enabled for a disabled selection (it is reset first)', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: {}, isDisabled: true })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({ isDisabled: true }))
 
     expect(menu.formatItems.every((i) => i.enabled === true)).toBe(true)
   })
@@ -86,7 +105,7 @@ describe('updateSelectionMenus', () => {
   it('enables only the honest set in Paragraph and disables link/image in Format for a multiline selection', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: {}, isMultiline: true })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({ isMultiblock: true }))
 
     // Paragraph: only code/quote/ordered/bullet/task are actionable across blocks.
     expect(enabledIds(menu.paragraphItems).sort()).toEqual(
@@ -102,9 +121,10 @@ describe('updateSelectionMenus', () => {
     const menu = makeMenu()
 
     updateSelectionMenus(menu as unknown as Menu, {
-      affiliation: { code: true },
-      isCodeFences: true,
-      isCodeContent: true
+      ...selectionState(),
+      activeBlockKinds: ['code-block'],
+      isCodeLike: true,
+      isCodeBlock: true
     })
 
     // Every format item is disabled inside code content.
@@ -114,32 +134,38 @@ describe('updateSelectionMenus', () => {
     const paraItem = (id: string) => menu.paragraphItems.find((i) => i.id === id)!
     expect(paraItem('paragraphMenuItem').enabled).toBe(false)
     expect(paraItem('heading1MenuItem').enabled).toBe(false)
-    // ...except codeFencesMenuItem is re-enabled because affiliation has a code element.
+    // The selected code block keeps its own conversion toggle available.
     expect(paraItem('codeFencesMenuItem').enabled).toBe(true)
   })
 
-  it('disables loose-list-item when the affiliation has neither ul nor ol', () => {
+  it('disables loose-list-item when the selection is not in a list', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { p: true } })
+    updateSelectionMenus(menu as unknown as Menu, selectionState())
 
     const loose = menu.paragraphItems.find((i) => i.id === 'looseListItemMenuItem')!
     expect(loose.enabled).toBe(false)
   })
 
-  it('keeps loose-list-item enabled when the affiliation is a list (ul/ol)', () => {
+  it('keeps loose-list-item enabled in a list', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { ul: true } })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({
+      activeBlockKinds: ['list', 'list-item', 'paragraph'],
+      isUnorderedList: true
+    }))
 
     const loose = menu.paragraphItems.find((i) => i.id === 'looseListItemMenuItem')!
     expect(loose.enabled).toBe(true)
   })
 
-  it('checks the matching paragraph item via the affiliation -> menu id map', () => {
+  it('checks the parser-derived heading level', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { h1: true } })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({
+      activeBlockKinds: ['heading'],
+      headingLevel: 1
+    }))
 
     const checked = menu.paragraphItems.filter((i) => i.checked).map((i) => i.id)
     expect(checked).toEqual(['heading1MenuItem'])
@@ -150,7 +176,7 @@ describe('updateSelectionMenus — front matter', () => {
   it('disables Front Matter when the document already has front matter', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { p: true }, hasFrontMatter: true })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({ hasFrontMatter: true }))
 
     const fm = menu.paragraphItems.find((i) => i.id === 'frontMatterMenuItem')!
     expect(fm.enabled).toBe(false)
@@ -159,7 +185,7 @@ describe('updateSelectionMenus — front matter', () => {
   it('keeps Front Matter enabled when the document has none', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { p: true }, hasFrontMatter: false })
+    updateSelectionMenus(menu as unknown as Menu, selectionState())
 
     const fm = menu.paragraphItems.find((i) => i.id === 'frontMatterMenuItem')!
     expect(fm.enabled).toBe(true)
@@ -167,10 +193,13 @@ describe('updateSelectionMenus — front matter', () => {
 })
 
 describe('updateSelectionMenus — format disabled in non-formattable blocks', () => {
-  it('disables all format items in a code-fence block even without code content (math/html/frontmatter/diagram)', () => {
+  it('disables all format items in parser-owned code-like blocks', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { multiplemath: true }, isCodeFences: true })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({
+      activeBlockKinds: ['math-block'],
+      isCodeLike: true
+    }))
 
     expect(menu.formatItems.every((i) => i.enabled === false)).toBe(true)
   })
@@ -178,31 +207,46 @@ describe('updateSelectionMenus — format disabled in non-formattable blocks', (
   it('keeps format items enabled inside a table (disabled paragraph, not code)', () => {
     const menu = makeMenu()
 
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { figure: true }, isTable: true, isDisabled: true })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({
+      activeBlockKinds: ['table', 'table-cell'],
+      isTable: true,
+      isDisabled: true
+    }))
 
     expect(menu.formatItems.every((i) => i.enabled === true)).toBe(true)
   })
 })
 
 describe('updateSelectionMenus — list kinds', () => {
-  it('checks the task list (not bullet) for a task affiliation', () => {
+  it('checks the task list but not bullet for a task selection', () => {
     const menu = makeMenu()
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { task: true } })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({
+      activeBlockKinds: ['list', 'list-item', 'paragraph'],
+      isTaskList: true
+    }))
     const ids = menu.paragraphItems.filter((i) => i.checked).map((i) => i.id)
     expect(ids).toContain('taskListMenuItem')
     expect(ids).not.toContain('bulletListMenuItem')
   })
 
-  it('checks ordered + bullet + task for a nested ol/task/ul affiliation', () => {
+  it('checks every parser-derived list kind in a nested selection', () => {
     const menu = makeMenu()
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { ol: true, task: true, ul: true } })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({
+      activeBlockKinds: ['list', 'list-item', 'paragraph'],
+      isOrderedList: true,
+      isTaskList: true,
+      isUnorderedList: true
+    }))
     const ids = menu.paragraphItems.filter((i) => i.checked).map((i) => i.id).sort()
     expect(ids).toEqual(['bulletListMenuItem', 'orderListMenuItem', 'taskListMenuItem'].sort())
   })
 
   it('keeps loose-list-item enabled inside a task list', () => {
     const menu = makeMenu()
-    updateSelectionMenus(menu as unknown as Menu, { affiliation: { task: true } })
+    updateSelectionMenus(menu as unknown as Menu, selectionState({
+      activeBlockKinds: ['list', 'list-item', 'paragraph'],
+      isTaskList: true
+    }))
     const loose = menu.paragraphItems.find((i) => i.id === 'looseListItemMenuItem')!
     expect(loose.enabled).toBe(true)
   })

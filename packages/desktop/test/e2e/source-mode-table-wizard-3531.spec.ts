@@ -9,8 +9,8 @@ import {
 } from './helpers'
 
 // #3531 — the paragraph edit commands (e.g. the "Insert Table" wizard) still
-// fired in source-code mode, where they operate on the hidden WYSIWYG engine
-// instead of the visible CodeMirror source. Like undo/redo/selectAll, these
+// fired in Source mode, where they target the hidden semantic surface instead
+// of the visible source input. Like undo/redo/selectAll, these
 // must be blocked while in source mode.
 
 const TABLE_DIALOG = '.ag-insert-table-dialog'

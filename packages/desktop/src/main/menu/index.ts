@@ -1,13 +1,17 @@
 import fs from 'fs'
 import path from 'path'
 import { app, BrowserWindow, Menu, ipcMain } from 'electron'
+import type { IpcMainEvent } from 'electron'
 import log from 'electron-log'
 import { ensureDirSync, isDirectory2, isFile2 } from 'common/filesystem'
 import { isLinux, isOsx, isWindows } from '../config'
-import { updateSidebarMenu } from '../menu/actions/edit'
+import {
+  setSemanticClipboardMenuState,
+  updateSidebarMenu
+} from '../menu/actions/edit'
 import { updateFormatMenu } from '../menu/actions/format'
 import { updateReviewMenu } from '../menu/actions/review'
-import { updateSelectionMenus, type SelectionState } from '../menu/actions/paragraph'
+import { updateSelectionMenus } from '../menu/actions/paragraph'
 import { onInternalChannel } from '../utils/internalIpc'
 import { viewLayoutChanged } from '../menu/actions/view'
 import configureMenu, { configSettingMenu } from '../menu/templates'
@@ -15,8 +19,19 @@ import { setLanguage } from '../i18n.js'
 import type Preference from '../preferences'
 import type Keybindings from '../keyboard/shortcutHandler'
 import type { IUserPreferences } from '@shared/types/preferences'
-import type { CriticMarkupReviewMenuState } from '@shared/types/criticMarkup'
 import { REVIEW_COMMAND_DESCRIPTORS } from '../../common/commands/review'
+import {
+  documentClipboardConsumerPolicy
+} from '@shared/types/documentSurface'
+import {
+  decodeCriticMarkupReviewMenuState,
+  decodeDocumentClipboardMenuState,
+  decodeDocumentFormatMenuState,
+  decodeDocumentSelectionMenuState,
+  decodeFormatMenusEnabled,
+  decodeSidebarMenuVisibility,
+  decodeWindowLayoutMenuState
+} from './menuStateRuntimeCodec'
 
 const RECENTLY_USED_DOCUMENTS_FILE_NAME = 'recently-used-documents.json'
 const MAX_RECENTLY_USED_DOCUMENTS = 12
@@ -24,6 +39,16 @@ const REVIEW_STATE_MENU_IDS = [
   ...REVIEW_COMMAND_DESCRIPTORS.map((descriptor) => descriptor.menuId),
   'reviewDisplayMenuItem'
 ]
+const DOCUMENT_CLIPBOARD_MENU_IDS = Object.freeze([
+  'editCopyAsRichMenuItem',
+  'editCopyAsHtmlMenuItem',
+  'editPasteAsPlainTextMenuItem'
+])
+const DOCUMENT_CLIPBOARD_UNAVAILABLE = Object.freeze({
+  copyAsRich: false,
+  copyAsHtml: false,
+  pasteAsPlainText: false
+})
 
 export const MenuType = {
   DEFAULT: 0,
@@ -208,6 +233,18 @@ class AppMenu {
       const focusModeMenuItem = menu.getMenuItemById('focusModeMenuItem')
       if (typewriterModeMenuItem) typewriterModeMenuItem.enabled = false
       if (focusModeMenuItem) focusModeMenuItem.enabled = false
+      setSemanticClipboardMenuState(
+        menu,
+        documentClipboardConsumerPolicy({
+          surface: 'source',
+          hasSelection: false
+        })
+      )
+    } else {
+      setSemanticClipboardMenuState(
+        menu,
+        DOCUMENT_CLIPBOARD_UNAVAILABLE
+      )
     }
 
     const { _keybindings } = this
@@ -306,6 +343,9 @@ class AppMenu {
       updateMenuItem(oldMenu, newMenu, 'sideBarMenuItem')
       updateMenuItem(oldMenu, newMenu, 'tabBarMenuItem')
       REVIEW_STATE_MENU_IDS.forEach((id) => updateMenuItem(oldMenu, newMenu, id))
+      DOCUMENT_CLIPBOARD_MENU_IDS.forEach(
+        id => updateMenuItem(oldMenu, newMenu, id)
+      )
 
       // update window menu
       value.menu = newMenu
@@ -339,6 +379,9 @@ class AppMenu {
         updateMenuItem(oldMenu, rebuilt, 'sideBarMenuItem')
         updateMenuItem(oldMenu, rebuilt, 'tabBarMenuItem')
         REVIEW_STATE_MENU_IDS.forEach((id) => updateMenuItem(oldMenu, rebuilt, id))
+        DOCUMENT_CLIPBOARD_MENU_IDS.forEach(
+          id => updateMenuItem(oldMenu, rebuilt, id)
+        )
         newMenu = rebuilt
       } else if (type === MenuType.SETTINGS) {
         newMenu = this._buildSettingMenu().menu
@@ -352,23 +395,6 @@ class AppMenu {
         this._setApplicationMenu(newMenu)
       }
     })
-  }
-
-  /**
-   * Update line ending menu items.
-   *
-   * @param windowId The window id.
-   * @param lineEnding Either >lf< or >crlf<.
-   */
-  updateLineEndingMenu(windowId: number, lineEnding: string): void {
-    const menus = this.getWindowMenuById(windowId)
-    const crlfMenu = menus.getMenuItemById('crlfLineEndingMenuEntry')
-    const lfMenu = menus.getMenuItemById('lfLineEndingMenuEntry')
-    if (lineEnding === 'crlf') {
-      if (crlfMenu) crlfMenu.checked = true
-    } else {
-      if (lfMenu) lfMenu.checked = true
-    }
   }
 
   /**
@@ -479,74 +505,156 @@ class AppMenu {
   }
 
   _listenForIpcMain(): void {
-    ipcMain.on('mt::add-recently-used-document', (_e, pathname: string) => {
-      this.addRecentlyUsedDocument(pathname)
-    })
-    ipcMain.on('mt::update-line-ending-menu', (_e, windowId: number, lineEnding: string) => {
-      this.updateLineEndingMenu(windowId, lineEnding)
-    })
+    const senderMenuState = <T>(
+      event: IpcMainEvent,
+      rawArguments: readonly unknown[],
+      decode: (value: unknown) => T,
+      label: string
+    ): Readonly<{ menu: Menu; state: T }> | null => {
+      let state
+      try {
+        if (rawArguments.length !== 1) {
+          throw new TypeError(`${label} accepts exactly one state argument`)
+        }
+        state = decode(rawArguments[0])
+      } catch (error) {
+        log.error(`${label} rejected:`, error)
+        return null
+      }
+      const senderWindow = BrowserWindow.fromWebContents(event.sender)
+      if (!senderWindow || !this.has(senderWindow.id)) {
+        log.error(`${label} rejected: sender has no live window menu.`)
+        return null
+      }
+      return Object.freeze({
+        menu: this.getWindowMenuById(senderWindow.id),
+        state
+      })
+    }
+
     ipcMain.on(
       'mt::update-format-menu',
-      (_e, windowId: number, formats: Record<string, boolean>) => {
-        if (!this.has(windowId)) {
-          log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)
-          return
-        }
-        updateFormatMenu(this.getWindowMenuById(windowId), formats)
+      (event, ...rawArguments: unknown[]) => {
+        const decoded = senderMenuState(
+          event,
+          rawArguments,
+          decodeDocumentFormatMenuState,
+          'Format menu update'
+        )
+        if (decoded === null) return
+        updateFormatMenu(decoded.menu, decoded.state)
       }
     )
-    ipcMain.on('mt::update-sidebar-menu', (_e, windowId: number, value: unknown) => {
-      if (!this.has(windowId)) {
-        log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)
-        return
-      }
-      updateSidebarMenu(this.getWindowMenuById(windowId), value)
+    ipcMain.on('mt::update-sidebar-menu', (event, ...rawArguments: unknown[]) => {
+      const decoded = senderMenuState(
+        event,
+        rawArguments,
+        decodeSidebarMenuVisibility,
+        'Sidebar menu update'
+      )
+      if (decoded === null) return
+      updateSidebarMenu(decoded.menu, decoded.state)
     })
     ipcMain.on(
-      'mt::update-review-menu',
-      (event, state: CriticMarkupReviewMenuState) => {
+      'mt::update-history-menu',
+      (event, state: { canUndo: boolean; canRedo: boolean }) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender)
-        if (!senderWindow || !this.has(senderWindow.id)) {
-          log.error('Review menu update rejected: sender has no live window menu.')
-          return
-        }
-        updateReviewMenu(this.getWindowMenuById(senderWindow.id), state)
+        if (!senderWindow || !this.has(senderWindow.id)) return
+        const menu = this.getWindowMenuById(senderWindow.id)
+        const undo = menu.getMenuItemById('editUndoMenuItem')
+        const redo = menu.getMenuItemById('editRedoMenuItem')
+        if (undo) undo.enabled = state.canUndo
+        if (redo) redo.enabled = state.canRedo
+      }
+    )
+    ipcMain.on(
+      'mt::update-review-menu',
+      (event, ...rawArguments: unknown[]) => {
+        const decoded = senderMenuState(
+          event,
+          rawArguments,
+          decodeCriticMarkupReviewMenuState,
+          'Review menu update'
+        )
+        if (decoded === null) return
+        updateReviewMenu(decoded.menu, decoded.state)
       }
     )
     ipcMain.on(
       'mt::view-layout-changed',
-      (_e, windowId: number, viewSettings: Record<string, unknown>) => {
-        if (!this.has(windowId)) {
-          log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)
-          return
-        }
-        viewLayoutChanged(this.getWindowMenuById(windowId), viewSettings)
+      (event, ...rawArguments: unknown[]) => {
+        const decoded = senderMenuState(
+          event,
+          rawArguments,
+          decodeWindowLayoutMenuState,
+          'View layout menu update'
+        )
+        if (decoded === null) return
+        viewLayoutChanged(decoded.menu, decoded.state)
       }
     )
-    ipcMain.on('mt::editor-selection-changed', (_e, windowId: number, changes: SelectionState) => {
-      if (!this.has(windowId)) {
-        log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)
-        return
-      }
-      updateSelectionMenus(this.getWindowMenuById(windowId), changes)
+    ipcMain.on('mt::editor-selection-changed', (event, ...rawArguments: unknown[]) => {
+      const decoded = senderMenuState(
+        event,
+        rawArguments,
+        decodeDocumentSelectionMenuState,
+        'Selection menu update'
+      )
+      if (decoded === null) return
+      updateSelectionMenus(decoded.menu, decoded.state)
     })
+    ipcMain.on(
+      'mt::set-document-clipboard-menu-state',
+      (event, ...rawArguments: unknown[]) => {
+        const decoded = senderMenuState(
+          event,
+          rawArguments,
+          decodeDocumentClipboardMenuState,
+          'Document clipboard menu update'
+        )
+        if (decoded === null) return
+        setSemanticClipboardMenuState(
+          decoded.menu,
+          documentClipboardConsumerPolicy(decoded.state)
+        )
+      }
+    )
 
-    // In source-code mode the Paragraph and Format commands act on the hidden
-    // WYSIWYG engine, so grey them out; on return to WYSIWYG they are re-enabled
-    // and the next selection change refines them (#3531).
-    ipcMain.on('mt::set-editor-format-menus-enabled', (_e, windowId: number, enabled: boolean) => {
-      if (!this.has(windowId)) return
-      const menu = this.getWindowMenuById(windowId)
+    // In Source mode the Paragraph and Format commands target the hidden
+    // semantic surface, so grey them out; on return, the next verified
+    // selection publication refines their state (#3531).
+    ipcMain.on('mt::set-editor-format-menus-enabled', (
+      event,
+      ...rawArguments: unknown[]
+    ) => {
+      const decoded = senderMenuState(
+        event,
+        rawArguments,
+        decodeFormatMenusEnabled,
+        'Format menu availability update'
+      )
+      if (decoded === null) return
       for (const id of ['paragraphMenuEntry', 'formatMenuItem', 'reviewMenuItem']) {
-        const entry = menu.getMenuItemById(id)
-        entry?.submenu?.items.forEach((item) => (item.enabled = enabled))
+        const entry = decoded.menu.getMenuItemById(id)
+        entry?.submenu?.items.forEach(
+          item => (item.enabled = decoded.state)
+        )
+      }
+      if (!decoded.state) {
+        setSemanticClipboardMenuState(
+          decoded.menu,
+          documentClipboardConsumerPolicy({
+            surface: 'source',
+            hasSelection: false
+          })
+        )
       }
     })
 
     onInternalChannel('menu-add-recently-used', (pathname: string) => {
       this.addRecentlyUsedDocument(pathname)
     })
-    ipcMain.on('menu-clear-recently-used', () => {
+    onInternalChannel('menu-clear-recently-used', () => {
       this.clearRecentlyUsedDocuments()
     })
 

@@ -1,18 +1,14 @@
 // Regression guard for
 // "TypeError: Cannot destructure property 'text' of 'block' as it is null."
-// thrown at src/muya/lib/contentState/paragraphCtrl.js:486 (issues #2099,
-// #3571, #3663, #3667, #3879).
+// reported by issues #2099, #3571, #3663, #3667, and #3879.
 //
 // User-action paths from the bug reports:
-//  - Open quick-insert in a fresh file (the @muyajs/core engine triggers it
-//    with `/`, replacing the legacy `@`), pick "Header 1".
+//  - Open quick-insert in a fresh file with `/`, then pick "Header 1".
 //  - Delete a paragraph then immediately trigger the Paragraph→Heading menu
 //    while the model cursor still points at the now-removed block.
 //
-// On current develop, none of these recipes crash — the upstream guard plus
-// `isAllowedTransformation` filtering keep updateParagraph from being called
-// with a stale cursor. If these tests start failing, the upstream guards
-// have regressed and paragraphCtrl.updateParagraph needs its own check.
+// The typed conversion must reject a stale target without crashing or
+// publishing a partial revision.
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
@@ -45,21 +41,19 @@ test.describe('Crash: updateParagraph null block', () => {
     // a new file" — seeding with anything else changes the recipe.
     const { app, page } = await launchAndReady('')
     try {
-      // The @muyajs/core quick-insert menu is triggered by `/` (the legacy
-      // engine used `@`). Type it into the empty paragraph to open the menu.
+      // Type `/` into the empty paragraph to open the quick-insert menu.
       await typeIntoEditor(page, '/')
 
-      // The quick-insert float (`.mu-quick-insert`) is always present in the
+      // The quick-insert float (`.document-view-quick-insert`) is always present in the
       // DOM but parked off-screen (top:-9999, opacity:0) until shown. Wait for
       // it to be positioned on-screen — `state: 'visible'` honours the
       // opacity/position so we click the real, shown menu rather than the
       // parked one.
-      const overlay = page.locator('.mu-quick-insert')
+      const overlay = page.locator('.document-view-quick-insert')
       await overlay.waitFor({ state: 'visible', timeout: 5000 })
 
-      // Quick-insert items expose data-label matching the config in
-      // packages/muya/src/ui/paragraphQuickInsertMenu/config.ts —
-      // "atx-heading 1". Don't fall back to a localized text selector; fail
+      // Quick-insert items expose the stable data-label "atx-heading 1".
+      // Don't use a localized text selector; fail
       // loudly if the stable selector breaks.
       const heading1 = overlay.locator('[data-label="atx-heading 1"]')
       await heading1.waitFor({ state: 'visible', timeout: 5000 })
@@ -79,7 +73,7 @@ test.describe('Crash: updateParagraph null block', () => {
     try {
       // Position at end of "Second para." and select the line backwards.
       await page.evaluate(() => {
-        const spans = document.querySelectorAll('.editor-component span.mu-paragraph-content')
+        const spans = document.querySelectorAll('.editor-component span.document-view-run')
         const target = spans[spans.length - 1] as HTMLElement | null
         if (!target) return
         const range = document.createRange()

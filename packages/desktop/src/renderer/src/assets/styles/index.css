@@ -107,6 +107,32 @@
   --notificationErrorBg: #ff6969;
 }
 
+.document-view-critic-markup-review-tool {
+  position: fixed;
+  z-index: 3000;
+  display: flex;
+  padding: 3px;
+  background: var(--floatBgColor);
+  border: 1px solid var(--floatBorderColor);
+  border-radius: 4px;
+  box-shadow: var(--floatShadow);
+  transform: translate(-50%, calc(-100% - 8px));
+}
+
+.document-view-critic-markup-review-tool button {
+  padding: 4px 9px;
+  color: var(--floatFontColor);
+  font: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.document-view-critic-markup-review-tool button:hover {
+  background: var(--floatHoverColor);
+}
+
 ::-webkit-scrollbar,
 ::-webkit-scrollbar-corner {
   background: var(--floatHoverColor);
@@ -271,7 +297,7 @@ div.el-tab-pane {
 }
 
 .button,
-.muya-button,
+.marktext-button,
 .el-button {
   cursor: pointer;
   text-decoration: none;
@@ -283,28 +309,28 @@ div.el-tab-pane {
   padding: 7px 14px;
 }
 .button:hover,
-.muya-button:hover,
+.marktext-button:hover,
 .el-button:hover {
   color: var(--buttonFontColorHover);
   background: var(--buttonBgColorHover);
   border: var(--buttonBorderHover);
 }
 .button:active,
-.muya-button:active,
+.marktext-button:active,
 .el-button:active {
   color: var(--buttonFontColorActive);
   background: var(--buttonBgColorActive);
   border: var(--buttonBorderActive);
 }
 .button:focus,
-.muya-button:focus,
+.marktext-button:focus,
 .el-button:focus {
   outline: none;
   border: var(--buttonFocusBorder);
 }
 
 .button-primary,
-.muya-button-primary,
+.marktext-button-primary,
 .el-button--primary {
   cursor: pointer;
   text-decoration: none;
@@ -316,14 +342,14 @@ div.el-tab-pane {
   padding: 7px 14px;
 }
 .button-primary:hover,
-.muya-button-primary:hover,
+.marktext-button-primary:hover,
 .el-button--primary:hover {
   color: var(--buttonPrimaryFontColorHover);
   background: var(--buttonPrimaryBgColorHover);
   border: var(--buttonPrimaryBorderHover);
 }
 .button-primary:active,
-.muya-button-primary:active,
+.marktext-button-primary:active,
 .el-button--primary:active {
   color: var(--buttonPrimaryFontColorActive);
   background: var(--buttonPrimaryBgColorActive);
@@ -331,7 +357,7 @@ div.el-tab-pane {
 }
 button.button-primary:not(.custom):focus,
 .button-primary:focus,
-.muya-button-primary:focus,
+.marktext-button-primary:focus,
 .el-button--primary:focus {
   outline: none;
   border: var(--buttonPrimaryFocusBorder);
@@ -340,8 +366,8 @@ button.button-primary:not(.custom):focus,
 
 .button.disabled,
 .button[disabled],
-.muya-button.disabled,
-.muya-button[disabled],
+.marktext-button.disabled,
+.marktext-button[disabled],
 .el-button.disabled,
 .el-button[disabled],
 .button-primary.disabled,
@@ -354,18 +380,18 @@ button.button-primary:not(.custom):focus,
 }
 
 .button.small,
-.muya-button.small,
+.marktext-button.small,
 .el-button.small,
 .button-primary.small,
-.muya-button-primary.small,
+.marktext-button-primary.small,
 .el-button--primary.small {
   padding: 5px 8px;
 }
 .button.tiny,
-.muya-button.tiny,
+.marktext-button.tiny,
 .el-button.tiny,
 .button-primary.tiny,
-.muya-button-primary.tiny,
+.marktext-button-primary.tiny,
 .el-button--primary.tiny {
   font-size: 13px;
   padding: 4px 7px;

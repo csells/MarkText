@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ICriticMarkupReviewSnapshot } from '@marktext/document-view'
 
 const { send } = vi.hoisted(() => ({ send: vi.fn() }))
 
@@ -102,6 +103,7 @@ describe('CriticMarkup Review menu', () => {
       canCreateSubstitution: false,
       canCreateHighlight: false,
       canCreateComment: true,
+      canNavigate: true,
       canResolveCurrent: false,
       canResolveAll: true,
       trackChanges: true,
@@ -111,13 +113,48 @@ describe('CriticMarkup Review menu', () => {
     expect(items.get('reviewMarkAdditionMenuItem')?.enabled).toBe(true)
     expect(items.get('reviewMarkDeletionMenuItem')?.enabled).toBe(false)
     expect(items.get('reviewAcceptCurrentMenuItem')?.enabled).toBe(false)
-    expect(items.get('reviewPreviousMenuItem')?.enabled).toBe(false)
-    expect(items.get('reviewNextMenuItem')?.enabled).toBe(false)
+    expect(items.get('reviewPreviousMenuItem')?.enabled).toBe(true)
+    expect(items.get('reviewNextMenuItem')?.enabled).toBe(true)
     expect(items.get('reviewAcceptAllMenuItem')?.enabled).toBe(true)
     expect(items.get('reviewDisplayMenuItem')?.enabled).toBe(true)
     expect(items.get('reviewTrackChangesMenuItem')?.checked).toBe(true)
     expect(items.get('reviewShowMarkedMenuItem')?.checked).toBe(false)
     expect(items.get('reviewShowRevisedMenuItem')?.checked).toBe(true)
+  })
+
+  it('enables navigation for annotation-only documents without enabling bulk resolution', () => {
+    const ids = [
+      'reviewPreviousMenuItem',
+      'reviewNextMenuItem',
+      'reviewAcceptAllMenuItem',
+      'reviewRejectAllMenuItem',
+      'reviewDisplayMenuItem'
+    ]
+    const items = new Map(ids.map((id) => [
+      id,
+      { id, enabled: false, checked: false }
+    ]))
+    const menu = { getMenuItemById: (id: string) => items.get(id) }
+    const annotationOnlyState = {
+      available: true,
+      canCreateAddition: false,
+      canCreateDeletion: false,
+      canCreateSubstitution: false,
+      canCreateHighlight: false,
+      canCreateComment: false,
+      canResolveCurrent: true,
+      canResolveAll: false,
+      canNavigate: true,
+      trackChanges: false,
+      projection: 'marked' as const
+    }
+
+    reviewActions.updateReviewMenu(menu as never, annotationOnlyState)
+
+    expect(items.get('reviewPreviousMenuItem')?.enabled).toBe(true)
+    expect(items.get('reviewNextMenuItem')?.enabled).toBe(true)
+    expect(items.get('reviewAcceptAllMenuItem')?.enabled).toBe(false)
+    expect(items.get('reviewRejectAllMenuItem')?.enabled).toBe(false)
   })
 })
 
@@ -134,14 +171,15 @@ describe('CriticMarkup renderer command routing', () => {
     content: 'x'
   }
   const editor = {
-    createCriticMarkup: vi.fn(() => true),
-    focusCriticMarkup: vi.fn(() => reviewItem),
+    createCriticMarkup: vi.fn(async() => true),
+    focusCriticMarkup: vi.fn((): typeof reviewItem | null => reviewItem),
     navigateCriticMarkup: vi.fn(() => reviewItem),
-    resolveCriticMarkup: vi.fn(() => true),
-    resolveAllCriticMarkup: vi.fn(() => 2),
-    editCriticMarkupComment: vi.fn(() => true),
+    resolveCriticMarkup: vi.fn(async() => true),
+    resolveAllCriticMarkup: vi.fn(async() => 2),
+    editCriticMarkupComment: vi.fn(async() => true),
     commitAuthoringSelection: vi.fn(),
-    getCriticMarkupReviewSnapshot: vi.fn(() => ({
+    getCriticMarkupReviewSnapshot: vi.fn((): ICriticMarkupReviewSnapshot => ({
+      revisionId: 'revision:1',
       items: [reviewItem],
       currentItemId: reviewItem.id,
       canCreateAddition: true,
@@ -149,19 +187,20 @@ describe('CriticMarkup renderer command routing', () => {
       canCreateSubstitution: true,
       canCreateHighlight: true,
       canCreateComment: true,
+      canNavigate: true,
       canResolveCurrent: true,
       canResolveAll: true,
       trackChanges: false,
       projection: 'marked' as const
     })),
-    setOptions: vi.fn()
+    configure: vi.fn(async() => {})
   }
 
   beforeEach(() => {
     Object.values(editor).forEach((fn) => fn.mockClear())
   })
 
-  it('routes direct authoring and resolution to native Muya commands', async() => {
+  it('routes direct authoring and resolution to native document-view commands', async() => {
     await executeCriticMarkupReviewAction(editor, 'mark-addition')
     await executeCriticMarkupReviewAction(editor, 'mark-deletion')
     await executeCriticMarkupReviewAction(editor, 'mark-highlight')
@@ -178,17 +217,103 @@ describe('CriticMarkup renderer command routing', () => {
       [{ type: 'highlight' }]
     ])
     expect(editor.navigateCriticMarkup.mock.calls).toEqual([['next'], ['previous']])
-    expect(editor.resolveCriticMarkup.mock.calls).toEqual([['accept'], ['reject']])
+    expect(editor.resolveCriticMarkup.mock.calls).toEqual([
+      ['accept', { revisionId: 'revision:1', nodeId: reviewItem.id }],
+      ['reject', { revisionId: 'revision:1', nodeId: reviewItem.id }]
+    ])
     expect(editor.resolveAllCriticMarkup.mock.calls).toEqual([['accept'], ['reject']])
+  })
+
+  it('waits for bulk Review resolution before reporting action success', async() => {
+    let commit: ((count: number) => void) | undefined
+    const terminal = new Promise<number>((resolve) => {
+      commit = resolve
+    })
+    editor.resolveAllCriticMarkup.mockReturnValueOnce(terminal)
+    let reported = false
+    const action = executeCriticMarkupReviewAction(editor, 'accept-all')
+      .finally(() => {
+        reported = true
+      })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reported).toBe(false)
+
+    commit?.(2)
+    await expect(action).resolves.toEqual({ kind: 'executed' })
   })
 
   it('toggles Track Changes through the native engine option', async() => {
     await executeCriticMarkupReviewAction(editor, 'toggle-track-changes')
 
-    expect(editor.setOptions).toHaveBeenCalledWith(
-      { criticMarkupTrackChanges: true },
-      false
-    )
+    expect(editor.configure).toHaveBeenCalledWith({
+      criticMarkupTrackChanges: true
+    })
+  })
+
+  it('waits for Track Changes configuration before reporting success', async() => {
+    let commit: (() => void) | undefined
+    const terminal = new Promise<void>((resolve) => {
+      commit = resolve
+    })
+    editor.configure.mockReturnValueOnce(terminal)
+    let reported = false
+    const action = executeCriticMarkupReviewAction(
+      editor,
+      'toggle-track-changes'
+    ).finally(() => {
+      reported = true
+    })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reported).toBe(false)
+
+    commit?.()
+    await expect(action).resolves.toEqual({ kind: 'executed' })
+  })
+
+  it('waits for a clean-view navigation handoff before reporting success', async() => {
+    editor.getCriticMarkupReviewSnapshot.mockReturnValueOnce({
+      ...editor.getCriticMarkupReviewSnapshot(),
+      projection: 'revised'
+    })
+    let commit: (() => void) | undefined
+    const terminal = new Promise<void>((resolve) => {
+      commit = resolve
+    })
+    editor.configure.mockReturnValueOnce(terminal)
+    let reported = false
+    const action = executeCriticMarkupReviewAction(editor, 'next')
+      .finally(() => {
+        reported = true
+      })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reported).toBe(false)
+
+    commit?.()
+    await expect(action).resolves.toEqual({ kind: 'executed' })
+    expect(editor.configure).toHaveBeenCalledWith({
+      criticMarkupProjection: 'marked'
+    })
+  })
+
+  it('rejects malformed native Review commands without effects', async() => {
+    await expect(
+      executeCriticMarkupReviewAction(editor, 'accept-current\0forged')
+    ).resolves.toEqual({ kind: 'unavailable' })
+    await expect(
+      executeCriticMarkupReviewAction(editor, {
+        action: 'accept-current'
+      })
+    ).resolves.toEqual({ kind: 'unavailable' })
+
+    expect(editor.resolveCriticMarkup).not.toHaveBeenCalled()
+    expect(editor.createCriticMarkup).not.toHaveBeenCalled()
+    expect(editor.configure).not.toHaveBeenCalled()
   })
 
   it('requests text before authoring a substitution or comment and honors cancel', async() => {
@@ -199,13 +324,18 @@ describe('CriticMarkup renderer command routing', () => {
 
     await executeCriticMarkupReviewAction(editor, 'suggest-replacement', requestText)
     await executeCriticMarkupReviewAction(editor, 'add-comment', requestText)
-    await executeCriticMarkupReviewAction(editor, 'add-comment', requestText)
+    const cancelled = await executeCriticMarkupReviewAction(
+      editor,
+      'add-comment',
+      requestText
+    )
 
     expect(requestText.mock.calls).toEqual([['substitution'], ['comment'], ['comment']])
     expect(editor.createCriticMarkup.mock.calls).toEqual([
       [{ type: 'substitution', replacement: 'replacement' }],
       [{ type: 'comment', comment: 'review note' }]
     ])
+    expect(cancelled).toEqual({ kind: 'cancelled' })
   })
 
   it.each([
@@ -214,10 +344,10 @@ describe('CriticMarkup renderer command routing', () => {
     ['show-revised', 'revised']
   ] as const)('applies the %s projection without changing Markdown', async(action, projection) => {
     await executeCriticMarkupReviewAction(editor, action)
-    expect(editor.setOptions).toHaveBeenCalledWith({ criticMarkupProjection: projection }, true)
+    expect(editor.configure).toHaveBeenCalledWith({ criticMarkupProjection: projection })
   })
 
-  it('focuses a sidebar target in the canonical marked projection', () => {
+  it('focuses a sidebar target in the canonical marked projection', async() => {
     const target = {
       id: 'critic-8-15',
       type: 'addition' as const,
@@ -230,16 +360,36 @@ describe('CriticMarkup renderer command routing', () => {
       content: 'new'
     }
 
-    expect(executeCriticMarkupSidebarItemAction(editor, {
-      fileId: 'file-1',
+    await expect(executeCriticMarkupSidebarItemAction(editor, {
+      documentId: 'document:1',
       action: 'focus',
-      target
-    }, 'revised', 'file-1')).toBe(true)
-    expect(editor.setOptions).toHaveBeenCalledWith(
-      { criticMarkupProjection: 'marked' },
-      true
-    )
-    expect(editor.focusCriticMarkup).toHaveBeenCalledWith(target)
+      target: {
+        revisionId: 'revision:1',
+        nodeId: target.id
+      }
+    }, 'revised', 'document:1')).resolves.toEqual({ kind: 'executed' })
+    expect(editor.configure).toHaveBeenCalledWith({
+      criticMarkupProjection: 'marked'
+    })
+    expect(editor.focusCriticMarkup).toHaveBeenCalledWith({
+      revisionId: 'revision:1',
+      nodeId: target.id
+    })
+  })
+
+  it('does not change projection when a sidebar target fails authentication', async() => {
+    editor.focusCriticMarkup.mockReturnValueOnce(null)
+
+    await expect(executeCriticMarkupSidebarItemAction(editor, {
+      documentId: 'document:1',
+      action: 'focus',
+      target: {
+        revisionId: 'revision:stale',
+        nodeId: reviewItem.id
+      }
+    }, 'revised', 'document:1')).resolves.toEqual({ kind: 'stale' })
+
+    expect(editor.configure).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -247,7 +397,7 @@ describe('CriticMarkup renderer command routing', () => {
     ['reject', 'marked']
   ] as const)(
     'resolves one sidebar target with %s from the %s projection',
-    (decision, projection) => {
+    async(decision, projection) => {
       const target = {
         id: 'critic-8-15',
         type: 'deletion' as const,
@@ -260,22 +410,27 @@ describe('CriticMarkup renderer command routing', () => {
         content: 'old'
       }
 
-      expect(executeCriticMarkupSidebarItemAction(editor, {
-        fileId: 'file-1',
+      await expect(executeCriticMarkupSidebarItemAction(editor, {
+        documentId: 'document:1',
         action: decision,
-        target
-      }, projection, 'file-1')).toBe(true)
+        target: {
+          revisionId: 'revision:1',
+          nodeId: target.id
+        }
+      }, projection, 'document:1')).resolves.toEqual({ kind: 'executed' })
       if (projection !== 'marked') {
-        expect(editor.setOptions).toHaveBeenCalledWith(
-          { criticMarkupProjection: 'marked' },
-          true
-        )
+        expect(editor.configure).toHaveBeenCalledWith({
+          criticMarkupProjection: 'marked'
+        })
       }
-      expect(editor.resolveCriticMarkup).toHaveBeenCalledWith(decision, target)
+      expect(editor.resolveCriticMarkup).toHaveBeenCalledWith(decision, {
+        revisionId: 'revision:1',
+        nodeId: target.id
+      })
     }
   )
 
-  it('rejects an item action published by a previously selected file', () => {
+  it('rejects an item action published by a previously selected file', async() => {
     const target = {
       id: 'critic-0-7',
       type: 'addition' as const,
@@ -288,11 +443,14 @@ describe('CriticMarkup renderer command routing', () => {
       content: 'x'
     }
 
-    expect(executeCriticMarkupSidebarItemAction(editor, {
-      fileId: 'old-file',
+    await expect(executeCriticMarkupSidebarItemAction(editor, {
+      documentId: 'document:old',
       action: 'accept',
-      target
-    }, 'marked', 'current-file')).toBe(false)
+      target: {
+        revisionId: 'revision:1',
+        nodeId: target.id
+      }
+    }, 'marked', 'document:current')).resolves.toEqual({ kind: 'stale' })
     expect(editor.resolveCriticMarkup).not.toHaveBeenCalled()
     expect(editor.focusCriticMarkup).not.toHaveBeenCalled()
   })
@@ -313,6 +471,7 @@ describe('CriticMarkup sidebar state', () => {
       newContent: 'new'
     }
     const snapshot = {
+      revisionId: 'revision:1',
       items: [item],
       currentItemId: item.id,
       canCreateAddition: false,
@@ -320,17 +479,19 @@ describe('CriticMarkup sidebar state', () => {
       canCreateSubstitution: false,
       canCreateHighlight: false,
       canCreateComment: false,
+      canNavigate: true,
       canResolveCurrent: true,
       canResolveAll: true,
       trackChanges: true,
       projection: 'marked' as const
     }
 
-    const state = buildCriticMarkupSidebarState('file-1', snapshot)
+    const state = buildCriticMarkupSidebarState('document:1', snapshot)
 
     expect(state.items).toBe(snapshot.items)
     expect(state).toEqual({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [{
         id: 'critic-4-17',

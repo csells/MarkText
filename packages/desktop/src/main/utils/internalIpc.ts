@@ -1,13 +1,44 @@
-import { ipcMain } from 'electron'
-import type { IpcMainEvent } from 'electron'
+import { EventEmitter } from 'node:events'
 
-// Subscribe to an in-process channel dispatched via `ipcMain.emit(channel, ...args)`,
-// which forwards the payload args to listeners verbatim — there is no synthetic
-// `IpcMainEvent` like the renderer->main path that `ipcMain.on` is typed for. The
-// signature adaptation is contained here so callers keep real payload types.
+export type InternalChannel =
+  | 'app-create-editor-window'
+  | 'app-create-settings-window'
+  | 'app-new-untitled-tab-by-id'
+  | 'app-open-directory-by-id'
+  | 'app-open-file-by-id'
+  | 'app-open-files-by-id'
+  | 'app-open-markdown-by-id'
+  | 'broadcast-preferences-changed'
+  | 'broadcast-user-data-changed'
+  | 'menu-add-recently-used'
+  | 'menu-clear-recently-used'
+  | 'screen-capture'
+  | 'set-user-preference'
+  | 'watcher-unwatch-all-by-id'
+  | 'watcher-unwatch-directory'
+  | 'watcher-unwatch-file'
+  | 'watcher-watch-directory'
+  | 'watcher-watch-file'
+  | 'window-add-file-path'
+  | 'window-change-file-path'
+  | 'window-close-by-id'
+  | 'window-file-saved'
+  | 'window-remove-file-path'
+  | 'window-reload-by-id'
+  | 'window-toggle-always-on-top'
+
+const internalBus = new EventEmitter()
+
 export function onInternalChannel<TArgs extends unknown[]>(
-  channel: string,
+  channel: InternalChannel,
   listener: (...args: TArgs) => void
 ): void {
-  ipcMain.on(channel, listener as unknown as (event: IpcMainEvent, ...args: unknown[]) => void)
+  internalBus.on(channel, listener)
+}
+
+export function emitInternalChannel<TArgs extends unknown[]>(
+  channel: InternalChannel,
+  ...args: TArgs
+): void {
+  internalBus.emit(channel, ...args)
 }

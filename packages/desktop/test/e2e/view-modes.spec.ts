@@ -97,9 +97,12 @@ test.describe('View modes', () => {
     )
   })
 
-  test('Toggle source-code mode swaps editor for CodeMirror', async() => {
+  test('Toggle source-code mode reveals the source input', async() => {
     await clickMenuById(app, 'sourceCodeModeMenuItem')
-    await page.waitForSelector('.source-code .CodeMirror', { state: 'attached', timeout: 10000 })
+    await page.waitForSelector('.source-code-input', {
+      state: 'attached',
+      timeout: 10000
+    })
     await expect(page.locator('.editor-wrapper')).toHaveClass(/(^|\s)source(\s|$)/)
     await clickMenuById(app, 'sourceCodeModeMenuItem')
     await page.waitForFunction(() => !document.querySelector('.source-code'), null, {
@@ -108,7 +111,7 @@ test.describe('View modes', () => {
   })
 
   // Item 155 — In source-code mode the Typewriter and Focus menu items are
-  // disabled (editing modes don't apply to the CodeMirror surface), and become
+  // disabled (editing modes don't apply to the source input), and become
   // enabled again on exit. `viewLayoutChanged`'s `sourceCode` branch toggles
   // `focusModeMenuItem.enabled` / `typewriterModeMenuItem.enabled` off; nothing
   // else covers this disabled-in-source assertion.
@@ -157,9 +160,8 @@ test.describe('View modes', () => {
   })
 })
 
-// Click into a top-level block the way parity-pg1-menu-state.spec.ts:41 does —
-// a real bubbling click on the content span drives Muya's selection handling,
-// which flips the `.mu-active` ancestor-chain class that focus mode keys off.
+// A real bubbling click on the content span drives selection handling and
+// flips the `.document-view-active` ancestor-chain class used by focus mode.
 const placeCaretIn = async(page: Page, selector: string): Promise<void> => {
   await page.evaluate((sel) => {
     const span = document.querySelector(sel) as HTMLElement | null
@@ -177,9 +179,9 @@ const placeCaretIn = async(page: Page, selector: string): Promise<void> => {
 }
 
 // Item 250 — 专注模式：活动块与非活动块计算后不透明度不同. Real Chromium computes the
-// `.mu-focus-mode .mu-container > *` { opacity: 0.25 } / `> .mu-active`
+// `.document-view-focus-mode .document-view-container > *` { opacity: 0.25 } / `> .document-view-active`
 // { opacity: 1 } cascade (blockSyntax.css), so we can assert the *computed*
-// opacity differs — something the happy-dom muya unit can only do by class.
+// opacity differs; a DOM unit can assert only the class transition.
 test.describe('View modes — focus mode dims non-active blocks (item 250)', () => {
   let app: ElectronApplication
   let page: Page
@@ -198,21 +200,21 @@ test.describe('View modes — focus mode dims non-active blocks (item 250)', () 
 
   test('item 250: active top-level block is full opacity, siblings are dimmed', async() => {
     await clickMenuById(app, 'focusModeMenuItem')
-    await expect(page.locator('.editor-component')).toHaveClass(/(^|\s)mu-focus-mode(\s|$)/)
+    await expect(page.locator('.editor-component')).toHaveClass(/(^|\s)document-view-focus-mode(\s|$)/)
 
     // Put the caret in the FIRST paragraph; its top-level block must carry
-    // `.mu-active`, the others must not.
-    await placeCaretIn(page, '.mu-container > p.mu-paragraph:nth-of-type(1) .mu-paragraph-content')
+    // `.document-view-active`, the others must not.
+    await placeCaretIn(page, '.document-view-container > p.document-view-paragraph:nth-of-type(1) .document-view-run')
 
-    // The selection-change -> mu-active flip is async; poll for it.
+    // The selection-change -> document-view-active flip is async; poll for it.
     await expect
       .poll(
         () =>
           page.evaluate(() => {
             const blocks = Array.from(
-              document.querySelectorAll('.mu-focus-mode .mu-container > p.mu-paragraph')
+              document.querySelectorAll('.document-view-focus-mode .document-view-container > p.document-view-paragraph')
             )
-            return blocks.length >= 2 && blocks[0].classList.contains('mu-active')
+            return blocks.length >= 2 && blocks[0].classList.contains('document-view-active')
           }),
         { timeout: 4000 }
       )
@@ -221,10 +223,10 @@ test.describe('View modes — focus mode dims non-active blocks (item 250)', () 
     const readOpacities = (): Promise<{ active: number; inactive: number } | null> =>
       page.evaluate(() => {
         const blocks = Array.from(
-          document.querySelectorAll('.mu-focus-mode .mu-container > p.mu-paragraph')
+          document.querySelectorAll('.document-view-focus-mode .document-view-container > p.document-view-paragraph')
         ) as HTMLElement[]
-        const active = blocks.find((b) => b.classList.contains('mu-active'))
-        const inactive = blocks.find((b) => !b.classList.contains('mu-active'))
+        const active = blocks.find((b) => b.classList.contains('document-view-active'))
+        const inactive = blocks.find((b) => !b.classList.contains('document-view-active'))
         if (!active || !inactive) return null
         return {
           active: parseFloat(window.getComputedStyle(active).opacity),
@@ -255,7 +257,7 @@ test.describe('View modes — focus mode dims non-active blocks (item 250)', () 
     await page.waitForFunction(
       () => {
         const el = document.querySelector('.editor-component')
-        return !el || !el.classList.contains('mu-focus-mode')
+        return !el || !el.classList.contains('document-view-focus-mode')
       },
       null,
       { timeout: 5000 }
@@ -298,7 +300,7 @@ test.describe('View modes — typewriter scrolling (item 173)', () => {
       if (sel && sel.rangeCount) {
         const node = sel.getRangeAt(0).startContainer
         const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement
-        block = el?.closest('p.mu-paragraph') ?? null
+        block = el?.closest('p.document-view-paragraph') ?? null
       }
       if (!block) return null
       const cRect = container.getBoundingClientRect()
@@ -311,19 +313,19 @@ test.describe('View modes — typewriter scrolling (item 173)', () => {
   // which xvfb does not reproduce (this passes on a headed display). The
   // `.typewriter` class toggle is covered by the test above, and the checklist
   // classifies typewriter centering as manual QA.
-  test.fixme('item 173: typewriter centers the caret; toggling off keeps it in view (not at the bottom)', async() => {
+  test('item 173: typewriter centers the caret; toggling off keeps it in view (not at the bottom)', async() => {
     await clickMenuById(app, 'typewriterModeMenuItem')
     await expect(page.locator('.editor-wrapper')).toHaveClass(/(^|\s)typewriter(\s|$)/)
 
     // Place the caret in a middle paragraph and type so the engine re-centers.
     await placeCaretIn(
       page,
-      '.mu-container > p.mu-paragraph:nth-of-type(40) .mu-paragraph-content'
+      '.document-view-container > p.document-view-paragraph:nth-of-type(40) .document-view-run'
     )
     await page.click('.editor-component')
     await placeCaretIn(
       page,
-      '.mu-container > p.mu-paragraph:nth-of-type(40) .mu-paragraph-content'
+      '.document-view-container > p.document-view-paragraph:nth-of-type(40) .document-view-run'
     )
     await page.keyboard.type(' typed', { delay: 0 })
 

@@ -1,0 +1,365 @@
+{
+  "schema": "marktext-0009-acceptance-v1",
+  "plan": "0009",
+  "acceptance": [
+    {
+      "id": "A01",
+      "requirement": "Intrinsic Profile 1 grammar",
+      "phase": "P0.5",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/architecture-gate.spec.ts",
+        "title": "marker-bearing source is emitted by one intrinsic grammar"
+      }
+    },
+    {
+      "id": "A02",
+      "requirement": "Five forms and projections",
+      "phase": "P2",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/profile1-corpus.spec.ts",
+        "title": "derives every recursive five-form view from one revision"
+      }
+    },
+    {
+      "id": "A03",
+      "requirement": "Boundary-safe projection and resolution",
+      "phase": "P2",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/projection-materialization.spec.ts",
+        "title": "materializes fixed-point views without synthetic or retargeted syntax"
+      }
+    },
+    {
+      "id": "A04",
+      "requirement": "Boundary-safe semantic editing",
+      "phase": "P3",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/document-session/semantic-edit-codec.spec.ts",
+        "title": "protects every changed join and preserves untargeted identity"
+      }
+    },
+    {
+      "id": "A05",
+      "requirement": "Exact core source",
+      "phase": "P1",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/source-hash-vectors.spec.ts",
+        "title": "round-trips exact source and known-answer identities"
+      }
+    },
+    {
+      "id": "A06",
+      "requirement": "Exact desktop persistence",
+      "phase": "P6",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-persistence.spec.ts",
+        "title": "persists the pinned canonical revision through crash and reopen"
+      }
+    },
+    {
+      "id": "A07",
+      "requirement": "View and source-mode persistence",
+      "phase": "P6",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-view-source-persistence.spec.ts",
+        "title": "all views and Source persist one canonical head"
+      }
+    },
+    {
+      "id": "A08",
+      "requirement": "Track Changes",
+      "phase": "P7",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-track-changes.spec.ts",
+        "title": "tracks every frozen interaction with exact undo"
+      }
+    },
+    {
+      "id": "A09",
+      "requirement": "Mutation failure and rejection",
+      "phase": "P4",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/document-session/failure-injection.spec.ts",
+        "title": "failure before commit changes nothing and rejects visibly"
+      }
+    },
+    {
+      "id": "A10",
+      "requirement": "Malformed nested block and literal contexts",
+      "phase": "P2",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/profile1-recovery-corpus.spec.ts",
+        "title": "is total and lossless across the frozen recovery corpus"
+      }
+    },
+    {
+      "id": "A11",
+      "requirement": "Deterministic resource boundary",
+      "phase": "P5",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/cross-consumer-resource-matrix.spec.ts",
+        "title": "serves 16384 and disables semantics at 16385"
+      }
+    },
+    {
+      "id": "A12",
+      "requirement": "Type-safe resolution and undo redo",
+      "phase": "P7",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/document-session/resolution-history.spec.ts",
+        "title": "individual and bulk resolution have exact behavioral equivalence and undo"
+      }
+    },
+    {
+      "id": "A13",
+      "requirement": "Comments hidden from prose",
+      "phase": "P2",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/view/comment-visibility.spec.ts",
+        "title": "nested Comment source has no prose position"
+      }
+    },
+    {
+      "id": "A14",
+      "requirement": "Comment context and anchor deletion",
+      "phase": "P3",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/document-session/comment-anchor-deletion.spec.ts",
+        "title": "preserves residual nodes and rejects hidden Comment loss"
+      }
+    },
+    {
+      "id": "A15",
+      "requirement": "Sidebar composition and cards",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-review-cards.spec.ts",
+        "title": "shows one anchored or point card without duplicate Highlight"
+      }
+    },
+    {
+      "id": "A16",
+      "requirement": "Raw Comment command input",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-comment-draft.spec.ts",
+        "title": "round-trips raw nested Comment input and EOL policy"
+      }
+    },
+    {
+      "id": "A17",
+      "requirement": "Sidebar create edit delete",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-comment-crud.spec.ts",
+        "title": "completes one contiguous no-modal Comment lifecycle"
+      }
+    },
+    {
+      "id": "A18",
+      "requirement": "Exact Add Comment persistence",
+      "phase": "P6",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-add-comment-persistence.spec.ts",
+        "title": "reopens the exact portable Highlight Comment pair"
+      }
+    },
+    {
+      "id": "A19",
+      "requirement": "Add Comment validity and gestures",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-comment-gestures.spec.ts",
+        "title": "accepts complete targets and rejects every invalid target"
+      }
+    },
+    {
+      "id": "A20",
+      "requirement": "Passive selection",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-passive-selection.spec.ts",
+        "title": "selects deepest visible Review ownership without UI side effects"
+      }
+    },
+    {
+      "id": "A21",
+      "requirement": "Native context identity and shared edit command",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-review-context-menu.spec.ts",
+        "title": "right-clicks the nested Comment and invokes its exact one-shot edit command through real input"
+      },
+      "auxiliaryTargets": [
+        {
+          "kind": "test",
+          "path": "packages/desktop/test/e2e/document-core-review-context-menu-native-item.spec.ts",
+          "title": "constructs the production context row as a real Electron MenuItem backed by the shared executor"
+        }
+      ]
+    },
+    {
+      "id": "A22",
+      "requirement": "Contextual Review and navigation",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-review-navigation.spec.ts",
+        "title": "navigates nested items and hands projection focus back exactly"
+      }
+    },
+    {
+      "id": "A23",
+      "requirement": "Review command surfaces",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-review-command-surfaces.spec.ts",
+        "title": "menu palette and contextual tool dispatch the same intent"
+      }
+    },
+    {
+      "id": "A24",
+      "requirement": "Mouse Review access",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-review-pointer.spec.ts",
+        "title": "opens Review by pointer with panel and rail hidden"
+      }
+    },
+    {
+      "id": "A25",
+      "requirement": "Worker loss and recovery safety",
+      "phase": "P4",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/unit/specs/document-core-main-session-host.spec.ts",
+        "title": "rejects a lost execution and replays its durable ingress once in a new worker"
+      }
+    },
+    {
+      "id": "A26",
+      "requirement": "Menu semantics and localization",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/unit/specs/document-core-review-presentation.spec.ts",
+        "title": "localizes every legal and rejected command presentation"
+      }
+    },
+    {
+      "id": "A27",
+      "requirement": "Consumer projection policy",
+      "phase": "P7",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/materialize/consumer-policy.spec.ts",
+        "title": "implements every frozen view consumer cell"
+      }
+    },
+    {
+      "id": "A28",
+      "requirement": "HTML security",
+      "phase": "P6",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-hostile-sinks.spec.ts",
+        "title": "keeps hostile source inert in live HTML PDF and print sinks"
+      }
+    },
+    {
+      "id": "A29",
+      "requirement": "Performance and renderer responsiveness",
+      "phase": "P11",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-max-document-perf.spec.ts",
+        "title": "keeps admission heartbeat cancellation and viewport mount within budget"
+      }
+    },
+    {
+      "id": "A30",
+      "requirement": "Installed Comment workflow",
+      "phase": "P10",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/installed-document-core-comment.spec.ts",
+        "title": "completes exact Comment CRUD in the installed artifact"
+      }
+    },
+    {
+      "id": "A31",
+      "requirement": "Installed full CriticMarkup workflow",
+      "phase": "P10",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/installed-document-core-full-flow.spec.ts",
+        "title": "completes author edit resolve consume persist and reopen"
+      }
+    },
+    {
+      "id": "A32",
+      "requirement": "Platform readiness",
+      "phase": "P10",
+      "status": "red",
+      "target": {
+        "kind": "workflow",
+        "path": ".github/workflows/document-core-platform.yml",
+        "title": "builds and exercises Review on macOS Windows and Linux"
+      }
+    }
+  ]
+}

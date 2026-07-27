@@ -1,12 +1,11 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown, sendIpcToRenderer, focusEditor } from './helpers'
+import { focusEditor, launchWithMarkdown } from './helpers'
 
 // Regression: selecting a word and opening the find bar (Cmd+F) must prefill
-// the find input with the selection and run the search. The migration to
-// @muyajs/core made the engine emit a collapsed `selection-change` when the
-// find bar steals editor focus; the store used to clobber `searchMatches` on
-// that empty selection, wiping the just-prefilled value and the match list.
+// the find input with the selection and run the search. The target view can
+// emit a collapsed `selection-change` when the find bar steals editor focus;
+// that empty selection must not erase the query or its match list.
 test.describe('Find bar prefill from selection', () => {
   let app: ElectronApplication
   let page: Page
@@ -26,7 +25,7 @@ test.describe('Find bar prefill from selection', () => {
 
   test('double-click word prefills the find input and counts matches', async() => {
     const point = await page.evaluate(() => {
-      const paras = Array.from(document.querySelectorAll('.mu-paragraph'))
+      const paras = Array.from(document.querySelectorAll('.document-view-paragraph'))
       for (const para of paras) {
         const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT)
         while (walker.nextNode()) {
@@ -48,17 +47,14 @@ test.describe('Find bar prefill from selection', () => {
     await page.mouse.dblclick(point.x, point.y)
     await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('fox')
 
-    // The DOM selection is set synchronously by the double-click, but the engine
-    // commits it to its model on the next animation frame (content block
-    // `clickHandler` defers `setCursor` via requestAnimationFrame → `selection-change`
-    // → store). A real user always opens the find bar well after that commit; only
-    // an instantaneous select→find (as here) can race it.
+    // The DOM selection is set synchronously by the double-click, while the
+    // target view publishes the parser-authenticated selection on the next
+    // animation frame. A real user opens Find after that handoff; only an
+    // instantaneous select→find (as here) can race it.
     //
-    // Wait on the *frame*, not wall-clock time: `clickHandler` runs synchronously
-    // on the click, so its commit rAF is already scheduled (the DOM-selection poll
-    // above proves the click fired). A double rAF is therefore guaranteed to run
-    // after that deferred commit — robust even under xvfb's erratic frame timing,
-    // where a fixed `waitForTimeout` could still lose if a frame exceeds it.
+    // Wait on the *frame*, not wall-clock time. The DOM-selection poll proves
+    // the gesture fired, and a double rAF runs after the deferred selection
+    // publication even when background frame cadence is irregular.
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
@@ -66,7 +62,9 @@ test.describe('Find bar prefill from selection', () => {
         )
     )
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
+    await page.keyboard.press(
+      process.platform === 'darwin' ? 'Meta+F' : 'Control+F'
+    )
     const searchBar = page.locator('.search-bar')
     await expect(searchBar).toBeVisible({ timeout: 5000 })
 

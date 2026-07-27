@@ -9,7 +9,16 @@ import { rootsOf, runsOf } from '../helpers/collections.js'
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -149,7 +158,7 @@ describe('LanguageEngine.open protective escapes', () => {
     expect(revision.projection('revised').source).toBe(String.raw`literal ++\} inside`)
   })
 
-  it('does not treat a backslash before a closer prefix as protection', () => {
+  it('treats escaping the first closer character as protection', () => {
     const sourceText = String.raw`{++close \++} inside++}`
     const revision = createLanguageEngine().open(
       createSourceSnapshot(sourceText),
@@ -162,11 +171,12 @@ describe('LanguageEngine.open protective escapes', () => {
     expect(rootsOf(revision.criticMarkup)).toMatchObject([
       {
         kind: 'addition',
-        range: { start: 0, end: 13 },
-        markers: { close: { start: 10, end: 13 } }
+        range: { start: 0, end: 23 },
+        markers: { close: { start: 20, end: 23 } }
       }
     ])
-    expect(revision.projection('original').source).toBe(' inside++}')
-    expect(revision.projection('revised').source).toBe(String.raw`close \ inside++}`)
+    expect(revision.projection('original').source).toBe('')
+    expect(revision.projection('revised').source)
+      .toBe(String.raw`close \++} inside`)
   })
 })

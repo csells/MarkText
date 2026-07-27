@@ -1,8 +1,13 @@
 import { type BrowserWindow, type Menu, type MenuItem } from 'electron'
 import { COMMANDS } from '../../commands'
 import type { CommandManager } from '../../commands'
+import type {
+  DocumentFormatMenuState
+} from '@shared/types/documentSelection'
 
-const MENU_ID_FORMAT_MAP: Readonly<Record<string, string>> = Object.freeze({
+const MENU_ID_FORMAT_MAP: Readonly<
+  Record<string, keyof DocumentFormatMenuState>
+> = Object.freeze({
   strongMenuItem: 'strong',
   emphasisMenuItem: 'em',
   underlineMenuItem: 'u',
@@ -100,7 +105,10 @@ export const loadFormatCommands = (commandManager: CommandManager): void => {
  * @param applicationMenu The application menu instance.
  * @param formats A object map with selected formats.
  */
-export const updateFormatMenu = (applicationMenu: Menu, formats: Record<string, boolean>): void => {
+export const updateFormatMenu = (
+  applicationMenu: Menu,
+  formats: DocumentFormatMenuState
+): void => {
   const formatMenuItem: MenuItem = applicationMenu.getMenuItemById('formatMenuItem')!
   formatMenuItem.submenu!.items.forEach((item: MenuItem) => (item.checked = false))
   formatMenuItem.submenu!.items.forEach((item: MenuItem) => {

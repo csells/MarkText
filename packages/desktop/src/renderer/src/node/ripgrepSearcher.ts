@@ -1,16 +1,16 @@
-// Thin renderer wrapper over the main-process ripgrep IPC bridge.
-// Returns a cancellable thenable with the same public shape as the legacy
-// in-renderer searcher (so call sites in search.vue and quickOpen don't need
-// to change).
+import type {
+  ProjectSearchErrorEnvelope,
+  ProjectSearchMatchEnvelope,
+  ProjectSearchMode,
+  ProjectSearchProgressEnvelope,
+  ProjectSearchRequest,
+  ProjectSearchRequestOptions,
+  ProjectSearchTerminalEnvelope
+} from '@shared/types/projectSearch'
 
-import { deepClone } from '../util'
-
-export type RipgrepMode = 'text' | 'files'
-
-export interface RipgrepSearchOptions {
-  didMatch?: (payload: unknown) => void
-  didSearchPaths?: (num: unknown) => void
-  [key: string]: unknown
+export interface RipgrepSearchOptions extends ProjectSearchRequestOptions {
+  readonly didMatch?: (payload: unknown) => void
+  readonly didSearchPaths?: (num: number) => void
 }
 
 export interface CancellableSearch extends Promise<void> {
@@ -18,136 +18,156 @@ export interface CancellableSearch extends Promise<void> {
 }
 
 interface StartArgs {
-  mode: RipgrepMode
-  directories: unknown
-  pattern: unknown
+  readonly mode: ProjectSearchMode
+  readonly pattern: string
+  readonly options: RipgrepSearchOptions
+}
+
+type SearchEvent =
+  | { readonly kind: 'match'; readonly value: ProjectSearchMatchEnvelope }
+  | { readonly kind: 'progress'; readonly value: ProjectSearchProgressEnvelope }
+  | { readonly kind: 'done'; readonly value: ProjectSearchTerminalEnvelope }
+  | { readonly kind: 'error'; readonly value: ProjectSearchErrorEnvelope }
+  | { readonly kind: 'cancelled'; readonly value: ProjectSearchTerminalEnvelope }
+
+function serializableOptions(
   options: RipgrepSearchOptions
+): ProjectSearchRequestOptions {
+  return Object.freeze({
+    ...(options.isRegexp === undefined
+      ? {}
+      : { isRegexp: options.isRegexp }),
+    ...(options.isCaseSensitive === undefined
+      ? {}
+      : { isCaseSensitive: options.isCaseSensitive }),
+    ...(options.isWholeWord === undefined
+      ? {}
+      : { isWholeWord: options.isWholeWord }),
+    ...(options.leadingContextLineCount === undefined
+      ? {}
+      : { leadingContextLineCount: options.leadingContextLineCount }),
+    ...(options.trailingContextLineCount === undefined
+      ? {}
+      : { trailingContextLineCount: options.trailingContextLineCount }),
+    ...(options.inclusions === undefined
+      ? {}
+      : { inclusions: Object.freeze([...options.inclusions]) })
+  })
 }
 
-interface RipgrepPayloadEnvelope {
-  searchId: string
-  payload?: unknown
-  num?: unknown
-  error?: string
-}
-
-let nextId = 1
-const genId = (): string => `rg-${Date.now()}-${nextId++}`
-
-const startSearch = ({ mode, directories, pattern, options }: StartArgs): CancellableSearch => {
-  const searchId = genId()
+const startSearch = ({
+  mode,
+  pattern,
+  options
+}: StartArgs): CancellableSearch => {
   const didMatch = options.didMatch || ((): void => {})
   const didSearchPaths = options.didSearchPaths || ((): void => {})
+  const request: ProjectSearchRequest = Object.freeze({
+    schema: 'project-search-request-1',
+    mode,
+    pattern,
+    options: serializableOptions(options)
+  })
 
-  let offMatch: (() => void) | null = null
-  let offProgress: (() => void) | null = null
-  let offDone: (() => void) | null = null
-  let offError: (() => void) | null = null
-  let offCancelled: (() => void) | null = null
+  let searchId: string | null = null
   let cancelled = false
-
-  const cleanup = (): void => {
-    if (offMatch) offMatch()
-    if (offProgress) offProgress()
-    if (offDone) offDone()
-    if (offError) offError()
-    if (offCancelled) offCancelled()
-    offMatch = offProgress = offDone = offError = offCancelled = null
-  }
+  let settled = false
+  let earlyEvents: SearchEvent[] = []
+  let cleanup = (): void => {}
 
   const promise = new Promise<void>((resolve, reject) => {
-    offMatch = window.ripgrep.onMatch((payload: unknown) => {
-      const env = payload as RipgrepPayloadEnvelope | null
-      if (!env || env.searchId !== searchId) return
-      try {
-        didMatch(env.payload)
-      } catch (err) {
-        console.error(err)
-      }
-    })
-    offProgress = window.ripgrep.onProgress((payload: unknown) => {
-      const env = payload as RipgrepPayloadEnvelope | null
-      if (!env || env.searchId !== searchId) return
-      try {
-        didSearchPaths(env.num)
-      } catch (err) {
-        console.error(err)
-      }
-    })
-    offDone = window.ripgrep.onDone((payload: unknown) => {
-      const env = payload as RipgrepPayloadEnvelope | null
-      if (!env || env.searchId !== searchId) return
-      cleanup()
-      resolve()
-    })
-    offError = window.ripgrep.onError((payload: unknown) => {
-      const env = payload as RipgrepPayloadEnvelope | null
-      if (!env || env.searchId !== searchId) return
-      cleanup()
-      reject(new Error(env.error || 'Ripgrep search failed'))
-    })
-    offCancelled = window.ripgrep.onCancelled((payload: unknown) => {
-      const env = payload as RipgrepPayloadEnvelope | null
-      if (!env || env.searchId !== searchId) return
-      cleanup()
-      resolve()
-    })
+    let offMatch: (() => void) | null = null
+    let offProgress: (() => void) | null = null
+    let offDone: (() => void) | null = null
+    let offError: (() => void) | null = null
+    let offCancelled: (() => void) | null = null
 
-    // Strip non-serializable callbacks before shipping options across IPC.
-    // Pinia/Vue can hand us reactive Proxies that fail structured clone, so
-    // do a JSON round-trip on the remaining options to get plain values.
-
-    const { didMatch: _a, didSearchPaths: _b, ...rest } = options
-    let serializable: unknown
-    try {
-      serializable = deepClone(rest)
-    } catch {
-      serializable = rest
+    cleanup = (): void => {
+      if (offMatch) offMatch()
+      if (offProgress) offProgress()
+      if (offDone) offDone()
+      if (offError) offError()
+      if (offCancelled) offCancelled()
+      offMatch = offProgress = offDone = offError = offCancelled = null
+      earlyEvents = []
     }
-    const plainDirectories = Array.isArray(directories) ? directories.map((d) => String(d)) : []
-    window.ripgrep
-      .start({
-        searchId,
-        mode,
-        directories: plainDirectories,
-        pattern: typeof pattern === 'string' ? pattern : String(pattern || ''),
-        options: serializable
+
+    const finish = (error?: Error): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (error) reject(error)
+      else resolve()
+    }
+
+    const deliver = (event: SearchEvent): void => {
+      if (searchId === null) {
+        earlyEvents.push(event)
+        return
+      }
+      if (event.value.searchId !== searchId) return
+      if (event.kind === 'match') {
+        try {
+          didMatch(event.value.payload)
+        } catch (error) {
+          console.error(error)
+        }
+      } else if (event.kind === 'progress') {
+        try {
+          didSearchPaths(event.value.num)
+        } catch (error) {
+          console.error(error)
+        }
+      } else if (event.kind === 'error') {
+        finish(new Error(event.value.error || 'Project search failed'))
+      } else {
+        finish()
+      }
+    }
+
+    offMatch = window.ripgrep.onMatch(payload =>
+      deliver({ kind: 'match', value: payload }))
+    offProgress = window.ripgrep.onProgress(payload =>
+      deliver({ kind: 'progress', value: payload }))
+    offDone = window.ripgrep.onDone(payload =>
+      deliver({ kind: 'done', value: payload }))
+    offError = window.ripgrep.onError(payload =>
+      deliver({ kind: 'error', value: payload }))
+    offCancelled = window.ripgrep.onCancelled(payload =>
+      deliver({ kind: 'cancelled', value: payload }))
+
+    window.ripgrep.start(request)
+      .then(receipt => {
+        searchId = receipt.searchId
+        const pending = earlyEvents
+        earlyEvents = []
+        for (const event of pending) deliver(event)
+        if (cancelled && !settled) window.ripgrep.cancel(searchId)
       })
-      .catch((err) => {
-        cleanup()
-        reject(err)
+      .catch(error => {
+        finish(error instanceof Error ? error : new Error(String(error)))
       })
   }) as CancellableSearch
 
   promise.cancel = (): void => {
-    if (cancelled) return
+    if (cancelled || settled) return
     cancelled = true
-    window.ripgrep.cancel(searchId)
+    if (searchId !== null) window.ripgrep.cancel(searchId)
   }
   return promise
 }
 
-class RipgrepDirectorySearcher {
-  rgPath: string
-
-  constructor() {
-    const marktext = window.marktext
-    this.rgPath = marktext?.paths?.ripgrepBinaryPath || window.rgPath || ''
-  }
-
-  search(directories: string[], pattern: string, options: RipgrepSearchOptions): CancellableSearch {
-    return startSearch({ mode: 'text', directories, pattern, options })
+export default class RipgrepDirectorySearcher {
+  search(
+    pattern: string,
+    options: RipgrepSearchOptions
+  ): CancellableSearch {
+    return startSearch({ mode: 'text', pattern, options })
   }
 }
 
-export default RipgrepDirectorySearcher
-
 export class FileSearcher {
-  search(
-    directories: string[],
-    _pattern: string,
-    options: RipgrepSearchOptions
-  ): CancellableSearch {
-    return startSearch({ mode: 'files', directories, pattern: '', options })
+  search(options: RipgrepSearchOptions): CancellableSearch {
+    return startSearch({ mode: 'files', pattern: '', options })
   }
 }

@@ -62,20 +62,19 @@ describe('writeFile — durable atomic save (#3786, #3828)', () => {
     expect(readFileSync(target, 'utf-8')).toBe('hello')
   })
 
-  it.skipIf(process.platform === 'win32')(
-    'preserves the target file\'s permission mode across a save',
-    async() => {
-      const dir = tempDir()
-      const target = path.join(dir, 'secret.md')
-      writeFileSync(target, 'v1')
-      chmodSync(target, 0o600)
+  it('preserves the target file\'s permission mode across a save', async() => {
+    const dir = tempDir()
+    const target = path.join(dir, 'secret.md')
+    writeFileSync(target, 'v1')
+    chmodSync(target, 0o600)
+    const modeBefore = statSync(target).mode & 0o777
 
-      await writeFile(target, 'v2', undefined)
+    await writeFile(target, 'v2', undefined)
 
-      expect(readFileSync(target, 'utf-8')).toBe('v2')
-      // A plain temp+rename would install a fresh 0o644 inode; write-file-atomic
-      // restores the original mode.
-      expect(statSync(target).mode & 0o777).toBe(0o600)
-    }
-  )
+    expect(readFileSync(target, 'utf-8')).toBe('v2')
+    // A plain temp+rename may install a fresh inode with a different mode.
+    // Compare the platform's actual representable mode before and after:
+    // POSIX records 0600, while Windows may expose synthesized permission bits.
+    expect(statSync(target).mode & 0o777).toBe(modeBefore)
+  })
 })

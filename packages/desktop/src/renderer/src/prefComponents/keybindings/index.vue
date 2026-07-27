@@ -119,6 +119,7 @@ import notice from '@/services/notification'
 import { Edit, RefreshRight, Delete } from '@element-plus/icons-vue'
 import LinkIcon from '@/components/icons/LinkIcon.vue'
 import { useI18n } from 'vue-i18n'
+import { openExternalResource } from '@/services/presentationEffects'
 
 const { t, locale } = useI18n()
 
@@ -168,9 +169,7 @@ onUnmounted(() => {
 })
 
 const openKeybindingDocs = (): void => {
-  window.electron.shell.openExternal(
-    'https://marktext.me/docs/key-bindings'
-  )
+  openExternalResource('documentation-keybindings')
 }
 
 const saveKeybindings = (): void => {

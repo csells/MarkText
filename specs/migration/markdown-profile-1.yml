@@ -1,0 +1,43 @@
+{
+  "schema": "marktext-markdown-profile-manifest-v1",
+  "id": "markdown-profile-1",
+  "criticMarkupProfile": "marktext-profile-1",
+  "commonMark": "0.31.2",
+  "gfm": {
+    "version": "0.29-gfm",
+    "constructs": [
+      "tables",
+      "task-list-items",
+      "strikethrough",
+      "extended-autolinks",
+      "tagfilter"
+    ]
+  },
+  "fixedMarkdownOptions": {
+    "breaks": false,
+    "pedantic": false
+  },
+  "markdownOptions": {
+    "schema": "markdown-options-1",
+    "fields": [
+      "gfm",
+      "frontMatter",
+      "math",
+      "gitLabMath",
+      "footnotes",
+      "subscriptAndSuperscript"
+    ],
+    "desktopDefaults": {
+      "gfm": true,
+      "frontMatter": true,
+      "math": true,
+      "gitLabMath": false,
+      "footnotes": false,
+      "subscriptAndSuperscript": true
+    }
+  },
+  "liveHtmlSafetyProfiles": [
+    "live-html-sanitized-v1",
+    "live-html-escaped-v1"
+  ]
+}

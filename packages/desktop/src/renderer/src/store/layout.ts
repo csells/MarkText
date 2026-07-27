@@ -21,7 +21,7 @@ const normalizeSideBarWidth = (width: unknown): number => {
 }
 
 interface BufferedLayout {
-  rightColumn: string | undefined
+  rightColumn: string
   showSideBar: boolean
   showTabBar: boolean
   sideBarWidth: number
@@ -31,11 +31,8 @@ const createBufferedLayoutState = (state: unknown): BufferedLayout | null => {
   if (!state || typeof state !== 'object') return null
   const s = state as LayoutPartial
 
-  // Pass through `rightColumn` (may be undefined). The pre-migration JS did
-  // not coerce to 'files' here — RESTORE_BUFFERED_STATE then routes through
-  // SET_LAYOUT which only assigns when the key is defined.
   return {
-    rightColumn: s.rightColumn,
+    rightColumn: s.rightColumn ?? '',
     showSideBar: !!s.showSideBar,
     showTabBar: !!s.showTabBar,
     sideBarWidth: normalizeSideBarWidth(s.sideBarWidth)
@@ -66,10 +63,8 @@ export const useLayoutStore = defineStore('layout', () => {
     { scheduleBufferUpdate = true }: SetLayoutOptions = {}
   ): void {
     if (layout.showSideBar !== undefined) {
-      const { windowId } = window.marktext?.env ?? {}
       window.electron.ipcRenderer.send(
         'mt::update-sidebar-menu',
-        Number(windowId),
         !!layout.showSideBar
       )
       const preferencesStore = usePreferencesStore()
@@ -78,9 +73,6 @@ export const useLayoutStore = defineStore('layout', () => {
         value: !!layout.showSideBar
       })
     }
-    // Match the pre-migration `Object.assign(this, layout)` semantics: assign
-    // each known field as-is (no normalization here; SET_SIDE_BAR_WIDTH owns
-    // sideBarWidth's normalization), and skip unknown keys silently.
     if (layout.rightColumn !== undefined) rightColumn.value = layout.rightColumn
     if (layout.showSideBar !== undefined) showSideBar.value = !!layout.showSideBar
     if (layout.showTabBar !== undefined) showTabBar.value = !!layout.showTabBar
@@ -164,16 +156,14 @@ export const useLayoutStore = defineStore('layout', () => {
     bus.on('view:toggle-layout-entry', (entryName: unknown) => {
       const name = entryName as 'showSideBar' | 'showTabBar'
       TOGGLE_LAYOUT_ENTRY(name)
-      const { windowId } = window.marktext?.env ?? {}
-      window.electron.ipcRenderer.send('mt::view-layout-changed', Number(windowId), {
+      window.electron.ipcRenderer.send('mt::view-layout-changed', {
         [name]: name === 'showSideBar' ? showSideBar.value : showTabBar.value
       })
     })
   }
 
   function DISPATCH_LAYOUT_MENU_ITEMS(): void {
-    const { windowId } = window.marktext?.env ?? {}
-    window.electron.ipcRenderer.send('mt::view-layout-changed', Number(windowId), {
+    window.electron.ipcRenderer.send('mt::view-layout-changed', {
       showTabBar: showTabBar.value,
       showSideBar: showSideBar.value
     })

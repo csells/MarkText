@@ -47,10 +47,7 @@
       "findNext": "次を検索",
       "findPrevious": "前を検索",
       "findInFolder": "フォルダ内を検索",
-      "screenshot": "スクリーンショット",
-      "lineEnding": "改行コード",
-      "lineEndingCrlf": "CRLF (Windows)",
-      "lineEndingLf": "LF (Linux/Mac)"
+      "screenshot": "スクリーンショット"
     },
     "paragraph": {
       "title": "段落",
@@ -268,6 +265,7 @@
       "summary": "レビュー項目：{count}件",
       "trackChanges": "変更履歴",
       "unavailable": "この表示ではレビューを利用できません。",
+      "actionUnavailable": "このレビュー操作は利用できなくなりました。レビューを更新して、もう一度お試しください。",
       "empty": "レビュー項目はありません",
       "removeComment": "コメントを削除",
       "removeHighlight": "ハイライトを削除",
@@ -408,7 +406,6 @@
       "items": {
         "autoSave": "編集中のコンテンツを自動保存",
         "autoSaveDelay": "変更後にファイルが保存されるまでの時間（ミリ秒）",
-        "autoNormalizeLineEndings": "ファイルを開くときに改行コードを自動正規化します。無効にすると、ファイルはそのまま開かれます",
         "titleBarStyle": "タイトルバーのスタイル（WindowsおよびLinuxシステムのみ）",
         "openFilesInNewWindow": "新しいウィンドウでファイルを開く",
         "openFolderInNewWindow": "メニューから新しいウィンドウでフォルダを開く",
@@ -427,32 +424,13 @@
         "editorLineWidth": "エディターエリアの最大幅を定義します。空文字列またはch（文字）、px（ピクセル）、%（パーセンテージ）の接尾辞が許可されます",
         "codeFontSize": "コードブロックのフォントサイズ、範囲は12〜18",
         "codeFontFamily": "コードブロックで使用されるフォントファミリー",
-        "codeBlockLineNumbers": "行番号を表示するかどうか",
-        "trimUnnecessaryCodeBlockEmptyLines": "コードブロックの最初と最後の空行をトリミング",
         "autoPairBracket": "編集時に自動的に括弧をペアにする",
         "autoPairMarkdownSyntax": "Markdown構文の自動補完",
         "autoPairQuote": "引用符の自動補完",
-        "endOfLine": "各行の末尾で使用される改行文字。デフォルト値はdefaultで、オペレーティングシステムのデフォルトの改行文字を選択します",
-        "defaultEncoding": "デフォルトのファイルエンコーディング",
-        "autoGuessEncoding": "ファイルを開くときにファイルエンコーディングを自動的に推測しようとする",
-        "trimTrailingNewline": "末尾改行のトリミングオプション",
         "textDirection": "テキストの書字方向",
         "hideQuickInsertHint": "段落を素早く作成するためのヒントを非表示",
         "hideLinkPopup": "カーソルがリンクの上にホバーしたときにリンクポップアップを非表示",
         "autoCheck": "関連するタスクを自動的にチェックするかどうか",
-        "preferLooseListItem": "優先されるリストタイプ",
-        "bulletListMarker": "箇条書きリストで使用されるマーカー",
-        "orderListDelimiter": "順序付きリストで使用される区切り文字",
-        "preferHeadingStyle": "MarkTextで優先される見出しスタイル",
-        "tabSize": "タブをx個のスペースに置き換える",
-        "listIndentation": "リストのインデントを選択",
-        "frontmatterType": "フロントマターのタイプ",
-        "superSubScript": "Pandocのmarkdown拡張上付き文字と下付き文字を有効にする",
-        "footnote": "Pandocのmarkdown拡張脚注を有効にする",
-        "isHtmlEnabled": "HTMLレンダリングを有効にする",
-        "isGitlabCompatibilityEnabled": "GitLab互換モードを有効にする",
-        "sequenceTheme": "シーケンス図のテーマ",
-        "plantumlServer": "PlantUMLサーバーのURL",
         "theme": "MarkTextで使用するテーマを選択",
         "followSystemTheme": "システムのテーマに従う",
         "lightModeTheme": "システムがライトモードの時に使用するテーマ",
@@ -465,7 +443,10 @@
         "imageRelativeDirectoryBase": "相対画像のコピー先",
         "imageRelativeDirectoryName": "相対画像フォルダ名",
         "fileSortOrder": "開いたフォルダ内のファイルの並べ替え順、昇順または降順",
-        "openedFilesInSidebar": "開いているファイルをサイドバーに表示するかどうか"
+        "openedFilesInSidebar": "開いているファイルをサイドバーに表示するかどうか",
+        "subscriptAndSuperscript": "Pandocのmarkdown拡張上付き文字と下付き文字を有効にする",
+        "footnotes": "Pandocのmarkdown拡張脚注を有効にする",
+        "gitLabMath": "Enable GitLab Math syntax"
       }
     },
     "categories": {
@@ -559,34 +540,13 @@
       "codeBlock": {
         "title": "コードブロック",
         "fontSize": "フォントサイズ",
-        "fontFamily": "フォントファミリー",
-        "showLineNumbers": "行番号を表示",
-        "removeEmptyLines": "空行を削除"
+        "fontFamily": "フォントファミリー"
       },
       "writingBehavior": {
         "title": "書き込み動作",
         "autoCloseBrackets": "括弧を自動で閉じる",
         "autoCompleteMarkdown": "Markdownを自動補完",
         "autoCloseQuotes": "引用符を自動で閉じる"
-      },
-      "fileRepresentation": {
-        "title": "ファイル表現",
-        "tabWidth": "タブ幅",
-        "lineSeparator": "行区切り文字",
-        "defaultEncoding": "デフォルトエンコーディング",
-        "autoDetectEncoding": "エンコーディングを自動検出",
-        "trailingNewlines": {
-          "title": "末尾の改行",
-          "doNothing": "何もしない",
-          "ensureOne": "1つ確保",
-          "preserve": "保持",
-          "trimAll": "すべて削除"
-        },
-        "endOfLine": {
-          "default": "デフォルト",
-          "crlf": "CRLF (Windows)",
-          "lf": "LF (Linux/Mac)"
-        }
       },
       "misc": {
         "title": "その他",
@@ -598,7 +558,6 @@
         "hideQuickInsertHint": "クイック挿入ヒントを隠す",
         "hideLinkPopup": "リンクポップアップを隠す",
         "autoCheck": "自動チェック",
-        "autoNormalizeLineEndings": "開くときに改行コードを自動的にLFに正規化する",
         "wrapCodeBlocks": "コードブロックを折り返し"
       }
     },
@@ -666,53 +625,9 @@
       "title": "Markdown",
       "extensions": {
         "title": "拡張機能",
-        "superSubScript": "上付き/下付き文字",
-        "footnote": "脚注",
-        "footnoteNotes": "脚注",
-        "frontmatterType": {
-          "jsonBrace": "JSON括弧",
-          "jsonSemicolon": "JSONセミコロン",
-          "title": "フロントマタータイプ"
-        }
-      },
-      "diagrams": {
-        "title": "図表",
-        "sequenceTheme": {
-          "title": "シーケンステーマ",
-          "handDrawn": "手描き",
-          "simple": "シンプル"
-        },
-        "plantumlServer": {
-          "title": "PlantUMLサーバーのURL"
-        }
-      },
-      "misc": {
-        "preferHeadingStyle": {
-          "title": "優先見出しスタイル",
-          "atx": "ATXスタイル",
-          "setext": "Setextスタイル"
-        },
-        "title": "その他"
-      },
-      "compatibility": {
-        "enableGitlab": "GitLab互換性を有効",
-        "enableHtml": "HTMLサポートを有効",
-        "title": "互換性"
-      },
-      "lists": {
-        "bulletListMarker": "箇条書きマーカー",
-        "listIndentation": {
-          "title": "リストインデント",
-          "dfm": "DFMスタイル",
-          "fourSpaces": "4つのスペース",
-          "oneSpace": "1つのスペース",
-          "tab": "タブ",
-          "threeSpaces": "3つのスペース",
-          "twoSpaces": "2つのスペース"
-        },
-        "orderListDelimiter": "番号付きリスト区切り文字",
-        "preferLooseListItem": "ルーズリストアイテムを優先",
-        "title": "リスト"
+        "subscriptAndSuperscript": "上付き/下付き文字",
+        "footnotes": "脚注",
+        "gitLabMath": "GitLab Math"
       }
     },
     "theme": {
@@ -790,9 +705,6 @@
       "moveFile": "ファイルを移動",
       "renameFile": "ファイル名を変更",
       "quickOpen": "クイックオープン",
-      "changeEncoding": "エンコーディングを変更",
-      "changeLineEnding": "改行コードを変更",
-      "trailingNewline": "末尾の改行",
       "print": "印刷",
       "preferences": "環境設定",
       "closeTab": "タブを閉じる",
@@ -1001,6 +913,7 @@
       "replacementPlaceholder": "置換テキストを入力",
       "trackChangeRejected": {
         "title": "編集は記録されませんでした",
+        "unknownReason": "変更履歴がこの編集を記録できなかったため、ドキュメントは変更されていません。再試行するか、この変更の間だけ変更履歴をオフにしてください。",
         "unmappableSourceEdit": "変更履歴がこの編集を記録できなかったため、ドキュメントは変更されていません。編集を小さく分けて試すか、この変更の間だけ変更履歴をオフにしてください。",
         "parserConflict": "変更履歴がこの編集をドキュメントの Markdown と整合させられなかったため、ドキュメントは変更されていません。編集を小さく分けて試すか、この変更の間だけ変更履歴をオフにしてください。",
         "unmappableTrackedSelection": "変更履歴が選択範囲を記録中のドキュメントに対応付けられなかったため、ドキュメントは変更されていません。テキストを選択し直して再試行するか、この変更の間だけ変更履歴をオフにしてください。",
@@ -1017,6 +930,9 @@
       "rows": "行",
       "columns": "列"
     },
+    "imageViewer": {
+      "label": "画像プレビュー"
+    },
     "notifications": {
       "notificationNotFound": "通知が見つかりません"
     },
@@ -1026,7 +942,22 @@
     },
     "sourceCode": {
       "cursorNullComment": "カーソルnullコメント",
-      "imageStructureDeletedComment": "画像構造削除コメント"
+      "imageStructureDeletedComment": "画像構造削除コメント",
+      "label": "ソースコード",
+      "operationFailed": "ソースの{operation}に失敗しました。検証済みのドキュメントを復元しました。",
+      "operations": {
+        "edit": "編集",
+        "undo": "元に戻す",
+        "redo": "やり直し",
+        "paste": "貼り付け",
+        "cut": "切り取り",
+        "copy": "コピー",
+        "selection": "選択",
+        "attachment": "接続",
+        "headingSelection": "見出しの選択"
+      },
+      "semanticClipboardUnavailableTitle": "コマンドを使用できません",
+      "semanticClipboardUnavailable": "ソースモードでは、リッチテキストのコピー、HTML のコピー、プレーンテキストとしての貼り付けは使用できません。代わりにコピー、切り取り、または貼り付けを使用してください。"
     },
     "spellcheck": {
       "disabledError": "スペルチェックの無効化エラー",

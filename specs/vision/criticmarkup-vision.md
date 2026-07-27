@@ -116,11 +116,10 @@ The CriticMarkup work spans several documents; they differ by **role**, not by s
 | **How we get there** — the rebuild plan | `specs/plans/0009-criticmarkup-document-engine-rebuild.md` |
 | **Vocabulary** | `CONTEXT.md` |
 | **Evidence** — upstream research answering a specific question | `specs/architecture/criticmarkup-host-markdown-interaction-evidence.md` |
-| **Legacy record** — the engine being replaced, kept as a migration/deletion oracle | `specs/architecture/archive/` |
 
-The *target* architecture is not in `specs/architecture/` — that folder holds contracts that hold
-today, and `archive/` holds the superseded engine records. The target lives in the ADRs, plan 0009,
-and this vision. Delete the archived records with the code they describe at cutover.
+The architecture lives in the ADRs, plan 0009, and this vision. Research and
+evidence may explain a ruling, but no prior implementation defines target
+behavior.
 
 ## North star
 

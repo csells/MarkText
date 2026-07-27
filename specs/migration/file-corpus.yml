@@ -1,0 +1,54 @@
+{
+  "schema": "marktext-file-corpus-v1",
+  "sourceUnits": "decoded UTF-16",
+  "byteEncoding": "lowercase hexadecimal",
+  "rules": {
+    "noopSave": "reuse the original bytes exactly",
+    "editedSave": "encode every canonical code unit once in the retained encoding when representable",
+    "bom": "a decoded signature is retained as one leading U+FEFF source unit and is never duplicated",
+    "unrepresentable": "reject visibly or require explicit encoding conversion"
+  },
+  "cases": [
+    {
+      "id": "utf8-no-bom-lf-no-final-eol",
+      "encoding": "utf-8",
+      "signature": false,
+      "decodedSource": "alpha\nbeta",
+      "originalBytesHex": "616c7068610a62657461",
+      "expectedNoopBytesHex": "616c7068610a62657461"
+    },
+    {
+      "id": "utf8-bom-crlf",
+      "encoding": "utf-8",
+      "signature": true,
+      "decodedSource": "\ufeffalpha\r\nbeta\r\n",
+      "originalBytesHex": "efbbbf616c7068610d0a626574610d0a",
+      "expectedNoopBytesHex": "efbbbf616c7068610d0a626574610d0a"
+    },
+    {
+      "id": "utf16le-bom-cr",
+      "encoding": "utf-16le",
+      "signature": true,
+      "decodedSource": "\ufeffa\rb\r",
+      "originalBytesHex": "fffe61000d0062000d00",
+      "expectedNoopBytesHex": "fffe61000d0062000d00"
+    },
+    {
+      "id": "utf16be-bom-mixed-eol",
+      "encoding": "utf-16be",
+      "signature": true,
+      "decodedSource": "\ufeffa\r\nb\nc\r",
+      "originalBytesHex": "feff0061000d000a0062000a0063000d",
+      "expectedNoopBytesHex": "feff0061000d000a0062000a0063000d"
+    },
+    {
+      "id": "astral-and-lone-surrogate",
+      "encoding": "utf-16le",
+      "signature": false,
+      "decodedCodeUnitsHex": ["d83d", "de00", "0061", "d800"],
+      "originalBytesHex": "3dd800de610000d8",
+      "expectedNoopBytesHex": "3dd800de610000d8",
+      "editedEncodingResult": "unrepresentable-unpaired-surrogate"
+    }
+  ]
+}

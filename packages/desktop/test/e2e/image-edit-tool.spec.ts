@@ -6,30 +6,27 @@ import {
   placeCaretInEditor,
   sendIpcToRenderer,
   setSourceMarkdown,
+  readCanonicalMarkdown,
   expectNoRendererErrors,
   clearRendererErrors
 } from './helpers'
+import { redo, undo } from './documentCoreReviewE2e'
 
-// Item 113 — Format -> Image desktop e2e wiring.
+// Format -> Image target-owned workflow.
 //
-// The engine path (empty-image placeholder + click opens the edit tool) is
-// already proven in packages/muya/e2e/tests/ui/image-tools.spec.ts. What only
-// exists in the desktop renderer (editor.vue) is the menu/IPC chain:
+// The menu/IPC chain opens a draft owned by the document view. No placeholder
+// or source edit exists until the form submits:
 //
 //   Format -> Image menu  (main: menu/actions/format.ts `image`)
 //     -> ipc 'mt::editor-format-action' { type: 'image' }
 //     -> renderer store/listenForMain.ts re-emits bus 'format'
-//     -> editor.vue handleInlineFormat -> editor.value.format('image')
-//     -> muya block/base/format.ts inserts `![]()` and, inside a
-//        requestAnimationFrame, emits 'muya-image-selector' for the empty
-//        placeholder
-//     -> ImageEditTool (mu-image-selector) shows + focuses its `input.src`.
+//     -> editor.vue delegates to the document view's Image selector
+//     -> submit dispatches one typed `insert-image` intent.
 //
 // These tests drive the real built Electron app and assert the float renders
-// with a focused src input. Because the engine emits the selector inside a
-// rAF, all assertions poll rather than checking synchronously.
+// with a focused src input, exact source, and exact one-step history.
 
-const srcInput = '.mu-image-selector input.src'
+const srcInput = '.document-view-image-selector input.src'
 
 // Whether the ImageEditTool's src input currently exists and is the focused
 // element. Checking activeElement directly avoids racing the rAF that
@@ -41,18 +38,16 @@ const isSrcInputFocused = (page: Page): Promise<boolean> =>
       !!active &&
       active.tagName === 'INPUT' &&
       active.classList.contains('src') &&
-      !!active.closest('.mu-image-selector')
+      !!active.closest('.document-view-image-selector')
     )
   })
 
-// baseFloat shows a float by writing inline `opacity: 1` on its
-// `.mu-float-wrapper` once `computePosition` resolves; hidden floats keep the
-// CSS default opacity 0 (see packages/muya/src/ui/baseFloat). Playwright's
+// The image tool writes inline `opacity: 1` once positioned. Playwright's
 // toBeVisible ignores opacity, so the inline opacity is the reliable signal.
 const toolShown = (page: Page): Promise<boolean> =>
   page.evaluate(() => {
-    const tool = document.querySelector('.mu-image-selector')
-    const wrapper = tool?.closest('.mu-float-wrapper') as HTMLElement | null
+    const tool = document.querySelector('.document-view-image-selector')
+    const wrapper = tool?.closest('.document-view-float-wrapper') as HTMLElement | null
     return Number.parseFloat(wrapper?.style.opacity || '0') > 0
   })
 
@@ -60,10 +55,8 @@ const toolShown = (page: Page): Promise<boolean> =>
 // so each test starts from a clean state. The tool is launched in beforeAll;
 // resetting via source mode also moves focus out of any prior float.
 const resetToEmpty = async(page: Page, app: ElectronApplication): Promise<void> => {
-  // A document `click` outside the float hides it (baseFloat attaches a
-  // document-level click → hide). Escape only fires the hide when the keydown
-  // lands on the editor `domNode`, but focus is in the float's input, so a
-  // neutral click is the reliable dismiss.
+  // A neutral document click dismisses an open tool even while its input owns
+  // focus.
   if (await toolShown(page)) {
     await page.mouse.click(5, 5)
     await expect.poll(() => toolShown(page), { timeout: 5000 }).toBe(false)
@@ -94,13 +87,12 @@ test.describe('Format -> Image edit tool wiring', () => {
   test('IPC mt::editor-format-action {image} opens the edit tool with a focused src input', async() => {
     await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
 
-    // The empty `![]()` placeholder is inserted and the edit tool float renders
-    // and is shown (inline opacity 1 on its wrapper).
+    // Opening creates only target-owned draft UI.
     await page.waitForSelector(srcInput, { state: 'attached', timeout: 5000 })
-    await expect(page.locator('.mu-image-selector input.src')).toHaveCount(1)
+    await expect(page.locator('.document-view-image-selector input.src')).toHaveCount(1)
     await expect.poll(() => toolShown(page), { timeout: 5000 }).toBe(true)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
 
-    // The src input is auto-focused for quick editing (_focusSrcInput()).
     await expect.poll(() => isSrcInputFocused(page), { timeout: 5000 }).toBe(true)
 
     await expectNoRendererErrors(app)
@@ -127,18 +119,78 @@ test.describe('Format -> Image edit tool wiring', () => {
     await page.waitForSelector(srcInput, { state: 'attached', timeout: 5000 })
     await expect.poll(() => toolShown(page), { timeout: 5000 }).toBe(true)
 
-    // A freshly inserted `![]()` has no source, so the src input starts empty.
+    // A new draft starts empty and has not inserted `![]()`.
     await expect.poll(
       () =>
         page.evaluate(() => {
           const input = document.querySelector(
-            '.mu-image-selector input.src'
+            '.document-view-image-selector input.src'
           ) as HTMLInputElement | null
           return input ? input.value : null
         }),
       { timeout: 5000 }
     ).toBe('')
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
 
+    await expectNoRendererErrors(app)
+  })
+
+  test('Escape cancels a populated draft without mutating the document', async() => {
+    await clickMenuById(app, 'imageMenuItem')
+    const src = page.locator(srcInput)
+    await expect(src).toBeFocused()
+    await src.fill('images/not-committed.png')
+    await page.locator('.document-view-image-selector input.alt')
+      .fill('not committed')
+
+    await src.press('Escape')
+
+    await expect(page.locator('.document-view-image-selector')).toHaveCount(0)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectNoRendererErrors(app)
+  })
+
+  test('submit commits exact Image source in one undo/redo step', async() => {
+    await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
+    const selector = page.locator('.document-view-image-selector')
+    await selector.locator('input.src').fill('images/cat.png')
+    await selector.locator('input.alt').fill('cat')
+    await selector.locator('input.title').fill('Cat')
+    await selector.locator('input.title').press('Enter')
+
+    const inserted = '![cat](images/cat.png "Cat")\n'
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(inserted)
+    await expect(selector).toHaveCount(0)
+
+    await undo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await redo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(inserted)
+    await undo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectNoRendererErrors(app)
+  })
+
+  test('clicking an existing Image edits its parser-owned canonical reference', async() => {
+    const source = 'A ![old](assets/old.png "Old") Z\n'
+    await setSourceMarkdown(page, app, source)
+    const image = page.locator('img.document-view-image')
+    await expect(image).toHaveCount(1)
+    await image.click()
+
+    const selector = page.locator('.document-view-image-selector')
+    await expect(selector.locator('input.src')).toHaveValue('assets/old.png')
+    await expect(selector.locator('input.alt')).toHaveValue('old')
+    await expect(selector.locator('input.title')).toHaveValue('Old')
+    await selector.locator('input.src').fill('assets/new.png')
+    await selector.locator('input.alt').fill('new')
+    await selector.locator('input.title').fill('New')
+    await selector.locator('button[type="submit"]').click()
+
+    const edited = 'A ![new](assets/new.png "New") Z\n'
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+    await undo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
     await expectNoRendererErrors(app)
   })
 })

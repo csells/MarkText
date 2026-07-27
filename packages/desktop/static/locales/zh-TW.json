@@ -47,10 +47,7 @@
       "findNext": "尋找下一個",
       "findPrevious": "尋找上一個",
       "findInFolder": "在資料夾中尋找",
-      "screenshot": "螢幕截圖",
-      "lineEnding": "行結束符",
-      "lineEndingCrlf": "CRLF(Windows)",
-      "lineEndingLf": "LF(Linux/Mac)"
+      "screenshot": "螢幕截圖"
     },
     "paragraph": {
       "title": "段落",
@@ -268,6 +265,7 @@
       "summary": "{count} 個檢閱項目",
       "trackChanges": "追蹤修訂",
       "unavailable": "此檢視無法使用檢閱功能。",
+      "actionUnavailable": "此檢閱操作已無法使用。請重新整理檢閱後再試一次。",
       "empty": "沒有檢閱項目",
       "removeComment": "移除註解",
       "removeHighlight": "移除醒目標示",
@@ -408,7 +406,6 @@
       "items": {
         "autoSave": "自動儲存正在編輯的內容",
         "autoSaveDelay": "檔案儲存前的延遲時間（毫秒）",
-        "autoNormalizeLineEndings": "開啟檔案時自動將行尾標準化。停用時，檔案會以原樣開啟",
         "titleBarStyle": "標題欄樣式（僅限 Windows 和 Linux 系統）",
         "openFilesInNewWindow": "在新視窗中開啟檔案",
         "openFolderInNewWindow": "透過選單在新視窗中開啟資料夾",
@@ -427,32 +424,13 @@
         "editorLineWidth": "定義編輯器區域的最大寬度。允許空字串或 ch（字元）、px（像素）或 %（百分比）後綴",
         "codeFontSize": "程式碼區塊中的字型大小，範圍是 12 ~ 18",
         "codeFontFamily": "程式碼區塊中使用的字型系列",
-        "codeBlockLineNumbers": "是否顯示行號",
-        "trimUnnecessaryCodeBlockEmptyLines": "修剪程式碼區塊開頭和結尾的空行",
         "autoPairBracket": "編輯時自動配對括號",
         "autoPairMarkdownSyntax": "自動完成 Markdown 語法",
         "autoPairQuote": "自動完成引號",
-        "endOfLine": "每行結尾使用的換行字元。預設值為 default，會選擇您作業系統的預設換行字元",
-        "defaultEncoding": "預設檔案編碼",
-        "autoGuessEncoding": "開啟檔案時嘗試自動猜測檔案編碼",
-        "trimTrailingNewline": "修剪尾隨換行選項",
         "textDirection": "文本書寫方向",
         "hideQuickInsertHint": "隱藏快速建立段落的提示",
         "hideLinkPopup": "當游標懸停在連結上時隱藏連結彈出視窗",
         "autoCheck": "是否自動檢查相關任務",
-        "preferLooseListItem": "首選清單類型",
-        "bulletListMarker": "項目符號清單中使用的標記",
-        "orderListDelimiter": "有序清單中使用的分隔符",
-        "preferHeadingStyle": "MarkText 中的首選標題樣式",
-        "tabSize": "用 x 個空格替換製表符",
-        "listIndentation": "選擇清單的縮排",
-        "frontmatterType": "前言類型",
-        "superSubScript": "啟用 Pandoc 的 Markdown 擴充功能上標和下標",
-        "footnote": "啟用 Pandoc 的 Markdown 擴充功能腳註",
-        "isHtmlEnabled": "啟用 HTML 轉譯",
-        "isGitlabCompatibilityEnabled": "啟用 GitLab 相容模式",
-        "sequenceTheme": "序列圖主題",
-        "plantumlServer": "PlantUML 伺服器 URL",
         "theme": "選擇 MarkText 中使用的主題",
         "followSystemTheme": "跟隨系統主題",
         "lightModeTheme": "系統處於淺色模式時使用的主題",
@@ -465,7 +443,10 @@
         "imageRelativeDirectoryBase": "相對圖片的複製位置",
         "imageRelativeDirectoryName": "相對圖片資料夾名稱",
         "fileSortOrder": "開啟資料夾中檔案的排序順序：遞增或遞減",
-        "openedFilesInSidebar": "是否在側邊欄中顯示已開啟的檔案"
+        "openedFilesInSidebar": "是否在側邊欄中顯示已開啟的檔案",
+        "subscriptAndSuperscript": "啟用 Pandoc 的 Markdown 擴充功能上標和下標",
+        "footnotes": "啟用 Pandoc 的 Markdown 擴充功能腳註",
+        "gitLabMath": "Enable GitLab Math syntax"
       }
     },
     "categories": {
@@ -559,34 +540,13 @@
       "codeBlock": {
         "title": "程式碼區塊",
         "fontSize": "字型大小",
-        "fontFamily": "字型系列",
-        "showLineNumbers": "顯示行號",
-        "removeEmptyLines": "移除空行"
+        "fontFamily": "字型系列"
       },
       "writingBehavior": {
         "title": "寫作行為",
         "autoCloseBrackets": "自動關閉括號",
         "autoCompleteMarkdown": "自動完成 Markdown",
         "autoCloseQuotes": "自動關閉引號"
-      },
-      "fileRepresentation": {
-        "title": "檔案表示",
-        "tabWidth": "Tab 寬度",
-        "lineSeparator": "行分隔符",
-        "defaultEncoding": "預設編碼",
-        "autoDetectEncoding": "自動偵測編碼",
-        "trailingNewlines": {
-          "title": "結尾換行",
-          "doNothing": "不執行任何動作",
-          "ensureOne": "確保一個",
-          "preserve": "保留",
-          "trimAll": "全部修剪"
-        },
-        "endOfLine": {
-          "default": "預設",
-          "crlf": "CRLF（Windows）",
-          "lf": "LF（Linux/Mac）"
-        }
       },
       "misc": {
         "title": "其他",
@@ -598,7 +558,6 @@
         "hideQuickInsertHint": "隱藏快速插入提示",
         "hideLinkPopup": "隱藏連結彈出視窗",
         "autoCheck": "自動檢查",
-        "autoNormalizeLineEndings": "開啟時自動將行尾標準化為 LF",
         "wrapCodeBlocks": "換行程式碼區塊"
       }
     },
@@ -666,53 +625,9 @@
       "title": "PicGo 設定",
       "extensions": {
         "title": "擴充功能",
-        "superSubScript": "上標/下標",
-        "footnote": "腳註",
-        "footnoteNotes": "腳註備註",
-        "frontmatterType": {
-          "jsonBrace": "JSON 大括號",
-          "jsonSemicolon": "JSON 分號",
-          "title": "前置資料類型"
-        }
-      },
-      "diagrams": {
-        "title": "圖表",
-        "sequenceTheme": {
-          "title": "序列主題",
-          "handDrawn": "手繪",
-          "simple": "簡單"
-        },
-        "plantumlServer": {
-          "title": "PlantUML 伺服器 URL"
-        }
-      },
-      "misc": {
-        "preferHeadingStyle": {
-          "title": "偏好標題樣式",
-          "atx": "ATX 樣式",
-          "setext": "Setext 樣式"
-        },
-        "title": "其他"
-      },
-      "compatibility": {
-        "enableGitlab": "啟用 GitLab 相容性",
-        "enableHtml": "啟用 HTML 支援",
-        "title": "相容性"
-      },
-      "lists": {
-        "bulletListMarker": "項目符號清單標記",
-        "listIndentation": {
-          "title": "清單縮排",
-          "dfm": "DFM 樣式",
-          "fourSpaces": "四個空格",
-          "oneSpace": "一個空格",
-          "tab": "Tab",
-          "threeSpaces": "三個空格",
-          "twoSpaces": "兩個空格"
-        },
-        "orderListDelimiter": "有序清單分隔符",
-        "preferLooseListItem": "偏好鬆散清單項目",
-        "title": "清單"
+        "subscriptAndSuperscript": "上標/下標",
+        "footnotes": "腳註",
+        "gitLabMath": "GitLab Math"
       }
     },
     "theme": {
@@ -790,9 +705,6 @@
       "moveFile": "移動檔案",
       "renameFile": "重新命名檔案",
       "quickOpen": "快速開啟",
-      "changeEncoding": "變更編碼",
-      "changeLineEnding": "變更行結束符",
-      "trailingNewline": "結尾換行",
       "print": "列印",
       "preferences": "偏好設定",
       "closeTab": "關閉標籤頁",
@@ -1001,6 +913,7 @@
       "replacementPlaceholder": "輸入取代文字",
       "trackChangeRejected": {
         "title": "未能記錄這次編輯",
+        "unknownReason": "追蹤修訂無法記錄這次編輯，文件維持不變。請再試一次，或先關閉追蹤修訂再進行這次變更。",
         "unmappableSourceEdit": "追蹤修訂無法記錄這次編輯，文件維持不變。請嘗試較小的編輯，或先關閉追蹤修訂再進行這次變更。",
         "parserConflict": "追蹤修訂無法讓這次編輯與文件的 Markdown 內容相互對應，文件維持不變。請嘗試較小的編輯，或先關閉追蹤修訂再進行這次變更。",
         "unmappableTrackedSelection": "追蹤修訂無法將選取範圍對應到追蹤中的文件，文件維持不變。請重新選取文字後再試一次，或先關閉追蹤修訂再進行這次變更。",
@@ -1017,6 +930,9 @@
       "rows": "列",
       "columns": "欄"
     },
+    "imageViewer": {
+      "label": "圖片預覽"
+    },
     "notifications": {
       "notificationNotFound": "找不到通知"
     },
@@ -1026,7 +942,22 @@
     },
     "sourceCode": {
       "cursorNullComment": "游標空值註解",
-      "imageStructureDeletedComment": "圖片結構已刪除註解"
+      "imageStructureDeletedComment": "圖片結構已刪除註解",
+      "label": "原始碼",
+      "operationFailed": "原始碼{operation}操作失敗。已還原驗證過的文件。",
+      "operations": {
+        "edit": "編輯",
+        "undo": "復原",
+        "redo": "重做",
+        "paste": "貼上",
+        "cut": "剪下",
+        "copy": "複製",
+        "selection": "選取",
+        "attachment": "連線",
+        "headingSelection": "標題選取"
+      },
+      "semanticClipboardUnavailableTitle": "無法使用命令",
+      "semanticClipboardUnavailable": "原始碼模式不支援複製為富文字、複製為 HTML 和貼上為純文字。請改用複製、剪下或貼上。"
     },
     "spellcheck": {
       "disabledError": "拼字檢查停用錯誤",

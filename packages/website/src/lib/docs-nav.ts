@@ -88,7 +88,7 @@ export const DOC_TABS: DocTab[] = [
         label: 'Architecture & code',
         pages: [
           { slug: ['dev', 'architecture'], title: 'Architecture', file: 'dev/ARCHITECTURE.md', hint: 'Process model & module layering' },
-          { slug: ['dev', 'interface'], title: 'Interface', file: 'dev/INTERFACE.md', hint: 'Muya & renderer public interfaces' },
+          { slug: ['dev', 'interface'], title: 'Interface', file: 'dev/INTERFACE.md', hint: 'Document view & renderer interfaces' },
           { slug: ['dev', 'ipc'], title: 'IPC', file: 'dev/IPC.md', hint: 'Typed mt:: channel catalog' },
           { slug: ['dev', 'typescript'], title: 'TypeScript', file: 'dev/TYPESCRIPT.md', hint: 'TS conventions & strict mode' },
           { slug: ['dev', 'performance'], title: 'Performance', file: 'dev/PERFORMANCE.md', hint: 'Measurement workflow' }

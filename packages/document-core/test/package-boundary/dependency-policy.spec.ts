@@ -42,7 +42,13 @@ describe('document-core dependency policy', () => {
     expect(policy).toEqual({
       runtimeDependencies: [],
       ambientLibraries: ['ES2022'],
-      forbiddenPackages: ['@muyajs/core', 'marked', 'vue', 'pinia', 'electron']
+      forbiddenPackages: [
+        '@marktext/document-view',
+        'marked',
+        'vue',
+        'pinia',
+        'electron'
+      ]
     })
 
     const manifest = JSON.parse(

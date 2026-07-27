@@ -1,6 +1,10 @@
-import { ipcMain, type BrowserWindow, type Menu, type MenuItem } from 'electron'
+import type { BrowserWindow, Menu, MenuItem } from 'electron'
 import { COMMANDS } from '../../commands'
 import type { CommandManager } from '../../commands'
+import { emitInternalChannel } from '../../utils/internalIpc'
+import type {
+  WindowLayoutMenuState
+} from '@shared/types/documentSelection'
 
 type Win = BrowserWindow | null | undefined
 
@@ -33,7 +37,7 @@ export const debugToggleDevTools = (win: Win): void => {
 
 export const debugReloadWindow = (win: Win): void => {
   if (win && global.MARKTEXT_DEBUG) {
-    ipcMain.emit('window-reload-by-id', win.id)
+    emitInternalChannel('window-reload-by-id', win.id)
   }
 }
 
@@ -104,7 +108,7 @@ export const loadViewCommands = (commandManager: CommandManager): void => {
  */
 export const viewLayoutChanged = (
   applicationMenu: Menu,
-  changes: Record<string, unknown>
+  changes: WindowLayoutMenuState
 ): void => {
   const disableMenuByName = (id: string, value: boolean): void => {
     const menuItem: MenuItem = applicationMenu.getMenuItemById(id)!
@@ -115,8 +119,7 @@ export const viewLayoutChanged = (
     menuItem.checked = !!value
   }
 
-  for (const key in changes) {
-    const value = changes[key]
+  for (const [key, value] of Object.entries(changes)) {
     switch (key) {
       case 'showSideBar':
         changeMenuByName('sideBarMenuItem', value)

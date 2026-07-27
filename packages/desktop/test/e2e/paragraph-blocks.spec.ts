@@ -8,8 +8,10 @@ import {
   placeCaretInEditor,
   enterSourceMode,
   exitSourceMode,
-  getMarkdownContent
+  getMarkdownContent,
+  readCanonicalMarkdown
 } from './helpers'
+import { redo, undo } from './documentCoreReviewE2e'
 
 const resetTo = async(page: Page, app: ElectronApplication, text: string) => {
   await setSourceMarkdown(page, app, text + '\n')
@@ -75,7 +77,7 @@ test.describe('Paragraph block transforms', () => {
   test('Code fence', async() => {
     await clickMenuById(app, 'codeFencesMenuItem')
     const present = await page
-      .locator('.editor-component pre, .editor-component .mu-code-block')
+      .locator('.editor-component pre, .editor-component .document-view-code-block')
       .first()
       .waitFor({ state: 'attached', timeout: 5000 })
       .then(() => true)
@@ -83,13 +85,7 @@ test.describe('Paragraph block transforms', () => {
     expect(present).toBe(true)
   })
 
-  // HR + table require Muya to act on a live cursor inside an empty paragraph
-  // (isAllowedTransformation in paragraphCtrl.js gates them on !block.text).
-  // Driving that state purely from outside the renderer is not reliable on
-  // xvfb — the menu invocation reaches Muya but Muya's contentState.cursor
-  // is not pointing at an empty block. Skip until Muya exposes a test hook;
-  // smoke-coverage that the menu id exists is in menu-sanity.spec.js.
-  test.skip('Horizontal rule', async() => {
+  test('Horizontal rule', async() => {
     await resetTo(page, app, '')
     await clickMenuById(app, 'horizontalLineMenuItem')
     const present = await page
@@ -104,7 +100,7 @@ test.describe('Paragraph block transforms', () => {
   test('Math block', async() => {
     await clickMenuById(app, 'mathBlockMenuItem')
     const ok = await page
-      .locator('.editor-component .mu-math-block, .editor-component figure.mu-math-block')
+      .locator('.editor-component .document-view-math-block, .editor-component figure.document-view-math-block')
       .first()
       .waitFor({ state: 'attached', timeout: 5000 })
       .then(() => true)
@@ -115,7 +111,7 @@ test.describe('Paragraph block transforms', () => {
   test('HTML block', async() => {
     await clickMenuById(app, 'htmlBlockMenuItem')
     const ok = await page
-      .locator('.editor-component .mu-html-block, .editor-component figure.mu-html-block')
+      .locator('.editor-component .document-view-html-block, .editor-component figure.document-view-html-block')
       .first()
       .waitFor({ state: 'attached', timeout: 5000 })
       .then(() => true)
@@ -123,38 +119,11 @@ test.describe('Paragraph block transforms', () => {
     expect(ok).toBe(true)
   })
 
-  test.skip('Insert table dialog opens and accepts default', async() => {
-    // Same constraint as HR — needs empty paragraph + live cursor in Muya.
-    await resetTo(page, app, '')
-    await clickMenuById(app, 'tableMenuItem')
-    const dialog = page.locator('.ag-dialog-table, .el-overlay').first()
-    const dialogVisible = await dialog
-      .waitFor({ state: 'visible', timeout: 5000 })
-      .then(() => true)
-      .catch(() => false)
-    expect(dialogVisible).toBe(true)
-    // Confirm default 3x3 by pressing Enter.
-    await page.keyboard.press('Enter')
-    const tableAppeared = await page
-      .locator('.editor-component table')
-      .first()
-      .waitFor({ state: 'attached', timeout: 5000 })
-      .then(() => true)
-      .catch(() => false)
-    expect(tableAppeared).toBe(true)
-  })
 })
 
-// Item 73 — the desktop createTable wiring: clicking the Paragraph › Table
-// menu item must open the el-dialog table picker, and confirming it must drive
-// the renderer's `editor.createTable(tableChecker)` (editor.vue
-// handleDialogTableConfirm) through to a real @muyajs/core table whose caret
-// lands in a cell. The previously-skipped test above could not be trusted
-// because Muya needed a live cursor in an empty paragraph; the
-// placeCaretInEditor helper now seeds the engine's activeContentBlock (via a
-// synthetic keyup on the editor root), which `_immediateBlockAtCursor` reads —
-// so the insert survives the dialog stealing DOM focus.
-test.describe('Insert table dialog (item 73)', () => {
+// Paragraph › Table owns the desktop creation path. This proof drives the
+// actual menu and dialog, then checks the session's exact source and history.
+test.describe('Insert table dialog', () => {
   let app: ElectronApplication
   let page: Page
 
@@ -191,29 +160,30 @@ test.describe('Insert table dialog (item 73)', () => {
     await dialog.locator('.el-button--primary').click()
     await dialog.waitFor({ state: 'hidden', timeout: 5000 })
 
-    // A real table renders. The engine emits rows directly under <table> and
-    // every cell as td.mu-table-cell (no thead/tbody, no th). The 4x3 default
-    // therefore yields 4 rows x 3 = 12 cells.
+    const expected = [
+      '|   |   |   |',
+      '| --- | --- | --- |',
+      '|   |   |   |',
+      '|   |   |   |',
+      '|   |   |   |',
+      ''
+    ].join('\n')
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+
+    // The 4x3 default yields 4 rendered rows x 3 cells.
     await page.waitForSelector('.editor-component table', { state: 'attached', timeout: 5000 })
     await expect
-      .poll(() => page.locator('.editor-component table td').count(), { timeout: 5000 })
+      .poll(() => page.locator(
+        '.editor-component table .document-view-table-cell'
+      ).count(), { timeout: 5000 })
       .toBe(12)
     const rowCount = await page.locator('.editor-component table tr').count()
     expect(rowCount).toBe(4)
 
-    // The caret lands inside a table cell (createTable calls setCursor on the
-    // first content descendant of the new table).
-    const caretInCell = await page.evaluate(() => {
-      const sel = window.getSelection()
-      if (!sel || sel.rangeCount === 0) return false
-      let node: Node | null = sel.getRangeAt(0).startContainer
-      while (node && node !== document.body) {
-        if (node instanceof HTMLElement && node.closest('td.mu-table-cell')) return true
-        node = node.parentNode
-      }
-      return false
-    })
-    expect(caretInCell).toBe(true)
+    await undo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await redo(app)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
   })
 })
 
@@ -221,10 +191,8 @@ test.describe('Insert table dialog (item 73)', () => {
 // alignment. No prior desktop spec consumed a mixed-alignment table fixture;
 // fixture-render.spec.ts only asserts the table RENDERS (cell count), never the
 // source-mode round-trip or that the :--- / :--: / ---: alignment markers
-// survive the WYSIWYG → source toggle. The muya serializer normalises delimiter
-// column widths, so we assert the alignment MARKERS survive (left/center/right)
-// rather than byte-for-byte equality. We then edit a cell and assert the tab
-// picks up the unsaved/modified indicator.
+// survive the WYSIWYG → source toggle. We assert that the alignment markers
+// survive and then edit a cell to prove the tab becomes dirty.
 test.describe('Table source-mode round-trip + modified indicator (item 89)', () => {
   let app: ElectronApplication
   let page: Page
@@ -233,7 +201,7 @@ test.describe('Table source-mode round-trip + modified indicator (item 89)', () 
     const launched = await launchWithDoc('test/e2e/data/table.md')
     app = launched.app
     page = launched.page
-    // Let Muya finish rendering the table blocks.
+    // Let the live view finish rendering the table blocks.
     await page.waitForSelector('.editor-component table', { state: 'attached', timeout: 10000 })
   })
 
@@ -244,10 +212,10 @@ test.describe('Table source-mode round-trip + modified indicator (item 89)', () 
   test('source mode preserves the left/center/right alignment markers', async() => {
     await enterSourceMode(page, app)
     const md = await page.evaluate(() => {
-      const cm = document.querySelector('.source-code .CodeMirror') as
-        | (Element & { CodeMirror?: { getValue(): string } })
-        | null
-      return cm && cm.CodeMirror ? cm.CodeMirror.getValue() : ''
+      const input = document.querySelector(
+        '.source-code-input'
+      ) as HTMLTextAreaElement | null
+      return input?.value ?? ''
     })
     await exitSourceMode(page, app)
 
@@ -278,13 +246,13 @@ test.describe('Table source-mode round-trip + modified indicator (item 89)', () 
 
     // Click into the first table cell so the engine's active block is a cell,
     // then type into it.
-    const firstCell = page.locator('.editor-component table td.mu-table-cell').first()
+    const firstCell = page.locator('.editor-component table td.document-view-table-cell').first()
     await firstCell.click()
     await page.waitForTimeout(150)
     await page.keyboard.type('X', { delay: 0 })
 
     // The edit dirties the tab; poll because the indicator flips on the
-    // async json-change.
+    // asynchronous verified publication.
     await expect
       .poll(
         () => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')),

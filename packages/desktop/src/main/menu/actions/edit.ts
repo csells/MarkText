@@ -1,43 +1,18 @@
-import path from 'path'
-import { BrowserWindow, ipcMain, type Menu, type MenuItem } from 'electron'
-import log from 'electron-log'
+import type { BrowserWindow, Menu, MenuItem } from 'electron'
 import { COMMANDS } from '../../commands'
 import type { CommandManager } from '../../commands'
-import { searchFilesAndDir } from '../../utils/imagePathAutoComplement'
+import { emitInternalChannel } from '../../utils/internalIpc'
+import type {
+  DocumentClipboardConsumerPolicy
+} from '@shared/types/documentSurface'
 
 type Win = BrowserWindow | null | undefined
 
-// TODO(Refactor): Move to filesystem and provide generic API to search files in directories.
-ipcMain.on('mt::ask-for-image-auto-path', (e, { pathname, src, id }) => {
-  const win = BrowserWindow.fromWebContents(e.sender)
-  if (!win) {
-    return
-  }
-  if (!src || typeof src !== 'string') {
-    win.webContents.send(`mt::response-of-image-path-${id}`, [])
-    return
-  }
-
-  const fullPath = path.isAbsolute(src) ? src : path.join(path.dirname(pathname), src)
-  // Handle the case where it ends with a trailing slash (i.e. a directory) - we should list everything in the directory
-  let dir: string | null = null
-  let searchKey: string | null = null
-  if (fullPath.endsWith(path.sep)) {
-    dir = fullPath.slice(0, -1) // It should be the entire path minus just the trailing slash
-    searchKey = ''
-  } else {
-    dir = path.dirname(fullPath)
-    searchKey = path.basename(fullPath)
-  }
-  searchFilesAndDir(dir, searchKey)
-    .then((files) => {
-      return win.webContents.send(`mt::response-of-image-path-${id}`, files)
-    })
-    .catch((err: unknown) => {
-      log.error(err)
-      return win.webContents.send(`mt::response-of-image-path-${id}`, [])
-    })
-})
+const SEMANTIC_CLIPBOARD_MENU_IDS = Object.freeze({
+  copyAsRich: 'editCopyAsRichMenuItem',
+  copyAsHtml: 'editCopyAsHtmlMenuItem',
+  pasteAsPlainText: 'editPasteAsPlainTextMenuItem'
+} as const)
 
 // --- Menu actions -------------------------------------------------------------
 
@@ -103,6 +78,20 @@ export const edit = (win: Win, type: string): void => {
   }
 }
 
+export const setSemanticClipboardMenuState = (
+  applicationMenu: Menu,
+  state: DocumentClipboardConsumerPolicy
+): void => {
+  for (const [command, id] of Object.entries(
+    SEMANTIC_CLIPBOARD_MENU_IDS
+  ) as Array<
+    [keyof DocumentClipboardConsumerPolicy, string]
+  >) {
+    const item = applicationMenu.getMenuItemById(id)
+    if (item !== null) item.enabled = state[command]
+  }
+}
+
 export const nativeCut = (win: Win): void => {
   if (win) {
     win.webContents.cut()
@@ -122,13 +111,7 @@ export const nativePaste = (win: Win): void => {
 }
 
 export const screenshot = (win: Win): void => {
-  ipcMain.emit('screen-capture', win)
-}
-
-export const lineEnding = (win: Win, lineEnding: string): void => {
-  if (win && win.webContents) {
-    win.webContents.send('mt::set-line-ending', lineEnding)
-  }
+  emitInternalChannel('screen-capture', win)
 }
 
 // --- Commands -------------------------------------------------------------

@@ -5,11 +5,10 @@ import chokidar, { type FSWatcher } from 'chokidar'
 import { exists } from 'common/filesystem'
 import { hasMarkdownExtension, checkPathExcludePattern } from 'common/filesystem/paths'
 import { getUniqueId } from '../utils'
-import { loadMarkdownFile } from '../filesystem/markdown'
 import { isLinux, isOsx } from '../config'
 import type { BrowserWindow } from 'electron'
-import type { LineEnding } from '@shared/types/files'
 import type Preference from '../preferences'
+import { handleDocumentCoreExternalFileChange } from '../ipc/documentCore'
 
 // TODO(refactor): Please see GH#1035.
 
@@ -17,8 +16,7 @@ export const WATCHER_STABILITY_THRESHOLD = 1000
 export const WATCHER_STABILITY_POLL_INTERVAL = 150
 
 const EVENT_NAME = {
-  dir: 'mt::update-object-tree' as const,
-  file: 'mt::update-file' as const
+  dir: 'mt::update-object-tree' as const
 }
 
 type WatchType = 'dir' | 'file'
@@ -41,12 +39,20 @@ interface WatcherEntry {
 const add = async(
   win: BrowserWindow,
   pathname: string,
-  type: WatchType,
-  endOfLine: LineEnding,
-  autoGuessEncoding: boolean,
-  trimTrailingNewline: number,
-  autoNormalizeLineEndings: boolean
+  type: WatchType
 ): Promise<void> => {
+  if (type === 'file') {
+    try {
+      await handleDocumentCoreExternalFileChange(win.webContents, pathname)
+    } catch (error) {
+      win.webContents.send('mt::show-notification', {
+        title: 'Watcher I/O error',
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+    return
+  }
   const stats = await fsPromises.stat(pathname)
   const birthTime = stats.birthtime
   const mtimeMs = stats.mtimeMs
@@ -59,7 +65,6 @@ const add = async(
     birthTime: Date
     mtimeMs: number
     isMarkdown: boolean
-    data?: Awaited<ReturnType<typeof loadMarkdownFile>>
   } = {
     pathname,
     name: path.basename(pathname),
@@ -70,27 +75,6 @@ const add = async(
     isMarkdown
   }
   if (isMarkdown) {
-    // HACK: But this should be removed completely in #1034/#1035.
-    try {
-      const data = await loadMarkdownFile(
-        pathname,
-        endOfLine,
-        autoGuessEncoding,
-        trimTrailingNewline,
-        autoNormalizeLineEndings
-      )
-      file.data = data
-    } catch (err) {
-      // Only notify user about opened files.
-      if (type === 'file') {
-        win.webContents.send('mt::show-notification', {
-          title: 'Watcher I/O error',
-          type: 'error',
-          message: err instanceof Error ? err.message : String(err)
-        })
-        return
-      }
-    }
     win.webContents.send(EVENT_NAME[type], {
       type: 'add',
       change: file
@@ -99,6 +83,17 @@ const add = async(
 }
 
 const unlink = (win: BrowserWindow, pathname: string, type: WatchType): void => {
+  if (type === 'file') {
+    handleDocumentCoreExternalFileChange(win.webContents, pathname)
+      .catch((error: unknown) => {
+        win.webContents.send('mt::show-notification', {
+          title: 'Watcher I/O error',
+          type: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    return
+  }
   const file = { pathname }
   win.webContents.send(EVENT_NAME[type], {
     type: 'unlink',
@@ -109,47 +104,28 @@ const unlink = (win: BrowserWindow, pathname: string, type: WatchType): void => 
 const change = async(
   win: BrowserWindow,
   pathname: string,
-  type: WatchType,
-  endOfLine: LineEnding,
-  autoGuessEncoding: boolean,
-  trimTrailingNewline: number,
-  autoNormalizeLineEndings: boolean
+  type: WatchType
 ): Promise<void> => {
-  if (type === 'dir') {
-    // Only send mtimeMs so the sidebar can re-sort; skip loading file content.
+  if (type === 'file') {
     try {
-      const stats = await fsPromises.stat(pathname)
-      win.webContents.send('mt::update-object-tree', {
-        type: 'change',
-        change: { pathname, mtimeMs: stats.mtimeMs }
+      await handleDocumentCoreExternalFileChange(win.webContents, pathname)
+    } catch (error) {
+      win.webContents.send('mt::show-notification', {
+        title: 'Watcher I/O error',
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error)
       })
-    } catch {
-      // File may have been deleted between the event and the stat; ignore.
     }
     return
   }
-
-  const isMarkdown = hasMarkdownExtension(pathname)
-  if (isMarkdown) {
-    try {
-      const [data, stats] = await Promise.all([
-        loadMarkdownFile(pathname, endOfLine, autoGuessEncoding, trimTrailingNewline, autoNormalizeLineEndings),
-        fsPromises.stat(pathname)
-      ])
-      const file = { pathname, data, mtimeMs: stats.mtimeMs }
-      win.webContents.send('mt::update-file', {
-        type: 'change',
-        change: file
-      })
-    } catch (err) {
-      if (type === 'file') {
-        win.webContents.send('mt::show-notification', {
-          title: 'Watcher I/O error',
-          type: 'error',
-          message: err instanceof Error ? err.message : String(err)
-        })
-      }
-    }
+  try {
+    const stats = await fsPromises.stat(pathname)
+    win.webContents.send('mt::update-object-tree', {
+      type: 'change',
+      change: { pathname, mtimeMs: stats.mtimeMs }
+    })
+  } catch {
+    // File may have been deleted between the event and the stat; ignore.
   }
 }
 
@@ -254,42 +230,12 @@ class Watcher {
     watcher
       .on('add', async(pathname: string) => {
         if (!(await this._shouldIgnoreEvent(win.id, pathname, type, usePolling))) {
-          const { _preferences } = this
-          const eol = _preferences.getPreferredEol() as LineEnding
-          const {
-            autoGuessEncoding = true,
-            trimTrailingNewline = 2,
-            autoNormalizeLineEndings = false
-          } = _preferences.getAll()
-          add(
-            win,
-            pathname,
-            type,
-            eol,
-            autoGuessEncoding,
-            trimTrailingNewline,
-            autoNormalizeLineEndings
-          )
+          await add(win, pathname, type)
         }
       })
       .on('change', async(pathname: string) => {
         if (!(await this._shouldIgnoreEvent(win.id, pathname, type, usePolling))) {
-          const { _preferences } = this
-          const eol = _preferences.getPreferredEol() as LineEnding
-          const {
-            autoGuessEncoding = true,
-            trimTrailingNewline = 2,
-            autoNormalizeLineEndings = false
-          } = _preferences.getAll()
-          change(
-            win,
-            pathname,
-            type,
-            eol,
-            autoGuessEncoding,
-            trimTrailingNewline,
-            autoNormalizeLineEndings
-          )
+          await change(win, pathname, type)
         }
       })
       .on('unlink', (pathname: string) => unlink(win, pathname, type))

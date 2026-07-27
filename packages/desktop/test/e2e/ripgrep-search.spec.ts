@@ -7,8 +7,9 @@ import { launchElectron } from './helpers'
 
 // End-to-end smoke for the streaming ripgrep IPC (mt::rg::start /
 // mt::rg::match / mt::rg::done). Writes a small fixture tree, drives the
-// search directly through window.ripgrep so we don't depend on the sidebar
-// being open + focused, and asserts results stream back to the renderer.
+// search directly through the closed window.ripgrep intent bridge so we don't
+// depend on the sidebar being open + focused. Main obtains the fixture path
+// solely from the project root opened at launch.
 
 const writeFixtureTree = (): string => {
   const dir = path.join(os.tmpdir(), 'mt-rg-' + Math.random().toString(36).slice(2, 8))
@@ -26,7 +27,7 @@ test.describe('Ripgrep IPC streaming', () => {
 
   test.beforeAll(async() => {
     fixtureDir = writeFixtureTree()
-    const launched = await launchElectron()
+    const launched = await launchElectron([fixtureDir])
     app = launched.app
     page = launched.page
   })
@@ -44,42 +45,57 @@ test.describe('Ripgrep IPC streaming', () => {
     interface RgMatch {
       filePath: string
     }
-    const matches = await page.evaluate<RgMatch[], string>((directory) => {
+    const matches = await page.evaluate<RgMatch[]>(() => {
       return new Promise<RgMatch[]>((resolve, reject) => {
-        const searchId = 'rg-test-' + Math.random().toString(36).slice(2, 8)
+        let searchId: string | null = null
+        const earlyEvents: Array<() => void> = []
         const captured: RgMatch[] = []
         const offMatch = window.ripgrep.onMatch((raw) => {
-          const p = raw as { searchId?: string; payload?: RgMatch }
-          if (p?.searchId === searchId && p.payload) captured.push(p.payload)
+          const deliver = (): void => {
+            if (raw.searchId === searchId && typeof raw.payload !== 'string' && raw.payload) {
+              captured.push(raw.payload as RgMatch)
+            }
+          }
+          if (searchId === null) earlyEvents.push(deliver)
+          else deliver()
         })
         const cleanup = () => offMatch()
         const offDone = window.ripgrep.onDone((raw) => {
-          const p = raw as { searchId?: string }
-          if (p?.searchId !== searchId) return
-          cleanup()
-          offDone()
-          offError()
-          resolve(captured)
+          const deliver = (): void => {
+            if (raw.searchId !== searchId) return
+            cleanup()
+            offDone()
+            offError()
+            resolve(captured)
+          }
+          if (searchId === null) earlyEvents.push(deliver)
+          else deliver()
         })
         const offError = window.ripgrep.onError((raw) => {
-          const p = raw as { searchId?: string; error?: string }
-          if (p?.searchId !== searchId) return
-          cleanup()
-          offDone()
-          offError()
-          reject(new Error(p.error))
+          const deliver = (): void => {
+            if (raw.searchId !== searchId) return
+            cleanup()
+            offDone()
+            offError()
+            reject(new Error(raw.error))
+          }
+          if (searchId === null) earlyEvents.push(deliver)
+          else deliver()
         })
         window.ripgrep
           .start({
-            searchId,
+            schema: 'project-search-request-1',
             mode: 'text',
-            directories: [directory],
             pattern: 'magic-needle-XYZ',
-            options: { isCaseSensitive: true, inclusions: ['*.md'], exclusions: [] }
+            options: { isCaseSensitive: true, inclusions: ['*.md'] }
+          })
+          .then(receipt => {
+            searchId = receipt.searchId
+            for (const deliver of earlyEvents.splice(0)) deliver()
           })
           .catch(reject)
       })
-    }, fixtureDir as string)
+    })
 
     expect(matches.length).toBeGreaterThanOrEqual(2)
     const paths = matches.map((m) => m.filePath).sort()
@@ -88,41 +104,56 @@ test.describe('Ripgrep IPC streaming', () => {
   })
 
   test('file search (--files) streams paths', async() => {
-    const files = await page.evaluate<string[], string>((directory) => {
+    const files = await page.evaluate<string[]>(() => {
       return new Promise<string[]>((resolve, reject) => {
-        const searchId = 'fs-test-' + Math.random().toString(36).slice(2, 8)
+        let searchId: string | null = null
+        const earlyEvents: Array<() => void> = []
         const seen: string[] = []
         const offMatch = window.ripgrep.onMatch((raw) => {
-          const p = raw as { searchId?: string; payload?: unknown }
-          if (p?.searchId === searchId && typeof p.payload === 'string') seen.push(p.payload)
+          const deliver = (): void => {
+            if (raw.searchId === searchId && typeof raw.payload === 'string') {
+              seen.push(raw.payload)
+            }
+          }
+          if (searchId === null) earlyEvents.push(deliver)
+          else deliver()
         })
         const offDone = window.ripgrep.onDone((raw) => {
-          const p = raw as { searchId?: string }
-          if (p?.searchId !== searchId) return
-          offMatch()
-          offDone()
-          offError()
-          resolve(seen)
+          const deliver = (): void => {
+            if (raw.searchId !== searchId) return
+            offMatch()
+            offDone()
+            offError()
+            resolve(seen)
+          }
+          if (searchId === null) earlyEvents.push(deliver)
+          else deliver()
         })
         const offError = window.ripgrep.onError((raw) => {
-          const p = raw as { searchId?: string; error?: string }
-          if (p?.searchId !== searchId) return
-          offMatch()
-          offDone()
-          offError()
-          reject(new Error(p.error))
+          const deliver = (): void => {
+            if (raw.searchId !== searchId) return
+            offMatch()
+            offDone()
+            offError()
+            reject(new Error(raw.error))
+          }
+          if (searchId === null) earlyEvents.push(deliver)
+          else deliver()
         })
         window.ripgrep
           .start({
-            searchId,
+            schema: 'project-search-request-1',
             mode: 'files',
-            directories: [directory],
             pattern: '',
-            options: { inclusions: ['*.md'], exclusions: [] }
+            options: { inclusions: ['*.md'] }
+          })
+          .then(receipt => {
+            searchId = receipt.searchId
+            for (const deliver of earlyEvents.splice(0)) deliver()
           })
           .catch(reject)
       })
-    }, fixtureDir as string)
+    })
 
     expect(files.length).toBeGreaterThanOrEqual(3)
   })

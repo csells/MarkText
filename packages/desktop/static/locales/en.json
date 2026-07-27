@@ -47,10 +47,7 @@
       "findNext": "Find Next",
       "findPrevious": "Find Previous",
       "findInFolder": "Find in Folder",
-      "screenshot": "Screenshot",
-      "lineEnding": "Line Ending",
-      "lineEndingCrlf": "CRLF(Windows)",
-      "lineEndingLf": "LF(Linux/Mac)"
+      "screenshot": "Screenshot"
     },
     "paragraph": {
       "title": "Paragraph",
@@ -268,6 +265,7 @@
       "summary": "{count} review items",
       "trackChanges": "Track Changes",
       "unavailable": "Review is unavailable in this view.",
+      "actionUnavailable": "This Review action is no longer available. Refresh Review and try again.",
       "empty": "No review items",
       "removeComment": "Remove comment",
       "removeHighlight": "Remove highlight",
@@ -426,32 +424,13 @@
         "editorLineWidth": "Defines the maximum editor area width. An empty string or suffixes of ch (characters), px (pixels) or % (percentage) are allowed",
         "codeFontSize": "Font size in code Block, the range is 12 ~ 18",
         "codeFontFamily": "Font family used in code block",
-        "codeBlockLineNumbers": "Whether to show the line numbers",
-        "trimUnnecessaryCodeBlockEmptyLines": "Trim the beginning and ending empty lines in code block",
         "autoPairBracket": "Automatically brackets when editing",
         "autoPairMarkdownSyntax": "Autocomplete markdown syntax",
         "autoPairQuote": "Automatic completion of quotes",
-        "endOfLine": "The newline character used at the end of each line. The default value is default, which selects your operating system's default newline character",
-        "defaultEncoding": "The default file encoding",
-        "autoGuessEncoding": "Try to automatically guess the file encoding when opening files",
-        "trimTrailingNewline": "The trim trailing newline option",
         "textDirection": "The writing text direction",
         "hideQuickInsertHint": "Hide hint for quickly creating paragraphs",
         "hideLinkPopup": "Hide link popup when the cursor is hover on the link",
         "autoCheck": "Whether to automatically check related task",
-        "preferLooseListItem": "The preferred list type",
-        "bulletListMarker": "The marker used in bullet list",
-        "orderListDelimiter": "The delimiter used in order list",
-        "preferHeadingStyle": "The preferred heading style in MarkText",
-        "tabSize": "Replace the tab with x spaces",
-        "listIndentation": "Select the indent of list",
-        "frontmatterType": "The frontmatter type",
-        "superSubScript": "Enable pandoc's markdown extension superscript and subscript",
-        "footnote": "Enable pandoc's markdown extension footnote",
-        "isHtmlEnabled": "Enable HTML rendering",
-        "isGitlabCompatibilityEnabled": "Enable GitLab compatibility mode",
-        "sequenceTheme": "Sequence diagram theme",
-        "plantumlServer": "PlantUML server URL",
         "theme": "Select the theme used in MarkText",
         "followSystemTheme": "Follow System Theme",
         "lightModeTheme": "Theme to use when system is in light mode",
@@ -463,9 +442,11 @@
         "imagePreferRelativeDirectory": "Whether to prefer the relative image directory",
         "imageRelativeDirectoryBase": "Where relative images are copied",
         "imageRelativeDirectoryName": "The relative image folder name",
-        "autoNormalizeLineEndings": "Automatically normalize line endings when opening files. When disabled, files are opened as-is.",
         "fileSortOrder": "Sort order for files in opened folders: ascending or descending.",
-        "openedFilesInSidebar": "Whether to show opened files in the sidebar."
+        "openedFilesInSidebar": "Whether to show opened files in the sidebar.",
+        "subscriptAndSuperscript": "Enable pandoc's markdown extension superscript and subscript",
+        "footnotes": "Enable pandoc's markdown extension footnote",
+        "gitLabMath": "Enable GitLab Math syntax"
       }
     },
     "categories": {
@@ -559,34 +540,13 @@
       "codeBlock": {
         "title": "Code Block",
         "fontSize": "Font size",
-        "fontFamily": "Font family",
-        "showLineNumbers": "Show line numbers",
-        "removeEmptyLines": "Remove empty lines"
+        "fontFamily": "Font family"
       },
       "writingBehavior": {
         "title": "Writing Behavior",
         "autoCloseBrackets": "Auto close brackets",
         "autoCompleteMarkdown": "Auto complete markdown",
         "autoCloseQuotes": "Auto close quotes"
-      },
-      "fileRepresentation": {
-        "title": "File Representation",
-        "tabWidth": "Tab width",
-        "lineSeparator": "Line separator",
-        "defaultEncoding": "Default encoding",
-        "autoDetectEncoding": "Auto detect encoding",
-        "trailingNewlines": {
-          "title": "Trailing Newlines",
-          "doNothing": "Do Nothing",
-          "ensureOne": "Ensure One",
-          "preserve": "Preserve",
-          "trimAll": "Trim All"
-        },
-        "endOfLine": {
-          "default": "Default",
-          "crlf": "CRLF(Windows)",
-          "lf": "LF(Linux/Mac)"
-        }
       },
       "misc": {
         "title": "Miscellaneous",
@@ -598,7 +558,6 @@
         "hideQuickInsertHint": "Hide quick insert hint",
         "hideLinkPopup": "Hide link popup",
         "autoCheck": "Auto check",
-        "autoNormalizeLineEndings": "Auto-normalize line endings to LF on open",
         "wrapCodeBlocks": "Wrap code blocks"
       }
     },
@@ -666,53 +625,9 @@
       "title": "Markdown",
       "extensions": {
         "title": "Extensions",
-        "superSubScript": "Super/Sub script",
-        "footnote": "Footnote",
-        "footnoteNotes": "Footnote notes",
-        "frontmatterType": {
-          "jsonBrace": "JSON with Braces",
-          "jsonSemicolon": "JSON with Semicolon",
-          "title": "Frontmatter Type"
-        }
-      },
-      "diagrams": {
-        "title": "Diagrams",
-        "sequenceTheme": {
-          "title": "Sequence Theme",
-          "handDrawn": "Hand Drawn",
-          "simple": "Simple"
-        },
-        "plantumlServer": {
-          "title": "PlantUML Server URL"
-        }
-      },
-      "misc": {
-        "preferHeadingStyle": {
-          "title": "Prefer Heading Style",
-          "atx": "ATX Style",
-          "setext": "Setext Style"
-        },
-        "title": "Miscellaneous"
-      },
-      "compatibility": {
-        "enableGitlab": "Enable GitLab compatibility",
-        "enableHtml": "Enable HTML support",
-        "title": "Compatibility"
-      },
-      "lists": {
-        "bulletListMarker": "Bullet list marker",
-        "listIndentation": {
-          "title": "List Indentation",
-          "dfm": "DFM Style",
-          "fourSpaces": "Four Spaces",
-          "oneSpace": "One Space",
-          "tab": "Tab",
-          "threeSpaces": "Three Spaces",
-          "twoSpaces": "Two Spaces"
-        },
-        "orderListDelimiter": "Ordered list delimiter",
-        "preferLooseListItem": "Prefer loose list items",
-        "title": "Lists"
+        "subscriptAndSuperscript": "Super/Sub script",
+        "footnotes": "Footnote",
+        "gitLabMath": "GitLab Math"
       }
     },
     "theme": {
@@ -790,9 +705,6 @@
       "moveFile": "Move File",
       "renameFile": "Rename File",
       "quickOpen": "Quick Open",
-      "changeEncoding": "Change Encoding",
-      "changeLineEnding": "Change Line Ending",
-      "trailingNewline": "Trailing Newline",
       "print": "Print",
       "preferences": "Preferences",
       "closeTab": "Close Tab",
@@ -1001,6 +913,7 @@
       "replacementPlaceholder": "Enter replacement text",
       "trackChangeRejected": {
         "title": "Edit not recorded",
+        "unknownReason": "Track Changes couldn't record that edit, so the document was left unchanged. Try again, or turn off Track Changes for this change.",
         "unmappableSourceEdit": "Track Changes couldn't record that edit, so the document was left unchanged. Try a smaller edit, or turn off Track Changes for this change.",
         "parserConflict": "Track Changes couldn't reconcile that edit with the document's Markdown, so the document was left unchanged. Try a smaller edit, or turn off Track Changes for this change.",
         "unmappableTrackedSelection": "Track Changes couldn't match your selection to the tracked document, so the document was left unchanged. Reselect the text and try again, or turn off Track Changes for this change.",
@@ -1017,6 +930,9 @@
       "rows": "Rows",
       "columns": "Columns"
     },
+    "imageViewer": {
+      "label": "Image preview"
+    },
     "notifications": {
       "notificationNotFound": "Notification not found"
     },
@@ -1026,7 +942,22 @@
     },
     "sourceCode": {
       "cursorNullComment": "Cursor null comment",
-      "imageStructureDeletedComment": "Image structure deleted comment"
+      "imageStructureDeletedComment": "Image structure deleted comment",
+      "label": "Source code",
+      "operationFailed": "Source {operation} failed. The verified document was restored.",
+      "operations": {
+        "edit": "edit",
+        "undo": "undo",
+        "redo": "redo",
+        "paste": "paste",
+        "cut": "cut",
+        "copy": "copy",
+        "selection": "selection",
+        "attachment": "attachment",
+        "headingSelection": "heading selection"
+      },
+      "semanticClipboardUnavailableTitle": "Command unavailable",
+      "semanticClipboardUnavailable": "Rich-text copy, HTML copy, and plain-text paste are unavailable in Source mode. Use Copy, Cut, or Paste instead."
     },
     "spellcheck": {
       "disabledError": "Spellcheck disabled error",

@@ -1,0 +1,50 @@
+{
+  "schema": "marktext-cm-diagnostics-v1",
+  "rangeUnits": "decoded UTF-16, start inclusive and end exclusive",
+  "ordering": "source start, then source end, then diagnostic code",
+  "metadata": "closed string-to-string record; keys not listed for the code are forbidden",
+  "diagnostics": [
+    {
+      "code": "CM_UNMATCHED_CLOSER",
+      "meaning": "A closer has no matching active opener and remains literal source.",
+      "rangeOwner": "the complete closer",
+      "metadataKeys": []
+    },
+    {
+      "code": "CM_NON_TOP_CLOSER",
+      "meaning": "A closer targets a non-top frame and remains literal under the standing-closer rule.",
+      "rangeOwner": "the complete closer",
+      "metadataKeys": []
+    },
+    {
+      "code": "CM_UNTERMINATED_OPENER",
+      "meaning": "An opener has no standing closer and the entire candidate degrades to literal source.",
+      "rangeOwner": "the complete opener",
+      "metadataKeys": []
+    },
+    {
+      "code": "CM_SUBSTITUTION_SEPARATOR_MISSING",
+      "meaning": "A substitution closes without one unowned top-level separator and degrades to literal source.",
+      "rangeOwner": "the complete opener",
+      "metadataKeys": []
+    }
+  ],
+  "resourceDiagnostics": [
+    {
+      "code": "CM_RESOURCE_SOURCE_UNITS_EXCEEDED",
+      "metadataKeys": ["limit", "observed"]
+    },
+    {
+      "code": "CM_RESOURCE_LOGICAL_NODES_EXCEEDED",
+      "metadataKeys": ["limit", "observed"]
+    },
+    {
+      "code": "CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED",
+      "metadataKeys": ["limit", "observed"]
+    },
+    {
+      "code": "CM_RESOURCE_CM_DEPTH_EXCEEDED",
+      "metadataKeys": ["limit", "observed"]
+    }
+  ]
+}

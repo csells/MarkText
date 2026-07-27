@@ -36,6 +36,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import LinkIcon from '@/components/icons/LinkIcon.vue'
+import { openExternalResource } from '@/services/presentationEffects'
 import type { PrefControlBaseProps } from '../types'
 
 interface TextBoxProps extends PrefControlBaseProps {
@@ -50,7 +51,6 @@ interface TextBoxProps extends PrefControlBaseProps {
 const props = withDefaults(defineProps<TextBoxProps>(), {
   description: '',
   notes: '',
-  more: '',
   disable: false,
   defaultValue: '',
   emitTime: 800,
@@ -71,8 +71,8 @@ watch(
 )
 
 const handleMoreClick = () => {
-  if (typeof props.more === 'string') {
-    window.electron.shell.openExternal(props.more)
+  if (props.more) {
+    openExternalResource(props.more)
   }
 }
 

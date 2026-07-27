@@ -155,10 +155,15 @@ export function findInlineHtmlEnd(
     while (offset < limit && isHtmlAttributeNameCodeUnit(source.charCodeAt(offset))) {
       offset += 1
     }
+    const attributeNameEnd = offset
     while (offset < limit && isHtmlWhitespace(source.charCodeAt(offset))) {
       offset += 1
     }
     if (source.charCodeAt(offset) !== 61) {
+      // Leave the separator for the outer loop. It authenticates the next
+      // attribute; consuming it here makes a following attribute look as
+      // though it began without required whitespace.
+      offset = attributeNameEnd
       continue
     }
     offset += 1
@@ -231,6 +236,246 @@ export function findAutolinkEnd(
   return isAutolinkUri(target) || AUTOLINK_EMAIL.test(target)
     ? close + 1
     : undefined
+}
+
+export interface GfmExtendedAutolink {
+  readonly end: number
+  readonly destination: string
+  readonly type: 'www' | 'url' | 'email' | 'protocol-email'
+}
+
+function isAsciiAlphaNumeric(codeUnit: number): boolean {
+  return (
+    (codeUnit >= 48 && codeUnit <= 57) ||
+    (codeUnit >= 65 && codeUnit <= 90) ||
+    (codeUnit >= 97 && codeUnit <= 122)
+  )
+}
+
+function isGfmUrlBoundary(
+  source: string,
+  offset: number,
+  floor: number
+): boolean {
+  if (offset === floor) {
+    return true
+  }
+  const previous = source.charCodeAt(offset - 1)
+  return (
+    previous === 9 ||
+    previous === 10 ||
+    previous === 13 ||
+    previous === 32 ||
+    previous === 40 ||
+    previous === 42 ||
+    previous === 95 ||
+    previous === 126
+  )
+}
+
+function isGfmDomainCodeUnit(codeUnit: number): boolean {
+  return (
+    isAsciiAlphaNumeric(codeUnit) ||
+    codeUnit === 45 ||
+    codeUnit === 46 ||
+    codeUnit === 95
+  )
+}
+
+function gfmDomainEnd(
+  source: string,
+  start: number,
+  limit: number
+): number | undefined {
+  let end = start
+  while (end < limit && isGfmDomainCodeUnit(source.charCodeAt(end))) {
+    end += 1
+  }
+  while (end > start && source.charCodeAt(end - 1) === 46) {
+    end -= 1
+  }
+  const segments = source.slice(start, end).split('.')
+  if (
+    segments.length < 2 ||
+    segments.some((segment) =>
+      segment.length === 0 ||
+      Array.from(segment).some((scalar) =>
+        !isGfmDomainCodeUnit(scalar.charCodeAt(0)) || scalar === '.'
+      )
+    ) ||
+    segments.slice(-2).some((segment) => segment.includes('_'))
+  ) {
+    return undefined
+  }
+  return end
+}
+
+const GFM_TRAILING_URL_PUNCTUATION = new Set([
+  33, // !
+  42, // *
+  44, // ,
+  46, // .
+  58, // :
+  63, // ?
+  95, // _
+  126 // ~
+])
+
+function trimGfmAutolinkPath(
+  source: string,
+  start: number,
+  candidateEnd: number
+): number {
+  let end = candidateEnd
+  while (
+    end > start &&
+    GFM_TRAILING_URL_PUNCTUATION.has(source.charCodeAt(end - 1))
+  ) {
+    end -= 1
+  }
+  let openingParentheses = 0
+  let closingParentheses = 0
+  for (let offset = start; offset < end; offset += 1) {
+    if (source.charCodeAt(offset) === 40) {
+      openingParentheses += 1
+    } else if (source.charCodeAt(offset) === 41) {
+      closingParentheses += 1
+    }
+  }
+  while (
+    end > start &&
+    source.charCodeAt(end - 1) === 41 &&
+    closingParentheses > openingParentheses
+  ) {
+    end -= 1
+    closingParentheses -= 1
+  }
+  if (source.charCodeAt(end - 1) === 59) {
+    const entityStart = source.lastIndexOf('&', end - 1)
+    if (
+      entityStart >= start &&
+      /^&(?:#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});$/
+        .test(source.slice(entityStart, end))
+    ) {
+      end = entityStart
+    }
+  }
+  return end
+}
+
+function gfmUrlAutolink(
+  source: string,
+  offset: number,
+  end: number,
+  floor: number
+): GfmExtendedAutolink | undefined {
+  if (!isGfmUrlBoundary(source, offset, floor)) {
+    return undefined
+  }
+  const www = source.startsWith('www.', offset)
+  const schemeLength =
+    source.startsWith('https://', offset)
+      ? 8
+      : source.startsWith('http://', offset)
+        ? 7
+        : source.startsWith('ftp://', offset)
+          ? 6
+          : 0
+  if (!www && schemeLength === 0) {
+    return undefined
+  }
+  const domainEnd = gfmDomainEnd(source, offset + schemeLength, end)
+  if (domainEnd === undefined) {
+    return undefined
+  }
+  let candidateEnd = domainEnd
+  while (
+    candidateEnd < end &&
+    source.charCodeAt(candidateEnd) > 32 &&
+    source.charCodeAt(candidateEnd) !== 60
+  ) {
+    candidateEnd += 1
+  }
+  candidateEnd = trimGfmAutolinkPath(source, offset, candidateEnd)
+  if (candidateEnd < domainEnd) {
+    return undefined
+  }
+  const label = source.slice(offset, candidateEnd)
+  return Object.freeze({
+    end: candidateEnd,
+    destination: www ? `http://${label}` : label,
+    type: www ? 'www' : 'url'
+  })
+}
+
+function isGfmEmailLocalCodeUnit(codeUnit: number): boolean {
+  return (
+    isAsciiAlphaNumeric(codeUnit) ||
+    codeUnit === 43 ||
+    codeUnit === 45 ||
+    codeUnit === 46 ||
+    codeUnit === 95
+  )
+}
+
+function gfmEmailAutolink(
+  source: string,
+  offset: number,
+  end: number
+): GfmExtendedAutolink | undefined {
+  const protocolLength =
+    source.startsWith('mailto:', offset)
+      ? 7
+      : source.startsWith('xmpp:', offset)
+        ? 5
+        : 0
+  const localStart = offset + protocolLength
+  if (
+    protocolLength === 0 &&
+    offset > 0 &&
+    isGfmEmailLocalCodeUnit(source.charCodeAt(offset - 1))
+  ) {
+    return undefined
+  }
+  let at = localStart
+  while (at < end && isGfmEmailLocalCodeUnit(source.charCodeAt(at))) {
+    at += 1
+  }
+  if (at === localStart || source.charCodeAt(at) !== 64) {
+    return undefined
+  }
+  const domainStart = at + 1
+  const domainEnd = gfmDomainEnd(source, domainStart, end)
+  if (domainEnd === undefined) {
+    return undefined
+  }
+  const domain = source.slice(domainStart, domainEnd)
+  if (
+    domain.endsWith('-') ||
+    domain.endsWith('_') ||
+    source.charCodeAt(domainEnd) === 45 ||
+    source.charCodeAt(domainEnd) === 95
+  ) {
+    return undefined
+  }
+  const label = source.slice(offset, domainEnd)
+  return Object.freeze({
+    end: domainEnd,
+    destination: protocolLength === 0 ? `mailto:${label}` : label,
+    type: protocolLength === 0 ? 'email' : 'protocol-email'
+  })
+}
+
+export function findGfmExtendedAutolink(
+  source: string,
+  offset: number,
+  end: number,
+  floor: number
+): GfmExtendedAutolink | undefined {
+  return (
+    gfmUrlAutolink(source, offset, end, floor) ??
+    gfmEmailAutolink(source, offset, end)
+  )
 }
 
 function skipLinkWhitespace(source: string, offset: number, limit: number): number {

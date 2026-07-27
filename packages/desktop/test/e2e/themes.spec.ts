@@ -35,7 +35,7 @@ test.describe('Theme switching', () => {
   })
 
   // Item 282 — Prism code-block syntax highlighting token colors follow the
-  // active theme. The @muyajs/core engine runs prism.highlightElement over the
+  // active theme. The @marktext/document-view engine runs prism.highlightElement over the
   // code block content (codeBlockContent/index.ts), emitting standard Prism
   // token classes (span.token.keyword, span.token.number, …). Each theme ships
   // a matching Prism CSS (assets/themes/prismjs/<theme>.theme.css) that colors

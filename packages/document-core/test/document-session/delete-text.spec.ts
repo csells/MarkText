@@ -5,6 +5,7 @@ import {
   type DocumentSession,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { completeSnapshot } from '../helpers/completeSnapshot.js'
 
 /**
  * Deleting text.
@@ -20,7 +21,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -42,7 +52,7 @@ async function openSession(source: string): Promise<DocumentSession> {
 }
 
 function modelText(session: DocumentSession): string {
-  return session.snapshot().livePlan.runs.map((run) => run.text).join('')
+  return completeSnapshot(session).livePlan.runs.map((run) => run.text).join('')
 }
 
 async function deleteRange(
@@ -124,7 +134,7 @@ describe('delete text', () => {
     await deleteRange(session, 0, 4)
     expect(modelText(session)).toBe('Hello world.\n')
     // The addition is still an addition, not swept into the deletion.
-    const marks = session.snapshot().livePlan.runs
+    const marks = completeSnapshot(session).livePlan.runs
       .filter((run) => run.marks.length > 0)
       .map((run) => run.text)
     expect(marks).toEqual(['world'])

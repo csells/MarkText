@@ -1,3 +1,7 @@
+import type {
+  ExternalResourceTarget
+} from '@shared/types/presentationEffects'
+
 /**
  * Shared types for the preference page leaf control components.
  *
@@ -11,8 +15,8 @@
 export interface PrefControlBaseProps {
   /** Label displayed before the input. */
   description?: string
-  /** External URL opened when the info icon is clicked. */
-  more?: string
+  /** Main-owned external resource opened when the info icon is clicked. */
+  more?: ExternalResourceTarget
   /** When true, the control renders disabled / under-development. */
   disable?: boolean
 }

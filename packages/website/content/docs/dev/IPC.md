@@ -14,10 +14,10 @@ TypeScript-side details.
 
 ## Channel naming
 
-Renderer↔main channels are prefixed with `mt::` (e.g. `mt::fs::stat`,
-`mt::open-new-tab`). A small number of legacy internal channels don't
-follow this convention (e.g. `language-changed`); new channels should
-always use `mt::`.
+Renderer↔main channels are prefixed with `mt::` (for example,
+`mt::uploader::upload` and `mt::document-core::open-link`). The
+`language-changed` internal event is the one named exception. New channels
+must use `mt::`.
 
 ## The four channel categories
 
@@ -34,8 +34,14 @@ Each entry tells you the args tuple and (for invoke/sync) the return
 type:
 
 ```ts
-'mt::fs::stat': { args: [path: string]; ret: SerializedStat }
-'mt::format-link-click': [payload: { data: unknown; dirname: string }]   // send shape
+'mt::uploader::upload': {
+  args: [request: UploaderUploadRequest]
+  ret: UploaderUploadReceipt
+}
+'mt::document-core::open-link': {
+  args: [request: DocumentCoreOpenLinkRequest]
+  ret: DocumentCoreOpenLinkReceipt
+}
 ```
 
 ## Renderer side
@@ -46,10 +52,19 @@ it isn't available under sandboxing.
 
 ```ts
 // Round-trip
-const stat = await window.electron.ipcRenderer.invoke('mt::fs::stat', fullPath)
+const receipt = await window.uploader.uploadImage({
+  schema: 'uploader-upload-1',
+  documentId,
+  source: { kind: 'local-file', pathname: 'images/cat.png' }
+})
+
+const linkReceipt = await window.electron.ipcRenderer.invoke(
+  'mt::document-core::open-link',
+  { documentId, revisionId, targetNodeId }
+)
 
 // Fire-and-forget
-window.electron.ipcRenderer.send('mt::format-link-click', { data, dirname })
+window.electron.ipcRenderer.send('mt::cmd-open-file')
 
 // Subscribe to a main → renderer push event (returns an unsubscribe fn)
 const off = window.electron.ipcRenderer.on('mt::screenshot-captured', () => {
@@ -58,11 +73,10 @@ const off = window.electron.ipcRenderer.on('mt::screenshot-captured', () => {
 off()
 ```
 
-`once()` and `removeAllListeners()` follow the same shape. For
-filesystem and path helpers, prefer the typed convenience APIs already
-exposed via `window.fileUtils.*`, `window.path.*`, `window.uploader.*`,
-etc. — they wrap the underlying `mt::fs::*` / `mt::uploader::*` channels
-and keep call sites short.
+`once()` and `removeAllListeners()` follow the same shape. Prefer the
+smallest feature-specific typed bridge, such as `window.uploader.*`.
+`window.fileUtils.*` and `window.path.*` contain only pure string helpers;
+arbitrary renderer filesystem reads are not exposed.
 
 ## Main side
 
@@ -72,17 +86,29 @@ sync), or `webContents.send` (push):
 ```ts
 import { ipcMain } from 'electron'
 
-ipcMain.handle('mt::fs::stat', async (_event, path: string) => {
-  return await fs.stat(path)
+ipcMain.handle('mt::uploader::upload', async (event, rawRequest: unknown) => {
+  const request = decodeUploaderUploadRequest(rawRequest)
+  const service = createUploaderService({
+    describeDocument: documentId =>
+      describeDocumentCoreFile(event.sender, documentId),
+    readSettings: readUploaderSettings,
+    resolvePicgoExecutable: resolveMainPicgoExecutable
+  })
+  return await service.upload(request)
 })
 
-ipcMain.on('mt::format-link-click', (_event, { data, dirname }) => {
-  // …
+ipcMain.handle('mt::document-core::open-link', async(event, rawRequest) => {
+  const request = decodeDocumentCoreOpenLinkRequest(rawRequest)
+  return await openParserOwnedDocumentLink(event.sender, request)
 })
 
 // Push to a specific renderer window:
-window.webContents.send('mt::open-new-tab', tabPayload, options, selected)
+window.webContents.send('mt::screenshot-captured', filePath)
 ```
+
+Decode the complete closed request before looking up document ownership,
+reading settings, or performing any effect. TypeScript types do not validate
+data after it crosses IPC.
 
 ## Adding a new channel
 
@@ -96,4 +122,4 @@ window.webContents.send('mt::open-new-tab', tabPayload, options, selected)
    typed bridges in `src/preload/index.ts`.
 
 After step 1, `pnpm typecheck` flags every existing call site that
-doesn't match the new shape — use that as your migration checklist.
+doesn't match the new shape — use that as your update checklist.

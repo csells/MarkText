@@ -3,10 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import { launchWithMarkdown, waitForEditor, enterSourceMode, clickMenuById } from './helpers'
 
 // marktext #3580: clicking a TOC entry in SOURCE CODE mode must scroll the
-// editor to that heading and place it near the TOP of the viewport. The editor
-// runs CodeMirror with viewportMargin: Infinity, so the OUTER `.source-code`
-// container is the scrollable element — neither cm.scrollTo nor cm.scrollIntoView
-// moves it.
+// editor to that heading and place it near the top of the textarea viewport.
 const HEADING_COUNT = 20
 const buildLongDoc = (): string => {
   const parts: string[] = []
@@ -19,19 +16,18 @@ const buildLongDoc = (): string => {
 
 const srcScrollTop = (page: Page): Promise<number> =>
   page.evaluate(() => {
-    const el = document.querySelector('.source-code') as HTMLElement | null
+    const el = document.querySelector(
+      '.source-code-input'
+    ) as HTMLTextAreaElement | null
     return el ? Math.round(el.scrollTop) : -1
   })
 
-// Distance of the `# Heading Number N` source line from the top of the
-// `.source-code` viewport (CodeMirror renders all lines, so the line is in the DOM).
-const headingLineTopInViewport = (page: Page, text: string): Promise<number | null> =>
+const selectedHeading = (page: Page, text: string): Promise<boolean> =>
   page.evaluate((needle) => {
-    const container = document.querySelector('.source-code') as HTMLElement | null
-    const lines = Array.from(document.querySelectorAll('.source-code .CodeMirror-line'))
-    const target = lines.find((l) => (l.textContent || '').includes(needle)) as HTMLElement | undefined
-    if (!container || !target) return null
-    return Math.round(target.getBoundingClientRect().top - container.getBoundingClientRect().top)
+    const input = document.querySelector(
+      '.source-code-input'
+    ) as HTMLTextAreaElement | null
+    return input?.value.slice(input.selectionStart).startsWith(needle) ?? false
   }, `# ${text}`)
 
 test.describe('Source Code mode: TOC click scrolls to the heading at the top', () => {
@@ -64,20 +60,20 @@ test.describe('Source Code mode: TOC click scrolls to the heading at the top', (
 
   test('clicking a deep heading scrolls down and lands it near the top', async() => {
     await page.evaluate(() => {
-      const el = document.querySelector('.source-code') as HTMLElement | null
+      const el = document.querySelector(
+        '.source-code-input'
+      ) as HTMLTextAreaElement | null
       if (el) el.scrollTop = 0
     })
     await expect.poll(() => srcScrollTop(page)).toBe(0)
 
     await page.locator('.side-bar-toc').getByText('Heading Number 18', { exact: true }).click()
 
-    // animated scroll down
     await expect.poll(() => srcScrollTop(page), { timeout: 8000 }).toBeGreaterThan(0)
-    // heading sits near the TOP of the viewport (not the bottom)
-    await expect
-      .poll(() => headingLineTopInViewport(page, 'Heading Number 18'), { timeout: 8000 })
-      .toBeLessThan(150)
-    expect(await headingLineTopInViewport(page, 'Heading Number 18')).toBeGreaterThan(-5)
+    await expect.poll(
+      () => selectedHeading(page, 'Heading Number 18'),
+      { timeout: 8000 }
+    ).toBe(true)
   })
 
   test('clicking an earlier heading scrolls back up to it at the top', async() => {
@@ -85,8 +81,9 @@ test.describe('Source Code mode: TOC click scrolls to the heading at the top', (
     expect(fromTop).toBeGreaterThan(0)
     await page.locator('.side-bar-toc').getByText('Heading Number 3', { exact: true }).click()
     await expect.poll(() => srcScrollTop(page), { timeout: 8000 }).toBeLessThan(fromTop)
-    await expect
-      .poll(() => headingLineTopInViewport(page, 'Heading Number 3'), { timeout: 8000 })
-      .toBeLessThan(150)
+    await expect.poll(
+      () => selectedHeading(page, 'Heading Number 3'),
+      { timeout: 8000 }
+    ).toBe(true)
   })
 })

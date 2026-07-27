@@ -10,6 +10,8 @@ import {
 } from '../../src/internal/profileParseTraceV1.js'
 import {
   __lineMaterializationChunkWalksV1,
+  __longLineMaterializationCacheV1,
+  __resetLineMaterializationCachesV1,
   __resetLineMaterializationChunkWalksV1
 } from '../../src/internal/profile1/markdownLaneState.js'
 
@@ -30,7 +32,16 @@ function planningVisits(
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -133,24 +144,21 @@ describe('Profile 1 projection planning complexity', () => {
     expect(armTerminationProbes(64)).toBeLessThanOrEqual(64)
   })
 
-  it('remaps substitution scopes onto segments with indexed visits, not full sweeps', () => {
-    const scopeRemapVisits = (repetitions: number): number => {
-      const source = '{~~o~>a~~}'.repeat(repetitions)
-      const engine = createLanguageEngine()
-      const captured = captureProfileParseTraceV1(engine, () =>
-        engine.open(createSourceSnapshot(source), TEST_CONFIGURATION)
+  it('carries substitution scopes through codec edits without a post-hoc join', () => {
+    const engine = createLanguageEngine()
+    const captured = captureProfileParseTraceV1(engine, () =>
+      engine.open(
+        createSourceSnapshot('{~~o~>a~~}'.repeat(64)),
+        TEST_CONFIGURATION
       )
-      expect(captured.value.kind).toBe('complete')
-      return planningVisits(captured.trace.events).filter(
-        (event) =>
-          event.view === 'revised' && event.reason === 'scope-remap-visit'
-      ).length
-    }
-
-    // Each scope may touch only the segments it overlaps (plus an indexed
-    // lookup); visiting every segment for every scope is the remaining
-    // projection quadratic (R-4).
-    expect(scopeRemapVisits(64)).toBeLessThanOrEqual(64 * 8)
+    )
+    expect(captured.value.kind).toBe('complete')
+    expect(captured.trace.events.filter(
+      (event) => event.kind === 'source-progression'
+    )).toEqual([{
+      kind: 'source-progression',
+      owner: 'markdown-kernel'
+    }])
   })
 
   it('materializes line-path prefixes with amortized-linear chunk walks', () => {
@@ -166,6 +174,21 @@ describe('Profile 1 projection planning complexity', () => {
     const small = walks(64)
     const large = walks(128)
     expect(large).toBeLessThanOrEqual(small * 3)
+  })
+
+  it('retains only a bounded number of materialized long-line prefixes', () => {
+    const source = 'x'.repeat(4_096 * 64)
+    __resetLineMaterializationCachesV1()
+
+    const revision = createLanguageEngine().open(
+      createSourceSnapshot(source),
+      TEST_CONFIGURATION
+    )
+
+    expect(revision.kind).toBe('complete')
+    const cache = __longLineMaterializationCacheV1()
+    expect(cache.entries).toBeLessThanOrEqual(4)
+    expect(cache.sourceUnits).toBeLessThanOrEqual(source.length * 4)
   })
 
   it('fails closed instead of hiding nested trace work', () => {

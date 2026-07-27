@@ -32,6 +32,7 @@ import FileIcon from './icon.vue'
 import { showContextMenu } from '../../contextMenu/sideBar'
 import bus from '../../bus'
 import type { TreeFileNode } from './types'
+import { requestProjectDocumentOpen } from '@/services/projectDocumentOpen'
 
 const props = defineProps<{
   file: TreeFileNode
@@ -51,7 +52,7 @@ const { clipboard } = storeToRefs(projectStore)
 const { currentFile, tabs } = storeToRefs(editorStore)
 
 // from fileMixins
-const handleFileClick = (): void => {
+const handleFileClick = async (): Promise<void> => {
   const { isMarkdown, pathname } = props.file
   if (!isMarkdown) return
   const openedTab = tabs.value.find((f) => window.fileUtils.isSamePathSync(f.pathname, pathname))
@@ -61,7 +62,7 @@ const handleFileClick = (): void => {
     }
     editorStore.UPDATE_CURRENT_FILE(openedTab)
   } else {
-    window.electron.ipcRenderer.send('mt::open-file', pathname, {})
+    await requestProjectDocumentOpen(pathname)
   }
 }
 

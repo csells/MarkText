@@ -7,9 +7,8 @@ const props = defineProps<{
   name: string
 }>()
 
-// The legacy `muya/lib/ui/fileIcons` wrapper added a `getClassByName(name)`
-// helper around the raw package's `matchName(name)?.getClass(0, false)`.
-// Inline that here so we depend on `@marktext/file-icons` directly.
+// Keep the file-icon lookup local so the sidebar depends on
+// `@marktext/file-icons` directly.
 const getClassByName = (name: string): string | null => {
   const icon = fileIcons.matchName(name)
   return icon ? icon.getClass(0, false) : null

@@ -7,18 +7,28 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/store/editor', () => ({
   useEditorStore: () => ({
-    CREATE_BUFFERED_STATE: () => ({ editor: { tabs: [] } })
+    CREATE_BUFFERED_STATE: () => ({
+      currentDocumentId: null,
+      tabs: []
+    })
   })
 }))
-vi.mock('@/store/project', () => ({
-  useProjectStore: () => ({ CREATE_BUFFERED_STATE: () => ({}) })
-}))
 vi.mock('@/store/layout', () => ({
-  useLayoutStore: () => ({ CREATE_BUFFERED_STATE: () => ({}) })
+  useLayoutStore: () => ({
+    CREATE_BUFFERED_STATE: () => ({
+      rightColumn: 'files',
+      showSideBar: true,
+      showTabBar: true,
+      sideBarWidth: 280
+    })
+  })
 }))
 
-import { AsyncTaskError } from '../../../../muya/src/utils/asyncTask'
-import { debouncedSendBufferedState } from '../../../src/renderer/src/store/bufferedState'
+import { AsyncTaskError } from '@marktext/document-view'
+import {
+  debouncedSendBufferedState,
+  sendBufferedState
+} from '../../../src/renderer/src/store/bufferedState'
 
 describe('buffered state error reporting', () => {
   beforeEach(() => {
@@ -38,6 +48,27 @@ describe('buffered state error reporting', () => {
     vi.unstubAllGlobals()
   })
 
+  it('sends only a source-free, project-free presentation intent', async() => {
+    mocks.invoke.mockResolvedValue(true)
+
+    await expect(sendBufferedState()).resolves.toBe(true)
+
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      'update-buffer-state',
+      {
+        schema: 'document-core-window-ui-intent-1',
+        currentDocumentId: null,
+        tabs: [],
+        layout: {
+          rightColumn: 'files',
+          showSideBar: true,
+          showTabBar: true,
+          sideBarWidth: 280
+        }
+      }
+    )
+  })
+
   it('reports a failed debounced persistence attempt with context', async() => {
     const cause = new Error('buffer store unavailable')
     mocks.invoke.mockRejectedValue(cause)
@@ -48,7 +79,7 @@ describe('buffered state error reporting', () => {
     expect(mocks.reportError).toHaveBeenCalledOnce()
     expect(mocks.reportError).toHaveBeenCalledWith(expect.objectContaining({
       name: 'AsyncTaskError',
-      message: 'Buffered state persistence failed.',
+      message: expect.stringContaining('Buffered state persistence failed'),
       cause
     }))
     expect(mocks.reportError.mock.calls[0]?.[0]).toBeInstanceOf(AsyncTaskError)
@@ -64,7 +95,7 @@ describe('buffered state error reporting', () => {
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect(mocks.reportError).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'Buffered state persistence failed.',
+      message: expect.stringContaining('Buffered state persistence failed'),
       cause
     }))
   })

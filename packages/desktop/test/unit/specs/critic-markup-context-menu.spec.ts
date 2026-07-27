@@ -33,17 +33,8 @@ vi.mock('main_renderer/contextMenu/editor/spellcheck', () => ({ default: vi.fn((
 import { showEditorContextMenu } from 'main_renderer/contextMenu/editor'
 
 const comment = {
-  id: 'critic-comment-1',
-  type: 'comment' as const,
-  path: [0, 'text'],
-  start: 10,
-  end: 26,
-  sourceStart: 10,
-  sourceEnd: 26,
-  raw: '{>>review note<<}',
-  content: 'review note',
-  anchorId: 'critic-highlight-1',
-  anchorText: 'selected words'
+  revisionId: 'revision:1',
+  nodeId: 'critic-comment-1'
 }
 
 function editorParams(frame: unknown) {
@@ -105,13 +96,73 @@ function latestMenu(): { items: Array<Record<string, unknown>> } {
   return menu
 }
 
+function sentRequest(
+  frame: ReturnType<typeof fakeFrame>,
+  channel: string,
+  predicate: (request: Record<string, unknown>) => boolean = () => true
+): Record<string, unknown> {
+  const call = frame.send.mock.calls.find(
+    ([sentChannel, request]) =>
+      sentChannel === channel &&
+      request !== null &&
+      typeof request === 'object' &&
+      predicate(request as Record<string, unknown>)
+  )
+  if (!call) throw new TypeError(`Expected ${channel} request`)
+  return call[1] as Record<string, unknown>
+}
+
+function respondSurface(
+  frame: ReturnType<typeof fakeFrame>,
+  surface: 'markup' | 'source' | 'original' | 'revised' | null,
+  predicate?: (request: Record<string, unknown>) => boolean
+): void {
+  const request = sentRequest(
+    frame,
+    'mt::query-document-surface-context',
+    predicate
+  )
+  frame.respond(
+    'mt::document-surface-context-response',
+    surface === null
+      ? {
+        requestId: request.requestId,
+        documentId: null,
+        revisionId: null,
+        surface: null
+      }
+      : {
+        requestId: request.requestId,
+        documentId: 'document:1',
+        revisionId: 'revision:1',
+        surface
+      }
+  )
+}
+
+function respondNoComment(
+  frame: ReturnType<typeof fakeFrame>,
+  predicate?: (request: Record<string, unknown>) => boolean
+): void {
+  const request = sentRequest(
+    frame,
+    'mt::cm-query-editor-context',
+    predicate
+  )
+  frame.respond('mt::cm-editor-context-response', {
+    requestId: request.requestId,
+    documentId: null,
+    target: null
+  })
+}
+
 describe('native editor context menu comment editing', () => {
   beforeEach(() => {
     popupMenu.mockReset()
     menus.length = 0
   })
 
-  it('offers Edit Comment only for the correlated parser-owned comment hit', async() => {
+  it('wires the Comment menu descriptor to the one-shot typed executor', async() => {
     const frame = fakeFrame()
     const win = fakeWindow()
 
@@ -121,11 +172,11 @@ describe('native editor context menu comment editing', () => {
       editorParams(frame) as never,
       false
     )
-    const [queryChannel, query] = frame.send.mock.calls[0]
-    expect(queryChannel).toBe('mt::cm-query-editor-context')
+    const query = sentRequest(frame, 'mt::cm-query-editor-context')
     expect(query).toMatchObject({ x: 41, y: 73 })
 
-    const editRequest = { fileId: 'file-1', target: comment }
+    const editRequest = { documentId: 'document:1', target: comment }
+    respondSurface(frame, 'markup')
     frame.respond('mt::cm-editor-context-response', {
       requestId: query.requestId,
       ...editRequest
@@ -157,11 +208,11 @@ describe('native editor context menu comment editing', () => {
       false
     )
 
-    const [queryChannel, query] = frame.send.mock.calls[0] ?? []
-    expect(queryChannel).toBe('mt::cm-query-editor-context')
+    const query = sentRequest(frame, 'mt::cm-query-editor-context')
+    respondSurface(frame, 'original')
     frame.respond('mt::cm-editor-context-response', {
       requestId: query.requestId,
-      fileId: 'file-1',
+      documentId: 'document:1',
       target: comment
     })
     await pending
@@ -180,11 +231,12 @@ describe('native editor context menu comment editing', () => {
       params as never,
       false
     )
-    const query = frame.send.mock.calls[0][1]
+    const query = sentRequest(frame, 'mt::cm-query-editor-context')
 
+    respondSurface(frame, null)
     frame.respond('mt::cm-editor-context-response', {
       requestId: query.requestId,
-      fileId: null,
+      documentId: null,
       target: null
     })
     await pending
@@ -197,18 +249,19 @@ describe('native editor context menu comment editing', () => {
     const frame = fakeFrame()
     const win = fakeWindow()
     const pending = showEditorContextMenu(win as never, {}, editorParams(frame) as never, false)
-    const query = frame.send.mock.calls[0][1]
+    const query = sentRequest(frame, 'mt::cm-query-editor-context')
+    respondSurface(frame, 'markup')
 
     frame.respond('mt::cm-editor-context-response', {
       requestId: 'some-other-request',
-      fileId: 'file-1',
+      documentId: 'document:1',
       target: comment
     })
     expect(popupMenu).not.toHaveBeenCalled()
 
     frame.respond('mt::cm-editor-context-response', {
       requestId: query.requestId,
-      fileId: 'file-1',
+      documentId: 'document:1',
       target: comment
     })
     await pending
@@ -230,12 +283,13 @@ describe('native editor context menu comment editing', () => {
         editorParams(frame) as never,
         false
       )
-      const query = frame.send.mock.calls[0][1]
+      const query = sentRequest(frame, 'mt::cm-query-editor-context')
+      respondSurface(frame, 'markup')
 
       frame.respond('mt::cm-editor-context-response', {
         requestId: query.requestId,
-        fileId: 'file-1',
-        target: { ...comment, path: null }
+        documentId: 'document:1',
+        target: { ...comment, sourceStart: 10 }
       })
       await Promise.resolve()
       expect(popupMenu).not.toHaveBeenCalled()
@@ -248,7 +302,7 @@ describe('native editor context menu comment editing', () => {
     }
   })
 
-  it('falls back to the unchanged ordinary menu when the renderer query times out', async() => {
+  it('keeps the authenticated editor menu when only the Comment query times out', async() => {
     vi.useFakeTimers()
     try {
       const frame = fakeFrame()
@@ -258,6 +312,7 @@ describe('native editor context menu comment editing', () => {
         editorParams(frame) as never,
         false
       )
+      respondSurface(frame, 'markup')
 
       await vi.advanceTimersByTimeAsync(151)
       await pending
@@ -280,6 +335,36 @@ describe('native editor context menu comment editing', () => {
     }
   })
 
+  it('shows only native cut copy and paste for a plain-text Source editor', async() => {
+    const frame = fakeFrame()
+    const params = {
+      ...editorParams(frame),
+      inputFieldType: 'plainText',
+      selectionText: 'source',
+      editFlags: {
+        ...editorParams(frame).editFlags,
+        canEditRichly: false
+      }
+    }
+
+    const pending = showEditorContextMenu(
+      fakeWindow() as never,
+      {},
+      params as never,
+      false
+    )
+    respondSurface(frame, 'source')
+    respondNoComment(frame)
+    await pending
+
+    expect(latestMenu().items.map(item => item.id ?? item.type)).toEqual([
+      'cutMenuItem',
+      'copyMenuItem',
+      'pasteMenuItem'
+    ])
+    expect(popupMenu).toHaveBeenCalledTimes(1)
+  })
+
   it('lets only the latest overlapping context-menu request pop for a window', async() => {
     const win = fakeWindow()
     const frame = fakeFrame()
@@ -287,17 +372,27 @@ describe('native editor context menu comment editing', () => {
     const secondParams = { ...editorParams(frame), x: 99, y: 101 }
     const first = showEditorContextMenu(win as never, {}, firstParams as never, false)
     const second = showEditorContextMenu(win as never, {}, secondParams as never, false)
-    const firstQuery = frame.send.mock.calls[0][1]
-    const secondQuery = frame.send.mock.calls[1][1]
+    const firstQuery = sentRequest(
+      frame,
+      'mt::cm-query-editor-context',
+      request => request.x === 41
+    )
+    const secondQuery = sentRequest(
+      frame,
+      'mt::cm-query-editor-context',
+      request => request.x === 99
+    )
 
+    respondSurface(frame, 'markup', request => request.x === 99)
     frame.respond('mt::cm-editor-context-response', {
       requestId: secondQuery.requestId,
-      fileId: null,
+      documentId: null,
       target: null
     })
+    respondSurface(frame, 'markup', request => request.x === 41)
     frame.respond('mt::cm-editor-context-response', {
       requestId: firstQuery.requestId,
-      fileId: 'file-1',
+      documentId: 'document:1',
       target: comment
     })
     await Promise.all([first, second])
@@ -316,20 +411,80 @@ describe('native editor context menu comment editing', () => {
       editorParams(frame) as never,
       false
     )
-    const query = frame.send.mock.calls[0][1]
+    const query = sentRequest(frame, 'mt::cm-query-editor-context')
 
     await showEditorContextMenu(win as never, {}, {
       ...editorParams(frame),
       hasImageContents: true
     } as never, false)
+    respondSurface(frame, 'markup')
     frame.respond('mt::cm-editor-context-response', {
       requestId: query.requestId,
-      fileId: 'file-1',
+      documentId: 'document:1',
       target: comment
     })
     await first
 
     expect(popupMenu).not.toHaveBeenCalled()
     expect(menus).toEqual([])
+  })
+
+  it.each(['original', 'revised'] as const)(
+    'shows copy-capable, non-mutating %s projection commands',
+    async(surface) => {
+      const frame = fakeFrame()
+      const params = editorParams(frame)
+      params.isEditable = false
+      params.selectionText = 'selected projection text'
+      params.editFlags.canCut = false
+      params.editFlags.canCopy = true
+      params.editFlags.canPaste = true
+      params.editFlags.canEditRichly = false
+
+      const pending = showEditorContextMenu(
+        fakeWindow() as never,
+        {},
+        params as never,
+        false
+      )
+      respondSurface(frame, surface)
+      respondNoComment(frame)
+      await pending
+
+      const byId = new Map(
+        latestMenu().items.map(item => [item.id, item])
+      )
+      expect(byId.get('copyMenuItem')?.enabled).toBe(true)
+      expect(byId.get('copyAsRichMenuItem')?.enabled).toBe(true)
+      expect(byId.get('copyAsHtmlMenuItem')?.enabled).toBe(true)
+      expect(byId.get('cutMenuItem')?.enabled).toBe(false)
+      expect(byId.get('pasteMenuItem')?.enabled).toBe(false)
+      expect(byId.get('pasteAsPlainTextMenuItem')?.enabled).toBe(false)
+      expect(byId.get('insertParagraphBeforeMenuItem')?.enabled).toBe(false)
+      expect(byId.get('insertParagraphAfterMenuItem')?.enabled).toBe(false)
+    }
+  )
+
+  it('enables native Copy independently of canCut in Markup', async() => {
+    const frame = fakeFrame()
+    const params = editorParams(frame)
+    params.selectionText = 'copy me'
+    params.editFlags.canCut = false
+
+    const pending = showEditorContextMenu(
+      fakeWindow() as never,
+      {},
+      params as never,
+      false
+    )
+    respondSurface(frame, 'markup')
+    respondNoComment(frame)
+    await pending
+
+    const byId = new Map(
+      latestMenu().items.map(item => [item.id, item])
+    )
+    expect(byId.get('cutMenuItem')?.enabled).toBe(false)
+    expect(byId.get('copyMenuItem')?.enabled).toBe(true)
   })
 })

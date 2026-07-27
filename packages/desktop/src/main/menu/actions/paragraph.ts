@@ -1,6 +1,9 @@
 import { type BrowserWindow, type Menu, type MenuItem } from 'electron'
 import { COMMANDS } from '../../commands'
 import type { CommandManager } from '../../commands'
+import type {
+  DocumentSelectionMenuState
+} from '../../../shared/types/documentSelection'
 
 type Win = BrowserWindow | null | undefined
 
@@ -13,26 +16,6 @@ const CROSS_BLOCK_ENABLED_PARAGRAPH: readonly string[] = [
   'bulletListMenuItem',
   'taskListMenuItem'
 ]
-
-const MENU_ID_MAP: Readonly<Record<string, string>> = Object.freeze({
-  heading1MenuItem: 'h1',
-  heading2MenuItem: 'h2',
-  heading3MenuItem: 'h3',
-  heading4MenuItem: 'h4',
-  heading5MenuItem: 'h5',
-  heading6MenuItem: 'h6',
-  tableMenuItem: 'figure',
-  codeFencesMenuItem: 'pre',
-  htmlBlockMenuItem: 'html',
-  mathBlockMenuItem: 'multiplemath',
-  quoteBlockMenuItem: 'blockquote',
-  orderListMenuItem: 'ol',
-  bulletListMenuItem: 'ul',
-  taskListMenuItem: 'task',
-  paragraphMenuItem: 'p',
-  horizontalLineMenuItem: 'hr',
-  frontMatterMenuItem: 'frontmatter' // 'pre'
-})
 
 const transformEditorElement = (win: Win, type: string): void => {
   if (win && win.webContents) {
@@ -166,44 +149,42 @@ const setMultipleStatus = (
     .forEach((item: MenuItem) => (item.enabled = status))
 }
 
-export interface SelectionState {
-  affiliation: Record<string, boolean>
-  isTable?: boolean
-  isLooseListItem?: boolean
-  isTaskList?: boolean
-  isDisabled?: boolean
-  isMultiline?: boolean
-  isCodeFences?: boolean
-  isCodeContent?: boolean
-  hasFrontMatter?: boolean
-}
+export type SelectionState = DocumentSelectionMenuState
 
 const setCheckedMenuItem = (
   applicationMenu: Menu,
-  { affiliation, isTable, isLooseListItem }: SelectionState
+  state: SelectionState
 ): void => {
   const paragraphMenuItem = applicationMenu.getMenuItemById('paragraphMenuEntry')!
   paragraphMenuItem.submenu!.items.forEach((item: MenuItem) => (item.checked = false))
   paragraphMenuItem.submenu!.items.forEach((item: MenuItem) => {
-    if (!item.id) {
-      return false
-    } else if (item.id === 'looseListItemMenuItem') {
-      item.checked = !!isLooseListItem
-    } else if (
-      Object.keys(affiliation).some((b) => {
-        if (isTable && item.id === 'tableMenuItem') {
-          return true
-        } else if (item.id === 'codeFencesMenuItem' && /code$/.test(b)) {
-          return true
-        }
-        // Each list kind is its own affiliation key (ol / ul / task), so a
-        // nested chain checks every level via the id map.
-        return b === MENU_ID_MAP[item.id]
-      })
-    ) {
-      item.checked = true
+    const id = item.id
+    if (!id) return
+    const heading = /^heading([1-6])MenuItem$/.exec(id)
+    if (heading !== null) {
+      item.checked = state.headingLevel === Number(heading[1])
+      return
     }
-    return undefined
+    const kinds = new Set(state.activeBlockKinds)
+    item.checked =
+      (id === 'looseListItemMenuItem' && state.isLooseList) ||
+      (id === 'tableMenuItem' && state.isTable) ||
+      (id === 'codeFencesMenuItem' && kinds.has('code-block')) ||
+      (id === 'htmlBlockMenuItem' && kinds.has('html-block')) ||
+      (id === 'mathBlockMenuItem' && kinds.has('math-block')) ||
+      (id === 'quoteBlockMenuItem' && kinds.has('blockquote')) ||
+      (id === 'orderListMenuItem' && state.isOrderedList) ||
+      (id === 'bulletListMenuItem' && state.isUnorderedList) ||
+      (id === 'taskListMenuItem' && state.isTaskList) ||
+      (
+        id === 'paragraphMenuItem' &&
+        kinds.has('paragraph') &&
+        !state.isOrderedList &&
+        !state.isUnorderedList &&
+        !state.isTaskList
+      ) ||
+      (id === 'horizontalLineMenuItem' && kinds.has('thematic-break')) ||
+      (id === 'frontMatterMenuItem' && kinds.has('front-matter'))
   })
 }
 
@@ -218,13 +199,10 @@ export const updateSelectionMenus = (
   state: SelectionState
 ): void => {
   const {
-    // Key/boolean object like "ul: true" of block elements that are selected.
-    // This may be an empty object when multiple block elements are selected.
-    affiliation,
     isDisabled,
-    isMultiline,
-    isCodeFences,
-    isCodeContent
+    isMultiblock,
+    isCodeLike,
+    isCodeBlock
   } = state
 
   // Reset format menu.
@@ -240,7 +218,7 @@ export const updateSelectionMenus = (
     return
   }
 
-  if (isCodeFences) {
+  if (isCodeLike) {
     setParagraphMenuItemStatus(applicationMenu, false)
 
     // Non-formattable code-like content (code/math/html/frontmatter/diagram):
@@ -249,10 +227,10 @@ export const updateSelectionMenus = (
     formatMenuItem.submenu!.items.forEach((item: MenuItem) => (item.enabled = false))
 
     // A code line is selected — re-enable the code-fence toggle.
-    if (isCodeContent && Object.keys(affiliation).some((b) => /code$/.test(b))) {
+    if (isCodeBlock) {
       setMultipleStatus(applicationMenu, ['codeFencesMenuItem'], true)
     }
-  } else if (isMultiline) {
+  } else if (isMultiblock) {
     // Format: link/image are meaningless across a multi-block selection.
     formatMenuItem.submenu!.items
       .filter((item: MenuItem) => item.id === 'hyperlinkMenuItem' || item.id === 'imageMenuItem')
@@ -267,7 +245,7 @@ export const updateSelectionMenus = (
   }
 
   // Disable loose list item when not inside any list (bullet / ordered / task).
-  if (!affiliation.ul && !affiliation.ol && !affiliation.task) {
+  if (!state.isUnorderedList && !state.isOrderedList && !state.isTaskList) {
     setMultipleStatus(applicationMenu, ['looseListItemMenuItem'], false)
   }
 

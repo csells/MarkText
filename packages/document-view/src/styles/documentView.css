@@ -1,0 +1,242 @@
+.editor-component {
+    box-sizing: border-box;
+    font-size: var(--document-view-font-size, 16px);
+    font-family: var(
+        --document-view-font-family,
+        'Open Sans',
+        'Clear Sans',
+        'Helvetica Neue',
+        Helvetica,
+        Arial,
+        sans-serif
+    );
+    line-height: var(--document-view-line-height, 1.6);
+    width: 100%;
+    max-width: var(
+        --document-view-editor-area-width,
+        var(--editor-area-width, none)
+    );
+    margin-inline: auto;
+    -webkit-font-smoothing: antialiased;
+}
+
+.document-view-run {
+    white-space: break-spaces;
+}
+
+.document-view-code-wrap pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.document-view-focus-mode > * {
+    opacity: 0.25;
+}
+
+.document-view-focus-mode > [data-document-view-active='true'] {
+    opacity: 1;
+}
+
+.document-view-heading-link-copy::before {
+    content: '#';
+}
+
+.editor-component ins {
+    color: var(--critic-addition-color, #177245);
+    text-decoration: none;
+    background: var(--critic-addition-background, rgb(23 114 69 / 12%));
+}
+
+.editor-component del {
+    color: var(--critic-deletion-color, #b42318);
+    background: var(--critic-deletion-background, rgb(180 35 24 / 10%));
+}
+
+.editor-component mark {
+    color: inherit;
+    background: var(--critic-highlight-background, rgb(255 212 0 / 32%));
+}
+
+.document-view-critic-comment-indicator {
+    position: relative;
+    display: inline-block;
+    box-sizing: border-box;
+    width: 0.8em;
+    height: 0.62em;
+    margin-inline: 0.16em;
+    color: var(--critic-comment-color, #7253a6);
+    vertical-align: 0.14em;
+    user-select: none;
+    border: 0.11em solid currentcolor;
+    border-radius: 0.22em;
+}
+
+.document-view-critic-comment-indicator::after {
+    position: absolute;
+    inset-block-end: -0.28em;
+    inset-inline-start: 0.12em;
+    width: 0.24em;
+    height: 0.24em;
+    content: '';
+    background: linear-gradient(
+        135deg,
+        currentcolor 0 48%,
+        transparent 50% 100%
+    );
+}
+
+.document-view-table-tools {
+    z-index: 2147483000;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    max-width: min(640px, calc(100vw - 16px));
+    padding: 4px;
+    color: var(--document-view-table-tool-color, #202124);
+    background: var(--document-view-table-tool-background, #fff);
+    border: 1px solid var(--document-view-table-tool-border, #c9cdd2);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+}
+
+.document-view-table-tools button {
+    padding: 3px 6px;
+    color: inherit;
+    font: 12px/1.4 system-ui, sans-serif;
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.document-view-table-tools button:hover,
+.document-view-table-tools button:focus-visible {
+    background: var(--document-view-table-tool-hover, rgb(0 0 0 / 8%));
+    outline: none;
+}
+
+.document-view-table-cell[data-table-selected='true'] {
+    background: var(--document-view-table-selection, rgb(51 103 209 / 16%));
+}
+
+.document-view-container[data-quick-insert-placeholder]:empty::before,
+.document-view-paragraph[data-quick-insert-placeholder]:empty::before {
+    color: var(--document-view-placeholder-color, rgb(95 99 104 / 72%));
+    content: attr(data-quick-insert-placeholder);
+    pointer-events: none;
+}
+
+.document-view-quick-insert {
+    z-index: 2147483000;
+    display: grid;
+    min-width: 180px;
+    max-height: min(360px, calc(100vh - 32px));
+    padding: 4px;
+    overflow-y: auto;
+    color: var(--document-view-tool-color, #202124);
+    background: var(--document-view-tool-background, #fff);
+    border: 1px solid var(--document-view-tool-border, #c9cdd2);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+}
+
+.document-view-quick-insert-item {
+    padding: 5px 8px;
+    color: inherit;
+    font: 13px/1.4 system-ui, sans-serif;
+    text-align: start;
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.document-view-quick-insert-item:hover,
+.document-view-quick-insert-item[aria-selected='true'] {
+    background: var(--document-view-tool-hover, rgb(0 0 0 / 8%));
+}
+
+.document-view-float-wrapper {
+    z-index: 2147483000;
+}
+
+.document-view-image-selector {
+    box-sizing: border-box;
+    display: grid;
+    gap: 10px;
+    width: min(320px, calc(100vw - 16px));
+    padding: 12px;
+    color: var(--document-view-tool-color, #202124);
+    font: 13px/1.4 system-ui, sans-serif;
+    background: var(--document-view-tool-background, #fff);
+    border: 1px solid var(--document-view-tool-border, #c9cdd2);
+    border-radius: 7px;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+}
+
+.document-view-image-selector-heading {
+    font-weight: 600;
+}
+
+.document-view-image-selector-field {
+    display: grid;
+    gap: 3px;
+}
+
+.document-view-image-selector-field > span {
+    color: var(--document-view-tool-secondary-color, #5f6368);
+    font-size: 12px;
+}
+
+.document-view-image-selector input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: 6px 8px;
+    color: inherit;
+    font: inherit;
+    background: var(--document-view-tool-input-background, transparent);
+    border: 1px solid var(--document-view-tool-border, #9aa0a6);
+    border-radius: 4px;
+}
+
+.document-view-image-selector input:focus-visible {
+    border-color: var(--document-view-tool-focus, #1a73e8);
+    outline: 2px solid color-mix(
+        in srgb,
+        var(--document-view-tool-focus, #1a73e8) 25%,
+        transparent
+    );
+    outline-offset: 1px;
+}
+
+.document-view-image-selector-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.document-view-image-selector button {
+    padding: 5px 9px;
+    color: inherit;
+    font: inherit;
+    background: transparent;
+    border: 1px solid var(--document-view-tool-border, #9aa0a6);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.document-view-image-selector button[type='submit'] {
+    color: var(--document-view-tool-primary-text, #fff);
+    background: var(--document-view-tool-focus, #1a73e8);
+    border-color: var(--document-view-tool-focus, #1a73e8);
+}
+
+.document-view-image-selector button:hover,
+.document-view-image-selector button:focus-visible {
+    filter: brightness(0.96);
+    outline: 2px solid var(--document-view-tool-focus, #1a73e8);
+    outline-offset: 1px;
+}

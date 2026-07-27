@@ -1,0 +1,78 @@
+{
+  "schema": "marktext-authoring-eol-vectors-v1",
+  "policy": "nearest-owner-eol-v1",
+  "units": "decoded UTF-16",
+  "retainedTextRule": "Retained and pasted source is never normalized.",
+  "vectors": [
+    {
+      "id": "preceding-owner-wins",
+      "source": "alpha\r\nbeta\ncaret",
+      "owner": { "start": 0, "end": 17 },
+      "position": 17,
+      "preceding": "\n",
+      "following": null,
+      "documentPreference": "\r\n",
+      "expected": "\n"
+    },
+    {
+      "id": "following-owner-fallback",
+      "source": "caret\rbeta\r\noutside",
+      "owner": { "start": 0, "end": 11 },
+      "position": 0,
+      "preceding": null,
+      "following": "\r",
+      "documentPreference": "\r",
+      "expected": "\r"
+    },
+    {
+      "id": "document-majority",
+      "source": "a\r\nb\r\nc\nd",
+      "owner": { "start": 3, "end": 4 },
+      "position": 3,
+      "preceding": null,
+      "following": null,
+      "documentPreference": "\r\n",
+      "expected": "\r\n"
+    },
+    {
+      "id": "document-tie-first-occurrence",
+      "source": "a\rb\nc\r\nd",
+      "owner": { "start": 2, "end": 3 },
+      "position": 2,
+      "preceding": null,
+      "following": null,
+      "documentPreference": "\r",
+      "expected": "\r"
+    },
+    {
+      "id": "empty-document-lf",
+      "source": "",
+      "owner": { "start": 0, "end": 0 },
+      "position": 0,
+      "preceding": null,
+      "following": null,
+      "documentPreference": "\n",
+      "expected": "\n"
+    },
+    {
+      "id": "crlf-is-one-token",
+      "source": "a\r\nb",
+      "owner": { "start": 0, "end": 4 },
+      "position": 4,
+      "preceding": "\r\n",
+      "following": null,
+      "documentPreference": "\r\n",
+      "expected": "\r\n"
+    },
+    {
+      "id": "comment-payload-is-owner",
+      "source": "outer\n{>>first\rsecond<<}\n",
+      "owner": { "start": 9, "end": 21 },
+      "position": 21,
+      "preceding": "\r",
+      "following": null,
+      "documentPreference": "\n",
+      "expected": "\r"
+    }
+  ]
+}

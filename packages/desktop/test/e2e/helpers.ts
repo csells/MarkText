@@ -68,15 +68,102 @@ export interface LaunchResult {
   page: Page
 }
 
+/**
+ * Dispose an E2E Electron process without turning test cleanup into an
+ * unsaved-document interaction.
+ *
+ * Playwright's ElectronApplication.close() calls app.quit(). MarkText
+ * intentionally intercepts that request so a user can decide what to do with
+ * dirty documents, but automated background runs cannot present the native
+ * confirmation dialog. Workflow tests exercise close semantics explicitly
+ * when that behavior is under test; their final cleanup must be unconditional.
+ */
+export const closeElectron = async(app: ElectronApplication): Promise<void> => {
+  if (!isBackgroundTestRun) {
+    await app.close()
+    return
+  }
+
+  const electronProcess = app.process()
+  if (
+    electronProcess.exitCode !== null ||
+    electronProcess.signalCode !== null
+  ) {
+    return
+  }
+
+  let exitListener: () => void = () => {}
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const exited = new Promise<void>((resolve, reject) => {
+    let terminal = false
+    const finish = (): void => {
+      if (terminal) return
+      terminal = true
+      if (timeout !== undefined) clearTimeout(timeout)
+      resolve()
+    }
+    exitListener = finish
+    electronProcess.once('exit', finish)
+    if (
+      electronProcess.exitCode !== null ||
+      electronProcess.signalCode !== null
+    ) {
+      finish()
+      return
+    }
+    timeout = setTimeout(() => {
+      if (terminal) return
+      terminal = true
+      electronProcess.off('exit', finish)
+      reject(new Error('Electron did not exit within 5000ms during E2E cleanup'))
+    }, 5000)
+  })
+
+  try {
+    const requestedExit = app.evaluate(({ app: electronApp }) => {
+      setImmediate(() => electronApp.exit(0))
+    }).catch(() => {
+      if (
+        electronProcess.exitCode === null &&
+        electronProcess.signalCode === null
+      ) {
+        electronProcess.kill('SIGKILL')
+      }
+    })
+    await Promise.all([exited, requestedExit])
+  } finally {
+    electronProcess.off('exit', exitListener)
+    if (timeout !== undefined) clearTimeout(timeout)
+  }
+}
+
+export const closeElectronAfterStartupFailure = async(
+  app: ElectronApplication,
+  error: unknown
+): Promise<never> => {
+  try {
+    await closeElectron(app)
+  } catch {
+    // Preserve the startup failure that explains why the launch was unusable.
+  }
+  throw error
+}
+
 export const launchElectron = async(
-  userArgs?: string[]
+  userArgs?: string[],
+  options: Readonly<{ userDataDir?: string }> = {}
 ): Promise<LaunchResult> => {
   if (isBackgroundTestRun) assertBackgroundCapableBuild()
   userArgs = userArgs || []
   const executablePath = getElectronPath()
   // Pass project root as entry so Electron reads package.json and getAppPath() returns project root.
   // Passing out/main/index.js directly bypasses package.json and breaks __static path resolution.
-  const userDataDir = trackTempDir(getTempPath())
+  const userDataDir = trackTempDir(
+    options.userDataDir === undefined
+      ? getTempPath()
+      : path.resolve(options.userDataDir)
+  )
+  fs.mkdirSync(userDataDir, { recursive: true })
   const args = [projectRoot, '--user-data-dir', userDataDir].concat(userArgs)
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
@@ -94,26 +181,25 @@ export const launchElectron = async(
     env,
     timeout: 30000
   })
-  await installRendererErrorCounter(app)
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
-  await new Promise((resolve) => setTimeout(resolve, 500))
-  const startupRendererErrors = await getRendererErrors(app)
-  if (startupRendererErrors.length > 0) {
-    await app.close()
-    throw new Error(
-      `Electron captured renderer errors during launch: ${JSON.stringify(startupRendererErrors)}`
-    )
-  }
-  if (isBackgroundTestRun) {
-    try {
-      await assertBackgroundRuntimePolicy(app)
-    } catch (error) {
-      await app.close()
-      throw error
+  try {
+    await installRendererErrorCounter(app)
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const startupRendererErrors = await getRendererErrors(app)
+    if (startupRendererErrors.length > 0) {
+      throw new Error(
+        'Electron captured renderer errors during launch: ' +
+        JSON.stringify(startupRendererErrors)
+      )
     }
+    if (isBackgroundTestRun) {
+      await assertBackgroundRuntimePolicy(app)
+    }
+    return { app, page }
+  } catch (error) {
+    return closeElectronAfterStartupFailure(app, error)
   }
-  return { app, page }
 }
 
 export const assertBackgroundRuntimePolicy = async(
@@ -335,24 +421,26 @@ export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> =
 }
 
 export const enterSourceMode = async(page: Page, app: ElectronApplication): Promise<void> => {
-  const already = await page.evaluate(() => !!document.querySelector('.source-code .CodeMirror'))
+  const already = await page.evaluate(
+    () => !!document.querySelector('.source-code-input')
+  )
   if (already) return
   await clickMenuById(app, 'sourceCodeModeMenuItem')
-  await page.waitForSelector('.source-code .CodeMirror', { state: 'attached', timeout: 10000 })
+  await page.waitForSelector('.source-code-input', {
+    state: 'attached',
+    timeout: 10000
+  })
   await page.waitForFunction(
-    () => {
-      const cm = document.querySelector('.source-code .CodeMirror') as
-        | (Element & { CodeMirror?: unknown })
-        | null
-      return cm && cm.CodeMirror
-    },
+    () => document.querySelector('.source-code-input') instanceof HTMLTextAreaElement,
     null,
     { timeout: 10000 }
   )
 }
 
 export const exitSourceMode = async(page: Page, app: ElectronApplication): Promise<void> => {
-  const inSource = await page.evaluate(() => !!document.querySelector('.source-code .CodeMirror'))
+  const inSource = await page.evaluate(
+    () => !!document.querySelector('.source-code-input')
+  )
   if (!inSource) return
   await clickMenuById(app, 'sourceCodeModeMenuItem')
   await page.waitForFunction(() => !document.querySelector('.source-code'), null, {
@@ -365,14 +453,14 @@ export const getMarkdownContent = async(
   app: ElectronApplication
 ): Promise<string> => {
   const wasInSource = await page.evaluate(
-    () => !!document.querySelector('.source-code .CodeMirror')
+    () => !!document.querySelector('.source-code-input')
   )
   if (!wasInSource) await enterSourceMode(page, app)
   const value = await page.evaluate(() => {
-    const cm = document.querySelector('.source-code .CodeMirror') as
-      | (Element & { CodeMirror?: { getValue(): string } })
-      | null
-    return cm && cm.CodeMirror ? cm.CodeMirror.getValue() : ''
+    const input = document.querySelector(
+      '.source-code-input'
+    ) as HTMLTextAreaElement | null
+    return input?.value ?? ''
   })
   if (!wasInSource) await exitSourceMode(page, app)
   return value
@@ -403,19 +491,15 @@ export const typeIntoEditor = async(page: Page, text: string): Promise<void> => 
   await page.keyboard.type(text, { delay: 0 })
 }
 
-// The @muyajs/core engine wraps editable paragraph text in
-// `span.mu-paragraph-content` (inside `p.mu-paragraph`). Selecting the inner
-// content span is what the engine's selection logic expects, so we target it.
-// Place a selection inside the first non-empty paragraph content span and let
-// the engine commit it to its model. The @muyajs/core engine derives its
-// `activeContentBlock` from `click`/`input`/`keydown`/`keyup` events on the
-// editor root (see editor/index.ts), so a bare `selectionchange` is not enough
-// — we dispatch a synthetic `keyup` on the editor so the active block updates.
+// The document view wraps editable paragraph text in
+// `span.document-view-run` (inside `p.document-view-paragraph`). Selecting the inner
+// content span gives the browser range an exact parser-owned model mapping.
+// Dispatching keyup commits the range before a following command.
 const commitSelection = (collapse: boolean) => {
   const root = document.querySelector('.editor-component') as HTMLElement | null
   if (!root) return false
   root.focus()
-  const spans = root.querySelectorAll('span.mu-paragraph-content')
+  const spans = root.querySelectorAll('span.document-view-run')
   let target: Element | null = null
   for (const span of spans) {
     if (span.textContent && span.textContent.trim().length > 0) {
@@ -441,7 +525,7 @@ const commitSelection = (collapse: boolean) => {
 
 export const focusEditor = async(page: Page): Promise<void> => {
   await page.evaluate(commitSelection, false)
-  // Allow muya's selectionchange listener to commit the selection to its model.
+  // Allow the selectionchange listener to commit the selection to the session.
   await page.waitForTimeout(150)
 }
 
@@ -456,12 +540,9 @@ export const setSourceMarkdown = async(
   markdown: string
 ): Promise<void> => {
   await enterSourceMode(page, app)
-  await page.evaluate((value) => {
-    const cm = document.querySelector('.source-code .CodeMirror') as
-      | (Element & { CodeMirror?: { setValue(v: string): void } })
-      | null
-    if (cm && cm.CodeMirror) cm.CodeMirror.setValue(value)
-  }, markdown)
+  const input = page.locator('.source-code-input')
+  await input.fill(markdown)
+  await expect(input).toHaveValue(markdown)
   await exitSourceMode(page, app)
 }
 
@@ -486,11 +567,27 @@ export interface LaunchWithMarkdownResult extends LaunchResult {
   filePath: string
 }
 
+export interface LaunchWithMarkdownOptions {
+  readonly userKeybindings?: Readonly<Record<string, string>>
+}
+
 export const launchWithMarkdown = async(
-  markdown = ''
+  markdown = '',
+  options: LaunchWithMarkdownOptions = {}
 ): Promise<LaunchWithMarkdownResult> => {
   const filePath = writeTempMarkdown(markdown)
-  const { app, page } = await launchElectron([filePath])
+  let userDataDir: string | undefined
+  if (options.userKeybindings !== undefined) {
+    userDataDir = trackTempDir(getTempPath('-profile'))
+    fs.mkdirSync(userDataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(userDataDir, 'keybindings.json'),
+      `${JSON.stringify(options.userKeybindings, null, 2)}\n`,
+      'utf8'
+    )
+  }
+  const launchOptions = userDataDir === undefined ? {} : { userDataDir }
+  const { app, page } = await launchElectron([filePath], launchOptions)
   await waitForEditor(page)
   await waitForMenuReady(app)
   return { app, page, filePath }

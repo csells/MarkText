@@ -27,11 +27,6 @@ vi.mock('chokidar', () => ({
   }
 }))
 
-// Importing the watcher pulls in the markdown loader, whose encoding detection
-// uses the native `ced` addon. Its bindings are built for Electron's ABI, not
-// the plain-Node test runner, so stub it to keep this spec import-only.
-vi.mock('ced', () => ({ default: () => 'UTF-8' }))
-
 import Watcher, {
   WATCHER_STABILITY_THRESHOLD,
   WATCHER_STABILITY_POLL_INTERVAL

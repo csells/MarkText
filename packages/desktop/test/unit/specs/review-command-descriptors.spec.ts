@@ -2,7 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { REVIEW_COMMAND_DESCRIPTORS } from 'common/commands/review'
+import {
+  REVIEW_COMMAND_DESCRIPTORS,
+  isReviewCommandAvailable
+} from 'common/commands/review'
 import bus from '@/bus'
 import commands from '@/commands'
 import keybindingsDarwin from 'main_renderer/keyboard/keybindingsDarwin'
@@ -139,6 +142,45 @@ describe('single CriticMarkup Review command descriptor registry', () => {
     expect(new Set(REVIEW_COMMAND_DESCRIPTORS.map(({ menuId }) => menuId)).size).toBe(15)
     expect(REVIEW_COMMAND_DESCRIPTORS.every(({ defaultKeybinding }) =>
       defaultKeybinding === '')).toBe(true)
+  })
+
+  it('owns one availability rule for menu and palette command surfaces', () => {
+    const state = {
+      available: true,
+      canCreateAddition: false,
+      canCreateDeletion: false,
+      canCreateSubstitution: false,
+      canCreateHighlight: false,
+      canCreateComment: false,
+      canNavigate: true,
+      canResolveCurrent: true,
+      canResolveAll: false,
+      trackChanges: false,
+      projection: 'marked' as const
+    }
+    const command = (id: string) => {
+      const descriptor = REVIEW_COMMAND_DESCRIPTORS.find(
+        candidate => candidate.id === id
+      )
+      if (!descriptor) throw new Error(`Missing Review command ${id}`)
+      return descriptor
+    }
+
+    expect(isReviewCommandAvailable(command('review.next'), state)).toBe(true)
+    expect(isReviewCommandAvailable(command('review.accept-current'), state))
+      .toBe(true)
+    expect(isReviewCommandAvailable(command('review.accept-all'), state))
+      .toBe(false)
+    expect(isReviewCommandAvailable(command('review.mark-addition'), state))
+      .toBe(false)
+    expect(isReviewCommandAvailable(command('review.next'), {
+      ...state,
+      projection: 'revised'
+    })).toBe(true)
+    expect(isReviewCommandAvailable(command('review.next'), {
+      ...state,
+      available: false
+    })).toBe(false)
   })
 
   it('drives all three platform keybinding tables', () => {

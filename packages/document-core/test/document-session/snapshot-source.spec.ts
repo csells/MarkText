@@ -4,6 +4,7 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { completeSnapshot } from '../helpers/completeSnapshot.js'
 
 /**
  * The current revision's canonical source, read synchronously.
@@ -22,7 +23,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -58,7 +68,7 @@ describe('snapshot canonical source', () => {
 
   it('keeps CriticMarkup markers the reader does not see', async() => {
     const session = await openSession('a{++x++}b\n')
-    const snapshot = session.snapshot()
+    const snapshot = completeSnapshot(session)
     expect(snapshot.livePlan.runs.map((run) => run.text).join('')).toBe('axb\n')
     expect(snapshot.revision.source).toBe('a{++x++}b\n')
   })

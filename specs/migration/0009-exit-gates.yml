@@ -1,0 +1,281 @@
+{
+  "schema": "marktext-0009-exit-gates-v1",
+  "plan": "0009",
+  "phases": [
+    {
+      "id": "P0",
+      "status": "green",
+      "dependsOn": [],
+      "requirements": [],
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-control-plane.spec.ts",
+        "title": "encodes the exact phase DAG and rejects orphan requirement IDs"
+      }
+    },
+    {
+      "id": "P0.5",
+      "status": "red",
+      "dependsOn": ["P0"],
+      "requirements": ["A01", "D03"],
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/architecture-gate.spec.ts",
+        "title": "marker-bearing source is emitted by one intrinsic grammar"
+      }
+    },
+    {
+      "id": "P1",
+      "status": "red",
+      "dependsOn": ["P0.5"],
+      "requirements": ["A05", "D02"],
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/full-profile-conformance.spec.ts",
+        "title": "passes every pinned language configuration hash and resource vector"
+      }
+    },
+    {
+      "id": "P2",
+      "status": "red",
+      "dependsOn": ["P1"],
+      "requirements": ["A02", "A03", "A10", "A13"],
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/profile1-corpus.spec.ts",
+        "title": "derives every recursive five-form view from one revision"
+      }
+    },
+    {
+      "id": "P3",
+      "status": "red",
+      "dependsOn": ["P2"],
+      "requirements": ["A04", "A14"],
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/document-session/semantic-edit-codec.spec.ts",
+        "title": "protects every changed join and preserves untargeted identity"
+      }
+    },
+    {
+      "id": "P4",
+      "status": "red",
+      "dependsOn": ["P3"],
+      "requirements": ["A09", "A25"],
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-real-flow.spec.ts",
+        "title": "owns one beforeinput DOM history source and file flow"
+      }
+    },
+    {
+      "id": "P5",
+      "status": "red",
+      "dependsOn": ["P4"],
+      "requirements": ["A11"],
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/cross-consumer-resource-matrix.spec.ts",
+        "title": "serves 16384 and disables semantics at 16385"
+      }
+    },
+    {
+      "id": "P6",
+      "status": "red",
+      "dependsOn": ["P5"],
+      "requirements": ["A06", "A07", "A18", "A28"],
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-persistence.spec.ts",
+        "title": "persists the pinned canonical revision through crash and reopen"
+      }
+    },
+    {
+      "id": "P7",
+      "status": "red",
+      "dependsOn": ["P6"],
+      "requirements": ["A08", "A12", "A27", "D04", "D05"],
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-track-changes.spec.ts",
+        "title": "tracks every frozen interaction with exact undo"
+      }
+    },
+    {
+      "id": "P8",
+      "status": "red",
+      "dependsOn": ["P7"],
+      "requirements": [
+        "A15",
+        "A16",
+        "A17",
+        "A19",
+        "A20",
+        "A21",
+        "A22",
+        "A23",
+        "A24",
+        "A26"
+      ],
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-review-workflow.spec.ts",
+        "title": "completes the Review and Comment workflow through real app events"
+      }
+    },
+    {
+      "id": "P9",
+      "status": "red",
+      "dependsOn": ["P8"],
+      "requirements": ["D01", "D06"],
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-retired-authority-absence.spec.ts",
+        "title": "proves every retired authority seed absent and document-core solely authoritative"
+      }
+    },
+    {
+      "id": "P11",
+      "status": "red",
+      "dependsOn": ["P9"],
+      "requirements": ["A29"],
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-max-document-perf.spec.ts",
+        "title": "keeps admission heartbeat cancellation and viewport mount within budget"
+      }
+    },
+    {
+      "id": "P10",
+      "status": "red",
+      "dependsOn": ["P9", "P11"],
+      "requirements": [
+        "A30",
+        "A31",
+        "A32",
+        "D07",
+        "D08",
+        "D09",
+        "D10",
+        "D11"
+      ],
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-final-closure.spec.ts",
+        "title": "proves every acceptance closure deletion and evidence claim"
+      }
+    }
+  ],
+  "closure": [
+    {
+      "id": "D01",
+      "phase": "P9",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/document-core-sole-authority.spec.ts",
+        "title": "uses exact revision source as the only production editor authority"
+      }
+    },
+    {
+      "id": "D02",
+      "phase": "P1",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/profile-corpus-contract.spec.ts",
+        "title": "validates separate standard profile and recovery corpora"
+      }
+    },
+    {
+      "id": "D03",
+      "phase": "P0.5",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/architecture-gate.spec.ts",
+        "title": "all revision products retain parser-created identity"
+      }
+    },
+    {
+      "id": "D04",
+      "phase": "P7",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/document-session/typed-intent-matrix.spec.ts",
+        "title": "commits every mutation from one typed source-native intent"
+      }
+    },
+    {
+      "id": "D05",
+      "phase": "P7",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/materialize/consumer-policy.spec.ts",
+        "title": "routes live static and persistence consumers through their sole seams"
+      }
+    },
+    {
+      "id": "D06",
+      "phase": "P9",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-retired-authority-absence.spec.ts",
+        "title": "proves every retired authority seed absent and document-core solely authoritative"
+      }
+    },
+    {
+      "id": "D07",
+      "phase": "P10",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-final-closure.spec.ts",
+        "title": "collects every A01 through A32 primary and auxiliary target as an ordinary passing test"
+      }
+    },
+    {
+      "id": "D08",
+      "phase": "P10",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-final-closure.spec.ts",
+        "title": "accepts a complete retry-free cross-surface evidence bundle"
+      }
+    },
+    {
+      "id": "D09",
+      "phase": "P10",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-doc-consistency.spec.ts",
+        "title": "keeps product language architecture and non-goals consistent"
+      }
+    },
+    {
+      "id": "D10",
+      "phase": "P10",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-final-closure.spec.ts",
+        "title": "records two distinct timestamp-bound fixed-surface passes"
+      }
+    },
+    {
+      "id": "D11",
+      "phase": "P10",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/plan/0009-archive-absence.spec.ts",
+        "title": "proves the superseded design archives absent after fixture import"
+      }
+    }
+  ]
+}

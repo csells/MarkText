@@ -1,5 +1,11 @@
 <template>
-  <div class="side-bar-review">
+  <div
+    ref="reviewRegion"
+    class="side-bar-review"
+    role="region"
+    :aria-label="t('sideBar.review.title')"
+    tabindex="-1"
+  >
     <header class="review-header">
       <div>
         <div class="title">
@@ -8,6 +14,7 @@
         <div
           v-if="snapshot.available"
           class="summary"
+          aria-live="polite"
         >
           {{ t('sideBar.review.summary', { count: snapshot.items.length }) }}
         </div>
@@ -20,19 +27,25 @@
         <el-switch
           :model-value="snapshot.trackChanges"
           :disabled="!snapshot.available"
+          :aria-label="t('sideBar.review.trackChanges')"
           size="small"
           @change="toggleTrackChanges"
         />
       </label>
     </header>
 
-    <div class="projection-picker">
+    <div
+      class="projection-picker"
+      role="group"
+      :aria-label="t('menu.review.display')"
+    >
       <button
         v-for="option of projectionOptions"
         :key="option.projection"
         type="button"
         :class="{ active: snapshot.projection === option.projection }"
         :disabled="!snapshot.available"
+        :aria-pressed="snapshot.projection === option.projection"
         @click="selectProjection(option.commandId)"
       >
         {{ t(option.label) }}
@@ -52,6 +65,7 @@
         class="comment-compose-input"
         rows="3"
         :placeholder="t('sideBar.review.commentPlaceholder')"
+        :aria-label="t('sideBar.review.commentPlaceholder')"
         @keydown.enter="onComposeEnter"
         @keydown.esc.prevent="cancelCompose"
       />
@@ -87,7 +101,6 @@
     </div>
     <div
       v-else
-      ref="reviewList"
       class="review-list"
     >
       <section
@@ -96,11 +109,15 @@
         class="review-card"
         :class="[`type-${item.type}`, { active: snapshot.currentItemId === item.id }]"
         :data-critic-id="item.id"
+        role="group"
+        :aria-labelledby="`review-card-label-${index}`"
       >
         <button
           v-show="editingId !== item.id"
+          :id="`review-card-label-${index}`"
           type="button"
           class="review-card-focus"
+          :aria-current="snapshot.currentItemId === item.id ? 'true' : undefined"
           @click="activateItem(item)"
         >
           <span class="card-head">
@@ -139,33 +156,38 @@
         <div
           v-if="editingId === item.id"
           class="comment-edit"
+          :aria-busy="editSaving"
         >
           <textarea
             ref="editInput"
             v-model="editDraft"
             class="comment-compose-input"
             rows="3"
+            :disabled="editSaving"
+            :aria-label="t('sideBar.review.edit')"
             @input="onEditInput"
             @keydown.enter="onEditEnter($event, item)"
-            @keydown.esc.prevent="cancelEdit"
+            @keydown.esc.prevent="cancelEdit()"
           />
           <p
             v-if="editFailed"
             class="comment-edit-failure"
+            role="alert"
+            aria-live="polite"
           >
             {{ t('sideBar.review.commentEditFailed') }}
           </p>
           <div class="comment-compose-actions">
             <button
               type="button"
-              @click="cancelEdit"
+              @click="cancelEdit()"
             >
               {{ t('sideBar.review.cancel') }}
             </button>
             <button
               type="button"
               class="submit"
-              :disabled="!editDraft.trim()"
+              :disabled="editSaving || !editDraft.trim()"
               @click="submitEdit(item)"
             >
               {{ t('sideBar.review.saveEdit') }}
@@ -235,7 +257,7 @@ import type {
 const { t } = useI18n()
 const reviewStore = useCriticMarkupReviewStore()
 const { snapshot, composing, commentEditRequest } = storeToRefs(reviewStore)
-const reviewList = ref<HTMLElement | null>(null)
+const reviewRegion = ref<HTMLElement | null>(null)
 const composeInput = ref<HTMLTextAreaElement | null>(null)
 const composeDraft = ref('')
 
@@ -278,27 +300,31 @@ const onComposeEnter = (event: KeyboardEvent): void => {
 const editingId = ref<string | null>(null)
 const editDraft = ref('')
 const editFailed = ref(false)
+const editSaving = ref(false)
 const editInput = ref<HTMLTextAreaElement | HTMLTextAreaElement[] | null>(null)
 let editSubmissionVersion = 0
+let editingIndex = -1
+let pendingActionFocus: Readonly<{
+  documentId: string
+  nodeId: string
+  index: number
+}> | null = null
 interface CommentEditIdentity {
-  fileId: string | null
-  id: string
-  sourceStart: number
-  sourceEnd: number
-  raw: string
+  documentId: string
+  revisionId: string
+  nodeId: string
 }
 const editingTarget = ref<CommentEditIdentity | null>(null)
 
 const matchesEditIdentity = (
   identity: CommentEditIdentity,
-  fileId: string | null,
+  documentId: string | null,
+  revisionId: string | null,
   item: CriticMarkupSidebarItem
 ): boolean =>
-  identity.fileId === fileId &&
-  identity.id === item.id &&
-  identity.sourceStart === item.sourceStart &&
-  identity.sourceEnd === item.sourceEnd &&
-  identity.raw === item.raw
+  identity.documentId === documentId &&
+  identity.revisionId === revisionId &&
+  identity.nodeId === item.id
 
 const focusEditInput = (): void => {
   nextTick(() => {
@@ -308,17 +334,20 @@ const focusEditInput = (): void => {
 }
 
 const beginEdit = (item: CriticMarkupSidebarItem): void => {
+  const documentId = snapshot.value.documentId
+  const revisionId = snapshot.value.revisionId
+  if (!documentId || !revisionId) return
   editSubmissionVersion += 1
   editingTarget.value = {
-    fileId: snapshot.value.fileId,
-    id: item.id,
-    sourceStart: item.sourceStart,
-    sourceEnd: item.sourceEnd,
-    raw: item.raw
+    documentId,
+    revisionId,
+    nodeId: item.id
   }
   editingId.value = item.id
+  editingIndex = snapshot.value.items.findIndex(candidate => candidate.id === item.id)
   editDraft.value = item.content ?? ''
   editFailed.value = false
+  editSaving.value = false
   // The ref lives inside the card v-for, so Vue may collect it as an array;
   // focus the single mounted edit box either way.
   focusEditInput()
@@ -327,18 +356,24 @@ const beginEdit = (item: CriticMarkupSidebarItem): void => {
 watch(
   [commentEditRequest, snapshot],
   ([pending, current]) => {
-    if (!pending || pending.fileId !== current.fileId) return
+    if (
+      !pending ||
+      pending.documentId !== current.documentId ||
+      pending.target.revisionId !== current.revisionId
+    ) return
     const target = current.items.find(item =>
       item.type === 'comment' &&
-      item.id === pending.target.id &&
-      item.sourceStart === pending.target.sourceStart &&
-      item.sourceEnd === pending.target.sourceEnd &&
-      item.raw === pending.target.raw)
+      item.id === pending.target.nodeId)
     if (!target) return
 
     reviewStore.TAKE_COMMENT_EDIT()
     const identity = editingTarget.value
-    if (identity && matchesEditIdentity(identity, current.fileId, target)) {
+    if (identity && matchesEditIdentity(
+      identity,
+      current.documentId,
+      current.revisionId,
+      target
+    )) {
       focusEditInput()
       return
     }
@@ -355,12 +390,27 @@ const activateItem = (item: CriticMarkupSidebarItem): void => {
   actOnItem('focus', item)
 }
 
-const cancelEdit = (): void => {
+const focusReviewCard = (nodeId: string): void => {
+  nextTick(() => {
+    nextTick(() => {
+      const card = [...(reviewRegion.value?.querySelectorAll<HTMLElement>(
+        '.review-card'
+      ) ?? [])].find(candidate => candidate.dataset.criticId === nodeId)
+      card?.querySelector<HTMLButtonElement>('.review-card-focus')?.focus()
+    })
+  })
+}
+
+const cancelEdit = (restoreFocus = true): void => {
+  const nodeId = editingTarget.value?.nodeId ?? null
   editSubmissionVersion += 1
   editingTarget.value = null
   editingId.value = null
+  editingIndex = -1
   editDraft.value = ''
   editFailed.value = false
+  editSaving.value = false
+  if (restoreFocus && nodeId !== null) focusReviewCard(nodeId)
 }
 
 const onEditInput = (): void => {
@@ -369,8 +419,14 @@ const onEditInput = (): void => {
 }
 
 const submitEdit = (item: CriticMarkupSidebarItem): void => {
+  if (editSaving.value) return
   const identity = editingTarget.value
-  if (!identity || !matchesEditIdentity(identity, snapshot.value.fileId, item)) {
+  if (!identity || !matchesEditIdentity(
+    identity,
+    snapshot.value.documentId,
+    snapshot.value.revisionId,
+    item
+  )) {
     cancelEdit()
     return
   }
@@ -378,8 +434,13 @@ const submitEdit = (item: CriticMarkupSidebarItem): void => {
   if (!text.trim()) return
   const version = ++editSubmissionVersion
   editFailed.value = false
+  editSaving.value = true
   const submission: CriticMarkupCommentEditSubmission = {
-    target: item,
+    documentId: identity.documentId,
+    target: {
+      revisionId: identity.revisionId,
+      nodeId: identity.nodeId
+    },
     text,
     acknowledge: (result) => {
       // Ignore an acknowledgement for a draft that the user has since edited,
@@ -392,10 +453,12 @@ const submitEdit = (item: CriticMarkupSidebarItem): void => {
       ) {
         return
       }
+      editSaving.value = false
       if (result.outcome === 'saved') {
         cancelEdit()
       } else {
         editFailed.value = true
+        focusEditInput()
       }
     }
   }
@@ -414,11 +477,49 @@ const onEditEnter = (event: KeyboardEvent, item: CriticMarkupSidebarItem): void 
 watch(
   snapshot,
   (current) => {
+    const pending = pendingActionFocus
+    if (pending !== null) {
+      if (pending.documentId !== current.documentId) {
+        pendingActionFocus = null
+      } else if (!current.items.some(item => item.id === pending.nodeId)) {
+        pendingActionFocus = null
+        const next = current.items[Math.min(
+          pending.index,
+          Math.max(0, current.items.length - 1)
+        )]
+        if (next === undefined) {
+          nextTick(() => reviewRegion.value?.focus())
+        } else {
+          focusReviewCard(next.id)
+        }
+      }
+    }
+
     const identity = editingTarget.value
     if (!identity) return
     const stillCurrent = current.items.some(item =>
-      matchesEditIdentity(identity, current.fileId, item))
-    if (!stillCurrent) cancelEdit()
+      matchesEditIdentity(
+        identity,
+        current.documentId,
+        current.revisionId,
+        item
+      ))
+    if (!stillCurrent) {
+      const sameDocument = identity.documentId === current.documentId
+      const next = sameDocument
+        ? current.items.find(item => item.id === identity.nodeId) ??
+          current.items[Math.min(
+            Math.max(0, editingIndex),
+            Math.max(0, current.items.length - 1)
+          )]
+        : undefined
+      cancelEdit(false)
+      if (next !== undefined) {
+        focusReviewCard(next.id)
+      } else if (sameDocument) {
+        nextTick(() => reviewRegion.value?.focus())
+      }
+    }
   },
   { flush: 'sync' }
 )
@@ -469,24 +570,29 @@ const actOnItem = (
   action: CriticMarkupSidebarItemAction['action'],
   target: CriticMarkupSidebarItem
 ): void => {
-  const fileId = snapshot.value.fileId
-  if (!fileId) return
-  bus.emit('critic-markup-review-item', { fileId, action, target })
+  const documentId = snapshot.value.documentId
+  const revisionId = snapshot.value.revisionId
+  if (!documentId || !revisionId) return
+  if (action !== 'focus') {
+    pendingActionFocus = {
+      documentId,
+      nodeId: target.id,
+      index: Math.max(
+        0,
+        snapshot.value.items.findIndex(item => item.id === target.id)
+      )
+    }
+  }
+  bus.emit('critic-markup-review-item', {
+    documentId,
+    action,
+    target: {
+      revisionId,
+      nodeId: target.id
+    }
+  })
 }
 
-watch(
-  () => snapshot.value.currentItemId,
-  (id) => {
-    if (!id) return
-    const item = snapshot.value.items.find(candidate => candidate.id === id)
-    if (item?.type === 'comment') return
-    nextTick(() => {
-      const card = Array.from(reviewList.value?.querySelectorAll<HTMLElement>('[data-critic-id]') ?? [])
-        .find((element) => element.dataset.criticId === id)
-      card?.scrollIntoView({ block: 'nearest' })
-    })
-  }
-)
 </script>
 
 <style scoped>
@@ -678,6 +784,16 @@ watch(
 .review-card-focus:hover {
   background: var(--sideBarItemHoverBgColor);
   outline: none;
+}
+
+.side-bar-review:focus-visible,
+.projection-picker button:focus-visible,
+.comment-compose-input:focus-visible,
+.comment-compose-actions button:focus-visible,
+.review-card-focus:focus-visible,
+.card-actions button:focus-visible {
+  outline: 2px solid var(--themeColor);
+  outline-offset: 2px;
 }
 
 .review-card.active {

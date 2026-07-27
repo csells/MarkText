@@ -5,7 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   ipcListeners,
   fromWebContents,
+  updateFormatMenu,
   updateReviewMenu,
+  updateSelectionMenus,
+  updateSidebarMenu,
+  viewLayoutChanged,
   logError,
   builtMenu
 } = vi.hoisted(() => {
@@ -13,7 +17,11 @@ const {
   return {
     ipcListeners: new Map<string, (...args: unknown[]) => void>(),
     fromWebContents: vi.fn(),
+    updateFormatMenu: vi.fn(),
     updateReviewMenu: vi.fn(),
+    updateSelectionMenus: vi.fn(),
+    updateSidebarMenu: vi.fn(),
+    viewLayoutChanged: vi.fn(),
     logError: vi.fn(),
     builtMenu: {
       getMenuItemById: (id: string) => {
@@ -54,11 +62,14 @@ vi.mock('main_renderer/config', () => ({
   isOsx: false,
   isWindows: false
 }))
-vi.mock('main_renderer/menu/actions/edit', () => ({ updateSidebarMenu: vi.fn() }))
-vi.mock('main_renderer/menu/actions/format', () => ({ updateFormatMenu: vi.fn() }))
-vi.mock('main_renderer/menu/actions/paragraph', () => ({ updateSelectionMenus: vi.fn() }))
+vi.mock('main_renderer/menu/actions/edit', () => ({
+  setSemanticClipboardMenuState: vi.fn(),
+  updateSidebarMenu
+}))
+vi.mock('main_renderer/menu/actions/format', () => ({ updateFormatMenu }))
+vi.mock('main_renderer/menu/actions/paragraph', () => ({ updateSelectionMenus }))
 vi.mock('main_renderer/menu/actions/review', () => ({ updateReviewMenu }))
-vi.mock('main_renderer/menu/actions/view', () => ({ viewLayoutChanged: vi.fn() }))
+vi.mock('main_renderer/menu/actions/view', () => ({ viewLayoutChanged }))
 vi.mock('main_renderer/utils/internalIpc', () => ({ onInternalChannel: vi.fn() }))
 vi.mock('main_renderer/i18n.js', () => ({ setLanguage: vi.fn() }))
 vi.mock('main_renderer/menu/templates', () => ({
@@ -75,6 +86,7 @@ const reviewState = {
   canCreateSubstitution: false,
   canCreateHighlight: true,
   canCreateComment: true,
+  canNavigate: true,
   canResolveCurrent: false,
   canResolveAll: true,
   trackChanges: true,
@@ -91,6 +103,10 @@ describe('Review menu state IPC identity', () => {
   beforeEach(() => {
     fromWebContents.mockReset()
     updateReviewMenu.mockReset()
+    updateFormatMenu.mockReset()
+    updateSelectionMenus.mockReset()
+    updateSidebarMenu.mockReset()
+    viewLayoutChanged.mockReset()
     logError.mockReset()
   })
 
@@ -122,6 +138,21 @@ describe('Review menu state IPC identity', () => {
     expect(appMenu.windowMenus.size).toBe(0)
   })
 
+  it('rejects malformed or extended Review state before resolving a sender', () => {
+    const appMenu = makeAppMenu()
+    const sender = { id: 9003 }
+    const handler = ipcListeners.get('mt::update-review-menu')
+
+    handler?.({ sender }, { ...reviewState, projection: 'forged' })
+    handler?.({ sender }, { ...reviewState, extra: true })
+    handler?.({ sender }, reviewState, { forged: 'second-argument' })
+
+    expect(fromWebContents).not.toHaveBeenCalled()
+    expect(updateReviewMenu).not.toHaveBeenCalled()
+    expect(logError).toHaveBeenCalledTimes(3)
+    expect(appMenu.windowMenus.size).toBe(0)
+  })
+
   it('does not expose a renderer-supplied window id in the typed IPC contract', () => {
     const ipcTypes = fs.readFileSync(path.resolve(
       __dirname,
@@ -133,5 +164,73 @@ describe('Review menu state IPC identity', () => {
 
     expect(channelContract).not.toContain('windowId')
     expect(channelContract).toContain('state: CriticMarkupReviewMenuState')
+  })
+
+  it.each([
+    [
+      'mt::update-format-menu',
+      {
+        strong: true,
+        em: false,
+        u: false,
+        sup: false,
+        sub: false,
+        mark: false,
+        inline_code: false,
+        inline_math: false,
+        del: false,
+        link: false,
+        image: false
+      },
+      updateFormatMenu
+    ],
+    [
+      'mt::update-sidebar-menu',
+      true,
+      updateSidebarMenu
+    ],
+    [
+      'mt::view-layout-changed',
+      { showSideBar: true },
+      viewLayoutChanged
+    ],
+    [
+      'mt::editor-selection-changed',
+      {
+        activeBlockKinds: ['paragraph'],
+        headingLevel: null,
+        isDisabled: false,
+        isMultiblock: false,
+        isLooseList: false,
+        isTaskList: false,
+        isOrderedList: false,
+        isUnorderedList: false,
+        isCodeLike: false,
+        isCodeBlock: false,
+        isTable: false,
+        hasFrontMatter: false
+      },
+      updateSelectionMenus
+    ]
+  ])('binds %s to the sender menu and rejects a forged extra window id', (
+    channel,
+    state,
+    update
+  ) => {
+    const appMenu = makeAppMenu()
+    const sender = { id: 9010 }
+    const senderWindow = { id: 42 }
+    fromWebContents.mockReturnValue(senderWindow)
+    appMenu.addEditorMenu(senderWindow as never)
+    const handler = ipcListeners.get(channel)
+
+    handler?.({ sender }, state)
+    expect(update).toHaveBeenCalledWith(builtMenu, state)
+
+    update.mockClear()
+    fromWebContents.mockClear()
+    handler?.({ sender }, 777, state)
+    expect(fromWebContents).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
   })
 })

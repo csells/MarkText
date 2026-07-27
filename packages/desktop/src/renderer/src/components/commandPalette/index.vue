@@ -17,6 +17,7 @@
               type="text"
               class="search"
               :placeholder="placeholderText"
+              @input="updateCommands"
               @keydown="handleBeforeInput"
               @keyup="handleInput"
             >
@@ -72,8 +73,8 @@ import loading from '../loading/index.vue'
 import { useI18n } from 'vue-i18n'
 
 // Loose typing for command descriptors — they originate from heterogeneous
-// sources (static, runtime, quickOpen search results) and have legacy duck-
-// typed shapes we don't want to rewrite as part of the @ts-nocheck removal.
+// sources (static, runtime, quickOpen search results) and use a shared
+// duck-typed boundary.
 interface CommandItem {
   id: string
   description?: string
@@ -88,6 +89,7 @@ interface CommandItem {
   executeSubcommand?: (commandId: string, value?: unknown) => void
   placeholder?: string
   value?: unknown
+  isAvailable?: () => boolean
   [key: string]: unknown
 }
 
@@ -113,6 +115,10 @@ const availableCommands = ref<CommandItem[]>([])
 const searcherBusy = ref(false)
 
 const commandCenterStore = useCommandCenterStore()
+const availableSubcommands = (command: CommandItem): CommandItem[] =>
+  (command.subcommands ?? []).filter(
+    item => item.isAvailable?.() !== false
+  )
 
 onBeforeUpdate(() => {
   commandItems = []
@@ -127,7 +133,7 @@ const handleShow = (command?: unknown) => {
     .then(() => {
       const cmd = currentCommand.value
       if (!cmd) return
-      availableCommands.value = cmd.subcommands ?? []
+      availableCommands.value = availableSubcommands(cmd)
       selectedCommandIndex.value = cmd.subcommandSelectedIndex ?? -1
       placeholderText.value = cmd.placeholder || defaultPlaceholderText.value
       query.value = ''
@@ -265,7 +271,9 @@ const updateCommands = () => {
     cmd.search(queryString)
       .then((result) => {
         searcherBusy.value = false
-        availableCommands.value = result || []
+        availableCommands.value = (result || []).filter(
+          item => item.isAvailable?.() !== false
+        )
         selectedCommandIndex.value = availableCommands.value.length ? 0 : -1
       })
       .catch((error: unknown) => {
@@ -283,9 +291,9 @@ const updateCommands = () => {
 
   // Default handler
   if (!queryString) {
-    availableCommands.value = cmd.subcommands ?? []
+    availableCommands.value = availableSubcommands(cmd)
   } else {
-    availableCommands.value = (cmd.subcommands ?? []).filter(
+    availableCommands.value = availableSubcommands(cmd).filter(
       (c) => (c.description ?? '').toLowerCase().includes(queryString.toLowerCase())
     )
   }
@@ -328,7 +336,7 @@ const handleLanguageChanged = () => {
   if (showCommandPalette.value && currentCommand.value) {
     const cmd = currentCommand.value
     cmd.run?.().then(() => {
-      availableCommands.value = cmd.subcommands ?? []
+      availableCommands.value = availableSubcommands(cmd)
       updateCommands()
     })
   }

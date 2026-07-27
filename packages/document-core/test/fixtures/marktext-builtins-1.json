@@ -1,0 +1,444 @@
+{
+  "schema": "marktext-extension-corpus-v1",
+  "id": "MARKTEXT_BUILTINS",
+  "version": "marktext-builtins-1",
+  "source": "specs/language/marktext-markdown-profile-1.md#4-layer-c--marktext-built-in-constructs",
+  "cases": [
+    {
+      "id": "MTB-TOC-EXACT",
+      "construct": "table-of-contents-marker",
+      "source": "[TOC]\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text"],
+      "featureNodes": [
+        {
+          "kind": "paragraph",
+          "range": [0, 5],
+          "attributes": {
+            "tableOfContents": true
+          }
+        }
+      ],
+      "html": "<p>[TOC]</p>\n"
+    },
+    {
+      "id": "MTB-TOC-ASCII-WHITESPACE",
+      "construct": "table-of-contents-marker",
+      "source": "  [TOC]\t  \n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text"],
+      "featureNodes": [
+        {
+          "kind": "paragraph",
+          "range": [0, 10],
+          "attributes": {
+            "tableOfContents": true
+          }
+        }
+      ],
+      "html": "<p>[TOC]</p>\n"
+    },
+    {
+      "id": "MTB-TOC-LOWERCASE-ORDINARY",
+      "construct": "table-of-contents-marker",
+      "source": "[toc]\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text"],
+      "featureNodes": [],
+      "html": "<p>[toc]</p>\n"
+    },
+    {
+      "id": "MTB-TOC-ESCAPED-ORDINARY",
+      "construct": "table-of-contents-marker",
+      "source": "\\[TOC]\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text"],
+      "featureNodes": [],
+      "html": "<p>[TOC]</p>\n"
+    },
+    {
+      "id": "MTB-TOC-ENTITY-ORDINARY",
+      "construct": "table-of-contents-marker",
+      "source": "&#91;TOC]\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text"],
+      "featureNodes": [],
+      "html": "<p>[TOC]</p>\n"
+    },
+    {
+      "id": "MTB-TOC-INLINE-CODE-ORDINARY",
+      "construct": "table-of-contents-marker",
+      "source": "`[TOC]`\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["inline-code"],
+      "featureNodes": [],
+      "html": "<p><code>[TOC]</code></p>\n"
+    },
+    {
+      "id": "MTB-TOC-HTML-BLOCK-ORDINARY",
+      "construct": "table-of-contents-marker",
+      "source": "<p>[TOC]</p>\n",
+      "rootKinds": ["html-block"],
+      "featureNodes": [],
+      "html": "<p>[TOC]</p>\n"
+    },
+    {
+      "id": "MTB-TOC-LINK-ORDINARY",
+      "construct": "table-of-contents-marker",
+      "source": "[TOC](/target)\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["link"],
+      "featureNodes": [],
+      "html": "<p><a href=\"/target\">TOC</a></p>\n"
+    },
+    {
+      "id": "MTB-YAML-FRONT-MATTER",
+      "construct": "yaml-front-matter",
+      "source": "---\ntitle: x\n---\nbody\n",
+      "rootKinds": ["front-matter", "paragraph"],
+      "featureNodes": [
+        { "kind": "front-matter", "range": [0, 17] }
+      ],
+      "html": "<p>body</p>\n"
+    },
+    {
+      "id": "MTB-YAML-FRONT-MATTER-BOM-DOT-CLOSE",
+      "construct": "yaml-front-matter",
+      "source": "\ufeff---\ntitle: x\n...\nbody\n",
+      "rootKinds": ["front-matter", "paragraph"],
+      "featureNodes": [
+        { "kind": "front-matter", "range": [1, 18] }
+      ],
+      "html": "<p>body</p>\n"
+    },
+    {
+      "id": "MTB-YAML-FRONT-MATTER-NON-BOF",
+      "construct": "yaml-front-matter",
+      "source": "body\n\n---\ntitle: x\n---\n",
+      "rootKinds": ["paragraph", "thematic-break", "heading"],
+      "featureNodes": [],
+      "html": "<p>body</p>\n<hr />\n<h2>title: x</h2>\n"
+    },
+    {
+      "id": "MTB-YAML-FRONT-MATTER-DISABLED",
+      "construct": "yaml-front-matter",
+      "source": "---\ntitle: x\n---\nbody\n",
+      "options": {
+        "frontMatter": false
+      },
+      "rootKinds": ["thematic-break", "heading", "paragraph"],
+      "featureNodes": [],
+      "html": "<hr />\n<h2>title: x</h2>\n<p>body</p>\n"
+    },
+    {
+      "id": "MTB-TOML-DELIMITERS-ARE-ORDINARY",
+      "construct": "yaml-front-matter",
+      "source": "+++\ntitle = \"x\"\n+++\n",
+      "rootKinds": ["paragraph"],
+      "featureNodes": [],
+      "html": "<p>+++\ntitle = &quot;x&quot;\n+++</p>\n"
+    },
+    {
+      "id": "MTB-INLINE-MATH",
+      "construct": "inline-math",
+      "source": "before $x+y$ after\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text", "inline-math", "text"],
+      "featureNodes": [
+        {
+          "kind": "inline-math",
+          "range": [7, 12],
+          "attributes": {
+            "content": "x+y",
+            "delimiterLength": 1,
+            "contentStart": 8,
+            "contentEnd": 11
+          }
+        }
+      ],
+      "html": "<p>before <span class=\"math-inline\">x+y</span> after</p>\n"
+    },
+    {
+      "id": "MTB-INLINE-MATH-ESCAPED-OPENER",
+      "construct": "inline-math",
+      "source": "before \\$x$ after\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text"],
+      "featureNodes": [],
+      "html": "<p>before $x$ after</p>\n"
+    },
+    {
+      "id": "MTB-INLINE-MATH-CODE-OWNED",
+      "construct": "inline-math",
+      "source": "before `$x$` after\n",
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text", "inline-code", "text"],
+      "featureNodes": [],
+      "html": "<p>before <code>$x$</code> after</p>\n"
+    },
+    {
+      "id": "MTB-INLINE-MATH-DISABLED",
+      "construct": "inline-math",
+      "source": "before $x+y$ after\n",
+      "options": {
+        "math": false
+      },
+      "rootKinds": ["paragraph"],
+      "inlineKinds": ["text"],
+      "featureNodes": [],
+      "html": "<p>before $x+y$ after</p>\n"
+    },
+    {
+      "id": "MTB-DOLLAR-MATH-BLOCK",
+      "construct": "math-blocks",
+      "source": "$$\nx+y\n$$\n",
+      "rootKinds": ["math-block"],
+      "featureNodes": [
+        {
+          "kind": "math-block",
+          "range": [0, 9],
+          "attributes": {
+            "content": "x+y\n",
+            "contentStart": 3,
+            "contentEnd": 7,
+            "syntax": "dollar"
+          }
+        }
+      ],
+      "html": "<pre class=\"math-block\"><code>x+y\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-DOLLAR-MATH-BLOCK-DISABLED",
+      "construct": "math-blocks",
+      "source": "$$\nx+y\n$$\n",
+      "options": {
+        "math": false
+      },
+      "rootKinds": ["paragraph"],
+      "featureNodes": [],
+      "html": "<p>$$\nx+y\n$$</p>\n"
+    },
+    {
+      "id": "MTB-FENCED-MATH-BLOCK",
+      "construct": "math-blocks",
+      "source": "```math\nx+y\n```\n",
+      "rootKinds": ["math-block"],
+      "featureNodes": [
+        {
+          "kind": "math-block",
+          "range": [0, 16],
+          "attributes": {
+            "content": "x+y\n",
+            "contentStart": 8,
+            "contentEnd": 12,
+            "syntax": "fenced"
+          }
+        }
+      ],
+      "html": "<pre class=\"math-block\"><code>x+y\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-FENCED-MATH-BLOCK-UPPERCASE",
+      "construct": "math-blocks",
+      "source": "```MATH\nx+y\n```\n",
+      "rootKinds": ["math-block"],
+      "featureNodes": [
+        {
+          "kind": "math-block",
+          "range": [0, 16],
+          "attributes": {
+            "content": "x+y\n",
+            "contentStart": 8,
+            "contentEnd": 12,
+            "syntax": "fenced"
+          }
+        }
+      ],
+      "html": "<pre class=\"math-block\"><code>x+y\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-FENCED-MATH-BLOCK-GITLAB-DISABLED",
+      "construct": "math-blocks",
+      "source": "```math\nx+y\n```\n",
+      "options": {
+        "gitLabMath": false
+      },
+      "rootKinds": ["code-block"],
+      "featureNodes": [],
+      "html": "<pre><code class=\"language-math\">x+y\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-FENCED-MATH-BLOCK-MATH-DISABLED",
+      "construct": "math-blocks",
+      "source": "```math\nx+y\n```\n",
+      "options": {
+        "math": false,
+        "gitLabMath": true
+      },
+      "rootKinds": ["code-block"],
+      "featureNodes": [],
+      "html": "<pre><code class=\"language-math\">x+y\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-FENCED-MATH-BLOCK-EXTRA-INFO",
+      "construct": "math-blocks",
+      "source": "```math extra\nx\n```\n",
+      "rootKinds": ["code-block"],
+      "featureNodes": [],
+      "html": "<pre><code class=\"language-math\">x\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-MERMAID-DIAGRAM",
+      "construct": "diagram-blocks",
+      "source": "```mermaid\ngraph TD\n```\n",
+      "rootKinds": ["diagram"],
+      "featureNodes": [
+        {
+          "kind": "diagram",
+          "range": [0, 24],
+          "attributes": {
+            "content": "graph TD\n",
+            "contentStart": 11,
+            "contentEnd": 20,
+            "language": "mermaid"
+          }
+        }
+      ],
+      "html": "<pre class=\"diagram\" data-language=\"mermaid\"><code>graph TD\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-MERMAID-DIAGRAM-UPPERCASE",
+      "construct": "diagram-blocks",
+      "source": "```MERMAID\ngraph TD\n```\n",
+      "rootKinds": ["diagram"],
+      "featureNodes": [
+        {
+          "kind": "diagram",
+          "range": [0, 24],
+          "attributes": {
+            "content": "graph TD\n",
+            "contentStart": 11,
+            "contentEnd": 20,
+            "language": "mermaid"
+          }
+        }
+      ],
+      "html": "<pre class=\"diagram\" data-language=\"mermaid\"><code>graph TD\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-MERMAID-DIAGRAM-MATH-DISABLED",
+      "construct": "diagram-blocks",
+      "source": "```mermaid\ngraph TD\n```\n",
+      "options": {
+        "math": false,
+        "gitLabMath": false
+      },
+      "rootKinds": ["diagram"],
+      "featureNodes": [
+        {
+          "kind": "diagram",
+          "range": [0, 24],
+          "attributes": {
+            "content": "graph TD\n",
+            "contentStart": 11,
+            "contentEnd": 20,
+            "language": "mermaid"
+          }
+        }
+      ],
+      "html": "<pre class=\"diagram\" data-language=\"mermaid\"><code>graph TD\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-PLANTUML-DIAGRAM",
+      "construct": "diagram-blocks",
+      "source": "```plantuml\nA -> B\n```\n",
+      "rootKinds": ["diagram"],
+      "featureNodes": [
+        {
+          "kind": "diagram",
+          "range": [0, 23],
+          "attributes": {
+            "content": "A -> B\n",
+            "contentStart": 12,
+            "contentEnd": 19,
+            "language": "plantuml"
+          }
+        }
+      ],
+      "html": "<pre class=\"diagram\" data-language=\"plantuml\"><code>A -&gt; B\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-FLOWCHART-DIAGRAM",
+      "construct": "diagram-blocks",
+      "source": "```flowchart\na=>start\n```\n",
+      "rootKinds": ["diagram"],
+      "featureNodes": [
+        {
+          "kind": "diagram",
+          "range": [0, 26],
+          "attributes": {
+            "content": "a=>start\n",
+            "contentStart": 13,
+            "contentEnd": 22,
+            "language": "flowchart"
+          }
+        }
+      ],
+      "html": "<pre class=\"diagram\" data-language=\"flowchart\"><code>a=&gt;start\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-SEQUENCE-DIAGRAM",
+      "construct": "diagram-blocks",
+      "source": "```sequence\nA->B: hi\n```\n",
+      "rootKinds": ["diagram"],
+      "featureNodes": [
+        {
+          "kind": "diagram",
+          "range": [0, 25],
+          "attributes": {
+            "content": "A->B: hi\n",
+            "contentStart": 12,
+            "contentEnd": 21,
+            "language": "sequence"
+          }
+        }
+      ],
+      "html": "<pre class=\"diagram\" data-language=\"sequence\"><code>A-&gt;B: hi\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-VEGA-LITE-DIAGRAM",
+      "construct": "diagram-blocks",
+      "source": "```vega-lite\n{}\n```\n",
+      "rootKinds": ["diagram"],
+      "featureNodes": [
+        {
+          "kind": "diagram",
+          "range": [0, 20],
+          "attributes": {
+            "content": "{}\n",
+            "contentStart": 13,
+            "contentEnd": 16,
+            "language": "vega-lite"
+          }
+        }
+      ],
+      "html": "<pre class=\"diagram\" data-language=\"vega-lite\"><code>{}\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-UNKNOWN-DIAGRAM-LANGUAGE",
+      "construct": "diagram-blocks",
+      "source": "```graphviz\n{}\n```\n",
+      "rootKinds": ["code-block"],
+      "featureNodes": [],
+      "html": "<pre><code class=\"language-graphviz\">{}\n</code></pre>\n"
+    },
+    {
+      "id": "MTB-FOOTNOTE",
+      "construct": "footnotes",
+      "source": "note[^n]\n\n[^n]: body\n",
+      "rootKinds": ["paragraph", "footnote-definition"],
+      "inlineKinds": ["text", "footnote-reference"],
+      "html": "<p>note<sup class=\"footnote-ref\"><a href=\"#fn-n\" id=\"fnref-n\">1</a></sup></p>\n<section class=\"footnotes\">\n<ol>\n<li id=\"fn-n\">\n<p>body <a href=\"#fnref-n\" class=\"footnote-backref\" aria-label=\"Back to reference 1\">↩</a></p>\n</li>\n</ol>\n</section>\n"
+    }
+  ]
+}

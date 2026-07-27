@@ -23,28 +23,27 @@ describe('theme.ts style injection helpers', () => {
     document.body.className = ''
   })
 
-  // Items 196, 210 — addCommonStyle injects code font onto the source-mode .CodeMirror selector.
   describe('addCommonStyle', () => {
-    it('injects code font-family/size onto the .CodeMirror selector', () => {
+    it('injects source-input code font variables', () => {
       addCommonStyle({ codeFontFamily: 'Courier New', codeFontSize: 24 })
 
       const css = styleHtml(COMMON_STYLE_ID)
-      // selector targets source-mode CodeMirror only (muya owns code-block font via --mu-code-* vars)
-      expect(css).toContain('.CodeMirror')
-      expect(css).not.toContain('.mu-code-block')
-      // family is the requested font followed by the default fallback chain
-      expect(css).toContain(`font-family: Courier New, ${DEFAULT_CODE_FONT_FAMILY};`)
-      // size is the numeric value suffixed with px
-      expect(css).toContain('font-size: 24px;')
+      expect(css).toContain('--source-code-font-family')
+      expect(css).toContain('--source-code-font-size')
+      expect(css).not.toContain('.document-view-code-block')
+      expect(css).toContain(
+        `--source-code-font-family: Courier New, ${DEFAULT_CODE_FONT_FAMILY};`
+      )
+      expect(css).toContain('--source-code-font-size: 24px;')
     })
 
-    it('targets only .CodeMirror (no legacy ag-* or mu-code-block classes)', () => {
+    it('does not retheme document-view code blocks', () => {
       addCommonStyle({ codeFontFamily: 'Courier New', codeFontSize: 14 })
 
       const css = styleHtml(COMMON_STYLE_ID)
-      expect(css).toContain('.CodeMirror')
+      expect(css).toContain('--source-code-font-family')
       expect(css).not.toContain('.ag-code-block')
-      expect(css).not.toContain('.mu-code-block')
+      expect(css).not.toContain('.document-view-code-block')
     })
 
     it('prepends the webkit scrollbar hide rule when hideScrollbar is true', () => {
@@ -66,10 +65,12 @@ describe('theme.ts style injection helpers', () => {
       expect(styleCount(COMMON_STYLE_ID)).toBe(1)
       const css = styleHtml(COMMON_STYLE_ID)
       // only the latest call's values survive
-      expect(css).toContain(`font-family: Fira Code, ${DEFAULT_CODE_FONT_FAMILY};`)
-      expect(css).toContain('font-size: 18px;')
+      expect(css).toContain(
+        `--source-code-font-family: Fira Code, ${DEFAULT_CODE_FONT_FAMILY};`
+      )
+      expect(css).toContain('--source-code-font-size: 18px;')
       expect(css).not.toContain('Courier New')
-      expect(css).not.toContain('font-size: 14px;')
+      expect(css).not.toContain('--source-code-font-size: 14px;')
     })
   })
 
@@ -88,10 +89,10 @@ describe('theme.ts style injection helpers', () => {
       }
     )
 
-    it('overrides the active @muyajs/core width variable, not only the legacy one', () => {
-      // The WYSIWYG engine reads the kebab-case `--editor-area-width`
-      // (`.mu-container` max-width); the legacy camelCase `--editorAreaWidth`
-      // only reaches source mode. Both must be set or the preference is a no-op
+    it('overrides both source-mode and document-core width variables', () => {
+      // The document-core view reads the kebab-case `--editor-area-width`
+      // (`.document-view-container` max-width); camelCase `--editorAreaWidth` reaches
+      // source mode. Both must be set or the preference is a no-op
       // on the default theme (issue #4828).
       setEditorWidth('60%')
 

@@ -1,5 +1,5 @@
 import path from 'path'
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow } from 'electron'
 import type { BrowserWindowConstructorOptions } from 'electron'
 import { electronLocalshortcut } from '@hfelix/electron-localshortcut'
 import BaseWindow, { WindowLifecycle, WindowType, type EnvLike, type PreferenceLike } from './base'
@@ -14,6 +14,7 @@ import {
 import log from 'electron-log'
 import { presentationPolicy } from '../presentationPolicy'
 import { exceptionReporter } from '../exceptionReporting'
+import { emitInternalChannel } from '../utils/internalIpc'
 
 class SettingWindow extends BaseWindow {
   /**
@@ -107,7 +108,7 @@ class SettingWindow extends BaseWindow {
       this.emit('window-close')
 
       event.preventDefault()
-      ipcMain.emit('window-close-by-id', win!.id)
+      emitInternalChannel('window-close-by-id', win!.id)
     })
 
     // The window is now destroyed.

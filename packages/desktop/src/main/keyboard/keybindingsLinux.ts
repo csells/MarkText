@@ -1,6 +1,9 @@
 // Key bindings for Linux.
 
-import { REVIEW_COMMAND_DESCRIPTORS } from '../../common/commands/review'
+import {
+  REVIEW_COMMAND_DESCRIPTORS,
+  REVIEW_CONTEXT_EDIT_COMMAND
+} from '../../common/commands/review'
 
 // NOTE: Avoid `Ctrl+Alt` and `Alt` shortcuts on Linux because Ubuntu based OSs have reserved system shortcuts (see GH#2370).
 //       Binding shortcuts to these modifiers will result in odd behavior on Ubuntu.
@@ -93,6 +96,10 @@ const keybindings: Map<string, string> = new Map([
     id,
     defaultKeybinding
   ] as [string, string]),
+  [
+    REVIEW_CONTEXT_EDIT_COMMAND.id,
+    REVIEW_CONTEXT_EDIT_COMMAND.defaultKeybinding
+  ],
 
   // Window menu
   ['window.minimize', 'Ctrl+M'],

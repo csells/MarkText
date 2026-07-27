@@ -1,9 +1,10 @@
-import { MenuItem, ipcMain, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { MenuItem, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import log from 'electron-log'
 import { isOsx } from '../../config'
 import { addToDictionary } from '../../spellchecker'
 import { SEPARATOR } from './menuItems'
 import { t } from '../../i18n'
+import { emitInternalChannel } from '../../utils/internalIpc'
 
 /**
  * Build the spell checker menu depending on input.
@@ -71,7 +72,7 @@ export default (
     spellingSubmenu.push({
       label: t('contextMenu.editDictionary'),
       click() {
-        ipcMain.emit('app-create-settings-window', 'spelling')
+        emitInternalChannel('app-create-settings-window', 'spelling')
       }
     })
   }

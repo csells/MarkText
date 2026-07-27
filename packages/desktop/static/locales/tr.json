@@ -47,10 +47,7 @@
       "findNext": "Sonrakini Bul",
       "findPrevious": "Öncekini Bul",
       "findInFolder": "Klasörde Bul",
-      "screenshot": "Ekran Görüntüsü",
-      "lineEnding": "Satır Sonu",
-      "lineEndingCrlf": "CRLF(Windows)",
-      "lineEndingLf": "LF(Linux/Mac)"
+      "screenshot": "Ekran Görüntüsü"
     },
     "paragraph": {
       "title": "Paragraf",
@@ -268,6 +265,7 @@
       "summary": "{count} inceleme öğesi",
       "trackChanges": "Değişiklikleri izle",
       "unavailable": "İnceleme bu görünümde kullanılamıyor.",
+      "actionUnavailable": "Bu inceleme eylemi artık kullanılamıyor. İncelemeyi yenileyip tekrar deneyin.",
       "empty": "İncelenecek öğe yok",
       "removeComment": "Yorumu kaldır",
       "removeHighlight": "Vurguyu kaldır",
@@ -426,31 +424,13 @@
         "editorLineWidth": "Maksimum düzenleyici alanı genişliğini tanımlar. Boş bir dize veya ch (karakter), px (piksel) ya da % (yüzde) son ekleri kullanılabilir",
         "codeFontSize": "Kod bloğundaki yazı tipi boyutu, aralık 12 ~ 18",
         "codeFontFamily": "Kod bloğunda kullanılan yazı tipi ailesi",
-        "codeBlockLineNumbers": "Satır numaralarının gösterilip gösterilmeyeceği",
-        "trimUnnecessaryCodeBlockEmptyLines": "Kod bloğundaki baştaki ve sondaki boş satırları kırp",
         "autoPairBracket": "Düzenlerken parantezleri otomatik tamamla",
         "autoPairMarkdownSyntax": "Markdown söz dizimini otomatik tamamla",
         "autoPairQuote": "Tırnak işaretlerini otomatik tamamla",
-        "endOfLine": "Her satırın sonunda kullanılan yeni satır karakteri. Varsayılan değer, işletim sisteminizin varsayılan yeni satır karakterini seçen 'default' değeridir",
-        "defaultEncoding": "Varsayılan dosya kodlaması",
-        "autoGuessEncoding": "Dosyaları açarken dosya kodlamasını otomatik olarak tahmin etmeyi dene",
-        "trimTrailingNewline": "Sondaki yeni satırı kırpma seçeneği",
         "textDirection": "Metin yazım yönü",
         "hideQuickInsertHint": "Paragrafları hızlı oluşturma ipucunu gizle",
         "hideLinkPopup": "İmleç bağlantının üzerine geldiğinde bağlantı açılır penceresini gizle",
         "autoCheck": "İlgili görevin otomatik olarak işaretlenip işaretlenmeyeceği",
-        "preferLooseListItem": "Tercih edilen liste türü",
-        "bulletListMarker": "Sırasız listede kullanılan işaret",
-        "orderListDelimiter": "Sıralı listede kullanılan ayraç",
-        "preferHeadingStyle": "MarkText'te tercih edilen başlık stili",
-        "tabSize": "Sekmeyi x boşlukla değiştir",
-        "listIndentation": "Liste girintisini seçin",
-        "frontmatterType": "Ön bilgi türü",
-        "superSubScript": "Pandoc'un markdown uzantısı üst simge ve alt simgeyi etkinleştir",
-        "footnote": "Pandoc'un markdown uzantısı dipnotu etkinleştir",
-        "isHtmlEnabled": "HTML işlemeyi etkinleştir",
-        "isGitlabCompatibilityEnabled": "GitLab uyumluluk modunu etkinleştir",
-        "sequenceTheme": "Dizi diyagramı teması",
         "theme": "MarkText'te kullanılan temayı seçin",
         "followSystemTheme": "Sistem Temasını Takip Et",
         "lightModeTheme": "Sistem açık moddayken kullanılacak tema",
@@ -462,10 +442,11 @@
         "imagePreferRelativeDirectory": "Göreli görsel klasörünün tercih edilip edilmeyeceği",
         "imageRelativeDirectoryBase": "Göreli görsellerin nereye kopyalanacağı",
         "imageRelativeDirectoryName": "Göreli görsel klasörünün adı",
-        "plantumlServer": "PlantUML sunucu URL'si",
-        "autoNormalizeLineEndings": "Dosyaları açarken yeni satır karakterlerini otomatik olarak normalleştir. Devre dışı bırakıldığında dosyalar olduğu gibi açılır.",
         "fileSortOrder": "Açık klasörlerdeki dosyaların sıralama düzeni: artan veya azalan.",
-        "openedFilesInSidebar": "Açık dosyaların kenar çubuğunda gösterilip gösterilmeyeceği."
+        "openedFilesInSidebar": "Açık dosyaların kenar çubuğunda gösterilip gösterilmeyeceği.",
+        "subscriptAndSuperscript": "Pandoc'un markdown uzantısı üst simge ve alt simgeyi etkinleştir",
+        "footnotes": "Pandoc'un markdown uzantısı dipnotu etkinleştir",
+        "gitLabMath": "Enable GitLab Math syntax"
       }
     },
     "categories": {
@@ -559,34 +540,13 @@
       "codeBlock": {
         "title": "Kod Bloğu",
         "fontSize": "Yazı tipi boyutu",
-        "fontFamily": "Yazı tipi ailesi",
-        "showLineNumbers": "Satır numaralarını göster",
-        "removeEmptyLines": "Boş satırları kaldır"
+        "fontFamily": "Yazı tipi ailesi"
       },
       "writingBehavior": {
         "title": "Yazma Davranışı",
         "autoCloseBrackets": "Parantezleri otomatik kapat",
         "autoCompleteMarkdown": "Markdown'u otomatik tamamla",
         "autoCloseQuotes": "Tırnakları otomatik kapat"
-      },
-      "fileRepresentation": {
-        "title": "Dosya Gösterimi",
-        "tabWidth": "Sekme genişliği",
-        "lineSeparator": "Satır ayırıcı",
-        "defaultEncoding": "Varsayılan kodlama",
-        "autoDetectEncoding": "Kodlamayı otomatik algıla",
-        "trailingNewlines": {
-          "title": "Sondaki Yeni Satırlar",
-          "doNothing": "Hiçbir Şey Yapma",
-          "ensureOne": "Bir Tane Garanti Et",
-          "preserve": "Koru",
-          "trimAll": "Tümünü Kırp"
-        },
-        "endOfLine": {
-          "default": "Varsayılan",
-          "crlf": "CRLF(Windows)",
-          "lf": "LF(Linux/Mac)"
-        }
       },
       "misc": {
         "title": "Çeşitli",
@@ -598,7 +558,6 @@
         "hideQuickInsertHint": "Hızlı ekleme ipucunu gizle",
         "hideLinkPopup": "Bağlantı açılır penceresini gizle",
         "autoCheck": "Otomatik işaretle",
-        "autoNormalizeLineEndings": "Açılışta satır sonlarını LF'ye otomatik normalleştir",
         "wrapCodeBlocks": "Kod bloklarını kaydır"
       }
     },
@@ -666,53 +625,9 @@
       "title": "Markdown",
       "extensions": {
         "title": "Uzantılar",
-        "superSubScript": "Üst/Alt Simge",
-        "footnote": "Dipnot",
-        "footnoteNotes": "Dipnot notları",
-        "frontmatterType": {
-          "jsonBrace": "Süslü Parantezli JSON",
-          "jsonSemicolon": "Noktalı Virgüllü JSON",
-          "title": "Ön Bilgi Türü"
-        }
-      },
-      "diagrams": {
-        "title": "Diyagramlar",
-        "sequenceTheme": {
-          "title": "Dizi Teması",
-          "handDrawn": "El Çizimi",
-          "simple": "Basit"
-        },
-        "plantumlServer": {
-          "title": "PlantUML Sunucu URL'si"
-        }
-      },
-      "misc": {
-        "preferHeadingStyle": {
-          "title": "Tercih Edilen Başlık Stili",
-          "atx": "ATX Stili",
-          "setext": "Setext Stili"
-        },
-        "title": "Çeşitli"
-      },
-      "compatibility": {
-        "enableGitlab": "GitLab uyumluluğunu etkinleştir",
-        "enableHtml": "HTML desteğini etkinleştir",
-        "title": "Uyumluluk"
-      },
-      "lists": {
-        "bulletListMarker": "Sırasız liste işareti",
-        "listIndentation": {
-          "title": "Liste Girintisi",
-          "dfm": "DFM Stili",
-          "fourSpaces": "Dört Boşluk",
-          "oneSpace": "Bir Boşluk",
-          "tab": "Sekme",
-          "threeSpaces": "Üç Boşluk",
-          "twoSpaces": "İki Boşluk"
-        },
-        "orderListDelimiter": "Sıralı liste ayracı",
-        "preferLooseListItem": "Gevşek liste öğelerini tercih et",
-        "title": "Listeler"
+        "subscriptAndSuperscript": "Üst/Alt Simge",
+        "footnotes": "Dipnot",
+        "gitLabMath": "GitLab Math"
       }
     },
     "theme": {
@@ -790,9 +705,6 @@
       "moveFile": "Dosyayı Taşı",
       "renameFile": "Dosyayı Yeniden Adlandır",
       "quickOpen": "Hızlı Aç",
-      "changeEncoding": "Kodlamayı Değiştir",
-      "changeLineEnding": "Satır Sonunu Değiştir",
-      "trailingNewline": "Sondaki Yeni Satır",
       "print": "Yazdır",
       "preferences": "Tercihler",
       "closeTab": "Sekmeyi Kapat",
@@ -1001,6 +913,7 @@
       "replacementPlaceholder": "Yeni metni girin",
       "trackChangeRejected": {
         "title": "Düzenleme kaydedilmedi",
+        "unknownReason": "Değişiklik izleme bu düzenlemeyi kaydedemediği için belge değiştirilmedi. Yeniden deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
         "unmappableSourceEdit": "Değişiklik izleme bu düzenlemeyi kaydedemediği için belge değiştirilmedi. Daha küçük bir düzenleme deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
         "parserConflict": "Değişiklik izleme bu düzenlemeyi belgenin Markdown içeriğiyle bağdaştıramadığı için belge değiştirilmedi. Daha küçük bir düzenleme deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
         "unmappableTrackedSelection": "Değişiklik izleme seçiminizi izlenen belgeyle eşleştiremediği için belge değiştirilmedi. Metni yeniden seçip tekrar deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
@@ -1017,6 +930,9 @@
       "rows": "Satırlar",
       "columns": "Sütunlar"
     },
+    "imageViewer": {
+      "label": "Görsel önizlemesi"
+    },
     "notifications": {
       "notificationNotFound": "Bildirim bulunamadı"
     },
@@ -1026,7 +942,22 @@
     },
     "sourceCode": {
       "cursorNullComment": "İmleç boş yorumu",
-      "imageStructureDeletedComment": "Görsel yapısı silindi yorumu"
+      "imageStructureDeletedComment": "Görsel yapısı silindi yorumu",
+      "label": "Kaynak kodu",
+      "operationFailed": "Kaynak {operation} işlemi başarısız oldu. Doğrulanmış belge geri yüklendi.",
+      "operations": {
+        "edit": "düzenleme",
+        "undo": "geri alma",
+        "redo": "yineleme",
+        "paste": "yapıştırma",
+        "cut": "kesme",
+        "copy": "kopyalama",
+        "selection": "seçim",
+        "attachment": "bağlantı",
+        "headingSelection": "başlık seçimi"
+      },
+      "semanticClipboardUnavailableTitle": "Komut kullanılamıyor",
+      "semanticClipboardUnavailable": "Zengin metin olarak kopyalama, HTML olarak kopyalama ve düz metin olarak yapıştırma Kaynak modunda kullanılamaz. Bunun yerine Kopyala, Kes veya Yapıştır komutunu kullanın."
     },
     "spellcheck": {
       "disabledError": "Yazım denetimi devre dışı hatası",

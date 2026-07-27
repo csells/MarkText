@@ -1,0 +1,9 @@
+id	path	symbol	replacement	unreachable_phase	deletion_phase	status
+L01	packages/muya/src/state/rebindCriticMarkupStateBindings.ts	rebindCriticMarkupStateBindings	parser-emitted identity	P9	P9	absent
+L02	packages/muya/src/state/criticMarkupSerialization.ts	weaveCriticSourceTrivia	lossless graph and direct source persistence	P9	P9	absent
+L03	packages/muya/src/state/mutationCapture.ts	StateMutationCapture	TransformationKernel	P9	P9	absent
+L04	packages/muya/src/mutation/commentAnchorDeletion.ts	normalizeDeletedCommentAnchors	source-native deletion postcondition	P9	P9	absent
+L05	packages/muya/src/criticMarkup/documentService.ts	CriticMarkupDocumentService	DocumentSession	P9	P9	absent
+L06	packages/muya/src/utils/marked/criticMarkupDocument.ts	CriticMarkup parse and projection exports	LanguageEngine and materializers	P9	P9	absent
+L07	packages/muya/src/utils/marked/extensions/nativeCriticMarkup.ts	native CriticMarkup extension exports	intrinsic parser and LiveRenderPlan	P9	P9	absent
+L08	packages/muya/src/history/index.ts	JSON-operation history	session transaction history	P9	P9	absent

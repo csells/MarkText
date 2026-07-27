@@ -1,0 +1,62 @@
+{
+  "schema": "marktext-profile1-corpora-v1",
+  "profile": {
+    "markdownProfile": "markdown-profile-1",
+    "criticMarkupProfile": "marktext-profile-1",
+    "commonMark": "0.31.2",
+    "manifest": "specs/migration/markdown-profile-1.yml"
+  },
+  "corpora": [
+    {
+      "id": "CM_STANDARD",
+      "authority": "canonical-criticmarkup",
+      "version": "cm-standard-corpus-1",
+      "path": "specs/migration/cm-standard.yml"
+    },
+    {
+      "id": "PROFILE1_RULINGS",
+      "authority": "marktext-profile-1",
+      "version": "profile1-rulings-corpus-1",
+      "path": "specs/migration/profile1-rulings.yml"
+    },
+    {
+      "id": "MALFORMED_RECOVERY",
+      "authority": "marktext-profile-1-recovery",
+      "version": "malformed-recovery-corpus-1",
+      "path": "specs/migration/malformed-recovery.yml"
+    },
+    {
+      "id": "PROFILE1_ADVERSARIAL",
+      "authority": "marktext-profile-1",
+      "version": "profile1-adversarial-corpus-1",
+      "path": "specs/migration/profile1-adversarial.yml"
+    }
+  ],
+  "extensions": [
+    {
+      "id": "GFM",
+      "version": "0.29-gfm",
+      "path": "packages/document-core/test/fixtures/gfm-profile1-0.29.json",
+      "constructs": [
+        "tables",
+        "task-list-items",
+        "strikethrough",
+        "extended-autolinks",
+        "tagfilter"
+      ]
+    },
+    {
+      "id": "MARKTEXT_BUILTINS",
+      "version": "marktext-builtins-1",
+      "path": "packages/document-core/test/fixtures/marktext-builtins-1.json",
+      "constructs": [
+        "table-of-contents-marker",
+        "yaml-front-matter",
+        "inline-math",
+        "math-blocks",
+        "diagram-blocks",
+        "footnotes"
+      ]
+    }
+  ]
+}

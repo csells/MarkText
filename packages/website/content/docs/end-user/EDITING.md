@@ -100,13 +100,17 @@ The focus mode will help you to focus on the currently line only by fading out o
 
 In typewriter mode, the cursor is always keep in the middle of the editor.
 
-## File encoding
+## File bytes and line endings
 
-MarkText tries to automatically detect the encoding and byte-order mark (BOM) of a file upon opening it. The default encoding is UTF-8 that should support all needed characters but can be changed in settings. You can disable automatic encoding detection; however, the application will then assume that all files are UTF-8 encoded. The currently used encoding can be shown and changed via command palette.
+MarkText admits exact UTF-8 and identifiable UTF-16 files. The document session
+preserves the admitted byte encoding, byte-order mark, line-ending spelling,
+and presence or absence of a final line ending. A save with no document change
+reuses the original bytes exactly; an edited save writes the canonical source
+once in the retained encoding.
 
-## Line endings
-
-MarkText automatically analyzes each file and detects the used line ending and can be changed via command palette too.
+There is no renderer-side encoding or line-ending conversion setting.
+Ambiguous or unsupported byte streams are rejected instead of being silently
+decoded or normalized.
 
 ## Find and replace
 

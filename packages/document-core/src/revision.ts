@@ -1,9 +1,25 @@
 import type { SourceSnapshot } from './sourceSnapshot.js'
+import type {
+  RevisionSemanticHashV1,
+  SourceHashV1
+} from './hashCodec.js'
 
 declare const sourceOffsetBrand: unique symbol
+declare const nodeIdBrand: unique symbol
 
 export type SourceOffset = number & {
   readonly [sourceOffsetBrand]: 'SourceOffset'
+}
+
+/**
+ * Opaque identity of one parser-emitted node within a Document revision.
+ *
+ * NodeId values are comparable only inside their owning revision. Views retain
+ * a NodeId when they read the same emitted structure at different projected
+ * offsets; a structurally divergent fork receives distinct values.
+ */
+export type NodeId = string & {
+  readonly [nodeIdBrand]: 'NodeId'
 }
 
 export interface SourceRange {
@@ -14,6 +30,7 @@ export interface SourceRange {
 }
 
 export interface CriticMarkupArm<Name extends 'content' | 'old' | 'new' | 'comment'> {
+  readonly nodeId: NodeId
   readonly name: Name
   readonly range: SourceRange
   readonly children: readonly CriticMarkupNode[]
@@ -23,6 +40,7 @@ export interface UnaryCriticNode<
   Kind extends 'addition' | 'deletion' | 'highlight' | 'comment',
   Arm extends 'content' | 'comment'
 > {
+  readonly nodeId: NodeId
   readonly kind: Kind
   readonly range: SourceRange
   readonly markers: Readonly<{
@@ -33,6 +51,7 @@ export interface UnaryCriticNode<
 }
 
 export interface SubstitutionNode {
+  readonly nodeId: NodeId
   readonly kind: 'substitution'
   readonly range: SourceRange
   readonly markers: Readonly<{
@@ -81,6 +100,20 @@ export interface ProjectionProvenance {
    * @throws RangeError when the offset is not an integer in the projection.
    */
   readonly originAt: (projectedOffset: number) => ProjectedCodeUnitOrigin
+  /**
+   * Reports whether any canonical source code unit in the half-open range is
+   * retained by this projection.
+   *
+   * This range query is parser-emitted provenance authority. Consumers must
+   * not recover it by walking every projected code unit.
+   *
+   * @throws RangeError when either boundary is not a nonnegative integer or
+   * when `sourceEnd` precedes `sourceStart`.
+   */
+  readonly canonicalSourceRangeIntersects: (
+    sourceStart: number,
+    sourceEnd: number
+  ) => boolean
 }
 
 interface CanonicalProjectedCodeUnitOrigin {
@@ -117,6 +150,8 @@ export type MarkdownNodeKind =
   | 'emphasis'
   | 'strong'
   | 'strikethrough'
+  | 'subscript'
+  | 'superscript'
   | 'link'
   | 'image'
   | 'inline-code'
@@ -135,7 +170,48 @@ export type MarkdownNodeKind =
   | 'footnote-definition'
   | 'footnote-reference'
 
+export type Profile1SyntaxNodeKind =
+  | MarkdownNodeKind
+  | CriticMarkupNode['kind']
+  | 'critic-arm'
+  | 'source-leaf'
+
+export interface Profile1SyntaxNode {
+  readonly nodeId: NodeId
+  readonly kind: Profile1SyntaxNodeKind
+  readonly range: SourceRange
+}
+
+export type Profile1SyntaxEdgeKind =
+  | 'contains'
+  | 'critic-arm'
+  | 'marker'
+  | 'fork-alternative'
+  | 'reference'
+
+export interface Profile1SyntaxEdge {
+  readonly kind: Profile1SyntaxEdgeKind
+  readonly from: NodeId
+  readonly to: NodeId
+  readonly role?: string
+}
+
+/**
+ * Lossless parser-emitted graph. Semantic forests, projected Markdown trees,
+ * ownership, and Review products retain identities from this graph.
+ */
+export interface Profile1SyntaxGraph {
+  readonly root: NodeId
+  readonly nodeCount: number
+  /** @throws RangeError when the ordinal is not available. */
+  readonly nodeAt: (ordinal: number) => Profile1SyntaxNode
+  readonly edgeCount: number
+  /** @throws RangeError when the ordinal is not available. */
+  readonly edgeAt: (ordinal: number) => Profile1SyntaxEdge
+}
+
 export interface MarkdownNode {
+  readonly nodeId: NodeId
   readonly kind: MarkdownNodeKind
   readonly range: ViewRange
   readonly attributes: Readonly<Record<string, string | number | boolean>>
@@ -144,9 +220,89 @@ export interface MarkdownNode {
   readonly childAt: (ordinal: number) => MarkdownNode
 }
 
+export interface MarkdownReferenceDefinitionFact {
+  readonly label: string
+  readonly node: MarkdownNode
+  /** Parser-owned destination content, before Markdown text decoding. */
+  readonly destination: string
+  /** Parser-owned title content, before Markdown text decoding. */
+  readonly title?: string
+}
+
+export interface MarkdownLinkFact {
+  readonly node: MarkdownNode
+  /** Parser-owned destination content, before Markdown text decoding. */
+  readonly destination: string
+  /** Parser-owned title content, before Markdown text decoding. */
+  readonly title?: string
+  /** Present exactly when this link/image resolves through a definition. */
+  readonly definition?: MarkdownReferenceDefinitionFact
+}
+
+export interface MarkdownFootnoteDefinitionFact {
+  readonly label: string
+  readonly node: MarkdownNode
+}
+
+export interface MarkdownFootnoteReferenceFact {
+  readonly label: string
+  readonly node: MarkdownNode
+  /** Present exactly when this reference resolves in this projection. */
+  readonly definition?: MarkdownFootnoteDefinitionFact
+}
+
+/**
+ * Parser-emitted, projection-specific reference facts.
+ *
+ * The accessors close over immutable parser products rather than exposing
+ * mutable Map instances. Definition selection, link resolution, and footnote
+ * encounter order therefore have one authority for every consumer.
+ */
+export interface MarkdownReferenceIndex {
+  readonly definitionCount: number
+  /** @throws RangeError when the ordinal is not available. */
+  readonly definitionAt: (ordinal: number) => MarkdownReferenceDefinitionFact
+  readonly definitionForLabel: (
+    normalizedLabel: string
+  ) => MarkdownReferenceDefinitionFact | undefined
+  readonly linkCount: number
+  /** @throws RangeError when the ordinal is not available. */
+  readonly linkAt: (ordinal: number) => MarkdownLinkFact
+  readonly linkForNode: (nodeId: NodeId) => MarkdownLinkFact | undefined
+  readonly footnoteDefinitionCount: number
+  /** @throws RangeError when the ordinal is not available. */
+  readonly footnoteDefinitionAt: (
+    ordinal: number
+  ) => MarkdownFootnoteDefinitionFact
+  readonly footnoteDefinitionForLabel: (
+    normalizedLabel: string
+  ) => MarkdownFootnoteDefinitionFact | undefined
+  readonly footnoteReferenceCount: number
+  /** @throws RangeError when the ordinal is not available. */
+  readonly footnoteReferenceAt: (
+    ordinal: number
+  ) => MarkdownFootnoteReferenceFact
+}
+
+export interface MarkdownHeadingFact {
+  readonly node: MarkdownNode
+  readonly nodeId: NodeId
+  readonly level: number
+}
+
+/** Parser-emitted heading encounter order for one projection. */
+export interface MarkdownHeadingIndex {
+  readonly count: number
+  /** @throws RangeError when the ordinal is not available. */
+  readonly at: (ordinal: number) => MarkdownHeadingFact
+  readonly forNode: (nodeId: NodeId) => MarkdownHeadingFact | undefined
+}
+
 export interface MarkdownDocument {
   readonly source: string
   readonly root: MarkdownNode
+  readonly references: MarkdownReferenceIndex
+  readonly headings: MarkdownHeadingIndex
   /** @throws RangeError when the offset is not a position in this document. */
   readonly nodeAt: (
     projectedOffset: number,
@@ -162,10 +318,14 @@ export interface ProjectedMarkdown {
 }
 
 export type MarkupMark =
-  | Readonly<{ readonly kind: 'addition' }>
-  | Readonly<{ readonly kind: 'deletion' }>
-  | Readonly<{ readonly kind: 'substitution'; readonly arm: 'old' | 'new' }>
-  | Readonly<{ readonly kind: 'highlight' }>
+  | Readonly<{ readonly nodeId: NodeId; readonly kind: 'addition' }>
+  | Readonly<{ readonly nodeId: NodeId; readonly kind: 'deletion' }>
+  | Readonly<{
+    readonly nodeId: NodeId
+    readonly kind: 'substitution'
+    readonly arm: 'old' | 'new'
+  }>
+  | Readonly<{ readonly nodeId: NodeId; readonly kind: 'highlight' }>
 
 export interface MarkupProjectionRun {
   readonly text: string
@@ -201,6 +361,7 @@ export type MarkdownLiteralProvider =
 export type SourceOwner =
   | Readonly<{
     readonly kind: 'critic-marker'
+    readonly nodeId: NodeId
     readonly form: CriticMarkupNode['kind']
     readonly role: 'open' | 'separator' | 'close'
     readonly nodeRange: SourceRange
@@ -232,7 +393,19 @@ export interface SourceOwnershipIndex {
 
 export type CriticMarkupProfileId = string
 export type MarkdownProfileId = string
-export type LiveHtmlSafetyProfileId = string
+export type LiveHtmlSafetyProfileId =
+  | 'live-html-sanitized-v1'
+  | 'live-html-escaped-v1'
+
+export interface MarkdownOptionsV1 {
+  readonly schema: 'markdown-options-1'
+  readonly gfm: boolean
+  readonly frontMatter: boolean
+  readonly math: boolean
+  readonly gitLabMath: boolean
+  readonly footnotes: boolean
+  readonly subscriptAndSuperscript: boolean
+}
 
 export interface ExecutionBudgetId {
   readonly limitsProfile: string
@@ -242,6 +415,7 @@ export interface ExecutionBudgetId {
 export interface ParseConfiguration {
   readonly criticMarkupProfile: CriticMarkupProfileId
   readonly markdownProfile: MarkdownProfileId
+  readonly markdownOptions: MarkdownOptionsV1
   readonly liveHtmlSafetyProfile: LiveHtmlSafetyProfileId
   readonly executionBudget: ExecutionBudgetId
 }
@@ -249,11 +423,22 @@ export interface ParseConfiguration {
 export interface CompleteDocumentRevision {
   readonly kind: 'complete'
   readonly source: SourceSnapshot
+  readonly sourceHash: SourceHashV1
+  readonly semanticHash: RevisionSemanticHashV1
   readonly configuration: ParseConfiguration
+  readonly syntax: Profile1SyntaxGraph
   readonly criticMarkup: CriticMarkupForest
   readonly diagnostics: DiagnosticIndex
   readonly ownership: SourceOwnershipIndex
   readonly markup: MarkupProjection
+  /**
+   * Lazily reads the Revised display of one Comment payload.
+   *
+   * @throws RangeError when the identity is not a Comment in this revision.
+   */
+  readonly commentDisplay: (
+    comment: NodeId | UnaryCriticNode<'comment', 'comment'>
+  ) => ProjectedMarkdown
   readonly projection: (view: 'original' | 'revised' | 'editing') => ProjectedMarkdown
 }
 
@@ -273,6 +458,8 @@ export interface ResourceDiagnostic {
 export interface SourceOnlyDocumentRevision {
   readonly kind: 'source-only'
   readonly source: SourceSnapshot
+  readonly sourceHash: SourceHashV1
+  readonly semanticHash: RevisionSemanticHashV1
   readonly configuration: ParseConfiguration
   readonly fatalDiagnostic: ResourceDiagnostic
 }

@@ -1,9 +1,9 @@
-import { ipcMain } from 'electron'
+import { emitInternalChannel } from '../../utils/internalIpc'
 
 export const selectTheme = (theme: string): void => {
-  ipcMain.emit('set-user-preference', { theme })
+  emitInternalChannel('set-user-preference', { theme })
 }
 
 export const setFollowSystemTheme = (followSystemTheme: boolean): void => {
-  ipcMain.emit('set-user-preference', { followSystemTheme })
+  emitInternalChannel('set-user-preference', { followSystemTheme })
 }

@@ -1,3 +1,0 @@
-# The vendored Marked contract authenticates exact upstream Git blobs and a
-# canonical patch. Keep that surface byte-stable on every development platform.
-packages/marked/** text eol=lf

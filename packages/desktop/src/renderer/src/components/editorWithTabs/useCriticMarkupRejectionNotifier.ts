@@ -2,40 +2,113 @@ import { onBeforeUnmount, watch, type Ref } from 'vue'
 import type {
   ICriticMarkupTrackChangeRejection,
   TCriticMarkupTrackChangeRejectionReason
-} from '@muyajs/core'
+} from '@marktext/document-view'
 import { useEditorStore } from '@/store/editor'
 import { t } from '../../i18n'
 
 export const TRACK_CHANGE_REJECTION_TITLE_KEY = 'editor.criticMarkup.trackChangeRejected.title'
+export const TRACK_CHANGE_REJECTION_UNKNOWN_KEY =
+  'editor.criticMarkup.trackChangeRejected.unknownReason'
 
-export const TRACK_CHANGE_REJECTION_BODY_KEYS: Record<
-  TCriticMarkupTrackChangeRejectionReason,
-  string
-> = {
-  'unmappable-source-edit': 'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
-  'parser-conflict': 'editor.criticMarkup.trackChangeRejected.parserConflict',
-  'unmappable-tracked-selection':
+type TrackChangeRejectionMessageKey =
+  | 'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit'
+  | 'editor.criticMarkup.trackChangeRejected.parserConflict'
+  | 'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection'
+  | 'editor.criticMarkup.trackChangeRejected.missingTrackedSelectionBlock'
+
+/**
+ * The engine owns a closed rejection taxonomy; the renderer owns exhaustive,
+ * localized presentation. Several machine reasons intentionally share one
+ * actionable explanation, but no machine token is ever rendered to a person.
+ */
+export const TRACK_CHANGE_REJECTION_MESSAGE_KEYS = Object.freeze({
+  'stale-selection':
     'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
-  'missing-tracked-selection-block':
-    'editor.criticMarkup.trackChangeRejected.missingTrackedSelectionBlock'
+  'selection-not-collapsed':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'selection-collapsed':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'nothing-to-undo':
+    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
+  'nothing-to-redo':
+    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
+  'no-source-change':
+    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
+  'invalid-command-argument':
+    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
+  'read-only-change-arm':
+    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
+  'read-only-projection':
+    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
+  'source-only-revision':
+    'editor.criticMarkup.trackChangeRejected.parserConflict',
+  'precommit-failed':
+    'editor.criticMarkup.trackChangeRejected.parserConflict',
+  'target-not-found':
+    'editor.criticMarkup.trackChangeRejected.missingTrackedSelectionBlock',
+  'wrong-target-kind':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'invalid-source-range':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'empty-comment-anchor':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'empty-comment':
+    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
+  'invalid-comment-payload':
+    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
+  'selection-crosses-syntax-boundary':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'selection-includes-hidden-comment':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'selection-partially-intersects-critic-markup':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'selection-inside-markdown-literal':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'selection-partially-intersects-markdown-literal':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'markdown-literal-source-only':
+    'editor.criticMarkup.trackChangeRejected.parserConflict',
+  'selection-has-no-revised-contribution':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'selection-has-no-original-contribution':
+    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
+  'hidden-comment-loss':
+    'editor.criticMarkup.trackChangeRejected.parserConflict',
+  'candidate-source-only':
+    'editor.criticMarkup.trackChangeRejected.parserConflict',
+  'semantic-postcondition-failed':
+    'editor.criticMarkup.trackChangeRejected.parserConflict'
+} satisfies Record<
+  TCriticMarkupTrackChangeRejectionReason,
+  TrackChangeRejectionMessageKey
+>)
+
+const trackChangeRejectionMessageKey = (
+  reason: unknown
+): TrackChangeRejectionMessageKey | typeof TRACK_CHANGE_REJECTION_UNKNOWN_KEY => {
+  if (
+    typeof reason === 'string' &&
+    Object.prototype.hasOwnProperty.call(
+      TRACK_CHANGE_REJECTION_MESSAGE_KEYS,
+      reason
+    )
+  ) {
+    return TRACK_CHANGE_REJECTION_MESSAGE_KEYS[
+      reason as TCriticMarkupTrackChangeRejectionReason
+    ]
+  }
+  return TRACK_CHANGE_REJECTION_UNKNOWN_KEY
 }
 
 // A persisting conflict can reject every subsequent keystroke; replacing the
 // previous banner instead of stacking keeps the advice readable.
 export const TRACK_CHANGE_REJECTION_EXCLUSIVE_TYPE = 'criticMarkupTrackChangeRejected'
 
-// The narrow slice of the Muya event surface this notifier consumes. The
-// engine types `on`/`off` as (event: string, listener) => void, so the full
-// instance remains assignable.
+// The narrow, typed document-host subscription this notifier consumes.
 interface TrackChangeRejectionSource {
-  on: (
-    event: 'critic-markup-track-change-rejected',
+  subscribeTrackChangeRejection: (
     listener: (rejection: ICriticMarkupTrackChangeRejection) => void
-  ) => void
-  off: (
-    event: 'critic-markup-track-change-rejected',
-    listener: (rejection: ICriticMarkupTrackChangeRejection) => void
-  ) => void
+  ) => Readonly<{ dispose: () => void }>
 }
 
 interface NotificationSink {
@@ -57,7 +130,7 @@ export const presentTrackChangeRejection = (
   translate: (key: string) => string = t
 ): void => {
   const title = translate(TRACK_CHANGE_REJECTION_TITLE_KEY)
-  const body = translate(TRACK_CHANGE_REJECTION_BODY_KEYS[rejection.reason])
+  const body = translate(trackChangeRejectionMessageKey(rejection.reason))
   sink.pushTabNotification({
     tabId,
     msg: `${title}: ${body}`,
@@ -83,6 +156,7 @@ export function useCriticMarkupRejectionNotifier(
 ): void {
   const editorStore = useEditorStore()
   let connectedEditor: TrackChangeRejectionSource | null = null
+  let rejectionSubscription: Readonly<{ dispose: () => void }> | null = null
 
   const listener = (rejection: ICriticMarkupTrackChangeRejection): void => {
     const tabId = options.tabId.value
@@ -91,9 +165,8 @@ export function useCriticMarkupRejectionNotifier(
   }
 
   const disconnectEditor = (): void => {
-    if (connectedEditor) {
-      connectedEditor.off('critic-markup-track-change-rejected', listener)
-    }
+    rejectionSubscription?.dispose()
+    rejectionSubscription = null
     connectedEditor = null
   }
 
@@ -104,7 +177,8 @@ export function useCriticMarkupRejectionNotifier(
       disconnectEditor()
       connectedEditor = nextEditor
       if (connectedEditor) {
-        connectedEditor.on('critic-markup-track-change-rejected', listener)
+        rejectionSubscription =
+          connectedEditor.subscribeTrackChangeRejection(listener)
       }
     },
     { immediate: true, flush: 'sync' }

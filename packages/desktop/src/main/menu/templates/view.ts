@@ -102,6 +102,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
       }
     })
     submenu.push({
+      id: 'view.dev-reload',
       label: t('menu.view.reloadWindow'),
       accelerator: keybindings.getAccelerator('view.dev-reload') ?? undefined,
       click(_item, focusedWindow) {

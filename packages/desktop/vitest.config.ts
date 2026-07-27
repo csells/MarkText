@@ -9,6 +9,7 @@ const __dirname = dirname(__filename)
 export default defineConfig({
   plugins: [vue()],
   test: {
+    allowOnly: false,
     environment: 'jsdom',
     include: ['test/unit/specs/**/*.spec.ts'],
     setupFiles: ['./test/unit/setup.ts'],
@@ -21,8 +22,11 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src/renderer/src'),
       common: resolve(__dirname, 'src/common'),
-      muya: resolve(__dirname, '../muyajs'),
       '@shared': resolve(__dirname, 'src/shared'),
+      '@marktext/document-view': resolve(
+        __dirname,
+        '../document-view/src/index.ts'
+      ),
       main_renderer: resolve(__dirname, 'src/main')
     },
     extensions: ['.mjs', '.ts', '.js', '.json']

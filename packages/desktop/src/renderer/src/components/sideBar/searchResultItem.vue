@@ -68,6 +68,7 @@ import { storeToRefs } from 'pinia'
 import bus from '../../bus'
 import { useI18n } from 'vue-i18n'
 import { ArrowRight } from '@element-plus/icons-vue'
+import { requestProjectDocumentOpen } from '@/services/projectDocumentOpen'
 import type { SearchResult, SearchMatch } from './types'
 
 const { t } = useI18n()
@@ -123,7 +124,9 @@ const ellipsisText = (text: string): string => {
   return len > MAX_PRETEXT_LEN ? `...${text.substring(len - MAX_PRETEXT_LEN)}` : text
 }
 
-const handleSearchResultClick = (searchMatch: SearchMatch): void => {
+const handleSearchResultClick = async (
+  searchMatch: SearchMatch
+): Promise<void> => {
   const { range } = searchMatch
   const { filePath } = props.searchResult
 
@@ -147,19 +150,16 @@ const handleSearchResultClick = (searchMatch: SearchMatch): void => {
     if (currentFile.value !== openedTab) {
       editorStore.UPDATE_CURRENT_FILE(openedTab)
     } else {
-      const { id, markdown, history } = currentFile.value
+      const { id, markdown } = currentFile.value
       bus.emit('file-changed', {
         id,
         markdown,
         cursor: currentFile.value.cursor,
-        renderCursor: true,
-        history
+        renderCursor: true
       })
     }
   } else {
-    window.electron.ipcRenderer.send('mt::open-file', filePath, {
-      cursor
-    })
+    await requestProjectDocumentOpen(filePath)
   }
 }
 </script>

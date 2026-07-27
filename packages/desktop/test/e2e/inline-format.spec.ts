@@ -2,13 +2,9 @@ import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import { launchWithMarkdown, clickMenuById } from './helpers'
 
-// Note: applying inline format marks (bold/italic/etc.) requires a live Muya
-// selection driven by user gestures. Setting DOM selection from outside the
-// renderer is not enough to make Muya's contentState format() commit. So this
-// spec verifies that the format menu items exist and clicking them does not
-// crash the application — a smoke check for the menu wiring and IPC plumbing.
-// Coverage of the actual mark transformation is deferred until Muya exposes a
-// test-friendly selection hook.
+// Inline formatting requires a live selection established through public
+// editor gestures. This file owns the real menu and IPC path; focused core
+// tests own the exact typed transformation.
 
 const formatMenuIds = [
   'strongMenuItem',

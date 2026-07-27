@@ -1,30 +1,26 @@
 import debounce from 'lodash/debounce'
-import { reportAsyncFailure } from '@muyajs/core'
+import { reportAsyncFailure } from '@marktext/document-view'
 import { useEditorStore } from './editor'
-import { useProjectStore } from './project'
 import { useLayoutStore } from './layout'
+import type {
+  WindowUiCheckpointIntent
+} from '@shared/types/bufferedState'
 
 const BUFFERED_STATE_DEBOUNCE_MS = 1000
-const BUFFERED_STATE_VERSION = 1
 
 interface StoreCache {
   editorStore: ReturnType<typeof useEditorStore> | null
-  projectStore: ReturnType<typeof useProjectStore> | null
   layoutStore: ReturnType<typeof useLayoutStore> | null
 }
 
 const stores: StoreCache = {
   editorStore: null,
-  projectStore: null,
   layoutStore: null
 }
 
-export const createBufferedState = (): Record<string, unknown> | null => {
+export const createBufferedState = (): WindowUiCheckpointIntent | null => {
   if (!stores.editorStore) {
     stores.editorStore = useEditorStore()
-  }
-  if (!stores.projectStore) {
-    stores.projectStore = useProjectStore()
   }
   if (!stores.layoutStore) {
     stores.layoutStore = useLayoutStore()
@@ -32,13 +28,14 @@ export const createBufferedState = (): Record<string, unknown> | null => {
 
   const editorState = stores.editorStore.CREATE_BUFFERED_STATE()
   if (!editorState) return null
+  const layout = stores.layoutStore.CREATE_BUFFERED_STATE()
+  if (layout === null) return null
 
-  return {
-    version: BUFFERED_STATE_VERSION,
+  return Object.freeze({
+    schema: 'document-core-window-ui-intent-1',
     ...editorState,
-    project: stores.projectStore?.CREATE_BUFFERED_STATE?.() || null,
-    layout: stores.layoutStore?.CREATE_BUFFERED_STATE?.() || null
-  }
+    layout
+  })
 }
 
 export const sendBufferedState = async(): Promise<unknown> => {

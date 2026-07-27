@@ -50,7 +50,7 @@ pnpm run dev
 - Although the `renderer` process is hot-loaded, loss of states can often lead to **weird errors**. I recommend doing a full reload if this happens
 - Compile targets:
   - `main` and `preload` still compile to `CommonJS`
-  - `renderer` is `ESModules` only (take note when using any legacy `CommonJS` libraries)
+  - `renderer` is `ESModules` only; CommonJS-only libraries cannot be imported there directly
 
 ### 1.7 Build for Production
 

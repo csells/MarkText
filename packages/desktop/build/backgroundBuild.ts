@@ -29,6 +29,7 @@ export const BACKGROUND_BUILD_MANIFEST = 'background-source-fingerprint.json'
 
 const REQUIRED_OUTPUT_FILES = [
   'main/index.js',
+  'main/documentSessionWorker.js',
   'preload/index.js',
   'renderer/index.html'
 ] as const
@@ -111,17 +112,19 @@ export const readBackgroundSourceFiles = (
 ): BackgroundSourceFile[] => {
   const sourcePaths = [
     ...collectBuildInputFiles(path.join(projectRoot, 'src')),
-    ...collectBuildInputFiles(path.resolve(projectRoot, '../muya/src')),
-    ...collectBuildInputFiles(path.resolve(projectRoot, '../muyajs/lib')),
+    ...collectBuildInputFiles(path.resolve(projectRoot, '../document-core/src')),
+    ...collectBuildInputFiles(path.resolve(projectRoot, '../document-view/src')),
     path.join(projectRoot, 'build/backgroundBuild.ts'),
     path.join(projectRoot, 'build/buildDesktop.ts'),
     path.join(projectRoot, 'electron.vite.config.ts'),
     path.join(projectRoot, 'package.json'),
     path.join(projectRoot, 'tsconfig.json'),
     path.join(projectRoot, 'tsconfig.base.json'),
-    path.resolve(projectRoot, '../muya/package.json'),
-    path.resolve(projectRoot, '../muya/tsconfig.json'),
-    path.resolve(projectRoot, '../muyajs/package.json'),
+    path.resolve(projectRoot, '../document-core/package.json'),
+    path.resolve(projectRoot, '../document-core/tsconfig.json'),
+    path.resolve(projectRoot, '../document-core/tsconfig.build.json'),
+    path.resolve(projectRoot, '../document-view/package.json'),
+    path.resolve(projectRoot, '../document-view/tsconfig.json'),
     path.resolve(projectRoot, '../../package.json'),
     path.resolve(projectRoot, '../../pnpm-workspace.yaml'),
     path.resolve(projectRoot, '../../.npmrc'),

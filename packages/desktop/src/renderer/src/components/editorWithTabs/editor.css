@@ -37,9 +37,7 @@
   left: 0;
   overflow: hidden;
   /* `z-index: -1` only hides the editor visually; `document.elementsFromPoint`
-     ignores stacking, so muya's mousemove-driven float tools (front button/menu,
-     table drag/column toolbars, preview toolbar) still re-trigger over the source
-     editor. Drop the subtree from hit-testing too so they cannot (#4731). */
+     ignores stacking. Drop the inactive subtree from hit-testing too. */
   pointer-events: none;
 }
 
@@ -51,7 +49,7 @@
   overflow-anchor: none !important;
 }
 
-.editor-component .mu-container {
+.editor-component.document-view-container {
   padding-top: 20px;
   padding-bottom: 100vh;
 }
@@ -70,6 +68,14 @@
   bottom: 0;
   background: rgba(0, 0, 0, 0.8);
   z-index: 11;
+  & .image-viewer-content {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+  }
   & .icon-close {
     z-index: 1000;
     width: 30px;
@@ -79,6 +85,10 @@
     left: 50px;
     display: block;
     color: #efefef;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
     & svg {
       width: 100%;
       height: 100%;

@@ -8,7 +8,7 @@ import type {
   ICriticMarkupReviewEditor,
   ICriticMarkupReviewItem,
   ICriticMarkupReviewSnapshot
-} from '@muyajs/core'
+} from '@marktext/document-view'
 
 const { ipcSend } = vi.hoisted(() => {
   const send = vi.fn()
@@ -43,6 +43,7 @@ const comment: ICriticMarkupReviewItem = {
 }
 
 const snapshot: ICriticMarkupReviewSnapshot = {
+  revisionId: 'revision:1',
   items: [comment],
   currentItemId: comment.id,
   canCreateAddition: true,
@@ -50,6 +51,7 @@ const snapshot: ICriticMarkupReviewSnapshot = {
   canCreateSubstitution: true,
   canCreateHighlight: true,
   canCreateComment: true,
+  canNavigate: true,
   canResolveCurrent: true,
   canResolveAll: true,
   trackChanges: false,
@@ -59,24 +61,23 @@ const snapshot: ICriticMarkupReviewSnapshot = {
 class FakeReviewEngine {
   private readonly listeners = new Set<(value: ICriticMarkupReviewSnapshot) => void>()
 
-  on = vi.fn((_event: string, listener: (value: ICriticMarkupReviewSnapshot) => void) => {
+  subscribeReview = vi.fn((listener: (value: ICriticMarkupReviewSnapshot) => void) => {
     this.listeners.add(listener)
-  })
-
-  off = vi.fn((_event: string, listener: (value: ICriticMarkupReviewSnapshot) => void) => {
-    this.listeners.delete(listener)
+    return {
+      dispose: () => this.listeners.delete(listener)
+    }
   })
 
   getCriticMarkupReviewSnapshot = vi.fn(() => snapshot)
   getCriticMarkupCommentAtPoint = vi.fn(() => comment)
-  editCriticMarkupComment = vi.fn(() => false)
+  editCriticMarkupComment = vi.fn(async() => false)
   commitAuthoringSelection = vi.fn()
-  createCriticMarkup = vi.fn(() => true)
+  createCriticMarkup = vi.fn(async() => true)
   focusCriticMarkup = vi.fn(() => comment)
   navigateCriticMarkup = vi.fn(() => comment)
-  resolveCriticMarkup = vi.fn(() => true)
-  resolveAllCriticMarkup = vi.fn(() => 0)
-  setOptions = vi.fn()
+  resolveCriticMarkup = vi.fn(async() => true)
+  resolveAllCriticMarkup = vi.fn(async() => 0)
+  configure = vi.fn(async() => {})
 }
 
 const messages = {
@@ -133,10 +134,12 @@ describe('CriticMarkup comment edit acknowledgement', () => {
       setup() {
         useCriticMarkupReviewController({
           editor: shallowRef(engine as unknown as ICriticMarkupReviewEditor),
-          fileId: ref('file-1'),
+          documentId: ref('document:1'),
           sourceCode: ref(false),
           requestText: async() => null,
-          cancelTextRequest: () => {}
+          cancelTextRequest: () => {},
+          commandNotificationSink: { pushTabNotification: () => {} },
+          translate: key => key
         })
         return () => h(ReviewSidebar)
       }
@@ -161,25 +164,54 @@ describe('CriticMarkup comment edit acknowledgement', () => {
       await wrapper.get('.comment-edit textarea').setValue(draft)
       const focus = vi.spyOn(HTMLElement.prototype, 'focus')
       try {
+        let rejectEdit: ((saved: boolean) => void) | undefined
+        engine.editCriticMarkupComment.mockReturnValueOnce(
+          new Promise<boolean>((resolve) => {
+            rejectEdit = resolve
+          })
+        )
         await wrapper.get('.comment-edit .submit').trigger('click')
         await nextTick()
 
-        expect(engine.editCriticMarkupComment).toHaveBeenLastCalledWith(comment, draft)
+        expect(engine.editCriticMarkupComment).toHaveBeenLastCalledWith({
+          revisionId: 'revision:1',
+          nodeId: comment.id
+        }, draft)
         expect(wrapper.get<HTMLTextAreaElement>('.comment-edit textarea').element.value)
           .toBe(draft)
+        expect(wrapper.get('.comment-edit').attributes('aria-busy')).toBe('true')
+        expect(wrapper.find('.comment-edit-failure').exists()).toBe(false)
+
+        rejectEdit?.(false)
+        await flushController()
+
         const failure = wrapper.get('.comment-edit-failure')
         expect(failure.text()).toBe(
           "Couldn't save this comment. Your draft was kept; review the document and try again."
         )
-        expect(failure.attributes('role')).toBeUndefined()
-        expect(failure.attributes('aria-live')).toBeUndefined()
-        expect(focus).not.toHaveBeenCalled()
+        expect(failure.attributes('role')).toBe('alert')
+        expect(failure.attributes('aria-live')).toBe('polite')
+        expect(wrapper.get('.comment-edit').attributes('aria-busy')).toBe('false')
+        expect(focus).toHaveBeenCalled()
 
-        engine.editCriticMarkupComment.mockReturnValue(true)
+        engine.editCriticMarkupComment.mockRejectedValueOnce(
+          new Error('main rejected the edit')
+        )
         await wrapper.get('.comment-edit .submit').trigger('click')
-        await nextTick()
+        await flushController()
 
-        expect(engine.editCriticMarkupComment).toHaveBeenLastCalledWith(comment, draft)
+        expect(wrapper.get<HTMLTextAreaElement>('.comment-edit textarea').element.value)
+          .toBe(draft)
+        expect(wrapper.get('.comment-edit-failure').attributes('role')).toBe('alert')
+
+        engine.editCriticMarkupComment.mockResolvedValueOnce(true)
+        await wrapper.get('.comment-edit .submit').trigger('click')
+        await flushController()
+
+        expect(engine.editCriticMarkupComment).toHaveBeenLastCalledWith({
+          revisionId: 'revision:1',
+          nodeId: comment.id
+        }, draft)
         expect(wrapper.find('.comment-edit').exists()).toBe(false)
       } finally {
         focus.mockRestore()

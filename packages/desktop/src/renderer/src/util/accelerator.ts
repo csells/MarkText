@@ -1,6 +1,6 @@
 // Turn an Electron accelerator string (e.g. "Command+Shift+T") into the
 // per-key tokens the command palette renders. On macOS modifiers become the
-// native symbols (⌘ ⇧ ⌥ ⌃) so the palette matches the muya front menu and the
+// native symbols (⌘ ⇧ ⌥ ⌃) so the palette matches the editor menu and the
 // system menus; elsewhere they stay readable words.
 
 const MAC_SYMBOLS: Record<string, string> = {

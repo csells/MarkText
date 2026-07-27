@@ -2,20 +2,18 @@ import path from 'path'
 import fsPromises from 'fs/promises'
 import dayjs from 'dayjs'
 import log from 'electron-log'
-import { app, BrowserWindow, clipboard, nativeTheme, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, nativeTheme, ipcMain } from 'electron'
 import type { BrowserWindowConstructorOptions } from 'electron'
 import { isChildOfDirectory } from 'common/filesystem/paths'
 import type { IUserPreferences } from '@shared/types/preferences'
 import { isLinux, isOsx, isWindows } from '../config'
 import parseArgs from '../cli/parser'
-import { normalizeAndResolvePath } from '../filesystem'
 import { normalizeMarkdownPath } from '../filesystem/markdown'
 import { registerKeyboardListeners } from '../keyboard'
 import { selectTheme } from '../menu/actions/theme'
 import { dockMenu } from '../menu/templates'
 import registerSpellcheckerListeners from '../spellchecker'
-import { watchers } from '../utils/imagePathAutoComplement'
-import { onInternalChannel } from '../utils/internalIpc'
+import { emitInternalChannel, onInternalChannel } from '../utils/internalIpc'
 import { WindowType } from '../windows/base'
 import EditorWindow from '../windows/editor'
 import SettingWindow from '../windows/setting'
@@ -24,6 +22,11 @@ import { getNativeThemeSource, isDarkApplicationTheme } from './nativeTheme'
 import type Accessor from './accessor'
 import type WindowManager from './windowManager'
 import { presentationPolicy } from '../presentationPolicy'
+import { mintImageSourceCapability } from '../imageAssets/imageSourceCapability'
+import {
+  registerImageDisplayProtocol
+} from '../imageAssets/imageDisplayProtocolRegistration'
+import { listDocumentCoreRecoveryWindows } from '../ipc/documentCore'
 
 interface CliArgs {
   _: string[]
@@ -114,10 +117,6 @@ class App {
     app.on('ready', this.ready)
 
     app.on('window-all-closed', () => {
-      // Close all the image path watcher
-      for (const watcher of watchers.values()) {
-        watcher.close()
-      }
       this._windowManager.closeWatcher()
       if (!isOsx) {
         app.quit()
@@ -228,6 +227,7 @@ class App {
   }
 
   ready = (): void => {
+    registerImageDisplayProtocol()
     const { _args: args, _openFilesCache } = this
     const { preferences, editorBufferStore } = this._accessor
 
@@ -389,24 +389,38 @@ class App {
 
     const createWindow = (): void => {
       if (isRestorePathway) {
-        // We will restore based off the previous buffer, one window per buffer store file
-        const bufferStores = editorBufferStore.getAll()
-        const bufferStoreList = Object.values(bufferStores) as Array<{
-          id: string
-          filePath: string | null
-        }>
-        if (bufferStoreList.length === 0) {
+        ;(async() => {
+          const bufferStores = editorBufferStore.getAll()
+          const recoveryWindows = await listDocumentCoreRecoveryWindows()
+          const recoveryIds = new Set(
+            recoveryWindows.map(window => window.durableWindowId)
+          )
+          const bufferStoreList = [
+            ...recoveryIds
+          ].map(id => bufferStores[id] ?? {
+            id,
+            filePath: null
+          })
+          if (bufferStoreList.length === 0) {
+            this._createEditorWindow()
+            return
+          }
+          for (const bufferStoreInfo of bufferStoreList) {
+            this._createEditorWindow(
+              null,
+              [],
+              [],
+              {},
+              bufferStoreInfo
+            )
+          }
+        })().catch((error: unknown) => {
+          log.error('Failed to discover durable document windows:', error)
           this._createEditorWindow()
-          return
-        }
-
-        bufferStoreList.forEach((bufferStoreInfo) => {
-          // Read the buffer store file and pass the content
-          this._createEditorWindow(null, [], [], {}, bufferStoreInfo)
         })
       } else if (_openFilesCache.length) {
         // We should wipe the buffer store if not it will keep creating new windows whenever we open files via double click in the file manager
-        editorBufferStore.clearBufferStoresWithAllSaved()
+        editorBufferStore.clearEmptyBufferStores()
         this._openFilesToOpen()
       } else {
         this._createEditorWindow()
@@ -668,7 +682,7 @@ class App {
       event.reply('mt::current-language', language || 'en')
     })
 
-    ipcMain.on('app-create-editor-window', () => {
+    onInternalChannel('app-create-editor-window', () => {
       this._createEditorWindow()
     })
 
@@ -681,9 +695,8 @@ class App {
             log.error(err)
             return
           }
-          // The renderer can no longer paste the clipboard bitmap via the
-          // removed `document.execCommand('paste')`, so persist the capture to a
-          // PNG and hand the path to the renderer to insert at the cursor.
+          // Persist the capture in main, then mint one sender-bound source
+          // capability. Renderer never receives the native pathname.
           let savedPath = ''
           try {
             const image = clipboard.readImage()
@@ -697,7 +710,12 @@ class App {
           } catch (writeErr) {
             log.error(writeErr)
           }
-          win.webContents.send('mt::screenshot-captured', savedPath)
+          win.webContents.send(
+            'mt::screenshot-captured',
+            savedPath.length === 0
+              ? null
+              : mintImageSourceCapability(win.webContents, savedPath)
+          )
         })
       } else {
         // TODO: Do nothing, maybe we'll add screenCapture later on Linux and Windows.
@@ -752,6 +770,11 @@ class App {
       }
     })
 
+    onInternalChannel('app-new-untitled-tab-by-id', (windowId: number) => {
+      const editor = this._windowManager.get(windowId) as EditorWindow | undefined
+      editor?.openUntitledTab(true)
+    })
+
     onInternalChannel(
       'app-open-directory-by-id',
       (windowId: number, pathname: string, openInSameWindow: boolean) => {
@@ -771,19 +794,6 @@ class App {
 
     ipcMain.on('mt::app-try-quit', () => {
       app.quit()
-    })
-
-    ipcMain.on('mt::open-file-by-window-id', (_e, windowId: number, filePath: string) => {
-      const resolvedPath = normalizeAndResolvePath(filePath)
-      const openFilesInNewWindow = this._accessor.preferences.getItem<boolean>('openFilesInNewWindow')
-      if (openFilesInNewWindow) {
-        this._createEditorWindow(null, [resolvedPath])
-      } else {
-        const editor = this._windowManager.get(windowId) as EditorWindow | undefined
-        if (editor) {
-          editor.openTab(resolvedPath, {}, true)
-        }
-      }
     })
 
     ipcMain.on('mt::select-default-directory-to-open', async(e) => {
@@ -807,7 +817,7 @@ class App {
 
     ipcMain.on('mt::make-screenshot', (e) => {
       const win = BrowserWindow.fromWebContents(e.sender)
-      ipcMain.emit('screen-capture', win)
+      emitInternalChannel('screen-capture', win)
     })
 
     ipcMain.on('mt::request-keybindings', (e) => {
@@ -845,10 +855,6 @@ class App {
       }
 
       return saved
-    })
-
-    ipcMain.handle('mt::fs-trash-item', async(_event, fullPath: string) => {
-      return shell.trashItem(fullPath)
     })
   }
 }

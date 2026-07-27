@@ -47,10 +47,7 @@
       "findNext": "다음 찾기",
       "findPrevious": "이전 찾기",
       "findInFolder": "폴더에서 찾기",
-      "screenshot": "스크린샷",
-      "lineEnding": "줄 끝",
-      "lineEndingCrlf": "CRLF(Windows)",
-      "lineEndingLf": "LF(Linux/Mac)"
+      "screenshot": "스크린샷"
     },
     "paragraph": {
       "title": "단락",
@@ -268,6 +265,7 @@
       "summary": "검토 항목 {count}개",
       "trackChanges": "변경 내용 추적",
       "unavailable": "이 보기에서는 검토를 사용할 수 없습니다.",
+      "actionUnavailable": "이 검토 작업은 더 이상 사용할 수 없습니다. 검토를 새로 고친 후 다시 시도하세요.",
       "empty": "검토 항목 없음",
       "removeComment": "댓글 제거",
       "removeHighlight": "강조 제거",
@@ -408,7 +406,6 @@
       "items": {
         "autoSave": "편집 중인 내용을 자동으로 저장",
         "autoSaveDelay": "변경 후 파일이 저장되기까지의 시간(밀리초)",
-        "autoNormalizeLineEndings": "파일을 열 때 줄 끝을 자동으로 정규화합니다. 비활성화하면 파일을 있는 그대로 엽니다.",
         "titleBarStyle": "제목 표시줄 스타일(Windows 및 Linux 시스템만)",
         "openFilesInNewWindow": "새 창에서 파일 열기",
         "openFolderInNewWindow": "메뉴를 통해 새 창에서 폴더 열기",
@@ -427,32 +424,13 @@
         "editorLineWidth": "편집기 영역의 최대 너비를 정의합니다. 빈 문자열 또는 ch(문자), px(픽셀), %(백분율) 접미사가 허용됩니다",
         "codeFontSize": "코드 블록의 글꼴 크기, 범위는 12~18",
         "codeFontFamily": "코드 블록에서 사용되는 글꼴 패밀리",
-        "codeBlockLineNumbers": "줄 번호를 표시할지 여부",
-        "trimUnnecessaryCodeBlockEmptyLines": "코드 블록의 시작과 끝에 있는 빈 줄 제거",
         "autoPairBracket": "편집 시 자동으로 괄호 쌍 만들기",
         "autoPairMarkdownSyntax": "마크다운 구문 자동 완성",
         "autoPairQuote": "따옴표 자동 완성",
-        "endOfLine": "각 줄 끝에서 사용되는 줄바꿈 문자. 기본값은 default로, 운영 체제의 기본 줄바꿈 문자를 선택합니다",
-        "defaultEncoding": "기본 파일 인코딩",
-        "autoGuessEncoding": "파일을 열 때 파일 인코딩을 자동으로 추측하려고 시도",
-        "trimTrailingNewline": "후행 줄바꿈 제거 옵션",
         "textDirection": "텍스트 쓰기 방향",
         "hideQuickInsertHint": "빠르게 단락을 만들기 위한 힌트 숨기기",
         "hideLinkPopup": "커서가 링크 위에 호버할 때 링크 팝업 숨기기",
         "autoCheck": "관련 작업을 자동으로 확인할지 여부",
-        "preferLooseListItem": "선호하는 목록 유형",
-        "bulletListMarker": "글머리 기호 목록에서 사용되는 마커",
-        "orderListDelimiter": "순서가 있는 목록에서 사용되는 구분자",
-        "preferHeadingStyle": "MarkText에서 선호하는 제목 스타일",
-        "tabSize": "탭을 x개의 공백으로 바꾸기",
-        "listIndentation": "목록의 들여쓰기 선택",
-        "frontmatterType": "프론트매터 유형",
-        "superSubScript": "Pandoc의 마크다운 확장 위첨자와 아래첨자 활성화",
-        "footnote": "Pandoc의 마크다운 확장 각주 활성화",
-        "isHtmlEnabled": "HTML 렌더링 활성화",
-        "isGitlabCompatibilityEnabled": "GitLab 호환 모드 활성화",
-        "sequenceTheme": "시퀀스 다이어그램 테마",
-        "plantumlServer": "PlantUML 서버 URL",
         "theme": "MarkText에서 사용할 테마 선택",
         "followSystemTheme": "시스템 테마 따르기",
         "lightModeTheme": "시스템이 라이트 모드일 때 사용할 테마",
@@ -465,7 +443,10 @@
         "imageRelativeDirectoryBase": "상대 이미지가 복사되는 위치",
         "imageRelativeDirectoryName": "상대 이미지 폴더 이름",
         "fileSortOrder": "열린 폴더의 파일 정렬 순서: 오름차순 또는 내림차순",
-        "openedFilesInSidebar": "사이드바에 열린 파일을 표시할지 여부"
+        "openedFilesInSidebar": "사이드바에 열린 파일을 표시할지 여부",
+        "subscriptAndSuperscript": "Pandoc의 마크다운 확장 위첨자와 아래첨자 활성화",
+        "footnotes": "Pandoc의 마크다운 확장 각주 활성화",
+        "gitLabMath": "Enable GitLab Math syntax"
       }
     },
     "categories": {
@@ -559,34 +540,13 @@
       "codeBlock": {
         "title": "코드 블록",
         "fontSize": "글꼴 크기",
-        "fontFamily": "글꼴 패밀리",
-        "showLineNumbers": "줄 번호 보기",
-        "removeEmptyLines": "빈 줄 제거"
+        "fontFamily": "글꼴 패밀리"
       },
       "writingBehavior": {
         "title": "작성 동작",
         "autoCloseBrackets": "괄호 자동 닫기",
         "autoCompleteMarkdown": "마크다운 자동 완성",
         "autoCloseQuotes": "따옴표 자동 닫기"
-      },
-      "fileRepresentation": {
-        "title": "파일 표현",
-        "tabWidth": "탭 너비",
-        "lineSeparator": "줄 구분자",
-        "defaultEncoding": "기본 인코딩",
-        "autoDetectEncoding": "인코딩 자동 감지",
-        "trailingNewlines": {
-          "title": "끝 줄바꿈",
-          "doNothing": "아무것도 하지 않음",
-          "ensureOne": "하나 확보",
-          "preserve": "보존",
-          "trimAll": "모두 제거"
-        },
-        "endOfLine": {
-          "default": "기본값",
-          "crlf": "CRLF",
-          "lf": "LF"
-        }
       },
       "misc": {
         "title": "기타",
@@ -598,7 +558,6 @@
         "hideQuickInsertHint": "빠른 삽입 힌트 숨기기",
         "hideLinkPopup": "링크 팝업 숨기기",
         "autoCheck": "자동 확인",
-        "autoNormalizeLineEndings": "열 때 줄 바꿈을 자동으로 LF로 정규화",
         "wrapCodeBlocks": "코드 블록 줄바꿈"
       }
     },
@@ -666,53 +625,9 @@
       "title": "마크다운",
       "extensions": {
         "title": "확장",
-        "superSubScript": "위/아래 첨자",
-        "footnote": "각주",
-        "footnoteNotes": "각주 노트",
-        "frontmatterType": {
-          "jsonBrace": "중괄호가 있는 JSON",
-          "jsonSemicolon": "세미콜론이 있는 JSON",
-          "title": "프론트매터 유형"
-        }
-      },
-      "diagrams": {
-        "title": "다이어그램",
-        "sequenceTheme": {
-          "title": "시퀀스 테마",
-          "handDrawn": "손으로 그린",
-          "simple": "간단"
-        },
-        "plantumlServer": {
-          "title": "PlantUML 서버 URL"
-        }
-      },
-      "misc": {
-        "preferHeadingStyle": {
-          "title": "제목 스타일 선호",
-          "atx": "ATX 스타일",
-          "setext": "Setext 스타일"
-        },
-        "title": "기타"
-      },
-      "compatibility": {
-        "enableGitlab": "GitLab 호환성 활성화",
-        "enableHtml": "HTML 지원 활성화",
-        "title": "호환성"
-      },
-      "lists": {
-        "bulletListMarker": "글머리 기호 목록 마커",
-        "listIndentation": {
-          "title": "목록 들여쓰기",
-          "dfm": "DFM 스타일",
-          "fourSpaces": "네 개 공백",
-          "oneSpace": "한 개 공백",
-          "tab": "탭",
-          "threeSpaces": "세 개 공백",
-          "twoSpaces": "두 개 공백"
-        },
-        "orderListDelimiter": "순서 목록 구분자",
-        "preferLooseListItem": "느슨한 목록 항목 선호",
-        "title": "목록"
+        "subscriptAndSuperscript": "위/아래 첨자",
+        "footnotes": "각주",
+        "gitLabMath": "GitLab Math"
       }
     },
     "theme": {
@@ -790,9 +705,6 @@
       "moveFile": "파일 이동",
       "renameFile": "파일 이름 바꾸기",
       "quickOpen": "빠른 열기",
-      "changeEncoding": "인코딩 변경",
-      "changeLineEnding": "줄 끝 변경",
-      "trailingNewline": "끝 줄바꿈",
       "print": "인쇄",
       "preferences": "환경설정",
       "closeTab": "탭 닫기",
@@ -1001,6 +913,7 @@
       "replacementPlaceholder": "대체 텍스트 입력",
       "trackChangeRejected": {
         "title": "편집이 기록되지 않았습니다",
+        "unknownReason": "변경 내용 추적이 이 편집을 기록할 수 없어 문서는 변경되지 않았습니다. 다시 시도하거나 이 변경에 한해 변경 내용 추적을 끄세요.",
         "unmappableSourceEdit": "변경 내용 추적이 이 편집을 기록할 수 없어 문서는 변경되지 않았습니다. 편집을 더 작게 나누어 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
         "parserConflict": "변경 내용 추적이 이 편집을 문서의 마크다운과 맞출 수 없어 문서는 변경되지 않았습니다. 편집을 더 작게 나누어 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
         "unmappableTrackedSelection": "변경 내용 추적이 선택 영역을 추적 중인 문서와 연결할 수 없어 문서는 변경되지 않았습니다. 텍스트를 다시 선택해 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
@@ -1017,6 +930,9 @@
       "rows": "행",
       "columns": "열"
     },
+    "imageViewer": {
+      "label": "이미지 미리보기"
+    },
     "notifications": {
       "notificationNotFound": "알림을 찾을 수 없음"
     },
@@ -1026,7 +942,22 @@
     },
     "sourceCode": {
       "cursorNullComment": "커서 null 주석",
-      "imageStructureDeletedComment": "이미지 구조 삭제 주석"
+      "imageStructureDeletedComment": "이미지 구조 삭제 주석",
+      "label": "소스 코드",
+      "operationFailed": "소스 {operation} 작업에 실패했습니다. 확인된 문서를 복원했습니다.",
+      "operations": {
+        "edit": "편집",
+        "undo": "실행 취소",
+        "redo": "다시 실행",
+        "paste": "붙여넣기",
+        "cut": "잘라내기",
+        "copy": "복사",
+        "selection": "선택",
+        "attachment": "연결",
+        "headingSelection": "제목 선택"
+      },
+      "semanticClipboardUnavailableTitle": "명령을 사용할 수 없음",
+      "semanticClipboardUnavailable": "소스 모드에서는 서식 있는 텍스트 복사, HTML 복사 및 일반 텍스트로 붙여넣기를 사용할 수 없습니다. 대신 복사, 잘라내기 또는 붙여넣기를 사용하세요."
     },
     "spellcheck": {
       "disabledError": "맞춤법 검사 비활성화 오류",

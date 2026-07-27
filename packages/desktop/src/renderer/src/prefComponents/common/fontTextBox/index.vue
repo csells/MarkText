@@ -42,6 +42,7 @@ import { ref, watch, onMounted } from 'vue'
 import { ArrowDown } from '@element-plus/icons-vue'
 import LinkIcon from '@/components/icons/LinkIcon.vue'
 import { useI18n } from 'vue-i18n'
+import { openExternalResource } from '@/services/presentationEffects'
 import type { PrefControlProps } from '../types'
 import { withBundledFonts } from './bundledFonts'
 
@@ -53,7 +54,6 @@ interface FontTextBoxProps extends PrefControlProps<string> {
 
 const props = withDefaults(defineProps<FontTextBoxProps>(), {
   description: '',
-  more: '',
   disable: false,
   onlyMonospace: false
 })
@@ -89,8 +89,8 @@ const handleSelect = (selection: { value?: string } | string) => {
 }
 
 const handleMoreClick = () => {
-  if (typeof props.more === 'string') {
-    window.electron.shell.openExternal(props.more)
+  if (props.more) {
+    openExternalResource(props.more)
   }
 }
 

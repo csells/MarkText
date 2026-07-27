@@ -13,9 +13,9 @@ vi.hoisted(() => {
 // the top level. The Linux-only emoji-picker font patch is composed into the
 // common <style> sheet (`#ag-common-style`) by `addCommonStyle`. We mock
 // `@/util` per test to flip the platform branch and re-import the module, then
-// assert the patched CSS still targets the engine `.mu-emoji-picker` selector so
-// a future mu-*/ag-* selector drift is caught (regression: muyajs -> @muyajs/core).
-const EMOJI_SELECTOR = '.mu-emoji-picker section .emoji-wrapper .item span'
+// assert the patched CSS still targets `.document-view-emoji-picker` so a
+// future document-view selector drift is caught.
+const EMOJI_SELECTOR = '.document-view-emoji-picker section .emoji-wrapper .item span'
 const EMOJI_FONT = 'Noto Color Emoji'
 
 const loadTheme = async(isLinux: boolean) => {
@@ -39,7 +39,7 @@ describe('theme.ts emoji-picker Linux font patch', () => {
     vi.doUnmock('@/util')
   })
 
-  it('injects the .mu-emoji-picker font fallback into the common sheet on Linux', async() => {
+  it('injects the .document-view-emoji-picker font fallback into the common sheet on Linux', async() => {
     const { addCommonStyle } = await loadTheme(true)
     addCommonStyle(commonOptions)
 
@@ -54,16 +54,16 @@ describe('theme.ts emoji-picker Linux font patch', () => {
     addCommonStyle(commonOptions)
 
     const css = commonStyleHtml()
-    expect(css).not.toContain('.mu-emoji-picker')
+    expect(css).not.toContain('.document-view-emoji-picker')
     expect(css).not.toContain(EMOJI_FONT)
   })
 
-  it('keeps targeting the engine .mu-emoji-picker selector (not a legacy ag-* class) on Linux', async() => {
+  it('keeps targeting the engine .document-view-emoji-picker selector on Linux', async() => {
     const { addCommonStyle } = await loadTheme(true)
     addCommonStyle(commonOptions)
 
     const css = commonStyleHtml()
-    expect(css).toContain('.mu-emoji-picker')
+    expect(css).toContain('.document-view-emoji-picker')
     expect(css).not.toContain('.ag-emoji-picker')
   })
 
@@ -74,13 +74,13 @@ describe('theme.ts emoji-picker Linux font patch', () => {
     expect(commonStyleHtml()).toContain(EMOJI_SELECTOR)
     // The theme sheet itself carries the theme CSS, not the emoji patch.
     const themeHtml = (document.querySelector('#ag-theme') as HTMLStyleElement | null)?.innerHTML
-    expect(themeHtml).not.toContain('.mu-emoji-picker')
+    expect(themeHtml).not.toContain('.document-view-emoji-picker')
   })
 
   it('routes nothing emoji-related through addStyles off Linux', async() => {
     const { addStyles } = await loadTheme(false)
     addStyles({ theme: 'light', ...commonOptions })
 
-    expect(commonStyleHtml()).not.toContain('.mu-emoji-picker')
+    expect(commonStyleHtml()).not.toContain('.document-view-emoji-picker')
   })
 })

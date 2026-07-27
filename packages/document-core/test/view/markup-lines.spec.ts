@@ -6,6 +6,7 @@ import {
   renderMarkupPlan,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { completeSnapshot } from '../helpers/completeSnapshot.js'
 
 /**
  * Integration vertical slice, increment 2 — line grouping.
@@ -22,7 +23,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -41,7 +51,7 @@ async function linesFor(source: string) {
       focus: { offset: 0, affinity: 'next' }
     }
   })
-  return groupRenderLines(renderMarkupPlan(session.snapshot().livePlan))
+  return groupRenderLines(renderMarkupPlan(completeSnapshot(session).livePlan))
 }
 
 describe('markup line grouping', () => {

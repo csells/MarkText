@@ -16,14 +16,12 @@ test.describe('Strong emphasis with CJK boundaries (#4307)', () => {
     if (app) await app.close()
   })
 
-  // ENGINE #4307 (now fixed): the @muyajs/core markdown parser recognises strong
+  // ENGINE #4307 (now fixed): the @marktext/document-view markdown parser recognises strong
   // emphasis when the run is flanked by a CJK char on one side and ASCII
   // punctuation (here the opening quote) on the other, so the desktop renders
-  // this as bold. The engine asserts the same case (without any `it.fails`) in
-  // packages/muya/src/state/__tests__/strongCjkFlanking.spec.ts (CJK_CASES).
+  // this as bold. The engine-level CJK flanking corpus asserts the same case.
   //
-  // This desktop test was previously a `test.fixme` tripwire; it is now a live
-  // end-to-end assertion that the WYSIWYG path renders the bold run.
+  // The real WYSIWYG path must render the bold run end to end.
   test('CJK + **"x"** renders as bold in WYSIWYG (engine #4307)', async() => {
     await setSourceMarkdown(page, app, '例子例子**"加粗"**例子例子\n')
     const strong = page.locator('.editor-component strong')

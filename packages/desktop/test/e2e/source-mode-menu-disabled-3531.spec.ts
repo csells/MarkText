@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import { launchWithMarkdown, focusEditor, enterSourceMode, exitSourceMode } from './helpers'
 
-// #3531 — Paragraph and Format menu commands act on the hidden WYSIWYG engine,
-// so they must be greyed out in source-code mode and re-enabled on return.
+// #3531 — Paragraph and Format commands target the semantic surface, so they
+// must be greyed out in Source mode and re-enabled on return.
 
 const readEnabled = (app: ElectronApplication) =>
   app.evaluate(({ Menu }) => {
@@ -69,7 +69,7 @@ test.describe('menus reflect cursor context after exiting source mode (#3531)', 
 
   test('a cursor in a code block keeps Format items disabled after a source-mode round-trip', async() => {
     // Put the caret inside the fenced code block; its context disables the Format menu.
-    await page.locator('.editor-component pre.mu-code-block .mu-codeblock-content').first().click()
+    await page.locator('.editor-component pre.document-view-code-block > code').first().click()
     await expect.poll(() => readEnabled(app).then((s) => s.strong)).toBe(false)
 
     await enterSourceMode(page, app)

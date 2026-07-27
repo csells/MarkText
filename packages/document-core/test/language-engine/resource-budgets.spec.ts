@@ -10,7 +10,16 @@ import { rootsOf, runsOf } from '../helpers/collections.js'
 const DESKTOP_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'desktop-v1',
     accountingSchema: 'syntax-accounting-1'
@@ -18,6 +27,24 @@ const DESKTOP_CONFIGURATION: ParseConfiguration = {
 }
 
 describe('LanguageEngine.open resource budgets', () => {
+  it(
+    'admits exact decoded source-unit values below and at desktop-v1',
+    () => {
+      for (const units of [31_999_999, 32_000_000]) {
+        const sourceText = 'x'.repeat(units)
+        const revision = createLanguageEngine().open(
+          createSourceSnapshot(sourceText),
+          DESKTOP_CONFIGURATION
+        )
+
+        expect(revision.kind, String(units)).toBe('complete')
+        expect(revision.source.text.length, String(units)).toBe(units)
+        expect(revision.source.text, String(units)).toBe(sourceText)
+      }
+    },
+    120_000
+  )
+
   it('applies the decoded source-unit preflight before grammar work', () => {
     const admittedUnits = 32_000_000
     const sourceText = 'x'.repeat(admittedUnits + 1)
@@ -57,6 +84,19 @@ describe('LanguageEngine.open resource budgets', () => {
       range: { start: 256, end: 257 },
       metadata: { limit: '128', observed: '129' }
     })
+  })
+
+  it('admits exact Markdown container depths below and at desktop-v1', () => {
+    for (const depth of [127, 128]) {
+      const sourceText = `${'> '.repeat(depth)}text\n`
+      const revision = createLanguageEngine().open(
+        createSourceSnapshot(sourceText),
+        DESKTOP_CONFIGURATION
+      )
+
+      expect(revision.kind, String(depth)).toBe('complete')
+      expect(revision.source.text, String(depth)).toBe(sourceText)
+    }
   })
 
   it('does not let depth accounting reinterpret an ordered marker that cannot interrupt a paragraph', () => {
@@ -183,5 +223,74 @@ describe('LanguageEngine.open resource budgets', () => {
       expect(revision.projection('revised').source).toBe('x')
     },
     30_000
+  )
+
+  it(
+    'enforces the syntax-accounting event boundary below at and above desktop-v1',
+    () => {
+      const cases = [
+        {
+          relation: 'below',
+          source: `${'{++++}'.repeat(333_327)}${'{>><<}'.repeat(5)}`,
+          expected: 'complete'
+        },
+        {
+          relation: 'at',
+          source: '{++++}'.repeat(333_333),
+          expected: 'complete'
+        },
+        {
+          relation: 'above',
+          source: `${'{++++}'.repeat(333_332)}{>><<}`,
+          expected: 'source-only'
+        }
+      ] as const
+
+      for (const row of cases) {
+        const revision = createLanguageEngine().open(
+          createSourceSnapshot(row.source),
+          DESKTOP_CONFIGURATION
+        )
+        expect(revision.kind, row.relation).toBe(row.expected)
+        expect(revision.source.text, row.relation).toBe(row.source)
+        if (row.relation === 'above' && revision.kind === 'source-only') {
+          expect(revision.fatalDiagnostic).toEqual({
+            kind: 'resource',
+            code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+            range: { start: 1_999_995, end: 1_999_995 },
+            metadata: { limit: '2000000', observed: '2000001' }
+          })
+        }
+      }
+    },
+    120_000
+  )
+
+  it(
+    'rejects the first high-node ordinary document above the one-AST event limit',
+    () => {
+      // Each line contributes two tape events, one paragraph, and one text
+      // node; the one shared document root contributes the final two fixed
+      // events. 333,333 lines are exactly 2,000,000 events.
+      const sourceText = 'x\n'.repeat(333_334)
+      const revision = createLanguageEngine().open(
+        createSourceSnapshot(sourceText),
+        DESKTOP_CONFIGURATION
+      )
+      expect(revision.kind).toBe('source-only')
+      if (revision.kind !== 'source-only') {
+        throw new Error('Expected a source-only document revision')
+      }
+      expect(revision.source.text).toBe(sourceText)
+      expect(revision.fatalDiagnostic.kind).toBe('resource')
+      expect(revision.fatalDiagnostic.code).toBe(
+        'CM_RESOURCE_LOGICAL_NODES_EXCEEDED'
+      )
+      expect(revision.fatalDiagnostic.metadata).toEqual({
+        limit: '2000000',
+        observed: '2000001'
+      })
+    },
+    120_000
   )
 })

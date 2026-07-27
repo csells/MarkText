@@ -10,10 +10,20 @@ vi.mock('electron', () => ({}))
 
 const { default: EditorBufferStore } = await import('main_renderer/editorBufferStore')
 
-// #4852 follow-up: the crash-recovery buffer holds unsaved tab content but used
-// a temp+rename with no fsync — the same power-loss zero-fill gap the document
-// save path had. writeBufferStoreFile now writes durably via write-file-atomic.
 const writeBufferStoreFile = EditorBufferStore.prototype.writeBufferStoreFile
+
+const state = (documentId: string) => ({
+  schema: 'document-core-window-ui-1',
+  currentDocumentId: documentId,
+  tabs: [{ documentId, scrollTop: 0 }],
+  project: { rootDirectory: '' },
+  layout: {
+    rightColumn: 'files',
+    showSideBar: true,
+    showTabBar: true,
+    sideBarWidth: 280
+  }
+})
 
 const dirs: string[] = []
 function tempDir(): string {
@@ -30,11 +40,11 @@ describe('EditorBufferStore.writeBufferStoreFile — durable atomic write (#4852
   it('writes the state as JSON and leaves no temp file behind', () => {
     const dir = tempDir()
     const target = path.join(dir, 'buffer.json')
-    const state = { tabs: [{ id: '1', markdown: 'hello' }] }
+    const value = state('document:1')
 
-    writeBufferStoreFile(target, state)
+    writeBufferStoreFile(target, value)
 
-    expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(state)
+    expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(value)
     // The temp file was renamed over the target — nothing left in the dir.
     expect(readdirSync(dir)).toEqual(['buffer.json'])
   })
@@ -43,10 +53,11 @@ describe('EditorBufferStore.writeBufferStoreFile — durable atomic write (#4852
     const dir = tempDir()
     const target = path.join(dir, 'buffer.json')
 
-    writeBufferStoreFile(target, { tabs: ['old'] })
-    writeBufferStoreFile(target, { tabs: ['new'] })
+    writeBufferStoreFile(target, state('document:old'))
+    writeBufferStoreFile(target, state('document:new'))
 
-    expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual({ tabs: ['new'] })
+    expect(JSON.parse(readFileSync(target, 'utf8')))
+      .toEqual(state('document:new'))
     expect(readdirSync(dir)).toEqual(['buffer.json'])
   })
 })

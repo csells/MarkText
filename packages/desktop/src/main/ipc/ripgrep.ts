@@ -1,8 +1,18 @@
 import { spawn, type ChildProcess } from 'child_process'
+import { randomUUID } from 'crypto'
 import path from 'path'
-import { ipcMain, type WebContents } from 'electron'
+import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import log from 'electron-log'
 import { rgPath as bundledRgPath } from '@vscode/ripgrep'
+import type {
+  ProjectSearchRequest,
+  ProjectSearchRequestOptions
+} from '@shared/types/projectSearch'
+import {
+  readProjectSearchAuthority,
+  type ProjectSearchSettings
+} from '../projectSearch/projectSearchAuthority'
+import { decodeProjectSearchRequest } from './projectSearchRuntimeCodec'
 
 const resolveRgPath = (): string => {
   if (process.env.MARKTEXT_RIPGREP_PATH) return process.env.MARKTEXT_RIPGREP_PATH
@@ -127,7 +137,7 @@ const processSubmatch = (
 }
 
 const prepareGlobs = (
-  globs: string[] | undefined,
+  globs: readonly string[] | undefined,
   projectRootPath: string,
   sep?: string
 ): string[] => {
@@ -158,27 +168,29 @@ const prepareRegexp = (regexpStr: string): string => {
 
 const isMultilineRegexp = (regexpStr: string): boolean => regexpStr.includes('\\n')
 
-interface SearchOptions {
-  isRegexp?: boolean
-  isCaseSensitive?: boolean
-  isWholeWord?: boolean
-  followSymlinks?: boolean
-  maxFileSize?: number | string
-  includeHidden?: boolean
-  noIgnore?: boolean
-  leadingContextLineCount?: number
-  trailingContextLineCount?: number
-  inclusions?: string[]
-  exclusions?: string[]
+interface SearchOptions extends ProjectSearchRequestOptions {
+  readonly maxFileSize?: string
+  readonly includeHidden?: boolean
+  readonly noIgnore?: boolean
+  readonly exclusions?: readonly string[]
+}
+
+interface ProjectSearchExecutionRequest extends ProjectSearchRequest {
+  readonly settings: ProjectSearchSettings
+}
+
+export interface RipgrepSearchHandle {
+  readonly cancel: () => void
 }
 
 const startTextSearch = (
   sender: WebContents,
   searchId: string,
-  directories: string[],
+  projectRoot: string,
   pattern: string,
   options: SearchOptions
-): void => {
+): RipgrepSearchHandle => {
+  const directories = [projectRoot]
   const rgPath = resolveRgPath()
   const children: ChildProcess[] = []
   let cancelled = false
@@ -217,8 +229,6 @@ const startTextSearch = (
       sendIfAlive(sender, 'mt::rg::cancelled', { searchId })
     }
   }
-  activeSearches.set(searchId, { sender, cancel })
-
   for (const directoryPath of directories) {
     let regexpStr: string | null = null
     let textPattern: string | null = null
@@ -234,7 +244,6 @@ const startTextSearch = (
     if (options.isCaseSensitive) args.push('--case-sensitive')
     else args.push('--ignore-case')
     if (options.isWholeWord) args.push('--word-regexp')
-    if (options.followSymlinks) args.push('--follow')
     if (options.maxFileSize) args.push('--max-filesize', options.maxFileSize + '')
     if (options.includeHidden) args.push('--hidden')
     if (options.noIgnore) args.push('--no-ignore')
@@ -251,7 +260,7 @@ const startTextSearch = (
       child = spawn(rgPath, args, { cwd: directoryPath, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch (err) {
       finishIfDone(err)
-      return
+      return Object.freeze({ cancel })
     }
     children.push(child)
 
@@ -327,14 +336,16 @@ const startTextSearch = (
       }
     })
   }
+  return Object.freeze({ cancel })
 }
 
 const startFileSearch = (
   sender: WebContents,
   searchId: string,
-  directories: string[],
+  projectRoot: string,
   options: SearchOptions
-): void => {
+): RipgrepSearchHandle => {
+  const directories = [projectRoot]
   const rgPath = resolveRgPath()
   const children: ChildProcess[] = []
   let cancelled = false
@@ -373,14 +384,12 @@ const startFileSearch = (
       sendIfAlive(sender, 'mt::rg::cancelled', { searchId })
     }
   }
-  activeSearches.set(searchId, { sender, cancel })
-
   for (const directoryPath of directories) {
     const args = ['--files']
-    if (options.followSymlinks) args.push('--follow')
     if (options.includeHidden) args.push('--hidden')
     if (options.noIgnore) args.push('--no-ignore')
     for (const inclusion of prepareGlobs(options.inclusions, directoryPath)) { args.push('--iglob', inclusion) }
+    for (const exclusion of prepareGlobs(options.exclusions, directoryPath)) { args.push('--iglob', '!' + exclusion) }
     args.push('--')
     args.push(directoryPath)
 
@@ -389,7 +398,7 @@ const startFileSearch = (
       child = spawn(rgPath, args, { cwd: directoryPath, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch (err) {
       finishIfDone(err)
-      return
+      return Object.freeze({ cancel })
     }
     children.push(child)
 
@@ -419,26 +428,150 @@ const startFileSearch = (
       }
     })
   }
+  return Object.freeze({ cancel })
 }
 
-interface RipgrepRequest {
-  searchId: string
-  mode: 'files' | 'text'
-  directories: string[]
-  pattern: string
-  options: SearchOptions
-}
-
-export const registerRipgrepHandlers = (): void => {
-  ipcMain.handle('mt::rg::start', (event, req: RipgrepRequest) => {
-    const { searchId, mode, directories, pattern, options } = req
-    cleanupAtSenderDestroy(event.sender)
-    if (mode === 'files') startFileSearch(event.sender, searchId, directories, options || {})
-    else startTextSearch(event.sender, searchId, directories, pattern, options || {})
-    return true
+function safeMainSettings(
+  settings: ProjectSearchSettings
+): ProjectSearchSettings {
+  const exclusions = Array.isArray(settings.exclusions)
+    ? settings.exclusions
+      .filter(pattern =>
+        typeof pattern === 'string' &&
+        pattern.length > 0 &&
+        pattern.length <= 1024 &&
+        !pattern.includes('\0') &&
+        !pattern.includes('\n') &&
+        !pattern.includes('\r')
+      )
+      .slice(0, 128)
+    : []
+  const maxFileSize =
+    typeof settings.maxFileSize === 'string' &&
+    /^(?:[1-9]\d*)(?:[KMG])?$/iu.test(settings.maxFileSize)
+      ? settings.maxFileSize
+      : ''
+  return Object.freeze({
+    exclusions: Object.freeze(exclusions),
+    maxFileSize,
+    includeHidden: settings.includeHidden === true,
+    noIgnore: settings.noIgnore === true
   })
-  ipcMain.on('mt::rg::cancel', (_event, searchId: string) => {
+}
+
+const executeProjectSearch = (
+  sender: WebContents,
+  searchId: string,
+  projectRoot: string,
+  request: ProjectSearchExecutionRequest
+): RipgrepSearchHandle => {
+  const options: SearchOptions = {
+    ...request.options,
+    ...safeMainSettings(request.settings)
+  }
+  return request.mode === 'files'
+    ? startFileSearch(sender, searchId, projectRoot, options)
+    : startTextSearch(
+      sender,
+      searchId,
+      projectRoot,
+      request.pattern,
+      options
+    )
+}
+
+export interface RipgrepHandlerDependencies {
+  readonly resolveProjectRoot: (sender: WebContents) => string | null
+  readonly readSettings: (sender: WebContents) => ProjectSearchSettings
+  readonly spawnSearch: typeof executeProjectSearch
+  readonly createSearchId: () => string
+  readonly schedule: (task: () => void) => void
+}
+
+const EMPTY_SEARCH_SETTINGS: ProjectSearchSettings = Object.freeze({
+  exclusions: Object.freeze([]),
+  maxFileSize: '',
+  includeHidden: false,
+  noIgnore: false
+})
+
+const productionDependencies: RipgrepHandlerDependencies = Object.freeze({
+  resolveProjectRoot: (sender: WebContents) => {
+    const window = BrowserWindow.fromWebContents(sender)
+    return window === null
+      ? null
+      : readProjectSearchAuthority(window.id).root
+  },
+  readSettings: (sender: WebContents) => {
+    const window = BrowserWindow.fromWebContents(sender)
+    return window === null
+      ? EMPTY_SEARCH_SETTINGS
+      : readProjectSearchAuthority(window.id).settings
+  },
+  spawnSearch: executeProjectSearch,
+  createSearchId: randomUUID,
+  schedule: (task: () => void) => setImmediate(task)
+})
+
+export const registerRipgrepHandlers = (
+  dependencies: Partial<RipgrepHandlerDependencies> = {}
+): void => {
+  const deps = { ...productionDependencies, ...dependencies }
+  ipcMain.handle('mt::rg::start', (event, rawRequest: unknown) => {
+    // Decode before root/settings lookup, process creation, listener
+    // registration, or any other observable effect.
+    const request = decodeProjectSearchRequest(rawRequest)
+    const projectRoot = deps.resolveProjectRoot(event.sender)
+    if (
+      typeof projectRoot !== 'string' ||
+      projectRoot.length === 0 ||
+      !path.isAbsolute(projectRoot) ||
+      projectRoot.includes('\0')
+    ) {
+      throw new Error('Project search requires a retained project root')
+    }
+    const settings = safeMainSettings(deps.readSettings(event.sender))
+    const searchId = deps.createSearchId()
+    cleanupAtSenderDestroy(event.sender)
+
+    let implementation: RipgrepSearchHandle | null = null
+    let cancelledBeforeStart = false
+    const entry: ActiveSearch = {
+      sender: event.sender,
+      cancel: () => {
+        if (implementation) {
+          implementation.cancel()
+          return
+        }
+        if (cancelledBeforeStart) return
+        cancelledBeforeStart = true
+        activeSearches.delete(searchId)
+        sendIfAlive(event.sender, 'mt::rg::cancelled', { searchId })
+      }
+    }
+    activeSearches.set(searchId, entry)
+    deps.schedule(() => {
+      if (cancelledBeforeStart) return
+      try {
+        implementation = deps.spawnSearch(
+          event.sender,
+          searchId,
+          projectRoot,
+          Object.freeze({ ...request, settings })
+        )
+      } catch (error) {
+        activeSearches.delete(searchId)
+        sendIfAlive(event.sender, 'mt::rg::error', {
+          searchId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    })
+    return Object.freeze({ searchId })
+  })
+  ipcMain.on('mt::rg::cancel', (event, searchId: string) => {
+    if (typeof searchId !== 'string') return
     const entry = activeSearches.get(searchId)
-    if (entry) entry.cancel()
+    if (entry?.sender === event.sender) entry.cancel()
   })
 }

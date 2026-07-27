@@ -1,7 +1,7 @@
 import type {
   ICriticMarkupReviewSnapshot,
   TCriticMarkupProjection
-} from '@muyajs/core'
+} from '@marktext/document-view'
 
 export type ReviewCommandMenuType = 'normal' | 'checkbox' | 'radio'
 export type ReviewCommandGroup = 'tracking' | 'authoring' | 'navigation' | 'resolution' | 'projection'
@@ -24,6 +24,23 @@ export interface ReviewCommandDescriptor {
   readonly requiresMarkedProjection?: boolean
   readonly projection?: ReviewProjection
   readonly checkedState?: 'trackChanges'
+}
+
+export type ReviewCommandAvailabilityState = Pick<
+  ICriticMarkupReviewSnapshot,
+  ReviewMenuCapability | 'projection'
+> & {
+  readonly available: boolean
+}
+
+export const isReviewCommandAvailable = (
+  descriptor: ReviewCommandDescriptor,
+  state: ReviewCommandAvailabilityState
+): boolean => {
+  const capability = descriptor.menuCapability
+  return state.available &&
+    (capability === undefined || state[capability]) &&
+    (!descriptor.requiresMarkedProjection || state.projection === 'marked')
 }
 
 export const REVIEW_COMMAND_DESCRIPTORS = [
@@ -102,8 +119,7 @@ export const REVIEW_COMMAND_DESCRIPTORS = [
     menuType: 'normal',
     group: 'navigation',
     defaultKeybinding: '',
-    menuCapability: 'canResolveAll',
-    requiresMarkedProjection: true
+    menuCapability: 'canNavigate'
   },
   {
     id: 'review.next',
@@ -114,8 +130,7 @@ export const REVIEW_COMMAND_DESCRIPTORS = [
     menuType: 'normal',
     group: 'navigation',
     defaultKeybinding: '',
-    menuCapability: 'canResolveAll',
-    requiresMarkedProjection: true
+    menuCapability: 'canNavigate'
   },
   {
     id: 'review.accept-current',
@@ -196,9 +211,24 @@ export const REVIEW_COMMAND_DESCRIPTORS = [
   }
 ] as const satisfies readonly ReviewCommandDescriptor[]
 
+export const REVIEW_CONTEXT_EDIT_COMMAND = Object.freeze({
+  id: 'review.edit-context-comment',
+  descriptionKey: 'contextMenu.editComment',
+  defaultKeybinding: ''
+})
+
 export type CriticMarkupReviewAction = (typeof REVIEW_COMMAND_DESCRIPTORS)[number]['action']
 export type ReviewCommandId = (typeof REVIEW_COMMAND_DESCRIPTORS)[number]['id']
 export type ReviewCommand = (typeof REVIEW_COMMAND_DESCRIPTORS)[number]
+
+const REVIEW_ACTIONS: ReadonlySet<string> = new Set(
+  REVIEW_COMMAND_DESCRIPTORS.map(descriptor => descriptor.action)
+)
+
+export const isCriticMarkupReviewAction = (
+  value: unknown
+): value is CriticMarkupReviewAction =>
+  typeof value === 'string' && REVIEW_ACTIONS.has(value)
 
 export const REVIEW_COMMAND_CONSTANTS = Object.freeze({
   REVIEW_TOGGLE_TRACK_CHANGES: REVIEW_COMMAND_DESCRIPTORS[0].id,

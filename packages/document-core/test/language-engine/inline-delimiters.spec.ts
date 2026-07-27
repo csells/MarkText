@@ -10,10 +10,27 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
+  }
+}
+
+const GFM_CONFIGURATION: ParseConfiguration = {
+  ...TEST_CONFIGURATION,
+  markdownOptions: {
+    ...TEST_CONFIGURATION.markdownOptions,
+    subscriptAndSuperscript: false
   }
 }
 
@@ -100,7 +117,7 @@ describe('Profile 1 inline delimiter runs', () => {
     ({ markdown, signature }) => {
       const revision = createLanguageEngine().open(
         createSourceSnapshot(markdown),
-        TEST_CONFIGURATION
+        GFM_CONFIGURATION
       )
       if (revision.kind !== 'complete') {
         throw new Error('Expected a complete document revision')
@@ -252,7 +269,7 @@ describe('Profile 1 inline delimiter runs', () => {
   it('supports GFM single-tilde strikethrough across a CM boundary', () => {
     const revision = createLanguageEngine().open(
       createSourceSnapshot('~foo{++ bar++}~'),
-      TEST_CONFIGURATION
+      GFM_CONFIGURATION
     )
     if (revision.kind !== 'complete') {
       throw new Error('Expected a complete document revision')

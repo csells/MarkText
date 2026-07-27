@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import type { BrowserWindow as IBrowserWindow } from 'electron'
 import log from 'electron-log'
 import { TypedEmitter } from '@shared/types/typedEmitter'
@@ -9,10 +9,43 @@ import Watcher, {
 import { onInternalChannel } from '../utils/internalIpc'
 import type BaseWindow from '../windows/base'
 import type Preference from '../preferences'
+import {
+  rendererPreferencePatch,
+  type IUserPreferences
+} from '@shared/types/preferences'
 import { WindowType } from '../windows/base'
 import type { WindowTypeValue } from '../windows/base'
 import type EditorWindow from '../windows/editor'
 import { presentationPolicy } from '../presentationPolicy'
+import { decodeProjectCreateIntent } from '../ipc/projectCreateRuntimeCodec'
+import { coordinateProjectCreate } from '../project/projectCreateCoordinator'
+import {
+  decodeProjectRelocateIntent
+} from '../ipc/projectRelocationRuntimeCodec'
+import { relocateProjectEntry } from '../project/projectRelocation'
+import { decodeProjectDeleteIntent } from '../ipc/projectDeleteRuntimeCodec'
+import { deleteProjectEntry } from '../project/projectDelete'
+import { decodeProjectCopyIntent } from '../ipc/projectCopyRuntimeCodec'
+import { copyProjectEntry } from '../project/projectCopy'
+import {
+  registerProjectDocumentOpenHandler
+} from '../ipc/projectDocumentOpen'
+import {
+  registerDocumentImportBinaryHandler
+} from '../ipc/documentImportBinary'
+import {
+  convertDocumentImportBinary
+} from '../import/documentImportBinaryConverter'
+import {
+  decodeDocumentFileSnapshot
+} from '../filesystem/markdown'
+import pandoc from '../utils/pandoc'
+import { t } from '../i18n'
+import {
+  describeDocumentCoreFilesUnderPath,
+  documentCoreIdForPath,
+  relocateDocumentCoreFileToPath
+} from '../ipc/documentCore'
 
 class WindowActivityList {
   // Oldest             Newest
@@ -366,49 +399,141 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
   // --- private --------------------------------
 
   private _listenForIpcMain(): void {
-    // HACK: Don't use this event! Please see #1034 and #1035
-    ipcMain.on('mt::window-add-file-path', (e, filePath: string) => {
-      const win = BrowserWindow.fromWebContents(e.sender)
-      if (!win) return
-      const editor = this.get(win.id) as EditorWindow | undefined
-      if (!editor) {
-        log.error(`Cannot find window id "${win.id}" to add opened file.`)
-        return
-      }
-      editor.addToOpenedFiles(filePath)
-    })
-
-    // Force close a BrowserWindow
-    ipcMain.on('mt::close-window', (e) => {
-      const win = BrowserWindow.fromWebContents(e.sender)
-      // Before closing, update the buffer store if needed
-      this.editorBufferStore.handleClose(
-        (win as unknown as { restoreBufferId?: string })?.restoreBufferId,
-        this.getWindowsByType('editor')
-      )
-      this.forceClose(win)
-    })
-
-    ipcMain.on('mt::open-file', (e, filePath: string, options: Record<string, unknown>) => {
-      const win = BrowserWindow.fromWebContents(e.sender)
-      if (!win) return
-      const editor = this.get(win.id) as EditorWindow | undefined
-      if (!editor) {
-        log.error(`Cannot find window id "${win.id}" to open file.`)
-        return
-      }
-      editor.openTab(filePath, options, true)
-    })
-
-    ipcMain.on('mt::window-tab-closed', (e, pathname: string) => {
-      const win = BrowserWindow.fromWebContents(e.sender)
-      if (!win) return
-      const editor = this.get(win.id) as EditorWindow | undefined
-      if (editor) {
-        editor.removeFromOpenedFiles(pathname)
+    registerProjectDocumentOpenHandler({
+      resolveEditor: sender => {
+        const browserWindow = BrowserWindow.fromWebContents(sender)
+        if (!browserWindow) return null
+        const editor = this.get(browserWindow.id) as EditorWindow | undefined
+        return editor?.type === WindowType.EDITOR ? editor : null
       }
     })
-
+    registerDocumentImportBinaryHandler({
+      resolveEditor: sender => {
+        const browserWindow = BrowserWindow.fromWebContents(sender)
+        if (!browserWindow) return null
+        const editor = this.get(browserWindow.id) as EditorWindow | undefined
+        if (!editor || editor.type !== WindowType.EDITOR) return null
+        return Object.freeze({
+          admitImportedMarkdown: async(source: string) =>
+            await editor.admitImportedMarkdown(source),
+          notifyPandocUnavailable: () => {
+            browserWindow.webContents.send('mt::pandoc-not-exists', {
+              title: t('dialog.importWarning'),
+              type: 'warning',
+              message: t('dialog.installPandoc'),
+              time: 10000
+            })
+          }
+        })
+      },
+      decodeMarkdown: bytes =>
+        decodeDocumentFileSnapshot(bytes).source.text,
+      isPandocAvailable: pandoc.exists,
+      convertPandoc: convertDocumentImportBinary
+    })
+    ipcMain.handle(
+      'mt::project::create',
+      async(event, rawIntent: unknown) => {
+        const browserWindow = BrowserWindow.fromWebContents(event.sender)
+        if (!browserWindow) {
+          throw new Error('Project creation requires an editor window')
+        }
+        const editor = this.get(browserWindow.id) as EditorWindow | undefined
+        if (!editor || editor.type !== WindowType.EDITOR) {
+          throw new Error('Project creation requires an editor window')
+        }
+        return await coordinateProjectCreate(
+          editor,
+          decodeProjectCreateIntent(rawIntent)
+        )
+      }
+    )
+    ipcMain.handle(
+      'mt::project::relocate',
+      async(event, rawIntent: unknown) => {
+        const browserWindow = BrowserWindow.fromWebContents(event.sender)
+        if (!browserWindow) {
+          throw new Error('Project relocation requires an editor window')
+        }
+        const editor = this.get(browserWindow.id) as EditorWindow | undefined
+        const root = editor?.openedRootDirectory
+        if (!editor || editor.type !== WindowType.EDITOR || !root) {
+          throw new Error(
+            'Project relocation requires a retained project root'
+          )
+        }
+        return await relocateProjectEntry({
+          root,
+          intent: decodeProjectRelocateIntent(rawIntent),
+          findOpenDocument: pathname =>
+            documentCoreIdForPath(event.sender, pathname),
+          openDocumentsUnder: directoryPathname =>
+            describeDocumentCoreFilesUnderPath(
+              event.sender,
+              directoryPathname
+            ),
+          relocateOpenDocument: async(documentId, targetPathname) =>
+            await relocateDocumentCoreFileToPath(
+              event.sender,
+              documentId,
+              targetPathname
+            )
+        })
+      }
+    )
+    ipcMain.handle(
+      'mt::project::delete',
+      async(event, rawIntent: unknown) => {
+        const browserWindow = BrowserWindow.fromWebContents(event.sender)
+        if (!browserWindow) {
+          throw new Error('Project delete requires an editor window')
+        }
+        const editor = this.get(browserWindow.id) as EditorWindow | undefined
+        const root = editor?.openedRootDirectory
+        if (!editor || editor.type !== WindowType.EDITOR || !root) {
+          throw new Error('Project delete requires a retained project root')
+        }
+        return await deleteProjectEntry({
+          root,
+          intent: decodeProjectDeleteIntent(rawIntent),
+          findOpenDocument: pathname =>
+            documentCoreIdForPath(event.sender, pathname),
+          openDocumentsUnder: directoryPathname =>
+            describeDocumentCoreFilesUnderPath(
+              event.sender,
+              directoryPathname
+            ),
+          trashEntry: async pathname => {
+            await shell.trashItem(pathname)
+          }
+        })
+      }
+    )
+    ipcMain.handle(
+      'mt::project::copy',
+      async(event, rawIntent: unknown) => {
+        const browserWindow = BrowserWindow.fromWebContents(event.sender)
+        if (!browserWindow) {
+          throw new Error('Project copy requires an editor window')
+        }
+        const editor = this.get(browserWindow.id) as EditorWindow | undefined
+        const root = editor?.openedRootDirectory
+        if (!editor || editor.type !== WindowType.EDITOR || !root) {
+          throw new Error('Project copy requires a retained project root')
+        }
+        return await copyProjectEntry({
+          root,
+          intent: decodeProjectCopyIntent(rawIntent),
+          findOpenDocument: pathname =>
+            documentCoreIdForPath(event.sender, pathname),
+          openDocumentsUnder: directoryPathname =>
+            describeDocumentCoreFilesUnderPath(
+              event.sender,
+              directoryPathname
+            )
+        })
+      }
+    )
     ipcMain.on('mt::window-toggle-always-on-top', (e) => {
       const win = BrowserWindow.fromWebContents(e.sender)
       if (!win) return
@@ -455,6 +580,19 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
         editor.changeOpenedFilePath(pathname, oldPathname)
       }
     )
+    onInternalChannel(
+      'window-remove-file-path',
+      (windowId: number, pathname: string) => {
+        const editor = this.get(windowId) as EditorWindow | undefined
+        if (!editor) {
+          log.error(
+            `Cannot find window id "${windowId}" to remove opened file.`
+          )
+          return
+        }
+        editor.removeFromOpenedFiles(pathname)
+      }
+    )
 
     onInternalChannel('window-file-saved', (windowId: number, pathname: string) => {
       // A changed event is emitted earliest after the stability threshold.
@@ -463,6 +601,12 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
     })
 
     onInternalChannel('window-close-by-id', (id: number) => {
+      const browserWindow = this.getBrowserWindow(id)
+      this.editorBufferStore.handleClose(
+        (browserWindow as unknown as { restoreBufferId?: string })
+          ?.restoreBufferId,
+        this.getWindowsByType('editor')
+      )
       this.forceCloseById(id)
     })
     onInternalChannel('window-reload-by-id', (id: number) => {
@@ -478,14 +622,16 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
       }
     })
 
-    onInternalChannel('broadcast-preferences-changed', (prefs: Record<string, unknown>) => {
-      // We can not dynamic change the title bar style, so do not need to send it to renderer.
-      if (typeof prefs.titleBarStyle !== 'undefined') {
-        delete prefs.titleBarStyle
-      }
-      if (Object.keys(prefs).length > 0) {
+    onInternalChannel('broadcast-preferences-changed', (prefs: Partial<IUserPreferences>) => {
+      const rendererPrefs = rendererPreferencePatch(prefs)
+      // The title-bar style cannot change dynamically.
+      delete rendererPrefs.titleBarStyle
+      if (Object.keys(rendererPrefs).length > 0) {
         for (const { browserWindow } of this._windows.values()) {
-          browserWindow?.webContents.send('mt::user-preference', prefs)
+          browserWindow?.webContents.send(
+            'mt::user-preference',
+            rendererPrefs
+          )
         }
       }
     })

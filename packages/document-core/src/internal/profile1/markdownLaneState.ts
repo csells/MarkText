@@ -5,6 +5,7 @@ import {
 } from './markdownTypes.js'
 import {
   findAutolinkEnd,
+  findGfmExtendedAutolink,
   findInlineHtmlEnd,
   findInlineLinkDestinationEnd,
   hasEvenBackslashRunBefore
@@ -58,6 +59,7 @@ interface MarkdownIndentedCodeState {
 
 interface MarkdownHtmlBlockState {
   readonly openStart: number
+  readonly openLineStart: number
   readonly terminator: string | undefined
   readonly lastOwnedEnd: number
   readonly container: MarkdownBlockContainer
@@ -68,10 +70,30 @@ interface MarkdownDefinitionState {
   readonly lastOwnedEnd: number
   readonly lineStart: number
   readonly phase:
+    | 'reference-label'
     | 'reference-destination'
     | 'reference'
     | 'reference-title'
+    | 'reference-title-open'
     | 'footnote'
+  /** Close delimiter of a title still open across lines. */
+  readonly titleCloseCodeUnit?: number | undefined
+}
+
+type MarkdownDefinitionStep = Readonly<{
+  phase: MarkdownDefinitionState['phase']
+  titleCloseCodeUnit?: number | undefined
+}>
+
+/** Phases whose state, if the definition ends there, yields a real literal.
+ * A definition abandoned mid-label, awaiting its destination, or inside an
+ * unclosed title never existed — its lines revert to paragraph text. */
+function definitionPhaseComplete(
+  phase: MarkdownDefinitionState['phase']
+): boolean {
+  return phase === 'reference' ||
+    phase === 'reference-title' ||
+    phase === 'footnote'
 }
 
 interface MarkdownBracketPath {
@@ -138,6 +160,7 @@ export interface MarkdownCheckpoint {
 export interface MarkdownLaneAdvance {
   readonly checkpoint: MarkdownCheckpoint
   readonly completedLiterals: readonly MarkdownLiteralRange[]
+  readonly completedLines?: readonly PlainMarkdownLine[]
 }
 
 export interface MarkdownPendingLineBlockFact {
@@ -215,11 +238,24 @@ export interface MarkdownLaneState {
 }
 
 export interface MarkdownReferenceDefinitionLookup {
+  /** Stable resolution-shape key used only to share already-emitted AST regions. */
+  readonly cacheKey?: string
   readonly has: (
     normalizedLabel: string,
     sourceOffset: number
   ) => boolean
   readonly hasAny?: (normalizedLabel: string) => boolean
+  readonly definitionStart?: (
+    normalizedLabel: string,
+    sourceOffset: number
+  ) => number | undefined
+  /**
+   * Reject a standing Profile 1 scope candidate when the intrinsic Markdown
+   * lane proves that its opener belongs to an unconditional literal owner.
+   * The scoped definition lookup and the grammar share the opener's canonical
+   * source identity; no second topology is reconstructed from accepted nodes.
+   */
+  readonly rejectDelimiterCandidate?: (candidateStart: number) => void
 }
 
 export interface MarkdownReferenceDefinitionIndex
@@ -231,10 +267,9 @@ export interface MarkdownReferenceDefinitionIndex
 export interface PlainMarkdownLaneParse {
   readonly literals: readonly MarkdownLiteralRange[]
   readonly containerDepthFailure: MarkdownContainerDepthFailure | undefined
-  // `lines` is the Wagner & Graham balanced-sequence replacement site (plan
-  // 0009, research obligation 1): absolute-offset records that the reuse path
-  // splices and shifting rebuilds. It must never cross out of internal/profile1
-  // — positional consumers outside would multiply before the Phase 5/11 swap.
+  // Immutable absolute-offset facts emitted by lane progression and consumed
+  // by intrinsic AST admission. Keep them inside internal/profile1 so
+  // positional representations do not leak into public consumers.
   readonly lines: readonly PlainMarkdownLine[]
 }
 
@@ -361,7 +396,46 @@ const EMPTY_REFERENCE_DEFINITIONS: MarkdownReferenceDefinitionLookup =
     has: Object.freeze((): boolean => false)
   })
 
-const materializedLinePaths = new WeakMap<MarkdownLinePath, string>()
+const FULL_PREFIX_CACHE_MAX_SOURCE_UNITS = 65_536
+const MAX_LONG_LINE_MATERIALIZATIONS = 4
+let shortMaterializedLinePaths = new WeakMap<MarkdownLinePath, string>()
+const longMaterializedLinePaths = new Map<MarkdownLinePath, string>()
+
+function cachedMaterializedLinePath(
+  path: MarkdownLinePath
+): string | undefined {
+  const short = shortMaterializedLinePaths.get(path)
+  if (short !== undefined) {
+    return short
+  }
+  const cached = longMaterializedLinePaths.get(path)
+  if (cached !== undefined) {
+    longMaterializedLinePaths.delete(path)
+    longMaterializedLinePaths.set(path, cached)
+  }
+  return cached
+}
+
+function retainMaterializedLinePath(
+  path: MarkdownLinePath,
+  source: string
+): void {
+  if (source.length <= FULL_PREFIX_CACHE_MAX_SOURCE_UNITS) {
+    shortMaterializedLinePaths.set(path, source)
+    return
+  }
+  longMaterializedLinePaths.delete(path)
+  longMaterializedLinePaths.set(path, source)
+  while (
+    longMaterializedLinePaths.size > MAX_LONG_LINE_MATERIALIZATIONS
+  ) {
+    const oldest = longMaterializedLinePaths.keys().next().value
+    if (oldest === undefined) {
+      break
+    }
+    longMaterializedLinePaths.delete(oldest)
+  }
+}
 
 interface SourceLine {
   readonly start: number
@@ -532,9 +606,13 @@ function consumeListPadding(
   markerEnd: number,
   contentEnd: number,
   markerEndColumn: number
-): Readonly<{ offset: number; column: number }> {
+): Readonly<{ offset: number; column: number; contentColumn: number }> {
   if (markerEnd >= contentEnd) {
-    return Object.freeze({ offset: markerEnd, column: markerEndColumn + 1 })
+    return Object.freeze({
+      offset: markerEnd,
+      column: markerEndColumn + 1,
+      contentColumn: markerEndColumn + 1
+    })
   }
   let paddingEnd = markerEnd
   let paddingColumn = markerEndColumn
@@ -543,14 +621,23 @@ function consumeListPadding(
     paddingEnd += 1
   }
   if (paddingEnd >= contentEnd) {
-    return Object.freeze({ offset: paddingEnd, column: markerEndColumn + 1 })
+    return Object.freeze({
+      offset: paddingEnd,
+      column: markerEndColumn + 1,
+      contentColumn: markerEndColumn + 1
+    })
   }
   if (paddingColumn - markerEndColumn <= 4) {
-    return Object.freeze({ offset: paddingEnd, column: paddingColumn })
+    return Object.freeze({
+      offset: paddingEnd,
+      column: paddingColumn,
+      contentColumn: paddingColumn
+    })
   }
   return Object.freeze({
     offset: markerEnd + 1,
-    column: advanceColumn(markerEndColumn, source.charCodeAt(markerEnd))
+    column: advanceColumn(markerEndColumn, source.charCodeAt(markerEnd)),
+    contentColumn: markerEndColumn + 1
   })
 }
 
@@ -596,13 +683,16 @@ function analyzeContainerLine(
       }
       column += 1
       offset += 1
+      let contentColumn = column
       if (offset < line.contentEnd && isSpaceOrTab(source.charCodeAt(offset))) {
+        contentColumn = column + 1
         column = advanceColumn(column, source.charCodeAt(offset))
         offset += 1
       }
+      containerBaseColumn = contentColumn
     } else {
       const triviaStart = offset
-      const targetColumn = column + inherited.contentIndent
+      const targetColumn = containerBaseColumn + inherited.contentIndent
       while (
         offset < line.contentEnd &&
         isSpaceOrTab(source.charCodeAt(offset)) &&
@@ -635,6 +725,7 @@ function analyzeContainerLine(
           exitTriviaStart: offset - 1,
           exitTriviaEnd: offset
         }))
+        containerBaseColumn = targetColumn
       }
     }
     activeContainers.push(
@@ -642,7 +733,6 @@ function analyzeContainerLine(
         ? Object.freeze({ ...inherited, awaitingContent: false })
         : inherited
     )
-    containerBaseColumn = column
   }
 
   const inheritedMatchDepth = activeContainers.length
@@ -675,11 +765,13 @@ function analyzeContainerLine(
       }))
       column += 1
       offset += 1
+      let contentColumn = column
       if (offset < line.contentEnd && isSpaceOrTab(source.charCodeAt(offset))) {
+        contentColumn = column + 1
         column = advanceColumn(column, source.charCodeAt(offset))
         offset += 1
       }
-      containerBaseColumn = column
+      containerBaseColumn = contentColumn
       continue
     }
 
@@ -707,13 +799,13 @@ function analyzeContainerLine(
     column = padding.column
     const container: ActiveListContainer = Object.freeze({
       kind: 'list-item',
-      contentIndent: column - containerBaseColumn,
+      contentIndent: padding.contentColumn - containerBaseColumn,
       awaitingContent: offset >= line.contentEnd,
       ordered: listMarker.ordered,
       startNumber: listMarker.startNumber,
       delimiterCodeUnit: listMarker.delimiterCodeUnit
     })
-    containerBaseColumn = column
+    containerBaseColumn = padding.contentColumn
     activeContainers.push(container)
     openers.push(Object.freeze({
       kind: 'list-item',
@@ -932,7 +1024,8 @@ export function inspectMarkdownPendingLineBlock(
     ) ||
     (!checkpoint.paragraphOpen && lineState.indentation >= 4) ||
     htmlBlockOpening(lineText, lineState, checkpoint.paragraphOpen) !== undefined ||
-    definitionOpening(lineText, lineState) !== undefined
+    definitionOpening(lineText, lineState, checkpoint.paragraphOpen, false) !==
+      undefined
   const paragraphOpen =
     !checkpoint.lineBlockClosed &&
     !lineState.blank &&
@@ -1018,15 +1111,6 @@ function htmlBlockTerminatedOnLine(
     : htmlBlock.terminator !== undefined && lineText.includes(htmlBlock.terminator)
 }
 
-function isAsciiPunctuation(codeUnit: number): boolean {
-  return (
-    (codeUnit >= 33 && codeUnit <= 47) ||
-    (codeUnit >= 58 && codeUnit <= 64) ||
-    (codeUnit >= 91 && codeUnit <= 96) ||
-    (codeUnit >= 123 && codeUnit <= 126)
-  )
-}
-
 function decodeReferenceEntity(
   source: string,
   start: number,
@@ -1076,19 +1160,6 @@ export function normalizeMarkdownReferenceLabel(
   let pendingWhitespace = false
   for (let offset = start; offset < end;) {
     const codeUnit = source.charCodeAt(offset)
-    if (
-      codeUnit === 92 &&
-      offset + 1 < end &&
-      isAsciiPunctuation(source.charCodeAt(offset + 1))
-    ) {
-      if (pendingWhitespace && normalized.length > 0) {
-        normalized += ' '
-      }
-      pendingWhitespace = false
-      normalized += source[offset + 1]
-      offset += 2
-      continue
-    }
     if (codeUnit === 38) {
       const entity = decodeReferenceEntity(source, offset, end)
       if (entity !== undefined) {
@@ -1114,7 +1185,10 @@ export function normalizeMarkdownReferenceLabel(
     if (codePoint === undefined) {
       break
     }
-    normalized += String.fromCodePoint(codePoint).toLowerCase()
+    // Unicode case fold, not just lowercase: both sharp S forms fold to 'ss'.
+    normalized += codePoint === 0xdf || codePoint === 0x1e9e
+      ? 'ss'
+      : String.fromCodePoint(codePoint).toLowerCase()
     offset += codePoint > 0xffff ? 2 : 1
   }
   return normalized
@@ -1125,42 +1199,161 @@ export function markdownReferenceDefinitionLabel(
   start: number,
   end: number
 ): string | undefined {
-  let offset = start
-  while (offset < end) {
-    const lineEndCandidates = [source.indexOf('\n', offset), source.indexOf('\r', offset)]
-      .filter((candidate) => candidate >= 0 && candidate < end)
-    const lineEnd = lineEndCandidates.length === 0
-      ? end
-      : Math.min(...lineEndCandidates)
-    for (let opener = offset; opener < lineEnd; opener += 1) {
-      if (
-        source.charCodeAt(opener) !== 91 ||
-        source.charCodeAt(opener + 1) === 94 ||
-        !hasEvenBackslashRunBefore(source, opener)
-      ) {
+  for (let opener = start; opener < end; opener += 1) {
+    if (
+      source.charCodeAt(opener) !== 91 ||
+      source.charCodeAt(opener + 1) === 94 ||
+      !hasEvenBackslashRunBefore(source, opener)
+    ) {
+      continue
+    }
+    // The label may span lines; only an unescaped '[' or a ']' not followed
+    // by ':' disqualifies it.
+    for (let closer = opener + 1; closer + 1 < end; closer += 1) {
+      const codeUnit = source.charCodeAt(closer)
+      if (codeUnit === 92 && closer + 1 < end) {
+        closer += 1
         continue
       }
-      for (let closer = opener + 1; closer + 1 < lineEnd; closer += 1) {
-        const codeUnit = source.charCodeAt(closer)
-        if (codeUnit === 92 && closer + 1 < lineEnd) {
-          closer += 1
-          continue
-        }
-        if (codeUnit === 91) {
-          break
-        }
-        if (codeUnit !== 93 || source.charCodeAt(closer + 1) !== 58) {
-          continue
-        }
-        const label = normalizeMarkdownReferenceLabel(source, opener + 1, closer)
-        return label.length === 0 || closer - opener - 1 > 999
-          ? undefined
-          : label
+      if (codeUnit === 91) {
+        return undefined
       }
+      if (codeUnit !== 93 || source.charCodeAt(closer + 1) !== 58) {
+        continue
+      }
+      const label = normalizeMarkdownReferenceLabel(source, opener + 1, closer)
+      return label.length === 0 || closer - opener - 1 > 999
+        ? undefined
+        : label
     }
-    offset = lineEnd + 1
+    return undefined
   }
   return undefined
+}
+
+export interface StagedMarkdownReferenceDefinition {
+  readonly normalizedLabel: string
+  readonly start: number
+  readonly end: number
+}
+
+/**
+ * Recognize one reference definition from a real or parser-created virtual
+ * line start. This is the block-stage production used to make later
+ * definitions available to inline resolution without replaying the intrinsic
+ * source grammar.
+ */
+export function stagedMarkdownReferenceDefinitionAt(
+  source: string,
+  start: number,
+  laneEnd: number
+): StagedMarkdownReferenceDefinition | undefined {
+  if (
+    !Number.isInteger(start) ||
+    !Number.isInteger(laneEnd) ||
+    start < 0 ||
+    laneEnd <= start ||
+    laneEnd > source.length
+  ) {
+    return undefined
+  }
+  const lineBoundsAt = (
+    lineStart: number
+  ): Readonly<{ readonly contentEnd: number; readonly end: number }> => {
+    let contentEnd = lineStart
+    while (
+      contentEnd < laneEnd &&
+      source.charCodeAt(contentEnd) !== 10 &&
+      source.charCodeAt(contentEnd) !== 13
+    ) {
+      contentEnd += 1
+    }
+    let end = contentEnd
+    if (end < laneEnd) {
+      end +=
+        source.charCodeAt(end) === 13 &&
+        end + 1 < laneEnd &&
+        source.charCodeAt(end + 1) === 10
+          ? 2
+          : 1
+    }
+    return Object.freeze({ contentEnd, end })
+  }
+  const lineStateAt = (
+    lineStart: number,
+    contentEnd: number
+  ): Readonly<{
+    readonly text: string
+    readonly state: ContainerLineState
+  }> => {
+    const text = source.slice(lineStart, contentEnd)
+    return Object.freeze({
+      text,
+      state: analyzeContainerLine(
+        text,
+        { start: 0, contentEnd: text.length, end: text.length },
+        Object.freeze([]),
+        false,
+        false
+      )
+    })
+  }
+
+  const firstBounds = lineBoundsAt(start)
+  const first = lineStateAt(start, firstBounds.contentEnd)
+  const opening = definitionOpening(first.text, first.state)
+  if (
+    opening === undefined ||
+    first.text.charCodeAt(first.state.contentOffset + 1) === 94
+  ) {
+    return undefined
+  }
+  let definition: MarkdownDefinitionState = Object.freeze({
+    openStart: start,
+    lastOwnedEnd: firstBounds.end,
+    lineStart: start,
+    phase: opening.phase,
+    titleCloseCodeUnit: opening.titleCloseCodeUnit
+  })
+  let lineStart = firstBounds.end
+  while (lineStart < laneEnd) {
+    const bounds = lineBoundsAt(lineStart)
+    const line = lineStateAt(lineStart, bounds.contentEnd)
+    const continuation = definitionContinuationPhase(
+      line.text,
+      line.state,
+      definition
+    )
+    if (continuation === 'invalid') {
+      return undefined
+    }
+    if (continuation === undefined) {
+      break
+    }
+    definition = Object.freeze({
+      ...definition,
+      lineStart,
+      phase: continuation.phase,
+      titleCloseCodeUnit: continuation.titleCloseCodeUnit,
+      lastOwnedEnd: bounds.end
+    })
+    lineStart = bounds.end
+  }
+  if (!definitionPhaseComplete(definition.phase)) {
+    return undefined
+  }
+  const normalizedLabel = markdownReferenceDefinitionLabel(
+    source,
+    start,
+    definition.lastOwnedEnd
+  )
+  return normalizedLabel === undefined
+    ? undefined
+    : Object.freeze({
+      normalizedLabel,
+      start,
+      end: definition.lastOwnedEnd
+    })
 }
 
 /**
@@ -1212,8 +1405,16 @@ export function createMarkdownReferenceDefinitionIndex(
   }
   return Object.freeze({
     size,
+    cacheKey: JSON.stringify([...definitionsByLabel.keys()].sort()),
     hasAny: Object.freeze((label: string): boolean =>
       definitionsByLabel.has(label)),
+    definitionStart: Object.freeze((
+      label: string,
+      referenceStart: number
+    ): number | undefined =>
+      definitionsByLabel.get(label)?.find((definitionStart) =>
+        definitionCanResolveReference?.(definitionStart, referenceStart) ?? true
+      )),
     has: Object.freeze((label: string, referenceStart: number): boolean =>
       definitionsByLabel.get(label)?.some((definitionStart) =>
         definitionCanResolveReference?.(definitionStart, referenceStart) ?? true
@@ -1253,14 +1454,16 @@ function referenceLabelSuffix(
 function definitionColonInLine(
   lineText: string,
   state: ContainerLineState
-): number | undefined {
+): number | 'label-open' | undefined {
   const start = state.contentOffset
   if (state.indentation > 3 || lineText.charCodeAt(start) !== 91) {
     return undefined
   }
-  const labelStart = lineText.charCodeAt(start + 1) === 94 ? start + 2 : start + 1
+  const footnote = lineText.charCodeAt(start + 1) === 94
+  const labelStart = footnote ? start + 2 : start + 1
   let hasLabelContent = false
-  for (let offset = labelStart; offset + 1 < lineText.length; offset += 1) {
+  let sawCloser = false
+  for (let offset = labelStart; offset < lineText.length; offset += 1) {
     if (lineText.charCodeAt(offset) === 92) {
       if (offset + 1 < lineText.length) {
         hasLabelContent = true
@@ -1271,10 +1474,11 @@ function definitionColonInLine(
     if (lineText.charCodeAt(offset) === 91) {
       return undefined
     }
-    if (
-      lineText.charCodeAt(offset) === 93 &&
-      lineText.charCodeAt(offset + 1) === 58
-    ) {
+    if (lineText.charCodeAt(offset) === 93) {
+      sawCloser = true
+      if (lineText.charCodeAt(offset + 1) !== 58) {
+        return undefined
+      }
       const labelLength = offset - labelStart
       return hasLabelContent && labelLength <= 999 ? offset + 1 : undefined
     }
@@ -1282,13 +1486,19 @@ function definitionColonInLine(
       hasLabelContent = true
     }
   }
-  return undefined
+  // Reference labels may span lines; footnote labels stay single-line.
+  return sawCloser || footnote ? undefined : 'label-open'
 }
+
+type MarkdownDefinitionTail = Readonly<{
+  kind: 'destination' | 'destination-title' | 'title-open'
+  titleCloseCodeUnit?: number | undefined
+}>
 
 function referenceDefinitionTailInLine(
   lineText: string,
   start: number
-): 'destination' | 'destination-title' | undefined {
+): MarkdownDefinitionTail | undefined {
   const end = lineText.length
   let offset = start
   while (offset < end && isSpaceOrTab(lineText.charCodeAt(offset))) {
@@ -1352,7 +1562,7 @@ function referenceDefinitionTailInLine(
     offset += 1
   }
   if (offset === end) {
-    return 'destination'
+    return Object.freeze({ kind: 'destination' as const })
   }
   if (offset === destinationEnd) {
     return undefined
@@ -1374,35 +1584,63 @@ function referenceDefinitionTailInLine(
       while (offset < end && isSpaceOrTab(lineText.charCodeAt(offset))) {
         offset += 1
       }
-      return offset === end ? 'destination-title' : undefined
+      return offset === end
+        ? Object.freeze({ kind: 'destination-title' as const })
+        : undefined
     }
     offset += 1
   }
-  return undefined
+  return Object.freeze({
+    kind: 'title-open' as const,
+    titleCloseCodeUnit: titleClose
+  })
 }
 
 function definitionOpening(
   lineText: string,
-  state: ContainerLineState
-): MarkdownDefinitionState['phase'] | undefined {
+  state: ContainerLineState,
+  paragraphOpen: boolean = false,
+  lineComplete: boolean = true,
+  footnotesEnabled: boolean = true
+): MarkdownDefinitionStep | undefined {
+  if (paragraphOpen) {
+    // A link reference definition cannot interrupt a paragraph.
+    return undefined
+  }
   const colon = definitionColonInLine(lineText, state)
   if (colon === undefined) {
     return undefined
   }
+  if (colon === 'label-open') {
+    // A still-open label only means something when the whole line has been
+    // seen — a retained partial line may still close it as an inline link.
+    return lineComplete
+      ? Object.freeze({ phase: 'reference-label' as const })
+      : undefined
+  }
   const isFootnote = lineText.charCodeAt(state.contentOffset + 1) === 94
   if (isFootnote) {
-    return 'footnote'
+    return footnotesEnabled
+      ? Object.freeze({ phase: 'footnote' as const })
+      : undefined
   }
   let tailStart = colon + 1
   while (tailStart < lineText.length && isSpaceOrTab(lineText.charCodeAt(tailStart))) {
     tailStart += 1
   }
   if (tailStart === lineText.length) {
-    return 'reference-destination'
+    return Object.freeze({ phase: 'reference-destination' as const })
   }
-  return referenceDefinitionTailInLine(lineText, colon + 1) === undefined
-    ? undefined
-    : 'reference'
+  const tail = referenceDefinitionTailInLine(lineText, colon + 1)
+  if (tail === undefined) {
+    return undefined
+  }
+  return tail.kind === 'title-open'
+    ? Object.freeze({
+      phase: 'reference-title-open' as const,
+      titleCloseCodeUnit: tail.titleCloseCodeUnit
+    })
+    : Object.freeze({ phase: 'reference' as const })
 }
 
 function isValidReferenceTitleLine(
@@ -1441,20 +1679,103 @@ function definitionContinuationPhase(
   lineText: string,
   state: ContainerLineState,
   definition: MarkdownDefinitionState
-): MarkdownDefinitionState['phase'] | undefined {
+): MarkdownDefinitionStep | 'invalid' | undefined {
   if (definition.phase === 'footnote') {
-    return state.blank || state.indentation >= 2 ? 'footnote' : undefined
+    return state.blank || state.indentation >= 2
+      ? Object.freeze({ phase: 'footnote' as const })
+      : undefined
+  }
+  if (definition.phase === 'reference-label') {
+    if (state.blank) {
+      return 'invalid'
+    }
+    for (let offset = state.contentOffset; offset < lineText.length; offset += 1) {
+      const codeUnit = lineText.charCodeAt(offset)
+      if (codeUnit === 92 && offset + 1 < lineText.length) {
+        offset += 1
+        continue
+      }
+      if (codeUnit === 91) {
+        return 'invalid'
+      }
+      if (codeUnit === 93) {
+        if (lineText.charCodeAt(offset + 1) !== 58) {
+          return 'invalid'
+        }
+        let tailStart = offset + 2
+        while (
+          tailStart < lineText.length &&
+          isSpaceOrTab(lineText.charCodeAt(tailStart))
+        ) {
+          tailStart += 1
+        }
+        if (tailStart === lineText.length) {
+          return Object.freeze({ phase: 'reference-destination' as const })
+        }
+        const tail = referenceDefinitionTailInLine(lineText, offset + 2)
+        if (tail === undefined) {
+          return 'invalid'
+        }
+        return tail.kind === 'title-open'
+          ? Object.freeze({
+            phase: 'reference-title-open' as const,
+            titleCloseCodeUnit: tail.titleCloseCodeUnit
+          })
+          : Object.freeze({
+            phase: tail.kind === 'destination-title'
+              ? 'reference-title' as const
+              : 'reference' as const
+          })
+      }
+    }
+    return Object.freeze({ phase: 'reference-label' as const })
   }
   if (definition.phase === 'reference-destination') {
+    if (state.blank) {
+      return 'invalid'
+    }
     const tail = referenceDefinitionTailInLine(lineText, state.contentOffset)
-    return tail === 'destination-title'
-      ? 'reference-title'
-      : tail === 'destination'
-        ? 'reference'
-        : undefined
+    if (tail === undefined) {
+      return 'invalid'
+    }
+    return tail.kind === 'title-open'
+      ? Object.freeze({
+        phase: 'reference-title-open' as const,
+        titleCloseCodeUnit: tail.titleCloseCodeUnit
+      })
+      : Object.freeze({
+        phase: tail.kind === 'destination-title'
+          ? 'reference-title' as const
+          : 'reference' as const
+      })
+  }
+  if (definition.phase === 'reference-title-open') {
+    if (state.blank) {
+      return 'invalid'
+    }
+    for (let offset = state.contentOffset; offset < lineText.length; offset += 1) {
+      const codeUnit = lineText.charCodeAt(offset)
+      if (codeUnit === 92 && offset + 1 < lineText.length) {
+        offset += 1
+        continue
+      }
+      if (codeUnit === definition.titleCloseCodeUnit) {
+        let rest = offset + 1
+        while (rest < lineText.length && isSpaceOrTab(lineText.charCodeAt(rest))) {
+          rest += 1
+        }
+        return rest === lineText.length
+          ? Object.freeze({ phase: 'reference-title' as const })
+          : 'invalid'
+      }
+    }
+    return Object.freeze({
+      phase: 'reference-title-open' as const,
+      titleCloseCodeUnit: definition.titleCloseCodeUnit
+    })
   }
   return isValidReferenceTitleLine(lineText, state)
-    ? 'reference-title'
+    ? Object.freeze({ phase: 'reference-title' as const })
     : undefined
 }
 
@@ -1499,13 +1820,16 @@ const DIAGRAM_FENCE_LANGUAGES: ReadonlySet<string> = new Set([
 
 function fencedLiteralProvider(
   lineText: string,
-  openerEnd: number
+  openerEnd: number,
+  mathEnabled: boolean = true,
+  gitLabMathEnabled: boolean = true
 ): MarkdownFenceState['provider'] {
-  const info = lineText.slice(openerEnd).trim().split(/[\t ]/, 1)[0]?.toLowerCase() ?? ''
-  if (info === 'math') {
+  const info = lineText.slice(openerEnd).trim().toLowerCase()
+  if (info === 'math' && mathEnabled && gitLabMathEnabled) {
     return 'math'
   }
-  return DIAGRAM_FENCE_LANGUAGES.has(info) ? 'diagram' : 'fenced-code'
+  const language = info.split(/[\t ]/, 1)[0] ?? ''
+  return DIAGRAM_FENCE_LANGUAGES.has(language) ? 'diagram' : 'fenced-code'
 }
 
 function blockContainerFrom(state: ContainerLineState): MarkdownBlockContainer {
@@ -1737,11 +2061,30 @@ export function __resetLineMaterializationChunkWalksV1(): void {
   lineMaterializationChunkWalks = 0
 }
 
+export function __longLineMaterializationCacheV1(): Readonly<{
+  readonly entries: number
+  readonly sourceUnits: number
+}> {
+  let sourceUnits = 0
+  for (const source of longMaterializedLinePaths.values()) {
+    sourceUnits += source.length
+  }
+  return Object.freeze({
+    entries: longMaterializedLinePaths.size,
+    sourceUnits
+  })
+}
+
+export function __resetLineMaterializationCachesV1(): void {
+  shortMaterializedLinePaths = new WeakMap()
+  longMaterializedLinePaths.clear()
+}
+
 function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
   if (path === undefined) {
     return ''
   }
-  const cached = materializedLinePaths.get(path)
+  const cached = cachedMaterializedLinePath(path)
   if (cached !== undefined) {
     return cached
   }
@@ -1757,7 +2100,7 @@ function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
     current !== undefined;
     current = current.parent
   ) {
-    const ancestor = materializedLinePaths.get(current)
+    const ancestor = cachedMaterializedLinePath(current)
     if (ancestor !== undefined) {
       base = ancestor
       break
@@ -1771,7 +2114,7 @@ function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
       continue
     }
     base += node.text
-    materializedLinePaths.set(node, base)
+    retainMaterializedLinePath(node, base)
   }
   return base
 }
@@ -1864,6 +2207,25 @@ function isFrontMatterDelimiter(line: string): boolean {
   return delimiter === '---' || delimiter === '...'
 }
 
+function hasFrontMatterCloser(
+  source: string,
+  start: number,
+  limit: number
+): boolean {
+  for (let lineStart = start; lineStart < limit;) {
+    const contentEnd = sourceLineContentEnd(source, lineStart, limit)
+    if (isFrontMatterDelimiter(source.slice(lineStart, contentEnd))) {
+      return true
+    }
+    const next = sourceLineEnd(source, contentEnd, limit)
+    if (next <= lineStart) {
+      break
+    }
+    lineStart = next
+  }
+  return false
+}
+
 function hasEvenLaneBackslashRunBefore(
   source: string,
   offset: number,
@@ -1931,8 +2293,27 @@ export function createMarkdownLaneState(
   containerDepthLimit: number = Number.POSITIVE_INFINITY,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
   EMPTY_REFERENCE_DEFINITIONS,
-  matchingScopePolicy?: MarkdownMatchingScopePolicy
+  matchingScopePolicy?: MarkdownMatchingScopePolicy,
+  frontMatterEnabled: boolean = true,
+  gfmEnabled: boolean = true,
+  mathEnabled: boolean = true,
+  gitLabMathEnabled: boolean = true,
+  footnotesEnabled: boolean = true
 ): MarkdownLaneState {
+  const lineBlockProbeCanPersist = ![
+    '{++',
+    '++}',
+    '{--',
+    '--}',
+    '{~~',
+    '~>',
+    '~~}',
+    '{==',
+    '==}',
+    '{>>',
+    '<<}'
+  ].some((marker) => source.includes(marker))
+  const linePathsWithBlockProbe = new WeakSet<MarkdownLinePath>()
   const nextBacktickRunStart = createNextBacktickRunStart(
     source,
     matchingScopePolicy
@@ -2021,6 +2402,10 @@ export function createMarkdownLaneState(
           completedLiterals: Object.freeze([
             ...completedCarriageReturn.completedLiterals,
             ...advanced.completedLiterals
+          ]),
+          completedLines: Object.freeze([
+            ...(completedCarriageReturn.completedLines ?? []),
+            ...(advanced.completedLines ?? [])
           ])
         })
       }
@@ -2074,11 +2459,16 @@ export function createMarkdownLaneState(
       checkpoint.trailingBackslashOdd
     )
     const containsEol = text.includes('\n') || text.includes('\r')
+    let lineBlockProbeEstablished =
+      lineBlockProbeCanPersist &&
+      checkpoint.linePath !== undefined &&
+      linePathsWithBlockProbe.has(checkpoint.linePath)
     if (
       !containsEol &&
       checkpoint.inlineCode === undefined &&
       checkpoint.math === undefined &&
-      checkpoint.fixedInline === undefined
+      checkpoint.fixedInline === undefined &&
+      !lineBlockProbeEstablished
     ) {
       const inheritedPrefix = materializeMarkdownLine(checkpoint.linePath)
       const visibleThroughRun = inheritedPrefix + text
@@ -2105,6 +2495,7 @@ export function createMarkdownLaneState(
       }
       if (
         htmlBlock !== undefined &&
+        lineStart !== htmlBlock.openLineStart &&
         !continuesBlockContainer(probeState, htmlBlock.container)
       ) {
         completedLiterals.push(Object.freeze({
@@ -2135,12 +2526,14 @@ export function createMarkdownLaneState(
         })
       }
       if (definition !== undefined && definition.lineStart !== lineStart) {
-        const continuationPhase = definitionContinuationPhase(
+        const continuation = definitionContinuationPhase(
           probeLine,
           probeState,
           definition
         )
-        if (continuationPhase === undefined) {
+        if (continuation === 'invalid') {
+          definition = undefined
+        } else if (continuation === undefined) {
           completedLiterals.push(completedDefinitionLiteral(
             definition,
             definition.lastOwnedEnd
@@ -2150,7 +2543,8 @@ export function createMarkdownLaneState(
           definition = Object.freeze({
             ...definition,
             lineStart,
-            phase: continuationPhase,
+            phase: continuation.phase,
+            titleCloseCodeUnit: continuation.titleCloseCodeUnit,
             lastOwnedEnd: sourceLineEnd(source, lookaheadEnd, laneEnd)
           })
         }
@@ -2186,7 +2580,9 @@ export function createMarkdownLaneState(
             openerLength: opening.openerLength,
             provider: fencedLiteralProvider(
               probeLine,
-              opening.startOffset + opening.openerLength
+              opening.startOffset + opening.openerLength,
+              mathEnabled,
+              gitLabMathEnabled
             ),
             container: blockContainerFrom(probeState)
           })
@@ -2237,6 +2633,7 @@ export function createMarkdownLaneState(
                   0
                 )
               ),
+              openLineStart: lineStart,
               terminator: htmlOpening.terminator,
               lastOwnedEnd: sourceLineEnd(source, lookaheadEnd, laneEnd),
               container: blockContainerFrom(probeState)
@@ -2246,7 +2643,13 @@ export function createMarkdownLaneState(
             bracketPath = undefined
             pendingLinkLabel = undefined
           } else {
-            const definitionKind = definitionOpening(probeLine, probeState)
+            const definitionKind = definitionOpening(
+              probeLine,
+              probeState,
+              paragraphOpen,
+              true,
+              footnotesEnabled
+            )
             if (definitionKind !== undefined) {
               definition = Object.freeze({
                 openStart: Math.max(
@@ -2262,23 +2665,30 @@ export function createMarkdownLaneState(
                 ),
                 lastOwnedEnd: sourceLineEnd(source, lookaheadEnd, laneEnd),
                 lineStart,
-                phase: definitionKind
+                phase: definitionKind.phase,
+                titleCloseCodeUnit: definitionKind.titleCloseCodeUnit
               })
               activeContainers = probeState.activeContainers
-              enclosingLabelInterrupted = true
-              bracketPath = undefined
-              pendingLinkLabel = undefined
+              if (definitionKind.phase !== 'reference-label') {
+                enclosingLabelInterrupted = true
+                bracketPath = undefined
+                pendingLinkLabel = undefined
+              }
             }
           }
         }
       }
+      lineBlockProbeEstablished = lineBlockProbeCanPersist
     }
     if (
       fence === undefined &&
       frontMatter === undefined &&
       indentedCode === undefined &&
       htmlBlock === undefined &&
-      definition === undefined
+      (
+        definition === undefined ||
+        definition.phase === 'reference-label'
+      )
     ) {
       for (let offset = sourceStart; offset < sourceEnd;) {
         if (fixedInline !== undefined) {
@@ -2438,6 +2848,22 @@ export function createMarkdownLaneState(
             checkpoint.trailingBackslashOdd
           )
           ) {
+            if (gfmEnabled) {
+              const extendedAutolink = findGfmExtendedAutolink(
+                source,
+                offset,
+                laneEnd,
+                Math.max(laneStart, lineStart)
+              )
+              if (extendedAutolink !== undefined) {
+                fixedInline = Object.freeze({
+                  kind: 'autolink',
+                  openStart: offset,
+                  closeEnd: extendedAutolink.end
+                })
+                continue
+              }
+            }
             if (source.charCodeAt(offset) === 60) {
               const htmlEnd = findInlineHtmlEnd(source, offset, laneEnd)
               const autolinkEnd =
@@ -2454,7 +2880,7 @@ export function createMarkdownLaneState(
                 continue
               }
             }
-            if (source.charCodeAt(offset) === 36) {
+            if (mathEnabled && source.charCodeAt(offset) === 36) {
               let runEnd = offset + 1
               while (runEnd < sourceEnd && source.charCodeAt(runEnd) === 36) {
                 runEnd += 1
@@ -2673,6 +3099,7 @@ export function createMarkdownLaneState(
     const lastLineFeed = text.lastIndexOf('\n')
     const lastCarriageReturn = text.lastIndexOf('\r')
     const lastEol = Math.max(lastLineFeed, lastCarriageReturn)
+    const completedLines: PlainMarkdownLine[] = []
     if (lastEol >= 0) {
       const firstLineFeed = text.indexOf('\n')
       const firstCarriageReturn = text.indexOf('\r')
@@ -2682,6 +3109,29 @@ export function createMarkdownLaneState(
           : firstCarriageReturn < 0
             ? firstLineFeed
             : Math.min(firstLineFeed, firstCarriageReturn)
+      const completedLineStart = lineStart
+      const completedContentEnd = textSourceStart + firstEol
+      const completedEnd = Math.min(
+        sourceEnd,
+        sourceLineEnd(source, completedContentEnd, laneEnd)
+      )
+      const completedBounds = Object.freeze({
+        start: completedLineStart,
+        contentEnd: completedContentEnd,
+        end: completedEnd
+      })
+      completedLines.push(buildPlainMarkdownLine(
+        source,
+        completedBounds,
+        checkpoint.activeContainers,
+        checkpoint.paragraphOpen,
+        checkpoint.lastLineLazy,
+        markdownCheckpointContinuesLiteralContainer(
+          source,
+          completedBounds,
+          checkpoint
+        )
+      ))
       const completedLine =
         materializeMarkdownLine(checkpoint.linePath) + text.slice(0, firstEol)
       const lineState = analyzeContainerLine(
@@ -2728,6 +3178,7 @@ export function createMarkdownLaneState(
       }
       if (
         htmlBlock !== undefined &&
+        lineStart !== htmlBlock.openLineStart &&
         !continuesBlockContainer(lineState, htmlBlock.container)
       ) {
         completedLiterals.push(Object.freeze({
@@ -2797,12 +3248,14 @@ export function createMarkdownLaneState(
       let lineOwnedByDefinition = false
       if (definition !== undefined) {
         if (definition.lineStart !== lineStart) {
-          const continuationPhase = definitionContinuationPhase(
+          const continuation = definitionContinuationPhase(
             completedLine,
             lineState,
             definition
           )
-          if (continuationPhase === undefined) {
+          if (continuation === 'invalid') {
+            definition = undefined
+          } else if (continuation === undefined) {
             completedLiterals.push(completedDefinitionLiteral(
               definition,
               definition.lastOwnedEnd
@@ -2812,7 +3265,8 @@ export function createMarkdownLaneState(
             definition = Object.freeze({
               ...definition,
               lineStart,
-              phase: continuationPhase
+              phase: continuation.phase,
+              titleCloseCodeUnit: continuation.titleCloseCodeUnit
             })
           }
         }
@@ -2851,7 +3305,8 @@ export function createMarkdownLaneState(
         }
       } else if (
         frontMatterEligible &&
-        trimMarkdownLineWhitespace(completedLine) === '---'
+        trimMarkdownLineWhitespace(completedLine) === '---' &&
+        hasFrontMatterCloser(source, sourceEnd, laneEnd)
       ) {
         frontMatter = Object.freeze({
           openStart:
@@ -2906,7 +3361,9 @@ export function createMarkdownLaneState(
             openerLength: opening.openerLength,
             provider: fencedLiteralProvider(
               completedLine,
-              opening.startOffset + opening.openerLength
+              opening.startOffset + opening.openerLength,
+              mathEnabled,
+              gitLabMathEnabled
             ),
             container: blockContainerFrom(lineState)
           })
@@ -2956,6 +3413,13 @@ export function createMarkdownLaneState(
               ? textSourceStart
               : sourceEnd - lineText.length
         })
+    if (
+      linePath !== undefined &&
+      lastEol < 0 &&
+      lineBlockProbeEstablished
+    ) {
+      linePathsWithBlockProbe.add(linePath)
+    }
     return Object.freeze({
       checkpoint: Object.freeze({
         linePath,
@@ -2981,7 +3445,8 @@ export function createMarkdownLaneState(
         enclosingLabelInterrupted,
         atVirtualBof: false
       }),
-      completedLiterals: Object.freeze(completedLiterals)
+      completedLiterals: Object.freeze(completedLiterals),
+      completedLines: Object.freeze(completedLines)
     })
   }
 
@@ -2990,6 +3455,29 @@ export function createMarkdownLaneState(
     boundary: number
   ): MarkdownLaneAdvance => {
     const completedLiterals: MarkdownLiteralRange[] = []
+    const completedLines =
+      checkpoint.linePath === undefined || checkpoint.lineStart >= boundary
+        ? Object.freeze([])
+        : Object.freeze([buildPlainMarkdownLine(
+          source,
+          Object.freeze({
+            start: checkpoint.lineStart,
+            contentEnd: boundary,
+            end: boundary
+          }),
+          checkpoint.activeContainers,
+          checkpoint.paragraphOpen,
+          checkpoint.lastLineLazy,
+          markdownCheckpointContinuesLiteralContainer(
+            source,
+            Object.freeze({
+              start: checkpoint.lineStart,
+              contentEnd: boundary,
+              end: boundary
+            }),
+            checkpoint
+          )
+        )])
     if (checkpoint.fence !== undefined) {
       completedLiterals.push(Object.freeze({
         kind: checkpoint.fence.provider,
@@ -3011,7 +3499,10 @@ export function createMarkdownLaneState(
         end: boundary
       }))
     }
-    if (checkpoint.definition !== undefined) {
+    if (
+      checkpoint.definition !== undefined &&
+      definitionPhaseComplete(checkpoint.definition.phase)
+    ) {
       completedLiterals.push(completedDefinitionLiteral(
         checkpoint.definition,
         Math.min(checkpoint.definition.lastOwnedEnd, boundary)
@@ -3035,7 +3526,8 @@ export function createMarkdownLaneState(
             definition: undefined
           })
           : checkpoint,
-      completedLiterals: Object.freeze(completedLiterals)
+      completedLiterals: Object.freeze(completedLiterals),
+      completedLines
     })
   }
 
@@ -3061,7 +3553,10 @@ export function createMarkdownLaneState(
       }))
     }
     const releasesDefinition = checkpoint.definition !== undefined
-    if (checkpoint.definition !== undefined) {
+    if (
+      checkpoint.definition !== undefined &&
+      definitionPhaseComplete(checkpoint.definition.phase)
+    ) {
       completedLiterals.push(completedDefinitionLiteral(
         checkpoint.definition,
         Math.min(checkpoint.definition.lastOwnedEnd, boundary)
@@ -3126,12 +3621,14 @@ export function createMarkdownLaneState(
     }
     let definition = checkpoint.definition
     if (definition !== undefined && definition.lineStart !== checkpoint.lineStart) {
-      const continuationPhase = definitionContinuationPhase(
+      const continuation = definitionContinuationPhase(
         lineText,
         lineState,
         definition
       )
-      if (continuationPhase === undefined) {
+      if (continuation === 'invalid') {
+        definition = undefined
+      } else if (continuation === undefined) {
         completedLiterals.push(completedDefinitionLiteral(
           definition,
           definition.lastOwnedEnd
@@ -3141,7 +3638,8 @@ export function createMarkdownLaneState(
         definition = Object.freeze({
           ...definition,
           lineStart: checkpoint.lineStart,
-          phase: continuationPhase,
+          phase: continuation.phase,
+          titleCloseCodeUnit: continuation.titleCloseCodeUnit,
           lastOwnedEnd: sourceLineEnd(source, contentEnd, laneEnd)
         })
       }
@@ -3162,6 +3660,7 @@ export function createMarkdownLaneState(
     let htmlBlock = checkpoint.htmlBlock
     if (
       htmlBlock !== undefined &&
+      checkpoint.lineStart !== htmlBlock.openLineStart &&
       !continuesBlockContainer(lineState, htmlBlock.container)
     ) {
       completedLiterals.push(Object.freeze({
@@ -3266,7 +3765,13 @@ export function createMarkdownLaneState(
   }
 
   return Object.freeze({
-    emptyCheckpoint: EMPTY_MARKDOWN_CHECKPOINT,
+    emptyCheckpoint:
+      frontMatterEnabled
+        ? EMPTY_MARKDOWN_CHECKPOINT
+        : Object.freeze({
+          ...EMPTY_MARKDOWN_CHECKPOINT,
+          frontMatterEligible: false
+        }),
     advance: Object.freeze(advance),
     finishLane: Object.freeze(finishLane),
     releaseAtBoundary: Object.freeze(releaseAtBoundary),
@@ -3313,7 +3818,10 @@ export function createMarkdownLaneState(
         checkpoint.frontMatter !== undefined ||
         checkpoint.indentedCode !== undefined ||
         checkpoint.htmlBlock !== undefined ||
-        checkpoint.definition !== undefined
+        (
+          checkpoint.definition !== undefined &&
+          checkpoint.definition.phase !== 'reference-label'
+        )
     ),
     finishArm: Object.freeze(finishArm),
     enterArm: Object.freeze((
@@ -3324,12 +3832,14 @@ export function createMarkdownLaneState(
       mode === 'isolated'
         ? Object.freeze({
           ...EMPTY_MARKDOWN_CHECKPOINT,
-          lineStart: sourceStart
+          lineStart: sourceStart,
+          frontMatterEligible: frontMatterEnabled
         })
         : mode === 'continuous'
           ? Object.freeze({
             ...checkpoint,
-            frontMatterEligible: checkpoint.atVirtualBof
+            frontMatterEligible:
+              frontMatterEnabled && checkpoint.atVirtualBof
           })
           : Object.freeze({
             ...checkpoint,
@@ -3346,7 +3856,8 @@ export function createMarkdownLaneState(
             trailingBackslashOdd: false,
             pendingCarriageReturn: undefined,
             enclosingLabelInterrupted: false,
-            frontMatterEligible: checkpoint.atVirtualBof
+            frontMatterEligible:
+              frontMatterEnabled && checkpoint.atVirtualBof
           }))
   })
 }
@@ -3453,17 +3964,55 @@ export function plainMarkdownLineBounds(
   return Object.freeze({ start, contentEnd, end })
 }
 
+/**
+ * Whether an already-open block literal owns this physical line through the
+ * same container path. Fork continuations use this emitted checkpoint fact so
+ * a new sibling list item or block quote is still parsed structurally.
+ */
+export function markdownCheckpointContinuesLiteralContainer(
+  source: string,
+  bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
+  checkpoint: MarkdownCheckpoint
+): boolean {
+  if (checkpoint.frontMatter !== undefined) {
+    return true
+  }
+  const literalContainer =
+    checkpoint.fence?.container ?? checkpoint.htmlBlock?.container
+  return literalContainer !== undefined &&
+    continuesBlockContainer(
+      analyzeContainerLine(
+        source,
+        bounds,
+        checkpoint.activeContainers,
+        checkpoint.paragraphOpen,
+        checkpoint.lastLineLazy
+      ),
+      literalContainer
+    )
+}
+
 function parsePlainMarkdownLanePass(
   source: string,
   containerDepthLimit: number,
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
-  matchingScopePolicy?: MarkdownMatchingScopePolicy
+  matchingScopePolicy?: MarkdownMatchingScopePolicy,
+  frontMatterEnabled: boolean = true,
+  gfmEnabled: boolean = true,
+  mathEnabled: boolean = true,
+  gitLabMathEnabled: boolean = true,
+  footnotesEnabled: boolean = true
 ): PlainMarkdownLaneParse {
   const parser = createMarkdownLaneState(
     source,
     containerDepthLimit,
     referenceDefinitions,
-    matchingScopePolicy
+    matchingScopePolicy,
+    frontMatterEnabled,
+    gfmEnabled,
+    mathEnabled,
+    gitLabMathEnabled,
+    footnotesEnabled
   )
   const literals: MarkdownLiteralRange[] = []
   const lines: PlainMarkdownLine[] = []
@@ -3491,15 +4040,28 @@ function parsePlainMarkdownLanePass(
   while (start < source.length) {
     const bounds = plainMarkdownLineBounds(source, start)
     const { contentEnd, end } = bounds
+    const literalContainer =
+      checkpoint.fence?.container ?? checkpoint.htmlBlock?.container
+    const lineContinuesLiteralContainer =
+      literalContainer !== undefined &&
+      continuesBlockContainer(
+        analyzeContainerLine(
+          source,
+          bounds,
+          checkpoint.activeContainers,
+          checkpoint.paragraphOpen,
+          checkpoint.lastLineLazy
+        ),
+        literalContainer
+      )
     lines.push(buildPlainMarkdownLine(
       source,
       bounds,
       checkpoint.activeContainers,
       checkpoint.paragraphOpen,
       checkpoint.lastLineLazy,
-      checkpoint.fence !== undefined ||
-        checkpoint.frontMatter !== undefined ||
-        checkpoint.htmlBlock !== undefined
+      lineContinuesLiteralContainer ||
+        checkpoint.frontMatter !== undefined
     ))
     const failure =
       advanceRange(start, contentEnd) ?? advanceRange(contentEnd, end)
@@ -3522,6 +4084,38 @@ function parsePlainMarkdownLanePass(
 }
 
 /**
+ * Emit block/literal facts for one parser-declared intrinsic fork region.
+ *
+ * The caller supplies the canonical admission's reference-definition facts,
+ * so this does not construct a selected-source reference index or account the
+ * work as a projected-document parse.
+ */
+export function parseIntrinsicForkMarkdownLaneFacts(
+  source: string,
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  containerDepthLimit: number = Number.POSITIVE_INFINITY,
+  matchingScopePolicy?: MarkdownMatchingScopePolicy,
+  frontMatterEnabled: boolean = true,
+  gfmEnabled: boolean = true,
+  mathEnabled: boolean = true,
+  gitLabMathEnabled: boolean = true,
+  footnotesEnabled: boolean = true
+): PlainMarkdownLaneParse {
+  plainMarkdownLaneUnits += source.length
+  return parsePlainMarkdownLanePass(
+    source,
+    containerDepthLimit,
+    referenceDefinitions,
+    matchingScopePolicy,
+    frontMatterEnabled,
+    gfmEnabled,
+    mathEnabled,
+    gitLabMathEnabled,
+    footnotesEnabled
+  )
+}
+
+/**
  * Test-only counter of source units handed to the block phase — the shareable
  * work. Counting here rather than at the caller is what makes sharing visible:
  * re-analysing only a divergent region costs only that region.
@@ -3534,226 +4128,4 @@ export function __plainMarkdownLaneUnitsV1(): number {
 
 export function __resetPlainMarkdownLaneUnitsV1(): void {
   plainMarkdownLaneUnits = 0
-}
-
-/**
- * Rebase a lane parse onto a different position, shifting every offset it
- * carries by `delta`.
- *
- * This is what lets the block phase be shared across views (ADR-0013 slice 2):
- * a region is analysed once and reused wherever it appears, even though eliding
- * a marker moves it. Reuse is sound only across a safe point — blocks do not
- * span one, so a differently sized prefix cannot change how the region parses,
- * only where it sits (`specs/research/0002`).
- *
- * Reference definitions are deliberately not carried: they are rebuilt from the
- * shifted literals by the caller, because their visibility is view-dependent
- * and a shared region must not import another view's definitions (ADR-0009).
- */
-export function shiftPlainMarkdownLane(
-  lane: PlainMarkdownLaneParse,
-  delta: number
-): PlainMarkdownLaneParse {
-  if (delta === 0) {
-    return lane
-  }
-  return Object.freeze({
-    containerDepthFailure: lane.containerDepthFailure === undefined
-      ? undefined
-      : Object.freeze({
-        ...lane.containerDepthFailure,
-        start: lane.containerDepthFailure.start + delta,
-        end: lane.containerDepthFailure.end + delta
-      }),
-    literals: Object.freeze(lane.literals.map((literal) => Object.freeze({
-      ...literal,
-      start: literal.start + delta,
-      end: literal.end + delta
-    }))),
-    lines: Object.freeze(lane.lines.map((line) => Object.freeze({
-      ...line,
-      start: line.start + delta,
-      contentEnd: line.contentEnd + delta,
-      end: line.end + delta,
-      contentOffset: line.contentOffset + delta,
-      listMarkers: Object.freeze(line.listMarkers.map((marker) => Object.freeze({
-        ...marker,
-        start: marker.start + delta,
-        end: marker.end + delta,
-        contentOffset: marker.contentOffset + delta
-      }))),
-      containers: Object.freeze(line.containers.map((container) => Object.freeze({
-        ...container,
-        start: container.start + delta,
-        end: container.end + delta
-      })))
-    })))
-  })
-}
-
-/** A previously analysed view, offered as reuse for the next one. */
-export interface PlainMarkdownLaneReuse {
-  readonly source: string
-  readonly parsed: PlainMarkdownLaneParse
-}
-
-/**
- * Offsets where a block unambiguously starts: a non-blank top-level line
- * following a blank one. Blocks do not span these, so a region beginning here
- * parses the same however the text before it changed
- * (`specs/research/0002`).
- */
-function laneSafeOffsets(lane: PlainMarkdownLaneParse): readonly number[] {
-  const offsets: number[] = []
-  for (const [index, line] of lane.lines.entries()) {
-    const topLevel = line.blockQuoteDepth === 0 &&
-      line.listDepth === 0 &&
-      line.containers.length === 0
-    if (!topLevel || line.blank) {
-      continue
-    }
-    const previous = lane.lines[index - 1]
-    if (index === 0 || previous?.blank === true) {
-      offsets.push(line.start)
-    }
-  }
-  return offsets
-}
-
-/**
- * Analyse `source` reusing the untouched regions of an already-analysed view.
- *
- * Two views of a reviewed document differ only where a marker resolves
- * differently, so re-analysing the whole document for each one re-does the
- * untouched majority. This keeps the shared head and tail and re-parses only the
- * divergent middle (ADR-0013 slice 2).
- *
- * Every step is conservative: reuse is taken only across a safe point, only when
- * no matching-scope policy is in play, and only when no literal straddles a
- * seam. Anything else falls back to a full parse. Reusing wrongly would produce
- * a plausible-looking but incorrect analysis that no cost metric could catch;
- * declining to reuse merely forgoes a saving.
- */
-export function parsePlainMarkdownLaneReusing(
-  source: string,
-  reuse: PlainMarkdownLaneReuse | undefined,
-  containerDepthLimit: number = Number.POSITIVE_INFINITY,
-  matchingScopePolicy?: MarkdownMatchingScopePolicy
-): PlainMarkdownLaneParseWithDefinitions {
-  // Arm scopes change how the grammar matches, so a region analysed without
-  // them cannot be reused under them.
-  if (reuse === undefined || matchingScopePolicy !== undefined) {
-    return parsePlainMarkdownLane(source, containerDepthLimit, matchingScopePolicy)
-  }
-  const previous = reuse.source
-  const safeOffsets = laneSafeOffsets(reuse.parsed)
-
-  let commonPrefix = 0
-  const prefixLimit = Math.min(source.length, previous.length)
-  while (commonPrefix < prefixLimit && source[commonPrefix] === previous[commonPrefix]) {
-    commonPrefix += 1
-  }
-  let commonSuffix = 0
-  while (
-    commonSuffix < prefixLimit - commonPrefix &&
-    source[source.length - 1 - commonSuffix] === previous[previous.length - 1 - commonSuffix]
-  ) {
-    commonSuffix += 1
-  }
-
-  let prefixEnd = 0
-  for (const offset of safeOffsets) {
-    if (offset <= commonPrefix) {
-      prefixEnd = offset
-    }
-  }
-  const suffixFloor = previous.length - commonSuffix
-  const suffixStart = safeOffsets.find((offset) => offset >= suffixFloor) ?? previous.length
-  const delta = source.length - previous.length
-  const middleEnd = suffixStart + delta
-  const reusedUnits = prefixEnd + (previous.length - suffixStart)
-  // Not worth splicing, or the seams cross — parse it whole.
-  if (prefixEnd > middleEnd || reusedUnits * 4 < source.length) {
-    return parsePlainMarkdownLane(source, containerDepthLimit)
-  }
-  const straddles = (offset: number): boolean =>
-    reuse.parsed.literals.some((literal) => literal.start < offset && literal.end > offset)
-  if (straddles(prefixEnd) || straddles(suffixStart)) {
-    return parsePlainMarkdownLane(source, containerDepthLimit)
-  }
-
-  const middle = shiftPlainMarkdownLane(
-    parsePlainMarkdownLane(source.slice(prefixEnd, middleEnd), containerDepthLimit),
-    prefixEnd
-  )
-  const tail = shiftPlainMarkdownLane(
-    Object.freeze({
-      containerDepthFailure: undefined,
-      literals: reuse.parsed.literals.filter((literal) => literal.start >= suffixStart),
-      lines: reuse.parsed.lines.filter((line) => line.start >= suffixStart)
-    }),
-    delta
-  )
-  const lines = Object.freeze([
-    ...reuse.parsed.lines.filter((line) => line.start < prefixEnd),
-    ...middle.lines,
-    ...tail.lines
-  ])
-  const literals = Object.freeze([
-    ...reuse.parsed.literals.filter((literal) => literal.end <= prefixEnd),
-    ...middle.literals,
-    ...tail.literals
-  ])
-  return Object.freeze({
-    lines,
-    literals,
-    containerDepthFailure: middle.containerDepthFailure,
-    // Rebuilt from the spliced literals, never inherited: definition visibility
-    // is view-dependent, so a reused region must not import another view's
-    // definitions (ADR-0009).
-    referenceDefinitions: createMarkdownReferenceDefinitionIndex(source, literals)
-  })
-}
-
-export function parsePlainMarkdownLane(
-  source: string,
-  containerDepthLimit: number = Number.POSITIVE_INFINITY,
-  matchingScopePolicy?: MarkdownMatchingScopePolicy
-): PlainMarkdownLaneParseWithDefinitions {
-  plainMarkdownLaneUnits += source.length
-  const blockStage = parsePlainMarkdownLanePass(
-    source,
-    containerDepthLimit,
-    EMPTY_REFERENCE_DEFINITIONS,
-    matchingScopePolicy
-  )
-  const blockStageDefinitions = createMarkdownReferenceDefinitionIndex(
-    source,
-    blockStage.literals,
-    matchingScopePolicy?.definitionCanResolveReference
-  )
-  if (blockStageDefinitions.size === 0) {
-    return Object.freeze({
-      ...blockStage,
-      referenceDefinitions: blockStageDefinitions
-    })
-  }
-  // A definition can precede or follow its reference, so the block phase runs
-  // again once the definitions are known. The inline phase must resolve against
-  // the FINAL literals, which that second pass may have reclassified, so the
-  // carried index is built from them rather than from the first pass.
-  const finalStage = parsePlainMarkdownLanePass(
-    source,
-    containerDepthLimit,
-    blockStageDefinitions,
-    matchingScopePolicy
-  )
-  return Object.freeze({
-    ...finalStage,
-    referenceDefinitions: createMarkdownReferenceDefinitionIndex(
-      source,
-      finalStage.literals,
-      matchingScopePolicy?.definitionCanResolveReference
-    )
-  })
 }

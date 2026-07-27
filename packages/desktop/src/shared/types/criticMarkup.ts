@@ -1,7 +1,8 @@
 import type {
+  ICriticMarkupCommandTarget,
   ICriticMarkupReviewSnapshot,
   ICriticMarkupReviewItem
-} from '@muyajs/core'
+} from '@marktext/document-view'
 import type { ReviewProjection } from '../../common/commands/review'
 
 export type { CriticMarkupReviewAction } from '../../common/commands/review'
@@ -10,6 +11,8 @@ export type CriticMarkupPromptKind = 'substitution' | 'comment'
 export type CriticMarkupType = ICriticMarkupReviewItem['type']
 export type CriticMarkupSidebarItem = ICriticMarkupReviewItem
 
+export type CriticMarkupCommandTarget = ICriticMarkupCommandTarget
+
 export interface CriticMarkupEditorContextRequest {
   requestId: string
   x: number
@@ -17,70 +20,177 @@ export interface CriticMarkupEditorContextRequest {
 }
 
 export interface CriticMarkupCommentEditRequest {
-  fileId: string
-  target: CriticMarkupSidebarItem
+  documentId: string
+  target: CriticMarkupCommandTarget
 }
 
-const isFiniteOffset = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-
-const isOptionalString = (value: unknown): value is string | undefined =>
-  value === undefined || typeof value === 'string'
-
-/** Runtime guard for the opaque comment target crossing process boundaries. */
-export const isCriticMarkupCommentTarget = (
-  value: unknown
-): value is CriticMarkupSidebarItem => {
-  if (!value || typeof value !== 'object') return false
-  const target = value as Record<string, unknown>
+const closedRecord = (
+  value: unknown,
+  fields: readonly string[],
+  label: string
+): Readonly<Record<string, unknown>> => {
   if (
-    typeof target.id !== 'string' || target.id.length === 0 ||
-    target.type !== 'comment' ||
-    typeof target.raw !== 'string' ||
-    typeof target.content !== 'string' ||
-    !Array.isArray(target.path) ||
-    !target.path.every(part => typeof part === 'string' || isFiniteOffset(part)) ||
-    !isFiniteOffset(target.start) ||
-    !isFiniteOffset(target.end) ||
-    !isFiniteOffset(target.sourceStart) ||
-    !isFiniteOffset(target.sourceEnd) ||
-    target.end < target.start ||
-    target.sourceEnd < target.sourceStart ||
-    !isOptionalString(target.anchorId) ||
-    !isOptionalString(target.anchorText)
+    value === null ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
   ) {
-    return false
+    throw new TypeError(`${label} must be a plain closed record`)
   }
+  const record = value as Readonly<Record<string, unknown>>
+  const keys = Reflect.ownKeys(record)
+  if (
+    keys.length !== fields.length ||
+    keys.some(key => typeof key !== 'string' || !fields.includes(key))
+  ) {
+    throw new TypeError(`${label} fields are not closed`)
+  }
+  return record
+}
 
-  return (target.anchorId === undefined) === (target.anchorText === undefined)
+const identity = (value: unknown, label: string): string => {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 4096 ||
+    value.includes('\0')
+  ) {
+    throw new TypeError(`${label} must be one bounded non-empty identity`)
+  }
+  return value
+}
+
+export const decodeCriticMarkupCommandTarget = (
+  value: unknown
+): CriticMarkupCommandTarget => {
+  const target = closedRecord(
+    value,
+    ['revisionId', 'nodeId'],
+    'CriticMarkup command target'
+  )
+  return Object.freeze({
+    revisionId: identity(target.revisionId, 'CriticMarkup revisionId'),
+    nodeId: identity(target.nodeId, 'CriticMarkup nodeId')
+  })
+}
+
+export const decodeCriticMarkupEditorContextRequest = (
+  value: unknown
+): CriticMarkupEditorContextRequest => {
+  const request = closedRecord(
+    value,
+    ['requestId', 'x', 'y'],
+    'CriticMarkup editor context request'
+  )
+  const coordinate = (candidate: unknown, label: string): number => {
+    if (
+      typeof candidate !== 'number' ||
+      !Number.isSafeInteger(candidate) ||
+      Math.abs(candidate) > 1_000_000
+    ) {
+      throw new TypeError(`${label} must be one bounded integer coordinate`)
+    }
+    return candidate
+  }
+  return Object.freeze({
+    requestId: identity(request.requestId, 'CriticMarkup context requestId'),
+    x: coordinate(request.x, 'CriticMarkup context x'),
+    y: coordinate(request.y, 'CriticMarkup context y')
+  })
 }
 
 export const isCriticMarkupCommentEditRequest = (
   value: unknown
 ): value is CriticMarkupCommentEditRequest => {
-  if (!value || typeof value !== 'object') return false
-  const request = value as Record<string, unknown>
-  return typeof request.fileId === 'string' && request.fileId.length > 0 &&
-    isCriticMarkupCommentTarget(request.target)
+  try {
+    decodeCriticMarkupCommentEditRequest(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export type CriticMarkupEditorContextResponse = { requestId: string } & (
   | CriticMarkupCommentEditRequest
-  | { fileId: null, target: null }
+  | { documentId: null, target: null }
 )
+
+export const decodeCriticMarkupCommentEditRequest = (
+  value: unknown
+): CriticMarkupCommentEditRequest => {
+  const request = closedRecord(
+    value,
+    ['documentId', 'target'],
+    'CriticMarkup comment edit request'
+  )
+  return Object.freeze({
+    documentId: identity(request.documentId, 'CriticMarkup documentId'),
+    target: decodeCriticMarkupCommandTarget(request.target)
+  })
+}
+
+export const decodeCriticMarkupEditorContextResponse = (
+  value: unknown
+): CriticMarkupEditorContextResponse => {
+  const response = closedRecord(
+    value,
+    ['requestId', 'documentId', 'target'],
+    'CriticMarkup editor context response'
+  )
+  const requestId = identity(
+    response.requestId,
+    'CriticMarkup context requestId'
+  )
+  if (response.documentId === null && response.target === null) {
+    return Object.freeze({
+      requestId,
+      documentId: null,
+      target: null
+    })
+  }
+  const request = decodeCriticMarkupCommentEditRequest({
+    documentId: response.documentId,
+    target: response.target
+  })
+  return Object.freeze({ requestId, ...request })
+}
 
 export type CriticMarkupSidebarState = Pick<
   ICriticMarkupReviewSnapshot,
   'items' | 'currentItemId' | 'trackChanges' | 'projection'
 > & {
-  fileId: string | null
+  documentId: string | null
+  revisionId: string | null
   available: boolean
 }
 
 export interface CriticMarkupSidebarItemAction {
-  fileId: string
+  documentId: string
   action: 'focus' | 'accept' | 'reject' | 'remove-annotation'
-  target: CriticMarkupSidebarItem
+  target: CriticMarkupCommandTarget
+}
+
+export const decodeCriticMarkupSidebarItemAction = (
+  value: unknown
+): CriticMarkupSidebarItemAction => {
+  const command = closedRecord(
+    value,
+    ['documentId', 'action', 'target'],
+    'CriticMarkup sidebar command'
+  )
+  if (
+    command.action !== 'focus' &&
+    command.action !== 'accept' &&
+    command.action !== 'reject' &&
+    command.action !== 'remove-annotation'
+  ) {
+    throw new TypeError('CriticMarkup sidebar command action is invalid')
+  }
+  return Object.freeze({
+    documentId: identity(command.documentId, 'CriticMarkup documentId'),
+    action: command.action,
+    target: decodeCriticMarkupCommandTarget(command.target)
+  })
 }
 
 export type CriticMarkupReviewMenuState = Pick<
@@ -90,6 +200,7 @@ export type CriticMarkupReviewMenuState = Pick<
   | 'canCreateSubstitution'
   | 'canCreateHighlight'
   | 'canCreateComment'
+  | 'canNavigate'
   | 'canResolveCurrent'
   | 'canResolveAll'
   | 'trackChanges'

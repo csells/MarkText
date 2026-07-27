@@ -3,6 +3,7 @@ import { BrowserWindow, Menu, ipcMain } from 'electron'
 import { COMMANDS } from '../../commands'
 import type { CommandManager } from '../../commands'
 import { isOsx } from '../../config'
+import { emitInternalChannel } from '../../utils/internalIpc'
 
 let runningUpdate = false
 let win: BrowserWindow | null = null
@@ -67,7 +68,7 @@ ipcMain.on('mt::check-for-update', (e) => {
 // --------------------------------------------------------
 
 export const userSetting = (): void => {
-  ipcMain.emit('app-create-settings-window')
+  emitInternalChannel('app-create-settings-window')
 }
 
 export const checkUpdates = (browserWindow: BrowserWindow | null): void => {

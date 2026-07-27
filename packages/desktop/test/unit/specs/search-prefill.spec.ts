@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path'
 import { parse, compileScript } from 'vue/compiler-sfc'
 import ts from 'typescript'
 import { ref, computed, watch, nextTick } from 'vue'
+import { createDocumentSearchQuery } from '@marktext/document-core'
 
 // Regression guard for the find-bar prefill race (issue: the input showed a
 // stale single char like "T" instead of the selection). The bug lives entirely
@@ -16,16 +17,21 @@ import { ref, computed, watch, nextTick } from 'vue'
 // The desktop unit runner ships no @vitejs/plugin-vue / @vue/test-utils, so we
 // compile the real <script setup> at runtime, swap its imports for injected
 // stubs (but keep Vue's *real* ref/computed/watch/nextTick), run setup() to grab
-// the live bindings, and drive the actual reactive code. This mirrors the
-// approach in source-code-image-action.spec.ts.
+// the live bindings, and drive the actual reactive code.
 
 const here = dirname(fileURLToPath(import.meta.url))
 const vuePath = resolve(here, '../../../src/renderer/src/components/search/index.vue')
 
 interface Bindings {
   searchValue: { value: string }
+  replaceValue: { value: string }
   showSearch: { value: boolean }
+  isCaseSensitive: { value: boolean }
+  isWholeWord: { value: boolean }
+  isRegexp: { value: boolean }
   listenFind: () => void
+  searchFn: () => void
+  replace: (isSingle?: boolean) => void
 }
 
 const loadComponent = (deps: Record<string, unknown>) => {
@@ -46,7 +52,8 @@ const loadComponent = (deps: Record<string, unknown>) => {
     'module',
     `const { _defineComponent, ref, computed, watch, onMounted, onBeforeUnmount,
       nextTick, bus, FindCaseIcon, FindWordIcon, FindRegexIcon, useEditorStore,
-      storeToRefs, useI18n, debounce, ArrowDown, ArrowUp, RefreshRight, Switch } = __deps
+      storeToRefs, useI18n, debounce, ArrowDown, ArrowUp, RefreshRight, Switch,
+      createDocumentSearchQuery } = __deps
     ${js}
     return module.exports`
   ) as (deps: Record<string, unknown>, exports: object, module: object) => {
@@ -62,6 +69,7 @@ const makeBindings = () => {
   const currentFile = ref<{ searchMatches: { matches: unknown[]; index: number; value: string } } | null>({
     searchMatches: { matches: [], index: -1, value: '' }
   })
+  const bus = { on: vi.fn(), off: vi.fn(), emit: vi.fn() }
   const deps = {
     _defineComponent: (o: unknown) => o,
     ref,
@@ -70,7 +78,7 @@ const makeBindings = () => {
     nextTick,
     onMounted: () => {},
     onBeforeUnmount: () => {},
-    bus: { on: () => {}, off: () => {}, emit: vi.fn() },
+    bus,
     FindCaseIcon: {},
     FindWordIcon: {},
     FindRegexIcon: {},
@@ -81,14 +89,15 @@ const makeBindings = () => {
     useEditorStore: () => new Proxy({}, { get: () => () => {} }),
     storeToRefs: () => ({ currentFile }),
     useI18n: () => ({ t: (k: string) => k }),
-    debounce: (fn: (...a: unknown[]) => unknown) => fn
+    debounce: (fn: (...a: unknown[]) => unknown) => fn,
+    createDocumentSearchQuery
   }
   const comp = loadComponent(deps)
   const ret = comp.setup({}, { expose: () => {} })
   const setSelection = (value: string) => {
     currentFile.value = { searchMatches: { matches: [], index: -1, value } }
   }
-  return { ret, setSelection }
+  return { bus, ret, setSelection }
 }
 
 describe('find-bar prefill from selection', () => {
@@ -117,5 +126,48 @@ describe('find-bar prefill from selection', () => {
     await nextTick()
     expect(ret.showSearch.value).toBe(true)
     expect(ret.searchValue.value).toBe('fox')
+  })
+})
+
+describe('find-bar closed query payloads', () => {
+  it('emits every Find option in one payload', () => {
+    const { bus, ret } = makeBindings()
+    ret.searchValue.value = 'needle'
+    ret.isCaseSensitive.value = true
+    ret.isWholeWord.value = true
+    ret.isRegexp.value = true
+
+    ret.searchFn()
+
+    expect(bus.emit).toHaveBeenLastCalledWith('searchValue', {
+      value: 'needle',
+      opt: {
+        isCaseSensitive: true,
+        isWholeWord: true,
+        isRegexp: true
+      }
+    })
+  })
+
+  it('binds Replace to the exact Find text and options', () => {
+    const { bus, ret } = makeBindings()
+    ret.searchValue.value = 'needle'
+    ret.replaceValue.value = 'replacement'
+    ret.isCaseSensitive.value = true
+    ret.isWholeWord.value = false
+    ret.isRegexp.value = true
+
+    ret.replace(false)
+
+    expect(bus.emit).toHaveBeenLastCalledWith('replaceValue', {
+      query: 'needle',
+      value: 'replacement',
+      opt: {
+        isSingle: false,
+        isCaseSensitive: true,
+        isWholeWord: false,
+        isRegexp: true
+      }
+    })
   })
 })

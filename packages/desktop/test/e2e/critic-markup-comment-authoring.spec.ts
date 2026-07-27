@@ -16,7 +16,7 @@ const menuEnabled = (app: ElectronApplication, id: string): Promise<boolean | nu
 // ---------------------------------------------------------------------------
 // Selection helpers. The user's bug only reproduces with REAL gestures (native
 // keyboard shift-selection and hardware-style mouse drags), because those carry
-// a browser selection base and go through muya's live event path. Pre-built DOM
+// a browser selection base and go through the document view's live event path. Pre-built DOM
 // Ranges (selectText/mouseSelect) exercise a different, model-committed path and
 // hid the defect — so the real-gesture helpers below are the ones that matter.
 // ---------------------------------------------------------------------------
@@ -52,14 +52,14 @@ const selectText = async(page: Page, needle: string): Promise<void> => {
 }
 
 // Place a collapsed caret at character `offset` of the first non-empty
-// paragraph. muya wraps paragraph text in inline spans, so walk to the text
+// paragraph. The document view wraps paragraph text in inline spans, so walk to the text
 // node that owns the offset rather than trusting the content span's firstChild.
 const placeCaret = async(page: Page, offset: number): Promise<void> => {
   const placed = await page.evaluate((target) => {
     const root = document.querySelector('.editor-component') as HTMLElement | null
     if (!root) return false
     root.focus()
-    const span = Array.from(root.querySelectorAll('span.mu-paragraph-content')).find(
+    const span = Array.from(root.querySelectorAll('span.document-view-run')).find(
       (candidate) => (candidate.textContent ?? '').trim().length > 0
     )
     if (!span) return false
@@ -80,7 +80,7 @@ const placeCaret = async(page: Page, offset: number): Promise<void> => {
     if (!selection) return false
     selection.removeAllRanges()
     selection.addRange(range)
-    // muya derives its active block from key events on the root, not a bare
+    // The document view derives its active block from key events on the root, not a bare
     // selectionchange — nudge it so the caret registers before we extend.
     root.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }))
     return true
@@ -107,7 +107,7 @@ const keyboardSelect = async(
 const mouseDragSelect = async(page: Page, needle: string): Promise<void> => {
   const rects = await page.evaluate((text) => {
     const contents = Array.from(
-      document.querySelectorAll('.editor-component .mu-content')
+      document.querySelectorAll('.editor-component .document-view-content')
     ) as HTMLElement[]
     const content = contents.find((el) => (el.textContent ?? '').includes(text))
     if (!content) return null
@@ -305,10 +305,8 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
 // Cross-paragraph. The CriticMarkup engine fully supports a span that crosses a
 // paragraph break: an already-authored one renders and round-trips byte-exact,
 // and authoring one from a live cross-block selection now wraps the whole span.
-// The fix was Editor.focus() restoring a cross-block stored selection as a full
-// range (setSelection) instead of anchorBlock.setCursor(anchor, focus), which
-// had forced both offsets into the anchor block and collapsed the selection to
-// a single character when the editor re-focused after the compose box or menu.
+// The host restores both parser-owned range endpoints after focus returns from
+// the compose box or menu.
 // ===========================================================================
 test.describe('CriticMarkup comment authoring — cross paragraph', () => {
   let app: ElectronApplication
@@ -329,7 +327,7 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
 
     expect(await readCanonicalMarkdown(page)).toBe(source)
     const criticSpans = await page.evaluate(() =>
-      document.querySelectorAll('.editor-component .mu-critic-markup').length)
+      document.querySelectorAll('.editor-component .document-view-critic-markup').length)
     expect(criticSpans).toBeGreaterThan(0)
     await expectNoRendererErrors(app)
   })
@@ -356,14 +354,14 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
   })
 
   // HARNESS LIMITATION, not a product gap: Playwright's scripted mouse drag
-  // does not register a drag-*selection* across a muya block boundary in this
+  // does not register a drag-*selection* across a document-view block boundary in this
   // Electron harness (the drag yields an empty selection), though same-paragraph
   // scripted drags do select. The cross-paragraph MOUSE path is covered by
   // transitivity — same-paragraph real mouse drag (mouseup commit) passes, and
   // real keyboard cross-paragraph (Editor.focus cross-block restore) passes —
   // and both meet in this exact code path. Un-fixme if the harness gains
   // cross-block drag-select support.
-  test.fixme('real mouse cross-paragraph drag wraps the whole span', async() => {
+  test('real mouse cross-paragraph drag wraps the whole span', async() => {
     const launched = await launchWithMarkdown(
       'now is the time for all good men\n\nI wish I were in the land of cotton!\n'
     )
@@ -375,7 +373,7 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
     // Drag from "time" on line 1 down into "wish" on line 2.
     const rects = await page.evaluate(() => {
       const contents = Array.from(
-        document.querySelectorAll('.editor-component .mu-content')
+        document.querySelectorAll('.editor-component .document-view-content')
       ) as HTMLElement[]
       const find = (needle: string) => {
         const content = contents.find((el) => (el.textContent ?? '').includes(needle))

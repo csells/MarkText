@@ -63,16 +63,6 @@
           :on-change="(value) => onSelectChange('codeFontFamily', value)"
         />
         <bool
-          :description="t('preferences.editor.codeBlock.showLineNumbers')"
-          :bool="codeBlockLineNumbers"
-          :on-change="(value) => onSelectChange('codeBlockLineNumbers', value)"
-        />
-        <bool
-          :description="t('preferences.editor.codeBlock.removeEmptyLines')"
-          :bool="trimUnnecessaryCodeBlockEmptyLines"
-          :on-change="(value) => onSelectChange('trimUnnecessaryCodeBlockEmptyLines', value)"
-        />
-        <bool
           :description="t('preferences.editor.misc.wrapCodeBlocks')"
           :bool="wrapCodeBlocks"
           :on-change="(value) => onSelectChange('wrapCodeBlocks', value)"
@@ -101,50 +91,6 @@
           :description="t('preferences.editor.writingBehavior.autoCloseQuotes')"
           :bool="autoPairQuote"
           :on-change="(value) => onSelectChange('autoPairQuote', value)"
-        />
-      </template>
-    </compound>
-
-    <compound>
-      <template #head>
-        <h6 class="title">
-          {{ t('preferences.editor.fileRepresentation.title') }}
-        </h6>
-      </template>
-      <template #children>
-        <cur-select
-          :description="t('preferences.editor.fileRepresentation.tabWidth')"
-          :value="tabSize"
-          :options="tabSizeOptions"
-          :on-change="(value) => onSelectChange('tabSize', value)"
-        />
-        <cur-select
-          :description="t('preferences.editor.fileRepresentation.lineSeparator')"
-          :value="endOfLine"
-          :options="getEndOfLineOptions()"
-          :on-change="(value) => onSelectChange('endOfLine', value)"
-        />
-        <cur-select
-          :description="t('preferences.editor.fileRepresentation.defaultEncoding')"
-          :value="defaultEncoding"
-          :options="defaultEncodingOptions"
-          :on-change="(value) => onSelectChange('defaultEncoding', value)"
-        />
-        <bool
-          :description="t('preferences.editor.fileRepresentation.autoDetectEncoding')"
-          :bool="autoGuessEncoding"
-          :on-change="(value) => onSelectChange('autoGuessEncoding', value)"
-        />
-        <bool
-          :description="t('preferences.editor.misc.autoNormalizeLineEndings')"
-          :bool="autoNormalizeLineEndings"
-          :on-change="(value) => onSelectChange('autoNormalizeLineEndings', value)"
-        />
-        <cur-select
-          :description="t('preferences.editor.fileRepresentation.trailingNewlines.title')"
-          :value="trimTrailingNewline"
-          :options="getTrimTrailingNewlineOptions()"
-          :on-change="(value) => onSelectChange('trimTrailingNewline', value)"
         />
       </template>
     </compound>
@@ -193,18 +139,10 @@ import Range from '../common/range/index.vue'
 import CurSelect from '../common/select/index.vue'
 import Bool from '../common/bool/index.vue'
 import TextBox from '../common/textBox/index.vue'
-import {
-  tabSizeOptions,
-  getEndOfLineOptions,
-  getTextDirectionOptions,
-  getTrimTrailingNewlineOptions,
-  getDefaultEncodingOptions
-} from './config'
+import { getTextDirectionOptions } from './config'
 
 const { t } = useI18n()
 const preferenceStore = usePreferencesStore()
-
-const defaultEncodingOptions = getDefaultEncodingOptions()
 
 const {
   fontSize,
@@ -213,22 +151,14 @@ const {
   autoPairBracket,
   autoPairMarkdownSyntax,
   autoPairQuote,
-  tabSize,
-  endOfLine,
   textDirection,
   codeFontSize,
   codeFontFamily,
-  codeBlockLineNumbers,
-  trimUnnecessaryCodeBlockEmptyLines,
   hideQuickInsertHint,
   hideLinkPopup,
   autoCheck,
-  autoNormalizeLineEndings,
   wrapCodeBlocks,
-  editorLineWidth,
-  defaultEncoding,
-  autoGuessEncoding,
-  trimTrailingNewline
+  editorLineWidth
 } = storeToRefs(preferenceStore)
 
 const onSelectChange = (type: keyof PreferencesState, value: unknown): void => {

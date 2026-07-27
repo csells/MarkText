@@ -86,11 +86,7 @@
   --maskColor: rgba(232, 232, 232, 0.8);
   --editorAreaWidth: 750px;
 
-  /* @muyajs/core (kebab-case) editor variables
-     Additive prep for the muyajs -> @muyajs/core editor swap. These
-     mirror the camelCase vars above; the legacy editor ignores them.
-     Do NOT remove the camelCase vars — they still drive the current
-     editor until editor.vue switches engines. */
+  /* Document-core editor variables derive from the desktop theme tokens above. */
   --theme-color: var(--themeColor);
   --highlight-color: var(--highlightColor);
   --selection-color: var(--selectionColor);
@@ -145,21 +141,21 @@
 
 /* ------------------------------------ */
 
-.mu-container h1,
-.mu-container h2,
-.mu-container h3,
-.mu-container h4,
-.mu-container h5,
-.mu-container h6 {
+.document-view-container h1,
+.document-view-container h2,
+.document-view-container h3,
+.document-view-container h4,
+.document-view-container h5,
+.document-view-container h6 {
   color: var(--theme-color);
   text-align: center;
 }
 
-ul.mu-bullet-list > li.mu-list-item {
+ul.document-view-bullet-list > li.document-view-list-item {
   position: relative;
   list-style: none;
 }
-ul.mu-bullet-list > li.mu-list-item::before {
+ul.document-view-bullet-list > li.document-view-list-item::before {
   content: '';
   display: block;
   position: absolute;
@@ -170,20 +166,20 @@ ul.mu-bullet-list > li.mu-list-item::before {
   background: var(--editor-color);
 }
 
-.mu-container blockquote {
+.document-view-container blockquote {
   background: rgb(233, 233, 233);
 }
-.mu-container blockquote::before {
+.document-view-container blockquote::before {
   content: none;
 }
 
-.mu-container li.mu-list-item {
+.document-view-container li.document-view-list-item {
   color: var(--editor-color);
 }
 
 /*task list*/
-li.mu-task-list-item > input[type='checkbox'],
-li.mu-task-list-item > span.mu-task-list-checkbox {
+li.document-view-task-list-item > input[type='checkbox'],
+li.document-view-task-list-item > span.document-view-task-list-checkbox {
   position: absolute;
   cursor: pointer;
   width: 16px;
@@ -195,13 +191,13 @@ li.mu-task-list-item > span.mu-task-list-checkbox {
   transform-origin: center;
   transition: all 0.2s ease;
 }
-li.mu-task-list-item > input.mu-checkbox-checked,
-li.mu-task-list-item > span.mu-checkbox-checked {
+li.document-view-task-list-item > input.document-view-checkbox-checked,
+li.document-view-task-list-item > span.document-view-checkbox-checked {
   transform: rotate(0);
   opacity: 0.5;
 }
-li.mu-task-list-item > input[type='checkbox']::before,
-li.mu-task-list-item > span.mu-task-list-checkbox::before {
+li.document-view-task-list-item > input[type='checkbox']::before,
+li.document-view-task-list-item > span.document-view-task-list-checkbox::before {
   content: '';
   width: 16px;
   height: 16px;
@@ -215,14 +211,14 @@ li.mu-task-list-item > span.mu-task-list-checkbox::before {
   left: 0;
   transition: all 0.2s ease;
 }
-li.mu-task-list-item > input.mu-checkbox-checked::before,
-li.mu-task-list-item > span.mu-checkbox-checked::before {
+li.document-view-task-list-item > input.document-view-checkbox-checked::before,
+li.document-view-task-list-item > span.document-view-checkbox-checked::before {
   border: transparent;
   background-color: var(--editor-color);
   box-shadow: none;
 }
-li.mu-task-list-item > input::after,
-li.mu-task-list-item > span.mu-task-list-checkbox::after {
+li.document-view-task-list-item > input::after,
+li.document-view-task-list-item > span.document-view-task-list-checkbox::after {
   content: '';
   width: 9px;
   height: 5px;
@@ -238,13 +234,13 @@ li.mu-task-list-item > span.mu-task-list-checkbox::after {
   left: 5px;
   transition: all 0.2s ease;
 }
-li.mu-task-list-item > input.mu-checkbox-checked::after,
-li.mu-task-list-item > span.mu-checkbox-checked::after {
+li.document-view-task-list-item > input.document-view-checkbox-checked::after,
+li.document-view-task-list-item > span.document-view-checkbox-checked::after {
   transform: rotate(-45deg) scale(1);
 }
 
 /*horizontal line*/
-.mu-thematic-break:not(.mu-active)::before {
+.document-view-thematic-break:not(.document-view-active)::before {
   width: 50%;
   left: 50%;
   border-top: 2px dashed var(--editor-color-50);

@@ -44,6 +44,7 @@
 import { ref, watch } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import LinkIcon from '@/components/icons/LinkIcon.vue'
+import { openExternalResource } from '@/services/presentationEffects'
 import type { PrefControlBaseProps } from '../types'
 
 interface BoolProps extends PrefControlBaseProps {
@@ -56,7 +57,6 @@ interface BoolProps extends PrefControlBaseProps {
 const props = withDefaults(defineProps<BoolProps>(), {
   description: '',
   notes: '',
-  more: '',
   detailedDescription: '',
   disable: false
 })
@@ -73,8 +73,8 @@ watch(
 )
 
 const handleMoreClick = () => {
-  if (typeof props.more === 'string') {
-    window.electron.shell.openExternal(props.more)
+  if (props.more) {
+    openExternalResource(props.more)
   }
 }
 

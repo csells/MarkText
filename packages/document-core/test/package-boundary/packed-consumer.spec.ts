@@ -88,6 +88,14 @@ describe('packed package consumer boundary', () => {
       cpSync(join(PACKAGE_DIRECTORY, 'src'), join(isolatedPackage, 'src'), {
         recursive: true
       })
+      const installBuildToolchain = runPnpm(
+        ['install', '--ignore-scripts', '--frozen-lockfile=false'],
+        isolatedPackage
+      )
+      expectSuccess(
+        installBuildToolchain,
+        'clean package build-toolchain install'
+      )
       const staleInternalDirectory = join(isolatedPackage, 'dist', 'internal')
       mkdirSync(staleInternalDirectory, { recursive: true })
       writeFileSync(
@@ -177,7 +185,16 @@ describe('packed package consumer boundary', () => {
           'const configuration: ParseConfiguration = {',
           "  criticMarkupProfile: 'marktext-profile-1',",
           "  markdownProfile: 'markdown-profile-1',",
-          "  liveHtmlSafetyProfile: 'live-html-safety-profile-1',",
+          '  markdownOptions: {',
+          "    schema: 'markdown-options-1',",
+          '    gfm: true,',
+          '    frontMatter: true,',
+          '    math: true,',
+          '    gitLabMath: false,',
+          '    footnotes: false,',
+          '    subscriptAndSuperscript: true',
+          '  },',
+          "  liveHtmlSafetyProfile: 'live-html-sanitized-v1',",
           '  executionBudget: {',
           "    limitsProfile: 'test-unbounded',",
           "    accountingSchema: 'syntax-accounting-1'",

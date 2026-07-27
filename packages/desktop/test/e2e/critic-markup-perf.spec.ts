@@ -7,8 +7,7 @@ import {
   launchWithMarkdown
 } from './helpers'
 
-// Legacy performance regression oracle originating in archived plan 0006
-// Wave 7; plan 0009 defines target acceptance for the rebuilt engine. The
+// Plan 0009 performance acceptance for the production document-core engine. The
 // 4,096-line no-opener fixture must open within 5 seconds, and five projection
 // toggles, next/previous review actions, and sidebar refreshes must each
 // complete with a p95 below 500ms. Budgets are asserted against the real
@@ -50,7 +49,7 @@ function p95(samples: number[]): number {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)]
 }
 
-test.describe('legacy CriticMarkup artifact performance budgets', () => {
+test.describe('document-core CriticMarkup performance budgets', () => {
   test.describe.configure({ timeout: 120000 })
 
   let app: ElectronApplication

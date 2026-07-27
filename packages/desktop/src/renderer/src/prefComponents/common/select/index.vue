@@ -40,6 +40,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import LinkIcon from '@/components/icons/LinkIcon.vue'
+import { openExternalResource } from '@/services/presentationEffects'
 import type { PrefControlBaseProps, PrefSelectOption } from '../types'
 
 type SelectValue = string | number | boolean
@@ -54,7 +55,6 @@ interface SelectProps extends PrefControlBaseProps {
 const props = withDefaults(defineProps<SelectProps>(), {
   description: '',
   notes: '',
-  more: '',
   disable: false
 })
 
@@ -70,8 +70,8 @@ watch(
 )
 
 const handleMoreClick = () => {
-  if (typeof props.more === 'string') {
-    window.electron.shell.openExternal(props.more)
+  if (props.more) {
+    openExternalResource(props.more)
   }
 }
 

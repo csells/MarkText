@@ -5,13 +5,11 @@ on:
     branches: [develop]
     paths:
       - 'packages/website/**'
-      - 'packages/muyajs/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/website-deploy.yml'
   pull_request:
     paths:
       - 'packages/website/**'
-      - 'packages/muyajs/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/website-deploy.yml'
 
@@ -91,13 +89,13 @@ jobs:
           upload_status=$?
           cat upload.log
 
-          if [ $upload_status -ne 0 ] && grep -q "Could not route to" upload.log; then
+          if [ "$upload_status" -ne 0 ] && grep -q "Could not route to" upload.log; then
             echo "result=not-bootstrapped" >> "$GITHUB_OUTPUT"
             echo "::warning::Worker 'marktext-website' is not bootstrapped yet. Merge this PR to develop to create it; subsequent PRs will get real preview URLs."
             exit 0
           fi
-          if [ $upload_status -ne 0 ]; then
-            exit $upload_status
+          if [ "$upload_status" -ne 0 ]; then
+            exit "$upload_status"
           fi
 
           # wrangler 4.x prints two preview lines: "Version Preview URL:"
@@ -111,12 +109,16 @@ jobs:
           VERSION_ID=$(grep -Eo 'Worker Version ID:[[:space:]]*[a-f0-9-]+' upload.log | awk '{print $NF}' || true)
 
           if [ -n "$PREVIEW_URL" ]; then
-            echo "result=ok"          >> "$GITHUB_OUTPUT"
-            echo "url=$PREVIEW_URL"   >> "$GITHUB_OUTPUT"
-            echo "version=$VERSION_ID" >> "$GITHUB_OUTPUT"
+            {
+              echo "result=ok"
+              echo "url=$PREVIEW_URL"
+              echo "version=$VERSION_ID"
+            } >> "$GITHUB_OUTPUT"
           elif [ -n "$VERSION_ID" ]; then
-            echo "result=preview-disabled" >> "$GITHUB_OUTPUT"
-            echo "version=$VERSION_ID"     >> "$GITHUB_OUTPUT"
+            {
+              echo "result=preview-disabled"
+              echo "version=$VERSION_ID"
+            } >> "$GITHUB_OUTPUT"
             echo "::warning::Worker version $VERSION_ID uploaded but no preview URL was emitted. Enable Preview URLs on the marktext-website Worker in the Cloudflare dashboard to get clickable PR previews."
           else
             echo "Could not parse a preview URL or version ID from wrangler output" >&2

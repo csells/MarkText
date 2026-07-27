@@ -1,9 +1,10 @@
 import bus from '../bus'
 import { delay } from '@/util'
-import FileSearcher from '@/node/fileSearcher'
+import { FileSearcher } from '@/node/ripgrepSearcher'
 import type { EditorState } from '@/store/editor'
 import getCommandDescriptionById from './descriptions'
 import { t } from '../i18n'
+import { requestProjectDocumentOpen } from '@/services/projectDocumentOpen'
 
 const SPECIAL_CHARS = /[\[\]\\^$.\|\?\*\+\(\)\/]{1}/g // eslint-disable-line no-useless-escape
 
@@ -96,8 +97,7 @@ class QuickOpenCommand {
   }
 
   executeSubcommand = async(id: string): Promise<void> => {
-    const { windowId } = window.marktext!.env!
-    window.electron.ipcRenderer.send('mt::open-file-by-window-id', windowId, id)
+    await requestProjectDocumentOpen(id)
   }
 
   unload = (): void => {
@@ -156,7 +156,7 @@ class QuickOpenCommand {
     return new Promise<QuickOpenSubcommand[]>((resolve, reject) => {
       let canceled = false
       const promises: Promise<void> & { cancel?: () => void } = this._directorySearcher
-        .search([rootPath!], '', {
+        .search({
           didMatch: (result: unknown) => {
             if (canceled) return
             searchResult.push(result as string)

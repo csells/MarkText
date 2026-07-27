@@ -1,76 +1,164 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock
+} from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { createDocumentState } from '@/store/help'
+import { useEditorStore } from '@/store/editor'
+
+const mocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  on: vi.fn(),
+  reportError: vi.fn()
+}))
 
 vi.hoisted(() => {
-  const w = globalThis as unknown as {
+  const target = globalThis as unknown as {
     window?: {
-      path?: { sep: string; dirname: (p: string) => string }
-      fileUtils?: { isSamePathSync: (a: string, b: string) => boolean }
-      electron?: { ipcRenderer: { send: (...a: unknown[]) => void; on: Mock } }
+      path?: { sep: string; dirname: (value: string) => string }
+      fileUtils?: { isSamePathSync: (left: string, right: string) => boolean }
+      electron?: {
+        ipcRenderer: {
+          invoke: Mock
+          on: Mock
+          send: Mock
+        }
+      }
     }
   }
-  w.window ??= {}
-  w.window.path ??= { sep: '/', dirname: (p: string) => p }
-  w.window.fileUtils ??= { isSamePathSync: (a, b) => a === b }
-  w.window.electron ??= { ipcRenderer: { send: () => {}, on: vi.fn() } }
+  target.window ??= {}
+  target.window.path ??= { sep: '/', dirname: value => value }
+  target.window.fileUtils ??= {
+    isSamePathSync: (left, right) => left === right
+  }
+  target.window.electron = {
+    ipcRenderer: {
+      invoke: mocks.invoke,
+      on: mocks.on,
+      send: vi.fn()
+    }
+  }
 })
 
 vi.mock('@/services/notification', () => ({
   default: { notify: vi.fn(), name: 'notify' }
 }))
-vi.mock('@/store/bufferedState', () => ({ debouncedSendBufferedState: vi.fn() }))
+vi.mock('@/store/bufferedState', () => ({
+  debouncedSendBufferedState: vi.fn(),
+  sendBufferedState: vi.fn()
+}))
 
-import { useEditorStore } from '@/store/editor'
+const cleanHistory = Object.freeze({
+  canUndo: true,
+  canRedo: false,
+  dirty: false,
+  headIdentity: 'semantic:external',
+  savedIdentity: 'semantic:external'
+})
 
-// #1861: a watcher 'change' event fires even when only the file's mtime changed
-// (e.g. a git checkout that left the content byte-identical). The handler then
-// marked the tab unsaved and showed a "file changed on disk" prompt for a
-// no-op change. Skip the handling when the new on-disk content equals the
-// tab's current content.
-describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1861)', () => {
+const dirtyHistory = Object.freeze({
+  canUndo: true,
+  canRedo: false,
+  dirty: true,
+  headIdentity: 'semantic:local',
+  savedIdentity: 'semantic:base'
+})
+
+function seed() {
+  const store = useEditorStore()
+  const tab = createDocumentState({
+    filename: 'a.md',
+    pathname: '/x/a.md',
+    markdown: 'renderer cache',
+    isSaved: true
+  }, 'document:1')
+  store.tabs = [tab]
+  store.currentFile = tab
+  store.updateTabIdToIndex()
+  store.LISTEN_FOR_EXTERNAL_FILE_CHANGE()
+  const listener = mocks.on.mock.calls.find(
+    ([channel]) => channel === 'mt::document-core::external-change'
+  )?.[1] as ((event: unknown, result: unknown) => void) | undefined
+  if (listener === undefined) throw new Error('external change listener missing')
+  return { store, tab, listener }
+}
+
+describe('renderer external-file notifications', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
-    ;(window.electron.ipcRenderer.on as Mock).mockReset()
+    vi.stubGlobal('reportError', mocks.reportError)
   })
 
-  const makeSavedTab = (store: ReturnType<typeof useEditorStore>) => {
-    const tab = { id: 'tab-1', filename: 'a.md', pathname: '/x/a.md', markdown: 'hello', isSaved: true }
-    store.tabs = [tab] as unknown as typeof store.tabs
-    store.tabIdToIndex = { 'tab-1': 0 }
-    return tab
-  }
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
-  const captureHandler = () => {
-    const onMock = window.electron.ipcRenderer.on as Mock
-    const call = onMock.mock.calls.find((c) => c[0] === 'mt::update-file')!
-    return call[1] as (e: unknown, payload: unknown) => void
-  }
+  it('applies an identity-only clean reload result', () => {
+    const { tab, listener } = seed()
 
-  const fire = (handler: ReturnType<typeof captureHandler>, markdown: string) =>
-    handler(null, { type: 'change', change: { pathname: '/x/a.md', data: { markdown } } })
+    listener(null, {
+      schema: 'document-core-file-reload-1',
+      kind: 'reloaded',
+      documentId: 'document:1',
+      revisionId: 'revision:external',
+      historyState: cleanHistory
+    })
 
-  it('ignores a change whose content matches the tab (mtime-only change)', () => {
-    const store = useEditorStore()
-    const tab = makeSavedTab(store)
-    const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
-    store.LISTEN_FOR_FILE_CHANGE()
-
-    fire(captureHandler(), 'hello')
-
-    expect(notifySpy).not.toHaveBeenCalled()
+    expect(tab.documentCoreHistory).toEqual(cleanHistory)
     expect(tab.isSaved).toBe(true)
   })
 
-  it('still warns when the on-disk content actually changed', () => {
-    const store = useEditorStore()
-    const tab = makeSavedTab(store)
-    const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
-    store.LISTEN_FOR_FILE_CHANGE()
+  it('offers a closed identity-only decision for a dirty conflict', async() => {
+    const { store, tab, listener } = seed()
+    const notify = vi.spyOn(store, 'pushTabNotification')
+    mocks.invoke.mockResolvedValue({
+      schema: 'document-core-file-reload-1',
+      kind: 'kept',
+      documentId: 'document:1'
+    })
 
-    fire(captureHandler(), 'hello world')
+    listener(null, {
+      schema: 'document-core-file-reload-1',
+      kind: 'conflict',
+      documentId: 'document:1',
+      revisionId: 'revision:local',
+      historyState: dirtyHistory
+    })
+    const action = notify.mock.calls[0]?.[0].action
+    action?.(false)
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith(
+      'mt::document-core::resolve-external-change',
+      {
+        documentId: 'document:1',
+        resolution: 'keep'
+      }
+    ))
 
-    expect(notifySpy).toHaveBeenCalledTimes(1)
     expect(tab.isSaved).toBe(false)
+    expect(mocks.invoke.mock.calls[0]?.[1]).not.toHaveProperty('source')
+    expect(mocks.invoke.mock.calls[0]?.[1]).not.toHaveProperty('pathname')
+  })
+
+  it('rejects a forged source-bearing result before changing the tab', () => {
+    const { tab, listener } = seed()
+
+    listener(null, {
+      schema: 'document-core-file-reload-1',
+      kind: 'reloaded',
+      documentId: 'document:1',
+      revisionId: 'revision:external',
+      historyState: cleanHistory,
+      source: 'forged'
+    })
+
+    expect(tab.documentCoreHistory).toBeNull()
+    expect(tab.markdown).toBe('renderer cache')
+    expect(mocks.reportError).toHaveBeenCalledOnce()
   })
 })

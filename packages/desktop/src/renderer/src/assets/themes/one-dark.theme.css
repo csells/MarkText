@@ -90,11 +90,7 @@
   --maskColor: rgba(0, 0, 0, 0.7);
   --editorAreaWidth: 750px;
 
-  /* @muyajs/core (kebab-case) editor variables
-     Additive prep for the muyajs -> @muyajs/core editor swap. These
-     mirror the camelCase vars above; the legacy editor ignores them.
-     Do NOT remove the camelCase vars — they still drive the current
-     editor until editor.vue switches engines. */
+  /* Document-core editor variables derive from the desktop theme tokens above. */
   --theme-color: var(--themeColor);
   --highlight-color: var(--highlightColor);
   --selection-color: var(--selectionColor);
@@ -179,8 +175,8 @@
 
 /* --- Core elements --------------------------------------------- */
 
-.mu-front-menu,
-.mu-float-wrapper {
+.document-view-front-menu,
+.document-view-float-wrapper {
   box-shadow: 0 4px 8px 0 var(--floatShadow) !important;
 }
 
@@ -269,23 +265,23 @@ blockquote::before {
 }
 
 :not(pre) > code[class*='language-'],
-pre:not(.CodeMirror-line),
+pre,
 pre[class*='language-'],
-pre.mu-code-block {
+pre.document-view-code-block {
   background: var(--codeBlockBgColor) !important;
   border: none !important;
 }
 
-.mu-thematic-break:not(.mu-active)::before {
+.document-view-thematic-break:not(.document-view-active)::before {
   border-top: 2px dashed #4b5362 !important;
   background: none !important;
 }
 
-li.mu-task-list-item {
+li.document-view-task-list-item {
   list-style-type: none;
   position: relative;
 }
-li.mu-task-list-item > input[type='checkbox'] {
+li.document-view-task-list-item > input[type='checkbox'] {
   position: absolute;
   cursor: pointer;
   width: 16px;
@@ -297,11 +293,11 @@ li.mu-task-list-item > input[type='checkbox'] {
   transform-origin: center;
   transition: all 0.2s ease;
 }
-li.mu-task-list-item > input.mu-checkbox-checked {
+li.document-view-task-list-item > input.document-view-checkbox-checked {
   transform: rotate(0);
   opacity: 0.6;
 }
-li.mu-task-list-item > input[type='checkbox']::before {
+li.document-view-task-list-item > input[type='checkbox']::before {
   content: '';
   width: 16px;
   height: 16px;
@@ -315,11 +311,11 @@ li.mu-task-list-item > input[type='checkbox']::before {
   left: 0;
   transition: all 0.2s ease;
 }
-li.mu-task-list-item > input.mu-checkbox-checked::before {
+li.document-view-task-list-item > input.document-view-checkbox-checked::before {
   border: transparent;
   background-color: var(--editorColor);
 }
-li.mu-task-list-item > input::after {
+li.document-view-task-list-item > input::after {
   content: '';
   transform: rotate(-45deg) scale(0);
   width: 9px;
@@ -333,11 +329,11 @@ li.mu-task-list-item > input::after {
   left: 5px;
   transition: all 0.2s ease;
 }
-li.mu-task-list-item > input.mu-checkbox-checked::after {
+li.document-view-task-list-item > input.document-view-checkbox-checked::after {
   transform: rotate(-45deg) scale(1);
 }
-figure.mu-active.mu-math-block > div.mu-math-preview,
-figure.mu-active.mu-diagram-block > div.mu-diagram-preview {
+figure.document-view-active.document-view-math-block > div.document-view-math-preview,
+figure.document-view-active.document-view-diagram-block > div.document-view-diagram-preview {
   box-shadow: 0 3px 8px 0 var(--floatShadow) !important;
 }
 

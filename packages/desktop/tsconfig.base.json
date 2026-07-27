@@ -27,9 +27,7 @@
     "paths": {
       "@/*": ["./src/renderer/src/*"],
       "common/*": ["./src/common/*"],
-      "muya/*": ["../muyajs/*"],
-      "@muyajs/core": ["../muya/src/index.ts"],
-      "@muyajs/core/*": ["../muya/src/*"],
+      "@marktext/document-view": ["../document-view/src/index.ts"],
       "@shared/*": ["./src/shared/*"],
       "main_renderer/*": ["./src/main/*"]
     }

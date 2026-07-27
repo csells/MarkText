@@ -1,12 +1,20 @@
-import type { MarkupLiveRenderPlan, ModelRange } from '../documentSession.js'
+import type {
+  DocumentLiveRenderPlan,
+  ModelRange
+} from '../documentSession.js'
 import type {
   CompleteDocumentRevision,
   MarkdownDocument,
+  MarkdownNode,
   MarkdownNodeKind,
   MarkupMark,
   SourceOffset,
   SourceRange
 } from '../revision.js'
+import {
+  markdownTextValue,
+  markdownTextValueSegments
+} from '../materialize/htmlRender.js'
 
 /**
  * The block AST of a revision's canonical (marker-bearing) editing view — the
@@ -50,6 +58,40 @@ export interface MarkupRenderRun {
 }
 
 /**
+ * One visible text carrier in the semantic live tree.
+ *
+ * `boundaryMapping` carries the parser-issued coordinate rule without a
+ * source-unit-sized vector. Identity text maps interior boundaries linearly;
+ * collapsed syntax (for example `&amp;`) maps nonterminal rendered
+ * boundaries to each range's start and the terminal boundary to its end.
+ */
+export interface MarkupRenderText {
+  readonly key: string
+  readonly text: string
+  readonly elements: readonly MarkupRenderElement[]
+  readonly modelRange: ModelRange
+  readonly sourceRange: SourceRange
+  readonly boundaryMapping: 'identity' | 'collapsed'
+}
+
+/**
+ * Parser-owned hierarchical descriptor for one Markdown semantic node.
+ *
+ * The descriptor is functions-free and can cross the main/renderer wire
+ * unchanged. A renderer chooses inert DOM elements for these already-decided
+ * semantics; it never reads source syntax or recognizes Markdown itself.
+ */
+export interface MarkupRenderNode {
+  readonly key: string
+  readonly kind: MarkdownNodeKind
+  readonly attributes: Readonly<Record<string, string | number | boolean>>
+  readonly modelRange: ModelRange
+  readonly elements: readonly MarkupRenderElement[]
+  readonly text: readonly MarkupRenderText[]
+  readonly children: readonly MarkupRenderNode[]
+}
+
+/**
  * One rendered line: the render runs whose text falls on this line (none
  * containing `\n`) and whether a newline terminates it. A view mounts one block
  * element per line; markdown block *semantics* (which lines form a heading or a
@@ -87,7 +129,7 @@ export function markupRenderElement(mark: MarkupMark): MarkupRenderElement {
  * inside CM) become nested wrappers, outermost mark first.
  */
 export function renderMarkupPlan(
-  plan: MarkupLiveRenderPlan
+  plan: DocumentLiveRenderPlan
 ): readonly MarkupRenderRun[] {
   return Object.freeze(plan.runs.map((run) => Object.freeze({
     key: run.key,
@@ -113,6 +155,8 @@ export interface MarkupRenderBlock {
   readonly attributes: Readonly<Record<string, string | number | boolean>>
   readonly modelRange: ModelRange
   readonly runs: readonly MarkupRenderRun[]
+  /** Complete semantic subtree rooted at this parser-emitted block. */
+  readonly tree: MarkupRenderNode
 }
 
 /**
@@ -129,6 +173,7 @@ export function groupRenderBlocks(
   document: MarkdownDocument,
   runs: readonly MarkupRenderRun[]
 ): readonly MarkupRenderBlock[] {
+  const state = createSemanticRenderState(document, runs)
   const root = document.root
   return Object.freeze(Array.from({ length: root.childCount }, (_, ordinal) => {
     const block = root.childAt(ordinal)
@@ -151,75 +196,558 @@ export function groupRenderBlocks(
       kind: block.kind,
       attributes: block.attributes,
       modelRange: Object.freeze({ start, end }),
-      runs: Object.freeze(blockRuns)
+      runs: Object.freeze(blockRuns),
+      tree: semanticRenderNode(block, state)
     })
   }))
 }
 
-/**
- * Which blocks can share one parse across views, and which must be resolved per
- * view. `shared` and `divergent` together cover the document, in order.
- */
-export interface ForkPlan {
-  readonly shared: readonly ModelRange[]
-  readonly divergent: readonly ModelRange[]
+interface SemanticRenderState {
+  readonly document: MarkdownDocument
+  readonly runs: readonly MarkupRenderRun[]
+  readonly footnoteOrdinals: ReadonlyMap<string, number>
+  readonly footnoteReferenceTotals: ReadonlyMap<string, number>
+  readonly emittedFootnoteReferences: Map<string, number>
+  readonly emittedNodeIdentities: Map<string, number>
 }
 
-/**
- * Plan where a per-view fork is actually required (ADR-0013 slices 2-3).
- *
- * Original and Revised differ only where an Addition, Deletion or Substitution
- * resolves differently — rendered as `ins` and `del`. A Highlight renders in
- * both views and a Comment body is hidden in both, so a block carrying only
- * those is byte-identical across views and one parse serves every view.
- *
- * Blocks are the unit because a *block* fork reconverges at a safe point and
- * every top-level block start is one (`specs/research/0002`).
- *
- * Block-local reasoning is not sufficient on its own, though, and the exception
- * is load-bearing: CommonMark reference definitions are **document-scoped**.
- * Verified on `[link]\n\n{++[link]: /url++}\n`, the first block carries no marker
- * yet resolves to `text` in Original and `link` in Revised, because the
- * definition sits inside an Addition in another block. So when a divergent
- * region might carry a definition, nothing is shared.
- *
- * That guard is a deliberate over-approximation — it looks for a definition-like
- * `]:` rather than deciding what a definition is, which is the parser's job
- * (ADR-0009). Over-marking a block divergent only forgoes an optimization;
- * under-marking one would serve a view the wrong tree. It should be replaced by
- * parser-supplied definition ranges when the fork lands.
- */
-export function forkPlanOf(blocks: readonly MarkupRenderBlock[]): ForkPlan {
-  const shared: ModelRange[] = []
-  const divergent: ModelRange[] = []
-  let definitionMayDiverge = false
-  for (const block of blocks) {
-    const divergentRuns = block.runs.filter((run) =>
-      run.elements.includes('ins') || run.elements.includes('del')
-    )
-    if (divergentRuns.some((run) => DEFINITION_LIKE.test(run.text))) {
-      definitionMayDiverge = true
+function createSemanticRenderState(
+  document: MarkdownDocument,
+  runs: readonly MarkupRenderRun[]
+): SemanticRenderState {
+  const footnoteOrdinals = new Map<string, number>()
+  const footnoteReferenceTotals = new Map<string, number>()
+  for (
+    let ordinal = 0;
+    ordinal < document.references.footnoteReferenceCount;
+    ordinal += 1
+  ) {
+    const reference = document.references.footnoteReferenceAt(ordinal)
+    if (reference.definition === undefined) { continue }
+    const label = reference.label
+    if (!footnoteOrdinals.has(label)) {
+      footnoteOrdinals.set(label, footnoteOrdinals.size + 1)
     }
-    ;(divergentRuns.length > 0 ? divergent : shared).push(block.modelRange)
+    footnoteReferenceTotals.set(
+      label,
+      (footnoteReferenceTotals.get(label) ?? 0) + 1
+    )
   }
-  if (definitionMayDiverge) {
-    // A view-dependent definition can change any reference elsewhere, so no
-    // block is safely shared.
-    return Object.freeze({
-      shared: Object.freeze([]),
-      divergent: Object.freeze([...shared, ...divergent].sort(
-        (left, right) => left.start - right.start
+  return {
+    document,
+    runs,
+    footnoteOrdinals,
+    footnoteReferenceTotals,
+    emittedFootnoteReferences: new Map(),
+    emittedNodeIdentities: new Map()
+  }
+}
+
+function renderNodeIdentity(
+  node: MarkdownNode,
+  state: SemanticRenderState
+): string {
+  const identity = String(node.nodeId)
+  const occurrence = (state.emittedNodeIdentities.get(identity) ?? 0) + 1
+  state.emittedNodeIdentities.set(identity, occurrence)
+  return occurrence === 1 ? identity : `${identity}#${String(occurrence)}`
+}
+
+function semanticRenderNode(
+  node: MarkdownNode,
+  state: SemanticRenderState
+): MarkupRenderNode {
+  const attributes: Record<string, string | number | boolean> = {
+    ...node.attributes
+  }
+  const text: MarkupRenderText[] = []
+  let children: readonly MarkupRenderNode[] = Object.freeze([])
+
+  if (node.kind === 'text') {
+    text.push(...markdownTextRuns(node.range.start, node.range.end, state))
+  } else if (node.kind === 'soft-break') {
+    text.push(...identityTextRuns(
+      node.range.start,
+      node.range.end,
+      '\n',
+      'collapsed',
+      state
+    ))
+  } else if (node.kind === 'inline-code') {
+    text.push(...inlineCodeTextRuns(node, state))
+  } else if (
+    node.kind === 'inline-math' ||
+    node.kind === 'math-block' ||
+    node.kind === 'diagram' ||
+    node.kind === 'code-block' ||
+    node.kind === 'html-block'
+  ) {
+    text.push(...literalContentTextRuns(node, state))
+  } else if (node.kind === 'inline-html') {
+    text.push(...identityTextRuns(
+      node.range.start,
+      node.range.end,
+      state.document.source.slice(node.range.start, node.range.end),
+      'identity',
+      state
+    ))
+  } else if (node.kind === 'autolink') {
+    const valueStart = Math.min(node.range.end, node.range.start + 1)
+    const valueEnd = Math.max(valueStart, node.range.end - 1)
+    const content = state.document.source.slice(valueStart, valueEnd)
+    attributes['href'] = safeLiveUrl(
+      AUTOLINK_EMAIL.test(content) ? `mailto:${content}` : content,
+      'link'
+    )
+    text.push(...identityTextRuns(
+      valueStart,
+      valueEnd,
+      content,
+      'identity',
+      state
+    ))
+  } else if (node.kind === 'footnote-reference') {
+    const label = node.attributes['label']
+    const ordinal = typeof label === 'string'
+      ? state.footnoteOrdinals.get(label)
+      : undefined
+    if (typeof label === 'string' && ordinal !== undefined) {
+      const occurrence =
+        (state.emittedFootnoteReferences.get(label) ?? 0) + 1
+      state.emittedFootnoteReferences.set(label, occurrence)
+      attributes['resolved'] = true
+      attributes['ordinal'] = ordinal
+      attributes['referenceId'] = footnoteReferenceId(label, occurrence)
+      attributes['definitionId'] = footnoteDefinitionId(label)
+    } else {
+      attributes['resolved'] = false
+      text.push(...markdownTextRuns(node.range.start, node.range.end, state))
+    }
+  } else {
+    children = semanticRenderChildren(node, state)
+  }
+
+  if (node.kind === 'link' || node.kind === 'image') {
+    const target = resolveSemanticLinkTarget(node, state)
+    if (target === undefined) {
+      attributes['resolved'] = false
+      children = Object.freeze([])
+      text.push(...markdownTextRuns(
+        node.range.start,
+        node.range.end,
+        state
       ))
-    })
+    } else {
+      attributes['resolved'] = true
+      attributes[node.kind === 'image' ? 'src' : 'href'] =
+        safeLiveUrl(
+          markdownTextValue(target.destination),
+          node.kind === 'image' ? 'image' : 'link'
+        )
+      if (target.title !== undefined) { attributes['title'] = markdownTextValue(target.title) }
+      if (node.kind === 'image') {
+        attributes['alt'] = semanticPlainText(node, state.document)
+        children = Object.freeze([])
+      }
+    }
   }
+
+  if (
+    node.kind === 'code-block' &&
+    typeof node.attributes['info'] === 'string'
+  ) {
+    attributes['language'] = markdownTextValue(
+      node.attributes['info'].trim().split(/[\t ]/, 1)[0] ?? ''
+    )
+  }
+
+  if (node.kind === 'footnote-definition') {
+    const label = node.attributes['label']
+    const ordinal = typeof label === 'string'
+      ? state.footnoteOrdinals.get(label)
+      : undefined
+    attributes['referenced'] = ordinal !== undefined
+    if (typeof label === 'string' && ordinal !== undefined) {
+      attributes['ordinal'] = ordinal
+      attributes['definitionId'] = footnoteDefinitionId(label)
+      attributes['referenceTotal'] =
+        state.footnoteReferenceTotals.get(label) ?? 0
+    }
+  }
+
   return Object.freeze({
-    shared: Object.freeze(shared),
-    divergent: Object.freeze(divergent)
+    key: renderNodeIdentity(node, state),
+    kind: node.kind,
+    attributes: Object.freeze(attributes),
+    modelRange: Object.freeze({
+      start: node.range.start,
+      end: node.range.end
+    }),
+    elements: elementsForRange(node.range.start, node.range.end, state.runs),
+    text: Object.freeze(text),
+    children
   })
 }
 
-/** Conservative "this text might define a link reference" probe — see above. */
-const DEFINITION_LIKE = /\]\s*:/
+/**
+ * Inline-family parents need the CommonMark whitespace semantics the parser
+ * already assigned to their text children. This trims only parser-owned text
+ * ranges at line boundaries; it does not inspect source for structure.
+ */
+function semanticRenderChildren(
+  parent: MarkdownNode,
+  state: SemanticRenderState
+): readonly MarkupRenderNode[] {
+  const children: MarkupRenderNode[] = []
+  const inlineFamily =
+    parent.kind === 'paragraph' ||
+    parent.kind === 'heading' ||
+    parent.kind === 'table-cell'
+  let atLineStart = true
+  for (let ordinal = 0; ordinal < parent.childCount; ordinal += 1) {
+    const child = parent.childAt(ordinal)
+    if (!inlineFamily || child.kind !== 'text') {
+      children.push(semanticRenderNode(child, state))
+      atLineStart =
+        child.kind === 'soft-break' || child.kind === 'hard-break'
+      continue
+    }
+    let start = child.range.start
+    let end = child.range.end
+    if (atLineStart) {
+      while (
+        start < end &&
+        (
+          state.document.source.charCodeAt(start) === 32 ||
+          state.document.source.charCodeAt(start) === 9
+        )
+      ) {
+        start += 1
+      }
+    }
+    const next = ordinal + 1 < parent.childCount
+      ? parent.childAt(ordinal + 1)
+      : undefined
+    if (next === undefined || next.kind === 'soft-break') {
+      while (
+        end > start &&
+        (
+          state.document.source.charCodeAt(end - 1) === 32 ||
+          state.document.source.charCodeAt(end - 1) === 9
+        )
+      ) {
+        end -= 1
+      }
+    }
+    const rendered = semanticRenderNode(child, state)
+    children.push(Object.freeze({
+      ...rendered,
+      text: Object.freeze(markdownTextRuns(
+        start,
+        end,
+        state,
+        end < child.range.end ? child.range.end : end
+      ))
+    }))
+    atLineStart = false
+  }
+  return Object.freeze(children)
+}
+
+function markdownTextRuns(
+  start: number,
+  end: number,
+  state: SemanticRenderState,
+  trailingBoundary: number = end
+): readonly MarkupRenderText[] {
+  if (end <= start) return Object.freeze([])
+  const raw = state.document.source.slice(start, end)
+  const decoded = markdownTextValueSegments(raw, start)
+  const result: MarkupRenderText[] = []
+  for (const segment of decoded) {
+    result.push(...identityTextRuns(
+      segment.inputRange.start,
+      segment.inputRange.end,
+      segment.text,
+      segment.boundaryMapping,
+      state
+    ))
+  }
+  if (result.length === 0 || trailingBoundary === end) { return Object.freeze(result) }
+
+  const lastIndex = result.length - 1
+  const last = result[lastIndex]
+  if (last === undefined) { return Object.freeze(result) }
+
+  const owner = state.runs.find(
+    (run) =>
+      trailingBoundary >= run.modelRange.start &&
+      trailingBoundary <= run.modelRange.end
+  ) ?? state.runs.find(
+    (run) => run.modelRange.end === trailingBoundary
+  )
+  const sourceBoundary = owner === undefined
+    ? last.sourceRange.end
+    : owner.sourceRange.start +
+      trailingBoundary -
+      owner.modelRange.start
+  result[lastIndex] = Object.freeze({
+    ...last,
+    modelRange: Object.freeze({
+      start: last.modelRange.start,
+      end: trailingBoundary
+    }),
+    sourceRange: Object.freeze({
+      start: last.sourceRange.start,
+      end: sourceBoundary as SourceOffset
+    })
+  })
+  return Object.freeze(result)
+}
+
+function identityTextRuns(
+  start: number,
+  end: number,
+  text: string,
+  boundaryMapping: MarkupRenderText['boundaryMapping'],
+  state: SemanticRenderState
+): readonly MarkupRenderText[] {
+  if (text.length === 0) return Object.freeze([])
+  const owners = state.runs.filter(
+    (run) => run.modelRange.start < end && start < run.modelRange.end
+  )
+  const owner = owners[0] ?? state.runs.find(
+    (run) => start >= run.modelRange.start && start <= run.modelRange.end
+  )
+  if (owner === undefined) return Object.freeze([])
+
+  const isIdentity =
+    boundaryMapping === 'identity' &&
+    text.length === end - start &&
+    end >= start
+  if (isIdentity && owners.length > 1) {
+    const parts: MarkupRenderText[] = []
+    for (const run of owners) {
+      const partStart = Math.max(start, run.modelRange.start)
+      const partEnd = Math.min(end, run.modelRange.end)
+      if (partStart >= partEnd) continue
+      parts.push(makeTextRun(
+        text.slice(partStart - start, partEnd - start),
+        partStart,
+        partEnd,
+        'identity',
+        run
+      ))
+    }
+    return Object.freeze(parts)
+  }
+  return Object.freeze([
+    makeTextRun(text, start, end, boundaryMapping, owner)
+  ])
+}
+
+function makeTextRun(
+  text: string,
+  modelStart: number,
+  modelEnd: number,
+  boundaryMapping: MarkupRenderText['boundaryMapping'],
+  owner: MarkupRenderRun
+): MarkupRenderText {
+  const sourceOffset = (offset: number): number => {
+    const bounded = Math.max(
+      owner.modelRange.start,
+      Math.min(owner.modelRange.end, offset)
+    )
+    return owner.sourceRange.start + bounded - owner.modelRange.start
+  }
+  const sourceStart = sourceOffset(modelStart)
+  const sourceEnd = sourceOffset(modelEnd)
+  return Object.freeze({
+    key: `${owner.key}:semantic:${String(modelStart)}`,
+    text,
+    elements: owner.elements,
+    modelRange: Object.freeze({ start: modelStart, end: modelEnd }),
+    sourceRange: Object.freeze({
+      start: sourceStart as SourceOffset,
+      end: sourceEnd as SourceOffset
+    }),
+    boundaryMapping
+  })
+}
+
+function inlineCodeTextRuns(
+  node: MarkdownNode,
+  state: SemanticRenderState
+): readonly MarkupRenderText[] {
+  const markerLength = Number(node.attributes['markerLength'] ?? 1)
+  let start = Number(
+    node.attributes['contentStart'] ?? node.range.start + markerLength
+  )
+  let end = Number(
+    node.attributes['contentEnd'] ?? node.range.end - markerLength
+  )
+  let raw = state.document.source.slice(start, end)
+  if (
+    raw.length >= 2 &&
+    raw.startsWith(' ') &&
+    raw.endsWith(' ') &&
+    raw.trim() !== ''
+  ) {
+    start += 1
+    end -= 1
+    raw = raw.slice(1, -1)
+  }
+  const parts: MarkupRenderText[] = []
+  let cursor = 0
+  while (cursor < raw.length) {
+    const code = raw.charCodeAt(cursor)
+    if (code === 10 || code === 13) {
+      const width =
+        code === 13 && raw.charCodeAt(cursor + 1) === 10 ? 2 : 1
+      parts.push(...identityTextRuns(
+        start + cursor,
+        start + cursor + width,
+        ' ',
+        'collapsed',
+        state
+      ))
+      cursor += width
+      continue
+    }
+    let next = cursor + 1
+    while (
+      next < raw.length &&
+      raw.charCodeAt(next) !== 10 &&
+      raw.charCodeAt(next) !== 13
+    ) {
+      next += 1
+    }
+    parts.push(...identityTextRuns(
+      start + cursor,
+      start + next,
+      raw.slice(cursor, next),
+      'identity',
+      state
+    ))
+    cursor = next
+  }
+  return Object.freeze(parts)
+}
+
+function literalContentTextRuns(
+  node: MarkdownNode,
+  state: SemanticRenderState
+): readonly MarkupRenderText[] {
+  const content = String(
+    node.attributes['content'] ??
+    state.document.source.slice(node.range.start, node.range.end)
+  )
+  const start = Number(node.attributes['contentStart'] ?? node.range.start)
+  const end = Number(node.attributes['contentEnd'] ?? node.range.end)
+  return identityTextRuns(
+    start,
+    end,
+    content,
+    content.length === end - start ? 'identity' : 'collapsed',
+    state
+  )
+}
+
+function elementsForRange(
+  start: number,
+  end: number,
+  runs: readonly MarkupRenderRun[]
+): readonly MarkupRenderElement[] {
+  return runs.find(
+    (run) => run.modelRange.start < end && start < run.modelRange.end
+  )?.elements ?? Object.freeze([])
+}
+
+interface SemanticLinkTarget {
+  readonly destination: string
+  readonly title?: string
+}
+
+function resolveSemanticLinkTarget(
+  node: MarkdownNode,
+  state: SemanticRenderState
+): SemanticLinkTarget | undefined {
+  const target = state.document.references.linkForNode(node.nodeId)
+  return target === undefined
+    ? undefined
+    : {
+      destination: target.destination,
+      ...(target.title === undefined ? {} : { title: target.title })
+    }
+}
+
+function semanticPlainText(
+  node: MarkdownNode,
+  document: MarkdownDocument
+): string {
+  const parts: string[] = []
+  for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
+    const child = node.childAt(ordinal)
+    if (child.kind === 'text') {
+      parts.push(markdownTextValue(
+        document.source.slice(child.range.start, child.range.end)
+      ))
+    } else if (child.kind === 'inline-code') {
+      const markerLength = Number(child.attributes['markerLength'] ?? 1)
+      parts.push(document.source.slice(
+        child.range.start + markerLength,
+        child.range.end - markerLength
+      ))
+    } else if (child.kind === 'soft-break' || child.kind === 'hard-break') {
+      parts.push(' ')
+    } else {
+      parts.push(semanticPlainText(child, document))
+    }
+  }
+  return parts.join('')
+}
+
+const AUTOLINK_EMAIL =
+  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+
+function safeLiveUrl(url: string, consumer: 'image' | 'link'): string {
+  let normalized = ''
+  for (const character of url) {
+    const codePoint = character.codePointAt(0) ?? 0
+    if (codePoint > 0x20 && codePoint !== 0x7f) { normalized += character.toLowerCase() }
+  }
+  const scheme = /^([a-z][a-z0-9+.-]*):/.exec(normalized)?.[1]
+  if (scheme === undefined) return url
+  if (scheme === 'http' || scheme === 'https' || scheme === 'mailto') {
+    return url
+  }
+  if (
+    consumer === 'image' &&
+    (
+      scheme === 'blob' ||
+      (
+        scheme === 'data' &&
+        /^data:image\/(?:jpeg|png|gif|webp|svg\+xml)(?:[;,])/i.test(url)
+      )
+    )
+  ) {
+    return url
+  }
+  return ''
+}
+
+function footnoteAddress(label: string): string {
+  return encodeURIComponent(label)
+}
+
+function footnoteReferenceId(label: string, occurrence: number): string {
+  const suffix = occurrence === 1 ? '' : `-${String(occurrence)}`
+  return `fnref-${footnoteAddress(label)}${suffix}`
+}
+
+function footnoteDefinitionId(label: string): string {
+  return `fn-${footnoteAddress(label)}`
+}
 
 /**
  * Where the caret or a click sits in view terms: which mounted block, which run
@@ -344,7 +872,7 @@ export function groupRenderLines(
 ): readonly MarkupRenderLine[] {
   const lines: MarkupRenderLine[] = []
   let current: MarkupRenderRun[] = []
-  let lineStart = runs.length > 0 ? runs[0]!.modelRange.start : 0
+  let lineStart = runs[0]?.modelRange.start ?? 0
   let modelEnd = lineStart
   const closeLine = (contentEnd: number, endsWithNewline: boolean): void => {
     lines.push(Object.freeze({

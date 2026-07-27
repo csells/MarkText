@@ -7,7 +7,7 @@ import {
   CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS,
   type ICriticMarkupTrackChangeRejection,
   type TCriticMarkupTrackChangeRejectionReason
-} from '@muyajs/core'
+} from '@marktext/document-view'
 
 const { pushTabNotification } = vi.hoisted(() => ({ pushTabNotification: vi.fn() }))
 
@@ -19,40 +19,40 @@ vi.mock('@/store/editor', () => ({
 }))
 
 import {
-  TRACK_CHANGE_REJECTION_BODY_KEYS,
+  presentTrackChangeRejection,
   TRACK_CHANGE_REJECTION_EXCLUSIVE_TYPE,
+  TRACK_CHANGE_REJECTION_MESSAGE_KEYS,
+  TRACK_CHANGE_REJECTION_UNKNOWN_KEY,
   TRACK_CHANGE_REJECTION_TITLE_KEY,
   useCriticMarkupRejectionNotifier
 } from '@/components/editorWithTabs/useCriticMarkupRejectionNotifier'
-import { compileSfcRender, mountTemplate } from '../helpers/mountTemplate'
-
 type RejectionListener = (rejection: ICriticMarkupTrackChangeRejection) => void
 
-const REJECTED_EVENT = 'critic-markup-track-change-rejected'
+class FakeDocumentViewEvents {
+  subscribeCount = 0
+  disposeCount = 0
+  private readonly listeners = new Set<RejectionListener>()
 
-class FakeMuyaEvents {
-  readonly onEvents: string[] = []
-  readonly offEvents: string[] = []
-  private readonly listeners = new Map<string, Set<RejectionListener>>()
-
-  on(event: string, listener: RejectionListener): void {
-    this.onEvents.push(event)
-    const bucket = this.listeners.get(event) ?? new Set<RejectionListener>()
-    bucket.add(listener)
-    this.listeners.set(event, bucket)
-  }
-
-  off(event: string, listener: RejectionListener): void {
-    this.offEvents.push(event)
-    this.listeners.get(event)?.delete(listener)
+  subscribeTrackChangeRejection(listener: RejectionListener): Readonly<{ dispose: () => void }> {
+    this.subscribeCount += 1
+    this.listeners.add(listener)
+    let disposed = false
+    return {
+      dispose: () => {
+        if (disposed) return
+        disposed = true
+        this.disposeCount += 1
+        this.listeners.delete(listener)
+      }
+    }
   }
 
   emitRejection(rejection: ICriticMarkupTrackChangeRejection): void {
-    this.listeners.get(REJECTED_EVENT)?.forEach((listener) => listener(rejection))
+    this.listeners.forEach((listener) => listener(rejection))
   }
 
-  listenerCount(event: string): number {
-    return this.listeners.get(event)?.size ?? 0
+  listenerCount(): number {
+    return this.listeners.size
   }
 }
 
@@ -60,11 +60,13 @@ const rejection = (
   reason: TCriticMarkupTrackChangeRejectionReason
 ): ICriticMarkupTrackChangeRejection => ({
   beforeMarkdown: 'before',
-  proposedMarkdown: 'proposed',
   reason
 })
 
-const mountNotifier = (editor: Ref<FakeMuyaEvents | null>, tabId: Ref<string | null>): App => {
+const mountNotifier = (
+  editor: Ref<FakeDocumentViewEvents | null>,
+  tabId: Ref<string | null>
+): App => {
   const app = createApp(
     defineComponent({
       setup() {
@@ -107,21 +109,25 @@ describe('Track Changes rejection presentation', () => {
   beforeEach(() => pushTabNotification.mockClear())
 
   it('covers exactly the engine-published fail-closed rejection taxonomy', () => {
-    expect(Object.keys(TRACK_CHANGE_REJECTION_BODY_KEYS).sort()).toEqual(
-      [...CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS].sort()
-    )
+    expect(new Set(CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS).size)
+      .toBe(CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS.length)
+    expect(Object.keys(TRACK_CHANGE_REJECTION_MESSAGE_KEYS).sort())
+      .toEqual([...CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS].sort())
   })
 
   it.each([...CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS])(
     'enqueues exactly one localized warning banner for %s',
     (reason) => {
-      const fake = new FakeMuyaEvents()
-      const app = mountNotifier(shallowRef<FakeMuyaEvents | null>(fake), ref('tab-1'))
+      const fake = new FakeDocumentViewEvents()
+      const app = mountNotifier(shallowRef<FakeDocumentViewEvents | null>(fake), ref('tab-1'))
       try {
         fake.emitRejection(rejection(reason))
 
         const title = getPath(enLocale, TRACK_CHANGE_REJECTION_TITLE_KEY)
-        const body = getPath(enLocale, TRACK_CHANGE_REJECTION_BODY_KEYS[reason])
+        const body = getPath(
+          enLocale,
+          TRACK_CHANGE_REJECTION_MESSAGE_KEYS[reason]
+        )
         expect(title).toEqual(expect.any(String))
         expect(body).toEqual(expect.any(String))
 
@@ -139,34 +145,56 @@ describe('Track Changes rejection presentation', () => {
     }
   )
 
-  it('subscribes once per muya instance and unsubscribes on swap and unmount', () => {
-    const first = new FakeMuyaEvents()
-    const second = new FakeMuyaEvents()
-    const editor = shallowRef<FakeMuyaEvents | null>(first)
+  it('fails closed to localized copy for an unknown engine reason', () => {
+    const forgedReason = 'forged-future-rejection'
+    const translate = (key: string): string => `[${key}]`
+
+    presentTrackChangeRejection(
+      {
+        beforeMarkdown: 'unchanged',
+        reason: forgedReason
+      } as unknown as ICriticMarkupTrackChangeRejection,
+      'tab-1',
+      { pushTabNotification },
+      translate
+    )
+
+    expect(pushTabNotification).toHaveBeenCalledTimes(1)
+    expect(pushTabNotification).toHaveBeenCalledWith(expect.objectContaining({
+      msg: `[${TRACK_CHANGE_REJECTION_TITLE_KEY}]: [${TRACK_CHANGE_REJECTION_UNKNOWN_KEY}]`
+    }))
+    expect(pushTabNotification.mock.calls[0]?.[0].msg)
+      .not.toContain(forgedReason)
+  })
+
+  it('subscribes once per document-view instance and unsubscribes on swap and unmount', () => {
+    const first = new FakeDocumentViewEvents()
+    const second = new FakeDocumentViewEvents()
+    const editor = shallowRef<FakeDocumentViewEvents | null>(first)
     const app = mountNotifier(editor, ref('tab-1'))
 
-    expect(first.onEvents).toEqual([REJECTED_EVENT])
-    expect(first.listenerCount(REJECTED_EVENT)).toBe(1)
+    expect(first.subscribeCount).toBe(1)
+    expect(first.listenerCount()).toBe(1)
 
     editor.value = second
-    expect(first.offEvents).toEqual([REJECTED_EVENT])
-    expect(first.listenerCount(REJECTED_EVENT)).toBe(0)
-    expect(second.onEvents).toEqual([REJECTED_EVENT])
+    expect(first.disposeCount).toBe(1)
+    expect(first.listenerCount()).toBe(0)
+    expect(second.subscribeCount).toBe(1)
 
     app.unmount()
-    expect(second.offEvents).toEqual([REJECTED_EVENT])
-    expect(second.listenerCount(REJECTED_EVENT)).toBe(0)
+    expect(second.disposeCount).toBe(1)
+    expect(second.listenerCount()).toBe(0)
 
     // A rejection published after teardown must not resurrect a banner.
-    second.emitRejection(rejection('parser-conflict'))
+    second.emitRejection(rejection('precommit-failed'))
     expect(pushTabNotification).not.toHaveBeenCalled()
   })
 
   it('drops the banner rather than guessing a tab when no tab is active', () => {
-    const fake = new FakeMuyaEvents()
-    const app = mountNotifier(shallowRef<FakeMuyaEvents | null>(fake), ref(null))
+    const fake = new FakeDocumentViewEvents()
+    const app = mountNotifier(shallowRef<FakeDocumentViewEvents | null>(fake), ref(null))
     try {
-      fake.emitRejection(rejection('unmappable-source-edit'))
+      fake.emitRejection(rejection('stale-selection'))
       expect(pushTabNotification).not.toHaveBeenCalled()
     } finally {
       app.unmount()
@@ -176,8 +204,11 @@ describe('Track Changes rejection presentation', () => {
   it('never touches window focus APIs while presenting a rejection', () => {
     const windowFocus = vi.spyOn(window, 'focus').mockImplementation(() => {})
     const elementFocus = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => {})
-    const fake = new FakeMuyaEvents()
-    const app = mountNotifier(shallowRef<FakeMuyaEvents | null>(fake), ref('tab-1'))
+    const fake = new FakeDocumentViewEvents()
+    const app = mountNotifier(
+      shallowRef<FakeDocumentViewEvents | null>(fake),
+      ref('tab-1')
+    )
     try {
       for (const reason of CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS) {
         fake.emitRejection(rejection(reason))
@@ -209,13 +240,13 @@ describe('Track Changes rejection presentation', () => {
     }
   })
 
-  it.each(localeFiles)('%s localizes the rejection title and all four bodies', (file) => {
+  it.each(localeFiles)('%s localizes every rejection presentation key', (file) => {
     const locale = readLocale(file)
     const keys = [
       TRACK_CHANGE_REJECTION_TITLE_KEY,
-      ...Object.values(TRACK_CHANGE_REJECTION_BODY_KEYS)
+      ...new Set(Object.values(TRACK_CHANGE_REJECTION_MESSAGE_KEYS)),
+      TRACK_CHANGE_REJECTION_UNKNOWN_KEY
     ]
-
     for (const key of keys) {
       const message = getPath(locale, key)
       expect(message, `${file}: ${key}`).toEqual(expect.any(String))

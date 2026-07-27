@@ -38,7 +38,7 @@ export class SpellChecker {
       }
       return await this.switchLanguage(lang || this.currentSpellcheckerLanguage)
     } catch (error) {
-      this.deactivateSpellchecker()
+      await this.deactivateSpellchecker()
       throw error
     }
   }
@@ -46,10 +46,13 @@ export class SpellChecker {
   /**
    * Disables the native spell checker.
    */
-  deactivateSpellchecker(): void {
+  async deactivateSpellchecker(): Promise<void> {
     this.enabled = false
     this.isProviderAvailable = false
-    window.electron.ipcRenderer.invoke('mt::spellchecker-set-enabled', false)
+    await window.electron.ipcRenderer.invoke(
+      'mt::spellchecker-set-enabled',
+      false
+    )
   }
 
   /**
@@ -94,5 +97,34 @@ export class SpellChecker {
       return []
     }
     return window.electron.ipcRenderer.invoke('mt::spellchecker-get-available-dictionaries')
+  }
+}
+
+/**
+ * Apply one persisted enabled/language state to Chromium's native provider.
+ *
+ * Construction only stores preferences; this explicit synchronization is what
+ * makes the first mounted editor match those preferences.
+ */
+export async function applySpellcheckerEnabledState(
+  spellchecker: SpellChecker,
+  enabled: boolean,
+  language: string
+): Promise<void> {
+  if (enabled) {
+    await spellchecker.activateSpellchecker(language)
+    return
+  }
+  await spellchecker.deactivateSpellchecker()
+}
+
+/** Persist a language change and apply it immediately when the provider is on. */
+export async function applySpellcheckerLanguage(
+  spellchecker: SpellChecker,
+  language: string
+): Promise<void> {
+  spellchecker.lang = language
+  if (spellchecker.isEnabled) {
+    await spellchecker.switchLanguage(language)
   }
 }

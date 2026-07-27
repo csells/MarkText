@@ -1,7 +1,6 @@
 import path from 'path'
 import fs from 'fs-extra'
 import { app, ipcMain } from 'electron'
-import { rgPath } from '@vscode/ripgrep'
 import { MARKDOWN_INCLUSIONS } from 'common/filesystem/paths'
 import type { BootInfo } from '@shared/types/ipc'
 
@@ -12,11 +11,6 @@ const ENV_ALLOWLIST = [
   'MARKTEXT_VERSION',
   'MARKTEXT_VERSION_STRING',
   'MARKTEXT_E2E_READONLY_BRIDGE',
-  // Which document engine a tab runs on. The renderer decides per launch, so
-  // the value has to cross the sandbox boundary explicitly like every other
-  // variable here.
-  'MARKTEXT_DOCUMENT_CORE_ENGINE',
-  'MARKTEXT_RIPGREP_PATH',
   'PATH',
   'HOME'
 ]
@@ -28,13 +22,6 @@ const pickEnv = (): Record<string, string> => {
     if (value !== undefined) out[key] = value
   }
   return out
-}
-
-const resolveRipgrepBinary = (): string => {
-  if (process.env.MARKTEXT_RIPGREP_PATH) {
-    return process.env.MARKTEXT_RIPGREP_PATH
-  }
-  return rgPath.replace(/\bapp\.asar\b/, 'app.asar.unpacked')
 }
 
 const computeIsUpdatable = (): boolean => {
@@ -57,6 +44,7 @@ const computeIsUpdatable = (): boolean => {
 }
 
 const buildBootInfo = (): BootInfo => ({
+  buildCommit: MARKTEXT_BUILD_COMMIT,
   platform: process.platform,
   arch: process.arch,
   versions: {
@@ -66,7 +54,6 @@ const buildBootInfo = (): BootInfo => ({
   },
   env: pickEnv(),
   paths: {
-    ripgrepBinary: resolveRipgrepBinary(),
     resources: process.resourcesPath,
     userData: app.getPath('userData'),
     cwd: process.cwd()

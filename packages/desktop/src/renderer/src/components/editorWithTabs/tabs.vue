@@ -52,6 +52,10 @@ import { Plus, Close } from '@element-plus/icons-vue'
 import { showContextMenu } from '../../contextMenu/tabs'
 import bus from '../../bus'
 import type { IFileState } from '@shared/types/files'
+import { revealDocument } from '@/services/presentationEffects'
+import {
+  copyAdmittedDocumentPath
+} from '@/services/documentPathClipboard'
 
 const editorStore = useEditorStore()
 const layoutStore = useLayoutStore()
@@ -78,17 +82,12 @@ const selectFile = (file: IFileState) => {
 }
 
 const removeFileInTab = (file: IFileState) => {
-  const { isSaved } = file
-  if (isSaved) {
-    editorStore.FORCE_CLOSE_TAB(file)
-  } else {
-    editorStore.CLOSE_UNSAVED_TAB(file)
-  }
+  editorStore.CLOSE_TAB(file)
 }
 
 // Original methods
 const newFile = () => {
-  editorStore.NEW_UNTITLED_TAB({})
+  window.electron.ipcRenderer.send('mt::cmd-new-tab')
 }
 
 // Keep the active tab visible when the selection changes by something other
@@ -158,15 +157,15 @@ const rename = (tabId: unknown) => {
 
 const copyPath = (tabId: unknown) => {
   const tab = tabs.value.find((f) => f.id === tabId)
-  if (tab && tab.pathname) {
-    window.electron.clipboard.writeText(tab.pathname)
+  if (tab?.id) {
+    copyAdmittedDocumentPath(tab.id).catch(() => undefined)
   }
 }
 
 const showInFolder = (tabId: unknown) => {
   const tab = tabs.value.find((f) => f.id === tabId)
   if (tab && tab.pathname) {
-    window.electron.shell.showItemInFolder(tab.pathname)
+    revealDocument(tab.id)
   }
 }
 

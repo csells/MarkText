@@ -7,19 +7,15 @@
     <div
       ref="editorRef"
       class="editor-component"
+      :aria-hidden="sourceCode || imageViewerVisible ? 'true' : undefined"
+      :inert="sourceCode || imageViewerVisible || undefined"
     />
-    <div
-      v-show="imageViewerVisible"
-      class="image-viewer"
-    >
-      <span
-        class="icon-close"
-        @click="setImageViewerVisible(false)"
-      >
-        <CloseIcon />
-      </span>
-      <div ref="imageViewerRef" />
-    </div>
+    <ImageViewerOverlay
+      ref="imageViewerOverlayRef"
+      :visible="imageViewerVisible"
+      @close="setImageViewerVisible(false)"
+      @restore-focus="restoreImageViewerFocus"
+    />
     <el-dialog
       v-model="dialogTableVisible"
       :show-close="isShowClose"
@@ -89,126 +85,122 @@ import {
 } from 'vue'
 import log from 'electron-log'
 import {
-  Muya,
-  CodeBlockLanguageSelector,
-  CriticMarkupReviewTool,
-  EmojiSelector,
-  FootnoteTool,
-  ImageEditTool,
-  ImagePathPicker,
-  ImageResizeBar,
-  ImageToolBar,
-  InlineFormatToolbar,
-  LinkTools,
-  ParagraphFrontButton,
-  ParagraphFrontMenu,
-  ParagraphQuickInsertMenu,
-  PreviewToolBar,
-  TableChessboard,
-  TableColumnToolbar,
-  TableDragBar,
-  TableRowColumMenu,
   reportAsyncTask,
-  wordCount as muyaWordCount,
-  en,
-  de,
-  es,
-  fr,
-  ja,
-  ko,
-  pt,
-  tr,
-  zhCN,
-  zhTW,
-  type ILocale,
-  type Muya as MuyaInstance
-} from '@muyajs/core'
-import { exportStyledHTML, type HeaderFooterPart } from '@/util/exportHtml'
+  type ICriticMarkupReviewEditor,
+  type DocumentSelectionContext
+} from '@marktext/document-view'
+import {
+  type BlockConversion,
+  type ConsumerView,
+  type InlineFormat
+} from '@marktext/document-core'
+import type {
+  DocumentCoreExecutionReport,
+  DocumentCoreHistoryState
+} from '@shared/types/documentCore'
+import type {
+  ImageAssetSource,
+  ImageSourceCapability
+} from '@shared/types/imageAsset'
 import { applyCursor, isIndexCursor } from '@/util/cursor'
 import EditorSearch from '../search/index.vue'
 import bus from '@/bus'
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_CODE_FONT_FAMILY } from '@/config'
 import notice from '@/services/notification'
-import Printer from '@/services/printService'
+import { imageAssetSourceFromFile } from '@/services/imageAssetClient'
+import {
+  imageAssetStorage,
+  isRemoteImageReference
+} from '@/services/imageAssetPolicy'
+import { uploadImage } from '@/services/uploaderClient'
+import {
+  admitImageInsertion,
+  assertImageInsertionAdmission,
+  completeAsyncImageInsertion,
+  completeUploadedImageInsertion,
+  insertImageReference,
+  isImageInsertionAdmissionError,
+  type ImageInsertionContext
+} from '@/services/asyncImageInsertion'
+import { revealStaticOutput } from '@/services/presentationEffects'
 import { SpellcheckerLanguageCommand } from '@/commands'
-import { SpellChecker } from '@/spellchecker'
+import {
+  SpellChecker,
+  applySpellcheckerEnabledState,
+  applySpellcheckerLanguage
+} from '@/spellchecker'
 import { isOsx, animatedScrollTo } from '@/util'
-import { moveImageToFolder, uploadImage } from '@/util/fileSystem'
-import { guessClipboardFilePath } from '@/util/clipboard'
-import { getCssForOptions, getHtmlToc, type PdfCssOptions, type HtmlTocOptions } from '@/util/pdf'
 import { resolveTocHeadingElement } from '@/util/tocNavigation'
-import { addCommonStyle, setEditorWidth } from '@/util/theme'
+import { addCommonStyle } from '@/util/theme'
 import { usePreferencesStore } from '@/store/preferences'
 import { useEditorStore } from '@/store/editor'
-import { useProjectStore } from '@/store/project'
+import type { FlushActiveEditorRequest } from '@/store/editor'
+import { setLanguage as ensureDesktopLocale } from '@/i18n'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
-import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
 import { type CriticMarkupTextRequest } from './criticMarkupReview'
 import CriticMarkupPromptDialog from './CriticMarkupPromptDialog.vue'
 import { useCriticMarkupReviewController } from './useCriticMarkupReviewController'
 import { useCriticMarkupRejectionNotifier } from './useCriticMarkupRejectionNotifier'
 import { installE2EReadOnlyBridge } from './e2eReadOnlyBridge'
-import { diagramThemesFor } from './diagramThemes'
-import { DOCUMENT_CORE_PARSE_CONFIGURATION, hostFor, installDocumentEngineWithMirror } from './documentEngineHost'
+import {
+  createDocumentEditorHost,
+  type DocumentEditorHost,
+  type DocumentHostConfiguration,
+  type DocumentHostInteraction
+} from './documentCoreDesktopEditor'
+import {
+  createDocumentCoreRemoteSession,
+  type DocumentCoreRemoteSession,
+  type DocumentCoreRemoteSessionOptions
+} from './documentCoreRemoteSession'
+import {
+  registerDocumentCoreTabCloser
+} from './documentCoreTabLifecycle'
+import {
+  registerSourceModeDocumentPort,
+  settleSourceModeInput
+} from './sourceModeDocumentPort'
+import { useDocumentSurfaceContext } from './useDocumentSurfaceContext'
+import {
+  documentSurfaceFromProjection
+} from '@shared/types/documentSurface'
+import type {
+  SourceModeCopyRequest,
+  SourceModeDocumentPort,
+  SourceModeEditRequest,
+  SourceModeImageRequest,
+  SourceModePasteRequest,
+  SourceModeSelection,
+  SourceModePublication
+} from './sourceModeController'
 import { useEditorLifecycle } from './useEditorLifecycle'
+import {
+  decodeCopyPasteCommand,
+  decodeEditorExportCommand,
+  decodeMisspellingRequest,
+  decodeParagraphAction,
+  decodeReplaceRequest,
+  decodeSearchRequest
+} from './editorCommandDecoders'
+import {
+  decodeDocumentCoreStaticSinkReceipt
+} from './documentCoreStaticSinkClientCodec'
+import {
+  applyDesktopDocumentViewLocale
+} from './documentViewLocale'
 
-// Importing the engine entrypoint auto-injects its editor CSS (the muya.ts
-// module imports its stylesheets at load time). Desktop themes still target the
-// legacy `ag-*` DOM (theme migration is a separate phase), so minor visual
-// differences against the new `mu-*` DOM are expected.
-import '@muyajs/core'
-import '@/assets/themes/codemirror/one-dark.css'
-import { Close as CloseIcon } from '@element-plus/icons-vue'
+// Importing the retained view package injects the document-core editor CSS.
+import '@marktext/document-view'
 import { type InputNumberInstance } from 'element-plus'
+import ImageViewerOverlay from './imageViewerOverlay.vue'
 
 const { t } = useI18n()
 const STANDAR_Y = 320
 
-// Map the desktop language preference to the engine's bundled locale objects.
-const MUYA_LOCALES: Record<string, ILocale> = {
-  en,
-  de,
-  es,
-  fr,
-  ja,
-  ko,
-  pt,
-  tr,
-  'zh-CN': zhCN,
-  'zh-TW': zhTW
-}
+type DesktopEditorInstance = DocumentEditorHost
 
-const getMuyaLocale = (language: string): ILocale => MUYA_LOCALES[language] ?? en
-
-// `Muya.use(...)` appends to the static `Muya.plugins` array, and every
-// `init()` instantiates the full list. Registration is process-global, so guard
-// it with a module-level flag — otherwise remounting this component in the same
-// renderer (window reuse / HMR) would register duplicate plugins and spawn
-// duplicate UI handlers. The per-plugin option closures (imageAction/jumpClick)
-// only read app-singleton Pinia stores, so capturing them once is correct.
-let muyaPluginsRegistered = false
-
-// The engine's `selection-change` / `json-change` payload. The consumed
-// `@muyajs/core` declaration does not re-export this shape, so describe the
-// fields the desktop reads (each is re-cast in the body); the index signature
-// keeps the boundary permissive for anything not enumerated here.
-interface MuyaChange {
-  anchorPath?: Array<string | number>
-  focusPath?: Array<string | number>
-  anchorBlock?: { text?: string } | null
-  focusBlock?: { text?: string } | null
-  anchorBlockInfo?: { type?: string; functionType?: string } | null
-  focusBlockInfo?: { type?: string; functionType?: string } | null
-  affiliation?: EngineAffiliationEntry[]
-  anchor?: { offset?: number } | null
-  focus?: { offset?: number } | null
-  cursorCoords?: { y?: number } | null
-  formats?: SelectionFormatLike[]
-  [key: string]: unknown
-}
-
-const props = defineProps<{
+defineProps<{
   markdown?: string
   cursor?: unknown
   textDirection: string
@@ -218,47 +210,32 @@ const props = defineProps<{
 // Get stores
 const preferencesStore = usePreferencesStore()
 const editorStore = useEditorStore()
-const projectStore = useProjectStore()
 
 // Use storeToRefs to extract reactive properties from the stores
 const {
   // Preferences
-  preferLooseListItem,
   autoPairBracket,
   autoPairMarkdownSyntax,
   autoPairQuote,
-  bulletListMarker,
-  orderListDelimiter,
-  tabSize,
-  listIndentation,
-  frontmatterType,
-  superSubScript,
-  footnote,
-  isHtmlEnabled,
-  isGitlabCompatibilityEnabled,
+  subscriptAndSuperscript,
+  footnotes,
+  gitLabMath,
   lineHeight,
   fontSize,
   codeFontSize,
   codeFontFamily,
-  codeBlockLineNumbers,
-  trimUnnecessaryCodeBlockEmptyLines,
   editorFontFamily,
   hideQuickInsertHint,
   hideLinkPopup,
   autoCheck,
   editorLineWidth,
   wrapCodeBlocks,
-  imageInsertAction,
-  imagePreferRelativeDirectory,
-  imageRelativeDirectoryBase,
-  imageRelativeDirectoryName,
-  imageFolderPath,
-  theme,
-  sequenceTheme,
   hideScrollbar,
   spellcheckerEnabled,
   spellcheckerNoUnderline,
   spellcheckerLanguage,
+  imageInsertAction,
+  imagePreferRelativeDirectory,
   language,
 
   // Edit modes
@@ -268,21 +245,18 @@ const {
 } = storeToRefs(preferencesStore)
 
 // Editor store refs
-const { currentFile, tabs } = storeToRefs(editorStore)
-
-// Project store refs
-const { projectTree } = storeToRefs(projectStore)
+const { currentFile } = storeToRefs(editorStore)
 
 // Component state
 const defaultFontFamily = DEFAULT_EDITOR_FONT_FAMILY
 const resolveEditorFont = (family: string): string =>
   family ? `${family}, ${defaultFontFamily}` : defaultFontFamily
 const resolveCodeFont = (family: string): string => `${family}, ${DEFAULT_CODE_FONT_FAMILY}`
-const selectionChange = ref<unknown>(null)
-const editor = shallowRef<MuyaInstance | null>(null)
+const selectionChange = ref<DocumentSelectionContext | null>(null)
+const editor = shallowRef<DesktopEditorInstance | null>(null)
 const isShowClose = ref(false)
 const dialogTableVisible = ref(false)
-const imageViewerVisible = ref<boolean | null>(null)
+const imageViewerVisible = ref(false)
 const tableChecker = reactive({
   rows: 4,
   columns: 3
@@ -290,7 +264,9 @@ const tableChecker = reactive({
 
 // Template refs
 const editorRef = ref<HTMLDivElement | null>(null)
-const imageViewerRef = ref<HTMLDivElement | null>(null)
+const imageViewerOverlayRef = ref<{
+  getContainer: () => HTMLDivElement | null
+} | null>(null)
 const rowInput = ref<InputNumberInstance | null>(null)
 const criticMarkupPromptDialog = ref<{
   request: CriticMarkupTextRequest
@@ -298,169 +274,94 @@ const criticMarkupPromptDialog = ref<{
 } | null>(null)
 
 // Non-reactive variables
-let printer: Printer | null = null
-let spellchecker: any = null
+let spellchecker: SpellChecker | null = null
 let switchLanguageCommand: SpellcheckerLanguageCommand | null = null
 let imageViewer: SimpleImageViewer | null = null
 // The engine has no `scroll` event; we listen on the scroll container directly.
 let scrollHandler: ((e: Event) => void) | null = null
 let disposeE2EReadOnlyBridge = () => {}
+let disposeDocumentCoreTabCloser = () => {}
+let disposeSourceModeDocumentPort = () => {}
+let disposeImageAssetInput = () => {}
 
-// The engine's undo/redo history (`getHistory()`) has a different shape than
-// the desktop store's `tab.history` (which drives the save/dirty tracking and
-// is migrated separately). We therefore keep the real engine history in a
-// per-tab map here for restoration across in-session tab switches, and feed the
-// store a SYNTHETIC desktop-shaped history.
-const engineHistoryByTab = new Map<string, ReturnType<MuyaInstance['getHistory']>>()
+const documentCoreHistoryByTab = new Map<string, DocumentCoreHistoryState>()
+const documentCoreExecutionByTab =
+  new Map<string, DocumentCoreExecutionReport>()
+let activeRemoteSession: DocumentCoreRemoteSession | null = null
 
-// The WYSIWYG caret captured the instant the user switches INTO source mode.
-// Focus moves to CodeMirror while source mode is up, so by the time the tab is
-// handed back (`replaceContent`) the live DOM selection no longer points into
-// the muya tree. We stash the pre-source caret here and feed it to
-// `replaceContent` as the rebuild boundary's restore-selection, so the first
-// undo after the handoff returns the caret to where source mode was entered.
-let preSourceModeSelection: ReturnType<MuyaInstance['getSelection']> = null
-
-// Per-tab monotonic save-tracking id allocator. The synthetic history entry id
-// is a MONOTONIC, never-reused id keyed on the live document content (see
-// `syntheticHistory.ts`), NOT the engine undo-stack depth: depth is reused
-// across distinct documents at the same stack height, which falsely showed a
-// divergently re-edited tab as clean (Phase G — G6). Reset whenever the engine
-// reloads the document via `setContent` (which clears the engine history), so
-// the reloaded content is the id-0 baseline matching the store's seeded
-// `lastSavedHistoryId: 0`.
-const syntheticHistoryByTab = new Map<string, SyntheticHistory>()
-const getSyntheticHistory = (id: string, baselineContent: string): SyntheticHistory => {
-  let tracker = syntheticHistoryByTab.get(id)
-  if (!tracker) {
-    tracker = new SyntheticHistory(baselineContent)
-    syntheticHistoryByTab.set(id, tracker)
-  }
-  return tracker
-}
-// Re-baseline a tab's id allocator to the given content (id 0). Called after
-// `setContent` reloads the document so the freshly loaded content is clean.
-const resetSyntheticHistory = (id: string, baselineContent: string): void => {
-  syntheticHistoryByTab.set(id, new SyntheticHistory(baselineContent))
-}
-const makeSyntheticHistory = (id: string, content: string): IFileHistoryLike => {
-  return getSyntheticHistory(id, content).build(content)
-}
-// Drop per-tab bookkeeping for tabs that no longer exist. Tab ids are unique
-// over the session, so without pruning these maps (and the content -> id map
-// each `SyntheticHistory` holds) would grow unbounded as tabs are opened and
-// closed. Driven by a watcher on the store's live tab id set.
-const pruneClosedTabState = (liveTabIds: Set<string>): void => {
-  for (const id of engineHistoryByTab.keys()) {
-    if (!liveTabIds.has(id)) engineHistoryByTab.delete(id)
-  }
-  for (const id of syntheticHistoryByTab.keys()) {
-    if (!liveTabIds.has(id)) syntheticHistoryByTab.delete(id)
-  }
-}
-
-interface SelectionFormatLike {
-  type: string
-  [key: string]: unknown
-}
-
-// Container `blockName` → legacy `functionType`. The engine's affiliation
-// entries carry `blockName` but not the legacy `functionType` the desktop
-// menu-state builder keys off for `pre`/`figure` containers (table detection +
-// Format-menu disable). Re-derive it here so `createApplicationMenuState`'s
-// existing `pre`/`figure` branches fire. The `code$` / `multiplemath` /
-// `frontmatter` / `html` / `table` values match the legacy muyajs vocabulary
-// (`createApplicationMenuState`'s `/frontmatter|html|multiplemath|code$/` test
-// and `=== 'table'` check).
-const CONTAINER_FUNCTION_TYPE: Record<string, string> = {
-  'code-block': 'fencecode',
-  frontmatter: 'frontmatter',
-  table: 'table',
-  'html-block': 'html',
-  'math-block': 'multiplemath',
-  diagram: 'diagram'
-}
-
-interface EngineAffiliationEntry {
-  type: string
-  blockName: string
-  listType?: string
-  listItemType?: string
-  isLooseListItem?: boolean
-  [key: string]: unknown
-}
-
-// The engine's `selection-change` payload (since #4410) carries an
-// `affiliation` chain (shared-ancestor paragraph-type blocks, outermost-first)
-// plus per-endpoint `anchorBlockInfo`/`focusBlockInfo` describing the content
-// leaf (`type: 'span'` + `functionType`), alongside the live `anchorBlock`/
-// `focusBlock` refs (which carry `.text`). The desktop's application-menu state
-// builder (`createApplicationMenuState`) and the selected-text derivation in
-// `SELECTION_CHANGE` were written against the legacy `{ start, end, affiliation }`
-// shape, so map the new payload onto it:
-//   - `start.type`/`end.type` from the leaf info (`'span'`) so the
-//     `start.type === 'span'` guards fire,
-//   - `start.block.functionType`/`end.block.functionType` from the leaf info so
-//     code-content / table-cell detection lights up,
-//   - `start.block.text`/`end.block.text` from the live block so the store can
-//     still slice the selected text (`SELECTION_CHANGE` → search prefill),
-//   - `affiliation` straight through (entries already carry `type` +
-//     `listType`/`listItemType`/`isLooseListItem`), surfacing a derived
-//     `functionType` on `pre`/`figure` containers for table / code-fence keys.
-const adaptSelectionChange = (changes: MuyaChange) => {
-  const anchorPath = (changes.anchorPath ?? []) as Array<string | number>
-  const focusPath = (changes.focusPath ?? anchorPath) as Array<string | number>
-  const anchorBlock = changes.anchorBlock as { text?: string } | null | undefined
-  const focusBlock = changes.focusBlock as { text?: string } | null | undefined
-  const anchorInfo = changes.anchorBlockInfo as
-    | { type?: string; functionType?: string }
-    | null
-    | undefined
-  const focusInfo = changes.focusBlockInfo as
-    | { type?: string; functionType?: string }
-    | null
-    | undefined
-  const rawAffiliation = (changes.affiliation ?? []) as EngineAffiliationEntry[]
-  const affiliation = rawAffiliation.map((entry) => {
-    const functionType =
-      entry.type === 'pre' || entry.type === 'figure'
-        ? CONTAINER_FUNCTION_TYPE[entry.blockName]
-        : undefined
-    return functionType ? { ...entry, functionType } : entry
-  })
-  return {
-    start: {
-      key: anchorPath.join('/'),
-      offset: (changes.anchor?.offset ?? 0) as number,
-      block: { text: anchorBlock?.text, functionType: anchorInfo?.functionType },
-      type: anchorInfo?.type
-    },
-    end: {
-      key: focusPath.join('/'),
-      offset: (changes.focus?.offset ?? 0) as number,
-      block: { text: focusBlock?.text, functionType: focusInfo?.functionType },
-      type: focusInfo?.type
-    },
-    affiliation
-  }
+const configureEditor = (
+  options: DocumentHostConfiguration,
+  context: string
+): void => {
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  reportAsyncTask(targetEditor.configure(options), context)
 }
 
 // Build a JSON-serializable cursor from the engine selection (drop the live
 // block references so it survives the buffered-state round-trip). `setCursor`
 // re-resolves the target blocks from `anchorPath`/`focusPath`.
 const serializeCursor = (
-  selection: {
-    anchor?: { offset: number; path?: Array<string | number> }
-    focus?: { offset: number; path?: Array<string | number> }
-  } | null
+  selection: DocumentSelectionContext | null
 ) => {
   if (!selection) return null
   return {
-    anchor: selection.anchor ? { offset: selection.anchor.offset } : null,
-    focus: selection.focus ? { offset: selection.focus.offset } : null,
-    anchorPath: selection.anchor?.path,
-    focusPath: selection.focus?.path
+    anchor: { offset: selection.anchor.offset },
+    focus: { offset: selection.focus.offset }
   }
+}
+
+const blockConversionForCommand = (type: string): BlockConversion => {
+  const heading = /^heading ([1-6])$/.exec(type)
+  if (heading !== null) {
+    return {
+      kind: 'heading',
+      level: Number(heading[1]) as 1 | 2 | 3 | 4 | 5 | 6
+    }
+  }
+  const conversions: Readonly<Record<string, BlockConversion>> = {
+    'upgrade heading': { kind: 'heading-shift', direction: 'promote' },
+    'degrade heading': { kind: 'heading-shift', direction: 'demote' },
+    paragraph: { kind: 'paragraph' },
+    'reset-to-paragraph': { kind: 'paragraph' },
+    blockquote: { kind: 'blockquote' },
+    'ul-bullet': { kind: 'unordered-list' },
+    'ol-bullet': { kind: 'ordered-list' },
+    'ol-order': { kind: 'ordered-list' },
+    'ul-task': { kind: 'task-list' },
+    'loose-list-item': { kind: 'loose-list-item' },
+    pre: { kind: 'code-block' },
+    mathblock: { kind: 'math-block' },
+    html: { kind: 'html-block' },
+    hr: { kind: 'thematic-break' },
+    'front-matter': { kind: 'front-matter' }
+  }
+  const conversion = conversions[type]
+  if (conversion === undefined) {
+    throw new TypeError(`Unknown document block command: ${type}`)
+  }
+  return conversion
+}
+
+const inlineFormatForCommand = (type: string): InlineFormat => {
+  const formats: Readonly<Record<string, InlineFormat>> = {
+    strong: 'strong',
+    em: 'emphasis',
+    u: 'underline',
+    sup: 'superscript',
+    sub: 'subscript',
+    mark: 'highlight',
+    inline_code: 'inline-code',
+    inline_math: 'inline-math',
+    del: 'strikethrough',
+    link: 'link',
+    clear: 'clear'
+  }
+  const format = formats[type]
+  if (format === undefined) {
+    throw new TypeError(`Unknown document inline format: ${type}`)
+  }
+  return format
 }
 
 class SimpleImageViewer {
@@ -544,16 +445,6 @@ class SimpleImageViewer {
 }
 
 // Watchers
-// Prune per-tab engine/synthetic history bookkeeping when tabs close, so the
-// maps don't accumulate stale entries (and their content -> id maps) over a long
-// session. Watching the id set keeps this cheap — it only fires on tab add/close.
-watch(
-  () => tabs.value.map((t) => t.id),
-  (ids) => {
-    pruneClosedTabState(new Set(ids))
-  }
-)
-
 watch(typewriter, (value) => {
   if (value) {
     scrollToCursor()
@@ -566,201 +457,130 @@ watch(focus, (value) => {
   }
 })
 
-// In source-code mode the Paragraph and Format menus operate on the hidden
-// WYSIWYG engine, so grey them out. On return to WYSIWYG, re-apply the menu
-// state for the CURRENT cursor context (a code block/table still disables some
-// items) rather than blanket-enabling everything (#3531).
+// In Source mode, Paragraph and Format commands are unavailable because their
+// semantic target surface is hidden. On return to the semantic view, re-apply
+// the CURRENT cursor context rather than blanket-enabling everything (#3531).
 watch(sourceCode, (isSource) => {
-  const windowId = window.marktext?.env?.windowId ?? -1
   if (isSource) {
-    window.electron.ipcRenderer.send('mt::set-editor-format-menus-enabled', windowId, false)
+    window.electron.ipcRenderer.send(
+      'mt::set-editor-format-menus-enabled',
+      false
+    )
+    window.electron.ipcRenderer.send(
+      'mt::set-document-clipboard-menu-state',
+      { surface: 'source', hasSelection: false }
+    )
     return
   }
   nextTick(() => {
     if (selectionChange.value) {
-      pushSelectionMenuState(selectionChange.value as MuyaChange)
+      pushSelectionMenuState(selectionChange.value)
     } else {
-      window.electron.ipcRenderer.send('mt::set-editor-format-menus-enabled', windowId, true)
+      window.electron.ipcRenderer.send(
+        'mt::set-editor-format-menus-enabled',
+        true
+      )
+      publishDocumentClipboardMenuState(false)
     }
   })
 })
 
 watch(fontSize, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ fontSize: value })
+  if (value !== oldValue) {
+    configureEditor({ fontSize: value }, 'Update editor font size')
   }
 })
 
 watch(lineHeight, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ lineHeight: value })
+  if (value !== oldValue) {
+    configureEditor({ lineHeight: value }, 'Update editor line height')
   }
 })
 
 watch(editorFontFamily, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ editorFontFamily: resolveEditorFont(value) })
+  if (value !== oldValue) {
+    configureEditor(
+      { editorFontFamily: resolveEditorFont(value) },
+      'Update editor font family'
+    )
   }
 })
 
-watch(preferLooseListItem, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({
-      preferLooseListItem: value
-    })
+watch(subscriptAndSuperscript, (value, oldValue) => {
+  if (value !== oldValue) {
+    configureEditor(
+      { subscriptAndSuperscript: value },
+      'Update subscript and superscript'
+    )
   }
 })
 
-watch(tabSize, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ tabSize: value })
+watch(footnotes, (value, oldValue) => {
+  if (value !== oldValue) {
+    configureEditor({ footnotes: value }, 'Update footnotes')
   }
 })
 
-watch(theme, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    // Agreement：Any black series theme needs to contain dark `word`.
-    if (/dark/i.test(value)) {
-      editor.value.setOptions(
-        {
-          mermaidTheme: 'dark',
-          vegaTheme: 'dark'
-        },
-        true
-      )
-    } else {
-      editor.value.setOptions(
-        {
-          mermaidTheme: 'default',
-          vegaTheme: 'latimes'
-        },
-        true
-      )
-    }
-  }
-})
-
-watch(sequenceTheme, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    if (value !== 'hand' && value !== 'simple') {
-      throw new TypeError(`Unknown sequence diagram theme: ${String(value)}`)
-    }
-    editor.value.setOptions({ sequenceTheme: value }, true)
-  }
-})
-
-watch(() => preferencesStore.plantumlServer, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ plantumlServer: value }, true)
-  }
-})
-
-watch(listIndentation, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setListIndentation(value)
-  }
-})
-
-watch(frontmatterType, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ frontmatterType: value })
-  }
-})
-
-watch(superSubScript, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ superSubScript: value }, true)
-  }
-})
-
-watch(footnote, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ footnote: value }, true)
-  }
-})
-
-watch(isHtmlEnabled, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ disableHtml: !value }, true)
-  }
-})
-
-watch(isGitlabCompatibilityEnabled, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ isGitlabCompatibilityEnabled: value }, true)
+watch(gitLabMath, (value, oldValue) => {
+  if (value !== oldValue) {
+    configureEditor({ gitLabMath: value }, 'Update GitLab math')
   }
 })
 
 watch(hideQuickInsertHint, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ hideQuickInsertHint: value })
+  if (value !== oldValue) {
+    configureEditor(
+      { hideQuickInsertHint: value },
+      'Update quick-insert hint'
+    )
   }
 })
 
 watch(editorLineWidth, (value, oldValue) => {
   if (value !== oldValue) {
-    setEditorWidth(value)
+    configureEditor({ editorLineWidth: value }, 'Update editor line width')
   }
 })
 
 watch(wrapCodeBlocks, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ wrapCodeBlocks: value })
+  if (value !== oldValue) {
+    configureEditor({ wrapCodeBlocks: value }, 'Update code-block wrapping')
   }
 })
 
 watch(autoPairBracket, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ autoPairBracket: value })
+  if (value !== oldValue) {
+    configureEditor({ autoPairBrackets: value }, 'Update bracket pairing')
   }
 })
 
 watch(autoPairMarkdownSyntax, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ autoPairMarkdownSyntax: value })
+  if (value !== oldValue) {
+    configureEditor({ autoPairMarkdown: value }, 'Update Markdown pairing')
   }
 })
 
 watch(autoPairQuote, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ autoPairQuote: value })
-  }
-})
-
-watch(trimUnnecessaryCodeBlockEmptyLines, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ trimUnnecessaryCodeBlockEmptyLines: value })
-  }
-})
-
-watch(bulletListMarker, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ bulletListMarker: value })
-  }
-})
-
-watch(orderListDelimiter, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ orderListDelimiter: value })
+  if (value !== oldValue) {
+    configureEditor({ autoPairQuotes: value }, 'Update quote pairing')
   }
 })
 
 watch(hideLinkPopup, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ hideLinkPopup: value })
+  if (value !== oldValue) {
+    configureEditor({ hideLinkTools: value }, 'Update link tools')
   }
 })
 
 watch(autoCheck, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ autoCheck: value })
+  if (value !== oldValue) {
+    configureEditor({ autoCheckTasks: value }, 'Update task checking')
   }
 })
 
 watch(codeFontSize, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ codeFontSize: value })
-    // Source-mode CodeMirror is a separate surface muya doesn't own.
+  if (value !== oldValue) {
+    configureEditor({ codeFontSize: value }, 'Update code font size')
     addCommonStyle({
       codeFontSize: value,
       codeFontFamily: codeFontFamily.value,
@@ -769,16 +589,12 @@ watch(codeFontSize, (value, oldValue) => {
   }
 })
 
-watch(codeBlockLineNumbers, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ codeBlockLineNumbers: value }, true)
-  }
-})
-
 watch(codeFontFamily, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ codeFontFamily: resolveCodeFont(value) })
-    // Source-mode CodeMirror is a separate surface muya doesn't own.
+  if (value !== oldValue) {
+    configureEditor(
+      { codeFontFamily: resolveCodeFont(value) },
+      'Update code font family'
+    )
     addCommonStyle({
       codeFontSize: codeFontSize.value,
       codeFontFamily: value,
@@ -799,14 +615,18 @@ watch(hideScrollbar, (value, oldValue) => {
 
 watch(spellcheckerEnabled, (value, oldValue) => {
   if (value !== oldValue) {
-    // Set Muya's spellcheck container attribute.
-    editor.value?.setOptions({ spellcheckEnabled: value })
+    // Set the document view's spellcheck container attribute.
+    configureEditor({ spellcheck: value }, 'Update editor spellcheck')
 
-    // Disable native spell checker
-    if (value) {
-      spellchecker.activateSpellchecker(spellcheckerLanguage.value)
-    } else {
-      spellchecker.deactivateSpellchecker()
+    if (spellchecker) {
+      reportAsyncTask(
+        applySpellcheckerEnabledState(
+          spellchecker,
+          value,
+          spellcheckerLanguage.value
+        ),
+        'Update spell checker'
+      )
     }
   }
 })
@@ -815,13 +635,19 @@ watch(spellcheckerNoUnderline, (value, oldValue) => {
   if (value !== oldValue) {
     // Hide only the spelling squiggle; the native checker (and its right-click
     // suggestions) stays controlled by `spellcheckerEnabled`.
-    editor.value?.setOptions({ spellcheckHideMarks: value })
+    configureEditor(
+      { hideSpellcheckMarks: value },
+      'Update spellcheck marks'
+    )
   }
 })
 
 watch(spellcheckerLanguage, (value, oldValue) => {
-  if (value !== oldValue) {
-    spellchecker.lang = value
+  if (value !== oldValue && spellchecker) {
+    reportAsyncTask(
+      applySpellcheckerLanguage(spellchecker, value),
+      'Switch spell checker language'
+    )
   }
 })
 
@@ -830,183 +656,10 @@ watch(currentFile, (value, oldValue) => {
     scrollToCursor(0)
     // Hide float tools if needed.
     if (editor.value) {
-      editor.value.hideAllFloatTools()
+      editor.value.dismissTransientTools()
     }
   }
 })
-
-watch(
-  sourceCode,
-  (value, oldValue) => {
-    if (value && value !== oldValue) {
-      if (editor.value) {
-        editor.value.hideAllFloatTools()
-        // Compute the WYSIWYG caret as a source-markdown `{ line, ch }` index
-        // cursor JUST-IN-TIME, only when entering source mode (Phase G — G7),
-        // and write it to the tab before sourceCode.vue mounts (`flush: 'sync'`
-        // runs this before the `v-if`-gated child reads `props.muyaIndexCursor`
-        // in its onMounted). This is the inverse of the `setCursorByOffset`
-        // source -> WYSIWYG path. Computing it here rather than on every
-        // json-change/selection-change avoids serializing the whole document on
-        // each keystroke/caret move, and guarantees a fresh (never stale) value.
-        if (currentFile.value) {
-          currentFile.value.muyaIndexCursor = editor.value.getCursorOffset() ?? null
-        }
-        // Capture the block-key caret too (same fresh selection getCursorOffset
-        // reads) so the post-handoff undo can restore it — see
-        // `preSourceModeSelection`.
-        preSourceModeSelection = editor.value.getSelection()
-      }
-    }
-  },
-  { flush: 'sync' }
-)
-
-// Methods
-// muya types the callback as (linkInfo: ILinkInfo | null) and href itself can
-// be null when the rendered link has no usable href (see issue #4356).
-const jumpClick = (linkInfo: { href?: string | null } | null) => {
-  if (!linkInfo) return
-  const { href } = linkInfo
-  editorStore.FORMAT_LINK_CLICK({ data: { href: href ?? null }, dirname: window.DIRNAME })
-}
-
-const imagePathAutoComplete = async (src: string) => {
-  const files = await editorStore.ASK_FOR_IMAGE_AUTO_PATH(src)
-  return files.map((f) => {
-    const iconClass = f.type === 'directory' ? 'icon-folder' : 'icon-image'
-    return Object.assign(f, { iconClass, text: f.file + (f.type === 'directory' ? '/' : '') })
-  })
-}
-
-const imageAction = async (
-  image: string | File,
-  id: string | null,
-  alt: string = ''
-): Promise<string> => {
-  // TODO(Refactor): Refactor this method.
-  if (!currentFile.value) return ''
-  const { filename, pathname: currentPathname } = currentFile.value
-
-  // Figure out the current working directory.
-  // Save an image relative to the file, otherwise use the project root when available.
-  const isTabSavedOnDisk = !!currentPathname
-  let relativeBasePath: string | null = isTabSavedOnDisk
-    ? window.path.dirname(currentPathname)
-    : null
-  if (isTabSavedOnDisk && imageRelativeDirectoryBase.value !== 'file' && projectTree.value) {
-    const { pathname: rootPath } = projectTree.value as { pathname?: string }
-    if (rootPath && window.fileUtils.isChildOfDirectory(rootPath, currentPathname)) {
-      // Save assets relative to root directory.
-      relativeBasePath = rootPath
-    }
-  }
-
-  const getResolvedImagePath = (imagePath: string) => {
-    const replacement = isTabSavedOnDisk
-      ? filename.replace(/\.[^/.]+$/, '') // Filename w/o extension
-      : ''
-    return imagePath.replace(/\${filename}/g, replacement)
-  }
-
-  const resolvedGlobalImageFolderPath = getResolvedImagePath(imageFolderPath.value)
-  const resolvedImageRelativeDirectoryName = getResolvedImagePath(imageRelativeDirectoryName.value) // assets/
-  const resolvedImageRelativeFullDirectoryPath = relativeBasePath
-    ? window.path.join(relativeBasePath, resolvedImageRelativeDirectoryName)
-    : null // /root/dir/assets
-  let destImagePath = ''
-  switch (imageInsertAction.value) {
-    case 'upload': {
-      try {
-        // Pass the full preferences state object to avoid dereferencing non-existent .value
-        destImagePath = (await uploadImage(
-          currentPathname,
-          image,
-          preferencesStore.$state as unknown as import('@/util/fileSystem').UploadImagePreferences
-        )) as string
-      } catch (err) {
-        notice.notify({
-          title: 'Upload Image',
-          type: 'warning',
-          message: err as string
-        })
-        destImagePath = (await moveImageToFolder(
-          currentPathname,
-          image,
-          resolvedGlobalImageFolderPath
-        )) as string
-      }
-      break
-    }
-    case 'folder': {
-      if (isTabSavedOnDisk && imagePreferRelativeDirectory.value) {
-        // `image` may be a path string (paste/drag/image-selector) — pass
-        // `currentPathname` so moveImageToFolder can resolve relative paths
-        // via `path.dirname(pathname)` instead of crashing on `dirname(null)`.
-        destImagePath = (await moveImageToFolder(
-          currentPathname,
-          image,
-          resolvedImageRelativeFullDirectoryPath as string,
-          true,
-          currentPathname
-        )) as string
-      } else {
-        destImagePath = (await moveImageToFolder(
-          currentPathname,
-          image,
-          resolvedGlobalImageFolderPath
-        )) as string
-      }
-      break
-    }
-    case 'path': {
-      if (typeof image === 'string') {
-        // Input is a local path.
-        destImagePath = image
-      } else {
-        // Save and move image to image folder if input is binary.
-
-        // Respect user preferences if tab exists on disk.
-        if (isTabSavedOnDisk && imagePreferRelativeDirectory.value) {
-          destImagePath = (await moveImageToFolder(
-            null as unknown as string,
-            image,
-            resolvedImageRelativeFullDirectoryPath as string,
-            true,
-            currentPathname
-          )) as string
-        } else {
-          destImagePath = (await moveImageToFolder(
-            currentPathname,
-            image,
-            resolvedGlobalImageFolderPath
-          )) as string
-        }
-      }
-      break
-    }
-  }
-
-  if (id && sourceCode.value) {
-    bus.emit('image-action', {
-      id,
-      result: destImagePath,
-      alt
-    })
-  }
-  return destImagePath
-}
-
-// Adapt the engine's `imageAction` contract (`{ src, alt, title }`) to the
-// desktop's `imageAction(image, id, alt)`. The engine handles a single inline
-// image edit (no `id` round-trip / source-mode bus event), so we pass `null`
-// for `id`.
-const muyaImageAction = (state: { src: string; alt?: string; title?: string }): Promise<string> =>
-  imageAction(state.src, null, state.alt ?? '')
-
-const imagePathPicker = () => {
-  return editorStore.ASK_FOR_IMAGE_PATH()
-}
 
 const keyup = (event: KeyboardEvent) => {
   if (event.key === 'Escape') {
@@ -1022,29 +675,28 @@ const setImageViewerVisible = (status: boolean) => {
   }
 }
 
+const restoreImageViewerFocus = (): void => {
+  editor.value?.focus()
+}
+
 const switchSpellcheckLanguage = (languageCode: unknown) => {
-  const { isEnabled } = spellchecker
+  if (typeof languageCode !== 'string' || languageCode.length === 0) {
+    throw new TypeError('Spell checker language requires a non-empty string.')
+  }
+  const checker = spellchecker
+  if (checker === null) {
+    throw new Error('Spell checker is not initialized.')
+  }
 
   // This method is also called from bus, so validate state before continuing.
-  if (!isEnabled) {
+  if (!checker.isEnabled) {
     throw new Error(t('editor.spellcheck.disabledError'))
   }
 
-  spellchecker
-    .switchLanguage(languageCode)
-    .then((langCode: string | null | undefined) => {
-      if (!langCode) {
-        // Unable to switch language due to missing dictionary. The spell checker is now in an invalid state.
-        notice.notify({
-          title: t('editor.spellcheck.title'),
-          type: 'warning',
-          message: t('editor.spellcheck.languageMissing', { languageCode: languageCode as string })
-        })
-      }
-    })
+  applySpellcheckerLanguage(checker, languageCode)
     .catch((error: unknown) => {
       log.error(
-        t('editor.spellcheck.errorSwitchingLanguage', { languageCode: languageCode as string })
+        t('editor.spellcheck.errorSwitchingLanguage', { languageCode })
       )
       log.error(error)
 
@@ -1053,17 +705,11 @@ const switchSpellcheckLanguage = (languageCode: unknown) => {
         title: t('editor.spellcheck.title'),
         type: 'error',
         message: t('editor.spellcheck.switchError', {
-          languageCode: languageCode as string,
+          languageCode,
           error: errMsg
         })
       })
     })
-}
-
-const handleInvalidateImageCache = () => {
-  if (editor.value) {
-    editor.value.invalidateImageCache()
-  }
 }
 
 const openSpellcheckerLanguageCommand = () => {
@@ -1073,10 +719,13 @@ const openSpellcheckerLanguageCommand = () => {
 }
 
 const replaceMisspelling = (payload: unknown) => {
-  const { word, replacement } = payload as { word: string; replacement: string }
-  if (editor.value) {
-    editor.value.replaceCurrentWordInlineUnsafe(word, replacement)
-  }
+  const { replacement } = decodeMisspellingRequest(payload)
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  reportAsyncTask(
+    targetEditor.replaceCurrentWord(replacement),
+    'Replace misspelling'
+  )
 }
 
 const handleUndo = () => {
@@ -1084,9 +733,9 @@ const handleUndo = () => {
     return
   }
 
-  if (editor.value) {
-    editor.value.undo()
-  }
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  reportAsyncTask(targetEditor.undo(), 'Undo')
 }
 
 const handleRedo = () => {
@@ -1094,9 +743,9 @@ const handleRedo = () => {
     return
   }
 
-  if (editor.value) {
-    editor.value.redo()
-  }
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  reportAsyncTask(targetEditor.redo(), 'Redo')
 }
 
 const handleSelectAll = () => {
@@ -1122,85 +771,209 @@ const handleSelectAll = () => {
 // `copyAsRich` writes the rendered HTML to `text/html` AND the plain text to
 // `text/plain`, so pasting into Word/email yields formatted rich text (whereas
 // `copyAsHtml` blanks `text/html` and puts the HTML source into `text/plain`).
-const COPY_PASTE_METHOD_MAP: Record<string, 'copyAsRich' | 'copyAsHtml' | 'pasteAsPlainText'> = {
-  copyAsRich: 'copyAsRich',
-  copyAsHtml: 'copyAsHtml',
-  pasteAsPlainText: 'pasteAsPlainText'
-}
 const handleCopyPaste = (type: unknown) => {
-  if (editor.value) {
-    const method = COPY_PASTE_METHOD_MAP[type as string]
-    if (method === 'pasteAsPlainText') {
-      reportAsyncTask(
-        editor.value.pasteAsPlainText(),
-        'Paste as plain text'
+  const command = decodeCopyPasteCommand(type)
+  if (sourceCode.value) {
+    notice.notify({
+      title: t('editor.sourceCode.semanticClipboardUnavailableTitle'),
+      type: 'warning',
+      message: t('editor.sourceCode.semanticClipboardUnavailable')
+    })
+    return
+  }
+  const targetEditor = editor.value
+  if (!targetEditor) return
+  if (command === 'pasteAsPlainText') {
+    reportAsyncTask(
+      targetEditor.pasteAsPlainText(),
+      'Paste as plain text'
+    )
+  } else if (command === 'copyAsHtml') {
+    reportAsyncTask(targetEditor.copyAsHtml(), 'Copy as HTML')
+  } else {
+    reportAsyncTask(targetEditor.copyAsRich(), 'Copy as rich text')
+  }
+}
+
+type ImageAssetInput = string | File | ImageSourceCapability
+
+const isImageSourceCapability = (
+  value: unknown
+): value is ImageSourceCapability => (
+  value !== null &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  'schema' in value &&
+  value.schema === 'image-source-capability-1' &&
+  'token' in value &&
+  typeof value.token === 'string' &&
+  value.token.length > 0
+)
+
+const imageInsertionContext = (
+): ImageInsertionContext<DesktopEditorInstance> => Object.freeze({
+  documentId: currentFile.value?.id ?? null,
+  surface: sourceCode.value ? 'source' : 'markup',
+  host: editor.value
+})
+
+const insertPersistedImage = async (image: ImageAssetInput): Promise<void> => {
+  const tab = currentFile.value
+  if (tab === null || tab === undefined || !tab.id) {
+    throw new Error('Image insertion requires an admitted document')
+  }
+  const action = imageInsertAction.value
+  const preferDocumentRelative = imagePreferRelativeDirectory.value
+  const documentPersisted = tab.pathname.length > 0
+  const admission = await admitImageInsertion(imageInsertionContext)
+  if (typeof image === 'string' && isRemoteImageReference(image)) {
+    await completeAsyncImageInsertion(
+      admission,
+      Promise.resolve(image),
+      imageInsertionContext,
+      insertImageReference
+    )
+    return
+  }
+
+  if (typeof image === 'string') {
+    throw new TypeError(
+      'Local image insertion requires a main-minted source capability'
+    )
+  }
+  const source: ImageAssetSource = image instanceof File
+    ? await imageAssetSourceFromFile(image)
+    : Object.freeze({
+      kind: 'native-capability',
+      token: image.token
+    })
+  await assertImageInsertionAdmission(admission, imageInsertionContext)
+
+  if (action === 'upload' && source.kind === 'binary') {
+    let uploaded: Awaited<ReturnType<typeof uploadImage>> | null = null
+    try {
+      uploaded = await uploadImage(
+        admission.documentId,
+        source
       )
-    } else if (method) {
-      editor.value[method]()
+    } catch (error) {
+      notice.notify({
+        title: 'Upload Image',
+        type: 'warning',
+        message: String(error)
+      })
+    }
+    if (uploaded !== null) {
+      if (uploaded.deletionClipboard !== null) {
+        editorStore.SHOW_IMAGE_DELETION_CAPABILITY(
+          uploaded.deletionClipboard
+        )
+      }
+      try {
+        await completeUploadedImageInsertion(
+          admission,
+          Promise.resolve(uploaded),
+          imageInsertionContext
+        )
+      } catch (error) {
+        if (!isImageInsertionAdmissionError(error)) throw error
+        notice.notify({
+          title: 'Upload Image',
+          type: 'warning',
+          message: 'The image was uploaded, but the insertion target changed.'
+        })
+      }
+      return
     }
   }
+
+  const storage = imageAssetStorage({
+    action,
+    source: source.kind,
+    documentPersisted,
+    preferDocumentRelative
+  })
+  await completeAsyncImageInsertion(
+    admission,
+    Promise.resolve(source),
+    imageInsertionContext,
+    async (target, surface, admittedSource) => {
+      await target.insertImageAsset({
+        documentId: admission.documentId,
+        source: admittedSource,
+        storage: admittedSource.kind === 'binary' && storage === 'reference'
+          ? 'configured-folder'
+          : storage,
+        surface
+      })
+    }
+  )
 }
 
 const insertImage = (src: unknown) => {
-  if (typeof src !== 'string') {
-    throw new TypeError('Insert image requires a string source.')
+  if (typeof src !== 'string' && !isImageSourceCapability(src)) {
+    throw new TypeError(
+      'Insert image requires a URL or native source capability.'
+    )
   }
-  if (!sourceCode.value) {
-    editor.value && editor.value.insertImage({ src })
-  }
+  reportAsyncTask(
+    insertPersistedImage(src),
+    'Image asset insertion'
+  )
 }
 
-// muya's search/replace/find return the live Search instance (circular:
-// Search -> muya -> ... -> ScrollPage) and each match carries a live `block`
+// Search/replace/find return a live Search instance with circular renderer
+// references, and each match carries a live `block`
 // reference. The store deep-clones (JSON.stringify) its payload, so extract
 // only the plain { index, matches, value } the search UI needs.
-const toSearchMatches = (result: unknown) => {
-  const r = (result ?? {}) as {
-    index?: number
-    value?: string
-    matches?: Array<{ start: number; end: number; match: string }>
-  }
+const toSearchMatches = (
+  result: ReturnType<DesktopEditorInstance['search']>
+) => {
   return {
-    index: r.index ?? -1,
-    matches: (r.matches ?? []).map((m) => ({ start: m.start, end: m.end, match: m.match })),
-    value: r.value ?? ''
+    index: result.index,
+    matches: result.matches.map((match) => ({
+      start: match.start,
+      end: match.end,
+      match: match.match
+    })),
+    value: result.value
   }
 }
 
 const handleSearch = (payload: unknown) => {
+  const { query } = decodeSearchRequest(payload)
   const targetEditor = editor.value
   if (!targetEditor) return
-  const { value, opt } = payload as {
-    value: string
-    opt?: Parameters<MuyaInstance['search']>[1]
-  }
-  editorStore.SEARCH(toSearchMatches(targetEditor.search(value, opt)))
+  editorStore.SEARCH(toSearchMatches(targetEditor.search(query)))
   scrollToHighlight()
 }
 
 const handReplace = (payload: unknown) => {
+  const {
+    query,
+    replacement,
+    isSingle
+  } = decodeReplaceRequest(payload)
   const targetEditor = editor.value
   if (!targetEditor) return
-  const { value, opt } = payload as {
-    value: string
-    opt?: Parameters<MuyaInstance['replace']>[1]
-  }
-  editorStore.SEARCH(toSearchMatches(targetEditor.replace(value, opt)))
+  reportAsyncTask(
+    targetEditor.replace(replacement, {
+      query,
+      isSingle
+    }).then((result) => {
+      if (editor.value !== targetEditor) return
+      editorStore.SEARCH(toSearchMatches(result))
+    }),
+    'Search replacement'
+  )
 }
 
-const handleUploadedImage = (url: unknown, deletionUrl?: unknown) => {
-  insertImage(url)
-  editorStore.SHOW_IMAGE_DELETION_URL(deletionUrl as string)
-}
-
-// `muya.domNode` is the contenteditable + scroll container (it inherits the
+// `domNode` is the contenteditable + scroll container (it inherits the
 // `.editor-component` class from the original mount point and `overflow:auto`).
-// The legacy engine exposed the same element as `muya.container`.
 const getScrollContainer = (): HTMLElement | null =>
   (editor.value?.domNode as HTMLElement | undefined) ?? null
 
-// Viewport-relative caret rect (mirrors the engine's `Selection.getCursorCoords`
-// / legacy `cursorCoords`). Used for typewriter + keep-cursor-visible scrolling
+// Viewport-relative caret rect. Used for typewriter + keep-cursor-visible scrolling
 // when we are not inside a `selection-change` event (which already supplies it).
 const getCursorY = (): number | null => {
   const sel = window.getSelection()
@@ -1263,23 +1036,21 @@ const scrollElementIntoView = (anchor: Element | null | undefined, duration = 30
 }
 
 const scrollToHighlight = () => {
-  return scrollToElement('.mu-highlight')
+  return scrollToElement('.document-view-highlight')
 }
 
 /**
- * Scrolls the editor to the heading for a TOC entry. See
- * `resolveTocHeadingElement` for why the slug is resolved by document order
- * against the top-level headings only.
- * @param slug The TOC entry's slug from the `scroll-to-header` bus event.
+ * Scrolls to the rendered heading carrying the parser identity published by
+ * the same document snapshot.
  */
-const scrollToHeader = (slug: unknown) => {
-  const container = getScrollContainer()
-  if (!container) return
-  scrollElementIntoView(resolveTocHeadingElement(container, editorStore.listToc, slug))
+const scrollToHeader = (nodeId: unknown) => {
+  const targetEditor = editor.value
+  if (!targetEditor) return
+  scrollElementIntoView(resolveTocHeadingElement(targetEditor, nodeId))
 }
 
 // Scrolls to a non-heading in-document anchor target (e.g. a custom
-// `<a id="...">`) resolved by `FORMAT_LINK_CLICK` via `getElementById`.
+// `<a id="...">`) resolved from a parser-authenticated anchor fragment.
 const scrollToAnchorElement = (element: unknown) => {
   if (element instanceof Element) scrollElementIntoView(element)
 }
@@ -1299,151 +1070,134 @@ const handleFindAction = (action: unknown) => {
   scrollToHighlight()
 }
 
-interface ExportOptions {
-  type: string
-  header?: unknown
-  footer?: unknown
-  headerFooterStyled?: unknown
-  htmlTitle?: string
-  pageSize?: string
-  pageSizeWidth?: number
-  pageSizeHeight?: number
-  isLandscape?: boolean
-  [key: string]: unknown
-}
-
-const handleExport = async (options: unknown) => {
+const handleExport = async (value: unknown) => {
+  const command = decodeEditorExportCommand(value)
   const targetEditor = editor.value
   if (!targetEditor) {
     throw new Error('Cannot export without an active editor.')
   }
-  const opts = options as ExportOptions
-  const { type, headerFooterStyled, htmlTitle } = opts
+  const { type, options } = command
 
-  if (!/^pdf|print|styledHtml$/.test(type)) {
-    throw new Error(`Invalid type to export: "${type}".`)
+  const documentCoreId = (): string => {
+    const id = currentFile.value?.id
+    if (!id) {
+      throw new Error(
+        'Cannot export a document-core tab without its document id.'
+      )
+    }
+    return id
   }
+  const documentCoreView = (): ConsumerView => {
+    const projection =
+      targetEditor.getCriticMarkupReviewSnapshot().projection
+    return projection === 'marked' ? 'markup' : projection
+  }
+  const snapshot = targetEditor.snapshot()
+  const exportedDocumentId = documentCoreId()
+  const exportedView = documentCoreView()
+  const filename = currentFile.value?.filename ?? 'Untitled.md'
+  const rawName = window.path.parse(filename).name
+  const safeName = rawName
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f/\\]/g, ' ')
+    .trim()
+    .slice(0, 255)
+  const suggestedName =
+    safeName.length === 0 || safeName === '.' || safeName === '..'
+      ? 'Untitled'
+      : safeName
 
-  const htmlToc = getHtmlToc(targetEditor.getTOC(), opts as unknown as HtmlTocOptions)
-  const markdown = hostFor(targetEditor).getMarkdown()
-  const header = (opts.header ?? null) as HeaderFooterPart | null
-  const footer = (opts.footer ?? null) as HeaderFooterPart | null
-
-  switch (type) {
-    case 'styledHtml': {
-      try {
-        const extraCss = await getCssForOptions(opts as unknown as PdfCssOptions)
-        const content = await exportStyledHTML(targetEditor, markdown, {
-          title: htmlTitle || '',
-          printOptimization: false,
-          extraCss,
-          toc: htmlToc,
-          dir: props.textDirection
-        })
-        editorStore.EXPORT({ type, content })
-      } catch (err) {
-        log.error('Failed to export document:', err)
-        notice.notify({
-          title: t('editor.export.failed', { type: htmlTitle || 'html' }),
-          type: 'error',
-          message:
-            (err as { message?: string } | null | undefined)?.message ?? t('editor.export.error')
-        })
-      }
-      break
+  try {
+    const receipt = decodeDocumentCoreStaticSinkReceipt(
+      await window.electron.ipcRenderer.invoke(
+        'mt::document-core::materialize-static',
+        type === 'print'
+          ? {
+              documentId: exportedDocumentId,
+              revisionId: snapshot.revisionId,
+              consumer: 'print',
+              view: exportedView,
+              options
+            }
+          : {
+              documentId: exportedDocumentId,
+              revisionId: snapshot.revisionId,
+              consumer: type === 'styledHtml' ? 'styled-html' : 'pdf',
+              view: exportedView,
+              suggestedName,
+              options
+            }
+      )
+    )
+    if (receipt.kind === 'cancelled') return
+    if (receipt.kind === 'unavailable') {
+      throw new Error('The current parser revision cannot be exported.')
     }
-    case 'pdf': {
-      // NOTE: We need to set page size via Electron.
-      try {
-        const extraCss = await getCssForOptions(opts as unknown as PdfCssOptions)
-        const { pageSize, pageSizeWidth, pageSizeHeight, isLandscape } = opts
-        const pageOptions = {
-          pageSize,
-          pageSizeWidth,
-          pageSizeHeight,
-          isLandscape
-        }
-
-        const html = await exportStyledHTML(targetEditor, markdown, {
-          title: '',
-          printOptimization: true,
-          extraCss,
-          toc: htmlToc,
-          header,
-          footer,
-          headerFooterStyled: headerFooterStyled as boolean | undefined,
-          dir: props.textDirection
-        })
-        printer!.renderMarkdown(html, true, props.textDirection)
-        editorStore.EXPORT({ type, pageOptions })
-      } catch (err) {
-        log.error('Failed to export document:', err)
-        notice.notify({
-          title: t('editor.export.failed', { type: 'PDF' }),
-          type: 'error',
-          message: t('editor.export.errorExporting', { type: htmlTitle || 'PDF' })
-        })
-        handlePrintServiceClearup()
-      }
-      break
+    if (receipt.kind === 'submitted') return
+    if (receipt.kind === 'written' || receipt.kind === 'proof-written') {
+      await notice.notify({
+        title: t('store.editor.exportSuccessTitle'),
+        message: t('store.editor.exportSuccessMessage', {
+          name: window.path.basename(receipt.targetPath)
+        }),
+        showConfirm: true
+      })
+      await revealStaticOutput({
+        documentId: exportedDocumentId,
+        revisionId: receipt.revisionId,
+        consumer: receipt.consumer,
+        view: receipt.view
+      })
+      return
     }
-    case 'print': {
-      // NOTE: Print doesn't support page size or orientation.
-      try {
-        const extraCss = await getCssForOptions(opts as unknown as PdfCssOptions)
-        const html = await exportStyledHTML(targetEditor, markdown, {
-          title: '',
-          printOptimization: true,
-          extraCss,
-          toc: htmlToc,
-          header,
-          footer,
-          headerFooterStyled: headerFooterStyled as boolean | undefined,
-          dir: props.textDirection
-        })
-        printer!.renderMarkdown(html, true, props.textDirection)
-        editorStore.PRINT_RESPONSE()
-      } catch (err) {
-        log.error('Failed to export document:', err)
-        notice.notify({
+    throw new TypeError(
+      `Unknown static sink receipt: ${String((receipt as { kind: unknown }).kind)}`
+    )
+  } catch (err) {
+    log.error(`Failed to ${type} document-core revision:`, err)
+    notice.notify(type === 'print'
+      ? {
           title: t('editor.print.failed'),
           type: 'error',
-          message: t('editor.print.error', { title: htmlTitle || '' })
+          message: t('editor.print.error', { title: options.title })
+        }
+      : {
+          title: t('editor.export.failed', { type }),
+          type: 'error',
+          message: t('editor.export.errorExporting', { type })
         })
-        handlePrintServiceClearup()
-      }
-      break
-    }
   }
-}
-
-const handlePrintServiceClearup = () => {
-  printer!.clearup()
 }
 
 // Push the current selection to the application-menu / toolbar state. Called on
-// every muya selection-change, and again right after a paragraph action: a no-op
+// every document-view selection-change, and again right after a paragraph action: a no-op
 // action (e.g. "Paragraph" inside a list/quote) fires no selection-change, so the
 // clicked checkbox menu item's auto-toggled OS checkmark would otherwise linger.
-const pushSelectionMenuState = (changes: MuyaChange) => {
-  editorStore.SELECTION_CHANGE({
-    ...adaptSelectionChange(changes),
-    // Read the live block tree (O(1)) rather than getState(), which deep-clones
-    // the whole document — this runs on every cursor move.
-    hasFrontMatter: editor.value?.editor?.scrollPage?.firstChild?.blockName === 'frontmatter'
-  })
-  // The active inline formats ride along on selection-change — drive the format
-  // menu/toolbar state from them.
-  editorStore.SELECTION_FORMATS((changes.formats ?? []) as SelectionFormatLike[])
+const pushSelectionMenuState = (context: DocumentSelectionContext) => {
+  editorStore.SELECTION_CHANGE(context)
+  editorStore.SELECTION_FORMATS(context.activeInlineFormats)
+  publishDocumentClipboardMenuState(context.selectedText.length > 0)
+}
+
+const publishDocumentClipboardMenuState = (hasSelection: boolean): void => {
+  const surface = sourceCode.value
+    ? 'source'
+    : editor.value === null
+      ? 'markup'
+      : documentSurfaceFromProjection(editor.value.getProjection())
+  window.electron.ipcRenderer.send(
+    'mt::set-document-clipboard-menu-state',
+    { surface, hasSelection }
+  )
 }
 
 const handleEditParagraph = (type: unknown) => {
   if (typeof type !== 'string') {
     throw new TypeError('Paragraph commands require a string type.')
   }
-  // These commands act on the hidden WYSIWYG engine, so block them in
-  // source-code mode (mirrors handleUndo/handleSelectAll) — otherwise e.g. the
-  // Insert Table wizard opens and writes to the invisible editor (#3531).
+  // These commands act on the semantic view, so block them in Source mode
+  // (mirrors handleUndo/handleSelectAll) — otherwise the Insert Table wizard
+  // could target the hidden surface (#3531).
   if (sourceCode.value) {
     return
   }
@@ -1454,36 +1208,44 @@ const handleEditParagraph = (type: unknown) => {
     nextTick(() => {
       rowInput.value?.focus()
     })
-  } else if (editor.value) {
-    editor.value.updateParagraph(type)
-    // Re-sync the menu so a no-op action (e.g. "Paragraph" inside a list/quote)
-    // does not leave the clicked checkbox item checked. A real conversion fires
-    // its own selection-change, which resyncs again.
-    if (selectionChange.value) {
-      pushSelectionMenuState(selectionChange.value as MuyaChange)
-    }
+  } else {
+    const targetEditor = editor.value
+    if (targetEditor === null) return
+    reportAsyncTask(
+      targetEditor.convertBlock(blockConversionForCommand(type)).then(() => {
+        if (editor.value !== targetEditor) return
+        // Re-sync the menu so a no-op action (e.g. "Paragraph" inside a
+        // list/quote) does not leave the clicked checkbox item checked. A real
+        // conversion fires its own selection-change, which resyncs again.
+        if (selectionChange.value) {
+          pushSelectionMenuState(selectionChange.value)
+        }
+      }),
+      'Paragraph conversion'
+    )
   }
 }
 
 // handle `duplicate`, `delete`, `create paragraph below`
 const handleParagraph = (type: unknown) => {
+  const action = decodeParagraphAction(type)
   if (sourceCode.value) {
     return
   }
-  if (editor.value) {
-    switch (type) {
-      case 'duplicate': {
-        return editor.value.duplicate()
-      }
-      case 'createParagraph': {
-        return editor.value.insertParagraph('after', '', true)
-      }
-      case 'deleteParagraph': {
-        return editor.value.deleteParagraph()
-      }
-      default:
-        console.error(`unknow paragraph edit type: ${type}`)
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  const operation = (() => {
+    switch (action) {
+      case 'duplicate':
+        return targetEditor.duplicateBlock()
+      case 'createParagraph':
+        return targetEditor.insertParagraph('after')
+      case 'deleteParagraph':
+        return targetEditor.deleteBlock()
     }
+  })()
+  if (operation !== undefined) {
+    reportAsyncTask(operation, `Paragraph ${action}`)
   }
 }
 
@@ -1494,12 +1256,21 @@ const handleInlineFormat = (type: unknown) => {
   if (sourceCode.value) {
     return
   }
-  editor.value && editor.value.format(type)
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  if (type === 'image') {
+    targetEditor.openImageSelector()
+    return
+  }
+  reportAsyncTask(
+    targetEditor.formatText(inlineFormatForCommand(type)),
+    'Inline formatting'
+  )
 }
 
 const requestCriticMarkupText: CriticMarkupTextRequest = (kind) => {
   // Release contenteditable focus before Element Plus starts trapping focus.
-  // Muya retains its cached source selection for this menu/dialog round trip,
+  // The document view retains its cached source selection for this menu/dialog round trip,
   // so the eventual command still applies to the intended text.
   handleModalOpening()
   return criticMarkupPromptDialog.value?.request(kind) ?? Promise.resolve(null)
@@ -1508,180 +1279,99 @@ const requestCriticMarkupText: CriticMarkupTextRequest = (kind) => {
 const cancelCriticMarkupPrompt = (): void => criticMarkupPromptDialog.value?.cancel()
 
 useCriticMarkupReviewController({
-  editor,
-  fileId: computed(() => currentFile.value?.id ?? null),
+  editor: computed(() => editor.value as ICriticMarkupReviewEditor | null),
+  documentId: computed(() => currentFile.value?.id ?? null),
   sourceCode,
   requestText: requestCriticMarkupText,
-  cancelTextRequest: cancelCriticMarkupPrompt
+  cancelTextRequest: cancelCriticMarkupPrompt,
+  commandNotificationSink: editorStore,
+  translate: key => t(key)
+})
+
+useDocumentSurfaceContext({
+  editor: computed(() => editor.value),
+  documentId: computed(() => currentFile.value?.id ?? null),
+  sourceCode,
+  semanticRoot: editorRef
 })
 
 useCriticMarkupRejectionNotifier({
-  editor,
+  editor: computed(() => editor.value),
   tabId: computed(() => currentFile.value?.id ?? null)
 })
 
 const handleDialogTableConfirm = () => {
   dialogTableVisible.value = false
-  editor.value && editor.value.createTable(tableChecker)
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  reportAsyncTask(
+    targetEditor.createTable(tableChecker),
+    'Create table'
+  )
 }
 
 interface FileLoadedPayload {
   id?: string
-  markdown?: string
   cursor?: unknown
 }
 
-// `setContent` rebuilds the document synchronously but does not emit
-// `json-change`. Keep all load/switch-only derived state in one explicit seed
-// so the title-bar count and TOC describe the same canonical engine snapshot.
+// Switching the mounted main-owned session publishes a mounted snapshot, not a
+// document mutation. Keep all load/switch-only derived state in one explicit
+// seed so the title-bar count and TOC describe the same canonical snapshot.
 // This intentionally bypasses LISTEN_FOR_CONTENT_CHANGE, which also owns
-// dirty/save/history bookkeeping and would turn a load into an edit.
-const seedDerivedDocumentState = (muya: MuyaInstance): void => {
-  const markdown = hostFor(muya).getMarkdown()
-  editorStore.UPDATE_TOC(muya.getTOC())
-  editorStore.UPDATE_WORD_COUNT(muyaWordCount(markdown))
+// dirty/save bookkeeping and would turn a load into an edit.
+const seedDerivedDocumentState = (activeEditor: DesktopEditorInstance): void => {
+  const snapshot = activeEditor.snapshot()
+  editorStore.UPDATE_TOC(activeEditor.getTOC())
+  editorStore.UPDATE_WORD_COUNT(snapshot.facts.statistics)
 }
 
 // listen for `open-single-file` event, it will call this method only when open a new file.
 const setMarkdownToEditor = (payload: unknown) => {
-  const { id, markdown: newMarkdown, cursor: newCursor } = (payload ?? {}) as FileLoadedPayload
-  if (editor.value) {
-    // `setContent` resets the document and clears the undo history; only set a
-    // cursor afterwards (a freshly-opened file has no history to restore).
-    hostFor(editor.value).setContent(newMarkdown ?? '')
-    // The freshly loaded content is this tab's clean baseline (id 0). Re-seed
-    // the monotonic save-tracking allocator so undoing an edit back to this
-    // content reads as clean again (matches the store's `lastSavedHistoryId: 0`).
-    // Seed from the engine's OWN serialization of the loaded document (not the
-    // raw payload) so it matches the markdown later emitted on `json-change`
-    // — the engine may normalize trailing newlines / whitespace on round-trip.
-    if (id) {
-      resetSyntheticHistory(id, hostFor(editor.value).getMarkdown())
-    }
-    if (newCursor) {
-      applyCursor(editor.value, newCursor)
-      // A folder-search jump carries an index cursor; a freshly opened file
-      // starts scrolled to the top, so reveal the resolved caret.
-      if (isIndexCursor(newCursor)) {
-        scrollToCursor()
+  const { id, cursor: newCursor } = (payload ?? {}) as FileLoadedPayload
+  const target = editor.value
+  if (target === null || typeof id !== 'string') return
+  reportAsyncTask(
+    target.attachDocument(id).then(() => {
+      if (!editor.value) return
+      if (newCursor) {
+        applyCursor(editor.value, newCursor)
+        if (isIndexCursor(newCursor)) scrollToCursor()
       }
-    }
-    seedDerivedDocumentState(editor.value)
-    // A freshly created/opened tab should be ready to type into.
-    focusFreshEditor()
-  }
+      seedDerivedDocumentState(editor.value)
+      focusFreshEditor()
+    }),
+    'Document load'
+  )
 }
 
 interface FileChangePayload {
   id?: string
-  markdown?: string
   cursor?: unknown
-  renderCursor?: boolean
-  history?: unknown
   scrollTop?: number
-  muyaIndexCursor?: unknown
-  blocks?: unknown
-  isReload?: boolean
 }
 
-// listen for markdown change form source mode or change tabs etc
+// Main owns document open/reload and publishes the attached session by id.
 const handleFileChange = (payload: unknown) => {
   const {
     id,
-    markdown: newMarkdown,
     cursor: newCursor,
-    muyaIndexCursor,
-    history: payloadHistory,
-    scrollTop,
-    isReload
+    scrollTop
   } = (payload ?? {}) as FileChangePayload
-  if (!editor.value) return
+  const target = editor.value
+  if (target === null) return
   const container = getScrollContainer()
   if (!container) return
 
-  if (typeof newMarkdown === 'string') {
-    // Returning from source-code mode: the WYSIWYG engine is never unmounted
-    // while source mode is up (index.vue overlays it via `v-if`), so it still
-    // holds the PRE-source-mode document and undo history. Record the bulk
-    // source-mode edit as a SINGLE engine undo boundary via `replaceContent`
-    // (PG14 parity): the first Ctrl+Z after the handoff reverts the entire
-    // source-mode change in one step, matching legacy muyajs' full-state
-    // snapshot history. `replaceContent` builds a fully-invertible whole-document
-    // ot-json1 op and applies undo/redo via a full block-tree rebuild (never the
-    // incremental pick/drop walker), so arbitrary block-type changes round-trip
-    // safely.
-    //
-    // Detection: only sourceCode.vue's onBeforeUnmount emits `file-changed` with
-    // a source-mode index cursor AND no block-key `cursor` AND no `history`
-    // (see sourceCode.vue ~L368). Every tab-switch / file-reload emitter in
-    // editor.ts carries both `cursor` and `history` alongside, so requiring
-    // those absent reliably isolates the WYSIWYG<-source handoff from a tab
-    // activation that merely replays a tab's persisted `muyaIndexCursor`.
-    const isSourceModeHandoff =
-      isIndexCursor(muyaIndexCursor) && !newCursor && payloadHistory == null
-
-    if (isSourceModeHandoff) {
-      // Record the bulk source-mode edit as a single undo boundary. When the
-      // document is unchanged this is a no-op (returns false) and the existing
-      // history/content already match — either way the caret still needs
-      // remapping below.
-      hostFor(editor.value).replaceContent(newMarkdown, preSourceModeSelection)
-      preSourceModeSelection = null
-      seedDerivedDocumentState(editor.value)
-      // Map the CodeMirror `{ line, ch }` cursor onto a block-key cursor so the
-      // WYSIWYG caret lands where the source-mode cursor was (PG2).
-      editor.value.setCursorByOffset(muyaIndexCursor)
-    } else if (isReload) {
-      // External disk reload (`loadChange`): the tab is already the live engine
-      // document, so record the new on-disk content as a SINGLE invertible undo
-      // boundary via `replaceContent` (legacy muyajs full-state-snapshot parity)
-      // — the first undo after the reload restores the pre-reload document in one
-      // step. `setContent` would clear the engine history and lose that boundary;
-      // restoring the per-tab engine history (the tab-switch path) would clobber
-      // it too. `replaceContent` preserves the existing undo stack and pushes the
-      // boundary on top.
-      //
-      // The new content is this tab's clean baseline (the store seeds
-      // `lastSavedHistoryId: 0`), so re-seed the save-tracking allocator BEFORE
-      // applying: `replaceContent` fires a SYNCHRONOUS `json-change` that would
-      // otherwise mark the tab dirty against the stale (pre-reload) baseline.
-      if (id) {
-        resetSyntheticHistory(id, newMarkdown)
-      }
-      hostFor(editor.value).replaceContent(newMarkdown)
-      seedDerivedDocumentState(editor.value)
-      if (newCursor) {
-        applyCursor(editor.value, newCursor)
-      }
-    } else {
-      // Tab switch / programmatic content swap: `setContent` replaces the
-      // document and clears history, so restore the real engine history (kept
-      // per-tab) afterwards — preserves undo/redo on in-session tab switch. The
-      // `history` in the payload is the synthetic desktop-shaped history used
-      // for save tracking, not the engine history.
-      hostFor(editor.value).setContent(newMarkdown)
-      seedDerivedDocumentState(editor.value)
-      if (newCursor) {
-        applyCursor(editor.value, newCursor)
-      } else if (isIndexCursor(muyaIndexCursor)) {
-        // Source-mode handoff for a tab the engine has no history for (e.g.
-        // first interaction after load): fall back to a caret-only remap. The
-        // engine runs its own setContent dance internally, so restore the
-        // history after.
-        editor.value.setCursorByOffset(muyaIndexCursor)
-      }
-      const savedEngineHistory = id ? engineHistoryByTab.get(id) : undefined
-      if (savedEngineHistory) {
-        editor.value.setHistory(savedEngineHistory)
-      }
-      // First activation of a tab the save-tracking allocator has never seen:
-      // seed its clean baseline from the engine's serialization now, before
-      // any edit. For a tab that already has a tracker this is a no-op —
-      // switching back must keep the existing content -> id map.
-      if (id) {
-        getSyntheticHistory(id, hostFor(editor.value).getMarkdown())
-      }
-    }
+  if (typeof id === 'string') {
+    reportAsyncTask(
+      target.attachDocument(id).then(() => {
+        if (!editor.value) return
+        seedDerivedDocumentState(editor.value)
+        if (newCursor) applyCursor(editor.value, newCursor)
+      }),
+      'Document attachment'
+    )
   }
 
   if (typeof scrollTop === 'number') {
@@ -1699,15 +1389,54 @@ const handleInsertParagraph = (location: unknown) => {
   if (location !== 'before' && location !== 'after' && location !== undefined) {
     throw new TypeError(`Unknown paragraph insertion location: ${String(location)}`)
   }
-  editor.value?.insertParagraph(location)
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  reportAsyncTask(
+    targetEditor.insertParagraph(location),
+    'Insert paragraph'
+  )
 }
 
 const blurEditor = () => {
-  editor.value?.blur(false, true)
+  editor.value?.blur()
 }
 
-const flushActiveEditor = () => {
-  editor.value?.flush()
+const flushActiveEditor = (event?: unknown) => {
+  const request = (() => {
+    if (event === undefined) return undefined
+    if (event === null || typeof event !== 'object' || Array.isArray(event)) {
+      throw new TypeError('Flush request must be a closed record.')
+    }
+    const record = event as Record<string, unknown>
+    const keys = Object.keys(record)
+    if (
+      keys.length !== 3 ||
+      !keys.includes('defer') ||
+      !keys.includes('complete') ||
+      !keys.includes('fail') ||
+      typeof record.defer !== 'function' ||
+      typeof record.complete !== 'function' ||
+      typeof record.fail !== 'function'
+    ) {
+      throw new TypeError('Flush request has an invalid contract.')
+    }
+    return event as FlushActiveEditorRequest
+  })()
+  const target = editor.value
+  const settle = async (): Promise<void> => {
+    // The Source textarea admits gestures through its own serial queue before
+    // they reach the document session. Drain that queue first, then flush the
+    // session so persistence can only observe the admitted canonical head.
+    await settleSourceModeInput()
+    await target?.flush()
+  }
+  if (request !== undefined) {
+    request.defer()
+    settle()
+      .then(() => request.complete(), request.fail)
+    return
+  }
+  reportAsyncTask(settle(), 'Flush active editor')
 }
 
 const focusEditor = () => {
@@ -1719,7 +1448,7 @@ const focusEditor = () => {
 // editor and queues a `requestAnimationFrame` via `scrollToCords` to restore
 // it, and focus() is a no-op while the container is `visibility:hidden`. Our
 // rAF is registered after that restore rAF, so it runs once the editor is
-// visible; then take DOM focus (the engine's `focus()` only sets the selection
+// visible; then take DOM focus (the host's `focus()` sets only the selection
 // range — the contenteditable also needs focus or no caret blinks) and place
 // the caret at the document start.
 const focusFreshEditor = () => {
@@ -1733,27 +1462,35 @@ const focusFreshEditor = () => {
 
 // When a focus-trapping modal (the command palette) opens, release the editor's
 // contenteditable focus first. element-plus's el-dialog restores focus to the
-// previously focused element on close; restoring it into the engine's
+// previously focused element on close; restoring it into the document
 // contenteditable while its selection is uncommitted makes the focus-trap and
-// the engine's selection handling fight, freezing the renderer. Blurring up
+// selection handling fight, freezing the renderer. Blurring up
 // front removes the editor as the restore target and avoids the loop.
 const handleModalOpening = () => {
   if (editor.value && editor.value.hasFocus()) {
-    editor.value.blur(true, true)
+    editor.value.blur()
   }
 }
 
-// macOS Edit → Screenshot. The main process captures the region, saves it to a
-// PNG, and hands us the path. `document.execCommand('paste')` no longer fires in
-// Electron 42 Chromium, so insert the saved image at the cursor through the
-// engine (routing via `imageAction` → upload/folder/path).
-const handleScreenShot = (filePath?: unknown) => {
-  if (editor.value && typeof filePath === 'string' && filePath) {
+// macOS Edit → Screenshot. Main captures the region and sends one sender-bound,
+// single-use source capability; the native pathname never enters renderer.
+const handleScreenShot = (source?: unknown) => {
+  if (editor.value && isImageSourceCapability(source)) {
     reportAsyncTask(
-      editor.value.pasteImage(filePath),
+      insertPersistedImage(source),
       'Screenshot image insertion'
     )
   }
+}
+
+const transferredImageFile = (
+  transfer: DataTransfer | null
+): File | null => {
+  if (transfer === null) return null
+  return Array.from(transfer.files).find(file =>
+    file.type.startsWith('image/') ||
+    /\.(?:jpe?g|png|gif|webp|svg)$/i.test(file.name)
+  ) ?? null
 }
 
 const handleResetPaddingBottom = () => {
@@ -1771,136 +1508,264 @@ const handleResetPaddingBottom = () => {
 }
 
 const handleLanguageChanged = (newLocale?: unknown) => {
-  if (editor.value) {
-    const locale = typeof newLocale === 'string' ? newLocale : language.value
-    editor.value.locale(getMuyaLocale(locale))
-  }
+  const target = editor.value
+  if (target === null) return
+  const locale = typeof newLocale === 'string' ? newLocale : language.value
+  reportAsyncTask(
+    applyDesktopDocumentViewLocale({
+      language: locale,
+      ensureDesktopLocale,
+      translate: key => t(key),
+      setLocale: resource => {
+        if (editor.value === target) target.setLocale(resource)
+      }
+    }),
+    'Update editor locale'
+  )
 }
 const resizeObserverForEditor = new ResizeObserver(handleResetPaddingBottom)
 
-useEditorLifecycle(() => {
-  printer = new Printer()
+useEditorLifecycle(async () => {
   const ele = editorRef.value
   if (!ele) return
 
-  // Register the engine UI plugins once per renderer process (see
-  // `muyaPluginsRegistered`). The image-edit tool receives the desktop's image
-  // callbacks; LinkTools receives the ctrl/cmd-click jump handler.
-  if (!muyaPluginsRegistered) {
-    muyaPluginsRegistered = true
-    Muya.use(TableChessboard)
-    Muya.use(ParagraphQuickInsertMenu)
-    Muya.use(CodeBlockLanguageSelector)
-    Muya.use(CriticMarkupReviewTool)
-    Muya.use(EmojiSelector)
-    Muya.use(ImagePathPicker)
-    Muya.use(ImageEditTool, {
-      imageAction: muyaImageAction,
-      imagePathPicker,
-      imagePathAutoComplete
+  const environment = window.electron.process.env
+  const bootstrapDocumentId = currentFile.value?.id ?? 'untitled-bootstrap'
+  const activeDocumentId = (): string =>
+    currentFile.value?.id ?? bootstrapDocumentId
+  let mountedDocumentId = bootstrapDocumentId
+  const remoteSession = await createDocumentCoreRemoteSession({
+    documentId: activeDocumentId,
+    onHistoryState: (documentId, state) => {
+      mountedDocumentId = documentId
+      documentCoreHistoryByTab.set(documentId, state)
+      editorStore.APPLY_DOCUMENT_CORE_HISTORY_STATE(documentId, state)
+      window.electron.ipcRenderer.send('mt::update-history-menu', {
+        canUndo: state.canUndo,
+        canRedo: state.canRedo
+      })
+    },
+    onExecutionReport: (documentId, report) => {
+      documentCoreExecutionByTab.set(documentId, report)
+    },
+    invoke: window.electron.ipcRenderer.invoke as unknown as
+      DocumentCoreRemoteSessionOptions['invoke']
+  })
+  activeRemoteSession = remoteSession
+  const mountedEditor = markRaw(await createDocumentEditorHost({
+    element: ele,
+    session: remoteSession,
+    configuration: {
+      fontSize: fontSize.value,
+      lineHeight: lineHeight.value,
+      editorFontFamily: resolveEditorFont(editorFontFamily.value),
+      codeFontSize: codeFontSize.value,
+      codeFontFamily: resolveCodeFont(codeFontFamily.value),
+      editorLineWidth: editorLineWidth.value,
+      wrapCodeBlocks: wrapCodeBlocks.value,
+      footnotes: footnotes.value,
+      gitLabMath: gitLabMath.value,
+      subscriptAndSuperscript: subscriptAndSuperscript.value,
+      spellcheck: spellcheckerEnabled.value,
+      hideSpellcheckMarks: spellcheckerNoUnderline.value,
+      autoPairBrackets: autoPairBracket.value,
+      autoPairQuotes: autoPairQuote.value,
+      autoPairMarkdown: autoPairMarkdownSyntax.value,
+      autoCheckTasks: autoCheck.value,
+      hideQuickInsertHint: hideQuickInsertHint.value,
+      hideLinkTools: hideLinkPopup.value,
+      criticMarkupTrackChanges: false,
+      criticMarkupProjection: 'marked'
+    }
+  }))
+  await applyDesktopDocumentViewLocale({
+    language: language.value,
+    ensureDesktopLocale,
+    translate: key => t(key),
+    setLocale: locale => mountedEditor.setLocale(locale)
+  })
+  mountedEditor.setFocusMode(focus.value)
+  editor.value = mountedEditor
+  const sourcePublication = (): SourceModePublication => {
+    const documentId = mountedDocumentId
+    const snapshot = mountedEditor.snapshot()
+    const history = documentCoreHistoryByTab.get(documentId)
+    if (history === undefined) {
+      throw new Error(`Main did not publish history state for ${documentId}`)
+    }
+    return Object.freeze({
+      documentId,
+      revisionId: snapshot.revisionId,
+      source: snapshot.source,
+      selection: snapshot.sourceSelection,
+      history,
+      outline: Object.freeze(mountedEditor.getTOC().map(item =>
+        Object.freeze({
+          nodeId: item.nodeId,
+          slug: item.slug,
+          sourceOffset: item.sourceOffset
+        })
+      ))
     })
-    Muya.use(ImageResizeBar)
-    Muya.use(ImageToolBar)
-    Muya.use(InlineFormatToolbar)
-    Muya.use(ParagraphFrontButton)
-    Muya.use(ParagraphFrontMenu)
-    Muya.use(PreviewToolBar)
-    Muya.use(LinkTools, {
-      jumpClick
-    })
-    Muya.use(FootnoteTool)
-    Muya.use(TableColumnToolbar)
-    Muya.use(TableDragBar)
-    Muya.use(TableRowColumMenu)
   }
-
-  const options: Record<string, unknown> = {
-    focusMode: focus.value,
-    markdown: props.markdown,
-    locale: getMuyaLocale(language.value),
-    preferLooseListItem: preferLooseListItem.value,
-    autoPairBracket: autoPairBracket.value,
-    autoPairMarkdownSyntax: autoPairMarkdownSyntax.value,
-    trimUnnecessaryCodeBlockEmptyLines: trimUnnecessaryCodeBlockEmptyLines.value,
-    autoPairQuote: autoPairQuote.value,
-    bulletListMarker: bulletListMarker.value,
-    orderListDelimiter: orderListDelimiter.value,
-    tabSize: tabSize.value,
-    fontSize: fontSize.value,
-    lineHeight: lineHeight.value,
-    editorFontFamily: resolveEditorFont(editorFontFamily.value),
-    codeFontSize: codeFontSize.value,
-    codeFontFamily: resolveCodeFont(codeFontFamily.value),
-    wrapCodeBlocks: wrapCodeBlocks.value,
-    codeBlockLineNumbers: codeBlockLineNumbers.value,
-    listIndentation: listIndentation.value,
-    frontmatterType: frontmatterType.value,
-    superSubScript: superSubScript.value,
-    footnote: footnote.value,
-    disableHtml: !isHtmlEnabled.value,
-    isGitlabCompatibilityEnabled: isGitlabCompatibilityEnabled.value,
-    hideQuickInsertHint: hideQuickInsertHint.value,
-    hideLinkPopup: hideLinkPopup.value,
-    autoCheck: autoCheck.value,
-    sequenceTheme: sequenceTheme.value,
-    plantumlServer: preferencesStore.plantumlServer,
-    spellcheckEnabled: spellcheckerEnabled.value,
-    spellcheckHideMarks: spellcheckerNoUnderline.value,
-    // Resolve the OS clipboard to a local file path on paste (image-from-file).
-    clipboardFilePath: guessClipboardFilePath,
-    // Read the OS clipboard's plain text for "Paste as Plain Text" (execCommand('paste') no longer fires).
-    clipboardText: () => window.electron.clipboard.readText(),
-    // Image-persist callbacks read by the engine's clipboard + drag-drop handlers
-    // from `muya.options.*` (distinct from the ImageEditTool plugin option above).
-    // Without these, local-file drag-drop, screenshot/binary clipboard paste, and
-    // copy-to-assets on a pasted image file silently no-op or insert raw paths.
-    imageAction: muyaImageAction,
-    getPathForFile: (file: File) => window.electron.webUtils.getPathForFile(file)
-  }
-
-  Object.assign(options, diagramThemesFor(theme.value))
-
-  // `markRaw` keeps Vue from wrapping the Muya instance in a reactive Proxy.
-  // The engine stores live DOM nodes and block-tree references and patches the
-  // DOM via snabbdom; proxying them silently breaks identity checks so the
-  // document tree never renders.
-  const muya = markRaw(new Muya(ele, options))
-  // The new engine requires an explicit init() after construction (it builds
-  // the document tree and instantiates the registered UI plugins).
-  muya.init()
-  // Install the seam only after init(): the mirror reads the document and
-  // subscribes to it, and doing either against a half-constructed editor left
-  // input unable to commit. Mark the element Muya actually mounts, since its
-  // constructor REPLACES the element it is given.
-  installDocumentEngineWithMirror(
-    muya.domNode, window.electron.process.env, muya, DOCUMENT_CORE_PARSE_CONFIGURATION
-  )
-  editor.value = muya
+  const sourcePort: SourceModeDocumentPort = Object.freeze({
+    snapshot: sourcePublication,
+    subscribe: (
+      listener: (publication: SourceModePublication) => void
+    ) => {
+      const publish = (): void => listener(sourcePublication())
+      const content = mountedEditor.subscribeDocumentChange(publish)
+      const selection = mountedEditor.subscribeSelection(publish)
+      return Object.freeze({
+        dispose: () => {
+          content.dispose()
+          selection.dispose()
+        }
+      })
+    },
+    edit: async (request: SourceModeEditRequest) => {
+      const before = sourcePublication()
+      if (request.revisionId !== before.revisionId) {
+        throw new Error('Source gesture targets a stale verified revision')
+      }
+      await mountedEditor.editSource(
+        request.start,
+        request.end,
+        request.text,
+        request.selection
+      )
+      return sourcePublication()
+    },
+    cut: async (request: SourceModeEditRequest) => {
+      const before = sourcePublication()
+      if (request.revisionId !== before.revisionId) {
+        throw new Error('Source cut targets a stale verified revision')
+      }
+      await mountedEditor.cutSource({
+        start: request.start,
+        end: request.end
+      })
+      return sourcePublication()
+    },
+    copy: async (request: SourceModeCopyRequest) => {
+      const before = sourcePublication()
+      if (request.revisionId !== before.revisionId) {
+        throw new Error('Source copy targets a stale verified revision')
+      }
+      await mountedEditor.copySource({
+        start: request.start,
+        end: request.end
+      })
+    },
+    paste: async (request: SourceModePasteRequest) => {
+      const before = sourcePublication()
+      if (request.revisionId !== before.revisionId) {
+        throw new Error('Source paste targets a stale verified revision')
+      }
+      await mountedEditor.pasteSourceClipboard(request.selection)
+      return sourcePublication()
+    },
+    insertImage: async (request: SourceModeImageRequest) => {
+      await mountedEditor.insertSourceImage(request)
+      return sourcePublication()
+    },
+    select: async (selection: SourceModeSelection) => {
+      await mountedEditor.selectSource(selection)
+      return sourcePublication()
+    },
+    undo: async () => {
+      await mountedEditor.undo()
+      return sourcePublication()
+    },
+    redo: async () => {
+      await mountedEditor.redo()
+      return sourcePublication()
+    },
+    settled: mountedEditor.settled
+  })
+  disposeSourceModeDocumentPort =
+    registerSourceModeDocumentPort(sourcePort).dispose
+  disposeDocumentCoreTabCloser = registerDocumentCoreTabCloser(
+    async (documentId) => {
+      const remote = activeRemoteSession
+      if (remote === null) return
+      await remote.closeDocument(documentId)
+      documentCoreHistoryByTab.delete(documentId)
+      documentCoreExecutionByTab.delete(documentId)
+    }
+  ).dispose
   disposeE2EReadOnlyBridge = installE2EReadOnlyBridge(
     window,
-    window.electron.process.env.MARKTEXT_E2E_READONLY_BRIDGE === '1',
-    () => hostFor(muya).getMarkdown()
+    environment.MARKTEXT_E2E_READONLY_BRIDGE === '1',
+    () => mountedEditor.getMarkdown(),
+    () => documentCoreExecutionByTab.get(activeDocumentId()) ?? null,
+    () => {
+      const projection =
+        mountedEditor.getCriticMarkupReviewSnapshot().projection
+      return Object.freeze({
+        documentId: activeDocumentId(),
+        revisionId: mountedEditor.snapshot().revisionId,
+        view: projection === 'marked' ? 'markup' : projection
+      })
+    }
   )
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it.
-  seedDerivedDocumentState(muya)
-
-  // Seed the save-tracking baseline for the mount-loaded document (from the
-  // engine's OWN serialization, same reason as setMarkdownToEditor). Without
-  // this the allocator is created lazily on the first `json-change` — i.e.
-  // after the first edit — so the pristine content never maps to id 0 and
-  // undoing back to the on-disk content can never read as clean again (PG15).
-  if (currentFile.value?.id) {
-    getSyntheticHistory(currentFile.value.id, hostFor(muya).getMarkdown())
-  }
+  seedDerivedDocumentState(mountedEditor)
 
   const container = getScrollContainer()!
+
+  const isImageAuthoringTarget = (target: EventTarget | null): boolean =>
+    target instanceof Node &&
+    (
+      container.contains(target) ||
+      (
+        target instanceof Element &&
+        target.closest('.source-code-input') !== null
+      )
+    )
+  const insertTransferredImage = (
+    event: ClipboardEvent | DragEvent,
+    label: string
+  ): void => {
+    if (!isImageAuthoringTarget(event.target)) return
+    const file = transferredImageFile(
+      event instanceof ClipboardEvent
+        ? event.clipboardData
+        : event.dataTransfer
+    )
+    if (file === null) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    reportAsyncTask(
+      insertPersistedImage(file),
+      label
+    )
+  }
+  const handleClipboardImage = (event: ClipboardEvent): void =>
+    insertTransferredImage(event, 'Clipboard image insertion')
+  const handleDroppedImage = (event: DragEvent): void =>
+    insertTransferredImage(event, 'Dropped image insertion')
+  window.addEventListener('paste', handleClipboardImage, true)
+  window.addEventListener('drop', handleDroppedImage, true)
+  disposeImageAssetInput = () => {
+    window.removeEventListener('paste', handleClipboardImage, true)
+    window.removeEventListener('drop', handleDroppedImage, true)
+  }
 
   // Listen for language changes and update the engine locale.
   bus.on('language-changed', handleLanguageChanged)
 
   // Create spell check wrapper and enable spell checking if preferred.
   spellchecker = new SpellChecker(spellcheckerEnabled.value, spellcheckerLanguage.value)
+  reportAsyncTask(
+    applySpellcheckerEnabledState(
+      spellchecker,
+      spellcheckerEnabled.value,
+      spellcheckerLanguage.value
+    ),
+    'Initialize spell checker'
+  )
 
   // Register command palette entry for switching spellchecker language.
   switchLanguageCommand = new SpellcheckerLanguageCommand(spellchecker)
@@ -1912,19 +1777,16 @@ useEditorLifecycle(() => {
 
   // listen for bus events.
   bus.on('file-loaded', setMarkdownToEditor)
-  bus.on('invalidate-image-cache', handleInvalidateImageCache)
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
   bus.on('selectAll', handleSelectAll)
   bus.on('export', handleExport)
-  bus.on('print-service-clearup', handlePrintServiceClearup)
   bus.on('paragraph', handleEditParagraph)
   bus.on('format', handleInlineFormat)
   bus.on('searchValue', handleSearch)
   bus.on('replaceValue', handReplace)
   bus.on('find-action', handleFindAction)
   bus.on('insert-image', insertImage)
-  bus.on('image-uploaded', handleUploadedImage)
   bus.on('file-changed', handleFileChange)
   bus.on('flush-active-editor', flushActiveEditor)
   bus.on('editor-blur', blurEditor)
@@ -1944,35 +1806,29 @@ useEditorLifecycle(() => {
   bus.on('open-command-spellchecker-switch-language', openSpellcheckerLanguageCommand)
   bus.on('replace-misspelling', replaceMisspelling)
 
-  // The engine emits a low-level `json-change` ({ op, source, prevDoc, doc })
-  // on every document mutation; the desktop's content-change pipeline wants the
-  // derived document snapshot (markdown / word count / cursor / history / TOC /
-  // block AST), so we compute it here — mirroring the legacy engine's
-  // `dispatchChange` payload.
-  hostFor(editor.value).onChange(() => {
+  // Every committed document mutation publishes a verified snapshot. The
+  // desktop caches its derived source, counts, cursor, TOC, and block plan for
+  // presentation only.
+  editor.value.subscribeDocumentChange(() => {
     // There is a chance that this event is fired AFTER the tab is switched. If we purely rely on this.currentFile later on
     // it can cause invalid updates. Hence, we need the id to identify changes as part of each tab
-    if (!currentFile.value || !editor.value) return
-    const { id } = currentFile.value
+    if (!editor.value) return
+    const id = mountedDocumentId
     if (!id) return
-    const markdown = hostFor(editor.value).getMarkdown()
-    // Stash the real engine history for in-session tab-switch restoration. The
-    // synthetic save-tracking id is derived from the live document content (a
-    // monotonic, never-reused id — see `syntheticHistory.ts`), NOT the engine
-    // undo-stack depth, which is reused and falsely showed a divergently
-    // re-edited tab as clean (Phase G — G6).
-    const engineHistory = editor.value.getHistory()
-    engineHistoryByTab.set(id, engineHistory)
+    const markdown = editor.value.getMarkdown()
+    const documentCoreHistory = documentCoreHistoryByTab.get(id)
+    if (documentCoreHistory === undefined) {
+      throw new Error(`Main did not publish history state for ${id}`)
+    }
+    const snapshot = editor.value.snapshot()
     editorStore.LISTEN_FOR_CONTENT_CHANGE({
       id,
       markdown,
-      wordCount: muyaWordCount(markdown),
-      cursor: serializeCursor(editor.value.getSelection()),
-      // Synthetic, desktop-shaped history so the store's save/dirty tracking
-      // keeps working (the engine history shape is incompatible).
-      history: makeSyntheticHistory(id, markdown),
+      wordCount: snapshot.facts.statistics,
+      cursor: serializeCursor(editor.value.selection()),
+      documentCoreHistory,
       toc: editor.value.getTOC(),
-      blocks: editor.value.getState()
+      blocks: snapshot.blocks
     })
   })
 
@@ -1985,46 +1841,75 @@ useEditorLifecycle(() => {
   }
   container.addEventListener('scroll', scrollHandler, { passive: true })
 
-  // Clicking the hover-to-copy affordance on a heading emits `heading-copy-link`
-  // with the heading's stable slug; copy the matching GitHub anchor to the
-  // clipboard (resolved via `listToc.find(i => i.slug === key)`).
-  editor.value.on('heading-copy-link', ({ key }: { key: string }) => {
-    editorStore.copyGithubSlug(key)
-  })
-
-  editor.value.on(
-    'format-click',
-    ({ event, formatType, data }: { event: MouseEvent; formatType: string; data: unknown }) => {
-      const ctrlOrMeta = (isOsx && event.metaKey) || (!isOsx && event.ctrlKey)
-      if (formatType === 'link' && ctrlOrMeta) {
-        editorStore.FORMAT_LINK_CLICK({
-          data: data as { href: string; [key: string]: unknown },
-          dirname: window.DIRNAME
-        })
-      } else if (formatType === 'image' && ctrlOrMeta) {
-        if (imageViewer) {
-          imageViewer.destroy()
-        }
-        if (imageViewerRef.value) {
-          imageViewer = new SimpleImageViewer(imageViewerRef.value, { url: data as string })
-          setImageViewerVisible(true)
-        }
-      }
-    }
-  )
-
-  editor.value.on('preview-image', ({ data }: { data: string }) => {
+  const previewImage = (src: string): void => {
     if (imageViewer) {
       imageViewer.destroy()
     }
-    if (imageViewerRef.value) {
-      imageViewer = new SimpleImageViewer(imageViewerRef.value, { url: data })
+    const viewerContainer = imageViewerOverlayRef.value?.getContainer()
+    if (viewerContainer) {
+      imageViewer = new SimpleImageViewer(viewerContainer, { url: src })
       setImageViewerVisible(true)
+    }
+  }
+  editor.value.subscribeInteraction((interaction: DocumentHostInteraction) => {
+    if (interaction.kind === 'copy-heading-link') {
+      const activeEditor = editor.value
+      if (activeEditor === null) return
+      const projection = activeEditor.getProjection()
+      const copyHeadingLink = window.electron.ipcRenderer.invoke(
+        'mt::document-core::write-clipboard',
+        {
+          documentId: activeDocumentId(),
+          revisionId: activeEditor.snapshot().revisionId,
+          view: projection === 'marked' ? 'markup' : projection,
+          consumer: 'copy-heading-link',
+          targetNodeId: interaction.targetNodeId
+        }
+      ).then((receipt) => {
+        if (
+          receipt.kind === 'unavailable' ||
+          receipt.kind === 'disabled'
+        ) {
+          throw new Error(
+            `Document-core heading link is unavailable: ${receipt.reason}`
+          )
+        }
+        if (receipt.kind !== 'written') {
+          throw new Error(
+            `Document-core heading link returned ${receipt.kind}`
+          )
+        }
+        notice.notify({
+          title: t('store.editor.anchorLinkCopied'),
+          type: 'primary',
+          time: 2000,
+          showConfirm: false
+        })
+      })
+      reportAsyncTask(copyHeadingLink, 'Copy parser-owned heading link')
+    } else if (interaction.kind === 'navigate-link') {
+      const activeEditor = editor.value
+      if (activeEditor === null) return
+      const openLink = window.electron.ipcRenderer.invoke(
+        'mt::document-core::open-link',
+        {
+          documentId: activeDocumentId(),
+          revisionId: activeEditor.snapshot().revisionId,
+          targetNodeId: interaction.targetNodeId
+        }
+      ).then((receipt) => {
+        if (receipt.kind === 'anchor') {
+          editorStore.NAVIGATE_DOCUMENT_ANCHOR(receipt.fragment)
+        }
+      })
+      reportAsyncTask(openLink, 'Open parser-owned document link')
+    } else {
+      previewImage(interaction.src)
     }
   })
 
-  editor.value.on('selection-change', (changes: MuyaChange) => {
-    const y = (changes.cursorCoords?.y ?? null) as number | null
+  editor.value.subscribeSelection((context) => {
+    const y = context.cursor?.y ?? null
     if (y != null) {
       if (typewriter.value) {
         const startPosition = container.scrollTop
@@ -2048,39 +1933,49 @@ useEditorLifecycle(() => {
       }
     }
 
-    selectionChange.value = changes
-    // Persist the caret so a click/arrow-key move (which never fires
-    // `json-change`) survives an in-session tab switch — `tab.cursor` is what
-    // `handleFileChange` replays on re-activation. Cheap: serialized caret only.
+    selectionChange.value = context
+    // Persist the caret so a selection-only publication survives an in-session
+    // tab switch — `tab.cursor` is what `handleFileChange` replays on
+    // re-activation. Cheap: serialized caret only.
     if (currentFile.value?.id && editor.value) {
-      editorStore.PERSIST_CURSOR(currentFile.value.id, serializeCursor(editor.value.getSelection()))
+      editorStore.PERSIST_CURSOR(
+        currentFile.value.id,
+        serializeCursor(editor.value.selection())
+      )
     }
-    pushSelectionMenuState(changes)
+    pushSelectionMenuState(context)
   })
 
   document.addEventListener('keyup', keyup)
-
-  setEditorWidth(editorLineWidth.value)
 }, () => {
+  disposeDocumentCoreTabCloser()
+  disposeDocumentCoreTabCloser = () => {}
+  disposeSourceModeDocumentPort()
+  disposeSourceModeDocumentPort = () => {}
+  disposeImageAssetInput()
+  disposeImageAssetInput = () => {}
   disposeE2EReadOnlyBridge()
   disposeE2EReadOnlyBridge = () => {}
 
-  const windowId = window.marktext?.env?.windowId ?? -1
-  window.electron.ipcRenderer.send('mt::set-editor-format-menus-enabled', windowId, false)
+  window.electron.ipcRenderer.send(
+    'mt::set-editor-format-menus-enabled',
+    false
+  )
+  window.electron.ipcRenderer.send(
+    'mt::set-document-clipboard-menu-state',
+    { surface: 'source', hasSelection: false }
+  )
   bus.off('file-loaded', setMarkdownToEditor)
-  bus.off('invalidate-image-cache', handleInvalidateImageCache)
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
   bus.off('selectAll', handleSelectAll)
   bus.off('export', handleExport)
-  bus.off('print-service-clearup', handlePrintServiceClearup)
   bus.off('paragraph', handleEditParagraph)
   bus.off('format', handleInlineFormat)
   bus.off('searchValue', handleSearch)
   bus.off('replaceValue', handReplace)
   bus.off('find-action', handleFindAction)
   bus.off('insert-image', insertImage)
-  bus.off('image-uploaded', handleUploadedImage)
   bus.off('file-changed', handleFileChange)
   bus.off('flush-active-editor', flushActiveEditor)
   bus.off('editor-blur', blurEditor)
@@ -2103,8 +1998,8 @@ useEditorLifecycle(() => {
 
   document.removeEventListener('keyup', keyup)
 
-  // Remove the manual scroll listener; engine `on(...)` listeners are torn down
-  // by `destroy()` → `eventCenter.unsubscribeAll()`.
+  // Remove the manual scroll listener; the document host owns and releases its
+  // subscriptions during `destroy()`.
   if (scrollHandler && editor.value) {
     const container = getScrollContainer()
     container?.removeEventListener('scroll', scrollHandler)
@@ -2119,8 +2014,10 @@ useEditorLifecycle(() => {
   }
 
   if (editor.value) {
-    editor.value.destroy()
+    const target = editor.value
     editor.value = null
+    activeRemoteSession = null
+    reportAsyncTask(target.destroy(), 'Destroy document editor')
   }
 })
 </script>

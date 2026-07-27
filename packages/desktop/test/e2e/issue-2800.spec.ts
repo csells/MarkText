@@ -5,8 +5,7 @@
 //
 // The crash family overlaps with crash-range-offset.spec.ts but the offset
 // here is a real small positive number, not a negative unsigned overflow,
-// so the existing clamp at packages/muyajs/lib/selection/index.js did not
-// cover it.
+// so a non-negative offset clamp alone did not cover it.
 import { test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {

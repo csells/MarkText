@@ -5,27 +5,13 @@ import { launchWithMarkdown, expectNoRendererErrors } from './helpers'
 // ---------------------------------------------------------------------------
 // Coverage backfill (checklist item 241). The hover-to-copy heading affordance
 // round-trip is missing at the e2e layer:
-//   - The store-level copyGithubSlug lookup (slug -> '#'+githubSlug -> clipboard)
-//     is unit-covered in
-//     packages/desktop/test/unit/specs/editor-store-anchor.spec.ts:99-128.
-//   - The engine affordance + `heading-copy-link` emission is covered in
-//     packages/muya/src/__tests__/parityHeadingCopyLink.spec.ts.
-// Only the live hover -> click -> OS clipboard round-trip in a real window was
-// uncovered.
+//   - The engine-owned heading anchor materialization is covered below through
+//     the renderer-to-main clipboard boundary.
+// This covers the live hover -> click -> OS clipboard round-trip in a real
+// window.
 //
-// Mechanism under test:
-//   1. Each heading renders a `heading-copy-link` attachment as a child DOM node
-//      of the heading element: `h2.mu-atx-heading > i.mu-copy-header-link`
-//      (packages/muya/src/block/commonMark/{atxHeading,headingCopyLink}). CSS
-//      reveals it on heading hover; clicking/Enter/Space activates it.
-//   2. Activation emits the engine event `heading-copy-link` with
-//      { key: stableSlug(heading) } — the same value getTOC() exposes as the
-//      TOC entry's stable `slug`.
-//   3. editor.vue subscribes to `heading-copy-link` and calls
-//      editorStore.copyGithubSlug(key), which finds the listToc entry whose
-//      `slug === key` and writes `'#' + entry.githubSlug` to the OS clipboard
-//      via window.electron.clipboard.writeText (IPC `mt::clipboard::write-text`,
-//      handled in packages/desktop/src/main/ipc/shell.ts -> Electron clipboard).
+// The parser-derived heading owns an accessible copy-link button. Desktop
+// receives its typed interaction and writes the generated GitHub slug.
 //
 // We read the clipboard back from the MAIN process (Electron's `clipboard`
 // module, exposed to app.evaluate's first arg) because that is where the IPC
@@ -33,13 +19,13 @@ import { launchWithMarkdown, expectNoRendererErrors } from './helpers'
 // async preload `invoke` for read-text.
 // ---------------------------------------------------------------------------
 
-const HEADING = '.mu-container > h2'
-const COPY_LINK = `${HEADING} > i.mu-copy-header-link`
+const HEADING = '.document-view-container > h2.document-view-heading'
+const COPY_LINK = `${HEADING} > button[data-document-command="copy-heading-link"]`
 
 const DOC = '## My Section\n\nA paragraph under the heading.\n'
 
-// Read the OS clipboard as seen by the main process (the side the
-// `mt::clipboard::write-text` handler writes to).
+// Read the OS clipboard as seen by the main process, which owns the complete
+// heading-link materialization and clipboard write transaction.
 const readClipboard = (app: ElectronApplication): Promise<string> =>
   app.evaluate(({ clipboard }) => clipboard.readText())
 
@@ -69,23 +55,21 @@ test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
       const el = document.querySelector(selector) as HTMLElement | null
       if (!el) return null
       return {
-        role: el.getAttribute('role'),
-        tabindex: el.getAttribute('tabindex'),
+        tagName: el.tagName,
+        tabIndex: el.tabIndex,
         ariaLabel: el.getAttribute('aria-label'),
-        hasIcon: !!el.querySelector('img.mu-icon-inner')
+        text: el.textContent
       }
     }, COPY_LINK)
 
     expect(info).not.toBeNull()
-    // role/tabindex make it an operable, focusable button (mirrors the engine
-    // parity spec); the icon image is the visible affordance.
-    expect(info?.role).toBe('button')
-    expect(info?.tabindex).toBe('0')
+    expect(info?.tagName).toBe('BUTTON')
+    expect(info?.tabIndex).toBe(0)
     expect(info?.ariaLabel).toBeTruthy()
-    expect(info?.hasIcon).toBe(true)
+    expect(info?.text).toBe('')
   })
 
-  test('hovering the heading then clicking the affordance copies "#<githubSlug>"', async() => {
+  test('hovering the heading then clicking the affordance copies its anchor', async() => {
     // Clear the clipboard to a known sentinel so we can prove the write came
     // from this interaction and not a stale value.
     await writeClipboard(app, 'sentinel-before-copy')
@@ -103,7 +87,7 @@ test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
     await expectNoRendererErrors(app)
   })
 
-  test('the copied anchor starts with "#" and matches the heading github slug', async() => {
+  test('the copied anchor starts with "#" and matches the heading anchor', async() => {
     await writeClipboard(app, '')
     await expect.poll(() => readClipboard(app)).toBe('')
 
@@ -126,8 +110,7 @@ test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
     await writeClipboard(app, 'keyboard-sentinel')
     await expect.poll(() => readClipboard(app)).toBe('keyboard-sentinel')
 
-    // Focus the focusable button and press Enter — the engine's keydown handler
-    // activates it the same way a click does (Enter / Space).
+    // A native button activates through Enter as well as pointer input.
     await page.focus(COPY_LINK)
     await page.keyboard.press('Enter')
 

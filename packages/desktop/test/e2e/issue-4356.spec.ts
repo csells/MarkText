@@ -1,15 +1,9 @@
 // Regression guard for issue #4356: TypeError: Cannot read properties of
-// null (reading 'length') in FORMAT_LINK_CLICK.
+// null (reading 'length') in link navigation.
 //
-// A markdown link with a custom protocol (e.g. sambesi://) gets its href
-// stripped by muya's sanitizeHyperlink (DOMPurify protocol allowlist), so
-// getLinkInfo returns href: null. Clicking the linkTools popover's "jump"
-// button then forwarded { href: null } to the editor store, which crashed on
-// data.href.length (packages/desktop/src/renderer/src/store/editor.ts).
-//
-// The fix is two-layered: muya's linkTools no longer offers "jump" when
-// there is no href, and FORMAT_LINK_CLICK guards null hrefs defensively.
-import { expect, test } from '@playwright/test'
+// Both custom-protocol and document-anchor links cross the same typed target
+// interaction. Main resolves the parser node without trusting renderer href.
+import { test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
   launchWithMarkdown,
@@ -30,19 +24,21 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
     if (app) await app.close()
   })
 
-  test('popover offers only unlink and the renderer does not crash', async() => {
+  test('custom-protocol navigation is rejected without a renderer crash', async() => {
     const launched = await launchWithMarkdown(CUSTOM_PROTOCOL_DOC)
     app = launched.app
     page = launched.page
     await clearRendererErrors(app)
 
-    const link = page.locator('span.mu-link').first()
+    const link = page.locator(
+      '.editor-component a[href="sambesi://localhost/node/11164"]'
+    )
     await link.waitFor({ state: 'visible', timeout: 10000 })
-    await link.hover()
 
-    const popover = page.locator('.mu-link-tools-container')
-    await popover.locator('li.item.unlink').waitFor({ state: 'visible', timeout: 5000 })
-    await expect(popover.locator('li.item.jump')).toHaveCount(0)
+    const open = page.getByRole('button', {
+      name: 'Open sambesi://localhost/node/11164'
+    })
+    await open.click()
 
     await page.waitForTimeout(500)
     await expectNoRendererErrors(app)
@@ -54,11 +50,10 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
     page = launched.page
     await clearRendererErrors(app)
 
-    const link = page.locator('span.mu-link').first()
+    const link = page.locator('.editor-component a[href="#top"]')
     await link.waitFor({ state: 'visible', timeout: 10000 })
-    await link.hover()
 
-    const jumpButton = page.locator('.mu-link-tools-container li.item.jump')
+    const jumpButton = page.getByRole('button', { name: 'Open #top' })
     await jumpButton.waitFor({ state: 'visible', timeout: 5000 })
     await jumpButton.click()
 

@@ -1,438 +1,619 @@
 <template>
   <div
-    ref="sourceCodeContainer"
     class="source-code"
-  />
+    data-document-surface="source"
+  >
+    <textarea
+      ref="sourceInput"
+      class="source-code-input"
+      :aria-label="t('editor.sourceCode.label')"
+      :aria-busy="!sourceReady"
+      :disabled="!sourceReady"
+      :dir="textDirection"
+      autocomplete="off"
+      autocapitalize="off"
+      spellcheck="false"
+      wrap="soft"
+      @beforeinput="handleBeforeInput"
+      @compositionstart="handleCompositionStart"
+      @compositionend="handleCompositionEnd"
+      @keydown="handleKeydown"
+      @paste="handlePaste"
+      @drop="handleDrop"
+      @copy="handleCopy"
+      @cut="handleCut"
+      @select="handleSelection"
+    />
+    <p
+      v-if="failureMessage"
+      class="source-code-error"
+      role="alert"
+      aria-live="assertive"
+    >
+      {{ failureMessage }}
+    </p>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { useEditorStore } from '@/store/editor'
-import { usePreferencesStore } from '@/store/preferences'
-import { findMarkdownHeadingLine, scrollSourceEditorToLine } from '@/util/sourceModeToc'
-import { storeToRefs } from 'pinia'
-import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMirror'
-import { wordCount as getWordCount } from '@muyajs/core'
-import { adjustCursor } from '../../util'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import bus from '../../bus'
-import { oneDarkThemes, railscastsThemes } from '@/config'
+import { t } from '../../i18n'
+import {
+  createSourceModeController,
+  type SourceModeController,
+  type SourceModePublication,
+  type SourceModeSelection,
+  type SourceModeSurface
+} from './sourceModeController'
+import {
+  registerSourceModeInputSettlement,
+  sourceModeDocumentPort
+} from './sourceModeDocumentPort'
+import {
+  SOURCE_MODE_OPERATION_I18N_KEYS,
+  type SourceModeOperation
+} from './sourceModeLocalization'
+import {
+  createSourceTextProjection,
+  type SourceTextProjection
+} from './sourceTextProjection'
 
-// CodeMirror 5 ships no first-party types; the wrapper in src/renderer/src/
-// codeMirror/index.ts also keeps the surface intentionally loose.
-type CMInstance = any
-type CMCursor = any
-
-interface MuyaIndexCursorLike {
-  anchor: CMCursor
-  focus: CMCursor
-}
-
-const props = defineProps<{
-  markdown?: string
-  muyaIndexCursor?: unknown
+defineProps<{
   textDirection: string
 }>()
 
-const editorStore = useEditorStore()
-const preferencesStore = usePreferencesStore()
+const sourceInput = ref<HTMLTextAreaElement | null>(null)
+const failureMessage = ref('')
+const sourceReady = ref(false)
 
-const sourceCodeContainer = ref<HTMLDivElement | null>(null)
+let controller: SourceModeController | null = null
+let projection: SourceTextProjection = createSourceTextProjection('')
+let publication: SourceModePublication | null = null
+let applyingPublication = false
+let composing = false
+let compositionRange: Readonly<{ start: number; end: number }> | null = null
+let pendingRefreshes = 0
+let destroyed = false
+let disposeInputSettlement = (): void => {}
 
-const editor = ref<CMInstance>(null)
-const commitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
-const viewDestroyed = ref(false)
-const tabId = ref<string | null>(null)
+const selectionEquals = (
+  left: SourceModeSelection,
+  right: SourceModeSelection
+): boolean => left.anchor === right.anchor && left.focus === right.focus
 
-const { theme, sourceCode } = storeToRefs(preferencesStore)
-const { currentFile: currentTab } = storeToRefs(editorStore)
-
-const isValidMuyaIndexCursor = (cursor: unknown): cursor is MuyaIndexCursorLike => {
-  const c = cursor as MuyaIndexCursorLike | null | undefined
-  return !!(c && c.anchor && c.focus)
+const sourceSelection = (
+  input: HTMLTextAreaElement,
+  textProjection = projection
+): SourceModeSelection => {
+  const start = textProjection.sourceOffsetAt(input.selectionStart)
+  const end = textProjection.sourceOffsetAt(input.selectionEnd)
+  return input.selectionDirection === 'backward'
+    ? Object.freeze({ anchor: end, focus: start })
+    : Object.freeze({ anchor: start, focus: end })
 }
 
-watch(
-  () => props.textDirection,
-  (value, oldValue) => {
-    if (value !== oldValue && editor.value) {
-      setTextDirection(editor.value, value)
-    }
-  }
-)
-
-const getMarkdownAndCursor = (cm: CMInstance) => {
-  let focus = cm.getCursor('head')
-  let anchor = cm.getCursor('anchor')
-
-  const markdown: string = cm.getValue()
-  const convertToMuyaCursor = (cursor: CMCursor) => {
-    const line = cm.getLine(cursor.line)
-    const preLine = cm.getLine(cursor.line - 1)
-    const nextLine = cm.getLine(cursor.line + 1)
-    return adjustCursor(
-      cursor,
-      preLine,
-      line,
-      nextLine,
-      (lineNumber) => {
-        return cm.getLine(lineNumber)
-      },
-      cm.lineCount()
-    )
-  }
-
-  anchor = convertToMuyaCursor(anchor) // Selection start as Muya cursor
-  focus = convertToMuyaCursor(focus) // Selection end as Muya cursor
-
-  // Normalize cursor that `anchor` is always before `focus` because
-  // this is the expected behavior in Muya.
-  if (anchor && focus && anchor.line > focus.line) {
-    const tmpCursor = focus
-    focus = anchor
-    anchor = tmpCursor
-  }
-  return { cursor: { focus, anchor }, markdown }
-}
-
-/**
- * This is to write the OLD content of the editor before switching to another tab
- * @param id
- */
-const prepareTabSwitch = () => {
-  if (commitTimer.value) clearTimeout(commitTimer.value)
-  if (tabId.value) {
-    const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(editor.value)
-    editorStore.LISTEN_FOR_CONTENT_CHANGE({
-      id: tabId.value,
-      markdown: newMarkdown,
-      muyaIndexCursor: cursor
-    })
-    tabId.value = null
-  }
-}
-
-interface FileChangePayloadLike {
-  id: string
-  markdown?: string
-  muyaIndexCursor?: unknown
-}
-
-const handleFileChange = (payload: unknown) => {
-  const { id, markdown: newMarkdown, muyaIndexCursor } = payload as FileChangePayloadLike
-  if (!editor.value) return
-
-  // On same-tab reload (external file change), preserve scroll across
-  // setValue. Snapshot every plausible scroll element (the outer
-  // .source-code div, CodeMirror's own scroller, and the nearest scrollable
-  // ancestor) and restore each, since which one is actually active depends
-  // on CodeMirror's height:auto + outer overflow:auto interplay. Re-apply
-  // on nextTick and the next animation frame to outlast layout side-effects
-  // from sibling handlers: muya editor.vue also listens for file-changed.
-  // A cross-tab switch must instead commit the outgoing tab's state; the
-  // fresh markdown from disk would otherwise overwrite uncommitted edits.
-  const isSameTabReload = tabId.value && tabId.value === id
-  const scrollTargets: Array<{ el: HTMLElement; top: number }> = []
-  if (isSameTabReload) {
-    const seen = new Set<HTMLElement>()
-    const consider = (el: HTMLElement | null | undefined) => {
-      if (el && !seen.has(el)) {
-        seen.add(el)
-        scrollTargets.push({ el, top: el.scrollTop })
-      }
-    }
-    consider(sourceCodeContainer.value)
-    consider(editor.value.getScrollerElement?.() as HTMLElement | null | undefined)
-    let node: HTMLElement | null = sourceCodeContainer.value?.parentElement ?? null
-    while (node && node !== document.body) {
-      const overflowY = window.getComputedStyle(node).overflowY
-      if (
-        (overflowY === 'auto' || overflowY === 'scroll') &&
-        node.scrollHeight > node.clientHeight
-      ) {
-        consider(node)
-        break
-      }
-      node = node.parentElement
-    }
-  } else {
-    prepareTabSwitch()
-    tabId.value = id
-  }
-
-  if (typeof newMarkdown === 'string') {
-    editor.value.setValue(newMarkdown)
-  }
-
-  // t('editor.sourceCode.cursorNullComment')
-  if (isValidMuyaIndexCursor(muyaIndexCursor)) {
-    const { anchor, focus } = muyaIndexCursor
-
-    editor.value.setSelection(anchor, focus, { scroll: true }) // Scroll the focus into view.
-  } else if (scrollTargets.length) {
-    const restoreScroll = () => {
-      for (const { el, top } of scrollTargets) el.scrollTop = top
-    }
-    restoreScroll()
-    nextTick(restoreScroll)
-    requestAnimationFrame(restoreScroll)
-  } else {
-    setCursorAtFirstLine(editor.value)
-  }
-}
-
-const handleInvalidateImageCache = () => {
-  if (editor.value) {
-    editor.value.invalidateImageCache()
-  }
-}
-
-const handleSelectAll = () => {
-  if (!sourceCode.value) {
-    return
-  }
-
-  if (editor.value && editor.value.hasFocus()) {
-    editor.value.execCommand('selectAll')
-  } else {
-    const activeElement = document.activeElement as HTMLElement | null
-    const nodeName = activeElement?.nodeName
-    if (nodeName === 'INPUT' || nodeName === 'TEXTAREA') {
-      const selectable = activeElement as HTMLInputElement | HTMLTextAreaElement | null
-      if (selectable && typeof selectable.select === 'function') {
-        selectable.select()
-      }
-    }
-  }
-}
-
-const handleUndo = () => {
-  if (!sourceCode.value) {
-    return
-  }
-
-  if (editor.value) {
-    editor.value.execCommand('undo')
-  }
-}
-
-const handleRedo = () => {
-  if (!sourceCode.value) {
-    return
-  }
-
-  if (editor.value) {
-    editor.value.execCommand('redo')
-  }
-}
-
-interface ImageActionPayload {
-  id: string
-  result: string
-  alt: string
-}
-
-const handleImageAction = (payload: unknown) => {
-  const { id, result, alt } = payload as ImageActionPayload
-  const value: string = editor.value.getValue()
-  const focus = editor.value.getCursor('focus')
-  const anchor = editor.value.getCursor('anchor')
-  const lines: string[] = value.split('\n')
-  const index = lines.findIndex((line: string) => line.indexOf(id) > 0)
-
-  if (index > -1) {
-    const oldLine = lines[index]
-    lines[index] = oldLine.replace(new RegExp(`!\\[${id}\\]\\(.*\\)`), `![${alt}](${result})`)
-    const newValue = lines.join('\n')
-    editor.value.setValue(newValue)
-    const match = /(!\[.*\]\(.*\))/.exec(oldLine)
-    if (!match) {
-      // t('editor.sourceCode.imageStructureDeletedComment')
-      return
-    }
-    const range = {
-      start: match.index,
-      end: match.index + match[1].length
-    }
-    const delta = alt.length + result.length + 5 - match[1].length
-
-    const adjustPointer = (pointer: CMCursor) => {
-      if (!pointer) {
-        return
-      }
-      if (pointer.line !== index) {
-        return
-      }
-      if (pointer.ch <= range.start) {
-        // do nothing.
-      } else if (pointer.ch > range.start && pointer.ch < range.end) {
-        pointer.ch = range.start + alt.length + result.length + 5
-      } else {
-        pointer.ch += delta
-      }
-    }
-
-    adjustPointer(focus)
-    adjustPointer(anchor)
-    if (focus && anchor) {
-      editor.value.setSelection(anchor, focus, { scroll: true })
-    } else {
-      setCursorAtFirstLine(editor.value)
-    }
-  }
-}
-
-const saveContent = (cm: CMInstance) => {
-  const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(cm)
-  // Attention: the cursor may be `{focus: null, anchor: null}` when press `backspace`
-  const wordCount = getWordCount(newMarkdown)
-  // See "beforeDestroy" note
-  if (!viewDestroyed.value) {
-    if (tabId.value) {
-      editorStore.LISTEN_FOR_CONTENT_CHANGE({
-        id: tabId.value,
-        markdown: newMarkdown,
-        wordCount,
-        muyaIndexCursor: cursor
-      })
-    } else {
-      // This may occur during tab switching but should not occur otherwise.
-      console.warn('LISTEN_FOR_CONTENT_CHANGE: Cannot commit changes because not tab id was set!')
-    }
-  }
-}
-
-const listenChange = () => {
-  editor.value.on('cursorActivity', (cm: CMInstance) => {
-    saveContent(cm)
+const textRange = (
+  selection: SourceModeSelection,
+  textProjection = projection
+): Readonly<{ start: number; end: number; direction: 'forward' | 'backward' }> => {
+  const anchor = textProjection.textOffsetAt(selection.anchor)
+  const focus = textProjection.textOffsetAt(selection.focus)
+  return Object.freeze({
+    start: Math.min(anchor, focus),
+    end: Math.max(anchor, focus),
+    direction: anchor > focus ? 'backward' : 'forward'
   })
 }
 
-// #3580: in Source Code mode the WYSIWYG container is hidden, so the
-// `scroll-to-header` bus event (emitted when a TOC entry is clicked) must scroll
-// CodeMirror instead. Resolve the TOC entry to its heading line in the source.
-const handleScrollToHeader = (slug: unknown) => {
-  if (!editor.value) return
-  const index = editorStore.listToc.findIndex(item => item.slug === slug)
-  if (index < 0) return
-  const line = findMarkdownHeadingLine(editor.value.getValue(), index)
-  if (line < 0) return
-  // `.source-code` is the scroll container (CodeMirror renders full-height with
-  // viewportMargin: Infinity, so its own scroller never scrolls).
-  scrollSourceEditorToLine(editor.value, line, sourceCodeContainer.value)
+const render = (
+  source: string,
+  selection: SourceModeSelection,
+  verifiedPublication?: SourceModePublication
+): void => {
+  const input = sourceInput.value
+  if (input === null) return
+
+  const previousDocumentId = publication?.documentId
+  const scrollTop = input.scrollTop
+  const nextProjection = createSourceTextProjection(source)
+  const range = textRange(selection, nextProjection)
+
+  applyingPublication = true
+  projection = nextProjection
+  input.value = nextProjection.text
+  input.setSelectionRange(range.start, range.end, range.direction)
+  if (
+    verifiedPublication === undefined ||
+    previousDocumentId === undefined ||
+    previousDocumentId === verifiedPublication.documentId
+  ) {
+    input.scrollTop = scrollTop
+  } else {
+    input.scrollTop = 0
+  }
+  if (verifiedPublication !== undefined) publication = verifiedPublication
+  queueMicrotask(() => {
+    applyingPublication = false
+  })
 }
 
-onMounted(() => {
-  if (!currentTab.value) return
-  const { id } = currentTab.value
-  // reset currentTab scrollTop position because the codeMirror scroll position is completely different from the muya scroll position
-  // reset blocks as well because the blocks are only valid in muya
-  // reset cursor because this is a direct "key-cursor", not a muyaIndexCursor, which is {focus: number, anchor: number}
-  currentTab.value.scrollTop = 0
-  currentTab.value.blocks = undefined
-  currentTab.value.cursor = undefined
+const surface: SourceModeSurface = Object.freeze({
+  mount: (nextPublication: SourceModePublication) => {
+    render(
+      nextPublication.source,
+      nextPublication.selection,
+      nextPublication
+    )
+  },
+  preview: (source: string, selection: SourceModeSelection) => {
+    render(source, selection)
+  }
+})
 
-  const { markdown, muyaIndexCursor, textDirection } = props
-  const container = sourceCodeContainer.value
-  const codeMirrorConfig: Record<string, unknown> = {
-    value: markdown,
-    lineNumbers: true,
-    autofocus: true,
-    lineWrapping: true,
-    styleActiveLine: true,
-    direction: textDirection,
-    viewportMargin: Infinity,
-    lineNumberFormatter (line: number) {
-      if (line % 10 === 0 || line === 1) {
-        return line
-      } else {
-        return ''
+const reportFailure = (
+  task: Promise<void>,
+  operation: SourceModeOperation
+): void => {
+  failureMessage.value = ''
+  task.catch(error => {
+    console.error(`Source editor ${operation} failed`, error)
+    failureMessage.value = t('editor.sourceCode.operationFailed', {
+      operation: t(SOURCE_MODE_OPERATION_I18N_KEYS[operation])
+    })
+  })
+}
+
+const edit = (
+  start: number,
+  end: number,
+  text: string,
+  selection: SourceModeSelection
+): void => {
+  const activeController = controller
+  if (activeController === null) return
+  reportFailure(
+    activeController.edit(Object.freeze({
+      start,
+      end,
+      text,
+      selection
+    })),
+    'edit'
+  )
+}
+
+const previousCodePointOffset = (source: string, offset: number): number => {
+  if (offset <= 0) return 0
+  const previous = source.charCodeAt(offset - 1)
+  if (
+    previous >= 0xDC00 &&
+    previous <= 0xDFFF &&
+    offset > 1
+  ) {
+    const leading = source.charCodeAt(offset - 2)
+    if (leading >= 0xD800 && leading <= 0xDBFF) return offset - 2
+  }
+  return offset - 1
+}
+
+const nextCodePointOffset = (source: string, offset: number): number => {
+  if (offset >= source.length) return source.length
+  const leading = source.charCodeAt(offset)
+  if (
+    leading >= 0xD800 &&
+    leading <= 0xDBFF &&
+    offset + 1 < source.length
+  ) {
+    const trailing = source.charCodeAt(offset + 1)
+    if (trailing >= 0xDC00 && trailing <= 0xDFFF) return offset + 2
+  }
+  return offset + 1
+}
+
+const previousWordTextOffset = (text: string, offset: number): number => {
+  let cursor = offset
+  while (cursor > 0 && /\s/u.test(text[cursor - 1])) cursor -= 1
+  while (cursor > 0 && !/\s/u.test(text[cursor - 1])) cursor -= 1
+  return cursor
+}
+
+const nextWordTextOffset = (text: string, offset: number): number => {
+  let cursor = offset
+  while (cursor < text.length && /\s/u.test(text[cursor])) cursor += 1
+  while (cursor < text.length && !/\s/u.test(text[cursor])) cursor += 1
+  return cursor
+}
+
+const beforeLineTextOffset = (text: string, offset: number): number =>
+  text.lastIndexOf('\n', Math.max(0, offset - 1)) + 1
+
+const afterLineTextOffset = (text: string, offset: number): number => {
+  const lineBreak = text.indexOf('\n', offset)
+  return lineBreak < 0 ? text.length : lineBreak + 1
+}
+
+const replacementForInput = (
+  event: InputEvent,
+  selection: SourceModeSelection
+): Readonly<{
+  start: number
+  end: number
+  text: string
+}> | null => {
+  let start = Math.min(selection.anchor, selection.focus)
+  let end = Math.max(selection.anchor, selection.focus)
+  let text = ''
+
+  switch (event.inputType) {
+    case 'insertText':
+    case 'insertReplacementText':
+    case 'insertFromYank':
+      text = event.data ?? ''
+      break
+    case 'insertLineBreak':
+    case 'insertParagraph':
+      text = '\n'
+      break
+    case 'insertFromDrop':
+      text = event.dataTransfer?.getData('text/plain') ?? event.data ?? ''
+      break
+    case 'deleteContentBackward':
+      if (start === end) start = previousCodePointOffset(projection.source, start)
+      break
+    case 'deleteContentForward':
+      if (start === end) end = nextCodePointOffset(projection.source, end)
+      break
+    case 'deleteWordBackward':
+      if (start === end) {
+        const displayStart = projection.textOffsetAt(start)
+        start = projection.sourceOffsetAt(
+          previousWordTextOffset(projection.text, displayStart)
+        )
       }
+      break
+    case 'deleteWordForward':
+      if (start === end) {
+        const displayEnd = projection.textOffsetAt(end)
+        end = projection.sourceOffsetAt(
+          nextWordTextOffset(projection.text, displayEnd)
+        )
+      }
+      break
+    case 'deleteSoftLineBackward':
+    case 'deleteHardLineBackward':
+      if (start === end) {
+        const displayStart = projection.textOffsetAt(start)
+        start = projection.sourceOffsetAt(
+          beforeLineTextOffset(projection.text, displayStart)
+        )
+      }
+      break
+    case 'deleteSoftLineForward':
+    case 'deleteHardLineForward':
+      if (start === end) {
+        const displayEnd = projection.textOffsetAt(end)
+        end = projection.sourceOffsetAt(
+          afterLineTextOffset(projection.text, displayEnd)
+        )
+      }
+      break
+    case 'deleteByCut':
+    case 'deleteByDrag':
+    case 'deleteContent':
+      break
+    default:
+      return null
+  }
+  return Object.freeze({ start, end, text })
+}
+
+const handleBeforeInput = (event: InputEvent): void => {
+  if (!sourceReady.value) {
+    event.preventDefault()
+    return
+  }
+  if (composing || event.isComposing || event.inputType === 'insertCompositionText') {
+    return
+  }
+  event.preventDefault()
+  const input = sourceInput.value
+  if (input === null) return
+
+  if (event.inputType === 'historyUndo') {
+    if (controller !== null) reportFailure(controller.undo(), 'undo')
+    return
+  }
+  if (event.inputType === 'historyRedo') {
+    if (controller !== null) reportFailure(controller.redo(), 'redo')
+    return
+  }
+
+  const currentSelection = sourceSelection(input)
+  if (event.inputType === 'insertFromPaste') {
+    if (controller !== null) {
+      reportFailure(controller.paste(currentSelection), 'paste')
+    }
+    return
+  }
+  const replacement = replacementForInput(event, currentSelection)
+  if (replacement === null) return
+  const caret = replacement.start + replacement.text.length
+  edit(
+    replacement.start,
+    replacement.end,
+    replacement.text,
+    Object.freeze({ anchor: caret, focus: caret })
+  )
+}
+
+const handleCompositionStart = (): void => {
+  const input = sourceInput.value
+  if (input === null) return
+  const selection = sourceSelection(input)
+  compositionRange = Object.freeze({
+    start: Math.min(selection.anchor, selection.focus),
+    end: Math.max(selection.anchor, selection.focus)
+  })
+  composing = true
+}
+
+const handleCompositionEnd = (event: CompositionEvent): void => {
+  const range = compositionRange
+  compositionRange = null
+  composing = false
+  if (range === null) return
+  const text = typeof event.data === 'string' ? event.data : ''
+  const caret = range.start + text.length
+  edit(
+    range.start,
+    range.end,
+    text,
+    Object.freeze({ anchor: caret, focus: caret })
+  )
+}
+
+const selectedCanonicalRange = (
+  input: HTMLTextAreaElement
+): Readonly<{ start: number; end: number }> => {
+  const selection = sourceSelection(input)
+  return Object.freeze({
+    start: Math.min(selection.anchor, selection.focus),
+    end: Math.max(selection.anchor, selection.focus)
+  })
+}
+
+const handlePaste = (event: ClipboardEvent): void => {
+  event.preventDefault()
+  const input = sourceInput.value
+  if (input === null) return
+  reportFailure(
+    controller?.paste(sourceSelection(input)) ?? Promise.resolve(),
+    'paste'
+  )
+}
+
+const handleDrop = (event: DragEvent): void => {
+  event.preventDefault()
+  const input = sourceInput.value
+  if (input === null) return
+  const range = selectedCanonicalRange(input)
+  const text = event.dataTransfer?.getData('text/plain') ?? ''
+  const caret = range.start + text.length
+  edit(range.start, range.end, text, Object.freeze({
+    anchor: caret,
+    focus: caret
+  }))
+}
+
+const handleCut = (event: ClipboardEvent): void => {
+  const input = sourceInput.value
+  if (input === null || controller === null) return
+  const range = selectedCanonicalRange(input)
+  if (range.start === range.end) return
+  event.preventDefault()
+  reportFailure(controller.cut(Object.freeze({
+    start: range.start,
+    end: range.end,
+    text: '',
+    selection: Object.freeze({
+      anchor: range.start,
+      focus: range.start
+    })
+  })), 'cut')
+}
+
+const handleCopy = (event: ClipboardEvent): void => {
+  const input = sourceInput.value
+  if (input === null || controller === null) return
+  event.preventDefault()
+  reportFailure(
+    controller.copy(selectedCanonicalRange(input)),
+    'copy'
+  )
+}
+
+const handleKeydown = (event: KeyboardEvent): void => {
+  const command = event.metaKey || event.ctrlKey
+  if (command && event.key.toLowerCase() === 'z') {
+    event.preventDefault()
+    if (controller !== null) {
+      reportFailure(
+        event.shiftKey ? controller.redo() : controller.undo(),
+        event.shiftKey ? 'redo' : 'undo'
+      )
+    }
+    return
+  }
+  if (command && event.key.toLowerCase() === 'y') {
+    event.preventDefault()
+    if (controller !== null) reportFailure(controller.redo(), 'redo')
+    return
+  }
+  if (event.key === 'Tab' && !command && !event.altKey) {
+    event.preventDefault()
+    const input = sourceInput.value
+    if (input === null) return
+    const range = selectedCanonicalRange(input)
+    const caret = range.start + 1
+    edit(range.start, range.end, '\t', Object.freeze({
+      anchor: caret,
+      focus: caret
+    }))
+  }
+}
+
+const handleSelection = (): void => {
+  if (applyingPublication || composing || controller === null) return
+  const input = sourceInput.value
+  if (input === null || publication === null) return
+  const selection = sourceSelection(input)
+  if (selectionEquals(selection, publication.selection)) return
+  publication = Object.freeze({ ...publication, selection })
+  reportFailure(controller.select(selection), 'selection')
+}
+
+const handleSelectAll = (): void => {
+  const input = sourceInput.value
+  if (input === null || controller === null) return
+  input.focus()
+  input.select()
+  const selection = Object.freeze({
+    anchor: 0,
+    focus: projection.source.length
+  })
+  reportFailure(controller.select(selection), 'selection')
+}
+
+const handleUndo = (): void => {
+  if (controller !== null) reportFailure(controller.undo(), 'undo')
+}
+
+const handleRedo = (): void => {
+  if (controller !== null) reportFailure(controller.redo(), 'redo')
+}
+
+const handleRefresh = (): void => {
+  if (controller === null) return
+  pendingRefreshes += 1
+  sourceReady.value = false
+  const operation = controller.refresh()
+  reportFailure(operation, 'attachment')
+  const settle = (): void => {
+    pendingRefreshes -= 1
+    if (pendingRefreshes === 0 && !destroyed) {
+      sourceReady.value = true
     }
   }
+  operation.then(settle, settle)
+}
 
-  if (railscastsThemes.includes(theme.value)) {
-    codeMirrorConfig.theme = 'railscasts'
-  } else if (oneDarkThemes.includes(theme.value)) {
-    codeMirrorConfig.theme = 'one-dark'
+const handleScrollToHeader = (nodeId: unknown): void => {
+  const input = sourceInput.value
+  const current = publication
+  if (input === null || current === null || typeof nodeId !== 'string') return
+  const heading = current.outline.find(item => item.nodeId === nodeId)
+  if (heading === undefined) return
+
+  const textOffset = projection.textOffsetAt(heading.sourceOffset)
+  applyingPublication = true
+  input.focus()
+  input.setSelectionRange(textOffset, textOffset)
+  const line = projection.text.slice(0, textOffset).split('\n').length - 1
+  const lineHeight = Number.parseFloat(getComputedStyle(input).lineHeight)
+  if (Number.isFinite(lineHeight)) {
+    input.scrollTop = Math.max(0, line * lineHeight - input.clientHeight / 3)
   }
+  queueMicrotask(() => {
+    applyingPublication = false
+  })
+  if (controller !== null) {
+    reportFailure(controller.select(Object.freeze({
+      anchor: heading.sourceOffset,
+      focus: heading.sourceOffset
+    })), 'headingSelection')
+  }
+}
 
-  bus.on('file-loaded', handleFileChange)
-  bus.on('invalidate-image-cache', handleInvalidateImageCache)
-  bus.on('file-changed', handleFileChange)
+onMounted(async () => {
+  bus.on('file-loaded', handleRefresh)
+  bus.on('file-changed', handleRefresh)
   bus.on('selectAll', handleSelectAll)
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
-  bus.on('image-action', handleImageAction)
   bus.on('scroll-to-header', handleScrollToHeader)
 
-  // For some reason, code mirror does not seem to play well with Vue's refs if we reference editor.value directly.
-  // See https://github.com/codemirror/codemirror5/issues/6886 - hence, we need to use a local variable first.
-  const codeMirrorInstance = codeMirror(container, codeMirrorConfig)
-
-  // `markdown-math` wraps the standard Markdown mode and delegates `$...$` and
-  // `$$...$$` spans to stex so subscript underscores in math do not flip the
-  // outer mode into emphasis. See src/renderer/src/codeMirror/markdownMathMode.js.
-  codeMirrorInstance.setOption('mode', 'markdown-math')
-
-  codeMirrorInstance.on('contextmenu', (_cm: CMInstance, event: Event) => {
-    event.preventDefault()
-    event.stopPropagation()
-  })
-
-  if (isValidMuyaIndexCursor(muyaIndexCursor)) {
-    const { anchor, focus } = muyaIndexCursor
-    codeMirrorInstance.setSelection(anchor, focus, { scroll: true })
-  } else {
-    setCursorAtFirstLine(codeMirrorInstance)
-  }
-
-  editor.value = codeMirrorInstance
-  tabId.value = id
-
-  listenChange()
+  const port = await sourceModeDocumentPort()
+  if (destroyed) return
+  controller = createSourceModeController(port, surface)
+  disposeInputSettlement =
+    registerSourceModeInputSettlement(controller.settled).dispose
+  controller.start()
+  sourceReady.value = true
+  await nextTick()
+  sourceInput.value?.focus()
 })
 
 onBeforeUnmount(() => {
-  viewDestroyed.value = true
-  if (commitTimer.value) clearTimeout(commitTimer.value)
-
-  bus.off('file-loaded', handleFileChange)
-  bus.off('invalidate-image-cache', handleInvalidateImageCache)
-  bus.off('file-changed', handleFileChange)
+  destroyed = true
+  sourceReady.value = false
+  disposeInputSettlement()
+  disposeInputSettlement = () => {}
+  bus.off('file-loaded', handleRefresh)
+  bus.off('file-changed', handleRefresh)
   bus.off('selectAll', handleSelectAll)
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
-  bus.off('image-action', handleImageAction)
   bus.off('scroll-to-header', handleScrollToHeader)
-
-  const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(editor.value)
-  bus.emit('file-changed', {
-    id: tabId.value,
-    markdown: newMarkdown,
-    muyaIndexCursor: cursor,
-    renderCursor: true
-  })
+  controller?.destroy()
+  controller = null
 })
 </script>
 
 <style>
 .source-code {
+  position: relative;
   height: calc(100vh - var(--titleBarHeight));
   box-sizing: border-box;
-  overflow: auto;
+  overflow: hidden;
 }
-.source-code .CodeMirror {
-  height: auto;
+
+.source-code-input {
+  display: block;
+  box-sizing: border-box;
+  width: min(var(--editorAreaWidth), calc(100% - 100px));
+  height: calc(100% - 100px);
   margin: 50px auto;
-  max-width: var(--editorAreaWidth);
+  padding: 0;
+  overflow: auto;
+  resize: none;
+  border: 0;
+  outline: 0;
+  color: var(--editorColor);
   background: transparent;
+  font-family: var(
+    --source-code-font-family,
+    Menlo, Monaco, Consolas, "Liberation Mono", monospace
+  );
+  font-size: var(--source-code-font-size, 1em);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  tab-size: 4;
 }
-.source-code .CodeMirror-gutters {
-  border-right: none;
-  background-color: transparent;
+
+.source-code-error {
+  position: absolute;
+  right: 24px;
+  bottom: 16px;
+  max-width: min(520px, calc(100% - 48px));
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--notificationErrorColor, #fff);
+  background: var(--notificationErrorBg, #b42318);
+  border-radius: 4px;
 }
-.source-code .CodeMirror-activeline-background,
-.source-code .CodeMirror-activeline-gutter {
-  background: var(--floatHoverColor);
+
+.source-code-input::selection {
+  background: var(--selection-color);
 }
 </style>

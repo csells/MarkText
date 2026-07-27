@@ -146,6 +146,7 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import debounce from 'lodash/debounce'
 import { ArrowDown, ArrowUp, RefreshRight, Switch } from '@element-plus/icons-vue'
+import { createDocumentSearchQuery } from '@marktext/document-core'
 
 const { t } = useI18n()
 
@@ -274,24 +275,31 @@ const listenFindPrev = () => {
 
 const docKeyup = (event: KeyboardEvent) => {
   if (event.key === 'Escape') {
-    emptySearch(true)
+    emptySearch()
   }
 }
 
 const docClick = () => {
   if (!showSearch.value) return
-  emptySearch(true)
+  emptySearch()
 }
 
 const blurSearch = () => {
-  emptySearch(true)
+  emptySearch()
 }
 
-const emptySearch = (selectHighlight = false) => {
+const emptySearch = () => {
   showSearch.value = false
   searchValue.value = ''
   replaceValue.value = ''
-  bus.emit('searchValue', { value: searchValue.value, opt: { selectHighlight } })
+  bus.emit('searchValue', {
+    value: searchValue.value,
+    opt: {
+      isCaseSensitive: isCaseSensitive.value,
+      isWholeWord: isWholeWord.value,
+      isRegexp: isRegexp.value
+    }
+  })
 }
 
 const toggleSearchType = () => {
@@ -313,24 +321,21 @@ const handleEnterKey = (event: KeyboardEvent) => {
 }
 
 const searchFn = () => {
-  if (isRegexp.value) {
-    // Handle invalid regexp.
+  searchErrorMsg.value = ''
+  if (isRegexp.value && searchValue.value) {
     try {
-      RegExp(searchValue.value)
-      searchErrorMsg.value = ''
-    } catch {
-      searchErrorMsg.value = t('search.invalidRegex', { pattern: searchValue.value })
-      return
-    }
-    // Handle match empty string, no need to search.
-    try {
-      const SEARCH_REG = new RegExp(searchValue.value)
-      if (searchValue.value && SEARCH_REG.test('')) {
-        throw new Error()
-      }
-      searchErrorMsg.value = ''
-    } catch {
-      searchErrorMsg.value = t('search.regexMatchEmpty', { pattern: searchValue.value })
+      createDocumentSearchQuery(searchValue.value, {
+        syntax: 'regexp',
+        caseSensitive: isCaseSensitive.value,
+        wholeWord: isWholeWord.value
+      })
+    } catch (error) {
+      searchErrorMsg.value = (
+        error instanceof Error &&
+        /matches empty text/i.test(error.message)
+      )
+        ? t('search.regexMatchEmpty', { pattern: searchValue.value })
+        : t('search.invalidRegex', { pattern: searchValue.value })
       return
     }
   }
@@ -349,6 +354,7 @@ const debouncedSearchFn = debounce(searchFn, 150)
 
 const replace = (isSingle = true) => {
   bus.emit('replaceValue', {
+    query: searchValue.value,
     value: replaceValue.value,
     opt: {
       isSingle,

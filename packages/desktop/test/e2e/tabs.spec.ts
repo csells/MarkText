@@ -171,9 +171,8 @@ test.describe('Tab management', () => {
     expect(await activeTabId(page)).toBe(bId)
   })
 
-  // Item 262 — a blank untitled tab is NOT marked unsaved before any input
-  // (the engine's lone-'\n' init json-change is guarded in
-  // LISTEN_FOR_CONTENT_CHANGE), and flips to unsaved on the first real keystroke.
+  // Item 262 — a blank untitled tab is clean because the main-owned history
+  // identity is clean, and flips to unsaved on the first real keystroke.
   test('Blank untitled tab is clean until the first keystroke', async() => {
     const before = await page.locator(tabSelector).count()
     await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, '')
@@ -185,7 +184,7 @@ test.describe('Tab management', () => {
 
     // The freshly-created active tab must stay clean: its <li> has `active` but
     // not `unsaved` (= file.isSaved is true) before any input. Poll briefly so a
-    // late guarded init json-change can't race the assertion.
+    // late verified publication cannot race the assertion.
     const activeIsClean = () => {
       const li = document.querySelector('.tabs-container > li.active')
       return !!li && !li.classList.contains('unsaved')
@@ -209,8 +208,8 @@ test.describe('Tab management', () => {
       .toBe(true)
   })
 
-  // Item 15 — the engine undo history is per-tab (`engineHistoryByTab`),
-  // restored on each `file-changed` (tab switch). After switching back to tab A,
+  // Item 15 — main retains one undo history per document session. After
+  // switching back to tab A,
   // one undo must revert A's OWN last edit back to A's pre-edit (on-disk)
   // baseline, never tab B's edit; B's edit must never have leaked into A; and
   // the per-tab unsaved indicator must track A's TRUE dirty state across the

@@ -9,7 +9,8 @@ describe('CriticMarkup Review store', () => {
   it('holds only the current ephemeral document snapshot and clears atomically', () => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({
-      fileId: 'file-1',
+      documentId: 'document:1',
+      revisionId: 'revision:1',
       available: true,
       items: [{
         id: 'critic-0-7',
@@ -27,12 +28,14 @@ describe('CriticMarkup Review store', () => {
       projection: 'marked'
     })
 
-    expect(store.snapshot.fileId).toBe('file-1')
+    expect(store.snapshot.documentId).toBe('document:1')
+    expect(store.snapshot.revisionId).toBe('revision:1')
     expect(store.snapshot.items).toHaveLength(1)
 
     store.CLEAR()
     expect(store.snapshot).toEqual({
-      fileId: null,
+      documentId: null,
+      revisionId: null,
       available: false,
       items: [],
       currentItemId: null,

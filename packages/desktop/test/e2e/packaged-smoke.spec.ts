@@ -3,17 +3,34 @@ import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron } from '@playwright/test'
 import { expect, test } from '@playwright/test'
-import { clickMenuById, expectNoCapturedErrors } from './helpers'
+import {
+  clickMenuById,
+  closeElectron,
+  expectNoCapturedErrors
+} from './helpers'
+import { expectInstalledArtifactCommit } from './installedArtifactProvenance'
 
-// Legacy packaged regression oracle originating in archived plan 0006 Wave 7;
-// plan 0009 defines target acceptance for the rebuilt engine. The
+// Plan 0009 acceptance for the packaged document-core application. The
 // installed/mounted native distributable — not the electron-vite out/ tree —
 // must complete a CriticMarkup review workflow hidden and without focus
 // takeover. The packaged binary path arrives via MARKTEXT_PACKAGED_APP (set
-// by the runner that mounted the DMG in an isolated location); without it the
-// smoke is skipped so ordinary E2E runs stay packaged-artifact-free.
+// by the runner that mounted the DMG in an isolated location). This spec lives
+// only in the installed Playwright project and fails if that runner omits the
+// artifact; the ordinary unpacked project does not collect it.
 
-const packagedBinary = process.env.MARKTEXT_PACKAGED_APP
+const requiredPackagedBinary = (): string => {
+  const configured = process.env.MARKTEXT_PACKAGED_APP
+  if (configured === undefined || configured.trim().length === 0) {
+    throw new Error(
+      'MARKTEXT_PACKAGED_APP must name the mounted or installed MarkText executable'
+    )
+  }
+  const absolute = path.resolve(configured)
+  if (!fs.existsSync(absolute)) {
+    throw new Error(`Installed MarkText executable does not exist: ${absolute}`)
+  }
+  return absolute
+}
 
 const SMOKE_DOC = [
   '# Packaged smoke',
@@ -23,11 +40,11 @@ const SMOKE_DOC = [
   ''
 ].join('\n')
 
-test.describe('legacy packaged distributable smoke', () => {
-  test.skip(!packagedBinary, 'MARKTEXT_PACKAGED_APP not set')
+test.describe('packaged document-core distributable smoke', () => {
   test.describe.configure({ timeout: 120000 })
 
   test('the mounted app opens, renders all five forms, projects, and saves', async() => {
+    const packagedBinary = requiredPackagedBinary()
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-packaged-smoke-'))
     const filePath = path.join(dir, 'smoke.md')
     const userDataDir = path.join(dir, 'profile')
@@ -50,6 +67,7 @@ test.describe('legacy packaged distributable smoke', () => {
         state: 'attached',
         timeout: 60000
       })
+      await expectInstalledArtifactCommit(page)
       await expect(page.locator('.editor-component')).toContainText('added')
 
       // All five forms materialize as semantic critic nodes.
@@ -65,7 +83,9 @@ test.describe('legacy packaged distributable smoke', () => {
         await clickMenuById(app, 'sideBarMenuItem')
         await expect(sideBar).toBeVisible()
       }
-      await page.locator('.side-bar .left-column li[title="Review"]').click()
+      await page.locator('.side-bar .left-column').getByRole('button', {
+        name: 'Review'
+      }).click()
       await expect(page.locator('.side-bar-review')).toBeVisible()
       await expect(page.locator('.review-card')).toHaveCount(4)
       await expect(page.locator('.review-card.type-comment')).toHaveCount(1)
@@ -106,7 +126,7 @@ test.describe('legacy packaged distributable smoke', () => {
       await expectNoCapturedErrors(app)
     } finally {
       try {
-        await app?.close()
+        if (app !== undefined) await closeElectron(app)
       } finally {
         fs.rmSync(dir, { recursive: true, force: true })
       }

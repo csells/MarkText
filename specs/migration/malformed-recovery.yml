@@ -1,0 +1,54 @@
+{
+  "schema": "marktext-language-corpus-v1",
+  "id": "MALFORMED_RECOVERY",
+  "authority": "marktext-profile-1-recovery",
+  "version": "malformed-recovery-corpus-1",
+  "source": "specs/language/marktext-markdown-profile-1.md#11-error-tolerance-and-diagnostics",
+  "cases": [
+    {
+      "id": "MFR-UNTERMINATED-OPENER",
+      "source": "before {++open",
+      "rootKinds": [],
+      "criticKindsPreorder": [],
+      "originalSource": "before {++open",
+      "revisedSource": "before {++open",
+      "diagnosticCodes": ["CM_UNTERMINATED_OPENER"]
+    },
+    {
+      "id": "MFR-UNMATCHED-CLOSERS",
+      "source": "++} --} ~~} ==} <<}",
+      "rootKinds": [],
+      "criticKindsPreorder": [],
+      "originalSource": "++} --} ~~} ==} <<}",
+      "revisedSource": "++} --} ~~} ==} <<}",
+      "diagnosticCodes": [
+        "CM_UNMATCHED_CLOSER",
+        "CM_UNMATCHED_CLOSER",
+        "CM_UNMATCHED_CLOSER",
+        "CM_UNMATCHED_CLOSER",
+        "CM_UNMATCHED_CLOSER"
+      ]
+    },
+    {
+      "id": "MFR-NON-TOP-CLOSER",
+      "source": "{++a{--b++}c--}",
+      "rootKinds": ["deletion"],
+      "criticKindsPreorder": ["deletion"],
+      "originalSource": "{++ab++\\}c",
+      "revisedSource": "{++a",
+      "diagnosticCodes": [
+        "CM_UNTERMINATED_OPENER",
+        "CM_NON_TOP_CLOSER"
+      ]
+    },
+    {
+      "id": "MFR-SUBSTITUTION-SEPARATOR-MISSING",
+      "source": "{~~a{++b++}~~}",
+      "rootKinds": ["addition"],
+      "criticKindsPreorder": ["addition"],
+      "originalSource": "{~~a~~}",
+      "revisedSource": "{~~ab~~}",
+      "diagnosticCodes": ["CM_SUBSTITUTION_SEPARATOR_MISSING"]
+    }
+  ]
+}

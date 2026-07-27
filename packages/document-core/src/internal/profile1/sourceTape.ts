@@ -120,10 +120,6 @@ export function findMarker(
   return undefined
 }
 
-export function isMarkdownTextTapeRole(role: TapeRole): boolean {
-  return role === 'text' || role === 'virtual-bom' || role.startsWith('eol-')
-}
-
 export function markerCandidateFromRole(
   role: TapeRole
 ): Readonly<{ kind: Profile1CriticKind; role: MarkerRole }> | undefined {

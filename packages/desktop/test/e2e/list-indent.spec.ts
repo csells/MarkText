@@ -8,37 +8,29 @@ import {
 
 // ---------------------------------------------------------------------------
 // Coverage backfill (checklist items 30, 42). No e2e anywhere drives
-// Tab/Shift-Tab list nesting through the real engine (only table-drag-bar.spec
-// mentions Tab). The @muyajs/core engine routes a `Tab` keydown on the active
-// list-item paragraph to ParagraphContent.tabHandler
-// (packages/muya/src/block/content/paragraphContent/index.ts): with a previous
-// sibling list-item it indents (_indentListItem -> appends the item into a
-// nested ul inside the previous li); Shift-Tab unindents (_unindentListItem).
-// The keydown reaches the block via Editor's keydown dispatch
-// (packages/muya/src/editor/index.ts -> content.keydownHandler -> tabHandler).
+// Tab/Shift-Tab list nesting through the real engine. The engine routes Tab on
+// an active list item to the typed indent intent and Shift-Tab to unindent.
 //
 // This spec locks the desktop WYSIWYG behavior end to end: a 2-item bullet list
 // nests on Tab (DOM gains `ul li ul li`, markdown gains the indented child) and
 // flattens on Shift-Tab. It also confirms the same for an ordered list and that
 // the markdown indent width tracks the marker column.
 //
-// The companion per-mode `listIndentation` (1/dfm/number/tab) serialization is
-// a pure-serializer concern and is covered as a muya-unit slice (see `blocked`)
-// — it is not exercisable from the desktop e2e without mutating the user's
-// preference store, so it is intentionally not duplicated here.
+// The companion per-mode `listIndentation` serialization policy has focused
+// core coverage and is intentionally not duplicated here.
 // ---------------------------------------------------------------------------
 
-// Place the caret inside the Nth (0-based) `span.mu-paragraph-content` in the
+// Place the caret inside the Nth (0-based) `span.document-view-run` in the
 // editor and commit it to the engine's model the same way helpers.ts does for
 // the first paragraph: collapse the range to the end of the span, fire a
-// selectionchange, then a synthetic keyup on the editor root so the engine
-// updates its `activeContentBlock` (it derives that from click/keyup events).
+// selectionchange, then a synthetic keyup on the editor root so the selection
+// is committed before the list command.
 const placeCaretInContentSpan = async(page: Page, index: number): Promise<void> => {
   await page.evaluate((idx) => {
     const root = document.querySelector('.editor-component') as HTMLElement | null
     if (!root) return
     root.focus()
-    const spans = root.querySelectorAll('span.mu-paragraph-content')
+    const spans = root.querySelectorAll('span.document-view-run')
     const target = spans[idx]
     if (!target) return
     const range = document.createRange()

@@ -16,22 +16,29 @@ interface UrlArgs {
   userDataPath: string | null
   windowId: number
   initialState: {
-    codeFontFamily: string | null
-    codeFontSize: string | null
+    codeFontFamily?: string
+    codeFontSize?: number
     hideScrollbar: boolean
-    theme: string | null
-    titleBarStyle: string | null
+    theme?: string
+    titleBarStyle?: string
   }
 }
 
 const parseUrlArgs = (): UrlArgs => {
   const params = new URLSearchParams(window.location.search)
   const codeFontFamily = params.get('cff')
-  const codeFontSize = params.get('cfs')
+  const codeFontSizeValue = params.get('cfs')
+  const codeFontSize = codeFontSizeValue === null
+    ? undefined
+    : Number(codeFontSizeValue)
   const debug = params.get('debug') === '1'
   const hideScrollbar = params.get('hsb') === '1'
   const theme = params.get('theme')
-  const titleBarStyle = params.get('tbs')
+  const titleBarStyleValue = params.get('tbs')
+  const titleBarStyle =
+    titleBarStyleValue === 'custom' || titleBarStyleValue === 'native'
+      ? titleBarStyleValue
+      : undefined
   const userDataPath = params.get('udp')
   const windowId = Number(params.get('wid'))
   const type = params.get('type')
@@ -46,40 +53,20 @@ const parseUrlArgs = (): UrlArgs => {
     userDataPath,
     windowId,
     initialState: {
-      codeFontFamily,
-      codeFontSize,
+      ...(codeFontFamily === null ? {} : { codeFontFamily }),
+      ...(codeFontSize === undefined || !Number.isFinite(codeFontSize)
+        ? {}
+        : { codeFontSize }),
       hideScrollbar,
-      theme,
-      titleBarStyle
+      ...(theme === null ? {} : { theme }),
+      ...(titleBarStyle === undefined ? {} : { titleBarStyle })
     }
   }
 }
 
-/**
- * Check if an error is a known non-fatal CodeMirror race condition.
- * These errors occur when clicking in the editor during rapid state changes
- * and don't affect functionality - the user can simply click again.
- *
- * @param error - The error to check
- * @returns True if this is a suppressible CodeMirror error
- */
-const isCodeMirrorRaceCondition = (error: Error | null | undefined): boolean => {
-  if (!error || !error.stack) return false
-
-  // CodeMirror internal error when line measurement data is unavailable during mouse click
-  // This happens when the document state is out of sync with the display during rapid changes
-  const isMapOnUndefined = error.message === "Cannot read properties of undefined (reading 'map')"
-  const isInPrepareMeasure = error.stack.includes('prepareMeasureForLine')
-  const isInCoordsChar = error.stack.includes('coordsChar') || error.stack.includes('posFromMouse')
-
-  return isMapOnUndefined && isInPrepareMeasure && isInCoordsChar
-}
-
 const handleRendererError = createRendererErrorHandler({
-  shouldSuppress: isCodeMirrorRaceCondition,
   log: error => exceptionLogger(error),
   send: payload => window.electron.ipcRenderer.send('mt::handle-renderer-error', payload),
-  warn: error => console.warn('Suppressed non-fatal CodeMirror race condition:', error.message),
   fallback: event => console.error(event)
 })
 

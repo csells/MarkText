@@ -1,0 +1,26 @@
+name: Document View Build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'packages/document-core/**'
+      - 'packages/document-view/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/document-view-build.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Build and test @marktext/document-view
+        run: |
+          pnpm -C packages/document-view build
+          pnpm -C packages/document-view test

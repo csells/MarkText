@@ -5,7 +5,7 @@ import type {
   ICriticMarkupReviewEditor,
   ICriticMarkupReviewItem,
   ICriticMarkupReviewSnapshot
-} from '@muyajs/core'
+} from '@marktext/document-view'
 
 const { ipcListeners, ipcSend } = vi.hoisted(() => {
   const listeners = new Map<string, (...args: unknown[]) => void>()
@@ -44,6 +44,7 @@ const comment: ICriticMarkupReviewItem = {
 }
 
 const snapshot: ICriticMarkupReviewSnapshot = {
+  revisionId: 'revision:1',
   items: [comment],
   currentItemId: comment.id,
   canCreateAddition: true,
@@ -51,6 +52,7 @@ const snapshot: ICriticMarkupReviewSnapshot = {
   canCreateSubstitution: true,
   canCreateHighlight: true,
   canCreateComment: true,
+  canNavigate: true,
   canResolveCurrent: true,
   canResolveAll: true,
   trackChanges: false,
@@ -59,8 +61,7 @@ const snapshot: ICriticMarkupReviewSnapshot = {
 
 function fakeEditor() {
   return {
-    on: vi.fn(),
-    off: vi.fn(),
+    subscribeReview: vi.fn(() => ({ dispose: vi.fn() })),
     getCriticMarkupReviewSnapshot: vi.fn(() => snapshot),
     getCriticMarkupCommentAtPoint: vi.fn(() => comment),
     commitAuthoringSelection: vi.fn(),
@@ -70,7 +71,7 @@ function fakeEditor() {
     navigateCriticMarkup: vi.fn(),
     resolveCriticMarkup: vi.fn(),
     resolveAllCriticMarkup: vi.fn(),
-    setOptions: vi.fn()
+    configure: vi.fn()
   }
 }
 
@@ -79,10 +80,12 @@ function mountController(editor: ReturnType<typeof fakeEditor>): App {
     setup() {
       useCriticMarkupReviewController({
         editor: shallowRef(editor as unknown as ICriticMarkupReviewEditor),
-        fileId: ref('file-1'),
+        documentId: ref('document:1'),
         sourceCode: ref(false),
         requestText: async() => null,
-        cancelTextRequest: () => {}
+        cancelTextRequest: () => {},
+        commandNotificationSink: { pushTabNotification: () => {} },
+        translate: key => key
       })
       return () => h('div')
     }
@@ -110,8 +113,11 @@ describe('CriticMarkup editor context IPC', () => {
       expect(editor.getCriticMarkupCommentAtPoint).toHaveBeenCalledWith(41, 73)
       expect(ipcSend).toHaveBeenCalledWith('mt::cm-editor-context-response', {
         requestId: 'request-7',
-        fileId: 'file-1',
-        target: comment
+        documentId: 'document:1',
+        target: {
+          revisionId: 'revision:1',
+          nodeId: comment.id
+        }
       })
     } finally {
       app.unmount()
@@ -131,7 +137,7 @@ describe('CriticMarkup editor context IPC', () => {
         .not.toThrow()
       expect(ipcSend).toHaveBeenCalledWith('mt::cm-editor-context-response', {
         requestId: query.requestId,
-        fileId: null,
+        documentId: null,
         target: null
       })
     } finally {
@@ -143,7 +149,13 @@ describe('CriticMarkup editor context IPC', () => {
     const editor = fakeEditor()
     const app = mountController(editor)
     try {
-      const request = { fileId: 'file-1', target: comment }
+      const request = {
+        documentId: 'document:1',
+        target: {
+          revisionId: 'revision:1',
+          nodeId: comment.id
+        }
+      }
       ipcListeners.get('mt::cm-edit-comment')?.({}, request)
 
       expect(useCriticMarkupReviewStore().commentEditRequest).toEqual(request)
@@ -157,8 +169,11 @@ describe('CriticMarkup editor context IPC', () => {
     const app = mountController(editor)
     try {
       ipcListeners.get('mt::cm-edit-comment')?.({}, {
-        fileId: 'file-1',
-        target: { ...comment, raw: '{>>stale note<<}', content: 'stale note' }
+        documentId: 'document:1',
+        target: {
+          revisionId: 'revision:stale',
+          nodeId: comment.id
+        }
       })
 
       expect(useCriticMarkupReviewStore().commentEditRequest).toBeNull()
@@ -172,8 +187,12 @@ describe('CriticMarkup editor context IPC', () => {
     const app = mountController(editor)
     try {
       expect(() => ipcListeners.get('mt::cm-edit-comment')?.({}, {
-        fileId: 'file-1',
-        target: { ...comment, path: null }
+        documentId: 'document:1',
+        target: {
+          revisionId: 'revision:1',
+          nodeId: comment.id,
+          sourceStart: comment.sourceStart
+        }
       })).not.toThrow()
 
       expect(useCriticMarkupReviewStore().commentEditRequest).toBeNull()

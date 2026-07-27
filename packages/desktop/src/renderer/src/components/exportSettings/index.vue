@@ -163,7 +163,7 @@
           </div>
           <cur-select
             :description="t('exportSettings.theme.theme')"
-            more="https://marktext.me/docs/export-themes"
+            more="documentation-export-themes"
             :value="theme"
             :options="themeList"
             :on-change="(value: unknown) => onSelectChange('theme', value)"
@@ -298,11 +298,23 @@ import Range from '@/prefComponents/common/range/index.vue'
 import TextBox from '@/prefComponents/common/textBox/index.vue'
 import { getPageSizeList, getHeaderFooterTypes, getExportThemeList } from './exportOptions'
 import { useI18n } from 'vue-i18n'
+import type {
+  DocumentCoreExportHeaderFooter,
+  DocumentCoreExportOptions,
+  DocumentCoreExportPageSize,
+  DocumentCoreExportThemeDescriptor
+} from '@shared/types/documentCore'
+
+type NamedExportPageSize = Extract<
+  DocumentCoreExportPageSize,
+  { readonly kind: 'named' }
+>['name']
 
 const { t } = useI18n()
 
 const exportType = ref('')
 const themesLoaded = ref(false)
+const customThemes = ref<readonly DocumentCoreExportThemeDescriptor[]>([])
 const isPrintable = ref(true)
 const showExportSettingsDialog = ref(false)
 const activeName = ref('info')
@@ -400,9 +412,19 @@ onBeforeUnmount(() => {
 })
 
 const updateTranslations = () => {
-  themeList.value = getExportThemeList()
+  updateThemeList()
   pageSizeList.value = getPageSizeList()
   headerFooterTypes.value = getHeaderFooterTypes()
+}
+
+const updateThemeList = () => {
+  themeList.value = [
+    ...getExportThemeList(),
+    ...customThemes.value.map(({ name, label }) => ({
+      value: name,
+      label
+    }))
+  ]
 }
 
 const showDialog = (type: unknown) => {
@@ -418,71 +440,96 @@ const showDialog = (type: unknown) => {
 
   if (!themesLoaded.value) {
     themesLoaded.value = true
-    loadThemesFromDisk()
+    loadCustomThemes()
   }
 }
 
+const headerFooter = (
+  type: number,
+  left: string,
+  center: string,
+  right: string
+): DocumentCoreExportHeaderFooter | null => type === 0
+  ? null
+  : Object.freeze({
+    layout: type === 1 ? 'single' : 'three-columns',
+    left,
+    center,
+    right
+  })
+
 const handleClicked = () => {
-  const options: Record<string, unknown> = {
-    type: exportType.value,
-    pageSize: pageSize.value,
-    pageSizeWidth: pageSizeWidth.value,
-    pageSizeHeight: pageSizeHeight.value,
-    isLandscape: isLandscape.value,
-    pageMarginTop: pageMarginTop.value,
-    pageMarginRight: pageMarginRight.value,
-    pageMarginBottom: pageMarginBottom.value,
-    pageMarginLeft: pageMarginLeft.value,
-    autoNumberingHeadings: autoNumberingHeadings.value,
+  const builtInTheme =
+    theme.value === 'default' ||
+    theme.value === 'academic' ||
+    theme.value === 'liber'
+  const options: DocumentCoreExportOptions = {
+    title: htmlTitle.value,
+    page: {
+      size: pageSize.value === 'custom'
+        ? {
+            kind: 'custom',
+            widthMm: pageSizeWidth.value,
+            heightMm: pageSizeHeight.value
+          }
+        : {
+            kind: 'named',
+            name: pageSize.value as NamedExportPageSize
+          },
+      landscape: isLandscape.value,
+      marginsMm: {
+        top: pageMarginTop.value,
+        right: pageMarginRight.value,
+        bottom: pageMarginBottom.value,
+        left: pageMarginLeft.value
+      }
+    },
+    theme: builtInTheme
+      ? {
+          kind: 'built-in',
+          name: theme.value as 'default' | 'academic' | 'liber'
+        }
+      : { kind: 'custom', name: theme.value },
+    typography: fontSettingsOverwrite.value
+      ? {
+          fontFamily: fontFamily.value === 'Default'
+            ? null
+            : fontFamily.value,
+          fontSizePx: fontSize.value,
+          lineHeight: lineHeight.value
+        }
+      : null,
+    autoNumberHeadings: autoNumberingHeadings.value,
     showFrontMatter: showFrontMatter.value,
-    theme: theme.value === 'default' ? null : theme.value,
-    tocTitle: tocTitle.value,
-    tocIncludeTopHeading: tocIncludeTopHeading.value
-  }
-
-  if (!isPrintable.value) {
-    options.htmlTitle = htmlTitle.value
-  }
-
-  if (fontSettingsOverwrite.value) {
-    Object.assign(options, {
-      fontSize: fontSize.value,
-      lineHeight: lineHeight.value,
-      fontFamily: fontFamily.value === 'Default' ? null : fontFamily.value
-    })
-  }
-
-  if (headerType.value !== 0) {
-    Object.assign(options, {
-      header: {
-        type: headerType.value,
-        left: headerTextLeft.value,
-        center: headerTextCenter.value,
-        right: headerTextRight.value
-      }
-    })
-  }
-
-  if (footerType.value !== 0) {
-    Object.assign(options, {
-      footer: {
-        type: footerType.value,
-        left: footerTextLeft.value,
-        center: footerTextCenter.value,
-        right: footerTextRight.value
-      }
-    })
-  }
-
-  if (headerFooterCustomize.value) {
-    Object.assign(options, {
-      headerFooterStyled: headerFooterStyled.value,
-      headerFooterFontSize: headerFooterFontSize.value
-    })
+    toc: {
+      title: tocTitle.value,
+      includeTopHeading: tocIncludeTopHeading.value
+    },
+    header: headerFooter(
+      headerType.value,
+      headerTextLeft.value,
+      headerTextCenter.value,
+      headerTextRight.value
+    ),
+    footer: headerFooter(
+      footerType.value,
+      footerTextLeft.value,
+      footerTextCenter.value,
+      footerTextRight.value
+    ),
+    headerFooterAppearance: headerFooterCustomize.value
+      ? {
+          drawRules: headerFooterStyled.value,
+          fontSizePx: headerFooterFontSize.value
+        }
+      : null
   }
 
   showExportSettingsDialog.value = false
-  bus.emit('export', options)
+  bus.emit('export', {
+    type: exportType.value,
+    options
+  })
 }
 
 const onSelectChange = (key: string, value: unknown) => {
@@ -516,36 +563,14 @@ const onSelectChange = (key: string, value: unknown) => {
   }
 }
 
-const loadThemesFromDisk = async () => {
-  // marktext.paths is attached to `window` at runtime by bootstrap.ts but
-  // isn't part of the typed contextBridge surface. Cast through `unknown`.
-  const marktext = (window as unknown as { marktext?: { paths?: { userDataPath?: string } } })
-    .marktext
-  const userDataPath = marktext?.paths?.userDataPath
-  if (!userDataPath) return
-  const themeDir = window.path.join(userDataPath, 'themes/export')
-
-  if (!(await window.fileUtils.isDirectory(themeDir))) return
-  let filenames = []
+const loadCustomThemes = async () => {
   try {
-    filenames = await window.fileUtils.readdir(themeDir)
-  } catch {
-    return
-  }
-
-  for (const filename of filenames) {
-    const fullname = window.path.join(themeDir, filename)
-    if (!/.+\.css$/i.test(filename)) continue
-    if (!(await window.fileUtils.isFile(fullname))) continue
-    try {
-      const buf = await window.fileUtils.readFile(fullname)
-      const content = buf instanceof Uint8Array ? new TextDecoder('utf-8').decode(buf) : String(buf)
-      const match = content.match(/^(?:\/\*+[ \t]*([A-z0-9 -]+)[ \t]*(?:\*+\/|[\n\r])?)/)
-      const label = match && match[1] ? match[1] : filename
-      themeList.value.push({ value: filename, label })
-    } catch (e) {
-      console.error('loadThemesFromDisk failed:', e)
-    }
+    customThemes.value = await window.electron.ipcRenderer.invoke(
+      'mt::document-core::list-export-themes'
+    )
+    updateThemeList()
+  } catch (error) {
+    console.error('Loading export themes failed:', error)
   }
 }
 </script>

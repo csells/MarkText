@@ -22,7 +22,6 @@
         v-if="hasCurrentFile && init"
         :markdown="markdown"
         :cursor="cursor"
-        :muya-index-cursor="muyaIndexCursor"
         :source-code="sourceCode"
         :show-tab-bar="showTabBar"
         :text-direction="textDirection"
@@ -90,11 +89,6 @@ const isSaved = computed(() => currentFile.value?.isSaved)
 const markdown = computed<string>(() => currentFile.value?.markdown ?? '')
 const cursor = computed(() => currentFile.value?.cursor)
 const wordCount = computed(() => currentFile.value?.wordCount)
-// `muyaIndexCursor` is loosely typed as `unknown` on the editor store; the
-// downstream prop expects `Object | undefined`. Cast at the boundary.
-const muyaIndexCursor = computed<Record<string, unknown> | undefined>(
-  () => currentFile.value?.muyaIndexCursor as Record<string, unknown> | undefined
-)
 
 const hasCurrentFile = computed<boolean>(() => {
   return currentFile.value?.markdown !== undefined
@@ -144,7 +138,7 @@ const setupDragDropHandler = (): void => {
         e.dataTransfer.dropEffect = 'copy'
       } else if (e.dataTransfer.types.indexOf('text/uri-list') >= 0) {
         // A web-link / web-image drag (e.g. an <img> dragged from a browser).
-        // The muya editor's own dragover/drop handlers accept these and insert
+        // The document view's dragover/drop handlers accept these and insert
         // an image block, so leave the drop enabled — forcing dropEffect='none'
         // here would clobber the editor's 'copy' and suppress the drop event.
       } else {
@@ -178,20 +172,15 @@ onMounted(async () => {
   editorStore.LISTEN_FOR_SAVE_AS()
   editorStore.LISTEN_FOR_MOVE_TO()
   editorStore.LISTEN_FOR_SAVE()
-  editorStore.LISTEN_FOR_SET_PATHNAME()
+  editorStore.LISTEN_FOR_FILE_RECEIPTS()
   editorStore.LISTEN_FOR_BOOTSTRAP_WINDOW()
   editorStore.LISTEN_FOR_SAVE_CLOSE()
   editorStore.LISTEN_FOR_RENAME()
-  editorStore.LISTEN_FOR_SET_LINE_ENDING()
-  editorStore.LISTEN_FOR_SET_ENCODING()
-  editorStore.LISTEN_FOR_SET_FINAL_NEWLINE()
   editorStore.LISTEN_FOR_NEW_TAB()
   editorStore.LISTEN_FOR_CLOSE_TAB()
   editorStore.LISTEN_FOR_TAB_CYCLE()
   editorStore.LISTEN_FOR_SWITCH_TABS()
-  editorStore.LISTEN_FOR_PRINT_SERVICE_CLEARUP()
-  editorStore.LISTEN_FOR_EXPORT_SUCCESS()
-  editorStore.LISTEN_FOR_FILE_CHANGE()
+  editorStore.LISTEN_FOR_EXTERNAL_FILE_CHANGE()
   editorStore.LISTEN_WINDOW_ZOOM()
   editorStore.LISTEN_FOR_RELOAD_IMAGES()
   editorStore.LISTEN_FOR_CONTEXT_MENU()
@@ -203,9 +192,8 @@ onMounted(async () => {
   setupDragDropHandler()
 
   nextTick(() => {
-    // `initialState` from bootstrap carries nullable URL params (string|null);
-    // `addStyles` requires non-null `theme` / `codeFontFamily` strings.
-    // Coalesce against DEFAULT_STYLE for every nullable field.
+    // URL bootstrap omits unavailable style fields; use the target defaults
+    // until the full preference publication arrives.
     const init = window.marktext?.initialState
     const style: AddStylesOptions = {
       theme: init?.theme ?? DEFAULT_STYLE.theme,

@@ -1,90 +1,138 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { uploadImage } from '@/util/fileSystem'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  copyUploaderDeletionUrl,
+  inspectConfiguredUploader,
+  uploadImage
+} from '@/services/uploaderClient'
+import type { UploaderUploadSource } from '@shared/types/uploader'
 
-// uploadImage forwards to the preload contextBridge surface
-// (window.uploader.uploadImage). It must hand the IPC layer only a plain
-// serializable {currentUploader,cliScript} object — the full Pinia $state is a
-// Vue Proxy that Electron's structured-clone cannot serialize.
-const uploadImageFn = vi.fn((_payload?: unknown) => Promise.resolve('https://cdn/x.png'))
+const uploadImageFn = vi.fn((payload: {
+  documentId: string
+}): Promise<unknown> => Promise.resolve({
+  schema: 'uploader-upload-receipt-1',
+  documentId: payload.documentId,
+  url: 'https://cdn.example/cat.png',
+  deletionClipboard: null
+}))
+const availabilityFn = vi.fn((payload: {
+  kind: 'picgo' | 'custom-cli'
+}): Promise<unknown> => Promise.resolve({
+  schema: 'uploader-availability-receipt-1',
+  kind: payload.kind,
+  available: true
+}))
 
 const win = window as unknown as {
-  uploader: { uploadImage: typeof uploadImageFn }
+  uploader: {
+    uploadImage: typeof uploadImageFn
+    inspectAvailability: typeof availabilityFn
+    copyDeletionUrl: ReturnType<typeof vi.fn>
+  }
 }
 
 beforeEach(() => {
   uploadImageFn.mockClear()
-  win.uploader = { uploadImage: uploadImageFn }
+  availabilityFn.mockClear()
+  win.uploader = {
+    uploadImage: uploadImageFn,
+    inspectAvailability: availabilityFn,
+    copyDeletionUrl: vi.fn()
+  }
 })
 
-describe('uploadImage IPC payload shape', () => {
-  const docPath = '/tmp/notes/a.md'
-
-  it('forwards a local path string with isPath:true and only the picked prefs', async() => {
-    const source = '/Users/someone/pictures/pic.png'
-    const result = await uploadImage(docPath, source, {
-      currentUploader: 'picgo',
-      cliScript: ''
-    })
-
-    expect(uploadImageFn).toHaveBeenCalledTimes(1)
-    const payload = uploadImageFn.mock.calls[0][0] as Record<string, unknown>
-    expect(payload.pathname).toBe(docPath)
-    expect(payload.image).toBe(source)
-    expect(payload.isPath).toBe(true)
-    expect(payload.preferences).toEqual({ currentUploader: 'picgo', cliScript: '' })
-    expect(result).toBe('https://cdn/x.png')
+describe('typed uploader renderer client', () => {
+  const source = (
+    bytes: Uint8Array = Uint8Array.of(1, 2, 3)
+  ): UploaderUploadSource => Object.freeze({
+    kind: 'binary',
+    name: 'cat.png',
+    mediaType: 'image/png',
+    bytes
   })
 
-  it('forwards a binary File with isPath:false and a Uint8Array + name', async() => {
-    const file = new File([new Uint8Array([1, 2, 3])], 'pic.png', { type: 'image/png' })
-    await uploadImage(docPath, file, { currentUploader: 'picgo', cliScript: '' })
+  it('sends a bounded semantic binary source without uploader settings', async() => {
+    await expect(uploadImage('document:owned', source())).resolves.toEqual({
+      schema: 'uploader-upload-receipt-1',
+      documentId: 'document:owned',
+      url: 'https://cdn.example/cat.png',
+      deletionClipboard: null
+    })
 
-    expect(uploadImageFn).toHaveBeenCalledTimes(1)
     const payload = uploadImageFn.mock.calls[0][0] as {
-      pathname: string
-      image: { data: Uint8Array; name: string }
-      isPath: boolean
-      preferences: unknown
+      schema: string
+      documentId: string
+      source: {
+        kind: string
+        name: string
+        mediaType: string
+        bytes: Uint8Array
+      }
     }
-    expect(payload.pathname).toBe(docPath)
-    expect(payload.isPath).toBe(false)
-    expect(payload.image.name).toBe('pic.png')
-    expect(payload.image.data).toBeInstanceOf(Uint8Array)
-    expect(Array.from(payload.image.data)).toEqual([1, 2, 3])
-    expect(payload.preferences).toEqual({ currentUploader: 'picgo', cliScript: '' })
-  })
-
-  it('drops extra prefs keys, keeping only currentUploader and cliScript', async() => {
-    // Simulates being handed the full preferences $state — only the two
-    // whitelisted keys may cross the IPC boundary (structured-clone safety).
-    const fatPrefs = {
-      currentUploader: 'picgo',
-      cliScript: '/usr/local/bin/upload.sh',
-      imageInsertAction: 'folder',
-      autoGuessEncoding: true,
-      nested: { foo: 'bar' }
-    } as unknown as { currentUploader: string; cliScript?: string }
-
-    await uploadImage(docPath, '/x/y.png', fatPrefs)
-
-    const payload = uploadImageFn.mock.calls[0][0] as { preferences: Record<string, unknown> }
-    expect(payload.preferences).toEqual({
-      currentUploader: 'picgo',
-      cliScript: '/usr/local/bin/upload.sh'
+    expect(payload).toMatchObject({
+      schema: 'uploader-upload-1',
+      documentId: 'document:owned',
+      source: {
+        kind: 'binary',
+        name: 'cat.png',
+        mediaType: 'image/png'
+      }
     })
-    expect(Object.keys(payload.preferences).sort()).toEqual(['cliScript', 'currentUploader'])
+    expect(payload.source.bytes).toBeInstanceOf(Uint8Array)
+    expect([...payload.source.bytes]).toEqual([1, 2, 3])
   })
 
-  it('defaults cliScript to an empty string when absent', async() => {
-    await uploadImage(docPath, '/x/y.png', { currentUploader: 'picgo' })
-
-    const payload = uploadImageFn.mock.calls[0][0] as { preferences: Record<string, unknown> }
-    expect(payload.preferences).toEqual({ currentUploader: 'picgo', cliScript: '' })
+  it('rejects unsupported browser media before invoking IPC', async() => {
+    await expect(uploadImage('document:owned', {
+      ...source(),
+      name: 'cat.html',
+      mediaType: 'text/html'
+    } as never))
+      .rejects.toThrow(/media type/i)
+    expect(uploadImageFn).not.toHaveBeenCalled()
   })
 
-  it('returns the uploader-provided URL', async() => {
-    uploadImageFn.mockResolvedValueOnce('https://cdn/custom.png')
-    const result = await uploadImage(docPath, '/x/y.png', { currentUploader: 'github' })
-    expect(result).toBe('https://cdn/custom.png')
+  it('rejects an open or mismatched main receipt', async() => {
+    uploadImageFn.mockResolvedValueOnce({
+      schema: 'uploader-upload-receipt-1',
+      documentId: 'document:foreign',
+      url: 'https://cdn.example/cat.png',
+      rendererOverride: true
+    })
+
+    await expect(uploadImage(
+      'document:owned',
+      source(Uint8Array.of(1))
+    ))
+      .rejects.toThrow(/receipt|document|closed/i)
+  })
+
+  it('copies an uploader deletion URL using only its opaque capability', async() => {
+    const copyDeletionUrl = vi.fn(async() => ({
+      schema: 'uploader-deletion-clipboard-receipt-1',
+      kind: 'written'
+    }))
+    win.uploader.copyDeletionUrl = copyDeletionUrl
+
+    await expect(copyUploaderDeletionUrl({
+      schema: 'uploader-deletion-clipboard-capability-1',
+      token: 'token:owned'
+    })).resolves.toBe(true)
+
+    expect(copyDeletionUrl).toHaveBeenCalledWith({
+      schema: 'uploader-deletion-clipboard-request-1',
+      token: 'token:owned'
+    })
+  })
+
+  it('inspects only a main-retained uploader kind with no path oracle', async() => {
+    await expect(inspectConfiguredUploader('custom-cli')).resolves.toBe(true)
+
+    expect(availabilityFn).toHaveBeenCalledWith({
+      schema: 'uploader-availability-1',
+      kind: 'custom-cli'
+    })
+    expect(availabilityFn.mock.calls[0][0]).not.toHaveProperty(
+      'executablePath'
+    )
   })
 })

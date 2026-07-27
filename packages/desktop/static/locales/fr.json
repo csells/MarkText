@@ -47,10 +47,7 @@
       "findNext": "Rechercher suivant",
       "findPrevious": "Rechercher précédent",
       "findInFolder": "Rechercher dans le dossier",
-      "screenshot": "Capture d'écran",
-      "lineEnding": "Fin de ligne",
-      "lineEndingCrlf": "CRLF (Windows)",
-      "lineEndingLf": "LF (Linux/Mac)"
+      "screenshot": "Capture d'écran"
     },
     "paragraph": {
       "title": "Paragraphe",
@@ -268,6 +265,7 @@
       "summary": "{count} éléments à réviser",
       "trackChanges": "Suivi des modifications",
       "unavailable": "La révision n’est pas disponible dans cet affichage.",
+      "actionUnavailable": "Cette action de révision n’est plus disponible. Actualisez la révision et réessayez.",
       "empty": "Aucun élément à réviser",
       "removeComment": "Supprimer le commentaire",
       "removeHighlight": "Supprimer le surlignage",
@@ -408,7 +406,6 @@
       "items": {
         "autoSave": "Sauvegarder automatiquement le contenu en cours d'édition",
         "autoSaveDelay": "Le temps en ms après un changement avant que le fichier soit sauvegardé",
-        "autoNormalizeLineEndings": "Normaliser automatiquement les fins de ligne à l'ouverture des fichiers. Lorsque désactivé, les fichiers sont ouverts tels quels.",
         "titleBarStyle": "Le style de la barre de titre (systèmes Windows et Linux uniquement)",
         "openFilesInNewWindow": "Ouvrir les fichiers dans une nouvelle fenêtre",
         "openFolderInNewWindow": "Ouvrir le dossier via le menu dans une nouvelle fenêtre",
@@ -427,32 +424,13 @@
         "editorLineWidth": "Définit la largeur maximale de la zone d'édition. Une chaîne vide ou des suffixes de ch (caractères), px (pixels) ou % (pourcentage) sont autorisés",
         "codeFontSize": "Taille de police dans le bloc de code, la plage est de 12 ~ 18",
         "codeFontFamily": "Famille de police utilisée dans le bloc de code",
-        "codeBlockLineNumbers": "Afficher les numéros de ligne",
-        "trimUnnecessaryCodeBlockEmptyLines": "Supprimer les lignes vides au début et à la fin du bloc de code",
         "autoPairBracket": "Parenthèses automatiques lors de l'édition",
         "autoPairMarkdownSyntax": "Complétion automatique de la syntaxe markdown",
         "autoPairQuote": "Complétion automatique des guillemets",
-        "endOfLine": "Le caractère de nouvelle ligne utilisé à la fin de chaque ligne. La valeur par défaut est default, qui sélectionne le caractère de nouvelle ligne par défaut de votre système d'exploitation",
-        "defaultEncoding": "L'encodage de fichier par défaut",
-        "autoGuessEncoding": "Essayer de deviner automatiquement l'encodage du fichier lors de l'ouverture des fichiers",
-        "trimTrailingNewline": "L'option de suppression des nouvelles lignes de fin",
         "textDirection": "La direction d'écriture du texte",
         "hideQuickInsertHint": "Masquer l'indice pour créer rapidement des paragraphes",
         "hideLinkPopup": "Masquer la popup de lien quand le curseur survole le lien",
         "autoCheck": "Cocher automatiquement la tâche associée",
-        "preferLooseListItem": "Le type de liste préféré",
-        "bulletListMarker": "Le marqueur utilisé dans la liste à puces",
-        "orderListDelimiter": "Le délimiteur utilisé dans la liste ordonnée",
-        "preferHeadingStyle": "Le style de titre préféré dans MarkText",
-        "tabSize": "Remplacer la tabulation par x espaces",
-        "listIndentation": "Sélectionner l'indentation de liste",
-        "frontmatterType": "Le type de frontmatter",
-        "superSubScript": "Activer l'extension markdown de pandoc pour exposant et indice",
-        "footnote": "Activer l'extension markdown de pandoc pour note de bas de page",
-        "isHtmlEnabled": "Activer le rendu HTML",
-        "isGitlabCompatibilityEnabled": "Activer le mode de compatibilité GitLab",
-        "sequenceTheme": "Thème du diagramme de séquence",
-        "plantumlServer": "URL du serveur PlantUML",
         "theme": "Sélectionner le thème utilisé dans MarkText",
         "followSystemTheme": "Suivre le thème du système",
         "lightModeTheme": "Thème à utiliser lorsque le système est en mode clair",
@@ -465,7 +443,10 @@
         "imageRelativeDirectoryBase": "Où les images relatives sont copiées",
         "imageRelativeDirectoryName": "Le nom du dossier d'image relatif",
         "fileSortOrder": "Ordre de tri des fichiers dans les dossiers ouverts : croissant ou décroissant.",
-        "openedFilesInSidebar": "Afficher ou non les fichiers ouverts dans la barre latérale."
+        "openedFilesInSidebar": "Afficher ou non les fichiers ouverts dans la barre latérale.",
+        "subscriptAndSuperscript": "Activer l'extension markdown de pandoc pour exposant et indice",
+        "footnotes": "Activer l'extension markdown de pandoc pour note de bas de page",
+        "gitLabMath": "Enable GitLab Math syntax"
       }
     },
     "categories": {
@@ -559,34 +540,13 @@
       "codeBlock": {
         "title": "Bloc de code",
         "fontSize": "Taille de police",
-        "fontFamily": "Famille de police",
-        "showLineNumbers": "Afficher les numéros de ligne",
-        "removeEmptyLines": "Supprimer les lignes vides"
+        "fontFamily": "Famille de police"
       },
       "writingBehavior": {
         "title": "Comportement d'écriture",
         "autoCloseBrackets": "Fermeture automatique des crochets",
         "autoCompleteMarkdown": "Autocomplétion Markdown",
         "autoCloseQuotes": "Fermeture automatique des guillemets"
-      },
-      "fileRepresentation": {
-        "title": "Représentation de fichier",
-        "tabWidth": "Largeur de tabulation",
-        "lineSeparator": "Séparateur de ligne",
-        "defaultEncoding": "Encodage par défaut",
-        "autoDetectEncoding": "Détection automatique de l'encodage",
-        "trailingNewlines": {
-          "title": "Nouvelles lignes de fin",
-          "doNothing": "Ne rien faire",
-          "ensureOne": "En assurer une",
-          "preserve": "Préserver",
-          "trimAll": "Tout supprimer"
-        },
-        "endOfLine": {
-          "default": "Par défaut",
-          "crlf": "CRLF (Windows)",
-          "lf": "LF (Linux/Mac)"
-        }
       },
       "misc": {
         "title": "Divers",
@@ -598,7 +558,6 @@
         "hideQuickInsertHint": "Masquer l'indice d'insertion rapide",
         "hideLinkPopup": "Masquer la popup de lien",
         "autoCheck": "Vérification automatique",
-        "autoNormalizeLineEndings": "Normaliser automatiquement les fins de ligne en LF à l'ouverture",
         "wrapCodeBlocks": "Retour à la ligne des blocs de code"
       }
     },
@@ -666,53 +625,9 @@
       "title": "Markdown",
       "extensions": {
         "title": "Extensions",
-        "superSubScript": "Exposant/Indice",
-        "footnote": "Note de bas de page",
-        "footnoteNotes": "Notes de bas de page",
-        "frontmatterType": {
-          "jsonBrace": "Accolade JSON",
-          "jsonSemicolon": "Point-virgule JSON",
-          "title": "Type de métadonnées"
-        }
-      },
-      "diagrams": {
-        "title": "Diagrammes",
-        "sequenceTheme": {
-          "title": "Thème de séquence",
-          "handDrawn": "Dessiné à la main",
-          "simple": "Simple"
-        },
-        "plantumlServer": {
-          "title": "URL du serveur PlantUML"
-        }
-      },
-      "misc": {
-        "preferHeadingStyle": {
-          "title": "Style de titre préféré",
-          "atx": "Style ATX",
-          "setext": "Style Setext"
-        },
-        "title": "Divers"
-      },
-      "compatibility": {
-        "enableGitlab": "Activer la compatibilité GitLab",
-        "enableHtml": "Activer le support HTML",
-        "title": "Compatibilité"
-      },
-      "lists": {
-        "bulletListMarker": "Marqueur de liste à puces",
-        "listIndentation": {
-          "title": "Indentation de liste",
-          "dfm": "Style DFM",
-          "fourSpaces": "Quatre espaces",
-          "oneSpace": "Un espace",
-          "tab": "Tabulation",
-          "threeSpaces": "Trois espaces",
-          "twoSpaces": "Deux espaces"
-        },
-        "orderListDelimiter": "Délimiteur de liste ordonnée",
-        "preferLooseListItem": "Préférer les éléments de liste lâches",
-        "title": "Listes"
+        "subscriptAndSuperscript": "Exposant/Indice",
+        "footnotes": "Note de bas de page",
+        "gitLabMath": "GitLab Math"
       }
     },
     "theme": {
@@ -790,9 +705,6 @@
       "moveFile": "Déplacer le fichier",
       "renameFile": "Renommer le fichier",
       "quickOpen": "Ouverture rapide",
-      "changeEncoding": "Changer l'encodage",
-      "changeLineEnding": "Changer la fin de ligne",
-      "trailingNewline": "Nouvelle ligne de fin",
       "print": "Imprimer",
       "preferences": "Préférences",
       "closeTab": "Fermer l'onglet",
@@ -1001,6 +913,7 @@
       "replacementPlaceholder": "Saisissez le texte de remplacement",
       "trackChangeRejected": {
         "title": "Modification non enregistrée",
+        "unknownReason": "Le suivi des modifications n'a pas pu enregistrer cette modification, le document n'a donc pas été modifié. Réessayez ou désactivez le suivi des modifications pour cette opération.",
         "unmappableSourceEdit": "Le suivi des modifications n'a pas pu enregistrer cette modification, le document n'a donc pas été modifié. Essayez une modification plus petite ou désactivez le suivi des modifications pour cette opération.",
         "parserConflict": "Le suivi des modifications n'a pas pu concilier cette modification avec le Markdown du document, le document n'a donc pas été modifié. Essayez une modification plus petite ou désactivez le suivi des modifications pour cette opération.",
         "unmappableTrackedSelection": "Le suivi des modifications n'a pas pu faire correspondre votre sélection au document suivi, le document n'a donc pas été modifié. Sélectionnez à nouveau le texte et réessayez, ou désactivez le suivi des modifications pour cette opération.",
@@ -1017,6 +930,9 @@
       "rows": "Lignes",
       "columns": "Colonnes"
     },
+    "imageViewer": {
+      "label": "Aperçu de l’image"
+    },
     "notifications": {
       "notificationNotFound": "Notification introuvable"
     },
@@ -1026,7 +942,22 @@
     },
     "sourceCode": {
       "cursorNullComment": "Commentaire de curseur nul",
-      "imageStructureDeletedComment": "Commentaire de structure d'image supprimée"
+      "imageStructureDeletedComment": "Commentaire de structure d'image supprimée",
+      "label": "Code source",
+      "operationFailed": "L’opération source {operation} a échoué. Le document vérifié a été restauré.",
+      "operations": {
+        "edit": "modification",
+        "undo": "annulation",
+        "redo": "rétablissement",
+        "paste": "collage",
+        "cut": "coupe",
+        "copy": "copie",
+        "selection": "sélection",
+        "attachment": "connexion",
+        "headingSelection": "sélection du titre"
+      },
+      "semanticClipboardUnavailableTitle": "Commande indisponible",
+      "semanticClipboardUnavailable": "La copie en texte riche, la copie en HTML et le collage en texte brut ne sont pas disponibles en mode Code source. Utilisez plutôt Copier, Couper ou Coller."
     },
     "spellcheck": {
       "disabledError": "Erreur de désactivation de la vérification orthographique",

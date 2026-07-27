@@ -5,8 +5,10 @@ import {
   markupRenderElement,
   renderMarkupPlan,
   type MarkupMark,
+  type NodeId,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { completeSnapshot } from '../helpers/completeSnapshot.js'
 
 /**
  * Integration vertical slice, increment 1 — the render adapter.
@@ -22,7 +24,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -31,12 +42,13 @@ const TEST_CONFIGURATION: ParseConfiguration = {
 
 describe('markup render adapter — mark → element', () => {
   it('maps each CriticMarkup mark to its editing-view element', () => {
+    const nodeId = 'test:mark' as NodeId
     const cases: readonly [MarkupMark, string][] = [
-      [{ kind: 'addition' }, 'ins'],
-      [{ kind: 'deletion' }, 'del'],
-      [{ kind: 'highlight' }, 'mark'],
-      [{ kind: 'substitution', arm: 'old' }, 'del'],
-      [{ kind: 'substitution', arm: 'new' }, 'ins']
+      [{ nodeId, kind: 'addition' }, 'ins'],
+      [{ nodeId, kind: 'deletion' }, 'del'],
+      [{ nodeId, kind: 'highlight' }, 'mark'],
+      [{ nodeId, kind: 'substitution', arm: 'old' }, 'del'],
+      [{ nodeId, kind: 'substitution', arm: 'new' }, 'ins']
     ]
     for (const [mark, element] of cases) {
       expect(markupRenderElement(mark)).toBe(element)
@@ -58,7 +70,7 @@ describe('markup render adapter — renderMarkupPlan', () => {
       }
     })
 
-    const rendered = renderMarkupPlan(session.snapshot().livePlan)
+    const rendered = renderMarkupPlan(completeSnapshot(session).livePlan)
 
     expect(rendered.map((run) => ({ text: run.text, elements: run.elements }))).toEqual([
       { text: 'a', elements: [] },

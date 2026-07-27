@@ -156,7 +156,7 @@
             <div class="install-link">
               <span
                 class="link"
-                @click="open('https://github.com/PicGo/PicGo-Core')"
+                @click="open('picgo-core-repository')"
               >picgo<LinkIcon
                 :size="14"
                 class="link-icon"
@@ -195,7 +195,7 @@
             <div class="usage-link">
               <span
                 class="link"
-                @click="open('https://picgo.github.io/PicGo-Core-Doc/')"
+                @click="open('picgo-core-documentation')"
               >{{
                 t('preferences.image.uploader.usageGuide.documentation')
               }}<LinkIcon
@@ -227,6 +227,7 @@
           </div>
           <el-input
             v-model="cliScript"
+            readonly
             :placeholder="t('preferences.image.uploader.scriptPath')"
             size="mini"
           />
@@ -234,7 +235,6 @@
         <div class="form-group">
           <el-button
             size="mini"
-            :disabled="cliScriptDisable"
             @click="save()"
           >
             {{ t('preferences.image.uploader.save') }}
@@ -248,7 +248,6 @@
 <script setup lang="ts">
 import {
   ref,
-  computed,
   watch,
   onMounted,
   nextTick,
@@ -260,7 +259,11 @@ import { useI18n } from 'vue-i18n'
 import { usePreferencesStore } from '@/store/preferences'
 import getServices from './services'
 import type { UploaderServiceId } from './services'
-import { isFileExecutable } from '@/util/fileSystem'
+import { inspectConfiguredUploader } from '@/services/uploaderClient'
+import { openExternalResource } from '@/services/presentationEffects'
+import type {
+  ExternalResourceTarget
+} from '@shared/types/presentationEffects'
 import CurSelect from '@/prefComponents/common/select/index.vue'
 import notice from '@/services/notification'
 import { storeToRefs } from 'pinia'
@@ -308,25 +311,13 @@ const {
   cliScript: prefCliScript
 } = storeToRefs(preferenceStore)
 
-// `isFileExecutable` is async via IPC; track the result in a ref so the
-// disabled state still updates reactively.
-const cliScriptExecutable = ref(false)
 watch(
-  cliScript,
-  async (value) => {
-    if (!value) {
-      cliScriptExecutable.value = false
-      return
-    }
-    try {
-      cliScriptExecutable.value = await isFileExecutable(value)
-    } catch {
-      cliScriptExecutable.value = false
-    }
+  prefCliScript,
+  value => {
+    cliScript.value = value
   },
   { immediate: true }
 )
-const cliScriptDisable = computed(() => !cliScript.value || !cliScriptExecutable.value)
 
 // Listen for uploader switch; immediately start detection when switching to picgo
 watch(currentUploader, (newValue, oldValue) => {
@@ -560,15 +551,15 @@ const getServiceNameById = (id: string): string => {
   return id
 }
 
-const open = (link: string): void => {
-  window.electron.shell.openExternal(link)
+const open = (target: ExternalResourceTarget): void => {
+  openExternalResource(target)
 }
 
-const save = (): void => {
-  preferenceStore.SET_USER_DATA({
-    type: 'cliScript',
-    value: cliScript.value
-  })
+const save = async (): Promise<void> => {
+  const executablePath =
+    await preferenceStore.CHOOSE_CUSTOM_UPLOADER_EXECUTABLE()
+  if (executablePath === null) return
+  cliScript.value = executablePath
   notice.notify({
     title: t('preferences.image.uploader.saveConfig'),
     message: t('preferences.image.uploader.scriptConfigSaved'),
@@ -576,9 +567,14 @@ const save = (): void => {
   })
 }
 
-const setCurrentUploader = (value: string | number | boolean): void => {
-  const type = 'currentUploader'
-  preferenceStore.SET_USER_DATA({ type, value })
+const setCurrentUploader = async (
+  value: string | number | boolean
+): Promise<void> => {
+  if (value === 'picgo' || value === 'cliScript') {
+    await preferenceStore.SELECT_UPLOADER(
+      value === 'picgo' ? 'picgo' : 'custom-cli'
+    )
+  }
 }
 
 // Manually trigger detection (retained for debugging)
@@ -701,47 +697,9 @@ const testPicgo = async (): Promise<void> => {
   debugMessages.push(`Platform: ${window.process?.platform || 'unknown'}`)
   debugMessages.push('Process type: renderer')
 
-  if (typeof window.commandExists === 'undefined') {
-    const errorMsg = 'commandExists is not exposed on the window object'
-    console.error('✗', errorMsg)
-    debugMessages.push(`✗ ${errorMsg}`)
-    debugMessages.push('Check whether the preload script is loaded correctly')
-    picgoExists.value = false
-    picgoDetectionFailed.value = true
-    picgoDetectionStatus.value = t('preferences.image.uploader.picgoDetectionFailed')
-    picgoDebugInfo.value = debugMessages.join('\n')
-    stopAnimationAndButton()
-    return
-  }
-
-  debugMessages.push('✓ commandExists is exposed on the window object')
-
-  if (typeof window.commandExists.exists !== 'function') {
-    const errorMsg = 'commandExists.exists method is unavailable'
-    const availableKeys = Object.keys(window.commandExists).join(', ')
-    console.error('✗', errorMsg)
-    debugMessages.push(`✗ ${errorMsg}`)
-    debugMessages.push(`Available methods: ${availableKeys}`)
-    picgoExists.value = false
-    picgoDetectionFailed.value = true
-    picgoDetectionStatus.value = t('preferences.image.uploader.picgoDetectionFailed')
-    picgoDebugInfo.value = debugMessages.join('\n')
-    stopAnimationAndButton()
-    return
-  }
-
-  debugMessages.push('✓ commandExists.exists method is available')
-
   try {
     debugMessages.push('Detecting PicGo command...')
-
-    // First test some basic commands
-    const nodeExists = await window.commandExists.exists('node')
-    const npmExists = await window.commandExists.exists('npm')
-    debugMessages.push(`Node.js detection: ${nodeExists ? '✓' : '✗'}`)
-    debugMessages.push(`npm detection: ${npmExists ? '✓' : '✗'}`)
-
-    const result = await window.commandExists.exists('picgo')
+    const result = await inspectConfiguredUploader('picgo')
     debugMessages.push(`PicGo detection result: ${result}`)
 
     picgoExists.value = result

@@ -10,6 +10,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
     label: t('menu.edit.edit'),
     submenu: [
       {
+        id: 'editUndoMenuItem',
         label: t('menu.edit.undo'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_UNDO) ?? undefined,
         click: (_menuItem, browserWindow) => {
@@ -17,6 +18,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editRedoMenuItem',
         label: t('menu.edit.redo'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_REDO) ?? undefined,
         click: (_menuItem, browserWindow) => {
@@ -51,6 +53,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         type: 'separator'
       },
       {
+        id: 'editCopyAsRichMenuItem',
         label: t('menu.edit.copyAsRich'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_COPY_AS_RICH) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -58,6 +61,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editCopyAsHtmlMenuItem',
         label: t('menu.edit.copyAsHtml'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_COPY_AS_HTML) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -65,6 +69,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editPasteAsPlainTextMenuItem',
         label: t('menu.edit.pasteAsPlainText'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_PASTE_AS_PLAINTEXT) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -163,28 +168,6 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         // Windows/Linux don't show a doubled divider here (#2997).
         type: 'separator',
         visible: isOsx
-      },
-      {
-        // TODO: Remove this menu entry and add it to the command palette (#1408).
-        label: t('menu.edit.lineEnding'),
-        submenu: [
-          {
-            id: 'crlfLineEndingMenuEntry',
-            label: t('menu.edit.lineEndingCrlf'),
-            type: 'radio',
-            click(_menuItem, browserWindow) {
-              actions.lineEnding(browserWindow as BrowserWindow | undefined, 'crlf')
-            }
-          },
-          {
-            id: 'lfLineEndingMenuEntry',
-            label: t('menu.edit.lineEndingLf'),
-            type: 'radio',
-            click(_menuItem, browserWindow) {
-              actions.lineEnding(browserWindow as BrowserWindow | undefined, 'lf')
-            }
-          }
-        ]
       }
     ]
   }

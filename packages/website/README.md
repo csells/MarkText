@@ -135,7 +135,6 @@ website/
 │   │   ├── Theme.tsx    # Theme switcher
 │   │   └── TitleBar.tsx # Navigation bar
 │   ├── markdowns/       # Markdown demo files
-│   ├── muya/            # Muya editor library
 │   ├── themes/          # Theme CSS files
 │   ├── types/           # TypeScript type definitions
 │   ├── utils/           # Utility functions

@@ -1,0 +1,82 @@
+path	disposition	phase	status	reason
+packages/document-core/test/language-engine/__scratch-census.spec.ts	delete	P0	complete	Assertion-free corpus log writer is not acceptance evidence
+packages/document-core/test/language-engine/__scratch-dbg.spec.ts	delete	P0	complete	Assertion-free debug log writer is not acceptance evidence
+packages/desktop/test/e2e/document-core-engine.spec.ts	delete	P9	complete	Flag-on and flag-off engine comparison is invalid after the sole-authority cutover
+packages/desktop/test/e2e/document-engine-seam.spec.ts	delete	P9	complete	The unconditional document-core owner replaces the comparison seam
+packages/desktop/test/unit/specs/critic-markup-print-security.spec.ts	delete	P9	complete	Retired renderer print service no longer owns static materialization
+packages/desktop/test/unit/specs/document-core-engine-flag.spec.ts	delete	P9	complete	The document-core engine is unconditional and has no feature flag
+packages/desktop/test/unit/specs/document-core-mirror.spec.ts	delete	P9	complete	The renderer mirror is removed because main owns the durable session
+packages/desktop/test/unit/specs/export-header-footer-diagram.spec.ts	delete	P9	complete	Retired renderer export HTML path is replaced by document-core materialization
+packages/desktop/test/unit/specs/exportHtml.spec.ts	delete	P9	complete	Retired renderer export HTML path is replaced by document-core materialization
+packages/desktop/test/unit/specs/printService-direction.spec.ts	delete	P9	complete	Retired renderer print service is replaced by the main static-sink host
+packages/desktop/test/unit/specs/document-editor-host-contract.spec.ts	convert	P9	complete	Closed target host contract proves parser-owned state, typed subscriptions, initial configuration, and runtime validation
+packages/muya/e2e/tests/a11y	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/blocks	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/diagrams	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/document-core	delete	P9	complete	Obsolete package-host E2E is deleted; desktop Electron tests own integration
+packages/muya/e2e/tests/drag	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/edges	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/editing	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/export	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/i18n	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/inline	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/options	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/security	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/smoke	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/stability	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/typing	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/e2e/tests/ui	delete	P9	complete	Retired Muya browser surface is no longer a production authority
+packages/muya/src/__tests__	delete	P9	complete	Retired Muya editor coordinator is no longer a production authority
+packages/muya/src/block/__tests__	delete	P9	complete	Retired block mutation tests are superseded by typed document-core intents
+packages/muya/src/block/base/__tests__	delete	P9	complete	Retired block mutation tests are superseded by typed document-core intents
+packages/muya/src/block/base/linkedList/__tests__	delete	P9	complete	Retired mutable topology tests are superseded by immutable document revisions
+packages/muya/src/block/commonMark/codeBlock/__tests__	delete	P9	complete	Retired block rendering tests are superseded by document-core render plans
+packages/muya/src/block/commonMark/html/__tests__	delete	P9	complete	Retired block rendering tests are superseded by document-core render plans
+packages/muya/src/block/content/atxHeadingContent/__tests__	delete	P9	complete	Retired contenteditable mutation tests are superseded by typed intents
+packages/muya/src/block/content/codeBlockContent/__tests__	delete	P9	complete	Retired contenteditable mutation tests are superseded by typed intents
+packages/muya/src/block/content/langInputContent/__tests__	delete	P9	complete	Retired contenteditable mutation tests are superseded by typed intents
+packages/muya/src/block/content/paragraphContent/__tests__	delete	P9	complete	Retired contenteditable mutation tests are superseded by typed intents
+packages/muya/src/block/content/tableCell/__tests__	delete	P9	complete	Retired contenteditable mutation tests are superseded by typed intents
+packages/muya/src/block/content/thematicBreakContent/__tests__	delete	P9	complete	Retired contenteditable mutation tests are superseded by typed intents
+packages/muya/src/block/extra/diagram/__tests__	delete	P9	complete	Retired view-owned diagram behavior is outside the retained direct-view surface
+packages/muya/src/block/extra/footnote/__tests__	delete	P9	complete	Retired block authority is superseded by the Profile 1 language engine
+packages/muya/src/block/extra/math/__tests__	delete	P9	complete	Retired block authority is superseded by the Profile 1 language engine
+packages/muya/src/block/gfm/table/__tests__	delete	P9	complete	Retired table mutations are superseded by typed document-core intents
+packages/muya/src/block/gfm/taskListCheckbox/__tests__	delete	P9	complete	Retired task-list mutations are superseded by typed document-core intents
+packages/muya/src/block/gfm/taskListItem/__tests__	delete	P9	complete	Retired task-list mutations are superseded by typed document-core intents
+packages/muya/src/block/scrollPage/__tests__	delete	P9	complete	Retired mutation gateway is removed from the production editor
+packages/muya/src/clipboard/__tests__	delete	P9	complete	Document-core consumer policy now owns copy cut and paste projections
+packages/muya/src/config/__tests__	delete	P9	complete	Retired parser configuration is superseded by ParseConfiguration
+packages/muya/src/criticMarkup/__tests__	delete	P9	complete	Document-core is the sole CriticMarkup parser mutation and review authority
+packages/document-view/src/documentCore/__tests__	retain	P9	complete	Target-owned direct-view tests are the supported browser package suite
+packages/document-view/e2e/tests	retain	P9	complete	Real-browser direct-view tests exercise the published target-owned view
+packages/muya/src/editor/__tests__	delete	P9	complete	Retired Muya editor coordinator is removed from the package export
+packages/muya/src/event/__tests__	delete	P9	complete	Retired editor event authority is superseded by typed session events
+packages/muya/src/history/__tests__	delete	P9	complete	DocumentSession transaction history is the sole undo and redo authority
+packages/muya/src/inlineRenderer/__tests__	delete	P9	complete	Retired inline parser and renderer are superseded by one render plan
+packages/muya/src/inlineRenderer/renderer/__tests__	delete	P9	complete	Retired inline renderer is superseded by document-core render runs
+packages/muya/src/mapped-range/__tests__	delete	P9	complete	Parser-issued identities and model ranges replace local mapped ranges
+packages/muya/src/mutation/__tests__	delete	P9	complete	TransformationKernel is the sole semantic mutation authority
+packages/muya/src/search/__tests__	delete	P9	complete	Document-core consumer projections own search and replace
+packages/muya/src/selection/__tests__	delete	P9	complete	DocumentSession is the sole selection authority
+packages/muya/src/state/__tests__	delete	P9	complete	The retired state tree parser serializer and exporters are not document authorities
+packages/muya/src/ui/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/baseFloat/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/codeBlockLanguageSelector/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/criticMarkupReviewTool/__tests__	delete	P9	complete	Desktop review cards consume the document-core review index directly
+packages/muya/src/ui/emojiSelector/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/footnoteTool/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/imageEditTool/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/imagePicker/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/inlineFormatToolbar/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/linkTools/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/paragraphFrontMenu/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/paragraphQuickInsertMenu/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/tableChessboard/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/ui/tableDragBar/__tests__	delete	P9	complete	Retired Muya UI coordinator is outside the retained direct-view surface
+packages/muya/src/utils/__tests__	delete	P9	complete	Only dependency-free public utilities remain in the narrow package export
+packages/muya/src/utils/diagram/plantuml/__tests__	delete	P9	complete	Retired view-owned diagram behavior is outside the retained direct-view surface
+packages/muya/src/utils/marked/__tests__	delete	P9	complete	The vendored Marked parser path is retired in favor of LanguageEngine
+packages/muya/src/utils/marked/extensions/__tests__	delete	P9	complete	Private Marked extensions are retired in favor of intrinsic parsing
+packages/muya/src/utils/prism/__tests__	delete	P9	complete	Retired syntax-highlighting utilities are outside the retained direct-view surface
+packages/muya/test/spec	delete	P9	complete	Document-core Profile 1 corpus tests own conformance and the retired Marked harness is uncollected

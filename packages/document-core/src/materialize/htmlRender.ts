@@ -1,4 +1,80 @@
-import type { MarkdownDocument, MarkdownNode } from '../revision.js'
+import type {
+  MarkdownDocument,
+  MarkdownNode,
+  NodeId,
+  ViewRange
+} from '../revision.js'
+
+export interface MarkdownStaticHeadingAnchor {
+  readonly node: MarkdownNode
+  readonly level: number
+  readonly slug: string
+}
+
+export interface MarkdownStaticStructurePlan {
+  readonly anchors: readonly MarkdownStaticHeadingAnchor[]
+  readonly anchorsByNodeId: ReadonlyMap<NodeId, MarkdownStaticHeadingAnchor>
+  readonly tableOfContents: Readonly<{
+    readonly title: string
+    readonly includeTopHeading: boolean
+  }>
+}
+
+export interface MarkdownHtmlRenderOptions {
+  readonly rawHtml?: 'passthrough' | 'escape'
+  readonly unsafeUrls?: 'passthrough' | 'drop'
+  readonly frontMatter?: 'omit' | 'render'
+  readonly staticStructure?: MarkdownStaticStructurePlan
+  readonly range?: ViewRange
+}
+
+export type MarkdownReviewElement = 'ins' | 'del' | 'mark'
+
+export interface MarkdownReviewRun {
+  readonly start: number
+  readonly end: number
+  /** Ordered outermost to innermost. */
+  readonly elements: readonly MarkdownReviewElement[]
+}
+
+export interface MarkdownReviewAnnotation {
+  readonly position: number
+  readonly reference: string
+  readonly noteId: string
+}
+
+export interface MarkdownReviewRenderPlan {
+  readonly runs: readonly MarkdownReviewRun[]
+  readonly annotations: readonly MarkdownReviewAnnotation[]
+  readonly frontMatter?: 'omit' | 'render'
+  readonly staticStructure?: MarkdownStaticStructurePlan
+  readonly range?: ViewRange
+}
+
+interface MarkdownReviewRenderState extends MarkdownReviewRenderPlan {
+  readonly emittedAnnotations: Set<MarkdownReviewAnnotation>
+  readonly annotationsByPosition: ReadonlyMap<
+    number,
+    readonly MarkdownReviewAnnotation[]
+  >
+}
+
+interface MarkdownHtmlRenderPolicy {
+  readonly rawHtml: 'passthrough' | 'escape'
+  readonly unsafeUrls: 'passthrough' | 'drop'
+  readonly frontMatter: 'omit' | 'render'
+  readonly footnotes: FootnoteRenderState
+  readonly review?: MarkdownReviewRenderState
+  readonly staticStructure?: MarkdownStaticStructurePlan
+  readonly range?: ViewRange
+}
+
+interface FootnoteRenderState {
+  readonly definitions: ReadonlyMap<string, MarkdownNode>
+  readonly ordinals: ReadonlyMap<string, number>
+  readonly referenceTotals: ReadonlyMap<string, number>
+  readonly emittedReferences: Map<string, number>
+}
 
 /**
  * The HTML materializer: a pure consumer of a revision's block/inline
@@ -8,8 +84,74 @@ import type { MarkdownDocument, MarkdownNode } from '../revision.js'
  * text semantics (backslash escapes, character references, code-span
  * normalization), never re-tokenized.
  */
-export function renderMarkdownHtml(document: MarkdownDocument): string {
-  return renderChildren(document, document.root, 'block')
+export function renderMarkdownHtml(
+  document: MarkdownDocument,
+  options: MarkdownHtmlRenderOptions = {}
+): string {
+  validateRenderRange(document, options.range)
+  validateFrontMatterPolicy(options.frontMatter)
+  const policy: MarkdownHtmlRenderPolicy = Object.freeze({
+    rawHtml: options.rawHtml ?? 'passthrough',
+    unsafeUrls: options.unsafeUrls ?? 'passthrough',
+    frontMatter: options.frontMatter ?? 'omit',
+    footnotes: createFootnoteRenderState(document, options.range),
+    ...(options.staticStructure === undefined
+      ? {}
+      : { staticStructure: options.staticStructure }),
+    ...(options.range === undefined ? {} : { range: options.range })
+  })
+  return renderChildren(document, document.root, 'block', policy) +
+    renderFootnoteSection(document, policy)
+}
+
+/**
+ * Render parser-produced editing Markdown with parser-produced Review ranges.
+ *
+ * This is deliberately a closed decoration plan rather than a callback: only
+ * the three inert semantic elements can enter the output. Source HTML and URLs
+ * are always sanitized at this boundary.
+ */
+export function renderMarkdownReviewHtml(
+  document: MarkdownDocument,
+  plan: MarkdownReviewRenderPlan
+): string {
+  validateReviewPlan(document, plan)
+  validateRenderRange(document, plan.range)
+  validateFrontMatterPolicy(plan.frontMatter)
+  const annotationsByPosition =
+    new Map<number, MarkdownReviewAnnotation[]>()
+  for (const annotation of plan.annotations) {
+    const annotations = annotationsByPosition.get(annotation.position) ?? []
+    annotations.push(annotation)
+    annotationsByPosition.set(annotation.position, annotations)
+  }
+  const review: MarkdownReviewRenderState = {
+    runs: plan.runs,
+    annotations: plan.annotations,
+    ...(plan.range === undefined ? {} : { range: plan.range }),
+    emittedAnnotations: new Set(),
+    annotationsByPosition
+  }
+  const policy: MarkdownHtmlRenderPolicy = {
+    rawHtml: 'escape',
+    unsafeUrls: 'drop',
+    frontMatter: plan.frontMatter ?? 'omit',
+    footnotes: createFootnoteRenderState(document, plan.range),
+    review,
+    ...(plan.staticStructure === undefined
+      ? {}
+      : { staticStructure: plan.staticStructure }),
+    ...(plan.range === undefined ? {} : { range: plan.range })
+  }
+  let rendered = renderChildren(document, document.root, 'block', policy)
+  rendered += renderFootnoteSection(document, policy)
+  for (const annotation of plan.annotations) {
+    if (!review.emittedAnnotations.has(annotation)) {
+      rendered += reviewReference(annotation)
+      review.emittedAnnotations.add(annotation)
+    }
+  }
+  return rendered
 }
 
 type InlineContext = 'block' | 'inline'
@@ -17,11 +159,12 @@ type InlineContext = 'block' | 'inline'
 function renderChildren(
   document: MarkdownDocument,
   node: MarkdownNode,
-  context: InlineContext
+  context: InlineContext,
+  policy: MarkdownHtmlRenderPolicy
 ): string {
   const parts: string[] = []
   for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
-    parts.push(renderNode(document, node.childAt(ordinal), context))
+    parts.push(renderNode(document, node.childAt(ordinal), context, policy))
   }
   return parts.join('')
 }
@@ -32,7 +175,9 @@ function renderChildren(
 // ends. Applied per TEXT NODE around break nodes, never to code spans.
 function renderInlineContent(
   document: MarkdownDocument,
-  node: MarkdownNode
+  node: MarkdownNode,
+  policy: MarkdownHtmlRenderPolicy,
+  tableCell = false
 ): string {
   const parts: string[] = []
   let atLineStart = true
@@ -41,9 +186,13 @@ function renderInlineContent(
     const isBreak = child.kind === 'soft-break' || child.kind === 'hard-break'
     let rendered: string
     if (child.kind === 'text') {
-      let raw = sliceRange(document.source, child)
+      const selected = selectedNodeRange(child, policy.range)
+      let raw = document.source.slice(selected.start, selected.end)
+      let start = selected.start
       if (atLineStart) {
-        raw = raw.replace(/^[\t ]+/, '')
+        const trimmed = /^[\t ]+/.exec(raw)?.[0].length ?? 0
+        raw = raw.slice(trimmed)
+        start += trimmed
       }
       const next = ordinal + 1 < node.childCount
         ? node.childAt(ordinal + 1)
@@ -51,9 +200,15 @@ function renderInlineContent(
       if (next === undefined || next.kind === 'soft-break') {
         raw = raw.replace(/[\t ]+$/, '')
       }
-      rendered = escapeHtml(decodeMarkdownText(raw))
+      rendered = renderMarkdownText(raw, start, policy)
+    } else if (tableCell && child.kind === 'inline-code') {
+      rendered = decorateReviewAtomic(
+        renderInlineCode(child, true),
+        child,
+        policy
+      )
     } else {
-      rendered = renderNode(document, child, 'inline')
+      rendered = renderNode(document, child, 'inline', policy)
     }
     parts.push(rendered)
     atLineStart = isBreak
@@ -61,95 +216,463 @@ function renderInlineContent(
   return parts.join('')
 }
 
+function tableOfContentsPolicy(
+  policy: MarkdownHtmlRenderPolicy
+): MarkdownHtmlRenderPolicy {
+  const review = policy.review
+  if (review === undefined) return policy
+  return {
+    ...policy,
+    review: {
+      runs: review.runs,
+      annotations: Object.freeze([]),
+      emittedAnnotations: new Set(),
+      annotationsByPosition: new Map(),
+      ...(review.range === undefined ? {} : { range: review.range })
+    }
+  }
+}
+
+function renderTableOfContents(
+  document: MarkdownDocument,
+  policy: MarkdownHtmlRenderPolicy
+): string {
+  const structure = policy.staticStructure
+  if (structure === undefined) {
+    throw new TypeError('Static TOC marker has no parser-owned outline')
+  }
+  const included =
+    !structure.tableOfContents.includeTopHeading &&
+    structure.anchors[0]?.level === 1
+      ? structure.anchors.slice(1)
+      : structure.anchors
+  if (included.length === 0) return ''
+  const title = structure.tableOfContents.title.length === 0
+    ? 'Table of Contents'
+    : structure.tableOfContents.title
+  const inlinePolicy = tableOfContentsPolicy(policy)
+  return '<nav class="toc-container" aria-label="Table of Contents">' +
+    `<p class="toc-title">${escapeHtml(title)}</p>` +
+    '<ol class="toc-list">' +
+    included.map((anchor) =>
+      `<li class="toc-level-${String(anchor.level)}">` +
+      `<a href="#${escapeHtml(anchor.slug)}">${
+        renderInlineContent(document, anchor.node, inlinePolicy)
+      }</a></li>`
+    ).join('') +
+    '</ol></nav>'
+}
+
 function renderNode(
   document: MarkdownDocument,
   node: MarkdownNode,
-  context: InlineContext
+  context: InlineContext,
+  policy: MarkdownHtmlRenderPolicy
 ): string {
+  if (!nodeIntersectsRange(node, policy.range)) {
+    return ''
+  }
   const source = document.source
   switch (node.kind) {
+    case 'document':
+      return renderChildren(document, node, context, policy)
     case 'paragraph':
-      return `<p>${renderInlineContent(document, node)}</p>\n`
+      if (
+        node.attributes['tableOfContents'] === true &&
+        policy.staticStructure !== undefined &&
+        !hasVisibleReviewElements(node, policy)
+      ) {
+        return renderTableOfContents(document, policy)
+      }
+      return `<p>${renderInlineContent(document, node, policy)}</p>\n`
     case 'heading': {
       const level = Number(node.attributes['level'] ?? 1)
-      return `<h${level}>${renderInlineContent(document, node)}</h${level}>\n`
+      const anchor = policy.staticStructure?.anchorsByNodeId.get(node.nodeId)
+      const id = anchor === undefined
+        ? ''
+        : ` id="${escapeHtml(anchor.slug)}"`
+      return `<h${level}${id}>${
+        renderInlineContent(document, node, policy)
+      }</h${level}>\n`
     }
     case 'thematic-break':
-      return '<hr />\n'
+      return decorateReviewAtomic('<hr />\n', node, policy)
     case 'list': {
       const ordered = node.attributes['ordered'] === true
       const start = Number(node.attributes['start'] ?? 1)
       const tight = node.attributes['tight'] !== false
       const items: string[] = []
       for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
-        items.push(renderListItem(document, node.childAt(ordinal), tight))
+        items.push(renderListItem(document, node.childAt(ordinal), tight, policy))
       }
       const openTag = ordered
-        ? start === 1 ? '<ol>' : `<ol start="${start}">`
+        ? start === 1
+          ? '<ol>'
+          : `<ol start="${start}">`
         : '<ul>'
       const closeTag = ordered ? '</ol>' : '</ul>'
       return `${openTag}\n${items.join('')}${closeTag}\n`
     }
+    case 'list-item':
+      return renderListItem(document, node, false, policy)
+    case 'table':
+      return renderTable(document, node, policy)
+    case 'table-row':
+      return renderTableRow(document, node, policy)
+    case 'table-cell':
+      return renderInlineContent(document, node, policy, true)
     case 'blockquote':
-      return `<blockquote>\n${renderChildren(document, node, 'block')}</blockquote>\n`
+      return `<blockquote>\n${renderChildren(document, node, 'block', policy)}</blockquote>\n`
     case 'code-block': {
       const content = String(node.attributes['content'] ?? '')
       const info = node.attributes['info']
       const language = info === undefined
         ? ''
-        : ` class="language-${escapeHtml(decodeMarkdownText(firstWord(String(info))))}"`
-      return `<pre><code${language}>${escapeHtml(content)}</code></pre>\n`
+        : ` class="language-${escapeHtml(markdownTextValue(firstWord(String(info))))}"`
+      return decorateReviewAtomic(
+        `<pre><code${language}>${escapeHtml(content)}</code></pre>\n`,
+        node,
+        policy
+      )
     }
     case 'html-block':
-      return ensureTrailingNewline(sliceRange(source, node))
+      return decorateReviewAtomic(
+        ensureTrailingNewline(
+          policy.rawHtml === 'escape'
+            ? escapeHtml(parserOwnedContent(node))
+            : gfmTagFilteredHtml(node)
+        ),
+        node,
+        policy
+      )
     case 'front-matter':
+      return policy.frontMatter === 'omit'
+        ? ''
+        : decorateReviewAtomic(
+          '<pre class="front-matter"><code>' +
+          escapeHtml(document.source.slice(
+            Number(node.range.start),
+            Number(node.range.end)
+          )) +
+          '</code></pre>\n',
+          node,
+          policy
+        )
     case 'definition':
     case 'footnote-definition':
       return ''
-    case 'text':
-      return escapeHtml(decodeMarkdownText(sliceRange(source, node)))
+    case 'text': {
+      const selected = selectedNodeRange(node, policy.range)
+      return renderMarkdownText(
+        source.slice(selected.start, selected.end),
+        selected.start,
+        policy
+      )
+    }
     case 'soft-break':
-      return '\n'
+      return decorateReviewAtomic('\n', node, policy)
     case 'hard-break':
-      return '<br />\n'
+      return decorateReviewAtomic('<br />\n', node, policy)
     case 'emphasis':
-      return `<em>${renderChildren(document, node, 'inline')}</em>`
+      return `<em>${renderChildren(document, node, 'inline', policy)}</em>`
     case 'strong':
-      return `<strong>${renderChildren(document, node, 'inline')}</strong>`
+      return `<strong>${renderChildren(document, node, 'inline', policy)}</strong>`
     case 'strikethrough':
-      return `<del>${renderChildren(document, node, 'inline')}</del>`
+      return `<del>${renderChildren(document, node, 'inline', policy)}</del>`
+    case 'subscript':
+      return `<sub>${renderChildren(document, node, 'inline', policy)}</sub>`
+    case 'superscript':
+      return `<sup>${renderChildren(document, node, 'inline', policy)}</sup>`
     case 'inline-code':
-      return renderInlineCode(source, node)
+      return decorateReviewAtomic(renderInlineCode(node), node, policy)
+    case 'inline-math':
+      return decorateReviewAtomic(
+        `<span class="math-inline">${escapeHtml(
+          String(node.attributes['content'] ?? '')
+        )}</span>`,
+        node,
+        policy
+      )
+    case 'math-block':
+      return decorateReviewAtomic(
+        `<pre class="math-block"><code>${escapeHtml(
+          String(node.attributes['content'] ?? '')
+        )}</code></pre>\n`,
+        node,
+        policy
+      )
+    case 'diagram':
+      return decorateReviewAtomic(
+        `<pre class="diagram" data-language="${escapeHtml(
+          String(node.attributes['language'] ?? '')
+        )}"><code>${escapeHtml(
+          String(node.attributes['content'] ?? '')
+        )}</code></pre>\n`,
+        node,
+        policy
+      )
     case 'inline-html':
-      return sliceRange(source, node)
+      return decorateReviewAtomic(
+        policy.rawHtml === 'escape'
+          ? escapeHtml(parserOwnedContent(node))
+          : gfmTagFilteredHtml(node),
+        node,
+        policy
+      )
     case 'link':
     case 'image': {
       const target = resolveLinkTarget(document, node)
       if (target === undefined) {
-        return renderChildren(document, node, 'inline')
+        return escapeHtml(markdownTextValue(sliceRange(source, node)))
       }
+      const decodedDestination = markdownTextValue(target.destination)
       const href = escapeHrefAttribute(
-        encodeHref(decodeMarkdownText(target.destination))
+        encodeHref(
+          policy.unsafeUrls === 'drop' && hasUnsafeScheme(decodedDestination)
+            ? ''
+            : decodedDestination
+        )
       )
       const title = target.title === undefined
         ? ''
-        : ` title="${escapeHtml(decodeMarkdownText(target.title))}"`
+        : ` title="${escapeHtml(markdownTextValue(target.title))}"`
       return node.kind === 'image'
-        ? `<img src="${href}" alt="${escapeHtml(plainText(document, node))}"${title} />`
-        : `<a href="${href}"${title}>${renderChildren(document, node, 'inline')}</a>`
+        ? decorateReviewAtomic(
+          `<img src="${href}" alt="${escapeHtml(plainText(document, node))}"${title} />`,
+          node,
+          policy
+        )
+        : `<a href="${href}"${title}>${renderChildren(document, node, 'inline', policy)}</a>`
     }
     case 'autolink': {
       // Autolink content is taken verbatim: the specification applies no
       // backslash-escape or reference decoding inside <…>.
       const content = sliceRange(source, node).slice(1, -1)
-      const href = AUTOLINK_EMAIL.test(content) ? `mailto:${content}` : content
-      return `<a href="${escapeHrefAttribute(encodeHref(href))}">${escapeHtml(content)}</a>`
+      const candidate = AUTOLINK_EMAIL.test(content) ? `mailto:${content}` : content
+      const href = policy.unsafeUrls === 'drop' && hasUnsafeScheme(candidate)
+        ? ''
+        : candidate
+      return decorateReviewAtomic(
+        `<a href="${escapeHrefAttribute(encodeHref(href))}">${escapeHtml(content)}</a>`,
+        node,
+        policy
+      )
     }
-    default:
-      // Sections not yet taken green render their children transparently so
-      // enabled sections never depend on pending ones' final shape.
-      return renderChildren(document, node, context)
+    case 'footnote-reference':
+      return renderFootnoteReference(document, node, policy)
   }
+  const unhandled: never = node.kind
+  throw new TypeError(`Unhandled Markdown HTML node: ${String(unhandled)}`)
+}
+
+function hasVisibleReviewElements(
+  node: MarkdownNode,
+  policy: MarkdownHtmlRenderPolicy
+): boolean {
+  const runs = policy.review?.runs
+  if (runs === undefined) {
+    return false
+  }
+  for (
+    let index = firstReviewRunEndingAfter(runs, node.range.start);
+    index < runs.length;
+    index += 1
+  ) {
+    const run = runs[index]
+    if (run === undefined || run.start >= node.range.end) {
+      break
+    }
+    if (
+      run.elements.length > 0 &&
+      run.start < node.range.end &&
+      run.end > node.range.start
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function createFootnoteRenderState(
+  document: MarkdownDocument,
+  range: ViewRange | undefined
+): FootnoteRenderState {
+  const definitions = new Map<string, MarkdownNode>()
+  for (
+    let ordinal = 0;
+    ordinal < document.references.footnoteDefinitionCount;
+    ordinal += 1
+  ) {
+    const definition = document.references.footnoteDefinitionAt(ordinal)
+    definitions.set(definition.label, definition.node)
+  }
+
+  const ordinals = new Map<string, number>()
+  const referenceTotals = new Map<string, number>()
+  for (
+    let ordinal = 0;
+    ordinal < document.references.footnoteReferenceCount;
+    ordinal += 1
+  ) {
+    const reference = document.references.footnoteReferenceAt(ordinal)
+    if (
+      reference.definition === undefined ||
+      !nodeIntersectsRange(reference.node, range)
+    ) {
+      continue
+    }
+    const label = reference.label
+    if (!ordinals.has(label)) {
+      ordinals.set(label, ordinals.size + 1)
+    }
+    referenceTotals.set(label, (referenceTotals.get(label) ?? 0) + 1)
+  }
+  return {
+    definitions,
+    ordinals,
+    referenceTotals,
+    emittedReferences: new Map()
+  }
+}
+
+function footnoteAddress(label: string): string {
+  return encodeURIComponent(label)
+}
+
+function footnoteReferenceId(label: string, occurrence: number): string {
+  const suffix = occurrence === 1 ? '' : `-${String(occurrence)}`
+  return `fnref-${footnoteAddress(label)}${suffix}`
+}
+
+function renderFootnoteReference(
+  document: MarkdownDocument,
+  node: MarkdownNode,
+  policy: MarkdownHtmlRenderPolicy
+): string {
+  const label = node.attributes['label']
+  if (typeof label !== 'string') {
+    return ''
+  }
+  const ordinal = policy.footnotes.ordinals.get(label)
+  if (ordinal === undefined) {
+    return renderMarkdownText(
+      sliceRange(document.source, node),
+      node.range.start,
+      policy
+    )
+  }
+  const occurrence =
+    (policy.footnotes.emittedReferences.get(label) ?? 0) + 1
+  policy.footnotes.emittedReferences.set(label, occurrence)
+  const address = footnoteAddress(label)
+  const referenceId = footnoteReferenceId(label, occurrence)
+  return `<sup class="footnote-ref"><a href="#fn-${escapeHtml(address)}" ` +
+    `id="${escapeHtml(referenceId)}">${String(ordinal)}</a></sup>`
+}
+
+function renderFootnoteSection(
+  document: MarkdownDocument,
+  policy: MarkdownHtmlRenderPolicy
+): string {
+  if (policy.footnotes.ordinals.size === 0) {
+    return ''
+  }
+  const entries = [...policy.footnotes.ordinals.entries()]
+    .sort((left, right) => left[1] - right[1])
+    .map(([label, ordinal]) => {
+      const definition = policy.footnotes.definitions.get(label)
+      if (definition === undefined) {
+        return ''
+      }
+      const backlinks: string[] = []
+      const total = policy.footnotes.referenceTotals.get(label) ?? 0
+      for (let occurrence = 1; occurrence <= total; occurrence += 1) {
+        const referenceId = footnoteReferenceId(label, occurrence)
+        const suffix = occurrence === 1
+          ? ''
+          : `<span class="footnote-backref-index">${String(occurrence)}</span>`
+        backlinks.push(
+          `<a href="#${escapeHtml(referenceId)}" ` +
+          'class="footnote-backref" aria-label="Back to reference ' +
+          `${String(ordinal)}${occurrence === 1 ? '' : `-${String(occurrence)}`}">` +
+          `↩${suffix}</a>`
+        )
+      }
+      const definitionPolicy: MarkdownHtmlRenderPolicy = {
+        rawHtml: policy.rawHtml,
+        unsafeUrls: policy.unsafeUrls,
+        frontMatter: policy.frontMatter,
+        footnotes: policy.footnotes,
+        ...(policy.review === undefined ? {} : { review: policy.review })
+      }
+      const rendered = renderChildren(
+        document,
+        definition,
+        'block',
+        definitionPolicy
+      )
+      const backReferences = backlinks.join(' ')
+      const body = rendered.endsWith('</p>\n')
+        ? `${rendered.slice(0, -5)} ${backReferences}</p>\n`
+        : `${rendered}${backReferences}\n`
+      return `<li id="fn-${escapeHtml(footnoteAddress(label))}">\n` +
+        `${body}</li>\n`
+    })
+    .join('')
+  return `<section class="footnotes">\n<ol>\n${entries}</ol>\n</section>\n`
+}
+
+function renderTable(
+  document: MarkdownDocument,
+  table: MarkdownNode,
+  policy: MarkdownHtmlRenderPolicy
+): string {
+  const headerRows: string[] = []
+  const bodyRows: string[] = []
+  for (let ordinal = 0; ordinal < table.childCount; ordinal += 1) {
+    const row = table.childAt(ordinal)
+    const rendered = renderTableRow(document, row, policy)
+    if (row.attributes['header'] === true) {
+      headerRows.push(rendered)
+    } else {
+      bodyRows.push(rendered)
+    }
+  }
+  const parts = ['<table>\n']
+  if (headerRows.length > 0) {
+    parts.push('<thead>\n', ...headerRows, '</thead>\n')
+  }
+  if (bodyRows.length > 0) {
+    parts.push('<tbody>\n', ...bodyRows, '</tbody>\n')
+  }
+  parts.push('</table>\n')
+  return parts.join('')
+}
+
+function renderTableRow(
+  document: MarkdownDocument,
+  row: MarkdownNode,
+  policy: MarkdownHtmlRenderPolicy
+): string {
+  const header = row.attributes['header'] === true
+  const tag = header ? 'th' : 'td'
+  const parts = ['<tr>\n']
+  for (let ordinal = 0; ordinal < row.childCount; ordinal += 1) {
+    const cell = row.childAt(ordinal)
+    const alignment = cell.attributes['alignment']
+    const align = alignment === 'left' ||
+      alignment === 'center' ||
+      alignment === 'right'
+      ? ` align="${alignment}"`
+      : ''
+    parts.push(
+      `<${tag}${align}>`,
+      renderInlineContent(document, cell, policy, true),
+      `</${tag}>\n`
+    )
+  }
+  parts.push('</tr>\n')
+  return parts.join('')
 }
 
 // Tight lists render their items' paragraphs as bare inline content; loose
@@ -158,9 +681,15 @@ function renderNode(
 function renderListItem(
   document: MarkdownDocument,
   item: MarkdownNode,
-  tight: boolean
+  tight: boolean,
+  policy: MarkdownHtmlRenderPolicy
 ): string {
   const parts: string[] = []
+  const task = item.attributes['task'] === true
+  if (task) {
+    const checked = item.attributes['checked'] === true ? ' checked=""' : ''
+    parts.push(`<input${checked} disabled="" type="checkbox"> `)
+  }
   let previousWasTightParagraph = false
   for (let ordinal = 0; ordinal < item.childCount; ordinal += 1) {
     const child = item.childAt(ordinal)
@@ -168,7 +697,7 @@ function renderListItem(
       if (previousWasTightParagraph) {
         parts.push('\n')
       }
-      parts.push(renderInlineContent(document, child))
+      parts.push(renderInlineContent(document, child, policy))
       previousWasTightParagraph = true
       continue
     }
@@ -176,7 +705,7 @@ function renderListItem(
       parts.push('\n')
       previousWasTightParagraph = false
     }
-    parts.push(renderNode(document, child, 'block'))
+    parts.push(renderNode(document, child, 'block', policy))
   }
   if (parts.length === 0) {
     return '<li></li>\n'
@@ -184,15 +713,56 @@ function renderListItem(
   const first = item.childAt(0)
   const startsInline = tight && first.kind === 'paragraph'
   const body = parts.join('')
+  const opening = '<li>'
   return startsInline
     ? previousWasTightParagraph && !body.endsWith('\n')
-      ? `<li>${body}</li>\n`
-      : `<li>${body}</li>\n`
-    : `<li>\n${body}</li>\n`
+      ? `${opening}${body}</li>\n`
+      : `${opening}${body}</li>\n`
+    : `${opening}\n${body}</li>\n`
 }
 
 function sliceRange(source: string, node: MarkdownNode): string {
   return source.slice(node.range.start, node.range.end)
+}
+
+function validateRenderRange(
+  document: MarkdownDocument,
+  range: ViewRange | undefined
+): void {
+  if (
+    range !== undefined &&
+    (
+      !Number.isInteger(range.start) ||
+      !Number.isInteger(range.end) ||
+      range.start < 0 ||
+      range.end < range.start ||
+      range.end > document.source.length
+    )
+  ) {
+    throw new RangeError(
+      `HTML render range must be inside [0, ${String(document.source.length)}]`
+    )
+  }
+}
+
+function nodeIntersectsRange(
+  node: MarkdownNode,
+  range: ViewRange | undefined
+): boolean {
+  return range === undefined ||
+    (node.range.start < range.end && node.range.end > range.start)
+}
+
+function selectedNodeRange(
+  node: MarkdownNode,
+  range: ViewRange | undefined
+): ViewRange {
+  return range === undefined
+    ? node.range
+    : {
+      start: Math.max(node.range.start, range.start),
+      end: Math.min(node.range.end, range.end)
+    }
 }
 
 interface LinkTarget {
@@ -207,53 +777,13 @@ function resolveLinkTarget(
   document: MarkdownDocument,
   node: MarkdownNode
 ): LinkTarget | undefined {
-  const owner = node.attributes['destinationStart'] !== undefined
-    ? node
-    : definitionsFor(document).get(String(node.attributes['referenceLabel']))
-  if (owner === undefined) {
-    return undefined
-  }
-  const destination = document.source.slice(
-    Number(owner.attributes['destinationStart']),
-    Number(owner.attributes['destinationEnd'])
-  )
-  const titleStart = owner.attributes['titleStart']
-  if (titleStart === undefined) {
-    return { destination }
-  }
-  const title = document.source.slice(
-    Number(titleStart),
-    Number(owner.attributes['titleEnd'])
-  )
-  return { destination, title }
-}
-
-const DEFINITIONS_CACHE = new WeakMap<
-  MarkdownDocument,
-  Map<string, MarkdownNode>
->()
-
-function definitionsFor(document: MarkdownDocument): Map<string, MarkdownNode> {
-  const cached = DEFINITIONS_CACHE.get(document)
-  if (cached !== undefined) {
-    return cached
-  }
-  const definitions = new Map<string, MarkdownNode>()
-  const collect = (node: MarkdownNode): void => {
-    if (node.kind === 'definition') {
-      const label = node.attributes['label']
-      if (typeof label === 'string' && !definitions.has(label)) {
-        definitions.set(label, node)
-      }
-      return
+  const target = document.references.linkForNode(node.nodeId)
+  return target === undefined
+    ? undefined
+    : {
+      destination: target.destination,
+      ...(target.title === undefined ? {} : { title: target.title })
     }
-    for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
-      collect(node.childAt(ordinal))
-    }
-  }
-  collect(document.root)
-  DEFINITIONS_CACHE.set(document, definitions)
-  return definitions
 }
 
 // Image alt text is the plain-text projection of the label's inline content.
@@ -263,7 +793,7 @@ function plainText(document: MarkdownDocument, node: MarkdownNode): string {
     const child = node.childAt(ordinal)
     switch (child.kind) {
       case 'text':
-        parts.push(decodeMarkdownText(sliceRange(document.source, child)))
+        parts.push(markdownTextValue(sliceRange(document.source, child)))
         break
       case 'inline-code':
         parts.push(sliceRange(document.source, child))
@@ -288,6 +818,23 @@ const HREF_SAFE = new Set(
   "!#$%&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~"
 )
 
+const SAFE_URL_SCHEMES = new Set(['http', 'https', 'mailto'])
+
+function hasUnsafeScheme(url: string): boolean {
+  // Browsers ignore ASCII whitespace/control characters around and within
+  // scheme spelling. Normalize only for the scheme decision; emitted text
+  // still goes through the ordinary href encoder.
+  let normalized = ''
+  for (const character of url) {
+    const codePoint = character.codePointAt(0) ?? 0
+    if (codePoint > 0x20 && codePoint !== 0x7f) {
+      normalized += character.toLowerCase()
+    }
+  }
+  const scheme = /^([a-z][a-z0-9+.-]*):/.exec(normalized)?.[1]
+  return scheme !== undefined && !SAFE_URL_SCHEMES.has(scheme)
+}
+
 function encodeHref(url: string): string {
   let encoded = ''
   for (const char of url) {
@@ -305,42 +852,318 @@ function firstWord(text: string): string {
   return match === null ? '' : match[0]
 }
 
-function stripIndentColumns(line: string, columns: number): string {
-  let stripped = 0
-  let offset = 0
-  while (offset < line.length && stripped < columns) {
-    const code = line.charCodeAt(offset)
-    if (code === 32) {
-      stripped += 1
-      offset += 1
-    } else if (code === 9) {
-      stripped += 4 - (stripped % 4)
-      offset += 1
-    } else {
-      break
-    }
-  }
-  return line.slice(offset)
-}
-
 function ensureTrailingNewline(text: string): string {
   return text.endsWith('\n') ? text : `${text}\n`
 }
 
-function renderInlineCode(source: string, node: MarkdownNode): string {
-  const raw = sliceRange(source, node)
-  const markerLength = Number(node.attributes['markerLength'] ?? 1)
-  let content = raw.slice(markerLength, raw.length - markerLength)
-  content = content.replace(/\r\n|\r|\n/g, ' ')
-  if (
-    content.length >= 2 &&
-    content.startsWith(' ') &&
-    content.endsWith(' ') &&
-    content.trim() !== ''
-  ) {
-    content = content.slice(1, -1)
+function renderInlineCode(node: MarkdownNode, tableCell = false): string {
+  const content = node.attributes['content']
+  if (typeof content !== 'string') {
+    throw new TypeError('inline-code node has no parser-owned content')
   }
-  return `<code>${escapeHtml(content)}</code>`
+  return `<code>${escapeHtml(tableCell ? content.replace(/\\\|/g, '|') : content)}</code>`
+}
+
+function parserOwnedContent(node: MarkdownNode): string {
+  const content = node.attributes['content']
+  if (typeof content !== 'string') {
+    throw new TypeError(`${node.kind} node has no parser-owned content`)
+  }
+  return content
+}
+
+const GFM_TAG_FILTER =
+  /<\/?(?:title|textarea|style|xmp|iframe|noembed|noframes|script|plaintext)(?=[\t\n\f />])/gi
+
+function gfmTagFilteredHtml(node: MarkdownNode): string {
+  const content = parserOwnedContent(node)
+  return node.attributes['gfmTagFilter'] === true
+    ? content.replace(GFM_TAG_FILTER, match => `&lt;${match.slice(1)}`)
+    : content
+}
+
+function validateReviewPlan(
+  document: MarkdownDocument,
+  plan: MarkdownReviewRenderPlan
+): void {
+  let previousEnd = 0
+  for (const run of plan.runs) {
+    if (
+      !Number.isInteger(run.start) ||
+      !Number.isInteger(run.end) ||
+      run.start < previousEnd ||
+      run.end < run.start ||
+      run.end > document.source.length
+    ) {
+      throw new RangeError('Review render runs must be ordered non-overlapping ranges')
+    }
+    if (
+      run.elements.some((element) =>
+        element !== 'ins' && element !== 'del' && element !== 'mark'
+      )
+    ) {
+      throw new RangeError('Review render run contains an unknown semantic element')
+    }
+    previousEnd = run.end
+  }
+  let previousPosition = 0
+  for (const annotation of plan.annotations) {
+    if (
+      !Number.isInteger(annotation.position) ||
+      annotation.position < previousPosition ||
+      annotation.position > document.source.length
+    ) {
+      throw new RangeError('Review annotations must be ordered document positions')
+    }
+    if (!/^review-note-[1-9][0-9]*$/.test(annotation.noteId)) {
+      throw new TypeError('Review annotation note id is not sink-generated')
+    }
+    previousPosition = annotation.position
+  }
+}
+
+function validateFrontMatterPolicy(value: unknown): void {
+  if (
+    value !== undefined &&
+    value !== 'omit' &&
+    value !== 'render'
+  ) {
+    throw new TypeError('Unknown front matter render policy')
+  }
+}
+
+function renderMarkdownText(
+  raw: string,
+  sourceStart: number,
+  policy: MarkdownHtmlRenderPolicy
+): string {
+  const review = policy.review
+  if (review === undefined) {
+    return escapeHtml(markdownTextValue(raw))
+  }
+  const sourceEnd = sourceStart + raw.length
+  const boundaries = new Set<number>([sourceStart, sourceEnd])
+  for (
+    let index = firstReviewRunEndingAfter(review.runs, sourceStart);
+    index < review.runs.length;
+    index += 1
+  ) {
+    const run = review.runs[index]
+    if (run === undefined || run.start >= sourceEnd) {
+      break
+    }
+    if (run.start > sourceStart && run.start < sourceEnd) {
+      boundaries.add(run.start)
+    }
+    if (run.end > sourceStart && run.end < sourceEnd) {
+      boundaries.add(run.end)
+    }
+  }
+  for (
+    let index = firstReviewAnnotationAtOrAfter(
+      review.annotations,
+      sourceStart
+    );
+    index < review.annotations.length;
+    index += 1
+  ) {
+    const annotation = review.annotations[index]
+    if (annotation === undefined || annotation.position > sourceEnd) {
+      break
+    }
+    if (
+      annotation.position >= sourceStart &&
+      annotation.position <= sourceEnd
+    ) {
+      boundaries.add(annotation.position)
+    }
+  }
+  const positions = [...boundaries].sort((left, right) => left - right)
+  const parts: string[] = []
+  let activeElements: readonly MarkdownReviewElement[] = []
+  for (let index = 0; index < positions.length; index += 1) {
+    const position = positions[index]
+    if (position === undefined) {
+      continue
+    }
+    const annotations = review.annotationsByPosition.get(position) ?? []
+    if (annotations.length > 0) {
+      appendReviewElementTransition(parts, activeElements, [])
+      activeElements = []
+    }
+    for (const annotation of annotations) {
+      if (!review.emittedAnnotations.has(annotation)) {
+        parts.push(reviewReference(annotation))
+        review.emittedAnnotations.add(annotation)
+      }
+    }
+    const next = positions[index + 1]
+    if (next === undefined || next === position) {
+      continue
+    }
+    const value = escapeHtml(markdownTextValue(
+      raw.slice(position - sourceStart, next - sourceStart)
+    ))
+    const nextElements = reviewElementsAt(review.runs, position)
+    appendReviewElementTransition(parts, activeElements, nextElements)
+    activeElements = nextElements
+    parts.push(value)
+  }
+  appendReviewElementTransition(parts, activeElements, [])
+  return parts.join('')
+}
+
+function reviewElementsAt(
+  runs: readonly MarkdownReviewRun[],
+  position: number
+): readonly MarkdownReviewElement[] {
+  const run = runs[firstReviewRunEndingAfter(runs, position)]
+  return run !== undefined &&
+    position >= run.start &&
+    position < run.end
+    ? run.elements
+    : []
+}
+
+function firstReviewRunEndingAfter(
+  runs: readonly MarkdownReviewRun[],
+  position: number
+): number {
+  let low = 0
+  let high = runs.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    const run = runs[middle]
+    if (run !== undefined && run.end <= position) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  return low
+}
+
+function firstReviewAnnotationAtOrAfter(
+  annotations: readonly MarkdownReviewAnnotation[],
+  position: number
+): number {
+  let low = 0
+  let high = annotations.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    const annotation = annotations[middle]
+    if (annotation !== undefined && annotation.position < position) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  return low
+}
+
+function wrapReviewElements(
+  html: string,
+  elements: readonly MarkdownReviewElement[]
+): string {
+  if (elements.length === 0) {
+    return html
+  }
+  const parts = new Array<string>(elements.length * 2 + 1)
+  for (let index = 0; index < elements.length; index += 1) {
+    const element = elements[index]
+    if (element !== undefined) {
+      parts[index] = `<${element}>`
+      parts[parts.length - index - 1] = `</${element}>`
+    }
+  }
+  parts[elements.length] = html
+  return parts.join('')
+}
+
+function appendReviewElementTransition(
+  parts: string[],
+  from: readonly MarkdownReviewElement[],
+  to: readonly MarkdownReviewElement[]
+): void {
+  let shared = 0
+  while (
+    shared < from.length &&
+    shared < to.length &&
+    from[shared] === to[shared]
+  ) {
+    shared += 1
+  }
+  for (let index = from.length - 1; index >= shared; index -= 1) {
+    const element = from[index]
+    if (element !== undefined) {
+      parts.push(`</${element}>`)
+    }
+  }
+  for (let index = shared; index < to.length; index += 1) {
+    const element = to[index]
+    if (element !== undefined) {
+      parts.push(`<${element}>`)
+    }
+  }
+}
+
+function decorateReviewAtomic(
+  html: string,
+  node: MarkdownNode,
+  policy: MarkdownHtmlRenderPolicy
+): string {
+  const review = policy.review
+  if (review === undefined || html === '') {
+    return html
+  }
+  const selected = selectedNodeRange(node, policy.range)
+  let cursor = selected.start
+  let elements: readonly MarkdownReviewElement[] | undefined
+  for (
+    let index = firstReviewRunEndingAfter(review.runs, cursor);
+    index < review.runs.length;
+    index += 1
+  ) {
+    const run = review.runs[index]
+    if (run === undefined) {
+      break
+    }
+    if (run.end <= cursor) {
+      continue
+    }
+    if (run.start >= selected.end) {
+      break
+    }
+    if (run.start > cursor) {
+      return html
+    }
+    if (elements === undefined) {
+      elements = run.elements
+    } else if (!sameReviewElements(elements, run.elements)) {
+      return html
+    }
+    cursor = Math.min(selected.end, run.end)
+    if (cursor === selected.end) {
+      break
+    }
+  }
+  return cursor === selected.end && elements !== undefined
+    ? wrapReviewElements(html, elements)
+    : html
+}
+
+function sameReviewElements(
+  left: readonly MarkdownReviewElement[],
+  right: readonly MarkdownReviewElement[]
+): boolean {
+  return left.length === right.length &&
+    left.every((element, index) => element === right[index])
+}
+
+function reviewReference(annotation: MarkdownReviewAnnotation): string {
+  return '<sup role="doc-noteref">' +
+    `<a href="#${annotation.noteId}" data-review-annotation="${annotation.noteId}">` +
+    `${escapeHtml(annotation.reference)}</a></sup>`
 }
 
 const NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze({
@@ -378,26 +1201,94 @@ const NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze({
  * decode. This is defined text interpretation, not syntax recognition — the
  * graph already decided these bytes are text.
  */
-function decodeMarkdownText(text: string): string {
-  return text.replace(
-    /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])|&#[Xx]([0-9a-fA-F]{1,6});|&#([0-9]{1,7});|&([A-Za-z][A-Za-z0-9]{1,31});/g,
-    (whole, escaped: string | undefined, hex: string | undefined, dec: string | undefined, named: string | undefined) => {
-      if (escaped !== undefined) {
-        return escaped
-      }
-      if (hex !== undefined) {
-        return codePointToString(Number.parseInt(hex, 16))
-      }
-      if (dec !== undefined) {
-        return codePointToString(Number.parseInt(dec, 10))
-      }
-      if (named !== undefined) {
-        const value = NAMED_ENTITIES[named]
-        return value ?? whole
-      }
-      return whole
+export interface MarkdownTextValueSegment {
+  readonly text: string
+  /**
+   * Compact parser-issued boundary semantics. Identity text maps an interior
+   * rendered boundary linearly from `inputRange.start`; a collapsed escape or
+   * entity maps every nonterminal rendered boundary to the start and its final
+   * boundary to the end.
+   */
+  readonly boundaryMapping: 'identity' | 'collapsed'
+  readonly inputRange: Readonly<{
+    readonly start: number
+    readonly end: number
+  }>
+}
+
+const MARKDOWN_TEXT_TOKEN =
+  /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])|&#[Xx]([0-9a-fA-F]{1,6});|&#([0-9]{1,7});|&([A-Za-z][A-Za-z0-9]{1,31});/g
+
+/**
+ * Decode parser-owned text while retaining the exact input boundary map.
+ *
+ * `inputStart` names `text[0]` in the caller's coordinate space. The helper
+ * interprets text nodes only; it does not recognize Markdown structure.
+ */
+export function markdownTextValueSegments(
+  text: string,
+  inputStart = 0
+): readonly MarkdownTextValueSegment[] {
+  const segments: MarkdownTextValueSegment[] = []
+  const appendIdentity = (from: number, to: number): void => {
+    if (to <= from) return
+    segments.push(Object.freeze({
+      text: text.slice(from, to),
+      boundaryMapping: 'identity' as const,
+      inputRange: Object.freeze({
+        start: inputStart + from,
+        end: inputStart + to
+      })
+    }))
+  }
+  MARKDOWN_TEXT_TOKEN.lastIndex = 0
+  let cursor = 0
+  for (
+    let match = MARKDOWN_TEXT_TOKEN.exec(text);
+    match !== null;
+    match = MARKDOWN_TEXT_TOKEN.exec(text)
+  ) {
+    const start = match.index
+    const end = start + match[0].length
+    appendIdentity(cursor, start)
+    const escaped = match[1]
+    const hex = match[2]
+    const dec = match[3]
+    const named = match[4]
+    const value = escaped !== undefined
+      ? escaped
+      : hex !== undefined
+        ? codePointToString(Number.parseInt(hex, 16))
+        : dec !== undefined
+          ? codePointToString(Number.parseInt(dec, 10))
+          : named === undefined
+            ? match[0]
+            : NAMED_ENTITIES[named] ?? match[0]
+    if (value === match[0]) {
+      appendIdentity(start, end)
+      cursor = end
+      continue
     }
-  )
+    const tokenStart = inputStart + start
+    const tokenEnd = inputStart + end
+    segments.push(Object.freeze({
+      text: value,
+      boundaryMapping: 'collapsed' as const,
+      inputRange: Object.freeze({
+        start: tokenStart,
+        end: tokenEnd
+      })
+    }))
+    cursor = end
+  }
+  appendIdentity(cursor, text.length)
+  return Object.freeze(segments)
+}
+
+export function markdownTextValue(text: string): string {
+  return markdownTextValueSegments(text)
+    .map((segment) => segment.text)
+    .join('')
 }
 
 function codePointToString(codePoint: number): string {

@@ -52,9 +52,9 @@ test.describe('Find bar', () => {
 // Coverage backfill (checklist items 152, 153, 180, 181, 183, 184, 185, 186,
 // 187, 189, 191, 194). Each test exercises the DESKTOP find-bar Vue component
 // (packages/desktop/src/renderer/src/components/search/index.vue) wired to the
-// @muyajs/core engine through the renderer bus + `mt::editor-edit-action` IPC.
+// @marktext/document-view engine through the renderer bus + `mt::editor-edit-action` IPC.
 // The engine-side search/replace/matchString behaviors are already unit-tested
-// in packages/muya; these specs only lock the desktop UI + IPC wiring.
+// in focused engine tests; these specs lock the desktop UI and IPC wiring.
 // ---------------------------------------------------------------------------
 
 const SEARCH_BAR = '.search-bar'
@@ -113,12 +113,12 @@ const closeAndReset = async(page: Page): Promise<void> => {
     await page.keyboard.press('Escape')
     await expect(bar).toBeHidden({ timeout: 5000 })
   }
-  await expect.poll(() => page.locator('.mu-highlight').count()).toBe(0)
-  await expect.poll(() => page.locator('.mu-selection').count()).toBe(0)
+  await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(0)
+  await expect.poll(() => page.locator('.document-view-selection').count()).toBe(0)
 }
 
 // Seed the document content for a test and mark the tab clean (records the
-// current history entry as `lastSavedHistoryId` + clears the dirty flag), so a
+// main acknowledges the persisted history identity and clears the dirty flag, so a
 // subsequent edit's effect on the unsaved indicator is observed from a known
 // clean baseline. Mirrors the real post-save IPC the main process sends.
 const seedDocClean = async(
@@ -170,8 +170,8 @@ test.describe('Find bar — realtime counter and highlights (item 180)', () => {
     // Absorb the 150ms debounce before reading the counter.
     await expect.poll(() => counterText(page)).toContain('1 / 3')
 
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
-    await expect.poll(() => page.locator('.mu-selection').count()).toBe(2)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
+    await expect.poll(() => page.locator('.document-view-selection').count()).toBe(2)
   })
 })
 
@@ -194,11 +194,11 @@ test.describe('Find bar — find next / previous navigation (items 152, 181)', (
     await openFind(app, page)
     await page.locator(FIND_INPUT).fill('apple')
     await expect.poll(() => counterText(page)).toContain('1 / 3')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findNext')
     await expect.poll(() => counterText(page)).toContain('2 / 3')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findNext')
     await expect.poll(() => counterText(page)).toContain('3 / 3')
@@ -206,7 +206,7 @@ test.describe('Find bar — find next / previous navigation (items 152, 181)', (
     // Wrap around: 3/3 -> 1/3.
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findNext')
     await expect.poll(() => counterText(page)).toContain('1 / 3')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
   })
 
   test('findPrev from 1/3 wraps backward to 3/3 then steps back to 2/3', async() => {
@@ -215,7 +215,7 @@ test.describe('Find bar — find next / previous navigation (items 152, 181)', (
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findPrev')
     await expect.poll(() => counterText(page)).toContain('3 / 3')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findPrev')
     await expect.poll(() => counterText(page)).toContain('2 / 3')
@@ -297,21 +297,21 @@ test.describe('Find bar — option toggles re-run the search (items 185, 186, 18
     await page.locator(FIND_INPUT).fill('(')
     await expect(errorMsg).toBeVisible({ timeout: 5000 })
     await expect(errorMsg).toContainText('Invalid regular expression')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(0)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(0)
 
     // (2) Empty-match pattern: "a*" matches the empty string -> dedicated error,
     // still no search.
     await page.locator(FIND_INPUT).fill('a*')
     await expect(errorMsg).toBeVisible({ timeout: 5000 })
     await expect(errorMsg).toContainText('Regular expression matches empty string')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(0)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(0)
 
     // (3) Valid pattern: matches "apple" and "apricot"; the error clears and the
     // search runs (one active highlight + one inactive selection).
     await page.locator(FIND_INPUT).fill('ap(ple|ricot)')
     await expect.poll(() => counterText(page)).toContain('/ 2')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
-    await expect.poll(() => page.locator('.mu-selection').count()).toBe(1)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
+    await expect.poll(() => page.locator('.document-view-selection').count()).toBe(1)
     await expect(errorMsg).toHaveCount(0)
 
     // Reset regex toggle + bar for any later tests in this app.
@@ -466,15 +466,15 @@ test.describe('Find bar — Escape clears highlights and restores the cursor (it
   test('Escape after a query clears every highlight and selects the active match', async() => {
     await openFind(app, page)
     await page.locator(FIND_INPUT).fill('needleAlpha')
-    await expect.poll(() => page.locator('.mu-highlight').allTextContents()).toEqual(['needleAlpha'])
+    await expect.poll(() => page.locator('.document-view-highlight').allTextContents()).toEqual(['needleAlpha'])
     await expect.poll(() => counterText(page)).toContain('1 / 1')
 
     await page.keyboard.press('Escape')
     await expect(page.locator(SEARCH_BAR)).toBeHidden({ timeout: 5000 })
 
     // (a) Highlights and selections are fully torn down.
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(0)
-    await expect.poll(() => page.locator('.mu-selection').count()).toBe(0)
+    await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(0)
+    await expect.poll(() => page.locator('.document-view-selection').count()).toBe(0)
 
     // (b) The editor cursor is restored onto the last active match: the engine's
     // selectHighlight path calls block.setCursor(start, end), leaving the DOM

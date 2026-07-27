@@ -1,5 +1,5 @@
 import path from 'path'
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import type { BrowserWindowConstructorOptions } from 'electron'
 import log from 'electron-log'
 import windowStateKeeper from 'electron-window-state'
@@ -14,11 +14,32 @@ import {
   isOsx
 } from '../config'
 import { showEditorContextMenu } from '../contextMenu/editor'
-import { loadMarkdownFile } from '../filesystem/markdown'
+import {
+  getDocumentCoreFileSnapshot,
+  loadMarkdownFile
+} from '../filesystem/markdown'
 import { switchLanguage } from '../spellchecker'
-import fs from 'fs'
 import { presentationPolicy } from '../presentationPolicy'
 import { exceptionReporter } from '../exceptionReporting'
+import { decodeFileSnapshot } from '@marktext/document-core'
+import type {
+  BufferedState,
+  WindowUiCheckpointIntent
+} from '@shared/types/bufferedState'
+import { createMainDocumentParseConfiguration } from '../documentCore/documentParseConfiguration'
+import {
+  DocumentCoreFileAlreadyOpenError
+} from '../documentCore/documentFileHost'
+import {
+  describeDocumentCoreFile,
+  listDocumentCoreRecoveryWindows,
+  openDocumentCoreFile,
+  recoverDocumentCoreFile
+} from '../ipc/documentCore'
+import { emitInternalChannel } from '../utils/internalIpc'
+import {
+  authorizeWindowUiCheckpoint as authorizeCheckpoint
+} from '../editorBufferStore/windowUiCheckpointAuthority'
 
 type RawMarkdownDocument = Awaited<ReturnType<typeof loadMarkdownFile>>
 
@@ -39,19 +60,10 @@ interface CandidateScore {
   score: number
 }
 
-interface RestoredTab {
-  pathname: string
-  filename?: string
-  markdown?: string
-  isSaved?: boolean
-  [key: string]: unknown
-}
-
-interface RestoredBufferState {
-  tabs: RestoredTab[]
-  restoreWarnings?: unknown[]
-  project?: { rootDirectory?: string }
-  [key: string]: unknown
+interface RetainedDocumentTab {
+  readonly documentId: string
+  readonly filename: string
+  readonly pathname: string | null
 }
 
 class EditorWindow extends BaseWindow {
@@ -63,6 +75,10 @@ class EditorWindow extends BaseWindow {
   // used to find the best window to open new files in.
   private _openedRootDirectory: string | null
   private _openedFiles: string[] | null
+  private _nextUntitledId: number
+  private _retainedDocumentTabs: RetainedDocumentTab[]
+  private _selectedDocumentId: string | null
+  private _pendingProjectFileAdmissions: Set<string>
 
   public bufferStoreInfo: BufferStoreInfo | null
 
@@ -82,6 +98,10 @@ class EditorWindow extends BaseWindow {
     // used to find the best window to open new files in.
     this._openedRootDirectory = ''
     this._openedFiles = []
+    this._nextUntitledId = 0
+    this._retainedDocumentTabs = []
+    this._selectedDocumentId = null
+    this._pendingProjectFileAdmissions = new Set()
 
     this.bufferStoreInfo = null
   }
@@ -177,22 +197,31 @@ class EditorWindow extends BaseWindow {
       // Restore and focus window
       this.bringToFront()
 
-      const lineEnding = preferences.getPreferredEol()
-      appMenu.updateLineEndingMenu(this.id!, lineEnding)
-
       win!.webContents.send('mt::bootstrap-editor', {
-        addBlankTab,
-        markdownList: this.bufferStoreInfo!.filePath ? [] : this._markdownToOpen,
-        lineEnding,
         sideBarVisibility: resolvedSideBarVisibility,
         tabBarVisibility,
         sourceCodeModeEnabled
       })
 
-      if (this.bufferStoreInfo!.filePath) {
-        this._restoreAllState()
+      if (bufferStoreInfo !== null) {
+        this._restoreAllState().catch((error: unknown) => {
+          log.error('Failed to restore main-owned documents:', error)
+          win?.webContents.send('mt::show-notification', {
+            title: 'Failed to restore documents',
+            type: 'error',
+            message: error instanceof Error ? error.message : String(error)
+          })
+        })
       } else {
         this._doOpenFilesToOpen()
+        if (addBlankTab) {
+          this.openUntitledTab(true)
+        }
+        let firstMarkdown = true
+        for (const markdown of this._markdownToOpen!) {
+          this.openUntitledTab(firstMarkdown, markdown)
+          firstMarkdown = false
+        }
         this._markdownToOpen!.length = 0
       }
 
@@ -342,32 +371,25 @@ class EditorWindow extends BaseWindow {
     if (this.lifecycle === WindowLifecycle.QUITTED) return
 
     const { browserWindow } = this
-    const { preferences } = this._accessor
-    const eol = preferences.getPreferredEol()
-    const { autoGuessEncoding, trimTrailingNewline, autoNormalizeLineEndings } =
-      preferences.getAll()
-
     for (const { filePath, options, selected } of fileList) {
       if (this._openedFiles!.includes(filePath)) {
         // File is already opened - avoid opening it again so we dont have duplicate watchers
         browserWindow!.webContents.send('mt::switch-tab-by-file_path', filePath)
         continue
       }
-      loadMarkdownFile(
-        filePath,
-        eol,
-        autoGuessEncoding,
-        trimTrailingNewline,
-        autoNormalizeLineEndings
-      )
-        .then((rawDocument) => {
+      loadMarkdownFile(filePath)
+        .then(async(rawDocument) => {
           if (this.lifecycle === WindowLifecycle.READY) {
-            this._doOpenTab(rawDocument, options, selected)
+            await this._doOpenTab(rawDocument, options, selected)
           } else {
             this._filesToOpen!.push({ doc: rawDocument, options, selected })
           }
         })
         .catch((err: Error) => {
+          if (err instanceof DocumentCoreFileAlreadyOpenError) {
+            this._redirectDuplicateDocument(err)
+            return
+          }
           const { message, stack } = err
           log.error(`[ERROR] Cannot open file or directory: ${message}\n\n${stack}`)
           browserWindow!.webContents.send('mt::show-notification', {
@@ -387,11 +409,32 @@ class EditorWindow extends BaseWindow {
     if (this.lifecycle === WindowLifecycle.QUITTED) return
 
     if (this.lifecycle === WindowLifecycle.READY) {
-      const { browserWindow } = this
-      browserWindow!.webContents.send('mt::new-untitled-tab', selected, markdown)
+      this._doOpenUntitledTab(selected, markdown).catch((error: unknown) => {
+        log.error('Unable to open main-owned untitled document:', error)
+        this.browserWindow?.webContents.send('mt::show-notification', {
+          title: 'Cannot open tab',
+          type: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
     } else {
       this._markdownToOpen!.push(markdown)
     }
+  }
+
+  /**
+   * Admit imported content through the main-owned document host and let the
+   * caller observe any admission failure before acknowledging the import.
+   */
+  async admitImportedMarkdown(markdown: string): Promise<void> {
+    if (this.lifecycle === WindowLifecycle.QUITTED) {
+      throw new Error('Editor window quit before document import')
+    }
+    if (this.lifecycle === WindowLifecycle.READY) {
+      await this._doOpenUntitledTab(true, markdown)
+      return
+    }
+    this._markdownToOpen!.push(markdown)
   }
 
   /**
@@ -412,13 +455,13 @@ class EditorWindow extends BaseWindow {
       const { menu: appMenu, preferences } = this._accessor
 
       if (this._openedRootDirectory) {
-        ipcMain.emit('watcher-unwatch-directory', browserWindow, this._openedRootDirectory)
+        emitInternalChannel('watcher-unwatch-directory', browserWindow, this._openedRootDirectory)
       }
 
       preferences.setItems({ lastOpenedFolder: pathname })
       appMenu.addRecentlyUsedDocument(pathname)
       this._openedRootDirectory = pathname
-      ipcMain.emit('watcher-watch-directory', browserWindow, pathname)
+      emitInternalChannel('watcher-watch-directory', browserWindow, pathname)
       browserWindow!.webContents.send('mt::open-directory', pathname)
     } else {
       this._directoryToOpen = pathname
@@ -431,7 +474,7 @@ class EditorWindow extends BaseWindow {
   addToOpenedFiles(filePath: string): void {
     const { _openedFiles, browserWindow } = this
     _openedFiles!.push(filePath)
-    ipcMain.emit('watcher-watch-file', browserWindow, filePath)
+    emitInternalChannel('watcher-watch-file', browserWindow, filePath)
   }
 
   /**
@@ -446,8 +489,8 @@ class EditorWindow extends BaseWindow {
     } else {
       _openedFiles![index] = pathname
     }
-    ipcMain.emit('watcher-unwatch-file', browserWindow, oldPathname)
-    ipcMain.emit('watcher-watch-file', browserWindow, pathname)
+    emitInternalChannel('watcher-unwatch-file', browserWindow, oldPathname)
+    emitInternalChannel('watcher-watch-file', browserWindow, pathname)
   }
 
   /**
@@ -459,7 +502,7 @@ class EditorWindow extends BaseWindow {
     if (index !== -1) {
       _openedFiles!.splice(index, 1)
     }
-    ipcMain.emit('watcher-unwatch-file', browserWindow, pathname)
+    emitInternalChannel('watcher-unwatch-file', browserWindow, pathname)
   }
 
   /**
@@ -489,32 +532,26 @@ class EditorWindow extends BaseWindow {
 
   override reload(): void {
     const { id, browserWindow } = this
+    if (browserWindow === null) return
+    const checkpoint = this._readWindowUiCheckpoint()
 
-    // Close watchers
-    ipcMain.emit('watcher-unwatch-all-by-id', id)
+    // The renderer is going away, but the main-owned file/session registry is
+    // not. Watchers are paused while no renderer can resolve their
+    // notifications, then restored from retained native paths after load.
+    emitInternalChannel('watcher-unwatch-all-by-id', id)
 
-    // Reset saved state
-    this._directoryToOpen = ''
-    this._filesToOpen = []
-    this._markdownToOpen = []
-    this._openedRootDirectory = ''
-    this._openedFiles = []
-
-    browserWindow!.webContents.once('did-finish-load', () => {
+    browserWindow.webContents.once('did-finish-load', () => {
       this.lifecycle = WindowLifecycle.READY
       const { preferences } = this._accessor
       const { sideBarVisibility, restoreLayoutState, tabBarVisibility, sourceCodeModeEnabled } =
         preferences.getAll()
       const resolvedSideBarVisibility = restoreLayoutState ? !!sideBarVisibility : false
-      const lineEnding = preferences.getPreferredEol()
-      browserWindow!.webContents.send('mt::bootstrap-editor', {
-        addBlankTab: true,
-        markdownList: [],
-        lineEnding,
+      browserWindow.webContents.send('mt::bootstrap-editor', {
         sideBarVisibility: resolvedSideBarVisibility,
         tabBarVisibility,
         sourceCodeModeEnabled
       })
+      this._reattachAfterRendererReload(checkpoint)
     })
 
     this.lifecycle = WindowLifecycle.LOADING
@@ -531,10 +568,66 @@ class EditorWindow extends BaseWindow {
     this._markdownToOpen = null
     this._openedRootDirectory = null
     this._openedFiles = null
+    this._retainedDocumentTabs = []
+    this._selectedDocumentId = null
+    this._pendingProjectFileAdmissions.clear()
   }
 
   get openedRootDirectory(): string | null {
     return this._openedRootDirectory
+  }
+
+  findOpenedDocumentPath(candidatePath: string): string | null {
+    return this._openedFiles?.find(
+      pathname => isSamePathSync(pathname, candidatePath)
+    ) ?? null
+  }
+
+  selectOpenedDocumentByPath(pathname: string): void {
+    const openedPathname = this.findOpenedDocumentPath(pathname)
+    if (openedPathname === null || this.browserWindow === null) {
+      throw new Error('Project document is not admitted by this editor window')
+    }
+    const retained = this._retainedDocumentTabs.find(
+      tab =>
+        tab.pathname !== null &&
+        isSamePathSync(tab.pathname, openedPathname)
+    )
+    if (retained === undefined) {
+      throw new Error('Admitted project document has no retained session')
+    }
+    this._selectedDocumentId = retained.documentId
+    this.browserWindow.webContents.send(
+      'mt::switch-tab-by-file_path',
+      openedPathname
+    )
+  }
+
+  /**
+   * Admit a file created by the main-owned project transaction.
+   *
+   * This promise exposes admission failure so a surrounding main-owned
+   * transaction can roll back an exclusively created file.
+   */
+  async admitProjectFile(pathname: string): Promise<void> {
+    if (this.lifecycle !== WindowLifecycle.READY) {
+      throw new Error('Project file admission requires a ready editor window')
+    }
+    if (
+      this.findOpenedDocumentPath(pathname) !== null ||
+      this._pendingProjectFileAdmissions.has(pathname)
+    ) {
+      throw new Error(
+        'Project file is already admitted or admission is in progress'
+      )
+    }
+    this._pendingProjectFileAdmissions.add(pathname)
+    try {
+      const rawDocument = await loadMarkdownFile(pathname)
+      await this._doOpenTab(rawDocument, {}, true)
+    } finally {
+      this._pendingProjectFileAdmissions.delete(pathname)
+    }
   }
 
   // --- private ---------------------------------
@@ -546,17 +639,302 @@ class EditorWindow extends BaseWindow {
     rawDocument: RawMarkdownDocument,
     options: Record<string, unknown>,
     selected: boolean
-  ): void {
+  ): Promise<void> {
+    return this._admitDocumentTab(
+      rawDocument.markdown,
+      rawDocument.filename,
+      rawDocument.pathname,
+      options,
+      selected,
+      getDocumentCoreFileSnapshot(rawDocument.pathname)
+    )
+  }
+
+  private async _doOpenUntitledTab(
+    selected: boolean,
+    markdown: string
+  ): Promise<void> {
+    this._nextUntitledId += 1
+    await this._admitDocumentTab(
+      markdown,
+      `Untitled-${String(this._nextUntitledId)}`,
+      null,
+      {},
+      selected,
+      decodeFileSnapshot(new TextEncoder().encode(markdown), 'utf-8')
+    )
+  }
+
+  private async _admitDocumentTab(
+    source: string,
+    filename: string,
+    pathname: string | null,
+    options: Record<string, unknown>,
+    selected: boolean,
+    retainedSnapshot: ReturnType<typeof getDocumentCoreFileSnapshot>
+  ): Promise<void> {
     const { _accessor, _openedFiles, browserWindow } = this
-    const { menu: appMenu } = _accessor
-    const { pathname } = rawDocument
+    const { menu: appMenu, preferences } = _accessor
+    if (browserWindow === null) {
+      throw new Error('Editor window was destroyed before document admission')
+    }
+    const settings = preferences.getAll()
+    const fileSnapshot = retainedSnapshot ?? decodeFileSnapshot(
+      new TextEncoder().encode(source),
+      'utf-8'
+    )
+    const opened = await openDocumentCoreFile(
+      browserWindow.webContents,
+      this._durableWindowId(),
+      {
+        fileSnapshot,
+        parseConfiguration: createMainDocumentParseConfiguration({
+          footnotes: settings.footnotes === true,
+          gitLabMath: settings.gitLabMath === true,
+          subscriptAndSuperscript:
+            settings.subscriptAndSuperscript === true
+        }),
+        filename,
+        pathname,
+        defaultDirectory: app.getPath('documents')
+      }
+    )
+    this._retainDocumentTab(opened, selected)
 
-    // Listen for file changed.
-    ipcMain.emit('watcher-watch-file', browserWindow, pathname)
+    if (pathname !== null) {
+      emitInternalChannel('watcher-watch-file', browserWindow, pathname)
+      appMenu.addRecentlyUsedDocument(pathname)
+      _openedFiles!.push(pathname)
+    }
 
-    appMenu.addRecentlyUsedDocument(pathname)
-    _openedFiles!.push(pathname)
-    browserWindow!.webContents.send('mt::open-new-tab', rawDocument, options, selected)
+    browserWindow.webContents.send('mt::document-core::tab-opened', {
+      schema: 'document-core-tab-1',
+      documentId: opened.documentId,
+      filename: opened.filename,
+      pathname: opened.pathname,
+      selected
+    })
+  }
+
+  private _retainDocumentTab(
+    document: RetainedDocumentTab,
+    selected: boolean
+  ): void {
+    const index = this._retainedDocumentTabs.findIndex(
+      tab => tab.documentId === document.documentId
+    )
+    if (index === -1) {
+      this._retainedDocumentTabs.push(Object.freeze({ ...document }))
+    } else {
+      this._retainedDocumentTabs[index] = Object.freeze({ ...document })
+    }
+    if (selected) this._selectedDocumentId = document.documentId
+  }
+
+  private _durableWindowId(): string {
+    const id = this.bufferStoreInfo?.id
+    if (id === undefined || id.length === 0) {
+      throw new Error('Document admission requires a durable window identity')
+    }
+    return id
+  }
+
+  private _redirectDuplicateDocument(
+    error: DocumentCoreFileAlreadyOpenError
+  ): void {
+    const windows = this._accessor.windowManager?.windows
+    const target = windows === undefined
+      ? (
+        this.bufferStoreInfo?.id === error.occupancy.durableWindowId
+          ? this
+          : null
+      )
+      : [...windows.values()].find(candidate =>
+        candidate.type === WindowType.EDITOR &&
+        (candidate as EditorWindow).bufferStoreInfo?.id ===
+          error.occupancy.durableWindowId
+      ) as EditorWindow | undefined
+    if (target === null || target === undefined) {
+      throw error
+    }
+
+    let attempts = 0
+    const redirectWhenRetained = (): void => {
+      try {
+        target.selectOpenedDocumentByPath(error.occupancy.pathname)
+        target.bringToFront()
+      } catch (redirectError) {
+        attempts += 1
+        if (attempts < 40 && target.lifecycle !== WindowLifecycle.QUITTED) {
+          setTimeout(redirectWhenRetained, 25)
+          return
+        }
+        log.error(
+          'Unable to select the already admitted document:',
+          redirectError
+        )
+      }
+    }
+    setTimeout(redirectWhenRetained, 0)
+  }
+
+  /**
+   * Validate renderer presentation references against this window's live,
+   * main-owned document registry and construct the durable checkpoint.
+   */
+  authorizeWindowUiCheckpoint(
+    intent: WindowUiCheckpointIntent
+  ): BufferedState {
+    const { browserWindow } = this
+    if (browserWindow === null) {
+      throw new Error(
+        'Window UI checkpoint requires a live editor window'
+      )
+    }
+    const retained: RetainedDocumentTab[] = []
+    for (const tab of this._retainedDocumentTabs) {
+      try {
+        retained.push(
+          describeDocumentCoreFile(
+            browserWindow.webContents,
+            tab.documentId
+          )
+        )
+      } catch {
+        // The main document host may have completed an explicit close before
+        // the renderer publishes its next presentation checkpoint.
+      }
+    }
+    const checkpoint = authorizeCheckpoint(intent, {
+      rootDirectory: this._openedRootDirectory ?? '',
+      retainedDocumentIds: retained.map(tab => tab.documentId)
+    })
+    const retainedById = new Map(
+      retained.map(tab => [tab.documentId, tab])
+    )
+    this._retainedDocumentTabs = checkpoint.tabs.map(tab => {
+      const retainedTab = retainedById.get(tab.documentId)
+      if (retainedTab === undefined) {
+        throw new Error(
+          `Authorized checkpoint lost retained document ${tab.documentId}`
+        )
+      }
+      return retainedTab
+    })
+    this._selectedDocumentId = checkpoint.currentDocumentId
+    return checkpoint
+  }
+
+  private _readWindowUiCheckpoint(): BufferedState | null {
+    const { bufferStoreInfo } = this
+    if (bufferStoreInfo === null) return null
+    const { editorBufferStore } = this._accessor
+    try {
+      const filePath = bufferStoreInfo.filePath ??
+        editorBufferStore.getBufferStoreInfo(bufferStoreInfo.id).filePath
+      return editorBufferStore.readBufferStoreFile(filePath)
+    } catch (error) {
+      log.error('Unable to read window UI checkpoint before reload:', error)
+      return null
+    }
+  }
+
+  private _reattachAfterRendererReload(
+    checkpoint: BufferedState | null
+  ): void {
+    const { browserWindow } = this
+    if (browserWindow === null) return
+
+    const retained: RetainedDocumentTab[] = []
+    for (const tab of this._retainedDocumentTabs) {
+      try {
+        retained.push(
+          describeDocumentCoreFile(browserWindow.webContents, tab.documentId)
+        )
+      } catch (error) {
+        // A close that completed while the renderer was disappearing may
+        // leave a stale UI descriptor. The main file host decides liveness.
+        log.error(
+          `Unable to reattach closed document ${tab.documentId}:`,
+          error
+        )
+      }
+    }
+    this._retainedDocumentTabs = retained
+    this._openedFiles = retained.flatMap(
+      tab => tab.pathname === null ? [] : [tab.pathname]
+    )
+
+    const rootDirectory = this._openedRootDirectory ?? ''
+    if (rootDirectory) {
+      emitInternalChannel(
+        'watcher-watch-directory',
+        browserWindow,
+        rootDirectory
+      )
+      browserWindow.webContents.send(
+        'mt::open-directory',
+        rootDirectory
+      )
+    }
+    for (const pathname of this._openedFiles) {
+      emitInternalChannel('watcher-watch-file', browserWindow, pathname)
+    }
+
+    if (retained.length === 0) {
+      this._selectedDocumentId = null
+      this.openUntitledTab(true)
+      return
+    }
+    const firstRetained = retained[0]
+    if (firstRetained === undefined) {
+      throw new Error('Retained document list changed unexpectedly')
+    }
+
+    const checkpointIds = new Set(retained.map(tab => tab.documentId))
+    const requestedDocumentId =
+      checkpoint?.currentDocumentId !== null &&
+      checkpoint?.currentDocumentId !== undefined &&
+      checkpointIds.has(checkpoint.currentDocumentId)
+        ? checkpoint.currentDocumentId
+        : this._selectedDocumentId
+    const selectedDocumentId =
+      requestedDocumentId !== null &&
+      requestedDocumentId !== undefined &&
+      checkpointIds.has(requestedDocumentId)
+        ? requestedDocumentId
+        : firstRetained.documentId
+    this._selectedDocumentId = selectedDocumentId
+
+    if (checkpoint !== null) {
+      const scrollByDocument = new Map(
+        checkpoint.tabs.map(tab => [tab.documentId, tab.scrollTop])
+      )
+      browserWindow.webContents.send(
+        'mt::document-core::restore-window-ui',
+        Object.freeze({
+          ...checkpoint,
+          currentDocumentId: selectedDocumentId,
+          tabs: Object.freeze(retained.map(tab => Object.freeze({
+            documentId: tab.documentId,
+            scrollTop: scrollByDocument.get(tab.documentId) ?? 0
+          }))),
+          project: Object.freeze({
+            rootDirectory
+          })
+        })
+      )
+    }
+
+    for (const tab of retained) {
+      browserWindow.webContents.send('mt::document-core::tab-opened', {
+        schema: 'document-core-tab-1',
+        documentId: tab.documentId,
+        filename: tab.filename,
+        pathname: tab.pathname,
+        selected: tab.documentId === selectedDocumentId
+      })
+    }
   }
 
   private _doOpenFilesToOpen(): void {
@@ -570,93 +948,158 @@ class EditorWindow extends BaseWindow {
     this._directoryToOpen = null
 
     for (const { doc, options, selected } of this._filesToOpen!) {
-      this._doOpenTab(doc, options, selected)
+      this._doOpenTab(doc, options, selected).catch((error: unknown) => {
+        if (error instanceof DocumentCoreFileAlreadyOpenError) {
+          this._redirectDuplicateDocument(error)
+          return
+        }
+        log.error('Unable to admit pending document:', error)
+      })
     }
     this._filesToOpen!.length = 0
   }
 
-  private _restoreAllState(): void {
+  private async _restoreAllState(): Promise<void> {
     if (this.lifecycle !== WindowLifecycle.READY) {
       throw new Error('Invalid state.')
     }
     const { browserWindow, bufferStoreInfo, _accessor } = this
-    const { menu: appMenu, preferences } = _accessor
+    const {
+      editorBufferStore,
+      menu: appMenu,
+      preferences
+    } = _accessor
+    if (browserWindow === null || bufferStoreInfo === null) {
+      throw new Error('Window restore has no live durable window')
+    }
+    const recoveryWindows = await listDocumentCoreRecoveryWindows()
+    const recoveryWindow = recoveryWindows.find(
+      candidate => candidate.durableWindowId === bufferStoreInfo.id
+    )
+    const recoverableIds = recoveryWindow?.documentIds ?? []
+    const checkpoint = bufferStoreInfo.filePath === null
+      ? null
+      : editorBufferStore.readBufferStoreFile(bufferStoreInfo.filePath)
+    const settings = preferences.getAll()
+    const retainedIds = new Set(recoverableIds)
+    const checkpointTabs = checkpoint?.tabs.filter(
+      tab => retainedIds.has(tab.documentId)
+    ) ?? []
+    const checkpointIds = new Set(
+      checkpointTabs.map(tab => tab.documentId)
+    )
+    const tabs = Object.freeze([
+      ...checkpointTabs,
+      ...recoverableIds
+        .filter(documentId => !checkpointIds.has(documentId))
+        .map(documentId => Object.freeze({
+          documentId,
+          scrollTop: 0
+        }))
+    ])
+    const currentDocumentId =
+      checkpoint?.currentDocumentId !== null &&
+      checkpoint?.currentDocumentId !== undefined &&
+      retainedIds.has(checkpoint.currentDocumentId)
+        ? checkpoint.currentDocumentId
+        : tabs[0]?.documentId ?? null
+    const bufferState: BufferedState = Object.freeze({
+      schema: 'document-core-window-ui-1',
+      currentDocumentId,
+      tabs,
+      project: checkpoint?.project ?? Object.freeze({
+        rootDirectory: ''
+      }),
+      layout: checkpoint?.layout ?? Object.freeze({
+        rightColumn: '',
+        showSideBar:
+          settings.restoreLayoutState === true &&
+          settings.sideBarVisibility === true,
+        showTabBar: settings.tabBarVisibility !== false,
+        sideBarWidth: 280
+      })
+    })
+    if (bufferState.project.rootDirectory) {
+      this.openFolder(bufferState.project.rootDirectory)
+    }
+    browserWindow.webContents.send(
+      'mt::document-core::restore-window-ui',
+      bufferState
+    )
 
-    try {
-      const bufferState = JSON.parse(
-        fs.readFileSync(bufferStoreInfo!.filePath!, 'utf-8')
-      ) as RestoredBufferState
-      if (!bufferState || !Array.isArray(bufferState.tabs)) {
-        throw new Error('Invalid editor buffer state.')
-      }
-      if (!Array.isArray(bufferState.restoreWarnings)) {
-        bufferState.restoreWarnings = []
-      }
-      const rootDirectory = bufferState.project?.rootDirectory
-      if (rootDirectory) {
-        this.openFolder(rootDirectory)
-      }
-
-      // We still need to load the files of all opened tabs and check for errors/changed files
-      const eol = preferences.getPreferredEol()
-      const { autoGuessEncoding, trimTrailingNewline, autoNormalizeLineEndings } =
-        preferences.getAll()
-
-      const fileOpenRequests: Promise<void>[] = []
-      for (const tab of bufferState.tabs) {
-        if (!tab.pathname) {
-          continue
-        }
-
-        fileOpenRequests.push(
-          loadMarkdownFile(
-            tab.pathname,
-            eol,
-            autoGuessEncoding,
-            trimTrailingNewline,
-            autoNormalizeLineEndings
-          )
-            .then((rawDocument) => {
-              if (rawDocument.markdown !== tab.markdown) {
-                // File has changed since it was last opened, if it is not saved, we should NOT override the buffer
-                if (tab.isSaved) {
-                  tab.markdown = rawDocument.markdown
-                }
-              }
-
-              if (!this._openedFiles!.includes(tab.pathname)) {
-                this.addToOpenedFiles(tab.pathname)
-                appMenu.addRecentlyUsedDocument(tab.pathname)
-              }
-            })
-            .catch((err: Error) => {
-              const { message, stack } = err
-              tab.isSaved = false // Set to false as base file could not be found, needs saving
-              log.error(`[ERROR] Cannot open file: ${message}\n\n${stack}`)
-              browserWindow!.webContents.send('mt::show-notification', {
-                title: `Could not find file ${tab.filename} on disk, please save your work.`,
-                type: 'error',
-                message: err.message
-              })
-            })
+    const parseConfiguration = createMainDocumentParseConfiguration({
+      footnotes: settings.footnotes === true,
+      gitLabMath: settings.gitLabMath === true,
+      subscriptAndSuperscript:
+        settings.subscriptAndSuperscript === true
+    })
+    const recovered = []
+    for (const tab of bufferState.tabs) {
+      try {
+        recovered.push(await recoverDocumentCoreFile(
+          browserWindow.webContents,
+          bufferStoreInfo.id,
+          {
+            documentId: tab.documentId,
+            parseConfiguration
+          }
+        ))
+      } catch (error) {
+        log.error(
+          `Failed to recover document ${tab.documentId}:`,
+          error
         )
+        browserWindow.webContents.send('mt::show-notification', {
+          title: 'Could not recover document',
+          type: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        })
       }
+    }
 
-      Promise.all(fileOpenRequests)
-        .then(() => {
-          // After all files are loaded, we can send the state to the renderer and open the tabs
-          browserWindow!.webContents.send('mt::load-state', bufferState)
+    if (recovered.length === 0) {
+      await this._doOpenUntitledTab(true, '')
+      return
+    }
+    const firstRecovered = recovered[0]
+    if (firstRecovered === undefined) {
+      throw new Error('Recovered document list changed unexpectedly')
+    }
+    const requestedDocumentId = bufferState.currentDocumentId
+    const selectedId =
+      requestedDocumentId !== null &&
+      recovered.some(
+        document => document.documentId === requestedDocumentId
+      )
+        ? requestedDocumentId
+        : firstRecovered.documentId
+    for (const document of recovered) {
+      this._retainDocumentTab(
+        document,
+        document.documentId === selectedId
+      )
+      if (
+        document.pathname !== null &&
+        !this._openedFiles!.includes(document.pathname)
+      ) {
+        this.addToOpenedFiles(document.pathname)
+        appMenu.addRecentlyUsedDocument(document.pathname)
+      }
+      browserWindow.webContents.send('mt::document-core::tab-opened', {
+        schema: 'document-core-tab-1',
+        documentId: document.documentId,
+        filename: document.filename,
+        pathname: document.pathname,
+        selected: document.documentId === selectedId
+      })
+      if (document.externalConflict) {
+        browserWindow.webContents.send('mt::show-notification', {
+          title: `File changed outside MarkText: ${document.filename}`,
+          type: 'warning',
+          message:
+            'The recovered document is preserved. Choose reload or overwrite before saving.'
         })
-        .catch((err: Error) => {
-          log.error('Failed to load files for restoring editor state:', err)
-          browserWindow!.webContents.send('mt::show-notification', {
-            title: 'Failed to restore buffered state',
-            type: 'error',
-            message: err.message
-          })
-        })
-    } catch (e) {
-      log.error('Failed to restore editor state:', e)
+      }
     }
   }
 }

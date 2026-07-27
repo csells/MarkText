@@ -8,7 +8,16 @@ import {
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -50,4 +59,26 @@ describe('DocumentSession persistence barrier', () => {
   }
 
   it('pins exact committed source at the caller frontier', leasesOnlyCommittedCanonicalSource)
+
+  it('pins parser-owned facts from the exact leased revision', async() => {
+    const session = await createDocumentSession({
+      source: createSourceSnapshot('# {--Old--}{++Leased Title++}\n\nBody.\n'),
+      parseConfiguration: TEST_CONFIGURATION,
+      configuration: { authoringTextPolicy: 'nearest-owner-eol-v1' },
+      initialView: 'markup',
+      trackChanges: false,
+      initialSelection: {
+        anchor: { offset: 0, affinity: 'next' },
+        focus: { offset: 0, affinity: 'next' }
+      }
+    })
+
+    const prepared = await session.preparePersistence('save').completion
+    if (prepared.kind !== 'flushed') {
+      throw new Error('Expected a persistence source lease')
+    }
+
+    expect(prepared.facts).toEqual(session.snapshot().facts)
+    expect(prepared.facts.recommendedTitle).toBe('Leased Title')
+  })
 })

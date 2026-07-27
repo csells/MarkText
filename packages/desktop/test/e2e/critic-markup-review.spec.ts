@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
-import { CRITIC_MARKUP_CORPUS } from '../../../muya/src/criticMarkup/__tests__/sharedCorpus'
+import { CRITIC_MARKUP_CORPUS } from '../fixtures/profile1Adversarial'
 import {
   clearCapturedErrors,
   clearRendererErrors,
   clickMenuById,
+  closeElectron,
   enterSourceMode,
   exitSourceMode,
   expectNoCapturedErrors,
@@ -39,7 +40,7 @@ const selectWord = async(page: Page, word: string): Promise<void> => {
   if (!point) throw new TypeError(`Could not locate ${JSON.stringify(word)} in the editor.`)
   await page.mouse.dblclick(point.x, point.y)
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(word)
-  // Muya commits the browser selection into its model on requestAnimationFrame.
+  // The direct view commits the browser selection on requestAnimationFrame.
   await page.evaluate(() => new Promise<void>((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
@@ -81,28 +82,12 @@ const placeCaretInWord = async(
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 
-const selectionIsInsideHiddenComment = (page: Page): Promise<boolean> =>
-  page.evaluate(() => {
-    const selection = window.getSelection()
-    const selector = [
-      '.mu-critic-comment',
-      '[hidden][data-critic-type~="comment"]'
-    ].join(', ')
-    const inside = (node: Node | null): boolean => {
-      const element = node?.nodeType === Node.ELEMENT_NODE
-        ? node as Element
-        : node?.parentElement
-      return Boolean(element?.closest(selector))
-    }
-    return inside(selection?.anchorNode ?? null) || inside(selection?.focusNode ?? null)
-  })
-
 const sourceMarkdown = (page: Page): Promise<string> => page.evaluate(() => {
-  const element = document.querySelector('.source-code .CodeMirror') as
-    | (Element & { CodeMirror?: { getValue: () => string } })
-    | null
-  if (!element?.CodeMirror) throw new TypeError('Source CodeMirror instance is unavailable.')
-  return element.CodeMirror.getValue()
+  const input = document.querySelector(
+    '.source-code-input'
+  ) as HTMLTextAreaElement | null
+  if (input === null) throw new TypeError('Source input is unavailable.')
+  return input.value
 })
 
 const menuEnabled = (app: ElectronApplication, id: string): Promise<boolean | null> =>
@@ -125,7 +110,7 @@ const copySelection = async(app: ElectronApplication, expected: string): Promise
   await expect.poll(() => readClipboard(app)).toBe(sentinel)
 
   // Exercise Electron's real native copy command without focusing or presenting
-  // the hidden background-test window. Muya owns the resulting DOM copy event
+  // the hidden background-test window. The view owns the resulting DOM copy event
   // and writes the active Critic projection into the OS clipboard.
   await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0]
@@ -160,7 +145,7 @@ const selectParagraphContaining = async(page: Page, needle: string): Promise<str
   const selected = await page.evaluate((text) => {
     const root = document.querySelector('.editor-component') as HTMLElement | null
     if (!root) return null
-    const paragraph = [...root.querySelectorAll<HTMLElement>('.mu-paragraph-content')]
+    const paragraph = [...root.querySelectorAll<HTMLElement>('.document-view-run')]
       .find((candidate) => candidate.textContent?.includes(text))
     if (!paragraph) return null
 
@@ -208,7 +193,9 @@ const openReviewSidebar = async(page: Page, app: ElectronApplication): Promise<v
     await clickMenuById(app, 'sideBarMenuItem')
     await expect(sideBar).toBeVisible()
   }
-  await page.locator('.side-bar .left-column li[title="Review"]').click()
+  await page.locator('.side-bar .left-column').getByRole('button', {
+    name: 'Review'
+  }).click()
   await expect(page.locator('.side-bar-review')).toBeVisible()
 }
 
@@ -225,14 +212,14 @@ test.describe('native CriticMarkup Review workflow', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    if (app) await closeElectron(app)
   })
 
   test('authors pure markers, projects them, and restores Review after source mode', async() => {
     await selectWord(page, 'plain')
     await expect.poll(() => menuEnabled(app, 'reviewMarkDeletionMenuItem')).toBe(true)
     await clickMenuById(app, 'reviewMarkDeletionMenuItem')
-    const deletion = page.locator('.mu-critic-deletion del')
+    const deletion = page.locator('.editor-component del')
     await expect(deletion).toContainText('plain')
 
     await clickMenuById(app, 'reviewShowRevisedMenuItem')
@@ -293,7 +280,7 @@ test.describe('CriticMarkup Review lifecycle isolation', () => {
       await expect.poll(async() => (await sourceMarkdown(page)).trim()).toBe('alpha target zone')
       await expectNoRendererErrors(app)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 
@@ -314,13 +301,14 @@ test.describe('CriticMarkup Review lifecycle isolation', () => {
       }
       await expectNoRendererErrors(app)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 })
 
 test.describe('CriticMarkup Review sidebar', () => {
   test('lists native items and routes projection, focus, resolution, and source-mode state', async() => {
+    test.setTimeout(65_000)
     const markdown = [
       '{++new++}',
       '{--old--}',
@@ -331,49 +319,78 @@ test.describe('CriticMarkup Review sidebar', () => {
     const { app, page } = await launchWithMarkdown(`${markdown}\n`)
 
     try {
-      await openReviewSidebar(page, app)
+      const reviewRegion = page.getByRole('region', { name: 'Review' })
+      const trackChanges = reviewRegion.getByRole('switch', {
+        name: 'Track Changes'
+      })
+      const projectionGroup = reviewRegion.getByRole('group', {
+        name: 'Display'
+      })
       const cards = page.locator('.review-card')
-      await expect(cards).toHaveCount(5)
-      await expect(cards.locator('.type-label')).toHaveText([
-        'Addition',
-        'Deletion',
-        'Substitution',
-        'Highlight',
-        'Comment'
-      ])
+      const revised = projectionGroup.getByRole('button', { name: 'Revised' })
 
-      await page.locator('.projection-picker button').filter({ hasText: 'Revised' }).click()
-      await expect(page.locator('.editor-component')).toHaveAttribute(
-        'data-critic-projection',
-        'revised'
-      )
+      await test.step('open Review and enumerate its accessible controls and cards', async() => {
+        await openReviewSidebar(page, app)
+        await expect(reviewRegion).toBeVisible()
+        await expect(trackChanges).toHaveCount(1)
+        await expect(trackChanges).toHaveAttribute('aria-label', 'Track Changes')
+        await expect(reviewRegion.locator('.el-switch')).toBeVisible()
+        await expect(projectionGroup).toBeVisible()
+        await expect(cards).toHaveCount(5)
+        await expect(cards.locator('.type-label')).toHaveText([
+          'Addition',
+          'Deletion',
+          'Substitution',
+          'Highlight',
+          'Comment'
+        ])
+      }, { timeout: 10_000 })
 
-      await page.locator('.review-card.type-addition .card-actions .accept').click()
-      await expect(cards).toHaveCount(4)
-      await expect(page.locator('.editor-component')).toHaveAttribute(
-        'data-critic-projection',
-        'marked'
-      )
+      await test.step('switch the live document to Revised projection', async() => {
+        await revised.click()
+        await expect(revised).toHaveAttribute('aria-pressed', 'true')
+        await expect(page.locator('.editor-component')).toHaveAttribute(
+          'data-critic-projection',
+          'revised'
+        )
+      }, { timeout: 10_000 })
 
-      await page.locator('.review-card.type-deletion .card-head').click()
-      await expect(page.locator('.review-card.type-deletion')).toHaveClass(/active/)
+      await test.step('accept the addition and restore marked Review focus', async() => {
+        await page.locator('.review-card.type-addition .card-actions .accept').click()
+        await expect(cards).toHaveCount(4)
+        await expect(
+          page.locator('.review-card.type-deletion .review-card-focus')
+        ).toBeFocused()
+        await expect(page.locator('.editor-component')).toHaveAttribute(
+          'data-critic-projection',
+          'marked'
+        )
+      }, { timeout: 10_000 })
 
-      await enterSourceMode(page, app)
-      await expect(page.locator('.side-bar-review .empty')).toContainText(
-        'Review is unavailable'
-      )
-      await expect.poll(() => sourceMarkdown(page)).not.toContain('{++new++}')
-      await expect.poll(() => sourceMarkdown(page)).toContain('new')
+      await test.step('focus the next deletion from its Review card', async() => {
+        await page.locator('.review-card.type-deletion .card-head').click()
+        await expect(page.locator('.review-card.type-deletion')).toHaveClass(/active/)
+      }, { timeout: 10_000 })
 
-      await exitSourceMode(page, app)
-      await expect(cards).toHaveCount(4)
-      await expectNoRendererErrors(app)
+      await test.step('disable Review in source mode and restore it unchanged', async() => {
+        await enterSourceMode(page, app)
+        await expect(page.locator('.side-bar-review .empty')).toContainText(
+          'Review is unavailable'
+        )
+        await expect.poll(() => sourceMarkdown(page)).not.toContain('{++new++}')
+        await expect.poll(() => sourceMarkdown(page)).toContain('new')
+
+        await exitSourceMode(page, app)
+        await expect(cards).toHaveCount(4)
+        await expectNoRendererErrors(app)
+      }, { timeout: 10_000 })
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 
   test('folds, edits, rejects, saves, and removes an anchored comment', async() => {
+    test.setTimeout(70_000)
     const opaqueLiteral = '`<<\\}`'
     const preface = Array.from(
       { length: 24 },
@@ -388,62 +405,86 @@ test.describe('CriticMarkup Review sidebar', () => {
     const { app, page } = await launchWithMarkdown(original)
 
     try {
-      await focusEditor(page)
-      await clearRendererErrors(app)
-      await openReviewSidebar(page, app)
-
       const commentCard = page.locator('.review-card.type-comment')
-      await expect(commentCard).toHaveCount(1)
-      await expect(page.locator('.review-card.type-highlight')).toHaveCount(0)
-      await expect(commentCard.locator('.comment-anchor')).toHaveText('reviewed')
-      await expect(page.locator('.mu-critic-comment-text')).toBeHidden()
-      await expect(page.locator('.mu-critic-comment-indicator')).toBeVisible()
-
       const sideBar = page.locator('.side-bar-review')
-      const scrollTop = await sideBar.evaluate((element) => {
-        element.scrollTop = 120
-        return element.scrollTop
-      })
-      expect(scrollTop).toBeGreaterThan(0)
-      await placeCaretInWord(page, 'reviewed', 3)
-      await expect(commentCard).toHaveClass(/active/)
-      await expect(commentCard.locator('.comment-edit')).toHaveCount(0)
-      expect(await sideBar.evaluate((element) => element.scrollTop)).toBe(scrollTop)
-
-      await commentCard.locator('.review-card-focus').click()
       const editor = commentCard.locator('.comment-edit textarea')
-      await expect(editor).toHaveValue(`outer ${opaqueLiteral} tail`)
-      const rejected = `outer ${opaqueLiteral} ${opaqueLiteral} tail`
-      await editor.fill(rejected)
-      await commentCard.locator('.comment-edit .submit').click()
-      await expect(commentCard.locator('.comment-edit-failure')).toBeVisible()
-      await expect(editor).toHaveValue(rejected)
-      expect(await readCanonicalMarkdown(page)).toBe(original)
+      let scrollTop = 0
 
-      await editor.fill(`edited ${opaqueLiteral} note`)
-      await commentCard.locator('.comment-edit .submit').click()
-      await expect(commentCard.locator('.comment-edit')).toHaveCount(0)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
-      await expect(commentCard.locator('.comment-anchor')).toHaveText('reviewed')
+      await test.step('open the anchored comment in Review', async() => {
+        await focusEditor(page)
+        await clearRendererErrors(app)
+        await openReviewSidebar(page, app)
+        await expect(commentCard).toHaveCount(1)
+        await expect(page.locator('.review-card.type-highlight')).toHaveCount(0)
+        await expect(commentCard.locator('.comment-anchor')).toHaveText('reviewed')
+        await expect(page.locator('.editor-component mark')).toContainText('reviewed')
+        const indicator = page.locator('.editor-component').getByRole(
+          'img',
+          { name: 'Comment' }
+        )
+        await expect(indicator).toHaveCount(1)
+        await expect(indicator).toHaveAttribute('contenteditable', 'false')
+        await expect(indicator).toHaveAttribute('data-critic-type', 'comment')
+        await expect(indicator).toHaveText('')
+        await expect(page.locator('.editor-component')).not.toContainText(
+          `outer ${opaqueLiteral} tail`
+        )
+      }, { timeout: 10_000 })
 
-      await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
-      await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+      await test.step('follow the editor caret without scrolling or editing', async() => {
+        scrollTop = await sideBar.evaluate((element) => {
+          element.scrollTop = 120
+          return element.scrollTop
+        })
+        expect(scrollTop).toBeGreaterThan(0)
+        await placeCaretInWord(page, 'reviewed', 3)
+        await expect(commentCard).toHaveClass(/active/)
+        await expect(commentCard.locator('.comment-edit')).toHaveCount(0)
+        expect(await sideBar.evaluate((element) => element.scrollTop)).toBe(scrollTop)
+      }, { timeout: 10_000 })
 
-      await commentCard.getByRole('button', { name: 'Remove comment' }).click()
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(removed)
-      await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
-      await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(removed)
-      await expectNoCapturedErrors(app)
+      await test.step('reject an invalid edit without losing its draft', async() => {
+        await commentCard.locator('.review-card-focus').click()
+        await expect(editor).toHaveValue(`outer ${opaqueLiteral} tail`)
+        const rejected = 'bad <<} tail'
+        await editor.fill(rejected)
+        await commentCard.locator('.comment-edit .submit').click()
+        await expect(commentCard.locator('.comment-edit-failure')).toBeVisible()
+        await expect(editor).toHaveValue(rejected)
+        expect(await readCanonicalMarkdown(page)).toBe(original)
+      }, { timeout: 10_000 })
+
+      await test.step('save a valid edit and return focus to its card', async() => {
+        await editor.fill(`edited ${opaqueLiteral} note`)
+        await commentCard.locator('.comment-edit .submit').click()
+        await expect(commentCard.locator('.comment-edit')).toHaveCount(0)
+        await expect(commentCard.locator('.review-card-focus')).toBeFocused()
+        await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+        await expect(commentCard.locator('.comment-anchor')).toHaveText('reviewed')
+      }, { timeout: 10_000 })
+
+      await test.step('undo and redo the comment edit', async() => {
+        await undo(app)
+        await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+        await redo(app)
+        await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+      }, { timeout: 10_000 })
+
+      await test.step('remove, undo, and redo the comment', async() => {
+        await commentCard.getByRole('button', { name: 'Remove comment' }).click()
+        await expect.poll(() => readCanonicalMarkdown(page)).toBe(removed)
+        await undo(app)
+        await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+        await redo(app)
+        await expect.poll(() => readCanonicalMarkdown(page)).toBe(removed)
+        await expectNoCapturedErrors(app)
+      }, { timeout: 10_000 })
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 
-  test('escapes a hidden caret and preserves a deleted anchor as a point comment', async() => {
+  test('keeps Comment payload out of the caret tree and preserves a deleted anchor as a point comment', async() => {
     const original = 'before {==target==}{>>note<<} after\n'
     const point = 'before {>>note<<} after\n'
     const { app, page } = await launchWithMarkdown(original)
@@ -451,27 +492,19 @@ test.describe('CriticMarkup Review sidebar', () => {
     try {
       await focusEditor(page)
       await clearRendererErrors(app)
-      const placed = await page.evaluate(() => {
-        const hidden = document.querySelector('.mu-critic-comment-text')
-        const text = hidden?.firstChild
-        if (!text || text.nodeType !== Node.TEXT_NODE) return false
-        const selection = window.getSelection()
-        if (!selection) return false
-        const range = document.createRange()
-        range.setStart(text, Math.min(1, text.textContent?.length ?? 0))
-        range.collapse(true)
-        selection.removeAllRanges()
-        selection.addRange(range)
-        document.dispatchEvent(new Event('selectionchange'))
-        return true
-      })
-      expect(placed).toBe(true)
-      await expect.poll(() => selectionIsInsideHiddenComment(page)).toBe(false)
+      const indicator = page.locator('.editor-component').getByRole(
+        'img',
+        { name: 'Comment' }
+      )
+      await expect(indicator).toHaveCount(1)
+      await expect(indicator).toHaveText('')
+      await expect(page.locator('.editor-component')).not.toContainText('note')
       expect(await readCanonicalMarkdown(page)).toBe(original)
 
       await selectWord(page, 'target')
       await page.keyboard.press('Backspace')
       await expect.poll(() => readCanonicalMarkdown(page)).toBe(point)
+      await expect(indicator).toHaveCount(1)
 
       await openReviewSidebar(page, app)
       const commentCard = page.locator('.review-card.type-comment')
@@ -484,9 +517,10 @@ test.describe('CriticMarkup Review sidebar', () => {
       await expect.poll(() => readCanonicalMarkdown(page)).toBe(point)
       await commentCard.getByRole('button', { name: 'Remove comment' }).click()
       await expect.poll(() => readCanonicalMarkdown(page)).toBe('before  after\n')
+      await expect(indicator).toHaveCount(0)
       await expectNoCapturedErrors(app)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 })
@@ -552,7 +586,7 @@ test.describe('CriticMarkup file-backed losslessness', () => {
 
     const reopen = async(): Promise<void> => {
       await expectNoCapturedErrors(app)
-      await app.close()
+      await closeElectron(app)
       const next = await launchWithDoc(filePath)
       app = next.app
       page = next.page
@@ -564,18 +598,21 @@ test.describe('CriticMarkup file-backed losslessness', () => {
       expect(await page.evaluate(() => ({
         frozen: Object.isFrozen(window.__marktextE2EReadOnly),
         surface: Object.keys(window.__marktextE2EReadOnly ?? {})
-      }))).toEqual({ frozen: true, surface: ['readCanonicalMarkdown'] })
+      }))).toEqual({
+        frozen: true,
+        surface: ['readCanonicalMarkdown', 'readLastExecutionReport']
+      })
 
       // This corpus is already in the desktop serializer's canonical form, so
       // its allowed-normalization set is empty: every comparison below is an
       // exact UTF-8 string comparison, including the final newline and astral
-      // character. The bridge reads Muya directly and fails if source mode is
+      // character. The bridge reads the document view and fails if source mode is
       // present before or after the call.
       expect(await readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
       expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
 
       // A no-op WYSIWYG -> source -> WYSIWYG handoff must preserve every byte.
-      // Check both CodeMirror's value and the canonical engine/file snapshots so
+      // Check both the source input and canonical engine/file snapshots so
       // entering source mode cannot accidentally become the assertion mechanism.
       await enterSourceMode(page, app)
       expect(await sourceMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
@@ -676,7 +713,7 @@ test.describe('CriticMarkup file-backed losslessness', () => {
       expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
       await expectNoCapturedErrors(app)
     } finally {
-      await app.close().catch(() => undefined)
+      await closeElectron(app).catch(() => undefined)
     }
   })
 })
@@ -694,7 +731,7 @@ test.describe('CriticMarkup file-backed losslessness', () => {
 
 // The desktop open boundary (main-process `loadMarkdownFile`) decodes away a
 // UTF-8 BOM and canonicalizes every line ending to LF before the engine sees
-// the text, while recording `encoding.isBom` / `lineEnding` so the save path
+// the text, while retaining the exact admitted byte snapshot so the save path
 // re-emits the original bytes. This pair is the documented desktop-level
 // normalization the per-row assertions encode: the in-editor canonical text is
 // the LF form, the persisted artifact stays byte-identical to the source.
@@ -710,7 +747,7 @@ interface FileRowCaseDefinition {
    * boots the engine defaults (both enabled), which matches the front-matter
    * row's declared profile; the two option rows below contain neither
    * front-matter-opening nor math-delimiter bytes, and their declared-profile
-   * parse proof stays with the muya RT/PAC suites.
+   * parse proof stays with the Profile 1 conformance suites.
    */
   preferences?: Record<string, boolean>
 }
@@ -807,8 +844,7 @@ const saveAndExpectFileBytes = async(
 
 // Live-editor inertness scan for hostile rows: no script element, no event
 // handler or srcdoc attribute, and no javascript:/vbscript:/non-image data:
-// URL survives in the rendered document (mirrors the assertion set of muya's
-// criticMarkupSecurity.spec.ts against the real desktop renderer DOM).
+// URL survives in the rendered document.
 const editorSecurityViolations = (page: Page): Promise<string[]> =>
   page.evaluate(() => {
     const urlAttributes = new Set([
@@ -890,7 +926,7 @@ test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
         expect(await readCanonicalMarkdown(page)).toBe(expectedCanonical)
 
         await expectNoCapturedErrors(app)
-        await app.close()
+        await closeElectron(app)
         const reopened = await launchWithDoc(filePath)
         app = reopened.app
         page = reopened.page
@@ -903,7 +939,7 @@ test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
         await saveAndExpectFileBytes(app, filePath, row.source)
         await expectNoCapturedErrors(app)
       } finally {
-        await app.close().catch(() => undefined)
+        await closeElectron(app).catch(() => undefined)
       }
     })
   }
@@ -975,7 +1011,7 @@ test.describe('CriticMarkup Track Changes desktop workflow', () => {
 
       await expectNoRendererErrors(app)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 
@@ -1013,7 +1049,7 @@ test.describe('CriticMarkup Track Changes desktop workflow', () => {
       await expect(page.locator('.review-card')).toHaveCount(3)
       await expectNoRendererErrors(app)
     } finally {
-      await app.close()
+      await closeElectron(app)
     }
   })
 })

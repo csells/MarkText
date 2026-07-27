@@ -47,10 +47,7 @@
       "findNext": "Weitersuchen",
       "findPrevious": "Rückwärts suchen",
       "findInFolder": "Im Ordner suchen",
-      "screenshot": "Screenshot",
-      "lineEnding": "Zeilenendezeichen",
-      "lineEndingCrlf": "CRLF (Windows)",
-      "lineEndingLf": "LF (Linux/Mac)"
+      "screenshot": "Screenshot"
     },
     "paragraph": {
       "title": "Absatz",
@@ -268,6 +265,7 @@
       "summary": "{count} Überprüfungselemente",
       "trackChanges": "Änderungen nachverfolgen",
       "unavailable": "Die Überprüfung ist in dieser Ansicht nicht verfügbar.",
+      "actionUnavailable": "Diese Überprüfungsaktion ist nicht mehr verfügbar. Aktualisieren Sie die Überprüfung und versuchen Sie es erneut.",
       "empty": "Keine Überprüfungselemente",
       "removeComment": "Kommentar entfernen",
       "removeHighlight": "Hervorhebung entfernen",
@@ -408,7 +406,6 @@
       "items": {
         "autoSave": "Den bearbeiteten Inhalt automatisch speichern",
         "autoSaveDelay": "Die Zeit in ms nach einer Änderung, bis die Datei gespeichert wird",
-        "autoNormalizeLineEndings": "Zeilenenden beim Öffnen von Dateien automatisch normalisieren. Wenn deaktiviert, werden Dateien unverändert geöffnet.",
         "titleBarStyle": "Der Titelleisten-Stil (nur Windows und Linux-System)",
         "openFilesInNewWindow": "Dateien in einem neuen Fenster öffnen",
         "openFolderInNewWindow": "Ordner über Menü in einem neuen Fenster öffnen",
@@ -427,32 +424,13 @@
         "editorLineWidth": "Definiert die maximale Editor-Bereichsbreite. Ein leerer String oder Suffixe von ch (Zeichen), px (Pixel) oder % (Prozent) sind erlaubt",
         "codeFontSize": "Schriftgröße im Codeblock, der Bereich ist 12 ~ 18",
         "codeFontFamily": "Schriftfamilie im Codeblock",
-        "codeBlockLineNumbers": "Ob Zeilennummern angezeigt werden sollen",
-        "trimUnnecessaryCodeBlockEmptyLines": "Leere Zeilen am Anfang und Ende des Codeblocks entfernen",
         "autoPairBracket": "Automatische Klammern beim Bearbeiten",
         "autoPairMarkdownSyntax": "Markdown-Syntax automatisch vervollständigen",
         "autoPairQuote": "Automatische Vervollständigung von Anführungszeichen",
-        "endOfLine": "Das Zeilenendezeichen am Ende jeder Zeile. Der Standardwert ist default, der das Standard-Zeilenendezeichen Ihres Betriebssystems auswählt",
-        "defaultEncoding": "Die Standard-Dateikodierung",
-        "autoGuessEncoding": "Versuchen, die Dateikodierung beim Öffnen von Dateien automatisch zu erraten",
-        "trimTrailingNewline": "Die Option zum Entfernen nachfolgender Zeilenumbrüche",
         "textDirection": "Die Schreibrichtung des Textes",
         "hideQuickInsertHint": "Hinweis zum schnellen Erstellen von Absätzen ausblenden",
         "hideLinkPopup": "Link-Popup ausblenden, wenn der Cursor über dem Link schwebt",
         "autoCheck": "Ob verwandte Aufgabe automatisch geprüft werden soll",
-        "preferLooseListItem": "Der bevorzugte Listentyp",
-        "bulletListMarker": "Die Markierung in Aufzählungslisten",
-        "orderListDelimiter": "Das Trennzeichen in geordneten Listen",
-        "preferHeadingStyle": "Der bevorzugte Überschriften-Stil in MarkText",
-        "tabSize": "Tab durch x Leerzeichen ersetzen",
-        "listIndentation": "Einrückung der Liste auswählen",
-        "frontmatterType": "Der Frontmatter-Typ",
-        "superSubScript": "Pandocs Markdown-Erweiterung für hoch- und tiefgestellte Zeichen aktivieren",
-        "footnote": "Pandocs Markdown-Erweiterung für Fußnoten aktivieren",
-        "isHtmlEnabled": "HTML-Rendering aktivieren",
-        "isGitlabCompatibilityEnabled": "GitLab-Kompatibilitätsmodus aktivieren",
-        "sequenceTheme": "Sequenzdiagramm-Theme",
-        "plantumlServer": "PlantUML-Server-URL",
         "theme": "Das in MarkText verwendete Theme auswählen",
         "followSystemTheme": "Systemdesign folgen",
         "lightModeTheme": "Design, das verwendet werden soll, wenn sich das System im hellen Modus befindet",
@@ -465,7 +443,10 @@
         "imageRelativeDirectoryBase": "Wohin relative Bilder kopiert werden",
         "imageRelativeDirectoryName": "Der relative Bildordner-Name",
         "fileSortOrder": "Sortierreihenfolge für Dateien in geöffneten Ordnern: aufsteigend oder absteigend.",
-        "openedFilesInSidebar": "Ob geöffnete Dateien in der Seitenleiste angezeigt werden sollen."
+        "openedFilesInSidebar": "Ob geöffnete Dateien in der Seitenleiste angezeigt werden sollen.",
+        "subscriptAndSuperscript": "Pandocs Markdown-Erweiterung für hoch- und tiefgestellte Zeichen aktivieren",
+        "footnotes": "Pandocs Markdown-Erweiterung für Fußnoten aktivieren",
+        "gitLabMath": "Enable GitLab Math syntax"
       }
     },
     "categories": {
@@ -559,34 +540,13 @@
       "codeBlock": {
         "title": "Code-Block",
         "fontSize": "Schriftgröße",
-        "fontFamily": "Schriftfamilie",
-        "showLineNumbers": "Zeilennummern anzeigen",
-        "removeEmptyLines": "Leere Zeilen entfernen"
+        "fontFamily": "Schriftfamilie"
       },
       "writingBehavior": {
         "title": "Schreibverhalten",
         "autoCloseBrackets": "Klammern automatisch schließen",
         "autoCompleteMarkdown": "Markdown automatisch vervollständigen",
         "autoCloseQuotes": "Anführungszeichen automatisch schließen"
-      },
-      "fileRepresentation": {
-        "title": "Dateidarstellung",
-        "tabWidth": "Tab-Breite",
-        "lineSeparator": "Zeilentrenner",
-        "defaultEncoding": "Standard-Kodierung",
-        "autoDetectEncoding": "Kodierung automatisch erkennen",
-        "trailingNewlines": {
-          "title": "Abschließende neue Zeilen",
-          "doNothing": "Nichts tun",
-          "ensureOne": "Eine sicherstellen",
-          "preserve": "Beibehalten",
-          "trimAll": "Alle entfernen"
-        },
-        "endOfLine": {
-          "default": "Standard",
-          "crlf": "CRLF (Windows)",
-          "lf": "LF (Linux/Mac)"
-        }
       },
       "misc": {
         "title": "Verschiedenes",
@@ -598,7 +558,6 @@
         "hideQuickInsertHint": "Schnelleinfügung-Hinweis ausblenden",
         "hideLinkPopup": "Link-Popup ausblenden",
         "autoCheck": "Automatische Überprüfung",
-        "autoNormalizeLineEndings": "Zeilenenden beim Öffnen automatisch auf LF normalisieren",
         "wrapCodeBlocks": "Code-Blöcke umbrechen"
       }
     },
@@ -666,53 +625,9 @@
       "title": "Markdown",
       "extensions": {
         "title": "Erweiterungen",
-        "superSubScript": "Hoch-/Tiefgestellt",
-        "footnote": "Fußnote",
-        "footnoteNotes": "Fußnoten",
-        "frontmatterType": {
-          "jsonBrace": "JSON-Klammer",
-          "jsonSemicolon": "JSON-Semikolon",
-          "title": "Front Matter Typ"
-        }
-      },
-      "diagrams": {
-        "title": "Diagramme",
-        "sequenceTheme": {
-          "title": "Sequenz-Design",
-          "handDrawn": "Handgezeichnet",
-          "simple": "Einfach"
-        },
-        "plantumlServer": {
-          "title": "PlantUML-Server-URL"
-        }
-      },
-      "misc": {
-        "preferHeadingStyle": {
-          "title": "Bevorzugter Überschriftenstil",
-          "atx": "ATX-Stil",
-          "setext": "Setext-Stil"
-        },
-        "title": "Verschiedenes"
-      },
-      "compatibility": {
-        "enableGitlab": "GitLab-Kompatibilität aktivieren",
-        "enableHtml": "HTML-Unterstützung aktivieren",
-        "title": "Kompatibilität"
-      },
-      "lists": {
-        "bulletListMarker": "Aufzählungszeichen",
-        "listIndentation": {
-          "title": "Listeneinrückung",
-          "dfm": "DFM-Stil",
-          "fourSpaces": "Vier Leerzeichen",
-          "oneSpace": "Ein Leerzeichen",
-          "tab": "Tabulator",
-          "threeSpaces": "Drei Leerzeichen",
-          "twoSpaces": "Zwei Leerzeichen"
-        },
-        "orderListDelimiter": "Nummerierte Liste Trennzeichen",
-        "preferLooseListItem": "Lockere Listenelemente bevorzugen",
-        "title": "Listen"
+        "subscriptAndSuperscript": "Hoch-/Tiefgestellt",
+        "footnotes": "Fußnote",
+        "gitLabMath": "GitLab Math"
       }
     },
     "theme": {
@@ -790,9 +705,6 @@
       "moveFile": "Datei verschieben",
       "renameFile": "Datei umbenennen",
       "quickOpen": "Schnell öffnen",
-      "changeEncoding": "Kodierung ändern",
-      "changeLineEnding": "Zeilenendezeichen ändern",
-      "trailingNewline": "Abschließende neue Zeile",
       "print": "Drucken",
       "preferences": "Einstellungen",
       "closeTab": "Tab schließen",
@@ -1001,6 +913,7 @@
       "replacementPlaceholder": "Ersatztext eingeben",
       "trackChangeRejected": {
         "title": "Änderung nicht erfasst",
+        "unknownReason": "Die Änderungsverfolgung konnte diese Bearbeitung nicht erfassen, das Dokument blieb daher unverändert. Versuchen Sie es erneut oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
         "unmappableSourceEdit": "Die Änderungsverfolgung konnte diese Bearbeitung nicht erfassen, das Dokument blieb daher unverändert. Versuchen Sie eine kleinere Bearbeitung oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
         "parserConflict": "Die Änderungsverfolgung konnte diese Bearbeitung nicht mit dem Markdown des Dokuments in Einklang bringen, das Dokument blieb daher unverändert. Versuchen Sie eine kleinere Bearbeitung oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
         "unmappableTrackedSelection": "Die Änderungsverfolgung konnte Ihre Auswahl nicht dem nachverfolgten Dokument zuordnen, das Dokument blieb daher unverändert. Wählen Sie den Text erneut aus und versuchen Sie es noch einmal, oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
@@ -1017,6 +930,9 @@
       "rows": "Zeilen",
       "columns": "Spalten"
     },
+    "imageViewer": {
+      "label": "Bildvorschau"
+    },
     "notifications": {
       "notificationNotFound": "Benachrichtigung nicht gefunden"
     },
@@ -1026,7 +942,22 @@
     },
     "sourceCode": {
       "cursorNullComment": "Cursor-Null-Kommentar",
-      "imageStructureDeletedComment": "Bildstruktur-gelöscht-Kommentar"
+      "imageStructureDeletedComment": "Bildstruktur-gelöscht-Kommentar",
+      "label": "Quelltext",
+      "operationFailed": "Quellvorgang {operation} ist fehlgeschlagen. Das verifizierte Dokument wurde wiederhergestellt.",
+      "operations": {
+        "edit": "Bearbeiten",
+        "undo": "Rückgängig",
+        "redo": "Wiederholen",
+        "paste": "Einfügen",
+        "cut": "Ausschneiden",
+        "copy": "Kopieren",
+        "selection": "Auswahl",
+        "attachment": "Verbindung",
+        "headingSelection": "Überschriftenauswahl"
+      },
+      "semanticClipboardUnavailableTitle": "Befehl nicht verfügbar",
+      "semanticClipboardUnavailable": "Rich-Text-Kopieren, HTML-Kopieren und Einfügen als reiner Text sind im Quelltextmodus nicht verfügbar. Verwenden Sie stattdessen Kopieren, Ausschneiden oder Einfügen."
     },
     "spellcheck": {
       "disabledError": "Fehler beim Deaktivieren der Rechtschreibprüfung",

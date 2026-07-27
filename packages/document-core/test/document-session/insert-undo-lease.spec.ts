@@ -5,11 +5,21 @@ import {
   type ParseConfiguration,
   type SessionTransition
 } from '@marktext/document-core'
+import { requireCompleteSnapshot } from '../helpers/completeSnapshot.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
   markdownProfile: 'markdown-profile-1',
-  liveHtmlSafetyProfile: 'live-html-safety-profile-1',
+  markdownOptions: {
+    schema: 'markdown-options-1',
+    gfm: true,
+    frontMatter: true,
+    math: true,
+    gitLabMath: false,
+    footnotes: false,
+    subscriptAndSuperscript: true
+  },
+  liveHtmlSafetyProfile: 'live-html-sanitized-v1',
   executionBudget: {
     limitsProfile: 'test-unbounded',
     accountingSchema: 'syntax-accounting-1'
@@ -60,6 +70,7 @@ describe('DocumentSession', () => {
       throw new Error('Expected insertion to commit')
     }
     const insertTransition = inserted.transition
+    const afterInsert = requireCompleteSnapshot(insertTransition.after)
 
     expect(insertTransition).toMatchObject({
       kind: 'revision-changed',
@@ -67,15 +78,15 @@ describe('DocumentSession', () => {
       history: 'record',
       revision: {
         base: before.revision.id,
-        next: insertTransition.after.revision.id
+        next: afterInsert.revision.id
       },
       effects: []
     })
-    expect(insertTransition.after.revision.sourceLength).toBe(3)
-    expect(insertTransition.after.revision.diagnostics.count).toBe(0)
-    expect(insertTransition.after.revision.selection).toEqual({
+    expect(afterInsert.revision.sourceLength).toBe(3)
+    expect(afterInsert.revision.diagnostics.count).toBe(0)
+    expect(afterInsert.revision.selection).toEqual({
       session: before.revision.session,
-      revision: insertTransition.after.revision.id,
+      revision: afterInsert.revision.id,
       view: 'markup',
       anchor: { offset: 2, affinity: 'next' },
       focus: { offset: 2, affinity: 'next' }
@@ -87,7 +98,7 @@ describe('DocumentSession', () => {
     expect(await undo.admission).toEqual({
       kind: 'admitted',
       sequence: 2,
-      submittedAgainst: insertTransition.after.revision.id
+      submittedAgainst: afterInsert.revision.id
     })
 
     const undone = await undo.completion
@@ -95,22 +106,23 @@ describe('DocumentSession', () => {
       throw new Error('Expected undo to commit')
     }
     const undoTransition = undone.transition
+    const afterUndo = requireCompleteSnapshot(undoTransition.after)
 
     expect(undoTransition).toMatchObject({
       kind: 'revision-changed',
       cause: 'undo',
       history: 'none',
       revision: {
-        base: insertTransition.after.revision.id,
-        next: undoTransition.after.revision.id
+        base: afterInsert.revision.id,
+        next: afterUndo.revision.id
       },
       effects: []
     })
-    expect(undoTransition.after.revision.id).not.toBe(before.revision.id)
-    expect(undoTransition.after.revision.sourceLength).toBe(2)
-    expect(undoTransition.after.revision.selection).toEqual({
+    expect(afterUndo.revision.id).not.toBe(before.revision.id)
+    expect(afterUndo.revision.sourceLength).toBe(2)
+    expect(afterUndo.revision.selection).toEqual({
       session: before.revision.session,
-      revision: undoTransition.after.revision.id,
+      revision: afterUndo.revision.id,
       view: 'markup',
       anchor: { offset: 1, affinity: 'next' },
       focus: { offset: 1, affinity: 'next' }
@@ -125,8 +137,8 @@ describe('DocumentSession', () => {
       throw new Error('Expected a flushed revision')
     }
     expect(flushed.watermark).toBe(2)
-    expect(flushed.revision.id).toBe(undoTransition.after.revision.id)
-    expect(flushed.source.revision.selection).toEqual(undoTransition.after.revision.selection)
+    expect(flushed.revision.id).toBe(afterUndo.revision.id)
+    expect(flushed.source.revision.selection).toEqual(afterUndo.revision.selection)
 
     let exactSource = ''
     for await (const chunk of flushed.source.readChunks()) {

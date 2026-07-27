@@ -5,7 +5,7 @@ import { launchWithMarkdown, clickMenuById, waitForEditor } from './helpers'
 // #3028 — collapsing a heading in the TOC must survive a document edit.
 //
 // The TOC el-tree was bound with `:default-expand-all` and reseeded from a
-// fresh `listToTree(toc)` on every `json-change`, so any edit re-expanded the
+// fresh `listToTree(toc)` on every publication, so any edit re-expanded the
 // whole tree and discarded the user's collapse state.
 //
 //   # A
@@ -99,7 +99,7 @@ test.describe('TOC collapse state survives edits (#3028)', () => {
 
     // Edit a different heading ("C" -> "C2"), triggering UPDATE_TOC.
     const cContent = page
-      .locator('.mu-container h2 .mu-atxheading-content')
+      .locator('.document-view-container h2 .document-view-atxheading-content')
       .filter({ hasText: 'C' })
       .last()
     await cContent.click()

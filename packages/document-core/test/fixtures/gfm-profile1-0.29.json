@@ -1,0 +1,510 @@
+{
+  "schema": "marktext-extension-corpus-v1",
+  "id": "GFM",
+  "version": "0.29-gfm",
+  "source": "https://github.github.com/gfm/",
+  "cases": [
+    {
+      "id": "GFM-0198",
+      "example": 198,
+      "construct": "tables",
+      "source": "| foo | bar |\n| --- | --- |\n| baz | bim |\n",
+      "rootKinds": ["table"],
+      "table": {
+        "range": [0, 41],
+        "columns": 2,
+        "rows": [
+          {
+            "range": [0, 13],
+            "header": true,
+            "cells": [
+              { "range": [2, 5], "alignment": "none" },
+              { "range": [8, 11], "alignment": "none" }
+            ]
+          },
+          {
+            "range": [28, 41],
+            "header": false,
+            "cells": [
+              { "range": [30, 33], "alignment": "none" },
+              { "range": [36, 39], "alignment": "none" }
+            ]
+          }
+        ]
+      },
+      "html": "<table>\n<thead>\n<tr>\n<th>foo</th>\n<th>bar</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>baz</td>\n<td>bim</td>\n</tr>\n</tbody>\n</table>\n"
+    },
+    {
+      "id": "GFM-0199",
+      "example": 199,
+      "construct": "tables",
+      "source": "| abc | defghi |\n:-: | -----------:\nbar | baz\n",
+      "rootKinds": ["table"],
+      "table": {
+        "range": [0, 45],
+        "columns": 2,
+        "rows": [
+          {
+            "range": [0, 16],
+            "header": true,
+            "cells": [
+              { "range": [2, 5], "alignment": "center" },
+              { "range": [8, 14], "alignment": "right" }
+            ]
+          },
+          {
+            "range": [36, 45],
+            "header": false,
+            "cells": [
+              { "range": [36, 39], "alignment": "center" },
+              { "range": [42, 45], "alignment": "right" }
+            ]
+          }
+        ]
+      },
+      "html": "<table>\n<thead>\n<tr>\n<th align=\"center\">abc</th>\n<th align=\"right\">defghi</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td align=\"center\">bar</td>\n<td align=\"right\">baz</td>\n</tr>\n</tbody>\n</table>\n"
+    },
+    {
+      "id": "GFM-0200",
+      "example": 200,
+      "construct": "tables",
+      "source": "| f\\|oo  |\n| ------ |\n| b `\\|` az |\n| b **\\|** im |\n",
+      "rootKinds": ["table"],
+      "table": {
+        "range": [0, 51],
+        "columns": 1,
+        "rows": [
+          {
+            "range": [0, 10],
+            "header": true,
+            "cells": [
+              { "range": [2, 7], "alignment": "none" }
+            ]
+          },
+          {
+            "range": [22, 35],
+            "header": false,
+            "cells": [
+              { "range": [24, 33], "alignment": "none" }
+            ]
+          },
+          {
+            "range": [36, 51],
+            "header": false,
+            "cells": [
+              { "range": [38, 49], "alignment": "none" }
+            ]
+          }
+        ]
+      },
+      "html": "<table>\n<thead>\n<tr>\n<th>f|oo</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>b <code>|</code> az</td>\n</tr>\n<tr>\n<td>b <strong>|</strong> im</td>\n</tr>\n</tbody>\n</table>\n"
+    },
+    {
+      "id": "GFM-0201",
+      "example": 201,
+      "construct": "tables",
+      "source": "| abc | def |\n| --- | --- |\n| bar | baz |\n> bar\n",
+      "rootKinds": ["table", "blockquote"],
+      "table": {
+        "range": [0, 41],
+        "columns": 2,
+        "rows": [
+          {
+            "range": [0, 13],
+            "header": true,
+            "cells": [
+              { "range": [2, 5], "alignment": "none" },
+              { "range": [8, 11], "alignment": "none" }
+            ]
+          },
+          {
+            "range": [28, 41],
+            "header": false,
+            "cells": [
+              { "range": [30, 33], "alignment": "none" },
+              { "range": [36, 39], "alignment": "none" }
+            ]
+          }
+        ]
+      },
+      "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>bar</td>\n<td>baz</td>\n</tr>\n</tbody>\n</table>\n<blockquote>\n<p>bar</p>\n</blockquote>\n"
+    },
+    {
+      "id": "GFM-0202",
+      "example": 202,
+      "construct": "tables",
+      "source": "| abc | def |\n| --- | --- |\n| bar | baz |\nbar\n\nbar\n",
+      "rootKinds": ["table", "paragraph"],
+      "table": {
+        "range": [0, 45],
+        "columns": 2,
+        "rows": [
+          {
+            "range": [0, 13],
+            "header": true,
+            "cells": [
+              { "range": [2, 5], "alignment": "none" },
+              { "range": [8, 11], "alignment": "none" }
+            ]
+          },
+          {
+            "range": [28, 41],
+            "header": false,
+            "cells": [
+              { "range": [30, 33], "alignment": "none" },
+              { "range": [36, 39], "alignment": "none" }
+            ]
+          },
+          {
+            "range": [42, 45],
+            "header": false,
+            "cells": [
+              { "range": [42, 45], "alignment": "none" },
+              { "range": [45, 45], "alignment": "none" }
+            ]
+          }
+        ]
+      },
+      "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>bar</td>\n<td>baz</td>\n</tr>\n<tr>\n<td>bar</td>\n<td></td>\n</tr>\n</tbody>\n</table>\n<p>bar</p>\n"
+    },
+    {
+      "id": "GFM-0203",
+      "example": 203,
+      "construct": "tables",
+      "source": "| abc | def |\n| --- |\n| bar |\n",
+      "rootKinds": ["paragraph"],
+      "html": "<p>| abc | def |\n| --- |\n| bar |</p>\n"
+    },
+    {
+      "id": "GFM-0204",
+      "example": 204,
+      "construct": "tables",
+      "source": "| abc | def |\n| --- | --- |\n| bar |\n| bar | baz | boo |\n",
+      "rootKinds": ["table"],
+      "table": {
+        "range": [0, 55],
+        "columns": 2,
+        "rows": [
+          {
+            "range": [0, 13],
+            "header": true,
+            "cells": [
+              { "range": [2, 5], "alignment": "none" },
+              { "range": [8, 11], "alignment": "none" }
+            ]
+          },
+          {
+            "range": [28, 35],
+            "header": false,
+            "cells": [
+              { "range": [30, 33], "alignment": "none" },
+              { "range": [35, 35], "alignment": "none" }
+            ]
+          },
+          {
+            "range": [36, 55],
+            "header": false,
+            "cells": [
+              { "range": [38, 41], "alignment": "none" },
+              { "range": [44, 47], "alignment": "none" }
+            ]
+          }
+        ]
+      },
+      "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>bar</td>\n<td></td>\n</tr>\n<tr>\n<td>bar</td>\n<td>baz</td>\n</tr>\n</tbody>\n</table>\n"
+    },
+    {
+      "id": "GFM-0205",
+      "example": 205,
+      "construct": "tables",
+      "source": "| abc | def |\n| --- | --- |\n",
+      "rootKinds": ["table"],
+      "table": {
+        "range": [0, 27],
+        "columns": 2,
+        "rows": [
+          {
+            "range": [0, 13],
+            "header": true,
+            "cells": [
+              { "range": [2, 5], "alignment": "none" },
+              { "range": [8, 11], "alignment": "none" }
+            ]
+          }
+        ]
+      },
+      "html": "<table>\n<thead>\n<tr>\n<th>abc</th>\n<th>def</th>\n</tr>\n</thead>\n</table>\n"
+    },
+    {
+      "id": "GFM-0279",
+      "example": 279,
+      "construct": "task-list-items",
+      "source": "- [ ] foo\n- [x] bar\n",
+      "rootKinds": ["list"],
+      "taskLists": [
+        { "range": [0, 19] }
+      ],
+      "tasks": [
+        { "range": [0, 9], "marker": [2, 5], "checked": false },
+        { "range": [10, 19], "marker": [12, 15], "checked": true }
+      ],
+      "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\"> foo</li>\n<li><input checked=\"\" disabled=\"\" type=\"checkbox\"> bar</li>\n</ul>\n"
+    },
+    {
+      "id": "GFM-0280",
+      "example": 280,
+      "construct": "task-list-items",
+      "source": "- [x] foo\n  - [ ] bar\n  - [x] baz\n- [ ] bim\n",
+      "rootKinds": ["list"],
+      "taskLists": [
+        { "range": [0, 43] },
+        { "range": [12, 33] }
+      ],
+      "tasks": [
+        { "range": [0, 33], "marker": [2, 5], "checked": true },
+        { "range": [12, 21], "marker": [14, 17], "checked": false },
+        { "range": [24, 33], "marker": [26, 29], "checked": true },
+        { "range": [34, 43], "marker": [36, 39], "checked": false }
+      ],
+      "html": "<ul>\n<li><input checked=\"\" disabled=\"\" type=\"checkbox\"> foo\n<ul>\n<li><input disabled=\"\" type=\"checkbox\"> bar</li>\n<li><input checked=\"\" disabled=\"\" type=\"checkbox\"> baz</li>\n</ul>\n</li>\n<li><input disabled=\"\" type=\"checkbox\"> bim</li>\n</ul>\n"
+    },
+    {
+      "id": "GFM-0491",
+      "example": 491,
+      "construct": "strikethrough",
+      "source": "~~Hi~~ Hello, world!\n",
+      "rootKinds": ["paragraph"],
+      "strikethroughs": [
+        { "range": [0, 6] }
+      ],
+      "html": "<p><del>Hi</del> Hello, world!</p>\n"
+    },
+    {
+      "id": "GFM-0492",
+      "example": 492,
+      "construct": "strikethrough",
+      "source": "This ~~has a\n\nnew paragraph~~.\n",
+      "rootKinds": ["paragraph", "paragraph"],
+      "strikethroughs": [],
+      "html": "<p>This ~~has a</p>\n<p>new paragraph~~.</p>\n"
+    },
+    {
+      "id": "GFM-0621",
+      "example": 621,
+      "construct": "extended-autolinks",
+      "source": "www.commonmark.org\n",
+      "rootKinds": ["paragraph"],
+      "autolinks": [
+        {
+          "range": [0, 18],
+          "destination": "http://www.commonmark.org",
+          "type": "www"
+        }
+      ],
+      "html": "<p><a href=\"http://www.commonmark.org\">www.commonmark.org</a></p>\n"
+    },
+    {
+      "id": "GFM-0622",
+      "example": 622,
+      "construct": "extended-autolinks",
+      "source": "Visit www.commonmark.org/help for more information.\n",
+      "rootKinds": ["paragraph"],
+      "autolinks": [
+        {
+          "range": [6, 29],
+          "destination": "http://www.commonmark.org/help",
+          "type": "www"
+        }
+      ],
+      "html": "<p>Visit <a href=\"http://www.commonmark.org/help\">www.commonmark.org/help</a> for more information.</p>\n"
+    },
+    {
+      "id": "GFM-0623",
+      "example": 623,
+      "construct": "extended-autolinks",
+      "source": "Visit www.commonmark.org.\n\nVisit www.commonmark.org/a.b.\n",
+      "rootKinds": ["paragraph", "paragraph"],
+      "autolinks": [
+        {
+          "range": [6, 24],
+          "destination": "http://www.commonmark.org",
+          "type": "www"
+        },
+        {
+          "range": [33, 55],
+          "destination": "http://www.commonmark.org/a.b",
+          "type": "www"
+        }
+      ],
+      "html": "<p>Visit <a href=\"http://www.commonmark.org\">www.commonmark.org</a>.</p>\n<p>Visit <a href=\"http://www.commonmark.org/a.b\">www.commonmark.org/a.b</a>.</p>\n"
+    },
+    {
+      "id": "GFM-0624",
+      "example": 624,
+      "construct": "extended-autolinks",
+      "source": "www.google.com/search?q=Markup+(business)\n\nwww.google.com/search?q=Markup+(business)))\n\n(www.google.com/search?q=Markup+(business))\n\n(www.google.com/search?q=Markup+(business)\n",
+      "rootKinds": ["paragraph", "paragraph", "paragraph", "paragraph"],
+      "autolinks": [
+        {
+          "range": [0, 41],
+          "destination": "http://www.google.com/search?q=Markup+(business)",
+          "type": "www"
+        },
+        {
+          "range": [43, 84],
+          "destination": "http://www.google.com/search?q=Markup+(business)",
+          "type": "www"
+        },
+        {
+          "range": [89, 130],
+          "destination": "http://www.google.com/search?q=Markup+(business)",
+          "type": "www"
+        },
+        {
+          "range": [134, 175],
+          "destination": "http://www.google.com/search?q=Markup+(business)",
+          "type": "www"
+        }
+      ],
+      "html": "<p><a href=\"http://www.google.com/search?q=Markup+(business)\">www.google.com/search?q=Markup+(business)</a></p>\n<p><a href=\"http://www.google.com/search?q=Markup+(business)\">www.google.com/search?q=Markup+(business)</a>))</p>\n<p>(<a href=\"http://www.google.com/search?q=Markup+(business)\">www.google.com/search?q=Markup+(business)</a>)</p>\n<p>(<a href=\"http://www.google.com/search?q=Markup+(business)\">www.google.com/search?q=Markup+(business)</a></p>\n"
+    },
+    {
+      "id": "GFM-0625",
+      "example": 625,
+      "construct": "extended-autolinks",
+      "source": "www.google.com/search?q=(business))+ok\n",
+      "rootKinds": ["paragraph"],
+      "autolinks": [
+        {
+          "range": [0, 38],
+          "destination": "http://www.google.com/search?q=(business))+ok",
+          "type": "www"
+        }
+      ],
+      "html": "<p><a href=\"http://www.google.com/search?q=(business))+ok\">www.google.com/search?q=(business))+ok</a></p>\n"
+    },
+    {
+      "id": "GFM-0626",
+      "example": 626,
+      "construct": "extended-autolinks",
+      "source": "www.google.com/search?q=commonmark&hl=en\n\nwww.google.com/search?q=commonmark&hl;\n",
+      "rootKinds": ["paragraph", "paragraph"],
+      "autolinks": [
+        {
+          "range": [0, 40],
+          "destination": "http://www.google.com/search?q=commonmark&hl=en",
+          "type": "www"
+        },
+        {
+          "range": [42, 76],
+          "destination": "http://www.google.com/search?q=commonmark",
+          "type": "www"
+        }
+      ],
+      "html": "<p><a href=\"http://www.google.com/search?q=commonmark&amp;hl=en\">www.google.com/search?q=commonmark&amp;hl=en</a></p>\n<p><a href=\"http://www.google.com/search?q=commonmark\">www.google.com/search?q=commonmark</a>&amp;hl;</p>\n"
+    },
+    {
+      "id": "GFM-0627",
+      "example": 627,
+      "construct": "extended-autolinks",
+      "source": "www.commonmark.org/he<lp\n",
+      "rootKinds": ["paragraph"],
+      "autolinks": [
+        {
+          "range": [0, 21],
+          "destination": "http://www.commonmark.org/he",
+          "type": "www"
+        }
+      ],
+      "html": "<p><a href=\"http://www.commonmark.org/he\">www.commonmark.org/he</a>&lt;lp</p>\n"
+    },
+    {
+      "id": "GFM-0628",
+      "example": 628,
+      "construct": "extended-autolinks",
+      "source": "http://commonmark.org\n\n(Visit https://encrypted.google.com/search?q=Markup+(business))\n\nAnonymous FTP is available at ftp://foo.bar.baz.\n",
+      "rootKinds": ["paragraph", "paragraph", "paragraph"],
+      "autolinks": [
+        {
+          "range": [0, 21],
+          "destination": "http://commonmark.org",
+          "type": "url"
+        },
+        {
+          "range": [30, 85],
+          "destination": "https://encrypted.google.com/search?q=Markup+(business)",
+          "type": "url"
+        },
+        {
+          "range": [118, 135],
+          "destination": "ftp://foo.bar.baz",
+          "type": "url"
+        }
+      ],
+      "html": "<p><a href=\"http://commonmark.org\">http://commonmark.org</a></p>\n<p>(Visit <a href=\"https://encrypted.google.com/search?q=Markup+(business)\">https://encrypted.google.com/search?q=Markup+(business)</a>)</p>\n<p>Anonymous FTP is available at <a href=\"ftp://foo.bar.baz\">ftp://foo.bar.baz</a>.</p>\n"
+    },
+    {
+      "id": "GFM-0629",
+      "example": 629,
+      "construct": "extended-autolinks",
+      "source": "foo@bar.baz\n",
+      "rootKinds": ["paragraph"],
+      "autolinks": [
+        {
+          "range": [0, 11],
+          "destination": "mailto:foo@bar.baz",
+          "type": "email"
+        }
+      ],
+      "html": "<p><a href=\"mailto:foo@bar.baz\">foo@bar.baz</a></p>\n"
+    },
+    {
+      "id": "GFM-0630",
+      "example": 630,
+      "construct": "extended-autolinks",
+      "source": "hello@mail+xyz.example isn't valid, but hello+xyz@mail.example is.\n",
+      "rootKinds": ["paragraph"],
+      "autolinks": [
+        {
+          "range": [40, 62],
+          "destination": "mailto:hello+xyz@mail.example",
+          "type": "email"
+        }
+      ],
+      "html": "<p>hello@mail+xyz.example isn't valid, but <a href=\"mailto:hello+xyz@mail.example\">hello+xyz@mail.example</a> is.</p>\n"
+    },
+    {
+      "id": "GFM-0631",
+      "example": 631,
+      "construct": "extended-autolinks",
+      "source": "a.b-c_d@a.b\n\na.b-c_d@a.b.\n\na.b-c_d@a.b-\n\na.b-c_d@a.b_\n",
+      "rootKinds": ["paragraph", "paragraph", "paragraph", "paragraph"],
+      "autolinks": [
+        {
+          "range": [0, 11],
+          "destination": "mailto:a.b-c_d@a.b",
+          "type": "email"
+        },
+        {
+          "range": [13, 24],
+          "destination": "mailto:a.b-c_d@a.b",
+          "type": "email"
+        }
+      ],
+      "html": "<p><a href=\"mailto:a.b-c_d@a.b\">a.b-c_d@a.b</a></p>\n<p><a href=\"mailto:a.b-c_d@a.b\">a.b-c_d@a.b</a>.</p>\n<p>a.b-c_d@a.b-</p>\n<p>a.b-c_d@a.b_</p>\n"
+    },
+    {
+      "id": "GFM-0652",
+      "example": 652,
+      "construct": "tagfilter",
+      "source": "<strong> <title> <style> <em>\n\n<blockquote>\n  <xmp> is disallowed.  <XMP> is also disallowed.\n</blockquote>\n",
+      "rootKinds": ["paragraph", "html-block"],
+      "tagFiltered": [
+        { "kind": "inline-html", "range": [9, 16] },
+        { "kind": "inline-html", "range": [17, 24] },
+        { "kind": "html-block", "range": [31, 108] }
+      ],
+      "html": "<p><strong> &lt;title> &lt;style> <em></p>\n<blockquote>\n  &lt;xmp> is disallowed.  &lt;XMP> is also disallowed.\n</blockquote>\n"
+    }
+  ]
+}

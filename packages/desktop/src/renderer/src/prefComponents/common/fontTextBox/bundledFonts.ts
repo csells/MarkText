@@ -1,6 +1,5 @@
-// Fonts MarkText bundles via @font-face (packages/muya/src/assets/styles/index.css).
-// They are the editor/code defaults but are NOT installed system fonts, so the
-// OS font-list IPC never returns them and the picker couldn't reselect them (#3021).
+// Preferred editor/code defaults may be absent from the OS font-list IPC, so
+// keep them selectable even when the system query does not return them (#3021).
 export const BUNDLED_PROPORTIONAL_FONTS = ['Open Sans']
 export const BUNDLED_MONOSPACE_FONTS = ['DejaVu Sans Mono']
 

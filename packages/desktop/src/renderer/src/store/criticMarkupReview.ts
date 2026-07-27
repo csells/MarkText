@@ -1,10 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
-import type { CriticMarkupSidebarState } from '@shared/types/criticMarkup'
+import type {
+  CriticMarkupReviewMenuState,
+  CriticMarkupSidebarState
+} from '@shared/types/criticMarkup'
 import type { CriticMarkupCommentEditRequest } from '@shared/types/criticMarkup'
 
 const emptySnapshot = (): CriticMarkupSidebarState => ({
-  fileId: null,
+  documentId: null,
+  revisionId: null,
   available: false,
   items: [],
   currentItemId: null,
@@ -12,8 +16,25 @@ const emptySnapshot = (): CriticMarkupSidebarState => ({
   projection: 'marked'
 })
 
+const emptyCommandState = (): CriticMarkupReviewMenuState => ({
+  available: false,
+  canCreateAddition: false,
+  canCreateDeletion: false,
+  canCreateSubstitution: false,
+  canCreateHighlight: false,
+  canCreateComment: false,
+  canNavigate: false,
+  canResolveCurrent: false,
+  canResolveAll: false,
+  trackChanges: false,
+  projection: 'marked'
+})
+
 export const useCriticMarkupReviewStore = defineStore('criticMarkupReview', () => {
   const snapshot = shallowRef<CriticMarkupSidebarState>(emptySnapshot())
+  const commandState = shallowRef<CriticMarkupReviewMenuState>(
+    emptyCommandState()
+  )
   // Whether the sidebar is currently composing a new comment. Drives the
   // compose box's visibility; the editor's composer owns the value.
   const composing = ref(false)
@@ -23,8 +44,13 @@ export const useCriticMarkupReviewStore = defineStore('criticMarkupReview', () =
     snapshot.value = next
   }
 
+  function UPDATE_COMMAND_STATE(next: CriticMarkupReviewMenuState): void {
+    commandState.value = next
+  }
+
   function CLEAR(): void {
     snapshot.value = emptySnapshot()
+    commandState.value = emptyCommandState()
     // A cleared document can have no open compose box to submit against.
     composing.value = false
     commentEditRequest.value = null
@@ -46,9 +72,11 @@ export const useCriticMarkupReviewStore = defineStore('criticMarkupReview', () =
 
   return {
     snapshot,
+    commandState,
     composing,
     commentEditRequest,
     UPDATE,
+    UPDATE_COMMAND_STATE,
     CLEAR,
     SET_COMPOSING,
     REQUEST_COMMENT_EDIT,

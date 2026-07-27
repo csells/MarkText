@@ -8,28 +8,55 @@
     <div class="left-column">
       <ul>
         <li
-          v-for="(c, index) of sideBarIcons"
-          :key="index"
+          v-for="c of sideBarIcons"
+          :key="c.id"
           :class="{ active: c.id === rightColumn }"
-          :title="c.name()"
-          @click="handleLeftIconClick(c.id)"
         >
-          <component :is="c.icon" />
-          <span
-            v-if="c.id === 'review' && reviewCount > 0"
-            class="review-count"
+          <button
+            type="button"
+            class="side-bar-action"
+            :data-side-bar-action="c.id"
+            :title="c.name()"
+            :aria-label="c.name()"
+            :aria-pressed="c.id === rightColumn"
+            @click="handleLeftIconClick(c.id)"
+            @keydown.enter.prevent="handleLeftIconClick(c.id)"
+            @keydown.space.prevent="handleLeftIconClick(c.id)"
           >
-            {{ reviewBadgeText }}
-          </span>
+            <component
+              :is="c.icon"
+              aria-hidden="true"
+            />
+            <span
+              v-if="c.id === 'review' && reviewCount > 0"
+              class="review-count"
+              aria-hidden="true"
+            >
+              {{ reviewBadgeText }}
+            </span>
+          </button>
         </li>
       </ul>
       <ul class="bottom">
         <li
-          v-for="(c, index) of sideBarBottomIcons"
-          :key="index"
-          @click="handleLeftBottomClick(c.id)"
+          v-for="c of sideBarBottomIcons"
+          :key="c.id"
         >
-          <component :is="c.icon" />
+          <button
+            type="button"
+            class="side-bar-action"
+            :data-side-bar-action="c.id"
+            :title="c.name()"
+            :aria-label="c.name()"
+            @click="handleLeftBottomClick(c.id)"
+            @keydown.enter.prevent="handleLeftBottomClick(c.id)"
+            @keydown.space.prevent="handleLeftBottomClick(c.id)"
+          >
+            <component
+              :is="c.icon"
+              aria-hidden="true"
+            />
+          </button>
         </li>
       </ul>
     </div>
@@ -56,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted, nextTick, watch } from 'vue'
 import { useLayoutStore } from '@/store/layout'
 import { useProjectStore } from '@/store/project'
 import { useEditorStore } from '@/store/editor'
@@ -69,6 +96,7 @@ import Toc from './toc.vue'
 import Review from './review.vue'
 import { storeToRefs } from 'pinia'
 import type { TabDescriptor } from './types'
+import bus from '@/bus'
 
 const layoutStore = useLayoutStore()
 const projectStore = useProjectStore()
@@ -116,6 +144,7 @@ const finalSideBarWidth = computed<number>(() => {
 })
 
 onMounted(() => {
+  bus.on('critic-markup-open-review', openReview)
   nextTick(() => {
     const dragBarEl = dragBar.value
     if (!dragBarEl) return
@@ -147,6 +176,14 @@ onMounted(() => {
     dragBarEl.addEventListener('mousedown', mouseDownHandler, false)
   })
 })
+
+onBeforeUnmount(() => {
+  bus.off('critic-markup-open-review', openReview)
+})
+
+function openReview (): void {
+  layoutStore.SET_LAYOUT({ rightColumn: 'review', showSideBar: true })
+}
 
 const handleLeftIconClick = (name: string): void => {
   if (rightColumn.value === name) {
@@ -219,11 +256,28 @@ const handleLeftBottomClick = (name: string): void => {
   height: 45px;
   margin: 0;
   padding: 0;
+  position: relative;
+}
+
+.side-bar-action {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
   display: flex;
   justify-content: space-around;
   align-items: center;
-  cursor: pointer;
   position: relative;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.side-bar-action:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--themeColor);
+  outline-offset: -3px;
 }
 
 .review-count {
@@ -243,7 +297,7 @@ const handleLeftBottomClick = (name: string): void => {
   text-align: center;
 }
 
-.left-column ul > li > svg {
+.left-column ul > li > .side-bar-action > svg {
   width: 18px;
   height: 18px;
   color: var(--sideBarIconColor);
@@ -251,7 +305,7 @@ const handleLeftBottomClick = (name: string): void => {
   transition: transform 0.25s ease-in-out;
 }
 
-.left-column ul > li.active > svg {
+.left-column ul > li.active > .side-bar-action > svg {
   color: var(--themeColor);
 }
 

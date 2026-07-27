@@ -24,7 +24,7 @@ _Avoid_: normal revision, successful parse result
 
 **Source-only revision**:
 A Document revision that retains the exact canonical source, immutable parse
-configuration, identity, and one fatal resource or compatibility diagnostic
+configuration, identity, and one fatal resource diagnostic
 when a complete interpretation cannot safely be published. It permits Source
 mode, exact persistence, and an explicit retry or reinterpretation, but exposes
 no semantic graph, projection, WYSIWYG surface, Review surface, or semantic

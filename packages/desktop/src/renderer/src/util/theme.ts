@@ -52,7 +52,7 @@ const patchTheme = (css: string): string => {
 
 const getEmojiPickerPatch = (): string => {
   return isLinux
-    ? '.mu-emoji-picker section .emoji-wrapper .item span { font-family: sans-serif, "Noto Color Emoji"; }'
+    ? '.document-view-emoji-picker section .emoji-wrapper .item span { font-family: sans-serif, "Noto Color Emoji"; }'
     : ''
 }
 
@@ -181,29 +181,15 @@ export const addThemeStyle = (theme: string): void => {
     document.body.classList.add('dark')
   }
 
-  // change CodeMirror theme
-  const cm = document.querySelector('.CodeMirror')
-  if (cm) {
-    cm.classList.remove('cm-s-default')
-    cm.classList.remove('cm-s-one-dark')
-    cm.classList.remove('cm-s-railscasts')
-    if (isCmOneDark) {
-      cm.classList.add('cm-s-one-dark')
-    } else if (isCmRailscasts) {
-      cm.classList.add('cm-s-railscasts')
-    } else {
-      cm.classList.add('cm-s-default')
-    }
-  }
 }
 
 export const setEditorWidth = (value: string): void => {
   const EDITOR_WIDTH_STYLE_ID = 'editor-width'
   let result = ''
   if (value && /^[0-9]+(?:ch|px|%)$/.test(value)) {
-    // Add 100px for the container's horizontal padding. Set both the legacy
-    // camelCase var (source mode) and the kebab-case var the active
-    // @muyajs/core engine reads for `.mu-container` max-width (issue #4828).
+    // Add 100px for the container's horizontal padding. Source mode consumes
+    // the camelCase variable and the document-core view consumes the
+    // kebab-case variable for `.document-view-container` max-width (issue #4828).
     const width = `calc(100px + ${value})`
     result = `:root { --editorAreaWidth: ${width}; --editor-area-width: ${width}; }`
   }
@@ -239,9 +225,9 @@ export const addCommonStyle = (options: CommonStyleOptions): void => {
   }
 
   sheet.innerHTML = `${scrollbarStyle}
-.CodeMirror {
-font-family: ${codeFontFamily}, ${DEFAULT_CODE_FONT_FAMILY};
-font-size: ${codeFontSize}px;
+:root {
+--source-code-font-family: ${codeFontFamily}, ${DEFAULT_CODE_FONT_FAMILY};
+--source-code-font-size: ${codeFontSize}px;
 }
 
 ${getEmojiPickerPatch()}

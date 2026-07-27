@@ -45,8 +45,7 @@ const defaultProps = {
 const { toc } = storeToRefs(editorStore)
 const { wordWrapInToc } = storeToRefs(preferencesStore)
 
-// Stable per-node key so el-tree preserves the user's expand/collapse state
-// across content edits (#3028) and tab switches (#3791). See deriveKeyedToc.
+// Parser identity is the tree key, collapse-state key, and navigation payload.
 const keyedToc = computed<KeyedTocNode[]>(() => deriveKeyedToc(toc.value))
 
 // Track which headings the user collapsed, by stable key (#3028). Headings are
@@ -82,12 +81,9 @@ const expandedKeys = computed<string[]>(() => {
   return keys
 })
 
-const handleClick = (data: { slug?: unknown }): void => {
-  // editor.vue builds a CSS selector with `#${slug}` — bail out if the
-  // node has no slug (e.g. unsluggable headings) to avoid emitting
-  // `undefined` / non-string payloads and producing `#undefined` selectors.
-  if (typeof data.slug !== 'string' || data.slug.length === 0) return
-  bus.emit('scroll-to-header', data.slug)
+const handleClick = (data: { nodeId?: unknown }): void => {
+  if (typeof data.nodeId !== 'string' || data.nodeId.length === 0) return
+  bus.emit('scroll-to-header', data.nodeId)
 }
 </script>
 

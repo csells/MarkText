@@ -1,0 +1,219 @@
+{
+  "schema": "marktext-wire-envelope-v1",
+  "integerEncoding": "unsigned little-endian",
+  "stringEncoding": "u32 byte-length-prefixed UTF-8",
+  "identityAlphabet": "^[A-Za-z0-9._:-]+$",
+  "maxChunkBytes": 262144,
+  "memberOrder": [
+    "livePlanDelta",
+    "reviewDelta",
+    "sessionDelta",
+    "terminalOutcomeDelta"
+  ],
+  "memberBits": {
+    "livePlanDelta": 1,
+    "reviewDelta": 2,
+    "sessionDelta": 4,
+    "terminalOutcomeDelta": 8
+  },
+  "domains": {
+    "chunk": "MarkText.WireChunk.v1\\0",
+    "member": "MarkText.WireMember.v1\\0",
+    "envelope": "MarkText.WireEnvelope.v1\\0"
+  },
+  "hash": "SHA-256",
+  "hashFraming": {
+    "domainTermination": "The terminal characters \\\\0 in each domain denote one NUL byte.",
+    "hashReferenceEncoding": "32 raw digest bytes",
+    "chunk": [
+      "domain.chunk",
+      "string(memberName)",
+      "u32(chunkIndex)",
+      "u32(chunkCount)",
+      "u32(chunkByteLength)",
+      "chunkBytes"
+    ],
+    "member": [
+      "domain.member",
+      "string(memberName)",
+      "u32(memberByteLength)",
+      "u32(chunkCount)",
+      "chunkHash[0..chunkCount)"
+    ],
+    "envelope": [
+      "domain.envelope",
+      "string(schema)",
+      "string(publicationId)",
+      "string(baseSnapshotId)",
+      "string(nextSnapshotId)",
+      "string(transitionId or empty when absent)",
+      "u32(memberMask)",
+      "u32(memberCount)",
+      "for each declared member in memberOrder: string(memberName), memberHash"
+    ],
+    "emptyMember": "One chunk with index 0, count 1, and zero payload bytes."
+  },
+  "publicationRules": {
+    "stateChange": "transitionId is present and baseSnapshotId differs from nextSnapshotId",
+    "outcomeOnly": "transitionId is absent, baseSnapshotId equals nextSnapshotId, and terminalOutcomeDelta is the sole nonempty member",
+    "publish": "validate every declared member and the root hash before one immutable snapshot swap",
+    "recovery": "a gap, base mismatch, missing member, or checksum failure leaves the prior snapshot mounted and requests a full snapshot"
+  },
+  "vectors": [
+    {
+      "id": "empty-member",
+      "publicationId": "publication-empty",
+      "baseSnapshotId": "snapshot-1",
+      "nextSnapshotId": "snapshot-2",
+      "transitionId": "transition-1",
+      "members": { "sessionDelta": "" },
+      "expectedChunkCounts": { "sessionDelta": 1 },
+      "expectedHashes": {
+        "chunks": {
+          "sessionDelta": [
+            "05615d1f9b859799551fb4763e2aac2be7fa4d728ecd2ac4f125d98dc14e9724"
+          ]
+        },
+        "members": {
+          "sessionDelta": "8ef742286e14814d68598379472af07d91d71a534a589254956803ca51a8b542"
+        },
+        "root": "9334ccf7ab52038d915b05dab7c9747cdead98b28d9938cd4ae9314a3f02b3ad"
+      }
+    },
+    {
+      "id": "below-boundary",
+      "publicationId": "publication-below",
+      "baseSnapshotId": "snapshot-below-1",
+      "nextSnapshotId": "snapshot-below-2",
+      "transitionId": "transition-below",
+      "memberGenerator": {
+        "member": "livePlanDelta",
+        "byte": "60",
+        "length": 262143
+      },
+      "expectedChunkCounts": { "livePlanDelta": 1 },
+      "expectedHashes": {
+        "chunks": {
+          "livePlanDelta": [
+            "0a3d1e700eddba7199a4bfa292043ba1d31c8e5fbbf02c61aecc964df5d45662"
+          ]
+        },
+        "members": {
+          "livePlanDelta": "57b3b0e061dfecd246b92015d879916cb33d02da6109e5e5dc80e2aa0f2157ee"
+        },
+        "root": "06bec8ea27d577fa18033b25e81137e0d8d527adb612af333968a03f11cf245f"
+      }
+    },
+    {
+      "id": "exact-boundary",
+      "publicationId": "publication-boundary",
+      "baseSnapshotId": "snapshot-2",
+      "nextSnapshotId": "snapshot-3",
+      "transitionId": "transition-2",
+      "memberGenerator": {
+        "member": "livePlanDelta",
+        "byte": "61",
+        "length": 262144
+      },
+      "expectedChunkCounts": { "livePlanDelta": 1 },
+      "expectedHashes": {
+        "chunks": {
+          "livePlanDelta": [
+            "8cb5370475349a512d9196d68a296a479d1c1ddf4ebaaa0ae251e8bbd11f6bac"
+          ]
+        },
+        "members": {
+          "livePlanDelta": "2b3404628fdba1cb1224ac4a6215adb04b3b71820d7cab3fd81002e513e3e84f"
+        },
+        "root": "fd6fdd20283b1ad7bba30433ba3b6c29e2b89ca24e3421b8513870bd81a33e08"
+      }
+    },
+    {
+      "id": "two-chunk",
+      "publicationId": "publication-two",
+      "baseSnapshotId": "snapshot-3",
+      "nextSnapshotId": "snapshot-4",
+      "transitionId": "transition-3",
+      "memberGenerator": {
+        "member": "livePlanDelta",
+        "byte": "62",
+        "length": 262145
+      },
+      "expectedChunkCounts": { "livePlanDelta": 2 },
+      "expectedHashes": {
+        "chunks": {
+          "livePlanDelta": [
+            "07b5248c9cdf65d6036381afe9a2e63f83432d8878732a459a9e51f88931a487",
+            "910fd4a3b5b0cded0ecbe15180799714c3c4c7134b562cbcf9a35b39aa0498b1"
+          ]
+        },
+        "members": {
+          "livePlanDelta": "6dfba6104714076a3c98c4f7d60527d0295c7160267540513cf6fc3b5da5ff42"
+        },
+        "root": "ab826482c22ffe8144537dc8425428d14ae7af6e0245046fbbf2b3c58d7557c7"
+      }
+    },
+    {
+      "id": "all-members",
+      "publicationId": "publication-all",
+      "baseSnapshotId": "snapshot-4",
+      "nextSnapshotId": "snapshot-5",
+      "transitionId": "transition-4",
+      "members": {
+        "livePlanDelta": "706c616e",
+        "reviewDelta": "726576696577",
+        "sessionDelta": "73657373696f6e",
+        "terminalOutcomeDelta": "6f7574636f6d65"
+      },
+      "expectedChunkCounts": {
+        "livePlanDelta": 1,
+        "reviewDelta": 1,
+        "sessionDelta": 1,
+        "terminalOutcomeDelta": 1
+      },
+      "expectedHashes": {
+        "chunks": {
+          "livePlanDelta": [
+            "b14568e0001a32e435ae63c907dc927cb8e9c0752f0d1610b7beed57eecd655c"
+          ],
+          "reviewDelta": [
+            "c407bb5bbf26d7eed26b528c36b6cd8f3e9704471c48951c36ab3b8ea752cf27"
+          ],
+          "sessionDelta": [
+            "a528f5584fa76e25b6cdbd48a18461d7960ddc2ee0c3eafb1e5b1472f604be99"
+          ],
+          "terminalOutcomeDelta": [
+            "28bb9bc2db88d1e0985191291fbf12a2ebbd42c57761d53e4abad4965f3a1144"
+          ]
+        },
+        "members": {
+          "livePlanDelta": "f1b6793cc34835ab82cd0372149baafab0700d1c63a23d79ef13b04e36e40820",
+          "reviewDelta": "c9dd285e7d8f0a15c22e6333fb68da2cb603b8d81ef0e6572640aba6b073a7f2",
+          "sessionDelta": "4b4ad2221227050aa91834ddcda7635f0184f5c5487a5f18ff280041ea46c86d",
+          "terminalOutcomeDelta": "bb89d3be49a6c5039ee5cc4a310cccf4b0f908080ddc1a32feb6203f12b901ca"
+        },
+        "root": "c2383841b5d7ce8fcec43750887d389663ff6b850d5b945450b7d695edae67f8"
+      }
+    },
+    {
+      "id": "outcome-only",
+      "publicationId": "publication-outcome",
+      "baseSnapshotId": "snapshot-5",
+      "nextSnapshotId": "snapshot-5",
+      "transitionId": null,
+      "members": { "terminalOutcomeDelta": "6f6b" },
+      "expectedChunkCounts": { "terminalOutcomeDelta": 1 },
+      "expectedHashes": {
+        "chunks": {
+          "terminalOutcomeDelta": [
+            "8e5038b6a293bfb228b5e9aaabd9def3b55fb611cb2817a7145569ec2b9cc0e9"
+          ]
+        },
+        "members": {
+          "terminalOutcomeDelta": "6acf7876bb97faea22609fbe7b3dc3f8660b45fd22d538761690d2f106b53fa8"
+        },
+        "root": "1c81c715592b623c1be92dfc1a8dcd72816c88bb107ce3befef4468ee248b4c2"
+      }
+    }
+  ]
+}

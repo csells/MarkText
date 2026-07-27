@@ -4,18 +4,28 @@
 
 ![](../assets/marktext-interface.png)
 
-- Green: titlebar
+- Green: title bar
 - Orange: sidebar
-- Red: editor with tabs and per-tab notification at the bottom
+- Red: editor tabs, document surface, and per-tab notification area
 
-### Titlebar
+### Title bar
 
-The titlebar is located at the top of the window and shows the current opened file path and the menu on Linux and Windows. On macOS we're using client-side decorations (CSD) that look similar to the picture above. On Linux and Windows there are two type of titlebar: a custom CSD that you can see in the image above and the native one.
+The title bar shows the current file path and application menus. macOS uses its
+native window presentation; Linux and Windows can use the custom or native
+title bar according to preferences.
 
 ### Sidebar
 
-The sidebar is an optional feature of MarkText that contains three panels and has a variable width. The first panel is a tree view of the opened root directory; it also hosts a collapsible *Opened Files* subsection (toggle via the `openedFilesInSidebar` preference). The latter two panels are a folder searcher (find in files) that is powered by ripgrep and a table of contents of the currently opened document.
+The sidebar contains the file tree, opened files, search, table of contents,
+and Review panels. It can be resized or hidden.
 
 ### Editor
 
-The editor is the core element that hosts the realtime preview editor called Muya and consists of three parts. Tabs are located at the top and at the bottom the per-tab notification bar is located for events like file changed or deleted. The main part is the editor that is either provided by Muya or CodeMirror for the source-code editor. There are multiple overlays available like inline toolbar, emoji picker, quick insert or image tools.
+The editor surface is mounted by `@marktext/document-view` from the active
+document-core session. Tabs sit above it and per-tab status appears below it.
+All rendered ranges come from the parser-owned document revision.
+
+Source mode mounts an exact source projection and sends typed range gestures to
+the same session. It has no separate parser, document buffer, or undo history.
+The Review sidebar, command palette, menus, and pointer tool consume one typed
+Review snapshot and dispatch typed commands back to that owner.

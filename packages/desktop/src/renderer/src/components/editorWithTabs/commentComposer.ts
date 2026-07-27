@@ -4,7 +4,7 @@
 // `requestText('comment')` promise; the modal used to satisfy it. This
 // composer satisfies the same promise from the sidebar instead: `request()`
 // opens the compose box and resolves once the box submits (or cancels).
-// muya persists the editor selection across the focus change, so the resolved
+// The document view preserves the selection across the focus change, so the resolved
 // text still wraps the originally selected span when the executor calls
 // `createCriticMarkup`.
 

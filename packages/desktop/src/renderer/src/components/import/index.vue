@@ -42,6 +42,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import bus from '@/bus'
 import importIconUrl from '@/assets/icons/import_file.svg?url'
 import { useI18n } from 'vue-i18n'
+import { importDroppedFile } from '@/services/documentImportBinary'
 
 const { t } = useI18n()
 const importIcon = ref({ url: importIconUrl })
@@ -63,25 +64,27 @@ const dragLeaveHandler = () => {
   isOver.value = false
 }
 
-const dropHandler = (e: DragEvent) => {
-  const fileList: string[] = []
+const dropHandler = async (e: DragEvent): Promise<void> => {
+  const files: File[] = []
   e.preventDefault()
   if (!e.dataTransfer) return
   if (e.dataTransfer.files.length > 0) {
     for (const file of Array.from(e.dataTransfer.files)) {
-      fileList.push(window.electron.webUtils.getPathForFile(file))
+      files.push(file)
     }
   } else {
-    for (const file of Array.from(e.dataTransfer.items)) {
-      if (file.kind === 'file') {
-        const asFile = file.getAsFile()
+    for (const item of Array.from(e.dataTransfer.items)) {
+      if (item.kind === 'file') {
+        const asFile = item.getAsFile()
         if (asFile) {
-          fileList.push(window.electron.webUtils.getPathForFile(asFile))
+          files.push(asFile)
         }
       }
     }
   }
-  window.electron.ipcRenderer.send('mt::window::drop', fileList)
+  for (const file of files) {
+    await importDroppedFile(file)
+  }
 }
 
 onMounted(() => {

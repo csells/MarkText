@@ -1,23 +1,37 @@
 import { registerBootInfo } from './bootInfo'
-import { registerFsHandlers } from './fs'
 import { registerPathHandlers } from './paths'
 import { registerRipgrepHandlers } from './ripgrep'
 import { registerUploaderHandlers } from './uploader'
 import { registerFontsHandlers } from './fonts'
-import { registerShellHandlers } from './shell'
+import {
+  registerPresentationEffectHandlers
+} from './presentationEffects'
 import { registerWindowHandlers } from './window'
-import { registerCmdHandlers } from './cmd'
 import { registerI18nHandlers } from './i18n'
+import { registerDocumentCoreHandlers } from './documentCore'
+import { registerImageAssetHandlers } from './imageAssets'
+import {
+  registerDocumentPathClipboardHandler
+} from './documentPathClipboard'
+import {
+  registerUploaderDeletionClipboardHandler
+} from './uploaderDeletionClipboard'
+import {
+  registerDocumentClipboardPasteHandler
+} from './documentClipboardPaste'
 
 export const registerSandboxIpcHandlers = (): void => {
   registerBootInfo()
-  registerFsHandlers()
   registerPathHandlers()
   registerRipgrepHandlers()
   registerUploaderHandlers()
   registerFontsHandlers()
-  registerShellHandlers()
+  registerDocumentPathClipboardHandler()
+  registerDocumentClipboardPasteHandler()
+  registerUploaderDeletionClipboardHandler()
+  registerPresentationEffectHandlers()
   registerWindowHandlers()
-  registerCmdHandlers()
   registerI18nHandlers()
+  registerDocumentCoreHandlers()
+  registerImageAssetHandlers()
 }
