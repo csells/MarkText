@@ -393,9 +393,7 @@ export interface SourceOwnershipIndex {
 
 export type CriticMarkupProfileId = string
 export type MarkdownProfileId = string
-export type LiveHtmlSafetyProfileId =
-  | 'live-html-sanitized-v1'
-  | 'live-html-escaped-v1'
+export type LiveHtmlSafetyProfileId = 'live-html-sanitized-v1'
 
 export interface MarkdownOptionsV1 {
   readonly schema: 'markdown-options-1'

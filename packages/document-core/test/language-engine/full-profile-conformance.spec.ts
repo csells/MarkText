@@ -22,7 +22,7 @@ interface MarkdownOptionsV1 {
 
 interface ParseConfigurationV1 extends ParseConfiguration {
   readonly markdownOptions: MarkdownOptionsV1
-  readonly liveHtmlSafetyProfile: 'live-html-sanitized-v1' | 'live-html-escaped-v1'
+  readonly liveHtmlSafetyProfile: 'live-html-sanitized-v1'
 }
 
 interface HashVectors {

@@ -133,6 +133,47 @@ describe('LanguageEngine.open configuration contract', () => {
     }
   })
 
+  it('rejects an unsafe configuration field', () => {
+    // "Unsafe" is one of the five rejection classes: a field that is not an
+    // ordinary enumerable data property cannot be decoded into a deeply
+    // immutable value, however well-typed it looks.
+    const accessorBacked = Object.defineProperty(
+      { ...PRODUCTION_CONFIGURATION },
+      'markdownProfile',
+      { get: () => 'markdown-profile-1', enumerable: true, configurable: true }
+    )
+    const symbolKeyed = {
+      ...PRODUCTION_CONFIGURATION,
+      [Symbol('surprise')]: true
+    }
+    const nonEnumerable = Object.defineProperty(
+      { ...PRODUCTION_CONFIGURATION },
+      'surprise',
+      { value: true, enumerable: false }
+    )
+
+    for (const candidate of [accessorBacked, symbolKeyed, nonEnumerable]) {
+      expect(() =>
+        createLanguageEngine().open(
+          createSourceSnapshot('{++x++}'),
+          candidate as ParseConfiguration
+        )
+      ).toThrow(/ParseConfiguration/)
+    }
+  })
+
+  it('rejects a profile that branches no production behavior', () => {
+    // The accepted profiles are exactly the three the plan names. An
+    // identifier the decoder admits but no production code implements is a
+    // configuration a host can request and never receive.
+    expect(() =>
+      createLanguageEngine().open(createSourceSnapshot('{++x++}'), {
+        ...PRODUCTION_CONFIGURATION,
+        liveHtmlSafetyProfile: 'live-html-escaped-v1'
+      } as unknown as ParseConfiguration)
+    ).toThrow(/ParseConfiguration/)
+  })
+
   it('publishes a deeply immutable decoded configuration', () => {
     const revision = createLanguageEngine().open(
       createSourceSnapshot('text'),

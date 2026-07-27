@@ -3,10 +3,7 @@ import type { ParseConfiguration } from './revision.js'
 const CRITIC_MARKUP_PROFILES = new Set(['marktext-profile-1'])
 const MARKDOWN_PROFILES = new Set(['markdown-profile-1'])
 const MARKDOWN_OPTIONS_SCHEMAS = new Set(['markdown-options-1'])
-const LIVE_HTML_SAFETY_PROFILES = new Set([
-  'live-html-sanitized-v1',
-  'live-html-escaped-v1'
-])
+const LIVE_HTML_SAFETY_PROFILES = new Set(['live-html-sanitized-v1'])
 const LIMITS_PROFILES = new Set(['desktop-v1', 'test-unbounded'])
 const ACCOUNTING_SCHEMAS = new Set(['syntax-accounting-1'])
 

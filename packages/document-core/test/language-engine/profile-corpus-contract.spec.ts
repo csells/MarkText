@@ -122,7 +122,7 @@ describe('Profile 1 corpus ownership contract', () => {
           subscriptAndSuperscript: true
         }
       },
-      liveHtmlSafetyProfiles: ['live-html-sanitized-v1', 'live-html-escaped-v1']
+      liveHtmlSafetyProfiles: ['live-html-sanitized-v1']
     })
     expect(manifest.corpora).toEqual([
       {

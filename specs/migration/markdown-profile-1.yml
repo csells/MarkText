@@ -37,7 +37,6 @@
     }
   },
   "liveHtmlSafetyProfiles": [
-    "live-html-sanitized-v1",
-    "live-html-escaped-v1"
+    "live-html-sanitized-v1"
   ]
 }
