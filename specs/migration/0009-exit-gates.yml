@@ -37,7 +37,9 @@
       ],
       "requirements": [
         "A05",
-        "D02"
+        "D02",
+        "A35",
+        "A36"
       ],
       "target": {
         "kind": "test",

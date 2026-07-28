@@ -382,6 +382,28 @@
         "path": "packages/desktop/test/unit/specs/image-viewer-accessibility.spec.ts",
         "title": "acts as a labelled modal, traps Tab, closes on Escape, and restores its opener"
       }
+    },
+    {
+      "id": "A35",
+      "requirement": "CommonMark 0.31.2 corpus totality",
+      "phase": "P1",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/commonmark-corpus-totality.spec.ts",
+        "title": "parses all 652 spec inputs to complete revisions with exact source"
+      }
+    },
+    {
+      "id": "A36",
+      "requirement": "CommonMark conformance without exclusions",
+      "phase": "P1",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/commonmark-html-conformance.spec.ts",
+        "title": "pins every pending example to one demonstrated mismatch"
+      }
     }
   ]
 }

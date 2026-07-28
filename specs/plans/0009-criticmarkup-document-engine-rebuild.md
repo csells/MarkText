@@ -427,11 +427,11 @@ named target whose assertion cannot distinguish pass from fail.
 
 **W4 — Language, configuration, and coverage**
 
-- **G14 The base language is bound to no gate.** Neither manifest mentions
-  CommonMark or GFM, so the passing 652-example 0.31.2 corpus and its totality
-  gate turn nothing red, and GFM is bound only as 24 curated examples. The
-  conformance suite also runs with `gfm: false` under `test-unbounded`, never
-  under shipping `desktop-v1`.
+- **G14 GFM is bound to no gate.** CommonMark is bound: A35 names the
+  652-example 0.31.2 totality target and A36 names the conformance target that
+  admits no pending exclusion, both under the shipping profile. GFM is still
+  bound only as 24 curated examples, so a GFM regression turns nothing red.
+  Closure needs a pinned GFM corpus gated the way A35 and A36 gate CommonMark.
 - **G15 Frozen corpora are narrower than the requirements they are named for.**
   The A10 recovery corpus is four single-line cases and cannot prove “nested
   block and literal contexts,” and the MMD-6 differential and Fevol lexical
