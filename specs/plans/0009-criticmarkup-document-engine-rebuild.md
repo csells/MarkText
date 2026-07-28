@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G1–G26 open
+- **Status:** RED — G1, G3, G4, G6–G9, G13, G18–G20, G23, G24 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-27
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -272,13 +272,13 @@ proof", and the single-space cell padding exactly as written. -->
 <!-- prettier-ignore -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
-| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G1–G4 (W1) |
-| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5–G8, G26 (W2) |
-| Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9–G13 (W3) |
-| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G20 (W4) |
-| Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | G21–G22 (W5) |
+| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G1, G3, G4 (W1) |
+| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8 (W2) |
+| Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
+| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G16 residues, G18–G20 (W4) |
+| Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
 | P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6) |
-| P10 release proof | The section 7 P10 criteria. | G24–G25 (W6), and the executable-proof list under W6. |
+| P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
 
 ### Gaps
 
@@ -470,11 +470,19 @@ named target whose assertion cannot distinguish pass from fail.
   replace and live rendering elsewhere. Production routes those questions
   through the policy; deleting the declarations is rejected, because it leaves
   G16's per-kind matrix with no owning module.
-- **G20 Closed-record decoding is restated twenty-two times.** Twenty-two codec
-  modules carry 22 independent `closedRecord` definitions at two strengths — six
-  check the prototype, sixteen do not. The rejection vocabulary is per-site, and
-  a hostile-input target asserts against a regular-expression alternation
-  instead of a named class.
+- **G20 Closed-record decoding is restated twenty-two times, at two
+  meanings.** Twenty-two codec modules carry 22 independent `closedRecord`
+  definitions. The difference is not rigour but semantics: one family rejects
+  unknown keys only, so a missing key passes and no prototype is checked
+  (`packages/desktop/src/renderer/src/components/editorWithTabs/editorCommandDecoders.ts:12`);
+  the other requires exact key-set equality and checks the prototype
+  (`.../documentCoreRemoteSession.ts:192`). Consolidating onto the stricter
+  reading would begin rejecting payloads that are valid today, because the
+  decoded surface carries genuinely optional fields such as
+  `packages/desktop/src/main/documentCore/staticSinkHost.ts:33`. Closure needs a
+  ruling first: does a closed record admit optional fields, or is every field
+  required and optionality expressed as a union? One decoder and one named
+  rejection vocabulary follow from the answer, not before it.
 
 **W5 — Absence and documentation truth**
 
