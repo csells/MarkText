@@ -33,14 +33,27 @@ export function createMainDocumentParseConfiguration(
     throw new TypeError('Document grammar preferences must be a closed record')
   }
   const keys = Reflect.ownKeys(preferences)
-  if (
-    keys.length !== GRAMMAR_KEYS.size ||
-    keys.some(key => (
-      typeof key !== 'string' ||
-      !GRAMMAR_KEYS.has(key as keyof MainDocumentGrammarPreferences)
-    ))
-  ) {
+  if (keys.some(key => typeof key !== 'string')) {
     throw new TypeError('Document grammar preferences are not closed')
+  }
+  // Name the offending option: a closed record that rejects without saying
+  // which key was wrong makes every caller guess.
+  const present = new Set(keys as string[])
+  const unexpected = [...present].filter(
+    key => !GRAMMAR_KEYS.has(key as keyof MainDocumentGrammarPreferences)
+  )
+  if (unexpected.length > 0) {
+    throw new TypeError(
+      'Document grammar preferences are not closed: unknown ' +
+        unexpected.sort().join(', ')
+    )
+  }
+  const missing = [...GRAMMAR_KEYS].filter(key => !present.has(key))
+  if (missing.length > 0) {
+    throw new TypeError(
+      'Document grammar preferences are not closed: missing ' +
+        missing.sort().join(', ')
+    )
   }
   for (const key of GRAMMAR_KEYS) {
     if (typeof preferences[key] !== 'boolean') {

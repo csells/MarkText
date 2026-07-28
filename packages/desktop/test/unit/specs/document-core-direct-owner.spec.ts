@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
 import {
+  createMainDocumentParseConfiguration as createDocumentParseConfiguration
+} from 'main_renderer/documentCore/documentParseConfiguration'
+import {
   createSourceSnapshot,
   type ClipboardConsumerRequest
 } from '@marktext/document-core'
@@ -12,7 +15,6 @@ import {
 } from '../helpers/documentHostSession'
 import {
   createDocumentEditorHost,
-  createDocumentParseConfiguration,
   type DocumentEditorHost
 } from '@/components/editorWithTabs/documentCoreDesktopEditor'
 

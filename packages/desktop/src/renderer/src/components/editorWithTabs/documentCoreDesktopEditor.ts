@@ -294,45 +294,6 @@ export interface DocumentGrammarConfiguration {
   readonly subscriptAndSuperscript: boolean
 }
 
-/** Builds the immutable parser profile from the current persisted grammar. */
-export function createDocumentParseConfiguration(
-  grammar: DocumentGrammarConfiguration
-): ParseConfiguration {
-  const keys: readonly (keyof DocumentGrammarConfiguration)[] = [
-    'gitLabMath',
-    'footnotes',
-    'subscriptAndSuperscript'
-  ]
-  for (const key of Object.keys(grammar)) {
-    if (!keys.includes(key as keyof DocumentGrammarConfiguration)) {
-      throw new TypeError(`Unknown document grammar option: ${key}`)
-    }
-  }
-  for (const key of keys) {
-    if (typeof grammar[key] !== 'boolean') {
-      throw new TypeError(`Invalid document grammar value for ${key}`)
-    }
-  }
-  return Object.freeze({
-    criticMarkupProfile: 'marktext-profile-1',
-    markdownProfile: 'markdown-profile-1',
-    markdownOptions: Object.freeze({
-      schema: 'markdown-options-1',
-      gfm: true,
-      frontMatter: true,
-      math: true,
-      gitLabMath: grammar.gitLabMath,
-      footnotes: grammar.footnotes,
-      subscriptAndSuperscript: grammar.subscriptAndSuperscript
-    }),
-    liveHtmlSafetyProfile: 'live-html-sanitized-v1',
-    executionBudget: Object.freeze({
-      limitsProfile: 'desktop-v1',
-      accountingSchema: 'syntax-accounting-1'
-    })
-  })
-}
-
 function assertDocumentHostConfiguration(
   configuration: DocumentHostConfiguration
 ): void {

@@ -7,6 +7,10 @@ import Watcher, {
   WATCHER_STABILITY_POLL_INTERVAL
 } from '../filesystem/watcher'
 import { onInternalChannel } from '../utils/internalIpc'
+import { renderSamplePreviewHtml } from '../documentCore/samplePreview'
+import {
+  createMainDocumentParseConfiguration
+} from '../documentCore/documentParseConfiguration'
 import type BaseWindow from '../windows/base'
 import type Preference from '../preferences'
 import {
@@ -123,6 +127,7 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
   private _windowActivity: WindowActivityList
   public editorBufferStore: EditorBufferStoreLike
   private _watcher: Watcher
+  private _preferences: Preference
 
   /**
    * @param appMenu The application menu instance.
@@ -142,6 +147,8 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
     this._windows = new Map()
     this._windowActivity = new WindowActivityList()
     this.editorBufferStore = editorBufferStore
+
+    this._preferences = preferences
 
     // TODO(need::refactor): Please see #1035.
     this._watcher = new Watcher(preferences)
@@ -431,6 +438,22 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
       isPandocAvailable: pandoc.exists,
       convertPandoc: convertDocumentImportBinary
     })
+    // Main owns every parse. The renderer hands over inert sample text and
+    // receives display HTML rendered under the shipping grammar.
+    ipcMain.handle(
+      'mt::preview::render-sample',
+      (_event, markdown: unknown) => {
+        const settings = this._preferences.getAll()
+        return renderSamplePreviewHtml(
+          typeof markdown === 'string' ? markdown : '',
+          createMainDocumentParseConfiguration({
+            footnotes: settings.footnotes === true,
+            gitLabMath: settings.gitLabMath === true,
+            subscriptAndSuperscript: settings.subscriptAndSuperscript === true
+          })
+        )
+      }
+    )
     ipcMain.handle(
       'mt::project::create',
       async(event, rawIntent: unknown) => {

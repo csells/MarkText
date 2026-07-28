@@ -135,6 +135,12 @@ import type { SessionCancelResult } from '@marktext/document-core'
 // =================================================================
 
 export interface IpcInvokeChannels {
+  // Main owns every parse. The renderer sends inert sample text and receives
+  // sanitized HTML; it never builds a configuration or opens a revision.
+  'mt::preview::render-sample': {
+    args: [markdown: string]
+    ret: string
+  }
   'mt::project::create': {
     args: [intent: ProjectCreateIntent]
     ret: ProjectCreateReceipt

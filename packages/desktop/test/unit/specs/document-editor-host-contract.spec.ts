@@ -5,6 +5,9 @@ import {
 } from '@marktext/document-core'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  createMainDocumentParseConfiguration as createDocumentParseConfiguration
+} from 'main_renderer/documentCore/documentParseConfiguration'
+import {
   createTestDocumentCoreSession
 } from '../../../../document-view/src/documentCore/__tests__/testDocumentCoreSession'
 import {
@@ -12,7 +15,6 @@ import {
 } from '../helpers/documentHostSession'
 import {
   createDocumentEditorHost,
-  createDocumentParseConfiguration,
   type DocumentHostOptions
 } from '@/components/editorWithTabs/documentCoreDesktopEditor'
 

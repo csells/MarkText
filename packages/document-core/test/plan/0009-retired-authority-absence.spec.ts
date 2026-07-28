@@ -84,6 +84,9 @@ function trackedFiles(): readonly string[] {
       .split('\0')
       .filter(Boolean)
       .filter((path) => !/\.(?:png|jpg|jpeg|gif|svg|ico|icns|woff2?|ttf|eot|pdf|zip|node)$/iu.test(path))
+      // A tracked file deleted in the worktree is already absent; the index
+      // catches up at the next commit.
+      .filter((path) => existsSync(resolve(REPO_ROOT, path)))
   )
 }
 
@@ -555,6 +558,27 @@ describe('plan 0009 retired authority deletion', () => {
 
     const staleExclusions = [...excluded].filter((path) => !tracked.has(path))
     expect(staleExclusions, 'exclusions name files that are no longer tracked').toEqual([])
+  })
+
+  it('keeps every parse authority out of the renderer', () => {
+    // Non-negotiable 7: main owns the session, and grammar configuration has
+    // exactly one construction site. A renderer that opens its own revision —
+    // for a preview, a theme sample, or anything else — is a second parse
+    // authority running under a configuration no settings produced.
+    const rendererFiles = hostProductionFiles().filter((path) =>
+      path.startsWith('packages/desktop/src/renderer/')
+    )
+    const authorities = rendererFiles.flatMap((path) => {
+      const source = readFileSync(resolve(REPO_ROOT, path), 'utf8')
+      return ['createLanguageEngine', 'createDocumentParseConfiguration']
+        .filter((symbol) => source.includes(symbol))
+        .map((symbol) => `${path}:${symbol}`)
+    })
+    expect(
+      authorities,
+      `The renderer builds no parse configuration and opens no revision.\n  ` +
+        authorities.join('\n  ')
+    ).toEqual([])
   })
 
   it('fails on any host recognizer of Markdown or CriticMarkup syntax', () => {

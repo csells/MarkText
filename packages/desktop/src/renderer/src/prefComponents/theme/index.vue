@@ -94,7 +94,6 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import themeMd from './theme.md?raw'
 import { themes as configThemes } from './config'
-import markdownToHtml from '@/util/markdownToHtml'
 import Bool from '../common/bool/index.vue'
 import CurSelect from '../common/select/index.vue'
 import Separator from '../common/separator/index.vue'
@@ -126,7 +125,10 @@ const themeOptions: PrefSelectOption<string>[] = configThemes.map((theme) => ({
 onMounted(async () => {
   const newThemes: ThemePreview[] = []
   for (const theme of configThemes) {
-    const html = await markdownToHtml(themeMd.replace(/{theme}/, theme.name))
+    const html = await window.electron.ipcRenderer.invoke(
+      'mt::preview::render-sample',
+      themeMd.replace(/{theme}/, theme.name)
+    )
     newThemes.push({
       name: theme.name,
       html
