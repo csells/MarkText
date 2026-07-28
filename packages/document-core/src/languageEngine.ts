@@ -41,20 +41,6 @@ import {
 import { applyExactSourceEdits } from './exactSourceEdits.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 
-export interface LanguageEngine {
-  open(
-    source: SourceSnapshot,
-    configuration: ParseConfiguration,
-    executionControl?: ParseExecutionControl
-  ): DocumentRevision
-  reopen(
-    previous: DocumentRevision,
-    source: SourceSnapshot,
-    edits: readonly LanguageEngineSourceEdit[],
-    executionControl?: ParseExecutionControl
-  ): DocumentRevision
-}
-
 type LanguageEngineChangedJoinInspection =
   | Readonly<{
     readonly kind: 'inspected'
@@ -67,6 +53,37 @@ type LanguageEngineChangedJoinInspection =
       { readonly kind: 'source-only' }
     >['fatalDiagnostic']
   }>
+
+export interface LanguageEngine {
+  open(
+    source: SourceSnapshot,
+    configuration: ParseConfiguration,
+    executionControl?: ParseExecutionControl
+  ): DocumentRevision
+  reopen(
+    previous: DocumentRevision,
+    source: SourceSnapshot,
+    edits: readonly LanguageEngineSourceEdit[],
+    executionControl?: ParseExecutionControl
+  ): DocumentRevision
+  /**
+   * Parser-owned recognition of which changed joins became CriticMarkup
+   * syntax. Declared here rather than reached through a side channel so
+   * syntax-decision ownership is derivable from the module graph.
+   */
+  inspectChangedCriticMarkerJoins(
+    source: SourceSnapshot,
+    configuration: ParseConfiguration,
+    joins: readonly number[],
+    executionControl?: ParseExecutionControl
+  ): LanguageEngineChangedJoinInspection
+  /**
+   * Allocate one internal stage on the engine's production execution stream,
+   * so session-owned work outside the parser exposes no second cancellation
+   * or progress authority.
+   */
+  nextExecutionStage(): ParseExecutionControl | undefined
+}
 
 export interface LanguageEngineSourceEdit {
   readonly start: number
@@ -427,18 +444,6 @@ function reuseCertifiedSimpleTextRevision(
   })
 }
 
-const defaultExecutionByEngine =
-  new WeakMap<LanguageEngine, ParseExecutionAccumulator>()
-const changedJoinInspectorByEngine = new WeakMap<
-  LanguageEngine,
-  (
-    source: SourceSnapshot,
-    configuration: ParseConfiguration,
-    joins: readonly number[],
-    executionControl?: ParseExecutionControl
-  ) => LanguageEngineChangedJoinInspection
->()
-
 /**
  * Allocate one internal stage on the engine's production execution stream.
  *
@@ -448,7 +453,7 @@ const changedJoinInspectorByEngine = new WeakMap<
 export function nextLanguageEngineExecutionStage(
   engine: LanguageEngine
 ): ParseExecutionControl | undefined {
-  return defaultExecutionByEngine.get(engine)?.stage()
+  return engine.nextExecutionStage()
 }
 
 /** Parser-owned transformation capability kept behind the engine seam. */
@@ -459,11 +464,12 @@ export function inspectLanguageEngineChangedCriticMarkerJoins(
   joins: readonly number[],
   executionControl?: ParseExecutionControl
 ): LanguageEngineChangedJoinInspection {
-  const inspector = changedJoinInspectorByEngine.get(engine)
-  if (inspector === undefined) {
-    throw new Error('Language engine has no changed-join inspection authority')
-  }
-  return inspector(source, configuration, joins, executionControl)
+  return engine.inspectChangedCriticMarkerJoins(
+    source,
+    configuration,
+    joins,
+    executionControl
+  )
 }
 
 function applyLanguageEngineSourceEdits(
@@ -632,6 +638,29 @@ export function createLanguageEngine(
     return revision
   }
   const engine: LanguageEngine = Object.freeze({
+    inspectChangedCriticMarkerJoins(
+      source: SourceSnapshot,
+      configuration: ParseConfiguration,
+      joins: readonly number[],
+      executionControl?: ParseExecutionControl
+    ): LanguageEngineChangedJoinInspection {
+      const execution = executionControl === undefined
+        ? defaultExecution
+        : createParseExecutionAccumulator(executionControl)
+      const stableSource = createSourceSnapshot(source.text)
+      const stableConfiguration =
+        validateAndFreezeParseConfiguration(configuration)
+      return inspectProfile1ChangedCriticMarkerJoins(
+        stableSource.text,
+        stableConfiguration.executionBudget,
+        stableConfiguration.markdownOptions,
+        joins,
+        execution?.stage()
+      )
+    },
+    nextExecutionStage(): ParseExecutionControl | undefined {
+      return defaultExecution?.stage()
+    },
     open(
       source: SourceSnapshot,
       configuration: ParseConfiguration,
@@ -667,27 +696,5 @@ export function createLanguageEngine(
       )
     }
   })
-  changedJoinInspectorByEngine.set(engine, Object.freeze((
-    source: SourceSnapshot,
-    configuration: ParseConfiguration,
-    joins: readonly number[],
-    executionControl?: ParseExecutionControl
-  ): LanguageEngineChangedJoinInspection => {
-    const execution = executionControl === undefined
-      ? defaultExecution
-      : createParseExecutionAccumulator(executionControl)
-    const stableSource = createSourceSnapshot(source.text)
-    const stableConfiguration = validateAndFreezeParseConfiguration(configuration)
-    return inspectProfile1ChangedCriticMarkerJoins(
-      stableSource.text,
-      stableConfiguration.executionBudget,
-      stableConfiguration.markdownOptions,
-      joins,
-      execution?.stage()
-    )
-  }))
-  if (defaultExecution !== undefined) {
-    defaultExecutionByEngine.set(engine, defaultExecution)
-  }
   return engine
 }
