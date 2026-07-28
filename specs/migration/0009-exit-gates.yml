@@ -298,7 +298,7 @@
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/plan/0009-final-closure.spec.ts",
-        "title": "collects every acceptance primary and auxiliary target as an ordinary passing test"
+        "title": "collects every acceptance primary and auxiliary target as one ordinary unskipped test"
       }
     },
     {

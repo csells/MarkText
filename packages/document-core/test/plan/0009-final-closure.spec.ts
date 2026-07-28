@@ -924,6 +924,9 @@ describe('plan 0009 final closure', () => {
   })
 
   it('proves every acceptance closure deletion and evidence claim', () => {
+    // Collection, not passing: this proves every named target is a real,
+    // ordinarily collected, unskipped test. Whether it passes is proved by the
+    // run reports the collector ingests, never by parsing the file.
     const acceptance = readJson<AcceptanceManifest>(resolve(MIGRATION_ROOT, '0009-acceptance.yml'))
     const exits = readJson<ExitManifest>(resolve(MIGRATION_ROOT, '0009-exit-gates.yml'))
     expect(acceptance.acceptance.every((row) => row.status === 'green')).toBe(true)
@@ -932,7 +935,7 @@ describe('plan 0009 final closure', () => {
     expect(evidence().schema).toBe('marktext-0009-candidate-evidence-v8')
   })
 
-  it('collects every acceptance primary and auxiliary target as an ordinary passing test', () => {
+  it('collects every acceptance primary and auxiliary target as one ordinary unskipped test', () => {
     const acceptance = readJson<AcceptanceManifest>(resolve(MIGRATION_ROOT, '0009-acceptance.yml'))
     // The manifest owns the roster; this target collects whatever it names,
     // so binding a new claim to a row cannot silently escape collection.

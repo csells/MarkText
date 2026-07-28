@@ -416,12 +416,16 @@ whose assertion cannot distinguish pass from fail.
 - **G18 Over-budget depth semantics are misimplemented.** The implementation and
   the A11 row lose semantics document-wide one level past the section 3
   CriticMarkup depth limit instead of degrading to literal text. The bound is
-  accepted-node depth, enforced when a frame closes: a frame past the limit
-  emits its markers as literal text rather than becoming a node, and an opener
-  that never closes is already literal by R2 and is charged nothing. Bounding
-  open frames instead would charge unterminated openers and overturn the
-  existing ruling that they cost no depth; runaway openers are bounded by the
-  `BudgetEvent` limit, not this one. Align the implementation and retitle A11.
+  accepted-node depth: an opener that never closes nests nothing and is charged
+  nothing, and runaway openers are bounded by the `BudgetEvent` limit instead.
+  Enforcing that at close by counting the open-frame stack is **not** equivalent
+  and was tried and reverted: a document whose accepted depth is 1 can hold
+  thousands of open frames, because a frame that never closes still sits on the
+  stack, so frame counting degrades a node whose accepted ancestry is shallow.
+  Accepted depth is only knowable once the parse completes, so closure needs
+  either a post-parse pass that rewrites too-deep nodes to literal text or a
+  confirmed-ancestor count maintained during the parse. Align the
+  implementation, then retitle A11.
 - **G19 Consumer policy declares what production routes around.** Four exported
   entry points have no production caller
   (`materialize/consumerPolicy.ts:247`, `:821`, `:1075`, `:1220`) while
