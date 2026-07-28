@@ -655,6 +655,20 @@ its manifest target, requirements, and dependencies are green.
 Exact commands and counts belong in test output and the evidence bundle, not a
 progress diary.
 
+Eight named acceptance targets fail on this branch, which no phase status
+records. Running the fifteen Electron targets the manifests name — excluding the
+two installed targets and the maximum-document measurement — leaves these red:
+A07 view and Source persistence, A17 Comment CRUD, A18 Add Comment persistence,
+A19 Comment gestures, A20 passive selection, A22 Review navigation, A28 hostile
+sinks, and the P8 phase target. A08 was a ninth until its stale assertion was
+repaired.
+
+P0 promises every target is ordinarily collected and enabled; collected is not
+passing, and the distance between them is a third of the acceptance surface.
+Diagnosing each is prerequisite work for W3: G9 cannot prove a target two-sided
+while its baseline is red, which is the same defect G10 fixed in the
+supply-chain proof.
+
 P11 is **UNPROVEN** until the frozen tree passes its section 6 outcome against
 the unchanged section 3 budgets.
 
