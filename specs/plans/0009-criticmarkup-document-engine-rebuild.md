@@ -585,25 +585,28 @@ its manifest target, requirements, and dependencies are green.
 Exact commands and counts belong in test output and the evidence bundle, not a
 progress diary.
 
-Eight named acceptance targets fail on this branch, which no phase status
-records. Running the fifteen Electron targets the manifests name — excluding the
-two installed targets and the maximum-document measurement — leaves these red:
+Eight named acceptance targets fail, which is why their rows and phases are red.
+Running the fifteen Electron targets the manifests name — excluding the two
+installed targets and the maximum-document measurement — leaves these failing:
 A07 view and Source persistence, A17 Comment CRUD, A18 Add Comment persistence,
 A19 Comment gestures, A20 passive selection, A22 Review navigation, A28 hostile
-sinks, and the P8 phase target. A08 was a ninth until its stale assertion was
-repaired.
+sinks, and the P8 phase target.
 
-P0 promises every target is ordinarily collected and enabled; collected is not
-passing, and the distance between them is a third of the acceptance surface.
-A08's cause was a stale assertion against correct behavior, so each of the eight
-needs product-versus-target decided on evidence rather than assumed. A07 is
-diagnosed and is not stale: after enabling autosave and typing, the canonical
-head carries the typed text and the file on disk does not, while `autoSaveDelay`
-defaults to 5,000 ms against a 10,000 ms poll — so the autosave transaction is
-not writing, and this is a persistence defect rather than a timing shortfall.
-Diagnosing each is prerequisite work for W3: G9 cannot prove a target two-sided
-while its baseline is red — the same defect the supply-chain proof carried until
-its fixture was made to satisfy the un-mutated validator.
+A red row says a target does not pass; it does not say whether the product or
+the target is wrong, and the two diagnosed so far differ. A08 was a stale
+assertion expecting a machine token that A26 forbids rendering, so the product
+was right and the target had not followed; it is repaired and passing. A07 is
+the other kind: with autosave enabled and text typed, the canonical head carries
+the typed text and the file on disk does not, while `autoSaveDelay` defaults to
+5,000 ms against a 10,000 ms poll — a persistence defect, not a timing
+shortfall. The remaining six are undiagnosed, and that is prerequisite work for
+W3: G9 cannot prove a target two-sided while its own baseline fails.
+
+One closure target overstates itself. D07's title says it collects every
+acceptance target "as an ordinary passing test", but its check parses the file
+to confirm the titled test exists and is unskipped without ever running it.
+Present and unskipped is not passing, which is the assertion-presence defect this
+plan condemns, sitting in the closure gate. Its title or its check must change.
 
 P11 is **UNPROVEN** until the frozen tree passes its section 6 outcome against
 the unchanged section 3 budgets.
