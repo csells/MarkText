@@ -665,6 +665,12 @@ repaired.
 
 P0 promises every target is ordinarily collected and enabled; collected is not
 passing, and the distance between them is a third of the acceptance surface.
+A08's cause was a stale assertion against correct behavior, so each of the eight
+needs product-versus-target decided on evidence rather than assumed. A07 is
+diagnosed and is not stale: after enabling autosave and typing, the canonical
+head carries the typed text and the file on disk does not, while `autoSaveDelay`
+defaults to 5,000 ms against a 10,000 ms poll — so the autosave transaction is
+not writing, and this is a persistence defect rather than a timing shortfall.
 Diagnosing each is prerequisite work for W3: G9 cannot prove a target two-sided
 while its baseline is red, which is the same defect G10 fixed in the
 supply-chain proof.
