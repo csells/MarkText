@@ -965,6 +965,7 @@
       "languageMissing": "Idioma del corrector ortográfico faltante {languageCode}",
       "switchError": "Error del corrector ortográfico para {languageCode}, {error}",
       "title": "Corrector ortográfico"
-    }
+    },
+    "commandUnavailableHere": "Ese comando no está disponible en esta vista. Salga del modo de código fuente e inténtelo de nuevo."
   }
 }

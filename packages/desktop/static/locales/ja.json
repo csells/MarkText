@@ -965,6 +965,7 @@
       "languageMissing": "スペルチェック言語 {languageCode} が見つかりません",
       "switchError": "{languageCode} のスペルチェック切り替えエラー: {error}",
       "title": "スペルチェック"
-    }
+    },
+    "commandUnavailableHere": "このコマンドはこのビューでは使用できません。ソースモードを終了してからもう一度お試しください。"
   }
 }

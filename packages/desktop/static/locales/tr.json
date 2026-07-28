@@ -965,6 +965,7 @@
       "languageMissing": "Yazım denetimi dili eksik {languageCode}",
       "switchError": "{languageCode} için yazım denetimi değiştirme hatası, {error}",
       "title": "Yazım Denetimi"
-    }
+    },
+    "commandUnavailableHere": "Bu komut bu görünümde kullanılamıyor. Kaynak modundan çıkıp yeniden deneyin."
   }
 }

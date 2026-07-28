@@ -965,6 +965,7 @@
       "languageMissing": "맞춤법 검사 언어 {languageCode}이(가) 없습니다",
       "switchError": "{languageCode} 맞춤법 검사 전환 오류: {error}",
       "title": "맞춤법 검사"
-    }
+    },
+    "commandUnavailableHere": "이 명령은 현재 보기에서 사용할 수 없습니다. 소스 모드를 종료한 후 다시 시도하세요."
   }
 }

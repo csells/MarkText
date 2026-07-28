@@ -965,6 +965,7 @@
       "errorSwitchingLanguage": "切换拼写检查语言 {languageCode} 时出错",
       "languageMissing": "拼写检查语言缺失：{languageCode}",
       "switchError": "拼写检查语言 {languageCode} 切换错误：{error}"
-    }
+    },
+    "commandUnavailableHere": "此命令在当前视图中不可用。请退出源代码模式后重试。"
   }
 }

@@ -136,6 +136,7 @@ import type { FlushActiveEditorRequest } from '@/store/editor'
 import { setLanguage as ensureDesktopLocale } from '@/i18n'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
+import { presentSurfaceCommandOutcome } from './surfaceCommandOutcome'
 import { type CriticMarkupTextRequest } from './criticMarkupReview'
 import CriticMarkupPromptDialog from './CriticMarkupPromptDialog.vue'
 import { useCriticMarkupReviewController } from './useCriticMarkupReviewController'
@@ -717,6 +718,7 @@ const replaceMisspelling = (payload: unknown) => {
 
 const handleUndo = () => {
   if (sourceCode.value) {
+    // The native source input owns undo, redo, and select-all in Source mode.
     return
   }
 
@@ -727,6 +729,7 @@ const handleUndo = () => {
 
 const handleRedo = () => {
   if (sourceCode.value) {
+    // The native source input owns undo, redo, and select-all in Source mode.
     return
   }
 
@@ -737,6 +740,7 @@ const handleRedo = () => {
 
 const handleSelectAll = () => {
   if (sourceCode.value) {
+    // The native source input owns undo, redo, and select-all in Source mode.
     return
   }
 
@@ -1178,12 +1182,27 @@ const publishDocumentClipboardMenuState = (hasSelection: boolean): void => {
   )
 }
 
+// Non-negotiable 10: these commands act on the semantic surface, so they are
+// impossible in Source mode. Rejecting visibly is what distinguishes
+// "cannot run here" from "ran and did nothing".
+const rejectUnavailableInSource = (): void => {
+  const tabId = currentFile.value?.id
+  if (typeof tabId !== 'string') return
+  presentSurfaceCommandOutcome(
+    { kind: 'unavailable-in-surface', surface: 'source' },
+    tabId,
+    editorStore,
+    t
+  )
+}
+
 const handleEditParagraph = (value: unknown) => {
   const action = decodeParagraphDocumentAction(value)
-  // These commands act on the semantic view, so block them in Source mode
-  // (mirrors handleUndo/handleSelectAll) — otherwise the Insert Table wizard
-  // could target the hidden surface (#3531).
+  // These commands act on the semantic view, so they are impossible in Source
+  // mode — otherwise the Insert Table wizard could target the hidden surface
+  // (#3531). They reject visibly rather than returning silently.
   if (sourceCode.value) {
+    rejectUnavailableInSource()
     return
   }
   if (action.kind === 'request-table') {
@@ -1212,6 +1231,7 @@ const handleEditParagraph = (value: unknown) => {
 const handleParagraph = (type: unknown) => {
   const action = decodeParagraphAction(type)
   if (sourceCode.value) {
+    rejectUnavailableInSource()
     return
   }
   const targetEditor = editor.value
@@ -1236,6 +1256,7 @@ const handleInlineFormat = (type: unknown) => {
     throw new TypeError('Inline format commands require a string type.')
   }
   if (sourceCode.value) {
+    rejectUnavailableInSource()
     return
   }
   const targetEditor = editor.value

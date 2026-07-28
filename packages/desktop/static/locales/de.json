@@ -965,6 +965,7 @@
       "languageMissing": "Rechtschreibprüfungssprache fehlt {languageCode}",
       "switchError": "Rechtschreibprüfung-Wechselfehler für {languageCode}, {error}",
       "title": "Rechtschreibprüfung"
-    }
+    },
+    "commandUnavailableHere": "Dieser Befehl ist in dieser Ansicht nicht verfügbar. Verlassen Sie den Quelltextmodus und versuchen Sie es erneut."
   }
 }

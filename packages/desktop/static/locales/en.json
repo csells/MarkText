@@ -965,6 +965,7 @@
       "languageMissing": "Spellcheck language missing {languageCode}",
       "switchError": "Spellcheck switch error for {languageCode}, {error}",
       "title": "Spellcheck"
-    }
+    },
+    "commandUnavailableHere": "That command is not available in this view. Switch out of Source mode and try again."
   }
 }

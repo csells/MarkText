@@ -965,6 +965,7 @@
       "languageMissing": "Langue de vérification orthographique manquante : {languageCode}",
       "switchError": "Erreur de changement de vérification orthographique pour {languageCode} : {error}",
       "title": "Vérification orthographique"
-    }
+    },
+    "commandUnavailableHere": "Cette commande n’est pas disponible dans cette vue. Quittez le mode source puis réessayez."
   }
 }

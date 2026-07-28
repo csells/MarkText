@@ -965,6 +965,7 @@
       "languageMissing": "拼字檢查語言遺失：{languageCode}",
       "switchError": "拼字檢查語言 {languageCode} 切換錯誤：{error}",
       "title": "拼字檢查"
-    }
+    },
+    "commandUnavailableHere": "此命令在目前檢視中無法使用。請離開原始碼模式後再試一次。"
   }
 }

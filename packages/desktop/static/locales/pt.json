@@ -965,6 +965,7 @@
       "languageMissing": "Idioma da verificação ortográfica não encontrado: {languageCode}",
       "switchError": "Erro ao trocar a verificação ortográfica para {languageCode}: {error}",
       "title": "Verificação Ortográfica"
-    }
+    },
+    "commandUnavailableHere": "Esse comando não está disponível nesta visualização. Saia do modo de código-fonte e tente novamente."
   }
 }
