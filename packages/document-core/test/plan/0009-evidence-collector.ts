@@ -607,6 +607,24 @@ export function validate0009EvidenceSupplyChain(
       'Plan 0009 executable supply-chain must authenticate native headers before local rebuild'
     )
   }
+  // electron-builder runs its own native rebuild unless told not to, which
+  // would reach the network outside the authenticated header path above.
+  // Requiring the setting semantically — not merely that the file mentions it —
+  // is what makes deleting or flipping the line detectable.
+  const builderConfiguration = evidenceControlText(
+    repoRoot,
+    'packages/desktop/electron-builder.yml',
+    candidateCommit
+  )
+  const npmRebuildSettings = [
+    ...builderConfiguration.matchAll(/^\s*npmRebuild\s*:\s*(\S+)\s*$/gmu)
+  ].map((match) => match[1])
+  if (npmRebuildSettings.length !== 1 || npmRebuildSettings[0] !== 'false') {
+    throw new Error(
+      'Plan 0009 executable supply-chain must forbid an electron-builder native rebuild'
+    )
+  }
+
   const desktopScripts = desktopManifest.scripts ?? {}
   const nativeBuildScriptTargets = Object.freeze({
     'build:mac:x64': 'runElectronRebuild.mts --target-platform=darwin --target-arch=x64',
@@ -643,9 +661,18 @@ export function validate0009EvidenceSupplyChain(
     "COREPACK_ENABLE_STRICT: '1'",
     'spawn(process.execPath, [corepackCliPath, ...arguments_]'
   ] as const
+  // The collector names the pinned launcher twice: once as the executed
+  // argument and once in this guard. Substring presence alone is satisfied by
+  // the guard's own copy, so a mutation of the call site would pass unseen.
+  // Bind the executed argument by its exact construction instead.
+  const pinnedCorepackInvocation = [
+    '    process.execPath,',
+    "    resolve(repoRoot, 'scripts/runPinnedCorepack.mjs'),",
+    '    contentAddressedPnpm(pnpm),'
+  ].join('\n')
   if (
     pinnedCorepackFragments.some((fragment) => !pinnedCorepack.includes(fragment)) ||
-    !collector.includes("resolve(repoRoot, 'scripts/runPinnedCorepack.mjs')") ||
+    !collector.includes(pinnedCorepackInvocation) ||
     collector.includes("'corepack',\n      contentAddressedPnpm")
   ) {
     throw new Error(

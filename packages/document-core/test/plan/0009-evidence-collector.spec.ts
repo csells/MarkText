@@ -194,7 +194,13 @@ function initializeEvidenceRepository(): string {
   )
   for (const path of CRITICAL_EVIDENCE_CONTROL_FILES) {
     if (path === '.gitignore') continue
-    let content = `fixture for ${path}\n`
+    // Default to the candidate's own bytes. A placeholder here would make the
+    // un-mutated fixture fail the validator, and every mutation row would then
+    // pass for a reason it never states.
+    const sourcePath = resolve(sourceRoot, path)
+    let content = existsSync(sourcePath)
+      ? readFileSync(sourcePath, 'utf8')
+      : `fixture for ${path}\n`
     if (path === 'package.json') {
       content = JSON.stringify({
         packageManager: PINNED_PNPM_PACKAGE_MANAGER,
@@ -865,6 +871,23 @@ describe('plan 0009 evidence collector', () => {
   it('rejects executable supply-chain mutations from the committed candidate', () => {
     const repoRoot = resolve(import.meta.dirname, '../../../..')
     expect(() => validate0009EvidenceSupplyChain(repoRoot)).not.toThrow()
+
+    // A mutation row proves detection only if the fixture it mutates passes
+    // its own baseline. Otherwise every row throws for a reason the row never
+    // states, and the loop is green whether or not the exploit is caught.
+    const baseline = initializeEvidenceRepository()
+    try {
+      const baselineCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: baseline,
+        encoding: 'utf8'
+      }).trim()
+      expect(
+        () => validate0009EvidenceSupplyChain(baseline, baselineCommit),
+        'un-mutated evidence fixture must satisfy the production validator'
+      ).not.toThrow()
+    } finally {
+      rmSync(baseline, { recursive: true, force: true })
+    }
 
     const mutations = [
       ['dynamic apt', '.github/workflows/document-core-platform.yml', (source: string) => source.replace(
