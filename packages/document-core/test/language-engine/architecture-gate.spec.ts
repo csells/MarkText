@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   createLanguageEngine,
@@ -82,6 +86,45 @@ const authoritativeInputs = (
   )
 
 describe('Phase 0 intrinsic-parser architecture gate', () => {
+  // Ownership derived from the module graph, not from the parser's own
+  // report. A gate that reads a vocabulary the parser emits about itself
+  // cannot see a second authority that declines to report; the import graph
+  // can. The grammar's parse entry points are reachable from exactly one
+  // module, the engine seam.
+  it('derives single syntax-decision ownership from the module graph', () => {
+    const packageRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../..'
+    )
+    const sources = execFileSync(
+      'rg',
+      ['--files', 'src', '-g', '*.ts'],
+      { cwd: packageRoot, encoding: 'utf8' }
+    )
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+
+    const GRAMMAR_ENTRY_POINTS = [
+      'parseProfile1Document',
+      'inspectProfile1ChangedCriticMarkerJoins'
+    ]
+    const GRAMMAR_MODULE = 'src/internal/profile1Document.ts'
+    const ENGINE_SEAM = 'src/languageEngine.ts'
+
+    const importers = sources.filter((path) => {
+      if (path === GRAMMAR_MODULE) return false
+      const source = readFileSync(resolve(packageRoot, path), 'utf8')
+      return GRAMMAR_ENTRY_POINTS.some((entry) => source.includes(entry))
+    })
+
+    expect(
+      importers,
+      'Only the engine seam may reach the grammar; every other reference is a ' +
+        'second syntax-decision authority.'
+    ).toEqual([ENGINE_SEAM])
+  })
+
   it('all revision products retain parser-created identity', () => {
     const source =
       'A{++new++}{--old--}{~~before~>after~~}{==focus==}' +
