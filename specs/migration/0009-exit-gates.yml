@@ -16,8 +16,13 @@
     {
       "id": "P0.5",
       "status": "red",
-      "dependsOn": ["P0"],
-      "requirements": ["A01", "D03"],
+      "dependsOn": [
+        "P0"
+      ],
+      "requirements": [
+        "A01",
+        "D03"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/architecture-gate.spec.ts",
@@ -27,8 +32,13 @@
     {
       "id": "P1",
       "status": "red",
-      "dependsOn": ["P0.5"],
-      "requirements": ["A05", "D02"],
+      "dependsOn": [
+        "P0.5"
+      ],
+      "requirements": [
+        "A05",
+        "D02"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/full-profile-conformance.spec.ts",
@@ -38,8 +48,15 @@
     {
       "id": "P2",
       "status": "red",
-      "dependsOn": ["P1"],
-      "requirements": ["A02", "A03", "A10", "A13"],
+      "dependsOn": [
+        "P1"
+      ],
+      "requirements": [
+        "A02",
+        "A03",
+        "A10",
+        "A13"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/profile1-corpus.spec.ts",
@@ -49,8 +66,13 @@
     {
       "id": "P3",
       "status": "red",
-      "dependsOn": ["P2"],
-      "requirements": ["A04", "A14"],
+      "dependsOn": [
+        "P2"
+      ],
+      "requirements": [
+        "A04",
+        "A14"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/document-session/semantic-edit-codec.spec.ts",
@@ -60,8 +82,13 @@
     {
       "id": "P4",
       "status": "red",
-      "dependsOn": ["P3"],
-      "requirements": ["A09", "A25"],
+      "dependsOn": [
+        "P3"
+      ],
+      "requirements": [
+        "A09",
+        "A25"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-real-flow.spec.ts",
@@ -71,8 +98,12 @@
     {
       "id": "P5",
       "status": "red",
-      "dependsOn": ["P4"],
-      "requirements": ["A11"],
+      "dependsOn": [
+        "P4"
+      ],
+      "requirements": [
+        "A11"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/cross-consumer-resource-matrix.spec.ts",
@@ -82,8 +113,16 @@
     {
       "id": "P6",
       "status": "red",
-      "dependsOn": ["P5"],
-      "requirements": ["A06", "A07", "A18", "A28"],
+      "dependsOn": [
+        "P5"
+      ],
+      "requirements": [
+        "A06",
+        "A07",
+        "A18",
+        "A28",
+        "A33"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-persistence.spec.ts",
@@ -93,8 +132,16 @@
     {
       "id": "P7",
       "status": "red",
-      "dependsOn": ["P6"],
-      "requirements": ["A08", "A12", "A27", "D04", "D05"],
+      "dependsOn": [
+        "P6"
+      ],
+      "requirements": [
+        "A08",
+        "A12",
+        "A27",
+        "D04",
+        "D05"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-track-changes.spec.ts",
@@ -104,7 +151,9 @@
     {
       "id": "P8",
       "status": "red",
-      "dependsOn": ["P7"],
+      "dependsOn": [
+        "P7"
+      ],
       "requirements": [
         "A15",
         "A16",
@@ -115,7 +164,8 @@
         "A22",
         "A23",
         "A24",
-        "A26"
+        "A26",
+        "A34"
       ],
       "target": {
         "kind": "test",
@@ -126,8 +176,13 @@
     {
       "id": "P9",
       "status": "red",
-      "dependsOn": ["P8"],
-      "requirements": ["D01", "D06"],
+      "dependsOn": [
+        "P8"
+      ],
+      "requirements": [
+        "D01",
+        "D06"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/plan/0009-retired-authority-absence.spec.ts",
@@ -137,8 +192,12 @@
     {
       "id": "P11",
       "status": "red",
-      "dependsOn": ["P9"],
-      "requirements": ["A29"],
+      "dependsOn": [
+        "P9"
+      ],
+      "requirements": [
+        "A29"
+      ],
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-max-document-perf.spec.ts",
@@ -148,7 +207,10 @@
     {
       "id": "P10",
       "status": "red",
-      "dependsOn": ["P9", "P11"],
+      "dependsOn": [
+        "P9",
+        "P11"
+      ],
       "requirements": [
         "A30",
         "A31",
@@ -234,7 +296,7 @@
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/plan/0009-final-closure.spec.ts",
-        "title": "collects every A01 through A32 primary and auxiliary target as an ordinary passing test"
+        "title": "collects every acceptance primary and auxiliary target as an ordinary passing test"
       }
     },
     {

@@ -360,6 +360,28 @@
         "path": ".github/workflows/document-core-platform.yml",
         "title": "builds and exercises Review on macOS Windows and Linux"
       }
+    },
+    {
+      "id": "A33",
+      "requirement": "Image write authority",
+      "phase": "P6",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/unit/specs/image-asset-mutation-authority.spec.ts",
+        "title": "does not let the image ingestion request carry any destination field"
+      }
+    },
+    {
+      "id": "A34",
+      "requirement": "Accessibility",
+      "phase": "P8",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/unit/specs/image-viewer-accessibility.spec.ts",
+        "title": "acts as a labelled modal, traps Tab, closes on Escape, and restores its opener"
+      }
     }
   ]
 }

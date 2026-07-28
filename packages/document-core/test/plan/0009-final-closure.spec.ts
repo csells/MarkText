@@ -932,11 +932,15 @@ describe('plan 0009 final closure', () => {
     expect(evidence().schema).toBe('marktext-0009-candidate-evidence-v8')
   })
 
-  it('collects every A01 through A32 primary and auxiliary target as an ordinary passing test', () => {
+  it('collects every acceptance primary and auxiliary target as an ordinary passing test', () => {
     const acceptance = readJson<AcceptanceManifest>(resolve(MIGRATION_ROOT, '0009-acceptance.yml'))
-    expect(acceptance.acceptance.map((row) => row.id)).toEqual(
-      Array.from({ length: 32 }, (_, index) => `A${String(index + 1).padStart(2, '0')}`)
+    // The manifest owns the roster; this target collects whatever it names,
+    // so binding a new claim to a row cannot silently escape collection.
+    const ids = acceptance.acceptance.map((row) => row.id)
+    expect(ids).toEqual(
+      Array.from({ length: ids.length }, (_, index) => `A${String(index + 1).padStart(2, '0')}`)
     )
+    expect(ids.length).toBeGreaterThanOrEqual(32)
     for (const row of acceptance.acceptance) {
       for (const target of [row.target, ...(row.auxiliaryTargets ?? [])]) {
         expect(collectedOrdinaryTest(target), `${row.id}: ${target.path}`).toBe(true)

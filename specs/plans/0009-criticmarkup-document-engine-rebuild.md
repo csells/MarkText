@@ -436,15 +436,15 @@ named target whose assertion cannot distinguish pass from fail.
   The A10 recovery corpus is four single-line cases and cannot prove “nested
   block and literal contexts,” and the MMD-6 differential and Fevol lexical
   suites the language authority makes mandatory have no target.
-- **G16 Closed claims with no manifest row.** No A or D row names
-  accessibility, image handling, or per-Profile-1-kind exactness across the six
-  sinks; `consumer-policy.yml` is a view × consumer matrix, not a per-kind
-  exactness matrix. The image write path is main-derived and proved — the write
-  root comes from main-owned settings plus the main-resolved document path
-  (`packages/desktop/src/main/imageAssets/imageAssetService.ts:343-409`), the
-  filename is a content hash (`:609-612`), and
-  `packages/desktop/test/unit/specs/image-asset-mutation-authority.spec.ts:39`
-  proves the request carries no destination field — but no row binds that proof.
+- **G16 Per-kind sink exactness has no manifest row.** Image handling and
+  accessibility are bound: A33 names the proof that the ingestion request
+  carries no destination field, so the write root stays main-derived from
+  main-owned settings plus the main-resolved document path
+  (`packages/desktop/src/main/imageAssets/imageAssetService.ts:343-409`), and
+  A34 names the modal-behavior proof. Per-Profile-1-kind exactness across the
+  six sinks still has none: `consumer-policy.yml` is a view × consumer matrix,
+  not a per-kind exactness matrix, so section 8's exactness claim rests on no
+  target. That matrix is this gap's remaining work.
 - **G17 The configuration is not closed, and tests can select a configuration
   production cannot.** The decoder accepts `live-html-escaped-v1`, which
   branches no behavior yet changes the semantic hash, and `test-unbounded`,
