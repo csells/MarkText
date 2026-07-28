@@ -432,10 +432,13 @@ named target whose assertion cannot distinguish pass from fail.
   admits no pending exclusion, both under the shipping profile. GFM is still
   bound only as 24 curated examples, so a GFM regression turns nothing red.
   Closure needs a pinned GFM corpus gated the way A35 and A36 gate CommonMark.
-- **G15 Frozen corpora are narrower than the requirements they are named for.**
-  The A10 recovery corpus is four single-line cases and cannot prove “nested
-  block and literal contexts,” and the MMD-6 differential and Fevol lexical
-  suites the language authority makes mandatory have no target.
+- **G15 Two mandatory conformance suites have no target.** The A10 recovery
+  corpus now proves the scope its requirement names: nine frozen cases covering
+  a fenced block, inline code, and a fence inside a list item owning
+  marker-looking text, plus unterminated openers spanning a blank line and
+  inside a blockquote. The MMD-6 differential and Fevol lexical suites the
+  language authority makes mandatory still have no target anywhere, so a
+  conforming-implementation claim rests on corpora the plan never runs.
 - **G16 Per-kind sink exactness has no manifest row.** Image handling and
   accessibility are bound: A33 names the proof that the ingestion request
   carries no destination field, so the write root stays main-derived from

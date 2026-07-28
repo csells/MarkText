@@ -12,7 +12,9 @@
       "criticKindsPreorder": [],
       "originalSource": "before {++open",
       "revisedSource": "before {++open",
-      "diagnosticCodes": ["CM_UNTERMINATED_OPENER"]
+      "diagnosticCodes": [
+        "CM_UNTERMINATED_OPENER"
+      ]
     },
     {
       "id": "MFR-UNMATCHED-CLOSERS",
@@ -32,8 +34,12 @@
     {
       "id": "MFR-NON-TOP-CLOSER",
       "source": "{++a{--b++}c--}",
-      "rootKinds": ["deletion"],
-      "criticKindsPreorder": ["deletion"],
+      "rootKinds": [
+        "deletion"
+      ],
+      "criticKindsPreorder": [
+        "deletion"
+      ],
       "originalSource": "{++ab++\\}c",
       "revisedSource": "{++a",
       "diagnosticCodes": [
@@ -44,11 +50,66 @@
     {
       "id": "MFR-SUBSTITUTION-SEPARATOR-MISSING",
       "source": "{~~a{++b++}~~}",
-      "rootKinds": ["addition"],
-      "criticKindsPreorder": ["addition"],
+      "rootKinds": [
+        "addition"
+      ],
+      "criticKindsPreorder": [
+        "addition"
+      ],
       "originalSource": "{~~a~~}",
       "revisedSource": "{~~ab~~}",
-      "diagnosticCodes": ["CM_SUBSTITUTION_SEPARATOR_MISSING"]
+      "diagnosticCodes": [
+        "CM_SUBSTITUTION_SEPARATOR_MISSING"
+      ]
+    },
+    {
+      "id": "MFR-LITERAL-FENCE-OWNS-OPENER",
+      "source": "```\n{++open\n```\n",
+      "rootKinds": [],
+      "criticKindsPreorder": [],
+      "originalSource": "```\n{++open\n```\n",
+      "revisedSource": "```\n{++open\n```\n",
+      "diagnosticCodes": []
+    },
+    {
+      "id": "MFR-LITERAL-INLINE-CODE-OWNS-CLOSER",
+      "source": "a `++}` b\n",
+      "rootKinds": [],
+      "criticKindsPreorder": [],
+      "originalSource": "a `++}` b\n",
+      "revisedSource": "a `++}` b\n",
+      "diagnosticCodes": []
+    },
+    {
+      "id": "MFR-UNTERMINATED-OPENER-ACROSS-BLOCKS",
+      "source": "before {++open\n\nnext paragraph\n",
+      "rootKinds": [],
+      "criticKindsPreorder": [],
+      "originalSource": "before {++open\n\nnext paragraph\n",
+      "revisedSource": "before {++open\n\nnext paragraph\n",
+      "diagnosticCodes": [
+        "CM_UNTERMINATED_OPENER"
+      ]
+    },
+    {
+      "id": "MFR-UNTERMINATED-OPENER-IN-BLOCKQUOTE",
+      "source": "> before {++open\n",
+      "rootKinds": [],
+      "criticKindsPreorder": [],
+      "originalSource": "> before {++open\n",
+      "revisedSource": "> before {++open\n",
+      "diagnosticCodes": [
+        "CM_UNTERMINATED_OPENER"
+      ]
+    },
+    {
+      "id": "MFR-LITERAL-FENCE-INSIDE-LIST-ITEM",
+      "source": "- item\n\n  ```\n  {--gone\n  ```\n",
+      "rootKinds": [],
+      "criticKindsPreorder": [],
+      "originalSource": "- item\n\n  ```\n  {--gone\n  ```\n",
+      "revisedSource": "- item\n\n  ```\n  {--gone\n  ```\n",
+      "diagnosticCodes": []
     }
   ]
 }
