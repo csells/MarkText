@@ -48,7 +48,7 @@ Today's shape does **not** foreclose the Wagner & Graham balanced sequence:
   constructor site.** `nodeAt`'s per-level linear scan is acceptable now; the O(lg N) lookup
   falls out of the storage swap (do not add a side index meanwhile).
 - The true W&G-critical internal sequence is `PlainMarkdownLaneParse.lines` (absolute-offset
-  line records; the ADR-0013 reuse path splices it, `shiftPlainMarkdownLane` rebuilds it) —
+  line records that the ADR-0013 reuse path splices) —
   marked in source as the Phase 5/11 replacement site; `lines` must not leak out of
   `internal/profile1`.
 - Public array-ness leaks to close while the package has no external consumers:

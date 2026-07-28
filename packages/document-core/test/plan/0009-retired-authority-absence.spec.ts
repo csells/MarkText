@@ -63,28 +63,33 @@ function rows(): readonly RetiredAuthorityRow[] {
   )
 }
 
-function authoritySurfaceFiles(): readonly string[] {
-  const output = execFileSync(
-    'rg',
-    [
-      '--files',
-      'packages',
-      'scripts',
-      '.github',
-      'package.json',
-      'pnpm-workspace.yaml',
-      '-g',
-      '*.{ts,tsx,vue,js,mjs,cjs,css,scss,json,yml,yaml,toml,md,html,txt}',
-      '-g',
-      '!packages/website/content/docs/**',
-      '-g',
-      '!packages/document-core/test/plan/0009-control-plane.spec.ts',
-      '-g',
-      '!packages/document-core/test/plan/0009-retired-authority-absence.spec.ts'
-    ],
-    { cwd: REPO_ROOT, encoding: 'utf8' }
+// Files the absence inventory deliberately does not sweep. This plan and the
+// two specs that carry the inventory must name retired symbols in order to
+// order their deletion; binary assets hold no readable symbols.
+const EXCLUDED_FROM_ABSENCE_SWEEP: readonly string[] = Object.freeze([
+  'specs/plans/0009-criticmarkup-document-engine-rebuild.md',
+  'packages/document-core/test/plan/0009-control-plane.spec.ts',
+  'packages/document-core/test/plan/0009-retired-authority-absence.spec.ts',
+  'specs/migration/criticmarkup-retired-authority-deletion.tsv'
+])
+
+function trackedFiles(): readonly string[] {
+  const output = execFileSync('git', ['ls-files', '-z'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024
+  })
+  return Object.freeze(
+    output
+      .split('\0')
+      .filter(Boolean)
+      .filter((path) => !/\.(?:png|jpg|jpeg|gif|svg|ico|icns|woff2?|ttf|eot|pdf|zip|node)$/iu.test(path))
   )
-  return Object.freeze(output.trim().split('\n').filter(Boolean))
+}
+
+function authoritySurfaceFiles(): readonly string[] {
+  const excluded = new Set(EXCLUDED_FROM_ABSENCE_SWEEP)
+  return Object.freeze(trackedFiles().filter((path) => !excluded.has(path)))
 }
 
 function activeDesignFiles(): readonly string[] {
@@ -528,6 +533,28 @@ describe('plan 0009 retired authority deletion', () => {
     expect(host).not.toContain('MARKTEXT_DOCUMENT_CORE_ENGINE')
     expect(host).not.toMatch(/\b(?:on|off)\s*:\s*\(/)
     expect(host).not.toContain('[key: string]')
+  })
+
+  it('scans every tracked file it does not explicitly exclude', () => {
+    // The scanned surface is derived, not enumerated: a directory added to the
+    // repository is swept without anyone remembering to widen a glob, and a
+    // file is invisible to the inventory only by appearing in the declared
+    // exclusion list.
+    const tracked = new Set(trackedFiles())
+    const scanned = new Set(authoritySurfaceFiles())
+    const excluded = new Set(EXCLUDED_FROM_ABSENCE_SWEEP)
+
+    const unaccounted = [...tracked].filter(
+      (path) => !scanned.has(path) && !excluded.has(path)
+    )
+    expect(
+      unaccounted,
+      `Every tracked file is scanned by the absence inventory or declared in ` +
+        `EXCLUDED_FROM_ABSENCE_SWEEP. Unaccounted:\n  ${unaccounted.join('\n  ')}`
+    ).toEqual([])
+
+    const staleExclusions = [...excluded].filter((path) => !tracked.has(path))
+    expect(staleExclusions, 'exclusions name files that are no longer tracked').toEqual([])
   })
 
   it('fails on any host recognizer of Markdown or CriticMarkup syntax', () => {
