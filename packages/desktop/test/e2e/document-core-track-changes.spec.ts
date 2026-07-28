@@ -10,7 +10,8 @@ import {
   openReviewSidebar,
   placeCaretAfter,
   reviewMenuEnabled,
-  selectDomText
+  selectDomText,
+  selectTextByKeyboard
 } from './documentCoreReviewE2e'
 
 const SOURCE = [
@@ -118,7 +119,7 @@ test.describe('document-core Track Changes through Electron', () => {
   })
 
   test('tracks every frozen interaction with exact undo', async() => {
-    await selectDomText(page, 'Typing')
+    await selectTextByKeyboard(page, 'Typing target.', 'Typing')
     await page.keyboard.type('W')
     await expectSource(
       page,
@@ -144,7 +145,7 @@ test.describe('document-core Track Changes through Electron', () => {
     })
 
     await app.evaluate(({ clipboard }) => clipboard.writeText('Pasted'))
-    await selectDomText(page, 'Paste')
+    await selectTextByKeyboard(page, 'Paste target.', 'Paste')
     await page.keyboard.press(
       process.platform === 'darwin' ? 'Meta+V' : 'Control+V'
     )
@@ -171,7 +172,7 @@ test.describe('document-core Track Changes through Electron', () => {
       focusOffset: 'Paste'.length
     })
 
-    await selectDomText(page, 'Compose')
+    await selectTextByKeyboard(page, 'Compose target.', 'Compose')
     await commitComposition(page, '文')
     await expectSource(
       page,
@@ -196,7 +197,7 @@ test.describe('document-core Track Changes through Electron', () => {
       focusOffset: 'Compose'.length
     })
 
-    await selectDomText(page, 'Format')
+    await selectTextByKeyboard(page, 'Format target.', 'Format')
     await expect.poll(() => reviewMenuEnabled(app, 'strongMenuItem')).toBe(true)
     await clickMenuById(app, 'strongMenuItem')
     await expectSource(
@@ -256,8 +257,12 @@ test.describe('document-core Track Changes through Electron', () => {
     await selectDomText(page, 'old')
     await page.keyboard.type('X')
     await expectSource(page, SOURCE)
+    // A26 forbids rendering machine tokens, so the rejection is asserted as the
+    // user sees it. The unchanged source above is what pins the rejection to
+    // this edit; the notification proves it rejected visibly rather than
+    // silently.
     await expect(page.locator('.editor-notifications')).toContainText(
-      'read-only-change-arm'
+      "Track Changes couldn't record that edit"
     )
     await expectPublicSelection(page, {
       text: 'old',
