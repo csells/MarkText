@@ -418,7 +418,7 @@ compatibility documentation:
 - **X2.** With view forks, worst case is O(views·n) (V2). Convergent text is parsed once
   (plan 0009 decision 11, invariant 21).
 - **X3.** Deterministic resource accounting: parses run under a named limits profile
-  (`desktop-v1`, `test-unbounded`) and accounting schema (`syntax-accounting-1`) carried in the
+  (`desktop-v1`) and accounting schema (`syntax-accounting-1`) carried in the
   frozen `ParseConfiguration`. Depth-class limits (N3) degrade to literal text, never to
   failure, and identically on every conforming implementation.
 - **X4 — Incremental reparse (forward-looking, plan 0009 decision 12).** The language is

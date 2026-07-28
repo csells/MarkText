@@ -23,7 +23,7 @@ const CONFIGURATION: ParseConfiguration = Object.freeze({
     subscriptAndSuperscript: false
   }),
   executionBudget: Object.freeze({
-    limitsProfile: 'test-unbounded',
+    limitsProfile: 'desktop-v1',
     accountingSchema: 'syntax-accounting-1'
   })
 })

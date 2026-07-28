@@ -32,7 +32,7 @@ const view = await createDocumentCoreView({
             },
             liveHtmlSafetyProfile: 'live-html-sanitized-v1',
             executionBudget: {
-                limitsProfile: 'test-unbounded',
+                limitsProfile: 'desktop-v1',
                 accountingSchema: 'syntax-accounting-1',
             },
         },

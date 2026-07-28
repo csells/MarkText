@@ -4,7 +4,7 @@ import { parseProfile1Document } from '../../src/internal/profile1Document.js'
 import { createProfile1SyntaxGraphCore } from '../../src/internal/profile1/syntaxGraph.js'
 
 const TEST_BUDGET: ExecutionBudgetId = {
-  limitsProfile: 'test-unbounded',
+  limitsProfile: 'desktop-v1',
   accountingSchema: 'syntax-accounting-1'
 }
 

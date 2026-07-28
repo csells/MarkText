@@ -90,7 +90,7 @@ const EXACT_EVENT_KINDS: readonly EventKind[] = [
 ]
 
 const TEST_BUDGET: ExecutionBudgetId = {
-  limitsProfile: 'test-unbounded',
+  limitsProfile: 'desktop-v1',
   accountingSchema: 'syntax-accounting-1'
 }
 

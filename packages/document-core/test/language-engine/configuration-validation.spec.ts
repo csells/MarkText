@@ -162,6 +162,20 @@ describe('LanguageEngine.open configuration contract', () => {
     }
   })
 
+  it('rejects a test-only limits profile', () => {
+    // A limits profile that disables the section 3 bounds lets a limit-bearing
+    // gate run outside the limits it proves. `desktop-v1` is the only profile.
+    expect(() =>
+      createLanguageEngine().open(createSourceSnapshot('{++x++}'), {
+        ...PRODUCTION_CONFIGURATION,
+        executionBudget: {
+          ...PRODUCTION_CONFIGURATION.executionBudget,
+          limitsProfile: 'test-unbounded'
+        }
+      } as unknown as ParseConfiguration)
+    ).toThrow(/ParseConfiguration/)
+  })
+
   it('rejects a profile that branches no production behavior', () => {
     // The accepted profiles are exactly the three the plan names. An
     // identifier the decoder admits but no production code implements is a
