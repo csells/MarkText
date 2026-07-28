@@ -690,6 +690,10 @@ describe('Profile 1 fragment reuse', () => {
       undefined,
       cache
     )
+    // Trace identity is only evidence if the reusing parse actually reused.
+    // Without this, a cache that declined every fragment would compare two
+    // full parses and pass.
+    __resetProfile1PhysicalTraversalCountsV1()
     const reused = parseProfile1Document(
       after,
       CONFIGURATION.executionBudget,
@@ -699,6 +703,8 @@ describe('Profile 1 fragment reuse', () => {
       undefined,
       cache
     )
+    const reuseEngagement = __profile1PhysicalTraversalCountsV1().forkAstRegionReuses
+    __resetProfile1PhysicalTraversalCountsV1()
     const full = parseProfile1Document(
       after,
       CONFIGURATION.executionBudget,
@@ -706,6 +712,9 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION.markdownOptions,
       true
     )
+    const fullEngagement = __profile1PhysicalTraversalCountsV1().forkAstRegionReuses
+    expect(reuseEngagement, 'the reusing parse must engage fragment reuse').toBeGreaterThan(0)
+    expect(fullEngagement, 'the full parse must reuse nothing').toBe(0)
     expect(reused).toMatchObject({ kind: 'complete' })
     expect(full).toMatchObject({ kind: 'complete' })
     if (
