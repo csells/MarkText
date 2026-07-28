@@ -161,6 +161,19 @@ export type PreparedWorkerCommit =
   | PreparedCompleteWorkerCommit
   | PreparedSourceOnlyWorkerCommit
 
+/**
+ * How a set of edits reaches a revision. ADR-0015: the engine authors no bytes
+ * the user did not type, so candidate protection belongs to a semantic gesture
+ * being admitted for the first time and never to bytes already admitted.
+ */
+type AdmissionClass =
+  | Readonly<{ readonly kind: 'typed-gesture' }>
+  | Readonly<{ readonly kind: 'proven-candidate'; readonly revision: DocumentRevision }>
+  | Readonly<{ readonly kind: 'exact-replay' }>
+
+const TYPED_GESTURE: AdmissionClass = Object.freeze({ kind: 'typed-gesture' })
+const EXACT_REPLAY: AdmissionClass = Object.freeze({ kind: 'exact-replay' })
+
 interface PreparedRawRevision {
   readonly revision: DocumentRevision
   readonly transition: WorkerTransitionProof
@@ -5014,7 +5027,7 @@ export class RevisionWorker {
       result.edits,
       target,
       next,
-      result.revision
+      Object.freeze({ kind: 'proven-candidate' as const, revision: result.revision })
     )
   }
 
@@ -5041,7 +5054,7 @@ export class RevisionWorker {
     const prepared = this.#reviseEdits(
       Object.freeze([edit]),
       next,
-      revision
+      Object.freeze({ kind: 'proven-candidate' as const, revision })
     )
     const beforeSelection = detachSelection(state.selection)
     const beforeSourceSelection = detachSelection(this.sourceSelection())
@@ -5154,7 +5167,7 @@ export class RevisionWorker {
     const prepared = this.#reviseEdits(
       Object.freeze([edit]),
       next,
-      revision
+      Object.freeze({ kind: 'proven-candidate' as const, revision })
     )
     const beforeSelection = detachSelection(state.selection)
     const beforeSourceSelection = detachSelection(target)
@@ -5251,7 +5264,7 @@ export class RevisionWorker {
       result.edits,
       state.selection,
       next,
-      result.revision
+      Object.freeze({ kind: 'proven-candidate' as const, revision: result.revision })
     )
   }
 
@@ -5259,12 +5272,12 @@ export class RevisionWorker {
     edits: readonly SourceEdit[],
     target: ModelSelection,
     next: RevisionId,
-    knownRevision?: DocumentRevision
+    admission: AdmissionClass = TYPED_GESTURE
   ): PreparedWorkerCommit {
     const state = this.#state
     const sourceAnchor = this.#sourcePositionAt(state, target.anchor)
     const sourceFocus = this.#sourcePositionAt(state, target.focus)
-    const prepared = this.#reviseEdits(edits, next, knownRevision)
+    const prepared = this.#reviseEdits(edits, next, admission)
     const mappedAnchor = mapSourcePositionThroughEdits(
       sourceAnchor,
       prepared.transition.edits
@@ -5539,13 +5552,13 @@ export class RevisionWorker {
   }
 
   #revise(edit: SourceEdit, next: RevisionId): PreparedRawRevision {
-    return this.#reviseEdits(Object.freeze([edit]), next)
+    return this.#reviseEdits(Object.freeze([edit]), next, TYPED_GESTURE)
   }
 
   #reviseEdits(
     edits: readonly SourceEdit[],
     next: RevisionId,
-    knownRevision?: DocumentRevision
+    admission: AdmissionClass
   ): PreparedRawRevision {
     const state = this.#state
     if (
@@ -5573,7 +5586,7 @@ export class RevisionWorker {
     // exactly those newly classified joins before the candidate is published.
     // TransformationKernel revisions already carry this proof themselves.
     if (
-      knownRevision === undefined &&
+      admission.kind === 'typed-gesture' &&
       state.revision.kind === 'complete'
     ) {
       const protected_ = protectChangedSourceJoins(
@@ -5589,7 +5602,7 @@ export class RevisionWorker {
       protectedTransaction ??
       applySourceEdits(state.revision.source.text, effectiveEdits)
     const revision =
-      knownRevision ??
+      (admission.kind === 'proven-candidate' ? admission.revision : undefined) ??
       protectedRevision ??
       this.#engine.reopen(
         state.revision,
@@ -5618,7 +5631,7 @@ export class RevisionWorker {
     action: 'undo' | 'redo'
   ): PreparedWorkerCommit {
     const state = this.#state
-    const prepared = this.#reviseEdits(edits, next)
+    const prepared = this.#reviseEdits(edits, next, EXACT_REPLAY)
     if (prepared.revision.kind === 'complete') {
       const markupView = createMarkupView(prepared.revision)
       assertPosition(restoredSelection.anchor, markupView.modelLength)
