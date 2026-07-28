@@ -607,6 +607,20 @@ export function validate0009EvidenceSupplyChain(
       'Plan 0009 executable supply-chain must authenticate native headers before local rebuild'
     )
   }
+  // Authenticating only its own install leaves every later `pnpm` in the
+  // workflow resolving from the runner image. The setup action must publish
+  // the pinned launcher on PATH so an ambient binary cannot be reached.
+  if (
+    !setup.includes('MARKTEXT_PINNED_PNPM_BIN') ||
+    !setup.includes('>> "$GITHUB_PATH"') ||
+    !setup.includes('exec node') ||
+    !setup.includes('chmod +x "$bin_dir/pnpm"')
+  ) {
+    throw new Error(
+      'Plan 0009 executable supply-chain must publish the pinned package manager on PATH'
+    )
+  }
+
   // electron-builder runs its own native rebuild unless told not to, which
   // would reach the network outside the authenticated header path above.
   // Requiring the setting semantically — not merely that the file mentions it —

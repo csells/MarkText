@@ -40,6 +40,25 @@ runs:
           echo "MARKTEXT_COREPACK_BUNDLE_SHA256=$MARKTEXT_COREPACK_BUNDLE_SHA256"
         } >> "$GITHUB_ENV"
 
+    - name: Publish the pinned package manager on PATH
+      shell: bash
+      run: |
+        # Every later step invokes `pnpm` by name. Without a pinned shim ahead
+        # of it on PATH, those steps resolve whatever binary the runner image
+        # ships, defeating the authentication performed above.
+        package_manager='pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800'
+        bin_dir="$RUNNER_TEMP/marktext-pinned-pnpm"
+        mkdir -p "$bin_dir"
+        {
+          echo '#!/usr/bin/env bash'
+          echo 'set -euo pipefail'
+          echo "exec node \"$GITHUB_WORKSPACE/scripts/runPinnedCorepack.mjs\" '$package_manager' \"$@\""
+        } > "$bin_dir/pnpm"
+        chmod +x "$bin_dir/pnpm"
+        echo "MARKTEXT_PINNED_PNPM_BIN=$bin_dir" >> "$GITHUB_ENV"
+        echo "$bin_dir" >> "$GITHUB_PATH"
+        test "$("$bin_dir/pnpm" --version)" = "10.33.4"
+
     - name: Install Dependencies
       shell: bash
       run: |
