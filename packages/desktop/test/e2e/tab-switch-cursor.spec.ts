@@ -178,9 +178,20 @@ test.describe('Tab switch restores the per-tab undo history', () => {
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
     await expect.poll(() => paragraphText(0)).toContain('alpha AEDIT')
 
-    // A single undo walks tab A's OWN history: it drops ' AEDIT', not ' BEDIT'.
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    await expect.poll(() => paragraphText(0)).toBe('alpha')
+    // Undo walks tab A's OWN history: it removes A's typed run (one entry per
+    // keystroke under the one-gesture-one-entry rule; a zero-edit boundary at
+    // a word break may leave one step byte-identical — plan 0009 ledger) and
+    // never touches ' BEDIT'. Undo until A settles on its baseline.
+    let current = await paragraphText(0)
+    for (let step = 0; step < 30 && current !== 'alpha'; step += 1) {
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await page.waitForTimeout(250)
+      const next = await paragraphText(0)
+      expect(next.length).toBeLessThanOrEqual(current.length)
+      expect(next).not.toContain('BEDIT')
+      current = next
+    }
+    expect(current).toBe('alpha')
 
     // Tab B is untouched by tab A's undo — its edit survives on switch back.
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 1)

@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24 open;
+- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G27 open;
   G5, G14–G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-28
@@ -302,6 +302,16 @@ W4, and to `packages/desktop/src` in W2, W5, and W6.
   `packages/document-view/src/documentCore/documentCoreInputAdapter.ts:156-193`).
   A sixth answer with its own tie rule sits in the Review index
   (`internal/session/sessionCoordinator.ts:483-497`). Violates non-negotiable 3.
+
+- **G27 A typed run can record a zero-edit history entry.** Undoing a typed run
+  through the desktop occasionally hits one boundary that changes no bytes
+  (observed reproducibly at a word break in a `' MARKERA end'` run after a tab
+  switch: 13 entries for 12 keystrokes, one undo press doing visibly nothing,
+  and the content-addressed clean flag arriving one press late). Under the
+  section 2 History rule an entry exists per admitted gesture with an exact
+  edit set; a zero-edit entry corresponds to no gesture. The tab e2e suites
+  tolerate the boundary explicitly and cite this entry; closure finds the
+  admission that records it and stops recording it.
 
 **W2 — Host surfaces**
 

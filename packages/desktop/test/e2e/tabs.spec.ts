@@ -225,6 +225,7 @@ test.describe('Tab management', () => {
   // caret is correctly seated. The mandatory per-tab undo isolation below is
   // fully and faithfully exercised.)
   test('Per-tab undo history survives a tab switch', async() => {
+    test.setTimeout(90_000)
     // Tab A: a known saved baseline so the dirty/undo round-trip is observable.
     const aLaunch = await launchWithMarkdown('alpha\n')
     const aApp = aLaunch.app
@@ -275,28 +276,39 @@ test.describe('Tab management', () => {
 
       // Undo against A's RESTORED per-tab history reverts A's own edit back to
       // the on-disk baseline 'alpha' — proving the history rode the tab switch
-      // with the right tab. The keystroke run may have been recorded as one or
-      // (rarely, if a render split it) a few engine undo boundaries, so undo
-      // until the document settles on the baseline; each step must keep removing
-      // A's text and never resurrect B's.
-      await expect
-        .poll(
-          async() => {
-            const current = (await getMarkdownContent(aPage, aApp)).trim()
-            if (current === 'alpha') return current
-            await sendIpcToRenderer(aApp, 'mt::editor-edit-action', 'undo')
-            await aPage.waitForTimeout(300)
-            return (await getMarkdownContent(aPage, aApp)).trim()
-          },
-          { timeout: 8000 }
-        )
-        .toBe('alpha')
+      // with the right tab. History records one entry per gesture (the plan's
+      // one-gesture-one-entry rule), so a typed run undoes one keystroke at a
+      // time; undo until the document settles on the baseline, and each step
+      // must keep removing A's text and never resurrect B's.
+      // Known wart (recorded in plan 0009's ledger): typed runs can record a
+      // zero-edit boundary at a word break, so an undo step may leave the
+      // bytes unchanged. Each undo must either shrink A's text or be such a
+      // boundary — it must never resurrect B's edit or grow the text.
+      let current = (await getMarkdownContent(aPage, aApp)).trim()
+      for (let step = 0; step < 30 && current !== 'alpha'; step += 1) {
+        await sendIpcToRenderer(aApp, 'mt::editor-edit-action', 'undo')
+        await aPage.waitForTimeout(250)
+        const next = (await getMarkdownContent(aPage, aApp)).trim()
+        expect(next.length).toBeLessThanOrEqual(current.length)
+        expect(next).not.toContain('MARKERB')
+        current = next
+      }
+      expect(current).toBe('alpha')
       // It reverted A's edit, NOT B's (B's edit never appears).
       expect((await getMarkdownContent(aPage, aApp)).trim()).not.toContain('MARKERB')
+      // The stack bottom can hold one selection-restoring boundary from the
+      // tab-switch round trip (a Replay carries exact selections as well as
+      // edits), so reaching the baseline bytes can leave one zero-edit entry
+      // before the content-addressed dirty flag clears. Undo it; the text must
+      // stay at the baseline.
+      if (await isDirty()) {
+        await sendIpcToRenderer(aApp, 'mt::editor-edit-action', 'undo')
+        expect((await getMarkdownContent(aPage, aApp)).trim()).toBe('alpha')
+      }
       // Undoing back to the exact on-disk content clears A's unsaved indicator.
       await expect.poll(isDirty, { timeout: 5000 }).toBe(false)
     } finally {
-      await aApp.close()
+      await closeElectron(aApp)
     }
   })
 

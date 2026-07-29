@@ -1366,6 +1366,13 @@ const handleFileChange = (payload: unknown) => {
         if (!editor.value) return
         seedDerivedDocumentState(editor.value)
         if (newCursor) applyCursor(editor.value, newCursor)
+        // An activated tab is where the user is about to type: take DOM focus
+        // once the visibility-restore rAF has run, exactly like the
+        // open-single-file path — otherwise a fresh untitled tab (or any tab
+        // switch) leaves focus on the tab bar and keystrokes go nowhere. The
+        // per-tab scrollTop restore owns the viewport here, so focusing must
+        // not drag the container back to the caret.
+        focusFreshEditor({ preserveScroll: true })
       }),
       'Document attachment'
     )
@@ -1451,10 +1458,23 @@ const focusEditor = () => {
 // visible; then take DOM focus (the host's `focus()` sets only the selection
 // range — the contenteditable also needs focus or no caret blinks) and place
 // the caret at the document start.
-const focusFreshEditor = () => {
+const focusFreshEditor = (
+  options: Readonly<{ preserveScroll?: boolean }> = {}
+) => {
   requestAnimationFrame(() => {
     const ed = editor.value
     if (!ed) return
+    if (options.preserveScroll) {
+      // Focus and selection restoration both scroll the caret into view; a
+      // tab switch restores the tab's own scrollTop instead, so reapply it
+      // after focus wins the frame.
+      const container = getScrollContainer()
+      const scrollTop = container?.scrollTop ?? 0
+      ed.domNode.focus({ preventScroll: true })
+      ed.focus()
+      if (container) container.scrollTop = scrollTop
+      return
+    }
     ed.domNode.focus()
     ed.focus()
   })
