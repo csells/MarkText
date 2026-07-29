@@ -6,6 +6,7 @@ import {
   launchWithMarkdown,
   placeCaretInEditor,
   readCanonicalMarkdown,
+  openUntitledTabWithMarkdown,
   sendIpcToRenderer,
   waitForEditor,
   waitForMenuReady
@@ -68,12 +69,7 @@ test('renderer reload reattaches the same dirty sessions with their undo histori
       async() => (await readCanonicalMarkdown(page)).trim()
     ).toBe('alphaA')
 
-    await sendIpcToRenderer(
-      app,
-      'mt::new-untitled-tab',
-      true,
-      'bravo\n'
-    )
+    await openUntitledTabWithMarkdown(page, 'bravo\n')
     await expect.poll(() => page.locator(tabSelector).count()).toBe(2)
     await appendCharacter(page, 'B')
     await expect.poll(

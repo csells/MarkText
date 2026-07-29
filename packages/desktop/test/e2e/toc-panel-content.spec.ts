@@ -154,7 +154,7 @@ test.describe('TOC panel content + live update', () => {
     // synthetic range) is what commits the active content block, so the
     // subsequent Enter creates a fresh block instead of editing inside "C".
     const cContent = page
-      .locator('.document-view-container h2 .document-view-atxheading-content')
+      .locator('.document-view-container h2.document-view-heading .document-view-run')
       .filter({ hasText: 'C' })
       .last()
     await cContent.click()

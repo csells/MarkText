@@ -5,6 +5,7 @@ import {
   getMarkdownContent,
   launchWithMarkdown,
   placeCaretInEditor,
+  openUntitledTabWithMarkdown,
   sendIpcToRenderer,
   typeIntoEditor
 } from './helpers'
@@ -84,7 +85,7 @@ test.describe('Tab management', () => {
 
   test('Creating a new untitled tab grows the tab count', async() => {
     const before = await page.locator(tabSelector).count()
-    await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, '')
+    await openUntitledTabWithMarkdown(page, '')
     await page.waitForFunction(
       ({ selector, prev }) => {
         return document.querySelectorAll(selector).length > prev
@@ -102,7 +103,7 @@ test.describe('Tab management', () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
 
     const before = await page.locator(tabSelector).count()
-    await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, '')
+    await openUntitledTabWithMarkdown(page, '')
     await page.waitForFunction(
       ({ selector, prev }) => document.querySelectorAll(selector).length > prev,
       { selector: tabSelector, prev: before },
@@ -139,7 +140,7 @@ test.describe('Tab management', () => {
     // Tab index 0 is the launch tab ('# Tab base'); open a fresh tab B whose
     // body is distinct, auto-selected.
     const before = await page.locator(tabSelector).count()
-    await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, 'second body\n')
+    await openUntitledTabWithMarkdown(page, 'second body\n')
     await page.waitForFunction(
       ({ selector, prev }) => document.querySelectorAll(selector).length > prev,
       { selector: tabSelector, prev: before },
@@ -176,7 +177,7 @@ test.describe('Tab management', () => {
   // identity is clean, and flips to unsaved on the first real keystroke.
   test('Blank untitled tab is clean until the first keystroke', async() => {
     const before = await page.locator(tabSelector).count()
-    await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, '')
+    await openUntitledTabWithMarkdown(page, '')
     await page.waitForFunction(
       ({ selector, prev }) => document.querySelectorAll(selector).length > prev,
       { selector: tabSelector, prev: before },
@@ -245,7 +246,7 @@ test.describe('Tab management', () => {
       expect(aTabId).toBeTruthy()
 
       // Open tab B (auto-selected) and make a DIFFERENT edit in it.
-      await sendIpcToRenderer(aApp, 'mt::new-untitled-tab', true, 'bravo\n')
+      await openUntitledTabWithMarkdown(aPage, 'bravo\n')
       await aPage.waitForFunction(
         (sel) => document.querySelectorAll(sel).length >= 2,
         tabSelector,
@@ -314,7 +315,7 @@ test.describe('Tab management', () => {
       const TAB_COUNT = 25
       for (let i = 0; i < TAB_COUNT; i++) {
         const before = await sPage.locator(tabSelector).count()
-        await sendIpcToRenderer(sApp, 'mt::new-untitled-tab', true, `overflow body ${i}\n`)
+        await openUntitledTabWithMarkdown(sPage, `overflow body ${i}\n`)
         await sPage.waitForFunction(
           ({ selector, prev }) => document.querySelectorAll(selector).length > prev,
           { selector: tabSelector, prev: before },
@@ -380,7 +381,7 @@ test.describe('Tab management', () => {
       const openSavedTabs = async(bodies: string[]): Promise<void> => {
         for (const body of bodies) {
           const before = await cPage.locator(tabSelector).count()
-          await sendIpcToRenderer(cApp, 'mt::new-untitled-tab', true, body)
+          await openUntitledTabWithMarkdown(cPage, body)
           await cPage.waitForFunction(
             ({ selector, prev }) => document.querySelectorAll(selector).length > prev,
             { selector: tabSelector, prev: before },

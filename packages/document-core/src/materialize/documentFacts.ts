@@ -10,7 +10,6 @@ import {
 } from '../parseExecutionControl.js'
 import {
   materializeMarkdownNodeTextsWithSharedContext,
-  materializeProjectedText
 } from './textMaterializers.js'
 
 export interface DocumentStatistics {

@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import {
   closeElectron,
   launchWithMarkdown,
+  openUntitledTabWithMarkdown,
   placeCaretInEditor,
   readCanonicalMarkdown,
   sendIpcToRenderer,
@@ -47,7 +48,7 @@ test('main-owned A and B sessions retain isolated undo, redo, and dirty state', 
       canRedo: false
     })
 
-    await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, 'bravo\n')
+    await openUntitledTabWithMarkdown(page, 'bravo\n')
     await expect.poll(() => page.locator(tabSelector).count()).toBe(2)
     await expect.poll(async() => (await readCanonicalMarkdown(page)).trim()).toBe('bravo')
 

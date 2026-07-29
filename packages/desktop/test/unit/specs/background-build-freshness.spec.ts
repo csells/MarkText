@@ -268,6 +268,25 @@ describe('background harness fitness', () => {
     expect(buildWrapper).not.toMatch(/^\s*await runDesktopBuild\(/m)
     expect(buildWrapper).toMatch(/^\s*runDesktopBuild\([\s\S]*?\.catch\(/m)
     expect(packageJson.scripts['build:desktop']).toBe('tsx build/buildDesktop.ts')
+    // Platform-default scripts are one-line aliases onto one arch-specific
+    // pipeline ('build:win' => 'pnpm run build:win:x64'), so the invariant is
+    // transitive: every packaging entry point must reach build:desktop through
+    // its alias chain, and no command anywhere in a chain may invoke raw
+    // electron-vite build (which would skip the manifest-stamping wrapper).
+    const resolveScriptChain = (name: string): string[] => {
+      const chain: string[] = []
+      const seen = new Set<string>()
+      let current: string | undefined = name
+      while (current && !seen.has(current)) {
+        seen.add(current)
+        const command = packageJson.scripts[current]
+        expect(command, current).toBeDefined()
+        chain.push(command)
+        current = command.match(/^pnpm run (\S+)$/)?.[1]
+      }
+      return chain
+    }
+
     for (const scriptName of [
       'build',
       'build:unpack',
@@ -279,8 +298,14 @@ describe('background harness fitness', () => {
       'build:mac:arm64',
       'build:linux'
     ]) {
-      expect(packageJson.scripts[scriptName]).toContain('build:desktop')
-      expect(packageJson.scripts[scriptName]).not.toContain('electron-vite build')
+      const chain = resolveScriptChain(scriptName)
+      expect(
+        chain.some((command) => command.includes('build:desktop')),
+        scriptName
+      ).toBe(true)
+      for (const command of chain) {
+        expect(command).not.toContain('electron-vite build')
+      }
     }
   })
 

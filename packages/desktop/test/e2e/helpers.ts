@@ -594,6 +594,30 @@ export const launchWithMarkdown = async(
   return { app, page, filePath }
 }
 
+// Opens an untitled tab through a live production boundary. The old
+// renderer-side 'mt::new-untitled-tab' channel is gone: the renderer no
+// longer admits documents, so seeded content goes through the same
+// drag-drop import request production uses (admitImportedMarkdown in main),
+// and the empty case through the tab-bar's own command.
+export const openUntitledTabWithMarkdown = async(
+  page: Page,
+  markdown: string
+): Promise<void> => {
+  if (markdown === '') {
+    await page.evaluate(() => {
+      window.electron.ipcRenderer.send('mt::cmd-new-tab')
+    })
+    return
+  }
+  await page.evaluate(async(source) => {
+    await window.electron.ipcRenderer.invoke('mt::document-import::binary', {
+      schema: 'document-import-binary-request-1',
+      name: 'e2e-untitled.md',
+      bytes: new TextEncoder().encode(source)
+    })
+  }, markdown)
+}
+
 export const sendIpcToRenderer = async(
   app: ElectronApplication,
   channel: string,

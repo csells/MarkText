@@ -99,7 +99,7 @@ test.describe('TOC collapse state survives edits (#3028)', () => {
 
     // Edit a different heading ("C" -> "C2"), triggering UPDATE_TOC.
     const cContent = page
-      .locator('.document-view-container h2 .document-view-atxheading-content')
+      .locator('.document-view-container h2.document-view-heading .document-view-run')
       .filter({ hasText: 'C' })
       .last()
     await cContent.click()

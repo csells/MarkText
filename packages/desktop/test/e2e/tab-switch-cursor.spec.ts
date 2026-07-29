@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { closeElectron, launchWithMarkdown, sendIpcToRenderer, waitForMenuReady } from './helpers'
+import { closeElectron, launchWithMarkdown, openUntitledTabWithMarkdown, sendIpcToRenderer, waitForMenuReady } from './helpers'
 
 const tabSelector = '.tabs-container > li'
 
@@ -87,7 +87,7 @@ test.describe('Tab switch restores the per-tab caret', () => {
     expect(await readCaret(page)).toEqual({ index: 2, offset: 6 })
 
     // Open a second, auto-selected tab — this switches away from tab A.
-    await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, 'other tab body\n')
+    await openUntitledTabWithMarkdown(page, 'other tab body\n')
     await page.waitForFunction(
       (sel) => document.querySelectorAll(sel).length >= 2,
       tabSelector,
@@ -157,7 +157,7 @@ test.describe('Tab switch restores the per-tab undo history', () => {
     await page.waitForTimeout(300)
 
     // Open tab B (auto-selected) with its own body, then build B's history.
-    await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, 'beta\n')
+    await openUntitledTabWithMarkdown(page, 'beta\n')
     await page.waitForFunction(
       (sel) => document.querySelectorAll(sel).length >= 2,
       tabSelector,
@@ -227,7 +227,7 @@ test.describe('Tab switch restores the per-tab scroll position', () => {
     const captured = await scrollTop()
 
     // Open tab B (auto-selected, short body) — it starts at the top.
-    await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, 'short\n')
+    await openUntitledTabWithMarkdown(page, 'short\n')
     await page.waitForFunction(
       (sel) => document.querySelectorAll(sel).length >= 2,
       tabSelector,

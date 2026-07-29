@@ -183,13 +183,44 @@ function modelOffsetAtDomPoint(
     }
 
     const element = rangeElementForPoint(host, node);
+    const boundaries = MODEL_BOUNDARIES.get(element);
+    if (boundaries !== undefined) {
+        return modelBoundaryAtTextOffset(
+            boundaries,
+            textOffsetWithin(element, node, offset),
+        );
+    }
     const start = integerAttribute(element, 'data-model-start');
     const end = integerAttribute(element, 'data-model-end');
-    const localOffset = textOffsetWithin(element, node, offset);
-    const boundaries = MODEL_BOUNDARIES.get(element);
-    if (boundaries !== undefined)
-        return modelBoundaryAtTextOffset(boundaries, localOffset);
-    return Math.min(end, start + localOffset);
+    if (element.matches(RUN_RANGE_SELECTOR)) {
+        // A run without a boundary map (source-only carrier) is identity text.
+        return Math.min(end, start + textOffsetWithin(element, node, offset));
+    }
+    // The element is a semantic container (heading, blockquote, list item …)
+    // whose model range can include syntax the renderer never mounted — an ATX
+    // '## ' prefix, a '>' marker — so a rendered-text offset cannot be added
+    // to the container's model start. Resolve against its runs in DOM order.
+    const runs = [...element.querySelectorAll(RUN_RANGE_SELECTOR)];
+    if (runs.length === 0)
+        return end;
+    for (const run of runs) {
+        const runRange = element.ownerDocument.createRange();
+        runRange.selectNodeContents(run);
+        const placement = runRange.comparePoint(node, offset);
+        if (placement < 0)
+            return integerAttribute(run, 'data-model-start');
+        if (placement === 0) {
+            const runBoundaries = MODEL_BOUNDARIES.get(run);
+            const runLocal = textOffsetWithin(run, node, offset);
+            if (runBoundaries !== undefined)
+                return modelBoundaryAtTextOffset(runBoundaries, runLocal);
+            return Math.min(
+                integerAttribute(run, 'data-model-end'),
+                integerAttribute(run, 'data-model-start') + runLocal,
+            );
+        }
+    }
+    return integerAttribute(runs[runs.length - 1], 'data-model-end');
 }
 
 function targetRange(event: InputEvent): StaticRange | Range | null {

@@ -2326,7 +2326,16 @@ describe('main-owned document-core session host', () => {
     const host = createDocumentCoreMainSessionHost(await temporaryStorage())
     const codec = new WireEnvelopeCodecV1()
     const depth = 12_000
-    const source = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
+    // Fork-AST regions split at blank lines and cache by exact region bytes,
+    // so a single-line deep nest alone can never observe a region reuse: its
+    // only region changes on every keystroke. The retained blank-line-separated
+    // paragraphs below are the parser work each reparse actually keeps.
+    const retainedBlocks = Array.from(
+      { length: 120 },
+      (_, ordinal) => `Retained paragraph ${ordinal} stays byte-identical.`
+    ).join('\n\n')
+    const source =
+      `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}\n\n${retainedBlocks}`
     const opened = await openHost(host, 'renderer:1', {
       documentId: 'deep-repeated-edit',
       durabilityKey: 'durable-deep-repeated-edit',
@@ -2368,7 +2377,7 @@ describe('main-owned document-core session host', () => {
       }
     }
 
-    expect(snapshot.source).toContain('xab')
+    expect(snapshot.source.endsWith('byte-identical.ab')).toBe(true)
     expect(Math.max(...executions.map(
       execution => execution.operationElapsedMs
     ))).toBeLessThanOrEqual(500)

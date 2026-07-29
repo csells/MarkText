@@ -14,6 +14,7 @@ import {
   focusEditor,
   launchWithDoc,
   launchWithMarkdown,
+  openUntitledTabWithMarkdown,
   readCanonicalMarkdown,
   sendIpcToRenderer
 } from './helpers'
@@ -291,7 +292,7 @@ test.describe('CriticMarkup Review lifecycle isolation', () => {
       await expect(composeBox).toBeVisible()
       await composeBox.fill('cross tab note')
 
-      await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, 'beta landing zone\n')
+      await openUntitledTabWithMarkdown(page, 'beta landing zone\n')
       await expect(page.locator('.tabs-container > li')).toHaveCount(2)
       await expect(page.locator('.editor-component')).toContainText('beta landing zone')
       await expect(composeBox).toBeHidden()
@@ -765,14 +766,10 @@ test.describe('CriticMarkup file-backed losslessness', () => {
 // file reads at every step.
 // ----------------------------------------------------------------------------
 
-// The desktop open boundary (main-process `loadMarkdownFile`) decodes away a
-// UTF-8 BOM and canonicalizes every line ending to LF before the engine sees
-// the text, while retaining the exact admitted byte snapshot so the save path
-// re-emits the original bytes. This pair is the documented desktop-level
-// normalization the per-row assertions encode: the in-editor canonical text is
-// the LF form, the persisted artifact stays byte-identical to the source.
-const desktopOpenNormalization = (source: string): string =>
-  source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+// The desktop open boundary decodes bytes to the exact code-unit tape: a
+// UTF-8 BOM is owned as U+FEFF trivia and CRLF is preserved (Profile 1 P2).
+// The in-editor canonical text IS the file's decoded bytes, and save re-emits
+// the original bytes through the retained FileSnapshot byte identity.
 
 interface FileRowCaseDefinition {
   id: string
@@ -791,9 +788,9 @@ interface FileRowCaseDefinition {
 const FILE_ROW_CASE_DEFS: readonly FileRowCaseDefinition[] = [
   { id: 'malformed-outer-recovers-inner-and-later-items' },
   { id: 'bom-crlf-and-astral-boundaries' },
-  { id: 'repeated-table-cells-and-escaped-pipes', preferences: { superSubScript: true } },
+  { id: 'repeated-table-cells-and-escaped-pipes', preferences: { subscriptAndSuperscript: true } },
   { id: 'yaml-front-matter' },
-  { id: 'hostile-cross-block-addition', preferences: { superSubScript: true } },
+  { id: 'hostile-cross-block-addition', preferences: { subscriptAndSuperscript: true } },
   { id: 'nested-block-spanning-addition-and-deletion' },
   // The no-final-newline / repeated-blank byte classes (corpus-boundary
   // matrix rows 24, 38, 39, 40) must occupy the exact end of a real file,
@@ -801,7 +798,7 @@ const FILE_ROW_CASE_DEFS: readonly FileRowCaseDefinition[] = [
   { id: 'identical-substitution-arms-with-literal-link-destinations' },
   {
     id: 'no-final-newline-repeated-blanks-astral-and-identical-text',
-    preferences: { superSubScript: true }
+    preferences: { subscriptAndSuperscript: true }
   },
   { id: 'hostile-addition-html-and-url' },
   { id: 'hostile-comment-title' }
@@ -812,16 +809,16 @@ const FILE_ROW_CASES = FILE_ROW_CASE_DEFS.map((definition) => {
   if (!row) {
     throw new TypeError(`Shared CriticMarkup corpus row is missing: ${definition.id}`)
   }
-  // A `known` serializer normalization is admissible here only when it is
-  // fully subsumed by the desktop open boundary (BOM strip + CRLF
-  // canonicalization) — otherwise the row needs its own expected bytes.
+  // File-backed rows must be byte-exact: the open boundary performs no
+  // normalization, so a row whose serializer output differs from its source
+  // cannot round-trip here and needs its own expected bytes.
   if (
     row.normalization.kind === 'known' &&
-    desktopOpenNormalization(row.normalization.output) !== desktopOpenNormalization(row.source)
+    row.normalization.output !== row.source
   ) {
     throw new TypeError(
-      `File-backed corpus row ${row.id} declares a serializer normalization ` +
-      'beyond the desktop open boundary.'
+      `File-backed corpus row ${row.id} declares a serializer normalization; ` +
+      'file-backed rows must be byte-exact.'
     )
   }
   return { ...definition, row }
@@ -927,7 +924,7 @@ test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
 
   for (const { id, preferences, row } of FILE_ROW_CASES) {
     test(`${id} round-trips real file IO, review enumeration, and reopen`, async() => {
-      const expectedCanonical = desktopOpenNormalization(row.source)
+      const expectedCanonical = row.source
       const initial = await launchWithMarkdown(row.source)
       let app = initial.app
       let page = initial.page
@@ -955,8 +952,9 @@ test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
         }
 
         // The save path must restore the exact source bytes (including BOM
-        // and CRLF via the recorded encoding/line-ending bookkeeping), and a
-        // repeated save must be byte-idempotent.
+        // and CRLF via the retained exact-byte FileSnapshot — a byte-identity
+        // no-op while the canonical source is unchanged), and a repeated save
+        // must be byte-idempotent.
         await saveAndExpectFileBytes(app, filePath, row.source)
         await saveAndExpectFileBytes(app, filePath, row.source)
         expect(await readCanonicalMarkdown(page)).toBe(expectedCanonical)
