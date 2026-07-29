@@ -346,14 +346,16 @@ describe('document-core compact live wire', () => {
     expect(() => decodeMarked(source, {
       ...encoded,
       unexpected: true
-    }, markupModelLength)).toThrow(/unexpected field/u)
+      // The rejection vocabulary is named, not matched as prose, so a decoder
+      // that refuses for a different reason fails here.
+    }, markupModelLength)).toThrow(/unknown-key/u)
     expect(() => decodeMarked(source, {
       ...encoded,
       modelText: {
         kind: 'canonical-source',
         text: 'smuggled duplicate'
       }
-    }, markupModelLength)).toThrow(/unexpected field/u)
+    }, markupModelLength)).toThrow(/unknown-key/u)
     expect(() => decodeMarked(source, {
       ...encoded,
       markupCoordinateMap: {

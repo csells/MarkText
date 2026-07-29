@@ -1,3 +1,6 @@
+import {
+  closedRecord as decodeClosedRecord
+} from '@shared/types/closedRecord'
 import type {
   DocumentCoreStaticSinkReceipt
 } from '@shared/types/documentCore'
@@ -9,29 +12,11 @@ function closedRecord(
   value: unknown,
   fields: readonly string[]
 ): ClosedRecord {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError('Static sink receipt must be a closed record')
-  }
-  const keys = Reflect.ownKeys(value)
-  if (
-    keys.length !== fields.length ||
-    keys.some(key => typeof key !== 'string' || !fields.includes(key))
-  ) {
-    throw new TypeError('Static sink receipt fields are not closed')
-  }
-  for (const field of fields) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, field)
-    if (
-      descriptor === undefined ||
-      !descriptor.enumerable ||
-      !('value' in descriptor)
-    ) {
-      throw new TypeError(
-        `Static sink receipt ${field} must be an enumerable data field`
-      )
-    }
-  }
-  return value as ClosedRecord
+  return decodeClosedRecord(
+    value,
+    'Static sink receipt',
+    { required: fields }
+  ) as ClosedRecord
 }
 
 function identifier(value: unknown, label: string): string {

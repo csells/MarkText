@@ -1,3 +1,6 @@
+import {
+  closedRecord as decodeClosedRecord
+} from '@shared/types/closedRecord'
 import path from 'node:path'
 import type {
   ProjectRelocateIntent
@@ -8,20 +11,8 @@ function closedRecord(
   label: string,
   fields: readonly string[]
 ): Readonly<Record<string, unknown>> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const keys = Reflect.ownKeys(value)
-  if (
-    keys.some(key => typeof key !== 'string') ||
-    keys.length !== fields.length ||
-    keys.some(key => !fields.includes(key as string))
-  ) {
-    throw new TypeError(`${label} fields are not closed`)
-  }
-  return value as Readonly<Record<string, unknown>>
+  return decodeClosedRecord(value, label, { required: fields })
 }
-
 function safeSegment(value: unknown, label: string): string {
   if (
     typeof value !== 'string' ||

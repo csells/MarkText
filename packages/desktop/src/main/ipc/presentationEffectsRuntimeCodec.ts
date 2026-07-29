@@ -1,4 +1,7 @@
 import {
+  closedRecord as decodeClosedRecord
+} from '@shared/types/closedRecord'
+import {
   EXTERNAL_RESOURCE_TARGETS,
   type DocumentRevealRequest,
   type ExternalResourceOpenRequest,
@@ -13,20 +16,8 @@ function closedRecord(
   label: string,
   fields: readonly string[]
 ): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const record = value as Record<string, unknown>
-  const keys = Object.keys(record)
-  if (
-    keys.length !== fields.length ||
-    keys.some(key => !fields.includes(key))
-  ) {
-    throw new TypeError(`${label} fields are not closed`)
-  }
-  return record
+  return decodeClosedRecord(value, label, { required: fields })
 }
-
 function identifier(value: unknown, label: string): string {
   if (
     typeof value !== 'string' ||

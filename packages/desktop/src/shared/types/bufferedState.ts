@@ -1,3 +1,6 @@
+import {
+  closedRecord as decodeClosedRecord
+} from './closedRecord'
 export interface BufferedDocumentTab {
   readonly documentId: string
   readonly scrollTop: number
@@ -49,20 +52,8 @@ function closedRecord(
   label: string,
   keys: readonly string[]
 ): Readonly<Record<string, unknown>> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const actual = Reflect.ownKeys(value)
-  if (
-    actual.some(key => typeof key !== 'string') ||
-    actual.length !== keys.length ||
-    actual.some(key => !keys.includes(key as string))
-  ) {
-    throw new TypeError(`${label} fields are not closed`)
-  }
-  return value as Readonly<Record<string, unknown>>
+  return decodeClosedRecord(value, label, { required: keys })
 }
-
 function boundedString(
   value: unknown,
   label: string,

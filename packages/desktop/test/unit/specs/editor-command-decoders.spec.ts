@@ -61,12 +61,17 @@ describe('closed editor command decoders', () => {
       options
     })
 
-    expect(() => decodeEditorExportCommand({ type: 'pdfAnything' }))
+    // A malformed shape is refused before any field is interpreted, so these
+    // are two distinct rejections rather than one that happens to fire first.
+    expect(() => decodeEditorExportCommand({ type: 'pdfAnything', options }))
       .toThrow(/export type/)
+    expect(() => decodeEditorExportCommand({ type: 'pdfAnything' }))
+      .toThrow(/missing-required-key/)
     expect(() => decodeEditorExportCommand({
       type: 'print',
+      options,
       unknown: true
-    })).toThrow(/Unknown export option: unknown/)
+    })).toThrow(/unknown-key/)
     expect(() => decodeEditorExportCommand({
       type: 'pdf',
       options: {

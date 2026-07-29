@@ -39,6 +39,9 @@ import {
   type DocumentCoreHistoryState
 } from '@shared/types/documentCore'
 import {
+  closedRecord as decodeClosedRecord
+} from '@shared/types/closedRecord'
+import {
   decodeDocumentCoreLiveDeltaV1
 } from '@shared/documentCoreLiveWire'
 import {
@@ -189,43 +192,17 @@ interface ReviewDelta {
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
+/**
+ * Every record on this wire surface declares all of its fields as required, so
+ * the shape is stated once here rather than at each of its call sites. The
+ * decoding itself belongs to the one shared decoder.
+ */
 function closedRecord(
   value: unknown,
   label: string,
   fields: readonly string[]
 ): Readonly<Record<string, unknown>> {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const prototype = Object.getPrototypeOf(value) as unknown
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const allowed = new Set(fields)
-  const keys = Reflect.ownKeys(value)
-  if (
-    keys.length !== fields.length ||
-    keys.some(key => typeof key !== 'string' || !allowed.has(key))
-  ) {
-    throw new TypeError(`${label} has unknown or missing fields`)
-  }
-  const entries: Array<readonly [string, unknown]> = []
-  for (const field of fields) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, field)
-    if (
-      descriptor === undefined ||
-      !descriptor.enumerable ||
-      !('value' in descriptor)
-    ) {
-      throw new TypeError(`${label}.${field} must be an enumerable data field`)
-    }
-    entries.push([field, descriptor.value])
-  }
-  return Object.freeze(Object.fromEntries(entries))
+  return decodeClosedRecord(value, label, { required: fields })
 }
 
 function dataField(

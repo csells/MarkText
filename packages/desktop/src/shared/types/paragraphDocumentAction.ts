@@ -1,3 +1,6 @@
+import {
+  closedRecord as decodeClosedRecord
+} from './closedRecord'
 import type { BlockConversion } from '@marktext/document-core'
 
 export type ParagraphDocumentAction =
@@ -11,19 +14,8 @@ const closedRecord = (
   value: unknown,
   label: string,
   fields: readonly string[]
-): Readonly<Record<string, unknown>> => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const keys = Reflect.ownKeys(value)
-  if (
-    keys.some(key => typeof key !== 'string' || !fields.includes(key)) ||
-    fields.some(field => !keys.includes(field))
-  ) {
-    throw new TypeError(`${label} fields are not closed`)
-  }
-  return value as Readonly<Record<string, unknown>>
-}
+): Readonly<Record<string, unknown>> =>
+  decodeClosedRecord(value, label, { required: fields })
 
 const decodeBlockConversion = (value: unknown): BlockConversion => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {

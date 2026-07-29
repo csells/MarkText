@@ -1,3 +1,6 @@
+import {
+  closedRecord as decodeClosedRecord
+} from '@shared/types/closedRecord'
 import type {
   DocumentCoreAttachRequest,
   DocumentCoreLifecycleIntent,
@@ -15,26 +18,10 @@ import type {
 function closedRecord(
   value: unknown,
   label: string,
-  expectedKeys: readonly string[]
+  keys: readonly string[]
 ): Readonly<Record<string, unknown>> {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const keys = Reflect.ownKeys(value)
-  if (
-    keys.some(key => typeof key !== 'string') ||
-    keys.length !== expectedKeys.length ||
-    keys.some(key => !expectedKeys.includes(key as string))
-  ) {
-    throw new TypeError(`${label} fields are not closed`)
-  }
-  return value as Readonly<Record<string, unknown>>
+  return decodeClosedRecord(value, label, { required: keys })
 }
-
 function identifier(value: unknown, label: string): string {
   if (
     typeof value !== 'string' ||

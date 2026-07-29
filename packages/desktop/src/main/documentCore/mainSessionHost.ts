@@ -1,4 +1,7 @@
 import {
+  closedRecord as decodeClosedRecord
+} from '@shared/types/closedRecord'
+import {
   sourceHashV1,
   type ClipboardBundle,
   type ClipboardConsumerRequest,
@@ -326,29 +329,8 @@ function closedRecord(
   label: string,
   fields: readonly string[]
 ): Readonly<Record<string, unknown>> {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const prototype = Object.getPrototypeOf(value) as unknown
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const record = value as Readonly<Record<string, unknown>>
-  const allowed = new Set(fields)
-  const keys = Reflect.ownKeys(record)
-  if (
-    keys.length !== fields.length ||
-    keys.some(key => typeof key !== 'string' || !allowed.has(key))
-  ) {
-    throw new TypeError(`${label} has unknown or missing fields`)
-  }
-  return record
+  return decodeClosedRecord(value, label, { required: fields })
 }
-
 function decodeJsonRecord(
   bytes: Uint8Array,
   label: string

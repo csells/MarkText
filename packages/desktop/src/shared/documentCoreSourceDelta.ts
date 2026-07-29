@@ -13,6 +13,9 @@ import type {
   DocumentCorePortableSnapshot,
   DocumentCoreSessionSourceDelta
 } from './types/documentCore'
+import {
+  closedRecord as decodeClosedRecord
+} from './types/closedRecord'
 
 const verifiedSourceReplicas = new WeakMap<
   DocumentCorePortableSnapshot,
@@ -38,36 +41,8 @@ function closedRecord(
   label: string,
   fields: readonly string[]
 ): Readonly<Record<string, unknown>> {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  ) {
-    throw new TypeError(`${label} must be a plain record`)
-  }
-  const descriptors = Object.getOwnPropertyDescriptors(value)
-  const keys = Object.keys(descriptors)
-  if (
-    keys.length !== fields.length ||
-    fields.some((field) => !keys.includes(field)) ||
-    Object.getOwnPropertySymbols(value).length !== 0
-  ) {
-    throw new TypeError(`${label} must be closed over known fields`)
-  }
-  for (const field of fields) {
-    const descriptor = descriptors[field]
-    if (
-      descriptor === undefined ||
-      !descriptor.enumerable ||
-      !('value' in descriptor)
-    ) {
-      throw new TypeError(`${label}.${field} must be an enumerable data field`)
-    }
-  }
-  return value as Readonly<Record<string, unknown>>
+  return decodeClosedRecord(value, label, { required: fields })
 }
-
 function kindOf(value: unknown): unknown {
   if (
     value === null ||

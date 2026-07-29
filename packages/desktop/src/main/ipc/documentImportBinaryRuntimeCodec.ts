@@ -1,3 +1,6 @@
+import {
+  closedRecord as decodeClosedRecord
+} from '@shared/types/closedRecord'
 import path from 'node:path'
 import type {
   DocumentImportBinaryRequest
@@ -15,20 +18,8 @@ function closedRecord(
   label: string,
   fields: readonly string[]
 ): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const record = value as Record<string, unknown>
-  const keys = Reflect.ownKeys(record)
-  if (
-    keys.length !== fields.length ||
-    keys.some(key => typeof key !== 'string' || !fields.includes(key))
-  ) {
-    throw new TypeError(`${label} fields are not closed`)
-  }
-  return record
+  return decodeClosedRecord(value, label, { required: fields })
 }
-
 function safeFilename(value: unknown): string {
   if (
     typeof value !== 'string' ||

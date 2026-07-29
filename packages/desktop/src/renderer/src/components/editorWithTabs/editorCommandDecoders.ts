@@ -6,25 +6,7 @@ import {
   createDocumentSearchQuery,
   type DocumentSearchQuery
 } from '@marktext/document-core'
-
-type PlainRecord = Record<string, unknown>
-
-function closedRecord(
-  value: unknown,
-  label: string,
-  keys: readonly string[]
-): PlainRecord {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`${label} must be a record`)
-  }
-  const record = value as PlainRecord
-  for (const key of Object.keys(record)) {
-    if (!keys.includes(key)) {
-      throw new TypeError(`Unknown ${label} option: ${key}`)
-    }
-  }
-  return record
-}
+import { closedRecord } from '@shared/types/closedRecord'
 
 export type EditorExportCommand = Readonly<{
   type: 'pdf' | 'print' | 'styledHtml'
@@ -34,7 +16,7 @@ export type EditorExportCommand = Readonly<{
 export function decodeEditorExportCommand(
   value: unknown
 ): EditorExportCommand {
-  const record = closedRecord(value, 'export', ['type', 'options'])
+  const record = closedRecord(value, 'export', { required: ['type', 'options'] })
   const type = record.type
   if (type !== 'pdf' && type !== 'print' && type !== 'styledHtml') {
     throw new TypeError(`Invalid export type: ${String(type)}`)
@@ -80,7 +62,7 @@ export function decodeParagraphAction(value: unknown): ParagraphAction {
 export function decodeSearchRequest(
   value: unknown
 ): Readonly<{ query: DocumentSearchQuery }> {
-  const record = closedRecord(value, 'search', ['value', 'opt'])
+  const record = closedRecord(value, 'search', { required: ['value', 'opt'] })
   if (typeof record.value !== 'string') {
     throw new TypeError('search value must be a string')
   }
@@ -97,19 +79,16 @@ export function decodeReplaceRequest(
     replacement: string
     isSingle: boolean
   }> {
-  const record = closedRecord(value, 'replace', ['query', 'value', 'opt'])
+  const record = closedRecord(value, 'replace', { required: ['query', 'value', 'opt'] })
   if (
     typeof record.query !== 'string' ||
     typeof record.value !== 'string'
   ) {
     throw new TypeError('replace query and value must be strings')
   }
-  const option = closedRecord(record.opt, 'replace', [
-    'isSingle',
-    'isCaseSensitive',
-    'isWholeWord',
-    'isRegexp'
-  ])
+  const option = closedRecord(record.opt, 'replace', {
+    required: ['isSingle', 'isCaseSensitive', 'isWholeWord', 'isRegexp']
+  })
   if (typeof option.isSingle !== 'boolean') {
     throw new TypeError('replace isSingle must be a boolean')
   }
@@ -133,11 +112,9 @@ function decodeSearchOptions(
     caseSensitive: boolean
     wholeWord: boolean
   }> {
-  const option = closedRecord(value, label, [
-    'isCaseSensitive',
-    'isWholeWord',
-    'isRegexp'
-  ])
+  const option = closedRecord(value, label, {
+    required: ['isCaseSensitive', 'isWholeWord', 'isRegexp']
+  })
   if (
     typeof option.isCaseSensitive !== 'boolean' ||
     typeof option.isWholeWord !== 'boolean' ||
@@ -155,10 +132,9 @@ function decodeSearchOptions(
 export function decodeMisspellingRequest(
   value: unknown
 ): Readonly<{ word: string; replacement: string }> {
-  const record = closedRecord(value, 'misspelling', [
-    'word',
-    'replacement'
-  ])
+  const record = closedRecord(value, 'misspelling', {
+    required: ['word', 'replacement']
+  })
   if (
     typeof record.word !== 'string' ||
     typeof record.replacement !== 'string'

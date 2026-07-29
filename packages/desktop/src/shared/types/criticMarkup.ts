@@ -1,3 +1,6 @@
+import {
+  closedRecord as decodeClosedRecord
+} from './closedRecord'
 import type {
   ICriticMarkupCommandTarget,
   ICriticMarkupReviewSnapshot,
@@ -28,25 +31,8 @@ const closedRecord = (
   value: unknown,
   fields: readonly string[],
   label: string
-): Readonly<Record<string, unknown>> => {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  ) {
-    throw new TypeError(`${label} must be a plain closed record`)
-  }
-  const record = value as Readonly<Record<string, unknown>>
-  const keys = Reflect.ownKeys(record)
-  if (
-    keys.length !== fields.length ||
-    keys.some(key => typeof key !== 'string' || !fields.includes(key))
-  ) {
-    throw new TypeError(`${label} fields are not closed`)
-  }
-  return record
-}
+): Readonly<Record<string, unknown>> =>
+  decodeClosedRecord(value, label, { required: fields })
 
 const identity = (value: unknown, label: string): string => {
   if (
