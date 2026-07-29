@@ -152,6 +152,9 @@ export type PersistedPreferenceKey =
 const PERSISTED_PREFERENCE_KEY_SET: ReadonlySet<string> =
   new Set(PERSISTED_PREFERENCE_KEYS)
 
+export const isPersistedPreferenceKey = (key: string): boolean =>
+  PERSISTED_PREFERENCE_KEY_SET.has(key)
+
 export const MAIN_ONLY_PREFERENCE_KEYS = Object.freeze([
   'searchExclusions',
   'searchMaxFileSize',
@@ -203,9 +206,44 @@ export function assertRendererPreferencePatch(
 export function rendererPreferencePatch(
   value: Partial<IUserPreferences>
 ): Partial<RendererPreferences> {
-  const renderer = { ...value }
-  for (const key of MAIN_ONLY_PREFERENCE_KEYS) {
-    delete renderer[key]
+  // The preferences file is shared with any other MarkText install on the
+  // machine, and reads go to disk, so a released build's keys can appear here
+  // at any moment — not only at startup. Filter to this build's vocabulary on
+  // every broadcast; passing an unknown key through crashes the renderer's
+  // hydration, and it did.
+  const renderer: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    if (
+      PERSISTED_PREFERENCE_KEY_SET.has(key) &&
+      !MAIN_ONLY_PREFERENCE_KEY_SET.has(key)
+    ) {
+      renderer[key] = entry
+    }
   }
-  return renderer
+  return renderer as Partial<RendererPreferences>
+}
+
+export type RendererPreferencePatchOutcome =
+  | Readonly<{ kind: 'patch'; patch: Partial<RendererPreferences> }>
+  | Readonly<{ kind: 'rejected'; reason: string }>
+
+/**
+ * A renderer patch is untrusted IPC input. Refusing it must be an outcome the
+ * caller can log — never an exception, which in main is a process-killing
+ * dialog. A user whose profile predated a preference rename hit exactly that.
+ */
+export function decodeRendererPreferencePatch(
+  value: unknown
+): RendererPreferencePatchOutcome {
+  try {
+    return Object.freeze({
+      kind: 'patch' as const,
+      patch: assertRendererPreferencePatch(value)
+    })
+  } catch (error) {
+    return Object.freeze({
+      kind: 'rejected' as const,
+      reason: error instanceof Error ? error.message : String(error)
+    })
+  }
 }

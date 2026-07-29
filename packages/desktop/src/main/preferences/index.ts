@@ -3,17 +3,17 @@ import path from 'path'
 import Store, { type Schema } from 'electron-store'
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import log from 'electron-log'
-import { hasSameKeys } from '../utils'
 import { emitInternalChannel, onInternalChannel } from '../utils/internalIpc'
 import { getSupportedLanguages, isLanguageSupported } from 'common/i18n'
 import { TypedEmitter } from '@shared/types/typedEmitter'
 import {
   assertPersistedPreferencePatch,
-  assertRendererPreferencePatch,
+  decodeRendererPreferencePatch,
   rendererPreferencePatch,
   type IUserPreferences,
   type PersistedPreferenceKey
 } from '@shared/types/preferences'
+import { migratePersistedPreferences } from './legacyProfileMigration'
 import schema from './schema.json'
 
 const PREFERENCES_FILE_NAME = 'preferences'
@@ -84,38 +84,27 @@ class Preference extends TypedEmitter<PreferenceEvents> {
     if (!this.hasPreferencesFile) {
       this.store.set(assertPersistedPreferencePatch(defaultSettings))
     } else {
-      // Because `this.getAll()` will return a plainObject, so we can not use `hasOwnProperty` method
-      // const plainObject = () => Object.create(null)
+      // The profile may be shared with another MarkText install, so keys this
+      // build does not know are that install's user data: renamed settings
+      // are carried forward value-preservingly, everything else stays on disk
+      // untouched and is filtered at each read instead of deleted.
       const userSetting = this.getAll() as Record<string, unknown>
-      // Update outdated settings
-      const requiresUpdate = !hasSameKeys(defaultSettings, userSetting)
-      const userSettingKeys = Object.keys(userSetting)
-      const defaultSettingKeys = Object.keys(defaultSettings)
-
-      if (requiresUpdate) {
-        // TODO(fxha): For performance reasons, we should try to replace 'electron-store' because
-        //   it does multiple blocking I/O calls when changing entries. There is no transaction or
-        //   async I/O available. The core reason we changed to it was JSON scheme validation.
-
-        // Remove outdated settings
-        for (const key of userSettingKeys) {
-          if (!defaultSettingKeys.includes(key)) {
-            delete userSetting[key]
-            this.store.delete(key as keyof IUserPreferences)
-          }
+      const migration = migratePersistedPreferences(userSetting)
+      const additions: Record<string, unknown> = { ...migration.renamed }
+      for (const key in defaultSettings) {
+        if (!(key in userSetting) && !(key in additions)) {
+          additions[key] = defaultSettings[key]
         }
-
-        // Add new setting options
-        let addedNewEntries = false
-        for (const key in defaultSettings) {
-          if (!userSettingKeys.includes(key)) {
-            addedNewEntries = true
-            userSetting[key] = defaultSettings[key]
-          }
-        }
-        if (addedNewEntries) {
-          this.store.set(userSetting)
-        }
+      }
+      if (Object.keys(additions).length > 0) {
+        this.store.set(assertPersistedPreferencePatch(additions))
+      }
+      if (migration.unknown.length > 0) {
+        log.info(
+          `Preferences carry ${migration.unknown.length} key(s) from ` +
+          'another MarkText install; leaving them untouched: ' +
+          migration.unknown.join(', ')
+        )
       }
     }
 
@@ -167,7 +156,15 @@ class Preference extends TypedEmitter<PreferenceEvents> {
       }
     })
     ipcMain.on('mt::set-user-preference', (_e, settings: unknown) => {
-      this.setItems(assertRendererPreferencePatch(settings))
+      // Untrusted IPC input: a refused patch is logged and dropped. Throwing
+      // here is an uncaught exception in main — a process-killing dialog —
+      // and a stale renderer or legacy-profile echo has caused exactly that.
+      const outcome = decodeRendererPreferencePatch(settings)
+      if (outcome.kind === 'rejected') {
+        log.error(`Rejected renderer preference patch: ${outcome.reason}`)
+        return
+      }
+      this.setItems(outcome.patch)
     })
     ipcMain.on('mt::cmd-toggle-autosave', () => {
       this.setItem('autoSave', !this.getItem('autoSave'))
