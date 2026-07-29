@@ -23,7 +23,10 @@ export type {
     TCriticMarkupType,
 } from './criticMarkup/reviewContract';
 
-export { createDocumentCoreView } from './documentCore/documentCoreView';
+export {
+    createDocumentCoreView,
+    DocumentCoreIntentRejectedError,
+} from './documentCore/documentCoreView';
 export type {
     DocumentCoreMarkdownOptionPatch,
 } from '@marktext/document-core';

@@ -40,12 +40,17 @@ describe('dispatchIntent outcome', () => {
             parseConfiguration: CONFIGURATION,
         })
 
+        // The refusal is a typed outcome hosts can tell apart from a system
+        // fault: the error carries the engine's rejection reason.
         await expect(
             view.dispatchIntent({
                 kind: 'remove-comment',
                 target: 'node:does-not-exist',
             } as never),
-        ).rejects.toThrow(/target-not-found/)
+        ).rejects.toMatchObject({
+            name: 'DocumentCoreIntentRejectedError',
+            reason: 'target-not-found',
+        })
 
         expect(view.getMarkdownSync()).toBe('alpha target omega\n')
 
@@ -91,6 +96,36 @@ describe('dispatchIntent outcome', () => {
         })
         expect(String(failures[0])).toMatch(/outside the document-core view/)
         expect(view.getMarkdownSync()).toBe('alpha target omega\n')
+
+        view.destroy()
+        host.remove()
+    })
+
+    it('does not report housekeeping refused against a SourceOnly revision', async () => {
+        const host = document.createElement('div')
+        document.body.append(host)
+        const failures: unknown[] = []
+        // 129 nested blockquotes exceed the desktop-v1 acceptance depth, so
+        // the revision opens SourceOnly and no WYSIWYG mounts.
+        const view = await createTestDocumentCoreView({
+            host,
+            source: createSourceSnapshot(`${'> '.repeat(129)}deep\n`),
+            parseConfiguration: CONFIGURATION,
+            onBrowserInputFailure: (error: unknown) => {
+                failures.push(error)
+            },
+        })
+
+        const event = new InputEvent('beforeinput', {
+            inputType: 'insertText',
+            data: 'x',
+            bubbles: true,
+            cancelable: true,
+        })
+        host.dispatchEvent(event)
+
+        await new Promise(resolve => setTimeout(resolve, 20))
+        expect(failures).toEqual([])
 
         view.destroy()
         host.remove()

@@ -84,6 +84,7 @@ import {
 } from 'vue'
 import log from 'electron-log'
 import {
+  DocumentCoreIntentRejectedError,
   reportAsyncTask,
   type ICriticMarkupReviewEditor,
   type DocumentSelectionContext
@@ -1266,7 +1267,22 @@ const handleInlineFormat = (type: unknown) => {
     return
   }
   reportAsyncTask(
-    targetEditor.formatText(inlineFormatForCommand(type)),
+    targetEditor.formatText(inlineFormatForCommand(type)).catch(
+      (error: unknown) => {
+        // A refusal (collapsed selection, stale target) is a normal outcome
+        // of the command against the wrong state: tell the user through the
+        // surface banner, not the error reporter.
+        if (!(error instanceof DocumentCoreIntentRejectedError)) throw error
+        const tabId = currentFile.value?.id
+        if (typeof tabId !== 'string') return
+        presentSurfaceCommandOutcome(
+          { kind: 'refused', reason: error.reason },
+          tabId,
+          editorStore,
+          t
+        )
+      }
+    ),
     'Inline formatting'
   )
 }
@@ -1464,6 +1480,10 @@ const focusFreshEditor = (
   requestAnimationFrame(() => {
     const ed = editor.value
     if (!ed) return
+    // Source mode owns the surface: focusing the hidden WYSIWYG host would
+    // enqueue selection work the view rejects in SourceOnly state, and the
+    // rejection is loudly reported. The source adapter takes its own focus.
+    if (sourceCode.value) return
     if (options.preserveScroll) {
       // Focus and selection restoration both scroll the caret into view; a
       // tab switch restores the tab's own scrollTop instead, so reapply it

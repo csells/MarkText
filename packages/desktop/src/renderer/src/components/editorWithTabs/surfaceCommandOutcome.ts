@@ -14,6 +14,9 @@ export const SURFACE_COMMAND_UNAVAILABLE_EXCLUSIVE_TYPE =
 export type SurfaceCommandOutcome =
   | Readonly<{ kind: 'executed' }>
   | Readonly<{ kind: 'unavailable-in-surface'; surface: 'source' | 'markup' }>
+  // The engine refused the command against the current document state — a
+  // collapsed selection, a stale target. A user-state refusal, not a fault.
+  | Readonly<{ kind: 'refused'; reason: string }>
 
 export interface SurfaceCommandNotificationSink {
   pushTabNotification: (data: {

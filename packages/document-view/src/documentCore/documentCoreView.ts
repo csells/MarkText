@@ -230,6 +230,22 @@ const sameSelection = (
  * page and the saved source from drifting apart (ADR-0005, ADR-0009).
  */
 
+/**
+ * A dispatched intent the engine refused, carrying its typed reason. A
+ * refusal is a normal outcome of a user command against the wrong state — a
+ * collapsed selection, a stale target — and hosts present it as such; only
+ * failures that are not this class are system errors.
+ */
+export class DocumentCoreIntentRejectedError extends Error {
+    readonly reason: string;
+
+    constructor(reason: string | undefined) {
+        super(`Intent was rejected: ${reason ?? 'unspecified'}`);
+        this.name = 'DocumentCoreIntentRejectedError';
+        this.reason = reason ?? 'unspecified';
+    }
+}
+
 export interface IDocumentCoreViewOptions {
     readonly host: HTMLElement;
     readonly session: IDocumentCoreViewSession;
@@ -1811,7 +1827,7 @@ export async function createDocumentCoreView(
                 for (const listener of trackChangeRejectionListeners)
                     listener(rejection);
             }
-            throw new Error(`Intent was rejected: ${result.reason}`);
+            throw new DocumentCoreIntentRejectedError(result.reason);
         }
         if (result.kind === 'cancelled')
             throw new Error('Intent was cancelled');
@@ -3451,7 +3467,11 @@ export async function createDocumentCoreView(
             .then(operation)
             .catch((error: unknown) => {
                 browserInputFailure ??= error;
-                options.onBrowserInputFailure?.(error);
+                // A SourceOnly revision mounts no WYSIWYG, so a queued op
+                // refused in that state is the view declining its own
+                // housekeeping — there is no user gesture to report against.
+                if (session.snapshot().kind === 'complete')
+                    options.onBrowserInputFailure?.(error);
             })
             .finally(() => {
                 if (browserInputGeneration === generation) {
