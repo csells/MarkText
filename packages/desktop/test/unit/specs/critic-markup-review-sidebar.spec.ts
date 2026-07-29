@@ -237,11 +237,16 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     if (!accept) throw new TypeError('Expected the first Accept action')
     accept.element.focus()
     await accept.trigger('click')
+    // Node ids are parser-issued per revision and positional, so the engine
+    // may re-issue the accepted card's id to the surviving node. What proves
+    // the action landed is the target revision being replaced — never the old
+    // id's absence from the new list.
+    const survivor = { ...secondChange, id: firstChange.id }
     store.UPDATE({
       ...store.snapshot,
       revisionId: 'revision:2',
-      items: [secondChange],
-      currentItemId: secondChange.id
+      items: [survivor],
+      currentItemId: survivor.id
     })
     await nextTick()
     await nextTick()
@@ -250,7 +255,7 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     expect(remaining.attributes('data-critic-id')).toBeUndefined()
     expect(
       remaining.element.closest<HTMLElement>('.review-card')?.dataset.criticId
-    ).toBe(secondChange.id)
+    ).toBe(survivor.id)
     expect(document.activeElement).toBe(remaining.element)
 
     wrapper.unmount()

@@ -261,6 +261,13 @@ test.describe('native CriticMarkup Review workflow', () => {
     await exitSourceMode(page, app)
     await expect.poll(() => menuEnabled(app, 'reviewDisplayMenuItem')).toBe(true)
     await clickMenuById(app, 'reviewShowMarkedMenuItem')
+    // The projection remount replaces the rendered DOM; selecting during the
+    // swap leaves the browser selection on detached nodes and the engine
+    // never sees it.
+    await expect(page.locator('.editor-component')).toHaveAttribute(
+      'data-critic-projection',
+      'marked'
+    )
 
     await selectWord(page, 'omega')
     await expect.poll(() => menuEnabled(app, 'reviewAddCommentMenuItem')).toBe(true)

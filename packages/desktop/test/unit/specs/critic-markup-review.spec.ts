@@ -113,8 +113,10 @@ describe('CriticMarkup Review menu', () => {
     expect(items.get('reviewMarkAdditionMenuItem')?.enabled).toBe(true)
     expect(items.get('reviewMarkDeletionMenuItem')?.enabled).toBe(false)
     expect(items.get('reviewAcceptCurrentMenuItem')?.enabled).toBe(false)
-    expect(items.get('reviewPreviousMenuItem')?.enabled).toBe(true)
-    expect(items.get('reviewNextMenuItem')?.enabled).toBe(true)
+    // Navigation walks the marked projection's cards; this snapshot is the
+    // revised projection, so navigation is unavailable while items exist.
+    expect(items.get('reviewPreviousMenuItem')?.enabled).toBe(false)
+    expect(items.get('reviewNextMenuItem')?.enabled).toBe(false)
     expect(items.get('reviewAcceptAllMenuItem')?.enabled).toBe(true)
     expect(items.get('reviewDisplayMenuItem')?.enabled).toBe(true)
     expect(items.get('reviewTrackChangesMenuItem')?.checked).toBe(true)
@@ -274,31 +276,18 @@ describe('CriticMarkup renderer command routing', () => {
     await expect(action).resolves.toEqual({ kind: 'executed' })
   })
 
-  it('waits for a clean-view navigation handoff before reporting success', async() => {
+  it('refuses navigation from a resolved projection without effects', async() => {
     editor.getCriticMarkupReviewSnapshot.mockReturnValueOnce({
       ...editor.getCriticMarkupReviewSnapshot(),
       projection: 'revised'
     })
-    let commit: (() => void) | undefined
-    const terminal = new Promise<void>((resolve) => {
-      commit = resolve
-    })
-    editor.configure.mockReturnValueOnce(terminal)
-    let reported = false
-    const action = executeCriticMarkupReviewAction(editor, 'next')
-      .finally(() => {
-        reported = true
-      })
 
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(reported).toBe(false)
-
-    commit?.()
-    await expect(action).resolves.toEqual({ kind: 'executed' })
-    expect(editor.configure).toHaveBeenCalledWith({
-      criticMarkupProjection: 'marked'
-    })
+    // A resolved projection has no cards to walk, so navigation is
+    // unavailable rather than a silent projection flip on the user.
+    await expect(executeCriticMarkupReviewAction(editor, 'next'))
+      .resolves.toEqual({ kind: 'unavailable' })
+    expect(editor.navigateCriticMarkup).not.toHaveBeenCalled()
+    expect(editor.configure).not.toHaveBeenCalled()
   })
 
   it('rejects malformed native Review commands without effects', async() => {

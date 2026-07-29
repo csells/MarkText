@@ -306,7 +306,7 @@ let editSubmissionVersion = 0
 let editingIndex = -1
 let pendingActionFocus: Readonly<{
   documentId: string
-  nodeId: string
+  revisionId: string
   index: number
 }> | null = null
 interface CommentEditIdentity {
@@ -481,7 +481,12 @@ watch(
     if (pending !== null) {
       if (pending.documentId !== current.documentId) {
         pendingActionFocus = null
-      } else if (!current.items.some(item => item.id === pending.nodeId)) {
+      } else if (current.revisionId !== pending.revisionId) {
+        // Node ids are parser-issued per revision and may be re-issued to a
+        // different node, so the action's target revision being replaced —
+        // never the old id's absence — is what proves the action landed. A
+        // same-revision republish (the projection flip before dispatch) must
+        // keep the pending focus.
         pendingActionFocus = null
         const next = current.items[Math.min(
           pending.index,
@@ -576,7 +581,7 @@ const actOnItem = (
   if (action !== 'focus') {
     pendingActionFocus = {
       documentId,
-      nodeId: target.id,
+      revisionId,
       index: Math.max(
         0,
         snapshot.value.items.findIndex(item => item.id === target.id)

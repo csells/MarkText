@@ -279,8 +279,9 @@ describe('background harness fitness', () => {
       let current: string | undefined = name
       while (current && !seen.has(current)) {
         seen.add(current)
-        const command = packageJson.scripts[current]
+        const command: string | undefined = packageJson.scripts[current]
         expect(command, current).toBeDefined()
+        if (command === undefined) break
         chain.push(command)
         current = command.match(/^pnpm run (\S+)$/)?.[1]
       }

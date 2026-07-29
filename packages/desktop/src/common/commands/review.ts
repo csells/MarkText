@@ -119,7 +119,10 @@ export const REVIEW_COMMAND_DESCRIPTORS = [
     menuType: 'normal',
     group: 'navigation',
     defaultKeybinding: '',
-    menuCapability: 'canNavigate'
+    menuCapability: 'canNavigate',
+    // Navigation walks the marked projection's cards; in a resolved
+    // projection there is nothing to walk even while items exist.
+    requiresMarkedProjection: true
   },
   {
     id: 'review.next',
@@ -130,7 +133,10 @@ export const REVIEW_COMMAND_DESCRIPTORS = [
     menuType: 'normal',
     group: 'navigation',
     defaultKeybinding: '',
-    menuCapability: 'canNavigate'
+    menuCapability: 'canNavigate',
+    // Navigation walks the marked projection's cards; in a resolved
+    // projection there is nothing to walk even while items exist.
+    requiresMarkedProjection: true
   },
   {
     id: 'review.accept-current',
