@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G4, G6–G9, G13, G18–G20, G23, G24 open;
+- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24 open;
   G5, G14–G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-28
@@ -413,21 +413,6 @@ whose assertion cannot distinguish pass from fail.
   replace and live rendering elsewhere. Production routes those questions
   through the policy; deleting the declarations is rejected, because it leaves
   G16's per-kind matrix with no owning module.
-- **G20 Closed-record decoding is restated twenty-two times, at two strengths.**
-  Twenty-two codec modules carry 22 independent `closedRecord` definitions, and
-  the difference is accidental rather than designed: one family rejects unknown
-  keys only, so a missing key passes and no prototype is checked
-  (`packages/desktop/src/renderer/src/components/editorWithTabs/editorCommandDecoders.ts:12`);
-  the other requires exact key-set equality and checks the prototype
-  (`.../documentCoreRemoteSession.ts:192`). A closed record admits declared
-  optional fields — the wire surface carries twelve, including search flags and
-  UI state where absent means the default — so closure is one decoder over which
-  each record declares its permitted keys and which of them are required.
-  Unknown keys, missing required keys, non-plain prototypes, and mistyped values
-  reject, under one enumerated rejection vocabulary a target can name. Section
-  3's stricter sentence governs `ParseConfigurationV1`, which has no optional
-  fields, and does not reach the wire surface.
-
 **W6 — Budgets and release**
 
 - **G23 Measured budgets are unmet.** Edit and deletion latency, worker stall,
