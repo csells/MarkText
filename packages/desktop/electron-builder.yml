@@ -40,6 +40,9 @@ extraResources:
       - '**/*'
       - '!locales/**/!(*.min).json'
 npmRebuild: false
+# The staged, checksum-authenticated Electron dist scripts/stageElectronDist.mts
+# prepares; electron-builder must never resolve or download Electron itself.
+electronDist: ../../node_modules/.cache/marktext-electron-dist
 electronLanguages: # Avoid packaging all chromium locales since our app has in-built locales
   - en-US
 

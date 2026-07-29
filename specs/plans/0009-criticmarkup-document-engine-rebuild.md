@@ -617,6 +617,14 @@ green.
 P11 is **UNPROVEN** until the frozen tree passes its section 6 outcome against
 the unchanged section 3 budgets.
 
+The three final-closure targets are the P10 gate itself: they consume the
+release evidence bundle (`specs/migration/0009-candidate-evidence.yml`, kept
+out of the tree by design) that can only exist after the freeze, so running
+them in candidate state is a category error, not a red signal. Candidate
+suites (`test`, `test:platform`, and both `check` scripts) exclude exactly that
+one spec; the gate runs through the dedicated `test:closure` entry at closure
+time, and the evidence collector pins this split so it cannot silently widen.
+
 P10 is **UNPROVEN** until its section 6 outcome is met from the frozen pushed
 source candidate: the exact workflow and tag ref authenticated, every command,
 report, and artifact cross-bound in the bundle that attests them, exactly one

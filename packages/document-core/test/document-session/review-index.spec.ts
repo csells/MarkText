@@ -265,7 +265,12 @@ describe('DocumentSession Review index', () => {
   }, 30_000)
 
   it('authors beside an untouched maximum-depth tree with linear scaling', async() => {
+    // One-shot wall-clock ratios at these depths sit inside scheduler and GC
+    // noise (healthy runs measure 2.0-2.5x), so linearity is pinned on the
+    // engine's deterministic execution accounting: tracked work exactly
+    // doubles when depth doubles, while a quadratic subtree rescan reports ~4x.
     const measure = async(depth: number): Promise<number> => {
+      let trackedWork = 0
       const nested = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
       const session = await createDocumentSession({
         source: createSourceSnapshot(`${nested} tail`),
@@ -273,6 +278,11 @@ describe('DocumentSession Review index', () => {
         initialSelection: {
           anchor: { offset: 2, affinity: 'next' },
           focus: { offset: 6, affinity: 'previous' }
+        },
+        executionControl: {
+          checkpoint(progress): void {
+            trackedWork = progress.sourceUnits + progress.logicalNodes
+          }
         }
       })
       const before = session.snapshot()
@@ -283,27 +293,26 @@ describe('DocumentSession Review index', () => {
         throw new Error('Expected the deep sibling authoring target')
       }
 
-      const startedAt = performance.now()
+      const workBefore = trackedWork
       await expect(session.dispatch({
         kind: 'author-critic-markup',
         target: before.revision.selection,
         input: { kind: 'highlight' }
       }).completion).resolves.toMatchObject({ kind: 'committed' })
-      const elapsedMs = performance.now() - startedAt
       const after = session.snapshot()
       if (after.kind !== 'complete') {
         throw new Error('Expected the authored deep sibling snapshot')
       }
       expect(after.revision.source).toBe(`${nested} {==tail==}`)
       expect(after.reviewIndex.items).toHaveLength(depth + 1)
-      return elapsedMs
+      return trackedWork - workBefore
     }
-    const lowerMs = await measure(8_192)
-    const upperMs = await measure(16_384)
+    const lowerWork = await measure(8_192)
+    const upperWork = await measure(16_384)
 
     expect(
-      upperMs / Math.max(lowerMs, 1),
-      `sibling-author lower=${lowerMs.toFixed(3)}ms upper=${upperMs.toFixed(3)}ms`
+      upperWork / Math.max(lowerWork, 1),
+      `sibling-author lower=${lowerWork} upper=${upperWork} tracked units+nodes`
     ).toBeLessThanOrEqual(2.25)
   }, 30_000)
 })

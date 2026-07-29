@@ -353,7 +353,14 @@ function githubReport(
 function githubRunEvidence(
   runId: string,
   commit: string,
-  completedAt = new Date().toISOString()
+  completedAt = new Date().toISOString(),
+  // Direct validator unit tests pin against the collector's default
+  // PINNED_NODE_VERSION; the collect0009Evidence flow passes the live host
+  // version because initializeEvidenceRepository rewrites the fixture repo's
+  // action.yml node pin to process.version so the runtime gate passes on any
+  // dev machine — the attestation must attest the identity the fixture
+  // candidate actually pins.
+  node = 'v22.21.1'
 ): object {
   const platforms = [
     ['macos-arm64', 'arm64', 'darwin'],
@@ -385,7 +392,7 @@ function githubRunEvidence(
           platform,
           arch,
           os,
-          node: 'v22.21.1',
+          node,
           runnerImageOs: `${os}-fixture`,
           runnerImageVersion: '20260726.1',
           verifiedAt: completedAt
@@ -1038,8 +1045,15 @@ describe('plan 0009 evidence collector', () => {
       'utf8'
     )
 
-    expect(packageManifest.scripts?.['test:platform']).toBe(
-      'vitest run --exclude test/plan/0009-final-closure.spec.ts'
+    // The platform suite delegates to the default candidate suite, which owns
+    // the closure-gate exclusion (plus the serial wall-clock phase); the gate
+    // itself runs only through the dedicated test:closure entry at freeze.
+    expect(packageManifest.scripts?.['test:platform']).toBe('pnpm run test')
+    expect(String(packageManifest.scripts?.test)).toContain(
+      '--exclude test/plan/0009-final-closure.spec.ts'
+    )
+    expect(packageManifest.scripts?.['test:closure']).toBe(
+      'vitest run test/plan/0009-final-closure.spec.ts'
     )
     expect(packageManifest.scripts?.['check:platform']).toBe(
       'pnpm run lint && pnpm run typecheck && pnpm run test:platform && pnpm run build'
@@ -1490,7 +1504,22 @@ describe('plan 0009 evidence collector', () => {
       })
       expect(preparation.command).toContain(PINNED_PNPM_PACKAGE_MANAGER)
       expect(build.command).toContain(PINNED_PNPM_PACKAGE_MANAGER)
+      // The installed-artifact build publishes the pinned Corepack identity
+      // runPinnedCorepack.mjs verifies; the sha256 literals are the spec's own
+      // two-sided pins, and the CLI path derives from the same process the
+      // collector runs in.
       expect(build.environment).toEqual({
+        MARKTEXT_COREPACK_BUNDLE_SHA256:
+          'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829',
+        MARKTEXT_COREPACK_CLI_PATH: resolve(
+          dirname(process.execPath),
+          process.platform === 'win32'
+            ? 'node_modules/corepack/dist/corepack.js'
+            : '../lib/node_modules/corepack/dist/corepack.js'
+        ),
+        MARKTEXT_COREPACK_LAUNCHER_SHA256:
+          '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9',
+        MARKTEXT_COREPACK_VERSION: '0.34.0',
         MARKTEXT_EXPECTED_ARTIFACT_PATH: resolve(
           root,
           'dist/marktext-mac-arm64-0.20.0-dev.dmg'
@@ -1784,7 +1813,16 @@ describe('plan 0009 evidence collector', () => {
         }
       })
     }
-    expect(() => validateGithubRunEvidence(forgedNode, commit)).toThrow(/node/i)
+    // The fixed observation timestamp keeps the 24-hour freshness check from
+    // firing first once wall-clock time passes the fixture's completedAt, so
+    // the forged-node rejection is what this actually exercises.
+    expect(() =>
+      validateGithubRunEvidence(
+        forgedNode,
+        commit,
+        Date.parse('2026-07-26T18:00:00.000Z')
+      )
+    ).toThrow(/node/i)
   })
 
   it('rejects platform attestations from a branch or another workflow file', () => {
@@ -2328,7 +2366,14 @@ describe('plan 0009 evidence collector', () => {
         if (runId === undefined) throw new Error('missing run id')
         return {
           exitCode: 0,
-          stdout: JSON.stringify(githubRunEvidence(runId, commit)),
+          stdout: JSON.stringify(
+            githubRunEvidence(
+              runId,
+              commit,
+              new Date().toISOString(),
+              process.version
+            )
+          ),
           stderr: ''
         }
       }
@@ -2892,9 +2937,16 @@ describe('plan 0009 evidence collector', () => {
         }
       }
       for (const request of requests.filter(({ id }) => id === 'repo-lint')) {
-        expect(request.command).toEqual([
-          process.execPath,
-          resolve(root, 'scripts/runPinnedCorepack.mjs'),
+        // Each pass runs from its own clean checkout of the candidate commit,
+        // so the pinned-Corepack runner must come from that checkout — never
+        // from the orchestrating repository's working tree.
+        const [runtime, runner, ...rest] = request.command
+        expect(runtime).toBe(process.execPath)
+        expect(String(runner)).toMatch(
+          /marktext-0009-pass-[^/\\]+[/\\]checkout[/\\]scripts[/\\]runPinnedCorepack\.mjs$/
+        )
+        expect(String(runner).startsWith(root + sep)).toBe(false)
+        expect(rest).toEqual([
           PINNED_PNPM_PACKAGE_MANAGER,
           'exec',
           'eslint',
