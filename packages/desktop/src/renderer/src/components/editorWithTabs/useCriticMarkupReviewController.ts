@@ -287,9 +287,21 @@ export function useCriticMarkupReviewController(
         payload,
         lastSnapshot?.projection ?? 'marked',
         documentId
-      ).then((outcome) => {
-        presentCommandOutcome(outcome, documentId)
-      }),
+      ).then(
+        (outcome) => {
+          presentCommandOutcome(outcome, documentId)
+        },
+        (error: unknown) => {
+          // Non-negotiable 10: a rejected dispatch is a command that did not
+          // mutate the document, and must say so rather than take the silent
+          // rejection path out of this boundary.
+          presentCommandOutcome(
+            CRITIC_MARKUP_REVIEW_COMMAND_OUTCOMES.unavailable,
+            documentId
+          )
+          throw error
+        }
+      ),
       'CriticMarkup sidebar action'
     )
   }

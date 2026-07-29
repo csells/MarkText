@@ -148,6 +148,51 @@ describe('CriticMarkup Review command outcomes', () => {
     }
   })
 
+  // Non-negotiable 10: a Review command that could not mutate the document must
+  // never look like one that did. A dispatch that *rejects* — a refused intent,
+  // a publication the renderer cannot mount — took the promise's rejection path
+  // and skipped the outcome arm entirely, so the user saw a command that did
+  // nothing and reported nothing.
+  it('visibly rejects a sidebar command whose dispatch throws', async() => {
+    const reporter = vi.fn()
+    const host = globalThis as typeof globalThis & {
+      reportError: ((error: unknown) => void) | undefined
+    }
+    const priorReporter = host.reportError
+    host.reportError = reporter
+    const app = mountController({
+      ...fakeEditor(),
+      resolveCriticMarkup: async() => {
+        throw new Error('remote dispatch refused')
+      }
+    })
+    try {
+      bus.emit('critic-markup-review-item', {
+        documentId: 'document:1',
+        action: 'remove-annotation',
+        target: {
+          revisionId: 'revision:1',
+          nodeId: item.id
+        }
+      })
+      await flushController()
+
+      expect(pushTabNotification).toHaveBeenCalledWith({
+        tabId: 'document:1',
+        msg: '[sideBar.review.actionUnavailable]',
+        showConfirm: false,
+        style: 'warn',
+        exclusiveType: 'criticMarkupReviewCommandRejected'
+      })
+      // Telling the user is not a substitute for the diagnostic: the failure
+      // still reaches the host error boundary.
+      expect(reporter).toHaveBeenCalledTimes(1)
+    } finally {
+      app.unmount()
+      host.reportError = priorReporter
+    }
+  })
+
   it('visibly rejects a stale menu or palette command in the owning tab', async() => {
     const app = mountController(fakeEditor())
     try {
