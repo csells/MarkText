@@ -7,16 +7,8 @@ const REPOSITORY_ROOT = resolve(__dirname, '../../../../..')
 const PACKAGE_SOURCE = 'packages/desktop/src'
 const AUTHORITY = 'packages/desktop/src/shared/types/closedRecord.ts'
 
-/**
- * Modules that still decide record shape themselves. Both reject unknown keys
- * without requiring declared ones, so migrating them is not a rename: each
- * record has to state which of its fields are required, and the wire surface
- * carries fields where absent means the default. This list only shrinks.
- */
-const DECLARES_ITS_OWN_SHAPE: readonly string[] = [
-  'packages/desktop/src/main/ipc/documentCoreRuntimeCodec.ts',
-  'packages/desktop/src/main/ipc/projectSearchRuntimeCodec.ts'
-]
+/** Every codec decodes through the shared authority. */
+const DECLARES_ITS_OWN_SHAPE: readonly string[] = []
 
 const trackedSources = (): readonly string[] =>
   execFileSync('git', ['ls-files', '-z', PACKAGE_SOURCE], {
@@ -46,11 +38,7 @@ describe('closed record decoding has one authority', () => {
     expect(offenders).toEqual([])
   })
 
-  it('keeps the unmigrated list honest', () => {
-    const stillLocal = trackedSources()
-      .filter(path => path !== AUTHORITY)
-      .filter(definesItsOwnDecoder)
-    expect([...stillLocal].sort())
-      .toEqual([...DECLARES_ITS_OWN_SHAPE].sort())
+  it('leaves no module deciding record shape for itself', () => {
+    expect(DECLARES_ITS_OWN_SHAPE).toEqual([])
   })
 })

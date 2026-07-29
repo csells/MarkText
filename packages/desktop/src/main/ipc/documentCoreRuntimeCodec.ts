@@ -1,4 +1,8 @@
 import {
+  ClosedRecordError,
+  closedRecord as decodeClosedRecord
+} from '@shared/types/closedRecord'
+import {
   type BlockConversion,
   type CriticMarkupAuthoringInput,
   type EditorIntent,
@@ -48,42 +52,33 @@ function codecError(label: string, detail: string): TypeError {
   return new TypeError(`Invalid document-core ${label}: ${detail}`)
 }
 
+/**
+ * This codec keeps its own error prefix, which names the wire surface a
+ * rejected record arrived on; only the decision about shape belongs elsewhere.
+ */
 function closedRecord(
   value: unknown,
   label: string,
   required: readonly string[],
   optional: readonly string[] = Object.freeze([])
 ): ClosedRecord {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw codecError(label, 'must be a closed record')
-  }
-  const keys = Reflect.ownKeys(value)
-  if (keys.some((key) => typeof key !== 'string')) {
-    throw codecError(label, 'has an unknown symbol field')
-  }
-  const allowed = new Set([...required, ...optional])
-  const actual = keys as string[]
-  const missing = required.filter((key) => !actual.includes(key))
-  const unknown = actual.filter((key) => !allowed.has(key))
-  if (missing.length > 0 || unknown.length > 0) {
-    const details = [
-      missing.length === 0 ? '' : `missing fields ${missing.join(', ')}`,
-      unknown.length === 0 ? '' : `unknown fields ${unknown.join(', ')}`
-    ].filter(Boolean)
-    throw codecError(label, `fields are not closed (${details.join('; ')})`)
-  }
-  const record = value as Record<string, unknown>
-  for (const key of actual) {
-    const descriptor = Object.getOwnPropertyDescriptor(record, key)
-    if (
-      descriptor === undefined ||
-      !descriptor.enumerable ||
-      !('value' in descriptor)
-    ) {
-      throw codecError(label, `${key} must be an enumerable data field`)
+  try {
+    return decodeClosedRecord(
+      value,
+      label,
+      { required, optional }
+    ) as ClosedRecord
+  } catch (error) {
+    if (error instanceof ClosedRecordError) {
+      throw codecError(
+        label,
+        error.key === null
+          ? error.rejection
+          : `${error.key}: ${error.rejection}`
+      )
     }
+    throw error
   }
-  return record
 }
 
 function identifier(value: unknown, label: string): string {

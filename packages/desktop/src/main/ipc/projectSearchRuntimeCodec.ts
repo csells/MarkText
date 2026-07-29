@@ -1,3 +1,4 @@
+import { closedRecord } from '@shared/types/closedRecord'
 import type {
   ProjectSearchRequest,
   ProjectSearchRequestOptions
@@ -7,30 +8,6 @@ const MAX_PATTERN_LENGTH = 4096
 const MAX_GLOB_COUNT = 128
 const MAX_GLOB_LENGTH = 1024
 const MAX_CONTEXT_LINES = 20
-
-function closedRecord(
-  value: unknown,
-  label: string,
-  fields: readonly string[],
-  requireEveryField: boolean
-): Record<string, unknown> {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError(`${label} must be a closed record`)
-  }
-  const record = value as Record<string, unknown>
-  const keys = Object.keys(record)
-  if (
-    keys.some(key => !fields.includes(key)) ||
-    (requireEveryField && fields.some(field => !keys.includes(field)))
-  ) {
-    throw new TypeError(`${label} fields are not closed`)
-  }
-  return record
-}
 
 function optionalBoolean(
   record: Record<string, unknown>,
@@ -88,12 +65,9 @@ function optionalGlobs(
 export function decodeProjectSearchRequest(
   value: unknown
 ): ProjectSearchRequest {
-  const record = closedRecord(
-    value,
-    'project-search request',
-    ['schema', 'mode', 'pattern', 'options'],
-    true
-  )
+  const record = closedRecord(value, 'project-search request', {
+    required: ['schema', 'mode', 'pattern', 'options']
+  })
   if (record.schema !== 'project-search-request-1') {
     throw new TypeError('Invalid project-search request schema')
   }
@@ -114,19 +88,19 @@ export function decodeProjectSearchRequest(
     throw new TypeError('Project-search pattern does not match its mode')
   }
 
-  const rawOptions = closedRecord(
-    record.options,
-    'project-search options',
-    [
+  // Every search option means "use the default" when absent, which is what a
+  // declared-optional key is for.
+  const rawOptions = closedRecord(record.options, 'project-search options', {
+    required: [],
+    optional: [
       'isRegexp',
       'isCaseSensitive',
       'isWholeWord',
       'leadingContextLineCount',
       'trailingContextLineCount',
       'inclusions'
-    ],
-    false
-  )
+    ]
+  })
   const isRegexp = optionalBoolean(rawOptions, 'isRegexp')
   const isCaseSensitive =
     optionalBoolean(rawOptions, 'isCaseSensitive')
