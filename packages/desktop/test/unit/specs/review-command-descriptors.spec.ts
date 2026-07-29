@@ -173,10 +173,12 @@ describe('single CriticMarkup Review command descriptor registry', () => {
       .toBe(false)
     expect(isReviewCommandAvailable(command('review.mark-addition'), state))
       .toBe(false)
+    // Navigation walks the marked projection's cards, so a resolved
+    // projection makes it unavailable even while items exist.
     expect(isReviewCommandAvailable(command('review.next'), {
       ...state,
       projection: 'revised'
-    })).toBe(true)
+    })).toBe(false)
     expect(isReviewCommandAvailable(command('review.next'), {
       ...state,
       available: false
