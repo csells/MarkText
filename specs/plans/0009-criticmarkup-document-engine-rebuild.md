@@ -1,9 +1,9 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G1, G3, G4, G6–G9, G13, G18–G20, G23, G24 open;
+- **Status:** RED — G3, G4, G6–G9, G13, G18–G20, G23, G24 open;
   G5, G14–G16 partial
 - **Owner:** MarkText
-- **Updated:** 2026-07-27
+- **Updated:** 2026-07-28
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
 - **Order:** P0 → P0.5 → P1 → … → P9 → P11 → P10
 - **Completion authority:** only P10 may declare this plan complete
@@ -602,35 +602,42 @@ revealing it; A28 asserted sink security as a byte blacklist that rejected the
 escaped output sanitization produces. In every case the product was correct and
 the target had never reached the behavior its row claims.
 
-Four are product defects. A07: with autosave enabled the canonical head carries
-typed text the file on disk never receives, and `autoSaveDelay` defaults to
-5,000 ms against a 10,000 ms poll, so it is not a timing shortfall. A17 and P8:
-a Review sidebar command — Remove comment after an Edit — leaves the document
-byte-identical, and A22: Review card text is derived from projection-dependent
-display text.
+Four were product defects; two remain. A07: with autosave enabled the canonical
+head carries typed text the file on disk never receives, and `autoSaveDelay`
+defaults to 5,000 ms against a 10,000 ms poll, so it is not a timing shortfall.
+A22: Review card text is derived from projection-dependent display text. A17 and
+P8 — a Review sidebar command leaving the document byte-identical — are closed
+below.
 
-A17's drop is now localized. Removing an anchored comment succeeds at every
-layer the renderer owns — on an opened file, from a resolved projection, on a
-comment authored in the same session, and on one whose card carries the live
-revision stamp — each proved against a real `DocumentEditorHost` over a real
-session in `packages/desktop/test/unit/specs/critic-markup-remove-annotation.spec.ts`.
-It fails on exactly one input: a card whose revision stamp has been superseded.
-There the command refuses, and the controller surfaces that refusal to the
-notification sink, so the user sees a stale report rather than a mutation.
+A17 and P8 are **closed**. Removing a Comment restores a document to the bytes
+it was opened with, so its content-addressed dirty flag goes false while its
+head identity has moved past the saved revision. The renderer's history-state
+codec cross-checked the two — `dirty === (headIdentity !== savedIdentity)` — and
+rejected that legitimate publication as invalid. The failure then vanished
+without trace: `applyMounted` re-attached the previous head, the rethrown error
+was swallowed by the sidebar's fire-and-forget dispatch, and the user saw a
+Review command that did nothing and reported nothing. Dirtiness has been
+content-addressed since saved identity became so (G2), and identity deliberately
+stays stable across undo/redo, so the two are independent by construction and
+must not be cross-checked.
 
-That refusal must stay. Node ids are positional counters minted in parse order
-(`p1:1`, `p1:2`, … — `packages/document-core/src/internal/profile1/syntaxIdentity.ts:91`),
-so the same id denotes a different node after any revision. Authenticating a
-Review command by node id alone — the obvious repair for a command that appears
-to do nothing — would resolve a stale card onto whatever now occupies that slot
-and silently remove the wrong annotation. A mutation proof pins this: deleting
-the stamp check turns the refusal test red and leaves the other four green.
+Two things this cost, worth keeping. The defect was invisible to every
+in-process test because it lives in the renderer's mounting of a *main-owned*
+publication; a real `DocumentEditorHost` over a local session removes the same
+Comment correctly, which is why it took an instrumented Electron probe to find.
+And a Review command whose dispatch rejects is still discarded silently — the
+sidebar's `.then()` has no rejection arm — so non-negotiable 10 remains open
+independently of this fix.
 
-What remains is freshness, not authentication. The sidebar renders from a
-published snapshot, and any revision landing between paint and click supersedes
-every card on screen. A17's fix belongs there — keeping what the sidebar holds
-current, or re-resolving a card against identity that survives a reparse — and
-not in the guard that currently prevents the corruption.
+The guard that authenticates a card against its revision must stay. Node ids are
+positional counters minted in parse order (`p1:1`, `p1:2`, … —
+`packages/document-core/src/internal/profile1/syntaxIdentity.ts:91`), so the
+same id denotes a different node after any revision, and authenticating a Review
+command by node id alone would resolve a stale card onto whatever now occupies
+that slot and silently remove the wrong annotation. A mutation proof in
+`packages/desktop/test/unit/specs/critic-markup-remove-annotation.spec.ts` pins
+this: deleting the stamp check turns the refusal test red and leaves the rest
+green.
 
 P11 is **UNPROVEN** until the frozen tree passes its section 6 outcome against
 the unchanged section 3 budgets.
