@@ -602,12 +602,17 @@ revealing it; A28 asserted sink security as a byte blacklist that rejected the
 escaped output sanitization produces. In every case the product was correct and
 the target had never reached the behavior its row claims.
 
-Four were product defects; two remain. A07: with autosave enabled the canonical
-head carries typed text the file on disk never receives, and `autoSaveDelay`
-defaults to 5,000 ms against a 10,000 ms poll, so it is not a timing shortfall.
-A22: Review card text is derived from projection-dependent display text. A17 and
-P8 — a Review sidebar command leaving the document byte-identical — are closed
-below.
+One product defect remains: A22, where Review card text is derived from
+projection-dependent display text. A17 and P8 — a Review sidebar command leaving
+the document byte-identical — are closed below.
+
+A07 was diagnosed as a product defect and was not one. Autosave never wrote
+typed text to disk because it was never enabled: `MenuItem.click()` performs
+Electron's own checkbox toggle, and the harness set `checked` beforehand as
+well, so every click that appeared to enable autosave disabled it. The
+observation was accurate — typed text really was absent from disk — and the
+inference from it was wrong, which is the failure mode this split exists to
+catch. The final tally is five stale targets against three product defects.
 
 A17 and P8 are **closed**. Removing a Comment restores a document to the bytes
 it was opened with, so its content-addressed dirty flag goes false while its
