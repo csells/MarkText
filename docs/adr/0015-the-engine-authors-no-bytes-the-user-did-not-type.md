@@ -1,11 +1,20 @@
 # The engine authors no bytes the user did not type
 
-MarkText never inserts a character into canonical source on the user's behalf —
-not to protect a parse, not to keep pasted prose literal, not to preserve a
-structure an edit reinterprets. Every byte in the document was typed, pasted, or
-opened by the user. Marker-looking text therefore becomes CriticMarkup wherever
-it lands, and a user who wants a literal `{++` escapes it themselves using the
-language authority's own mechanisms.
+When the user edits canonical source, MarkText never inserts a character on
+their behalf — not to protect a parse, not to keep pasted prose literal, not to
+preserve a structure the edit reinterprets. In Source mode the user types
+*bytes*, and those exact bytes are what the document holds. Marker-looking text
+therefore becomes CriticMarkup wherever it lands, and a user who wants a literal
+`{++` escapes it themselves using the language authority's own mechanisms.
+
+This governs canonical-source editing. A projection edit is different in kind:
+in Markup mode the user types *text*, not bytes, and the engine must choose
+source that means that text. Escaping a delimiter the typed text would otherwise
+assemble is encoding, the way `&lt;` encodes a typed `<`, and it is not
+authorship — without it two typed characters would silently close an annotation
+and restructure a document the user was writing prose into. The test is whose
+alphabet the input was in: source bytes are transcribed exactly, projected text
+is encoded faithfully.
 
 The tempting alternative is for the engine to insert a backslash when an edit
 assembles a delimiter it thinks the user did not intend. Profile 1 §8 E1 does
@@ -27,7 +36,7 @@ product exists to provide. Protecting users from surprising annotations and
 accepting bytes from arbitrary tools are the same mechanism seen from two sides,
 and only one of them can win.
 
-A consequence worth stating: an escape appearing in committed source that the
-user did not type is a defect, never a feature. Candidate protection runs when
-an edit is first admitted and never when history replays an edit that was
-already admitted and proved.
+Two consequences worth stating. An escape appearing in committed source from a
+Source-mode edit is a defect, never a feature. And candidate protection runs
+when a projection edit is first admitted — never when history replays an edit
+that was already admitted and proved, whose bytes were settled then.
