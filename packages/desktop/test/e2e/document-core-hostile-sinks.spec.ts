@@ -265,7 +265,17 @@ test.describe('document-core hostile sinks', () => {
 
     const html = readFileSync(htmlPath, 'utf8')
     expect(html).toContain('Safe')
-    expect(html).not.toMatch(/<script|<img|onerror|javascript:/iu)
+    // Sanitized means semantically inert, not byte-absent. The hostile text
+    // must survive as escaped text — dropping it would author a loss — so the
+    // live forms are forbidden and the escaped forms are required.
+    // A handler attribute cannot execute without a live tag, and every tag in
+    // the hostile payload is escaped, so live tags and live javascript: URLs
+    // are what must be absent.
+    expect(html).not.toMatch(/<script|<img|<iframe|<svg/iu)
+    expect(html).not.toMatch(/(?:href|src)\s*=\s*["']?\s*javascript:/iu)
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('&lt;img')
+    expect(html).toContain('onerror=&quot;')
     for (const artifactPath of [pdfPath, printPath]) {
       const artifact = readFileSync(artifactPath)
       expect(statSync(artifactPath).size).toBeGreaterThan(500)

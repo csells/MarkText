@@ -98,13 +98,70 @@ const doubleClickWord = async(page: Page, needle: string): Promise<string> => {
   return selected
 }
 
+const dragEdgePoints = async(
+  page: Page,
+  startNeedle: string,
+  endNeedle: string
+): Promise<Readonly<{
+  start: Readonly<{ x: number; y: number }>
+  end: Readonly<{ x: number; y: number }>
+}>> => {
+  const points = await page.evaluate(({ startText, endText }) => {
+    const root = document.querySelector('.editor-component')
+    if (root === null) return null
+    const edgePoint = (
+      node: Text,
+      index: number,
+      requestedEdge: 'start' | 'end'
+    ): Readonly<{ x: number; y: number }> => {
+      const ruler = document.createRange()
+      ruler.setStart(node, index)
+      ruler.setEnd(node, index + 1)
+      const rect = ruler.getBoundingClientRect()
+      return {
+        x: requestedEdge === 'start' ? rect.left + 1 : rect.right - 1,
+        y: rect.top + rect.height / 2
+      }
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text
+      const startIndex = node.data.indexOf(startText)
+      if (startIndex < 0) continue
+      const start = edgePoint(node, startIndex, 'start')
+      // Continue the same walk: the end needle is at or after the start node.
+      const sameNode = node.data.indexOf(endText, startIndex)
+      if (sameNode >= 0) {
+        return { start, end: edgePoint(node, sameNode + endText.length - 1, 'end') }
+      }
+      while (walker.nextNode()) {
+        const later = walker.currentNode as Text
+        const endIndex = later.data.indexOf(endText)
+        if (endIndex < 0) continue
+        return { start, end: edgePoint(later, endIndex + endText.length - 1, 'end') }
+      }
+      return null
+    }
+    return null
+  }, { startText: startNeedle, endText: endNeedle })
+  if (points === null) {
+    throw new Error(
+      `Could not locate ${JSON.stringify(startNeedle)} followed by ` +
+        `${JSON.stringify(endNeedle)} in the editor`
+    )
+  }
+  return points
+}
+
 const dragSelect = async(
   page: Page,
   startNeedle: string,
   endNeedle: string
 ): Promise<string> => {
-  const start = await textEdgePoint(page, startNeedle, 'start')
-  const end = await textEdgePoint(page, endNeedle, 'end')
+  // A drag is forward by construction, so the end needle is resolved from the
+  // start needle's node onward. Resolving it globally picks the document's
+  // first occurrence, which may precede the start and invert the gesture.
+  const { start, end } = await dragEdgePoints(page, startNeedle, endNeedle)
   await page.mouse.move(start.x, start.y)
   await page.mouse.down()
   await page.mouse.move(end.x, end.y, { steps: 16 })
