@@ -607,22 +607,30 @@ typed text the file on disk never receives, and `autoSaveDelay` defaults to
 5,000 ms against a 10,000 ms poll, so it is not a timing shortfall. A17 and P8:
 a Review sidebar command — Remove comment after an Edit — leaves the document
 byte-identical, and A22: Review card text is derived from projection-dependent
-display text. A17's drop is narrower than its target suggests: Remove comment leaves the
-document byte-identical **with no preceding Edit at all**, on a comment authored
-seconds earlier whose card is rendered and clickable. The Edit step is
-incidental. Three theories are already refuted: the engine is correct under a
-session-level replay of the exact byte sequence; `actOnItem` sends the live
-`documentId`/`revisionId` with the rendered `nodeId`
-(`packages/desktop/src/renderer/src/components/sideBar/review.vue:569-587`), so
-no stale card stamp is involved; and a refused intent throws rather than
-resolving, so no caller mistakes a rejection for a commit. What remains is the
-resolution step: `resolveReviewItem` requires the card's nodeId to appear in
-both `reviewSnapshot().items` and `view.getReviewIndex().items`
-(`.../documentCoreDesktopEditor.ts:697-723`), and an anchored Comment is one
-Commented span carrying two independent nodes, so the id the card emits and the
-id each list keys on are the next thing to compare. Independently of this bug,
-those three silent `false` returns violate non-negotiable 10: a Review command
-that cannot resolve its target must reject visibly.
+display text.
+
+A17's drop is now localized. Removing an anchored comment succeeds at every
+layer the renderer owns — on an opened file, from a resolved projection, on a
+comment authored in the same session, and on one whose card carries the live
+revision stamp — each proved against a real `DocumentEditorHost` over a real
+session in `packages/desktop/test/unit/specs/critic-markup-remove-annotation.spec.ts`.
+It fails on exactly one input: a card whose revision stamp has been superseded.
+There the command refuses, and the controller surfaces that refusal to the
+notification sink, so the user sees a stale report rather than a mutation.
+
+That refusal must stay. Node ids are positional counters minted in parse order
+(`p1:1`, `p1:2`, … — `packages/document-core/src/internal/profile1/syntaxIdentity.ts:91`),
+so the same id denotes a different node after any revision. Authenticating a
+Review command by node id alone — the obvious repair for a command that appears
+to do nothing — would resolve a stale card onto whatever now occupies that slot
+and silently remove the wrong annotation. A mutation proof pins this: deleting
+the stamp check turns the refusal test red and leaves the other four green.
+
+What remains is freshness, not authentication. The sidebar renders from a
+published snapshot, and any revision landing between paint and click supersedes
+every card on screen. A17's fix belongs there — keeping what the sidebar holds
+current, or re-resolving a card against identity that survives a reparse — and
+not in the guard that currently prevents the corruption.
 
 P11 is **UNPROVEN** until the frozen tree passes its section 6 outcome against
 the unchanged section 3 budgets.
