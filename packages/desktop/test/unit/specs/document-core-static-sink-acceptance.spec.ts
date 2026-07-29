@@ -52,11 +52,6 @@ describe('main-only static sink acceptance surface', () => {
       ...requestBase,
       consumer: 'pdf',
       targetPath: path.resolve('artifacts', 'review.pdf')
-    },
-    {
-      ...requestBase,
-      consumer: 'print',
-      proofPath: path.resolve('artifacts', 'print-proof.pdf')
     }
   ] satisfies readonly DocumentCoreStaticSinkAcceptanceRequest[])(
     'delegates $consumer to the shared static sink host for an attached owner',
@@ -78,7 +73,8 @@ describe('main-only static sink acceptance surface', () => {
       ) => receipt)
       const surface = createDocumentCoreStaticSinkAcceptanceSurface(
         resolveOwner,
-        executeStaticSink
+        executeStaticSink,
+        vi.fn()
       )
 
       await surface.execute(41, request)
@@ -92,12 +88,48 @@ describe('main-only static sink acceptance surface', () => {
     }
   )
 
+  // G6: a print proof selects an adapter, so the request handed to the sink
+  // host is the same one production submits natively — the proof path travels
+  // beside it, never inside it.
+  it('routes a print proof through the proof adapter, not the request', async() => {
+    const resolveOwner = vi.fn(() => 'renderer:41')
+    const executeStaticSink = vi.fn()
+    const executePrintToProof = vi.fn(async(
+      _ownerId: string,
+      _request: DocumentCoreResolvedStaticSinkRequest,
+      _proofPath: string
+    ) => ({ kind: 'proof-written' }) as unknown as DocumentCoreStaticSinkReceipt)
+    const surface = createDocumentCoreStaticSinkAcceptanceSurface(
+      resolveOwner,
+      executeStaticSink,
+      executePrintToProof
+    )
+    const proofPath = path.resolve('artifacts', 'print-proof.pdf')
+
+    await surface.execute(41, {
+      ...requestBase,
+      consumer: 'print',
+      proofPath
+    })
+
+    expect(executeStaticSink).not.toHaveBeenCalled()
+    expect(executePrintToProof).toHaveBeenCalledWith(
+      'renderer:41',
+      { ...requestBase, consumer: 'print' },
+      proofPath
+    )
+    expect(executePrintToProof.mock.calls[0]?.[1]).not.toHaveProperty(
+      'proofPath'
+    )
+  })
+
   it('rejects relative artifact paths before resolving an owner or host', async() => {
     const resolveOwner = vi.fn(() => 'renderer:41')
     const executeStaticSink = vi.fn()
     const surface = createDocumentCoreStaticSinkAcceptanceSurface(
       resolveOwner,
-      executeStaticSink
+      executeStaticSink,
+      vi.fn()
     )
 
     await expect(surface.execute(41, {

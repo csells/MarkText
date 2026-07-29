@@ -41,7 +41,10 @@ import {
   createDocumentCorePerformanceSurface,
   type DocumentCorePerformanceSurface
 } from '../documentCore/documentCorePerformanceSurface'
-import { createElectronDocumentCoreStaticSinkSurface } from '../documentCore/electronStaticSinkSurface'
+import {
+  createElectronDocumentCoreStaticSinkSurface,
+  createPrintProofStaticSinkSurface
+} from '../documentCore/electronStaticSinkSurface'
 import { createDocumentCoreExportDecorator } from '../documentCore/exportDecorator'
 import {
   createFileDocumentCoreExportThemeSource,
@@ -520,7 +523,16 @@ export function registerDocumentCoreHandlers(): void {
             return ownerOfSender(sender)
           },
           async(ownerId, request) =>
-            await staticSinkHost().execute(ownerId, request)
+            await staticSinkHost().execute(ownerId, request),
+          async(ownerId, request, proofPath) =>
+            await createDocumentCoreStaticSinkHost(
+              mainHost(),
+              createPrintProofStaticSinkSurface(
+                createElectronDocumentCoreStaticSinkSurface(),
+                proofPath
+              ),
+              createDocumentCoreExportDecorator(exportThemeCatalog())
+            ).execute(ownerId, request)
         ),
         writable: false
       }

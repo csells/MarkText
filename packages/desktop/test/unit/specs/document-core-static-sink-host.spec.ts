@@ -4,6 +4,8 @@ import {
   type ParseConfiguration
 } from '@marktext/document-core'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -160,7 +162,7 @@ describe('main-owned document-core static sink host', () => {
     const surface: DocumentCoreStaticSinkSurface = {
       writeStyledHtml,
       writePdf,
-      submitPrint: vi.fn(async() => {})
+      submitPrint: vi.fn(async() => Object.freeze({ kind: 'submitted' as const }))
     }
     const session = await sessionHost()
     const sinks = createDocumentCoreStaticSinkHost(
@@ -217,26 +219,22 @@ describe('main-owned document-core static sink host', () => {
     expect(pdf).not.toContain('<img src=x')
   })
 
-  it('uses print-render HTML at the print boundary and supports a deterministic proof artifact', async() => {
-    const submitPrint = vi.fn(async(_html: string) => {})
-    const writePrintProof = vi.fn(async(
-      _targetPath: string,
-      _html: string
-    ) => 733)
+  // G6: how a print is realized is a property of the injected adapter, chosen
+  // at composition, not a field on the production request. A `proofPath` on the
+  // request made the production host branch on whether it was under test, which
+  // is the effect-adapter rule inverted. The request is identical in both cases
+  // below; only the surface differs.
+  it('uses print-render HTML at the print boundary', async() => {
+    const submitPrint = vi.fn(async(_html: string) => Object.freeze({
+      kind: 'submitted' as const
+    }))
     const session = await sessionHost()
     const sinks = createDocumentCoreStaticSinkHost(
       session.host,
       {
-        writeStyledHtml: vi.fn(async(
-          _targetPath: string,
-          _html: string
-        ) => 0),
-        writePdf: vi.fn(async(
-          _targetPath: string,
-          _html: string
-        ) => 0),
-        submitPrint,
-        writePrintProof
+        writeStyledHtml: vi.fn(async() => 0),
+        writePdf: vi.fn(async() => 0),
+        submitPrint
       },
       decorator()
     )
@@ -248,27 +246,9 @@ describe('main-owned document-core static sink host', () => {
       view: 'markup',
       options: exportOptions
     })
-    const proof = await sinks.execute('renderer:1', {
-      documentId: 'static-document',
-      revisionId: session.revisionId,
-      consumer: 'print',
-      view: 'markup',
-      proofPath: '/tmp/print-proof.pdf',
-      options: exportOptions
-    })
 
-    expect(printed).toMatchObject({
-      kind: 'submitted',
-      consumer: 'print'
-    })
-    expect(proof).toMatchObject({
-      kind: 'proof-written',
-      consumer: 'print',
-      targetPath: '/tmp/print-proof.pdf',
-      bytes: 733
-    })
+    expect(printed).toMatchObject({ kind: 'submitted', consumer: 'print' })
     expect(submitPrint).toHaveBeenCalledTimes(1)
-    expect(writePrintProof).toHaveBeenCalledTimes(1)
     expect(submitPrint.mock.calls[0]?.[0]).toContain('<ins>new</ins>')
     expect(submitPrint.mock.calls[0]?.[0]).toContain(
       'data-marktext-export-options'
@@ -276,11 +256,58 @@ describe('main-owned document-core static sink host', () => {
     expect(submitPrint.mock.calls[0]?.[0]).not.toContain('<img src=x')
   })
 
+  it('reports whatever destination the print adapter chose', async() => {
+    const session = await sessionHost()
+    const sinks = createDocumentCoreStaticSinkHost(
+      session.host,
+      {
+        writeStyledHtml: vi.fn(async() => 0),
+        writePdf: vi.fn(async() => 0),
+        submitPrint: vi.fn(async() => Object.freeze({
+          kind: 'proof-written' as const,
+          targetPath: '/tmp/print-proof.pdf',
+          bytes: 733
+        }))
+      },
+      decorator()
+    )
+
+    const proof = await sinks.execute('renderer:1', {
+      documentId: 'static-document',
+      revisionId: session.revisionId,
+      consumer: 'print',
+      view: 'markup',
+      options: exportOptions
+    })
+
+    expect(proof).toMatchObject({
+      kind: 'proof-written',
+      consumer: 'print',
+      targetPath: '/tmp/print-proof.pdf',
+      bytes: 733
+    })
+  })
+
+  // The branch this replaced lived in the production host and asked, in
+  // effect, whether it was under test. Nothing in the sink host may ask that
+  // again: the adapter answers where a print goes.
+  it('carries no test-only destination field in the production sink host', () => {
+    const source = readFileSync(
+      resolvePath(
+        __dirname,
+        '../../../src/main/documentCore/staticSinkHost.ts'
+      ),
+      'utf8'
+    )
+    expect(source).not.toContain('proofPath')
+    expect(source).not.toContain('writePrintProof')
+  })
+
   it('rejects a stale revision before entering any static sink', async() => {
     const surface: DocumentCoreStaticSinkSurface = {
       writeStyledHtml: vi.fn(async() => 0),
       writePdf: vi.fn(async() => 0),
-      submitPrint: vi.fn(async() => {})
+      submitPrint: vi.fn(async() => Object.freeze({ kind: 'submitted' as const }))
     }
     const session = await sessionHost()
     const sinks = createDocumentCoreStaticSinkHost(

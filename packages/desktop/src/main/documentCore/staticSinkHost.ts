@@ -28,11 +28,20 @@ export type DocumentCoreResolvedStaticSinkRequest =
       readonly targetPath: string
     }
   >
-  | Readonly<
-    DocumentCorePrintSinkRequest & {
-      readonly proofPath?: string
-    }
-  >
+  | Readonly<DocumentCorePrintSinkRequest>
+
+/**
+ * Where a print actually goes. The adapter decides — native submission in
+ * production, a written proof under automation — so the host never branches on
+ * whether it is under test.
+ */
+export type DocumentCorePrintSubmission =
+  | Readonly<{ readonly kind: 'submitted' }>
+  | Readonly<{
+    readonly kind: 'proof-written'
+    readonly targetPath: string
+    readonly bytes: number
+  }>
 
 export interface DocumentCoreStaticSinkSurface {
   readonly writeStyledHtml: (
@@ -44,12 +53,10 @@ export interface DocumentCoreStaticSinkSurface {
     html: string,
     pageOptions: DocumentCorePdfPageOptions
   ) => Promise<number>
-  readonly submitPrint: (html: string) => Promise<void>
-  readonly writePrintProof?: (
-    targetPath: string,
+  readonly submitPrint: (
     html: string,
     pageOptions: DocumentCorePdfPageOptions
-  ) => Promise<number>
+  ) => Promise<DocumentCorePrintSubmission>
 }
 
 export interface DocumentCoreStaticSinkHost {
@@ -241,23 +248,18 @@ export function createDocumentCoreStaticSinkHost(
     if (decorated.pdfPageOptions === undefined) {
       throw new Error('Print export decoration omitted page options')
     }
-    if (request.proofPath !== undefined) {
-      if (surface.writePrintProof === undefined) {
-        throw new Error('The static sink surface cannot write a print proof')
-      }
-      const bytes = await surface.writePrintProof(
-        request.proofPath,
-        decorated.html,
-        decorated.pdfPageOptions
-      )
+    const submission = await surface.submitPrint(
+      decorated.html,
+      decorated.pdfPageOptions
+    )
+    if (submission.kind === 'proof-written') {
       return Object.freeze({
         ...receiptBase(request, result.revision),
         kind: 'proof-written',
-        targetPath: request.proofPath,
-        bytes
+        targetPath: submission.targetPath,
+        bytes: submission.bytes
       })
     }
-    await surface.submitPrint(decorated.html)
     return Object.freeze({
       ...receiptBase(request, result.revision),
       kind: 'submitted'

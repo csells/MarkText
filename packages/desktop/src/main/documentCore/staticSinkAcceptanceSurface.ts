@@ -54,6 +54,13 @@ type ExecuteStaticSink = (
   request: DocumentCoreResolvedStaticSinkRequest
 ) => Promise<DocumentCoreStaticSinkReceipt>
 
+/** Run one production print request against a proof-writing print adapter. */
+type ExecutePrintToProof = (
+  ownerId: string,
+  request: DocumentCoreResolvedStaticSinkRequest,
+  proofPath: string
+) => Promise<DocumentCoreStaticSinkReceipt>
+
 function assertAbsoluteArtifactPath(
   artifactPath: string,
   label: string
@@ -76,7 +83,8 @@ function assertAbsoluteArtifactPath(
  */
 export function createDocumentCoreStaticSinkAcceptanceSurface(
   resolveOwner: ResolveOwner,
-  executeStaticSink: ExecuteStaticSink
+  executeStaticSink: ExecuteStaticSink,
+  executePrintToProof: ExecutePrintToProof
 ): DocumentCoreStaticSinkAcceptanceSurface {
   return Object.freeze({
     execute: async(
@@ -93,10 +101,15 @@ export function createDocumentCoreStaticSinkAcceptanceSurface(
       }
 
       if (request.consumer === 'print') {
-        assertAbsoluteArtifactPath(request.proofPath, 'Print proof path')
-        return await executeStaticSink(
+        const { proofPath, ...printRequest } = request
+        assertAbsoluteArtifactPath(proofPath, 'Print proof path')
+        // The proof path selects an *adapter*, never a production request
+        // field: what reaches the sink host is the same print request the
+        // application submits natively.
+        return await executePrintToProof(
           resolveOwner(ownerWebContentsId),
-          Object.freeze({ ...request })
+          Object.freeze(printRequest),
+          proofPath
         )
       }
 

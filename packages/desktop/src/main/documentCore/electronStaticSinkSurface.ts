@@ -2,7 +2,10 @@ import { BrowserWindow } from 'electron'
 import path from 'node:path'
 import { writeFile } from '../filesystem'
 import { presentationPolicy } from '../presentationPolicy'
-import type { DocumentCoreStaticSinkSurface } from './staticSinkHost'
+import type {
+  DocumentCorePrintSubmission,
+  DocumentCoreStaticSinkSurface
+} from './staticSinkHost'
 import type { DocumentCorePdfPageOptions } from './exportDecorator'
 
 const STATIC_WINDOW_OPTIONS: Electron.BrowserWindowConstructorOptions = {
@@ -90,7 +93,7 @@ DocumentCoreStaticSinkSurface {
       return Buffer.byteLength(html, 'utf8')
     },
     writePdf,
-    submitPrint: async(html: string): Promise<void> => {
+    submitPrint: async(html: string): Promise<DocumentCorePrintSubmission> => {
       await withStaticWindow(html, async(window) => {
         await new Promise<void>((resolve, reject) => {
           try {
@@ -112,11 +115,29 @@ DocumentCoreStaticSinkSurface {
           }
         })
       })
-    },
-    writePrintProof: async(
-      targetPath: string,
+      return Object.freeze({ kind: 'submitted' })
+    }
+  })
+}
+
+/**
+ * The automation print destination: a deterministic PDF proof instead of a
+ * native submission. Composed around a real surface so every other sink, and
+ * the whole decoration path, stays exactly the production one.
+ */
+export function createPrintProofStaticSinkSurface(
+  surface: DocumentCoreStaticSinkSurface,
+  targetPath: string
+): DocumentCoreStaticSinkSurface {
+  return Object.freeze({
+    ...surface,
+    submitPrint: async(
       html: string,
       pageOptions: DocumentCorePdfPageOptions
-    ): Promise<number> => await writePdf(targetPath, html, pageOptions)
+    ): Promise<DocumentCorePrintSubmission> => Object.freeze({
+      kind: 'proof-written',
+      targetPath,
+      bytes: await surface.writePdf(targetPath, html, pageOptions)
+    })
   })
 }
