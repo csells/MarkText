@@ -112,7 +112,7 @@ test.describe('TOC collapse state survives edits (#3028)', () => {
       const anchor = selection?.anchorNode ?? null
       const heading = anchor instanceof Node
         ? (anchor instanceof Element ? anchor : anchor.parentElement)
-            ?.closest('h2.document-view-heading') ?? null
+          ?.closest('h2.document-view-heading') ?? null
         : null
       return heading?.textContent ?? null
     })).toContain('C')
