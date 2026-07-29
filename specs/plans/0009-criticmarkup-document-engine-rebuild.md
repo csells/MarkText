@@ -602,9 +602,14 @@ revealing it; A28 asserted sink security as a byte blacklist that rejected the
 escaped output sanitization produces. In every case the product was correct and
 the target had never reached the behavior its row claims.
 
-One product defect remains: A22, where Review card text is derived from
-projection-dependent display text. A17 and P8 — a Review sidebar command leaving
-the document byte-identical — are closed below.
+All three product defects are closed. A22 was understated: Review card text was
+not merely projection-dependent but wrong, because marked-projection model
+offsets were sliced out of whichever projection was mounted. Under `original`
+the addition card read `" remo"` and the deletion card `"ed hi o"` — unrelated
+characters, not a shortened answer. Card content and anchor text now come from
+the parser-issued source range, which is projection-independent by construction.
+A17 and P8 — a Review sidebar command leaving the document byte-identical — are
+closed below.
 
 A07 was diagnosed as a product defect and was not one. Autosave never wrote
 typed text to disk because it was never enabled: `MenuItem.click()` performs
