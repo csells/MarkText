@@ -278,11 +278,16 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     await addCommentViaSidebar(page, app, 'header note')
     await expect.poll(() => readCanonicalMarkdown(page)).toContain('{>>header note<<}')
 
-    // Caret at the very start of the line, then delete forward twice to strip
-    // the '# ' — demoting the commented header to a paragraph.
+    // The rendered heading carries no '# ' text — the prefix exists only in
+    // the model — so a caret at the rendered start sits AFTER the marker and
+    // forward-delete would eat content. Two backspaces walk backwards through
+    // the model's hidden '# ' prefix, demoting the commented header to a
+    // paragraph.
     await page.evaluate(() => {
-      const root = document.querySelector('.editor-component')
+      const root = document.querySelector('.editor-component') as
+        HTMLElement | null
       if (!root) return
+      root.focus()
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
       const node = walker.nextNode() as Text | null
       if (!node) return
@@ -294,8 +299,9 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
       selection.removeAllRanges()
       selection.addRange(range)
     })
-    await page.keyboard.press('Delete')
-    await page.keyboard.press('Delete')
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => readCanonicalMarkdown(page)).toContain('#hello')
+    await page.keyboard.press('Backspace')
 
     await expectNoRendererErrors(app)
     await expect.poll(() => readCanonicalMarkdown(page)).toContain('{>>header note<<}')

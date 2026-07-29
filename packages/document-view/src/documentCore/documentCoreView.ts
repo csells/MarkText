@@ -258,6 +258,12 @@ export interface IDocumentCoreViewOptions {
         | Promise<DocumentCoreClipboardWriteResult>
     );
     /**
+     * Observes every refused browser input as it is refused. The failure is
+     * also retained for `settled()`, but a host that only settles at flush
+     * boundaries would otherwise show the user nothing for a dropped gesture.
+     */
+    readonly onBrowserInputFailure?: (error: unknown) => void;
+    /**
      * Main-owned clipboard transaction. The view supplies only the exact
      * parser-issued target; clipboard material never enters renderer memory.
      */
@@ -3445,6 +3451,7 @@ export async function createDocumentCoreView(
             .then(operation)
             .catch((error: unknown) => {
                 browserInputFailure ??= error;
+                options.onBrowserInputFailure?.(error);
             })
             .finally(() => {
                 if (browserInputGeneration === generation) {

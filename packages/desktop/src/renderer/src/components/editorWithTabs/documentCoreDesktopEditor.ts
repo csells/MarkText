@@ -12,7 +12,11 @@ import type {
   TCriticMarkupDecision,
   TCriticMarkupNavigationDirection
 } from '@marktext/document-view'
-import { createDocumentCoreView, en } from '@marktext/document-view'
+import {
+  createDocumentCoreView,
+  en,
+  reportAsyncFailure
+} from '@marktext/document-view'
 import type {
   BlockConversion,
   DocumentSearchQuery,
@@ -416,6 +420,12 @@ export async function createDocumentEditorHost(
     host: options.element,
     session: options.session,
     clipboardPaste,
+    // A refused browser input surfaces when it is refused: this host settles
+    // the view only at flush and save boundaries, so without this report a
+    // dropped keystroke would be invisible until much later, if ever.
+    onBrowserInputFailure: (error: unknown) => {
+      reportAsyncFailure(error, 'Document browser input')
+    },
     ...(options.requestTableShape === undefined
       ? {}
       : { requestTableShape: options.requestTableShape }),
