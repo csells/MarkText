@@ -269,16 +269,14 @@ function completeFacts(
   const recommendedTitle = revisedHeading === null
     ? null
     : normalizeWhitespace(revisedHeadingText, execution) || null
-  const semanticText = materializeProjectedText(
-    revision,
-    'markup',
-    undefined,
-    execution
-  ).text
+  // The count consumer's declared policy reads the committed canonical source
+  // including markers and Comment payload, identical in every view
+  // (specs/migration/consumer-policy.yml). Counting a projection's semantic
+  // text silently shrank the numbers whenever a document carried markers.
   return Object.freeze({
     kind: 'document-facts' as const,
     recommendedTitle,
-    statistics: statistics(semanticText, paragraph, execution)
+    statistics: statistics(revision.source.text, paragraph, execution)
   })
 }
 

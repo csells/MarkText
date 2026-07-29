@@ -27,6 +27,9 @@ const selectWord = async(page: Page, word: string): Promise<void> => {
       const text = walker.currentNode as Text
       const index = text.textContent?.indexOf(needle) ?? -1
       if (index >= 0) {
+        // The needle can sit below the fold; an off-viewport rect sends the
+        // double-click to whatever occupies those page coordinates instead.
+        ;(text.parentElement ?? root).scrollIntoView({ block: 'center' })
         const range = document.createRange()
         range.setStart(text, index)
         range.setEnd(text, index + needle.length)
@@ -135,18 +138,40 @@ const wordCounterValue = async(page: Page): Promise<number> => {
   return match ? Number(match[1]) : NaN
 }
 
+// The product's word semantics over the count consumer's policy text (the
+// committed canonical source): runs of letters/marks/digits/underscore count
+// once, and every Han ideograph counts as its own word. This mirrors the
+// engine's documented rules independently rather than importing them, so a
+// counting regression cannot certify itself.
 const canonicalWordCount = (markdown: string): number => {
-  const removedChinese = markdown.replace(/[\u4E00-\u9FA5]/g, '')
-  const tokens = removedChinese.split(/\s+/).filter((token) => token)
-  return markdown.length - removedChinese.length + tokens.length
+  let words = 0
+  let insideWord = false
+  for (const scalar of markdown) {
+    if (/^\p{Script=Han}$/u.test(scalar)) {
+      words += 1
+      insideWord = false
+    } else if (/^[\p{L}\p{M}\p{N}_]$/u.test(scalar)) {
+      if (!insideWord) words += 1
+      insideWord = true
+    } else {
+      insideWord = false
+    }
+  }
+  return words
 }
 
 const selectParagraphContaining = async(page: Page, needle: string): Promise<string> => {
   const selected = await page.evaluate((text) => {
     const root = document.querySelector('.editor-component') as HTMLElement | null
     if (!root) return null
-    const paragraph = [...root.querySelectorAll<HTMLElement>('.document-view-run')]
+    // A marked paragraph renders as several runs (each marker span is its
+    // own run), so select the enclosing block rather than the first run that
+    // happens to contain the needle.
+    const run = [...root.querySelectorAll<HTMLElement>('.document-view-run')]
       .find((candidate) => candidate.textContent?.includes(text))
+    const paragraph = run?.closest<HTMLElement>(
+      '.document-view-paragraph, .document-view-block'
+    ) ?? null
     if (!paragraph) return null
 
     root.focus()
@@ -600,7 +625,11 @@ test.describe('CriticMarkup file-backed losslessness', () => {
         surface: Object.keys(window.__marktextE2EReadOnly ?? {})
       }))).toEqual({
         frozen: true,
-        surface: ['readCanonicalMarkdown', 'readLastExecutionReport']
+        surface: [
+          'readCanonicalMarkdown',
+          'readLastExecutionReport',
+          'readStaticSinkIdentity'
+        ]
       })
 
       // This corpus is already in the desktop serializer's canonical form, so
@@ -629,9 +658,16 @@ test.describe('CriticMarkup file-backed losslessness', () => {
         canonicalWordCount(FILE_LOSSLESS_CORPUS)
       )
 
-      const markedParagraph = 'Alpha {++added++}, {--removed--}, and {~~before~>after~~}.'
-      expect(await selectParagraphContaining(page, 'Alpha')).toBe(markedParagraph)
-      await copySelection(app, markedParagraph)
+      // The DOM selection carries the view's projected text (consumer-policy
+      // vocabulary: decoded plain text, never projected Markdown spelling);
+      // the clipboard carries the exact canonical slice. These are different
+      // strings in the marked view and both sides are asserted.
+      const markedParagraphVisible = 'Alpha added, removed, and beforeafter.'
+      const markedParagraphCanonical =
+        'Alpha {++added++}, {--removed--}, and {~~before~>after~~}.'
+      expect(await selectParagraphContaining(page, 'Alpha'))
+        .toBe(markedParagraphVisible)
+      await copySelection(app, markedParagraphCanonical)
       expect(await readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
 
       await clickMenuById(app, 'reviewShowRevisedMenuItem')

@@ -33,7 +33,10 @@ describe('parser-owned document facts', () => {
     vi.restoreAllMocks()
   })
 
-  it('derives the recommended title and statistics from semantic parser structure', () => {
+  // Consumer policy (specs/migration/consumer-policy.yml): the count consumer
+  // reads "committed canonical source including markers and Comment payload",
+  // identical in every view. The title still derives from parsed structure.
+  it('derives the title from structure and statistics from canonical source', () => {
     const source = [
       '```md',
       '# Not a title',
@@ -56,10 +59,10 @@ describe('parser-owned document facts', () => {
       kind: 'document-facts',
       recommendedTitle: 'Real Title',
       statistics: {
-        word: 10,
+        word: 14,
         paragraph: 3,
-        character: 37,
-        all: 46
+        character: 85,
+        all: 103
       }
     })
   })
@@ -287,17 +290,20 @@ describe('parser-owned document facts', () => {
     expect(materializeDocumentFacts(revision).recommendedTitle).toBeNull()
   })
 
-  it('does not certify entity-decoded Markdown text as source-identical', () => {
+  it('counts entity source bytes, not their decoded text', () => {
     const revision = createLanguageEngine().open(
       createSourceSnapshot('alpha &amp; beta'),
       CONFIGURATION
     )
 
+    // `&amp;` is five source characters and one decoded one; the count
+    // consumer's policy reads committed canonical source, so the entity
+    // counts as the bytes the user typed.
     expect(materializeDocumentFacts(revision).statistics).toEqual({
-      word: 2,
+      word: 3,
       paragraph: 1,
-      character: 10,
-      all: 12
+      character: 14,
+      all: 16
     })
   })
 
