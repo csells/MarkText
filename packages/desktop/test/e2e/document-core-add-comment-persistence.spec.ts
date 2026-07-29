@@ -5,7 +5,7 @@ import { launchWithDoc, readCanonicalMarkdown } from './helpers'
 import {
   authorComment,
   closeDocumentCore,
-  launchDocumentCore,
+  launchDocumentCoreWithKeybindings,
   save
 } from './documentCoreReviewE2e'
 
@@ -13,7 +13,12 @@ test.describe('document-core Comment persistence', () => {
   test('reopens the exact portable Highlight Comment pair', async() => {
     let app: ElectronApplication | undefined
     let page: Page
-    const launched = await launchDocumentCore('before target after\n')
+    // Review commands ship unbound by default (user-assignable), so the
+    // gesture needs a real user keybinding, exactly as the sibling targets do.
+    const launched = await launchDocumentCoreWithKeybindings(
+      'before target after\n',
+      { 'review.add-comment': 'CmdOrCtrl+Alt+Shift+C' }
+    )
     app = launched.app
     page = launched.page
     const expected = 'before {==target==}{>>portable note<<} after\n'

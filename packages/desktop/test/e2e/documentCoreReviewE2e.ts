@@ -420,6 +420,12 @@ export async function pointForText(
       const range = document.createRange()
       range.setStart(node, index)
       range.setEnd(node, index + text.length)
+      // A pointer gesture can only land on a target inside the visible box.
+      // Reveal it first, then measure, so a long document is clicked rather
+      // than measured off-screen.
+      ;(node.parentElement ?? (root as HTMLElement)).scrollIntoView({
+        block: 'center'
+      })
       const rect = range.getBoundingClientRect()
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
     }
