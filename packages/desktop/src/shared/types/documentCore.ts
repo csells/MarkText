@@ -166,9 +166,11 @@ export interface DocumentCoreMainSelectRequest {
 /**
  * Main-owned undo/redo and persistence state for one immutable document head.
  *
- * Identities name history entries, not source text. They remain stable while
- * undo/redo revisits an entry, so dirty state never depends on renderer
- * content, a content hash, or an undo-stack depth.
+ * Identities name history entries, not source text, and remain stable while
+ * undo/redo revisits an entry. `dirty` is independent of them: it compares the
+ * head's source bytes against the bytes last persisted, so a document edited
+ * back to its saved content is clean even though its head has moved on. The
+ * two therefore disagree legitimately and must not be cross-checked.
  */
 export interface DocumentCoreHistoryState {
   readonly canUndo: boolean
@@ -222,8 +224,12 @@ export function freezeDocumentCoreHistoryState(
     value.headIdentity.length === 0 ||
     !('savedIdentity' in value) ||
     typeof value.savedIdentity !== 'string' ||
-    value.savedIdentity.length === 0 ||
-    value.dirty !== (value.headIdentity !== value.savedIdentity)
+    value.savedIdentity.length === 0
+    // `dirty` is content-addressed, not identity-derived: a document edited
+    // back to the bytes it was saved with is clean even though its head is a
+    // later revision than the one persisted. Cross-checking the flag against
+    // identity equality rejects that legitimate state, so the flag is carried
+    // as main reported it.
   ) {
     throw new TypeError('Invalid document-core history state')
   }
