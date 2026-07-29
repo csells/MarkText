@@ -404,6 +404,17 @@
         "path": "packages/document-core/test/language-engine/commonmark-html-conformance.spec.ts",
         "title": "pins every pending example to one demonstrated mismatch"
       }
+    },
+    {
+      "id": "A37",
+      "requirement": "Interactive CriticMarkup surfaces stay within the 500ms p95 budget",
+      "phase": "P11",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/desktop/test/e2e/critic-markup-perf.spec.ts",
+        "title": "five projection toggles, review navigation, and sidebar refreshes stay under the 500ms p95"
+      }
     }
   ]
 }
