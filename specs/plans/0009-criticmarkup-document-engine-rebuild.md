@@ -429,7 +429,13 @@ whose assertion cannot distinguish pass from fail.
   renderer animation, working-set memory, and per-family reuse are RED on the
   maximum-document target. No current measurement observes the cold-path
   interaction p95 at all. `packages/desktop/test/e2e/critic-markup-perf.spec.ts`
-  is a P11 measurement no manifest row names; it is bound or deleted.
+  is a P11 measurement no manifest row names; it is bound or deleted. Measured
+  2026-07-29 on an idle Apple M5 Max (18 cores, 128 GB): a keystroke at the end
+  of the 32,000,000-unit target reaches terminal state in 1,341 ms against the
+  500 ms budget, and the five-projection-toggle p95 measures 1,157 ms against
+  500 ms. Viewport mount (5.5 s against 10 s) and the admission heartbeat are
+  inside budget; the keystroke path is the gap, and it is the per-keystroke
+  intrinsic reparse the W1 reuse work exists to amortize.
 - **G24 A green closure CI is not reproducible.** Section 7 requires compact
   candidate, platform, and closure records to be retained. Retention closes when
   a target reconstructs the attestation of a completed closure run from the
