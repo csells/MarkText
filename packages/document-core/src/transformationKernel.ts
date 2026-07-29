@@ -16,6 +16,11 @@ import type {
   ProjectedMarkdown,
   SourceRange
 } from './revision.js'
+import {
+  escapeCriticPayload,
+  mergeOpaqueRanges,
+  type OpaqueRange
+} from './internal/sourceAuthorship.js'
 import { createSourceSnapshot } from './sourceSnapshot.js'
 import { applyExactSourceEdits } from './exactSourceEdits.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
@@ -164,23 +169,10 @@ interface PlannedTransformation {
   readonly expectation: CandidateExpectation
 }
 
-interface PayloadOpaqueRange {
-  readonly start: number
-  readonly end: number
-}
-
 const CHANGE_KINDS = new Set<CriticMarkupNode['kind']>([
   'addition',
   'deletion',
   'substitution'
-])
-
-const CRITIC_OPENERS = Object.freeze([
-  '{++',
-  '{--',
-  '{~~',
-  '{==',
-  '{>>'
 ])
 
 function rejected(
@@ -203,125 +195,10 @@ function stableEdit(
   return Object.freeze({ start, end, insert })
 }
 
-function mergeOpaqueRanges(
-  ranges: readonly PayloadOpaqueRange[]
-): readonly PayloadOpaqueRange[] {
-  const sorted = [...ranges].sort(
-    (left, right) => left.start - right.start || left.end - right.end
-  )
-  const merged: PayloadOpaqueRange[] = []
-  for (const range of sorted) {
-    const previous = merged[merged.length - 1]
-    if (previous !== undefined && range.start <= previous.end) {
-      merged[merged.length - 1] = Object.freeze({
-        start: previous.start,
-        end: Math.max(previous.end, range.end)
-      })
-    } else {
-      merged.push(Object.freeze({ start: range.start, end: range.end }))
-    }
-  }
-  return Object.freeze(merged)
-}
-
-function escapeCriticPayload(
-  payload: string,
-  close: '++}' | '--}' | '~~}' | '==}',
-  escapeSubstitutionSeparator: boolean,
-  opaqueRanges: readonly PayloadOpaqueRange[] = Object.freeze([])
-): string {
-  const ranges = mergeOpaqueRanges(opaqueRanges)
-  const result: string[] = []
-  const closePrefix = close.slice(0, -1)
-  let opaqueIndex = 0
-  let literalStart = 0
-
-  const replace = (
-    start: number,
-    end: number,
-    replacement: string
-  ): void => {
-    if (literalStart < start) {
-      result.push(payload.slice(literalStart, start))
-    }
-    result.push(replacement)
-    literalStart = end
-  }
-
-  for (let index = 0; index < payload.length;) {
-    while ((ranges[opaqueIndex]?.end ?? Infinity) <= index) {
-      opaqueIndex += 1
-    }
-    const opaque = ranges[opaqueIndex]
-    if (opaque !== undefined && opaque.start <= index) {
-      index = opaque.end
-      continue
-    }
-    const lookaheadEnd = opaque?.start ?? payload.length
-    let targetStart = index
-    while (
-      targetStart < lookaheadEnd &&
-      payload[targetStart] === '\\'
-    ) {
-      targetStart += 1
-    }
-    const slashCount = targetStart - index
-    const opener = CRITIC_OPENERS.find((candidate) =>
-      payload.startsWith(candidate, targetStart)
-    )
-    const target =
-      opener ??
-      (
-        escapeSubstitutionSeparator &&
-        payload.startsWith('~>', targetStart)
-          ? '~>'
-          : undefined
-      )
-    if (
-      target !== undefined &&
-      targetStart + target.length <= lookaheadEnd
-    ) {
-      const end = targetStart + target.length
-      replace(index, end, `${'\\'.repeat(slashCount * 2 + 1)}${target}`)
-      index = end
-      continue
-    }
-    if (slashCount > 0) {
-      index = targetStart
-      continue
-    }
-    if (
-      index + closePrefix.length <= lookaheadEnd &&
-      payload.startsWith(closePrefix, index)
-    ) {
-      let brace = index + closePrefix.length
-      while (brace < lookaheadEnd && payload[brace] === '\\') {
-        brace += 1
-      }
-      if (brace < lookaheadEnd && payload[brace] === '}') {
-        const literalSlashes = brace - index - closePrefix.length
-        const end = brace + 1
-        replace(
-          index,
-          end,
-          `${closePrefix}${'\\'.repeat(literalSlashes * 2 + 1)}}`
-        )
-        index = end
-        continue
-      }
-    }
-    index += 1
-  }
-  if (literalStart < payload.length) {
-    result.push(payload.slice(literalStart))
-  }
-  return result.join('')
-}
-
 function serializeUnaryAuthoring(
   kind: 'addition' | 'deletion' | 'highlight',
   content: string,
-  opaqueRanges: readonly PayloadOpaqueRange[]
+  opaqueRanges: readonly OpaqueRange[]
 ): string {
   const markers = kind === 'addition'
     ? { open: '{++', close: '++}' as const }
@@ -339,7 +216,7 @@ function serializeUnaryAuthoring(
 function serializeSubstitutionAuthoring(
   oldContent: string,
   newContent: string,
-  oldOpaqueRanges: readonly PayloadOpaqueRange[]
+  oldOpaqueRanges: readonly OpaqueRange[]
 ): string {
   return `{~~${escapeCriticPayload(
     oldContent,
@@ -1343,10 +1220,10 @@ export function criticMarkupAuthoringCapabilities(
 function authoringOpaqueRanges(
   revision: CompleteDocumentRevision,
   range: SourceRange
-): readonly PayloadOpaqueRange[] {
+): readonly OpaqueRange[] {
   const selectedStart = rangeStart(range)
   const selectedEnd = rangeEnd(range)
-  const ranges: PayloadOpaqueRange[] = []
+  const ranges: OpaqueRange[] = []
   const pending = [...rootsOf(revision)].reverse()
   while (pending.length > 0) {
     const node = pending.pop()

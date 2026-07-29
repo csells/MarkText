@@ -802,7 +802,7 @@ describe('plan 0009 evidence collector', () => {
     expect(manifest.match(/stageElectronDist\.mts --target-platform=/gu)).toHaveLength(5)
   })
 
-  it('serves only exact authenticated Electron header routes and proves consumption', async () => {
+  it('serves only exact authenticated Electron header routes and proves consumption', async() => {
     const bytes = Buffer.from('authenticated proxy fixture')
     const artifact = {
       path: 'fixture-headers.tar.gz',
@@ -813,7 +813,7 @@ describe('plan 0009 evidence collector', () => {
     const proxy = await startAuthenticatedElectronHeaderProxyFromArtifacts(
       '1.2.3',
       [artifact],
-      async (url, maximumBytes) => {
+      async(url, maximumBytes) => {
         requested.push([url, maximumBytes])
         return bytes
       }
@@ -851,9 +851,9 @@ describe('plan 0009 evidence collector', () => {
     }
   })
 
-  it('rejects an Electron header download redirected away from HTTPS', async () => {
+  it('rejects an Electron header download redirected away from HTTPS', async() => {
     const responseBody = new Response('x').body
-    vi.stubGlobal('fetch', vi.fn(async () => ({
+    vi.stubGlobal('fetch', vi.fn(async() => ({
       ok: true,
       url: 'http://mutable.invalid/header.tar.gz',
       headers: new Headers({ 'content-length': '1' }),

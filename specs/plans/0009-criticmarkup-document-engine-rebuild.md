@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G3, G4, G6–G9, G13, G18–G20, G23, G24 open;
+- **Status:** RED — G4, G6–G9, G13, G18–G20, G23, G24 open;
   G5, G14–G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-28
@@ -273,7 +273,7 @@ proof", and the single-space cell padding exactly as written. -->
 <!-- prettier-ignore -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
-| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G1, G3, G4 (W1) |
+| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G16 residues, G18–G20 (W4) |
@@ -286,33 +286,12 @@ proof", and the single-space cell padding exactly as written. -->
 A closed gap is removed from this list; the status line and ledger record what
 remains, and git history holds the rest. Every gap closes red–green under
 section 5 against a named target, and carries its own manifest row — which records its owning phase — before that phase may
-turn green. Three gaps are not single public behaviors: G3, G9, and G24. An
+turn green. Two gaps are not single public behaviors: G9 and G24. An
 abbreviated citation is relative to `packages/document-core/src` in W1, W3, and
 W4, and to `packages/desktop/src` in W2, W5, and W6.
 
 **W1 — Document engine**
 
-- **G1 Undo and redo do not restore the exact prior revision.** There is no
-  admission authority: one private method serves new-candidate admission and
-  history replay, distinguished only by an optional argument
-  (`internal/session/revisionWorker.ts:5528`, `:5604`), so candidate protection
-  fires a second time on bytes it already protected (`:5558-5570`), and replay
-  cannot be expressed. Deleting one `+` from `{++new++}` and undoing commits
-  `\{++new++}`; redo then commits `\{+new++}`. Those escapes are the only bytes
-  the engine authors in ordinary use — six probes covering typed, joined, pasted,
-  and structure-splitting edits produced none — so ADR-0015 makes them a defect
-  outright: protection runs when an edit is first admitted and never on replay.
-  Reachable from Source mode. Violates non-negotiable 6. Closure binds a target
-  that edits across a delimiter and undoes.
-- **G3 The escape rule is implemented twice.** ADR-0015 rules that the engine
-  authors no bytes the user did not type, so no authorship class and no ruling
-  file are required; the authorship question is closed and G1 is unblocked. What
-  remains is duplication: the escape rule exists in two copies that disagree on
-  which closers they accept (`internal/session/revisionWorker.ts:576-744`,
-  `packages/document-core/src/transformationKernel.ts:227-350`), and the Track
-  Changes carrier decision is an inline conditional at eleven call sites in one
-  module. Consolidate to the section 2 source-authorship module, whose only
-  remaining caller is admission.
 - **G4 Model↔source answers are re-derived in four modules.** The declared
   authority (`markupCoordinateMap.ts:36-42`) is bypassed:
   `internal/session/markupView.ts:94-112` publishes raw runs beside the derived

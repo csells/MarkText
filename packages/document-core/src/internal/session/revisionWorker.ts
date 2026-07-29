@@ -17,6 +17,11 @@ import {
   nextLanguageEngineExecutionStage,
   type LanguageEngine
 } from '../../languageEngine.js'
+import {
+  escapeCriticPayload,
+  mergeOpaqueRanges,
+  type OpaqueRange
+} from '../sourceAuthorship.js'
 import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
 import type {
   CompleteDocumentRevision,
@@ -399,11 +404,6 @@ interface ExhaustedHighlight {
   readonly depth: number
 }
 
-interface TextRange {
-  readonly start: number
-  readonly end: number
-}
-
 interface VisibleReplacementSegment {
   readonly render: MarkupRenderText
   readonly owners: readonly MarkupRenderNode[]
@@ -417,7 +417,7 @@ interface VisibleReplacementIndex {
   >
 }
 
-interface VisibleReplacementPiece extends TextRange {
+interface VisibleReplacementPiece extends OpaqueRange {
   readonly insertReplacement: boolean
 }
 
@@ -471,7 +471,7 @@ function visibleReplacementSegments(
 
 function touchedVisibleSegments(
   segments: readonly VisibleReplacementSegment[],
-  match: TextRange
+  match: OpaqueRange
 ): readonly VisibleReplacementSegment[] {
   let low = 0
   let high = segments.length
@@ -509,7 +509,7 @@ function touchedVisibleSegments(
  */
 function visibleReplacementPieces(
   index: VisibleReplacementIndex,
-  match: TextRange
+  match: OpaqueRange
 ): readonly VisibleReplacementPiece[] {
   const touched = touchedVisibleSegments(index.segments, match)
   const first = touched[0]
@@ -563,133 +563,9 @@ function visibleReplacementPieces(
   ))
 }
 
-const CRITIC_OPENERS = Object.freeze([
-  '{++',
-  '{--',
-  '{~~',
-  '{==',
-  '{>>'
-])
-
-function mergeTextRanges(ranges: readonly TextRange[]): readonly TextRange[] {
-  const sorted = [...ranges].sort(
-    (left, right) => left.start - right.start || left.end - right.end
-  )
-  const merged: TextRange[] = []
-  for (const range of sorted) {
-    const previous = merged[merged.length - 1]
-    if (previous !== undefined && range.start <= previous.end) {
-      merged[merged.length - 1] = Object.freeze({
-        start: previous.start,
-        end: Math.max(previous.end, range.end)
-      })
-    } else {
-      merged.push(Object.freeze({ start: range.start, end: range.end }))
-    }
-  }
-  return Object.freeze(merged)
-}
-
-function escapeCriticPayload(
-  payload: string,
-  close: '++}' | '--}' | '~~}' | '==}' | '<<}',
-  escapeSubstitutionSeparator: boolean,
-  opaqueRanges: readonly TextRange[] = Object.freeze([])
-): string {
-  const ranges = mergeTextRanges(opaqueRanges)
-  const result: string[] = []
-  const closePrefix = close.slice(0, -1)
-  let opaqueIndex = 0
-  let literalStart = 0
-
-  const replace = (
-    start: number,
-    end: number,
-    replacement: string
-  ): void => {
-    if (literalStart < start) {
-      result.push(payload.slice(literalStart, start))
-    }
-    result.push(replacement)
-    literalStart = end
-  }
-
-  for (let index = 0; index < payload.length;) {
-    while ((ranges[opaqueIndex]?.end ?? Infinity) <= index) {
-      opaqueIndex += 1
-    }
-    const opaque = ranges[opaqueIndex]
-    if (opaque !== undefined && opaque.start <= index) {
-      index = opaque.end
-      continue
-    }
-    const lookaheadEnd = opaque?.start ?? payload.length
-
-    let targetStart = index
-    while (
-      targetStart < lookaheadEnd &&
-      payload[targetStart] === '\\'
-    ) {
-      targetStart += 1
-    }
-    const slashCount = targetStart - index
-    const opener = CRITIC_OPENERS.find((candidate) =>
-      payload.startsWith(candidate, targetStart)
-    )
-    const target =
-      opener ??
-      (
-        escapeSubstitutionSeparator &&
-        payload.startsWith('~>', targetStart)
-          ? '~>'
-          : undefined
-      )
-    if (
-      target !== undefined &&
-      targetStart + target.length <= lookaheadEnd
-    ) {
-      const end = targetStart + target.length
-      replace(index, end, `${'\\'.repeat(slashCount * 2 + 1)}${target}`)
-      index = end
-      continue
-    }
-    if (slashCount > 0) {
-      index = targetStart
-      continue
-    }
-
-    if (
-      index + closePrefix.length <= lookaheadEnd &&
-      payload.startsWith(closePrefix, index)
-    ) {
-      let brace = index + closePrefix.length
-      while (brace < lookaheadEnd && payload[brace] === '\\') {
-        brace += 1
-      }
-      if (brace < lookaheadEnd && payload[brace] === '}') {
-        const literalSlashes = brace - index - closePrefix.length
-        const end = brace + 1
-        replace(
-          index,
-          end,
-          `${closePrefix}${'\\'.repeat(literalSlashes * 2 + 1)}}`
-        )
-        index = end
-        continue
-      }
-    }
-    index += 1
-  }
-
-  if (literalStart < payload.length) {
-    result.push(payload.slice(literalStart))
-  }
-  return result.join('')
-}
-
 function serializeAddition(
   content: string,
-  opaqueRanges: readonly TextRange[] = Object.freeze([])
+  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
 ): string {
   return `{++${escapeCriticPayload(
     content,
@@ -701,7 +577,7 @@ function serializeAddition(
 
 function serializeDeletion(
   content: string,
-  opaqueRanges: readonly TextRange[] = Object.freeze([])
+  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
 ): string {
   return `{--${escapeCriticPayload(
     content,
@@ -714,7 +590,7 @@ function serializeDeletion(
 function serializeSubstitution(
   oldContent: string,
   newContent: string,
-  oldOpaqueRanges: readonly TextRange[] = Object.freeze([])
+  oldOpaqueRanges: readonly OpaqueRange[] = Object.freeze([])
 ): string {
   return `{~~${escapeCriticPayload(
     oldContent,
@@ -1022,8 +898,8 @@ function payloadOpaqueRanges(
   revision: CompleteDocumentRevision,
   start: number,
   end: number
-): readonly TextRange[] {
-  const ranges: TextRange[] = []
+): readonly OpaqueRange[] {
+  const ranges: OpaqueRange[] = []
   const pending: CriticMarkupNode[] = []
   for (
     let index = revision.criticMarkup.rootCount - 1;
@@ -1077,7 +953,7 @@ function payloadOpaqueRanges(
       }))
     }
   }
-  return mergeTextRanges(ranges)
+  return mergeOpaqueRanges(ranges)
 }
 
 function freezePosition(position: ModelPosition): ModelPosition {
@@ -1337,12 +1213,12 @@ type TableAlignment = 'none' | 'left' | 'center' | 'right'
 
 interface TableCellSource {
   readonly text: string
-  readonly opaqueRanges: readonly TextRange[]
+  readonly opaqueRanges: readonly OpaqueRange[]
 }
 
 interface SerializedTableSource {
   readonly text: string
-  readonly opaqueRanges: readonly TextRange[]
+  readonly opaqueRanges: readonly OpaqueRange[]
 }
 
 const EMPTY_TABLE_CELL_SOURCE: TableCellSource = Object.freeze({
@@ -1387,7 +1263,7 @@ function serializeTableRow(
   cells: readonly TableCellSource[]
 ): SerializedTableSource {
   let text = '|'
-  const opaqueRanges: TextRange[] = []
+  const opaqueRanges: OpaqueRange[] = []
   for (const cell of cells) {
     if (cell.text.length === 0) {
       text += '   |'
@@ -1430,7 +1306,7 @@ function serializeTable(
     ...rows.slice(1).map(serializeTableRow)
   ]
   let text = ''
-  const opaqueRanges: TextRange[] = []
+  const opaqueRanges: OpaqueRange[] = []
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     if (line === undefined) continue
@@ -1542,7 +1418,7 @@ function completeStructuralSourceRange(
   revision: CompleteDocumentRevision,
   start: number,
   end: number
-): TextRange {
+): OpaqueRange {
   let expandedStart = start
   let expandedEnd = end
   const nodes = criticMarkupNodesOf(revision)
@@ -2584,7 +2460,7 @@ export class RevisionWorker {
     next: RevisionId,
     historyTarget: ModelSelection = target,
     caretOffsetWithinReplacement?: number,
-    replacementOpaqueRanges: readonly TextRange[] = Object.freeze([])
+    replacementOpaqueRanges: readonly OpaqueRange[] = Object.freeze([])
   ): PreparedWorkerCommit {
     const state = this.#state
     if (!('markupView' in state)) {

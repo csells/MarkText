@@ -593,6 +593,9 @@ export function validate0009EvidenceSupplyChain(
     "'--build-from-source'",
     "'--dist-url'",
     'electronRebuildArguments(headerServer.url, targetArch)',
+    // A source fragment this collector searches for verbatim, not a template
+    // literal that lost its backticks.
+    // eslint-disable-next-line no-template-curly-in-string
     '`--arch=${targetArch}`',
     'headerServer.assertConsumed()',
     "mkdtempSync(join(tmpdir(), 'marktext-native-build-'))",

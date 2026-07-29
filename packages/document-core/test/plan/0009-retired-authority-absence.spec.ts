@@ -552,7 +552,7 @@ describe('plan 0009 retired authority deletion', () => {
     )
     expect(
       unaccounted,
-      `Every tracked file is scanned by the absence inventory or declared in ` +
+      'Every tracked file is scanned by the absence inventory or declared in ' +
         `EXCLUDED_FROM_ABSENCE_SWEEP. Unaccounted:\n  ${unaccounted.join('\n  ')}`
     ).toEqual([])
 
@@ -576,7 +576,7 @@ describe('plan 0009 retired authority deletion', () => {
     })
     expect(
       authorities,
-      `The renderer builds no parse configuration and opens no revision.\n  ` +
+      'The renderer builds no parse configuration and opens no revision.\n  ' +
         authorities.join('\n  ')
     ).toEqual([])
   })
@@ -585,8 +585,8 @@ describe('plan 0009 retired authority deletion', () => {
     const found = hostSyntaxRecognizers()
     expect(
       found,
-      `Non-negotiable 2: only the document-core grammar may pattern-match ` +
-        `Markdown or CriticMarkup syntax. Found:\n` +
+      'Non-negotiable 2: only the document-core grammar may pattern-match ' +
+        'Markdown or CriticMarkup syntax. Found:\n' +
         found.map((hit) => `  ${hit.file}:${hit.line} ${hit.construct} ${hit.pattern}`).join('\n')
     ).toEqual([])
   })
