@@ -607,17 +607,22 @@ typed text the file on disk never receives, and `autoSaveDelay` defaults to
 5,000 ms against a 10,000 ms poll, so it is not a timing shortfall. A17 and P8:
 a Review sidebar command — Remove comment after an Edit — leaves the document
 byte-identical, and A22: Review card text is derived from projection-dependent
-display text. A17's drop is not where it first appears. The engine is correct
-under a session-level replay of the exact byte sequence; `actOnItem` sends the
-live `documentId`/`revisionId` and the rendered `nodeId`
-(`packages/desktop/src/renderer/src/components/sideBar/review.vue:569-587`); and
-a refused intent throws rather than resolving, so no caller can mistake a
-rejection for a commit. `resolveReviewItem` nevertheless has three silent
-`false` returns before dispatch
-(`packages/desktop/src/renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts:786-795`),
-and under non-negotiable 10 a Review command that cannot resolve its target must
-reject visibly rather than report that it did nothing. The decisive next
-experiment is whether `dispatchIntent` is reached at all on that click.
+display text. A17's drop is narrower than its target suggests: Remove comment leaves the
+document byte-identical **with no preceding Edit at all**, on a comment authored
+seconds earlier whose card is rendered and clickable. The Edit step is
+incidental. Three theories are already refuted: the engine is correct under a
+session-level replay of the exact byte sequence; `actOnItem` sends the live
+`documentId`/`revisionId` with the rendered `nodeId`
+(`packages/desktop/src/renderer/src/components/sideBar/review.vue:569-587`), so
+no stale card stamp is involved; and a refused intent throws rather than
+resolving, so no caller mistakes a rejection for a commit. What remains is the
+resolution step: `resolveReviewItem` requires the card's nodeId to appear in
+both `reviewSnapshot().items` and `view.getReviewIndex().items`
+(`.../documentCoreDesktopEditor.ts:697-723`), and an anchored Comment is one
+Commented span carrying two independent nodes, so the id the card emits and the
+id each list keys on are the next thing to compare. Independently of this bug,
+those three silent `false` returns violate non-negotiable 10: a Review command
+that cannot resolve its target must reject visibly.
 
 P11 is **UNPROVEN** until the frozen tree passes its section 6 outcome against
 the unchanged section 3 budgets.
