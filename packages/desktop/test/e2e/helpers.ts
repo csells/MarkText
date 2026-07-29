@@ -391,12 +391,12 @@ export const clickMenuById = async(app: ElectronApplication, id: string): Promis
     const item = menu.getMenuItemById(menuId)
     if (!item) throw new Error('Menu id not found: ' + menuId)
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
-    // Electron auto-toggles `checked` for checkbox/radio items on a real
-    // click. Replicate that here so handlers that read `menuItem.checked`
-    // (e.g. theme `follow-system-theme`) behave the same under tests.
-    if (item.type === 'checkbox') {
-      item.checked = !item.checked
-    } else if (item.type === 'radio') {
+    // `MenuItem.click()` performs Electron's own checkbox toggle, so setting
+    // `checked` here as well would flip it twice and hand the handler the
+    // value it started with — which is how autosave stayed off through a
+    // click that appeared to enable it. Radio items are selected rather than
+    // toggled, so they still need the explicit set.
+    if (item.type === 'radio') {
       item.checked = true
     }
     // MenuItem.click signature: (event, focusedWindow, focusedWebContents).
