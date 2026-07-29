@@ -625,9 +625,10 @@ Two things this cost, worth keeping. The defect was invisible to every
 in-process test because it lives in the renderer's mounting of a *main-owned*
 publication; a real `DocumentEditorHost` over a local session removes the same
 Comment correctly, which is why it took an instrumented Electron probe to find.
-And a Review command whose dispatch rejects is still discarded silently — the
-sidebar's `.then()` has no rejection arm — so non-negotiable 10 remains open
-independently of this fix.
+And the reason it was silent rather than merely wrong is now fixed separately:
+the sidebar observed its dispatch with a single fulfilment arm, so a rejected
+command left the boundary without ever reaching the code that tells the user.
+Refusals that return `false` were always reported; only rejections escaped.
 
 The guard that authenticates a card against its revision must stay. Node ids are
 positional counters minted in parse order (`p1:1`, `p1:2`, … —
