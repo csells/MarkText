@@ -487,18 +487,31 @@ export async function createDocumentEditorHost(
       span.highlight
     ]))
 
+  // A Review card names an annotation, so its text is read from the source that
+  // declares it. Deriving it from the mounted projection instead made the card
+  // describe whatever text happened to occupy those offsets in the projection
+  // the user was viewing, which under `original` and `revised` is unrelated
+  // text rather than a shortened version of the right answer.
+  const ANNOTATION_DELIMITER_LENGTH = 3
+
+  const annotatedText = (source: string, item: ReviewIndexItem): string => {
+    const { start, end } = item.sourceRange
+    const inner = source.slice(
+      start + ANNOTATION_DELIMITER_LENGTH,
+      end - ANNOTATION_DELIMITER_LENGTH
+    )
+    return end - start < ANNOTATION_DELIMITER_LENGTH * 2 ? '' : inner
+  }
+
   const reviewItemFor = (
     item: ReviewIndexItem,
     nodes: ReadonlyMap<string, ReviewIndexItem>
   ): ICriticMarkupReviewItem => {
     const source = view.getMarkdownSync()
-    const modelText = view.modelText()
     const range = item.modelRange
     const content = item.kind === 'comment'
       ? item.commentRevisedText ?? ''
-      : range === null
-        ? ''
-        : modelText.slice(range.start, range.end)
+      : annotatedText(source, item)
     const review: ICriticMarkupReviewItem = {
       id: item.nodeId,
       type: item.kind,
@@ -523,10 +536,7 @@ export async function createDocumentEditorHost(
       return Object.freeze({
         ...review,
         anchorId: highlight.nodeId,
-        anchorText: modelText.slice(
-          highlight.modelRange.start,
-          highlight.modelRange.end
-        )
+        anchorText: annotatedText(source, highlight)
       })
     }
     return Object.freeze(review)
