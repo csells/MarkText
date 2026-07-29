@@ -158,7 +158,24 @@ test.describe('TOC panel content + live update', () => {
       .filter({ hasText: 'C' })
       .last()
     await cContent.click()
-    await page.keyboard.press('End')
+    // The click arrives from the TOC sidebar, so wait for the browser caret
+    // to actually land inside the heading before keyboard motion — End and
+    // typed text otherwise race the selection commit and land at the
+    // heading's model start.
+    await expect.poll(() => page.evaluate(() => {
+      const selection = window.getSelection()
+      const anchor = selection?.anchorNode ?? null
+      const heading = anchor instanceof Node
+        ? (anchor instanceof Element ? anchor : anchor.parentElement)
+            ?.closest('h2.document-view-heading') ?? null
+        : null
+      return heading?.textContent ?? null
+    })).toContain('C')
+    // macOS End scrolls without moving the caret (Cocoa semantics); the
+    // platform's end-of-line chord is what a user would press.
+    await page.keyboard.press(
+      process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End'
+    )
     await page.keyboard.press('Enter')
     await page.keyboard.type('## D ', { delay: 20 })
 
