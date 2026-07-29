@@ -589,28 +589,35 @@ its manifest target, requirements, and dependencies are green.
 Exact commands and counts belong in test output and the evidence bundle, not a
 progress diary.
 
-Eight named acceptance targets fail, which is why their rows and phases are red.
-Running the fifteen Electron targets the manifests name — excluding the two
-installed targets and the maximum-document measurement — leaves these failing:
-A07 view and Source persistence, A17 Comment CRUD, A18 Add Comment persistence,
-A19 Comment gestures, A20 passive selection, A22 Review navigation, A28 hostile
-sinks, and the P8 phase target.
+Eight named acceptance targets failed, which is why their rows and phases are
+red. Each has now been diagnosed as product-or-target on evidence, and the split
+is four to four — a red row carries no information about which, so neither
+answer may be assumed.
 
-A red row says a target does not pass; it does not say whether the product or
-the target is wrong, and the two diagnosed so far differ. A08 was a stale
-assertion expecting a machine token that A26 forbids rendering, so the product
-was right and the target had not followed; it is repaired and passing. A07 is
-the other kind: with autosave enabled and text typed, the canonical head carries
-the typed text and the file on disk does not, while `autoSaveDelay` defaults to
-5,000 ms against a 10,000 ms poll — a persistence defect, not a timing
-shortfall. The remaining six are undiagnosed, and that is prerequisite work for
-W3: G9 cannot prove a target two-sided while its own baseline fails.
+Four were stale targets and are repaired and passing: A08 asserted a machine
+token A26 forbids rendering; A18 drove an unbound-by-default Review command
+without seeding a keybinding; A19 resolved a drag's end needle globally, so an
+earlier occurrence inverted the gesture; A20 measured a pointer target without
+revealing it; A28 asserted sink security as a byte blacklist that rejected the
+escaped output sanitization produces. In every case the product was correct and
+the target had never reached the behavior its row claims.
 
-One closure target overstates itself. D07's title says it collects every
-acceptance target "as an ordinary passing test", but its check parses the file
-to confirm the titled test exists and is unskipped without ever running it.
-Present and unskipped is not passing, which is the assertion-presence defect this
-plan condemns, sitting in the closure gate. Its title or its check must change.
+Four are product defects. A07: with autosave enabled the canonical head carries
+typed text the file on disk never receives, and `autoSaveDelay` defaults to
+5,000 ms against a 10,000 ms poll, so it is not a timing shortfall. A17 and P8:
+a Review sidebar command — Remove comment after an Edit — leaves the document
+byte-identical, and A22: Review card text is derived from projection-dependent
+display text. A17's drop is not where it first appears. The engine is correct
+under a session-level replay of the exact byte sequence; `actOnItem` sends the
+live `documentId`/`revisionId` and the rendered `nodeId`
+(`packages/desktop/src/renderer/src/components/sideBar/review.vue:569-587`); and
+a refused intent throws rather than resolving, so no caller can mistake a
+rejection for a commit. `resolveReviewItem` nevertheless has three silent
+`false` returns before dispatch
+(`packages/desktop/src/renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts:786-795`),
+and under non-negotiable 10 a Review command that cannot resolve its target must
+reject visibly rather than report that it did nothing. The decisive next
+experiment is whether `dispatchIntent` is reached at all on that click.
 
 P11 is **UNPROVEN** until the frozen tree passes its section 6 outcome against
 the unchanged section 3 budgets.
