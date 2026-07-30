@@ -97,7 +97,7 @@ const rangeIds = (prefix: string, count: number): readonly string[] =>
     )
   )
 
-const EXACT_ACCEPTANCE_IDS = rangeIds('A', 38)
+const EXACT_ACCEPTANCE_IDS = rangeIds('A', 40)
 const EXACT_CLOSURE_IDS = rangeIds('D', 11)
 const EXACT_ACCEPTANCE_AUXILIARY_TARGET_COUNTS:
 Readonly<Record<string, number>> = Object.freeze({

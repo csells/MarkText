@@ -1,7 +1,7 @@
 # CriticMarkup document-engine rebuild
 
 - **Status:** RED — G4, G6–G9, G13, G19, G23, G24, G32, G34 open;
-  G5, G15, G16 partial
+  G5, G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-29
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -276,7 +276,7 @@ proof", and the single-space cell padding exactly as written. -->
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G32, G34 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
-| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G15, G16 residues, G19 (W4) |
+| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G16 residues, G19 (W4) |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
 | P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6), blocked by G32 |
 | P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
@@ -447,13 +447,6 @@ whose assertion cannot distinguish pass from fail.
 **W4 — Language, configuration, and coverage**
 
 
-- **G15 Two mandatory conformance suites have no target.** The A10 recovery
-  corpus now proves the scope its requirement names: nine frozen cases covering
-  a fenced block, inline code, and a fence inside a list item owning
-  marker-looking text, plus unterminated openers spanning a blank line and
-  inside a blockquote. The MMD-6 differential and Fevol lexical suites the
-  language authority makes mandatory still have no target anywhere, so a
-  conforming-implementation claim rests on corpora the plan never runs.
 - **G16 Per-kind sink exactness has no manifest row.** Image handling and
   accessibility are bound: A33 names the proof that the ingestion request
   carries no destination field, so the write root stays main-derived from
@@ -589,7 +582,7 @@ exception creates no view-owned fallback shortcut.
 
 ## 6. Phases and manifest ownership
 
-The manifests own every exact target, A01–A38 and D01–D11 mapping, status, and
+The manifests own every exact target, A01–A40 and D01–D11 mapping, status, and
 dependency. This table states only the phase outcome.
 
 | Phase | Required outcome                                                                                                                        |

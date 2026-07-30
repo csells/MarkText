@@ -426,6 +426,28 @@
         "path": "packages/document-core/test/language-engine/gfm-corpus-totality.spec.ts",
         "title": "parses all 672 spec inputs to complete revisions with exact source"
       }
+    },
+    {
+      "id": "A39",
+      "requirement": "MMD-6 differential projection conventions",
+      "phase": "P1",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/mmd6-differential.spec.ts",
+        "title": "projects every MMD-6 CuTest row through Original and Revised"
+      }
+    },
+    {
+      "id": "A40",
+      "requirement": "Fevol lexical fixtures under Profile 1 rulings",
+      "phase": "P1",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/fevol-lexical.spec.ts",
+        "title": "parses the nested rows recursively per N1"
+      }
     }
   ]
 }
