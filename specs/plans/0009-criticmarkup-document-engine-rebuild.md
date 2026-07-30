@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G27 open;
+- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G27, G28 open;
   G5, G14–G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-28
@@ -423,6 +423,20 @@ whose assertion cannot distinguish pass from fail.
   replace and live rendering elsewhere. Production routes those questions
   through the policy; deleting the declarations is rejected, because it leaves
   G16's per-kind matrix with no owning module.
+- **G28 Streamed project-search completion is unordered against its matches.**
+  `mt::rg::match` and `mt::rg::done` are separate IPC channels, which carry no
+  cross-channel ordering guarantee, and the terminal envelope carries only a
+  `searchId` (`packages/desktop/src/shared/types/projectSearch.ts:54-56`) — so a
+  consumer that resolves on `done` cannot tell a complete result from a
+  truncated one. `packages/desktop/test/e2e/ripgrep-search.spec.ts:44` observes
+  this directly: it alternates pass/fail roughly every other run **in
+  isolation** (measured 2026-07-29, four consecutive runs: fail, pass, fail,
+  pass), resolving with zero matches whenever `done` overtakes the queued match
+  deliveries. Closure gives the terminal envelope the match count the producer
+  emitted, so a consumer can wait for the stream it was promised; a matching
+  count is what makes truncation observable rather than silent. The real search
+  sidebar shares the same channels and the same exposure.
+
 **W6 — Budgets and release**
 
 - **G23 Measured budgets are unmet.** Edit and deletion latency, worker stall,
