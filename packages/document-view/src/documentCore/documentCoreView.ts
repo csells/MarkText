@@ -963,9 +963,10 @@ export async function createDocumentCoreView(
             }
         }
     };
-    let browserDraftTarget: Readonly<{ start: number; end: number }> | null = null;
     let compositionDraft: Readonly<{
-        range: Readonly<{ start: number; end: number }>;
+        // Null when the composition began mid-burst: the target is resolved
+        // from the settled session selection when the commit dequeues.
+        range: Readonly<{ start: number; end: number }> | null;
         text: string;
     }> | null = null;
     const completeSnapshot = (): IDocumentCoreViewCompleteSnapshot => {
@@ -3427,6 +3428,16 @@ export async function createDocumentCoreView(
         };
     };
 
+    // The settled session selection as a plain model range — the one truth a
+    // chained burst input targets once the previous commit has published.
+    const sessionCaretRange = (): Readonly<{ start: number; end: number }> => {
+        const selection = activeSelection();
+        return Object.freeze({
+            start: Math.min(selection.anchor.offset, selection.focus.offset),
+            end: Math.max(selection.anchor.offset, selection.focus.offset),
+        });
+    };
+
     const commitBrowserInput = async (
         inputType: string,
         data: string | null,
@@ -3620,7 +3631,6 @@ export async function createDocumentCoreView(
             })
             .finally(() => {
                 if (browserInputGeneration === generation) {
-                    browserDraftTarget = null;
                     browserInputIdle = true;
                     if (destroying) {
                         deferredBrowserSelection = false;
@@ -3900,55 +3910,24 @@ export async function createDocumentCoreView(
         // While queued browser inputs are still publishing, the mounted DOM —
         // including any selection a settling repaint restored — names a
         // pre-edit publication (the invariant handleBrowserSelection defers
-        // on). Chain this input's target from the predicted caret of the
-        // previous queued input instead of the stale DOM range: trusting a
-        // range that merely LOOKS fresh let a mid-burst repaint retarget a
-        // keystroke into an older revision and scramble typed text.
-        const target = !browserInputIdle && browserDraftTarget !== null
-            ? browserDraftTarget
-            : range;
+        // on). The session is the selection authority: a chained input
+        // resolves its target from the settled session selection when it
+        // dequeues — the queue serializes, so the previous commit has
+        // published by then. The view predicts no position it then submits
+        // (G39: the old width table was wrong by two on CRLF documents).
+        const chained = !browserInputIdle;
         if (inputType === 'insertCompositionText') {
             compositionDraft = Object.freeze({
-                range: compositionDraft?.range ?? target,
+                range: compositionDraft?.range ?? (chained ? null : range),
                 text: data ?? '',
             });
             return;
         }
-        if (
-            (
-                inputType === 'insertText'
-                || inputType === 'insertReplacementText'
-                || inputType === 'insertFromDrop'
-                || inputType === 'insertFromYank'
-            )
-            && data !== null
-        ) {
-            const caret = target.start + data.length;
-            browserDraftTarget = Object.freeze({ start: caret, end: caret });
-        }
-        else if (inputType === 'insertParagraph') {
-            const caret = target.start + 2;
-            browserDraftTarget = Object.freeze({ start: caret, end: caret });
-        }
-        else if (inputType === 'insertLineBreak') {
-            const caret = target.start + 1;
-            browserDraftTarget = Object.freeze({ start: caret, end: caret });
-        }
-        else if (inputType.startsWith('delete')) {
-            let caret = target.start;
-            if (
-                target.start === target.end
-                && inputType === 'deleteContentBackward'
-            ) {
-                const previous = [...modelText().slice(0, target.start)].at(-1);
-                caret = Math.max(0, target.start - (previous?.length ?? 0));
-            }
-            browserDraftTarget = Object.freeze({ start: caret, end: caret });
-        }
-        else {
-            browserDraftTarget = null;
-        }
-        enqueueBrowserInput(() => commitBrowserInput(inputType, data, target));
+        enqueueBrowserInput(() => commitBrowserInput(
+            inputType,
+            data,
+            chained ? sessionCaretRange() : range,
+        ));
     };
 
     const handleCompositionStart = (event: CompositionEvent): void => {
@@ -3971,10 +3950,11 @@ export async function createDocumentCoreView(
             return;
         }
         const text = event.data || draft.text;
-        const caret = draft.range.start + text.length;
-        browserDraftTarget = Object.freeze({ start: caret, end: caret });
-        enqueueBrowserInput(() =>
-            commitBrowserInput('insertCompositionText', text, draft.range));
+        enqueueBrowserInput(() => commitBrowserInput(
+            'insertCompositionText',
+            text,
+            draft.range ?? sessionCaretRange(),
+        ));
     };
 
     const handleDocumentToolKeydown = (event: KeyboardEvent): void => {

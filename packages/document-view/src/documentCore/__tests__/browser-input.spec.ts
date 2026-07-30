@@ -812,6 +812,51 @@ describe('document-core browser input', () => {
         await cutView.destroy();
     });
 
+    // G39: the view predicted a chained target from hard-coded widths (+2
+    // per paragraph break), which is wrong by two on a CRLF document. A
+    // chained input must land at the caret the engine settled.
+    it('chains a CRLF burst from the settled session selection', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const view = await createDocumentCoreView({
+            host,
+            source: createSourceSnapshot('ab\r\n'),
+            parseConfiguration: PARSE_CONFIGURATION,
+        });
+        placeCaret(textNodeContaining(host, 'ab'), 2);
+
+        // A burst: the keystroke follows the paragraph break with no settle
+        // between, so its target must chain from the engine's caret.
+        beforeInput(host, 'insertParagraph');
+        beforeInput(host, 'insertText', 'z');
+        await view.settled();
+
+        const committed = view.getMarkdownSync();
+        expect(committed).toContain('z');
+        // The break inserts CRLF spellings; the chained keystroke lands at
+        // the settled caret — after the break, never two units short of it.
+        expect(committed).toBe('ab\r\n\r\nz\r\n');
+        await view.destroy();
+    });
+
+    it('chains an LF burst from the settled session selection', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const view = await createDocumentCoreView({
+            host,
+            source: createSourceSnapshot('ab\n'),
+            parseConfiguration: PARSE_CONFIGURATION,
+        });
+        placeCaret(textNodeContaining(host, 'ab'), 2);
+
+        beforeInput(host, 'insertParagraph');
+        beforeInput(host, 'insertText', 'z');
+        await view.settled();
+
+        expect(view.getMarkdownSync()).toBe('ab\n\nz\n');
+        await view.destroy();
+    });
+
     it('chains a burst past a mid-burst repaint that restores an older caret', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
