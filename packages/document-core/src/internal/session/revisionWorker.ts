@@ -82,6 +82,11 @@ import {
   createSavedIdentityLedger,
   type SavedIdentityLedger
 } from './savedIdentityLedger.js'
+import {
+  createHistoryRecord,
+  type HistoryEntry,
+  type HistoryRecord
+} from './historyRecord.js'
 import type { SourceEdit } from './sourceTransaction.js'
 import { applyExactSourceEdits } from '../../exactSourceEdits.js'
 
@@ -112,15 +117,6 @@ interface SourceOnlyWorkerState {
 }
 
 export type WorkerState = CompleteWorkerState | SourceOnlyWorkerState
-
-interface HistoryEntry {
-  readonly forward: readonly SourceEdit[]
-  readonly inverse: readonly SourceEdit[]
-  readonly beforeSelection: InitialModelSelection
-  readonly afterSelection: InitialModelSelection
-  readonly beforeSourceSelection: InitialModelSelection
-  readonly afterSourceSelection: InitialModelSelection
-}
 
 export interface RevisionWorkerCheckpoint {
   readonly session: SessionId
@@ -1041,71 +1037,6 @@ function freezeInitialSelection(
   })
 }
 
-/** The entry's one edit, when it is a pure insertion of one Unicode scalar. */
-function singleScalarPureInsert(
-  entry: HistoryEntry
-): Readonly<{ position: number; scalar: string }> | null {
-  const edit = entry.forward[0]
-  if (
-    entry.forward.length !== 1 ||
-    edit === undefined ||
-    edit.start !== edit.end ||
-    [...edit.insert].length !== 1
-  ) {
-    return null
-  }
-  return Object.freeze({ position: edit.start, scalar: edit.insert })
-}
-
-/** The open entry's shape when it is one pure insertion run. */
-function pureInsertRun(
-  entry: HistoryEntry
-): Readonly<{ position: number; text: string }> | null {
-  const edit = entry.forward[0]
-  if (
-    entry.forward.length !== 1 ||
-    edit === undefined ||
-    edit.start !== edit.end ||
-    edit.insert.length === 0
-  ) {
-    return null
-  }
-  return Object.freeze({ position: edit.start, text: edit.insert })
-}
-
-function isWhitespaceScalar(scalar: string): boolean {
-  return /^\s$/u.test(scalar)
-}
-
-function freezeHistoryEntry(entry: HistoryEntry): HistoryEntry {
-  if (
-    entry.forward.length >
-      DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction ||
-    entry.inverse.length >
-      DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction
-  ) {
-    throw new Error('Revision worker history exceeds the source-edit policy')
-  }
-  const insertUnits = [...entry.forward, ...entry.inverse].reduce(
-    (total, edit) => total + edit.insert.length,
-    0
-  )
-  if (
-    insertUnits >
-    DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryInsertUnits
-  ) {
-    throw new Error('Revision worker history exceeds the insert-unit policy')
-  }
-  return Object.freeze({
-    forward: Object.freeze(entry.forward.map((edit) => freezeSourceEdit(edit))),
-    inverse: Object.freeze(entry.inverse.map((edit) => freezeSourceEdit(edit))),
-    beforeSelection: freezeInitialSelection(entry.beforeSelection),
-    afterSelection: freezeInitialSelection(entry.afterSelection),
-    beforeSourceSelection: freezeInitialSelection(entry.beforeSourceSelection),
-    afterSourceSelection: freezeInitialSelection(entry.afterSourceSelection)
-  })
-}
-
 function assertPosition(position: ModelPosition, modelLength: number): void {
   if (!Number.isInteger(position.offset) || position.offset < 0 || position.offset > modelLength) {
     throw new RangeError('Position is outside the active document view')
@@ -1591,19 +1522,12 @@ export class RevisionWorker {
   readonly #transformations: TransformationKernel
   #trackChanges: boolean
   #state: WorkerState
-  #history: HistoryEntry[] = []
-  /**
-   * The open typed run: consecutive single-scalar insertions extend one
-   * history entry while each lands at the caret the previous one left and
-   * does not start a new word after whitespace. Anything else — another
-   * intent, a selection move, undo/redo, persistence, restoration — seals
-   * it (section 2 History rule, G33).
-   */
-  #openTypedRun: Readonly<{
-    caret: number
-    lastScalar: string
-  }> | null = null
-  #historyCursor = 0
+
+  #historyRecord: HistoryRecord = createHistoryRecord(Object.freeze({
+    maximumEntries: DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryEntries,
+    maximumInsertUnits: DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryInsertUnits
+  }))
+
   #savedIdentityLedger: SavedIdentityLedger
 
   constructor(
@@ -1692,8 +1616,17 @@ export class RevisionWorker {
           'Revision worker checkpoint has invalid history identities'
         )
       }
-      this.#history = recovery.history.map((entry) => freezeHistoryEntry(entry))
-      this.#historyCursor = recovery.historyCursor
+      this.#historyRecord = createHistoryRecord(
+        Object.freeze({
+          maximumEntries: DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryEntries,
+          maximumInsertUnits:
+            DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryInsertUnits
+        }),
+        Object.freeze({
+          entries: recovery.history,
+          cursor: recovery.historyCursor
+        })
+      )
       this.#savedIdentityLedger = createSavedIdentityLedger(
         String(session),
         Object.freeze({
@@ -1732,11 +1665,14 @@ export class RevisionWorker {
   historyState(): DocumentHistoryState {
     // Dirty is the saved-identity module's content comparison, never a
     // position comparison performed here.
+    const history = this.#historyRecord.state()
     return Object.freeze({
-      canUndo: this.#historyCursor > 0,
-      canRedo: this.#historyCursor < this.#history.length,
+      canUndo: history.canUndo,
+      canRedo: history.canRedo,
       dirty: this.#savedIdentityLedger.dirty(this.#state.revision.sourceHash),
-      headIdentity: this.#savedIdentityLedger.identityAt(this.#historyCursor),
+      headIdentity: this.#savedIdentityLedger.identityAt(
+        this.#historyRecord.cursor()
+      ),
       savedIdentity: this.#savedIdentityLedger.savedIdentity()
     })
   }
@@ -1745,7 +1681,7 @@ export class RevisionWorker {
     this.#savedIdentityLedger.markPersisted(headIdentity)
     // A saved identity names an exact recorded position; extending the run
     // would replace the head identity it points at.
-    this.#openTypedRun = null
+    this.#historyRecord.seal()
   }
 
   criticMarkupAuthoringCapabilities(): CriticMarkupAuthoringCapabilities {
@@ -1801,8 +1737,8 @@ export class RevisionWorker {
       selection: detachSelection(this.#state.selection),
       sourceSelection: detachSelection(this.sourceSelection()),
       trackChanges: this.#trackChanges,
-      history: Object.freeze(this.#history.map((entry) => freezeHistoryEntry(entry))),
-      historyCursor: this.#historyCursor,
+      history: this.#historyRecord.checkpoint().entries,
+      historyCursor: this.#historyRecord.checkpoint().cursor,
       historyIdentities: this.#savedIdentityLedger.checkpoint().identities,
       historySourceHashes: this.#savedIdentityLedger.checkpoint().sourceHashes,
       historyIdentitySequence: this.#savedIdentityLedger.checkpoint().sequence,
@@ -1826,9 +1762,8 @@ export class RevisionWorker {
     )
     this.#state = restored.#state
     this.#trackChanges = restored.#trackChanges
-    this.#history = restored.#history
-    this.#openTypedRun = null
-    this.#historyCursor = restored.#historyCursor
+    this.#historyRecord = restored.#historyRecord
+    this.#historyRecord.seal()
     this.#savedIdentityLedger = restored.#savedIdentityLedger
   }
 
@@ -1921,7 +1856,7 @@ export class RevisionWorker {
    * caller error rather than something to clamp silently.
    */
   moveSelection(selection: InitialModelSelection): void {
-    this.#openTypedRun = null
+    this.#historyRecord.seal()
     const state = this.#state
     if ('markupView' in state) {
       assertPosition(selection.anchor, state.markupView.modelLength)
@@ -1955,7 +1890,7 @@ export class RevisionWorker {
    * mapped selection for its hidden projection.
    */
   moveSourceSelection(selection: InitialModelSelection): void {
-    this.#openTypedRun = null
+    this.#historyRecord.seal()
     const state = this.#state
     const sourceLength = state.revision.source.text.length
     assertPosition(selection.anchor, sourceLength)
@@ -5706,8 +5641,8 @@ export class RevisionWorker {
   }
 
   prepareUndo(next: RevisionId): PreparedWorkerCommit {
-    const entry = this.#history[this.#historyCursor - 1]
-    if (entry === undefined) {
+    const entry = this.#historyRecord.undo()
+    if (entry === null) {
       throw new IntentRejection('nothing-to-undo')
     }
 
@@ -5721,8 +5656,8 @@ export class RevisionWorker {
   }
 
   prepareRedo(next: RevisionId): PreparedWorkerCommit {
-    const entry = this.#history[this.#historyCursor]
-    if (entry === undefined) {
+    const entry = this.#historyRecord.redo()
+    if (entry === null) {
       throw new IntentRejection('nothing-to-redo')
     }
 
@@ -5939,127 +5874,37 @@ export class RevisionWorker {
     })
   }
 
-  /**
-   * Absorb one coalescible admission into the open typed run, rewriting the
-   * head entry, identity, and source hash in place. Returns false when the
-   * admission must record its own entry — which also decides whether it
-   * opens a new run.
-   */
-  #extendTypedRun(prepared: PreparedWorkerCommit): boolean {
-    if (prepared.historyAction.kind !== 'record') {
-      return false
-    }
-    const run = this.#openTypedRun
-    const open = this.#history[this.#historyCursor - 1]
-    if (
-      run === null ||
-      open === undefined ||
-      prepared.historyAction.coalescible !== true ||
-      this.#historyCursor !== this.#history.length
-    ) {
-      return false
-    }
-    const single = singleScalarPureInsert(prepared.historyAction.entry)
-    const openRun = pureInsertRun(open)
-    if (
-      single === null ||
-      openRun === null ||
-      single.position !== run.caret ||
-      openRun.position + openRun.text.length !== single.position ||
-      (isWhitespaceScalar(run.lastScalar) &&
-        !isWhitespaceScalar(single.scalar))
-    ) {
-      return false
-    }
-    const text = openRun.text + single.scalar
-    this.#history[this.#historyCursor - 1] = freezeHistoryEntry(Object.freeze({
-      forward: Object.freeze([Object.freeze({
-        start: openRun.position,
-        end: openRun.position,
-        insert: text
-      })]),
-      inverse: Object.freeze([Object.freeze({
-        start: openRun.position,
-        end: openRun.position + text.length,
-        insert: ''
-      })]),
-      beforeSelection: open.beforeSelection,
-      afterSelection: prepared.historyAction.entry.afterSelection,
-      beforeSourceSelection: open.beforeSourceSelection,
-      afterSourceSelection: prepared.historyAction.entry.afterSourceSelection
-    }))
-    // The head position now denotes a different recorded state, so it mints
-    // a fresh identity and content hash; earlier positions — including any
-    // saved one, since persistence seals the run — are untouched.
-    this.#savedIdentityLedger.replace(
-      this.#historyCursor,
-      prepared.revision.sourceHash
-    )
-    this.#openTypedRun = Object.freeze({
-      caret: single.position + single.scalar.length,
-      lastScalar: single.scalar
-    })
-    return true
-  }
-
   commit(prepared: PreparedWorkerCommit): void {
     if (prepared.transition.base !== this.#state.id) {
       throw new Error('Prepared revision no longer matches the worker head')
     }
 
-    if (prepared.historyAction.kind === 'record' &&
-      this.#extendTypedRun(prepared)) {
-      // The open typed run absorbed this admission: the entry, identity, and
-      // source hash at the head position were rewritten in place.
-    } else if (prepared.historyAction.kind === 'record') {
-      const action = prepared.historyAction
-      const single = singleScalarPureInsert(action.entry)
-      this.#openTypedRun = action.coalescible === true && single !== null
-        ? Object.freeze({
-          caret: single.position + single.scalar.length,
-          lastScalar: single.scalar
-        })
-        : null
-      const stableEntry = freezeHistoryEntry(prepared.historyAction.entry)
-      this.#history = this.#history.slice(0, this.#historyCursor)
-      this.#savedIdentityLedger.record(
-        this.#historyCursor + 1,
-        prepared.revision.sourceHash
+    if (prepared.historyAction.kind === 'record') {
+      // History owns the record and the coalescing rule; the worker maps
+      // its report onto the saved-identity ledger — an extended run
+      // re-mints the head position, a recorded entry mints the next one,
+      // and each compacted entry shifts the ledger. History never mints
+      // identity itself (section 2).
+      const outcome = this.#historyRecord.record(
+        prepared.historyAction.entry,
+        prepared.historyAction.coalescible === true
       )
-      this.#history.push(stableEntry)
-      this.#historyCursor += 1
-      let historyInsertUnits = this.#history.reduce(
-        (total, entry) =>
-          total +
-          [...entry.forward, ...entry.inverse].reduce(
-            (entryTotal, edit) => entryTotal + edit.insert.length,
-            0
-          ),
-        0
-      )
-      while (
-        this.#history.length >
-          DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryEntries ||
-        historyInsertUnits >
-          DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryInsertUnits
-      ) {
-        const removed = this.#history.shift()
-        if (removed === undefined) {
-          throw new Error('Revision worker could not compact its history')
-        }
-        historyInsertUnits -= [...removed.forward, ...removed.inverse].reduce(
-          (total, edit) => total + edit.insert.length,
-          0
+      if (outcome.kind === 'extended') {
+        this.#savedIdentityLedger.replace(
+          this.#historyRecord.cursor(),
+          prepared.revision.sourceHash
         )
-        this.#savedIdentityLedger.shift()
-        this.#historyCursor -= 1
+      } else {
+        this.#savedIdentityLedger.record(
+          this.#historyRecord.cursor() + outcome.compacted,
+          prepared.revision.sourceHash
+        )
+        for (let shifted = 0; shifted < outcome.compacted; shifted += 1) {
+          this.#savedIdentityLedger.shift()
+        }
       }
-    } else if (prepared.historyAction.kind === 'undo') {
-      this.#openTypedRun = null
-      this.#historyCursor -= 1
     } else {
-      this.#openTypedRun = null
-      this.#historyCursor += 1
+      this.#historyRecord.applied(prepared.historyAction.kind)
     }
 
     if ('markupView' in prepared) {

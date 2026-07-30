@@ -355,13 +355,18 @@ are transcribed exactly. Its real residue is G36.
   composition lives in the transformation kernel, and execution accounting
   is a process-global mutable counter bank with test-only resets
   (`internal/profile1/physicalTraversalAccounting.ts`). The concerns are
-  answered today inside `revisionWorker.ts` and its callers. Progress
-  2026-07-29: the saved-identity module exists
-  (`internal/session/savedIdentityLedger.ts`) — minting, validation, the
-  content-addressed dirty comparison, and persistence acceptance live in
-  one owner and the worker transports identities opaquely. Not one
-  behavior: closure is the remaining section 2 extraction, landed
-  green-to-green with interface-conformance targets per module.
+  answered today inside `revisionWorker.ts` and its callers. Progress: the
+  saved-identity module exists (`internal/session/savedIdentityLedger.ts`)
+  — minting, validation, the content-addressed dirty comparison, and
+  persistence acceptance in one owner, identities transported opaquely —
+  and the History module exists (`internal/session/historyRecord.ts`):
+  entries, the cursor, the typed-run coalescing rule, compaction, and the
+  exhaustion states in one owner, with undo/redo peeks confirmed at
+  commit so a rejected replay never desynchronizes the cursor, and
+  History reporting outcomes the worker maps onto the ledger — it never
+  mints saved identity. Not one behavior: closure is the remaining
+  section 2 extraction, landed green-to-green with
+  interface-conformance targets per module.
 
 **W2 — Host surfaces**
 
