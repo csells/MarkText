@@ -1,7 +1,7 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G28, G31, G32, G34,
-  G39, G40 open; G5, G14–G16 partial
+- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G28, G31, G32, G34
+  open; G5, G14–G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-29
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -275,9 +275,9 @@ proof", and the single-space cell padding exactly as written. -->
 | --- | --- | --- |
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G31, G32, G34 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
-| Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13, G40 (W3) |
+| Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G16 residues, G18, G19, G28 (W4) |
-| Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | Blocked by G40 (W3): the sweep cannot yet fail where G29's violation lives. |
+| Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
 | P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6), blocked by G31–G32 |
 | P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
 
@@ -293,9 +293,14 @@ to `packages/document-core/src` in W1, W3, and W4, and to
 
 G29–G40 entered this ledger on 2026-07-29 from a fresh-eyes audit of the
 branch against this plan and the vision, each carrying evidence reproduced
-against a fresh build; G27, G29, G30, G33, and G35–G38 closed red–green the
-same day (G38 by ratifying and documenting the introduced-BOM encoding as
-Profile 1 E4/D9), and git history holds their diagnoses. Severity in a gap's title is rated against the vision:
+against a fresh build; G27, G29, G30, G33, and G35–G40 closed red–green
+within two days (G38 by ratifying the introduced-BOM encoding as Profile 1
+E4/D9; G40 by emitting line, content, and info extents the conversions now
+consume, deleting every worker recognizer, dropping the renderer's bundled
+Markdown grammar, and widening the sweep — probes spelled as shipped,
+document-core in scope, constructed expressions detected — with a mutation
+proof that a planted recognizer turns it red), and git history holds their
+diagnoses. Severity in a gap's title is rated against the vision:
 critical defeats a principle outright or destroys the author's bytes; high
 makes the north star unreachable or breaks a principle on an ordinary path.
 One audit finding was rejected rather than recorded: hand-typed CriticMarkup
@@ -435,23 +440,6 @@ whose assertion cannot distinguish pass from fail.
   evidence settles with fixed sleeps instead of the public `settled()` barrier.
   Every selection-sensitive target drives selection with real input and settles
   on that barrier.
-- **G40 [high] The non-negotiable-2 absence sweep cannot fail where the
-  violations live.** Four verified blind spots in
-  `packages/document-core/test/plan/0009-retired-authority-absence.spec.ts`:
-  (1) `hostProductionFiles()` sweeps only `packages/desktop/src` and
-  `packages/document-view/src`, exempting document-core's non-grammar modules
-  — G29's second grammar sits exactly there; (2) only regex *literals* are
-  inspected, so `new RegExp` construction is invisible; (3) bundled grammars
-  are out of scope, so `prismjs/components/prism-markdown` ships in the
-  production renderer as a second Markdown recognizer; (4) the probe
-  spellings are narrower than the shipped recognizers (fence `` `{3,} `` vs
-  three literal backticks, heading `^ {0,3}#{1,6}` vs `^#{1,6}`, list
-  `[-+*]…[ \t]+` vs `[*+-]\s`). The ledger's former "Absence … None." row was
-  reachable only through these blind spots. Closure: widen scope to
-  document-core (grammar modules allowlisted), detect construction, cover
-  bundled grammars, align probes with shipped spellings — then close what the
-  widened sweep finds, which includes G29's regex battery.
-
 **W4 — Language, configuration, and coverage**
 
 - **G14 GFM is bound to no gate.** CommonMark is bound: A35 names the
@@ -553,8 +541,6 @@ These orderings are real dependencies:
   published by the intent seam;
 - G6 and G7 precede G9, because a mutation sweep over an environment-selected
   adapter or a second open path mutates something production does not run;
-- the widened G40 sweep turns green only when the worker's conversion regex
-  battery is replaced by emitted structure (the deep half of closed G29);
 - G31 and G32 precede G23, because the keystroke budget fails on the path
   they own, and G7 precedes G23, since a budget measured off the production
   open path proves nothing;
@@ -570,9 +556,9 @@ performance pair (G31, G32) and the structural extraction (G34).
 
 - **W1** — exit: G4, G31, G32, and G34 closed, each proved by real gestures.
 - **W2** — exit: G5–G8 and G39 closed.
-- **W3** — exit: G13 repaired, G6 and G7 landed, G40 closed, every named
-  target passing its own baseline, and G9 passing over all of them. No later
-  workstream may be declared closed before G9 passes.
+- **W3** — exit: G13 repaired, G6 and G7 landed, every named target passing
+  its own baseline, and G9 passing over all of them. No later workstream may
+  be declared closed before G9 passes.
 - **W4** — manifest rows land before the implementation work they gate. Exit:
   G14–G19 and G28 closed, and no section 8 claim lacks a manifest row.
 - **W6** — after budgets are met and the P10 control plane closes, freeze:

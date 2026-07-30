@@ -120,15 +120,20 @@ interface SyntaxRecognizerHit {
 }
 
 // Non-negotiable 2: recognition of Markdown or CriticMarkup syntax belongs to
-// the document-core grammar. A host regular expression that reproduces one of
-// these constructs is a second recognizer whether or not it has callers.
+// the document-core grammar. A production regular expression that reproduces
+// one of these constructs is a second recognizer whether or not it has
+// callers. The probes spell each construct the way the shipped grammar does
+// — a probe that only matches an idealized spelling cannot fail (G40).
 const HOST_SYNTAX_CONSTRUCTS: readonly (readonly [string, RegExp])[] = Object.freeze([
-  Object.freeze(['code fence', /```/u] as const),
+  Object.freeze(['code fence', /```|`\{3|~\{3/u] as const),
   Object.freeze(['display math', /\\\$\\\$/u] as const),
   Object.freeze(['table delimiter row', /\\\|[^/]*:?-\+:?/u] as const),
   Object.freeze(['table row', /\\\|\[\^\\?\|\]\+\\\|/u] as const),
-  Object.freeze(['list marker', /\[\*\+-\]\\s/u] as const),
-  Object.freeze(['atx heading', /\^#\{1,6\}|\^#\+\\s/u] as const),
+  Object.freeze(['list marker', /\[[*+-]{3}\]|\\d\+\[.\)\]|\\d\{1,9\}\[.\)\]/u] as const),
+  Object.freeze(['atx heading', /#\{1,6\}|\^#\+\\s/u] as const),
+  Object.freeze(['blockquote marker', /\{0,3\}>/u] as const),
+  Object.freeze(['front matter fence', /\^---/u] as const),
+  Object.freeze(['setext underline', /=\{2,\}|\^=\+/u] as const),
   Object.freeze(['criticmarkup opener', /\\?\{\\?\+\\?\+|\\?\{--|\\?\{~~|\\?\{==|\\?\{>>/u] as const)
 ])
 
@@ -142,10 +147,16 @@ function hostProductionFiles(): readonly string[] {
       '--files',
       'packages/desktop/src',
       'packages/document-view/src',
+      // Non-grammar document-core modules are production hosts too: the
+      // grammar under internal/profile1 is the ONE place recognition is
+      // legal, and everything else in the package is swept (G40).
+      'packages/document-core/src',
       '-g',
       '*.{ts,vue}',
       '-g',
-      '!**/__tests__/**'
+      '!**/__tests__/**',
+      '-g',
+      '!packages/document-core/src/internal/profile1/**'
     ],
     { cwd: REPO_ROOT, encoding: 'utf8' }
   )
@@ -167,6 +178,25 @@ function hostSyntaxRecognizers(): readonly SyntaxRecognizerHit[] {
                 line: index + 1,
                 construct,
                 pattern: literal
+              })
+            )
+            break
+          }
+        }
+      }
+      // A recognizer assembled at run time is no less a recognizer: any
+      // constructed expression whose construction line spells a probed
+      // syntax construct is a hit (G40). Query builders over user input
+      // carry no construct spelling and stay invisible.
+      if (text.includes('new RegExp')) {
+        for (const [construct, probe] of HOST_SYNTAX_CONSTRUCTS) {
+          if (probe.test(text)) {
+            hits.push(
+              Object.freeze({
+                file,
+                line: index + 1,
+                construct: `constructed ${construct}`,
+                pattern: text.trim()
               })
             )
             break

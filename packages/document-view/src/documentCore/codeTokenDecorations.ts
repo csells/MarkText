@@ -26,7 +26,9 @@ import 'prismjs/components/prism-diff';
 import 'prismjs/components/prism-docker';
 import 'prismjs/components/prism-scss';
 import 'prismjs/components/prism-less';
-import 'prismjs/components/prism-markdown';
+// prism-markdown is deliberately absent: bundling a second Markdown
+// recognizer into the production renderer violates non-negotiable 2, so a
+// markdown fence renders unhighlighted (G40).
 
 /**
  * Presentation-only syntax highlighting for fenced code blocks.
@@ -59,7 +61,6 @@ const ALIASES: Readonly<Record<string, string>> = Object.freeze({
     rb: 'ruby',
     rs: 'rust',
     kt: 'kotlin',
-    md: 'markdown',
     html: 'markup',
     xml: 'markup',
     svg: 'markup',

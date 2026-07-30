@@ -71,6 +71,16 @@ describe('code token decorations', () => {
             .toBe('const answer = 42');
     });
 
+    // Non-negotiable 2: no second Markdown recognizer ships in the
+    // renderer, so a markdown fence renders unhighlighted by design (G40).
+    it('does not tokenize a markdown fence', () => {
+        const host = codeBlock('md', '# heading *emphasis*');
+        paintCodeTokenDecorations(host);
+        expect(host.querySelectorAll('span.token').length).toBe(0);
+        expect(host.querySelector('code')?.textContent)
+            .toBe('# heading *emphasis*');
+    });
+
     it('leaves an unknown language untouched', () => {
         const host = codeBlock('not-a-language', 'const answer = 42');
         paintCodeTokenDecorations(host);

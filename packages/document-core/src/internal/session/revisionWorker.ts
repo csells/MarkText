@@ -29,6 +29,7 @@ import type {
   DocumentRevision,
   MarkupMark,
   MarkdownNode,
+  MarkdownPhysicalLine,
   NodeId,
   ParseConfiguration,
   ProjectedCodeUnitOrigin,
@@ -3543,6 +3544,73 @@ export class RevisionWorker {
       throw new IntentRejection('wrong-target-kind')
     }
 
+    const source = state.revision.source.text
+    const markdownDocument = state.revision.projection('editing').markdown
+    const lineIndex = markdownDocument.lines
+    // The parser-emitted physical line holding a model position.
+    const lineContaining = (offset: number): MarkdownPhysicalLine => {
+      for (let ordinal = 0; ordinal < lineIndex.count; ordinal += 1) {
+        const line = lineIndex.at(ordinal)
+        if (offset < line.end || ordinal === lineIndex.count - 1) {
+          return line
+        }
+      }
+      throw new IntentRejection('wrong-target-kind')
+    }
+    // Nesting reaches the adjacent item's content column, so the step is
+    // that marker segment's width — 2 under '- ', 3 under '1. ' — never a
+    // fixed two spaces, which fails to nest under any ordered marker. An
+    // item's marker segment is parser-emitted: it spans from the item's
+    // start to its first line's content offset.
+    const markerWidthOf = (candidate: MarkdownNode): number =>
+      Math.max(
+        0,
+        lineContaining(candidate.range.start).contentOffset -
+          candidate.range.start
+      )
+    // Sibling and ancestor come from the emitted tree, never from scanning
+    // source lines for markers: the path to the item names its parent list
+    // and any enclosing item.
+    const path = markdownDocument.nodeAt(item.range.start, 'next')
+    const itemDepth = path.lastIndexOf(item)
+    const parentList = itemDepth > 0 ? path[itemDepth - 1] : undefined
+    const precedingSibling = ((): MarkdownNode | null => {
+      if (parentList === undefined || parentList.kind !== 'list') {
+        return null
+      }
+      let previous: MarkdownNode | null = null
+      for (
+        let ordinal = 0;
+        ordinal < parentList.childCount;
+        ordinal += 1
+      ) {
+        const child = parentList.childAt(ordinal)
+        if (child === item) {
+          return previous
+        }
+        if (child.kind === 'list-item') {
+          previous = child
+        }
+      }
+      return null
+    })()
+    const enclosingItem = ((): MarkdownNode | null => {
+      for (let ordinal = itemDepth - 1; ordinal >= 0; ordinal -= 1) {
+        const ancestor = path[ordinal]
+        if (ancestor !== undefined && ancestor.kind === 'list-item') {
+          return ancestor
+        }
+      }
+      return null
+    })()
+    const itemLine = lineContaining(item.range.start)
+    const lineStart = this.#sourcePositionAt(
+      state,
+      Object.freeze({
+        offset: itemLine.start,
+        affinity: 'next' as const
+      })
+    ).offset
     const itemStart = this.#sourcePositionAt(
       state,
       Object.freeze({
@@ -3550,54 +3618,22 @@ export class RevisionWorker {
         affinity: 'next' as const
       })
     ).offset
-    const source = state.revision.source.text
-    const lineStart = Math.max(
-      source.lastIndexOf('\n', Math.max(0, itemStart - 1)),
-      source.lastIndexOf('\r', Math.max(0, itemStart - 1))
-    ) + 1
-    const indent = /^[ \t]*/.exec(source.slice(lineStart))?.[0] ?? ''
-    // Nesting reaches the adjacent item's content column, so the step is that
-    // marker segment's width — 2 under '- ', 3 under '1. ' — never a fixed
-    // two spaces, which fails to nest under any ordered marker.
-    const MARKER = /^([ \t]*)((?:[-+*]|\d{1,9}[.)])[ \t]+)/
-    const markerWidthAbove = (
-      relation: 'sibling' | 'ancestor'
-    ): number | null => {
-      let end = lineStart
-      while (end > 0) {
-        const precedingStart = Math.max(
-          source.lastIndexOf('\n', end - 2),
-          source.lastIndexOf('\r', end - 2)
-        ) + 1
-        const line = source.slice(precedingStart, end)
-        const match = MARKER.exec(line)
-        if (match !== undefined && match !== null) {
-          const lineIndent = match[1] ?? ''
-          const width = (match[2] ?? '').length
-          if (relation === 'sibling' && lineIndent.length <= indent.length) {
-            return lineIndent.length === indent.length ? width : null
-          }
-          if (relation === 'ancestor' && lineIndent.length < indent.length) {
-            return width
-          }
-        }
-        if (precedingStart === 0) break
-        end = precedingStart
-      }
-      return null
-    }
+    // The whitespace run before the emitted marker — an extent measure over
+    // parser-identified bytes, not a recognizer.
+    const indent =
+      /^[ \t]*/.exec(source.slice(lineStart, itemStart))?.[0] ?? ''
     const edits: Array<Readonly<{
       start: number
       end: number
       insert: string
     }>> = []
     if (direction === 'increase') {
-      const width = markerWidthAbove('sibling')
-      if (width === null) {
+      if (precedingSibling === null) {
         // Without a preceding sibling at the same level there is no item to
         // nest under; indenting would fabricate a continuation line.
         throw new IntentRejection('no-source-change')
       }
+      const width = markerWidthOf(precedingSibling)
       edits.push(Object.freeze({
         start: lineStart,
         end: lineStart,
@@ -3605,21 +3641,27 @@ export class RevisionWorker {
       }))
       // An ordered item becomes the first entry of its new nested list; its
       // marker number is part of the semantic move, exactly as an editor
-      // renumbers on indent.
-      const markerMatch = MARKER.exec(source.slice(lineStart))
-      const digits = /^\d{1,9}/.exec(
-        source.slice(lineStart + (markerMatch?.[1] ?? '').length)
-      )?.[0]
+      // renumbers on indent. The digits live inside the emitted marker
+      // extent.
+      const markerEnd = this.#sourcePositionAt(
+        state,
+        Object.freeze({
+          offset: itemLine.contentOffset,
+          affinity: 'previous' as const
+        })
+      ).offset
+      const digits =
+        /^\d{1,9}/.exec(source.slice(itemStart, markerEnd))?.[0]
       if (digits !== undefined && digits !== '1') {
-        const numberStart = lineStart + (markerMatch?.[1] ?? '').length
         edits.push(Object.freeze({
-          start: numberStart,
-          end: numberStart + digits.length,
+          start: itemStart,
+          end: itemStart + digits.length,
           insert: '1'
         }))
       }
     } else {
-      const width = markerWidthAbove('ancestor') ?? 2
+      const width =
+        enclosingItem === null ? 2 : markerWidthOf(enclosingItem)
       const removal = Math.min(width, indent.length)
       if (removal === 0) {
         throw new IntentRejection('no-source-change')
@@ -3899,17 +3941,6 @@ export class RevisionWorker {
       throw new IntentRejection('wrong-target-kind')
     }
 
-    const blockTarget = Object.freeze({
-      ...target,
-      anchor: Object.freeze({
-        offset: block.range.start,
-        affinity: 'next' as const
-      }),
-      focus: Object.freeze({
-        offset: block.range.end,
-        affinity: 'previous' as const
-      })
-    })
     // The grammar emits the fence's info-string extent; an indented code
     // block emits none and cannot carry a language.
     const emittedInfoStart = block.attributes['infoStart']
