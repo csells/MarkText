@@ -15,6 +15,7 @@ type TrackChangeRejectionMessageKey =
   | 'editor.criticMarkup.trackChangeRejected.parserConflict'
   | 'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection'
   | 'editor.criticMarkup.trackChangeRejected.missingTrackedSelectionBlock'
+  | 'editor.criticMarkup.trackChangeRejected.commentPayloadTarget'
 
 /**
  * The engine owns a closed rejection taxonomy; the renderer owns exhaustive,
@@ -74,6 +75,8 @@ export const TRACK_CHANGE_REJECTION_MESSAGE_KEYS = Object.freeze({
     'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
   'hidden-comment-loss':
     'editor.criticMarkup.trackChangeRejected.parserConflict',
+  'comment-payload-target':
+    'editor.criticMarkup.trackChangeRejected.commentPayloadTarget',
   'candidate-source-only':
     'editor.criticMarkup.trackChangeRejected.parserConflict',
   'semantic-postcondition-failed':

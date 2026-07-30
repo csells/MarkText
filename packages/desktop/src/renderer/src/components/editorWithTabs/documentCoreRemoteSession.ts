@@ -649,6 +649,7 @@ function assertClosedReviewIndex(value: unknown): unknown {
       'focusOffset',
       'depth',
       'parent',
+      'withinCommentPayload',
       'payloadRange',
       'commentRevisedText',
       'oldContent',
@@ -929,6 +930,7 @@ const rejectionCodeMembers: Readonly<Record<RejectionCode, true>> =
     'selection-has-no-revised-contribution': true,
     'selection-has-no-original-contribution': true,
     'hidden-comment-loss': true,
+    'comment-payload-target': true,
     'candidate-source-only': true,
     'semantic-postcondition-failed': true
   })

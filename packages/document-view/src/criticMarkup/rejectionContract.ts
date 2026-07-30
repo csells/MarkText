@@ -28,6 +28,7 @@ export const CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS = Object.freeze([
     'selection-has-no-revised-contribution',
     'selection-has-no-original-contribution',
     'hidden-comment-loss',
+    'comment-payload-target',
     'candidate-source-only',
     'semantic-postcondition-failed',
 ] as const satisfies readonly RejectionCode[]);

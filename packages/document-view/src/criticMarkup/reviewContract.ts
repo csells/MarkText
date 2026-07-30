@@ -60,6 +60,12 @@ export interface ICriticMarkupReviewItem {
      */
     readonly anchorId?: string;
     readonly anchorText?: string;
+    /**
+     * True when the annotation sits inside a Comment payload: quoted
+     * reviewer prose, not an actionable change. The engine rejects every
+     * resolution gesture on it, and a Review surface must not arm one.
+     */
+    readonly withinCommentPayload?: boolean;
 }
 
 export interface ICriticMarkupCommandState {

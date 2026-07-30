@@ -219,6 +219,40 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     wrapper.unmount()
   })
 
+  // G35: markup quoted inside a comment payload is the reviewer's prose. The
+  // engine rejects every gesture on it, so the card must arm none.
+  it('arms no actions on a card quoted inside a comment payload', async() => {
+    const quoted: CriticMarkupSidebarItem = {
+      ...firstChange,
+      id: 'addition-quoted',
+      withinCommentPayload: true
+    }
+    const store = useCriticMarkupReviewStore()
+    store.UPDATE({
+      documentId: 'document:1',
+      revisionId: 'revision:1',
+      available: true,
+      items: [quoted, secondChange],
+      currentItemId: quoted.id,
+      trackChanges: false,
+      projection: 'marked'
+    })
+    const wrapper = mount(ReviewSidebar, {
+      global: {
+        plugins: [i18n],
+        stubs: { ElSwitch: true }
+      }
+    })
+
+    const cards = wrapper.findAll('.review-card')
+    expect(cards.length).toBe(2)
+    const quotedCard = cards[0]!
+    const actionableCard = cards[1]!
+    expect(quotedCard.find('.card-actions').exists()).toBe(false)
+    expect(actionableCard.find('.card-actions').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('returns keyboard focus to the comment card when inline editing is cancelled', async() => {
     const store = useCriticMarkupReviewStore()
     store.UPDATE({

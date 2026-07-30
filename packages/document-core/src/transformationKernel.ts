@@ -106,6 +106,12 @@ export type TransformationRejectionReason =
   | 'selection-has-no-revised-contribution'
   | 'selection-has-no-original-contribution'
   | 'hidden-comment-loss'
+  /**
+   * The target sits inside a Comment payload. Comment prose is the
+   * reviewer's own text — CriticMarkup spelled there is quoted, not
+   * proposed — so no resolution or removal gesture may rewrite it.
+   */
+  | 'comment-payload-target'
   | 'candidate-source-only'
   | 'semantic-postcondition-failed'
 
@@ -145,6 +151,8 @@ interface NodeRecord {
   readonly siblingIndex: number
   readonly hasChangeAncestor: boolean
   readonly revisedPathVisible: boolean
+  /** True when an ancestor arm is a Comment payload (reviewer prose). */
+  readonly withinCommentPayload: boolean
 }
 
 interface ProtectedCandidate {
@@ -263,6 +271,7 @@ function recordsOf(
     siblingIndex: number
     hasChangeAncestor: boolean
     revisedPathVisible: boolean
+    withinCommentPayload: boolean
   }>> = []
   for (let index = roots.length - 1; index >= 0; index -= 1) {
     const node = roots[index]
@@ -272,7 +281,8 @@ function recordsOf(
         siblings: roots,
         siblingIndex: index,
         hasChangeAncestor: false,
-        revisedPathVisible: true
+        revisedPathVisible: true,
+        withinCommentPayload: false
       })
     }
   }
@@ -286,7 +296,8 @@ function recordsOf(
       siblings: current.siblings,
       siblingIndex: current.siblingIndex,
       hasChangeAncestor: current.hasChangeAncestor,
-      revisedPathVisible: current.revisedPathVisible
+      revisedPathVisible: current.revisedPathVisible,
+      withinCommentPayload: current.withinCommentPayload
     }))
     for (
       let armIndex = current.node.arms.length - 1;
@@ -312,7 +323,10 @@ function recordsOf(
               current.hasChangeAncestor || isChange(current.node),
             revisedPathVisible:
               current.revisedPathVisible &&
-              armSurvivesRevised(current.node, arm.name)
+              armSurvivesRevised(current.node, arm.name),
+            withinCommentPayload:
+              current.withinCommentPayload ||
+              current.node.kind === 'comment'
           })
         }
       }
@@ -1585,6 +1599,9 @@ function planResolveChange(
   if (!isChange(record.node)) {
     return 'wrong-target-kind'
   }
+  if (record.withinCommentPayload) {
+    return 'comment-payload-target'
+  }
   if (wouldLoseHiddenComment(record.node, decision)) {
     return 'hidden-comment-loss'
   }
@@ -1606,7 +1623,9 @@ function planResolveAll(
   records: readonly NodeRecord[],
   decision: ChangeResolutionDecision
 ): PlannedTransformation | TransformationRejectionReason {
-  const changes = records.filter(({ node }) => isChange(node))
+  const changes = records.filter(({ node, withinCommentPayload }) =>
+    isChange(node) && !withinCommentPayload
+  )
   const commentIndex = nodesContainingComment(records)
   if (changes.some(({ node }) =>
     wouldLoseHiddenComment(node, decision, commentIndex)
@@ -1648,6 +1667,9 @@ function planRemoveHighlight(
   }
   if (record.node.kind !== 'highlight') {
     return 'wrong-target-kind'
+  }
+  if (record.withinCommentPayload) {
+    return 'comment-payload-target'
   }
   return Object.freeze({
     edits: Object.freeze([
@@ -1755,6 +1777,9 @@ function planEditComment(
   if (record.node.kind !== 'comment') {
     return 'wrong-target-kind'
   }
+  if (record.withinCommentPayload) {
+    return 'comment-payload-target'
+  }
   if (comment.trim().length === 0) {
     return 'empty-comment'
   }
@@ -1800,6 +1825,9 @@ function planRemoveComment(
   const comment = record.node
   if (comment.kind !== 'comment') {
     return 'wrong-target-kind'
+  }
+  if (record.withinCommentPayload) {
+    return 'comment-payload-target'
   }
   if (hasCommentDescendant(comment)) {
     return 'hidden-comment-loss'

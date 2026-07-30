@@ -493,7 +493,8 @@ function createReviewIndex(
   const itemFor = (
     node: CriticMarkupNode,
     depth: number,
-    parent: NodeId | null
+    parent: NodeId | null,
+    withinCommentPayload: boolean
   ): ReviewIndexItem => {
     const modelRange = lookup.modelRangeFor(node.nodeId)
     return Object.freeze({
@@ -509,6 +510,7 @@ function createReviewIndex(
       ),
       depth,
       parent,
+      withinCommentPayload,
       payloadRange: Object.freeze({
         start: node.markers.open.end,
         end: node.markers.close.start
@@ -540,12 +542,14 @@ function createReviewIndex(
       readonly siblings: readonly CriticMarkupNode[]
       readonly depth: number
       readonly parent: NodeId | null
+      readonly withinCommentPayload: boolean
     }>
     | Readonly<{
       readonly kind: 'node'
       readonly node: CriticMarkupNode
       readonly depth: number
       readonly parent: NodeId | null
+      readonly withinCommentPayload: boolean
     }>
     | Readonly<{
       readonly kind: 'commented-spans'
@@ -560,7 +564,8 @@ function createReviewIndex(
     kind: 'siblings',
     siblings: roots,
     depth: 0,
-    parent: null
+    parent: null,
+    withinCommentPayload: false
   }]
   while (pending.length > 0) {
     const task = pending.pop()
@@ -583,14 +588,20 @@ function createReviewIndex(
             kind: 'node',
             node,
             depth: task.depth,
-            parent: task.parent
+            parent: task.parent,
+            withinCommentPayload: task.withinCommentPayload
           })
         }
       }
       continue
     }
     if (task.kind === 'node') {
-      items.push(itemFor(task.node, task.depth, task.parent))
+      items.push(itemFor(
+        task.node,
+        task.depth,
+        task.parent,
+        task.withinCommentPayload
+      ))
       for (
         let armIndex = task.node.arms.length - 1;
         armIndex >= 0;
@@ -602,7 +613,9 @@ function createReviewIndex(
             kind: 'siblings',
             siblings: children,
             depth: task.depth + 1,
-            parent: task.node.nodeId
+            parent: task.node.nodeId,
+            withinCommentPayload:
+              task.withinCommentPayload || task.node.kind === 'comment'
           })
         }
       }

@@ -1048,6 +1048,7 @@ export function freezeDocumentCoreReviewIndex(
       'focusOffset',
       'depth',
       'parent',
+      'withinCommentPayload',
       'payloadRange',
       'commentRevisedText',
       'oldContent',
@@ -1070,6 +1071,7 @@ export function freezeDocumentCoreReviewIndex(
           item.parent.length > 1_024
         )
       ) ||
+      typeof item.withinCommentPayload !== 'boolean' ||
       (
         item.commentRevisedText !== null &&
         typeof item.commentRevisedText !== 'string'
@@ -1131,6 +1133,7 @@ export function freezeDocumentCoreReviewIndex(
       focusOffset: Number(item.focusOffset),
       depth: Number(item.depth),
       parent: item.parent,
+      withinCommentPayload: item.withinCommentPayload,
       payloadRange,
       commentRevisedText: item.commentRevisedText,
       oldContent: item.oldContent,

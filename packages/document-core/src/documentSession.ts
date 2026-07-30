@@ -281,6 +281,13 @@ export interface ReviewIndexItem {
   readonly depth: number
   readonly parent: NodeId | null
   /**
+   * True when an ancestor arm is a Comment payload. Such an item is quoted
+   * reviewer prose, not an actionable annotation: every resolution, removal,
+   * and edit gesture targeting it rejects with `comment-payload-target`, and
+   * a Review surface must not arm those gestures on its card.
+   */
+  readonly withinCommentPayload: boolean
+  /**
    * Exact canonical extent of the payload between the annotation's markers —
    * parser-owned, so no consumer reconstructs it by delimiter arithmetic.
    * Slicing canonical source with it yields the text a payload editor must

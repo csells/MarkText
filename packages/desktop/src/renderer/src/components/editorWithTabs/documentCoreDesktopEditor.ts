@@ -532,6 +532,7 @@ export async function createDocumentEditorHost(
       sourceEnd: item.sourceRange.end,
       raw: source.slice(item.sourceRange.start, item.sourceRange.end),
       payloadSource,
+      withinCommentPayload: item.withinCommentPayload,
       ...(item.kind === 'substitution'
         ? {
           oldContent: item.oldContent ?? '',
