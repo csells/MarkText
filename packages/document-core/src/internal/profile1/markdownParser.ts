@@ -3597,8 +3597,15 @@ const astRegionCaches =
     MarkdownAstRegionCacheIdentity,
     Map<string, MarkdownAstRegionTemplate>
   >()
-const MAX_RETAINED_FRAGMENT_ENTRIES = 32_768
-export const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1 = 4 * 1_024 * 1_024
+const MAX_RETAINED_FRAGMENT_ENTRIES = 131_072
+/**
+ * Total retention across all cached regions. One region may retain at most
+ * the per-entry cap below, so a single oversized block can neither be
+ * serialized into a key nor evict the whole working set (G31).
+ */
+export const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1 = 64 * 1_024 * 1_024
+export const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1 =
+  4 * 1_024 * 1_024
 const RETAINED_STRING_HEADER_BYTES = 16
 const RETAINED_OBJECT_HEADER_BYTES = 24
 const RETAINED_REFERENCE_BYTES = 8
@@ -3644,15 +3651,38 @@ export interface Profile1MarkdownReuseRetentionV1 {
   readonly overheadBytes: number
   readonly retainedBytes: number
   readonly maximumRetainedBytes: number
+  readonly maximumRetainedEntryBytes: number
 }
 
 function retainedStringBytes(value: string): number {
   return RETAINED_STRING_HEADER_BYTES + value.length * 2
 }
 
+/**
+ * Cache keys are digests, never the serialized identity itself: every hit
+ * re-verifies the exact region source, lines key, and literals key, so a
+ * collision can only cause a miss or a skipped retention — never a wrong
+ * reuse. Embedding the full region source in the key doubled every entry's
+ * retention and pulled the eviction cliff down to ~95 KB of document (G31).
+ */
+function retainedFragmentKeyDigest(serialized: string): string {
+  let hashA = 0x811c9dc5
+  let hashB = 0xcbf29ce4
+  for (let index = 0; index < serialized.length; index += 1) {
+    const unit = serialized.charCodeAt(index)
+    hashA ^= unit & 0xff
+    hashA = Math.imul(hashA, 0x01000193) >>> 0
+    hashA ^= unit >>> 8
+    hashA = Math.imul(hashA, 0x01000193) >>> 0
+    hashB ^= unit
+    hashB = (Math.imul(hashB, 0x01000193) + (hashA & 0xff)) >>> 0
+  }
+  return `${serialized.length.toString(36)}:${hashA.toString(36)}:${hashB.toString(36)}`
+}
+
 function fragmentSourceCanFit(source: string): boolean {
   return retainedStringBytes(source) + RETAINED_CACHE_ENTRY_BYTES <=
-    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
 }
 
 function retainedValueBytes(value: unknown, seen: Set<object>): number {
@@ -3769,7 +3799,7 @@ function retainFragmentEntry<Value>(
   const keyBytes = retainedStringBytes(key)
   const valueBytes = retainedValueBytes(value, new Set())
   const retainedBytes = keyBytes + valueBytes + RETAINED_CACHE_ENTRY_BYTES
-  if (retainedBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1) {
+  if (retainedBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
     return
   }
   while (
@@ -3906,7 +3936,7 @@ function astRegionTemplateCanFit(
   literalsKey: string
 ): boolean {
   return astRegionTemplateBaseBytes(key, source, linesKey, literalsKey) <=
-    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
 }
 
 function astRegionTemplateNodesCanFit(
@@ -3922,7 +3952,7 @@ function astRegionTemplateNodesCanFit(
     linesKey,
     literalsKey
   ) + nodes.length * RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES
-  if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1) {
+  if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
     return false
   }
   const pending = [...nodes]
@@ -3933,7 +3963,7 @@ function astRegionTemplateNodesCanFit(
     }
     minimumBytes +=
       node.childCount * RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES
-    if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1) {
+    if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
       return false
     }
     for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
@@ -4390,17 +4420,20 @@ function emitMarkdownAstRegions(
           literalsKey
         ])
         : undefined
+    const digestKey = serializedKey === undefined
+      ? undefined
+      : retainedFragmentKeyDigest(serializedKey)
     const key =
-      serializedKey !== undefined &&
+      digestKey !== undefined &&
       linesKey !== undefined &&
       literalsKey !== undefined &&
       astRegionTemplateCanFit(
-        serializedKey,
+        digestKey,
         regionSource,
         linesKey,
         literalsKey
       )
-        ? serializedKey
+        ? digestKey
         : undefined
     const cached = key === undefined ? undefined : cache?.get(key)
     if (
@@ -6433,7 +6466,9 @@ export function profile1MarkdownReuseRetentionV1(
     valueBytes,
     overheadBytes,
     retainedBytes: keyBytes + valueBytes + overheadBytes,
-    maximumRetainedBytes: PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+    maximumRetainedBytes: PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1,
+    maximumRetainedEntryBytes:
+      PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
   })
 }
 

@@ -514,7 +514,13 @@ describe('Profile 1 fragment reuse', () => {
   it('byte-bounds session-lifetime reuse across large syntax-changing revisions', () => {
     const cache = createProfile1DocumentReuseCache()
     const body = 'x'.repeat(96 * 1_024)
-    const revisionCount = 32
+    // Enough distinct revisions to overflow the total retention budget: each
+    // retains at least its source string twice (key digestion keeps keys
+    // small, but the entry value holds the exact region source).
+    const revisionCount = Math.ceil(
+      profile1DocumentReuseRetentionV1(cache).maximumRetainedBytes /
+      (body.length * 2)
+    ) + 8
 
     for (let revision = 0; revision < revisionCount; revision += 1) {
       const heading = '#'.repeat(revision % 6 + 1)
@@ -559,7 +565,7 @@ describe('Profile 1 fragment reuse', () => {
   it('does not construct cache keys or retain an oversized region', () => {
     const cache = createProfile1DocumentReuseCache()
     const maximumRetainedBytes =
-      profile1DocumentReuseRetentionV1(cache).maximumRetainedBytes
+      profile1DocumentReuseRetentionV1(cache).maximumRetainedEntryBytes
     const source = `# oversized\n${'x'.repeat(
       Math.floor(maximumRetainedBytes / 2) + 1
     )}\n`

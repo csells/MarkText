@@ -319,16 +319,20 @@ are transcribed exactly. Its real residue is G36.
   `boundaryNear`, `mapThroughEdits`, `nodeModelRange` — return zero matches
   repo-wide. Violates non-negotiable 3.
 
-- **G31 [critical] Fragment reuse never engages for container shapes and
-  switches off past ~95 KB.** Measured with the engine's own counters on a
-  fresh build (2026-07-29): a keystroke at the end of a 4,000-item bullet
-  list or a 4,000-line blockquote emits one region and reuses zero at every
-  size, because a region split requires a blank line with no open containers
-  (`internal/profile1/markdownParser.ts:4322-4332`) — a long list or a
-  blockquoted review is one region. For blank-separated paragraphs, reuse
-  works at 95,177 bytes and stops between there and 95,415 bytes (the region
-  cache budget); past the cliff one keystroke re-emits all 4,000 regions.
-  Violates vision principle 5 on exactly the shapes a reviewed document has.
+- **G31 [critical] Fragment reuse never engages for container shapes.**
+  Measured with the engine's own counters (2026-07-29): a keystroke at the
+  end of a 4,000-item bullet list or a 4,000-line blockquote emits one
+  region and reuses zero at every size, because a region is a top-level
+  block sequence and a long list or blockquoted review is one block
+  (`internal/profile1/markdownParser.ts:4313-4336`). Closure is sub-block
+  reuse: per-item and per-child template caching inside the container
+  emission, honoring reference-definition and literal keys the way regions
+  do. The size half of this gap is closed: retention keys are digests
+  (exact source still verified on every hit) and the total budget is 64 MiB
+  with a 4 MiB per-entry cap, so paragraph-shape reuse now engages through
+  500 KB+ documents (14,999 of 15,000 regions reused; the old cliff sat
+  between 95,177 and 95,415 bytes). Violates vision principle 5 on exactly
+  the shapes a reviewed document has.
 
 - **G32 [critical] The intrinsic pass re-reads the entire document on every
   keystroke.** `intrinsicSourceUnits ÷ document length = 1.000` at every
