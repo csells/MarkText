@@ -1187,7 +1187,15 @@ export class SessionCoordinator {
       }
       let prepared
       if (intent.kind === 'insert-text') {
-        prepared = this.#worker.prepareInsertion(intent.target, intent.text, next)
+        // Typed insertions are the one coalescible admission: the History
+        // rule may extend the open typed run instead of recording an entry.
+        prepared = this.#worker.prepareInsertion(
+          intent.target,
+          intent.text,
+          next,
+          'semantic',
+          true
+        )
       } else if (intent.kind === 'replace-text') {
         prepared = this.#worker.prepareReplacement(intent.target, intent.text, next)
       } else if (intent.kind === 'replace-current-matches') {

@@ -147,7 +147,15 @@ interface PreparedWorkerCommitBase {
   readonly history: 'record' | 'none'
   readonly sourceSelection: SourceModelSelection
   readonly historyAction:
-    | { readonly kind: 'record'; readonly entry: HistoryEntry }
+    | {
+      readonly kind: 'record'
+      readonly entry: HistoryEntry
+      /**
+       * True only for a single-scalar typed insertion: the History rule may
+       * extend the open typed run with it instead of recording a new entry.
+       */
+      readonly coalescible?: boolean
+    }
     | { readonly kind: 'undo' | 'redo' }
 }
 
@@ -1025,6 +1033,42 @@ function freezeInitialSelection(
   })
 }
 
+/** The entry's one edit, when it is a pure insertion of one Unicode scalar. */
+function singleScalarPureInsert(
+  entry: HistoryEntry
+): Readonly<{ position: number; scalar: string }> | null {
+  const edit = entry.forward[0]
+  if (
+    entry.forward.length !== 1 ||
+    edit === undefined ||
+    edit.start !== edit.end ||
+    [...edit.insert].length !== 1
+  ) {
+    return null
+  }
+  return Object.freeze({ position: edit.start, scalar: edit.insert })
+}
+
+/** The open entry's shape when it is one pure insertion run. */
+function pureInsertRun(
+  entry: HistoryEntry
+): Readonly<{ position: number; text: string }> | null {
+  const edit = entry.forward[0]
+  if (
+    entry.forward.length !== 1 ||
+    edit === undefined ||
+    edit.start !== edit.end ||
+    edit.insert.length === 0
+  ) {
+    return null
+  }
+  return Object.freeze({ position: edit.start, text: edit.insert })
+}
+
+function isWhitespaceScalar(scalar: string): boolean {
+  return /^\s$/u.test(scalar)
+}
+
 function freezeHistoryEntry(entry: HistoryEntry): HistoryEntry {
   if (
     entry.forward.length >
@@ -1540,6 +1584,17 @@ export class RevisionWorker {
   #trackChanges: boolean
   #state: WorkerState
   #history: HistoryEntry[] = []
+  /**
+   * The open typed run: consecutive single-scalar insertions extend one
+   * history entry while each lands at the caret the previous one left and
+   * does not start a new word after whitespace. Anything else — another
+   * intent, a selection move, undo/redo, persistence, restoration — seals
+   * it (section 2 History rule, G33).
+   */
+  #openTypedRun: Readonly<{
+    caret: number
+    lastScalar: string
+  }> | null = null
   #historyCursor = 0
   #historyIdentities: string[]
   #historySourceHashes: SourceHashV1[]
@@ -1697,6 +1752,9 @@ export class RevisionWorker {
       throw new TypeError('Persisted history identity is not owned by this session')
     }
     this.#savedHistoryIdentity = headIdentity
+    // A saved identity names an exact recorded position; extending the run
+    // would replace the head identity it points at.
+    this.#openTypedRun = null
   }
 
   criticMarkupAuthoringCapabilities(): CriticMarkupAuthoringCapabilities {
@@ -1778,6 +1836,7 @@ export class RevisionWorker {
     this.#state = restored.#state
     this.#trackChanges = restored.#trackChanges
     this.#history = restored.#history
+    this.#openTypedRun = null
     this.#historyCursor = restored.#historyCursor
     this.#historyIdentities = restored.#historyIdentities
     this.#historySourceHashes = restored.#historySourceHashes
@@ -1874,6 +1933,7 @@ export class RevisionWorker {
    * caller error rather than something to clamp silently.
    */
   moveSelection(selection: InitialModelSelection): void {
+    this.#openTypedRun = null
     const state = this.#state
     if ('markupView' in state) {
       assertPosition(selection.anchor, state.markupView.modelLength)
@@ -1907,6 +1967,7 @@ export class RevisionWorker {
    * mapped selection for its hidden projection.
    */
   moveSourceSelection(selection: InitialModelSelection): void {
+    this.#openTypedRun = null
     const state = this.#state
     const sourceLength = state.revision.source.text.length
     assertPosition(selection.anchor, sourceLength)
@@ -2291,7 +2352,8 @@ export class RevisionWorker {
     target: ModelSelection,
     text: string,
     next: RevisionId,
-    sourceMode: 'semantic' | 'raw-source-import' = 'semantic'
+    sourceMode: 'semantic' | 'raw-source-import' = 'semantic',
+    coalescible = false
   ): PreparedWorkerCommit {
     const state = this.#state
     assertCollapsedSelection(target, state)
@@ -2323,7 +2385,14 @@ export class RevisionWorker {
               ? text
               : escapeDirectCarrierText(text, carrier)
     })
-    return this.#prepareEdit(edit, sourceTarget.offset, target, next)
+    return this.#prepareEdit(
+      edit,
+      sourceTarget.offset,
+      target,
+      next,
+      undefined,
+      coalescible && edit.start === edit.end && [...edit.insert].length === 1
+    )
   }
 
   prepareFormatting(
@@ -5360,7 +5429,8 @@ export class RevisionWorker {
     caretSourceOffset: number,
     target: ModelSelection,
     next: RevisionId,
-    explicitCaretSourceOffset?: number
+    explicitCaretSourceOffset?: number,
+    coalescible = false
   ): PreparedWorkerCommit {
     const state = this.#state
     const beforeSourceSelection = Object.freeze({
@@ -5413,7 +5483,11 @@ export class RevisionWorker {
           })
         ),
         history: 'record' as const,
-        historyAction: Object.freeze({ kind: 'record' as const, entry })
+        historyAction: Object.freeze({
+          kind: 'record' as const,
+          entry,
+          coalescible
+        })
       })
     }
 
@@ -5435,7 +5509,11 @@ export class RevisionWorker {
       selection: freezeSelection(state.session, next, 'source', afterSelection),
       sourceSelection: freezeSelection(state.session, next, 'source', afterSelection),
       history: 'record' as const,
-      historyAction: Object.freeze({ kind: 'record' as const, entry })
+      historyAction: Object.freeze({
+        kind: 'record' as const,
+        entry,
+        coalescible
+      })
     })
   }
 
@@ -5673,12 +5751,88 @@ export class RevisionWorker {
     })
   }
 
+  /**
+   * Absorb one coalescible admission into the open typed run, rewriting the
+   * head entry, identity, and source hash in place. Returns false when the
+   * admission must record its own entry — which also decides whether it
+   * opens a new run.
+   */
+  #extendTypedRun(prepared: PreparedWorkerCommit): boolean {
+    if (prepared.historyAction.kind !== 'record') {
+      return false
+    }
+    const run = this.#openTypedRun
+    const open = this.#history[this.#historyCursor - 1]
+    if (
+      run === null ||
+      open === undefined ||
+      prepared.historyAction.coalescible !== true ||
+      this.#historyCursor !== this.#history.length
+    ) {
+      return false
+    }
+    const single = singleScalarPureInsert(prepared.historyAction.entry)
+    const openRun = pureInsertRun(open)
+    if (
+      single === null ||
+      openRun === null ||
+      single.position !== run.caret ||
+      openRun.position + openRun.text.length !== single.position ||
+      (isWhitespaceScalar(run.lastScalar) &&
+        !isWhitespaceScalar(single.scalar))
+    ) {
+      return false
+    }
+    const text = openRun.text + single.scalar
+    this.#history[this.#historyCursor - 1] = freezeHistoryEntry(Object.freeze({
+      forward: Object.freeze([Object.freeze({
+        start: openRun.position,
+        end: openRun.position,
+        insert: text
+      })]),
+      inverse: Object.freeze([Object.freeze({
+        start: openRun.position,
+        end: openRun.position + text.length,
+        insert: ''
+      })]),
+      beforeSelection: open.beforeSelection,
+      afterSelection: prepared.historyAction.entry.afterSelection,
+      beforeSourceSelection: open.beforeSourceSelection,
+      afterSourceSelection: prepared.historyAction.entry.afterSourceSelection
+    }))
+    // The head position now denotes a different recorded state, so it mints
+    // a fresh identity and content hash; earlier positions — including any
+    // saved one, since persistence seals the run — are untouched.
+    this.#historyIdentitySequence += 1
+    this.#historyIdentities[this.#historyCursor] =
+      `${String(this.#state.session)}:history:${this.#historyIdentitySequence}`
+    this.#historySourceHashes[this.#historyCursor] =
+      prepared.revision.sourceHash
+    this.#openTypedRun = Object.freeze({
+      caret: single.position + single.scalar.length,
+      lastScalar: single.scalar
+    })
+    return true
+  }
+
   commit(prepared: PreparedWorkerCommit): void {
     if (prepared.transition.base !== this.#state.id) {
       throw new Error('Prepared revision no longer matches the worker head')
     }
 
-    if (prepared.historyAction.kind === 'record') {
+    if (prepared.historyAction.kind === 'record' &&
+      this.#extendTypedRun(prepared)) {
+      // The open typed run absorbed this admission: the entry, identity, and
+      // source hash at the head position were rewritten in place.
+    } else if (prepared.historyAction.kind === 'record') {
+      const action = prepared.historyAction
+      const single = singleScalarPureInsert(action.entry)
+      this.#openTypedRun = action.coalescible === true && single !== null
+        ? Object.freeze({
+          caret: single.position + single.scalar.length,
+          lastScalar: single.scalar
+        })
+        : null
       const stableEntry = freezeHistoryEntry(prepared.historyAction.entry)
       this.#history = this.#history.slice(0, this.#historyCursor)
       this.#historyIdentities = this.#historyIdentities.slice(
@@ -5724,8 +5878,10 @@ export class RevisionWorker {
         this.#historyCursor -= 1
       }
     } else if (prepared.historyAction.kind === 'undo') {
+      this.#openTypedRun = null
       this.#historyCursor -= 1
     } else {
+      this.#openTypedRun = null
       this.#historyCursor += 1
     }
 

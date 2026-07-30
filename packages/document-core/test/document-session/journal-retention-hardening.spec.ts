@@ -149,13 +149,16 @@ describe('DocumentSession durable journal retention', () => {
     const limit = DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryEntries
     let pinnedSource = ''
 
+    // Two scalars per insertion: a single-scalar run would coalesce into one
+    // entry under the G33 typed-run rule, and this target needs one recorded
+    // entry per admission to exercise the retention cap.
     for (let index = 0; index <= limit; index += 1) {
       const target = session.snapshot().revision.selection
       if (target === null) throw new Error('Expected an insertion target')
       expect((await session.dispatch({
         kind: 'insert-text',
         target,
-        text: 'x'
+        text: 'xy'
       }).completion).kind).toBe('committed')
       if (index === 0) {
         const persistence = await session.preparePersistence('save').completion
@@ -183,13 +186,13 @@ describe('DocumentSession durable journal retention', () => {
       ...options(storage, key, pinnedSource),
       source: createSourceSnapshot(pinnedSource)
     })
-    expect(recovered.snapshot().revision.source).toBe('x'.repeat(limit + 1))
+    expect(recovered.snapshot().revision.source).toBe('xy'.repeat(limit + 1))
 
     for (let index = 0; index < limit; index += 1) {
       expect((await recovered.dispatch({ kind: 'undo' }).completion).kind)
         .toBe('committed')
     }
-    expect(recovered.snapshot().revision.source).toBe('x')
+    expect(recovered.snapshot().revision.source).toBe('xy')
     expect(recovered.historyState().canUndo).toBe(false)
     await expect(recovered.dispatch({ kind: 'undo' }).completion)
       .resolves.toMatchObject({
