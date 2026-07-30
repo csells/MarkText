@@ -1,7 +1,7 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G27–G40 open;
-  G5, G14–G16 partial
+- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G28, G31, G32, G34,
+  G39, G40 open; G5, G14–G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-29
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -273,7 +273,7 @@ proof", and the single-space cell padding exactly as written. -->
 <!-- prettier-ignore -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
-| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G27, G29–G38 (W1) |
+| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G31, G32, G34 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13, G40 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G16 residues, G18, G19, G28 (W4) |
@@ -292,8 +292,10 @@ to `packages/document-core/src` in W1, W3, and W4, and to
 `packages/desktop/src` in W2 and W6.
 
 G29–G40 entered this ledger on 2026-07-29 from a fresh-eyes audit of the
-branch against this plan and the vision; each carries evidence reproduced
-against a fresh build. Severity in a gap's title is rated against the vision:
+branch against this plan and the vision, each carrying evidence reproduced
+against a fresh build; G27, G29, G30, G33, and G35–G38 closed red–green the
+same day (G38 by ratifying and documenting the introduced-BOM encoding as
+Profile 1 E4/D9), and git history holds their diagnoses. Severity in a gap's title is rated against the vision:
 critical defeats a principle outright or destroys the author's bytes; high
 makes the north star unreachable or breaks a principle on an ordinary path.
 One audit finding was rejected rather than recorded: hand-typed CriticMarkup
@@ -317,49 +319,6 @@ are transcribed exactly. Its real residue is G36.
   `boundaryNear`, `mapThroughEdits`, `nodeModelRange` — return zero matches
   repo-wide. Violates non-negotiable 3.
 
-- **G27 [high] A mutation that changes no bytes still commits.** Verified: a
-  `convert-block` naming the block's current form leaves source byte-identical
-  yet flips `canUndo` false→true and advances head identity (the
-  content-addressed clean flag correctly stays false). The originally recorded
-  word-break case — 13 entries for 12 keystrokes, one undo press doing visibly
-  nothing — is the same defect observed mid-run. Under the section 2 History
-  rule an entry exists per admitted gesture with an exact edit set; a
-  zero-edit entry corresponds to no gesture. Closure: an admission whose
-  candidate source is byte-identical to its base records no history entry and
-  advances no head.
-
-- **G29 [critical] Converting a setext heading corrupts the document.** A
-  second Markdown block grammar lives in the session worker: `paragraphPayload`
-  and `replacementFor` (`internal/session/revisionWorker.ts:2645-2686`)
-  re-lex block sources with their own regex battery instead of reading the
-  structure the parser emitted. The heading branch strips only an ATX prefix,
-  so on `Title\n=====\n` a convert-to-H2 commits `## Title\n=====\n` — the
-  underline survives as a visible literal paragraph — and on `Title\n-----\n`
-  a convert-to-H1 commits `# Title\n-----\n`, whose reparse contains a
-  **thematic break the author never wrote**. The parser already emits
-  `style: 'setext'` (`internal/profile1/markdownParser.ts:3026`, `:3541`) and
-  the worker never reads it. Violates non-negotiables 2 and 3 and vision
-  principle 2; unrecoverable by the user. Closure is two-stage: the
-  corruption fix reads emitted structure for setext; deleting the regex
-  battery outright is bound to G40's widened sweep.
-
-- **G30 [critical] Editing a Comment from Review rewrites its payload with a
-  lossy render of itself.** The Review card's `content` for a comment is
-  `commentRevisedText` — an accept-all render — and the sidebar's edit box is
-  prefilled with it
-  (`packages/desktop/src/renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts:529`,
-  `packages/desktop/src/renderer/src/components/sideBar/review.vue:348`), so
-  opening the editor and pressing Save destroys nested CriticMarkup without
-  the user editing anything: `{>>see {++this++} and *that*<<}` commits as
-  `{>>see this and *that*<<}`; nested Deletion and Substitution are likewise
-  silently resolved. The engine already refuses the nested-Comment case
-  (`hidden-comment-loss`) and the unchanged-plain case (`no-source-change`),
-  so the protective vocabulary exists and the surface feeds it a render. The
-  outer raw-payload editor `CONTEXT.md` promises does not exist. Closure: the
-  ReviewIndex item carries the parser-owned payload source text, the editor
-  prefills from it, and the renderer's `ANNOTATION_DELIMITER_LENGTH`
-  arithmetic is deleted (non-negotiable 3).
-
 - **G31 [critical] Fragment reuse never engages for container shapes and
   switches off past ~95 KB.** Measured with the engine's own counters on a
   fresh build (2026-07-29): a keystroke at the end of a 4,000-item bullet
@@ -382,16 +341,6 @@ are transcribed exactly. Its real residue is G36.
   the intrinsic pass restarts from safe points and traverses o(document) for
   a local edit.
 
-- **G33 [high] History has no coalescing rule.** Typing `hello` as five
-  keystrokes records five entries and undo steps one character at a time; the
-  section 2 History module names "the one-gesture-one-entry coalescing rule"
-  and no rule exists. Closure rule: consecutive single-scalar `insert-text`
-  admissions extend the open entry while each lands at the caret the previous
-  admission left and the inserted scalar does not start a new word after
-  whitespace; any other intent kind, selection move, undo/redo, or projection
-  change seals the entry. Undo after typing `hello world` removes `world`,
-  then `hello `.
-
 - **G34 [high] Four section 2 modules do not exist.** Zero repo-wide matches
   for `admit(` (admission authority), `Replay` (History's interface),
   `installed(` (persistence-lease member), and `configurationFor(` (grammar
@@ -405,50 +354,6 @@ are transcribed exactly. Its real residue is G36.
   answered today inside `revisionWorker.ts` (5,712 lines) and its callers.
   Not one behavior: closure is the section 2 extraction, landed green-to-green
   with interface-conformance targets per module.
-
-- **G35 [high] Annotations nested inside a Comment payload are actionable.**
-  Verified: `{>>see {++this++} and more<<}` publishes the nested Addition as
-  a Review item (`depth: 1`, `parent` set), `resolve-change` on it commits
-  `{>>see this and more<<}`, and `resolve-all-changes` does the same — both
-  rewrite the reviewer's prose. Section 3 declares a Comment payload an
-  isolated subdocument Original and Revised omit, and the vision's non-goal
-  says comments are preserved exactly and never interpreted. Closure: the
-  kernel rejects resolution targeting a comment-interior annotation with a
-  named reason, bulk resolution skips comment interiors, and the ReviewIndex
-  marks such items non-actionable.
-
-- **G36 [high] The standalone Comment cannot be authored in WYSIWYG.**
-  `author-critic-markup` with `{kind: 'comment'}` at a collapsed caret
-  rejects `empty-comment-anchor`; only the `{==sel==}{>>note<<}` pair is
-  creatable, and hand-typing the form is encoded per ADR-0015. One of the
-  five forms has no Markup-mode authoring path — vision principle 1 subtracts
-  nothing, standalone Highlight and Comment included. Closure: a collapsed
-  caret authors `{>>note<<}` at the caret and `canCreateComment` reflects it.
-
-- **G37 [high] No bulk gesture completes an editorial pass.** Verified:
-  `resolve-all-changes` over a document holding all five forms plus the pair
-  resolves Addition, Deletion, and Substitution and leaves `{==hi==}`,
-  `{>>note<<}`, and the whole `{==anchor==}{>>pair<<}` untouched. Per-item
-  gestures exist for every form (`resolve-change`, `remove-highlight`,
-  `remove-comment`), so the vocabulary is complete but the north star's
-  "accept or reject each" ends with per-card mopping. Closure follows the
-  Word model the intent vocabulary already implies: Accept/Reject All keeps
-  covering changes; one bulk comment-and-highlight resolution (drop markers
-  and notes, keep highlighted text) makes Accept All + that gesture leave
-  zero markers.
-
-- **G38 [high] The engine authors an eight-character entity into committed
-  source.** When an ordinary Markup deletion makes the document newly begin
-  with U+FEFF, the committed source holds `&#xFEFF;` in its place
-  (`internal/session/sourceCandidate.ts:264`, guard at
-  `internal/session/revisionWorker.ts:222`; the kernel repeats the guard at
-  `transformationKernel.ts:1328`). ADR-0015 forbids authored bytes, and
-  `FileSnapshot` round-trips a leading U+FEFF as canonical source exactly
-  (`fileSnapshot.ts:44`, `:198`), so the guard's motivation must be
-  re-derived: either it protects nothing and is deleted with the byte-exact
-  round trip pinned, or the hazard it guards is real and the encoding is
-  ratified and documented in Profile 1. Undocumented silent rewriting is the
-  defect either way.
 
 **W2 — Host surfaces**
 
@@ -644,10 +549,8 @@ These orderings are real dependencies:
   published by the intent seam;
 - G6 and G7 precede G9, because a mutation sweep over an environment-selected
   adapter or a second open path mutates something production does not run;
-- G29's corruption fix precedes G40's green, because the widened sweep fails
-  on the worker's regex battery until emitted structure replaces it;
-- G35 precedes G37, because a bulk gesture must not resolve comment interiors
-  it is later forbidden to touch;
+- the widened G40 sweep turns green only when the worker's conversion regex
+  battery is replaced by emitted structure (the deep half of closed G29);
 - G31 and G32 precede G23, because the keystroke budget fails on the path
   they own, and G7 precedes G23, since a budget measured off the production
   open path proves nothing;
@@ -658,11 +561,10 @@ These orderings are real dependencies:
 Everything else may land in any order, consistent with section 6. W1 and W2
 additionally lead by severity — a document-corrupting engine and an invocable
 command that does nothing are shipping defects — and their targets are included
-in the G9 sweep, never exempted from it. Within W1, the byte-destroying gaps
-(G29, G30, G35) land before the structural ones (G33, G34) and the
-performance pair (G31, G32).
+in the G9 sweep, never exempted from it. Within W1, the remaining work is the
+performance pair (G31, G32) and the structural extraction (G34).
 
-- **W1** — exit: G4, G27, and G29–G38 closed, each proved by real gestures.
+- **W1** — exit: G4, G31, G32, and G34 closed, each proved by real gestures.
 - **W2** — exit: G5–G8 and G39 closed.
 - **W3** — exit: G13 repaired, G6 and G7 landed, G40 closed, every named
   target passing its own baseline, and G9 passing over all of them. No later

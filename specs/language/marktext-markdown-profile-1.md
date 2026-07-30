@@ -292,6 +292,17 @@ footnote-definition tracking ranges.
 - **E3.** E1 is a MarkText extension: no reference implementation has any escape mechanism
   (research 0005 Q8). The divergence is ledgered in §12, and E1 MUST be presented in user-facing
   docs as MarkText-specific.
+- **E4.** A Markup-mode edit whose committed candidate would make the document **newly** begin
+  with U+FEFF spells that code unit as the numeric character reference `&#xFEFF;`. A bare
+  U+FEFF at offset zero is universally read as an encoding signature, not content — the
+  UTF-8 file round trip itself is byte-exact either way — so committing the bare code unit
+  would silently reinterpret the author's character as a BOM in every other tool. Encoding it
+  preserves what the projected text means (ADR-0015: source bytes are transcribed exactly;
+  projected text is encoded faithfully). A document opened with a BOM keeps its exact leading
+  U+FEFF (§2: a leading U+FEFF is part of the tape); the encoding applies only when an edit
+  introduces the leading position, and Source-mode edits are never encoded. Like E1 this is a
+  MarkText extension ledgered in §12 and MUST be presented in user-facing docs as
+  MarkText-specific.
 
 ## 9. Interactions with Markdown constructs
 
@@ -429,6 +440,7 @@ compatibility documentation:
 | D6  | Recursive nesting incl. same-form (N1)                                                           | lang-criticmarkup/Fevol parse nested markers as flat text                  | MMD-6's tested recursion is the authoritative precedent                                                                                  |
 | D7  | Comments retain isolated inline Profile 1 subdocuments (R5)                                      | Toolkit/MMD erase the payload and opaque-parser designs do not retain it   | A portable note stays unstructured while nested source, identity, and lazy Comment rendering remain lossless                             |
 | D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | The lezer-host shared-loop reading (research 0007) defers the closer       | C1 at the smallest fixpoint; closer decisions stay lookahead-free (R-6, incrementality)                                                  |
+| D9  | An edit-introduced leading U+FEFF is spelled `&#xFEFF;` (E4)                                     | No reference tool distinguishes content U+FEFF from a BOM at offset zero   | Markup-mode meaning preservation (ADR-0015); an opened BOM stays a bare exact U+FEFF                                                     |
 
 ## 13. Complexity and resource model
 
