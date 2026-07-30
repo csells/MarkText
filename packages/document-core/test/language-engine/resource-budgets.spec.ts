@@ -249,7 +249,10 @@ describe('LanguageEngine.open resource budgets', () => {
     30_000
   )
 
-  it('returns exact source-only state at the first CM frame beyond desktop-v1', () => {
+  it('degrades the annotation past the accepted-depth limit to literal text', () => {
+    // G18: the bound is accepted-node depth, and crossing it degrades the
+    // over-depth annotation — that annotation alone — to exact literal
+    // text: never to failure, never document-wide.
     const admittedDepth = 16_384
     const sourceText = `${'{++'.repeat(admittedDepth + 1)}x${'++}'.repeat(admittedDepth + 1)}`
     const revision = createLanguageEngine().open(
@@ -257,17 +260,46 @@ describe('LanguageEngine.open resource budgets', () => {
       DESKTOP_CONFIGURATION
     )
 
-    expect(revision.kind).toBe('source-only')
-    if (revision.kind !== 'source-only') {
-      throw new Error('Expected a source-only document revision')
+    expect(revision.kind).toBe('complete')
+    if (revision.kind !== 'complete') {
+      throw new Error('Expected a complete document revision')
     }
     expect(revision.source.text).toBe(sourceText)
-    expect(revision.fatalDiagnostic).toEqual({
-      kind: 'resource',
-      code: 'CM_RESOURCE_CM_DEPTH_EXCEEDED',
+    let depth = 0
+    let node: CriticMarkupNode | undefined = revision.criticMarkup.rootAt(0)
+    let innermost: CriticMarkupNode | undefined
+    while (node !== undefined) {
+      depth += 1
+      innermost = node
+      node = node.arms[0].children[0]
+    }
+    expect(depth).toBe(admittedDepth)
+    // The innermost accepted annotation holds the degraded bytes as exact
+    // literal payload text — markers included, structure gone.
+    if (innermost === undefined) {
+      throw new Error('Expected an innermost accepted annotation')
+    }
+    expect(revision.source.text.slice(
+      Number(innermost.arms[0].range.start),
+      Number(innermost.arms[0].range.end)
+    )).toBe('{++x++}')
+    const degradations: number[] = []
+    for (let index = 0; index < revision.diagnostics.count; index += 1) {
+      if (revision.diagnostics.at(index).code === 'CM_DEPTH_DEGRADED') {
+        degradations.push(index)
+      }
+    }
+    expect(degradations).toHaveLength(1)
+    expect(revision.diagnostics.at(degradations[0]!)).toEqual({
+      code: 'CM_DEPTH_DEGRADED',
       range: { start: 49_152, end: 49_155 },
       metadata: { limit: '16384', observed: '16385' }
     })
+    // The Revised projection spells the degraded literal through the safe
+    // projection encoding, so the projected text cannot itself read as
+    // CriticMarkup; the canonical payload bytes stay exact.
+    expect(revision.projection('revised').source).toBe('\\{++x++\\}')
+    expect(revision.projection('original').source).toBe('')
   })
 
   it(

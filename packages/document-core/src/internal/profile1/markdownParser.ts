@@ -128,8 +128,30 @@ function nextIndexedOffset(
 
 export function createIntrinsicProfile1SourceProgression(
   source: string,
-  execution?: ParseExecutionTracker
+  execution?: ParseExecutionTracker,
+  suppressedMarkerRanges?: readonly Readonly<{
+    start: number
+    end: number
+  }>[]
 ): IntrinsicProfile1SourceProgression {
+  // Depth degradation (G18): a re-parse suppresses the marker candidates of
+  // annotations past the accepted-depth limit, so their bytes flow through
+  // the one grammar as exact literal text — tape, forks, lanes, and
+  // projections stay consistent by construction. Ranges arrive sorted.
+  let suppressionIndex = 0
+  const suppressed = (offset: number): boolean => {
+    if (suppressedMarkerRanges === undefined) {
+      return false
+    }
+    while (
+      suppressionIndex < suppressedMarkerRanges.length &&
+      (suppressedMarkerRanges[suppressionIndex]?.end ?? 0) <= offset
+    ) {
+      suppressionIndex += 1
+    }
+    const range = suppressedMarkerRanges[suppressionIndex]
+    return range !== undefined && range.start <= offset && offset < range.end
+  }
   const delimiterByStart = new Map<number, IntrinsicProfile1Delimiter>()
   const referenceDelimiterCandidates: Profile1ReferenceDelimiterCandidate[] = []
   const closerStartsByKind = new Map<Profile1CriticKind, number[]>()
@@ -164,7 +186,7 @@ export function createIntrinsicProfile1SourceProgression(
       execution?.examineSource(PARSE_SOURCE_CHECKPOINT_INTERVAL)
     }
     const marker = findMarker(source, offset)
-    if (marker === undefined) {
+    if (marker === undefined || suppressed(offset)) {
       continue
     }
     sourceStepBoundaryStarts.push(offset)

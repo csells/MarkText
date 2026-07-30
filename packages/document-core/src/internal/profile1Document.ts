@@ -269,7 +269,8 @@ const DIAGNOSTIC_ORDER: Readonly<Record<SyntaxDiagnostic['code'], number>> = Obj
   CM_UNMATCHED_CLOSER: 0,
   CM_NON_TOP_CLOSER: 1,
   CM_UNTERMINATED_OPENER: 2,
-  CM_SUBSTITUTION_SEPARATOR_MISSING: 3
+  CM_SUBSTITUTION_SEPARATOR_MISSING: 3,
+  CM_DEPTH_DEGRADED: 4
 })
 
 const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
@@ -814,11 +815,16 @@ function parseIntrinsicProfile1Pass(
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   execution?: ParseExecutionTracker,
-  outputMode: 'document' | 'changed-join-inspection' = 'document'
+  outputMode: 'document' | 'changed-join-inspection' = 'document',
+  suppressedMarkerRanges?: readonly Readonly<{
+    start: number
+    end: number
+  }>[]
 ): IntrinsicProfile1PassOutcome {
   const sourceProgression = createIntrinsicProfile1SourceProgression(
     source,
-    execution
+    execution,
+    suppressedMarkerRanges
   )
   recordIntrinsicSourceTraversalV1(
     sourceProgression.hasCriticMarkupCandidate,
@@ -1418,13 +1424,6 @@ function parseIntrinsicProfile1Pass(
       )
     })
   }
-  const acceptedDepthFailure = findAcceptedDepthFailure(roots, cmDepthLimit)
-  if (acceptedDepthFailure !== undefined) {
-    return Object.freeze({
-      kind: 'resource-failure',
-      fatalDiagnostic: acceptedDepthFailure
-    })
-  }
   if (outputMode === 'changed-join-inspection') {
     return Object.freeze({
       kind: 'inspection-complete',
@@ -1478,7 +1477,11 @@ function parseIntrinsicProfile1(
   cmDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
-  execution?: ParseExecutionTracker
+  execution?: ParseExecutionTracker,
+  suppressedMarkerRanges?: readonly Readonly<{
+    start: number
+    end: number
+  }>[]
 ): ParseOutcome {
   const discovery = parseIntrinsicProfile1Pass(
     source,
@@ -1486,7 +1489,9 @@ function parseIntrinsicProfile1(
     cmDepthLimit,
     markdownDepthLimit,
     markdownOptions,
-    execution
+    execution,
+    'document',
+    suppressedMarkerRanges
   )
   if (discovery.kind === 'inspection-complete') {
     throw new Error('Document parse returned inspection-only products')
@@ -1525,14 +1530,20 @@ interface NodeAtDepth {
   readonly depth: number
 }
 
-function findAcceptedDepthFailure(
+/**
+ * Nodes exactly one level past the accepted-depth limit (G18). Their
+ * subtrees are not descended: a re-parse suppresses each node's whole
+ * extent, so everything inside degrades to literal text with it.
+ */
+function collectOverDepthNodes(
   roots: readonly CriticMarkupNode[],
   cmDepthLimit: number
-): ResourceDiagnostic | undefined {
+): readonly NodeAtDepth[] {
   if (!Number.isFinite(cmDepthLimit)) {
-    return undefined
+    return Object.freeze([])
   }
 
+  const over: NodeAtDepth[] = []
   const pending: NodeAtDepth[] = []
   for (let index = roots.length - 1; index >= 0; index -= 1) {
     const node = roots[index]
@@ -1547,12 +1558,8 @@ function findAcceptedDepthFailure(
       break
     }
     if (current.depth > cmDepthLimit) {
-      return createResourceDiagnostic(
-        'CM_RESOURCE_CM_DEPTH_EXCEEDED',
-        current.node.markers.open,
-        cmDepthLimit,
-        current.depth
-      )
+      over.push(current)
+      continue
     }
     for (let armIndex = current.node.arms.length - 1; armIndex >= 0; armIndex -= 1) {
       const arm = current.node.arms[armIndex]
@@ -1568,7 +1575,10 @@ function findAcceptedDepthFailure(
     }
   }
 
-  return undefined
+  return Object.freeze(
+    over.sort((left, right) =>
+      Number(left.node.range.start) - Number(right.node.range.start))
+  )
 }
 
 function freezeSegment(segment: MutableProjectionSegment): MappedProjectionSegment {
@@ -3896,7 +3906,7 @@ export function parseProfile1Document(
     captureAccountingTrace,
     execution
   )
-  const syntaxIdentity = createProfile1SyntaxIdentityRegistry(
+  let syntaxIdentity = createProfile1SyntaxIdentityRegistry(
     source.length,
     accounting
   )
@@ -3928,19 +3938,86 @@ export function parseProfile1Document(
     ? DESKTOP_MARKDOWN_DEPTH_LIMIT
     : Number.POSITIVE_INFINITY
   traceRecorder?.recordSourceProgression('markdown-kernel')
-  const parsed = parseIntrinsicProfile1(
-    source,
-    syntaxIdentity,
-    usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
-    markdownDepthLimit,
-    markdownOptions,
-    execution
-  )
+  const cmDepthLimit = usesDesktopLimits
+    ? DESKTOP_CM_DEPTH_LIMIT
+    : Number.POSITIVE_INFINITY
+  // Accepted-depth degradation (G18): an annotation one level past the
+  // limit degrades to exact literal text — never to failure, never
+  // document-wide. Its markers are suppressed as candidates and the one
+  // grammar re-runs with a fresh identity registry, so every artifact stays
+  // consistent by construction. Suppressing a subtree can only lower other
+  // depths, so this converges; the bound is defensive.
+  let suppressedMarkerRanges:
+    | Array<Readonly<{ start: number; end: number }>>
+    | undefined
+  let degradedNodes: Array<Readonly<{
+    range: Readonly<{ start: number; end: number }>
+    marker: Readonly<{ start: number; end: number }>
+    depth: number
+  }>> = []
+  let parsed: ParseOutcome | undefined
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const attemptIdentity = attempt === 0
+      ? syntaxIdentity
+      : createProfile1SyntaxIdentityRegistry(source.length, accounting)
+    parsed = parseIntrinsicProfile1(
+      source,
+      attemptIdentity,
+      cmDepthLimit,
+      markdownDepthLimit,
+      markdownOptions,
+      execution,
+      suppressedMarkerRanges
+    )
+    if (parsed.kind !== 'complete') {
+      break
+    }
+    const overDepth = collectOverDepthNodes(parsed.roots, cmDepthLimit)
+    if (overDepth.length === 0) {
+      if (attempt > 0) {
+        syntaxIdentity = attemptIdentity
+      }
+      break
+    }
+    degradedNodes = degradedNodes.concat(overDepth.map((entry) => Object.freeze({
+      range: Object.freeze({
+        start: Number(entry.node.range.start),
+        end: Number(entry.node.range.end)
+      }),
+      marker: Object.freeze({
+        start: Number(entry.node.markers.open.start),
+        end: Number(entry.node.markers.open.end)
+      }),
+      depth: entry.depth
+    })))
+    suppressedMarkerRanges = degradedNodes
+      .map((entry) => entry.range)
+      .sort((left, right) => left.start - right.start)
+  }
+  if (parsed === undefined) {
+    throw new Error('CriticMarkup depth degradation did not converge')
+  }
   if (parsed.kind === 'resource-failure') {
     return finishResult(Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: parsed.fatalDiagnostic
     }))
+  }
+  if (degradedNodes.length > 0) {
+    parsed = Object.freeze({
+      ...parsed,
+      diagnostics: finalizeDiagnostics([
+        ...parsed.diagnostics,
+        ...degradedNodes.map((entry) => Object.freeze({
+          code: 'CM_DEPTH_DEGRADED' as const,
+          range: sourceRange(entry.marker.start, entry.marker.end),
+          metadata: Object.freeze({
+            limit: String(cmDepthLimit),
+            observed: String(entry.depth)
+          })
+        }))
+      ])
+    })
   }
   emitTapeAccounting(accounting, parsed.tape)
   if (usesDesktopLimits) {

@@ -80,6 +80,12 @@ export type SyntaxDiagnosticCode =
   | 'CM_NON_TOP_CLOSER'
   | 'CM_UNTERMINATED_OPENER'
   | 'CM_SUBSTITUTION_SEPARATOR_MISSING'
+  /**
+   * An annotation nested one level past the accepted-depth limit degraded
+   * to exact literal text — the section 3 rule: never to failure, and
+   * never document-wide.
+   */
+  | 'CM_DEPTH_DEGRADED'
 
 export interface SyntaxDiagnostic {
   readonly code: SyntaxDiagnosticCode

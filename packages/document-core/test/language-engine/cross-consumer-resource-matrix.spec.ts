@@ -10,7 +10,8 @@ import {
   materializeSearchText,
   materializeStaticConsumer,
   viewLength,
-  type ParseConfiguration
+  type ParseConfiguration,
+  type SyntaxDiagnostic
 } from '@marktext/document-core'
 
 const DESKTOP_CONFIGURATION: ParseConfiguration = {
@@ -186,7 +187,7 @@ describe('cross-consumer deterministic resource boundary', () => {
   )
 
   it(
-    'serves 16384 and disables semantics at 16385',
+    'serves 16384 and degrades the annotation at 16385 to literal text',
     () => {
       const engine = createLanguageEngine()
       const acceptedSource = nestedAdditions(16_384)
@@ -233,59 +234,48 @@ describe('cross-consumer deterministic resource boundary', () => {
         'print'
       )).toContain('x')
 
-      const rejectedSource = nestedAdditions(16_385)
-      const rejected = engine.open(
-        createSourceSnapshot(rejectedSource),
+      // G18: one level past the accepted-depth limit is not a failure —
+      // the over-depth annotation degrades to exact literal text and every
+      // consumer keeps serving the still-semantic document.
+      const degradedSource = nestedAdditions(16_385)
+      const degraded = engine.open(
+        createSourceSnapshot(degradedSource),
         DESKTOP_CONFIGURATION
       )
 
-      expect(rejected.kind).toBe('source-only')
-      if (rejected.kind !== 'source-only') {
-        throw new Error('Expected the above-limit revision to be SourceOnly')
+      expect(degraded.kind).toBe('complete')
+      if (degraded.kind !== 'complete') {
+        throw new Error('Expected the above-limit revision to be complete')
       }
-      expect(rejected.source.text).toBe(rejectedSource)
-      expect(rejected.fatalDiagnostic).toEqual({
-        kind: 'resource',
-        code: 'CM_RESOURCE_CM_DEPTH_EXCEEDED',
-        range: { start: 49_152, end: 49_155 },
-        metadata: { limit: '16384', observed: '16385' }
-      })
-      expect(materializeSearchText(rejected, 'markup').text)
-        .toBe(rejectedSource)
-      expect(materializeCount(rejected, 'markup').codeUnits)
-        .toBe(rejectedSource.length)
-      expect('criticMarkup' in rejected).toBe(false)
-      expect('projection' in rejected).toBe(false)
-      expect('markup' in rejected).toBe(false)
-      expect(() => materializeSearchText(rejected, 'original'))
-        .toThrow(/SourceOnly/)
-      expect(() => materializeSearchText(rejected, 'revised'))
-        .toThrow(/SourceOnly/)
-      for (const view of ['markup', 'original', 'revised'] as const) {
-        expect(() => materializeClipboardConsumer(rejected, {
-          view,
-          consumer: 'normal-copy',
-          selection: { start: 0, end: 0 }
-        })).toThrow(/SourceOnly/)
-        for (
-          const consumer of
-          ['static-html', 'styled-html', 'pdf', 'print'] as const
-        ) {
-          expect(() => materializeStaticConsumer(rejected, {
-            view,
-            consumer,
-            structure: STATIC_STRUCTURE
-          })).toThrow(/SourceOnly/)
+      expect(degraded.source.text).toBe(degradedSource)
+      const degradations: SyntaxDiagnostic[] = []
+      for (let index = 0; index < degraded.diagnostics.count; index += 1) {
+        const diagnostic = degraded.diagnostics.at(index)
+        if (diagnostic.code === 'CM_DEPTH_DEGRADED') {
+          degradations.push(diagnostic)
         }
       }
-      expect(() => materializeCleanHtml(rejected, {
-        view: 'original',
-        sink: 'pdf'
-      })).toThrow(/SourceOnly/)
-      expect(() => materializeReviewHtml(rejected, {
-        view: 'markup',
-        sink: 'print'
-      })).toThrow(/SourceOnly/)
+      expect(degradations).toEqual([{
+        code: 'CM_DEPTH_DEGRADED',
+        range: { start: 49_152, end: 49_155 },
+        metadata: { limit: '16384', observed: '16385' }
+      }])
+      expect(materializeSearchText(degraded, 'markup').text)
+        .toBe(degradedSource)
+      expect(materializeCount(degraded, 'markup').codeUnits)
+        .toBe(degradedSource.length)
+      expect(materializeSearchText(degraded, 'original').text).toBe('')
+      // The degraded annotation reads as its exact literal text.
+      expect(materializeSearchText(degraded, 'revised').text)
+        .toBe('{++x++}')
+      expect(consumeTrustedHtml(
+        materializeCleanHtml(degraded, {
+          view: 'revised',
+          sink: 'print',
+          structure: STATIC_STRUCTURE
+        }),
+        'print'
+      )).toContain('x')
     },
     30_000
   )
