@@ -8,6 +8,7 @@ import type {
   DocumentRevision,
   MarkdownNode,
   NodeId,
+  Profile1SyntaxNodeKind,
   ViewRange
 } from '../revision.js'
 import {
@@ -215,6 +216,138 @@ export interface LiveConsumerRoute {
   readonly kind: 'live-render-plan'
   readonly plan: MarkupLiveRenderPlan
 }
+
+export type ConsumerSink =
+  | 'live'
+  | 'text'
+  | 'html'
+  | 'clipboard'
+  | 'pdf'
+  | 'print'
+
+/**
+ * What "exact" means for one Profile 1 kind in one sink, anchored at the
+ * editing surface (Markup view; the clean Original/Revised routes remain the
+ * view × consumer cells above):
+ *
+ * - `exact-canonical`: the sink carries the construct's exact canonical
+ *   source bytes.
+ * - `projected-payload`: the sink carries the decoded payload text and never
+ *   a marker spelling.
+ * - `semantic-html`: the sanitized sink-branded HTML represents the construct
+ *   semantically; raw syntax and hostile markup never pass through unescaped.
+ * - `suppressed`: the payload is deliberately absent from the sink's text and
+ *   surfaced only through its typed annotation channel.
+ */
+export type SinkExactnessClaim =
+  | 'exact-canonical'
+  | 'projected-payload'
+  | 'semantic-html'
+  | 'suppressed'
+
+export type KindSinkExactness = Readonly<
+  Record<ConsumerSink, SinkExactnessClaim>
+>
+
+/**
+ * Coverage discipline: a `construct` row is proved directly against its own
+ * canonical snippet; a `constituent` kind is emitted only inside its owning
+ * construct and is proved through that row; `root` is the parse root every
+ * row exercises.
+ */
+export type KindExactnessRow =
+  | Readonly<{ readonly coverage: 'construct'; readonly sinks: KindSinkExactness }>
+  | Readonly<{ readonly coverage: 'constituent'; readonly of: Profile1SyntaxNodeKind }>
+  | Readonly<{ readonly coverage: 'root' }>
+
+const MARKDOWN_CONSTRUCT: KindExactnessRow = Object.freeze({
+  coverage: 'construct',
+  sinks: Object.freeze({
+    live: 'exact-canonical',
+    text: 'exact-canonical',
+    html: 'semantic-html',
+    clipboard: 'exact-canonical',
+    pdf: 'semantic-html',
+    print: 'semantic-html'
+  })
+} as const)
+
+const TRACKED_CHANGE_CONSTRUCT: KindExactnessRow = Object.freeze({
+  coverage: 'construct',
+  sinks: Object.freeze({
+    live: 'projected-payload',
+    text: 'exact-canonical',
+    html: 'semantic-html',
+    clipboard: 'exact-canonical',
+    pdf: 'semantic-html',
+    print: 'semantic-html'
+  })
+} as const)
+
+function constituent(of: Profile1SyntaxNodeKind): KindExactnessRow {
+  return Object.freeze({ coverage: 'constituent', of } as const)
+}
+
+/**
+ * The per-Profile-1-kind exactness table over the six non-negotiable sinks.
+ * One table, not six: every per-kind exactness question production answers is
+ * declared here, and the strict `Record` makes a new syntax kind fail to
+ * compile until it declares its row. Proven row by row, hostile input
+ * included, by `test/materialize/per-kind-sink-exactness.spec.ts` (A41).
+ */
+export const PROFILE1_KIND_SINK_EXACTNESS: Readonly<
+  Record<Profile1SyntaxNodeKind, KindExactnessRow>
+> = Object.freeze({
+  document: Object.freeze({ coverage: 'root' } as const),
+  paragraph: MARKDOWN_CONSTRUCT,
+  heading: MARKDOWN_CONSTRUCT,
+  blockquote: MARKDOWN_CONSTRUCT,
+  list: MARKDOWN_CONSTRUCT,
+  'list-item': constituent('list'),
+  'thematic-break': MARKDOWN_CONSTRUCT,
+  text: constituent('paragraph'),
+  'soft-break': MARKDOWN_CONSTRUCT,
+  'hard-break': MARKDOWN_CONSTRUCT,
+  emphasis: MARKDOWN_CONSTRUCT,
+  strong: MARKDOWN_CONSTRUCT,
+  strikethrough: MARKDOWN_CONSTRUCT,
+  subscript: MARKDOWN_CONSTRUCT,
+  superscript: MARKDOWN_CONSTRUCT,
+  link: MARKDOWN_CONSTRUCT,
+  image: MARKDOWN_CONSTRUCT,
+  'inline-code': MARKDOWN_CONSTRUCT,
+  'code-block': MARKDOWN_CONSTRUCT,
+  'inline-html': MARKDOWN_CONSTRUCT,
+  'html-block': MARKDOWN_CONSTRUCT,
+  autolink: MARKDOWN_CONSTRUCT,
+  definition: MARKDOWN_CONSTRUCT,
+  'front-matter': MARKDOWN_CONSTRUCT,
+  'inline-math': MARKDOWN_CONSTRUCT,
+  'math-block': MARKDOWN_CONSTRUCT,
+  diagram: MARKDOWN_CONSTRUCT,
+  table: MARKDOWN_CONSTRUCT,
+  'table-row': constituent('table'),
+  'table-cell': constituent('table'),
+  'footnote-definition': MARKDOWN_CONSTRUCT,
+  'footnote-reference': MARKDOWN_CONSTRUCT,
+  addition: TRACKED_CHANGE_CONSTRUCT,
+  deletion: TRACKED_CHANGE_CONSTRUCT,
+  substitution: TRACKED_CHANGE_CONSTRUCT,
+  highlight: TRACKED_CHANGE_CONSTRUCT,
+  comment: Object.freeze({
+    coverage: 'construct',
+    sinks: Object.freeze({
+      live: 'suppressed',
+      text: 'exact-canonical',
+      html: 'semantic-html',
+      clipboard: 'exact-canonical',
+      pdf: 'semantic-html',
+      print: 'semantic-html'
+    })
+  } as const),
+  'critic-arm': constituent('addition'),
+  'source-leaf': constituent('addition')
+} as const)
 
 const receiptBundles = new WeakMap<object, ClipboardBundle>()
 const cutStates = new WeakMap<

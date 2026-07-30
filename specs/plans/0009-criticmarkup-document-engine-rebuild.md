@@ -1,9 +1,9 @@
 # CriticMarkup document-engine rebuild
 
 - **Status:** RED — G4, G6–G9, G13, G19, G23, G24, G32, G34 open;
-  G5, G16 partial
+  G5 partial
 - **Owner:** MarkText
-- **Updated:** 2026-07-29
+- **Updated:** 2026-07-30
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
 - **Order:** P0 → P0.5 → P1 → … → P9 → P11 → P10
 - **Completion authority:** only P10 may declare this plan complete
@@ -276,7 +276,7 @@ proof", and the single-space cell padding exactly as written. -->
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G32, G34 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
-| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G16 residues, G19 (W4) |
+| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G19 (W4) |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
 | P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6), blocked by G32 |
 | P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
@@ -447,23 +447,15 @@ whose assertion cannot distinguish pass from fail.
 **W4 — Language, configuration, and coverage**
 
 
-- **G16 Per-kind sink exactness has no manifest row.** Image handling and
-  accessibility are bound: A33 names the proof that the ingestion request
-  carries no destination field, so the write root stays main-derived from
-  main-owned settings plus the main-resolved document path
-  (`packages/desktop/src/main/imageAssets/imageAssetService.ts:343-409`), and
-  A34 names the modal-behavior proof. Per-Profile-1-kind exactness across the
-  six sinks still has none: `consumer-policy.yml` is a view × consumer matrix,
-  not a per-kind exactness matrix, so section 8's exactness claim rests on no
-  target. That matrix is this gap's remaining work.
 - **G19 Consumer policy declares what production routes around.** Four exported
   entry points have no production caller
   (`materialize/consumerPolicy.ts:247`, `:821`, `:1075`, `:1220`) while
   production classifies paste by hand
   (`packages/desktop/src/main/ipc/documentClipboardPaste.ts:73-77`) and routes
   replace and live rendering elsewhere. Production routes those questions
-  through the policy; deleting the declarations is rejected, because it leaves
-  G16's per-kind matrix with no owning module.
+  through the policy; deleting the declarations is rejected, because the
+  module owns the per-kind sink exactness table
+  (`PROFILE1_KIND_SINK_EXACTNESS`, A41).
 **W6 — Budgets and release**
 
 - **G23 Measured budgets are unmet.** Edit and deletion latency, worker stall,
@@ -582,7 +574,7 @@ exception creates no view-owned fallback shortcut.
 
 ## 6. Phases and manifest ownership
 
-The manifests own every exact target, A01–A40 and D01–D11 mapping, status, and
+The manifests own every exact target, A01–A41 and D01–D11 mapping, status, and
 dependency. This table states only the phase outcome.
 
 | Phase | Required outcome                                                                                                                        |

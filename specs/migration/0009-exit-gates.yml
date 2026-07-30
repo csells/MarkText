@@ -107,7 +107,8 @@
         "P4"
       ],
       "requirements": [
-        "A11"
+        "A11",
+        "A41"
       ],
       "target": {
         "kind": "test",

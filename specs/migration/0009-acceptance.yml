@@ -448,6 +448,17 @@
         "path": "packages/document-core/test/language-engine/fevol-lexical.spec.ts",
         "title": "parses the nested rows recursively per N1"
       }
+    },
+    {
+      "id": "A41",
+      "requirement": "Per-kind sink exactness",
+      "phase": "P5",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/materialize/per-kind-sink-exactness.spec.ts",
+        "title": "proves every declared construct kind exact in all six sinks"
+      }
     }
   ]
 }
