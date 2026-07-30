@@ -180,7 +180,7 @@ const placeCaretIn = async(page: Page, selector: string): Promise<void> => {
 }
 
 // Item 250 — 专注模式：活动块与非活动块计算后不透明度不同. Real Chromium computes the
-// `.document-view-focus-mode .document-view-container > *` { opacity: 0.25 } / `> .document-view-active`
+// `.document-view-focus-mode.document-view-container > *` { opacity: 0.25 } / `> .document-view-active`
 // { opacity: 1 } cascade (blockSyntax.css), so we can assert the *computed*
 // opacity differs; a DOM unit can assert only the class transition.
 test.describe('View modes — focus mode dims non-active blocks (item 250)', () => {
@@ -213,7 +213,7 @@ test.describe('View modes — focus mode dims non-active blocks (item 250)', () 
         () =>
           page.evaluate(() => {
             const blocks = Array.from(
-              document.querySelectorAll('.document-view-focus-mode .document-view-container > p.document-view-paragraph')
+              document.querySelectorAll('.document-view-focus-mode.document-view-container > p.document-view-paragraph')
             )
             return blocks.length >= 2 && blocks[0].classList.contains('document-view-active')
           }),
@@ -224,7 +224,7 @@ test.describe('View modes — focus mode dims non-active blocks (item 250)', () 
     const readOpacities = (): Promise<{ active: number; inactive: number } | null> =>
       page.evaluate(() => {
         const blocks = Array.from(
-          document.querySelectorAll('.document-view-focus-mode .document-view-container > p.document-view-paragraph')
+          document.querySelectorAll('.document-view-focus-mode.document-view-container > p.document-view-paragraph')
         ) as HTMLElement[]
         const active = blocks.find((b) => b.classList.contains('document-view-active'))
         const inactive = blocks.find((b) => !b.classList.contains('document-view-active'))

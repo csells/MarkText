@@ -1567,6 +1567,7 @@ export async function createDocumentCoreView(
     const repaintDecorations = (): void => {
         paintCodeTokenDecorations(host);
         repaintSearchDecorations();
+        updateActiveBlockMarker();
     };
 
     const repaintSearchDecorations = (): void => {
@@ -2478,6 +2479,22 @@ export async function createDocumentCoreView(
         if (typeof range.getBoundingClientRect !== 'function')
             return null;
 
+        // A collapsed range between text nodes can measure as an empty rect
+        // (all zeros), which the desktop's typewriter scroll would read as a
+        // real caret at the viewport origin. Fall back to the containing
+        // element, which always has a box.
+        const hasRects = typeof range.getClientRects === 'function'
+            && range.getClientRects().length > 0;
+        if (!hasRects) {
+            const node = range.startContainer;
+            const element = node.nodeType === Node.ELEMENT_NODE
+                ? node as Element
+                : node.parentElement;
+            if (element === null)
+                return null;
+            const elementBounds = element.getBoundingClientRect();
+            return Object.freeze({ x: elementBounds.x, y: elementBounds.y });
+        }
         const bounds = range.getBoundingClientRect();
         return Object.freeze({ x: bounds.x, y: bounds.y });
     };
@@ -2549,6 +2566,8 @@ export async function createDocumentCoreView(
         if (session.snapshot().kind !== 'complete')
             return;
 
+        // The caret defines which block focus mode leaves lit.
+        updateActiveBlockMarker();
         const context = getSelectionContext();
         for (const listener of selectionListeners)
             listener(context);
@@ -2803,8 +2822,41 @@ export async function createDocumentCoreView(
 
     const domNode = (): HTMLElement => host;
 
+    /**
+     * Mark the top-level block holding the caret. Focus mode dims every direct
+     * child and exempts the marked one, so without this nothing is ever
+     * un-dimmed and the whole document reads at 25% opacity.
+     */
+    const updateActiveBlockMarker = (): void => {
+        // Only focus mode reads the marker, and marking mutates block
+        // attributes — which the in-place text patcher treats as a DOM the
+        // publication no longer describes, forcing a full re-render. Stay
+        // inert unless focus mode is actually on.
+        if (!host.classList.contains('document-view-focus-mode'))
+            return;
+        for (const previous of host.querySelectorAll(
+            '[data-document-view-active]',
+        )) {
+            previous.removeAttribute('data-document-view-active');
+            previous.classList.remove('document-view-active');
+        }
+        const selection = host.ownerDocument.getSelection();
+        const origin = selection?.focusNode ?? null;
+        if (origin === null || !host.contains(origin))
+            return;
+        let block = origin instanceof Element ? origin : origin.parentElement;
+        while (block !== null && block.parentElement !== host)
+            block = block.parentElement;
+        if (block === null || block.parentElement !== host)
+            return;
+        block.setAttribute('data-document-view-active', 'true');
+        block.classList.add('document-view-active');
+    };
+
     const setFocusMode = (enabled: boolean): void => {
         host.classList.toggle('document-view-focus-mode', enabled);
+        if (enabled)
+            updateActiveBlockMarker();
     };
 
     const dismissTransientTools = (): void => {
