@@ -5576,6 +5576,16 @@ export class RevisionWorker {
     const transaction =
       protectedTransaction ??
       applySourceEdits(state.revision.source.text, effectiveEdits)
+    // One gesture, one entry, exact undo: a candidate byte-identical to its
+    // base corresponds to no gesture, so it mints no revision and records no
+    // history — it rejects visibly instead (G27, non-negotiable 10). Replays
+    // are exempt: their bytes were proved when first admitted.
+    if (
+      admission.kind !== 'exact-replay' &&
+      transaction.source === state.revision.source.text
+    ) {
+      throw new IntentRejection('no-source-change')
+    }
     const revision =
       (admission.kind === 'proven-candidate' ? admission.revision : undefined) ??
       protectedRevision ??
