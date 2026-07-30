@@ -5,10 +5,6 @@ import {
   type ParseConfiguration
 } from '@marktext/document-core'
 import { runsOf } from '../helpers/collections.js'
-import {
-  __markdownDocumentParsesV1,
-  __resetMarkdownDocumentParsesV1
-} from '../../src/internal/profile1/markdownParser.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -79,15 +75,15 @@ describe('unified Profile 1 AST', () => {
   })
 
   it('reads an admitted Comment subtree without another Markdown parse', () => {
-    __resetMarkdownDocumentParsesV1()
-    const revision = createLanguageEngine().open(
+    const engine = createLanguageEngine()
+    const revision = engine.open(
       createSourceSnapshot('before {>>**note** {++new++}<<} after\n'),
       TEST_CONFIGURATION
     )
     if (revision.kind !== 'complete') {
       throw new Error('Expected a complete revision')
     }
-    const afterOpen = __markdownDocumentParsesV1()
+    const afterOpen = engine.traversalCounts().total
     const comment = revision.criticMarkup.rootAt(0)
     const displayReader = Reflect.get(revision, 'commentDisplay')
     expect(typeof displayReader).toBe('function')
@@ -109,7 +105,7 @@ describe('unified Profile 1 AST', () => {
     expect(display?.source).toBe('**note** new')
     expect(display?.markdown.root.childAt(0).kind).toBe('paragraph')
     expect(display?.markdown.root.childAt(0).nodeId).not.toBe('')
-    expect(__markdownDocumentParsesV1()).toBe(afterOpen)
+    expect(engine.traversalCounts().total).toBe(afterOpen)
   })
 
   it('emits reference edges while Markdown nodes are constructed', () => {

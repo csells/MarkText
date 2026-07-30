@@ -4,10 +4,6 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
-import {
-  __markdownParsedUnitsV1,
-  __resetMarkdownDocumentParsesV1
-} from '../../src/internal/profile1/markdownParser.js'
 
 /**
  * The parse-once invariant, measured in source units rather than parse calls.
@@ -44,13 +40,14 @@ const TEST_CONFIGURATION: ParseConfiguration = {
 }
 
 function unitsFor(source: string): number {
-  __resetMarkdownDocumentParsesV1()
-  const revision = createLanguageEngine().open(
+  const engine = createLanguageEngine()
+  const revision = engine.open(
     createSourceSnapshot(source),
     TEST_CONFIGURATION
   )
   expect(revision.kind).toBe('complete')
-  return __markdownParsedUnitsV1()
+  const counts = engine.traversalCounts()
+  return counts.intrinsicSourceUnits + counts.plainMarkdownLaneUnits
 }
 
 /** Review prose: `count` paragraphs, one carrying a tracked insertion. */

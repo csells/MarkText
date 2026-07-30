@@ -12,7 +12,6 @@ import {
   PARSE_LOGICAL_NODE_CHECKPOINT_INTERVAL,
   PARSE_SOURCE_CHECKPOINT_INTERVAL,
   recoverDocumentSession,
-  readProfile1PhysicalTraversalCountsV1,
   renderMarkupPlan,
   resolveMarkdownDocumentLinkTarget,
   type ClipboardConsumerRequest,
@@ -35,6 +34,7 @@ import {
   type ParseExecutionControl,
   type ParseExecutionProgress,
   type Profile1PhysicalTraversalCountsV1,
+  zeroPhysicalTraversalCountsV1,
   type ReviewIndex,
   type RevisionSourceEdit,
   type SourceModelSelection,
@@ -201,7 +201,10 @@ function beginExecutionOperation(
     maximumLogicalNodeDelta: 0,
     maximumCheckpointGapMs: 0,
     maximumHeartbeatGapMs: 0,
-    physicalWorkAtStart: readProfile1PhysicalTraversalCountsV1()
+    // Operation deltas come from the session-owned engine record; an 'open'
+    // begins before its session exists, so its baseline is the zero record a
+    // fresh engine starts from.
+    physicalWorkAtStart: session?.physicalWork() ?? zeroPhysicalTraversalCountsV1()
   }
   Atomics.store(
     executionControlWords,
@@ -471,7 +474,8 @@ function executionReport(
   }
   const completedAt = performance.now()
   const memory = process.memoryUsage()
-  const physicalWork = readProfile1PhysicalTraversalCountsV1()
+  const physicalWork =
+    session?.physicalWork() ?? zeroPhysicalTraversalCountsV1()
   const physicalDelta = (
     name: keyof Profile1PhysicalTraversalCountsV1
   ): number => {

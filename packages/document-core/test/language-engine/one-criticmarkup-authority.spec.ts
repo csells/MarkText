@@ -4,10 +4,6 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
-import {
-  __criticMarkupRecognitionCountV1,
-  __resetCriticMarkupRecognitionCountV1
-} from '../../src/internal/profile1Document.js'
 
 /**
  * Phase 0.5 ladder steps 1-2: "one CriticMarkup authority per open."
@@ -40,13 +36,13 @@ const TEST_CONFIGURATION: ParseConfiguration = {
 }
 
 function recognitionsFor(source: string): number {
-  __resetCriticMarkupRecognitionCountV1()
-  const revision = createLanguageEngine().open(
+  const engine = createLanguageEngine()
+  const revision = engine.open(
     createSourceSnapshot(source),
     TEST_CONFIGURATION
   )
   expect(revision.kind).toBe('complete')
-  return __criticMarkupRecognitionCountV1()
+  return engine.traversalCounts().markerBearingIntrinsicSource
 }
 
 describe('one CriticMarkup authority per open', () => {

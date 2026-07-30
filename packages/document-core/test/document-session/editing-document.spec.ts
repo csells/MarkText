@@ -4,10 +4,6 @@ import {
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
-import {
-  __markdownParsedUnitsV1,
-  __resetMarkdownDocumentParsesV1
-} from '../../src/internal/profile1/markdownParser.js'
 import { completeSnapshot } from '../helpers/completeSnapshot.js'
 
 /**
@@ -75,12 +71,12 @@ describe('session editing document', () => {
   it('costs no re-parse to read, however often a view renders', async() => {
     const session = await openSession('# Title\n\nHello {++world++}.\n')
     expect(completeSnapshot(session).editingDocument.root.childCount).toBe(2)
-    __resetMarkdownDocumentParsesV1()
+    const beforeRenders = session.physicalWork()
     for (let render = 0; render < 5; render += 1) {
       expect(completeSnapshot(session).editingDocument.root.childCount).toBe(2)
     }
     // Re-rendering is free: the revision is immutable, so its block AST is too.
-    expect(__markdownParsedUnitsV1()).toBe(0)
+    expect(session.physicalWork()).toEqual(beforeRenders)
   })
 
   it('tracks the revision after an edit', async() => {

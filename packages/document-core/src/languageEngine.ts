@@ -34,7 +34,8 @@ import {
   type ParseExecutionControl
 } from './parseExecutionControl.js'
 import {
-  recordForkAstRegionReuseV1
+  createPhysicalTraversalRecorderV1,
+  type Profile1PhysicalTraversalCountsV1
 } from './internal/profile1/physicalTraversalAccounting.js'
 import {
   cacheCertifiedSimpleTextDocumentFacts,
@@ -85,6 +86,12 @@ export interface LanguageEngine {
    * or progress authority.
    */
   nextExecutionStage(): ParseExecutionControl | undefined
+  /**
+   * Physical parse work attributed to this engine alone, including work its
+   * lazily read parse products perform later. There is no process-global
+   * counter bank behind this member.
+   */
+  traversalCounts(): Profile1PhysicalTraversalCountsV1
 }
 
 export interface LanguageEngineSourceEdit {
@@ -319,7 +326,8 @@ function reuseCertifiedSimpleTextRevision(
   source: SourceSnapshot,
   sourceHash: CompleteDocumentRevision['sourceHash'],
   semanticHash: CompleteDocumentRevision['semanticHash'],
-  configuration: ParseConfiguration
+  configuration: ParseConfiguration,
+  physicalRecorder: ReturnType<typeof createPhysicalTraversalRecorderV1>
 ): CompleteDocumentRevision {
   const previousProjection = previous.projection('editing')
   const previousRoot = previousProjection.markdown.root
@@ -476,7 +484,7 @@ function reuseCertifiedSimpleTextRevision(
       return edge
     })
   })
-  recordForkAstRegionReuseV1()
+  physicalRecorder.recordForkAstRegionReuse()
   return Object.freeze({
     kind: 'complete',
     source,
@@ -549,6 +557,7 @@ export function createLanguageEngine(
       ? undefined
       : createParseExecutionAccumulator(defaultExecutionControl)
   const reuseCache = createProfile1DocumentReuseCache()
+  const physicalRecorder = createPhysicalTraversalRecorderV1()
   const ownedRevisions = new WeakSet<DocumentRevision>()
   const sourceHashCache = new WeakMap<DocumentRevision, SourceHashCacheV1>()
   const certifiedSimpleTextRevisions =
@@ -612,7 +621,8 @@ export function createLanguageEngine(
         stableSource,
         sourceHash,
         semanticHash,
-        stableConfiguration
+        stableConfiguration,
+        physicalRecorder
       )
       ownedRevisions.add(revision)
       sourceHashCache.set(revision, hashed.cache)
@@ -627,7 +637,8 @@ export function createLanguageEngine(
       stableConfiguration.markdownOptions,
       false,
       execution?.stage(),
-      reuseCache
+      reuseCache,
+      physicalRecorder
     )
     const parsedSimpleTextIdentity = parsed.kind === 'source-only'
       ? false
@@ -713,11 +724,15 @@ export function createLanguageEngine(
         stableConfiguration.executionBudget,
         stableConfiguration.markdownOptions,
         joins,
-        execution?.stage()
+        execution?.stage(),
+        physicalRecorder
       )
     },
     nextExecutionStage(): ParseExecutionControl | undefined {
       return defaultExecution?.stage()
+    },
+    traversalCounts(): Profile1PhysicalTraversalCountsV1 {
+      return physicalRecorder.counts()
     },
     open(
       source: SourceSnapshot,

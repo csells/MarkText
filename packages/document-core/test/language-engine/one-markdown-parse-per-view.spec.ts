@@ -6,17 +6,9 @@ import {
   type ParseConfiguration
 } from '@marktext/document-core'
 import {
-  __markdownDocumentParsesV1,
-  __resetMarkdownDocumentParsesV1
-} from '../../src/internal/profile1/markdownParser.js'
-import {
   __referenceDefinitionIndexBuildsV1,
   __resetReferenceDefinitionIndexBuildsV1
 } from '../../src/internal/profile1/markdownLaneState.js'
-import {
-  __profile1PhysicalTraversalCountsV1,
-  __resetProfile1PhysicalTraversalCountsV1
-} from '../../src/internal/profile1/physicalTraversalAccounting.js'
 
 /**
  * ADR 0013: parse each document once and read every view off it.
@@ -45,13 +37,13 @@ const TEST_CONFIGURATION: ParseConfiguration = {
 }
 
 function parsesFor(source: string): number {
-  __resetMarkdownDocumentParsesV1()
-  const revision = createLanguageEngine().open(
+  const engine = createLanguageEngine()
+  const revision = engine.open(
     createSourceSnapshot(source),
     TEST_CONFIGURATION
   )
   expect(revision.kind).toBe('complete')
-  return __markdownDocumentParsesV1()
+  return engine.traversalCounts().total
 }
 
 function containsKind(node: MarkdownNode, kind: string): boolean {
@@ -106,17 +98,17 @@ describe('one intrinsic Markdown parse', () => {
     // comments. With no deletions and no Substitutions it is therefore
     // byte-identical to Revised, so mounting the editor's block AST must reuse
     // that parse rather than run another one over the same text.
-    __resetMarkdownDocumentParsesV1()
-    const revision = createLanguageEngine().open(
+    const engine = createLanguageEngine()
+    const revision = engine.open(
       createSourceSnapshot('a{++x++}b and {==h==}{>>note<<} here.\n'),
       TEST_CONFIGURATION
     )
     if (revision.kind !== 'complete') {
       throw new Error('Expected a complete document revision')
     }
-    const afterOpen = __markdownDocumentParsesV1()
+    const afterOpen = engine.traversalCounts().total
     revision.projection('editing')
-    expect(__markdownDocumentParsesV1()).toBe(afterOpen)
+    expect(engine.traversalCounts().total).toBe(afterOpen)
   })
 
   it('admits Substitution boundary branches to the same intrinsic parse', () => {
@@ -124,16 +116,18 @@ describe('one intrinsic Markdown parse', () => {
   })
 
   it('accounts source admission and intrinsic AST alternatives separately', () => {
-    __resetProfile1PhysicalTraversalCountsV1()
-    const revision = createLanguageEngine().open(
+    const engine = createLanguageEngine()
+    const revision = engine.open(
       createSourceSnapshot('a{~~old~>new~~}b\n'),
       TEST_CONFIGURATION
     )
     expect(revision.kind).toBe('complete')
-    expect(__profile1PhysicalTraversalCountsV1()).toEqual({
+    expect(engine.traversalCounts()).toEqual({
       intrinsicSource: 1,
       total: 1,
       intrinsicSourceUnits: 17,
+      markerBearingIntrinsicSource: 1,
+      plainMarkdownLaneUnits: 42,
       forkAstRegionEmissions: 6,
       forkAstRegionUnits: 42,
       forkAstRegionReuses: 0,
@@ -149,8 +143,8 @@ describe('one intrinsic Markdown parse', () => {
     ).join('')
     const forkRegion = 'before {~~old~>new~~} after {>>note<<}\n'
     const source = `${stablePrefix}${forkRegion}`
-    __resetProfile1PhysicalTraversalCountsV1()
-    const revision = createLanguageEngine().open(
+    const engine = createLanguageEngine()
+    const revision = engine.open(
       createSourceSnapshot(source),
       TEST_CONFIGURATION
     )
@@ -158,19 +152,19 @@ describe('one intrinsic Markdown parse', () => {
     if (revision.kind !== 'complete') {
       throw new Error('Expected a complete document revision')
     }
-    const afterOpen = __profile1PhysicalTraversalCountsV1()
+    const afterOpen = engine.traversalCounts()
     expect(revision.projection('original').markdown.root.childCount)
       .toBeGreaterThan(0)
     expect(revision.projection('revised').markdown.root.childCount)
       .toBeGreaterThan(0)
     expect(revision.projection('editing').markdown.root.childCount)
       .toBeGreaterThan(0)
-    expect(__profile1PhysicalTraversalCountsV1()).toEqual(afterOpen)
+    expect(engine.traversalCounts()).toEqual(afterOpen)
     const comment = revision.criticMarkup.rootAt(1)
     expect(revision.commentDisplay(comment.nodeId).markdown.root.childCount)
       .toBeGreaterThan(0)
 
-    const work = __profile1PhysicalTraversalCountsV1()
+    const work = engine.traversalCounts()
     expect(work.forkAstRegionEmissions)
       .toBe(afterOpen.forkAstRegionEmissions)
     expect(work.forkAstRegionEmissions).toBeGreaterThan(0)
@@ -185,15 +179,15 @@ describe('one intrinsic Markdown parse', () => {
       `a${Array.from({ length: count }, (_, ordinal) =>
         `{>>comment ${String(ordinal)} **body**<<}`).join('')}b\n`
     const openWork = (count: number) => {
-      __resetProfile1PhysicalTraversalCountsV1()
-      const revision = createLanguageEngine().open(
+      const engine = createLanguageEngine()
+      const revision = engine.open(
         createSourceSnapshot(sourceWith(count)),
         TEST_CONFIGURATION
       )
       if (revision.kind !== 'complete') {
         throw new Error('Expected a complete document revision')
       }
-      return { revision, work: __profile1PhysicalTraversalCountsV1() }
+      return { engine, revision, work: engine.traversalCounts() }
     }
 
     const one = openWork(1)
@@ -207,15 +201,15 @@ describe('one intrinsic Markdown parse', () => {
     expect(many.work.commentProjectionPreparationUnits)
       .toBeGreaterThan(one.work.commentProjectionPreparationUnits)
 
-    const beforeRead = __profile1PhysicalTraversalCountsV1()
+    const beforeRead = many.engine.traversalCounts()
     const first = many.revision.criticMarkup.rootAt(0)
     const display = many.revision.commentDisplay(first.nodeId)
     expect(display.source).toBe('comment 0 **body**')
     expect(containsKind(display.markdown.root, 'strong')).toBe(true)
-    const afterRead = __profile1PhysicalTraversalCountsV1()
+    const afterRead = many.engine.traversalCounts()
     expect(afterRead).toEqual(beforeRead)
     expect(many.revision.commentDisplay(first.nodeId)).toBe(display)
-    expect(__profile1PhysicalTraversalCountsV1()).toEqual(afterRead)
+    expect(many.engine.traversalCounts()).toEqual(afterRead)
   })
 
   it('builds no selected-lane reference index from projected text', () => {
@@ -240,15 +234,15 @@ describe('one intrinsic Markdown parse', () => {
   })
 
   it('emits unchanged link and definition regions once across root views', () => {
-    __resetProfile1PhysicalTraversalCountsV1()
-    const revision = createLanguageEngine().open(
+    const engine = createLanguageEngine()
+    const revision = engine.open(
       createSourceSnapshot(
         'See [r].\n\n{~~old~>new~~}\n\n[r]: /destination\n'
       ),
       TEST_CONFIGURATION
     )
     expect(revision.kind).toBe('complete')
-    const work = __profile1PhysicalTraversalCountsV1()
+    const work = engine.traversalCounts()
     expect(work.forkAstRegionEmissions).toBe(8)
     expect(work.forkAstRegionReuses).toBe(10)
   })

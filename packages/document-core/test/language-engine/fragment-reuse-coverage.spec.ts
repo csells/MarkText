@@ -6,10 +6,6 @@ import {
   type DocumentRevision,
   type ParseConfiguration
 } from '@marktext/document-core'
-import {
-  __profile1PhysicalTraversalCountsV1,
-  __resetProfile1PhysicalTraversalCountsV1
-} from '../../src/internal/profile1/physicalTraversalAccounting.js'
 
 const CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -48,16 +44,17 @@ function appendKeystrokeCounts(source: string): Readonly<{
   ))
   const at = source.length - 1
   const after = `${source.slice(0, at)}z${source.slice(at)}`
-  __resetProfile1PhysicalTraversalCountsV1()
+  const beforeCounts = engine.traversalCounts()
   complete(engine.reopen(
     before,
     createSourceSnapshot(after),
     Object.freeze([{ start: at, end: at, insert: 'z' }])
   ))
-  const counts = __profile1PhysicalTraversalCountsV1()
+  const counts = engine.traversalCounts()
   return Object.freeze({
-    reuses: counts.forkAstRegionReuses,
-    emissions: counts.forkAstRegionEmissions
+    reuses: counts.forkAstRegionReuses - beforeCounts.forkAstRegionReuses,
+    emissions:
+      counts.forkAstRegionEmissions - beforeCounts.forkAstRegionEmissions
   })
 }
 

@@ -31,10 +31,8 @@ import {
   type MarkdownPendingLineBlockFact
 } from './profile1/markdownLaneState.js'
 import {
-  __markerBearingIntrinsicTraversalsV1,
-  __resetMarkerBearingIntrinsicTraversalsV1,
-  recordCommentProjectionPreparationV1,
-  recordIntrinsicSourceTraversalV1
+  createPhysicalTraversalRecorderV1,
+  type Profile1PhysicalTraversalRecorderV1
 } from './profile1/physicalTraversalAccounting.js'
 import {
   createIntrinsicProfile1InspectionForkRecorder,
@@ -819,14 +817,16 @@ function parseIntrinsicProfile1Pass(
   suppressedMarkerRanges?: readonly Readonly<{
     start: number
     end: number
-  }>[]
+  }>[],
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
+  createPhysicalTraversalRecorderV1()
 ): IntrinsicProfile1PassOutcome {
   const sourceProgression = createIntrinsicProfile1SourceProgression(
     source,
     execution,
     suppressedMarkerRanges
   )
-  recordIntrinsicSourceTraversalV1(
+  physicalRecorder.recordIntrinsicSourceTraversal(
     sourceProgression.hasCriticMarkupCandidate,
     source.length
   )
@@ -1463,14 +1463,6 @@ function parseIntrinsicProfile1Pass(
  * `parseIntrinsicProfile1`, not each internal block/inline phase, so one
  * canonical grammar admission remains one recognition.
  */
-export function __criticMarkupRecognitionCountV1(): number {
-  return __markerBearingIntrinsicTraversalsV1()
-}
-
-export function __resetCriticMarkupRecognitionCountV1(): void {
-  __resetMarkerBearingIntrinsicTraversalsV1()
-}
-
 function parseIntrinsicProfile1(
   source: string,
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
@@ -1481,7 +1473,9 @@ function parseIntrinsicProfile1(
   suppressedMarkerRanges?: readonly Readonly<{
     start: number
     end: number
-  }>[]
+  }>[],
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
+  createPhysicalTraversalRecorderV1()
 ): ParseOutcome {
   const discovery = parseIntrinsicProfile1Pass(
     source,
@@ -1491,7 +1485,8 @@ function parseIntrinsicProfile1(
     markdownOptions,
     execution,
     'document',
-    suppressedMarkerRanges
+    suppressedMarkerRanges,
+    physicalRecorder
   )
   if (discovery.kind === 'inspection-complete') {
     throw new Error('Document parse returned inspection-only products')
@@ -1508,7 +1503,8 @@ function inspectIntrinsicProfile1ChangedJoins(
   cmDepthLimit: number,
   markdownDepthLimit: number,
   markdownOptions: MarkdownOptionsV1,
-  execution: ParseExecutionTracker
+  execution: ParseExecutionTracker,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1
 ): IntrinsicProfile1InspectionResult | ParseResourceFailure {
   const inspected = parseIntrinsicProfile1Pass(
     source,
@@ -1517,7 +1513,9 @@ function inspectIntrinsicProfile1ChangedJoins(
     markdownDepthLimit,
     markdownOptions,
     execution,
-    'changed-join-inspection'
+    'changed-join-inspection',
+    undefined,
+    physicalRecorder
   )
   if (inspected.kind === 'complete') {
     throw new Error('Changed-join inspection materialized document products')
@@ -3244,13 +3242,16 @@ function prepareProjection(
   traceRecorder?: ProfileParseTraceRecorderV1,
   traceView: ProfileParseTraceViewV1 = view,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
-  forkParser?: Profile1MarkdownForkParser
+  forkParser?: Profile1MarkdownForkParser,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): PreparedProfile1Projection {
   if (forkParser === undefined) {
     throw new Error('Projected Markdown requires the revision intrinsic fork parser')
   }
   if (traceView === 'comment-display') {
-    recordCommentProjectionPreparationV1(lane.range.end - lane.range.start)
+    physicalRecorder?.recordCommentProjectionPreparation(
+      lane.range.end - lane.range.start
+    )
   }
   const source = graph.source
   const chunks: string[] = []
@@ -3633,7 +3634,8 @@ function prepareCommentDisplayProjections(
   markdownDepthLimit: number,
   traceRecorder: ProfileParseTraceRecorderV1 | undefined,
   markdownOptions: MarkdownOptionsV1,
-  forkParser: Profile1MarkdownForkParser
+  forkParser: Profile1MarkdownForkParser,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1
 ): readonly PreparedCommentDisplayProjection[] {
   return Object.freeze(graph.forkGraph.branches.flatMap((branch) => {
     if (branch.node.kind !== 'comment') {
@@ -3651,7 +3653,8 @@ function prepareCommentDisplayProjections(
       traceRecorder,
       'comment-display',
       markdownOptions,
-      forkParser
+      forkParser,
+      physicalRecorder
     )
     return Object.freeze([Object.freeze({
       nodeId: branch.node.nodeId,
@@ -3791,7 +3794,9 @@ export function inspectProfile1ChangedCriticMarkerJoins(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
   joins: readonly number[],
-  executionControl?: ParseExecutionControl
+  executionControl?: ParseExecutionControl,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
+  createPhysicalTraversalRecorderV1()
 ): Profile1ChangedJoinInspectionResult {
   validateChangedJoins(source.length, joins)
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
@@ -3835,7 +3840,8 @@ export function inspectProfile1ChangedCriticMarkerJoins(
       ? DESKTOP_MARKDOWN_DEPTH_LIMIT
       : Number.POSITIVE_INFINITY,
     markdownOptions,
-    execution
+    execution,
+    physicalRecorder
   )
   if (parsed.kind === 'resource-failure') {
     return finish(Object.freeze({
@@ -3897,7 +3903,9 @@ export function parseProfile1Document(
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   captureAccountingTrace: boolean = false,
   executionControl?: ParseExecutionControl,
-  reuseCache?: Profile1DocumentReuseCache
+  reuseCache?: Profile1DocumentReuseCache,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
+  createPhysicalTraversalRecorderV1()
 ): Profile1DocumentResult {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   const execution = createParseExecutionTracker(executionControl)
@@ -3967,7 +3975,8 @@ export function parseProfile1Document(
       markdownDepthLimit,
       markdownOptions,
       execution,
-      suppressedMarkerRanges
+      suppressedMarkerRanges,
+      physicalRecorder
     )
     if (parsed.kind !== 'complete') {
       break
@@ -4092,6 +4101,7 @@ export function parseProfile1Document(
     graphCore.forkGraph,
     parsed.referenceDefinitions,
     execution,
+    physicalRecorder,
     reuseCache?.markdown
   )
   traceRecorder?.recordAuthoritativeMarkdownParse('canonical-source')
@@ -4149,7 +4159,8 @@ export function parseProfile1Document(
     markdownDepthLimit,
     traceRecorder,
     markdownOptions,
-    forkParser
+    forkParser,
+    physicalRecorder
   )
   const rootOriginalKey = 'root:original'
   const rootRevisedKey = hasDistinctRevised

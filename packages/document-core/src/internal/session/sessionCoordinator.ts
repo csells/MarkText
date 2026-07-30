@@ -82,7 +82,10 @@ import {
   type StaticConsumerRequest
 } from '../../materialize/consumerPolicy.js'
 import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
-import { createLanguageEngine } from '../../languageEngine.js'
+import {
+  createLanguageEngine,
+  type LanguageEngine
+} from '../../languageEngine.js'
 import {
   createParseExecutionAccumulator,
   DocumentExecutionCancelledError,
@@ -680,6 +683,7 @@ export class SessionCoordinator {
   #settledWatermark = 0
   #mailbox: Promise<void> = Promise.resolve()
   #snapshot: EditorSnapshot
+  readonly #engine: LanguageEngine
 
   constructor(
     options: DocumentSessionOpenOptions,
@@ -687,6 +691,7 @@ export class SessionCoordinator {
     recovery: SessionRecoveryCheckpoint | null
   ) {
     const engine = createLanguageEngine(options.executionControl)
+    this.#engine = engine
     this.#journal = journal
     this.#configuration = Object.freeze({
       authoringTextPolicy:
@@ -839,6 +844,9 @@ export class SessionCoordinator {
     const acknowledgeEffect = Object.freeze((effect: SessionEffectId) =>
       this.#acknowledgeEffect(effect)
     )
+    const physicalWork = Object.freeze(() =>
+      this.#engine.traversalCounts()
+    )
 
     return Object.freeze({
       snapshot,
@@ -858,6 +866,7 @@ export class SessionCoordinator {
       close,
       status,
       acknowledgeEffect,
+      physicalWork,
       subscribe
     })
   }

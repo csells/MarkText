@@ -18,8 +18,6 @@ import {
   type MarkdownCheckpoint,
   type PlainMarkdownLaneParse,
   type PlainMarkdownLaneParseWithDefinitions,
-  __plainMarkdownLaneUnitsV1,
-  __resetPlainMarkdownLaneUnitsV1,
   type MarkdownMatchingScopePolicy,
   type MarkdownReferenceDefinitionLookup,
   type PlainMarkdownContainer,
@@ -55,11 +53,8 @@ import type {
   IntrinsicProfile1ForkGraph,
   IntrinsicProfile1ForkLane
 } from './intrinsicProfile1ForkGraph.js'
-import {
-  recordForkAstRegionEmissionV1,
-  recordForkAstRegionReuseV1,
-  __profile1PhysicalTraversalCountsV1,
-  __resetProfile1PhysicalTraversalCountsV1
+import type {
+  Profile1PhysicalTraversalRecorderV1
 } from './physicalTraversalAccounting.js'
 import {
   createStagedProfile1ReferenceDefinitionLookup,
@@ -2859,7 +2854,8 @@ function parseOrderedContainerSequence(
   constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy?: InlineBoundaryPolicy,
-  itemCache?: Map<string, MarkdownAstRegionTemplate>
+  itemCache?: Map<string, MarkdownAstRegionTemplate>,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): ParsedContainerSequence | undefined {
   if ((lines[lineIndex]?.containers.length ?? 0) === 0) {
     return undefined
@@ -3168,7 +3164,7 @@ function parseOrderedContainerSequence(
             cached.linesKey === linesKey &&
             cached.literalsKey === literalsKey
           ) {
-            recordForkAstRegionReuseV1()
+            physicalRecorder?.recordForkAstRegionReuse()
             const itemNode = markdownAstNodeFromTemplate(template, base)
             const previousChild = root.children.at(-1)
             const compatibleList =
@@ -3297,7 +3293,7 @@ function parseOrderedContainerSequence(
               quote = undefined as never
             }
             if (quote !== undefined) {
-              recordForkAstRegionReuseV1()
+              physicalRecorder?.recordForkAstRegionReuse()
               for (const template of cached.nodes) {
                 const node = markdownAstNodeFromTemplate(template, base)
                 quote.children.push(node)
@@ -3873,7 +3869,8 @@ function parseBlocksRegion(
   lines: readonly PlainMarkdownLine[],
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy?: InlineBoundaryPolicy,
-  itemCache?: Map<string, MarkdownAstRegionTemplate>
+  itemCache?: Map<string, MarkdownAstRegionTemplate>,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): readonly MarkdownNode[] {
   const blocks: MarkdownNode[] = []
   const constructs = new Map<number, MappedMarkdownLiteral>()
@@ -3907,7 +3904,8 @@ function parseBlocksRegion(
       constructs,
       referenceDefinitions,
       boundaryPolicy,
-      itemCache
+      itemCache,
+      physicalRecorder
     )
     if (containerSequence !== undefined) {
       blocks.push(...containerSequence.nodes)
@@ -4677,7 +4675,8 @@ function emitMarkdownAstRegion(
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy: InlineBoundaryPolicy | undefined,
   regionStart: number,
-  itemCache?: Map<string, MarkdownAstRegionTemplate>
+  itemCache?: Map<string, MarkdownAstRegionTemplate>,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): readonly MarkdownNode[] {
   const identity = activeMarkdownSyntaxIdentity
   if (identity === undefined) {
@@ -4716,7 +4715,8 @@ function emitMarkdownAstRegion(
       lines.map((line) => markdownRegionLine(line, regionStart)),
       markdownRegionReferenceDefinitions(referenceDefinitions, regionStart),
       regionalBoundaryPolicy,
-      itemCache
+      itemCache,
+      physicalRecorder
     )
     if (boundaryPolicy !== undefined && regionalBoundaryPolicy !== undefined) {
       for (const offset of regionalBoundaryPolicy.unsafeDelimiterOffsets) {
@@ -4885,7 +4885,8 @@ function emitMarkdownAstRegions(
   regions: readonly MarkdownAstRegion[],
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy: InlineBoundaryPolicy | undefined,
-  reuseCache: MarkdownAstRegionCacheIdentity | undefined
+  reuseCache: MarkdownAstRegionCacheIdentity | undefined,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): readonly MarkdownNode[] {
   const blocks: MarkdownNode[] = []
   const cache = reuseCache === undefined
@@ -4957,14 +4958,14 @@ function emitMarkdownAstRegions(
       cached.linesKey === linesKey &&
       cached.literalsKey === literalsKey
     ) {
-      recordForkAstRegionReuseV1()
+      physicalRecorder?.recordForkAstRegionReuse()
       for (const template of cached.nodes) {
         blocks.push(markdownAstNodeFromTemplate(template, region.start))
       }
       continue
     }
 
-    recordForkAstRegionEmissionV1(region.end - region.start)
+    physicalRecorder?.recordForkAstRegionEmission(region.end - region.start)
     const localNodes = emitMarkdownAstRegion(
       regionSource,
       region.lines,
@@ -4972,7 +4973,8 @@ function emitMarkdownAstRegions(
       referenceDefinitions,
       regionBoundaryPolicy,
       region.start,
-      cache
+      cache,
+      physicalRecorder
     )
     if (
       key === undefined ||
@@ -5879,7 +5881,8 @@ function emitIntrinsicForkRegionNodes(
   facts: PlainMarkdownLaneParseWithDefinitions,
   reuseCache: MarkdownAstRegionCacheIdentity,
   boundaryPolicy: InlineBoundaryPolicy | undefined,
-  execution?: ParseExecutionTracker
+  execution?: ParseExecutionTracker,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): readonly MarkdownNode[] {
   return withMappedMarkdownIdentity(lane, () => {
     if (facts.referenceDefinitions.definitionStart !== undefined) {
@@ -5897,7 +5900,8 @@ function emitIntrinsicForkRegionNodes(
         markdownAstRegions(facts.lines, literals),
         facts.referenceDefinitions,
         boundaryPolicy,
-        reuseCache
+        reuseCache,
+        physicalRecorder
       )
   }, execution)
 }
@@ -6018,14 +6022,6 @@ function intrinsicForkDocumentFromNodes(
   })
 }
 
-export function __markdownDocumentParsesV1(): number {
-  return __profile1PhysicalTraversalCountsV1().total
-}
-
-export function __resetMarkdownDocumentParsesV1(): void {
-  __resetProfile1PhysicalTraversalCountsV1()
-  __resetPlainMarkdownLaneUnitsV1()
-}
 
 /**
  * Test-only counter of parsed source units — the code units handed to the
@@ -6758,7 +6754,8 @@ function parseIntrinsicForkRegionFacts(
   selectionOffset: number,
   containerDepthLimit: number,
   reuse: Map<string, PlainMarkdownLaneParse>,
-  trace?: Profile1ProjectionPlanningTraceV1
+  trace?: Profile1ProjectionPlanningTraceV1,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): Readonly<{
     readonly facts: PlainMarkdownLaneParseWithDefinitions
     readonly boundaryPolicy: InlineBoundaryPolicy | undefined
@@ -6791,9 +6788,14 @@ function parseIntrinsicForkRegionFacts(
       reuseKey = serialized
     }
   }
-  const parsed = retainedFacts ??
-    (reuseKey === undefined ? undefined : reuse.get(reuseKey)) ??
-    parseIntrinsicForkMarkdownLaneFacts(
+  let parsed = retainedFacts ??
+    (reuseKey === undefined ? undefined : reuse.get(reuseKey))
+  if (parsed === undefined) {
+    // Counted only when the lane parse actually runs: a region served from
+    // retained canonical facts or the reuse cache hands no source units to
+    // the block phase.
+    physicalRecorder?.recordPlainMarkdownLaneUnits(lane.source.length)
+    parsed = parseIntrinsicForkMarkdownLaneFacts(
       lane.source,
       localReferenceDefinitions,
       containerDepthLimit,
@@ -6804,6 +6806,7 @@ function parseIntrinsicForkRegionFacts(
       lane.gitLabMathEnabled ?? true,
       lane.footnotesEnabled ?? true
     )
+  }
   if (reuseKey !== undefined && !reuse.has(reuseKey)) {
     retainFragmentEntry(reuse, reuseKey, parsed)
   }
@@ -7050,6 +7053,7 @@ export function createProfile1MarkdownForkParser(
   forkGraph: IntrinsicProfile1ForkGraph,
   canonicalReferenceDefinitions: Profile1CanonicalReferenceDefinitionLookup,
   execution: ParseExecutionTracker,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
   reuseCache: Profile1MarkdownReuseCache =
   createProfile1MarkdownReuseCache()
 ): Profile1MarkdownForkParser {
@@ -7092,7 +7096,8 @@ export function createProfile1MarkdownForkParser(
           region.start,
           containerDepthLimit,
           admittedRegionFactsCache,
-          projectionPlanningTraceAt(trace, region.start)
+          projectionPlanningTraceAt(trace, region.start),
+          physicalRecorder
         )
         literals.push(...emitted.facts.literals.map(
           (literal): MarkdownLiteralRange => Object.freeze({
@@ -7152,14 +7157,17 @@ export function createProfile1MarkdownForkParser(
             selectionReferenceDefinitions,
             region.start,
             Number.POSITIVE_INFINITY,
-            admittedRegionFactsCache
+            admittedRegionFactsCache,
+            undefined,
+            physicalRecorder
           )
           const localNodes = emitIntrinsicForkRegionNodes(
             region.lane,
             emitted.facts,
             emittedRegionCache,
             emitted.boundaryPolicy,
-            execution
+            execution,
+            physicalRecorder
           )
           children.push(...materializeIntrinsicForkRegionNodes(
             request.lane,
@@ -7275,14 +7283,16 @@ export function createProfile1MarkdownForkParser(
           region.start,
           containerDepthLimit,
           admittedRegionFactsCache,
-          regionTrace
+          regionTrace,
+          physicalRecorder
         )
         emitIntrinsicForkRegionNodes(
           localLane,
           emitted.facts,
           emittedRegionCache,
           emitted.boundaryPolicy,
-          execution
+          execution,
+          physicalRecorder
         )
         const localEdits = planBoundaryProjectionEdits(
           localLane.source,
@@ -7315,8 +7325,3 @@ export function createProfile1MarkdownForkParser(
   })
 }
 
-export function __markdownParsedUnitsV1(): number {
-  const physical = __profile1PhysicalTraversalCountsV1()
-  return physical.intrinsicSourceUnits +
-    __plainMarkdownLaneUnitsV1()
-}

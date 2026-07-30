@@ -21,6 +21,9 @@ import type {
 } from './transformationKernel.js'
 import type { SourceSnapshot } from './sourceSnapshot.js'
 import type { ParseExecutionControl } from './parseExecutionControl.js'
+import type {
+  Profile1PhysicalTraversalCountsV1
+} from './internal/profile1/physicalTraversalAccounting.js'
 import type { DocumentSearchQuery } from './search.js'
 import type {
   ClipboardConsumerRequest,
@@ -1176,6 +1179,12 @@ export interface DocumentSession {
   readonly acknowledgeEffect: (
     effect: SessionEffectId
   ) => SessionOperation<EffectAcknowledgementResult>
+  /**
+   * Physical parse work attributed to this session's engine alone, including
+   * work its lazily read parse products perform later. Hosts read operation
+   * deltas from here instead of any process-global counter bank.
+   */
+  readonly physicalWork: () => Profile1PhysicalTraversalCountsV1
   readonly subscribe: (listener: SessionTransitionListener) => Disposable
 }
 

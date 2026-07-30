@@ -7,10 +7,6 @@ import {
   type MarkdownNode,
   type ParseConfiguration
 } from '@marktext/document-core'
-import {
-  __markdownParsedUnitsV1,
-  __resetMarkdownDocumentParsesV1
-} from '../../src/internal/profile1/markdownParser.js'
 
 /**
  * Slice 3 — a marker that changes BLOCK structure.
@@ -64,9 +60,16 @@ function shape(node: MarkdownNode): string {
 }
 
 function unitsFor(source: string): number {
-  __resetMarkdownDocumentParsesV1()
-  open(source)
-  return __markdownParsedUnitsV1()
+  const engine = createLanguageEngine()
+  const revision = engine.open(
+    createSourceSnapshot(source),
+    TEST_CONFIGURATION
+  )
+  if (revision.kind !== 'complete') {
+    throw new Error(`Expected a complete revision for ${JSON.stringify(source)}`)
+  }
+  const counts = engine.traversalCounts()
+  return counts.intrinsicSourceUnits + counts.plainMarkdownLaneUnits
 }
 
 /** Untouched prose surrounding a structural change, to expose any leak. */

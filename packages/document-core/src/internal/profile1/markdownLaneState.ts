@@ -4191,7 +4191,6 @@ export function parseIntrinsicForkMarkdownLaneFacts(
   gitLabMathEnabled: boolean = true,
   footnotesEnabled: boolean = true
 ): PlainMarkdownLaneParse {
-  plainMarkdownLaneUnits += source.length
   return parsePlainMarkdownLanePass(
     source,
     containerDepthLimit,
@@ -4205,17 +4204,3 @@ export function parseIntrinsicForkMarkdownLaneFacts(
   )
 }
 
-/**
- * Test-only counter of source units handed to the block phase — the shareable
- * work. Counting here rather than at the caller is what makes sharing visible:
- * re-analysing only a divergent region costs only that region.
- */
-let plainMarkdownLaneUnits = 0
-
-export function __plainMarkdownLaneUnitsV1(): number {
-  return plainMarkdownLaneUnits
-}
-
-export function __resetPlainMarkdownLaneUnitsV1(): void {
-  plainMarkdownLaneUnits = 0
-}

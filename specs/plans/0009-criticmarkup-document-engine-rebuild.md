@@ -352,10 +352,20 @@ are transcribed exactly. Its real residue is G36.
   `configurationFor(` (grammar configuration); no Selection module —
   settlement is answered in the view and renderer as well as the session.
   `internal/sourceAuthorship.ts` owns only the escape rule while marker
-  composition lives in the transformation kernel, and execution accounting
-  is a process-global mutable counter bank with test-only resets
-  (`internal/profile1/physicalTraversalAccounting.ts`). The concerns are
-  answered today inside `revisionWorker.ts` and its callers. Progress: the
+  composition lives in the transformation kernel, and the secondary parser
+  counter families (reference-definition index builds, line-materialization
+  walks and caches, AST-template constructions) remain process-global with
+  test-only resets. The concerns are answered today inside
+  `revisionWorker.ts` and its callers. Progress: the physical execution
+  report is engine-owned (`physicalTraversalAccounting.ts` is
+  `createPhysicalTraversalRecorderV1`, no counter bank, no reset seam):
+  every counter lives on the recorder an engine creates for itself and
+  threads through the intrinsic pass, the fork parser, and comment-display
+  preparation, so parse products attribute later work to the engine that
+  parsed them; `LanguageEngine.traversalCounts()` and
+  `DocumentSession.physicalWork()` are the ordinary members hosts and
+  targets read, and the desktop worker takes operation deltas from the
+  session record (`physical-work-attribution.spec.ts`). The
   saved-identity module exists (`internal/session/savedIdentityLedger.ts`)
   — minting, validation, the content-addressed dirty comparison, and
   persistence acceptance in one owner, identities transported opaquely —

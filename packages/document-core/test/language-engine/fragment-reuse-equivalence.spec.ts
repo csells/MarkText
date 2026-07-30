@@ -18,8 +18,8 @@ import {
   __resetMarkdownAstCacheTemplateConstructionsV1
 } from '../../src/internal/profile1/markdownParser.js'
 import {
-  __profile1PhysicalTraversalCountsV1,
-  __resetProfile1PhysicalTraversalCountsV1
+  createPhysicalTraversalRecorderV1,
+  type Profile1PhysicalTraversalCountsV1
 } from '../../src/internal/profile1/physicalTraversalAccounting.js'
 
 const CONFIGURATION: ParseConfiguration = Object.freeze({
@@ -52,6 +52,16 @@ function markdownNodeRecord(node: MarkdownNode): unknown {
       (_, ordinal) => markdownNodeRecord(node.childAt(ordinal))
     )
   }
+}
+
+function physicalDelta(
+  after: Profile1PhysicalTraversalCountsV1,
+  before: Profile1PhysicalTraversalCountsV1
+): Profile1PhysicalTraversalCountsV1 {
+  const keys = Object.keys(after) as (keyof Profile1PhysicalTraversalCountsV1)[]
+  return Object.freeze(Object.fromEntries(
+    keys.map((key) => [key, after[key] - before[key]])
+  )) as Profile1PhysicalTraversalCountsV1
 }
 
 function revisionRecord(revision: DocumentRevision): unknown {
@@ -166,7 +176,7 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     ))
 
-    __resetProfile1PhysicalTraversalCountsV1()
+    const physicalBase = engine.traversalCounts()
     const reused = engine.reopen(
       before,
       createSourceSnapshot(afterSource),
@@ -176,7 +186,7 @@ describe('Profile 1 fragment reuse', () => {
         insert: 'z'
       }])
     )
-    const reuseCounts = __profile1PhysicalTraversalCountsV1()
+    const reuseCounts = physicalDelta(engine.traversalCounts(), physicalBase)
     const full = createLanguageEngine().open(
       createSourceSnapshot(afterSource),
       CONFIGURATION
@@ -210,13 +220,13 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     ))
 
-    __resetProfile1PhysicalTraversalCountsV1()
+    const physicalBase = engine.traversalCounts()
     const reused = complete(engine.reopen(
       before,
       createSourceSnapshot(afterSource),
       Object.freeze([{ start: insertAt, end: insertAt, insert: 'yz' }])
     ))
-    const reuseCounts = __profile1PhysicalTraversalCountsV1()
+    const reuseCounts = physicalDelta(engine.traversalCounts(), physicalBase)
     const full = createLanguageEngine().open(
       createSourceSnapshot(afterSource),
       CONFIGURATION
@@ -283,7 +293,7 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     ))
 
-    __resetProfile1PhysicalTraversalCountsV1()
+    const physicalBase = engine.traversalCounts()
     const withPeriod = complete(engine.reopen(
       before,
       createSourceSnapshot(periodSource),
@@ -302,7 +312,7 @@ describe('Profile 1 fragment reuse', () => {
         insert: ''
       }])
     ))
-    const reuseCounts = __profile1PhysicalTraversalCountsV1()
+    const reuseCounts = physicalDelta(engine.traversalCounts(), physicalBase)
     const fullPeriod = createLanguageEngine().open(
       createSourceSnapshot(periodSource),
       CONFIGURATION
@@ -337,13 +347,13 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     ))
 
-    __resetProfile1PhysicalTraversalCountsV1()
+    const physicalBase = engine.traversalCounts()
     const reopened = engine.reopen(
       before,
       createSourceSnapshot('1.'),
       Object.freeze([{ start: 1, end: 1, insert: '.' }])
     )
-    const reopenCounts = __profile1PhysicalTraversalCountsV1()
+    const reopenCounts = physicalDelta(engine.traversalCounts(), physicalBase)
     const full = createLanguageEngine().open(
       createSourceSnapshot('1.'),
       CONFIGURATION
@@ -363,7 +373,7 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     ))
 
-    __resetProfile1PhysicalTraversalCountsV1()
+    const physicalBase = engine.traversalCounts()
     const reopened = engine.reopen(
       before,
       createSourceSnapshot(afterSource),
@@ -373,7 +383,7 @@ describe('Profile 1 fragment reuse', () => {
         insert
       }])
     )
-    const reopenCounts = __profile1PhysicalTraversalCountsV1()
+    const reopenCounts = physicalDelta(engine.traversalCounts(), physicalBase)
     const full = createLanguageEngine().open(
       createSourceSnapshot(afterSource),
       CONFIGURATION
@@ -392,7 +402,7 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     ))
 
-    __resetProfile1PhysicalTraversalCountsV1()
+    const physicalBase = engine.traversalCounts()
     const reused = engine.reopen(
       before,
       createSourceSnapshot(afterSource),
@@ -402,7 +412,7 @@ describe('Profile 1 fragment reuse', () => {
         insert: ''
       }])
     )
-    const reuseCounts = __profile1PhysicalTraversalCountsV1()
+    const reuseCounts = physicalDelta(engine.traversalCounts(), physicalBase)
     const full = createLanguageEngine().open(
       createSourceSnapshot(afterSource),
       CONFIGURATION
@@ -453,7 +463,7 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     ))
 
-    __resetProfile1PhysicalTraversalCountsV1()
+    const physicalBase = engine.traversalCounts()
     const reopened = engine.reopen(
       before,
       createSourceSnapshot(afterSource),
@@ -463,7 +473,7 @@ describe('Profile 1 fragment reuse', () => {
         insert: '*b* '
       }])
     )
-    const reopenCounts = __profile1PhysicalTraversalCountsV1()
+    const reopenCounts = physicalDelta(engine.traversalCounts(), physicalBase)
     const full = createLanguageEngine().open(
       createSourceSnapshot(afterSource),
       CONFIGURATION
@@ -495,13 +505,13 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     ))
 
-    __resetProfile1PhysicalTraversalCountsV1()
+    const physicalBase = engine.traversalCounts()
     const reused = engine.reopen(
       before,
       createSourceSnapshot(afterSource),
       Object.freeze([{ start, end, insert: changedText }])
     )
-    const reuseCounts = __profile1PhysicalTraversalCountsV1()
+    const reuseCounts = physicalDelta(engine.traversalCounts(), physicalBase)
     const full = createLanguageEngine().open(
       createSourceSnapshot(afterSource),
       CONFIGURATION
@@ -560,7 +570,9 @@ describe('Profile 1 fragment reuse', () => {
         overheadBytes: 0,
         retainedBytes: 0
       })
-  }, 15_000)
+    // ~5 s alone; headroom for the full-suite parallel load, like the 500 KB
+    // reuse target above.
+  }, 30_000)
 
   it('does not construct cache keys or retain an oversized region', () => {
     const cache = createProfile1DocumentReuseCache()
@@ -699,7 +711,7 @@ describe('Profile 1 fragment reuse', () => {
     // Trace identity is only evidence if the reusing parse actually reused.
     // Without this, a cache that declined every fragment would compare two
     // full parses and pass.
-    __resetProfile1PhysicalTraversalCountsV1()
+    const reuseRecorder = createPhysicalTraversalRecorderV1()
     const reused = parseProfile1Document(
       after,
       CONFIGURATION.executionBudget,
@@ -707,18 +719,22 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION.markdownOptions,
       true,
       undefined,
-      cache
+      cache,
+      reuseRecorder
     )
-    const reuseEngagement = __profile1PhysicalTraversalCountsV1().forkAstRegionReuses
-    __resetProfile1PhysicalTraversalCountsV1()
+    const reuseEngagement = reuseRecorder.counts().forkAstRegionReuses
+    const fullRecorder = createPhysicalTraversalRecorderV1()
     const full = parseProfile1Document(
       after,
       CONFIGURATION.executionBudget,
       undefined,
       CONFIGURATION.markdownOptions,
-      true
+      true,
+      undefined,
+      undefined,
+      fullRecorder
     )
-    const fullEngagement = __profile1PhysicalTraversalCountsV1().forkAstRegionReuses
+    const fullEngagement = fullRecorder.counts().forkAstRegionReuses
     expect(reuseEngagement, 'the reusing parse must engage fragment reuse').toBeGreaterThan(0)
     expect(fullEngagement, 'the full parse must reuse nothing').toBe(0)
     expect(reused).toMatchObject({ kind: 'complete' })

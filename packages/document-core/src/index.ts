@@ -5,7 +5,7 @@ export {
 } from './languageEngine.js'
 export { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 export {
-  readProfile1PhysicalTraversalCountsV1,
+  zeroPhysicalTraversalCountsV1,
   type Profile1PhysicalTraversalCountsV1
 } from './internal/profile1/physicalTraversalAccounting.js'
 export {
