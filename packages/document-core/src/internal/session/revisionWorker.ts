@@ -2642,11 +2642,39 @@ export class RevisionWorker {
       .map((part, index) =>
         index % 2 === 0 ? part.replace(pattern, '') : part)
       .join('')
+    // Parser-emitted inline content extent of a block, as exact canonical
+    // source: the model range spanned by the first and last inline child,
+    // mapped through the same position authority as the block extent itself.
+    const inlineContentSlice = (block: MarkdownNode): string => {
+      if (block.childCount === 0) {
+        return ''
+      }
+      const first = block.childAt(0)
+      const last = block.childAt(block.childCount - 1)
+      const start = this.#sourcePositionAt(state, Object.freeze({
+        offset: first.range.start,
+        affinity: 'next' as const
+      }))
+      const end = this.#sourcePositionAt(state, Object.freeze({
+        offset: last.range.end,
+        affinity: 'previous' as const
+      }))
+      return completeSource.slice(start.offset, end.offset)
+    }
     const paragraphPayload = (
       block: MarkdownNode,
       source: string
     ): string => {
       if (block.kind === 'heading') {
+        if (block.attributes['style'] === 'setext') {
+          // The parser emits the setext style and the content extent; the
+          // underline line is the marker this conversion discards. Content
+          // lines join with a space so the replacement stays one block —
+          // re-lexing here kept the underline and committed a document whose
+          // reparse held a heading plus a leftover paragraph or an injected
+          // thematic break (G29).
+          return inlineContentSlice(block).split(/\r\n|\r|\n/).join(' ')
+        }
         return source.replace(/^ {0,3}#{1,6}(?:[ \t]+|$)/, '')
       }
       if (block.kind === 'blockquote') {
