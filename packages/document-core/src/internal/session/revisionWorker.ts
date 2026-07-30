@@ -74,6 +74,9 @@ import {
   buildSourceCandidateDraft,
   protectSourceCandidateDraft
 } from './sourceCandidate.js'
+import {
+  normalizeMarkdownReferenceLabel
+} from '../profile1/markdownLaneState.js'
 import type { SourceEdit } from './sourceTransaction.js'
 import { applyExactSourceEdits } from '../../exactSourceEdits.js'
 
@@ -3907,30 +3910,34 @@ export class RevisionWorker {
         affinity: 'previous' as const
       })
     })
-    const sourceStart = this.#sourcePositionAt(state, blockTarget.anchor)
-    const sourceEnd = this.#sourcePositionAt(state, blockTarget.focus)
-    const blockSource = state.revision.source.text.slice(
-      sourceStart.offset,
-      sourceEnd.offset
-    )
-    const opening =
-      /^([ ]{0,3})(`{3,}|~{3,})([^\r\n]*)(?:\r\n|\r|\n|$)/.exec(blockSource)
-    if (opening === null) {
+    // The grammar emits the fence's info-string extent; an indented code
+    // block emits none and cannot carry a language.
+    const emittedInfoStart = block.attributes['infoStart']
+    const emittedInfoEnd = block.attributes['infoEnd']
+    if (
+      typeof emittedInfoStart !== 'number' ||
+      typeof emittedInfoEnd !== 'number'
+    ) {
       throw new IntentRejection('wrong-target-kind')
     }
-    const current = opening[3] ?? ''
+    const infoStart = this.#sourcePositionAt(state, Object.freeze({
+      offset: emittedInfoStart,
+      affinity: 'next' as const
+    })).offset
+    const infoEnd = emittedInfoEnd <= emittedInfoStart
+      ? infoStart
+      : this.#sourcePositionAt(state, Object.freeze({
+        offset: emittedInfoEnd,
+        affinity: 'previous' as const
+      })).offset
+    const current = state.revision.source.text.slice(infoStart, infoEnd)
     if (current === language) {
       throw new IntentRejection('no-source-change')
     }
-
-    const infoStart =
-      sourceStart.offset +
-      (opening[1]?.length ?? 0) +
-      (opening[2]?.length ?? 0)
     const carrier = trackCarrierContext(
       state.revision,
       infoStart,
-      infoStart + current.length
+      infoEnd
     )
     if (this.#trackChanges && carrier.policy === 'read-only') {
       throw new IntentRejection('read-only-change-arm')
@@ -3943,7 +3950,7 @@ export class RevisionWorker {
       Object.freeze([
         Object.freeze({
           start: infoStart,
-          end: infoStart + current.length,
+          end: infoEnd,
           insert
         })
       ]),
@@ -4069,12 +4076,19 @@ export class RevisionWorker {
       throw new IntentRejection('invalid-command-argument')
     }
     const source = state.revision.source.text
-    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // Footnote definitions are parser facts; a duplicate label is detected
+    // through the emitted index, never by scanning source with a second
+    // recognizer.
+    const normalizedLabel = normalizeMarkdownReferenceLabel(
+      label,
+      0,
+      label.length
+    )
     if (
-      new RegExp(
-        `^(?: {0,3})\\[\\^${escapedLabel}\\]:`,
-        'm'
-      ).test(source)
+      state.revision
+        .projection('editing')
+        .markdown.references.footnoteDefinitionForLabel(normalizedLabel) !==
+        undefined
     ) {
       throw new IntentRejection('invalid-command-argument')
     }

@@ -1994,11 +1994,16 @@ function codeBlockAttributes(
   const content = interior.map((line) => lineText(line, fenceIndent)).join('\n')
   const contentStart = interior[0]?.contentOffset ?? opener.end
   const contentEnd = interior.at(-1)?.end ?? contentStart
+  // The info string's exact extent — everything after the fence marker on
+  // the opener line — so no consumer re-recognizes the fence to edit it.
+  const infoStart = opener.contentOffset + (markerMatch?.[1]?.length ?? 0)
   return Object.freeze({
     provider: literal.provider,
     content: interior.length === 0 ? '' : `${content}\n`,
     contentStart,
     contentEnd,
+    infoStart,
+    infoEnd: opener.contentEnd,
     ...(info === '' ? {} : { info })
   })
 }
@@ -3873,6 +3878,8 @@ function retainFragmentEntry<Value>(
 const POSITIONAL_MARKDOWN_ATTRIBUTES = new Set([
   'destinationStart',
   'destinationEnd',
+  'infoStart',
+  'infoEnd',
   'definitionStart',
   'titleStart',
   'titleEnd',
