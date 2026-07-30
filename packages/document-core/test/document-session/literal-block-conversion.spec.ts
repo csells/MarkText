@@ -167,4 +167,19 @@ describe('literal block conversion payloads', () => {
   ])('converts $name to a paragraph payload', async(row) => {
     expect(await convertToParagraph(row.source, row.at)).toBe(row.expected)
   })
+
+  // The loose/tight toggle works over the emitted inter-item gaps.
+  it('tightens a loose list by collapsing every gap', async() => {
+    const session = await open('- one\n\n- two\n\n\n- three\n', 2)
+    const target = session.snapshot().revision.selection
+    if (target === null) throw new Error('Expected a selection')
+    await session.dispatch({
+      kind: 'convert-block',
+      target,
+      conversion: { kind: 'loose-list-item' }
+    }).completion
+    const snapshot = session.snapshot()
+    if (snapshot.kind !== 'complete') throw new Error('Expected complete')
+    expect(snapshot.revision.source).toBe('- one\n- two\n- three\n')
+  })
 })

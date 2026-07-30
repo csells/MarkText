@@ -2919,8 +2919,12 @@ export class RevisionWorker {
         conversion.kind === 'ordered-list' ||
         conversion.kind === 'task-list'
       ) {
-        const sourceIsTask =
-          /^(?:[ \t]*)[-+*][ \t]+\[[ xX]\][ \t]+/.test(source)
+        // The grammar emits task recognition per item; the first item's
+        // fact decides the list's current form, as the old first-line
+        // re-lex did.
+        const sourceIsTask = block.kind === 'list' &&
+          block.childCount > 0 &&
+          block.childAt(0).attributes['task'] === true
         const sourceIsOrdered = block.kind === 'list' &&
           block.attributes.ordered === true
         const sourceIsUnordered = block.kind === 'list' && !sourceIsOrdered
@@ -2957,20 +2961,77 @@ export class RevisionWorker {
         if (block.kind !== 'list') {
           throw new IntentRejection('wrong-target-kind')
         }
-        // A toggle, applied at every inter-item gap: a loose list (any blank
-        // line before a following marker) tightens by collapsing each gap to
-        // one line ending; a tight list loosens by inserting one blank at
-        // each gap. The old form only ever loosened, and only the first gap.
-        // A lone CR only ends a line when no LF follows, or CRLF pairs split
-        // across two alternatives and a tight CRLF list reads as loose.
-        const gap =
-          /(\r\n|\r(?!\n)|\n)(?:[ \t]*(?:\r\n|\r(?!\n)|\n))*(?=[ \t]*(?:[-+*]|\d+[.)])[ \t]+)/g
-        const loose =
-          /(?:\r\n|\r(?!\n)|\n)[ \t]*(?:\r\n|\r(?!\n)|\n)[ \t]*(?:[-+*]|\d+[.)])[ \t]+/
-            .test(source)
-        return loose
-          ? source.replace(gap, '$1')
-          : source.replace(gap, `$1${eol}`)
+        // A toggle, applied at every inter-item gap the parser emitted: a
+        // loose list (any blank line inside a gap, per the line index)
+        // tightens by collapsing each gap to its first line ending; a tight
+        // list loosens by inserting one blank at each gap. No expression
+        // here recognizes a marker — the gaps are the extents between
+        // consecutive emitted list items.
+        const items: MarkdownNode[] = []
+        for (let ordinal = 0; ordinal < block.childCount; ordinal += 1) {
+          const child = block.childAt(ordinal)
+          if (child.kind === 'list-item') {
+            items.push(child)
+          }
+        }
+        const index = document.lines
+        const gaps: Array<Readonly<{ start: number; end: number }>> = []
+        for (let ordinal = 1; ordinal < items.length; ordinal += 1) {
+          const previous = items[ordinal - 1]
+          const nextItem = items[ordinal]
+          if (previous !== undefined && nextItem !== undefined) {
+            gaps.push(Object.freeze({
+              start: previous.range.end,
+              end: nextItem.range.start
+            }))
+          }
+        }
+        const blankInside = (gap: Readonly<{
+          start: number
+          end: number
+        }>): boolean => {
+          for (let ordinal = 0; ordinal < index.count; ordinal += 1) {
+            const line = index.at(ordinal)
+            if (line.end <= gap.start) {
+              continue
+            }
+            if (line.start >= gap.end) {
+              return false
+            }
+            if (line.blank) {
+              return true
+            }
+          }
+          return false
+        }
+        const loose = gaps.some(blankInside)
+        const blockStart = this.#sourcePositionAt(state, Object.freeze({
+          offset: block.range.start,
+          affinity: 'next' as const
+        })).offset
+        let rebuilt = ''
+        let cursor = 0
+        for (const gap of gaps) {
+          const gapStart = this.#sourcePositionAt(state, Object.freeze({
+            offset: gap.start,
+            affinity: 'next' as const
+          })).offset - blockStart
+          const gapEnd = this.#sourcePositionAt(state, Object.freeze({
+            offset: gap.end,
+            affinity: 'previous' as const
+          })).offset - blockStart
+          if (gapEnd <= gapStart || gapStart < cursor) {
+            continue
+          }
+          const gapText = source.slice(gapStart, gapEnd)
+          const terminator =
+            /\r\n|\r(?!\n)|\n/.exec(gapText)?.[0] ?? eol
+          rebuilt += source.slice(cursor, gapStart)
+          rebuilt += loose ? terminator : `${terminator}${eol}`
+          cursor = gapEnd
+        }
+        rebuilt += source.slice(cursor)
+        return rebuilt
       }
       if (conversion.kind === 'code-block') {
         return block.kind === 'code-block'
