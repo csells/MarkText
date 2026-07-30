@@ -66,6 +66,27 @@ of this document explicitly extends or interacts with them.
 
 A change of pinned CommonMark version is a new Profile (see §14).
 
+### 2.1 Emphasis flanking admits CJK boundaries
+
+One deliberate widening of a CommonMark rule. When evaluating the delimiter-run
+flanking clauses, Profile 1 treats a CJK ideograph, kana, or hangul syllable as
+a **boundary** — the class CommonMark calls "punctuation" — and not as an
+ordinary letter. Scripts: `Han`, `Hiragana`, `Katakana`, `Hangul`.
+
+Strict CommonMark classifies these as letters, so a `**` run between an
+ideograph and a quotation mark is simultaneously left- and right-flanking,
+opens nothing, and `中文**"x"**中文` renders literal asterisks. That makes bold
+around quoted text unreachable for CJK authors (product issue #4307). Typora
+and markdownlint apply the same widening, so this is the interoperable reading
+in practice even though it is not the letter of the specification.
+
+The widening is additive: it can only admit emphasis CommonMark refused for
+this boundary reason. It never creates emphasis that a whitespace, empty-run,
+or intraword-underscore rule already forbids, and it leaves every one of the
+652 CommonMark 0.31.2 conformance examples unchanged — none places a delimiter
+adjacent to a CJK character. `packages/document-core/test/language-engine/cjk-emphasis-flanking.spec.ts`
+pins both halves.
+
 ## 3. Layer B — GFM extension set (pinned)
 
 Profile 1 includes these GFM extensions, per the GFM spec's definitions:

@@ -860,6 +860,24 @@ function recordBoundaryBackticksInRange(
 
 const UNICODE_WHITESPACE = /^\s$/u
 const UNICODE_PUNCTUATION_OR_SYMBOL = /^[\p{P}\p{S}]$/u
+/**
+ * Profile 1 emphasis extension (product issue #4307; Typora and markdownlint
+ * agree): CJK ideographs, kana, and hangul act as boundaries, not as letters,
+ * when evaluating CommonMark's flanking clauses. Without this, `**` between an
+ * ideograph and a quote is both left- and right-flanking, opens nothing, and
+ * bold around quoted text is impossible for CJK authors. Widening the boundary
+ * class only ever ADDS emphasis CommonMark refused for this reason; it cannot
+ * create emphasis a whitespace or empty-run rule already forbids.
+ */
+const CJK_FLANKING_BOUNDARY =
+  /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]$/u
+
+function isFlankingBoundary(scalar: string | undefined): boolean {
+  return scalar !== undefined && (
+    UNICODE_PUNCTUATION_OR_SYMBOL.test(scalar) ||
+    CJK_FLANKING_BOUNDARY.test(scalar)
+  )
+}
 
 function markdownFlankingScalar(scalar: string): string {
   if (scalar.length !== 1) {
@@ -999,10 +1017,8 @@ function underscoreCanOpenBetween(
     previous === undefined || UNICODE_WHITESPACE.test(previous)
   const nextIsWhitespace =
     next === undefined || UNICODE_WHITESPACE.test(next)
-  const previousIsPunctuation =
-    previous !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(previous)
-  const nextIsPunctuation =
-    next !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(next)
+  const previousIsPunctuation = isFlankingBoundary(previous)
+  const nextIsPunctuation = isFlankingBoundary(next)
   const leftFlanking =
     !nextIsWhitespace &&
     (!nextIsPunctuation || previousIsWhitespace || previousIsPunctuation)
@@ -1020,10 +1036,8 @@ function underscoreCanCloseBetween(
     previous === undefined || UNICODE_WHITESPACE.test(previous)
   const nextIsWhitespace =
     next === undefined || UNICODE_WHITESPACE.test(next)
-  const previousIsPunctuation =
-    previous !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(previous)
-  const nextIsPunctuation =
-    next !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(next)
+  const previousIsPunctuation = isFlankingBoundary(previous)
+  const nextIsPunctuation = isFlankingBoundary(next)
   const leftFlanking =
     !nextIsWhitespace &&
     (!nextIsPunctuation || previousIsWhitespace || previousIsPunctuation)
@@ -1098,10 +1112,8 @@ function delimiterRunAt(
   const previousIsWhitespace =
     previous === undefined || UNICODE_WHITESPACE.test(previous)
   const nextIsWhitespace = next === undefined || UNICODE_WHITESPACE.test(next)
-  const previousIsPunctuation =
-    previous !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(previous)
-  const nextIsPunctuation =
-    next !== undefined && UNICODE_PUNCTUATION_OR_SYMBOL.test(next)
+  const previousIsPunctuation = isFlankingBoundary(previous)
+  const nextIsPunctuation = isFlankingBoundary(next)
   const leftFlanking =
     !nextIsWhitespace &&
     (!nextIsPunctuation || previousIsWhitespace || previousIsPunctuation)
