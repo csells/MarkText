@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import { closeElectron, focusEditor, launchWithMarkdown } from './helpers'
+import { pressUserKeybinding } from './documentCoreReviewE2e'
 
 // Regression: selecting a word and opening the find bar (Cmd+F) must prefill
 // the find input with the selection and run the search. The target view can
@@ -62,9 +63,7 @@ test.describe('Find bar prefill from selection', () => {
         )
     )
 
-    await page.keyboard.press(
-      process.platform === 'darwin' ? 'Meta+F' : 'Control+F'
-    )
+    await pressUserKeybinding(page, app, 'CmdOrCtrl+F')
     const searchBar = page.locator('.search-bar')
     await expect(searchBar).toBeVisible({ timeout: 5000 })
 

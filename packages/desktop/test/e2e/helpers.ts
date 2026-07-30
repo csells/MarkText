@@ -447,6 +447,29 @@ export const exitSourceMode = async(page: Page, app: ElectronApplication): Promi
   await page.waitForFunction(() => !document.querySelector('.source-code'), null, {
     timeout: 10000
   })
+  // The WYSIWYG remount trails the source-mode teardown: the head may have
+  // been rewritten in source mode while the mounted runs still carry the old
+  // revision's model stamps. Wait until a mounted run reflects the live
+  // canonical head so gestures never target the stale window.
+  await page.waitForFunction(() => {
+    const bridge = (window as unknown as {
+      __marktextE2EReadOnly?: { readCanonicalMarkdown: () => string }
+    }).__marktextE2EReadOnly
+    if (!bridge) return true
+    const run = document.querySelector('.editor-component .document-view-run[data-model-end]')
+    // No mounted runs means no stale stamps a gesture could target — an
+    // empty document's placeholder paragraph renders without runs.
+    if (!run) return true
+    const mountedEnd = Number(run.getAttribute('data-model-end'))
+    if (!Number.isFinite(mountedEnd)) return false
+    try {
+      // The bridge read refuses while source-mode teardown is still visible;
+      // a refusal means the window is still open, not a test failure.
+      return mountedEnd <= bridge.readCanonicalMarkdown().length
+    } catch {
+      return false
+    }
+  }, null, { timeout: 10000 })
 }
 
 export const getMarkdownContent = async(

@@ -34,8 +34,30 @@ test.describe('Profile 1 HTML block and inline HTML classification', () => {
     await expectNoRendererErrors(app)
   })
 
-  test('keeps a lone inline HTML image in its semantic paragraph', async() => {
+  // CommonMark HTML block type 7: a line that is one complete open tag (any
+  // name except pre/script/style/textarea) followed by only whitespace starts
+  // an HTML block — a lone '<img src=x>' line therefore IS an HTML block
+  // under Profile 1, where muya deliberately deviated. Trailing text defeats
+  // the whitespace-only requirement, so an image amid prose stays inline in
+  // its paragraph; both readings round-trip byte-exactly.
+  test('classifies a lone HTML image line as an HTML block', async() => {
     const source = '<img src=x>\n'
+    const launched = await launchWithMarkdown(source)
+    runningApp = launched.app
+    const { app, page } = launched
+
+    await expect(
+      page.locator('.editor-component pre.document-view-html-block')
+    ).toHaveCount(1)
+    await expect(
+      page.locator('.editor-component p.document-view-paragraph')
+    ).toHaveCount(0)
+    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await expectNoRendererErrors(app)
+  })
+
+  test('keeps an inline HTML image inside its semantic paragraph', async() => {
+    const source = 'An image <img src=x> inline.\n'
     const launched = await launchWithMarkdown(source)
     runningApp = launched.app
     const { app, page } = launched
@@ -44,7 +66,7 @@ test.describe('Profile 1 HTML block and inline HTML classification', () => {
       '.editor-component p.document-view-paragraph'
     )
     await expect(paragraph).toHaveCount(1)
-    await expect(paragraph).toContainText('<img src=x>')
+    await expect(paragraph).toContainText('inline.')
     await expect(
       page.locator('.editor-component .document-view-html-block')
     ).toHaveCount(0)

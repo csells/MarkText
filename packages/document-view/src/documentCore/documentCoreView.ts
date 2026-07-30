@@ -1010,6 +1010,15 @@ export async function createDocumentCoreView(
             : 'marked';
     };
 
+    // Around a source-mode exit the mounted DOM and the renderer snapshot can
+    // both trail the head main already holds, so a selection read from them is
+    // refused by main as out-of-view. That refusal is benign and self-healing:
+    // the pending publication mount restores the authoritative selection.
+    // Every other rejection is a real failure.
+    const isStaleViewSelectRejection = (error: unknown): boolean =>
+        error instanceof Error
+        && error.message.includes('outside the active document');
+
     const selectSession = (
         selection: InitialModelSelection,
     ): Promise<void> => {
@@ -1034,7 +1043,8 @@ export async function createDocumentCoreView(
         const isolated = result.then(
             () => undefined,
             (error: unknown) => {
-                selectionFailure ??= error;
+                if (!isStaleViewSelectRejection(error))
+                    selectionFailure ??= error;
             },
         );
         pendingSelection = isolated;
@@ -1101,13 +1111,37 @@ export async function createDocumentCoreView(
         }
 
         const range = documentCoreSelectionRange(host);
-        await selectSession({
-            anchor: { offset: range.start, affinity: 'next' },
-            focus: {
-                offset: range.end,
-                affinity: range.start === range.end ? 'next' : 'previous',
-            },
-        });
+        // A DOM read whose offsets exceed the current snapshot's coordinate
+        // length can only come from a mount that predates a pending remount
+        // (source-mode exit shrinks the head before the DOM restamps). The
+        // publication mount restores the authoritative selection; committing
+        // the stale read would send an out-of-document position to main.
+        const length = snapshot.kind === 'complete'
+            ? snapshot.markupModelLength
+            : snapshot.source.length;
+        if (range.end > length)
+            return;
+        try {
+            await selectSession({
+                anchor: { offset: range.start, affinity: 'next' },
+                focus: {
+                    offset: range.end,
+                    affinity: range.start === range.end ? 'next' : 'previous',
+                },
+            });
+        }
+        catch (error) {
+            // Around a source-mode exit the renderer's snapshot AND the DOM
+            // can both trail the head main already holds, so the local length
+            // check above cannot see the staleness — only main can refuse the
+            // position. That refusal is benign and self-healing: the pending
+            // publication mount restores the authoritative selection, exactly
+            // the tolerance synchronizeBrowserSelection extends to the same
+            // rejection. Anything else is a real failure.
+            if (isStaleViewSelectRejection(error))
+                return;
+            throw error;
+        }
         publishSelection();
     };
 
@@ -3736,11 +3770,17 @@ export async function createDocumentCoreView(
             Math.min(bounds.bottom + 6, topLimit),
         ))}px`;
         imageSelectorWrapper = wrapper;
-        src.focus();
-        window?.requestAnimationFrame(() => {
-            if (imageSelectorWrapper === wrapper && wrapper.isConnected)
-                src.focus();
-        });
+        // Opened from an existing image, the selector is a companion panel:
+        // focus stays on the document so Space previews the selected image and
+        // Escape works against the host. Only the insert-new path (menu/IPC,
+        // no anchor) starts the user inside the src field.
+        if (anchor === undefined) {
+            src.focus();
+            window?.requestAnimationFrame(() => {
+                if (imageSelectorWrapper === wrapper && wrapper.isConnected)
+                    src.focus();
+            });
+        }
     };
 
     const openImageSelector = async (): Promise<void> => {
