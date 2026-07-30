@@ -347,17 +347,24 @@ are transcribed exactly. Its real residue is G36.
   tape, decisions, lane, forks, identity, and provenance are the work.
 
 - **G34 [high] Section 2 modules are missing or partial.** Zero repo-wide
-  matches for `admit(` (admission authority), `Replay` (History's
-  interface), `installed(` (persistence-lease member), and
-  `configurationFor(` (grammar configuration); no Selection module —
-  settlement is answered in the view and renderer as well as the session.
+  matches for `Replay` (History's named interface shape), `installed(`
+  (persistence-lease member), and `configurationFor(` (grammar
+  configuration); no Selection module — settlement is answered in the view
+  and renderer as well as the session.
   `internal/sourceAuthorship.ts` owns only the escape rule while marker
   composition lives in the transformation kernel, and the secondary parser
   counter families (reference-definition index builds, line-materialization
   walks and caches, AST-template constructions) remain process-global with
   test-only resets. The concerns are answered today inside
-  `revisionWorker.ts` and its callers. Progress: the physical execution
-  report is engine-owned (`physicalTraversalAccounting.ts` is
+  `revisionWorker.ts` and its callers. Progress: the admission authority
+  exists (`internal/session/admissionAuthority.ts`):
+  `admit(base, edits, class)` owns edit validation, resource limits, join
+  protection, inverse derivation, and the postcondition proof, returns
+  `Admitted | Rejected` values with one named rejection class, and is the
+  only production caller of the engine's `reopen`
+  (`admission-authority.spec.ts` sweeps for a second caller); the worker
+  maps rejections onto its intent boundary and keeps identity minting. The
+  physical execution report is engine-owned (`physicalTraversalAccounting.ts` is
   `createPhysicalTraversalRecorderV1`, no counter bank, no reset seam):
   every counter lives on the recorder an engine creates for itself and
   threads through the intrinsic pass, the fork parser, and comment-display

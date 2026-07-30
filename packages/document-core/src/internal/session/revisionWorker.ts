@@ -13,7 +13,6 @@ import type {
   SourceModelSelection
 } from '../../documentSession.js'
 import {
-  inspectLanguageEngineChangedCriticMarkerJoins,
   nextLanguageEngineExecutionStage,
   type LanguageEngine
 } from '../../languageEngine.js'
@@ -72,10 +71,6 @@ import {
 } from '../../transformationKernel.js'
 import { createMarkupView, type MarkupView } from './markupView.js'
 import {
-  buildSourceCandidateDraft,
-  protectSourceCandidateDraft
-} from './sourceCandidate.js'
-import {
   normalizeMarkdownReferenceLabel
 } from '../profile1/markdownLaneState.js'
 import {
@@ -88,7 +83,13 @@ import {
   type HistoryRecord
 } from './historyRecord.js'
 import type { SourceEdit } from './sourceTransaction.js'
-import { applyExactSourceEdits } from '../../exactSourceEdits.js'
+import {
+  createAdmissionAuthority,
+  EXACT_REPLAY,
+  TYPED_GESTURE,
+  type AdmissionAuthority,
+  type AdmissionClass
+} from './admissionAuthority.js'
 
 export class IntentRejection extends Error {
   readonly code: RejectionCode
@@ -178,139 +179,9 @@ export type PreparedWorkerCommit =
   | PreparedCompleteWorkerCommit
   | PreparedSourceOnlyWorkerCommit
 
-/**
- * How a set of edits reaches a revision. ADR-0015: the engine authors no bytes
- * the user did not type, so candidate protection belongs to a semantic gesture
- * being admitted for the first time and never to bytes already admitted.
- */
-type AdmissionClass =
-  | Readonly<{ readonly kind: 'typed-gesture' }>
-  | Readonly<{ readonly kind: 'proven-candidate'; readonly revision: DocumentRevision }>
-  | Readonly<{ readonly kind: 'exact-replay' }>
-
-const TYPED_GESTURE: AdmissionClass = Object.freeze({ kind: 'typed-gesture' })
-const EXACT_REPLAY: AdmissionClass = Object.freeze({ kind: 'exact-replay' })
-
 interface PreparedRawRevision {
   readonly revision: DocumentRevision
   readonly transition: WorkerTransitionProof
-}
-
-interface AppliedSourceEdits {
-  readonly source: string
-  readonly edits: readonly SourceEdit[]
-  readonly inverseEdits: readonly SourceEdit[]
-}
-
-function protectChangedSourceJoins(
-  engine: LanguageEngine,
-  before: CompleteDocumentRevision,
-  edits: readonly SourceEdit[]
-): Readonly<{
-    readonly transaction: AppliedSourceEdits
-    readonly revision: DocumentRevision
-  }> {
-  const draft = buildSourceCandidateDraft(before.source.text, edits)
-  const inspection = inspectLanguageEngineChangedCriticMarkerJoins(
-    engine,
-    createSourceSnapshot(draft.text),
-    before.configuration,
-    draft.joins
-  )
-  if (inspection.kind === 'source-only') {
-    const revision = engine.reopen(
-      before,
-      createSourceSnapshot(draft.text),
-      edits
-    )
-    return Object.freeze({
-      transaction: applySourceEdits(before.source.text, edits, draft.text),
-      revision
-    })
-  }
-
-  const protectionPositions = inspection.protectionPositions
-  const protectsIntroducedBom =
-    draft.text.startsWith('\uFEFF') &&
-    !before.source.text.startsWith('\uFEFF')
-  if (protectionPositions.length === 0 && !protectsIntroducedBom) {
-    return Object.freeze({
-      transaction: applySourceEdits(before.source.text, edits, draft.text),
-      revision: engine.reopen(
-        before,
-        createSourceSnapshot(draft.text),
-        edits
-      )
-    })
-  }
-
-  const protectedDraft = protectSourceCandidateDraft(
-    before.source.text,
-    draft,
-    protectionPositions,
-    protectsIntroducedBom
-  )
-  const revision = engine.reopen(
-    before,
-    createSourceSnapshot(protectedDraft.text),
-    protectedDraft.edits
-  )
-  return Object.freeze({
-    transaction: applySourceEdits(
-      before.source.text,
-      protectedDraft.edits,
-      protectedDraft.text
-    ),
-    revision
-  })
-}
-
-function applySourceEdits(
-  source: string,
-  edits: readonly SourceEdit[],
-  exactCandidateSource?: string
-): AppliedSourceEdits {
-  const stable = Object.freeze(edits.map((edit) => freezeSourceEdit(edit)))
-  let previousEnd = 0
-  for (const [index, edit] of stable.entries()) {
-    if (
-      !Number.isInteger(edit.start) ||
-      !Number.isInteger(edit.end) ||
-      edit.start < 0 ||
-      edit.end < edit.start ||
-      edit.end > source.length ||
-      (index > 0 && edit.start < previousEnd)
-    ) {
-      throw new RangeError('Source edits must be sorted and nonoverlapping')
-    }
-    previousEnd = edit.end
-  }
-
-  let nextSource = exactCandidateSource ?? source
-  if (exactCandidateSource === undefined) {
-    nextSource = applyExactSourceEdits(
-      source,
-      stable,
-      'Session source edit'
-    )
-  }
-
-  let delta = 0
-  const inverseEdits = stable.map((edit): SourceEdit => {
-    const start = edit.start + delta
-    const inverse = Object.freeze({
-      start,
-      end: start + edit.insert.length,
-      insert: source.slice(edit.start, edit.end)
-    })
-    delta += edit.insert.length - (edit.end - edit.start)
-    return inverse
-  })
-  return Object.freeze({
-    source: nextSource,
-    edits: stable,
-    inverseEdits: Object.freeze(inverseEdits)
-  })
 }
 
 function mapSourcePositionThroughEdits(
@@ -1020,14 +891,6 @@ function detachSelection(selection: ModelSelection): InitialModelSelection {
   })
 }
 
-function freezeSourceEdit(edit: SourceEdit): SourceEdit {
-  return Object.freeze({
-    start: edit.start,
-    end: edit.end,
-    insert: edit.insert
-  })
-}
-
 function freezeInitialSelection(
   selection: InitialModelSelection
 ): InitialModelSelection {
@@ -1519,6 +1382,7 @@ function canonicalTableCellSource(
 
 export class RevisionWorker {
   readonly #engine: LanguageEngine
+  readonly #admission: AdmissionAuthority
   readonly #transformations: TransformationKernel
   #trackChanges: boolean
   #state: WorkerState
@@ -1540,6 +1404,7 @@ export class RevisionWorker {
     recovery: RevisionWorkerCheckpoint | undefined = undefined
   ) {
     this.#engine = engine
+    this.#admission = createAdmissionAuthority(engine)
     this.#transformations = createTransformationKernel(engine)
     this.#trackChanges = recovery?.trackChanges ?? trackChanges
     this.#savedIdentityLedger = createSavedIdentityLedger(
@@ -5737,76 +5602,17 @@ export class RevisionWorker {
     admission: AdmissionClass
   ): PreparedRawRevision {
     const state = this.#state
-    if (
-      edits.length >
-      DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction
-    ) {
-      throw new IntentRejection('invalid-command-argument')
-    }
-    let insertUnits = 0
-    for (const edit of edits) {
-      insertUnits += edit.insert.length
-      if (
-        edit.insert.length >
-          DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits ||
-        insertUnits > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits
-      ) {
-        throw new IntentRejection('invalid-command-argument')
-      }
-    }
-    let effectiveEdits = edits
-    let protectedTransaction: AppliedSourceEdits | undefined
-    let protectedRevision: DocumentRevision | undefined
-    // A typed source gesture may assemble a CriticMarkup delimiter across one
-    // of its changed joins even when neither side was syntax before. Protect
-    // exactly those newly classified joins before the candidate is published.
-    // TransformationKernel revisions already carry this proof themselves.
-    if (
-      admission.kind === 'typed-gesture' &&
-      state.revision.kind === 'complete'
-    ) {
-      const protected_ = protectChangedSourceJoins(
-        this.#engine,
-        state.revision,
-        edits
-      )
-      effectiveEdits = protected_.transaction.edits
-      protectedTransaction = protected_.transaction
-      protectedRevision = protected_.revision
-    }
-    const transaction =
-      protectedTransaction ??
-      applySourceEdits(state.revision.source.text, effectiveEdits)
-    // One gesture, one entry, exact undo: a candidate byte-identical to its
-    // base corresponds to no gesture, so it mints no revision and records no
-    // history — it rejects visibly instead (G27, non-negotiable 10). Replays
-    // are exempt: their bytes were proved when first admitted.
-    if (
-      admission.kind !== 'exact-replay' &&
-      transaction.source === state.revision.source.text
-    ) {
-      throw new IntentRejection('no-source-change')
-    }
-    const revision =
-      (admission.kind === 'proven-candidate' ? admission.revision : undefined) ??
-      protectedRevision ??
-      this.#engine.reopen(
-        state.revision,
-        createSourceSnapshot(transaction.source),
-        effectiveEdits
-      )
-    if (revision.source.text !== transaction.source) {
-      throw new Error(
-        'Prepared revision does not match its exact source-edit transaction'
-      )
+    const admitted = this.#admission.admit(state.revision, edits, admission)
+    if (admitted.kind === 'rejected') {
+      throw new IntentRejection(admitted.class)
     }
     const transition = Object.freeze({
       base: state.id,
       next,
-      edits: transaction.edits,
-      inverseEdits: transaction.inverseEdits
+      edits: admitted.edits,
+      inverseEdits: admitted.inverseEdits
     })
-    return Object.freeze({ revision, transition })
+    return Object.freeze({ revision: admitted.revision, transition })
   }
 
   #prepareHistoryEdits(
