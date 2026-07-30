@@ -218,12 +218,20 @@ describe('TransformationKernel Comment edits', () => {
       'comment'
     ])
 
+    // A collapsed range is no longer invalid: it authors the standalone form.
+    const collapsed = kernel.apply(before, {
+      kind: 'add-comment',
+      range: sourceRange(start, start),
+      comment: 'note'
+    })
+    expect(collapsed).toMatchObject({ kind: 'committed' })
+    if (collapsed.kind === 'committed') {
+      expect(collapsed.edits).toEqual([
+        { start, end: start, insert: '{>>note<<}' }
+      ])
+    }
+
     const invalid = [
-      {
-        range: sourceRange(start, start),
-        comment: 'note',
-        reason: 'empty-comment-anchor'
-      },
       {
         range: sourceRange(start, end),
         comment: '   ',

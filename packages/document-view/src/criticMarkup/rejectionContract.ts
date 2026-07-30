@@ -16,7 +16,6 @@ export const CRITIC_MARKUP_TRACK_CHANGE_REJECTION_REASONS = Object.freeze([
     'target-not-found',
     'wrong-target-kind',
     'invalid-source-range',
-    'empty-comment-anchor',
     'empty-comment',
     'invalid-comment-payload',
     'selection-crosses-syntax-boundary',

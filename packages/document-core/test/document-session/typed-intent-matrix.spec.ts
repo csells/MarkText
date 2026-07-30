@@ -322,29 +322,23 @@ describe('DocumentSession typed source-native mutations', () => {
         })
     }
 
-    const rejected = await createDocumentSession({
+    // A collapsed add-comment range authors the standalone form (G36).
+    const standalone = await createDocumentSession({
       source: createSourceSnapshot('abc'),
       parseConfiguration: TEST_CONFIGURATION,
       trackChanges: false,
       initialSelection: HOME_SELECTION
     })
-    const before = rejected.snapshot()
-    await expect(rejected.dispatch({
+    await expect(standalone.dispatch({
       kind: 'add-comment',
       range: sourceRange(1, 1),
       comment: 'note'
-    }).completion).resolves.toMatchObject({
-      kind: 'rejected',
-      reason: 'empty-comment-anchor',
-      snapshot: before
-    })
-    expect(rejected.snapshot()).toBe(before)
+    }).completion).resolves.toMatchObject({ kind: 'committed' })
+    expect(standalone.snapshot().revision.source).toBe('a{>>note<<}bc')
     await expect(
-      rejected.dispatch({ kind: 'undo' }).completion
-    ).resolves.toMatchObject({
-      kind: 'rejected',
-      reason: 'nothing-to-undo'
-    })
+      standalone.dispatch({ kind: 'undo' }).completion
+    ).resolves.toMatchObject({ kind: 'committed' })
+    expect(standalone.snapshot().revision.source).toBe('abc')
 
     for (const row of [
       {

@@ -918,7 +918,6 @@ const rejectionCodeMembers: Readonly<Record<RejectionCode, true>> =
     'target-not-found': true,
     'wrong-target-kind': true,
     'invalid-source-range': true,
-    'empty-comment-anchor': true,
     'empty-comment': true,
     'invalid-comment-payload': true,
     'selection-crosses-syntax-boundary': true,

@@ -51,8 +51,6 @@ export const TRACK_CHANGE_REJECTION_MESSAGE_KEYS = Object.freeze({
     'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
   'invalid-source-range':
     'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
-  'empty-comment-anchor':
-    'editor.criticMarkup.trackChangeRejected.unmappableTrackedSelection',
   'empty-comment':
     'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',
   'invalid-comment-payload':

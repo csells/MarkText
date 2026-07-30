@@ -490,7 +490,8 @@ describe('document-core desktop owner', () => {
       trackChanges: false,
       projection: 'marked',
       canCreateAddition: false,
-      canCreateComment: false,
+      // A collapsed caret authors the standalone Comment (G36).
+      canCreateComment: true,
       canNavigate: true,
       canResolveAll: true,
       items: [
@@ -598,12 +599,21 @@ describe('document-core desktop owner', () => {
       canCreateDeletion: false,
       canCreateSubstitution: false,
       canCreateHighlight: false,
-      canCreateComment: false
+      // A collapsed caret authors the standalone Comment (G36) — but a
+      // blank payload still refuses.
+      canCreateComment: true
     })
     await expect(editor.createCriticMarkup({
       type: 'comment',
       comment: '   '
     })).resolves.toBe(false)
+
+    await expect(editor.createCriticMarkup({
+      type: 'comment',
+      comment: 'standalone'
+    })).resolves.toBe(true)
+    await editor.settled()
+    expect(editor.getMarkdownSync()).toBe('wo{>>standalone<<}rd')
   })
 
   it('focuses point Comments only after an explicit deterministic handoff', async() => {

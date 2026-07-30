@@ -94,7 +94,6 @@ export type TransformationRejectionReason =
   | 'invalid-command-argument'
   | 'invalid-source-range'
   | 'selection-collapsed'
-  | 'empty-comment-anchor'
   | 'empty-comment'
   | 'invalid-comment-payload'
   | 'selection-crosses-syntax-boundary'
@@ -169,6 +168,10 @@ type CandidateExpectation =
   }>
   | Readonly<{
     readonly kind: 'comment-edit'
+    readonly comment: string
+  }>
+  | Readonly<{
+    readonly kind: 'standalone-comment'
     readonly comment: string
   }>
 
@@ -1157,12 +1160,42 @@ function classifyAuthoringTarget(
     })
   }
   if (rangeStart(range) === rangeEnd(range)) {
-    return Object.freeze({
-      kind: 'rejected',
-      reason: inputKind === 'comment'
-        ? 'empty-comment-anchor'
-        : 'selection-collapsed'
-    })
+    if (inputKind !== 'comment') {
+      return Object.freeze({
+        kind: 'rejected',
+        reason: 'selection-collapsed'
+      })
+    }
+    // A collapsed caret authors the standalone Comment — one of the five
+    // canonical forms, and the only one insertable without an anchor. The
+    // caret may not split a marker, sit inside another Comment's prose, or
+    // sit inside a Markdown literal that would own the inserted markers.
+    const caretNodes = facts.criticMarkup.map(({ node }) => node)
+    if (selectionBoundaryCutsCriticMarker(range, caretNodes)) {
+      return Object.freeze({
+        kind: 'rejected',
+        reason: 'selection-partially-intersects-critic-markup'
+      })
+    }
+    const caret = rangeStart(range)
+    if (caretNodes.some((node) =>
+      node.kind === 'comment' &&
+      rangeStart(node.range) < caret &&
+      caret < rangeEnd(node.range)
+    )) {
+      return Object.freeze({
+        kind: 'rejected',
+        reason: 'comment-payload-target'
+      })
+    }
+    const caretLiteralReason = markdownLiteralIntersectionReason(
+      range,
+      facts.markdownLiterals
+    )
+    if (caretLiteralReason !== undefined) {
+      return Object.freeze({ kind: 'rejected', reason: caretLiteralReason })
+    }
+    return Object.freeze({ kind: 'accepted', range })
   }
 
   const nodes = facts.criticMarkup.map(({ node }) => node)
@@ -1498,7 +1531,10 @@ function expectationPasses(
     return true
   }
   const records = recordsOf(candidate)
-  if (expectation.kind === 'comment-edit') {
+  if (
+    expectation.kind === 'comment-edit' ||
+    expectation.kind === 'standalone-comment'
+  ) {
     return records.some(({ node }) =>
       node.kind === 'comment' &&
       sourceOf(candidate.source.text, node.arms[0].range) ===
@@ -1694,6 +1730,18 @@ function planAddComment(
   }
   if (!validCommentPayload(engine, revision.configuration, comment)) {
     return 'invalid-comment-payload'
+  }
+  if (rangeStart(range) === rangeEnd(range)) {
+    // The standalone form: no anchor, exactly `{>>note<<}` at the caret.
+    return Object.freeze({
+      edits: Object.freeze([
+        stableEdit(rangeStart(range), rangeStart(range), `{>>${comment}<<}`)
+      ]),
+      expectation: Object.freeze({
+        kind: 'standalone-comment',
+        comment
+      })
+    })
   }
   const selected = sourceOf(revision.source.text, range)
   const anchor = escapeCriticPayload(

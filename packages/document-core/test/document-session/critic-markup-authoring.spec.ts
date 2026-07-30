@@ -217,13 +217,6 @@ describe('DocumentSession CriticMarkup authoring', () => {
       {
         input: { kind: 'highlight' } as const,
         reason: 'selection-collapsed'
-      },
-      {
-        input: {
-          kind: 'comment',
-          comment: 'note'
-        } as const,
-        reason: 'empty-comment-anchor'
       }
     ]
     for (const row of invalid) {

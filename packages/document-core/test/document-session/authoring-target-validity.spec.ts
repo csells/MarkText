@@ -175,13 +175,6 @@ describe('parser-owned CriticMarkup authoring targets', () => {
 
   it.each([
     {
-      name: 'collapsed',
-      source: 'word',
-      target: selection(2),
-      input: { kind: 'comment', comment: 'note' } as const,
-      reason: 'empty-comment-anchor'
-    },
-    {
       name: 'hidden Comment',
       source: 'first {>>hidden<<} tail',
       target: selection(0, 'first  tail'.length),

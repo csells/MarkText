@@ -1793,7 +1793,8 @@ describe('renderer client for the main-owned document session', () => {
         canCreateDeletion: false,
         canCreateSubstitution: false,
         canCreateHighlight: false,
-        canCreateComment: false
+        // A collapsed caret authors the standalone Comment (G36).
+        canCreateComment: true
       },
       items: [],
       commentedSpans: []
