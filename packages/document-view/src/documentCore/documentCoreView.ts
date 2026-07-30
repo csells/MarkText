@@ -43,6 +43,10 @@ import {
     patchDocumentCoreTextPublication,
     rememberDocumentCoreTextPublication,
 } from './patchDocumentCoreTextPublication';
+import {
+    clearSearchDecorations,
+    paintSearchDecorations,
+} from './searchDecorations';
 import { renderDocumentCoreBlocks } from './renderBlocks';
 import { en } from '../locales/en';
 import type { ILocale } from '../i18n/types';
@@ -750,6 +754,14 @@ export interface IDocumentCoreView {
     /** Every match, as model ranges over the text the reader sees. */
     search: (query: DocumentSearchQuery) => readonly SearchMatchRange[];
     /**
+     * Paint search matches as presentation-only decorations that survive
+     * repaints; an empty range list clears them. Never touches the session.
+     */
+    setSearchDecorations: (
+        ranges: readonly Readonly<{ start: number; end: number }>[],
+        activeIndex: number,
+    ) => void;
+    /**
      * Recompute and replace every current match inside the owning session.
      *
      * The returned search state is calculated only after that one atomic
@@ -948,7 +960,6 @@ export async function createDocumentCoreView(
         }
     };
     let browserDraftTarget: Readonly<{ start: number; end: number }> | null = null;
-    let lastBrowserDomRange: Readonly<{ start: number; end: number }> | null = null;
     let compositionDraft: Readonly<{
         range: Readonly<{ start: number; end: number }>;
         text: string;
@@ -1508,6 +1519,35 @@ export async function createDocumentCoreView(
         quickInsertOverlay = overlay;
     };
 
+    let searchDecorations: Readonly<{
+        ranges: readonly Readonly<{ start: number; end: number }>[];
+        activeIndex: number;
+    }> | null = null;
+
+    const repaintSearchDecorations = (): void => {
+        if (searchDecorations === null)
+            return;
+        paintSearchDecorations(
+            host,
+            searchDecorations.ranges,
+            searchDecorations.activeIndex,
+        );
+    };
+
+    const setSearchDecorations = (
+        ranges: readonly Readonly<{ start: number; end: number }>[],
+        activeIndex: number,
+    ): void => {
+        searchDecorations = ranges.length === 0
+            ? null
+            : Object.freeze({ ranges, activeIndex });
+        if (searchDecorations === null) {
+            clearSearchDecorations(host);
+            return;
+        }
+        repaintSearchDecorations();
+    };
+
     const render = (restoreSelection = false): void => {
         forgetDocumentCoreTextPublication(host);
         imageRenderGeneration += 1;
@@ -1540,7 +1580,8 @@ export async function createDocumentCoreView(
                 );
             }
             clearQuickInsert();
-            rememberDocumentCoreTextPublication(host, snapshot);
+            repaintSearchDecorations();
+        rememberDocumentCoreTextPublication(host, snapshot);
             mountedSnapshot = snapshot;
             return;
         }
@@ -1789,6 +1830,7 @@ export async function createDocumentCoreView(
             );
         }
         refreshQuickInsert(snapshot);
+        repaintSearchDecorations();
         rememberDocumentCoreTextPublication(host, snapshot);
         mountedSnapshot = snapshot;
     };
@@ -1838,6 +1880,10 @@ export async function createDocumentCoreView(
             return;
 
         const after = session.snapshot();
+        // The patcher reconciles the mounted text nodes against the previous
+        // publication; decoration spans would make that surgery miss. Strip
+        // them first and repaint after the DOM settles.
+        clearSearchDecorations(host);
         const patched = result.kind === 'committed'
             && patchDocumentCoreTextPublication(
                 host,
@@ -1856,7 +1902,8 @@ export async function createDocumentCoreView(
                 );
             }
             refreshQuickInsert(after);
-            rememberDocumentCoreTextPublication(host, after);
+            repaintSearchDecorations();
+        rememberDocumentCoreTextPublication(host, after);
         }
         else {
             render(restoreSelection);
@@ -3476,7 +3523,6 @@ export async function createDocumentCoreView(
             .finally(() => {
                 if (browserInputGeneration === generation) {
                     browserDraftTarget = null;
-                    lastBrowserDomRange = null;
                     browserInputIdle = true;
                     if (destroying) {
                         deferredBrowserSelection = false;
@@ -3747,13 +3793,16 @@ export async function createDocumentCoreView(
             : event.data
                 ?? event.dataTransfer?.getData('text/plain')
                 ?? null;
-        const repeatedUnpaintedTarget = lastBrowserDomRange !== null
-            && lastBrowserDomRange.start === range.start
-            && lastBrowserDomRange.end === range.end;
-        const target = repeatedUnpaintedTarget && browserDraftTarget !== null
+        // While queued browser inputs are still publishing, the mounted DOM —
+        // including any selection a settling repaint restored — names a
+        // pre-edit publication (the invariant handleBrowserSelection defers
+        // on). Chain this input's target from the predicted caret of the
+        // previous queued input instead of the stale DOM range: trusting a
+        // range that merely LOOKS fresh let a mid-burst repaint retarget a
+        // keystroke into an older revision and scramble typed text.
+        const target = !browserInputIdle && browserDraftTarget !== null
             ? browserDraftTarget
             : range;
-        lastBrowserDomRange = range;
         if (inputType === 'insertCompositionText') {
             compositionDraft = Object.freeze({
                 range: compositionDraft?.range ?? target,
@@ -4108,6 +4157,7 @@ export async function createDocumentCoreView(
         replaceWordAt,
         redo,
         search,
+        setSearchDecorations,
         selectAll,
         snapshot: () => session.snapshot(),
         getMarkdown,

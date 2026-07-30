@@ -115,7 +115,10 @@ describe('closed editor command decoders', () => {
         syntax: 'regexp',
         caseSensitive: true,
         wholeWord: false
-      }
+      },
+      // Absent means a plain search; only the find bar's Escape teardown
+      // sets it to hand the caret to the active match.
+      selectActiveMatch: false
     })
     expect(decodeReplaceRequest({
       query: 'needle',

@@ -61,14 +61,20 @@ export function decodeParagraphAction(value: unknown): ParagraphAction {
 
 export function decodeSearchRequest(
   value: unknown
-): Readonly<{ query: DocumentSearchQuery }> {
-  const record = closedRecord(value, 'search', { required: ['value', 'opt'] })
+): Readonly<{ query: DocumentSearchQuery; selectActiveMatch: boolean }> {
+  const record = closedRecord(value, 'search', {
+    required: ['value', 'opt'],
+    // Escape tears the find bar down and hands the caret to the active
+    // match; a click-away must not, so the flag is explicit and optional.
+    optional: ['selectActiveMatch']
+  })
   if (typeof record.value !== 'string') {
     throw new TypeError('search value must be a string')
   }
   const options = decodeSearchOptions(record.opt, 'search')
   return Object.freeze({
-    query: createDocumentSearchQuery(record.value, options)
+    query: createDocumentSearchQuery(record.value, options),
+    selectActiveMatch: record.selectActiveMatch === true
   })
 }
 

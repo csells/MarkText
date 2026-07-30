@@ -78,17 +78,30 @@ const counterValue = async(page: Page): Promise<number> => {
   return match ? Number(match[1]) : NaN
 }
 
-// Mirror the public word-count policy so the test can derive the expected
-// title-bar value from the exact Markdown loaded into the live document.
+// Mirror the ratified count policy (specs/migration/consumer-policy.yml):
+// every view reads the committed canonical source. Word: runs of
+// letters/marks/digits/underscore count once and every Han ideograph is its
+// own word; character: non-whitespace code points; all: UTF-16 length. This
+// mirrors the engine's documented rules independently rather than importing
+// them, so a counting regression cannot certify itself.
 const expectedCount = (markdown: string): { word: number; paragraph: number; character: number; all: number } => {
-  const paragraph = markdown.split(/\n{2,}/).filter((line) => line).length
-  const removedChinese = markdown.replace(/[一-龥]/g, '')
-  const tokens = removedChinese.split(/\s+/).filter((t) => t)
-  const chineseWordLength = markdown.length - removedChinese.length
-  const word = chineseWordLength + tokens.length
-  const character = tokens.reduce((acc, t) => acc + t.length, 0) + chineseWordLength
-  const all = markdown.length
-  return { word, paragraph, character, all }
+  const paragraph = markdown.split(/\n{2,}/).filter((chunk) => chunk.trim()).length
+  let word = 0
+  let character = 0
+  let insideWord = false
+  for (const scalar of markdown) {
+    if (!/^\s$/u.test(scalar)) character += 1
+    if (/^\p{Script=Han}$/u.test(scalar)) {
+      word += 1
+      insideWord = false
+    } else if (/^[\p{L}\p{M}\p{N}_]$/u.test(scalar)) {
+      if (!insideWord) word += 1
+      insideWord = true
+    } else {
+      insideWord = false
+    }
+  }
+  return { word, paragraph, character, all: markdown.length }
 }
 
 test.describe('Title-bar word counter (item 24)', () => {

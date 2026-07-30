@@ -130,11 +130,11 @@ const seedDocClean = async(
   await closeAndReset(page)
   await setSourceMarkdown(page, app, markdown)
   await page.waitForTimeout(400)
-  const tabId = await page.evaluate(
-    () => document.querySelector('.editor-tabs li.active')?.getAttribute('data-id') ?? null
-  )
-  if (!tabId) throw new Error('could not resolve the active tab id')
-  await sendIpcToRenderer(app, 'mt::tab-saved', tabId)
+  // Drive the real File -> Save path: the tab is backed by a real temp file,
+  // so the main-owned save lease writes without a dialog and the
+  // content-addressed saved identity clears the dirty flag. The muya-era
+  // 'mt::tab-saved' channel this used to poke no longer has a listener.
+  await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
   await expect.poll(() => isTabDirty(page)).toBe(false)
 }
 

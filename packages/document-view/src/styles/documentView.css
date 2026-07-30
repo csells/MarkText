@@ -245,3 +245,13 @@
     outline: 2px solid var(--document-view-tool-focus, #1a73e8);
     outline-offset: 1px;
 }
+
+/* Search-match decorations: presentation-only spans the find bar paints. The
+   active match reads stronger than its siblings without obscuring text. */
+.document-view-selection {
+    background: var(--search-match-background, rgb(255 212 0 / 24%));
+}
+
+.document-view-highlight {
+    background: var(--search-active-match-background, rgb(255 154 0 / 45%));
+}

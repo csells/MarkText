@@ -275,7 +275,8 @@ const listenFindPrev = () => {
 
 const docKeyup = (event: KeyboardEvent) => {
   if (event.key === 'Escape') {
-    emptySearch()
+    // Escape hands the caret to the active match; a click-away does not.
+    emptySearch(true)
   }
 }
 
@@ -288,12 +289,13 @@ const blurSearch = () => {
   emptySearch()
 }
 
-const emptySearch = () => {
+const emptySearch = (selectActiveMatch = false) => {
   showSearch.value = false
   searchValue.value = ''
   replaceValue.value = ''
   bus.emit('searchValue', {
     value: searchValue.value,
+    selectActiveMatch,
     opt: {
       isCaseSensitive: isCaseSensitive.value,
       isWholeWord: isWholeWord.value,

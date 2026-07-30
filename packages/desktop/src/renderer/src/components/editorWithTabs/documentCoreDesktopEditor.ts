@@ -183,7 +183,7 @@ export interface DocumentEditorHost {
     listener: (rejection: ICriticMarkupTrackChangeRejection) => void
   ) => DisposableSubscription
   readonly snapshot: () => DocumentHostSnapshot
-  readonly selection: () => DocumentSelectionContext
+  readonly selection: () => DocumentSelectionContext | null
   readonly settled: () => Promise<void>
   readonly flush: () => Promise<void>
   readonly destroy: () => Promise<void>
@@ -206,6 +206,12 @@ export interface DocumentEditorHost {
   readonly getCursorOffset: () => IndexCursor
   readonly setCursorByOffset: (cursor: IndexCursor | number) => void
   readonly search: (query: DocumentSearchQuery) => SearchResult
+  /**
+   * Select the active search match in the editor and focus it — the Escape
+   * teardown's handoff of the caret back to the document. Returns false when
+   * no search is active.
+   */
+  readonly selectActiveSearchMatch: () => boolean
   readonly find: (direction: 'previous' | 'next') => SearchResult
   readonly replace: (
     replacement: string,
@@ -673,7 +679,11 @@ export async function createDocumentEditorHost(
       publishDocumentChange()
     }
     publishReview()
-    publishSelection(view.getSelectionContext())
+    // A SourceOnly revision mounts no semantic tree, so there is no selection
+    // context to publish; asking for one throws on the notification path.
+    if (view.snapshot().kind === 'complete') {
+      publishSelection(view.getSelectionContext())
+    }
   })
   const viewInteraction = view.subscribeInteraction((interaction) => {
     publishInteraction(interaction)
@@ -691,6 +701,7 @@ export async function createDocumentEditorHost(
       match: view.modelText().slice(match.start, match.end)
     })))
     searchIndex = searchMatches.length === 0 ? -1 : 0
+    view.setSearchDecorations(searchMatches, searchIndex)
     return Object.freeze({
       index: searchIndex,
       matches: searchMatches,
@@ -1225,7 +1236,9 @@ export async function createDocumentEditorHost(
           : Object.freeze([])
       })
     },
-    selection: () => view.getSelectionContext(),
+    selection: () => view.snapshot().kind === 'complete'
+      ? view.getSelectionContext()
+      : null,
     settled,
     destroy: () => {
       if (destroyPromise !== null) return destroyPromise
@@ -1347,10 +1360,18 @@ export async function createDocumentEditorHost(
       })
     },
     search,
+    selectActiveSearchMatch: (): boolean => {
+      const chosen = searchIndex >= 0 ? searchMatches[searchIndex] : undefined
+      if (chosen === undefined) return false
+      view.setSelection(chosen.start, chosen.end)
+      view.focus()
+      return true
+    },
     find: (direction: 'previous' | 'next'): SearchResult => {
       if (searchMatches.length === 0) return currentSearch()
       const delta = direction === 'next' ? 1 : -1
       searchIndex = (searchIndex + delta + searchMatches.length) % searchMatches.length
+      view.setSearchDecorations(searchMatches, searchIndex)
       return currentSearch()
     },
     replace: async(
@@ -1478,6 +1499,9 @@ export async function createDocumentEditorHost(
         // before this boundary reads the mounted DOM range; otherwise the
         // queued select can carry pre-edit offsets into the next revision.
         await view.settled()
+        // A SourceOnly revision mounts no semantic tree: there is no browser
+        // selection to commit and no selection context to publish.
+        if (view.snapshot().kind !== 'complete') return
         await view.commitSelection()
         publishReview()
         publishSelection(view.getSelectionContext())

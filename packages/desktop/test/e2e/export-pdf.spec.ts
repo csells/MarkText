@@ -48,32 +48,53 @@ const printHiddenEditorToPdf = async(
 }
 
 // --- Minimal PDF text extraction -------------------------------------------
-// Chromium's Skia PDF producer Flate-compresses page content streams and font
-// ToUnicode CMaps, and shows text as hex glyph strings (`<...> Tj`) encoded
-// with per-subset glyph ids. Inflate every stream, build the glyph->unicode
-// map from the bfchar/bfrange CMap entries, and decode every shown string so
-// specs can assert on the rendered TEXT of an artifact rather than raw bytes.
+// Chromium's Skia PDF producer embeds ONE subsetted font per typeface, each
+// with its own ToUnicode CMap keyed by per-subset glyph ids. Glyph ids collide
+// across fonts, so decoding is font-aware: parse the object graph, map each
+// page's font resources to their CMaps, and walk each content stream in
+// operator order so every shown hex string decodes through the font selected
+// by the preceding Tf. A single merged CMap interleaves garbage.
 
-const inflatedPdfStreams = (data: Buffer): string[] => {
+interface PdfObject {
+  dict: string
+  stream?: Buffer
+}
+
+const parsePdfObjects = (data: Buffer): Map<number, PdfObject> => {
   const raw = data.toString('latin1')
-  const streams: string[] = []
-  const streamKeyword = /stream\r?\n/g
+  const objects = new Map<number, PdfObject>()
+  const header = /(\d+)\s+0\s+obj/g
   let match: RegExpExecArray | null
-  while ((match = streamKeyword.exec(raw)) !== null) {
-    // Skip the `stream` inside `endstream`.
-    if (match.index >= 3 && raw.slice(match.index - 3, match.index) === 'end') continue
-    const dataStart = match.index + match[0].length
-    const endAt = raw.indexOf('endstream', dataStart)
-    if (endAt === -1) break
-    const chunk = data.subarray(dataStart, endAt)
-    try {
-      streams.push(zlib.inflateSync(chunk).toString('latin1'))
-    } catch {
-      streams.push(chunk.toString('latin1'))
+  while ((match = header.exec(raw)) !== null) {
+    const objectNumber = Number(match[1])
+    const bodyStart = match.index + match[0].length
+    const endObj = raw.indexOf('endobj', bodyStart)
+    if (endObj === -1) break
+    const streamAt = /stream\r?\n/g
+    streamAt.lastIndex = bodyStart
+    const streamMatch = streamAt.exec(raw)
+    if (streamMatch !== null && streamMatch.index < endObj) {
+      const dataStart = streamMatch.index + streamMatch[0].length
+      const endStream = raw.indexOf('endstream', dataStart)
+      if (endStream === -1) break
+      const chunk = data.subarray(dataStart, endStream)
+      let stream: Buffer
+      try {
+        stream = zlib.inflateSync(chunk)
+      } catch {
+        stream = Buffer.from(chunk)
+      }
+      objects.set(objectNumber, {
+        dict: raw.slice(bodyStart, streamMatch.index),
+        stream
+      })
+      header.lastIndex = endStream
+    } else {
+      objects.set(objectNumber, { dict: raw.slice(bodyStart, endObj) })
+      header.lastIndex = endObj
     }
-    streamKeyword.lastIndex = endAt
   }
-  return streams
+  return objects
 }
 
 const utf16FromHex = (hex: string): string => {
@@ -84,28 +105,23 @@ const utf16FromHex = (hex: string): string => {
   return out
 }
 
-const glyphToUnicodeMap = (streams: string[]): Map<number, string> => {
+const cmapFromToUnicode = (stream: string): Map<number, string> => {
   const map = new Map<number, string>()
-  for (const stream of streams) {
-    if (!stream.includes('beginbfchar') && !stream.includes('beginbfrange')) continue
-    const charSections = stream.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)
-    for (const section of charSections) {
-      for (const entry of section[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
-        map.set(Number.parseInt(entry[1], 16), utf16FromHex(entry[2]))
-      }
+  for (const section of stream.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+    for (const entry of section[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+      map.set(Number.parseInt(entry[1], 16), utf16FromHex(entry[2]))
     }
-    const rangeSections = stream.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)
-    for (const section of rangeSections) {
-      const ranges = section[1].matchAll(
-        /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g
-      )
-      for (const entry of ranges) {
-        const lo = Number.parseInt(entry[1], 16)
-        const hi = Number.parseInt(entry[2], 16)
-        const dst = Number.parseInt(entry[3], 16)
-        for (let code = lo; code <= hi; code++) {
-          map.set(code, String.fromCharCode(dst + (code - lo)))
-        }
+  }
+  for (const section of stream.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+    const ranges = section[1].matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g
+    )
+    for (const entry of ranges) {
+      const lo = Number.parseInt(entry[1], 16)
+      const hi = Number.parseInt(entry[2], 16)
+      const dst = Number.parseInt(entry[3], 16)
+      for (let code = lo; code <= hi; code++) {
+        map.set(code, String.fromCharCode(dst + (code - lo)))
       }
     }
   }
@@ -113,31 +129,74 @@ const glyphToUnicodeMap = (streams: string[]): Map<number, string> => {
 }
 
 const extractPdfText = (data: Buffer): string => {
-  const streams = inflatedPdfStreams(data)
-  const cmap = glyphToUnicodeMap(streams)
-  const decodeHex = (hex: string): string => {
-    let out = ''
-    for (let i = 0; i + 4 <= hex.length; i += 4) {
-      const code = Number.parseInt(hex.slice(i, i + 4), 16)
-      out += cmap.get(code) ?? ''
-    }
-    return out
+  const objects = parsePdfObjects(data)
+
+  const fontCmaps = new Map<number, Map<number, string>>()
+  for (const [objectNumber, object] of objects) {
+    const toUnicode = object.dict.match(/\/ToUnicode\s+(\d+)\s+0\s+R/)
+    if (!toUnicode) continue
+    const cmapStream = objects.get(Number(toUnicode[1]))?.stream
+    if (!cmapStream) continue
+    fontCmaps.set(objectNumber, cmapFromToUnicode(cmapStream.toString('latin1')))
   }
+
   const parts: string[] = []
-  for (const stream of streams) {
-    if (!/\bT[Jj]\b/.test(stream)) continue
-    // Hex-string shows: `<...> Tj` and TJ arrays of hex strings.
-    for (const shown of stream.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
-      parts.push(decodeHex(shown[1]))
+  for (const object of objects.values()) {
+    if (!/\/Type\s*\/Page\b/.test(object.dict)) continue
+
+    let resources = object.dict
+    const resourcesRef = object.dict.match(/\/Resources\s+(\d+)\s+0\s+R/)
+    if (resourcesRef) {
+      resources = objects.get(Number(resourcesRef[1]))?.dict ?? ''
     }
-    for (const array of stream.matchAll(/\[((?:[^\]])*)\]\s*TJ/g)) {
-      for (const shown of array[1].matchAll(/<([0-9A-Fa-f]+)>/g)) {
-        parts.push(decodeHex(shown[1]))
+    const fontsByName = new Map<string, Map<number, string>>()
+    const fontDict = resources.match(/\/Font\s*<<([\s\S]*?)>>/)
+    if (fontDict) {
+      for (const entry of fontDict[1].matchAll(/\/([\w.]+)\s+(\d+)\s+0\s+R/g)) {
+        const cmap = fontCmaps.get(Number(entry[2]))
+        if (cmap) fontsByName.set(entry[1], cmap)
       }
     }
-    // Literal-string shows (simple fonts): `(...) Tj`.
-    for (const shown of stream.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)) {
-      parts.push(shown[1].replace(/\\([\\()])/g, '$1'))
+
+    const contentRefs: number[] = []
+    const contentsArray = object.dict.match(/\/Contents\s*\[([\s\S]*?)\]/)
+    if (contentsArray) {
+      for (const ref of contentsArray[1].matchAll(/(\d+)\s+0\s+R/g)) {
+        contentRefs.push(Number(ref[1]))
+      }
+    } else {
+      const single = object.dict.match(/\/Contents\s+(\d+)\s+0\s+R/)
+      if (single) contentRefs.push(Number(single[1]))
+    }
+
+    for (const ref of contentRefs) {
+      const content = objects.get(ref)?.stream?.toString('latin1')
+      if (!content) continue
+      let cmap: Map<number, string> | undefined
+      const decodeHex = (hex: string): string => {
+        let out = ''
+        for (let i = 0; i + 4 <= hex.length; i += 4) {
+          const code = Number.parseInt(hex.slice(i, i + 4), 16)
+          out += cmap?.get(code) ?? ''
+        }
+        return out
+      }
+      const ops = content.matchAll(
+        /\/([\w.]+)\s+[\d.]+\s+Tf|<([0-9A-Fa-f]+)>\s*Tj|\[((?:[^\]])*)\]\s*TJ|\(((?:\\.|[^\\)])*)\)\s*Tj/g
+      )
+      for (const op of ops) {
+        if (op[1] !== undefined) {
+          cmap = fontsByName.get(op[1])
+        } else if (op[2] !== undefined) {
+          parts.push(decodeHex(op[2]))
+        } else if (op[3] !== undefined) {
+          for (const shown of op[3].matchAll(/<([0-9A-Fa-f]+)>/g)) {
+            parts.push(decodeHex(shown[1]))
+          }
+        } else if (op[4] !== undefined) {
+          parts.push(op[4].replace(/\\([\\()])/g, '$1'))
+        }
+      }
     }
   }
   return parts.join('')

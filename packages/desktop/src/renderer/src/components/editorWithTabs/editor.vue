@@ -933,9 +933,10 @@ const toSearchMatches = (
 }
 
 const handleSearch = (payload: unknown) => {
-  const { query } = decodeSearchRequest(payload)
+  const { query, selectActiveMatch } = decodeSearchRequest(payload)
   const targetEditor = editor.value
   if (!targetEditor) return
+  if (selectActiveMatch) targetEditor.selectActiveSearchMatch()
   editorStore.SEARCH(toSearchMatches(targetEditor.search(query)))
   scrollToHighlight()
 }

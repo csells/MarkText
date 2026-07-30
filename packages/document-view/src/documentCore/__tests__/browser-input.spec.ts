@@ -811,4 +811,58 @@ describe('document-core browser input', () => {
         expect(cutView.getMarkdownSync()).toBe('Hello');
         await cutView.destroy();
     });
+
+    it('chains a burst past a mid-burst repaint that restores an older caret', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const authority = await createTestDocumentCoreSession(
+            createSourceSnapshot('Hello'),
+            PARSE_CONFIGURATION,
+        );
+        // One gate per dispatch so an EARLIER commit's publication can land —
+        // and repaint the DOM with its older caret — while later keystrokes
+        // are still in flight.
+        const releases: Array<() => void> = [];
+        const session = Object.freeze({
+            ...authority,
+            dispatch: (
+                intent: Parameters<typeof authority.dispatch>[0],
+            ) => {
+                if (intent.kind !== 'edit-source') {
+                    return authority.dispatch(intent);
+                }
+                const gate = new Promise<void>(resolve => {
+                    releases.push(resolve);
+                });
+                return authority.dispatch(intent).then(async (result) => {
+                    await gate;
+                    return result;
+                });
+            },
+        });
+        const view = await createSessionBackedDocumentCoreView({
+            host,
+            session,
+        });
+        placeCaret(textNodeContaining(host, 'Hello'), 5);
+        await view.commitSelection();
+
+        beforeInput(host, 'insertText', 'a');
+        beforeInput(host, 'insertText', 'b');
+        // Release only the first commit: its publication repaints the DOM and
+        // restores the caret of that older revision while 'b' is unpublished.
+        releases[0]?.();
+        await new Promise(resolve => setTimeout(resolve, 10));
+        // The third keystroke reads the repainted (stale) DOM caret; a target
+        // taken from it would land inside the older revision and scramble the
+        // burst. The draft chain must win while the queue is busy.
+        beforeInput(host, 'insertText', 'c');
+        releases[1]?.();
+        releases[2]?.();
+
+        await view.settled();
+        expect(view.getMarkdownSync()).toBe('Helloabc');
+
+        view.destroy();
+    });
 });

@@ -2132,10 +2132,12 @@ export async function createDocumentCoreRemoteSession(
     await pending
     await activation
     if (closed) throw new Error('The remote document session is closed')
-    if (documentId === activeDocumentId) return
-    // Keep the last verified read model available until main publishes the
-    // target document. Synchronous shell reads can occur while the async tab
-    // switch is in flight; an empty cache would make that valid transition
+    // A same-id attach is the reload signal: the store re-emits file-changed
+    // for the ACTIVE document precisely when main replaced its session content
+    // from disk, and refusing it left the renderer showing the pre-reload
+    // bytes forever. Keep the last verified read model available until main
+    // publishes; synchronous shell reads can occur while the async attach is
+    // in flight, and an empty cache would make that valid transition
     // observable as a broken editor.
     await attach(documentId)
   }

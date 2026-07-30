@@ -19,7 +19,7 @@ export interface ImageInsertionSnapshotHost {
   readonly selection: () => Readonly<{
     readonly anchor: Readonly<{ readonly offset: number }>
     readonly focus: Readonly<{ readonly offset: number }>
-  }>
+  }> | null
 }
 
 export interface ImageReferenceInsertionHost

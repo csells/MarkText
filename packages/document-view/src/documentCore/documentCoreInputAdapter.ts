@@ -365,6 +365,72 @@ function domPointAtModelPosition(
  * Restore the browser selection from the session-owned model selection after a
  * committed render replaced the old DOM.
  */
+/** One wrappable text slice of a search match, local to its text node. */
+export interface SearchDecorationSegment {
+    readonly node: Text;
+    readonly start: number;
+    readonly end: number;
+}
+
+/**
+ * Resolve a parser-issued model range to the text-node slices that render it.
+ * Decoration painting wraps these slices; hidden syntax a run's boundary map
+ * collapses away contributes no slice, so decorations never fabricate text.
+ */
+export function searchDecorationSegments(
+    host: HTMLElement,
+    range: Readonly<{ start: number; end: number }>,
+): SearchDecorationSegment[] {
+    const segments: SearchDecorationSegment[] = [];
+    for (const run of host.querySelectorAll(RUN_RANGE_SELECTOR)) {
+        const runStart = integerAttribute(run, 'data-model-start');
+        const runEnd = integerAttribute(run, 'data-model-end');
+        const overlapStart = Math.max(range.start, runStart);
+        const overlapEnd = Math.min(range.end, runEnd);
+        if (overlapEnd <= overlapStart)
+            continue;
+
+        const boundaries = MODEL_BOUNDARIES.get(run);
+        let localStart = overlapStart - runStart;
+        let localEnd = overlapEnd - runStart;
+        if (boundaries !== undefined) {
+            localStart = textOffsetAtModelBoundary(boundaries, {
+                offset: overlapStart,
+                affinity: 'next',
+            });
+            localEnd = textOffsetAtModelBoundary(boundaries, {
+                offset: overlapEnd,
+                affinity: 'next',
+            });
+        }
+        if (localEnd <= localStart)
+            continue;
+
+        const walker = run.ownerDocument.createTreeWalker(
+            run,
+            NodeFilter.SHOW_TEXT,
+        );
+        let consumed = 0;
+        let node = walker.nextNode();
+        while (node && consumed < localEnd) {
+            const text = node as Text;
+            const length = text.data.length;
+            const segmentStart = Math.max(0, localStart - consumed);
+            const segmentEnd = Math.min(length, localEnd - consumed);
+            if (segmentEnd > segmentStart) {
+                segments.push({
+                    node: text,
+                    start: segmentStart,
+                    end: segmentEnd,
+                });
+            }
+            consumed += length;
+            node = walker.nextNode();
+        }
+    }
+    return segments;
+}
+
 export function restoreDocumentCoreSelection(
     host: HTMLElement,
     anchor: ModelPosition,
