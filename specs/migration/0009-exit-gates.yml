@@ -39,7 +39,8 @@
         "A05",
         "D02",
         "A35",
-        "A36"
+        "A36",
+        "A38"
       ],
       "target": {
         "kind": "test",
@@ -109,7 +110,7 @@
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/cross-consumer-resource-matrix.spec.ts",
-        "title": "serves 16384 and disables semantics at 16385"
+        "title": "serves 16384 and degrades the annotation at 16385 to literal text"
       }
     },
     {

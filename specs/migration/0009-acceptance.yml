@@ -415,6 +415,17 @@
         "path": "packages/desktop/test/e2e/critic-markup-perf.spec.ts",
         "title": "five projection toggles, review navigation, and sidebar refreshes stay under the 500ms p95"
       }
+    },
+    {
+      "id": "A38",
+      "requirement": "GFM 0.29 corpus totality",
+      "phase": "P1",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/language-engine/gfm-corpus-totality.spec.ts",
+        "title": "parses all 672 spec inputs to complete revisions with exact source"
+      }
     }
   ]
 }
