@@ -147,6 +147,7 @@
       "rejectCurrent": "拒絕變更",
       "acceptAll": "接受所有變更",
       "rejectAll": "拒絕所有變更",
+      "removeAllAnnotations": "移除所有醒目提示與註解",
       "display": "顯示",
       "showMarked": "標記",
       "showOriginal": "原文",
@@ -789,6 +790,7 @@
       "rejectCurrent": "拒絕變更",
       "acceptAll": "接受所有變更",
       "rejectAll": "拒絕所有變更",
+      "removeAllAnnotations": "移除所有醒目提示與註解",
       "showMarked": "顯示標記",
       "showOriginal": "顯示原文",
       "showRevised": "顯示修訂稿"
@@ -916,6 +918,7 @@
         "unknownReason": "追蹤修訂無法記錄這次編輯，文件維持不變。請再試一次，或先關閉追蹤修訂再進行這次變更。",
         "unmappableSourceEdit": "追蹤修訂無法記錄這次編輯，文件維持不變。請嘗試較小的編輯，或先關閉追蹤修訂再進行這次變更。",
         "parserConflict": "追蹤修訂無法讓這次編輯與文件的 Markdown 內容相互對應，文件維持不變。請嘗試較小的編輯，或先關閉追蹤修訂再進行這次變更。",
+        "commentPayloadTarget": "該標記被引用在註解內，因此不是可操作的變更。編輯註解以修改其文字，或直接解決該註解。",
         "unmappableTrackedSelection": "追蹤修訂無法將選取範圍對應到追蹤中的文件，文件維持不變。請重新選取文字後再試一次，或先關閉追蹤修訂再進行這次變更。",
         "missingTrackedSelectionBlock": "追蹤修訂找不到選取範圍所在的文字區塊，文件維持不變。請重新點按文字後再試一次，或先關閉追蹤修訂再進行這次變更。"
       }

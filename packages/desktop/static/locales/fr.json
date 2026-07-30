@@ -147,6 +147,7 @@
       "rejectCurrent": "Refuser la modification",
       "acceptAll": "Accepter toutes les modifications",
       "rejectAll": "Refuser toutes les modifications",
+      "removeAllAnnotations": "Supprimer tous les surlignages et commentaires",
       "display": "Affichage",
       "showMarked": "Annotations",
       "showOriginal": "Original",
@@ -789,6 +790,7 @@
       "rejectCurrent": "Refuser la modification",
       "acceptAll": "Accepter toutes les modifications",
       "rejectAll": "Refuser toutes les modifications",
+      "removeAllAnnotations": "Supprimer tous les surlignages et commentaires",
       "showMarked": "Afficher les annotations",
       "showOriginal": "Afficher l’original",
       "showRevised": "Afficher la version révisée"
@@ -916,6 +918,7 @@
         "unknownReason": "Le suivi des modifications n'a pas pu enregistrer cette modification, le document n'a donc pas été modifié. Réessayez ou désactivez le suivi des modifications pour cette opération.",
         "unmappableSourceEdit": "Le suivi des modifications n'a pas pu enregistrer cette modification, le document n'a donc pas été modifié. Essayez une modification plus petite ou désactivez le suivi des modifications pour cette opération.",
         "parserConflict": "Le suivi des modifications n'a pas pu concilier cette modification avec le Markdown du document, le document n'a donc pas été modifié. Essayez une modification plus petite ou désactivez le suivi des modifications pour cette opération.",
+        "commentPayloadTarget": "Ce balisage est cité dans un commentaire et n'est donc pas une modification exploitable. Modifiez le commentaire pour changer son texte, ou résolvez le commentaire lui-même.",
         "unmappableTrackedSelection": "Le suivi des modifications n'a pas pu faire correspondre votre sélection au document suivi, le document n'a donc pas été modifié. Sélectionnez à nouveau le texte et réessayez, ou désactivez le suivi des modifications pour cette opération.",
         "missingTrackedSelectionBlock": "Le suivi des modifications n'a pas pu retrouver le bloc contenant votre sélection, le document n'a donc pas été modifié. Cliquez à nouveau dans le texte, ou désactivez le suivi des modifications pour cette opération."
       }

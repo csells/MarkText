@@ -62,6 +62,7 @@ const REVIEW_BOOLEAN_FIELDS = Object.freeze([
   'canNavigate',
   'canResolveCurrent',
   'canResolveAll',
+  'canRemoveAllAnnotations',
   'trackChanges'
 ] as const satisfies readonly (keyof CriticMarkupReviewMenuState)[])
 

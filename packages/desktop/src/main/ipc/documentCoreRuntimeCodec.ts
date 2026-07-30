@@ -764,6 +764,10 @@ function editorIntent(value: unknown): EditorIntent {
         )
       })
     }
+    case 'remove-all-annotations': {
+      closedRecord(value, `intent.${kind}`, ['kind'])
+      return Object.freeze({ kind })
+    }
     case 'remove-highlight':
     case 'remove-comment': {
       const record = closedRecord(value, `intent.${kind}`, ['kind', 'target'])

@@ -147,6 +147,7 @@
       "rejectCurrent": "Änderung ablehnen",
       "acceptAll": "Alle Änderungen annehmen",
       "rejectAll": "Alle Änderungen ablehnen",
+      "removeAllAnnotations": "Alle Hervorhebungen & Kommentare entfernen",
       "display": "Anzeige",
       "showMarked": "Markierungen",
       "showOriginal": "Original",
@@ -789,6 +790,7 @@
       "rejectCurrent": "Änderung ablehnen",
       "acceptAll": "Alle Änderungen annehmen",
       "rejectAll": "Alle Änderungen ablehnen",
+      "removeAllAnnotations": "Alle Hervorhebungen und Kommentare entfernen",
       "showMarked": "Markierungen anzeigen",
       "showOriginal": "Original anzeigen",
       "showRevised": "Überarbeitete Fassung anzeigen"
@@ -916,6 +918,7 @@
         "unknownReason": "Die Änderungsverfolgung konnte diese Bearbeitung nicht erfassen, das Dokument blieb daher unverändert. Versuchen Sie es erneut oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
         "unmappableSourceEdit": "Die Änderungsverfolgung konnte diese Bearbeitung nicht erfassen, das Dokument blieb daher unverändert. Versuchen Sie eine kleinere Bearbeitung oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
         "parserConflict": "Die Änderungsverfolgung konnte diese Bearbeitung nicht mit dem Markdown des Dokuments in Einklang bringen, das Dokument blieb daher unverändert. Versuchen Sie eine kleinere Bearbeitung oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
+        "commentPayloadTarget": "Dieses Markup ist in einem Kommentar zitiert und daher keine ausführbare Änderung. Bearbeiten Sie den Kommentar, um seinen Text zu ändern, oder lösen Sie den Kommentar selbst auf.",
         "unmappableTrackedSelection": "Die Änderungsverfolgung konnte Ihre Auswahl nicht dem nachverfolgten Dokument zuordnen, das Dokument blieb daher unverändert. Wählen Sie den Text erneut aus und versuchen Sie es noch einmal, oder schalten Sie die Änderungsverfolgung für diese Änderung aus.",
         "missingTrackedSelectionBlock": "Die Änderungsverfolgung konnte den Block mit Ihrer Auswahl nicht finden, das Dokument blieb daher unverändert. Klicken Sie erneut in den Text, oder schalten Sie die Änderungsverfolgung für diese Änderung aus."
       }

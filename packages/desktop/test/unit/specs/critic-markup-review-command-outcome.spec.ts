@@ -67,6 +67,7 @@ const snapshot: ICriticMarkupReviewSnapshot = {
   canNavigate: true,
   canResolveCurrent: true,
   canResolveAll: true,
+  canRemoveAllAnnotations: false,
   trackChanges: false,
   projection: 'marked'
 }
@@ -80,6 +81,7 @@ const fakeEditor = (): ICriticMarkupReviewEditor => ({
   navigateCriticMarkup: () => item,
   resolveCriticMarkup: async() => false,
   resolveAllCriticMarkup: async() => 1,
+  removeAllCriticMarkupAnnotations: vi.fn(async() => 0),
   editCriticMarkupComment: async() => true,
   commitAuthoringSelection: () => {},
   configure: async() => {}

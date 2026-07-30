@@ -89,6 +89,7 @@ const reviewState = {
   canNavigate: true,
   canResolveCurrent: false,
   canResolveAll: true,
+  canRemoveAllAnnotations: true,
   trackChanges: true,
   projection: 'marked' as const
 }

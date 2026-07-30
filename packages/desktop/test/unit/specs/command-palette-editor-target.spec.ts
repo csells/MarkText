@@ -74,6 +74,7 @@ describe('command-palette editor targeting', () => {
       canNavigate: true,
       canResolveCurrent: true,
       canResolveAll: false,
+      canRemoveAllAnnotations: false,
       trackChanges: false,
       projection: 'marked'
     })

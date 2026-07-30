@@ -832,6 +832,10 @@ export function decodeEditorIntent(value: unknown): EditorIntent {
         )
       })
     }
+    if (kind === 'remove-all-annotations') {
+      closedRecord(value, 'root', ['kind'])
+      return Object.freeze({ kind })
+    }
     if (kind === 'remove-highlight' || kind === 'remove-comment') {
       const stable = closedRecord(value, 'root', ['kind', 'target'])
       return Object.freeze({

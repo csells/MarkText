@@ -74,6 +74,14 @@ export type TransformationIntent =
     readonly target: NodeId
   }>
   | Readonly<{
+    /**
+     * Resolve every Highlight and Comment at once: highlights unwrap to
+     * their payload text, comments — standalone or pair notes — are
+     * removed. With resolve-all-changes this completes an editorial pass.
+     */
+    readonly kind: 'remove-all-annotations'
+  }>
+  | Readonly<{
     readonly kind: 'add-comment'
     readonly range: SourceRange
     readonly comment: string
@@ -152,6 +160,12 @@ interface NodeRecord {
   readonly revisedPathVisible: boolean
   /** True when an ancestor arm is a Comment payload (reviewer prose). */
   readonly withinCommentPayload: boolean
+  /**
+   * True when any ancestor is a Highlight or Comment — a bulk annotation
+   * removal replaces that ancestor, so this node is rendered through it
+   * rather than edited directly.
+   */
+  readonly hasMarkAncestor: boolean
 }
 
 interface ProtectedCandidate {
@@ -275,6 +289,7 @@ function recordsOf(
     hasChangeAncestor: boolean
     revisedPathVisible: boolean
     withinCommentPayload: boolean
+    hasMarkAncestor: boolean
   }>> = []
   for (let index = roots.length - 1; index >= 0; index -= 1) {
     const node = roots[index]
@@ -285,7 +300,8 @@ function recordsOf(
         siblingIndex: index,
         hasChangeAncestor: false,
         revisedPathVisible: true,
-        withinCommentPayload: false
+        withinCommentPayload: false,
+        hasMarkAncestor: false
       })
     }
   }
@@ -300,7 +316,8 @@ function recordsOf(
       siblingIndex: current.siblingIndex,
       hasChangeAncestor: current.hasChangeAncestor,
       revisedPathVisible: current.revisedPathVisible,
-      withinCommentPayload: current.withinCommentPayload
+      withinCommentPayload: current.withinCommentPayload,
+      hasMarkAncestor: current.hasMarkAncestor
     }))
     for (
       let armIndex = current.node.arms.length - 1;
@@ -329,7 +346,11 @@ function recordsOf(
               armSurvivesRevised(current.node, arm.name),
             withinCommentPayload:
               current.withinCommentPayload ||
-              current.node.kind === 'comment'
+              current.node.kind === 'comment',
+            hasMarkAncestor:
+              current.hasMarkAncestor ||
+              current.node.kind === 'comment' ||
+              current.node.kind === 'highlight'
           })
         }
       }
@@ -1692,6 +1713,79 @@ function planResolveAll(
   })
 }
 
+function renderArmWithoutAnnotations(
+  source: string,
+  arm: CriticMarkupArm<CriticMarkupArmName>
+): string {
+  let out = ''
+  let cursor = rangeStart(arm.range)
+  for (const child of arm.children) {
+    out += source.slice(cursor, rangeStart(child.range))
+    out += renderNodeWithoutAnnotations(source, child)
+    cursor = rangeEnd(child.range)
+  }
+  return out + source.slice(cursor, rangeEnd(arm.range))
+}
+
+/**
+ * One node with every Highlight unwrapped and every Comment removed, at any
+ * nesting depth. A change keeps its own markers and recurses into its arms,
+ * so `{=={++a++} {>>n<<}==}` renders as `{++a++} `.
+ */
+function renderNodeWithoutAnnotations(
+  source: string,
+  node: CriticMarkupNode
+): string {
+  if (node.kind === 'comment') {
+    return ''
+  }
+  if (node.kind === 'highlight') {
+    return renderArmWithoutAnnotations(source, node.arms[0])
+  }
+  if (node.kind === 'substitution') {
+    return sourceOf(source, node.markers.open) +
+      renderArmWithoutAnnotations(source, node.arms[0]) +
+      sourceOf(source, node.markers.separator) +
+      renderArmWithoutAnnotations(source, node.arms[1]) +
+      sourceOf(source, node.markers.close)
+  }
+  return sourceOf(source, node.markers.open) +
+    renderArmWithoutAnnotations(source, node.arms[0]) +
+    sourceOf(source, node.markers.close)
+}
+
+function planRemoveAllAnnotations(
+  revision: CompleteDocumentRevision,
+  records: readonly NodeRecord[]
+): PlannedTransformation | TransformationRejectionReason {
+  // Maximal set: highlights and comments not inside another highlight or
+  // comment — nested ones render through their ancestor's replacement. A
+  // change ancestor does not block: its arm bytes are edited in place.
+  const targets = records.filter(({ node, hasMarkAncestor }) =>
+    (node.kind === 'highlight' || node.kind === 'comment') &&
+    !hasMarkAncestor
+  )
+  if (
+    targets.length >
+      DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction
+  ) {
+    return 'invalid-command-argument'
+  }
+  const edits = targets
+    .map(({ node }) =>
+      stableEdit(
+        rangeStart(node.range),
+        rangeEnd(node.range),
+        renderNodeWithoutAnnotations(revision.source.text, node)
+      )
+    )
+    .sort((left, right) => left.start - right.start)
+  return Object.freeze({
+    edits: Object.freeze(edits),
+    expectation: Object.freeze({ kind: 'generic' })
+  })
+}
+
 function planRemoveHighlight(
   revision: CompleteDocumentRevision,
   records: readonly NodeRecord[],
@@ -1951,6 +2045,9 @@ export function createTransformationKernel(
         break
       case 'remove-highlight':
         plan = planRemoveHighlight(revision, records, intent.target)
+        break
+      case 'remove-all-annotations':
+        plan = planRemoveAllAnnotations(revision, records)
         break
       case 'add-comment':
         plan = planCriticMarkupAuthoring(

@@ -147,6 +147,7 @@
       "rejectCurrent": "拒绝更改",
       "acceptAll": "接受所有更改",
       "rejectAll": "拒绝所有更改",
+      "removeAllAnnotations": "移除所有高亮和批注",
       "display": "显示",
       "showMarked": "标记",
       "showOriginal": "原文",
@@ -789,6 +790,7 @@
       "rejectCurrent": "拒绝更改",
       "acceptAll": "接受所有更改",
       "rejectAll": "拒绝所有更改",
+      "removeAllAnnotations": "移除所有高亮和批注",
       "showMarked": "显示标记",
       "showOriginal": "显示原文",
       "showRevised": "显示修订稿"
@@ -916,6 +918,7 @@
         "unknownReason": "跟踪更改无法记录这次编辑，文档保持原样。请重试，或先关闭跟踪更改再进行这次改动。",
         "unmappableSourceEdit": "跟踪更改无法记录这次编辑，文档保持原样。请尝试较小的编辑，或先关闭跟踪更改再进行这次改动。",
         "parserConflict": "跟踪更改无法将这次编辑与文档的 Markdown 内容对应起来，文档保持原样。请尝试较小的编辑，或先关闭跟踪更改再进行这次改动。",
+        "commentPayloadTarget": "该标记被引用在批注内，因此不是可操作的更改。编辑批注以修改其文本，或直接解决该批注。",
         "unmappableTrackedSelection": "跟踪更改无法将所选内容映射到被跟踪的文档，文档保持原样。请重新选择文本后重试，或先关闭跟踪更改再进行这次改动。",
         "missingTrackedSelectionBlock": "跟踪更改找不到所选内容所在的文本块，文档保持原样。请重新点击文本后重试，或先关闭跟踪更改再进行这次改动。"
       }

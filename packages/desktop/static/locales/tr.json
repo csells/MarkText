@@ -147,6 +147,7 @@
       "rejectCurrent": "Değişikliği reddet",
       "acceptAll": "Tüm değişiklikleri kabul et",
       "rejectAll": "Tüm değişiklikleri reddet",
+      "removeAllAnnotations": "Tüm Vurguları ve Yorumları Kaldır",
       "display": "Görünüm",
       "showMarked": "İşaretlemeler",
       "showOriginal": "Özgün",
@@ -789,6 +790,7 @@
       "rejectCurrent": "Değişikliği reddet",
       "acceptAll": "Tüm değişiklikleri kabul et",
       "rejectAll": "Tüm değişiklikleri reddet",
+      "removeAllAnnotations": "Tüm Vurguları ve Yorumları Kaldır",
       "showMarked": "İşaretlemeleri göster",
       "showOriginal": "Özgün metni göster",
       "showRevised": "Düzeltilmiş metni göster"
@@ -916,6 +918,7 @@
         "unknownReason": "Değişiklik izleme bu düzenlemeyi kaydedemediği için belge değiştirilmedi. Yeniden deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
         "unmappableSourceEdit": "Değişiklik izleme bu düzenlemeyi kaydedemediği için belge değiştirilmedi. Daha küçük bir düzenleme deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
         "parserConflict": "Değişiklik izleme bu düzenlemeyi belgenin Markdown içeriğiyle bağdaştıramadığı için belge değiştirilmedi. Daha küçük bir düzenleme deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
+        "commentPayloadTarget": "Bu işaretleme bir yorumun içinde alıntılandığı için işlem yapılabilir bir değişiklik değildir. Metnini değiştirmek için yorumu düzenleyin veya yorumun kendisini çözümleyin.",
         "unmappableTrackedSelection": "Değişiklik izleme seçiminizi izlenen belgeyle eşleştiremediği için belge değiştirilmedi. Metni yeniden seçip tekrar deneyin veya bu değişiklik için değişiklik izlemeyi kapatın.",
         "missingTrackedSelectionBlock": "Değişiklik izleme seçiminizin bulunduğu bloğu bulamadığı için belge değiştirilmedi. Metne yeniden tıklayıp tekrar deneyin veya bu değişiklik için değişiklik izlemeyi kapatın."
       }

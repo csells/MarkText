@@ -106,6 +106,7 @@ describe('CriticMarkup Review menu', () => {
       canNavigate: true,
       canResolveCurrent: false,
       canResolveAll: true,
+      canRemoveAllAnnotations: false,
       trackChanges: true,
       projection: 'revised'
     })
@@ -146,6 +147,7 @@ describe('CriticMarkup Review menu', () => {
       canCreateComment: false,
       canResolveCurrent: true,
       canResolveAll: false,
+      canRemoveAllAnnotations: false,
       canNavigate: true,
       trackChanges: false,
       projection: 'marked' as const
@@ -179,6 +181,7 @@ describe('CriticMarkup renderer command routing', () => {
     navigateCriticMarkup: vi.fn(() => reviewItem),
     resolveCriticMarkup: vi.fn(async() => true),
     resolveAllCriticMarkup: vi.fn(async() => 2),
+    removeAllCriticMarkupAnnotations: vi.fn(async() => 0),
     editCriticMarkupComment: vi.fn(async() => true),
     commitAuthoringSelection: vi.fn(),
     getCriticMarkupReviewSnapshot: vi.fn((): ICriticMarkupReviewSnapshot => ({
@@ -193,6 +196,7 @@ describe('CriticMarkup renderer command routing', () => {
       canNavigate: true,
       canResolveCurrent: true,
       canResolveAll: true,
+      canRemoveAllAnnotations: true,
       trackChanges: false,
       projection: 'marked' as const
     })),
@@ -213,6 +217,7 @@ describe('CriticMarkup renderer command routing', () => {
     await executeCriticMarkupReviewAction(editor, 'reject-current')
     await executeCriticMarkupReviewAction(editor, 'accept-all')
     await executeCriticMarkupReviewAction(editor, 'reject-all')
+    await executeCriticMarkupReviewAction(editor, 'remove-all-annotations')
 
     expect(editor.createCriticMarkup.mock.calls).toEqual([
       [{ type: 'addition' }],
@@ -225,6 +230,7 @@ describe('CriticMarkup renderer command routing', () => {
       ['reject', { revisionId: 'revision:1', nodeId: reviewItem.id }]
     ])
     expect(editor.resolveAllCriticMarkup.mock.calls).toEqual([['accept'], ['reject']])
+    expect(editor.removeAllCriticMarkupAnnotations.mock.calls).toEqual([[]])
   })
 
   it('waits for bulk Review resolution before reporting action success', async() => {
@@ -476,6 +482,7 @@ describe('CriticMarkup sidebar state', () => {
       canNavigate: true,
       canResolveCurrent: true,
       canResolveAll: true,
+      canRemoveAllAnnotations: false,
       trackChanges: true,
       projection: 'marked' as const
     }

@@ -190,6 +190,10 @@ export async function executeCriticMarkupReviewAction(
       return mutationOutcome(
         (await editor.resolveAllCriticMarkup('reject')) > 0
       )
+    case 'remove-all-annotations':
+      return mutationOutcome(
+        (await editor.removeAllCriticMarkupAnnotations()) > 0
+      )
     case 'show-marked':
       await editor.configure({ criticMarkupProjection: 'marked' })
       return EXECUTED

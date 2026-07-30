@@ -55,6 +55,7 @@ const capabilities = {
   canNavigate: true,
   canResolveCurrent: true,
   canResolveAll: true,
+  canRemoveAllAnnotations: false,
   trackChanges: true,
   projection: 'marked' as const
 }

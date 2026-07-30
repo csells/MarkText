@@ -77,6 +77,8 @@ export interface ICriticMarkupCommandState {
     readonly canNavigate: boolean;
     readonly canResolveCurrent: boolean;
     readonly canResolveAll: boolean;
+    /** True when any Highlight or Comment is removable in bulk. */
+    readonly canRemoveAllAnnotations: boolean;
     readonly trackChanges: boolean;
     readonly projection: TCriticMarkupProjection;
 }
@@ -112,6 +114,11 @@ export interface ICriticMarkupReviewActions {
     resolveAllCriticMarkup: (
         decision: TCriticMarkupDecision,
     ) => Promise<number>;
+    /**
+     * Resolve every Highlight and Comment at once — highlights unwrap to
+     * their text, comments are removed. Returns how many were resolved.
+     */
+    removeAllCriticMarkupAnnotations: () => Promise<number>;
     editCriticMarkupComment: (
         target: ICriticMarkupCommandTarget,
         text: string,

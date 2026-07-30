@@ -147,6 +147,7 @@
       "rejectCurrent": "Rechazar cambio",
       "acceptAll": "Aceptar todos los cambios",
       "rejectAll": "Rechazar todos los cambios",
+      "removeAllAnnotations": "Quitar todos los resaltados y comentarios",
       "display": "Mostrar",
       "showMarked": "Marcas",
       "showOriginal": "Original",
@@ -789,6 +790,7 @@
       "rejectCurrent": "Rechazar cambio",
       "acceptAll": "Aceptar todos los cambios",
       "rejectAll": "Rechazar todos los cambios",
+      "removeAllAnnotations": "Quitar todos los resaltados y comentarios",
       "showMarked": "Mostrar marcas",
       "showOriginal": "Mostrar original",
       "showRevised": "Mostrar revisado"
@@ -916,6 +918,7 @@
         "unknownReason": "El control de cambios no pudo registrar esa edición, así que el documento no se modificó. Inténtalo de nuevo o desactiva el control de cambios para este cambio.",
         "unmappableSourceEdit": "El control de cambios no pudo registrar esa edición, así que el documento no se modificó. Prueba con una edición más pequeña o desactiva el control de cambios para este cambio.",
         "parserConflict": "El control de cambios no pudo conciliar esa edición con el Markdown del documento, así que el documento no se modificó. Prueba con una edición más pequeña o desactiva el control de cambios para este cambio.",
+        "commentPayloadTarget": "Ese marcado está citado dentro de un comentario, por lo que no es un cambio accionable. Edite el comentario para modificar su texto o resuelva el propio comentario.",
         "unmappableTrackedSelection": "El control de cambios no pudo asociar tu selección con el documento en revisión, así que el documento no se modificó. Vuelve a seleccionar el texto e inténtalo de nuevo, o desactiva el control de cambios para este cambio.",
         "missingTrackedSelectionBlock": "El control de cambios no pudo encontrar el bloque donde estaba tu selección, así que el documento no se modificó. Vuelve a hacer clic en el texto, o desactiva el control de cambios para este cambio."
       }

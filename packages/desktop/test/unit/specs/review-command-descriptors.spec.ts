@@ -74,6 +74,11 @@ const DESCRIPTOR_PROJECTION = [
     'commands.review.rejectAll', 'normal', 'resolution'
   ],
   [
+    'review.remove-all-annotations', 'remove-all-annotations',
+    'reviewRemoveAllAnnotationsMenuItem', 'menu.review.removeAllAnnotations',
+    'commands.review.removeAllAnnotations', 'normal', 'resolution'
+  ],
+  [
     'review.show-marked', 'show-marked',
     'reviewShowMarkedMenuItem', 'menu.review.showMarked',
     'commands.review.showMarked', 'radio', 'projection'
@@ -137,9 +142,9 @@ describe('single CriticMarkup Review command descriptor registry', () => {
       descriptor.group
     ])).toEqual(DESCRIPTOR_PROJECTION)
 
-    expect(new Set(REVIEW_COMMAND_DESCRIPTORS.map(({ id }) => id)).size).toBe(15)
-    expect(new Set(REVIEW_COMMAND_DESCRIPTORS.map(({ action }) => action)).size).toBe(15)
-    expect(new Set(REVIEW_COMMAND_DESCRIPTORS.map(({ menuId }) => menuId)).size).toBe(15)
+    expect(new Set(REVIEW_COMMAND_DESCRIPTORS.map(({ id }) => id)).size).toBe(16)
+    expect(new Set(REVIEW_COMMAND_DESCRIPTORS.map(({ action }) => action)).size).toBe(16)
+    expect(new Set(REVIEW_COMMAND_DESCRIPTORS.map(({ menuId }) => menuId)).size).toBe(16)
     expect(REVIEW_COMMAND_DESCRIPTORS.every(({ defaultKeybinding }) =>
       defaultKeybinding === '')).toBe(true)
   })
@@ -155,6 +160,7 @@ describe('single CriticMarkup Review command descriptor registry', () => {
       canNavigate: true,
       canResolveCurrent: true,
       canResolveAll: false,
+      canRemoveAllAnnotations: false,
       trackChanges: false,
       projection: 'marked' as const
     }
@@ -236,8 +242,8 @@ describe('single CriticMarkup Review command descriptor registry', () => {
     const translationKey = new RegExp(
       '(?:menu|commands)\\.review\\.(?:trackChanges|markAddition|' +
       'markDeletion|suggestReplacement|highlight|addComment|previous|next|' +
-      'acceptCurrent|rejectCurrent|acceptAll|rejectAll|showMarked|' +
-      'showOriginal|showRevised)'
+      'acceptCurrent|rejectCurrent|acceptAll|rejectAll|' +
+      'removeAllAnnotations|showMarked|showOriginal|showRevised)'
     )
     const offenders = sourceFiles(sourceRoot)
       .filter((file) => file !== registryPath)

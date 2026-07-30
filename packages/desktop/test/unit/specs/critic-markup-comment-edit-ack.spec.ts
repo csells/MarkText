@@ -55,6 +55,7 @@ const snapshot: ICriticMarkupReviewSnapshot = {
   canNavigate: true,
   canResolveCurrent: true,
   canResolveAll: true,
+  canRemoveAllAnnotations: false,
   trackChanges: false,
   projection: 'marked'
 }

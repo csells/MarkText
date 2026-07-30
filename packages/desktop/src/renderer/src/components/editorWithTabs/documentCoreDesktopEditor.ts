@@ -265,6 +265,7 @@ export interface DocumentEditorHost {
     decision: TCriticMarkupDecision,
     target: ICriticMarkupCommandTarget
   ) => Promise<boolean>
+  readonly removeAllCriticMarkupAnnotations: () => Promise<number>
   readonly resolveAllCriticMarkup: (
     decision: TCriticMarkupDecision
   ) => Promise<number>
@@ -624,6 +625,9 @@ export async function createDocumentEditorHost(
       canNavigate: items.length > 0,
       canResolveCurrent: current !== null,
       canResolveAll: changeCount > 0,
+      canRemoveAllAnnotations: items.some((item) =>
+        (item.type === 'highlight' || item.type === 'comment') &&
+        item.withinCommentPayload !== true),
       trackChanges: view.getTrackChanges(),
       projection: view.getProjection()
     })
@@ -870,6 +874,29 @@ export async function createDocumentEditorHost(
         kind: 'resolve-all-changes',
         decision
       })
+      return liveCount
+    })
+  }
+
+  const removeAllReviewAnnotations = (): Promise<number> => {
+    const revisionId = view.snapshot().revisionId
+    const count = reviewSnapshot().items.filter((item) =>
+      (item.type === 'highlight' || item.type === 'comment') &&
+      item.withinCommentPayload !== true
+    ).length
+    if (count === 0) return Promise.resolve(0)
+    return enqueue(async() => {
+      if (view.snapshot().revisionId !== revisionId) return 0
+      if (view.getProjection() !== 'marked') {
+        await view.setProjection('marked')
+        if (view.snapshot().revisionId !== revisionId) return 0
+      }
+      const liveCount = reviewSnapshot().items.filter((item) =>
+        (item.type === 'highlight' || item.type === 'comment') &&
+        item.withinCommentPayload !== true
+      ).length
+      if (liveCount === 0) return 0
+      await view.dispatchIntent({ kind: 'remove-all-annotations' })
       return liveCount
     })
   }
@@ -1536,6 +1563,7 @@ export async function createDocumentEditorHost(
       target: ICriticMarkupCommandTarget
     ) => resolveReviewItem(decision, target),
     resolveAllCriticMarkup: resolveAllReviewChanges,
+    removeAllCriticMarkupAnnotations: removeAllReviewAnnotations,
     editCriticMarkupComment: (
       target: ICriticMarkupCommandTarget,
       text: string

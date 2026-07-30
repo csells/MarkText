@@ -46,6 +46,7 @@ const unavailableMenuState = (): CriticMarkupReviewMenuState => ({
   canNavigate: false,
   canResolveCurrent: false,
   canResolveAll: false,
+  canRemoveAllAnnotations: false,
   trackChanges: false,
   projection: 'marked'
 })
@@ -62,6 +63,7 @@ const menuStateFromSnapshot = (
   canNavigate: snapshot.canNavigate,
   canResolveCurrent: snapshot.canResolveCurrent,
   canResolveAll: snapshot.canResolveAll,
+  canRemoveAllAnnotations: snapshot.canRemoveAllAnnotations,
   trackChanges: snapshot.trackChanges,
   projection: snapshot.projection
 })

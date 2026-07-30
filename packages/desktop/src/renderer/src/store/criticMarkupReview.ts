@@ -26,6 +26,7 @@ const emptyCommandState = (): CriticMarkupReviewMenuState => ({
   canNavigate: false,
   canResolveCurrent: false,
   canResolveAll: false,
+  canRemoveAllAnnotations: false,
   trackChanges: false,
   projection: 'marked'
 })

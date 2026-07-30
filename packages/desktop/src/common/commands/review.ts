@@ -183,6 +183,17 @@ export const REVIEW_COMMAND_DESCRIPTORS = [
     menuCapability: 'canResolveAll'
   },
   {
+    id: 'review.remove-all-annotations',
+    action: 'remove-all-annotations',
+    menuId: 'reviewRemoveAllAnnotationsMenuItem',
+    menuLabelKey: 'menu.review.removeAllAnnotations',
+    descriptionKey: 'commands.review.removeAllAnnotations',
+    menuType: 'normal',
+    group: 'resolution',
+    defaultKeybinding: '',
+    menuCapability: 'canRemoveAllAnnotations'
+  },
+  {
     id: 'review.show-marked',
     action: 'show-marked',
     menuId: 'reviewShowMarkedMenuItem',

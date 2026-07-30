@@ -147,6 +147,7 @@
       "rejectCurrent": "변경 거부",
       "acceptAll": "모든 변경 수락",
       "rejectAll": "모든 변경 거부",
+      "removeAllAnnotations": "모든 하이라이트 및 코멘트 제거",
       "display": "표시",
       "showMarked": "마크업",
       "showOriginal": "원본",
@@ -789,6 +790,7 @@
       "rejectCurrent": "변경 거부",
       "acceptAll": "모든 변경 수락",
       "rejectAll": "모든 변경 거부",
+      "removeAllAnnotations": "모든 하이라이트 및 코멘트 제거",
       "showMarked": "마크업 표시",
       "showOriginal": "원본 표시",
       "showRevised": "수정본 표시"
@@ -916,6 +918,7 @@
         "unknownReason": "변경 내용 추적이 이 편집을 기록할 수 없어 문서는 변경되지 않았습니다. 다시 시도하거나 이 변경에 한해 변경 내용 추적을 끄세요.",
         "unmappableSourceEdit": "변경 내용 추적이 이 편집을 기록할 수 없어 문서는 변경되지 않았습니다. 편집을 더 작게 나누어 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
         "parserConflict": "변경 내용 추적이 이 편집을 문서의 마크다운과 맞출 수 없어 문서는 변경되지 않았습니다. 편집을 더 작게 나누어 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
+        "commentPayloadTarget": "해당 마크업은 코멘트 안에 인용되어 있으므로 실행 가능한 변경이 아닙니다. 텍스트를 바꾸려면 코멘트를 편집하거나 코멘트 자체를 해결하세요.",
         "unmappableTrackedSelection": "변경 내용 추적이 선택 영역을 추적 중인 문서와 연결할 수 없어 문서는 변경되지 않았습니다. 텍스트를 다시 선택해 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요.",
         "missingTrackedSelectionBlock": "변경 내용 추적이 선택 영역이 있던 블록을 찾을 수 없어 문서는 변경되지 않았습니다. 텍스트를 다시 클릭해 시도하거나, 이 변경에 한해 변경 내용 추적을 끄세요."
       }

@@ -189,6 +189,7 @@ export type CriticMarkupReviewMenuState = Pick<
   | 'canNavigate'
   | 'canResolveCurrent'
   | 'canResolveAll'
+  | 'canRemoveAllAnnotations'
   | 'trackChanges'
   | 'projection'
 > & {
