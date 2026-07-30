@@ -5,7 +5,7 @@ import {
 } from '@marktext/document-core'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  createMainDocumentParseConfiguration as createDocumentParseConfiguration
+  documentParseConfigurationFor as createDocumentParseConfiguration
 } from 'main_renderer/documentCore/documentParseConfiguration'
 import {
   createTestDocumentCoreSession

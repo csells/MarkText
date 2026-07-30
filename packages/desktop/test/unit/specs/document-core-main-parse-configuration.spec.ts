@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { createMainDocumentParseConfiguration } from 'main_renderer/documentCore/documentParseConfiguration'
+import {
+  decodeDocumentParseConfiguration,
+  documentParseConfigurationFor
+} from 'main_renderer/documentCore/documentParseConfiguration'
 
 describe('main-owned document parse configuration', () => {
   it('builds the fixed parser/resource profile from the three grammar settings', () => {
-    const configuration = createMainDocumentParseConfiguration({
+    const configuration = documentParseConfigurationFor({
       footnotes: true,
       gitLabMath: false,
       subscriptAndSuperscript: true
@@ -30,20 +33,47 @@ describe('main-owned document parse configuration', () => {
   })
 
   it('rejects missing, extra, and non-boolean settings', () => {
-    expect(() => createMainDocumentParseConfiguration({
+    expect(() => documentParseConfigurationFor({
       footnotes: false,
       gitLabMath: false
     } as never)).toThrow(/closed/i)
-    expect(() => createMainDocumentParseConfiguration({
+    expect(() => documentParseConfigurationFor({
       footnotes: false,
       gitLabMath: false,
       subscriptAndSuperscript: false,
       parser: 'other'
     } as never)).toThrow(/closed/i)
-    expect(() => createMainDocumentParseConfiguration({
+    expect(() => documentParseConfigurationFor({
       footnotes: 'yes',
       gitLabMath: false,
       subscriptAndSuperscript: false
     } as never)).toThrow(/boolean/i)
+  })
+
+  it('strictly decodes a wire configuration and rejects malformed values', () => {
+    const configuration = documentParseConfigurationFor({
+      footnotes: false,
+      gitLabMath: true,
+      subscriptAndSuperscript: false
+    })
+    const decoded = decodeDocumentParseConfiguration(
+      JSON.parse(JSON.stringify(configuration))
+    )
+    expect(decoded).toEqual(configuration)
+    expect(Object.isFrozen(decoded)).toBe(true)
+
+    expect(() => decodeDocumentParseConfiguration(null))
+      .toThrow(/closed record/i)
+    expect(() => decodeDocumentParseConfiguration('marktext-profile-1'))
+      .toThrow(/closed record/i)
+    expect(() => decodeDocumentParseConfiguration({
+      ...configuration,
+      criticMarkupProfile: 'other-profile'
+    })).toThrow(/criticMarkupProfile/)
+    const widened = JSON.parse(JSON.stringify(configuration)) as Record<
+      string, unknown
+    >
+    widened.extra = true
+    expect(() => decodeDocumentParseConfiguration(widened)).toThrow()
   })
 })

@@ -10,7 +10,7 @@ import type {
   DocumentCoreOpenCompletion,
   DocumentCorePublication
 } from '../../shared/types/documentCore'
-import { createMainDocumentParseConfiguration } from './documentParseConfiguration'
+import { documentParseConfigurationFor } from './documentParseConfiguration'
 import type { DocumentCoreFileHost } from './documentFileHost'
 import {
   decodeDocumentCorePublication,
@@ -83,7 +83,7 @@ export interface DocumentCorePerformanceSurface {
   }>>
 }
 
-const configuration = createMainDocumentParseConfiguration(Object.freeze({
+const configuration = documentParseConfigurationFor(Object.freeze({
   footnotes: false,
   gitLabMath: false,
   subscriptAndSuperscript: true

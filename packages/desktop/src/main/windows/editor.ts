@@ -26,7 +26,7 @@ import type {
   BufferedState,
   WindowUiCheckpointIntent
 } from '@shared/types/bufferedState'
-import { createMainDocumentParseConfiguration } from '../documentCore/documentParseConfiguration'
+import { documentParseConfigurationFor } from '../documentCore/documentParseConfiguration'
 import {
   DocumentCoreFileAlreadyOpenError
 } from '../documentCore/documentFileHost'
@@ -688,7 +688,7 @@ class EditorWindow extends BaseWindow {
       this._durableWindowId(),
       {
         fileSnapshot,
-        parseConfiguration: createMainDocumentParseConfiguration({
+        parseConfiguration: documentParseConfigurationFor({
           footnotes: settings.footnotes === true,
           gitLabMath: settings.gitLabMath === true,
           subscriptAndSuperscript:
@@ -1027,7 +1027,7 @@ class EditorWindow extends BaseWindow {
       bufferState
     )
 
-    const parseConfiguration = createMainDocumentParseConfiguration({
+    const parseConfiguration = documentParseConfigurationFor({
       footnotes: settings.footnotes === true,
       gitLabMath: settings.gitLabMath === true,
       subscriptAndSuperscript:

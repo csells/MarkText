@@ -77,6 +77,9 @@ import {
   type DocumentCoreWorkerToMainMessage,
   type DocumentCoreWorkerData
 } from './documentSessionWorkerProtocol'
+import {
+  decodeDocumentParseConfiguration
+} from './documentParseConfiguration'
 
 if (parentPort === null) {
   throw new Error('Document session worker requires a parent message port')
@@ -918,7 +921,8 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
     beginExecutionOperation('open', command.executionGeneration)
     session = await createDocumentSession({
       source: createSourceSnapshot(source),
-      parseConfiguration: command.parseConfiguration,
+      parseConfiguration:
+        decodeDocumentParseConfiguration(command.parseConfiguration),
       identityNamespace: command.documentId,
       configuration: { authoringTextPolicy: 'nearest-owner-eol-v1' },
       initialView: 'markup',

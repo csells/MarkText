@@ -9,7 +9,7 @@ import Watcher, {
 import { onInternalChannel } from '../utils/internalIpc'
 import { renderSamplePreviewHtml } from '../documentCore/samplePreview'
 import {
-  createMainDocumentParseConfiguration
+  documentParseConfigurationFor
 } from '../documentCore/documentParseConfiguration'
 import type BaseWindow from '../windows/base'
 import type Preference from '../preferences'
@@ -446,7 +446,7 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
         const settings = this._preferences.getAll()
         return renderSamplePreviewHtml(
           typeof markdown === 'string' ? markdown : '',
-          createMainDocumentParseConfiguration({
+          documentParseConfigurationFor({
             footnotes: settings.footnotes === true,
             gitLabMath: settings.gitLabMath === true,
             subscriptAndSuperscript: settings.subscriptAndSuperscript === true

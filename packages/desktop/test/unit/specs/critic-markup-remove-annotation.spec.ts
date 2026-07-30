@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 import {
-  createMainDocumentParseConfiguration as createDocumentParseConfiguration
+  documentParseConfigurationFor as createDocumentParseConfiguration
 } from 'main_renderer/documentCore/documentParseConfiguration'
 import { createSourceSnapshot } from '@marktext/document-core'
 import {

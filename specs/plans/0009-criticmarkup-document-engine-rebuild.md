@@ -347,8 +347,11 @@ are transcribed exactly. Its real residue is G36.
   tape, decisions, lane, forks, identity, and provenance are the work.
 
 - **G34 [high] Section 2 modules are missing or partial.** Zero repo-wide
-  matches for `installed(` (persistence-lease member) and
-  `configurationFor(` (grammar configuration); the Selection module now
+  matches for `installed(` (persistence-lease member); the grammar
+  configuration module now carries its named members
+  (`documentParseConfigurationFor(settings)` as the sole main-owned
+  construction site and `decodeDocumentParseConfiguration(unknown)` at the
+  worker's wire intake); the Selection module now
   exists (`internal/session/selectionAuthority.ts`) with the public
   `DocumentSession.settled()` barrier over the session mailbox
   (`selection-authority.spec.ts`), but the view and renderer still answer

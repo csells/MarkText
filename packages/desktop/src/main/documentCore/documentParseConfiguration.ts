@@ -17,12 +17,13 @@ const GRAMMAR_KEYS: ReadonlySet<keyof MainDocumentGrammarPreferences> =
   ])
 
 /**
- * Admit the parser configuration in main, from validated persisted settings.
+ * §2 grammar configuration: the one main-owned construction site turning
+ * persisted settings into the process's single ParseConfiguration.
  *
  * A renderer may later request a closed grammar patch, but it never chooses
  * the initial parser profile or resource/accounting policy for a file.
  */
-export function createMainDocumentParseConfiguration(
+export function documentParseConfigurationFor(
   preferences: MainDocumentGrammarPreferences
 ): ParseConfiguration {
   if (
@@ -78,4 +79,18 @@ export function createMainDocumentParseConfiguration(
       accountingSchema: 'syntax-accounting-1'
     }
   })
+}
+
+/**
+ * Strictly decode a configuration arriving over a wire boundary. Every field
+ * is validated against the closed ParseConfiguration schema; nothing about
+ * the value is trusted for having crossed process or thread memory.
+ */
+export function decodeDocumentParseConfiguration(
+  value: unknown
+): ParseConfiguration {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Wire parse configuration must be a closed record')
+  }
+  return validateAndFreezeParseConfiguration(value as ParseConfiguration)
 }
