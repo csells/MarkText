@@ -34,6 +34,7 @@ import type {
   DocumentFormatMenuState,
   DocumentSelectionMenuState
 } from '@shared/types/documentSelection'
+import { DOCUMENT_SELECTION_BLOCK_KINDS } from '@shared/types/documentSelection'
 import {
   decodeBufferedState,
   type BufferedState
@@ -1211,8 +1212,14 @@ export const createApplicationMenuState = (
     .reverse()
     .find(node => node.kind === 'heading')
   const headingLevel = heading?.attributes.level
+  // blockPath ends at the innermost node under the caret, which can be an
+  // inline kind ('text', 'emphasis', …). The menu vocabulary is closed over
+  // BLOCK kinds, and main drops the whole update when an unknown kind appears
+  // — which silently froze Format and Paragraph at their last state.
+  const blockVocabulary: readonly string[] = DOCUMENT_SELECTION_BLOCK_KINDS
   const activeBlockKinds = Object.freeze(
     [...new Set(context.blockPath.map(node => node.kind))]
+      .filter(kind => blockVocabulary.includes(kind))
   )
   return Object.freeze({
     activeBlockKinds,

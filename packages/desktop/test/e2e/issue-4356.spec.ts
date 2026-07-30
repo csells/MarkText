@@ -3,7 +3,7 @@
 //
 // Both custom-protocol and document-anchor links cross the same typed target
 // interaction. Main resolves the parser node without trusting renderer href.
-import { test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
   closeElectron,
@@ -31,16 +31,17 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
     page = launched.page
     await clearRendererErrors(app)
 
-    const link = page.locator(
-      '.editor-component a[href="sambesi://localhost/node/11164"]'
-    )
-    await link.waitFor({ state: 'visible', timeout: 10000 })
-
-    const open = page.getByRole('button', {
-      name: 'Open sambesi://localhost/node/11164'
+    // The sanitized live-HTML profile refuses the unsupported scheme at
+    // render: the link mounts with its text but an EMPTY href, so the
+    // navigation #4356 crashed on can no longer even be requested — a
+    // strictly earlier rejection than the original click-time guard.
+    const link = page.locator('.editor-component a', {
+      hasText: 'sambesi://localhost/node/11164'
     })
-    await open.click()
+    await link.waitFor({ state: 'visible', timeout: 10000 })
+    expect(await link.getAttribute('href')).toBe('')
 
+    await link.click()
     await page.waitForTimeout(500)
     await expectNoRendererErrors(app)
   })
@@ -54,7 +55,7 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
     const link = page.locator('.editor-component a[href="#top"]')
     await link.waitFor({ state: 'visible', timeout: 10000 })
 
-    const jumpButton = page.getByRole('button', { name: 'Open #top' })
+    const jumpButton = page.getByRole('button', { name: 'Open link: #top' })
     await jumpButton.waitFor({ state: 'visible', timeout: 5000 })
     await jumpButton.click()
 

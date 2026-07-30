@@ -1338,6 +1338,11 @@ const seedDerivedDocumentState = (activeEditor: DesktopEditorInstance): void => 
   const snapshot = activeEditor.snapshot()
   editorStore.UPDATE_TOC(activeEditor.getTOC())
   editorStore.UPDATE_WORD_COUNT(snapshot.facts.statistics)
+  // The restored caret is a live context the menus must reflect immediately:
+  // without this, Format and Paragraph stay disabled until the first real
+  // selection change. SourceOnly revisions have no context to publish.
+  const context = activeEditor.selection()
+  if (context !== null) pushSelectionMenuState(context)
 }
 
 // listen for `open-single-file` event, it will call this method only when open a new file.
