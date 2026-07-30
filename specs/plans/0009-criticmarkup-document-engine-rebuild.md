@@ -332,14 +332,19 @@ are transcribed exactly. Its real residue is G36.
 
 - **G32 [critical] The intrinsic pass re-reads the entire document on every
   keystroke.** `intrinsicSourceUnits ÷ document length = 1.000` at every
-  measured size; single-keystroke latency 23 ms at 33 KB, 62 ms at 67 KB,
-  160 ms at 135 KB, 296 ms at 271 KB — every keystroke in a ~5,000-word
-  document misses a 60 Hz frame even when region reuse engages above it.
-  "Unchanged text is parsed once" fails at ordinary sizes; G23's measured
-  keystroke number is this gap observed at target scale. The safe-point
-  primitive exists, is exported, and is unused (`safePoints.ts`). Closure:
-  the intrinsic pass restarts from safe points and traverses o(document) for
-  a local edit.
+  measured size — "unchanged text is parsed once" fails at ordinary sizes,
+  and G23's measured keystroke number is this gap observed at target scale.
+  Progress 2026-07-29: the safe-point computation was O(transitions × lines)
+  and alone cost a fifth of every reopen; indexed, a 135 KB reopen fell from
+  ~149 ms to ~97 ms, and the remaining profile is flat across the intrinsic
+  pipeline (lane state, tape scan, identity emission, fork graph) — the
+  genuinely architectural O(document) work. Closure: the intrinsic pass
+  reuses a settled prefix, re-scans only from the last safe point before an
+  edit to the first reconvergent safe point after it, and re-bases the
+  suffix — invalidated whole by the non-local re-key classes (reference
+  definitions, unclosed fences). The safe-point primitive exists
+  (`safePoints.ts`); the convergence contract and artifact splicing across
+  tape, decisions, lane, forks, identity, and provenance are the work.
 
 - **G34 [high] Four section 2 modules do not exist.** Zero repo-wide matches
   for `admit(` (admission authority), `Replay` (History's interface),

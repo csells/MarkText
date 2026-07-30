@@ -6199,7 +6199,37 @@ function intrinsicForkSafeSourcePoints(
   ).sort((left, right) => left.start - right.start || left.end - right.end)
   const literals = lane.transitions.flatMap(
     (transition) => transition.emittedFacts.literals
-  )
+  ).sort((left, right) => left.start - right.start)
+  // Indexed candidate lookup: the per-transition scan over every line and
+  // every literal made this O(transitions × lines) — tens of milliseconds
+  // of every reopen on a large document (G32).
+  const blankLineIndexByEnd = new Map<number, number>()
+  for (const [index, line] of lines.entries()) {
+    if (line.blank && line.containers.length === 0) {
+      blankLineIndexByEnd.set(line.end, index)
+    }
+  }
+  const literalMaxEndUpTo: number[] = []
+  let runningMaxEnd = Number.NEGATIVE_INFINITY
+  for (const literal of literals) {
+    runningMaxEnd = Math.max(runningMaxEnd, literal.end)
+    literalMaxEndUpTo.push(runningMaxEnd)
+  }
+  const literalOverlaps = (start: number, end: number): boolean => {
+    // Rightmost literal starting before `end`, then the running max end
+    // over that prefix decides overlap in O(log n).
+    let low = 0
+    let high = literals.length
+    while (low < high) {
+      const middle = low + ((high - low) >> 1)
+      if ((literals[middle]?.start ?? end) < end) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    return low > 0 && (literalMaxEndUpTo[low - 1] ?? start) > start
+  }
   for (const transition of lane.transitions) {
     const sourcePoint = transition.exitCheckpoint.lineStart
     if (
@@ -6208,12 +6238,7 @@ function intrinsicForkSafeSourcePoints(
       sourcePoint > transition.entryCheckpoint.lineStart &&
       checkpointIsForkReconvergence(transition.exitCheckpoint)
     ) {
-      const blankIndex = lines.findIndex(
-        (line) =>
-          line.end === sourcePoint &&
-          line.blank &&
-          line.containers.length === 0
-      )
+      const blankIndex = blankLineIndexByEnd.get(sourcePoint) ?? -1
       const blank = lines[blankIndex]
       const previous = lines[blankIndex - 1]
       const next = lines[blankIndex + 1]
@@ -6223,10 +6248,7 @@ function intrinsicForkSafeSourcePoints(
         previous.containers.length === 0 &&
         next?.start === sourcePoint &&
         next.containers.length === 0 &&
-        !literals.some(
-          (literal) =>
-            literal.start < blank.end && blank.start < literal.end
-        )
+        !literalOverlaps(blank.start, blank.end)
       ) {
         points.add(sourcePoint)
       }
