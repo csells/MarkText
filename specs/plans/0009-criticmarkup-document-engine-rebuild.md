@@ -1,7 +1,7 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G28, G31, G32, G34
-  open; G5, G14–G16 partial
+- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G28, G32, G34 open;
+  G5, G14–G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-29
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -273,12 +273,12 @@ proof", and the single-space cell padding exactly as written. -->
 <!-- prettier-ignore -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
-| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G31, G32, G34 (W1) |
+| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G32, G34 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G16 residues, G18, G19, G28 (W4) |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
-| P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6), blocked by G31–G32 |
+| P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6), blocked by G32 |
 | P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
 
 ### Gaps
@@ -293,13 +293,19 @@ to `packages/document-core/src` in W1, W3, and W4, and to
 
 G29–G40 entered this ledger on 2026-07-29 from a fresh-eyes audit of the
 branch against this plan and the vision, each carrying evidence reproduced
-against a fresh build; G27, G29, G30, G33, and G35–G40 closed red–green
+against a fresh build; G27, G29–G31, G33, and G35–G40 closed red–green
 within two days (G38 by ratifying the introduced-BOM encoding as Profile 1
 E4/D9; G40 by emitting line, content, and info extents the conversions now
 consume, deleting every worker recognizer, dropping the renderer's bundled
 Markdown grammar, and widening the sweep — probes spelled as shipped,
 document-core in scope, constructed expressions detected — with a mutation
-proof that a planted recognizer turns it red), and git history holds their
+proof that a planted recognizer turns it red; G31 by digest keys with a
+64 MiB total / 4 MiB per-entry retention split plus sub-block reuse:
+closed top-level list items and blockquote segments are retained as
+templates and grafted on identical windows, measured at 3,999 of 4,000
+items or segments reused per keystroke, with a monolithic single block —
+one unbroken multi-thousand-line paragraph, quoted or not — remaining one
+emission unit by the block-granular design), and git history holds their
 diagnoses. Severity in a gap's title is rated against the vision:
 critical defeats a principle outright or destroys the author's bytes; high
 makes the north star unreachable or breaks a principle on an ordinary path.
@@ -323,21 +329,6 @@ are transcribed exactly. Its real residue is G36.
   Three of the six members section 2 assigns to the authority —
   `boundaryNear`, `mapThroughEdits`, `nodeModelRange` — return zero matches
   repo-wide. Violates non-negotiable 3.
-
-- **G31 [critical] Fragment reuse never engages for container shapes.**
-  Measured with the engine's own counters (2026-07-29): a keystroke at the
-  end of a 4,000-item bullet list or a 4,000-line blockquote emits one
-  region and reuses zero at every size, because a region is a top-level
-  block sequence and a long list or blockquoted review is one block
-  (`internal/profile1/markdownParser.ts:4313-4336`). Closure is sub-block
-  reuse: per-item and per-child template caching inside the container
-  emission, honoring reference-definition and literal keys the way regions
-  do. The size half of this gap is closed: retention keys are digests
-  (exact source still verified on every hit) and the total budget is 64 MiB
-  with a 4 MiB per-entry cap, so paragraph-shape reuse now engages through
-  500 KB+ documents (14,999 of 15,000 regions reused; the old cliff sat
-  between 95,177 and 95,415 bytes). Violates vision principle 5 on exactly
-  the shapes a reviewed document has.
 
 - **G32 [critical] The intrinsic pass re-reads the entire document on every
   keystroke.** `intrinsicSourceUnits ÷ document length = 1.000` at every
@@ -541,9 +532,9 @@ These orderings are real dependencies:
   published by the intent seam;
 - G6 and G7 precede G9, because a mutation sweep over an environment-selected
   adapter or a second open path mutates something production does not run;
-- G31 and G32 precede G23, because the keystroke budget fails on the path
-  they own, and G7 precedes G23, since a budget measured off the production
-  open path proves nothing;
+- G32 precedes G23, because the keystroke budget fails on the path it owns,
+  and G7 precedes G23, since a budget measured off the production open path
+  proves nothing;
 - G9 precedes any closure claim; and
 - the W6 freeze is last, because every earlier fix invalidates it and only its
   evidence is retained.
@@ -552,9 +543,9 @@ Everything else may land in any order, consistent with section 6. W1 and W2
 additionally lead by severity — a document-corrupting engine and an invocable
 command that does nothing are shipping defects — and their targets are included
 in the G9 sweep, never exempted from it. Within W1, the remaining work is the
-performance pair (G31, G32) and the structural extraction (G34).
+incremental intrinsic pass (G32) and the structural extraction (G34).
 
-- **W1** — exit: G4, G31, G32, and G34 closed, each proved by real gestures.
+- **W1** — exit: G4, G32, and G34 closed, each proved by real gestures.
 - **W2** — exit: G5–G8 and G39 closed.
 - **W3** — exit: G13 repaired, G6 and G7 landed, every named target passing
   its own baseline, and G9 passing over all of them. No later workstream may

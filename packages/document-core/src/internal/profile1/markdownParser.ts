@@ -2836,7 +2836,8 @@ function parseOrderedContainerSequence(
   literals: readonly MappedMarkdownLiteral[],
   constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
-  boundaryPolicy?: InlineBoundaryPolicy
+  boundaryPolicy?: InlineBoundaryPolicy,
+  itemCache?: Map<string, MarkdownAstRegionTemplate>
 ): ParsedContainerSequence | undefined {
   if ((lines[lineIndex]?.containers.length ?? 0) === 0) {
     return undefined
@@ -2873,6 +2874,179 @@ function parseOrderedContainerSequence(
     paragraphOwner = undefined
     paragraph = undefined
     paragraphLines = []
+  }
+
+  // Sub-block reuse (G31): a contiguous list is one region however long it
+  // is, so every keystroke re-emitted every item. Each closed TOP-LEVEL
+  // list item is retained as a template keyed exactly like a region —
+  // exact window source, line shape, and fully-interior literals — and an
+  // identical window on a later parse grafts the materialized item instead
+  // of re-parsing it. Windows only bound caching; parse semantics never
+  // depend on them, and a window whose prediction the real parse
+  // disagrees with is simply not retained.
+  interface ArmedItemWindow {
+    readonly key: string
+    readonly source: string
+    readonly linesKey: string
+    readonly literalsKey: string
+    readonly base: number
+    readonly endOffset: number
+    readonly endLineIndex: number
+  }
+  interface PendingItemWindow extends ArmedItemWindow {
+    readonly list: MutableContainerNode
+    readonly childIndex: number
+    readonly item: MutableContainerNode
+  }
+  interface PendingQuoteSegment extends ArmedItemWindow {
+    readonly quote: MutableContainerNode
+    readonly childStart: number
+  }
+  let armedWindow: ArmedItemWindow | null = null
+  let pendingItem: PendingItemWindow | null = null
+  let armedQuoteSegment: ArmedItemWindow | null = null
+  let pendingQuoteSegment: PendingQuoteSegment | null = null
+  // True while the last processed depth-1 quote line was blank: the next
+  // content line begins a new quote segment window.
+  let quoteSegmentBoundary = false
+  const scanItemWindow = (
+    fromIndex: number
+  ): Readonly<{ endLineIndex: number; endOffset: number }> => {
+    let index = fromIndex + 1
+    while (index < lines.length) {
+      const candidate = lines[index]
+      const top = candidate?.containers[0]
+      if (
+        candidate === undefined ||
+        candidate.containers.length === 0 ||
+        top === undefined ||
+        top.kind !== 'list-item' ||
+        !top.continued
+      ) {
+        break
+      }
+      index += 1
+    }
+    const last = lines[index - 1] ?? lines[fromIndex]
+    return Object.freeze({
+      endLineIndex: index,
+      endOffset: last?.end ?? 0
+    })
+  }
+  const scanQuoteWindow = (
+    fromIndex: number
+  ): Readonly<{ endLineIndex: number; endOffset: number }> => {
+    let index = fromIndex + 1
+    while (index < lines.length) {
+      const candidate = lines[index]
+      const top = candidate?.containers[0]
+      if (
+        candidate === undefined ||
+        top === undefined ||
+        top.kind !== 'blockquote' ||
+        !top.continued ||
+        (candidate.blank && candidate.containers.length === 1)
+      ) {
+        break
+      }
+      index += 1
+    }
+    const last = lines[index - 1] ?? lines[fromIndex]
+    return Object.freeze({
+      endLineIndex: index,
+      endOffset: last?.end ?? 0
+    })
+  }
+  const closePendingQuoteSegment = (): void => {
+    if (pendingQuoteSegment === null) {
+      return
+    }
+    const pending = pendingQuoteSegment
+    pendingQuoteSegment = null
+    if (itemCache === undefined || nextLineIndex < pending.endLineIndex) {
+      return
+    }
+    const children = pending.quote.children.slice(pending.childStart)
+    if (children.length === 0) {
+      return
+    }
+    const frozen = children.map((child) =>
+      isMutableContainerNode(child)
+        ? finalizeMutableContainer(child, source, blankLineStarts)
+        : child
+    )
+    if (frozen.some((node) =>
+      node.range.start < pending.base || node.range.end > pending.endOffset
+    )) {
+      return
+    }
+    pending.quote.children.splice(
+      pending.childStart,
+      children.length,
+      ...frozen
+    )
+    if (
+      astRegionTemplateNodesCanFit(
+        pending.key,
+        pending.source,
+        pending.linesKey,
+        pending.literalsKey,
+        frozen
+      )
+    ) {
+      retainFragmentEntry(itemCache, pending.key, Object.freeze({
+        source: pending.source,
+        linesKey: pending.linesKey,
+        literalsKey: pending.literalsKey,
+        nodes: Object.freeze(frozen.map((node) =>
+          markdownAstNodeTemplate(node, pending.base, true)))
+      }))
+    }
+  }
+
+  const closePendingItem = (): void => {
+    if (pendingItem === null) {
+      return
+    }
+    const pending = pendingItem
+    pendingItem = null
+    if (itemCache === undefined || nextLineIndex < pending.endLineIndex) {
+      return
+    }
+    const mutable = pending.list.children[pending.childIndex]
+    if (mutable !== pending.item) {
+      return
+    }
+    const frozen = finalizeMutableContainer(
+      pending.item,
+      source,
+      blankLineStarts
+    )
+    if (
+      frozen.range.start < pending.base ||
+      frozen.range.end > pending.endOffset
+    ) {
+      return
+    }
+    pending.list.children[pending.childIndex] = frozen
+    if (
+      astRegionTemplateNodesCanFit(
+        pending.key,
+        pending.source,
+        pending.linesKey,
+        pending.literalsKey,
+        [frozen]
+      )
+    ) {
+      retainFragmentEntry(itemCache, pending.key, Object.freeze({
+        source: pending.source,
+        linesKey: pending.linesKey,
+        literalsKey: pending.literalsKey,
+        nodes: Object.freeze([
+          markdownAstNodeTemplate(frozen, pending.base, true)
+        ])
+      }))
+    }
   }
 
   while (nextLineIndex < lines.length) {
@@ -2918,6 +3092,211 @@ function parseOrderedContainerSequence(
     if (reusedDepth < stack.length) {
       stack.splice(reusedDepth)
       closeParagraph()
+    }
+
+    const topContainer = line.containers[0]
+    if (
+      itemCache !== undefined &&
+      boundaryPolicy === undefined &&
+      reusedDepth === 0 &&
+      stack.length === 0 &&
+      !line.blank &&
+      topContainer !== undefined &&
+      topContainer.kind === 'list-item' &&
+      !topContainer.continued
+    ) {
+      closePendingItem()
+      const window = scanItemWindow(nextLineIndex)
+      const base = line.start
+      const windowSource = source.slice(base, window.endOffset)
+      const overlapping = literals.filter((literal) =>
+        literal.start < window.endOffset && literal.end > base)
+      const partial = overlapping.some((literal) =>
+        literal.start < base || literal.end > window.endOffset)
+      const hasReferenceSyntax =
+        windowSource.includes('[') || windowSource.includes(']')
+      if (
+        !partial &&
+        fragmentSourceCanFit(windowSource) &&
+        (!hasReferenceSyntax || referenceDefinitions.cacheKey !== undefined)
+      ) {
+        const windowLines = lines.slice(nextLineIndex, window.endLineIndex)
+        const linesKey = markdownAstRegionLinesKey(windowLines, base)
+        const literalsKey = markdownAstRegionLiteralsKey(overlapping, base)
+        const key = retainedFragmentKeyDigest(JSON.stringify([
+          'item',
+          activeMarkdownGfmEnabled,
+          activeMarkdownFootnotesEnabled,
+          activeMarkdownSubscriptAndSuperscriptEnabled,
+          referenceDefinitions.cacheKey,
+          windowSource,
+          linesKey,
+          literalsKey
+        ]))
+        if (
+          astRegionTemplateCanFit(key, windowSource, linesKey, literalsKey)
+        ) {
+          const cached = itemCache.get(key)
+          const template = cached?.nodes[0]
+          if (
+            cached !== undefined &&
+            template !== undefined &&
+            cached.nodes.length === 1 &&
+            cached.source === windowSource &&
+            cached.linesKey === linesKey &&
+            cached.literalsKey === literalsKey
+          ) {
+            recordForkAstRegionReuseV1()
+            const itemNode = markdownAstNodeFromTemplate(template, base)
+            const previousChild = root.children.at(-1)
+            const compatibleList =
+              previousChild !== undefined &&
+              isMutableContainerNode(previousChild) &&
+              previousChild.kind === 'list' &&
+              previousChild.attributes.ordered === topContainer.ordered &&
+              previousChild.listDelimiterCodeUnit ===
+                topContainer.delimiterCodeUnit
+                ? previousChild
+                : undefined
+            const list = compatibleList ?? mutableContainerNode(
+              'list',
+              topContainer.start,
+              topContainer.end,
+              topContainer.ordered
+                ? Object.freeze({
+                  ordered: true,
+                  start: topContainer.startNumber
+                })
+                : Object.freeze({ ordered: false }),
+              topContainer.delimiterCodeUnit
+            )
+            if (compatibleList === undefined) {
+              root.children.push(list)
+            }
+            list.children.push(itemNode)
+            list.end = Math.max(list.end, itemNode.range.end)
+            nextLineIndex = window.endLineIndex
+            continue
+          }
+          armedWindow = Object.freeze({
+            key,
+            source: windowSource,
+            linesKey,
+            literalsKey,
+            base,
+            endOffset: window.endOffset,
+            endLineIndex: window.endLineIndex
+          })
+        }
+      }
+    }
+
+    // Blockquote segments (G31): the quote's interior splits at its own
+    // blank lines, exactly as top-level regions split at document blanks,
+    // and each segment's emitted children are retained as templates.
+    const segmentStart =
+      itemCache !== undefined &&
+      boundaryPolicy === undefined &&
+      !line.blank &&
+      topContainer !== undefined &&
+      topContainer.kind === 'blockquote' &&
+      line.containers.length >= 1 &&
+      (
+        (reusedDepth === 0 && stack.length === 0 &&
+          !topContainer.continued) ||
+        (reusedDepth >= 1 && stack.length >= 1 && quoteSegmentBoundary &&
+          topContainer.continued &&
+          stack[0]?.descriptor.kind === 'blockquote')
+      )
+    if (segmentStart && topContainer !== undefined) {
+      quoteSegmentBoundary = false
+      closePendingQuoteSegment()
+      const window = scanQuoteWindow(nextLineIndex)
+      const base = line.start
+      const windowSource = source.slice(base, window.endOffset)
+      const overlapping = literals.filter((literal) =>
+        literal.start < window.endOffset && literal.end > base)
+      const partial = overlapping.some((literal) =>
+        literal.start < base || literal.end > window.endOffset)
+      const hasReferenceSyntax =
+        windowSource.includes('[') || windowSource.includes(']')
+      if (
+        !partial &&
+        fragmentSourceCanFit(windowSource) &&
+        (!hasReferenceSyntax || referenceDefinitions.cacheKey !== undefined)
+      ) {
+        const windowLines = lines.slice(nextLineIndex, window.endLineIndex)
+        const linesKey = markdownAstRegionLinesKey(windowLines, base)
+        const literalsKey = markdownAstRegionLiteralsKey(overlapping, base)
+        const key = retainedFragmentKeyDigest(JSON.stringify([
+          'quote-segment',
+          activeMarkdownGfmEnabled,
+          activeMarkdownFootnotesEnabled,
+          activeMarkdownSubscriptAndSuperscriptEnabled,
+          referenceDefinitions.cacheKey,
+          windowSource,
+          linesKey,
+          literalsKey
+        ]))
+        if (
+          astRegionTemplateCanFit(key, windowSource, linesKey, literalsKey)
+        ) {
+          const cached = itemCache.get(key)
+          if (
+            cached !== undefined &&
+            cached.nodes.length > 0 &&
+            cached.source === windowSource &&
+            cached.linesKey === linesKey &&
+            cached.literalsKey === literalsKey
+          ) {
+            // The quote itself must exist to graft into: reuse the open
+            // quote, or open one exactly as the descriptor path would.
+            let quote: MutableContainerNode
+            if (
+              stack.length >= 1 &&
+              stack[0] !== undefined &&
+              stack[0].descriptor.kind === 'blockquote' &&
+              isMutableContainerNode(stack[0].content)
+            ) {
+              quote = stack[0].content
+            } else if (stack.length === 0 && !topContainer.continued) {
+              quote = mutableContainerNode(
+                'blockquote',
+                topContainer.start,
+                topContainer.end
+              )
+              root.children.push(quote)
+              stack.push(Object.freeze({
+                descriptor: topContainer,
+                content: quote,
+                extents: Object.freeze([quote])
+              }))
+            } else {
+              quote = undefined as never
+            }
+            if (quote !== undefined) {
+              recordForkAstRegionReuseV1()
+              for (const template of cached.nodes) {
+                const node = markdownAstNodeFromTemplate(template, base)
+                quote.children.push(node)
+                quote.end = Math.max(quote.end, node.range.end)
+              }
+              quote.end = Math.max(quote.end, window.endOffset)
+              nextLineIndex = window.endLineIndex
+              continue
+            }
+          }
+          armedQuoteSegment = Object.freeze({
+            key,
+            source: windowSource,
+            linesKey,
+            literalsKey,
+            base,
+            endOffset: window.endOffset,
+            endLineIndex: window.endLineIndex
+          })
+        }
+      }
     }
 
     for (let depth = reusedDepth; depth < line.containers.length; depth += 1) {
@@ -2978,6 +3357,47 @@ function parseOrderedContainerSequence(
       }))
     }
 
+    if (armedQuoteSegment !== null) {
+      const context = stack[0]
+      const armed = armedQuoteSegment
+      armedQuoteSegment = null
+      if (
+        context !== undefined &&
+        context.descriptor.kind === 'blockquote' &&
+        isMutableContainerNode(context.content)
+      ) {
+        pendingQuoteSegment = Object.freeze({
+          ...armed,
+          quote: context.content,
+          childStart: context.content.children.length
+        })
+      }
+    }
+    if (armedWindow !== null) {
+      const context = stack[0]
+      const armed = armedWindow
+      armedWindow = null
+      if (
+        context !== undefined &&
+        context.content.kind === 'list-item' &&
+        context.extents.length === 2
+      ) {
+        const armedList = context.extents[0]
+        if (
+          armedList !== undefined &&
+          armedList.kind === 'list' &&
+          isMutableContainerNode(context.content)
+        ) {
+          pendingItem = Object.freeze({
+            ...armed,
+            list: armedList,
+            childIndex: armedList.children.length - 1,
+            item: context.content
+          })
+        }
+      }
+    }
+
     // Open container extents otherwise grow only from content lines, but a
     // marker opened on this line can already lie past a reused ancestor's
     // extent — and an EMPTY item's line has no content, so nothing would ever
@@ -2994,6 +3414,13 @@ function parseOrderedContainerSequence(
     const parent = currentParent()
     if (line.blank) {
       closeParagraph()
+      if (
+        line.containers.length === 1 &&
+        line.containers[0]?.kind === 'blockquote'
+      ) {
+        closePendingQuoteSegment()
+        quoteSegmentBoundary = true
+      }
       nextLineIndex += 1
       continue
     }
@@ -3146,6 +3573,8 @@ function parseOrderedContainerSequence(
   }
 
   closeParagraph()
+  closePendingItem()
+  closePendingQuoteSegment()
 
   return Object.freeze({
     nodes: Object.freeze(root.children.map((child) =>
@@ -3421,7 +3850,8 @@ function parseBlocksRegion(
   literals: readonly MappedMarkdownLiteral[],
   lines: readonly PlainMarkdownLine[],
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
-  boundaryPolicy?: InlineBoundaryPolicy
+  boundaryPolicy?: InlineBoundaryPolicy,
+  itemCache?: Map<string, MarkdownAstRegionTemplate>
 ): readonly MarkdownNode[] {
   const blocks: MarkdownNode[] = []
   const constructs = new Map<number, MappedMarkdownLiteral>()
@@ -3454,7 +3884,8 @@ function parseBlocksRegion(
       literals,
       constructs,
       referenceDefinitions,
-      boundaryPolicy
+      boundaryPolicy,
+      itemCache
     )
     if (containerSequence !== undefined) {
       blocks.push(...containerSequence.nodes)
@@ -4223,7 +4654,8 @@ function emitMarkdownAstRegion(
   literals: readonly MappedMarkdownLiteral[],
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy: InlineBoundaryPolicy | undefined,
-  regionStart: number
+  regionStart: number,
+  itemCache?: Map<string, MarkdownAstRegionTemplate>
 ): readonly MarkdownNode[] {
   const identity = activeMarkdownSyntaxIdentity
   if (identity === undefined) {
@@ -4261,7 +4693,8 @@ function emitMarkdownAstRegion(
       literals.map((literal) => markdownRegionLiteral(literal, regionStart)),
       lines.map((line) => markdownRegionLine(line, regionStart)),
       markdownRegionReferenceDefinitions(referenceDefinitions, regionStart),
-      regionalBoundaryPolicy
+      regionalBoundaryPolicy,
+      itemCache
     )
     if (boundaryPolicy !== undefined && regionalBoundaryPolicy !== undefined) {
       for (const offset of regionalBoundaryPolicy.unsafeDelimiterOffsets) {
@@ -4516,7 +4949,8 @@ function emitMarkdownAstRegions(
       region.literals,
       referenceDefinitions,
       regionBoundaryPolicy,
-      region.start
+      region.start,
+      cache
     )
     if (
       key === undefined ||

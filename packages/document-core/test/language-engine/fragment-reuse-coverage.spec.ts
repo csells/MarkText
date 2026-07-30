@@ -89,4 +89,46 @@ describe('fragment reuse coverage past the retention cliff', () => {
     expect(counts.reuses).toBeGreaterThan(14_000)
     expect(counts.emissions).toBeLessThan(10)
   }, 30_000)
+
+  // The shape half of G31: a contiguous list is one region however long it
+  // is, so reuse must engage at the item level.
+  it('reuses items for a keystroke in a 4,000-item bullet list', () => {
+    const source = Array.from(
+      { length: 4_000 },
+      (_, index) => `- item ${index} with some words in it.`
+    ).join('\n') + '\n'
+
+    const counts = appendKeystrokeCounts(source)
+    expect(counts.reuses).toBeGreaterThan(3_900)
+  }, 30_000)
+
+  it('reuses items for a keystroke in a 4,000-item ordered list', () => {
+    const source = Array.from(
+      { length: 4_000 },
+      (_, index) => `${index + 1}. item ${index} with some words.`
+    ).join('\n') + '\n'
+
+    const counts = appendKeystrokeCounts(source)
+    expect(counts.reuses).toBeGreaterThan(3_900)
+  }, 30_000)
+
+  it('reuses items in a 4,000-item task list', () => {
+    const source = Array.from(
+      { length: 4_000 },
+      (_, index) => `- [${index % 2 === 0 ? ' ' : 'x'}] task ${index}`
+    ).join('\n') + '\n'
+
+    const counts = appendKeystrokeCounts(source)
+    expect(counts.reuses).toBeGreaterThan(3_900)
+  }, 30_000)
+
+  it('reuses segments in a 4,000-paragraph blockquote', () => {
+    const source = Array.from(
+      { length: 4_000 },
+      (_, index) => `> quoted ${index} with some words.\n>`
+    ).join('\n') + '\n'
+
+    const counts = appendKeystrokeCounts(source)
+    expect(counts.reuses).toBeGreaterThan(3_900)
+  }, 30_000)
 })
