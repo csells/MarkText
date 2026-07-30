@@ -1,18 +1,18 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   createLanguageEngine,
   createSourceSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
-import {
-  __referenceDefinitionIndexBuildsV1,
-  __resetReferenceDefinitionIndexBuildsV1
-} from '../../src/internal/profile1/markdownLaneState.js'
 
 /**
  * Reference definitions are staged as canonical facts during the intrinsic
  * source progression. Fork-AST selections filter and resolve those shared
  * facts by canonical identity; they never build an index from projected text.
+ * The projected-text index builder is gone, so the gate is its absence.
  */
 
 const TEST_CONFIGURATION: ParseConfiguration = {
@@ -34,23 +34,34 @@ const TEST_CONFIGURATION: ParseConfiguration = {
   }
 }
 
-function indexBuildsFor(source: string): number {
-  __resetReferenceDefinitionIndexBuildsV1()
-  const revision = createLanguageEngine().open(
-    createSourceSnapshot(source),
-    TEST_CONFIGURATION
-  )
-  expect(revision.kind).toBe('complete')
-  return __referenceDefinitionIndexBuildsV1()
-}
-
 describe('canonical reference-definition facts', () => {
-  it('builds no projected-text index when there are no definitions', () => {
-    expect(indexBuildsFor('# Title\n\nHello *world*.\n')).toBe(0)
-  })
-
-  it('stages later definitions without a projected-text index', () => {
-    expect(indexBuildsFor('[a]: /x\n\nSee [a].\n')).toBe(0)
+  it('ships no projected-text definition index builder', () => {
+    const sourceRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../src'
+    )
+    const offenders: string[] = []
+    const walk = (directory: string): void => {
+      for (const entry of readdirSync(directory)) {
+        const path = join(directory, entry)
+        if (statSync(path).isDirectory()) {
+          walk(path)
+          continue
+        }
+        if (!entry.endsWith('.ts')) {
+          continue
+        }
+        const text = readFileSync(path, 'utf8')
+        if (
+          text.includes('createMarkdownReferenceDefinitionIndex') ||
+          text.includes('referenceDefinitionIndexBuilds')
+        ) {
+          offenders.push(path)
+        }
+      }
+    }
+    walk(sourceRoot)
+    expect(offenders).toEqual([])
   })
 
   it('preserves reference-link resolution from canonical facts', () => {

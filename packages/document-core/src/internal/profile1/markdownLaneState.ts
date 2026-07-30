@@ -262,12 +262,6 @@ export interface MarkdownReferenceDefinitionLookup {
   readonly rejectDelimiterCandidate?: (candidateStart: number) => void
 }
 
-export interface MarkdownReferenceDefinitionIndex
-  extends MarkdownReferenceDefinitionLookup {
-  readonly size: number
-  readonly hasAny: (normalizedLabel: string) => boolean
-}
-
 export interface PlainMarkdownLaneParse {
   readonly literals: readonly MarkdownLiteralRange[]
   readonly containerDepthFailure: MarkdownContainerDepthFailure | undefined
@@ -1358,72 +1352,6 @@ export function stagedMarkdownReferenceDefinitionAt(
       start,
       end: definition.lastOwnedEnd
     })
-}
-
-/**
- * Test-only counter of reference-definition index constructions. Phase 0.5
- * step 6 requires the index to be built once per lane parse and handed to the
- * block/inline phase, rather than built, discarded, and rebuilt by the CST
- * builder from the same literals.
- */
-let referenceDefinitionIndexBuilds = 0
-
-export function __referenceDefinitionIndexBuildsV1(): number {
-  return referenceDefinitionIndexBuilds
-}
-
-export function __resetReferenceDefinitionIndexBuildsV1(): void {
-  referenceDefinitionIndexBuilds = 0
-}
-
-export function createMarkdownReferenceDefinitionIndex(
-  source: string,
-  literals: readonly MarkdownLiteralRange[],
-  definitionCanResolveReference?: (
-    definitionStart: number,
-    referenceStart: number
-  ) => boolean
-): MarkdownReferenceDefinitionIndex {
-  referenceDefinitionIndexBuilds += 1
-  const definitionsByLabel = new Map<string, number[]>()
-  let size = 0
-  for (const literal of literals) {
-    if (literal.kind !== 'definition') {
-      continue
-    }
-    const label = markdownReferenceDefinitionLabel(
-      source,
-      literal.start,
-      literal.end
-    )
-    if (label === undefined) {
-      continue
-    }
-    const matching = definitionsByLabel.get(label)
-    if (matching === undefined) {
-      definitionsByLabel.set(label, [literal.start])
-    } else {
-      matching.push(literal.start)
-    }
-    size += 1
-  }
-  return Object.freeze({
-    size,
-    cacheKey: JSON.stringify([...definitionsByLabel.keys()].sort()),
-    hasAny: Object.freeze((label: string): boolean =>
-      definitionsByLabel.has(label)),
-    definitionStart: Object.freeze((
-      label: string,
-      referenceStart: number
-    ): number | undefined =>
-      definitionsByLabel.get(label)?.find((definitionStart) =>
-        definitionCanResolveReference?.(definitionStart, referenceStart) ?? true
-      )),
-    has: Object.freeze((label: string, referenceStart: number): boolean =>
-      definitionsByLabel.get(label)?.some((definitionStart) =>
-        definitionCanResolveReference?.(definitionStart, referenceStart) ?? true
-      ) ?? false)
-  })
 }
 
 function referenceLabelSuffix(

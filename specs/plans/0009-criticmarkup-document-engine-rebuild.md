@@ -351,10 +351,11 @@ are transcribed exactly. Its real residue is G36.
   `configurationFor(` (grammar configuration); no Selection module —
   settlement is answered in the view and renderer as well as the session.
   `internal/sourceAuthorship.ts` owns only the escape rule while marker
-  composition lives in the transformation kernel, and the secondary parser
-  counter families (reference-definition index builds, line-materialization
-  walks and caches, AST-template constructions) remain process-global with
-  test-only resets. The concerns are answered today inside
+  composition lives in the transformation kernel, and two secondary parser
+  counter families (line-materialization walks and caches, AST-template
+  constructions) remain process-global with test-only resets — the
+  projected-text reference-definition index builder proved dead and was
+  deleted, its gate now a static absence sweep. The concerns are answered today inside
   `revisionWorker.ts` and its callers. Progress: the admission authority
   exists (`internal/session/admissionAuthority.ts`):
   `admit(base, edits, class)` owns edit validation, resource limits, join

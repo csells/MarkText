@@ -5,10 +5,6 @@ import {
   type MarkdownNode,
   type ParseConfiguration
 } from '@marktext/document-core'
-import {
-  __referenceDefinitionIndexBuildsV1,
-  __resetReferenceDefinitionIndexBuildsV1
-} from '../../src/internal/profile1/markdownLaneState.js'
 
 /**
  * ADR 0013: parse each document once and read every view off it.
@@ -213,7 +209,9 @@ describe('one intrinsic Markdown parse', () => {
   })
 
   it('builds no selected-lane reference index from projected text', () => {
-    __resetReferenceDefinitionIndexBuildsV1()
+    // The projected-text index builder no longer exists in src —
+    // single-definition-index.spec.ts sweeps for it. This row keeps the
+    // behavioral half: every view resolves its links from canonical facts.
     const revision = createLanguageEngine().open(
       createSourceSnapshot(
         'See [r].\n\n{~~old [r]~>new [r]~~}\n\n[r]: /destination\n'
@@ -230,7 +228,6 @@ describe('one intrinsic Markdown parse', () => {
         'link'
       )).toBe(true)
     }
-    expect(__referenceDefinitionIndexBuildsV1()).toBe(0)
   })
 
   it('emits unchanged link and definition regions once across root views', () => {
