@@ -348,8 +348,12 @@ are transcribed exactly. Its real residue is G36.
 
 - **G34 [high] Section 2 modules are missing or partial.** Zero repo-wide
   matches for `installed(` (persistence-lease member) and
-  `configurationFor(` (grammar configuration); no Selection module —
-  settlement is answered in the view and renderer as well as the session.
+  `configurationFor(` (grammar configuration); the Selection module now
+  exists (`internal/session/selectionAuthority.ts`) with the public
+  `DocumentSession.settled()` barrier over the session mailbox
+  (`selection-authority.spec.ts`), but the view and renderer still answer
+  settlement with their own notions — consolidation onto the one barrier
+  remains, and G13's fixed sleeps migrate to it.
   `internal/sourceAuthorship.ts` owns only the escape rule while marker
   composition lives in the transformation kernel, and two secondary parser
   counter families (line-materialization walks and caches, AST-template

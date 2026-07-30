@@ -1171,6 +1171,13 @@ export interface DocumentSession {
    * document revision or history entry.
    */
   readonly selectSource: (selection: InitialModelSelection) => void
+  /**
+   * The one public settlement barrier. Resolves once every operation
+   * enqueued before the call has settled — journal, watermark, and
+   * publication; work enqueued afterwards is not awaited. Consumers await
+   * this instead of sleeping or owning a second settlement notion.
+   */
+  readonly settled: () => Promise<void>
   readonly ticketOutcome: (ticket: IntentId) => SessionTicketOutcome | null
   readonly effects: () => readonly SessionEffect[]
   readonly cancel: (ticket: IntentId) => SessionOperation<SessionCancelResult>

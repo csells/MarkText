@@ -94,6 +94,7 @@ import {
 import { createMemoryDocumentSessionJournalStorage } from '../../sessionJournalStorage.js'
 import { createSourceSnapshot } from '../../sourceSnapshot.js'
 import type { MarkupView } from './markupView.js'
+import { createSelectionAuthority } from './selectionAuthority.js'
 import { IntentRejection, RevisionWorker } from './revisionWorker.js'
 import {
   DurableSessionJournal,
@@ -812,23 +813,26 @@ export class SessionCoordinator {
       (request: ClipboardConsumerRequest) =>
         this.#materializeClipboard(request)
     )
-    const select = Object.freeze((selection: InitialModelSelection) => {
-      if (this.#lifecycle !== 'open') {
-        throw new Error('Document session is closed')
-      }
-      this.#worker.moveSelection(selection)
-      // Republish so the caret is visible to the next reader. No revision is
-      // committed and no transition is emitted: the document did not change,
-      // and retained drafts are untouched.
-      this.#snapshot = this.#createSnapshot()
+    const selectionAuthority = createSelectionAuthority({
+      requireOpen: () => {
+        if (this.#lifecycle !== 'open') {
+          throw new Error('Document session is closed')
+        }
+      },
+      moveSelection: (selection) => {
+        this.#worker.moveSelection(selection)
+      },
+      moveSourceSelection: (selection) => {
+        this.#worker.moveSourceSelection(selection)
+      },
+      republish: () => {
+        this.#snapshot = this.#createSnapshot()
+      },
+      mailboxTail: () => this.#mailbox
     })
-    const selectSource = Object.freeze((selection: InitialModelSelection) => {
-      if (this.#lifecycle !== 'open') {
-        throw new Error('Document session is closed')
-      }
-      this.#worker.moveSourceSelection(selection)
-      this.#snapshot = this.#createSnapshot()
-    })
+    const select = Object.freeze(selectionAuthority.select)
+    const selectSource = Object.freeze(selectionAuthority.selectSource)
+    const settled = Object.freeze(selectionAuthority.settled)
     const subscribe = Object.freeze((listener: SessionTransitionListener) =>
       this.#subscribe(listener)
     )
@@ -860,6 +864,7 @@ export class SessionCoordinator {
       materializeClipboard,
       select,
       selectSource,
+      settled,
       ticketOutcome,
       effects,
       cancel,
