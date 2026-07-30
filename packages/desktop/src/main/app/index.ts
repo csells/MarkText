@@ -85,8 +85,14 @@ class App {
 
       const buf: PathInfo[] = []
       for (const pathname of args._) {
-        // Ignore all unknown flags
+        // Ignore all unknown flags and the unpackaged entry path: an
+        // `electron <appPath>` invocation carries the application's own
+        // directory as a positional, and opening it as a project root is
+        // never what the caller asked for.
         if (pathname.startsWith('--')) {
+          continue
+        }
+        if (path.resolve(pathname) === app.getAppPath()) {
           continue
         }
 
@@ -244,8 +250,14 @@ class App {
 
     if (args._.length) {
       for (const pathname of args._) {
-        // Ignore all unknown flags
+        // Ignore all unknown flags and the unpackaged entry path: an
+        // `electron <appPath>` invocation carries the application's own
+        // directory as a positional, and opening it as a project root is
+        // never what the caller asked for.
         if (pathname.startsWith('--')) {
+          continue
+        }
+        if (path.resolve(pathname) === app.getAppPath()) {
           continue
         }
 

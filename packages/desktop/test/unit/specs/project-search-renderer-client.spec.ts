@@ -104,10 +104,38 @@ describe('closed renderer project-search client', () => {
       payload: '/right.md'
     })
     fixture.resolveStart({ searchId: 'main-search' })
-    fixture.emitDone({ searchId: 'main-search' })
+    fixture.emitDone({ searchId: 'main-search', matchCount: 1 })
 
     await search
     expect(matches).toEqual(['/right.md'])
+  })
+
+  it('holds completion until every promised match envelope arrives', async() => {
+    const fixture = bridgeFixture()
+    vi.stubGlobal('window', { ripgrep: fixture.bridge })
+
+    const matches: unknown[] = []
+    let resolved = false
+    const search = new RipgrepDirectorySearcher().search('needle', {
+      didMatch: (payload) => matches.push(payload),
+      inclusions: ['*.md']
+    })
+    void search.then(() => {
+      resolved = true
+    })
+
+    fixture.resolveStart({ searchId: 'main-search' })
+    // The done envelope overtakes one queued match delivery: mt::rg::match
+    // and mt::rg::done are separate channels with no cross-channel ordering
+    // guarantee (G28). The promised count keeps the result complete.
+    fixture.emitDone({ searchId: 'main-search', matchCount: 2 })
+    fixture.emitMatch({ searchId: 'main-search', payload: '/one.md' })
+    await Promise.resolve()
+    expect(resolved).toBe(false)
+
+    fixture.emitMatch({ searchId: 'main-search', payload: '/two.md' })
+    await search
+    expect(matches).toEqual(['/one.md', '/two.md'])
   })
 
   it('cancels a pre-start request only through the main-generated identity', async() => {
@@ -124,7 +152,7 @@ describe('closed renderer project-search client', () => {
     await vi.waitFor(() => {
       expect(fixture.cancel).toHaveBeenCalledWith('main-file-search')
     })
-    fixture.emitDone({ searchId: 'main-file-search' })
+    fixture.emitDone({ searchId: 'main-file-search', matchCount: 0 })
     await search
   })
 })

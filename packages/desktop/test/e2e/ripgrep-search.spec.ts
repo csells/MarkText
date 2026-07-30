@@ -54,19 +54,30 @@ test.describe('Ripgrep IPC streaming', () => {
           const deliver = (): void => {
             if (raw.searchId === searchId && typeof raw.payload !== 'string' && raw.payload) {
               captured.push(raw.payload as RgMatch)
+              finishIfComplete()
             }
           }
           if (searchId === null) earlyEvents.push(deliver)
           else deliver()
         })
         const cleanup = () => offMatch()
-        const offDone = window.ripgrep.onDone((raw) => {
-          const deliver = (): void => {
-            if (raw.searchId !== searchId) return
+        // The terminal envelope promises how many match envelopes were
+        // emitted; resolution waits for that stream (G28), so a done that
+        // overtakes queued deliveries can no longer truncate the result.
+        let promised: number | null = null
+        const finishIfComplete = (): void => {
+          if (promised !== null && captured.length >= promised) {
             cleanup()
             offDone()
             offError()
             resolve(captured)
+          }
+        }
+        const offDone = window.ripgrep.onDone((raw) => {
+          const deliver = (): void => {
+            if (raw.searchId !== searchId) return
+            promised = raw.matchCount
+            finishIfComplete()
           }
           if (searchId === null) earlyEvents.push(deliver)
           else deliver()
@@ -113,18 +124,27 @@ test.describe('Ripgrep IPC streaming', () => {
           const deliver = (): void => {
             if (raw.searchId === searchId && typeof raw.payload === 'string') {
               seen.push(raw.payload)
+              finishIfComplete()
             }
           }
           if (searchId === null) earlyEvents.push(deliver)
           else deliver()
         })
-        const offDone = window.ripgrep.onDone((raw) => {
-          const deliver = (): void => {
-            if (raw.searchId !== searchId) return
+        // Resolution waits for the promised match stream (G28).
+        let promised: number | null = null
+        const finishIfComplete = (): void => {
+          if (promised !== null && seen.length >= promised) {
             offMatch()
             offDone()
             offError()
             resolve(seen)
+          }
+        }
+        const offDone = window.ripgrep.onDone((raw) => {
+          const deliver = (): void => {
+            if (raw.searchId !== searchId) return
+            promised = raw.matchCount
+            finishIfComplete()
           }
           if (searchId === null) earlyEvents.push(deliver)
           else deliver()

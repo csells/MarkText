@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G28, G32, G34 open;
+- **Status:** RED — G4, G6–G9, G13, G18, G19, G23, G24, G32, G34 open;
   G5, G14–G16 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-29
@@ -276,7 +276,7 @@ proof", and the single-space cell padding exactly as written. -->
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G32, G34 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
-| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G16 residues, G18, G19, G28 (W4) |
+| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G14–G16 residues, G18, G19 (W4) |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
 | P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6), blocked by G32 |
 | P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
@@ -488,20 +488,6 @@ whose assertion cannot distinguish pass from fail.
   replace and live rendering elsewhere. Production routes those questions
   through the policy; deleting the declarations is rejected, because it leaves
   G16's per-kind matrix with no owning module.
-- **G28 Streamed project-search completion is unordered against its matches.**
-  `mt::rg::match` and `mt::rg::done` are separate IPC channels, which carry no
-  cross-channel ordering guarantee, and the terminal envelope carries only a
-  `searchId` (`packages/desktop/src/shared/types/projectSearch.ts:54-56`) — so a
-  consumer that resolves on `done` cannot tell a complete result from a
-  truncated one. `packages/desktop/test/e2e/ripgrep-search.spec.ts:44` observes
-  this directly: it alternates pass/fail roughly every other run **in
-  isolation** (measured 2026-07-29, four consecutive runs: fail, pass, fail,
-  pass), resolving with zero matches whenever `done` overtakes the queued match
-  deliveries. Closure gives the terminal envelope the match count the producer
-  emitted, so a consumer can wait for the stream it was promised; a matching
-  count is what makes truncation observable rather than silent. The real search
-  sidebar shares the same channels and the same exposure.
-
 **W6 — Budgets and release**
 
 - **G23 Measured budgets are unmet.** Edit and deletion latency, worker stall,
@@ -564,7 +550,7 @@ incremental intrinsic pass (G32) and the structural extraction (G34).
   its own baseline, and G9 passing over all of them. No later workstream may
   be declared closed before G9 passes.
 - **W4** — manifest rows land before the implementation work they gate. Exit:
-  G14–G19 and G28 closed, and no section 8 claim lacks a manifest row.
+  G14–G19 closed, and no section 8 claim lacks a manifest row.
 - **W6** — after budgets are met and the P10 control plane closes, freeze:
   commit and push the exact candidate, run two sequential
   `evidence/0009/pass-*` tags, publish authenticated evidence, and create the

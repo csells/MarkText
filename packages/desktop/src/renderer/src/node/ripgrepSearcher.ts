@@ -100,6 +100,18 @@ const startSearch = ({
       else resolve()
     }
 
+    // mt::rg::match and mt::rg::done are separate channels with no
+    // cross-channel ordering guarantee, so completion resolves only once
+    // every match the terminal envelope promised has been received —
+    // otherwise a done that overtakes queued deliveries silently truncates
+    // the result (G28). Cancellation abandons the stream deliberately.
+    let matchesReceived = 0
+    let promisedMatches: number | null = null
+    const finishIfStreamComplete = (): void => {
+      if (promisedMatches !== null && matchesReceived >= promisedMatches) {
+        finish()
+      }
+    }
     const deliver = (event: SearchEvent): void => {
       if (searchId === null) {
         earlyEvents.push(event)
@@ -107,11 +119,13 @@ const startSearch = ({
       }
       if (event.value.searchId !== searchId) return
       if (event.kind === 'match') {
+        matchesReceived += 1
         try {
           didMatch(event.value.payload)
         } catch (error) {
           console.error(error)
         }
+        finishIfStreamComplete()
       } else if (event.kind === 'progress') {
         try {
           didSearchPaths(event.value.num)
@@ -120,6 +134,9 @@ const startSearch = ({
         }
       } else if (event.kind === 'error') {
         finish(new Error(event.value.error || 'Project search failed'))
+      } else if (event.kind === 'done') {
+        promisedMatches = event.value.matchCount
+        finishIfStreamComplete()
       } else {
         finish()
       }

@@ -195,6 +195,9 @@ const startTextSearch = (
   const children: ChildProcess[] = []
   let cancelled = false
   let pendingPaths = 0
+  // Every mt::rg::match envelope is counted so the terminal can promise
+  // the stream it ends (G28).
+  let matchEnvelopes = 0
   let pendingDirs = directories.length
   let finished = false
 
@@ -209,7 +212,7 @@ const startTextSearch = (
           error: err instanceof Error ? err.message : String(err)
         })
       } else {
-        sendIfAlive(sender, 'mt::rg::done', { searchId })
+        sendIfAlive(sender, 'mt::rg::done', { searchId, matchCount: matchEnvelopes })
       }
     }
   }
@@ -226,7 +229,7 @@ const startTextSearch = (
     if (!finished) {
       finished = true
       activeSearches.delete(searchId)
-      sendIfAlive(sender, 'mt::rg::cancelled', { searchId })
+      sendIfAlive(sender, 'mt::rg::cancelled', { searchId, matchCount: matchEnvelopes })
     }
   }
   for (const directoryPath of directories) {
@@ -271,8 +274,15 @@ const startTextSearch = (
     let pendingTrailingContexts: Set<unknown[]> = new Set()
 
     child.on('close', (code) => {
-      if (code !== null && code > 1 && bufferError) {
+      // Exit code 1 is ripgrep's clean no-matches result; anything above it
+      // is a real failure. Swallowing it and sending an empty done reported
+      // a truncated result as a complete one (G28).
+      if (code !== null && code > 1) {
         log.warn('Ripgrep finished with errors (exit code ' + code + '):', bufferError)
+        finishIfDone(new Error(
+          bufferError || 'ripgrep exited with code ' + code
+        ))
+        return
       }
       if (buffer && !cancelled) {
         try {
@@ -280,6 +290,7 @@ const startTextSearch = (
           if (message.type === 'end' && pendingEvent) {
             pendingPaths++
             sendIfAlive(sender, 'mt::rg::progress', { searchId, num: pendingPaths })
+            matchEnvelopes++
             sendIfAlive(sender, 'mt::rg::match', { searchId, payload: pendingEvent })
           }
         } catch {
@@ -327,6 +338,7 @@ const startTextSearch = (
           } else if (message.type === 'end') {
             pendingPaths++
             sendIfAlive(sender, 'mt::rg::progress', { searchId, num: pendingPaths })
+            matchEnvelopes++
             sendIfAlive(sender, 'mt::rg::match', { searchId, payload: pendingEvent })
             pendingEvent = null
           }
@@ -350,6 +362,9 @@ const startFileSearch = (
   const children: ChildProcess[] = []
   let cancelled = false
   let pendingPaths = 0
+  // Every mt::rg::match envelope is counted so the terminal can promise
+  // the stream it ends (G28).
+  let matchEnvelopes = 0
   let pendingDirs = directories.length
   let finished = false
 
@@ -364,7 +379,7 @@ const startFileSearch = (
           error: err instanceof Error ? err.message : String(err)
         })
       } else {
-        sendIfAlive(sender, 'mt::rg::done', { searchId })
+        sendIfAlive(sender, 'mt::rg::done', { searchId, matchCount: matchEnvelopes })
       }
     }
   }
@@ -381,7 +396,7 @@ const startFileSearch = (
     if (!finished) {
       finished = true
       activeSearches.delete(searchId)
-      sendIfAlive(sender, 'mt::rg::cancelled', { searchId })
+      sendIfAlive(sender, 'mt::rg::cancelled', { searchId, matchCount: matchEnvelopes })
     }
   }
   for (const directoryPath of directories) {
@@ -424,6 +439,7 @@ const startFileSearch = (
       for (const line of lines) {
         pendingPaths++
         sendIfAlive(sender, 'mt::rg::progress', { searchId, num: pendingPaths })
+        matchEnvelopes++
         sendIfAlive(sender, 'mt::rg::match', { searchId, payload: line })
       }
     })

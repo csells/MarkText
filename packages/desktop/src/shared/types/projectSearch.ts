@@ -53,6 +53,14 @@ export interface ProjectSearchProgressEnvelope {
 
 export interface ProjectSearchTerminalEnvelope {
   readonly searchId: string
+  /**
+   * How many match envelopes the producer emitted before this terminal.
+   * `mt::rg::match` and `mt::rg::done` are separate channels with no
+   * cross-channel ordering guarantee, so a consumer resolves only after
+   * receiving this many matches — the count is what makes truncation
+   * observable rather than silent (G28).
+   */
+  readonly matchCount: number
 }
 
 export interface ProjectSearchErrorEnvelope {
