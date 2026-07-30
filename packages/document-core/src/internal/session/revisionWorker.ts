@@ -5506,31 +5506,31 @@ export class RevisionWorker {
   }
 
   prepareUndo(next: RevisionId): PreparedWorkerCommit {
-    const entry = this.#historyRecord.undo()
-    if (entry === null) {
+    const replay = this.#historyRecord.undo()
+    if (replay === null) {
       throw new IntentRejection('nothing-to-undo')
     }
 
     return this.#prepareHistoryEdits(
-      entry.inverse,
+      replay.edits,
       next,
-      entry.beforeSelection,
-      entry.beforeSourceSelection,
+      replay.selection,
+      replay.sourceSelection,
       'undo'
     )
   }
 
   prepareRedo(next: RevisionId): PreparedWorkerCommit {
-    const entry = this.#historyRecord.redo()
-    if (entry === null) {
+    const replay = this.#historyRecord.redo()
+    if (replay === null) {
       throw new IntentRejection('nothing-to-redo')
     }
 
     return this.#prepareHistoryEdits(
-      entry.forward,
+      replay.edits,
       next,
-      entry.afterSelection,
-      entry.afterSourceSelection,
+      replay.selection,
+      replay.sourceSelection,
       'redo'
     )
   }

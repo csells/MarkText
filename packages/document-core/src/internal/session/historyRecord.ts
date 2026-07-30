@@ -110,6 +110,17 @@ export type HistoryRecordOutcome =
   | Readonly<{ kind: 'extended' }>
   | Readonly<{ kind: 'recorded'; compacted: number }>
 
+/**
+ * An exact replay: the edit set and the exact selections to restore. History
+ * hands it to admission under `exact-replay`; the direction is resolved here
+ * so no caller re-derives edits from a raw entry.
+ */
+export interface Replay {
+  readonly edits: readonly SourceEdit[]
+  readonly selection: InitialModelSelection
+  readonly sourceSelection: InitialModelSelection
+}
+
 export interface HistoryRecordLimits {
   readonly maximumEntries: number
   readonly maximumInsertUnits: number
@@ -127,10 +138,10 @@ export interface HistoryRecord {
     entry: HistoryEntry,
     coalescible: boolean
   ) => HistoryRecordOutcome
-  /** The entry an undo would replay, without moving the cursor. */
-  readonly undo: () => HistoryEntry | null
-  /** The entry a redo would replay, without moving the cursor. */
-  readonly redo: () => HistoryEntry | null
+  /** The exact replay an undo would perform, without moving the cursor. */
+  readonly undo: () => Replay | null
+  /** The exact replay a redo would perform, without moving the cursor. */
+  readonly redo: () => Replay | null
   /**
    * Confirm a committed replay. The cursor moves only here, so a rejected
    * replay never desynchronizes it; any confirmation seals the typed run.
@@ -259,8 +270,26 @@ export function createHistoryRecord(
       }
       return Object.freeze({ kind: 'recorded' as const, compacted })
     },
-    undo: (): HistoryEntry | null => entries[cursor - 1] ?? null,
-    redo: (): HistoryEntry | null => entries[cursor] ?? null,
+    undo: (): Replay | null => {
+      const entry = entries[cursor - 1]
+      return entry === undefined
+        ? null
+        : Object.freeze({
+          edits: entry.inverse,
+          selection: entry.beforeSelection,
+          sourceSelection: entry.beforeSourceSelection
+        })
+    },
+    redo: (): Replay | null => {
+      const entry = entries[cursor]
+      return entry === undefined
+        ? null
+        : Object.freeze({
+          edits: entry.forward,
+          selection: entry.afterSelection,
+          sourceSelection: entry.afterSourceSelection
+        })
+    },
     applied: (action: 'undo' | 'redo'): void => {
       openTypedRun = null
       cursor += action === 'undo' ? -1 : 1

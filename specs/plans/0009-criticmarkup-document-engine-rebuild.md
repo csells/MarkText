@@ -347,10 +347,9 @@ are transcribed exactly. Its real residue is G36.
   tape, decisions, lane, forks, identity, and provenance are the work.
 
 - **G34 [high] Section 2 modules are missing or partial.** Zero repo-wide
-  matches for `Replay` (History's named interface shape), `installed(`
-  (persistence-lease member), and `configurationFor(` (grammar
-  configuration); no Selection module — settlement is answered in the view
-  and renderer as well as the session.
+  matches for `installed(` (persistence-lease member) and
+  `configurationFor(` (grammar configuration); no Selection module —
+  settlement is answered in the view and renderer as well as the session.
   `internal/sourceAuthorship.ts` owns only the escape rule while marker
   composition lives in the transformation kernel, and the secondary parser
   counter families (reference-definition index builds, line-materialization
@@ -378,10 +377,12 @@ are transcribed exactly. Its real residue is G36.
   persistence acceptance in one owner, identities transported opaquely —
   and the History module exists (`internal/session/historyRecord.ts`):
   entries, the cursor, the typed-run coalescing rule, compaction, and the
-  exhaustion states in one owner, with undo/redo peeks confirmed at
-  commit so a rejected replay never desynchronizes the cursor, and
-  History reporting outcomes the worker maps onto the ledger — it never
-  mints saved identity. Not one behavior: closure is the remaining
+  exhaustion states in one owner, with `undo()` and `redo()` handing the
+  named `Replay` — the exact edit set plus the exact selections to
+  restore, direction resolved inside History so no caller re-derives
+  edits — confirmed at commit so a rejected replay never desynchronizes
+  the cursor, and History reporting outcomes the worker maps onto the
+  ledger — it never mints saved identity. Not one behavior: closure is the remaining
   section 2 extraction, landed green-to-green with
   interface-conformance targets per module.
 
