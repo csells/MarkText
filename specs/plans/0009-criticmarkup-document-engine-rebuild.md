@@ -346,19 +346,22 @@ are transcribed exactly. Its real residue is G36.
   (`safePoints.ts`); the convergence contract and artifact splicing across
   tape, decisions, lane, forks, identity, and provenance are the work.
 
-- **G34 [high] Four section 2 modules do not exist.** Zero repo-wide matches
-  for `admit(` (admission authority), `Replay` (History's interface),
-  `installed(` (persistence-lease member), and `configurationFor(` (grammar
-  configuration); no saved-identity module (the identity is an unbranded
-  string a renderer caller compares itself); no Selection module — settlement
-  is answered in the view and renderer as well as the session.
+- **G34 [high] Section 2 modules are missing or partial.** Zero repo-wide
+  matches for `admit(` (admission authority), `Replay` (History's
+  interface), `installed(` (persistence-lease member), and
+  `configurationFor(` (grammar configuration); no Selection module —
+  settlement is answered in the view and renderer as well as the session.
   `internal/sourceAuthorship.ts` owns only the escape rule while marker
-  composition lives in the transformation kernel, and execution accounting is
-  a process-global mutable counter bank with test-only resets
+  composition lives in the transformation kernel, and execution accounting
+  is a process-global mutable counter bank with test-only resets
   (`internal/profile1/physicalTraversalAccounting.ts`). The concerns are
-  answered today inside `revisionWorker.ts` (5,712 lines) and its callers.
-  Not one behavior: closure is the section 2 extraction, landed green-to-green
-  with interface-conformance targets per module.
+  answered today inside `revisionWorker.ts` and its callers. Progress
+  2026-07-29: the saved-identity module exists
+  (`internal/session/savedIdentityLedger.ts`) — minting, validation, the
+  content-addressed dirty comparison, and persistence acceptance live in
+  one owner and the worker transports identities opaquely. Not one
+  behavior: closure is the remaining section 2 extraction, landed
+  green-to-green with interface-conformance targets per module.
 
 **W2 — Host surfaces**
 

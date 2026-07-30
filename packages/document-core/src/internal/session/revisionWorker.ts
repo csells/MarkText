@@ -78,6 +78,10 @@ import {
 import {
   normalizeMarkdownReferenceLabel
 } from '../profile1/markdownLaneState.js'
+import {
+  createSavedIdentityLedger,
+  type SavedIdentityLedger
+} from './savedIdentityLedger.js'
 import type { SourceEdit } from './sourceTransaction.js'
 import { applyExactSourceEdits } from '../../exactSourceEdits.js'
 
@@ -1600,10 +1604,7 @@ export class RevisionWorker {
     lastScalar: string
   }> | null = null
   #historyCursor = 0
-  #historyIdentities: string[]
-  #historySourceHashes: SourceHashV1[]
-  #historyIdentitySequence = 0
-  #savedHistoryIdentity: string
+  #savedIdentityLedger: SavedIdentityLedger
 
   constructor(
     engine: LanguageEngine,
@@ -1617,10 +1618,10 @@ export class RevisionWorker {
     this.#engine = engine
     this.#transformations = createTransformationKernel(engine)
     this.#trackChanges = recovery?.trackChanges ?? trackChanges
-    const initialHistoryIdentity = `${String(session)}:history:0`
-    this.#historyIdentities = [initialHistoryIdentity]
-    this.#historySourceHashes = [revision.sourceHash]
-    this.#savedHistoryIdentity = initialHistoryIdentity
+    this.#savedIdentityLedger = createSavedIdentityLedger(
+      String(session),
+      Object.freeze({ kind: 'opened' as const, sourceHash: revision.sourceHash })
+    )
     if (
       recovery !== undefined &&
       (
@@ -1693,10 +1694,16 @@ export class RevisionWorker {
       }
       this.#history = recovery.history.map((entry) => freezeHistoryEntry(entry))
       this.#historyCursor = recovery.historyCursor
-      this.#historyIdentities = [...recovery.historyIdentities]
-      this.#historySourceHashes = [...recovery.historySourceHashes]
-      this.#historyIdentitySequence = recovery.historyIdentitySequence
-      this.#savedHistoryIdentity = recovery.savedHistoryIdentity
+      this.#savedIdentityLedger = createSavedIdentityLedger(
+        String(session),
+        Object.freeze({
+          kind: 'recovered' as const,
+          identities: recovery.historyIdentities,
+          sourceHashes: recovery.historySourceHashes,
+          sequence: recovery.historyIdentitySequence,
+          savedIdentity: recovery.savedHistoryIdentity
+        })
+      )
     }
   }
 
@@ -1723,39 +1730,19 @@ export class RevisionWorker {
   }
 
   historyState(): DocumentHistoryState {
-    const headIdentity = this.#historyIdentities[this.#historyCursor]
-    if (headIdentity === undefined) {
-      throw new Error('Revision worker has no current history identity')
-    }
-    // Dirty is a content comparison, never a position comparison: a document
-    // edited back to the bytes on disk is clean however history reached them,
-    // and a divergent replay is dirty even when the cursor returns to where it
-    // was saved. The saved position may have been compacted out of history, in
-    // which case its content is no longer knowable and the head is dirty.
-    const savedIndex = this.#historyIdentities.indexOf(this.#savedHistoryIdentity)
-    const savedSourceHash =
-      savedIndex === -1 ? undefined : this.#historySourceHashes[savedIndex]
+    // Dirty is the saved-identity module's content comparison, never a
+    // position comparison performed here.
     return Object.freeze({
       canUndo: this.#historyCursor > 0,
       canRedo: this.#historyCursor < this.#history.length,
-      dirty: savedSourceHash !== this.#state.revision.sourceHash,
-      headIdentity,
-      savedIdentity: this.#savedHistoryIdentity
+      dirty: this.#savedIdentityLedger.dirty(this.#state.revision.sourceHash),
+      headIdentity: this.#savedIdentityLedger.identityAt(this.#historyCursor),
+      savedIdentity: this.#savedIdentityLedger.savedIdentity()
     })
   }
 
   markPersisted(headIdentity: string): void {
-    const prefix = `${String(this.#state.session)}:history:`
-    const sequence = Number(headIdentity.slice(prefix.length))
-    if (
-      !headIdentity.startsWith(prefix) ||
-      !Number.isInteger(sequence) ||
-      sequence < 0 ||
-      sequence > this.#historyIdentitySequence
-    ) {
-      throw new TypeError('Persisted history identity is not owned by this session')
-    }
-    this.#savedHistoryIdentity = headIdentity
+    this.#savedIdentityLedger.markPersisted(headIdentity)
     // A saved identity names an exact recorded position; extending the run
     // would replace the head identity it points at.
     this.#openTypedRun = null
@@ -1816,10 +1803,10 @@ export class RevisionWorker {
       trackChanges: this.#trackChanges,
       history: Object.freeze(this.#history.map((entry) => freezeHistoryEntry(entry))),
       historyCursor: this.#historyCursor,
-      historyIdentities: Object.freeze([...this.#historyIdentities]),
-      historySourceHashes: Object.freeze([...this.#historySourceHashes]),
-      historyIdentitySequence: this.#historyIdentitySequence,
-      savedHistoryIdentity: this.#savedHistoryIdentity
+      historyIdentities: this.#savedIdentityLedger.checkpoint().identities,
+      historySourceHashes: this.#savedIdentityLedger.checkpoint().sourceHashes,
+      historyIdentitySequence: this.#savedIdentityLedger.checkpoint().sequence,
+      savedHistoryIdentity: this.#savedIdentityLedger.checkpoint().savedIdentity
     })
   }
 
@@ -1842,10 +1829,7 @@ export class RevisionWorker {
     this.#history = restored.#history
     this.#openTypedRun = null
     this.#historyCursor = restored.#historyCursor
-    this.#historyIdentities = restored.#historyIdentities
-    this.#historySourceHashes = restored.#historySourceHashes
-    this.#historyIdentitySequence = restored.#historyIdentitySequence
-    this.#savedHistoryIdentity = restored.#savedHistoryIdentity
+    this.#savedIdentityLedger = restored.#savedIdentityLedger
   }
 
   /**
@@ -6007,11 +5991,10 @@ export class RevisionWorker {
     // The head position now denotes a different recorded state, so it mints
     // a fresh identity and content hash; earlier positions — including any
     // saved one, since persistence seals the run — are untouched.
-    this.#historyIdentitySequence += 1
-    this.#historyIdentities[this.#historyCursor] =
-      `${String(this.#state.session)}:history:${this.#historyIdentitySequence}`
-    this.#historySourceHashes[this.#historyCursor] =
+    this.#savedIdentityLedger.replace(
+      this.#historyCursor,
       prepared.revision.sourceHash
+    )
     this.#openTypedRun = Object.freeze({
       caret: single.position + single.scalar.length,
       lastScalar: single.scalar
@@ -6039,19 +6022,10 @@ export class RevisionWorker {
         : null
       const stableEntry = freezeHistoryEntry(prepared.historyAction.entry)
       this.#history = this.#history.slice(0, this.#historyCursor)
-      this.#historyIdentities = this.#historyIdentities.slice(
-        0,
-        this.#historyCursor + 1
+      this.#savedIdentityLedger.record(
+        this.#historyCursor + 1,
+        prepared.revision.sourceHash
       )
-      this.#historySourceHashes = this.#historySourceHashes.slice(
-        0,
-        this.#historyCursor + 1
-      )
-      this.#historyIdentitySequence += 1
-      this.#historyIdentities.push(
-        `${String(this.#state.session)}:history:${this.#historyIdentitySequence}`
-      )
-      this.#historySourceHashes.push(prepared.revision.sourceHash)
       this.#history.push(stableEntry)
       this.#historyCursor += 1
       let historyInsertUnits = this.#history.reduce(
@@ -6077,8 +6051,7 @@ export class RevisionWorker {
           (total, edit) => total + edit.insert.length,
           0
         )
-        this.#historyIdentities.shift()
-        this.#historySourceHashes.shift()
+        this.#savedIdentityLedger.shift()
         this.#historyCursor -= 1
       }
     } else if (prepared.historyAction.kind === 'undo') {
