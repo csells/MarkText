@@ -2762,10 +2762,20 @@ export class RevisionWorker {
         if (block.kind !== 'list') {
           throw new IntentRejection('wrong-target-kind')
         }
-        return source.replace(
-          /(\r\n|\r|\n)(?=[ \t]*(?:[-+*]|\d+[.)])[ \t]+)/,
-          `$1${eol}`
-        )
+        // A toggle, applied at every inter-item gap: a loose list (any blank
+        // line before a following marker) tightens by collapsing each gap to
+        // one line ending; a tight list loosens by inserting one blank at
+        // each gap. The old form only ever loosened, and only the first gap.
+        // A lone CR only ends a line when no LF follows, or CRLF pairs split
+        // across two alternatives and a tight CRLF list reads as loose.
+        const gap =
+          /(\r\n|\r(?!\n)|\n)(?:[ \t]*(?:\r\n|\r(?!\n)|\n))*(?=[ \t]*(?:[-+*]|\d+[.)])[ \t]+)/g
+        const loose =
+          /(?:\r\n|\r(?!\n)|\n)[ \t]*(?:\r\n|\r(?!\n)|\n)[ \t]*(?:[-+*]|\d+[.)])[ \t]+/
+            .test(source)
+        return loose
+          ? source.replace(gap, '$1')
+          : source.replace(gap, `$1${eol}`)
       }
       if (conversion.kind === 'code-block') {
         return block.kind === 'code-block'
@@ -3287,21 +3297,81 @@ export class RevisionWorker {
       source.lastIndexOf('\r', Math.max(0, itemStart - 1))
     ) + 1
     const indent = /^[ \t]*/.exec(source.slice(lineStart))?.[0] ?? ''
-    const edit =
-      direction === 'increase'
-        ? Object.freeze({
-          start: lineStart,
-          end: lineStart,
-          insert: '  '
-        })
-        : Object.freeze({
-          start: lineStart,
-          end: lineStart + Math.min(2, indent.length),
-          insert: ''
-        })
-    if (edit.start === edit.end && edit.insert.length === 0) {
-      throw new IntentRejection('no-source-change')
+    // Nesting reaches the adjacent item's content column, so the step is that
+    // marker segment's width — 2 under '- ', 3 under '1. ' — never a fixed
+    // two spaces, which fails to nest under any ordered marker.
+    const MARKER = /^([ \t]*)((?:[-+*]|\d{1,9}[.)])[ \t]+)/
+    const markerWidthAbove = (
+      relation: 'sibling' | 'ancestor'
+    ): number | null => {
+      let end = lineStart
+      while (end > 0) {
+        const precedingStart = Math.max(
+          source.lastIndexOf('\n', end - 2),
+          source.lastIndexOf('\r', end - 2)
+        ) + 1
+        const line = source.slice(precedingStart, end)
+        const match = MARKER.exec(line)
+        if (match !== undefined && match !== null) {
+          const lineIndent = match[1] ?? ''
+          const width = (match[2] ?? '').length
+          if (relation === 'sibling' && lineIndent.length <= indent.length) {
+            return lineIndent.length === indent.length ? width : null
+          }
+          if (relation === 'ancestor' && lineIndent.length < indent.length) {
+            return width
+          }
+        }
+        if (precedingStart === 0) break
+        end = precedingStart
+      }
+      return null
     }
+    const edits: Array<Readonly<{
+      start: number
+      end: number
+      insert: string
+    }>> = []
+    if (direction === 'increase') {
+      const width = markerWidthAbove('sibling')
+      if (width === null) {
+        // Without a preceding sibling at the same level there is no item to
+        // nest under; indenting would fabricate a continuation line.
+        throw new IntentRejection('no-source-change')
+      }
+      edits.push(Object.freeze({
+        start: lineStart,
+        end: lineStart,
+        insert: ' '.repeat(width)
+      }))
+      // An ordered item becomes the first entry of its new nested list; its
+      // marker number is part of the semantic move, exactly as an editor
+      // renumbers on indent.
+      const markerMatch = MARKER.exec(source.slice(lineStart))
+      const digits = /^\d{1,9}/.exec(
+        source.slice(lineStart + (markerMatch?.[1] ?? '').length)
+      )?.[0]
+      if (digits !== undefined && digits !== '1') {
+        const numberStart = lineStart + (markerMatch?.[1] ?? '').length
+        edits.push(Object.freeze({
+          start: numberStart,
+          end: numberStart + digits.length,
+          insert: '1'
+        }))
+      }
+    } else {
+      const width = markerWidthAbove('ancestor') ?? 2
+      const removal = Math.min(width, indent.length)
+      if (removal === 0) {
+        throw new IntentRejection('no-source-change')
+      }
+      edits.push(Object.freeze({
+        start: lineStart,
+        end: lineStart + removal,
+        insert: ''
+      }))
+    }
+    const edit = edits[0]!
     const carrier = trackCarrierContext(
       state.revision,
       edit.start,
@@ -3310,18 +3380,19 @@ export class RevisionWorker {
     if (this.#trackChanges && carrier.policy === 'read-only') {
       throw new IntentRejection('read-only-change-arm')
     }
-    const removed = source.slice(edit.start, edit.end)
-    const trackedEdit =
-      !this.#trackChanges || carrier.policy === 'direct'
-        ? edit
+    const trackedEdits = edits.map((entry) => {
+      const removed = source.slice(entry.start, entry.end)
+      return !this.#trackChanges || carrier.policy === 'direct'
+        ? entry
         : Object.freeze({
-          ...edit,
+          ...entry,
           insert: direction === 'increase'
-            ? serializeAddition(edit.insert)
+            ? serializeAddition(entry.insert)
             : serializeDeletion(removed)
         })
+    })
     return this.#prepareMappedEdits(
-      Object.freeze([trackedEdit]),
+      Object.freeze(trackedEdits),
       target,
       next
     )

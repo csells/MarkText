@@ -50,7 +50,7 @@ test.describe('Loose/tight list-item toggle', () => {
   test('menu click toggles a tight list loose (blank line) and back to tight', async() => {
     // Start from a tight 2-item bullet list — no blank line between items.
     await setSourceMarkdown(page, app, '- one\n- two\n')
-    await expect(page.locator('.document-view-bullet-list .document-view-run').first()).toBeAttached()
+    await expect(page.locator('ul.document-view-list .document-view-run').first()).toBeAttached()
 
     // Sanity: the list serializes tight before any toggle.
     const tightBefore = await getMarkdownContent(page, app)

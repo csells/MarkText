@@ -3976,6 +3976,34 @@ export async function createDocumentCoreView(
             }
         }
 
+        if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey) {
+            // Tab indents / Shift+Tab outdents the list item under a collapsed
+            // caret; outside a list the browser default stands. The engine owns
+            // the decision — the DOM check only scopes the key grab.
+            const selection = host.ownerDocument.getSelection();
+            const origin = selection?.anchorNode ?? null;
+            const listItem = origin === null
+                ? null
+                : (origin instanceof Element ? origin : origin.parentElement)
+                    ?.closest('li') ?? null;
+            if (
+                listItem !== null
+                && host.contains(listItem)
+                && selection !== null
+                && selection.isCollapsed
+                && session.snapshot().kind === 'complete'
+            ) {
+                event.preventDefault();
+                event.stopPropagation();
+                const direction = event.shiftKey ? 'decrease' : 'increase';
+                enqueueBrowserInput(async () => {
+                    const range = documentCoreSelectionRange(host);
+                    await setListIndentation(range.start, direction);
+                });
+                return;
+            }
+        }
+
         if (
             selectedImageSrc === null
             || (event.key !== ' ' && event.key !== 'Spacebar')
