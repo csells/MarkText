@@ -44,6 +44,10 @@ import {
     rememberDocumentCoreTextPublication,
 } from './patchDocumentCoreTextPublication';
 import {
+    clearCodeTokenDecorations,
+    paintCodeTokenDecorations,
+} from './codeTokenDecorations';
+import {
     clearSearchDecorations,
     paintSearchDecorations,
 } from './searchDecorations';
@@ -1558,6 +1562,13 @@ export async function createDocumentCoreView(
         activeIndex: number;
     }> | null = null;
 
+    // Code tokens paint before search decorations so a match highlight layers
+    // over the syntax colour rather than being erased by it.
+    const repaintDecorations = (): void => {
+        paintCodeTokenDecorations(host);
+        repaintSearchDecorations();
+    };
+
     const repaintSearchDecorations = (): void => {
         if (searchDecorations === null)
             return;
@@ -1614,7 +1625,7 @@ export async function createDocumentCoreView(
                 );
             }
             clearQuickInsert();
-            repaintSearchDecorations();
+            repaintDecorations();
         rememberDocumentCoreTextPublication(host, snapshot);
             mountedSnapshot = snapshot;
             return;
@@ -1864,7 +1875,7 @@ export async function createDocumentCoreView(
             );
         }
         refreshQuickInsert(snapshot);
-        repaintSearchDecorations();
+        repaintDecorations();
         rememberDocumentCoreTextPublication(host, snapshot);
         mountedSnapshot = snapshot;
     };
@@ -1918,6 +1929,7 @@ export async function createDocumentCoreView(
         // publication; decoration spans would make that surgery miss. Strip
         // them first and repaint after the DOM settles.
         clearSearchDecorations(host);
+        clearCodeTokenDecorations(host);
         const patched = result.kind === 'committed'
             && patchDocumentCoreTextPublication(
                 host,
@@ -1936,7 +1948,7 @@ export async function createDocumentCoreView(
                 );
             }
             refreshQuickInsert(after);
-            repaintSearchDecorations();
+            repaintDecorations();
         rememberDocumentCoreTextPublication(host, after);
         }
         else {
