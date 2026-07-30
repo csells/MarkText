@@ -4,6 +4,7 @@ import {
   closeElectron,
   launchWithMarkdown,
   getMarkdownContent,
+  readCanonicalMarkdown,
   enterSourceMode,
   exitSourceMode,
   typeIntoEditor,
@@ -147,42 +148,47 @@ test.describe('Title-bar word counter (item 24)', () => {
   })
 
   test('the counter follows the active display mode as it is cycled', async() => {
-    // Seed a deterministic two-paragraph document via source mode so each mode
-    // reads a known value independent of earlier typing in this shared app.
-    await setSourceMarkdown(page, app, 'alpha beta\n\ngamma 字数\n')
-    await page.waitForTimeout(400)
+    // A fresh app seeded at launch: the cycling contract is about display
+    // modes, not the source-mode handoff, and a shared app can still be
+    // draining the previous test's typed intents when this one seeds.
+    const seeded = 'alpha beta\n\ngamma 字数\n'
+    const launched = await launchWithMarkdown(seeded)
+    const cyclePage = launched.page
+    const cycleApp = launched.app
+    try {
+      await expect.poll(() => readCanonicalMarkdown(cyclePage), { timeout: 5000 })
+        .toBe(seeded)
+      const expected = expectedCount(seeded)
+      const counter = cyclePage.locator(WORD_COUNT_TEXT)
+      const text = async(): Promise<string> =>
+        (await counter.innerText()).trim()
+      const value = async(): Promise<number> => {
+        const match = (await text()).match(/(\d+)\s*$/)
+        return match ? Number(match[1]) : NaN
+      }
 
-    // Derive the four expected values from the exact markdown that is loaded.
-    const markdown = await getMarkdownContent(page, app)
-    const expected = expectedCount(markdown)
+      await expect.poll(text).toMatch(/^W\s/)
+      await expect.poll(value).toBe(expected.word)
 
-    const counter = page.locator(WORD_COUNT_TEXT)
+      await counter.click()
+      await expect.poll(text).toMatch(/^P\s/)
+      await expect.poll(value).toBe(expected.paragraph)
 
-    // Default word mode: "W" prefix.
-    await expect.poll(() => counterText(page)).toMatch(/^W\s/)
-    await expect.poll(() => counterValue(page)).toBe(expected.word)
+      await counter.click()
+      await expect.poll(text).toMatch(/^C\s/)
+      await expect.poll(value).toBe(expected.character)
 
-    // Click cycles word -> paragraph.
-    await counter.click()
-    await expect.poll(() => counterText(page)).toMatch(/^P\s/)
-    await expect.poll(() => counterValue(page)).toBe(expected.paragraph)
+      await counter.click()
+      await expect.poll(text).toMatch(/^A\s/)
+      await expect.poll(value).toBe(expected.all)
 
-    // paragraph -> character.
-    await counter.click()
-    await expect.poll(() => counterText(page)).toMatch(/^C\s/)
-    await expect.poll(() => counterValue(page)).toBe(expected.character)
-
-    // character -> all (raw markdown length, with spaces).
-    await counter.click()
-    await expect.poll(() => counterText(page)).toMatch(/^A\s/)
-    await expect.poll(() => counterValue(page)).toBe(expected.all)
-
-    // all -> wraps back to word.
-    await counter.click()
-    await expect.poll(() => counterText(page)).toMatch(/^W\s/)
-    await expect.poll(() => counterValue(page)).toBe(expected.word)
-  })
-})
+      await counter.click()
+      await expect.poll(text).toMatch(/^W\s/)
+      await expect.poll(value).toBe(expected.word)
+    } finally {
+      await closeElectron(cycleApp)
+    }
+  })})
 
 // ---------------------------------------------------------------------------
 // Coverage backfill (checklist item 169). Edit > Select All flows through
