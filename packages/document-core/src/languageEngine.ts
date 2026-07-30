@@ -3,7 +3,9 @@ import { createSourceSnapshot } from './sourceSnapshot.js'
 import type {
   CompleteDocumentRevision,
   DocumentRevision,
+  MarkdownLineIndex,
   MarkdownNode,
+  MarkdownPhysicalLine,
   MarkupProjection,
   NodeId,
   ParseConfiguration,
@@ -257,6 +259,61 @@ function createSimpleTextMarkdownNode(
   return Object.freeze(node) as MarkdownNode
 }
 
+/**
+ * Physical lines of a certified simple-text document, computed lazily: the
+ * certificate proves the source holds no block structure, so every line's
+ * content begins at its start — there are no container prefixes to consume.
+ */
+function simpleTextLineIndex(text: string): MarkdownLineIndex {
+  let computed: readonly MarkdownPhysicalLine[] | undefined
+  const compute = (): readonly MarkdownPhysicalLine[] => {
+    const lines: MarkdownPhysicalLine[] = []
+    let start = 0
+    while (start <= text.length) {
+      const breakMatch = /\r\n|\r|\n/.exec(text.slice(start))
+      if (breakMatch === null || breakMatch.index === undefined) {
+        if (start < text.length) {
+          lines.push(Object.freeze({
+            start,
+            contentOffset: start,
+            contentEnd: text.length,
+            end: text.length,
+            blank: text.slice(start).trim() === ''
+          }))
+        }
+        break
+      }
+      const contentEnd = start + breakMatch.index
+      const end = contentEnd + breakMatch[0].length
+      lines.push(Object.freeze({
+        start,
+        contentOffset: start,
+        contentEnd,
+        end,
+        blank: text.slice(start, contentEnd).trim() === ''
+      }))
+      start = end
+    }
+    return Object.freeze(lines)
+  }
+  return Object.freeze({
+    get count(): number {
+      computed ??= compute()
+      return computed.length
+    },
+    at: Object.freeze((ordinal: number): MarkdownPhysicalLine => {
+      computed ??= compute()
+      const line = Number.isInteger(ordinal) ? computed[ordinal] : undefined
+      if (line === undefined) {
+        throw new RangeError(
+          `Markdown line ordinal is outside the document: ${String(ordinal)}`
+        )
+      }
+      return line
+    })
+  })
+}
+
 function reuseCertifiedSimpleTextRevision(
   previous: CompleteDocumentRevision,
   source: SourceSnapshot,
@@ -293,6 +350,7 @@ function reuseCertifiedSimpleTextRevision(
     root,
     references: previousProjection.markdown.references,
     headings: previousProjection.markdown.headings,
+    lines: simpleTextLineIndex(source.text),
     nodeAt: Object.freeze((
       projectedOffset: number,
       affinity: 'previous' | 'next'

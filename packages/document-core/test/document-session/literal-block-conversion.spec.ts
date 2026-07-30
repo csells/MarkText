@@ -124,4 +124,47 @@ describe('literal block conversion payloads', () => {
     expect(await convertToParagraph('```\none\ntwo\n```\n', 2))
       .toBe('one\ntwo\n')
   })
+
+  // Container payloads come from the emitted line index: content begins at
+  // each line's contentOffset, past every recognized prefix.
+  it.each([
+    {
+      name: 'blockquote lines',
+      source: '> a\n> b\n',
+      at: 2,
+      expected: 'a\nb\n'
+    },
+    {
+      name: 'blockquote CRLF',
+      source: '> a\r\n> b\r\n',
+      at: 2,
+      expected: 'a\r\nb\r\n'
+    },
+    {
+      name: 'list items',
+      source: '- one\n- two\n',
+      at: 2,
+      expected: 'one\ntwo\n'
+    },
+    {
+      name: 'list item with continuation',
+      source: '- one\n  cont\n',
+      at: 2,
+      expected: 'one\ncont\n'
+    },
+    {
+      name: 'task list markers',
+      source: '- [ ] one\n- [x] two\n',
+      at: 6,
+      expected: 'one\ntwo\n'
+    },
+    {
+      name: 'ordered list',
+      source: '1. one\n2. two\n',
+      at: 3,
+      expected: 'one\ntwo\n'
+    }
+  ])('converts $name to a paragraph payload', async(row) => {
+    expect(await convertToParagraph(row.source, row.at)).toBe(row.expected)
+  })
 })

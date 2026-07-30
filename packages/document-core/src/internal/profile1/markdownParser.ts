@@ -1,8 +1,10 @@
 import type {
   MarkdownDocument,
+  MarkdownLineIndex,
   MarkdownLiteralProvider,
   MarkdownNode,
   MarkdownNodeKind,
+  MarkdownPhysicalLine,
   SourceOffset,
   ViewRange
 } from '../../revision.js'
@@ -5451,11 +5453,46 @@ function materializeIntrinsicForkRegionNodes(
     )))
 }
 
+/**
+ * The parser's own line records, slimmed to the emitted physical-line shape
+ * and shifted into document coordinates.
+ */
+function slimPhysicalLines(
+  lines: readonly PlainMarkdownLine[],
+  offset: number
+): readonly MarkdownPhysicalLine[] {
+  return lines.map((line) => Object.freeze({
+    start: line.start + offset,
+    contentOffset: line.contentOffset + offset,
+    contentEnd: line.contentEnd + offset,
+    end: line.end + offset,
+    blank: line.blank
+  }))
+}
+
+function markdownLineIndex(
+  lines: readonly MarkdownPhysicalLine[]
+): MarkdownLineIndex {
+  return Object.freeze({
+    count: lines.length,
+    at: Object.freeze((ordinal: number): MarkdownPhysicalLine => {
+      const line = Number.isInteger(ordinal) ? lines[ordinal] : undefined
+      if (line === undefined) {
+        throw new RangeError(
+          `Markdown line ordinal is outside the document: ${String(ordinal)}`
+        )
+      }
+      return line
+    })
+  })
+}
+
 function intrinsicForkDocumentFromNodes(
   lane: MappedMarkdownLane,
   children: readonly MarkdownNode[],
   containerDepthFailure: MarkdownContainerDepthFailure | undefined,
-  execution: ParseExecutionTracker
+  execution: ParseExecutionTracker,
+  physicalLines: readonly MarkdownPhysicalLine[]
 ): Profile1MarkdownParse {
   return withMappedMarkdownIdentity(lane, () => {
     const root = createNode('document', 0, lane.source.length, children)
@@ -5510,6 +5547,7 @@ function intrinsicForkDocumentFromNodes(
         root,
         references: indices.references,
         headings: indices.headings,
+        lines: markdownLineIndex(physicalLines),
         nodeAt
       }),
       containerDepthFailure
@@ -6609,6 +6647,7 @@ export function createProfile1MarkdownForkParser(
         request: Profile1MarkdownForkAstRequest
       ): Profile1MarkdownParse => {
         const children: MarkdownNode[] = []
+        const physicalLines: MarkdownPhysicalLine[] = []
         let depthFailure: MarkdownContainerDepthFailure | undefined
         const selectionReferenceDefinitions =
           projectedReferenceDefinitionsFromCanonicalFacts(
@@ -6642,6 +6681,9 @@ export function createProfile1MarkdownForkParser(
             localNodes,
             region.start
           ))
+          physicalLines.push(
+            ...slimPhysicalLines(emitted.facts.lines, region.start)
+          )
           const localFailure = emitted.facts.containerDepthFailure
           if (localFailure !== undefined) {
             const candidate = Object.freeze({
@@ -6665,7 +6707,8 @@ export function createProfile1MarkdownForkParser(
           request.lane,
           Object.freeze(children),
           depthFailure,
-          execution
+          execution,
+          Object.freeze(physicalLines)
         )
         parseByKey.set(request.key, parsed)
         const registry = request.lane.syntaxIdentity?.registry

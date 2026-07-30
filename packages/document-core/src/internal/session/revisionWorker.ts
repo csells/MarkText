@@ -2759,6 +2759,73 @@ export class RevisionWorker {
         .slice(start.offset, end.offset)
         .replace(/(?:\r\n|\r|\n)$/, '')
     }
+    // Container payload from the parser-emitted line index: each line's
+    // content begins at its emitted contentOffset — past every blockquote
+    // and list prefix the grammar recognized — so no expression here
+    // re-derives a marker (non-negotiable 2). Task markers are content-side
+    // per the grammar, so each task item's emitted marker extent is
+    // excluded, along with one following space.
+    const containerPayload = (block: MarkdownNode): string => {
+      const exclusions: Array<Readonly<{ start: number; end: number }>> = []
+      const collectTaskMarkers = (node: MarkdownNode): void => {
+        const markerStart = node.attributes['taskMarkerStart']
+        const markerEnd = node.attributes['taskMarkerEnd']
+        if (
+          node.attributes['task'] === true &&
+          typeof markerStart === 'number' &&
+          typeof markerEnd === 'number'
+        ) {
+          exclusions.push(Object.freeze({ start: markerStart, end: markerEnd }))
+        }
+        for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
+          collectTaskMarkers(node.childAt(ordinal))
+        }
+      }
+      collectTaskMarkers(block)
+      exclusions.sort((left, right) => left.start - right.start)
+      const sourceSlice = (from: number, to: number): string => {
+        if (to <= from) {
+          return ''
+        }
+        const start = this.#sourcePositionAt(state, Object.freeze({
+          offset: from,
+          affinity: 'next' as const
+        }))
+        const end = this.#sourcePositionAt(state, Object.freeze({
+          offset: to,
+          affinity: 'previous' as const
+        }))
+        return completeSource.slice(start.offset, end.offset)
+      }
+      const index = document.lines
+      const pieces: string[] = []
+      for (let ordinal = 0; ordinal < index.count; ordinal += 1) {
+        const line = index.at(ordinal)
+        if (line.end <= block.range.start) {
+          continue
+        }
+        if (line.start >= block.range.end) {
+          break
+        }
+        let cursor = Math.max(line.contentOffset, block.range.start)
+        const lineEnd = Math.min(line.end, block.range.end)
+        for (const exclusion of exclusions) {
+          if (exclusion.end <= cursor || exclusion.start >= lineEnd) {
+            continue
+          }
+          pieces.push(sourceSlice(cursor, exclusion.start))
+          cursor = exclusion.end
+          // The grammar's task marker ends at `]`; the separating space the
+          // author typed after it belongs to the marker in a conversion.
+          const following = sourceSlice(cursor, cursor + 1)
+          if (following === ' ' || following === '\t') {
+            cursor += 1
+          }
+        }
+        pieces.push(sourceSlice(cursor, lineEnd))
+      }
+      return pieces.join('')
+    }
     const paragraphPayload = (
       block: MarkdownNode,
       source: string
@@ -2773,14 +2840,8 @@ export class RevisionWorker {
         // thematic break (G29).
         return inlineContentSlice(block).split(/\r\n|\r|\n/).join(' ')
       }
-      if (block.kind === 'blockquote') {
-        return stripLinePrefixes(source, /^ {0,3}>[ \t]?/)
-      }
-      if (block.kind === 'list') {
-        return stripLinePrefixes(
-          source,
-          /^([ \t]*)(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/
-        )
+      if (block.kind === 'blockquote' || block.kind === 'list') {
+        return containerPayload(block)
       }
       // A line-based literal block's extent may run through its final line
       // ending; the payload keeps that spelling so the block behind it stays

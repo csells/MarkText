@@ -298,11 +298,35 @@ export interface MarkdownHeadingIndex {
   readonly forNode: (nodeId: NodeId) => MarkdownHeadingFact | undefined
 }
 
+/**
+ * One physical line as the parser consumed it. `contentOffset` is where
+ * content begins after every block-container prefix on the line — the
+ * blockquote markers and list markers the grammar recognized — so consumers
+ * never re-derive a prefix with their own recognizer (non-negotiable 2).
+ */
+export interface MarkdownPhysicalLine {
+  readonly start: number
+  readonly contentOffset: number
+  /** End of content, before the line terminator. */
+  readonly contentEnd: number
+  /** End including the line terminator. */
+  readonly end: number
+  readonly blank: boolean
+}
+
+export interface MarkdownLineIndex {
+  readonly count: number
+  /** @throws RangeError when the ordinal is not an available integer. */
+  readonly at: (ordinal: number) => MarkdownPhysicalLine
+}
+
 export interface MarkdownDocument {
   readonly source: string
   readonly root: MarkdownNode
   readonly references: MarkdownReferenceIndex
   readonly headings: MarkdownHeadingIndex
+  /** Parser-emitted physical line structure over this document's source. */
+  readonly lines: MarkdownLineIndex
   /** @throws RangeError when the offset is not a position in this document. */
   readonly nodeAt: (
     projectedOffset: number,
