@@ -2920,6 +2920,19 @@ function parseOrderedContainerSequence(
       }))
     }
 
+    // Open container extents otherwise grow only from content lines, but a
+    // marker opened on this line can already lie past a reused ancestor's
+    // extent — and an EMPTY item's line has no content, so nothing would ever
+    // extend it. The child would then escape its parent and the live-plan wire
+    // decoder rejects the whole publication. For a content-bearing line this
+    // is a no-op: the later extend to the content end reaches further.
+    if (reusedDepth < line.containers.length) {
+      const opened = line.containers.at(-1)
+      if (opened !== undefined) {
+        extendOpenContainers(opened.end)
+      }
+    }
+
     const parent = currentParent()
     if (line.blank) {
       closeParagraph()
