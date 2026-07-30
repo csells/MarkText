@@ -2730,21 +2730,48 @@ export class RevisionWorker {
       }))
       return completeSource.slice(start.offset, end.offset)
     }
+    // Parser-emitted content extent (contentStart/contentEnd attributes) of
+    // a literal block, as exact canonical source with the extent's trailing
+    // line ending removed — the emitted extent runs to the end of the last
+    // interior line, and a conversion payload is the content alone.
+    const emittedContentSlice = (block: MarkdownNode): string | null => {
+      const contentStart = block.attributes['contentStart']
+      const contentEnd = block.attributes['contentEnd']
+      if (
+        typeof contentStart !== 'number' ||
+        typeof contentEnd !== 'number' ||
+        contentEnd < contentStart
+      ) {
+        return null
+      }
+      if (contentStart === contentEnd) {
+        return ''
+      }
+      const start = this.#sourcePositionAt(state, Object.freeze({
+        offset: contentStart,
+        affinity: 'next' as const
+      }))
+      const end = this.#sourcePositionAt(state, Object.freeze({
+        offset: contentEnd,
+        affinity: 'previous' as const
+      }))
+      return completeSource
+        .slice(start.offset, end.offset)
+        .replace(/(?:\r\n|\r|\n)$/, '')
+    }
     const paragraphPayload = (
       block: MarkdownNode,
       source: string
     ): string => {
       if (block.kind === 'heading') {
-        if (block.attributes['style'] === 'setext') {
-          // The parser emits the setext style and the content extent; the
-          // underline line is the marker this conversion discards. Content
-          // lines join with a space so the replacement stays one block —
-          // re-lexing here kept the underline and committed a document whose
-          // reparse held a heading plus a leftover paragraph or an injected
-          // thematic break (G29).
-          return inlineContentSlice(block).split(/\r\n|\r|\n/).join(' ')
-        }
-        return source.replace(/^ {0,3}#{1,6}(?:[ \t]+|$)/, '')
+        // The parser emits the heading's inline content extent for both
+        // spellings; the markers — an ATX prefix or a setext underline —
+        // are what the conversion discards. Content lines join with a
+        // space so the replacement stays one block: re-lexing here kept a
+        // setext underline in the payload and committed a document whose
+        // reparse held a heading plus a leftover paragraph or an injected
+        // thematic break (G29).
+        return inlineContentSlice(block).split(/\r\n|\r|\n/).join(' ')
       }
       if (block.kind === 'blockquote') {
         return stripLinePrefixes(source, /^ {0,3}>[ \t]?/)
@@ -2755,26 +2782,36 @@ export class RevisionWorker {
           /^([ \t]*)(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/
         )
       }
-      if (block.kind === 'code-block') {
-        const fenced = /^(?: {0,3})(`{3,}|~{3,})[^\r\n]*(?:\r\n|\r|\n)([\s\S]*)(?:\r\n|\r|\n)\1[ \t]*$/.exec(source)
-        if (fenced !== null) {
-          return fenced[2] ?? ''
-        }
-        return stripLinePrefixes(source, /^(?: {4}|\t)/)
-      }
-      if (block.kind === 'math-block') {
-        return source
-          .replace(/^\$\$[ \t]*(?:\r\n|\r|\n)?/, '')
-          .replace(/(?:\r\n|\r|\n)?\$\$[ \t]*$/, '')
-      }
+      // A line-based literal block's extent may run through its final line
+      // ending; the payload keeps that spelling so the block behind it stays
+      // separate.
+      const trailingEol = /(\r\n|\r|\n)$/.exec(source)?.[1] ?? ''
+      const body = trailingEol === ''
+        ? source
+        : source.slice(0, -trailingEol.length)
       if (block.kind === 'html-block') {
-        const wrapper = /^<div>[ \t]*(?:\r\n|\r|\n)([\s\S]*)(?:\r\n|\r|\n)<\/div>[ \t]*$/.exec(source)
-        return wrapper?.[1] ?? source
+        // Unwrapping the editor's own authored `<div>` carrier is not
+        // Markdown recognition; any other HTML stays raw.
+        const wrapper = /^<div>[ \t]*(?:\r\n|\r|\n)([\s\S]*)(?:\r\n|\r|\n)<\/div>[ \t]*$/.exec(body)
+        return (wrapper?.[1] ?? body) + trailingEol
       }
-      if (block.kind === 'front-matter') {
-        return source
-          .replace(/^---[ \t]*(?:\r\n|\r|\n)/, '')
-          .replace(/(?:\r\n|\r|\n)---[ \t]*$/, '')
+      if (
+        block.kind === 'code-block' ||
+        block.kind === 'math-block' ||
+        block.kind === 'front-matter'
+      ) {
+        // Literal blocks carry their parser-emitted content extent; an
+        // indented code block has no delimiter lines, so its extent spans
+        // the indented lines and the per-line indent is stripped here.
+        const emitted = emittedContentSlice(block)
+        if (emitted !== null) {
+          const payload = block.kind === 'code-block' &&
+            block.attributes['provider'] === 'indented-code'
+            ? stripLinePrefixes(emitted, /^(?: {4}|\t)/)
+            : emitted
+          return payload + trailingEol
+        }
+        return trailingEol
       }
       if (block.kind === 'thematic-break') {
         return ''

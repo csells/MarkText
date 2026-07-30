@@ -2117,6 +2117,49 @@ function mathBlockAttributes(
   })
 }
 
+function frontMatterAttributes(
+  source: string,
+  literal: MappedMarkdownLiteral,
+  lines: readonly PlainMarkdownLine[],
+  fromLineIndex: number
+): Readonly<Record<string, string | number>> {
+  const covered: PlainMarkdownLine[] = []
+  for (let index = fromLineIndex; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line === undefined || line.start >= literal.end) {
+      break
+    }
+    covered.push(line)
+  }
+  const opener = covered[0]
+  if (opener === undefined) {
+    return Object.freeze({
+      content: '',
+      contentStart: literal.start,
+      contentEnd: literal.start
+    })
+  }
+  const last = covered.at(-1)
+  const closerText = last === undefined
+    ? ''
+    : source.slice(last.contentOffset, last.contentEnd).trim()
+  const hasCloser =
+    last !== undefined &&
+    last !== opener &&
+    (closerText === '---' || closerText === '...')
+  const interior = covered.slice(1, hasCloser ? -1 : undefined)
+  const content = interior.map((line) =>
+    source.slice(line.contentOffset, line.contentEnd)
+  ).join('\n')
+  const contentStart = interior[0]?.contentOffset ?? opener.end
+  const contentEnd = interior.at(-1)?.end ?? contentStart
+  return Object.freeze({
+    content: interior.length === 0 ? '' : `${content}\n`,
+    contentStart,
+    contentEnd
+  })
+}
+
 function diagramAttributes(
   source: string,
   literal: MappedMarkdownLiteral,
@@ -2471,7 +2514,15 @@ function blockLiteralNode(
     )
   }
   if (literal.provider === 'front-matter') {
-    return createNode('front-matter', start, literal.end)
+    return createNode(
+      'front-matter',
+      start,
+      literal.end,
+      [],
+      lines !== undefined && fromLineIndex !== undefined
+        ? frontMatterAttributes(source, literal, lines, fromLineIndex)
+        : EMPTY_ATTRIBUTES
+    )
   }
   if (literal.provider === 'definition') {
     const attributes = definitionAttributes(source, literal)
