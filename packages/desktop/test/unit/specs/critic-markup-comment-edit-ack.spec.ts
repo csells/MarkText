@@ -37,6 +37,7 @@ const comment: ICriticMarkupReviewItem = {
   sourceStart: 10,
   sourceEnd: 26,
   raw: '{>>review note<<}',
+  payloadSource: 'review note',
   content: 'review note',
   anchorId: 'critic-highlight-1',
   anchorText: 'selected words'

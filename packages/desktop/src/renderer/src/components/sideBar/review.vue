@@ -345,7 +345,10 @@ const beginEdit = (item: CriticMarkupSidebarItem): void => {
   }
   editingId.value = item.id
   editingIndex = snapshot.value.items.findIndex(candidate => candidate.id === item.id)
-  editDraft.value = item.content ?? ''
+  // Prefill with the parser-owned payload bytes, never the card's rendered
+  // content: the render resolves CriticMarkup nested in the payload, so
+  // saving it untouched would silently rewrite the author's comment (G30).
+  editDraft.value = item.payloadSource
   editFailed.value = false
   editSaving.value = false
   // The ref lives inside the card v-for, so Vue may collect it as an array;

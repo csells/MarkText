@@ -21,6 +21,7 @@ describe('CriticMarkup Review store', () => {
         sourceStart: 0,
         sourceEnd: 7,
         raw: '{++x++}',
+        payloadSource: 'x',
         content: 'x'
       }],
       currentItemId: 'critic-0-7',

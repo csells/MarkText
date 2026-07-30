@@ -503,21 +503,14 @@ export async function createDocumentEditorHost(
       span.highlight
     ]))
 
-  // A Review card names an annotation, so its text is read from the source that
-  // declares it. Deriving it from the mounted projection instead made the card
-  // describe whatever text happened to occupy those offsets in the projection
-  // the user was viewing, which under `original` and `revised` is unrelated
-  // text rather than a shortened version of the right answer.
-  const ANNOTATION_DELIMITER_LENGTH = 3
-
-  const annotatedText = (source: string, item: ReviewIndexItem): string => {
-    const { start, end } = item.sourceRange
-    const inner = source.slice(
-      start + ANNOTATION_DELIMITER_LENGTH,
-      end - ANNOTATION_DELIMITER_LENGTH
-    )
-    return end - start < ANNOTATION_DELIMITER_LENGTH * 2 ? '' : inner
-  }
+  // A Review card names an annotation, so its text is parser-owned: the
+  // engine publishes the exact payload extent between the markers, and the
+  // card slices canonical source with it. A comment card's display `content`
+  // stays the revised render, but the raw payload rides along because that
+  // render is lossy — prefilling an editor with it silently resolved any
+  // CriticMarkup nested in the payload (G30).
+  const payloadText = (source: string, item: ReviewIndexItem): string =>
+    source.slice(item.payloadRange.start, item.payloadRange.end)
 
   const reviewItemFor = (
     item: ReviewIndexItem,
@@ -525,9 +518,10 @@ export async function createDocumentEditorHost(
   ): ICriticMarkupReviewItem => {
     const source = view.getMarkdownSync()
     const range = item.modelRange
+    const payloadSource = payloadText(source, item)
     const content = item.kind === 'comment'
       ? item.commentRevisedText ?? ''
-      : annotatedText(source, item)
+      : payloadSource
     const review: ICriticMarkupReviewItem = {
       id: item.nodeId,
       type: item.kind,
@@ -537,6 +531,7 @@ export async function createDocumentEditorHost(
       sourceStart: item.sourceRange.start,
       sourceEnd: item.sourceRange.end,
       raw: source.slice(item.sourceRange.start, item.sourceRange.end),
+      payloadSource,
       ...(item.kind === 'substitution'
         ? {
           oldContent: item.oldContent ?? '',
@@ -552,7 +547,7 @@ export async function createDocumentEditorHost(
       return Object.freeze({
         ...review,
         anchorId: highlight.nodeId,
-        anchorText: annotatedText(source, highlight)
+        anchorText: payloadText(source, highlight)
       })
     }
     return Object.freeze(review)

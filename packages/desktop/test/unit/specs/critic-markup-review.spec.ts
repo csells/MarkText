@@ -170,6 +170,7 @@ describe('CriticMarkup renderer command routing', () => {
     sourceStart: 0,
     sourceEnd: 7,
     raw: '{++x++}',
+    payloadSource: 'x',
     content: 'x'
   }
   const editor = {
@@ -346,6 +347,7 @@ describe('CriticMarkup renderer command routing', () => {
       sourceStart: 8,
       sourceEnd: 15,
       raw: '{++new++}',
+      payloadSource: 'new',
       content: 'new'
     }
 
@@ -396,6 +398,7 @@ describe('CriticMarkup renderer command routing', () => {
         sourceStart: 8,
         sourceEnd: 15,
         raw: '{--old--}',
+        payloadSource: 'old',
         content: 'old'
       }
 
@@ -429,6 +432,7 @@ describe('CriticMarkup renderer command routing', () => {
       sourceStart: 0,
       sourceEnd: 7,
       raw: '{++x++}',
+      payloadSource: 'x',
       content: 'x'
     }
 
@@ -456,6 +460,7 @@ describe('CriticMarkup sidebar state', () => {
       sourceStart: 4,
       sourceEnd: 17,
       raw: '{~~old~>new~~}',
+      payloadSource: 'old~>new',
       oldContent: 'old',
       newContent: 'new'
     }
@@ -491,6 +496,7 @@ describe('CriticMarkup sidebar state', () => {
         sourceStart: 4,
         sourceEnd: 17,
         raw: '{~~old~>new~~}',
+        payloadSource: 'old~>new',
         oldContent: 'old',
         newContent: 'new'
       }],

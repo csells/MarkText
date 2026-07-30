@@ -22,6 +22,7 @@ const comment: CriticMarkupSidebarItem = {
   sourceStart: 7,
   sourceEnd: 17,
   raw: '{>>note<<}',
+  payloadSource: 'note',
   content: 'note',
   anchorId: 'highlight-1',
   anchorText: 'selected text'
@@ -39,6 +40,7 @@ const firstChange: CriticMarkupSidebarItem = {
   sourceStart: 0,
   sourceEnd: 7,
   raw: '{++one++}',
+  payloadSource: 'one',
   content: 'one'
 }
 const secondChange: CriticMarkupSidebarItem = {
@@ -49,6 +51,7 @@ const secondChange: CriticMarkupSidebarItem = {
   sourceStart: 8,
   sourceEnd: 17,
   raw: '{++two++}',
+  payloadSource: 'two',
   content: 'two'
 }
 
@@ -176,6 +179,43 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     const editor = wrapper.get<HTMLTextAreaElement>('.comment-edit textarea')
     expect(editor.element.value).toBe(comment.content)
     expect(editor.attributes('aria-label')).toBe('sideBar.review.edit')
+    wrapper.unmount()
+  })
+
+  // G30: the card's `content` is a projection render — for a comment holding
+  // nested CriticMarkup it resolves the markup, so prefilling the editor with
+  // it and pressing Save destroyed the author's bytes. The editor must open
+  // on the parser-owned payload source.
+  it('prefills the inline editor with the raw payload, never the render', async() => {
+    const nested: CriticMarkupSidebarItem = {
+      ...comment,
+      id: 'comment-nested',
+      raw: '{>>see {++this++} and *that*<<}',
+      payloadSource: 'see {++this++} and *that*',
+      content: 'see this and *that*'
+    }
+    const store = useCriticMarkupReviewStore()
+    store.UPDATE({
+      documentId: 'document:1',
+      revisionId: 'revision:1',
+      available: true,
+      items: [nested],
+      currentItemId: nested.id,
+      trackChanges: false,
+      projection: 'marked'
+    })
+    const wrapper = mount(ReviewSidebar, {
+      global: {
+        plugins: [i18n],
+        stubs: { ElSwitch: true }
+      }
+    })
+
+    await wrapper.get('.review-card-focus').trigger('click')
+    await nextTick()
+
+    const editor = wrapper.get<HTMLTextAreaElement>('.comment-edit textarea')
+    expect(editor.element.value).toBe('see {++this++} and *that*')
     wrapper.unmount()
   })
 
@@ -377,6 +417,7 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
         {
           ...comment,
           raw: '{>>different note<<}',
+          payloadSource: 'different note',
           content: 'different note'
         }
       ],
@@ -394,6 +435,7 @@ describe('CriticMarkup Review sidebar comment interaction', () => {
     const whitespaceComment: CriticMarkupSidebarItem = {
       ...comment,
       raw: '{>> note <<}',
+      payloadSource: ' note ',
       content: ' note '
     }
     const store = useCriticMarkupReviewStore()

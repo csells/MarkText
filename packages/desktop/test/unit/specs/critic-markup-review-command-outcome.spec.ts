@@ -51,6 +51,7 @@ const item: ICriticMarkupReviewItem = {
   sourceStart: 0,
   sourceEnd: 7,
   raw: '{++x++}',
+  payloadSource: 'x',
   content: 'x'
 }
 

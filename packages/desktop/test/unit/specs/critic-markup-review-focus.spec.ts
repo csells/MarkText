@@ -39,6 +39,7 @@ const reviewItem = (id: string, offset: number): ICriticMarkupReviewItem => ({
   sourceStart: offset,
   sourceEnd: offset + 9,
   raw: '{++new++}',
+  payloadSource: 'new',
   content: 'new'
 })
 
@@ -284,6 +285,7 @@ describe('CriticMarkup Review focus restoration (desktop flow)', () => {
         ...itemA,
         type: 'comment' as const,
         raw: '{>>old<<}',
+        payloadSource: 'old',
         content: 'old'
       }
       engine.snapshot = {

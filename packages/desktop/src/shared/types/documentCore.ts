@@ -1048,6 +1048,7 @@ export function freezeDocumentCoreReviewIndex(
       'focusOffset',
       'depth',
       'parent',
+      'payloadRange',
       'commentRevisedText',
       'oldContent',
       'newContent'
@@ -1117,6 +1118,11 @@ export function freezeDocumentCoreReviewIndex(
     const modelRange = item.modelRange === null
       ? null
       : portableRange(item.modelRange, modelLength, 'model range')
+    const payloadRange = portableRange(
+      item.payloadRange,
+      sourceLength,
+      'payload range'
+    )
     return Object.freeze({
       nodeId: item.nodeId,
       kind: item.kind,
@@ -1125,6 +1131,7 @@ export function freezeDocumentCoreReviewIndex(
       focusOffset: Number(item.focusOffset),
       depth: Number(item.depth),
       parent: item.parent,
+      payloadRange,
       commentRevisedText: item.commentRevisedText,
       oldContent: item.oldContent,
       newContent: item.newContent

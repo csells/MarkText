@@ -649,6 +649,7 @@ function assertClosedReviewIndex(value: unknown): unknown {
       'focusOffset',
       'depth',
       'parent',
+      'payloadRange',
       'commentRevisedText',
       'oldContent',
       'newContent'

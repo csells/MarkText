@@ -43,6 +43,13 @@ export interface ICriticMarkupReviewItem {
     readonly sourceStart: number;
     readonly sourceEnd: number;
     readonly content?: string;
+    /**
+     * Exact canonical payload bytes between the annotation's markers,
+     * parser-owned. This is what a payload editor must prefill and
+     * round-trip byte-identically — `content` on a comment is a projection
+     * render and loses any CriticMarkup nested in the payload.
+     */
+    readonly payloadSource: string;
     readonly oldContent?: string;
     readonly newContent?: string;
     /**

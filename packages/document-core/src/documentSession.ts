@@ -280,6 +280,15 @@ export interface ReviewIndexItem {
   readonly focusOffset: number
   readonly depth: number
   readonly parent: NodeId | null
+  /**
+   * Exact canonical extent of the payload between the annotation's markers —
+   * parser-owned, so no consumer reconstructs it by delimiter arithmetic.
+   * Slicing canonical source with it yields the text a payload editor must
+   * round-trip byte-identically; for a substitution that text includes the
+   * `~>` divider. A range rather than a copy: eagerly materializing every
+   * payload is O(depth × size) on nested annotations.
+   */
+  readonly payloadRange: SourceRange
   readonly commentRevisedText: string | null
   readonly oldContent: string | null
   readonly newContent: string | null

@@ -509,6 +509,10 @@ function createReviewIndex(
       ),
       depth,
       parent,
+      payloadRange: Object.freeze({
+        start: node.markers.open.end,
+        end: node.markers.close.start
+      }),
       commentRevisedText:
         node.kind === 'comment'
           ? revision.commentDisplay(node).source

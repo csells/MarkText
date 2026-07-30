@@ -41,6 +41,7 @@ const comment: CriticMarkupSidebarItem = {
   sourceStart: 7,
   sourceEnd: 17,
   raw: '{>>note<<}',
+  payloadSource: 'note',
   content: 'note'
 }
 

@@ -634,6 +634,7 @@ function closedReviewIndex(value: unknown): unknown {
       'focusOffset',
       'depth',
       'parent',
+      'payloadRange',
       'commentRevisedText',
       'oldContent',
       'newContent'
