@@ -376,9 +376,16 @@ are transcribed exactly. Its real residue is G36.
   Advancing pointers replaced the per-segment filters in both the
   prefix and suffix loops; the same reopen now costs 0.6 s and scales
   linearly (150 ms at 4,000 paragraphs, 624 ms at 16,000), leaving
-  AST emission as the largest linear stage. Remaining widenings inside
-  the splice: definition-bearing documents, multi-edit brackets,
-  CR-only line endings.
+  AST emission as the largest linear stage. Widened 2026-07-31 to
+  definition-bearing documents: a CriticMarkup-free document whose
+  bracket stays clear of every definition block splices, the lookup
+  rebuilds from the shifted literal offsets against the new bytes, and
+  emission re-resolves every reference through the definition cache
+  key — provenance carrying stays withheld there because carried
+  templates bypass that key. Edits reaching a definition still take
+  the full pass. Remaining widenings inside the splice: marker-bearing
+  documents with definitions (reference scope regions), provenance
+  carrying under definitions, CR-only line endings.
 
 **W2 — Host surfaces**
 

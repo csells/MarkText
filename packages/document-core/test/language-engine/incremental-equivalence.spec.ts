@@ -534,6 +534,111 @@ describe('incremental reopen equivalence', () => {
     expect(revisionRecord(reopened)).toEqual(revisionRecord(full))
   })
 
+  it('takes the spliced route when reference definitions sit clear of the edit', () => {
+    // Definitions re-key link resolution document-wide, so the splice must
+    // hand emission a lookup rebuilt over the shifted literals. Both
+    // placements matter: definitions after the bracket shift, definitions
+    // before it hold their offsets, and links on both sides re-resolve.
+    const layouts: readonly Readonly<{
+      name: string
+      source: string
+    }>[] = [
+      {
+        name: 'definitions after the edit',
+        source: [
+          'Opening prose refers to [alpha] and to [beta] early on.',
+          prose(12, 'defs-after').trimEnd(),
+          'Closing prose refers to [alpha] once more.',
+          '[alpha]: /alpha-destination "Alpha"',
+          '[beta]: /beta-destination'
+        ].join('\n\n') + '\n'
+      },
+      {
+        name: 'definitions before the edit',
+        source: [
+          '[alpha]: /alpha-destination "Alpha"',
+          '[beta]: /beta-destination',
+          'Opening prose refers to [alpha] and to [beta] early on.',
+          prose(12, 'defs-before').trimEnd(),
+          'Closing prose refers to [alpha] once more.'
+        ].join('\n\n') + '\n'
+      },
+      {
+        name: 'duplicate labels straddle the edit',
+        source: [
+          '[alpha]: /first-wins',
+          'Opening prose refers to [alpha] under the first definition.',
+          prose(12, 'defs-dup').trimEnd(),
+          'Closing prose refers to [alpha] as well.',
+          '[alpha]: /second-loses'
+        ].join('\n\n') + '\n'
+      }
+    ]
+    for (const layout of layouts) {
+      const source = layout.source
+      const anchor = 'simply ends here.'
+      const offset = source.indexOf(anchor)
+      expect(offset, layout.name).toBeGreaterThan(0)
+      const edited =
+        source.slice(0, offset) + 'now ' + source.slice(offset)
+
+      const incremental = createLanguageEngine()
+      const opened = incremental.open(
+        createSourceSnapshot(source),
+        TEST_CONFIGURATION
+      )
+      expect(opened.kind).toBe('complete')
+      const before = incremental.traversalCounts().intrinsicSourceUnits
+      const reopened = incremental.reopen(
+        opened,
+        createSourceSnapshot(edited),
+        [{ start: offset, end: offset, insert: 'now ' }]
+      )
+      const spent =
+        incremental.traversalCounts().intrinsicSourceUnits - before
+      const full = createLanguageEngine().open(
+        createSourceSnapshot(edited),
+        TEST_CONFIGURATION
+      )
+      expect(revisionRecord(reopened), layout.name)
+        .toEqual(revisionRecord(full))
+      expect(spent, `${layout.name} took the full pass`)
+        .toBeLessThan(edited.length)
+    }
+  })
+
+  it('falls back to the full pass when the edit reaches a definition', () => {
+    // A bracket overlapping a definition may rewrite it; only the full pass
+    // decides what the block now means.
+    const source = [
+      'Opening prose refers to [alpha] early on.',
+      prose(6, 'defs-touched').trimEnd(),
+      '[alpha]: /alpha-destination'
+    ].join('\n\n') + '\n'
+    const offset = source.indexOf('/alpha-destination') +
+      '/alpha-destination'.length
+    const edited = source.slice(0, offset) + '-x' + source.slice(offset)
+    const engine = createLanguageEngine()
+    const opened = engine.open(
+      createSourceSnapshot(source),
+      TEST_CONFIGURATION
+    )
+    expect(opened.kind).toBe('complete')
+    const before = engine.traversalCounts().intrinsicSourceUnits
+    const reopened = engine.reopen(
+      opened,
+      createSourceSnapshot(edited),
+      [{ start: offset, end: offset, insert: '-x' }]
+    )
+    const spent = engine.traversalCounts().intrinsicSourceUnits - before
+    const full = createLanguageEngine().open(
+      createSourceSnapshot(edited),
+      TEST_CONFIGURATION
+    )
+    expect(revisionRecord(reopened)).toEqual(revisionRecord(full))
+    expect(spent).toBeGreaterThanOrEqual(edited.length)
+  })
+
   it('falls back to the full pass when the window carries syntax', () => {
     const source = prose(20, 'fallback')
     const engine = createLanguageEngine()

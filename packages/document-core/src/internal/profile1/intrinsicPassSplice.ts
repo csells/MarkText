@@ -475,11 +475,32 @@ export function spliceGuardsHold(
   bracket: IntrinsicSpliceBracket,
   nextText: string
 ): boolean {
-  if (
-    retained.referenceDefinitionCount !== 0 ||
-    retained.diagnostics.length !== 0
-  ) {
+  if (retained.diagnostics.length !== 0) {
     return false
+  }
+  if (retained.referenceDefinitionCount !== 0) {
+    // Definitions re-key link resolution document-wide. The splice admits
+    // them only for CriticMarkup-free documents — a marker forest would
+    // need its reference scope regions reconstructed — and only when the
+    // bracket stays clear of every definition block, so the definition set
+    // is invariant up to the shift and emission re-resolves against the
+    // rebuilt lookup.
+    if (
+      retained.hasCriticMarkupCandidate ||
+      retained.rootCount !== 0 ||
+      retained.markerDecisionCount !== 0
+    ) {
+      return false
+    }
+    for (const literal of retained.markdownLiterals) {
+      if (
+        literal.kind === 'definition' &&
+        literal.end > bracket.start &&
+        literal.start < bracket.endPrevious
+      ) {
+        return false
+      }
+    }
   }
   // Marker-bearing documents splice when every node and branch sits fully
   // inside the prefix or the suffix; one crossing the bracket re-parses.

@@ -4122,12 +4122,22 @@ function tryIncrementalIntrinsicParse(
     )
   )
   if (spliced === undefined) return undefined
+  // The guards keep every definition outside the bracket, so the spliced
+  // literal list carries the whole definition set at shifted offsets; the
+  // lookup rebuilds from those offsets and the new source bytes, and
+  // emission re-resolves every reference against it.
+  const hasDefinitions = spliced.markdownLiterals.some(
+    (literal) => literal.kind === 'definition'
+  )
   const referenceDefinitions = createStagedProfile1ReferenceDefinitionLookup(
     source,
     [],
     [],
-    false
+    hasDefinitions
   )
+  if (hasDefinitions) {
+    referenceDefinitions.finalizeAcceptedDefinitions(spliced.markdownLiterals)
+  }
   const markdownLane = createMarkdownLaneState(
     source,
     markdownDepthLimit,
@@ -4145,7 +4155,10 @@ function tryIncrementalIntrinsicParse(
   return Object.freeze({
     kind: 'complete',
     hasCriticMarkupCandidate: spliced.hasCriticMarkupCandidate,
-    ...(spliced.roots.length > 0
+    // Provenance-carried templates bypass the definition cache key, and a
+    // prefix region's emitted nodes may hold a shifted definition's start,
+    // so definition-bearing documents take the keyed emission path instead.
+    ...(spliced.roots.length > 0 || hasDefinitions
       ? {}
       : {
         spliceProvenance: Object.freeze({
