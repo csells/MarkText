@@ -756,13 +756,16 @@ export class SessionCoordinator {
     const historyState = Object.freeze(() => this.#worker.historyState())
     const capabilities = Object.freeze(() => {
       const history = this.#worker.historyState()
+      const selection = this.#snapshot.revision.selection
       return computeIntentCapabilities(Object.freeze({
         projection: this.#projection,
         revisionKind: 'markupView' in this.#worker.state
           ? 'complete' as const
           : 'source-only' as const,
         canUndo: history.canUndo,
-        canRedo: history.canRedo
+        canRedo: history.canRedo,
+        selectionCollapsed: selection === null ||
+          selection.anchor.offset === selection.focus.offset
       }))
     })
     const markPersisted = Object.freeze((headIdentity: string) =>

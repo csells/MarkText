@@ -36,6 +36,7 @@ export type SnapshotPrecondition =
   | 'complete-revision'
   | 'undoable'
   | 'redoable'
+  | 'selection-not-collapsed'
 
 export type RevisionCommitCause = 'undo' | 'redo' | 'source-edit'
 
@@ -60,6 +61,9 @@ type IntentPreparation<K extends EditorIntent['kind']> =
 
 const REVISION_REQUIRES: readonly SnapshotPrecondition[] =
   Object.freeze(['marked-projection'])
+
+const COMPLETE_REVISION_REQUIRES: readonly SnapshotPrecondition[] =
+  Object.freeze(['marked-projection', 'complete-revision'])
 
 function revision<K extends EditorIntent['kind']>(
   prepare: PrepareAdapter<K>,
@@ -118,39 +122,80 @@ export const INTENT_PREPARATIONS: {
       intent.replacement,
       next
     )),
-  'delete-text': revision<'delete-text'>((worker, intent, next) =>
-    worker.prepareDeletion(intent.target, next)),
-  'format-text': revision<'format-text'>((worker, intent, next) =>
-    worker.prepareFormatting(intent.target, intent.format, next)),
-  'replace-structure': revision<'replace-structure'>((worker, intent, next) =>
-    worker.prepareStructureReplacement(intent.target, intent.replacement, next)),
-  'convert-block': revision<'convert-block'>((worker, intent, next) =>
-    worker.prepareBlockConversion(intent.target, intent.conversion, next)),
-  'quick-insert-block': revision<'quick-insert-block'>((worker, intent, next) =>
-    worker.prepareQuickInsertBlock(intent.target, intent.block, next)),
-  'duplicate-block': revision<'duplicate-block'>((worker, intent, next) =>
-    worker.prepareBlockDuplication(intent.target, next)),
-  'delete-block': revision<'delete-block'>((worker, intent, next) =>
-    worker.prepareBlockDeletion(intent.target, next)),
-  'insert-paragraph': revision<'insert-paragraph'>((worker, intent, next) =>
-    worker.prepareParagraphInsertion(intent.target, intent.location, next)),
-  'insert-paragraph-break': revision<'insert-paragraph-break'>((worker, intent, next) =>
-    worker.prepareSemanticBreak(intent.target, 'paragraph', next)),
-  'insert-line-break': revision<'insert-line-break'>((worker, intent, next) =>
-    worker.prepareSemanticBreak(intent.target, 'line', next)),
-  'set-list-indentation': revision<'set-list-indentation'>((worker, intent, next) =>
-    worker.prepareListIndentation(intent.target, intent.direction, next)),
-  'set-task-checked': revision<'set-task-checked'>((worker, intent, next) =>
-    worker.prepareTaskChecked(
+  'delete-text': revision<'delete-text'>(
+    (worker, intent, next) => worker.prepareDeletion(intent.target, next),
+    Object.freeze(['marked-projection', 'selection-not-collapsed'])
+  ),
+  'format-text': revision<'format-text'>(
+    (worker, intent, next) =>
+      worker.prepareFormatting(intent.target, intent.format, next),
+    Object.freeze(['marked-projection', 'complete-revision', 'selection-not-collapsed'])
+  ),
+  'replace-structure': revision<'replace-structure'>(
+    (worker, intent, next) =>
+      worker.prepareStructureReplacement(intent.target, intent.replacement, next),
+    Object.freeze(['marked-projection', 'complete-revision', 'selection-not-collapsed'])
+  ),
+  'convert-block': revision<'convert-block'>(
+    (worker, intent, next) =>
+      worker.prepareBlockConversion(intent.target, intent.conversion, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'quick-insert-block': revision<'quick-insert-block'>(
+    (worker, intent, next) =>
+      worker.prepareQuickInsertBlock(intent.target, intent.block, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'duplicate-block': revision<'duplicate-block'>(
+    (worker, intent, next) =>
+      worker.prepareBlockDuplication(intent.target, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'delete-block': revision<'delete-block'>(
+    (worker, intent, next) =>
+      worker.prepareBlockDeletion(intent.target, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'insert-paragraph': revision<'insert-paragraph'>(
+    (worker, intent, next) =>
+      worker.prepareParagraphInsertion(intent.target, intent.location, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'insert-paragraph-break': revision<'insert-paragraph-break'>(
+    (worker, intent, next) =>
+      worker.prepareSemanticBreak(intent.target, 'paragraph', next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'insert-line-break': revision<'insert-line-break'>(
+    (worker, intent, next) =>
+      worker.prepareSemanticBreak(intent.target, 'line', next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'set-list-indentation': revision<'set-list-indentation'>(
+    (worker, intent, next) =>
+      worker.prepareListIndentation(intent.target, intent.direction, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'set-task-checked': revision<'set-task-checked'>(
+    (worker, intent, next) =>
+      worker.prepareTaskChecked(
       intent.target,
       intent.checked,
       intent.cascade,
       next
-    )),
-  'set-code-language': revision<'set-code-language'>((worker, intent, next) =>
-    worker.prepareCodeLanguage(intent.target, intent.language, next)),
-  'insert-link': revision<'insert-link'>((worker, intent, next) =>
-    worker.prepareLinkInsertion(intent.target, intent.href, intent.title, next)),
+    ),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'set-code-language': revision<'set-code-language'>(
+    (worker, intent, next) =>
+      worker.prepareCodeLanguage(intent.target, intent.language, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'insert-link': revision<'insert-link'>(
+    (worker, intent, next) =>
+      worker.prepareLinkInsertion(intent.target, intent.href, intent.title, next),
+    Object.freeze(['marked-projection', 'complete-revision', 'selection-not-collapsed'])
+  ),
   'insert-image': revision<'insert-image'>((worker, intent, next) =>
     worker.prepareImageInsertion(
       intent.target,
@@ -161,31 +206,61 @@ export const INTENT_PREPARATIONS: {
       },
       next
     )),
-  'insert-footnote': revision<'insert-footnote'>((worker, intent, next) =>
-    worker.prepareFootnoteInsertion(
+  'insert-footnote': revision<'insert-footnote'>(
+    (worker, intent, next) =>
+      worker.prepareFootnoteInsertion(
       intent.target,
       intent.label,
       intent.content,
       next
-    )),
-  'create-table': revision<'create-table'>((worker, intent, next) =>
-    worker.prepareTableCreation(intent.target, intent.rows, intent.columns, next)),
-  'insert-table-row': revision<'insert-table-row'>((worker, intent, next) =>
-    worker.prepareTableRowInsertion(intent.target, intent.location, next)),
-  'remove-table-row': revision<'remove-table-row'>((worker, intent, next) =>
-    worker.prepareTableRowRemoval(intent.target, next)),
-  'insert-table-column': revision<'insert-table-column'>((worker, intent, next) =>
-    worker.prepareTableColumnInsertion(intent.target, intent.location, next)),
-  'remove-table-column': revision<'remove-table-column'>((worker, intent, next) =>
-    worker.prepareTableColumnRemoval(intent.target, next)),
-  'align-table-column': revision<'align-table-column'>((worker, intent, next) =>
-    worker.prepareTableColumnAlignment(intent.target, intent.alignment, next)),
-  'move-table-row': revision<'move-table-row'>((worker, intent, next) =>
-    worker.prepareTableRowMove(intent.target, intent.direction, next)),
-  'move-table-column': revision<'move-table-column'>((worker, intent, next) =>
-    worker.prepareTableColumnMove(intent.target, intent.direction, next)),
-  'delete-table-cell-contents': revision<'delete-table-cell-contents'>((worker, intent, next) =>
-    worker.prepareTableCellContentsDeletion(intent.target, next)),
+    ),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'create-table': revision<'create-table'>(
+    (worker, intent, next) =>
+      worker.prepareTableCreation(intent.target, intent.rows, intent.columns, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'insert-table-row': revision<'insert-table-row'>(
+    (worker, intent, next) =>
+      worker.prepareTableRowInsertion(intent.target, intent.location, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'remove-table-row': revision<'remove-table-row'>(
+    (worker, intent, next) =>
+      worker.prepareTableRowRemoval(intent.target, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'insert-table-column': revision<'insert-table-column'>(
+    (worker, intent, next) =>
+      worker.prepareTableColumnInsertion(intent.target, intent.location, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'remove-table-column': revision<'remove-table-column'>(
+    (worker, intent, next) =>
+      worker.prepareTableColumnRemoval(intent.target, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'align-table-column': revision<'align-table-column'>(
+    (worker, intent, next) =>
+      worker.prepareTableColumnAlignment(intent.target, intent.alignment, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'move-table-row': revision<'move-table-row'>(
+    (worker, intent, next) =>
+      worker.prepareTableRowMove(intent.target, intent.direction, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'move-table-column': revision<'move-table-column'>(
+    (worker, intent, next) =>
+      worker.prepareTableColumnMove(intent.target, intent.direction, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
+  'delete-table-cell-contents': revision<'delete-table-cell-contents'>(
+    (worker, intent, next) =>
+      worker.prepareTableCellContentsDeletion(intent.target, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
   // The paste question — which payload flavors import raw syntax, which
   // are semantic edits, and which surface takes the bytes verbatim — is
   // answered by the consumer policy, never here. The coordinator's
@@ -216,8 +291,11 @@ export const INTENT_PREPARATIONS: {
   }),
   'commit-composition': revision<'commit-composition'>((worker, intent, next) =>
     worker.prepareCompositionCommit(intent.target, intent.text, next)),
-  'author-critic-markup': revision<'author-critic-markup'>((worker, intent, next) =>
-    worker.prepareCriticMarkupAuthoring(intent.target, intent.input, next)),
+  'author-critic-markup': revision<'author-critic-markup'>(
+    (worker, intent, next) =>
+      worker.prepareCriticMarkupAuthoring(intent.target, intent.input, next),
+    COMPLETE_REVISION_REQUIRES
+  ),
   'reload-source-from-file': revision<'reload-source-from-file'>((worker, intent, next) =>
     worker.prepareSourceCommit(intent.source, next)),
   'edit-source': revision<'edit-source'>((worker, intent, next) =>
@@ -274,6 +352,7 @@ export interface IntentCapabilityFacts {
   readonly revisionKind: 'complete' | 'source-only'
   readonly canUndo: boolean
   readonly canRedo: boolean
+  readonly selectionCollapsed: boolean
 }
 
 export type IntentCapability =
@@ -285,14 +364,16 @@ export type IntentCapability =
       | 'source-only-revision'
       | 'nothing-to-undo'
       | 'nothing-to-redo'
+      | 'selection-collapsed'
   }>
 
 /**
  * One capability per union arm: the preconditions the intent declares,
  * folded against live session facts. `enabled: false` predicts the exact
- * rejection dispatch would return; `enabled: true` promises only that no
- * snapshot-evaluable precondition fails — prepare-only conditions still
- * decide at dispatch.
+ * rejection a dispatch targeting the current selection would return;
+ * `enabled: true` promises only that no snapshot-evaluable precondition
+ * fails — prepare-only conditions still decide at dispatch, and a caller
+ * that constructs its own target is outside the prediction.
  */
 export type IntentCapabilitySnapshot = Readonly<{
   [K in EditorIntent['kind']]: IntentCapability
@@ -330,6 +411,15 @@ function foldCapability(
       return Object.freeze({
         enabled: false,
         reason: 'nothing-to-redo' as const
+      })
+    }
+    if (
+      requirement === 'selection-not-collapsed' &&
+      facts.selectionCollapsed
+    ) {
+      return Object.freeze({
+        enabled: false,
+        reason: 'selection-collapsed' as const
       })
     }
   }

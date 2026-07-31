@@ -29,7 +29,8 @@ const SNAPSHOT_EVALUABLE_REASONS = new Set([
   'read-only-projection',
   'source-only-revision',
   'nothing-to-undo',
-  'nothing-to-redo'
+  'nothing-to-redo',
+  'selection-collapsed'
 ])
 
 async function open(source: string): Promise<DocumentSession> {
@@ -135,6 +136,73 @@ describe('intent capability snapshot', () => {
       projection: 'marked'
     }).completion).resolves.toMatchObject({ kind: 'state-changed' })
     expect(session.capabilities()['insert-text']).toEqual({ enabled: true })
+  })
+
+  it('predicts collapsed-selection rejections exactly', async() => {
+    const session = await open('Alpha beta.\n')
+    session.select({
+      anchor: Object.freeze({ offset: 0, affinity: 'next' as const }),
+      focus: Object.freeze({ offset: 0, affinity: 'next' as const })
+    })
+    expect(session.capabilities()['delete-text']).toEqual({
+      enabled: false,
+      reason: 'selection-collapsed'
+    })
+    expect(session.capabilities()['format-text']).toEqual({
+      enabled: false,
+      reason: 'selection-collapsed'
+    })
+    const collapsed = session.snapshot().revision.selection
+    if (collapsed === null || !('view' in collapsed)) {
+      throw new Error('Expected a settled model selection')
+    }
+    await expect(session.dispatch({
+      kind: 'delete-text',
+      target: collapsed
+    }).completion).resolves.toMatchObject({
+      kind: 'rejected',
+      reason: 'selection-collapsed'
+    })
+
+    session.select({
+      anchor: Object.freeze({ offset: 0, affinity: 'next' as const }),
+      focus: Object.freeze({ offset: 5, affinity: 'previous' as const })
+    })
+    expect(session.capabilities()['delete-text']).toEqual({ enabled: true })
+    expect(session.capabilities()['format-text']).toEqual({ enabled: true })
+    const ranged = session.snapshot().revision.selection
+    if (ranged === null || !('view' in ranged)) {
+      throw new Error('Expected a settled model selection')
+    }
+    await expect(session.dispatch({
+      kind: 'format-text',
+      target: ranged,
+      format: 'strong'
+    }).completion).resolves.toMatchObject({ kind: 'committed' })
+  })
+
+  it('predicts the source-only rejection for structure intents', async() => {
+    const session = await open(`${'> '.repeat(129)}blocked\n`)
+    expect(session.capabilities()['convert-block']).toEqual({
+      enabled: false,
+      reason: 'source-only-revision'
+    })
+    expect(session.capabilities()['create-table']).toEqual({
+      enabled: false,
+      reason: 'source-only-revision'
+    })
+    const selection = session.snapshot().revision.selection
+    if (selection === null || !('view' in selection)) {
+      throw new Error('Expected a settled model selection')
+    }
+    await expect(session.dispatch({
+      kind: 'convert-block',
+      target: selection,
+      conversion: { kind: 'paragraph' }
+    }).completion).resolves.toMatchObject({
+      kind: 'rejected',
+      reason: 'source-only-revision'
+    })
   })
 
   it('never rejects an enabled intent for a snapshot-evaluable reason', async() => {

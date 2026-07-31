@@ -487,9 +487,19 @@ are transcribed exactly. Its real residue is G36.
   no kind-checks in the commit path; `prepare*` containment is
   enforced by the authority sweep (the table module is the one
   sanctioned caller — cross-module privatization is not expressible
-  in the type system). What remains: precondition widening
-  (selection-collapsed, wrong-target-kind) with two-sided contract
-  rows; the format checkbox-state vocabulary
+  in the type system). The snapshot's preconditions are widened
+  (2026-07-31): `selection-not-collapsed` is declared by delete-text,
+  format-text, replace-structure, and insert-link, and an audit of
+  every prepare guard surfaced twenty-one structure intents whose
+  `complete-revision` requirement was real but undeclared — all now
+  declare it, in guard order, so the fold predicts the exact
+  rejection. The contract is refined to what G5's consumers need: a
+  disabled entry predicts the rejection of a dispatch targeting the
+  current selection; a caller constructing its own target is outside
+  the prediction. Two-sided rows prove the collapsed and source-only
+  predictions in both directions. What remains: `wrong-target-kind`
+  as a snapshot precondition (needs block-at-selection facts from the
+  worker) with its contract rows; the format checkbox-state vocabulary
   (`DocumentFormatMenuState`, `MENU_ID_FORMAT_MAP`) is deliberately
   left for G5's format-menu-bits work, where that state becomes
   capability-driven.
