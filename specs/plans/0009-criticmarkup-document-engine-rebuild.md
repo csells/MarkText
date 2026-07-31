@@ -373,8 +373,22 @@ are transcribed exactly. Its real residue is G36.
   still sits on the exact recorded DOM positions — otherwise the queued
   input's publication replaced what the read named, and the flush
   re-stamps the session-authoritative selection instead of adopting
-  repaint debris. The remaining A31 target and the bridge's deletion (G6)
-  follow the same pattern.
+  repaint debris. The migration's shared reader
+  (`expectCanonicalOnDisk` in the e2e module) now also covers the
+  comment-crud, review-workflow, and review-command-surfaces specs, and
+  running five migrated specs in parallel amplified three more
+  production races the bridge had hidden: a select refused for a
+  superseded base snapshot was swallowed and left the session behind
+  the browser selection (the command boundary now retries recoverable
+  refusals through the settlement barrier and re-reads the live
+  selection); an IME composition's trailing normalization was adopted
+  as a gesture (the composition-settling window now classifies it as
+  debris); and a command's editor-focus restored the session's lagging
+  selection over a still-adopting gesture, contracting it by however
+  many adoption reports were in flight — `focus()` now stands down
+  whenever a live browser selection is mounted, the section 2 rule
+  applied to presentation. The remaining A31 target and the bridge's
+  deletion (G6) follow the same pattern.
   `internal/sourceAuthorship.ts` now owns marker composition, the escape
   rule, and the section 2 protect drafting in one module — the unary,
   substitution, comment, and comment-pair composers beside

@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { readCanonicalMarkdown } from './helpers'
 import {
   closeDocumentCore,
+  expectCanonicalOnDisk,
   launchDocumentCoreWithKeybindings,
   pressApplicationMenuAccelerator,
   pressUserKeybinding,
@@ -21,6 +21,7 @@ const REVIEW_KEYBINDINGS = {
 test.describe('document-core complete Review workflow', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchDocumentCoreWithKeybindings(
@@ -29,6 +30,7 @@ test.describe('document-core complete Review workflow', () => {
     )
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -45,12 +47,15 @@ test.describe('document-core complete Review workflow', () => {
       app,
       'reviewMarkDeletionMenuItem'
     )
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(
+      page,
+      app,
+      documentPath,
       'alpha {--target--} omega\n'
     )
 
     await pressApplicationMenuAccelerator(page, app, 'editUndoMenuItem')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(SOURCE)
+    await expectCanonicalOnDisk(page, app, documentPath, SOURCE)
 
     await selectTextByKeyboard(page, SOURCE.trimEnd(), 'target')
     await pressApplicationMenuAccelerator(
@@ -87,12 +92,13 @@ test.describe('document-core complete Review workflow', () => {
     await editor.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
     await editor.pressSequentially('edited workflow note')
     await comment.locator('.submit').click()
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain(
-      '{>>edited workflow note<<}'
+    await expectCanonicalOnDisk(
+      page,
+      app,
+      documentPath,
+      'alpha {==target==}{>>edited workflow note<<} omega\n'
     )
     await comment.getByRole('button', { name: 'Remove comment' }).click()
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
-      'alpha target omega\n'
-    )
+    await expectCanonicalOnDisk(page, app, documentPath, 'alpha target omega\n')
   })
 })

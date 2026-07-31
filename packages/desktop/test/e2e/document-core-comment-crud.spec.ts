@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { readCanonicalMarkdown } from './helpers'
 import {
   authorComment,
   closeDocumentCore,
+  expectCanonicalOnDisk,
   launchDocumentCoreWithKeybindings,
   openReviewSidebar,
   pressApplicationMenuAccelerator
@@ -14,6 +14,7 @@ const ADD_COMMENT_ACCELERATOR = 'CmdOrCtrl+Alt+Shift+C'
 test.describe('document-core Comment CRUD', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchDocumentCoreWithKeybindings(
@@ -22,13 +23,17 @@ test.describe('document-core Comment CRUD', () => {
     )
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => closeDocumentCore(app))
 
   test('completes one contiguous no-modal Comment lifecycle', async() => {
     await authorComment(page, app, 'target', 'first note')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(
+      page,
+      app,
+      documentPath,
       'alpha {==target==}{>>first note<<} omega\n'
     )
     await openReviewSidebar(page, app)
@@ -39,16 +44,20 @@ test.describe('document-core Comment CRUD', () => {
     await expect(editor).toHaveValue('first note')
     await editor.fill('edited note')
     await card.locator('.comment-edit .submit').click()
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(
+      page,
+      app,
+      documentPath,
       'alpha {==target==}{>>edited note<<} omega\n'
     )
     await card.getByRole('button', { name: 'Remove comment' }).click()
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
-      'alpha target omega\n'
-    )
+    await expectCanonicalOnDisk(page, app, documentPath, 'alpha target omega\n')
     await pressApplicationMenuAccelerator(page, app, 'editUndoMenuItem')
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain(
-      '{>>edited note<<}'
+    await expectCanonicalOnDisk(
+      page,
+      app,
+      documentPath,
+      'alpha {==target==}{>>edited note<<} omega\n'
     )
   })
 })

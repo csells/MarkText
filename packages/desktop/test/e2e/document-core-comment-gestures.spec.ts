@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import fs from 'fs'
 import {
   closeDocumentCore,
+  expectCanonicalOnDisk as expectCanonicalOnDiskShared,
   launchDocumentCoreWithKeybindings,
   openReviewSidebar,
   pointForText,
@@ -96,21 +96,16 @@ const textEdgePoint = async(
 }
 
 const doubleClickWord = async(page: Page, needle: string): Promise<string> => {
-  // A previous step's publication repaint can reflow the word after its
-  // point is computed, and a floating tool can occlude it — either way the
-  // click would land on other text. Recompute until the point actually
-  // hit-tests into the word, the observable "geometry settled" condition.
-  let point = await pointForText(page, needle)
+  // A previous step's publication repaint can reflow the word between point
+  // computation and the click — a pre-click hit-test cannot close that gap
+  // (the layout can shift after any check). The observable condition is the
+  // click's outcome: recompute and re-click until the selection reads the
+  // word, exactly as a user re-aims after the page moves under them.
   await expect.poll(async() => {
-    point = await pointForText(page, needle)
-    return page.evaluate(
-      ({ x, y, text }) =>
-        document.elementFromPoint(x, y)?.textContent?.includes(text) === true,
-      { x: point.x, y: point.y, text: needle }
-    )
-  }).toBe(true)
-  await page.mouse.dblclick(point.x, point.y)
-  await settleSelection(page, needle)
+    const point = await pointForText(page, needle)
+    await page.mouse.dblclick(point.x, point.y)
+    return selectionText(page)
+  }).toBe(needle)
   return needle
 }
 
@@ -252,21 +247,12 @@ const undoThroughApplicationMenu = async(
 
 let activeDocumentPath = ''
 
-const expectCanonicalOnDisk = async(
+const expectCanonicalOnDisk = (
   page: Page,
   app: ElectronApplication,
   expected: string
-): Promise<void> => {
-  await expect.poll(async() => {
-    // A clean document disables Save; skip the press once the file already
-    // holds the expected bytes so the enablement poll cannot wedge.
-    if (fs.readFileSync(activeDocumentPath, 'utf-8') === expected) {
-      return expected
-    }
-    await pressApplicationMenuAccelerator(page, app, 'fileSaveMenuItem')
-    return fs.readFileSync(activeDocumentPath, 'utf-8')
-  }, { timeout: 15000 }).toBe(expected)
-}
+): Promise<void> =>
+  expectCanonicalOnDiskShared(page, app, activeDocumentPath, expected)
 
 const expectOneStepUndo = async(
   page: Page,

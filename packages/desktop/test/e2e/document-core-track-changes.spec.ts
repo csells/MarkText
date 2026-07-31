@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import fs from 'fs'
 import { clickMenuById } from './helpers'
 import {
   closeDocumentCore,
+  expectCanonicalOnDisk,
   launchDocumentCore,
   openReviewSidebar,
   placeCaretAfter,
-  pressApplicationMenuAccelerator,
   reviewMenuEnabled,
   selectTextByKeyboard,
   selectWordByPointer
@@ -76,13 +75,7 @@ const expectSource = async(page: Page, source: string): Promise<void> => {
   if (app === undefined) {
     throw new Error('expectSource requires a launched application')
   }
-  await expect.poll(async() => {
-    if (fs.readFileSync(documentPath, 'utf-8') === source) {
-      return source
-    }
-    await pressApplicationMenuAccelerator(page, app, 'fileSaveMenuItem')
-    return fs.readFileSync(documentPath, 'utf-8')
-  }, { timeout: 15000 }).toBe(source)
+  await expectCanonicalOnDisk(page, app, documentPath, source)
 }
 
 const expectPublicSelection = async(

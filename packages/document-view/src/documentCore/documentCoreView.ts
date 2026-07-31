@@ -929,22 +929,21 @@ export async function createDocumentCoreView(
     let selectionFailure: unknown;
     let browserInputIdle = true;
     let deferredBrowserSelection = false;
-    // The raw DOM positions a deferred selectionchange reported. A deferred
-    // read is adoptable at flush time only if the live selection still sits
-    // on these exact nodes: the queued input's own publication may replace
-    // the mounted DOM, and whatever selection the browser is left holding
-    // afterwards is that surgery's debris, not the user's gesture.
-    let deferredBrowserSelectionDom: Readonly<{
-        anchorNode: Node | null;
-        anchorOffset: number;
-        focusNode: Node | null;
-        focusOffset: number;
-    }> | null = null;
     let restoringBrowserSelection = false;
     // An IME composition mutates the DOM natively (insertCompositionText is
     // not cancelable), so between compositionstart and compositionend the
-    // browser selection tracks an uncommitted draft, not a user gesture.
+    // browser selection tracks an uncommitted draft, not a user gesture. The
+    // settling flag extends that ownership over the commit the composition
+    // enqueues: the draft's replacement patch normalizes the browser
+    // selection asynchronously, and that trailing selectionchange is still
+    // the composition's debris, not a gesture.
     let composingBrowserInput = false;
+    let compositionSettling = false;
+    // Whether any deferred selectionchange in the current non-idle window
+    // arrived under composition ownership. Such a window's flush must not
+    // adopt the live selection — the composition machinery moved it — and
+    // instead re-stamps the authoritative selection its stand-down skipped.
+    let deferredDuringComposition = false;
     // User selection reports still crossing to the session. While one is in
     // flight, the session's retained selection is older than the user's last
     // gesture, so publication restores must not stamp it into the DOM.
@@ -1057,6 +1056,18 @@ export async function createDocumentCoreView(
         error instanceof Error
         && error.message.includes('outside the active document');
 
+    // A select can also be refused because its base snapshot was superseded
+    // between the renderer's read and the worker's application — a racing
+    // edit publication advances the head first. Both refusal shapes name the
+    // same condition (the renderer trails the head) and both heal the same
+    // way: await the barrier and re-read.
+    const isRecoverableSelectRejection = (error: unknown): boolean =>
+        isStaleViewSelectRejection(error)
+        || (
+            error instanceof Error
+            && error.message.includes('supplied stale snapshot')
+        );
+
     const selectSession = (
         selection: InitialModelSelection,
     ): Promise<void> => {
@@ -1152,61 +1163,73 @@ export async function createDocumentCoreView(
     };
 
     const commitSelection = async (): Promise<void> => {
-        const snapshot = session.snapshot();
-        if (
-            (
-                snapshot.kind === 'complete'
-                && snapshot.projection !== 'marked'
-            )
-            || !documentCoreSelectionIsMounted(host)
-        ) {
-            return;
-        }
-
-        const range = documentCoreSelectionRange(host);
-        // A DOM read whose offsets exceed the current snapshot's coordinate
-        // length can only come from a mount that predates a pending remount
-        // (source-mode exit shrinks the head before the DOM restamps). The
-        // publication mount restores the authoritative selection; committing
-        // the stale read would send an out-of-document position to main.
-        const length = snapshot.kind === 'complete'
-            ? snapshot.markupModelLength
-            : snapshot.source.length;
-        if (range.end > length) {
-            return;
-        }
-        if (
-            snapshot.selection.anchor.offset !== range.start
-            || snapshot.selection.focus.offset !== range.end
-        ) {
-            userSelectionGeneration += 1;
-        }
-        pendingUserSelectionDispatches += 1;
-        try {
-            await selectSession({
-                anchor: { offset: range.start, affinity: 'next' },
-                focus: {
-                    offset: range.end,
-                    affinity: range.start === range.end ? 'next' : 'previous',
-                },
-            });
-        }
-        catch (error) {
-            // Around a source-mode exit the renderer's snapshot AND the DOM
-            // can both trail the head main already holds, so the local length
-            // check above cannot see the staleness — only main can refuse the
-            // position. That refusal is benign and self-healing: the pending
-            // publication mount restores the authoritative selection, exactly
-            // the tolerance synchronizeBrowserSelection extends to the same
-            // rejection. Anything else is a real failure.
-            if (isStaleViewSelectRejection(error))
+        // A stale-view refusal is main saying the renderer's revision trails
+        // the head it holds; the pending publication is the healing event.
+        // Swallowing one refusal outright left the session retaining an older
+        // range than the browser selection the user can see, and a command
+        // committing its target then wrapped the older range. Await the
+        // session barrier and re-read the live selection, so the commit
+        // converges on the head; give up only when the view stays stale
+        // across retries (a source-mode exit remount, where the publication
+        // mount owns the selection).
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const snapshot = session.snapshot();
+            if (
+                (
+                    snapshot.kind === 'complete'
+                    && snapshot.projection !== 'marked'
+                )
+                || !documentCoreSelectionIsMounted(host)
+            ) {
                 return;
-            throw error;
+            }
+
+            const range = documentCoreSelectionRange(host);
+            // A DOM read whose offsets exceed the current snapshot's
+            // coordinate length can only come from a mount that predates a
+            // pending remount (source-mode exit shrinks the head before the
+            // DOM restamps). The publication mount restores the
+            // authoritative selection; committing the stale read would send
+            // an out-of-document position to main.
+            const length = snapshot.kind === 'complete'
+                ? snapshot.markupModelLength
+                : snapshot.source.length;
+            if (range.end > length) {
+                return;
+            }
+            if (
+                snapshot.selection.anchor.offset !== range.start
+                || snapshot.selection.focus.offset !== range.end
+            ) {
+                userSelectionGeneration += 1;
+            }
+            let staleView = false;
+            pendingUserSelectionDispatches += 1;
+            try {
+                await selectSession({
+                    anchor: { offset: range.start, affinity: 'next' },
+                    focus: {
+                        offset: range.end,
+                        affinity: range.start === range.end
+                            ? 'next'
+                            : 'previous',
+                    },
+                });
+            }
+            catch (error) {
+                if (!isRecoverableSelectRejection(error))
+                    throw error;
+                staleView = true;
+            }
+            finally {
+                pendingUserSelectionDispatches -= 1;
+            }
+            if (!staleView) {
+                publishSelection();
+                return;
+            }
+            await session.settled();
         }
-        finally {
-            pendingUserSelectionDispatches -= 1;
-        }
-        publishSelection();
     };
 
     const assertModelOffset = (offset: number): void => {
@@ -2879,6 +2902,15 @@ export async function createDocumentCoreView(
             snapshot.kind === 'source-only'
             || snapshot.projection === 'marked'
         ) {
+            // The browser can hold a live selection newer than the session's
+            // retained one — its adoption reports may still be crossing to
+            // the session when a command focuses the editor. Focus is
+            // presentation: it must never overwrite the user's gesture with
+            // the older range (a command committing its target right after
+            // would then wrap the contracted selection). Restore only when
+            // no usable browser selection is mounted.
+            if (documentCoreSelectionIsMounted(host))
+                return;
             restoreDocumentCoreSelection(
                 host,
                 selection.anchor,
@@ -3700,32 +3732,25 @@ export async function createDocumentCoreView(
                     browserInputIdle = true;
                     if (destroying) {
                         deferredBrowserSelection = false;
-                        deferredBrowserSelectionDom = null;
+                        deferredDuringComposition = false;
+                        compositionSettling = false;
                         return;
                     }
+                    compositionSettling = false;
                     if (deferredBrowserSelection) {
                         deferredBrowserSelection = false;
-                        const recorded = deferredBrowserSelectionDom;
-                        deferredBrowserSelectionDom = null;
-                        const live = host.ownerDocument.getSelection();
-                        if (
-                            recorded !== null
-                            && live !== null
-                            && live.anchorNode === recorded.anchorNode
-                            && live.anchorOffset === recorded.anchorOffset
-                            && live.focusNode === recorded.focusNode
-                            && live.focusOffset === recorded.focusOffset
-                        ) {
-                            synchronizeBrowserSelection();
-                        }
-                        else {
-                            // The input's own publication moved or replaced
-                            // what the deferred read named, so no user gesture
-                            // survives to adopt — the selection the browser
-                            // holds is repaint debris. Re-stamp the session's
-                            // authoritative selection the stand-down skipped,
-                            // unless focus has left the editor (a dialog owns
-                            // the selection then).
+                        const compositionOwned = deferredDuringComposition;
+                        deferredDuringComposition = false;
+                        if (compositionOwned) {
+                            // The composition machinery moved the selection —
+                            // its commit patch normalized it to wherever the
+                            // browser dropped it — so there is no gesture to
+                            // adopt. Re-stamp the authoritative selection the
+                            // stand-down skipped, unless focus left the
+                            // editor (a dialog owns the selection then). A
+                            // real gesture inside this window is overwritten
+                            // too; the window lasts one commit, and the next
+                            // gesture re-adopts on arrival.
                             const active = host.ownerDocument.activeElement;
                             const snapshot = session.snapshot();
                             if (
@@ -3741,6 +3766,9 @@ export async function createDocumentCoreView(
                                     snapshot.selection.focus,
                                 );
                             }
+                        }
+                        else {
+                            synchronizeBrowserSelection();
                         }
                     }
                 }
@@ -4045,10 +4073,11 @@ export async function createDocumentCoreView(
         if (isImageSelectorEvent(event))
             return;
 
-        // Cleared before the enqueue below so the deferred-selection flush in
-        // the queue's finally sees the composition window closed and reads
-        // the post-commit DOM.
+        // The start/end window closes here, but the enqueued commit still
+        // owns the selection until its patch lands — the settling flag keeps
+        // the trailing normalization classified as composition debris.
         composingBrowserInput = false;
+        compositionSettling = true;
         const draft = compositionDraft;
         compositionDraft = null;
         if (draft === null) {
@@ -4223,13 +4252,8 @@ export async function createDocumentCoreView(
             // the admitted input publishes and restores its authoritative
             // browser selection.
             deferredBrowserSelection = true;
-            const live = host.ownerDocument.getSelection();
-            deferredBrowserSelectionDom = live === null ? null : Object.freeze({
-                anchorNode: live.anchorNode,
-                anchorOffset: live.anchorOffset,
-                focusNode: live.focusNode,
-                focusOffset: live.focusOffset,
-            });
+            if (composingBrowserInput || compositionSettling)
+                deferredDuringComposition = true;
             return;
         }
         synchronizeBrowserSelection();
@@ -4268,8 +4292,9 @@ export async function createDocumentCoreView(
 
         destroying = true;
         deferredBrowserSelection = false;
-        deferredBrowserSelectionDom = null;
+        deferredDuringComposition = false;
         composingBrowserInput = false;
+        compositionSettling = false;
         host.removeEventListener('beforeinput', handleBeforeInput);
         host.removeEventListener('compositionstart', handleCompositionStart);
         host.removeEventListener('compositionend', handleCompositionEnd);

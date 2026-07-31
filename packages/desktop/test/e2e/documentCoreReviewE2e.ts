@@ -1,3 +1,4 @@
+import fs from 'fs'
 import { expect } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
@@ -471,6 +472,30 @@ export function reviewMenuEnabled(
       Menu.getApplicationMenu()?.getMenuItemById(menuId)?.enabled ?? null,
     id
   )
+}
+
+/**
+ * Assert the canonical source through the production persistence path: press
+ * the real Save accelerator and read the document's bytes from disk. A clean
+ * document disables Save, so the press is skipped once the file already holds
+ * the expected bytes — otherwise an enablement poll could wedge forever. Save
+ * collapses no selection, but interleaved ladders must still order their
+ * selection asserts before this call so the press perturbs nothing a step
+ * still needs.
+ */
+export async function expectCanonicalOnDisk(
+  page: Page,
+  app: ElectronApplication,
+  filePath: string,
+  expected: string
+): Promise<void> {
+  await expect.poll(async() => {
+    if (fs.readFileSync(filePath, 'utf-8') === expected) {
+      return expected
+    }
+    await pressApplicationMenuAccelerator(page, app, 'fileSaveMenuItem')
+    return fs.readFileSync(filePath, 'utf-8')
+  }, { timeout: 15000 }).toBe(expected)
 }
 
 export async function authorComment(
