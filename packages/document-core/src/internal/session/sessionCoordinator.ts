@@ -1941,21 +1941,21 @@ export class SessionCoordinator {
           )
         })
       })
-      this.#worker.prepareSourceEdit(
+      prepareEditorIntent(this.#worker, Object.freeze({
+        kind: 'edit-source' as const,
         target,
-        '',
-        Object.freeze({
+        text: '',
+        selection: Object.freeze({
           anchor: Object.freeze({
             offset: range.start,
-            affinity: 'next'
+            affinity: 'next' as const
           }),
           focus: Object.freeze({
             offset: range.start,
-            affinity: 'next'
+            affinity: 'next' as const
           })
-        }),
-        next
-      )
+        })
+      }), next)
       return
     }
 
@@ -1990,10 +1990,16 @@ export class SessionCoordinator {
         })
       })
     if (consumer === 'cut-table') {
-      this.#worker.prepareTableCellContentsDeletion(target, next)
+      prepareEditorIntent(this.#worker, Object.freeze({
+        kind: 'delete-table-cell-contents' as const,
+        target
+      }), next)
       return
     }
-    this.#worker.prepareDeletion(target, next)
+    prepareEditorIntent(this.#worker, Object.freeze({
+      kind: 'delete-text' as const,
+      target
+    }), next)
   }
 
   #materializeClipboard(
