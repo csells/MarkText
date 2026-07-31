@@ -207,6 +207,142 @@ export type MarkdownArmMode =
   | 'self-contained'
   | 'isolated'
 
+/**
+ * Re-base every coordinate a checkpoint carries by a fixed delta — the
+ * marker-bearing G32 splice re-uses retained lane state on both sides of an
+ * edit bracket. Coordinate knowledge stays in this module: each member's
+ * offsets are enumerated here beside their declarations, and a member added
+ * without a shift arm fails the exhaustive spread review below, not a
+ * consumer downstream.
+ */
+export function shiftMarkdownCheckpoint(
+  checkpoint: MarkdownCheckpoint,
+  delta: number
+): MarkdownCheckpoint {
+  if (delta === 0) return checkpoint
+  const shiftLinePath = (
+    path: MarkdownLinePath | undefined
+  ): MarkdownLinePath | undefined =>
+    path === undefined
+      ? undefined
+      : Object.freeze({
+        ...path,
+        parent: shiftLinePath(path.parent),
+        sourceStart: path.sourceStart + delta
+      })
+  const shiftBracketPath = (
+    path: MarkdownBracketPath | undefined
+  ): MarkdownBracketPath | undefined =>
+    path === undefined
+      ? undefined
+      : Object.freeze({
+        ...path,
+        parent: shiftBracketPath(path.parent),
+        bracketStart: path.bracketStart + delta,
+        start: path.start + delta,
+        labelStart: path.labelStart + delta
+      })
+  const shiftPendingLabel = (
+    label: MarkdownPendingLinkLabel | undefined
+  ): MarkdownPendingLinkLabel | undefined =>
+    label === undefined
+      ? undefined
+      : Object.freeze({
+        ...label,
+        bracketStart: label.bracketStart + delta,
+        start: label.start + delta,
+        labelStart: label.labelStart + delta,
+        labelEnd: label.labelEnd + delta,
+        parentBracketPath: shiftBracketPath(label.parentBracketPath)
+      })
+  return Object.freeze({
+    ...checkpoint,
+    lineStart: checkpoint.lineStart + delta,
+    linePath: shiftLinePath(checkpoint.linePath),
+    inlineCode: checkpoint.inlineCode === undefined
+      ? undefined
+      : Object.freeze({
+        ...checkpoint.inlineCode,
+        openStart: checkpoint.inlineCode.openStart + delta,
+        closeStart: checkpoint.inlineCode.closeStart + delta
+      }),
+    math: checkpoint.math === undefined
+      ? undefined
+      : Object.freeze({
+        ...checkpoint.math,
+        openStart: checkpoint.math.openStart + delta,
+        closeStart: checkpoint.math.closeStart + delta
+      }),
+    bracketPath: shiftBracketPath(checkpoint.bracketPath),
+    pendingLinkLabel: shiftPendingLabel(checkpoint.pendingLinkLabel),
+    fixedInline: checkpoint.fixedInline === undefined
+      ? undefined
+      : Object.freeze({
+        ...checkpoint.fixedInline,
+        openStart: checkpoint.fixedInline.openStart + delta,
+        closeEnd: checkpoint.fixedInline.closeEnd + delta,
+        ...(checkpoint.fixedInline.linkLabel === undefined
+          ? {}
+          : {
+            linkLabel: shiftPendingLabel(
+              checkpoint.fixedInline.linkLabel
+            ) as MarkdownPendingLinkLabel
+          })
+      }),
+    fence: checkpoint.fence === undefined
+      ? undefined
+      : Object.freeze({
+        ...checkpoint.fence,
+        openStart: checkpoint.fence.openStart + delta,
+        openLineStart: checkpoint.fence.openLineStart + delta
+      }),
+    frontMatter: checkpoint.frontMatter === undefined
+      ? undefined
+      : Object.freeze({
+        ...checkpoint.frontMatter,
+        openStart: checkpoint.frontMatter.openStart + delta,
+        openLineStart: checkpoint.frontMatter.openLineStart + delta
+      }),
+    indentedCode: checkpoint.indentedCode === undefined
+      ? undefined
+      : Object.freeze({
+        ...checkpoint.indentedCode,
+        openStart: checkpoint.indentedCode.openStart + delta,
+        lastCodeEnd: checkpoint.indentedCode.lastCodeEnd + delta
+      }),
+    htmlBlock: checkpoint.htmlBlock === undefined
+      ? undefined
+      : Object.freeze({
+        ...checkpoint.htmlBlock,
+        openStart: checkpoint.htmlBlock.openStart + delta,
+        openLineStart: checkpoint.htmlBlock.openLineStart + delta,
+        lastOwnedEnd: checkpoint.htmlBlock.lastOwnedEnd + delta
+      }),
+    definition: checkpoint.definition === undefined
+      ? undefined
+      : Object.freeze({
+        ...checkpoint.definition,
+        openStart: checkpoint.definition.openStart + delta,
+        lastOwnedEnd: checkpoint.definition.lastOwnedEnd + delta,
+        lineStart: checkpoint.definition.lineStart + delta
+      }),
+    pendingCarriageReturn: checkpoint.pendingCarriageReturn === undefined
+      ? undefined
+      : Object.freeze({
+        sourceStart: checkpoint.pendingCarriageReturn.sourceStart + delta,
+        sourceEnd: checkpoint.pendingCarriageReturn.sourceEnd + delta
+      }),
+    firstContainerDepthFailure:
+      checkpoint.firstContainerDepthFailure === undefined
+        ? undefined
+        : Object.freeze({
+          ...checkpoint.firstContainerDepthFailure,
+          start: checkpoint.firstContainerDepthFailure.start + delta,
+          end: checkpoint.firstContainerDepthFailure.end + delta
+        })
+  })
+}
+
 export interface MarkdownLaneState {
   readonly emptyCheckpoint: MarkdownCheckpoint
   readonly advance: (
