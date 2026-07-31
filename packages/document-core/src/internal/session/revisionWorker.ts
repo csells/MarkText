@@ -84,6 +84,10 @@ import {
 } from './historyRecord.js'
 import type { SourceEdit } from './sourceTransaction.js'
 import {
+  boundaryNearMarkupCoordinateMap,
+  mapPositionThroughEdits
+} from '../../markupCoordinateMap.js'
+import {
   createAdmissionAuthority,
   EXACT_REPLAY,
   TYPED_GESTURE,
@@ -182,91 +186,6 @@ export type PreparedWorkerCommit =
 interface PreparedRawRevision {
   readonly revision: DocumentRevision
   readonly transition: WorkerTransitionProof
-}
-
-function mapSourcePositionThroughEdits(
-  position: ModelPosition,
-  edits: readonly SourceEdit[]
-): ModelPosition {
-  let delta = 0
-  for (const edit of edits) {
-    if (
-      position.offset < edit.start ||
-      (
-        position.offset === edit.start &&
-        position.affinity === 'previous'
-      )
-    ) {
-      break
-    }
-    if (
-      position.offset > edit.end ||
-      (
-        position.offset === edit.end &&
-        position.affinity === 'next'
-      )
-    ) {
-      delta += edit.insert.length - (edit.end - edit.start)
-      continue
-    }
-    return Object.freeze({
-      offset:
-        edit.start +
-        delta +
-        (position.affinity === 'next' ? edit.insert.length : 0),
-      affinity: position.affinity
-    })
-  }
-  return Object.freeze({
-    offset: position.offset + delta,
-    affinity: position.affinity
-  })
-}
-
-function modelPositionAtSemanticBoundary(
-  view: MarkupView,
-  position: ModelPosition
-): ModelPosition | null {
-  if (view.runs.length === 0) {
-    return Object.freeze({
-      offset: 0,
-      affinity: position.affinity
-    })
-  }
-  const exact = view.modelPositionAt(position)
-  if (exact !== null) {
-    return exact
-  }
-
-  let previous: ModelPosition | null = null
-  for (const run of view.runs) {
-    if (
-      position.offset >= Number(run.sourceRange.start) &&
-      position.offset <= Number(run.sourceRange.end)
-    ) {
-      return Object.freeze({
-        offset:
-          run.modelRange.start +
-          Math.min(
-            position.offset - Number(run.sourceRange.start),
-            run.modelRange.end - run.modelRange.start
-          ),
-        affinity: position.affinity
-      })
-    }
-    if (Number(run.sourceRange.end) < position.offset) {
-      previous = Object.freeze({
-        offset: run.modelRange.end,
-        affinity: position.affinity
-      })
-      continue
-    }
-    return previous ?? Object.freeze({
-      offset: run.modelRange.start,
-      affinity: position.affinity
-    })
-  }
-  return previous
 }
 
 type TrackCarrierPolicy = 'plain' | 'direct' | 'stable' | 'read-only'
@@ -1767,17 +1686,14 @@ export class RevisionWorker {
       })
       return
     }
-    const anchor = modelPositionAtSemanticBoundary(
-      state.markupView,
+    const anchor = boundaryNearMarkupCoordinateMap(
+      state.markupView.coordinateMap,
       selection.anchor
     )
-    const focus = modelPositionAtSemanticBoundary(
-      state.markupView,
+    const focus = boundaryNearMarkupCoordinateMap(
+      state.markupView.coordinateMap,
       selection.focus
     )
-    if (anchor === null || focus === null) {
-      throw new Error('Source selection cannot map to the Markup projection')
-    }
     this.#state = Object.freeze({
       ...state,
       selection: freezeSelection(
@@ -5207,17 +5123,14 @@ export class RevisionWorker {
 
     if (prepared.revision.kind === 'complete') {
       const markupView = createMarkupView(prepared.revision)
-      const anchor = modelPositionAtSemanticBoundary(
-        markupView,
+      const anchor = boundaryNearMarkupCoordinateMap(
+        markupView.coordinateMap,
         afterSourceSelection.anchor
       )
-      const focus = modelPositionAtSemanticBoundary(
-        markupView,
+      const focus = boundaryNearMarkupCoordinateMap(
+        markupView.coordinateMap,
         afterSourceSelection.focus
       )
-      if (anchor === null || focus === null) {
-        throw new Error('Source cursor cannot map to the next Markup projection')
-      }
       const afterSelection = Object.freeze({ anchor, focus })
       const entry = Object.freeze({
         forward: prepared.transition.edits,
@@ -5310,19 +5223,25 @@ export class RevisionWorker {
     const sourceAnchor = this.#sourcePositionAt(state, target.anchor)
     const sourceFocus = this.#sourcePositionAt(state, target.focus)
     const prepared = this.#reviseEdits(edits, next, admission)
-    const mappedAnchor = mapSourcePositionThroughEdits(
+    const mappedAnchor = mapPositionThroughEdits(
       sourceAnchor,
       prepared.transition.edits
     )
-    const mappedFocus = mapSourcePositionThroughEdits(
+    const mappedFocus = mapPositionThroughEdits(
       sourceFocus,
       prepared.transition.edits
     )
 
     if (prepared.revision.kind === 'complete') {
       const markupView = createMarkupView(prepared.revision)
-      const anchor = modelPositionAtSemanticBoundary(markupView, mappedAnchor)
-      const focus = modelPositionAtSemanticBoundary(markupView, mappedFocus)
+      const anchor = boundaryNearMarkupCoordinateMap(
+        markupView.coordinateMap,
+        mappedAnchor
+      )
+      const focus = boundaryNearMarkupCoordinateMap(
+        markupView.coordinateMap,
+        mappedFocus
+      )
       if (anchor === null || focus === null) {
         throw new Error(
           'Transformed selection is not representable in the next Markup view'
@@ -5434,13 +5353,10 @@ export class RevisionWorker {
     })
     if (prepared.revision.kind === 'complete') {
       const markupView = createMarkupView(prepared.revision)
-      const nextPosition = modelPositionAtSemanticBoundary(
-        markupView,
+      const nextPosition = boundaryNearMarkupCoordinateMap(
+        markupView.coordinateMap,
         nextSourcePosition
       )
-      if (nextPosition === null) {
-        throw new Error('Committed caret is not representable in the next Markup view')
-      }
       const afterSelection = Object.freeze({
         anchor: nextPosition,
         focus: nextPosition

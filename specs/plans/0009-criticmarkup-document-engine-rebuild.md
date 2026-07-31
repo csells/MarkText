@@ -317,18 +317,19 @@ are transcribed exactly. Its real residue is G36.
 **W1 — Document engine**
 
 - **G4 [high] Model↔source answers are re-derived across the packages.** The
-  declared authority (`markupCoordinateMap.ts:36-42`) is bypassed: the
-  2026-07-29 audit counted twelve independent model↔source answers across
-  eight modules in all three packages. Representative verified sites:
-  `internal/session/markupView.ts:94-112` publishes raw runs beside the
-  derived answers; `internal/session/revisionWorker.ts:5444-5497`, `:304-341`,
-  and `:343-386` scan them with their own affinity and edge rules, as do
+  declared authority now carries all six section 2 members:
+  `boundaryNearMarkupCoordinateMap` (the one nearest-visible-boundary
+  rule, proven exhaustively equivalent to the retired run walk),
+  `mapPositionThroughEdits`, and `nodeModelRangeAtMarkupCoordinateMap`
+  joined the existing three (`coordinate-authority.spec.ts`), and the
+  worker's two local answers are deleted with all six call sites routed
+  through the authority. Remaining re-derivers:
   `internal/session/sessionCoordinator.ts:403-419` and `:434-473`,
   `view/markupRender.ts:771-840`, and
-  `packages/document-view/src/documentCore/documentCoreInputAdapter.ts:156-224`.
-  Three of the six members section 2 assigns to the authority —
-  `boundaryNear`, `mapThroughEdits`, `nodeModelRange` — return zero matches
-  repo-wide. Violates non-negotiable 3.
+  `packages/document-view/src/documentCore/documentCoreInputAdapter.ts:156-224`
+  still scan runs with their own affinity and edge rules; closure routes
+  them through the authority and leaves runs a render substrate only.
+  Violates non-negotiable 3.
 
 - **G32 [critical] The intrinsic pass re-reads the entire document on every
   keystroke.** `intrinsicSourceUnits ÷ document length = 1.000` at every

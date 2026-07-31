@@ -148,8 +148,11 @@ export {
   createMemoryDocumentSessionJournalStorage
 } from './sessionJournalStorage.js'
 export {
+  boundaryNearMarkupCoordinateMap,
   decodeMarkupCoordinateMapV1,
+  mapPositionThroughEdits,
   modelPositionAtMarkupCoordinateMap,
+  nodeModelRangeAtMarkupCoordinateMap,
   sourcePositionAtMarkupCoordinateMap,
   visibleModelPositionAtMarkupCoordinateMap,
   type MarkupCoordinateMapV1,

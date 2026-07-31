@@ -1,4 +1,7 @@
-import type { ModelPosition } from './documentSession.js'
+import type {
+  ModelPosition,
+  RevisionSourceEdit
+} from './documentSession.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 
 const MARKUP_COORDINATE_MAP_FIELDS = Object.freeze([
@@ -407,4 +410,133 @@ export function modelPositionAtMarkupCoordinateMap(
       : requiredAt(map.spans, nextIndex).modelStart,
     affinity: position.affinity
   })
+}
+
+/**
+ * The one nearest-visible-boundary answer. A visible source position maps
+ * exactly; a position inside a hidden gap clamps into the span that still
+ * touches it or snaps to the nearest visible boundary — previous span end
+ * when one exists, next span start otherwise. Review focus, caret snapping,
+ * and hidden-gap resolution call this instead of restating the tie rule.
+ */
+export function boundaryNearMarkupCoordinateMap(
+  map: MarkupCoordinateMapV1,
+  position: ModelPosition
+): ModelPosition {
+  if (map.spans.length === 0) {
+    return freezePosition({ offset: 0, affinity: position.affinity })
+  }
+  const exact = visibleModelPositionAtMarkupCoordinateMap(map, position)
+  if (exact !== null) {
+    return exact
+  }
+  let previous: ModelPosition | null = null
+  for (const span of map.spans) {
+    if (
+      position.offset >= span.sourceStart &&
+      position.offset <= span.sourceEnd
+    ) {
+      return freezePosition({
+        offset:
+          span.modelStart +
+          Math.min(
+            position.offset - span.sourceStart,
+            span.modelEnd - span.modelStart
+          ),
+        affinity: position.affinity
+      })
+    }
+    if (span.sourceEnd < position.offset) {
+      previous = freezePosition({
+        offset: span.modelEnd,
+        affinity: position.affinity
+      })
+      continue
+    }
+    return previous ?? freezePosition({
+      offset: span.modelStart,
+      affinity: position.affinity
+    })
+  }
+  return previous ?? freezePosition({
+    offset: 0,
+    affinity: position.affinity
+  })
+}
+
+/**
+ * Map a canonical-source position through an ordered source-edit set. A
+ * position strictly before an edit is unmoved; strictly after accumulates
+ * the edit's length delta; inside a replaced range it lands at the edit's
+ * start (affinity 'previous') or after its insertion (affinity 'next'). The
+ * boundary code unit belongs left for 'previous' and right for 'next' —
+ * the same affinity rule the coordinate map declares.
+ */
+export function mapPositionThroughEdits(
+  position: ModelPosition,
+  edits: readonly RevisionSourceEdit[]
+): ModelPosition {
+  let delta = 0
+  for (const edit of edits) {
+    if (
+      position.offset < edit.start ||
+      (
+        position.offset === edit.start &&
+        position.affinity === 'previous'
+      )
+    ) {
+      break
+    }
+    if (
+      position.offset > edit.end ||
+      (
+        position.offset === edit.end &&
+        position.affinity === 'next'
+      )
+    ) {
+      delta += edit.insert.length - (edit.end - edit.start)
+      continue
+    }
+    return freezePosition({
+      offset:
+        edit.start +
+        delta +
+        (position.affinity === 'next' ? edit.insert.length : 0),
+      affinity: position.affinity
+    })
+  }
+  return freezePosition({
+    offset: position.offset + delta,
+    affinity: position.affinity
+  })
+}
+
+/**
+ * The visible model extent of a source range: the projection of its first
+ * and last visible code units. Hidden prefixes and suffixes (markers,
+ * elided payloads) contribute nothing; a fully hidden range collapses to
+ * one boundary position.
+ */
+export function nodeModelRangeAtMarkupCoordinateMap(
+  map: MarkupCoordinateMapV1,
+  range: Readonly<{ readonly start: number; readonly end: number }>
+): Readonly<{ readonly start: number; readonly end: number }> {
+  if (
+    !Number.isSafeInteger(range.start) ||
+    !Number.isSafeInteger(range.end) ||
+    range.start < 0 ||
+    range.end < range.start ||
+    range.end > map.sourceLength
+  ) {
+    throw new RangeError('Source range is outside the coordinate map')
+  }
+  const start = modelPositionAtMarkupCoordinateMap(
+    map,
+    Object.freeze({ offset: range.start, affinity: 'next' as const })
+  ).offset
+  const end = modelPositionAtMarkupCoordinateMap(
+    map,
+    Object.freeze({ offset: range.end, affinity: 'previous' as const })
+  ).offset
+  return Object.freeze({ start, end: Math.max(start, end) })
 }
