@@ -129,7 +129,10 @@ describe('one intrinsic Markdown parse', () => {
       forkAstRegionReuses: 0,
       commentProjectionPreparations: 0,
       commentProjectionPreparationUnits: 0,
-      astCacheTemplateConstructions: 0
+      astCacheTemplateConstructions: 0,
+      lineMaterializationChunkWalks: 10,
+      longLineMaterializationRetained: 0,
+      longLineMaterializationEvicted: 0
     })
   })
 

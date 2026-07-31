@@ -18,11 +18,20 @@ import {
   PARSE_SOURCE_CHECKPOINT_INTERVAL,
   type ParseExecutionTracker
 } from '../../parseExecutionControl.js'
+import type {
+  Profile1PhysicalTraversalRecorderV1
+} from './physicalTraversalAccounting.js'
 
 interface MarkdownLinePath {
   readonly parent: MarkdownLinePath | undefined
   readonly text: string
   readonly sourceStart: number
+  /**
+   * The physical record of the lane that built this path, captured so a
+   * lazy prefix materialization still attributes its walk to the owning
+   * engine.
+   */
+  readonly recorder?: Profile1PhysicalTraversalRecorderV1
 }
 
 interface MarkdownBlockContainer {
@@ -396,7 +405,7 @@ const EMPTY_REFERENCE_DEFINITIONS: MarkdownReferenceDefinitionLookup =
 
 const FULL_PREFIX_CACHE_MAX_SOURCE_UNITS = 65_536
 const MAX_LONG_LINE_MATERIALIZATIONS = 4
-let shortMaterializedLinePaths = new WeakMap<MarkdownLinePath, string>()
+const shortMaterializedLinePaths = new WeakMap<MarkdownLinePath, string>()
 const longMaterializedLinePaths = new Map<MarkdownLinePath, string>()
 
 function cachedMaterializedLinePath(
@@ -424,6 +433,7 @@ function retainMaterializedLinePath(
   }
   longMaterializedLinePaths.delete(path)
   longMaterializedLinePaths.set(path, source)
+  path.recorder?.recordLongLineMaterializationRetained()
   while (
     longMaterializedLinePaths.size > MAX_LONG_LINE_MATERIALIZATIONS
   ) {
@@ -432,6 +442,7 @@ function retainMaterializedLinePath(
       break
     }
     longMaterializedLinePaths.delete(oldest)
+    path.recorder?.recordLongLineMaterializationEvicted()
   }
 }
 
@@ -2007,41 +2018,6 @@ function createNextMathRunStart(
   }
 }
 
-/**
- * Test-only counter of line-path chunk visits during materialization. The
- * R-4 gate tracks it because prefix materialization over one long line is
- * O(prefixes x chain length) until the chain carries an index — the last
- * measured projection superlinearity (single-line family).
- */
-let lineMaterializationChunkWalks = 0
-
-export function __lineMaterializationChunkWalksV1(): number {
-  return lineMaterializationChunkWalks
-}
-
-export function __resetLineMaterializationChunkWalksV1(): void {
-  lineMaterializationChunkWalks = 0
-}
-
-export function __longLineMaterializationCacheV1(): Readonly<{
-  readonly entries: number
-  readonly sourceUnits: number
-}> {
-  let sourceUnits = 0
-  for (const source of longMaterializedLinePaths.values()) {
-    sourceUnits += source.length
-  }
-  return Object.freeze({
-    entries: longMaterializedLinePaths.size,
-    sourceUnits
-  })
-}
-
-export function __resetLineMaterializationCachesV1(): void {
-  shortMaterializedLinePaths = new WeakMap()
-  longMaterializedLinePaths.clear()
-}
-
 function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
   if (path === undefined) {
     return ''
@@ -2067,7 +2043,7 @@ function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
       base = ancestor
       break
     }
-    lineMaterializationChunkWalks += 1
+    current.recorder?.recordLineMaterializationChunkWalk()
     pending.push(current)
   }
   for (let index = pending.length - 1; index >= 0; index -= 1) {
@@ -2276,7 +2252,8 @@ export function createMarkdownLaneState(
   gitLabMathEnabled: boolean = true,
   footnotesEnabled: boolean = true,
   execution?: ParseExecutionTracker,
-  hasCriticMarkupCandidate?: boolean
+  hasCriticMarkupCandidate?: boolean,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): MarkdownLaneState {
   const lineBlockProbeCanPersist = hasCriticMarkupCandidate === undefined
     ? ![
@@ -3417,7 +3394,10 @@ export function createMarkdownLaneState(
           sourceStart:
             lastEol < 0
               ? textSourceStart
-              : sourceEnd - lineText.length
+              : sourceEnd - lineText.length,
+          ...(physicalRecorder === undefined
+            ? {}
+            : { recorder: physicalRecorder })
         })
     if (
       linePath !== undefined &&
@@ -4019,7 +3999,8 @@ function parsePlainMarkdownLanePass(
   gfmEnabled: boolean = true,
   mathEnabled: boolean = true,
   gitLabMathEnabled: boolean = true,
-  footnotesEnabled: boolean = true
+  footnotesEnabled: boolean = true,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): PlainMarkdownLaneParse {
   const parser = createMarkdownLaneState(
     source,
@@ -4030,7 +4011,10 @@ function parsePlainMarkdownLanePass(
     gfmEnabled,
     mathEnabled,
     gitLabMathEnabled,
-    footnotesEnabled
+    footnotesEnabled,
+    undefined,
+    undefined,
+    physicalRecorder
   )
   const literals: MarkdownLiteralRange[] = []
   const lines: PlainMarkdownLine[] = []
@@ -4117,7 +4101,8 @@ export function parseIntrinsicForkMarkdownLaneFacts(
   gfmEnabled: boolean = true,
   mathEnabled: boolean = true,
   gitLabMathEnabled: boolean = true,
-  footnotesEnabled: boolean = true
+  footnotesEnabled: boolean = true,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): PlainMarkdownLaneParse {
   return parsePlainMarkdownLanePass(
     source,
@@ -4128,7 +4113,8 @@ export function parseIntrinsicForkMarkdownLaneFacts(
     gfmEnabled,
     mathEnabled,
     gitLabMathEnabled,
-    footnotesEnabled
+    footnotesEnabled,
+    physicalRecorder
   )
 }
 

@@ -843,7 +843,8 @@ function parseIntrinsicProfile1Pass(
     markdownOptions.gitLabMath,
     markdownOptions.footnotes,
     execution,
-    sourceProgression.hasCriticMarkupCandidate
+    sourceProgression.hasCriticMarkupCandidate,
+    physicalRecorder
   )
   const roots: CriticMarkupNode[] = []
   const frames: ParseFrame[] = []

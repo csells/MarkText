@@ -10,6 +10,9 @@ export interface Profile1PhysicalTraversalCountsV1 {
   readonly commentProjectionPreparations: number
   readonly commentProjectionPreparationUnits: number
   readonly astCacheTemplateConstructions: number
+  readonly lineMaterializationChunkWalks: number
+  readonly longLineMaterializationRetained: number
+  readonly longLineMaterializationEvicted: number
 }
 
 /**
@@ -29,6 +32,9 @@ export interface Profile1PhysicalTraversalRecorderV1 {
   readonly recordForkAstRegionReuse: () => void
   readonly recordCommentProjectionPreparation: (units: number) => void
   readonly recordAstCacheTemplateConstruction: () => void
+  readonly recordLineMaterializationChunkWalk: () => void
+  readonly recordLongLineMaterializationRetained: () => void
+  readonly recordLongLineMaterializationEvicted: () => void
   readonly counts: () => Profile1PhysicalTraversalCountsV1
 }
 
@@ -45,7 +51,10 @@ Profile1PhysicalTraversalCountsV1 {
     forkAstRegionReuses: 0,
     commentProjectionPreparations: 0,
     commentProjectionPreparationUnits: 0,
-    astCacheTemplateConstructions: 0
+    astCacheTemplateConstructions: 0,
+    lineMaterializationChunkWalks: 0,
+    longLineMaterializationRetained: 0,
+    longLineMaterializationEvicted: 0
   })
 }
 
@@ -61,6 +70,9 @@ Profile1PhysicalTraversalRecorderV1 {
   let commentProjectionPreparations = 0
   let commentProjectionPreparationUnits = 0
   let astCacheTemplateConstructions = 0
+  let lineMaterializationChunkWalks = 0
+  let longLineMaterializationRetained = 0
+  let longLineMaterializationEvicted = 0
   return Object.freeze({
     recordIntrinsicSourceTraversal: (
       markerBearing: boolean,
@@ -89,6 +101,15 @@ Profile1PhysicalTraversalRecorderV1 {
     recordAstCacheTemplateConstruction: (): void => {
       astCacheTemplateConstructions += 1
     },
+    recordLineMaterializationChunkWalk: (): void => {
+      lineMaterializationChunkWalks += 1
+    },
+    recordLongLineMaterializationRetained: (): void => {
+      longLineMaterializationRetained += 1
+    },
+    recordLongLineMaterializationEvicted: (): void => {
+      longLineMaterializationEvicted += 1
+    },
     counts: (): Profile1PhysicalTraversalCountsV1 => Object.freeze({
       intrinsicSource: intrinsicSourceTraversals,
       total: intrinsicSourceTraversals,
@@ -100,7 +121,10 @@ Profile1PhysicalTraversalRecorderV1 {
       forkAstRegionReuses,
       commentProjectionPreparations,
       commentProjectionPreparationUnits,
-      astCacheTemplateConstructions
+      astCacheTemplateConstructions,
+      lineMaterializationChunkWalks,
+      longLineMaterializationRetained,
+      longLineMaterializationEvicted
     })
   })
 }

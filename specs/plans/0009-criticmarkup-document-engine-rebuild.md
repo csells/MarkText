@@ -358,12 +358,16 @@ are transcribed exactly. Its real residue is G36.
   escape rule — the unary, substitution, comment, and comment-pair
   composers in one place, with the kernel and the worker both routing
   through them and no caller spelling a marker or wiring the escape
-  inline — and one secondary parser
-  counter family (line-materialization walks and their memo caches) remains
-  process-global with test-only resets — AST-template constructions joined
-  the engine recorder, and the projected-text reference-definition index
-  builder proved dead and was deleted, its gate now a static absence
-  sweep. The concerns are answered today inside
+  inline — and the execution counter bank is
+  fully engine-owned: line-materialization walks record through the
+  recorder each line path captures at construction, long-line retention
+  is proven bounded from retained/evicted counters instead of a cache
+  seam, AST-template constructions joined the recorder, and the
+  projected-text reference-definition index builder proved dead and was
+  deleted — no `__` counter seam remains in the parser. The line
+  memoization itself stays module-level by design: identity-keyed
+  (entries can never serve another engine), leak-free short paths in a
+  WeakMap, and a four-entry LRU for long lines. The concerns are answered today inside
   `revisionWorker.ts` and its callers. Progress: the admission authority
   exists (`internal/session/admissionAuthority.ts`):
   `admit(base, edits, class)` owns edit validation, resource limits, join

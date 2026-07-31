@@ -8,12 +8,6 @@ import {
   captureProfileParseTraceV1,
   type ProfileParseTraceEventV1
 } from '../../src/internal/profileParseTraceV1.js'
-import {
-  __lineMaterializationChunkWalksV1,
-  __longLineMaterializationCacheV1,
-  __resetLineMaterializationCachesV1,
-  __resetLineMaterializationChunkWalksV1
-} from '../../src/internal/profile1/markdownLaneState.js'
 
 type PlanningVisitEvent = Extract<
   ProfileParseTraceEventV1,
@@ -165,10 +159,9 @@ describe('Profile 1 projection planning complexity', () => {
     const walks = (repetitions: number): number => {
       const source = '{~~o~>a~~}'.repeat(repetitions)
       const engine = createLanguageEngine()
-      __resetLineMaterializationChunkWalksV1()
       const revision = engine.open(createSourceSnapshot(source), TEST_CONFIGURATION)
       expect(revision.kind).toBe('complete')
-      return __lineMaterializationChunkWalksV1()
+      return engine.traversalCounts().lineMaterializationChunkWalks
     }
 
     const small = walks(64)
@@ -178,17 +171,20 @@ describe('Profile 1 projection planning complexity', () => {
 
   it('retains only a bounded number of materialized long-line prefixes', () => {
     const source = 'x'.repeat(4_096 * 64)
-    __resetLineMaterializationCachesV1()
-
-    const revision = createLanguageEngine().open(
+    const engine = createLanguageEngine()
+    const revision = engine.open(
       createSourceSnapshot(source),
       TEST_CONFIGURATION
     )
 
     expect(revision.kind).toBe('complete')
-    const cache = __longLineMaterializationCacheV1()
-    expect(cache.entries).toBeLessThanOrEqual(4)
-    expect(cache.sourceUnits).toBeLessThanOrEqual(source.length * 4)
+    // Live long-line entries are retentions minus evictions; the LRU keeps
+    // at most four, and the counters prove it without a cache seam.
+    const counts = engine.traversalCounts()
+    expect(
+      counts.longLineMaterializationRetained -
+      counts.longLineMaterializationEvicted
+    ).toBeLessThanOrEqual(4)
   })
 
   it('fails closed instead of hiding nested trace work', () => {

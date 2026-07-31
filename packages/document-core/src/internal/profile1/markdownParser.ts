@@ -6795,7 +6795,8 @@ function parseIntrinsicForkRegionFacts(
       lane.gfmEnabled ?? true,
       lane.mathEnabled ?? true,
       lane.gitLabMathEnabled ?? true,
-      lane.footnotesEnabled ?? true
+      lane.footnotesEnabled ?? true,
+      physicalRecorder
     )
   }
   if (reuseKey !== undefined && !reuse.has(reuseKey)) {
