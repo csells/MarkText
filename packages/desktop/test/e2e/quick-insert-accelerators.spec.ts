@@ -5,9 +5,9 @@ import {
   launchWithMarkdown,
   setSourceMarkdown,
   placeCaretInEditor,
-  readCanonicalMarkdown
 } from './helpers'
 import {
+  expectCanonicalOnDisk,
   applicationMenuAccelerator,
   pressApplicationMenuAccelerator,
   pressUserKeybinding,
@@ -22,11 +22,13 @@ import {
 test.describe('Quick-insert accelerators (item 49)', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown('seed paragraph\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -49,15 +51,15 @@ test.describe('Quick-insert accelerators (item 49)', () => {
     await expect(codeBlock.locator('code').first()).toBeAttached()
 
     const expected = '```\n\n```\n'
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
 
     // The blockquote accelerator must NOT have also fired.
     await expect(page.locator('.editor-component blockquote.document-view-blockquote')).toHaveCount(0)
 
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '\n')
     await redo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
   })
 
   test('⌥⌘Q converts the empty paragraph into a blockquote', async() => {
@@ -67,15 +69,15 @@ test.describe('Quick-insert accelerators (item 49)', () => {
     await expect(quote).toBeAttached({ timeout: 5000 })
 
     const expected = '> \n'
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
 
     // The code-block accelerator must NOT have also fired.
     await expect(page.locator('.editor-component pre.document-view-code-block')).toHaveCount(0)
 
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '\n')
     await redo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
   })
 
   test('Quick Insert requests a 1×1 table shape and preserves exact history', async() => {
@@ -95,16 +97,16 @@ test.describe('Quick-insert accelerators (item 49)', () => {
     await expect(dialog).toBeHidden()
 
     const table = '|   |\n| --- |\n'
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(table)
+    await expectCanonicalOnDisk(page, app, documentPath, table)
     await expect(page.locator('.editor-component table tr')).toHaveCount(1)
     await expect(
       page.locator('.editor-component table .document-view-table-cell')
     ).toHaveCount(1)
 
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('/table\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '/table\n')
     await redo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(table)
+    await expectCanonicalOnDisk(page, app, documentPath, table)
   })
 
   test('every conversion choice commits exact source with exact history', async() => {
@@ -135,11 +137,11 @@ test.describe('Quick-insert accelerators (item 49)', () => {
         `.document-view-quick-insert-item[data-label="${label}"]`
       ).click()
 
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+      await expectCanonicalOnDisk(page, app, documentPath, expected)
       await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe('/\n')
+      await expectCanonicalOnDisk(page, app, documentPath, '/\n')
       await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+      await expectCanonicalOnDisk(page, app, documentPath, expected)
     }
   })
 
@@ -159,11 +161,11 @@ test.describe('Quick-insert accelerators (item 49)', () => {
       ).click()
 
       const diagram = `\`\`\`${language}\n\n\`\`\`\n`
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(diagram)
+      await expectCanonicalOnDisk(page, app, documentPath, diagram)
       await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe('/\n')
+      await expectCanonicalOnDisk(page, app, documentPath, '/\n')
       await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(diagram)
+      await expectCanonicalOnDisk(page, app, documentPath, diagram)
     }
   })
 })
@@ -185,7 +187,7 @@ test.describe('user paragraph-keybinding authority', () => {
         launched.app,
         'CmdOrCtrl+Alt+C'
       )
-      await expect.poll(() => readCanonicalMarkdown(launched.page)).toBe('\n')
+      await expectCanonicalOnDisk(launched.page, launched.app, launched.filePath, '\n')
     } finally {
       await closeElectron(launched.app)
     }
@@ -204,11 +206,11 @@ test.describe('user paragraph-keybinding authority', () => {
 
       await pressUserKeybinding(launched.page, launched.app, rebound)
       const expected = '```\n\n```\n'
-      await expect.poll(() => readCanonicalMarkdown(launched.page)).toBe(expected)
+      await expectCanonicalOnDisk(launched.page, launched.app, launched.filePath, expected)
       await undo(launched.app)
-      await expect.poll(() => readCanonicalMarkdown(launched.page)).toBe('\n')
+      await expectCanonicalOnDisk(launched.page, launched.app, launched.filePath, '\n')
       await redo(launched.app)
-      await expect.poll(() => readCanonicalMarkdown(launched.page)).toBe(expected)
+      await expectCanonicalOnDisk(launched.page, launched.app, launched.filePath, expected)
     } finally {
       await closeElectron(launched.app)
     }

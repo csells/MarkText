@@ -6,11 +6,11 @@ import {
   placeCaretInEditor,
   sendIpcToRenderer,
   setSourceMarkdown,
-  readCanonicalMarkdown,
   expectNoRendererErrors,
   clearRendererErrors
 } from './helpers'
 import {
+  expectCanonicalOnDisk,
   pointForText,
   pressApplicationMenuAccelerator,
   redo,
@@ -74,11 +74,13 @@ const resetToEmpty = async(page: Page, app: ElectronApplication): Promise<void> 
 test.describe('Format -> Image edit tool wiring', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown('\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -96,7 +98,7 @@ test.describe('Format -> Image edit tool wiring', () => {
     await page.waitForSelector(srcInput, { state: 'attached', timeout: 5000 })
     await expect(page.locator('.document-view-image-selector input.src')).toHaveCount(1)
     await expect.poll(() => toolShown(page), { timeout: 5000 }).toBe(true)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '\n')
 
     await expect.poll(() => isSrcInputFocused(page), { timeout: 5000 }).toBe(true)
 
@@ -135,7 +137,7 @@ test.describe('Format -> Image edit tool wiring', () => {
         }),
       { timeout: 5000 }
     ).toBe('')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '\n')
 
     await expectNoRendererErrors(app)
   })
@@ -151,7 +153,7 @@ test.describe('Format -> Image edit tool wiring', () => {
     await src.press('Escape')
 
     await expect(page.locator('.document-view-image-selector')).toHaveCount(0)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '\n')
     await expect(page.locator('.editor-component')).toBeFocused()
     await expectNoRendererErrors(app)
   })
@@ -165,16 +167,16 @@ test.describe('Format -> Image edit tool wiring', () => {
     await selector.locator('input.title').press('Enter')
 
     const inserted = '![cat](images/cat.png "Cat")\n'
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(inserted)
+    await expectCanonicalOnDisk(page, app, documentPath, inserted)
     await expect(selector).toHaveCount(0)
     await expect(page.locator('.editor-component')).toBeFocused()
 
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '\n')
     await redo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(inserted)
+    await expectCanonicalOnDisk(page, app, documentPath, inserted)
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '\n')
     await expectNoRendererErrors(app)
   })
 
@@ -195,12 +197,12 @@ test.describe('Format -> Image edit tool wiring', () => {
     await selector.locator('button[type="submit"]').click()
 
     const edited = 'A ![new](assets/new.png "New") Z\n'
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+    await expectCanonicalOnDisk(page, app, documentPath, edited)
     await expect(page.locator('.editor-component')).toBeFocused()
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await expectCanonicalOnDisk(page, app, documentPath, source)
     await redo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+    await expectCanonicalOnDisk(page, app, documentPath, edited)
     await expectNoRendererErrors(app)
   })
 
@@ -215,11 +217,11 @@ test.describe('Format -> Image edit tool wiring', () => {
     await selector.locator('input.src').fill('images/live.png')
     await selector.locator('button[type="submit"]').click()
 
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(page, app, documentPath, 
       'First\n\n![](images/live.png)\n'
     )
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(page, app, documentPath, 
       'First\n\nSecond\n'
     )
   })

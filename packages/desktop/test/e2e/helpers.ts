@@ -587,6 +587,21 @@ export const launchWithDoc = async(
   return { app, page }
 }
 
+/**
+ * Open a repo fixture through a throwaway temp copy. Required for any test
+ * that saves: launchWithDoc opens the fixture in place, so a save would
+ * overwrite checked-in test data.
+ */
+export const launchWithFixtureCopy = async(
+  relativeFixture: string
+): Promise<LaunchWithMarkdownResult> => {
+  const filePath = writeTempMarkdown(fs.readFileSync(relativeFixture, 'utf-8'))
+  const { app, page } = await launchElectron([filePath])
+  await waitForEditor(page)
+  await waitForMenuReady(app)
+  return { app, page, filePath }
+}
+
 export interface LaunchWithMarkdownResult extends LaunchResult {
   filePath: string
 }

@@ -3,15 +3,18 @@ import type { ElectronApplication, Page } from 'playwright'
 import {
   closeElectron,
   launchWithMarkdown,
-  launchWithDoc,
+  launchWithFixtureCopy,
   clickMenuById,
   setSourceMarkdown,
   placeCaretInEditor,
   enterSourceMode,
   exitSourceMode,
   getMarkdownContent,
-  readCanonicalMarkdown
 } from './helpers'
+import {
+  expectCanonicalOnDisk,
+  saveCanonicalSnapshot
+} from './documentCoreReviewE2e'
 import {
   placeCaretAfter,
   pointForText,
@@ -29,11 +32,13 @@ const resetTo = async(page: Page, app: ElectronApplication, text: string) => {
 test.describe('Paragraph block transforms', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown('seed paragraph\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -96,9 +101,7 @@ test.describe('Paragraph block transforms', () => {
   test('Horizontal rule', async() => {
     await resetTo(page, app, '')
     await clickMenuById(app, 'horizontalLineMenuItem')
-    await expect
-      .poll(() => readCanonicalMarkdown(page), { timeout: 5000 })
-      .toBe('---\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '---\n')
     const present = await page
       .locator('.editor-component hr, .editor-component figure[data-role="HR"]')
       .first()
@@ -167,11 +170,11 @@ test.describe('Paragraph block transforms', () => {
       }
 
       await pressApplicationMenuAccelerator(page, app, menuId)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+      await expectCanonicalOnDisk(page, app, documentPath, expected)
       await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+      await expectCanonicalOnDisk(page, app, documentPath, source)
       await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+      await expectCanonicalOnDisk(page, app, documentPath, expected)
     }
   })
 })
@@ -181,11 +184,13 @@ test.describe('Paragraph block transforms', () => {
 test.describe('Insert table dialog', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown('seed paragraph\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -223,7 +228,7 @@ test.describe('Insert table dialog', () => {
       '|   |   |   |',
       ''
     ].join('\n')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
 
     // The 4x3 default yields 4 rendered rows x 3 cells.
     await page.waitForSelector('.editor-component table', { state: 'attached', timeout: 5000 })
@@ -236,9 +241,9 @@ test.describe('Insert table dialog', () => {
     expect(rowCount).toBe(4)
 
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+    await expectCanonicalOnDisk(page, app, documentPath, '\n')
     await redo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
   })
 
   test('Escape and Cancel restore focus without mutating the document', async() => {
@@ -255,7 +260,7 @@ test.describe('Insert table dialog', () => {
       }
       await expect(dialog).toBeHidden()
       await expect(page.locator('.editor-component')).toBeFocused()
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe('\n')
+      await expectCanonicalOnDisk(page, app, documentPath, '\n')
     }
   })
 
@@ -312,9 +317,9 @@ test.describe('Insert table dialog', () => {
     await dialog.getByRole('button', { name: 'OK' }).click()
 
     const expected = 'First\n\n|   |\n| --- |\n\nSecond\n'
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(page, app, documentPath, 
       'First\n\nSecond\n'
     )
   })
@@ -329,11 +334,13 @@ test.describe('Insert table dialog', () => {
 test.describe('Table source-mode round-trip + modified indicator (item 89)', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
-    const launched = await launchWithDoc('test/e2e/data/table.md')
+    const launched = await launchWithFixtureCopy('test/e2e/data/table.md')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     // Let the live view finish rendering the table blocks.
     await page.waitForSelector('.editor-component table', { state: 'attached', timeout: 10000 })
   })
@@ -384,18 +391,19 @@ test.describe('Table source-mode round-trip + modified indicator (item 89)', () 
     await page.waitForTimeout(150)
     await page.keyboard.type('X', { delay: 0 })
 
-    await expect
-      .poll(() => readCanonicalMarkdown(page), { timeout: 5000 })
-      .toContain('X')
-
     // The edit dirties the tab; poll because the indicator flips on the
-    // asynchronous verified publication.
+    // asynchronous verified publication. Asserted before the canonical read:
+    // observing canonical bytes presses Save, which cleans the tab.
     await expect
       .poll(
         () => page.evaluate(() => !!document.querySelector('.tabs-container > li.active.unsaved')),
         { timeout: 5000 }
       )
       .toBe(true)
+
+    await expect
+      .poll(() => saveCanonicalSnapshot(page, app, documentPath), { timeout: 5000 })
+      .toContain('X')
 
     // The modified content is observable through the source-mode round-trip.
     const md = await getMarkdownContent(page, app)
