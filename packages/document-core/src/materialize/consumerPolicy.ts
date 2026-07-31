@@ -33,7 +33,12 @@ import {
   type DocumentSearchQuery,
   type SearchMatchRange
 } from '../search.js'
-import type { MarkupRenderBlock } from '../view/markupRender.js'
+import type { OpaqueRange } from '../internal/sourceAuthorship.js'
+import type {
+  MarkupRenderBlock,
+  MarkupRenderNode,
+  MarkupRenderText
+} from '../view/markupRender.js'
 import type { ParseExecutionControl } from '../parseExecutionControl.js'
 import { materializeProjectedText } from './textMaterializers.js'
 import { parserHeadingAnchors } from './headingOutline.js'
@@ -1228,6 +1233,166 @@ function editableRangeContains(
     start >= candidate.start &&
     end <= candidate.end
 }
+
+export interface VisibleReplacementSegment {
+  readonly render: MarkupRenderText
+  readonly owners: readonly MarkupRenderNode[]
+}
+
+export interface VisibleReplacementIndex {
+  readonly segments: readonly VisibleReplacementSegment[]
+  readonly byOwner: ReadonlyMap<
+    MarkupRenderNode,
+    readonly VisibleReplacementSegment[]
+  >
+}
+
+export interface VisibleReplacementPiece extends OpaqueRange {
+  readonly insertReplacement: boolean
+}
+
+const SEARCH_REMOVABLE_INLINE_KINDS = new Set([
+  'autolink',
+  'emphasis',
+  'inline-code',
+  'inline-html',
+  'inline-math',
+  'link',
+  'strikethrough',
+  'strong',
+  'subscript',
+  'superscript'
+])
+
+export function planVisibleReplacementIndex(
+  blocks: readonly MarkupRenderBlock[]
+): VisibleReplacementIndex {
+  const segments: VisibleReplacementSegment[] = []
+  const byOwner = new Map<MarkupRenderNode, VisibleReplacementSegment[]>()
+  const visit = (
+    node: MarkupRenderNode,
+    owners: readonly MarkupRenderNode[]
+  ): void => {
+    const path = Object.freeze([...owners, node])
+    for (const render of node.text) {
+      if (render.text.length > 0) {
+        const segment = Object.freeze({ render, owners: path })
+        segments.push(segment)
+        for (const owner of path) {
+          const owned = byOwner.get(owner) ?? []
+          owned.push(segment)
+          byOwner.set(owner, owned)
+        }
+      }
+    }
+    for (const child of node.children) visit(child, path)
+  }
+  for (const block of blocks) visit(block.tree, Object.freeze([]))
+  return Object.freeze({
+    segments: Object.freeze(segments),
+    byOwner: new Map(
+      [...byOwner].map(([owner, owned]) => [
+        owner,
+        Object.freeze(owned)
+      ])
+    )
+  })
+}
+
+function touchedVisibleSegments(
+  segments: readonly VisibleReplacementSegment[],
+  match: OpaqueRange
+): readonly VisibleReplacementSegment[] {
+  let low = 0
+  let high = segments.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    const segment = segments[middle]
+    if (segment === undefined || segment.render.modelRange.end > match.start) {
+      high = middle
+    } else {
+      low = middle + 1
+    }
+  }
+  const touched: VisibleReplacementSegment[] = []
+  for (let index = low; index < segments.length; index += 1) {
+    const segment = segments[index]
+    if (
+      segment === undefined ||
+      segment.render.modelRange.start >= match.end
+    ) {
+      break
+    }
+    touched.push(segment)
+  }
+  return Object.freeze(touched)
+}
+
+/**
+ * Split one reader-visible match at parser text boundaries.
+ *
+ * Replacing one contiguous model span would consume delimiters between its
+ * visible pieces while leaving an opener or closer outside the span. The
+ * parser tree tells us which later inline wrappers become empty: delete those
+ * wrappers whole, retain the first piece's formatting, and apply the user's
+ * replacement only to that first visible piece.
+ */
+export function planVisibleReplacementPieces(
+  index: VisibleReplacementIndex,
+  match: OpaqueRange
+): readonly VisibleReplacementPiece[] {
+  const touched = touchedVisibleSegments(index.segments, match)
+  const first = touched[0]
+  if (first === undefined) {
+    throw new RangeError('Visible replacement match touches no parser text')
+  }
+
+  const parentByNode = new Map<MarkupRenderNode, MarkupRenderNode | undefined>()
+  const candidateNodes = new Set<MarkupRenderNode>()
+  for (const segment of touched) {
+    segment.owners.forEach((node, index) => {
+      parentByNode.set(node, segment.owners[index - 1])
+      if (SEARCH_REMOVABLE_INLINE_KINDS.has(node.kind)) candidateNodes.add(node)
+    })
+  }
+  const removable = [...candidateNodes].filter((node) => {
+    if (first.owners.includes(node)) return false
+    const owned = index.byOwner.get(node) ?? Object.freeze([])
+    return owned.length > 0 && owned.every(({ render }) =>
+      match.start <= render.modelRange.start &&
+      render.modelRange.end <= match.end
+    )
+  })
+  const removableSet = new Set(removable)
+  const outermost = removable.filter((node) => {
+    let parent = parentByNode.get(node)
+    while (parent !== undefined) {
+      if (removableSet.has(parent)) return false
+      parent = parentByNode.get(parent)
+    }
+    return true
+  })
+  const removedOwners = new Set(outermost)
+  const pieces: VisibleReplacementPiece[] = outermost.map((node) =>
+    Object.freeze({
+      start: node.modelRange.start,
+      end: node.modelRange.end,
+      insertReplacement: false
+    })
+  )
+  for (const segment of touched) {
+    if (segment.owners.some((owner) => removedOwners.has(owner))) continue
+    pieces.push(Object.freeze({
+      start: Math.max(match.start, segment.render.modelRange.start),
+      end: Math.min(match.end, segment.render.modelRange.end),
+      insertReplacement: segment === first
+    }))
+  }
+  return Object.freeze(pieces.sort((left, right) =>
+    left.start - right.start || left.end - right.end
+  ))
+}
+
 
 export type FindConsumerInput =
   | Readonly<{

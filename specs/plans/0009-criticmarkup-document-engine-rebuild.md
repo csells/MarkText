@@ -544,11 +544,24 @@ whose assertion cannot distinguish pass from fail.
   worker's replace-match discovery both route through the declaration,
   and an authority sweep fails any production caller of the
   projection-specific matchers outside the policy and the search
-  module. Remaining: `planReplaceConsumer` and `viewLength` still have
-  no production caller — the replace-planning absorption (the worker's
-  cross-inline piece machinery moving under the policy's ownership) is
-  the consolidation that gives them one; deleting the declarations is
-  rejected, because the module owns the per-kind sink exactness table
+  module. The replace planning is absorbed (2026-07-31): the
+  cross-inline piece machinery the replace suite's rows are proven
+  over — visible-segment indexing, wrapper-removal piece computation,
+  `SEARCH_REMOVABLE_INLINE_KINDS` — now lives in the policy as
+  `planVisibleReplacementIndex` and `planVisibleReplacementPieces`,
+  and the worker's replace prepare routes through them, translating
+  the policy's `RangeError` into its own rejection at the boundary.
+  `viewLength` was re-examined and is load-bearing, not caller-less:
+  `normalizeSelection` validates every consumer selection through it
+  and `markupCanonicalRange` uses it for whole-document detection on
+  the clipboard path. Remaining: `planReplaceConsumer` still has no
+  production caller and answers the replace question a second way —
+  whole-hit edits with staleness and editability guards, without the
+  proven wrapper-removal semantics; the reconciliation (delegating
+  the worker's prepare through one policy entry that validates and
+  plans, or recording its supersession by the piece planners) is the
+  last G19 step. Deleting the module's declarations outright stays
+  rejected, because it owns the per-kind sink exactness table
   (`PROFILE1_KIND_SINK_EXACTNESS`, A41).
 **W6 — Budgets and release**
 
