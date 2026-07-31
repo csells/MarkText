@@ -346,9 +346,13 @@ are transcribed exactly. Its real residue is G36.
   worker's wire intake); the Selection module now
   exists (`internal/session/selectionAuthority.ts`) with the public
   `DocumentSession.settled()` barrier over the session mailbox
-  (`selection-authority.spec.ts`), but the view and renderer still answer
-  settlement with their own notions — consolidation onto the one barrier
-  remains, and G13's fixed sleeps migrate to it.
+  (`selection-authority.spec.ts`), and the view now chains onto it: the
+  session barrier crosses the wire (`await-settled` worker command, host
+  member, typed IPC channel), the renderer session exposes `settled()`
+  over that channel, and the view's `settled()` drains only its
+  not-yet-dispatched input chains before awaiting the session barrier —
+  the source-mode port's local operation tail is the remaining second
+  notion, and G13's fixed sleeps migrate to the barrier.
   `internal/sourceAuthorship.ts` now owns marker composition beside the
   escape rule — the unary, substitution, comment, and comment-pair
   composers in one place, with the kernel and the worker both routing

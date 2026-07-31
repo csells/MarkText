@@ -109,10 +109,12 @@ import type {
   DocumentCoreClipboardWriteRequest,
   DocumentCoreCompleteDispatchRequest,
   DocumentCoreDispatchTicketReceipt,
+  DocumentCoreAwaitSettledRequest,
   DocumentCoreLifecycleIntent,
   DocumentCoreLifecycleReceipt,
   DocumentCoreMainDispatchRequest,
   DocumentCoreMainSelectRequest,
+  DocumentCoreSettledReceipt,
   DocumentCoreOpenLinkReceipt,
   DocumentCoreOpenLinkRequest,
   DocumentCorePublication,
@@ -232,6 +234,10 @@ export interface IpcInvokeChannels {
   'mt::document-core::select': {
     args: [request: DocumentCoreMainSelectRequest]
     ret: DocumentCorePublication
+  }
+  'mt::document-core::await-settled': {
+    args: [request: DocumentCoreAwaitSettledRequest]
+    ret: DocumentCoreSettledReceipt
   }
   'mt::image-assets::activate-document': {
     args: [request: ImageAssetActivationRequest]

@@ -23,6 +23,7 @@ import type {
   DocumentCoreClipboardWriteRequest,
   DocumentCoreCompleteDispatchRequest,
   DocumentCoreMainDispatchRequest,
+  DocumentCoreAwaitSettledRequest,
   DocumentCoreMainSelectRequest,
   DocumentCoreOpenLinkRequest,
   DocumentCoreReconfigureMarkdownOptionsRequest,
@@ -889,6 +890,18 @@ export function decodeDocumentCoreCancelDispatchRequest(
   value: unknown
 ): DocumentCoreCancelDispatchRequest {
   return documentAndTicket(value, 'dispatch-cancel request')
+}
+
+export function decodeDocumentCoreAwaitSettledRequest(
+  value: unknown
+): DocumentCoreAwaitSettledRequest {
+  const record = closedRecord(value, 'await-settled request', ['documentId'])
+  return Object.freeze({
+    documentId: identifier(
+      record.documentId,
+      'await-settled request.documentId'
+    )
+  })
 }
 
 export function decodeDocumentCoreMainSelectRequest(

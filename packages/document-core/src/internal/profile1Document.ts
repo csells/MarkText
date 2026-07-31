@@ -809,7 +809,9 @@ function finalizeCanonicalTape(
 function parseIntrinsicProfile1Pass(
   source: string,
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
-  cmDepthLimit: number = Number.POSITIVE_INFINITY,
+  // Accepted-node depth is enforced after the pass (collectOverDepthNodes);
+  // the limit stays in the signature so every caller states its policy.
+  _cmDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   execution?: ParseExecutionTracker,

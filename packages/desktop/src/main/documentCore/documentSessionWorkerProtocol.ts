@@ -106,6 +106,9 @@ export type DocumentCoreWorkerCommand =
     readonly kind: 'read-history-state'
   }>
   | Readonly<{
+    readonly kind: 'await-settled'
+  }>
+  | Readonly<{
     readonly kind: 'prepare-persistence'
     readonly reason: PersistenceReason
   }>

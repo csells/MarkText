@@ -81,6 +81,7 @@ type DocumentCoreInvokeChannel =
   | 'mt::document-core::dispatch-cancel'
   | 'mt::document-core::reconfigure-markdown-options'
   | 'mt::document-core::select'
+  | 'mt::document-core::await-settled'
   | 'mt::document-core::write-clipboard'
   | 'mt::document::paste-clipboard'
   | 'mt::image-assets::activate-document'
@@ -2200,9 +2201,18 @@ export async function createDocumentCoreRemoteSession(
     return closePromise
   }
 
+  const settled = async(): Promise<void> => {
+    // The session's one settlement barrier, awaited over the wire — the
+    // renderer never owns a second notion of settled.
+    await options.invoke('mt::document-core::await-settled', Object.freeze({
+      documentId: options.documentId()
+    }))
+  }
+
   return Object.freeze({
     snapshot,
     dispatch,
+    settled,
     reconfigureMarkdownOptions,
     writeClipboardMaterialization,
     pasteClipboard,

@@ -210,6 +210,7 @@ async function createTestDocumentCoreSessionHarness(
     const viewSession: IDocumentCoreViewSession = Object.freeze({
         snapshot,
         dispatch,
+        settled: () => session.settled(),
         modelPositionAt,
         select: async (selection: InitialModelSelection) => {
             session.select(selection);

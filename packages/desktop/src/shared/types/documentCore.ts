@@ -156,6 +156,14 @@ export interface DocumentCoreCancelDispatchRequest {
   readonly ticketId: string
 }
 
+export interface DocumentCoreAwaitSettledRequest {
+  readonly documentId: string
+}
+
+export interface DocumentCoreSettledReceipt {
+  readonly kind: 'settled'
+}
+
 export interface DocumentCoreMainSelectRequest {
   readonly documentId: string
   readonly baseSnapshotId: string

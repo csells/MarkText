@@ -69,6 +69,7 @@ import {
   decodeDocumentCoreClipboardWriteRequest,
   decodeDocumentCoreCompleteDispatchRequest,
   decodeDocumentCoreMainDispatchRequest,
+  decodeDocumentCoreAwaitSettledRequest,
   decodeDocumentCoreMainSelectRequest,
   decodeDocumentCoreOpenLinkRequest,
   decodeDocumentCoreReconfigureMarkdownOptionsRequest,
@@ -802,6 +803,14 @@ export function registerDocumentCoreHandlers(): void {
     (event, rawRequest: unknown) => {
       const request = decodeDocumentCoreMainSelectRequest(rawRequest)
       return mainHost().select(ownerOf(event), request)
+    }
+  )
+  ipcMain.handle(
+    'mt::document-core::await-settled',
+    async(event, rawRequest: unknown) => {
+      const request = decodeDocumentCoreAwaitSettledRequest(rawRequest)
+      await mainHost().awaitSettled(ownerOf(event), request.documentId)
+      return Object.freeze({ kind: 'settled' as const })
     }
   )
   ipcMain.handle(

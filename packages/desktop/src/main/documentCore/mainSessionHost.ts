@@ -157,6 +157,11 @@ export interface DocumentCoreMainSessionHost {
     ownerId: string,
     documentId: string
   ) => Promise<DocumentCoreHistoryState>
+  /** Await the session's one settlement barrier for this document. */
+  readonly awaitSettled: (
+    ownerId: string,
+    documentId: string
+  ) => Promise<void>
   readonly markPersisted: (
     ownerId: string,
     documentId: string,
@@ -1569,6 +1574,15 @@ export function createDocumentCoreMainSessionHost(
     )
   }
 
+  const awaitSettled = async(
+    ownerId: string,
+    documentId: string
+  ): Promise<void> => {
+    const hosted = hostedFor(documentId)
+    assertOwner(hosted, ownerId)
+    await hosted.worker.command(Object.freeze({ kind: 'await-settled' }))
+  }
+
   const markPersisted = async(
     ownerId: string,
     documentId: string,
@@ -1915,6 +1929,7 @@ export function createDocumentCoreMainSessionHost(
     reloadFromFile,
     readHistoryState,
     preparePersistence,
+    awaitSettled,
     markPersisted,
     releasePersistence,
     restorePersisted,

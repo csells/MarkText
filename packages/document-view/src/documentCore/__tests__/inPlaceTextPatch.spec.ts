@@ -64,6 +64,7 @@ describe('authoritative in-place text publication', () => {
             PARSE_CONFIGURATION,
         );
         const session: IDocumentCoreViewSession = Object.freeze({
+            settled: async () => {},
             snapshot: authority.snapshot,
             modelPositionAt: authority.modelPositionAt,
             select: authority.select,
@@ -126,6 +127,7 @@ describe('authoritative in-place text publication', () => {
         let text: Text | null = null;
         let charCodeAtSpy: ReturnType<typeof vi.spyOn> | null = null;
         const session: IDocumentCoreViewSession = Object.freeze({
+            settled: async () => {},
             snapshot: () => snapshot,
             modelPositionAt: authority.modelPositionAt,
             reconfigureMarkdownOptions:
@@ -286,6 +288,7 @@ describe('authoritative in-place text publication', () => {
             return next;
         };
         const session: IDocumentCoreViewSession = Object.freeze({
+            settled: async () => {},
             snapshot,
             modelPositionAt: authority.modelPositionAt,
             select: authority.select,

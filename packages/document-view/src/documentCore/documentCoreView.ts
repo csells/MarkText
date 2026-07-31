@@ -409,6 +409,13 @@ export interface IDocumentCoreViewSession {
     readonly selectSource: (
         selection: InitialModelSelection,
     ) => Promise<void>;
+    /**
+     * The session's one settlement barrier: resolves once every operation
+     * enqueued before the call has settled. The view awaits this after its
+     * local input chains drain, so no surface owns a second settlement
+     * notion.
+     */
+    readonly settled: () => Promise<void>;
     readonly reconfigureMarkdownOptions: (
         patch: DocumentCoreMarkdownOptionPatch,
     ) => Promise<DocumentCoreViewDispatchResult>;
@@ -4127,6 +4134,7 @@ export async function createDocumentCoreView(
         while (pendingImageResolutions.size > 0) {
             await Promise.allSettled([...pendingImageResolutions]);
         }
+        await session.settled();
         if (browserInputFailure !== undefined) {
             const failure = browserInputFailure;
             browserInputFailure = undefined;

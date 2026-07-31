@@ -1114,6 +1114,13 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
     } satisfies DocumentCorePersistenceLeaseResult)
   }
 
+  if (command.kind === 'await-settled') {
+    // The session's one settlement barrier, exposed over the wire so view
+    // and renderer consumers await it instead of owning a second notion.
+    await activeSession().settled()
+    return Object.freeze({ kind: 'settled' as const })
+  }
+
   if (command.kind === 'mark-persisted') {
     const lease = persistenceLeases.get(command.leaseId)
     if (lease === undefined) {
