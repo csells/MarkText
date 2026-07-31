@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { readCanonicalMarkdown } from './helpers'
 import {
+  expectCanonicalOnDisk,
   authorComment,
   closeDocumentCore,
   launchDocumentCoreWithKeybindings,
@@ -13,6 +13,7 @@ const ADD_COMMENT_ACCELERATOR = 'CmdOrCtrl+Alt+Shift+C'
 test.describe('document-core raw Comment authoring', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchDocumentCoreWithKeybindings(
@@ -21,6 +22,7 @@ test.describe('document-core raw Comment authoring', () => {
     )
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => closeDocumentCore(app))
@@ -29,9 +31,9 @@ test.describe('document-core raw Comment authoring', () => {
     await authorComment(page, app, 'target', 'outer {++nested++}\nsecond')
     const expected =
       'before {==target==}{>>outer {++nested++}\nsecond<<} after\n'
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
     await pressApplicationMenuAccelerator(page, app, 'editUndoMenuItem')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(page, app, documentPath, 
       'before target after\n'
     )
   })

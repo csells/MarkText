@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { clickMenuById } from './helpers'
+import { clearCapturedErrors, clickMenuById } from './helpers'
 import {
   closeDocumentCore,
   expectCanonicalOnDisk,
@@ -277,6 +277,10 @@ test.describe('document-core Track Changes through Electron', () => {
     await expect(page.locator('.editor-notifications')).toContainText(
       "Track Changes couldn't record that edit"
     )
+    // The rejection above is this step's expected outcome and was reported
+    // to the user; acknowledge it so later accelerator presses' background
+    // runtime policing doesn't fail the run on an error the test asserted.
+    await clearCapturedErrors(app)
     await expectPublicSelection(page, {
       text: 'old',
       collapsed: false,

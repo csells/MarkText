@@ -3720,12 +3720,25 @@ export async function createDocumentCoreView(
         pendingBrowserInput = pendingBrowserInput
             .then(operation)
             .catch((error: unknown) => {
-                browserInputFailure ??= error;
-                // A SourceOnly revision mounts no WYSIWYG, so a queued op
+                // A failure is surfaced exactly once. A host that installed
+                // the failure callback has been told (it notifies the user);
+                // recording it for settled() too would make the next flow
+                // that awaits settlement — a save acquiring its persistence
+                // lease after a rejected edit — abort on a failure that was
+                // already reported and belongs to a finished gesture. A
+                // SourceOnly revision mounts no WYSIWYG, so a queued op
                 // refused in that state is the view declining its own
-                // housekeeping — there is no user gesture to report against.
-                if (session.snapshot().kind === 'complete')
-                    options.onBrowserInputFailure?.(error);
+                // housekeeping — there is no user gesture to report against,
+                // and the failure surfaces through settled() instead.
+                if (
+                    session.snapshot().kind === 'complete'
+                    && options.onBrowserInputFailure !== undefined
+                ) {
+                    options.onBrowserInputFailure(error);
+                }
+                else {
+                    browserInputFailure ??= error;
+                }
             })
             .finally(() => {
                 if (browserInputGeneration === generation) {

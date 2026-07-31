@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
+  saveCanonicalSnapshot,
   closeDocumentCore,
   launchDocumentCore,
   openReviewSidebar,
@@ -8,10 +9,10 @@ import {
   selectDomText
 } from './documentCoreReviewE2e'
 import {
+  clearCapturedErrors,
   clickMenuById,
   enterSourceMode,
-  exitSourceMode,
-  readCanonicalMarkdown
+  exitSourceMode
 } from './helpers'
 
 const SOURCE =
@@ -206,11 +207,13 @@ test.describe('document-surface clipboard menu integration', () => {
   test.describe.configure({ timeout: 120000 })
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchDocumentCore(SOURCE)
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await installNativeMenuObservation(app)
   })
 
@@ -227,7 +230,7 @@ test.describe('document-surface clipboard menu integration', () => {
   test(
     'uses authenticated Markup/Source/Original/Revised policy and copies read-only projections without mutation',
     async() => {
-      const canonical = await readCanonicalMarkdown(page)
+      const canonical = await saveCanonicalSnapshot(page, app, documentPath)
       expect(canonical).toBe(SOURCE)
 
       await rightClickSelectedText(page, 'prefix')
@@ -277,12 +280,16 @@ test.describe('document-surface clipboard menu integration', () => {
           paste: false
         })
         await expect.poll(() => readClipboard(app)).toBe(projection.selected)
-        expect(await readCanonicalMarkdown(page)).toBe(SOURCE)
+        expect(await saveCanonicalSnapshot(page, app, documentPath)).toBe(SOURCE)
 
         await writeClipboard(app, `forbidden-${projection.attribute}-paste`)
         await clickMenuById(app, 'editPasteAsPlainTextMenuItem')
         await page.waitForTimeout(250)
-        expect(await readCanonicalMarkdown(page)).toBe(SOURCE)
+        // The refused paste is this step's expected outcome and was reported;
+        // acknowledge it before the canonical observation presses Save, whose
+        // background runtime policing fails the run on captured errors.
+        await clearCapturedErrors(app)
+        expect(await saveCanonicalSnapshot(page, app, documentPath)).toBe(SOURCE)
       }
 
       await enterSourceMode(page, app)
@@ -314,7 +321,7 @@ test.describe('document-surface clipboard menu integration', () => {
       expect(await page.locator('.editor-component').evaluate(
         (element: HTMLElement) => element.inert
       )).toBe(false)
-      expect(await readCanonicalMarkdown(page)).toBe(SOURCE)
+      expect(await saveCanonicalSnapshot(page, app, documentPath)).toBe(SOURCE)
     }
   )
 })

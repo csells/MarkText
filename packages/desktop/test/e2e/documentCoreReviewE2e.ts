@@ -476,12 +476,14 @@ export function reviewMenuEnabled(
 
 /**
  * Assert the canonical source through the production persistence path: press
- * the real Save accelerator and read the document's bytes from disk. A clean
- * document disables Save, so the press is skipped once the file already holds
- * the expected bytes — otherwise an enablement poll could wedge forever. Save
- * collapses no selection, but interleaved ladders must still order their
- * selection asserts before this call so the press perturbs nothing a step
- * still needs.
+ * the real Save accelerator and read the document's bytes from disk. The
+ * press happens exactly when Save is enabled — a clean document's canonical
+ * source already equals its persisted bytes, so the bare file read IS the
+ * session observation then. Deciding by file-vs-expected equality instead
+ * would silently pass a "canonical unchanged" assert against a mutated but
+ * unsaved session. Save collapses no selection, but interleaved ladders must
+ * still order their selection asserts before this call so the press perturbs
+ * nothing a step still needs.
  */
 export async function expectCanonicalOnDisk(
   page: Page,
@@ -489,13 +491,10 @@ export async function expectCanonicalOnDisk(
   filePath: string,
   expected: string
 ): Promise<void> {
-  await expect.poll(async() => {
-    if (fs.readFileSync(filePath, 'utf-8') === expected) {
-      return expected
-    }
-    await pressApplicationMenuAccelerator(page, app, 'fileSaveMenuItem')
-    return fs.readFileSync(filePath, 'utf-8')
-  }, { timeout: 15000 }).toBe(expected)
+  await expect.poll(
+    () => saveCanonicalSnapshot(page, app, filePath),
+    { timeout: 15000 }
+  ).toBe(expected)
 }
 
 /**

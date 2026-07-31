@@ -6,9 +6,12 @@ import {
   enterSourceMode,
   exitSourceMode,
   expectNoCapturedErrors,
-  launchWithMarkdown,
-  readCanonicalMarkdown
+  launchWithMarkdown
 } from './helpers'
+import {
+  expectCanonicalOnDisk,
+  saveCanonicalSnapshot
+} from './documentCoreReviewE2e'
 
 const INITIAL = [
   '# Asynchronous source input',
@@ -22,11 +25,13 @@ test.describe('document-core asynchronous Source input', () => {
 
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown(INITIAL)
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -52,15 +57,15 @@ test.describe('document-core asynchronous Source input', () => {
     await expect(input).toHaveValue(expected)
     await exitSourceMode(page, app)
 
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
-    expect((await readCanonicalMarkdown(page)).split(token)).toHaveLength(2)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
+    expect((await saveCanonicalSnapshot(page, app, documentPath)).split(token)).toHaveLength(2)
 
     // The gesture is one authoritative history entry, not a whole-document
     // handoff plus a second local-editor entry.
     await clickMenuById(app, 'editUndoMenuItem')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(INITIAL)
+    await expectCanonicalOnDisk(page, app, documentPath, INITIAL)
     await clickMenuById(app, 'editRedoMenuItem')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+    await expectCanonicalOnDisk(page, app, documentPath, expected)
 
     await enterSourceMode(page, app)
     await expect(page.locator('.source-code-input')).toHaveValue(expected)

@@ -16,9 +16,11 @@ import {
   enterSourceMode,
   exitSourceMode,
   expectNoCapturedErrors,
-  launchWithMarkdown,
-  readCanonicalMarkdown
+  launchWithMarkdown
 } from './helpers'
+import {
+  saveCanonicalSnapshot
+} from './documentCoreReviewE2e'
 
 interface LiveSinkState {
   readonly hostileGlobal: boolean
@@ -128,6 +130,7 @@ test.describe('document-core hostile sinks', () => {
 
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
   let server: Server
   let probeRequests = 0
   let source = ''
@@ -159,6 +162,7 @@ test.describe('document-core hostile sinks', () => {
     const launched = await launchWithMarkdown(source)
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -184,7 +188,7 @@ test.describe('document-core hostile sinks', () => {
         projection
       )
       await expectInertLiveSink(page)
-      expect(await readCanonicalMarkdown(page)).toBe(source)
+      expect(await saveCanonicalSnapshot(page, app, documentPath)).toBe(source)
     }
 
     await enterSourceMode(page, app)

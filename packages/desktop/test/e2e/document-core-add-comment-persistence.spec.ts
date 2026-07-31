@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import { readFileSync } from 'node:fs'
-import { launchWithDoc, readCanonicalMarkdown } from './helpers'
+import { launchWithDoc } from './helpers'
 import {
+  expectCanonicalOnDisk,
   authorComment,
   closeDocumentCore,
   launchDocumentCoreWithKeybindings,
@@ -24,7 +25,7 @@ test.describe('document-core Comment persistence', () => {
     const expected = 'before {==target==}{>>portable note<<} after\n'
     try {
       await authorComment(page, app, 'target', 'portable note')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+      await expectCanonicalOnDisk(page, app as ElectronApplication, launched.filePath, expected)
       await save(app)
       await expect.poll(() => readFileSync(launched.filePath, 'utf8')).toBe(
         expected
@@ -35,7 +36,7 @@ test.describe('document-core Comment persistence', () => {
       const reopened = await launchWithDoc(launched.filePath)
       app = reopened.app
       page = reopened.page
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(expected)
+      await expectCanonicalOnDisk(page, app as ElectronApplication, launched.filePath, expected)
       expect(readFileSync(launched.filePath, 'utf8')).toBe(expected)
     } finally {
       await closeDocumentCore(app)

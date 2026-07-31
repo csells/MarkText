@@ -5,9 +5,11 @@ import {
   closeElectron,
   expectNoCapturedErrors,
   launchWithMarkdown,
-  readCanonicalMarkdown,
   sendIpcToRenderer
 } from './helpers'
+import {
+  expectCanonicalOnDisk
+} from './documentCoreReviewE2e'
 
 const SOURCE = `${'> '.repeat(129)}text\r\n`
 
@@ -67,7 +69,7 @@ test.describe('document-core automatic Source view', () => {
         'insertText',
         '!'
       )
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(`${SOURCE}!`)
+      await expectCanonicalOnDisk(page, app, filePath, `${SOURCE}!`)
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
       await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
         .toBe(`${SOURCE}!`)
@@ -79,19 +81,17 @@ test.describe('document-core automatic Source view', () => {
       await expect(page.locator(
         '.document-view-container[data-document-mode="semantic"]'
       )).toBeVisible()
-      await expect.poll(() => readCanonicalMarkdown(page))
-        .toBe(`${SOURCE.slice(2)}!`)
+      await expectCanonicalOnDisk(page, app, filePath, `${SOURCE.slice(2)}!`)
 
       await dispatchBeforeInput(page, 0, 0, 'historyUndo')
       await expect(host).toHaveText(`${SOURCE}!`)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(`${SOURCE}!`)
+      await expectCanonicalOnDisk(page, app, filePath, `${SOURCE}!`)
 
       await dispatchBeforeInput(page, 0, 0, 'historyRedo')
       await expect(page.locator(
         '.document-view-container[data-document-mode="semantic"]'
       )).toBeVisible()
-      await expect.poll(() => readCanonicalMarkdown(page))
-        .toBe(`${SOURCE.slice(2)}!`)
+      await expectCanonicalOnDisk(page, app, filePath, `${SOURCE.slice(2)}!`)
       await expectNoCapturedErrors(app)
     } finally {
       if (app !== undefined) {
