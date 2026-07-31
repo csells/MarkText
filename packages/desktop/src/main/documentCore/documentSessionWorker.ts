@@ -13,6 +13,7 @@ import {
   PARSE_SOURCE_CHECKPOINT_INTERVAL,
   recoverDocumentSession,
   renderMarkupPlan,
+  routeLiveConsumer,
   resolveMarkdownDocumentLinkTarget,
   type ClipboardConsumerRequest,
   type CanonicalSourceLease,
@@ -641,6 +642,9 @@ function portableMembers(
   if (snapshot.kind === 'source-only') {
     return Object.freeze({ session: sessionMember })
   }
+  // The live editor sink reads its plan through the declared consumer-policy
+  // route, so the policy module is load-bearing for live rendering.
+  const livePlan = routeLiveConsumer(snapshot.livePlan).plan
   const runs = renderMarkupPlan(snapshot.displayPlan)
   return Object.freeze({
     session: sessionMember,
@@ -648,17 +652,17 @@ function portableMembers(
       schema: 'document-core-review-delta-1',
       trackChanges: snapshot.configuration.trackChanges,
       projection: snapshot.projection,
-      markupModelLength: snapshot.livePlan.modelLength,
+      markupModelLength: livePlan.modelLength,
       reviewIndex: snapshot.reviewIndex
     }),
     live: Object.freeze({
       schema: 'document-core-live-plan-delta-1',
       modelText: runs.map((run) => run.text).join(''),
-      markupCoordinateMap: snapshot.livePlan.coordinateMap,
+      markupCoordinateMap: livePlan.coordinateMap,
       blocks: groupRenderBlocks(snapshot.displayDocument, runs),
       outline: outlineOf(
         snapshot.displayDocument,
-        modelOffset => snapshot.livePlan.sourcePositionAt(Object.freeze({
+        modelOffset => livePlan.sourcePositionAt(Object.freeze({
           offset: modelOffset,
           affinity: 'next' as const
         })).offset
