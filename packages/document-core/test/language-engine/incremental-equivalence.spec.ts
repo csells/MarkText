@@ -132,6 +132,36 @@ describe('incremental reopen equivalence', () => {
         end: source.length,
         insert: '\nA whole appended paragraph of plain prose.\n'
       })
+    },
+    {
+      name: 'type inside the first paragraph',
+      edit: (source) => {
+        const offset = source.indexOf(' spans')
+        return { start: offset, end: offset, insert: ' newly typed' }
+      }
+    },
+    {
+      name: 'delete a word from a middle paragraph',
+      edit: (source) => {
+        const middle = source.indexOf(
+          'Paragraph 1 ',
+          Math.floor(source.length / 3)
+        )
+        const anchor = middle >= 0 ? middle : Math.floor(source.length / 2)
+        const wordStart = source.indexOf(' spans', anchor)
+        return { start: wordStart, end: wordStart + 6, insert: '' }
+      }
+    },
+    {
+      name: 'replace a middle paragraph body',
+      edit: (source) => {
+        const paragraphs = source.split('\n\n')
+        const middleIndex = Math.floor(paragraphs.length / 2)
+        const before = paragraphs.slice(0, middleIndex).join('\n\n')
+        const start = middleIndex === 0 ? 0 : before.length + 2
+        const end = start + (paragraphs[middleIndex]?.length ?? 0)
+        return { start, end, insert: 'A wholly rewritten middle paragraph.' }
+      }
     }
   ]
 

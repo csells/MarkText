@@ -349,13 +349,6 @@ export function spliceGuardsHold(
       return false
     }
   }
-  // Version one splices only a bracket that runs to the end of the document
-  // — the reopened exit state then comes from the mini-parse verbatim. An
-  // interior bracket must also re-base the retained suffix's exit state,
-  // which the next widening proves separately.
-  if (bracket.endPrevious !== retained.sourceLength) {
-    return false
-  }
   if (!windowIsGuardClean(nextText, bracket.start, bracket.endNext)) {
     return false
   }
@@ -451,18 +444,41 @@ export function spliceIntrinsicFacts(
   for (let index = 0; index < mini.tape.length; index += 1) {
     if (mini.tape[index]?.id !== index) return undefined
   }
+  let suffixRunStart = retained.tape.length
+  while (
+    suffixRunStart > 0 &&
+    (retained.tape[suffixRunStart - 1]?.range.start ?? -1) >=
+      bracket.endPrevious
+  ) {
+    suffixRunStart -= 1
+  }
+  const suffixBoundaryRun = retained.tape[suffixRunStart - 1]
+  if (
+    suffixBoundaryRun !== undefined &&
+    suffixBoundaryRun.range.end > bracket.endPrevious
+  ) {
+    return undefined
+  }
   const shiftRun = (run: TapeRun, delta: number, id: number): TapeRun =>
     Object.freeze({
       id,
       role: run.role,
       range: spliceRange(run.range.start + delta, run.range.end + delta)
     })
+  const suffixRuns = retained.tape.slice(suffixRunStart)
   const tape: TapeRun[] = [
     ...retained.tape.slice(0, prefixRunCount).map(
       (run, index) => shiftRun(run, 0, index)
     ),
     ...mini.tape.map(
       (run, index) => shiftRun(run, bracket.start, prefixRunCount + index)
+    ),
+    ...suffixRuns.map(
+      (run, index) => shiftRun(
+        run,
+        bracket.delta,
+        prefixRunCount + mini.tape.length + index
+      )
     )
   ]
   const lastRun = tape[tape.length - 1]
@@ -552,18 +568,94 @@ export function spliceIntrinsicFacts(
     }))
   }
 
+  // Suffix segments mirror the prefix synthesis in next coordinates. The
+  // mini window's finish-lane is a window artifact for an interior bracket
+  // and is replaced with a synthetic document-end finish after the suffix.
+  const interior = bracket.endPrevious < retained.sourceLength
+  const suffixBoundaries: number[] = [bracket.endNext]
+  for (const point of retained.safePoints) {
+    if (point > bracket.endPrevious && point < retained.sourceLength) {
+      suffixBoundaries.push(point + bracket.delta)
+    }
+  }
+  suffixBoundaries.push(nextLength)
+  const suffixSegments: IntrinsicProfile1LaneTransition[] = []
+  if (interior) {
+    const shiftedSuffixLines = retainedLines
+      .filter((line) => line.start >= bracket.endPrevious)
+      .map((line) => shiftLine(line, bracket.delta))
+    for (let index = 0; index + 1 < suffixBoundaries.length; index += 1) {
+      const from = suffixBoundaries[index]
+      const to = suffixBoundaries[index + 1]
+      if (from === undefined || to === undefined || from >= to) {
+        continue
+      }
+      const segmentRuns = runsWithin(from, to)
+      let covered = from
+      for (const run of segmentRuns) {
+        if (run.range.start !== covered) return undefined
+        covered = run.range.end
+      }
+      if (covered !== to) return undefined
+      const segmentLines = shiftedSuffixLines.filter(
+        (line) => line.start >= from && line.end <= to
+      )
+      suffixSegments.push(Object.freeze({
+        operation: 'advance',
+        entryCheckpoint: cleanCheckpointAt(from),
+        exitCheckpoint: cleanCheckpointAt(to),
+        consumed: Object.freeze(segmentRuns.map((run) => Object.freeze({
+          kind: 'source' as const,
+          sourceRunId: run.id,
+          range: run.range
+        }))),
+        emittedFacts: Object.freeze({
+          literals: Object.freeze([]),
+          lines: Object.freeze(segmentLines),
+          block: Object.freeze({
+            paragraphOpen: false,
+            lineStart: to,
+            containerPath: Object.freeze([]),
+            activeProvider: undefined,
+            pendingLine: undefined
+          })
+        })
+      }))
+    }
+  }
   const remapMini = (id: number): number => id + prefixRunCount
+  const syntheticFinish: IntrinsicProfile1LaneTransition = Object.freeze({
+    operation: 'finish-lane',
+    entryCheckpoint: cleanCheckpointAt(nextLength),
+    exitCheckpoint: cleanCheckpointAt(nextLength),
+    consumed: Object.freeze([]),
+    emittedFacts: Object.freeze({
+      literals: Object.freeze([]),
+      lines: Object.freeze([]),
+      block: Object.freeze({
+        paragraphOpen: false,
+        lineStart: nextLength,
+        containerPath: Object.freeze([]),
+        activeProvider: undefined,
+        pendingLine: undefined
+      })
+    })
+  })
   const miniTransitions = [
     ...miniAdvances.map(
       (transition) => shiftTransition(transition, bracket.start, remapMini)
     ),
-    ...(miniFinish === undefined
+    ...(interior
       ? []
-      : [shiftTransition(miniFinish, bracket.start, remapMini)])
+      : miniFinish === undefined
+        ? []
+        : [shiftTransition(miniFinish, bracket.start, remapMini)])
   ]
   const transitions: IntrinsicProfile1LaneTransition[] = [
     ...segmentTransitions,
-    ...miniTransitions
+    ...miniTransitions,
+    ...suffixSegments,
+    ...(interior ? [syntheticFinish] : [])
   ]
   const first = transitions[0]
   const last = transitions[transitions.length - 1]
