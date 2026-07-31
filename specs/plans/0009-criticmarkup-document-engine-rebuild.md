@@ -534,12 +534,21 @@ whose assertion cannot distinguish pass from fail.
   answers how each flavor lands (including the new `source-text-edit`
   route that makes the declaration truthful about source-view pastes),
   and no caller — the desktop paste handler included — classifies by
-  hand. Two exported entry points still have no production caller —
-  `viewLength` and `planReplaceConsumer` — while production routes
-  replace elsewhere and in-editor find still searches visible text where
-  the policy demands canonical source. Production routes those remaining
-  questions through the policy; deleting the declarations is rejected,
-  because the module owns the per-kind sink exactness table
+  hand. The find consumer is now declared
+  (2026-07-31): `findConsumerMatches` in the policy names the visible
+  markup projection for a complete revision — Find matches what the
+  user sees, the projection the replace suite's match-discovery rows
+  are proven over; the earlier claim here that the policy demands
+  canonical source predated those ratified rows — and the exact raw
+  source for a SourceOnly revision. The view's find bar and the
+  worker's replace-match discovery both route through the declaration,
+  and an authority sweep fails any production caller of the
+  projection-specific matchers outside the policy and the search
+  module. Remaining: `planReplaceConsumer` and `viewLength` still have
+  no production caller — the replace-planning absorption (the worker's
+  cross-inline piece machinery moving under the policy's ownership) is
+  the consolidation that gives them one; deleting the declarations is
+  rejected, because the module owns the per-kind sink exactness table
   (`PROFILE1_KIND_SINK_EXACTNESS`, A41).
 **W6 — Budgets and release**
 

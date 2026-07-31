@@ -27,8 +27,7 @@ import type {
     SourceModelSelection,
 } from '@marktext/document-core';
 import {
-    findMarkupSearchMatches,
-    findSearchMatches,
+    findConsumerMatches,
 } from '@marktext/document-core';
 import {
     documentCoreInputRange,
@@ -2178,10 +2177,15 @@ export async function createDocumentCoreView(
     const search = (
         query: DocumentSearchQuery,
     ): readonly SearchMatchRange[] => {
+        // Match discovery is the find consumer's declared question: the
+        // policy names the projection, the view only routes.
         const snapshot = session.snapshot();
-        return snapshot.kind === 'complete'
-            ? findMarkupSearchMatches(snapshot.blocks, query)
-            : findSearchMatches(snapshot.source, query);
+        return findConsumerMatches(
+            snapshot.kind === 'complete'
+                ? { kind: 'complete', blocks: snapshot.blocks }
+                : { kind: 'source-only', source: snapshot.source },
+            query,
+        );
     };
 
     const replaceCurrentMatches = async (

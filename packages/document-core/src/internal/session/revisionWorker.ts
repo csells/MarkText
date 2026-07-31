@@ -48,11 +48,12 @@ import { createSourceSnapshot } from '../../sourceSnapshot.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
 import { chooseAuthoringEolV1 } from '../../authoringEol.js'
 import {
+  findConsumerMatches
+} from '../../materialize/consumerPolicy.js'
+import {
   DOCUMENT_SEARCH_RESOURCE_POLICY_V1,
   decodeDocumentSearchQuery,
   DocumentSearchQueryError,
-  findMarkupSearchMatches,
-  findSearchMatches,
   type DocumentSearchQuery
 } from '../../search.js'
 import {
@@ -1607,17 +1608,18 @@ export class RevisionWorker {
     try {
       const executionControl =
         nextLanguageEngineExecutionStage(this.#engine)
-      matches = blocks === undefined
-        ? findSearchMatches(
-          state.revision.source.text,
-          decodedQuery,
-          executionControl
-        )
-        : findMarkupSearchMatches(
-          blocks,
-          decodedQuery,
-          executionControl
-        )
+      // Match discovery is the find consumer's declared question: the
+      // policy names the projection, production only routes.
+      matches = findConsumerMatches(
+        blocks === undefined
+          ? Object.freeze({
+            kind: 'source-only' as const,
+            source: state.revision.source.text
+          })
+          : Object.freeze({ kind: 'complete' as const, blocks }),
+        decodedQuery,
+        executionControl
+      )
     } catch (error) {
       if (error instanceof DocumentSearchQueryError) {
         throw new IntentRejection('invalid-command-argument')

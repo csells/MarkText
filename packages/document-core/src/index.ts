@@ -335,6 +335,8 @@ export {
   acknowledgeClipboardWrite,
   authorizeCut,
   classifyPasteConsumer,
+  findConsumerMatches,
+  type FindConsumerInput,
   materializeClipboardConsumer,
   materializePersistenceConsumer,
   materializeStaticConsumer,

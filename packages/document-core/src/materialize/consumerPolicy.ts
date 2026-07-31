@@ -27,6 +27,14 @@ import {
   type TrustedHtml
 } from './trustedHtml.js'
 import { markdownTextValue } from './htmlRender.js'
+import {
+  findMarkupSearchMatches,
+  findSearchMatches,
+  type DocumentSearchQuery,
+  type SearchMatchRange
+} from '../search.js'
+import type { MarkupRenderBlock } from '../view/markupRender.js'
+import type { ParseExecutionControl } from '../parseExecutionControl.js'
 import { materializeProjectedText } from './textMaterializers.js'
 import { parserHeadingAnchors } from './headingOutline.js'
 
@@ -1219,6 +1227,30 @@ function editableRangeContains(
   return candidate !== undefined &&
     start >= candidate.start &&
     end <= candidate.end
+}
+
+export type FindConsumerInput =
+  | Readonly<{
+    kind: 'complete'
+    blocks: readonly MarkupRenderBlock[]
+  }>
+  | Readonly<{ kind: 'source-only'; source: string }>
+
+/**
+ * §2 consumer policy: the find consumer's declared projection. A complete
+ * revision searches the visible markup projection — Find matches what the
+ * user sees, the same projection Replace's cross-inline pieces are proven
+ * over — and a SourceOnly revision searches the exact raw source. Every
+ * production match discovery routes through this declaration.
+ */
+export function findConsumerMatches(
+  input: FindConsumerInput,
+  query: DocumentSearchQuery,
+  executionControl?: ParseExecutionControl
+): readonly SearchMatchRange[] {
+  return input.kind === 'complete'
+    ? findMarkupSearchMatches(input.blocks, query, executionControl)
+    : findSearchMatches(input.source, query, executionControl)
 }
 
 export function planReplaceConsumer(
