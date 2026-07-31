@@ -25,6 +25,12 @@ import {
   type MarkdownLiteralRange
 } from './profile1/markdownLiterals.js'
 import {
+  bracketForEdits,
+  spliceGuardsHold,
+  spliceIntrinsicFacts
+} from './profile1/intrinsicPassSplice.js'
+import { createStagedProfile1ReferenceDefinitionLookup } from './profile1/referenceDefinitionIndex.js'
+import {
   createMarkdownLaneState,
   type MarkdownArmMode,
   type MarkdownCheckpoint,
@@ -244,6 +250,13 @@ export interface RetainedIntrinsicPass {
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
   /** Top-level block starts of the parsed document — its safe points. */
   readonly safePoints: readonly number[]
+  /**
+   * The parse's fork graph, aliased for its root-lane transitions: their
+   * emitted line facts and boundary checkpoints are what a splice re-bases.
+   * Lanes beyond the root exist only for marker-bearing documents, which
+   * the incremental guards refuse.
+   */
+  readonly forkGraph: IntrinsicProfile1ForkGraph
 }
 
 export type Profile1DocumentProducts = Profile1SyntaxGraph & Readonly<{
@@ -3942,6 +3955,93 @@ export function inspectProfile1ChangedCriticMarkerJoins(
   }))
 }
 
+/**
+ * The G32 incremental route: when the previous parse's retained facts and
+ * the edit bracket satisfy every splice guard, re-scan only the bracket
+ * window and splice, so the recorder is charged the window instead of the
+ * document. Returns undefined whenever anything disqualifies — the caller
+ * falls back to the full pass.
+ */
+function tryIncrementalIntrinsicParse(
+  source: string,
+  previousPass: PreviousIntrinsicPass,
+  cmDepthLimit: number,
+  markdownDepthLimit: number,
+  markdownOptions: MarkdownOptionsV1,
+  execution: ParseExecutionTracker,
+  accounting: Profile1SyntaxAccountingRecorderV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+): ParseResult | undefined {
+  const bracket = bracketForEdits(
+    previousPass.retained,
+    previousPass.edits,
+    source.length
+  )
+  if (bracket === undefined) return undefined
+  if (!spliceGuardsHold(previousPass.retained, bracket, source)) {
+    return undefined
+  }
+  const window = source.slice(bracket.start, bracket.endNext)
+  const mini = parseIntrinsicProfile1(
+    window,
+    createProfile1SyntaxIdentityRegistry(window.length, accounting),
+    cmDepthLimit,
+    markdownDepthLimit,
+    Object.freeze({ ...markdownOptions, frontMatter: false }),
+    execution,
+    undefined,
+    physicalRecorder
+  )
+  if (mini.kind !== 'complete') return undefined
+  const spliced = spliceIntrinsicFacts(
+    previousPass.retained,
+    bracket,
+    Object.freeze({
+      hasCriticMarkupCandidate: mini.hasCriticMarkupCandidate,
+      rootCount: mini.roots.length,
+      markerDecisionCount: mini.markerDecisions.length,
+      tape: mini.tape,
+      diagnostics: mini.diagnostics,
+      markdownLiterals: mini.markdownLiterals,
+      forkGraph: mini.forkGraph
+    }),
+    source.length
+  )
+  if (spliced === undefined) return undefined
+  const referenceDefinitions = createStagedProfile1ReferenceDefinitionLookup(
+    source,
+    [],
+    [],
+    false
+  )
+  const markdownLane = createMarkdownLaneState(
+    source,
+    markdownDepthLimit,
+    referenceDefinitions,
+    undefined,
+    markdownOptions.frontMatter,
+    markdownOptions.gfm,
+    markdownOptions.math,
+    markdownOptions.gitLabMath,
+    markdownOptions.footnotes,
+    execution,
+    false,
+    physicalRecorder
+  )
+  return Object.freeze({
+    kind: 'complete',
+    hasCriticMarkupCandidate: false,
+    tape: spliced.tape,
+    roots: Object.freeze([]),
+    diagnostics: spliced.diagnostics,
+    markerDecisions: Object.freeze([]),
+    forkGraph: spliced.forkGraph,
+    markdownLane,
+    referenceDefinitions,
+    markdownLiterals: spliced.markdownLiterals
+  })
+}
+
 export function parseProfile1Document(
   source: string,
   executionBudget: ExecutionBudgetId,
@@ -3952,7 +4052,7 @@ export function parseProfile1Document(
   reuseCache?: Profile1DocumentReuseCache,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
   createPhysicalTraversalRecorderV1(),
-  _previousPass?: PreviousIntrinsicPass
+  previousPass?: PreviousIntrinsicPass
 ): Profile1DocumentResult {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   const execution = createParseExecutionTracker(executionControl)
@@ -4011,7 +4111,20 @@ export function parseProfile1Document(
     depth: number
   }>> = []
   let parsed: ParseOutcome | undefined
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  if (previousPass !== undefined) {
+    parsed = tryIncrementalIntrinsicParse(
+      source,
+      previousPass,
+      cmDepthLimit,
+      markdownDepthLimit,
+      markdownOptions,
+      execution,
+      accounting,
+      physicalRecorder
+    )
+  }
+  const skipFullPass = parsed !== undefined
+  for (let attempt = 0; !skipFullPass && attempt < 4; attempt += 1) {
     const attemptIdentity = attempt === 0
       ? syntaxIdentity
       : createProfile1SyntaxIdentityRegistry(source.length, accounting)
@@ -4354,7 +4467,8 @@ export function parseProfile1Document(
       tape: parsed.tape,
       diagnostics: parsed.diagnostics,
       markdownLiterals: parsed.markdownLiterals,
-      safePoints: safePointsOf(original.markdown)
+      safePoints: safePointsOf(original.markdown),
+      forkGraph: parsed.forkGraph
     })
   })
   return finishResult(captureAccountingTrace

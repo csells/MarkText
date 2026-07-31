@@ -65,20 +65,15 @@ describe('incremental intrinsic pass', () => {
     return Object.freeze({ spent, ratio: spent / edited.length })
   }
 
-  it('today: a one-character reopen re-reads on the order of the document', () => {
-    // The baseline this gap exists to move. If this row starts failing
-    // because the ratio DROPPED, G32 landed — move the bound into the
-    // target row below and delete this one.
-    expect(reopenCost(60).ratio).toBeGreaterThan(0.9)
-  })
-
-  it.fails('target: a one-character reopen costs o(document)', () => {
-    // Safe-point-bounded re-scan: the edited paragraph plus re-based
-    // suffix bookkeeping, far below another full pass.
+  it('a one-character reopen costs o(document)', () => {
+    // Safe-point-bounded re-scan: the edited paragraph plus splice
+    // bookkeeping, far below another full pass. Landed by the G32 splice;
+    // incremental-equivalence.spec.ts proves the spliced revision is
+    // indistinguishable from a full parse.
     expect(reopenCost(60).ratio).toBeLessThan(0.25)
   })
 
-  it.fails('target: the reopen cost does not scale with untouched prose', () => {
+  it('the reopen cost does not scale with untouched prose', () => {
     const small = reopenCost(20).spent
     const large = reopenCost(80).spent
     // Fixed per-edit cost in absolute units: quadrupling the untouched

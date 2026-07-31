@@ -328,9 +328,24 @@ are transcribed exactly. Its real residue is G36.
   reuses a settled prefix, re-scans only from the last safe point before an
   edit to the first reconvergent safe point after it, and re-bases the
   suffix — invalidated whole by the non-local re-key classes (reference
-  definitions, unclosed fences). The safe-point primitive exists
-  (`safePoints.ts`); the convergence contract and artifact splicing across
-  tape, decisions, lane, forks, identity, and provenance are the work.
+  definitions, unclosed fences). Progress 2026-07-30: the splice landed
+  for its first guard class (`internal/profile1/intrinsicPassSplice.ts`):
+  the parse retains its intrinsic facts per revision, a reopen whose
+  edits sit in an end-of-document bracket re-scans only that window and
+  splices tape, line facts, and a per-safe-segment fork lane around it —
+  segmented precisely so downstream regionization keeps the fragment
+  reuse G31 proved. A one-character reopen at sixty paragraphs now costs
+  under a quarter of the document and stops scaling with untouched prose
+  (`incremental-intrinsic-pass.spec.ts`), and the spliced revision is
+  deeply indistinguishable from a full parse across five edit shapes and
+  three sizes with a marker fallback
+  (`incremental-equivalence.spec.ts`). The guards refuse everything
+  else: marker-bearing documents, literals, reference definitions,
+  interior brackets, and non-clean lane shapes all take the full pass.
+  Remaining: interior brackets (re-basing the retained suffix and its
+  exit state), literal-bearing and definition-bearing prefixes, and the
+  marker-adjacent classes — each widening carries its equivalence rows —
+  then G23 re-measures at target scale.
 
 **W2 — Host surfaces**
 

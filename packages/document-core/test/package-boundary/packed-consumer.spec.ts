@@ -207,8 +207,7 @@ describe('packed package consumer boundary', () => {
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true })
     }
-    // Packing plus two tsc consumer builds is wall-clock work that runs
-    // beside the whole parallel suite; the allowance covers suite load, not
-    // the operation itself, which finishes in seconds alone.
+    // Packing plus two tsc consumer builds is wall-clock work; it runs in
+    // the serial wall-clock phase so parallel suite load cannot starve it.
   }, 60_000)
 })
