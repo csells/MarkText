@@ -368,9 +368,17 @@ are transcribed exactly. Its real residue is G36.
   Re-profiled after: the keystroke's residual cost is region fact
   parsing, template re-materialization, and projection preparation —
   the next levers are carrying materialized nodes for unchanged-prefix
-  regions verbatim and giving fact parsing the same provenance skip. Remaining widenings inside the splice:
-  definition-bearing documents, multi-edit brackets, CR-only line
-  endings.
+  regions verbatim and giving fact parsing the same provenance skip.
+  Located and fixed 2026-07-31: the splice itself was quadratic — the
+  per-safe-segment synthesis filtered the whole tape, line list, and
+  literal list for every segment, so a two-keystroke reopen at 16,000
+  paragraphs spent 12.2 of 13.0 s partitioning already-ordered facts.
+  Advancing pointers replaced the per-segment filters in both the
+  prefix and suffix loops; the same reopen now costs 0.6 s and scales
+  linearly (150 ms at 4,000 paragraphs, 624 ms at 16,000), leaving
+  AST emission as the largest linear stage. Remaining widenings inside
+  the splice: definition-bearing documents, multi-edit brackets,
+  CR-only line endings.
 
 **W2 — Host surfaces**
 

@@ -1036,12 +1036,12 @@ export function spliceIntrinsicFacts(
   boundaries.push(bracket.start)
 
 
-  const runsWithin = (from: number, to: number): readonly TapeRun[] => {
-    const runs = tape.filter(
-      (run) => run.range.start >= from && run.range.end <= to
-    )
-    return runs
-  }
+  // Ordered sequences partition with advancing pointers: a per-segment scan
+  // of the whole tape or line list is quadratic at tens of thousands of
+  // paragraphs.
+  let runPointer = 0
+  let linePointer = 0
+  let literalPointer = 0
   const segmentTransitions: IntrinsicProfile1LaneTransition[] = []
   for (let index = 0; index + 1 < boundaries.length; index += 1) {
     const from = boundaries[index]
@@ -1049,23 +1049,64 @@ export function spliceIntrinsicFacts(
     if (from === undefined || to === undefined || from >= to) {
       continue
     }
-    const segmentRuns = runsWithin(from, to)
+    while (
+      runPointer < tape.length &&
+      (tape[runPointer]?.range.start ?? Infinity) < from
+    ) {
+      runPointer += 1
+    }
+    const segmentRuns: TapeRun[] = []
+    while (
+      runPointer < tape.length &&
+      (tape[runPointer]?.range.end ?? Infinity) <= to
+    ) {
+      const run = tape[runPointer]
+      if (run === undefined) break
+      segmentRuns.push(run)
+      runPointer += 1
+    }
     let covered = from
     for (const run of segmentRuns) {
       if (run.range.start !== covered) {
-    return undefined
-  }
+        return undefined
+      }
       covered = run.range.end
     }
     if (covered !== to) {
-    return undefined
-  }
-    const segmentLines = retainedLines.filter(
-      (line) => line.start >= from && line.end <= to
-    )
-    const segmentLiterals = retained.markdownLiterals.filter(
-      (literal) => literal.start >= from && literal.end <= to
-    )
+      return undefined
+    }
+    while (
+      linePointer < retainedLines.length &&
+      (retainedLines[linePointer]?.start ?? Infinity) < from
+    ) {
+      linePointer += 1
+    }
+    const segmentLines: PlainMarkdownLine[] = []
+    while (
+      linePointer < retainedLines.length &&
+      (retainedLines[linePointer]?.end ?? Infinity) <= to
+    ) {
+      const line = retainedLines[linePointer]
+      if (line === undefined) break
+      segmentLines.push(line)
+      linePointer += 1
+    }
+    while (
+      literalPointer < retained.markdownLiterals.length &&
+      (retained.markdownLiterals[literalPointer]?.start ?? Infinity) < from
+    ) {
+      literalPointer += 1
+    }
+    const segmentLiterals: MarkdownLiteralRange[] = []
+    while (
+      literalPointer < retained.markdownLiterals.length &&
+      (retained.markdownLiterals[literalPointer]?.end ?? Infinity) <= to
+    ) {
+      const literal = retained.markdownLiterals[literalPointer]
+      if (literal === undefined) break
+      segmentLiterals.push(literal)
+      literalPointer += 1
+    }
     segmentTransitions.push(Object.freeze({
       operation: 'advance',
       entryCheckpoint: cleanCheckpointAt(from),
@@ -1105,33 +1146,76 @@ export function spliceIntrinsicFacts(
     const shiftedSuffixLines = retainedLines
       .filter((line) => line.start >= bracket.endPrevious)
       .map((line) => shiftLine(line, bracket.delta))
+    let suffixLinePointer = 0
     for (let index = 0; index + 1 < suffixBoundaries.length; index += 1) {
       const from = suffixBoundaries[index]
       const to = suffixBoundaries[index + 1]
       if (from === undefined || to === undefined || from >= to) {
         continue
       }
-      const segmentRuns = runsWithin(from, to)
+      while (
+        runPointer < tape.length &&
+        (tape[runPointer]?.range.start ?? Infinity) < from
+      ) {
+        runPointer += 1
+      }
+      const segmentRuns: TapeRun[] = []
+      while (
+        runPointer < tape.length &&
+        (tape[runPointer]?.range.end ?? Infinity) <= to
+      ) {
+        const run = tape[runPointer]
+        if (run === undefined) break
+        segmentRuns.push(run)
+        runPointer += 1
+      }
       let covered = from
       for (const run of segmentRuns) {
         if (run.range.start !== covered) {
-    return undefined
-  }
+          return undefined
+        }
         covered = run.range.end
       }
       if (covered !== to) {
-    return undefined
-  }
-      const segmentLines = shiftedSuffixLines.filter(
-        (line) => line.start >= from && line.end <= to
+        return undefined
+      }
+      while (
+        suffixLinePointer < shiftedSuffixLines.length &&
+        (shiftedSuffixLines[suffixLinePointer]?.start ?? Infinity) < from
+      ) {
+        suffixLinePointer += 1
+      }
+      const segmentLines: PlainMarkdownLine[] = []
+      while (
+        suffixLinePointer < shiftedSuffixLines.length &&
+        (shiftedSuffixLines[suffixLinePointer]?.end ?? Infinity) <= to
+      ) {
+        const line = shiftedSuffixLines[suffixLinePointer]
+        if (line === undefined) break
+        segmentLines.push(line)
+        suffixLinePointer += 1
+      }
+      while (
+        literalPointer < retained.markdownLiterals.length &&
+        (retained.markdownLiterals[literalPointer]?.start ?? Infinity) <
+          from - bracket.delta
+      ) {
+        literalPointer += 1
+      }
+      const previousSegmentLiterals: MarkdownLiteralRange[] = []
+      while (
+        literalPointer < retained.markdownLiterals.length &&
+        (retained.markdownLiterals[literalPointer]?.end ?? Infinity) <=
+          to - bracket.delta
+      ) {
+        const literal = retained.markdownLiterals[literalPointer]
+        if (literal === undefined) break
+        previousSegmentLiterals.push(literal)
+        literalPointer += 1
+      }
+      const segmentLiterals = previousSegmentLiterals.map(
+        (literal) => shiftLiteral(literal, bracket.delta)
       )
-      const segmentLiterals = retained.markdownLiterals
-        .filter(
-          (literal) =>
-            literal.start >= from - bracket.delta &&
-            literal.end <= to - bracket.delta
-        )
-        .map((literal) => shiftLiteral(literal, bracket.delta))
       suffixSegments.push(Object.freeze({
         operation: 'advance',
         entryCheckpoint: cleanCheckpointAt(from),
