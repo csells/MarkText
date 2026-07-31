@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G6–G9, G13, G19, G23, G24, G32, G34 open;
+- **Status:** RED — G6–G9, G13, G19, G23, G24, G32 open;
   G5 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-30
@@ -273,7 +273,7 @@ proof", and the single-space cell padding exactly as written. -->
 <!-- prettier-ignore -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
-| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G32, G34 (W1) |
+| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G32 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G19 (W4) |
@@ -287,7 +287,7 @@ A closed gap is removed from this list; the status line and ledger record what
 remains, and git history holds the rest. Every gap closes red–green under
 section 5 against a named target, and carries its own manifest row — which
 records its owning phase — before that phase may turn green. Three gaps are not
-single public behaviors: G9, G24, and G34. An abbreviated citation is relative
+single public behaviors: G9 and G24. An abbreviated citation is relative
 to `packages/document-core/src` in W1, W3, and W4, and to
 `packages/desktop/src` in W2 and W6.
 
@@ -331,112 +331,6 @@ are transcribed exactly. Its real residue is G36.
   definitions, unclosed fences). The safe-point primitive exists
   (`safePoints.ts`); the convergence contract and artifact splicing across
   tape, decisions, lane, forks, identity, and provenance are the work.
-
-- **G34 [high] Section 2 modules are missing or partial.** The
-  persistence lease now carries `installed(lease)`
-  (`DocumentSession.installed`, `persistence-installed.spec.ts`):
-  durability is proven against the held lease — authenticated, owned, and
-  unreleased — with the leased revision's identity resolved by the
-  session, and the desktop worker's save flow confirms through the lease
-  instead of a worker-side identity capture; recovery and sidecar-restore
-  remain the two identity-replay callers of `markPersisted`. The grammar
-  configuration module now carries its named members
-  (`documentParseConfigurationFor(settings)` as the sole main-owned
-  construction site and `decodeDocumentParseConfiguration(unknown)` at the
-  worker's wire intake); the Selection module now
-  exists (`internal/session/selectionAuthority.ts`) with the public
-  `DocumentSession.settled()` barrier over the session mailbox
-  (`selection-authority.spec.ts`), and the view now chains onto it: the
-  session barrier crosses the wire (`await-settled` worker command, host
-  member, typed IPC channel), the renderer session exposes `settled()`
-  over that channel, and the view's `settled()` drains only its
-  not-yet-dispatched input chains before awaiting the session barrier —
-  the source-mode controller drains its queued operations and then
-  awaits the same barrier, so no surface owns a second settlement
-  notion; G13's first migration is landed: the A19 gesture spec reads
-  canonical bytes through the real Save flow instead of the read-only
-  bridge, settles selections by observation instead of a fixed sleep, and
-  in doing so surfaced and fixed three real selection-integrity races the
-  sleep had been masking — focus restoration and publication restores
-  stamping the session's older selection over a newer user gesture, and
-  authoring commands capturing their target before the last selection
-  report landed. The A08 interaction ladder is migrated the same way, and
-  that migration forced the selection-generation design to its settled
-  form: the generation advances exactly when the view adopts a browser
-  selection that diverges from the session's (at the synchronize and
-  commit-selection dispatch sites), never on raw selectionchange arrival,
-  because an arrival may be the view's own render or restore echo and an
-  echo-driven bump made an edit cycle's own authoritative restore stand
-  down; an IME composition window defers selection reads while the
-  browser owns the draft DOM (insertCompositionText is not cancelable);
-  and a deferred selection is adopted at flush only if the live selection
-  still sits on the exact recorded DOM positions — otherwise the queued
-  input's publication replaced what the read named, and the flush
-  re-stamps the session-authoritative selection instead of adopting
-  repaint debris. The migration's shared reader
-  (`expectCanonicalOnDisk` in the e2e module) now also covers the
-  comment-crud, review-workflow, and review-command-surfaces specs, and
-  running five migrated specs in parallel amplified three more
-  production races the bridge had hidden: a select refused for a
-  superseded base snapshot was swallowed and left the session behind
-  the browser selection (the command boundary now retries recoverable
-  refusals through the settlement barrier and re-reads the live
-  selection); an IME composition's trailing normalization was adopted
-  as a gesture (the composition-settling window now classifies it as
-  debris); and a command's editor-focus restored the session's lagging
-  selection over a still-adopting gesture, contracting it by however
-  many adoption reports were in flight — `focus()` now stands down
-  whenever a live browser selection is mounted, the section 2 rule
-  applied to presentation. The remaining A31 target and the bridge's
-  deletion (G6) follow the same pattern.
-  `internal/sourceAuthorship.ts` now owns marker composition, the escape
-  rule, and the section 2 protect drafting in one module — the unary,
-  substitution, comment, and comment-pair composers beside
-  `buildSourceCandidateDraft` and `protectSourceCandidateDraft`, with the
-  kernel, the worker, and admission all routing through them and no
-  caller spelling a marker or wiring the escape inline, and the Track
-  Changes carrier decision derived there too — the carrier policy, the
-  deepest-carrier rule, and the carrier escape wiring moved out of the
-  worker, whose residue is the per-intent choice among authored forms — and the execution counter bank is
-  fully engine-owned: line-materialization walks record through the
-  recorder each line path captures at construction, long-line retention
-  is proven bounded from retained/evicted counters instead of a cache
-  seam, AST-template constructions joined the recorder, and the
-  projected-text reference-definition index builder proved dead and was
-  deleted — no `__` counter seam remains in the parser. The line
-  memoization itself stays module-level by design: identity-keyed
-  (entries can never serve another engine), leak-free short paths in a
-  WeakMap, and a four-entry LRU for long lines. The concerns are answered today inside
-  `revisionWorker.ts` and its callers. Progress: the admission authority
-  exists (`internal/session/admissionAuthority.ts`):
-  `admit(base, edits, class)` owns edit validation, resource limits, join
-  protection, inverse derivation, and the postcondition proof, returns
-  `Admitted | Rejected` values with one named rejection class, and is the
-  only production caller of the engine's `reopen`
-  (`admission-authority.spec.ts` sweeps for a second caller); the worker
-  maps rejections onto its intent boundary and keeps identity minting. The
-  physical execution report is engine-owned (`physicalTraversalAccounting.ts` is
-  `createPhysicalTraversalRecorderV1`, no counter bank, no reset seam):
-  every counter lives on the recorder an engine creates for itself and
-  threads through the intrinsic pass, the fork parser, and comment-display
-  preparation, so parse products attribute later work to the engine that
-  parsed them; `LanguageEngine.traversalCounts()` and
-  `DocumentSession.physicalWork()` are the ordinary members hosts and
-  targets read, and the desktop worker takes operation deltas from the
-  session record (`physical-work-attribution.spec.ts`). The
-  saved-identity module exists (`internal/session/savedIdentityLedger.ts`)
-  — minting, validation, the content-addressed dirty comparison, and
-  persistence acceptance in one owner, identities transported opaquely —
-  and the History module exists (`internal/session/historyRecord.ts`):
-  entries, the cursor, the typed-run coalescing rule, compaction, and the
-  exhaustion states in one owner, with `undo()` and `redo()` handing the
-  named `Replay` — the exact edit set plus the exact selections to
-  restore, direction resolved inside History so no caller re-derives
-  edits — confirmed at commit so a rejected replay never desynchronizes
-  the cursor, and History reporting outcomes the worker maps onto the
-  ledger — it never mints saved identity. Not one behavior: closure is the remaining
-  section 2 extraction, landed green-to-green with
-  interface-conformance targets per module.
 
 **W2 — Host surfaces**
 
@@ -599,7 +493,8 @@ Everything else may land in any order, consistent with section 6. W1 and W2
 additionally lead by severity — a document-corrupting engine and an invocable
 command that does nothing are shipping defects — and their targets are included
 in the G9 sweep, never exempted from it. Within W1, the remaining work is the
-incremental intrinsic pass (G32) and the structural extraction (G34).
+incremental intrinsic pass (G32); the structural extraction (G34) is closed —
+every section 2 engine concern has its one module and conformance target.
 
 - **W1** — exit: G4, G32, and G34 closed, each proved by real gestures.
 - **W2** — exit: G5–G8 and G39 closed.
