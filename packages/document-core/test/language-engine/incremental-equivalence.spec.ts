@@ -317,6 +317,70 @@ describe('incremental reopen equivalence', () => {
       .toBeLessThan(edited.length)
   })
 
+  it.fails('target: a marker far from the edit still takes the spliced route', () => {
+    // The marker-bearing widening: retained CriticMarkup nodes replay their
+    // identity emissions and the fork branches shift. Until it lands, this
+    // shape falls back to the full pass; equivalence already holds through
+    // the fallback below.
+    const source = [
+      'Opening paragraph with an {++insertion++} marker.',
+      'Middle paragraph of plain prose.',
+      'Closing paragraph receives the edit here.'
+    ].join('\n\n') + '\n'
+    const engine = createLanguageEngine()
+    const opened = engine.open(
+      createSourceSnapshot(source),
+      TEST_CONFIGURATION
+    )
+    expect(opened.kind).toBe('complete')
+    const before = engine.traversalCounts().intrinsicSourceUnits
+    const edit = {
+      start: source.length - 6,
+      end: source.length - 6,
+      insert: 'now '
+    }
+    const edited =
+      source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
+    engine.reopen(
+      opened,
+      createSourceSnapshot(edited),
+      [{ start: edit.start, end: edit.end, insert: edit.insert }]
+    )
+    const spent = engine.traversalCounts().intrinsicSourceUnits - before
+    expect(spent).toBeLessThan(edited.length)
+  })
+
+  it('matches a full parse when a marker sits far from the edit', () => {
+    const source = [
+      'Opening paragraph with an {++insertion++} marker.',
+      'Middle paragraph of plain prose.',
+      'Closing paragraph receives the edit here.'
+    ].join('\n\n') + '\n'
+    const engine = createLanguageEngine()
+    const opened = engine.open(
+      createSourceSnapshot(source),
+      TEST_CONFIGURATION
+    )
+    expect(opened.kind).toBe('complete')
+    const edit = {
+      start: source.length - 6,
+      end: source.length - 6,
+      insert: 'now '
+    }
+    const edited =
+      source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
+    const reopened = engine.reopen(
+      opened,
+      createSourceSnapshot(edited),
+      [{ start: edit.start, end: edit.end, insert: edit.insert }]
+    )
+    const full = createLanguageEngine().open(
+      createSourceSnapshot(edited),
+      TEST_CONFIGURATION
+    )
+    expect(revisionRecord(reopened)).toEqual(revisionRecord(full))
+  })
+
   it('falls back to the full pass when the window carries syntax', () => {
     const source = prose(20, 'fallback')
     const engine = createLanguageEngine()
