@@ -74,7 +74,8 @@ describe('main-only static sink acceptance surface', () => {
       const surface = createDocumentCoreStaticSinkAcceptanceSurface(
         resolveOwner,
         executeStaticSink,
-        vi.fn()
+        vi.fn(),
+        vi.fn(async() => 'revision:1')
       )
 
       await surface.execute(41, request)
@@ -102,7 +103,8 @@ describe('main-only static sink acceptance surface', () => {
     const surface = createDocumentCoreStaticSinkAcceptanceSurface(
       resolveOwner,
       executeStaticSink,
-      executePrintToProof
+      executePrintToProof,
+      vi.fn(async() => 'revision:1')
     )
     const proofPath = path.resolve('artifacts', 'print-proof.pdf')
 
@@ -123,13 +125,40 @@ describe('main-only static sink acceptance surface', () => {
     )
   })
 
+  it('reads a sink identity through the owner and revision dependencies', async() => {
+    const resolveOwner = vi.fn(() => 'renderer:41')
+    const readRevision = vi.fn(async(
+      _ownerId: string,
+      _documentId: string
+    ) => 'revision:head')
+    const surface = createDocumentCoreStaticSinkAcceptanceSurface(
+      resolveOwner,
+      vi.fn(),
+      vi.fn(),
+      readRevision
+    )
+
+    const identity = await surface.readIdentity(41, 'document:1')
+
+    expect(identity).toEqual({
+      documentId: 'document:1',
+      revisionId: 'revision:head'
+    })
+    expect(Object.isFrozen(identity)).toBe(true)
+    expect(resolveOwner).toHaveBeenCalledWith(41)
+    expect(readRevision).toHaveBeenCalledWith('renderer:41', 'document:1')
+    await expect(surface.readIdentity(0, 'document:1'))
+      .rejects.toThrow(/live WebContents id/)
+  })
+
   it('rejects relative artifact paths before resolving an owner or host', async() => {
     const resolveOwner = vi.fn(() => 'renderer:41')
     const executeStaticSink = vi.fn()
     const surface = createDocumentCoreStaticSinkAcceptanceSurface(
       resolveOwner,
       executeStaticSink,
-      vi.fn()
+      vi.fn(),
+      vi.fn(async() => 'revision:1')
     )
 
     await expect(surface.execute(41, {

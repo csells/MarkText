@@ -75,14 +75,44 @@ const expectInertLiveSink = async(page: Page): Promise<void> => {
   })
 }
 
-const staticSinkIdentity = async(page: Page) =>
-  await page.evaluate(() => {
-    const bridge = window.__marktextE2EReadOnly
-    if (bridge === undefined) {
-      throw new Error('The E2E read-only bridge is unavailable')
+// The forge inputs come from main: the acceptance surface authenticates
+// the window's owner and reads the head revision id, the active tab names
+// the document, and the test itself chose the projection it clicked into.
+const staticSinkIdentity = async(
+  app: ElectronApplication,
+  page: Page,
+  view: 'markup' | 'original' | 'revised'
+) => {
+  const documentId = await page.evaluate(() =>
+    document.querySelector('.editor-tabs li.active')?.getAttribute('data-id')
+  )
+  if (typeof documentId !== 'string' || documentId.length === 0) {
+    throw new Error('The active tab does not name a document')
+  }
+  const identity = await app.evaluate(async({ BrowserWindow }, target) => {
+    const surface = (
+      globalThis as typeof globalThis & {
+        __mtDocumentCoreStaticSinkAcceptance?:
+        DocumentCoreStaticSinkAcceptanceSurface
+      }
+    ).__mtDocumentCoreStaticSinkAcceptance
+    if (surface === undefined) {
+      throw new Error('Main-only static sink acceptance surface is absent')
     }
-    return bridge.readStaticSinkIdentity()
-  })
+    const owners = BrowserWindow.getAllWindows()
+      .filter(window => !window.isDestroyed())
+    if (owners.length !== 1) {
+      throw new Error(
+        `Static sink identity expected one owner, found ${owners.length}`
+      )
+    }
+    return await surface.readIdentity(
+      owners[0].webContents.id,
+      target
+    )
+  }, documentId)
+  return { ...identity, view }
+}
 
 const invokeRendererStaticSink = async(
   page: Page,
@@ -201,7 +231,7 @@ test.describe('document-core hostile sinks', () => {
     await expectInertLiveSink(page)
 
     await clickMenuById(app, 'reviewShowMarkedMenuItem')
-    const identity = await staticSinkIdentity(page)
+    const identity = await staticSinkIdentity(app, page, 'markup')
     const htmlPath = test.info().outputPath('hostile.html')
     const pdfPath = test.info().outputPath('hostile.pdf')
     const printPath = test.info().outputPath('hostile-print-proof.pdf')

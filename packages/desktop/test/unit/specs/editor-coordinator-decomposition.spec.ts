@@ -49,19 +49,13 @@ describe('E2E read-only bridge lifecycle', () => {
   it('installs only when enabled and removes only the bridge it installed', () => {
     const readCanonicalMarkdown = vi.fn(() => '# document')
     const readLastExecutionReport = vi.fn(() => null)
-    const readStaticSinkIdentity = vi.fn(() => ({
-      documentId: 'document:1',
-      revisionId: 'revision:1',
-      view: 'markup' as const
-    }))
     const host = {} as Window
 
     const disabledCleanup = installE2EReadOnlyBridge(
       host,
       false,
       readCanonicalMarkdown,
-      readLastExecutionReport,
-      readStaticSinkIdentity
+      readLastExecutionReport
     )
     expect(host.__marktextE2EReadOnly).toBeUndefined()
     disabledCleanup()
@@ -70,22 +64,15 @@ describe('E2E read-only bridge lifecycle', () => {
       host,
       true,
       readCanonicalMarkdown,
-      readLastExecutionReport,
-      readStaticSinkIdentity
+      readLastExecutionReport
     )
     const installed = host.__marktextE2EReadOnly
     expect(installed?.readCanonicalMarkdown()).toBe('# document')
     expect(installed?.readLastExecutionReport()).toBeNull()
-    expect(installed?.readStaticSinkIdentity()).toEqual({
-      documentId: 'document:1',
-      revisionId: 'revision:1',
-      view: 'markup'
-    })
 
     const replacement = Object.freeze({
       readCanonicalMarkdown: () => 'replacement',
-      readLastExecutionReport: () => null,
-      readStaticSinkIdentity
+      readLastExecutionReport: () => null
     })
     Object.defineProperty(host, '__marktextE2EReadOnly', {
       configurable: true,

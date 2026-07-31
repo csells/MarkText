@@ -5,15 +5,13 @@ export const installE2EReadOnlyBridge = (
   host: Window,
   enabled: boolean,
   readCanonicalMarkdown: () => string,
-  readLastExecutionReport: ReadOnlyBridge['readLastExecutionReport'],
-  readStaticSinkIdentity: ReadOnlyBridge['readStaticSinkIdentity']
+  readLastExecutionReport: ReadOnlyBridge['readLastExecutionReport']
 ): (() => void) => {
   if (!enabled) return () => {}
 
   const bridge: ReadOnlyBridge = Object.freeze({
     readCanonicalMarkdown,
-    readLastExecutionReport,
-    readStaticSinkIdentity
+    readLastExecutionReport
   })
   Object.defineProperty(host, '__marktextE2EReadOnly', {
     configurable: true,

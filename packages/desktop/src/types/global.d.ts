@@ -175,12 +175,6 @@ declare global {
     readCanonicalMarkdown(): string
     /** Read the latest worker-local production operation measurement. */
     readLastExecutionReport(): DocumentCoreExecutionReport | null
-    /** Read the immutable identity needed to exercise a closed static sink. */
-    readStaticSinkIdentity(): Readonly<{
-      documentId: string
-      revisionId: string
-      view: 'markup' | 'original' | 'revised'
-    }>
   }
 
   interface Window {

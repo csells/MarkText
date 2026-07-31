@@ -637,8 +637,7 @@ test.describe('CriticMarkup file-backed losslessness', () => {
         frozen: true,
         surface: [
           'readCanonicalMarkdown',
-          'readLastExecutionReport',
-          'readStaticSinkIdentity'
+          'readLastExecutionReport'
         ]
       })
 

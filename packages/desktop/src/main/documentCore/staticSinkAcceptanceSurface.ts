@@ -46,6 +46,18 @@ export interface DocumentCoreStaticSinkAcceptanceSurface {
     ownerWebContentsId: number,
     request: DocumentCoreStaticSinkAcceptanceRequest
   ) => Promise<DocumentCoreStaticSinkReceipt>
+  /**
+   * Authenticate the owner and read the head revision id a sink request
+   * must carry. Automation composes forged and legitimate requests from
+   * this identity instead of reading renderer state.
+   */
+  readonly readIdentity: (
+    ownerWebContentsId: number,
+    documentId: string
+  ) => Promise<Readonly<{
+    readonly documentId: string
+    readonly revisionId: string
+  }>>
 }
 
 type ResolveOwner = (webContentsId: number) => string
@@ -60,6 +72,11 @@ type ExecutePrintToProof = (
   request: DocumentCoreResolvedStaticSinkRequest,
   proofPath: string
 ) => Promise<DocumentCoreStaticSinkReceipt>
+
+type ReadRevision = (
+  ownerId: string,
+  documentId: string
+) => Promise<string>
 
 function assertAbsoluteArtifactPath(
   artifactPath: string,
@@ -84,9 +101,33 @@ function assertAbsoluteArtifactPath(
 export function createDocumentCoreStaticSinkAcceptanceSurface(
   resolveOwner: ResolveOwner,
   executeStaticSink: ExecuteStaticSink,
-  executePrintToProof: ExecutePrintToProof
+  executePrintToProof: ExecutePrintToProof,
+  readRevision: ReadRevision
 ): DocumentCoreStaticSinkAcceptanceSurface {
   return Object.freeze({
+    readIdentity: async(
+      ownerWebContentsId: number,
+      documentId: string
+    ): Promise<Readonly<{
+      readonly documentId: string
+      readonly revisionId: string
+    }>> => {
+      if (
+        !Number.isSafeInteger(ownerWebContentsId) ||
+        ownerWebContentsId <= 0
+      ) {
+        throw new TypeError(
+          'Static sink acceptance needs a live WebContents id'
+        )
+      }
+      return Object.freeze({
+        documentId,
+        revisionId: await readRevision(
+          resolveOwner(ownerWebContentsId),
+          documentId
+        )
+      })
+    },
     execute: async(
       ownerWebContentsId: number,
       request: DocumentCoreStaticSinkAcceptanceRequest

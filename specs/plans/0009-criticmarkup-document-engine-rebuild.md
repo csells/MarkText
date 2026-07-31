@@ -488,7 +488,14 @@ whose assertion cannot distinguish pass from fail.
   callers are instrumentation, not observation: the P11 perf suite's
   execution-report reads (G7) and the hostile-sinks
   `readStaticSinkIdentity` forge-input, both of which belong to A31's
-  synthetic-drive replacement; then the bridge deletes and the
+  synthetic-drive replacement. The hostile-sinks half landed the same
+  day: the main-only static sink acceptance surface gained
+  `readIdentity`, which authenticates the owner and reads the head
+  revision through a persistence lease released without persisting —
+  the same compensation path a failed save takes — so the forge
+  inputs come from main and the DOM-visible active tab, and the
+  bridge shrank to its two perf members. When the P11 reads move to a
+  main-side execution recorder (G7), the bridge deletes and the
   lossless suite's surface pin flips to an absence assert.
 **W4 — Language, configuration, and coverage**
 

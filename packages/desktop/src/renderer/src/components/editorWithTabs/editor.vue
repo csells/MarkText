@@ -1745,16 +1745,7 @@ useEditorLifecycle(async () => {
     window,
     environment.MARKTEXT_E2E_READONLY_BRIDGE === '1',
     () => mountedEditor.getMarkdown(),
-    () => documentCoreExecutionByTab.get(activeDocumentId()) ?? null,
-    () => {
-      const projection =
-        mountedEditor.getCriticMarkupReviewSnapshot().projection
-      return Object.freeze({
-        documentId: activeDocumentId(),
-        revisionId: mountedEditor.snapshot().revisionId,
-        view: projection === 'marked' ? 'markup' : projection
-      })
-    }
+    () => documentCoreExecutionByTab.get(activeDocumentId()) ?? null
   )
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it.

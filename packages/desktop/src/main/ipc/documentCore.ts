@@ -533,7 +533,25 @@ export function registerDocumentCoreHandlers(): void {
                 proofPath
               ),
               createDocumentCoreExportDecorator(exportThemeCatalog())
-            ).execute(ownerId, request)
+            ).execute(ownerId, request),
+          async(ownerId, documentId) => {
+            // The persistence lease is the main-only surface that
+            // authenticates the owner and returns the head revision id. It
+            // is released without markPersisted — the same compensation
+            // path a failed save takes — so the read leaves history and
+            // saved identity untouched.
+            const lease = await mainHost().preparePersistence(
+              ownerId,
+              documentId,
+              'save'
+            )
+            await mainHost().releasePersistence(
+              ownerId,
+              documentId,
+              lease.leaseId
+            )
+            return lease.revisionId
+          }
         ),
         writable: false
       }
