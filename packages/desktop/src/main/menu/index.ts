@@ -605,10 +605,17 @@ class AppMenu {
           'Document capability menu update'
         )
         if (decoded === null) return
-        const undoItem = decoded.menu.getMenuItemById('editUndoMenuItem')
-        if (undoItem !== null) undoItem.enabled = decoded.state.undo
-        const redoItem = decoded.menu.getMenuItemById('editRedoMenuItem')
-        if (redoItem !== null) redoItem.enabled = decoded.state.redo
+        const enablement: readonly (readonly [string, boolean])[] = [
+          ['editUndoMenuItem', decoded.state.undo],
+          ['editRedoMenuItem', decoded.state.redo],
+          ['editDuplicateMenuItem', decoded.state.duplicateBlock],
+          ['editCreateParagraphMenuItem', decoded.state.insertParagraph],
+          ['editDeleteParagraphMenuItem', decoded.state.deleteBlock]
+        ]
+        for (const [id, enabled] of enablement) {
+          const item = decoded.menu.getMenuItemById(id)
+          if (item !== null) item.enabled = enabled
+        }
       }
     )
     ipcMain.on(

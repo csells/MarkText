@@ -1607,7 +1607,10 @@ useEditorLifecycle(async () => {
         'mt::set-document-capability-menu-state',
         {
           undo: capabilities.undo.enabled,
-          redo: capabilities.redo.enabled
+          redo: capabilities.redo.enabled,
+          duplicateBlock: capabilities['duplicate-block'].enabled,
+          insertParagraph: capabilities['insert-paragraph'].enabled,
+          deleteBlock: capabilities['delete-block'].enabled
         }
       )
     },

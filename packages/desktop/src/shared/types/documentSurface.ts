@@ -43,6 +43,9 @@ export interface DocumentClipboardMenuState {
 export interface DocumentCapabilityMenuState {
   readonly undo: boolean
   readonly redo: boolean
+  readonly duplicateBlock: boolean
+  readonly insertParagraph: boolean
+  readonly deleteBlock: boolean
 }
 
 export interface DocumentClipboardConsumerPolicy {
@@ -167,15 +170,29 @@ export const decodeDocumentCapabilityMenuState = (
 ): DocumentCapabilityMenuState => {
   const state = closedRecord(
     value,
-    ['undo', 'redo'],
+    ['undo', 'redo', 'duplicateBlock', 'insertParagraph', 'deleteBlock'],
     'Document capability menu state'
   )
-  if (typeof state.undo !== 'boolean' || typeof state.redo !== 'boolean') {
-    throw new TypeError(
-      'Document capability menu state must carry boolean enablement'
-    )
+  for (const bit of [
+    state.undo,
+    state.redo,
+    state.duplicateBlock,
+    state.insertParagraph,
+    state.deleteBlock
+  ]) {
+    if (typeof bit !== 'boolean') {
+      throw new TypeError(
+        'Document capability menu state must carry boolean enablement'
+      )
+    }
   }
-  return Object.freeze({ undo: state.undo, redo: state.redo })
+  return Object.freeze({
+    undo: state.undo as boolean,
+    redo: state.redo as boolean,
+    duplicateBlock: state.duplicateBlock as boolean,
+    insertParagraph: state.insertParagraph as boolean,
+    deleteBlock: state.deleteBlock as boolean
+  })
 }
 
 export const decodeDocumentClipboardMenuState = (

@@ -29,6 +29,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         type: 'separator'
       },
       {
+        id: 'editCutMenuItem',
         label: t('menu.edit.cut'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_CUT) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -36,6 +37,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editCopyMenuItem',
         label: t('menu.edit.copy'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_COPY) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -43,6 +45,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editPasteMenuItem',
         label: t('menu.edit.paste'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_PASTE) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -80,6 +83,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         type: 'separator'
       },
       {
+        id: 'editSelectAllMenuItem',
         label: t('menu.edit.selectAll'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_SELECT_ALL) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -90,6 +94,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         type: 'separator'
       },
       {
+        id: 'editDuplicateMenuItem',
         label: t('menu.edit.duplicate'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_DUPLICATE) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -97,6 +102,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editCreateParagraphMenuItem',
         label: t('menu.edit.createParagraph'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_CREATE_PARAGRAPH) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -104,6 +110,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editDeleteParagraphMenuItem',
         label: t('menu.edit.deleteParagraph'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_DELETE_PARAGRAPH) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -114,6 +121,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         type: 'separator'
       },
       {
+        id: 'editFindMenuItem',
         label: t('menu.edit.find'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_FIND) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -121,6 +129,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editFindNextMenuItem',
         label: t('menu.edit.findNext'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_FIND_NEXT) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -128,6 +137,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editFindPreviousMenuItem',
         label: t('menu.edit.findPrevious'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_FIND_PREVIOUS) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -135,6 +145,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'editReplaceMenuItem',
         label: t('menu.edit.replace'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_REPLACE) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -145,6 +156,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         type: 'separator'
       },
       {
+        id: 'editFindInFolderMenuItem',
         label: t('menu.edit.findInFolder'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_FIND_IN_FOLDER) ?? undefined,
         click(_menuItem, browserWindow) {
