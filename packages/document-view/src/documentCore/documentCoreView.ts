@@ -955,10 +955,18 @@ export async function createDocumentCoreView(
     // bump is restoring an older selection than the user's last adopted
     // gesture and must stand down.
     let userSelectionGeneration = 0;
-    let ignoredProgrammaticSelection: Readonly<{
-        range: Readonly<{ start: number; end: number }>;
-        anchor: number;
-        focus: number;
+    // The last DOM range this view itself restored. A selectionchange whose
+    // DOM range still equals it is the view's own asynchronous echo — the
+    // restoring flag has already reset by the time the event delivers, and
+    // a burst can skip later restores, leaving the DOM parked here while
+    // the session moves on. Adopting that echo at queue drain would regress
+    // the session caret to a position no user ever selected (the swallowed
+    // third backtick of a typed fence). Only a genuine caret-moving
+    // interaction — a pointer press or a navigation key, which the view
+    // never default-prevents — clears it.
+    let lastViewRestoredRange: Readonly<{
+        start: number;
+        end: number;
     }> | null = null;
     let browserInputGeneration = 0;
     let imageRenderGeneration = 0;
@@ -1128,11 +1136,7 @@ export async function createDocumentCoreView(
         try {
             restoreBrowserSelection(target, anchor, focus);
             if (documentCoreSelectionIsMounted(target)) {
-                ignoredProgrammaticSelection = Object.freeze({
-                    range: documentCoreSelectionRange(target),
-                    anchor: anchor.offset,
-                    focus: focus.offset,
-                });
+                lastViewRestoredRange = documentCoreSelectionRange(target);
             }
         }
         finally {
@@ -4221,18 +4225,35 @@ export async function createDocumentCoreView(
             return;
 
         const range = documentCoreSelectionRange(host);
-        const ignored = ignoredProgrammaticSelection;
-        ignoredProgrammaticSelection = null;
-        const current = activeSelection();
         if (
-            ignored !== null
-            && ignored.range.start === range.start
-            && ignored.range.end === range.end
-            && ignored.anchor === current.anchor.offset
-            && ignored.focus === current.focus.offset
+            lastViewRestoredRange !== null
+            && lastViewRestoredRange.start === range.start
+            && lastViewRestoredRange.end === range.end
         ) {
+            // The view's own restore echo. Never adopt it — but a commit
+            // whose restore was skipped mid-burst leaves the DOM parked
+            // here while the session moved on, and the next unchained
+            // beforeinput would read this stale DOM range as its target.
+            // Re-align the DOM to the authoritative session selection.
+            const session_ = activeSelection();
+            const caret = Math.min(
+                session_.anchor.offset,
+                session_.focus.offset,
+            );
+            const caretEnd = Math.max(
+                session_.anchor.offset,
+                session_.focus.offset,
+            );
+            if (caret !== range.start || caretEnd !== range.end) {
+                restoreDocumentCoreSelection(
+                    host,
+                    session_.anchor,
+                    session_.focus,
+                );
+            }
             return;
         }
+        const current = activeSelection();
         if (
             current.anchor.offset === range.start
             && current.focus.offset === range.end
@@ -4306,6 +4327,8 @@ export async function createDocumentCoreView(
         deferredDuringComposition = false;
         composingBrowserInput = false;
         compositionSettling = false;
+        host.removeEventListener('pointerdown', clearRestoredRangeOnGesture);
+        host.removeEventListener('keydown', clearRestoredRangeOnGesture);
         host.removeEventListener('beforeinput', handleBeforeInput);
         host.removeEventListener('compositionstart', handleCompositionStart);
         host.removeEventListener('compositionend', handleCompositionEnd);
@@ -4379,6 +4402,22 @@ export async function createDocumentCoreView(
     host.setAttribute('aria-multiline', 'true');
     host.setAttribute('autocorrect', 'false');
     host.setAttribute('autocomplete', 'off');
+    // A pointer press or a navigation key moves the caret natively (the
+    // view never default-prevents either), so the next selectionchange is a
+    // genuine gesture, not the view's own restore echo.
+    const clearRestoredRangeOnGesture = (event: Event): void => {
+        if (event instanceof KeyboardEvent) {
+            const navigation = [
+                'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+                'Home', 'End', 'PageUp', 'PageDown',
+            ];
+            if (!navigation.includes(event.key))
+                return;
+        }
+        lastViewRestoredRange = null;
+    };
+    host.addEventListener('pointerdown', clearRestoredRangeOnGesture);
+    host.addEventListener('keydown', clearRestoredRangeOnGesture);
     host.addEventListener('beforeinput', handleBeforeInput);
     host.addEventListener('compositionstart', handleCompositionStart);
     host.addEventListener('compositionend', handleCompositionEnd);
