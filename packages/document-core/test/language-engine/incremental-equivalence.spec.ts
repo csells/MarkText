@@ -61,11 +61,28 @@ function revisionRecord(revision: DocumentRevision): unknown {
       marks: run.marks.length
     })
   }
+  // Comment display ASTs resolve references under comment scope, so they
+  // observe the reference machinery no root view can.
+  const commentDisplays: unknown[] = []
+  for (
+    let ordinal = 0;
+    ordinal < revision.criticMarkup.rootCount;
+    ordinal += 1
+  ) {
+    const root = revision.criticMarkup.rootAt(ordinal)
+    if (root.kind !== 'comment') continue
+    const display = revision.commentDisplay(root.nodeId)
+    commentDisplays.push({
+      source: display.source,
+      markdown: markdownNodeRecord(display.markdown.root)
+    })
+  }
   return {
     source: revision.source.text,
     diagnostics: revision.diagnostics.count,
     criticRoots: revision.criticMarkup.rootCount,
     runs,
+    commentDisplays,
     original: projection('original'),
     revised: projection('revised'),
     editing: projection('editing')
@@ -571,6 +588,80 @@ describe('incremental reopen equivalence', () => {
           prose(12, 'defs-dup').trimEnd(),
           'Closing prose refers to [alpha] as well.',
           '[alpha]: /second-loses'
+        ].join('\n\n') + '\n'
+      }
+    ]
+    for (const layout of layouts) {
+      const source = layout.source
+      const anchor = 'simply ends here.'
+      const offset = source.indexOf(anchor)
+      expect(offset, layout.name).toBeGreaterThan(0)
+      const edited =
+        source.slice(0, offset) + 'now ' + source.slice(offset)
+
+      const incremental = createLanguageEngine()
+      const opened = incremental.open(
+        createSourceSnapshot(source),
+        TEST_CONFIGURATION
+      )
+      expect(opened.kind).toBe('complete')
+      const before = incremental.traversalCounts().intrinsicSourceUnits
+      const reopened = incremental.reopen(
+        opened,
+        createSourceSnapshot(edited),
+        [{ start: offset, end: offset, insert: 'now ' }]
+      )
+      const spent =
+        incremental.traversalCounts().intrinsicSourceUnits - before
+      const full = createLanguageEngine().open(
+        createSourceSnapshot(edited),
+        TEST_CONFIGURATION
+      )
+      expect(revisionRecord(reopened), layout.name)
+        .toEqual(revisionRecord(full))
+      expect(spent, `${layout.name} took the full pass`)
+        .toBeLessThan(edited.length)
+    }
+  })
+
+  it('takes the spliced route for marker-bearing documents with definitions', () => {
+    // Review documents carry both markers and reference definitions. The
+    // splice must reproduce reference scope: a comment's body resolves only
+    // against definitions in the same comment, never the document's.
+    const layouts: readonly Readonly<{
+      name: string
+      source: string
+    }>[] = [
+      {
+        name: 'markers and document-scope definitions',
+        source: [
+          'Opening prose refers to [alpha] with {++an addition++} nearby.',
+          prose(10, 'marker-defs').trimEnd(),
+          'A {==highlight==}{>>plain note<<} pair sits here.',
+          'Closing prose refers to [alpha] again.',
+          '[alpha]: /alpha-destination "Alpha"'
+        ].join('\n\n') + '\n'
+      },
+      {
+        name: 'reference inside a comment stays unresolved at comment scope',
+        source: [
+          'Opening prose refers to [alpha] at document scope.',
+          prose(10, 'comment-ref').trimEnd(),
+          'A {==span==}{>>see [alpha] for detail<<} pair sits here.',
+          '[alpha]: /alpha-destination'
+        ].join('\n\n') + '\n'
+      },
+      {
+        name: 'definition inside a comment scopes to that comment',
+        // The definition opens the comment body, so the virtual content
+        // start admits it; [beta] resolves inside this comment and nowhere
+        // else.
+        source: [
+          'Opening prose refers to [beta] at document scope.',
+          prose(10, 'comment-def').trimEnd(),
+          'A {==span==}{>>[beta]: /comment-scoped\nsee [beta] here<<} pair.',
+          'Closing prose refers to [beta] once more.',
+          '[gamma]: /document-scoped'
         ].join('\n\n') + '\n'
       }
     ]

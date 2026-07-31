@@ -28,7 +28,10 @@ import {
   spliceGuardsHold,
   spliceIntrinsicFacts
 } from './profile1/intrinsicPassSplice.js'
-import { createStagedProfile1ReferenceDefinitionLookup } from './profile1/referenceDefinitionIndex.js'
+import {
+  createStagedProfile1ReferenceDefinitionLookup,
+  type Profile1ReferenceScopeRegion
+} from './profile1/referenceDefinitionIndex.js'
 import {
   createMarkdownLaneState,
   type MarkdownArmMode,
@@ -255,6 +258,11 @@ export interface RetainedIntrinsicPass {
   readonly rootCount: number
   readonly markerDecisionCount: number
   readonly referenceDefinitionCount: number
+  /**
+   * The comment and substitution-arm scope boundaries the definition index
+   * resolved under, aliased for the splice to shift and hand back.
+   */
+  readonly referenceScopeRegions: readonly Profile1ReferenceScopeRegion[]
   readonly tape: readonly TapeRun[]
   readonly diagnostics: readonly SyntaxDiagnostic[]
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
@@ -4133,7 +4141,8 @@ function tryIncrementalIntrinsicParse(
     source,
     [],
     [],
-    hasDefinitions
+    hasDefinitions,
+    spliced.referenceScopeRegions
   )
   if (hasDefinitions) {
     referenceDefinitions.finalizeAcceptedDefinitions(spliced.markdownLiterals)
@@ -4607,6 +4616,7 @@ export function parseProfile1Document(
       markerDecisionCount: parsed.markerDecisions.length,
       referenceDefinitionCount:
         parsed.referenceDefinitions.definitionFacts().length,
+      referenceScopeRegions: parsed.referenceDefinitions.scopeRegions(),
       tape: parsed.tape,
       diagnostics: parsed.diagnostics,
       markdownLiterals: parsed.markdownLiterals,

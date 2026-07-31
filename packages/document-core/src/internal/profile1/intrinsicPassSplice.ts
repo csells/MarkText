@@ -14,6 +14,9 @@ import {
 } from './markdownLaneState.js'
 import type { MarkdownLiteralRange } from './markdownTypes.js'
 import type {
+  Profile1ReferenceScopeRegion
+} from './referenceDefinitionIndex.js'
+import type {
   CanonicalMarkerDecision,
   TapeRun
 } from './sourceTape.js'
@@ -65,6 +68,7 @@ export interface RetainedIntrinsicFacts {
   readonly rootCount: number
   readonly markerDecisionCount: number
   readonly referenceDefinitionCount: number
+  readonly referenceScopeRegions: readonly Profile1ReferenceScopeRegion[]
   readonly tape: readonly TapeRun[]
   readonly diagnostics: readonly SyntaxDiagnostic[]
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
@@ -93,6 +97,7 @@ export interface BracketPassFacts {
 
 export interface SplicedIntrinsicFacts {
   readonly hasCriticMarkupCandidate: boolean
+  readonly referenceScopeRegions: readonly Profile1ReferenceScopeRegion[]
   readonly tape: readonly TapeRun[]
   readonly diagnostics: readonly SyntaxDiagnostic[]
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
@@ -217,6 +222,41 @@ function shiftLiteral(
         })
       })
   })
+}
+
+function shiftScopeRegion(
+  region: Profile1ReferenceScopeRegion,
+  delta: number
+): Profile1ReferenceScopeRegion {
+  if (delta === 0) return region
+  return Object.freeze({
+    ...region,
+    ownerStart: region.ownerStart + delta,
+    start: region.start + delta,
+    end: region.end + delta
+  })
+}
+
+/**
+ * Guards keep every marker node clear of the bracket and scope regions sit
+ * inside their owner's range, so a region crossing it is impossible; refuse
+ * rather than reason if one appears.
+ */
+function shiftScopeRegions(
+  regions: readonly Profile1ReferenceScopeRegion[],
+  bracket: IntrinsicSpliceBracket
+): readonly Profile1ReferenceScopeRegion[] | undefined {
+  const shifted: Profile1ReferenceScopeRegion[] = []
+  for (const region of regions) {
+    if (region.end <= bracket.start) {
+      shifted.push(region)
+    } else if (region.start >= bracket.endPrevious) {
+      shifted.push(shiftScopeRegion(region, bracket.delta))
+    } else {
+      return undefined
+    }
+  }
+  return Object.freeze(shifted)
 }
 
 function shiftSlice(
@@ -480,18 +520,11 @@ export function spliceGuardsHold(
   }
   if (retained.referenceDefinitionCount !== 0) {
     // Definitions re-key link resolution document-wide. The splice admits
-    // them only for CriticMarkup-free documents — a marker forest would
-    // need its reference scope regions reconstructed — and only when the
-    // bracket stays clear of every definition block, so the definition set
-    // is invariant up to the shift and emission re-resolves against the
-    // rebuilt lookup.
-    if (
-      retained.hasCriticMarkupCandidate ||
-      retained.rootCount !== 0 ||
-      retained.markerDecisionCount !== 0
-    ) {
-      return false
-    }
+    // them only when the bracket stays clear of every definition block, so
+    // the definition set is invariant up to the shift and emission
+    // re-resolves against the rebuilt lookup. Reference scope regions are
+    // retained and shifted with the other facts, so a marker forest keeps
+    // its comment- and arm-scoped resolution.
     for (const literal of retained.markdownLiterals) {
       if (
         literal.kind === 'definition' &&
@@ -1012,8 +1045,14 @@ export function spliceIntrinsicFacts(
         .filter((literal) => literal.start >= bracket.endPrevious)
         .map((literal) => shiftLiteral(literal, bracket.delta))
     ].sort((left, right) => left.start - right.start)
+    const markerScopeRegions = shiftScopeRegions(
+      retained.referenceScopeRegions,
+      bracket
+    )
+    if (markerScopeRegions === undefined) return undefined
     return Object.freeze({
       hasCriticMarkupCandidate: true,
+      referenceScopeRegions: markerScopeRegions,
       tape: Object.freeze(tape),
       diagnostics: Object.freeze([]),
       markdownLiterals: Object.freeze(markerLiterals),
@@ -1326,8 +1365,14 @@ export function spliceIntrinsicFacts(
       .filter((literal) => literal.start >= bracket.endPrevious)
       .map((literal) => shiftLiteral(literal, bracket.delta))
   ].sort((left, right) => left.start - right.start)
+  const proseScopeRegions = shiftScopeRegions(
+    retained.referenceScopeRegions,
+    bracket
+  )
+  if (proseScopeRegions === undefined) return undefined
   return Object.freeze({
     hasCriticMarkupCandidate: false,
+    referenceScopeRegions: proseScopeRegions,
     tape: Object.freeze(tape),
     diagnostics: Object.freeze([]),
     markdownLiterals: Object.freeze(splicedLiterals),

@@ -1092,7 +1092,8 @@ const executionNumericFields = Object.freeze([
   'operationIntrinsicSourceUnits',
   'operationForkAstRegionEmissions',
   'operationForkAstRegionUnits',
-  'operationForkAstRegionReuses'
+  'operationForkAstRegionReuses',
+  'operationForkAstRegionProvenanceReuses'
 ] as const)
 
 const executionDurationFields: ReadonlySet<string> = new Set([
@@ -1228,7 +1229,9 @@ function decodeExecutionReport(
     operationForkAstRegionUnits:
       Number(report.operationForkAstRegionUnits),
     operationForkAstRegionReuses:
-      Number(report.operationForkAstRegionReuses)
+      Number(report.operationForkAstRegionReuses),
+    operationForkAstRegionProvenanceReuses:
+      Number(report.operationForkAstRegionProvenanceReuses)
   })
 }
 

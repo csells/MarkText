@@ -355,6 +355,8 @@ export interface DocumentCoreExecutionReport {
   readonly operationForkAstRegionEmissions: number
   readonly operationForkAstRegionUnits: number
   readonly operationForkAstRegionReuses: number
+  /** Regions carried verbatim by splice provenance instead of re-emission. */
+  readonly operationForkAstRegionProvenanceReuses: number
 }
 
 /**

@@ -29,6 +29,12 @@ export interface Profile1CanonicalReferenceDefinitionLookup
     literals: readonly MarkdownLiteralRange[]
   ) => void
   readonly definitionFacts: () => readonly Profile1ReferenceDefinitionFact[]
+  /**
+   * The accepted comment and substitution-arm scope boundaries the index
+   * resolves under. An incremental reopen retains these, shifts them with
+   * the other facts, and hands them back as preset regions.
+   */
+  readonly scopeRegions: () => readonly Profile1ReferenceScopeRegion[]
   readonly definitionStartMatching: (
     normalizedLabel: string,
     sourceOffset: number,
@@ -241,13 +247,17 @@ export function createStagedProfile1ReferenceDefinitionLookup(
   source: string,
   delimiterCandidates: readonly Profile1ReferenceDelimiterCandidate[],
   physicalStarts: readonly number[],
-  hasDefinitionCandidate: boolean
+  hasDefinitionCandidate: boolean,
+  presetScopeRegions?: readonly Profile1ReferenceScopeRegion[]
 ): Profile1CanonicalReferenceDefinitionLookup {
   if (!hasDefinitionCandidate) {
     return Object.freeze({
       finalizeAcceptedDefinitions: Object.freeze((): void => {}),
       definitionFacts: Object.freeze(
         (): readonly Profile1ReferenceDefinitionFact[] => Object.freeze([])
+      ),
+      scopeRegions: Object.freeze(
+        (): readonly Profile1ReferenceScopeRegion[] => Object.freeze([])
       ),
       definitionStartMatching: Object.freeze(
         (): number | undefined => undefined
@@ -257,6 +267,8 @@ export function createStagedProfile1ReferenceDefinitionLookup(
   }
   const rejectedCandidates = new Set<number>()
   let cachedIndex: Profile1ReferenceDefinitionIndex | undefined
+  let cachedScopeRegions:
+  readonly Profile1ReferenceScopeRegion[] | undefined
   let acceptedDefinitions: readonly MarkdownLiteralRange[] | undefined
   const currentIndex = (): Profile1ReferenceDefinitionIndex => {
     if (cachedIndex !== undefined) {
@@ -294,7 +306,7 @@ export function createStagedProfile1ReferenceDefinitionLookup(
     definitions.sort(
       (left, right) => left.start - right.start || left.end - right.end
     )
-    const scopeRegions = standing.regions.flatMap(
+    const scopeRegions = presetScopeRegions ?? standing.regions.flatMap(
       (region): readonly Profile1ReferenceScopeRegion[] => {
         if (region.kind === 'comment') {
           return Object.freeze([Object.freeze({
@@ -315,6 +327,7 @@ export function createStagedProfile1ReferenceDefinitionLookup(
           : Object.freeze([])
       }
     )
+    cachedScopeRegions = Object.freeze(scopeRegions)
     cachedIndex = createProfile1ReferenceDefinitionIndex(
       source,
       definitions,
@@ -330,10 +343,17 @@ export function createStagedProfile1ReferenceDefinitionLookup(
         (literal) => literal.kind === 'definition'
       ))
       cachedIndex = undefined
+      cachedScopeRegions = undefined
     }),
     definitionFacts: Object.freeze(
       (): readonly Profile1ReferenceDefinitionFact[] =>
         currentIndex().definitionFacts()
+    ),
+    scopeRegions: Object.freeze(
+      (): readonly Profile1ReferenceScopeRegion[] => {
+        currentIndex()
+        return cachedScopeRegions ?? Object.freeze([])
+      }
     ),
     definitionStartMatching: Object.freeze((
       normalizedLabel: string,
@@ -360,6 +380,7 @@ export function createStagedProfile1ReferenceDefinitionLookup(
       if (!rejectedCandidates.has(candidateStart)) {
         rejectedCandidates.add(candidateStart)
         cachedIndex = undefined
+        cachedScopeRegions = undefined
       }
     })
   })

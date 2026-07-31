@@ -548,7 +548,9 @@ function executionReport(
     operationForkAstRegionEmissions:
       physicalDelta('forkAstRegionEmissions'),
     operationForkAstRegionUnits: physicalDelta('forkAstRegionUnits'),
-    operationForkAstRegionReuses: physicalDelta('forkAstRegionReuses')
+    operationForkAstRegionReuses: physicalDelta('forkAstRegionReuses'),
+    operationForkAstRegionProvenanceReuses:
+      physicalDelta('forkAstRegionProvenanceReuses')
   })
 }
 

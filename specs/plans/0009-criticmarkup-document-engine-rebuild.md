@@ -383,9 +383,16 @@ are transcribed exactly. Its real residue is G36.
   emission re-resolves every reference through the definition cache
   key — provenance carrying stays withheld there because carried
   templates bypass that key. Edits reaching a definition still take
-  the full pass. Remaining widenings inside the splice: marker-bearing
-  documents with definitions (reference scope regions), provenance
-  carrying under definitions, CR-only line endings.
+  the full pass. Marker-bearing documents with definitions — the
+  Review-document class — followed the same day: the pass's final
+  reference scope regions are retained, shifted with the other facts,
+  and handed back as preset regions, so comment- and arm-scoped
+  resolution survives the splice (a comment-body reference stays
+  unresolved against a document-scope definition, and a definition
+  opening a comment body scopes to that comment; the equivalence rows
+  compare comment display ASTs to prove it). Remaining widenings
+  inside the splice: provenance carrying under definitions, CR-only
+  line endings.
 
 **W2 — Host surfaces**
 

@@ -145,7 +145,17 @@ interface ExecutionReport {
   readonly operationForkAstRegionEmissions: number
   readonly operationForkAstRegionUnits: number
   readonly operationForkAstRegionReuses: number
+  readonly operationForkAstRegionProvenanceReuses: number
 }
+
+const carriedRegionReuses = (
+  execution: Readonly<{
+    operationForkAstRegionReuses: number
+    operationForkAstRegionProvenanceReuses: number
+  }>
+): number =>
+  execution.operationForkAstRegionReuses +
+  execution.operationForkAstRegionProvenanceReuses
 
 interface ScaleEditSample {
   readonly browserInputLatencyMs: number
@@ -1674,8 +1684,7 @@ test.describe('document-core maximum-document responsiveness', () => {
         worstFamilyStallMs
       )
       const familyMeasuredReuses = browser.samples.reduce(
-        (total, sample) =>
-          total + sample.execution.operationForkAstRegionReuses,
+        (total, sample) => total + carriedRegionReuses(sample.execution),
         0
       )
       const familyMeasuredEmissions = browser.samples.reduce(
@@ -1784,7 +1793,7 @@ test.describe('document-core maximum-document responsiveness', () => {
     const measuredFragmentReuses = scaleEditFamilies.reduce(
       (total, family) => total + family.samples.reduce(
         (familyTotal, sample) =>
-          familyTotal + sample.execution.operationForkAstRegionReuses,
+          familyTotal + carriedRegionReuses(sample.execution),
         0
       ),
       0
@@ -1970,7 +1979,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       JSON.stringify(report)
     ).toBe(0)
     expect(
-      metrics.maximumDocumentEdit.execution.operationForkAstRegionReuses,
+      carriedRegionReuses(metrics.maximumDocumentEdit.execution),
       JSON.stringify(report)
     ).toBeGreaterThan(0)
     expect(
@@ -2041,7 +2050,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       JSON.stringify(report)
     ).toBe(0)
     expect(
-      metrics.maximumDocumentDeletion.execution.operationForkAstRegionReuses,
+      carriedRegionReuses(metrics.maximumDocumentDeletion.execution),
       JSON.stringify(report)
     ).toBeGreaterThan(0)
     expect(
@@ -2231,8 +2240,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       )
       expect(family.measuredFragmentReuses, JSON.stringify(report)).toBe(
         family.samples.reduce(
-          (total, sample) =>
-            total + sample.execution.operationForkAstRegionReuses,
+          (total, sample) => total + carriedRegionReuses(sample.execution),
           0
         )
       )
@@ -2270,7 +2278,7 @@ test.describe('document-core maximum-document responsiveness', () => {
           JSON.stringify(report)
         ).toBeLessThanOrEqual(2_048)
         expect(
-          sample.execution.operationForkAstRegionReuses,
+          carriedRegionReuses(sample.execution),
           JSON.stringify(report)
         ).toBeGreaterThanOrEqual(0)
         expect(
@@ -2281,7 +2289,7 @@ test.describe('document-core maximum-document responsiveness', () => {
           sample.execution.operationOwningThreadStallMs
         ) !== 'green') {
           expect(
-            sample.execution.operationForkAstRegionReuses,
+            carriedRegionReuses(sample.execution),
             JSON.stringify(report)
           ).toBeGreaterThan(0)
         }

@@ -1246,7 +1246,8 @@ describe('main-owned document-core session host', () => {
       operationIntrinsicSourceUnits: expect.any(Number),
       operationForkAstRegionEmissions: expect.any(Number),
       operationForkAstRegionUnits: expect.any(Number),
-      operationForkAstRegionReuses: expect.any(Number)
+      operationForkAstRegionReuses: expect.any(Number),
+      operationForkAstRegionProvenanceReuses: expect.any(Number)
     })
     expect(opened.execution.operationCheckpointCount).toBeGreaterThan(0)
     expect(opened.execution.operationElapsedMs).toBeGreaterThanOrEqual(0)
@@ -1333,8 +1334,12 @@ describe('main-owned document-core session host', () => {
       .toBeGreaterThan(0)
     expect(edited.execution.operationForkAstRegionUnits)
       .toBeGreaterThan(0)
-    expect(edited.execution.operationForkAstRegionReuses)
-      .toBeGreaterThan(0)
+    // Carried regions arrive by byte-key reuse or by splice provenance;
+    // either way they were not re-emitted.
+    expect(
+      edited.execution.operationForkAstRegionReuses +
+      edited.execution.operationForkAstRegionProvenanceReuses
+    ).toBeGreaterThan(0)
 
     await host.close('renderer:1', 'physical-reuse-report')
   })
