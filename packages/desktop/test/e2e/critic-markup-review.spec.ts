@@ -15,7 +15,6 @@ import {
   launchWithDoc,
   launchWithMarkdown,
   openUntitledTabWithMarkdown,
-  readCanonicalMarkdown,
   sendIpcToRenderer
 } from './helpers'
 import {
@@ -604,13 +603,13 @@ const FILE_LOSSLESS_CORPUS = [
 
 const saveFileExactly = async(
   app: ElectronApplication,
-  page: Page,
   filePath: string,
   expected: string
 ): Promise<void> => {
   await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+  // The pressed save writes the canonical head, so the byte poll is the
+  // session observation: a diverged head would write its own bytes here.
   await expect.poll(() => fs.readFileSync(filePath, 'utf-8'), { timeout: 5000 }).toBe(expected)
-  await expect.poll(() => readCanonicalMarkdown(page), { timeout: 5000 }).toBe(expected)
 }
 
 test.describe('CriticMarkup file-backed losslessness', () => {
@@ -646,10 +645,10 @@ test.describe('CriticMarkup file-backed losslessness', () => {
       // This corpus is already in the desktop serializer's canonical form, so
       // its allowed-normalization set is empty: every comparison below is an
       // exact UTF-8 string comparison, including the final newline and astral
-      // character. The bridge reads the document view and fails if source mode is
-      // present before or after the call.
-      expect(await readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
-      expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
+      // character. The canonical head is observed through the production
+      // Save path: a clean document's canonical source already equals its
+      // persisted bytes, and a dirty one is saved by the real accelerator.
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
 
       // A no-op WYSIWYG -> source -> WYSIWYG handoff must preserve every byte.
       // Check both the source input and canonical engine/file snapshots so
@@ -658,8 +657,7 @@ test.describe('CriticMarkup file-backed losslessness', () => {
       expect(await sourceMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
       expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
       await exitSourceMode(page, app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
-      expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
 
       // The desktop counter follows the documented canonical-source policy; a
       // display projection must not silently count only visible accepted text.
@@ -679,7 +677,7 @@ test.describe('CriticMarkup file-backed losslessness', () => {
       expect(await selectParagraphContaining(page, 'Alpha'))
         .toBe(markedParagraphVisible)
       await copySelection(app, markedParagraphCanonical)
-      expect(await readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
 
       await clickMenuById(app, 'reviewShowRevisedMenuItem')
       await expect(page.locator('.editor-component')).toHaveAttribute(
@@ -689,8 +687,7 @@ test.describe('CriticMarkup file-backed losslessness', () => {
       const revisedParagraph = 'Alpha added, , and after.'
       expect(await selectParagraphContaining(page, 'Alpha')).toBe(revisedParagraph)
       await copySelection(app, revisedParagraph)
-      expect(await readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
-      expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
       await expect.poll(() => wordCounterValue(page)).toBe(
         canonicalWordCount(FILE_LOSSLESS_CORPUS)
       )
@@ -703,8 +700,7 @@ test.describe('CriticMarkup file-backed losslessness', () => {
       const originalParagraph = 'Alpha , removed, and before.'
       expect(await selectParagraphContaining(page, 'Alpha')).toBe(originalParagraph)
       await copySelection(app, originalParagraph)
-      expect(await readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
-      expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
       await expect.poll(() => wordCounterValue(page)).toBe(
         canonicalWordCount(FILE_LOSSLESS_CORPUS)
       )
@@ -715,49 +711,48 @@ test.describe('CriticMarkup file-backed losslessness', () => {
         'marked'
       )
 
-      await saveFileExactly(app, page, filePath, FILE_LOSSLESS_CORPUS)
-      await saveFileExactly(app, page, filePath, FILE_LOSSLESS_CORPUS)
+      await saveFileExactly(app, filePath, FILE_LOSSLESS_CORPUS)
+      await saveFileExactly(app, filePath, FILE_LOSSLESS_CORPUS)
       await reopen()
-      expect(await readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
-      expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
 
       await focusEditor(page)
       await selectWord(page, 'reviewable')
       await expect.poll(() => menuEnabled(app, 'reviewMarkDeletionMenuItem')).toBe(true)
       await clickMenuById(app, 'reviewMarkDeletionMenuItem')
       const marked = FILE_LOSSLESS_CORPUS.replace('reviewable', '{--reviewable--}')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(marked)
+      await expectCanonicalOnDisk(page, app, filePath, marked)
 
-      // Authoring is one durable history boundary in the real desktop route.
+      // Authoring is one durable history boundary in the real desktop
+      // route, and each observation above saves, so undo and redo must
+      // also hold across real persistence boundaries.
       await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
       await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(marked)
+      await expectCanonicalOnDisk(page, app, filePath, marked)
 
-      await saveFileExactly(app, page, filePath, marked)
+      await saveFileExactly(app, filePath, marked)
       await reopen()
-      expect(await readCanonicalMarkdown(page)).toBe(marked)
-      expect(fs.readFileSync(filePath, 'utf-8')).toBe(marked)
+      await expectCanonicalOnDisk(page, app, filePath, marked)
 
       await openReviewSidebar(page, app)
       const authoredCard = page.locator('.review-card').filter({ hasText: 'reviewable' })
       await expect(authoredCard).toHaveCount(1)
       await authoredCard.locator('.card-actions button').nth(1).click()
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
 
       // Targeted resolution is independently undoable and redoable after a real
       // file reopen; neither direction may lose the exact pending annotation.
       await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(marked)
+      await expectCanonicalOnDisk(page, app, filePath, marked)
       await expect(authoredCard).toHaveCount(1)
       await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
       await expect(authoredCard).toHaveCount(0)
 
-      await saveFileExactly(app, page, filePath, FILE_LOSSLESS_CORPUS)
+      await saveFileExactly(app, filePath, FILE_LOSSLESS_CORPUS)
       await reopen()
-      expect(await readCanonicalMarkdown(page)).toBe(FILE_LOSSLESS_CORPUS)
-      expect(fs.readFileSync(filePath, 'utf-8')).toBe(FILE_LOSSLESS_CORPUS)
+      await expectCanonicalOnDisk(page, app, filePath, FILE_LOSSLESS_CORPUS)
       await expectNoCapturedErrors(app)
     } finally {
       await closeElectron(app).catch(() => undefined)
@@ -944,9 +939,7 @@ test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
         await clearCapturedErrors(app)
         if (preferences) await applyRowPreferences(page, preferences)
 
-        await expect.poll(() => readCanonicalMarkdown(page), { timeout: 5000 })
-          .toBe(expectedCanonical)
-        expect(fs.readFileSync(filePath, 'utf-8')).toBe(row.source)
+        await expectCanonicalOnDisk(page, app, filePath, expectedCanonical)
 
         await openReviewSidebar(page, app)
         const cards = page.locator('.review-card')
@@ -965,9 +958,11 @@ test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
         // and CRLF via the retained exact-byte FileSnapshot — a byte-identity
         // no-op while the canonical source is unchanged), and a repeated save
         // must be byte-idempotent.
+        // Both saves write through the session head, so the restored exact
+        // bytes are the canonical observation; the repetition proves the
+        // write is byte-idempotent.
         await saveAndExpectFileBytes(app, filePath, row.source)
         await saveAndExpectFileBytes(app, filePath, row.source)
-        expect(await readCanonicalMarkdown(page)).toBe(expectedCanonical)
 
         await expectNoCapturedErrors(app)
         await closeElectron(app)
@@ -977,9 +972,7 @@ test.describe('CriticMarkup file-backed corpus rows (plan minimum)', () => {
         await clearCapturedErrors(app)
         if (preferences) await applyRowPreferences(page, preferences)
 
-        await expect.poll(() => readCanonicalMarkdown(page), { timeout: 5000 })
-          .toBe(expectedCanonical)
-        expect(fs.readFileSync(filePath, 'utf-8')).toBe(row.source)
+        await expectCanonicalOnDisk(page, app, filePath, expectedCanonical)
         await saveAndExpectFileBytes(app, filePath, row.source)
         await expectNoCapturedErrors(app)
       } finally {

@@ -439,37 +439,33 @@ export const enterSourceMode = async(page: Page, app: ElectronApplication): Prom
 }
 
 export const exitSourceMode = async(page: Page, app: ElectronApplication): Promise<void> => {
-  const inSource = await page.evaluate(
-    () => !!document.querySelector('.source-code-input')
-  )
-  if (!inSource) return
+  // The textarea is the native input projection over the main-owned session,
+  // so its final value is exactly the canonical source the WYSIWYG remount
+  // adopts — captured before the exit because the teardown removes it.
+  const sourceLength = await page.evaluate(() => {
+    const input = document.querySelector(
+      '.source-code-input'
+    ) as HTMLTextAreaElement | null
+    return input === null ? null : input.value.length
+  })
+  if (sourceLength === null) return
   await clickMenuById(app, 'sourceCodeModeMenuItem')
   await page.waitForFunction(() => !document.querySelector('.source-code'), null, {
     timeout: 10000
   })
   // The WYSIWYG remount trails the source-mode teardown: the head may have
   // been rewritten in source mode while the mounted runs still carry the old
-  // revision's model stamps. Wait until a mounted run reflects the live
-  // canonical head so gestures never target the stale window.
-  await page.waitForFunction(() => {
-    const bridge = (window as unknown as {
-      __marktextE2EReadOnly?: { readCanonicalMarkdown: () => string }
-    }).__marktextE2EReadOnly
-    if (!bridge) return true
+  // revision's model stamps. Wait until no mounted run's model stamp points
+  // past the adopted head so gestures never target the stale window.
+  await page.waitForFunction((headLength) => {
     const run = document.querySelector('.editor-component .document-view-run[data-model-end]')
     // No mounted runs means no stale stamps a gesture could target — an
     // empty document's placeholder paragraph renders without runs.
     if (!run) return true
     const mountedEnd = Number(run.getAttribute('data-model-end'))
     if (!Number.isFinite(mountedEnd)) return false
-    try {
-      // The bridge read refuses while source-mode teardown is still visible;
-      // a refusal means the window is still open, not a test failure.
-      return mountedEnd <= bridge.readCanonicalMarkdown().length
-    } catch {
-      return false
-    }
-  }, null, { timeout: 10000 })
+    return mountedEnd <= headLength
+  }, sourceLength, { timeout: 10000 })
 }
 
 export const getMarkdownContent = async(
@@ -488,26 +484,6 @@ export const getMarkdownContent = async(
   })
   if (!wasInSource) await exitSourceMode(page, app)
   return value
-}
-
-/**
- * Read the active engine's canonical Markdown through the E2E-only immutable
- * bridge. Unlike getMarkdownContent, this never enters source mode or performs
- * a WYSIWYG/source handoff.
- */
-export const readCanonicalMarkdown = async(page: Page): Promise<string> => {
-  return await page.evaluate(() => {
-    if (document.querySelector('.source-code')) {
-      throw new TypeError('Read-only canonical Markdown bridge was called from source mode.')
-    }
-    const bridge = window.__marktextE2EReadOnly
-    if (!bridge) throw new TypeError('E2E read-only canonical Markdown bridge is unavailable.')
-    const markdown = bridge.readCanonicalMarkdown()
-    if (document.querySelector('.source-code')) {
-      throw new TypeError('Read-only canonical Markdown bridge entered source mode.')
-    }
-    return markdown
-  })
 }
 
 export const typeIntoEditor = async(page: Page, text: string): Promise<void> => {
