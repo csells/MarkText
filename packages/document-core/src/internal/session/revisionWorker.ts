@@ -21,8 +21,11 @@ import {
   composeDeletionMarkup,
   composeSubstitutionMarkup,
   escapeCriticPayload,
+  escapeDirectCarrierText,
   mergeOpaqueRanges,
-  type OpaqueRange
+  trackCarrierContext,
+  type OpaqueRange,
+  type TrackCarrierContext
 } from '../sourceAuthorship.js'
 import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
 import type {
@@ -191,15 +194,6 @@ interface PreparedRawRevision {
   readonly transition: WorkerTransitionProof
 }
 
-type TrackCarrierPolicy = 'plain' | 'direct' | 'stable' | 'read-only'
-
-interface TrackCarrierContext {
-  readonly policy: TrackCarrierPolicy
-  readonly node?: CriticMarkupNode
-  readonly arm?: CriticMarkupNode['arms'][number]
-  readonly depth: number
-}
-
 interface ExhaustedHighlight {
   readonly node: Extract<CriticMarkupNode, { readonly kind: 'highlight' }>
   readonly arm: Extract<
@@ -366,121 +360,6 @@ function visibleReplacementPieces(
   return Object.freeze(pieces.sort((left, right) =>
     left.start - right.start || left.end - right.end
   ))
-}
-
-function carrierClose(
-  context: TrackCarrierContext
-): '++}' | '~~}' | '==}' | '--}' | '<<}' | null {
-  if (context.node?.kind === 'addition') {
-    return '++}'
-  }
-  if (context.node?.kind === 'substitution') {
-    return '~~}'
-  }
-  if (context.node?.kind === 'highlight') {
-    return '==}'
-  }
-  if (context.node?.kind === 'deletion') {
-    return '--}'
-  }
-  if (context.node?.kind === 'comment') {
-    return '<<}'
-  }
-  return null
-}
-
-function escapeDirectCarrierText(
-  text: string,
-  context: TrackCarrierContext
-): string {
-  const close = carrierClose(context)
-  return close === null
-    ? text
-    : escapeCriticPayload(
-      text,
-      close,
-      context.node?.kind === 'substitution'
-    )
-}
-
-function trackCarrierContext(
-  revision: CompleteDocumentRevision,
-  start: number,
-  end: number
-): TrackCarrierContext {
-  const contains = (
-    range: CriticMarkupNode['arms'][number]['range']
-  ): boolean =>
-    start >= Number(range.start) && end <= Number(range.end)
-  const deepest = new Map<
-    Exclude<TrackCarrierPolicy, 'plain'>,
-    TrackCarrierContext
-  >()
-  const pending: Array<Readonly<{
-    node: CriticMarkupNode
-    depth: number
-  }>> = []
-  for (
-    let index = revision.criticMarkup.rootCount - 1;
-    index >= 0;
-    index -= 1
-  ) {
-    pending.push({ node: revision.criticMarkup.rootAt(index), depth: 0 })
-  }
-  while (pending.length > 0) {
-    const current = pending.pop()
-    if (current === undefined) {
-      continue
-    }
-    for (
-      let armIndex = current.node.arms.length - 1;
-      armIndex >= 0;
-      armIndex -= 1
-    ) {
-      const arm = current.node.arms[armIndex]
-      if (arm === undefined) {
-        continue
-      }
-      if (!contains(arm.range)) {
-        continue
-      }
-      let policy: Exclude<TrackCarrierPolicy, 'plain'> | undefined
-      if (current.node.kind === 'addition' && arm.name === 'content') {
-        policy = 'direct'
-      } else if (current.node.kind === 'highlight' && arm.name === 'content') {
-        policy = 'stable'
-      } else if (current.node.kind === 'deletion' && arm.name === 'content') {
-        policy = 'read-only'
-      } else if (current.node.kind === 'substitution') {
-        policy = arm.name === 'new' ? 'direct' : 'read-only'
-      }
-      const prior = policy === undefined ? undefined : deepest.get(policy)
-      if (policy !== undefined && (prior === undefined || current.depth > prior.depth)) {
-        deepest.set(policy, Object.freeze({
-          depth: current.depth,
-          policy,
-          node: current.node,
-          arm
-        }))
-      }
-      for (
-        let childIndex = arm.children.length - 1;
-        childIndex >= 0;
-        childIndex -= 1
-      ) {
-        const child = arm.children[childIndex]
-        if (child !== undefined) {
-          pending.push({ node: child, depth: current.depth + 1 })
-        }
-      }
-    }
-  }
-  return (
-    deepest.get('read-only') ??
-    deepest.get('direct') ??
-    deepest.get('stable') ??
-    Object.freeze({ policy: 'plain' as const, depth: -1 })
-  )
 }
 
 function runSurvivesRootRevised(

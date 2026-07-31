@@ -359,8 +359,10 @@ are transcribed exactly. Its real residue is G36.
   substitution, comment, and comment-pair composers beside
   `buildSourceCandidateDraft` and `protectSourceCandidateDraft`, with the
   kernel, the worker, and admission all routing through them and no
-  caller spelling a marker or wiring the escape inline; the Track Changes
-  carrier decision is the module's remaining residue — and the execution counter bank is
+  caller spelling a marker or wiring the escape inline, and the Track
+  Changes carrier decision derived there too — the carrier policy, the
+  deepest-carrier rule, and the carrier escape wiring moved out of the
+  worker, whose residue is the per-intent choice among authored forms — and the execution counter bank is
   fully engine-owned: line-materialization walks record through the
   recorder each line path captures at construction, long-line retention
   is proven bounded from retained/evicted counters instead of a cache
