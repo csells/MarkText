@@ -513,7 +513,18 @@ whose assertion cannot distinguish pass from fail.
   `TreeWalker`, a `Range`, and hand-dispatched untrusted events, and Review
   evidence settles with fixed sleeps instead of the public `settled()` barrier.
   Every selection-sensitive target drives selection with real input and settles
-  on that barrier.
+  on that barrier. Progress: A19 and A08 are migrated, and twenty-six suites
+  (~195 read sites) now observe canonical bytes through the real Save flow,
+  the mounted projection, the source-mode projection, or the file a
+  subject-save produced — each read moved to the observation its claim is
+  about. The read-only bridge's remaining callers are exactly the
+  G6-endgame set: the critic-markup-review lossless and corpus suites
+  (which assert the bridge surface itself and pair engine-view reads
+  against file bytes as two observations), the P11 perf suite (G7), the
+  hostile-sinks `readStaticSinkIdentity` member, and the
+  `exitSourceMode` stale-window wait inside the e2e helpers. Deleting
+  the bridge requires replacement engine-view observations for those
+  four; A31's synthetic drives remain.
 **W4 — Language, configuration, and coverage**
 
 
