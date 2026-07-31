@@ -101,7 +101,7 @@ describe('live table tools', () => {
         const { view } = await mount(source);
         view.setSelection(source.indexOf('one'), source.indexOf('one'));
 
-        await view.executeCommand({
+        await view.dispatchTargetedIntent({
             kind: 'remove-table-row',
         });
 
@@ -594,7 +594,7 @@ describe('live table tools', () => {
         expect(document.body.querySelector(
             '.document-view-table-tools',
         )).toBeNull();
-        await expect(view.executeCommand({
+        await expect(view.dispatchTargetedIntent({
             kind: 'remove-table-row',
         })).rejects.toThrow('unavailable in SourceOnly mode');
         expect(await view.getMarkdown()).toBe(source);

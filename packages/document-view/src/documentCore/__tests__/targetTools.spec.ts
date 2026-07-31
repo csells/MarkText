@@ -125,7 +125,7 @@ describe('target-owned document tools', () => {
             enabled: true,
         });
 
-        await expect(view.executeCommand({
+        await expect(view.dispatchTargetedIntent({
             kind: 'insert-table-row',
             location: 'after',
         })).rejects.toThrow(/wrong-target-kind/);
@@ -175,7 +175,7 @@ describe('target-owned document tools', () => {
         const code = await mount('```js\nconst x = 1\n```\n');
         code.view.setCursorByOffset(2);
         await code.view.settled();
-        await code.view.executeCommand({
+        await code.view.dispatchTargetedIntent({
             kind: 'set-code-language',
             language: 'typescript',
         });
@@ -188,7 +188,7 @@ describe('target-owned document tools', () => {
         const link = await mount('before word after');
         link.view.setSelection(7, 11);
         await link.view.settled();
-        await link.view.executeCommand({
+        await link.view.dispatchTargetedIntent({
             kind: 'insert-link',
             href: 'https://example.test/docs',
             title: 'Docs',
@@ -202,7 +202,7 @@ describe('target-owned document tools', () => {
         const image = await mount('See ');
         image.view.setCursorByOffset(4);
         await image.view.settled();
-        await image.view.executeCommand({
+        await image.view.dispatchTargetedIntent({
             kind: 'insert-image',
             src: 'images/cat.png',
             alt: 'cat',
@@ -216,7 +216,7 @@ describe('target-owned document tools', () => {
         const footnote = await mount('Note');
         footnote.view.setCursorByOffset(4);
         await footnote.view.settled();
-        await footnote.view.executeCommand({
+        await footnote.view.dispatchTargetedIntent({
             kind: 'insert-footnote',
             label: 'n',
             content: 'body',

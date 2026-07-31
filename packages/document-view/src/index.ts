@@ -36,7 +36,7 @@ export type {
     DocumentCoreImageSourceResolution,
     DocumentCoreTableShape,
     DocumentCoreViewDispatchResult,
-    DocumentCoreEditorCommand,
+    DocumentCoreTargetedIntentInput,
     DocumentCoreViewSnapshot,
     DocumentSelectionContext,
     DocumentViewOptions,

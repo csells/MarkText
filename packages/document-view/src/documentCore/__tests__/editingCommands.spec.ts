@@ -101,7 +101,7 @@ describe('editing commands', () => {
         const source = 'one two\n';
         const { view } = await mount(source);
         view.setCursorByOffset(3);
-        await view.executeCommand({
+        await view.dispatchTargetedIntent({
             kind: 'insert-paragraph',
             location: 'after',
         });
@@ -119,10 +119,9 @@ describe('editing commands', () => {
             kind: 'set-track-changes',
             enabled: true,
         });
-        await view.executeCommand({
+        await view.dispatchTargetedIntent({
             kind: 'paste-text',
-            text: 'world',
-            source: 'external-text',
+            payload: { kind: 'external-text', text: 'world' },
         });
         expect(await view.getMarkdown()).toBe('Hello {++world++}.\n');
         await view.undo();

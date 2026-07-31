@@ -1,5 +1,4 @@
 import type {
-    BlockConversion,
     ClipboardConsumer,
     ClipboardView,
     ConsumerView,
@@ -26,7 +25,6 @@ import type {
     ReviewIndex,
     SearchMatchRange,
     SourceModelSelection,
-    TableColumnAlignment,
 } from '@marktext/document-core';
 import {
     findMarkupSearchMatches,
@@ -423,73 +421,16 @@ export interface IDocumentCoreViewSession {
     readonly close: () => Promise<void>;
 }
 
-export type DocumentCoreEditorCommand
-    = Readonly<{
-        readonly kind: 'convert-block';
-        readonly conversion: BlockConversion;
-    }>
-    | Readonly<{ readonly kind: 'duplicate-block' }>
-    | Readonly<{ readonly kind: 'delete-block' }>
-    | Readonly<{
-        readonly kind: 'insert-paragraph';
-        readonly location: 'before' | 'after';
-    }>
-    | Readonly<{
-        readonly kind: 'format-text';
-        readonly format: InlineFormat;
-    }>
-    | Readonly<{
-        readonly kind: 'set-list-indentation';
-        readonly direction: 'increase' | 'decrease';
-    }>
-    | Readonly<{
-        readonly kind: 'set-code-language';
-        readonly language: string;
-    }>
-    | Readonly<{
-        readonly kind: 'insert-link';
-        readonly href: string;
-        readonly title?: string;
-    }>
-    | Readonly<{
-        readonly kind: 'insert-image';
-        readonly src: string;
-        readonly alt: string;
-        readonly title?: string;
-    }>
-    | Readonly<{
-        readonly kind: 'insert-footnote';
-        readonly label: string;
-        readonly content: string;
-    }>
-    | Readonly<{
-        readonly kind: 'paste-text';
-        readonly text: string;
-        readonly source: 'external-text';
-    }>
-    | Readonly<{
-        readonly kind: 'insert-table-row';
-        readonly location: 'before' | 'after';
-    }>
-    | Readonly<{ readonly kind: 'remove-table-row' }>
-    | Readonly<{
-        readonly kind: 'insert-table-column';
-        readonly location: 'left' | 'right';
-    }>
-    | Readonly<{ readonly kind: 'remove-table-column' }>
-    | Readonly<{
-        readonly kind: 'align-table-column';
-        readonly alignment: TableColumnAlignment;
-    }>
-    | Readonly<{
-        readonly kind: 'move-table-row';
-        readonly direction: 'up' | 'down';
-    }>
-    | Readonly<{
-        readonly kind: 'move-table-column';
-        readonly direction: 'left' | 'right';
-    }>
-    | Readonly<{ readonly kind: 'delete-table-cell-contents' }>;
+type OmitTarget<T> = T extends { readonly target: ModelSelection }
+    ? Readonly<Omit<T, 'target'>>
+    : never;
+
+/**
+ * A targeted intent minus its target, derived from the one EditorIntent
+ * union — never restated beside it (G8). The view fills the current
+ * session selection as the target when dispatching.
+ */
+export type DocumentCoreTargetedIntentInput = OmitTarget<EditorIntent>;
 
 /** Capabilities committed by the document-core command and render seam. */
 export type DocumentCoreCapability
@@ -705,8 +646,10 @@ export interface IDocumentCoreView {
      * publication.
      */
     dispatchIntent: (intent: EditorIntent) => Promise<void>;
-    /** Execute one typed editor command against the current selection. */
-    executeCommand: (command: DocumentCoreEditorCommand) => Promise<void>;
+    /** Dispatch one targeted intent against the current selection. */
+    dispatchTargetedIntent: (
+        intent: DocumentCoreTargetedIntentInput,
+    ) => Promise<void>;
     /** Switch among editable Markup and read-only clean projections. */
     setProjection: (projection: CriticMarkupProjection) => Promise<void>;
     /** Commit the mounted browser selection into the owning session. */
@@ -1879,7 +1822,7 @@ export async function createDocumentCoreView(
                         anchor: { offset: start, affinity: 'next' },
                         focus: { offset: start, affinity: 'next' },
                     });
-                    await executeCommand({
+                    await dispatchTargetedIntent({
                         kind: 'set-code-language',
                         language: input.value,
                     });
@@ -2114,154 +2057,13 @@ export async function createDocumentCoreView(
         }));
     };
 
-    const executeCommand = async (
-        command: DocumentCoreEditorCommand,
+    const dispatchTargetedIntent = async (
+        input: DocumentCoreTargetedIntentInput,
     ): Promise<void> => {
-        const target = completeSnapshot().selection;
-        if (command.kind === 'convert-block') {
-            await dispatchIntent({
-                kind: 'convert-block',
-                target,
-                conversion: command.conversion,
-            });
-            return;
-        }
-        if (command.kind === 'duplicate-block') {
-            await dispatchIntent({ kind: 'duplicate-block', target });
-            return;
-        }
-        if (command.kind === 'delete-block') {
-            await dispatchIntent({ kind: 'delete-block', target });
-            return;
-        }
-        if (command.kind === 'insert-paragraph') {
-            await dispatchIntent({
-                kind: 'insert-paragraph',
-                target,
-                location: command.location,
-            });
-            return;
-        }
-        if (command.kind === 'format-text') {
-            await dispatchIntent({
-                kind: 'format-text',
-                target,
-                format: command.format,
-            });
-            return;
-        }
-        if (command.kind === 'set-list-indentation') {
-            await dispatchIntent({
-                kind: 'set-list-indentation',
-                target,
-                direction: command.direction,
-            });
-            return;
-        }
-        if (command.kind === 'set-code-language') {
-            await dispatchIntent({
-                kind: 'set-code-language',
-                target,
-                language: command.language,
-            });
-            return;
-        }
-        if (command.kind === 'insert-link') {
-            await dispatchIntent({
-                kind: 'insert-link',
-                target,
-                href: command.href,
-                ...(command.title === undefined
-                    ? {}
-                    : { title: command.title }),
-            });
-            return;
-        }
-        if (command.kind === 'insert-image') {
-            await dispatchIntent({
-                kind: 'insert-image',
-                target,
-                src: command.src,
-                alt: command.alt,
-                ...(command.title === undefined
-                    ? {}
-                    : { title: command.title }),
-            });
-            return;
-        }
-        if (command.kind === 'insert-footnote') {
-            await dispatchIntent({
-                kind: 'insert-footnote',
-                target,
-                label: command.label,
-                content: command.content,
-            });
-            return;
-        }
-        if (command.kind === 'paste-text') {
-            await dispatchIntent({
-                kind: 'paste-text',
-                target,
-                payload: { kind: command.source, text: command.text },
-            });
-            return;
-        }
-        if (command.kind === 'insert-table-row') {
-            await dispatchIntent({
-                kind: 'insert-table-row',
-                target,
-                location: command.location,
-            });
-            return;
-        }
-        if (command.kind === 'remove-table-row') {
-            await dispatchIntent({ kind: 'remove-table-row', target });
-            return;
-        }
-        if (command.kind === 'insert-table-column') {
-            await dispatchIntent({
-                kind: 'insert-table-column',
-                target,
-                location: command.location,
-            });
-            return;
-        }
-        if (command.kind === 'remove-table-column') {
-            await dispatchIntent({ kind: 'remove-table-column', target });
-            return;
-        }
-        if (command.kind === 'align-table-column') {
-            await dispatchIntent({
-                kind: 'align-table-column',
-                target,
-                alignment: command.alignment,
-            });
-            return;
-        }
-        if (command.kind === 'move-table-row') {
-            await dispatchIntent({
-                kind: 'move-table-row',
-                target,
-                direction: command.direction,
-            });
-            return;
-        }
-        if (command.kind === 'move-table-column') {
-            await dispatchIntent({
-                kind: 'move-table-column',
-                target,
-                direction: command.direction,
-            });
-            return;
-        }
-        if (command.kind === 'delete-table-cell-contents') {
-            await dispatchIntent({
-                kind: 'delete-table-cell-contents',
-                target,
-            });
-            return;
-        }
-        throw new TypeError('Unknown document editor command');
+        await dispatchIntent({
+            ...input,
+            target: completeSnapshot().selection,
+        } as EditorIntent);
     };
 
     const setProjection = async (
@@ -3137,7 +2939,7 @@ export async function createDocumentCoreView(
         const commands: readonly Readonly<{
             id: string;
             label: keyof typeof en.resource;
-            command: DocumentCoreEditorCommand;
+            command: DocumentCoreTargetedIntentInput;
         }>[] = [
             {
                 id: 'insert-row-before',
@@ -3241,7 +3043,7 @@ export async function createDocumentCoreView(
                 event.stopPropagation();
                 enqueueBrowserInput(async () => {
                     await pendingSelection;
-                    await executeCommand(item.command);
+                    await dispatchTargetedIntent(item.command);
                     dismissTransientTools();
                 });
             });
@@ -4446,7 +4248,7 @@ export async function createDocumentCoreView(
         deleteRange,
         destroy,
         dispatchIntent,
-        executeCommand,
+        dispatchTargetedIntent,
         domNode,
         focus,
         dismissTransientTools,

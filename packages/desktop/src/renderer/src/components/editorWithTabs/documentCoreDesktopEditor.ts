@@ -1164,7 +1164,7 @@ export async function createDocumentEditorHost(
           if (image.surface === 'source') {
             await view.insertSourceImage(command)
           } else {
-            await view.executeCommand({
+            await view.dispatchTargetedIntent({
               kind: 'insert-image',
               ...command
             })
@@ -1429,7 +1429,7 @@ export async function createDocumentEditorHost(
       }>
     ) => {
       const value = typeof image === 'string' ? { src: image } : image
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'insert-image',
         src: value.src,
         alt: value.alt ?? '',
@@ -1437,13 +1437,13 @@ export async function createDocumentEditorHost(
       }))
     },
     setCodeLanguage: (language: string) => {
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'set-code-language',
         language
       }))
     },
     insertLink: (link: Readonly<{ href: string; title?: string }>) => {
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'insert-link',
         href: link.href,
         ...(link.title === undefined ? {} : { title: link.title })
@@ -1452,20 +1452,20 @@ export async function createDocumentEditorHost(
     insertFootnote: (
       footnote: Readonly<{ label: string; content: string }>
     ) => {
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'insert-footnote',
         label: footnote.label,
         content: footnote.content
       }))
     },
     setListIndentation: (direction: 'increase' | 'decrease') => {
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'set-list-indentation',
         direction
       }))
     },
     insertParagraph: (location: 'before' | 'after' = 'after') => {
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'insert-paragraph',
         location
       }))
@@ -1482,26 +1482,26 @@ export async function createDocumentEditorHost(
       }
     },
     convertBlock: (conversion: BlockConversion) => {
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'convert-block',
         conversion
       }))
     },
     duplicateBlock: () => {
-      return enqueue(() => view.executeCommand({ kind: 'duplicate-block' }))
+      return enqueue(() => view.dispatchTargetedIntent({ kind: 'duplicate-block' }))
     },
     deleteBlock: () => {
-      return enqueue(() => view.executeCommand({ kind: 'delete-block' }))
+      return enqueue(() => view.dispatchTargetedIntent({ kind: 'delete-block' }))
     },
     formatText: (format: InlineFormat) => {
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'format-text',
         format
       }))
     },
     requestTable: () => enqueue(() => view.requestTable()),
     insertTableRow: (location: 'before' | 'after' = 'after') => {
-      return enqueue(() => view.executeCommand({
+      return enqueue(() => view.dispatchTargetedIntent({
         kind: 'insert-table-row',
         location
       }))
