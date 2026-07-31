@@ -353,7 +353,15 @@ are transcribed exactly. Its real residue is G36.
   not-yet-dispatched input chains before awaiting the session barrier —
   the source-mode controller drains its queued operations and then
   awaits the same barrier, so no surface owns a second settlement
-  notion; G13's fixed sleeps migrate to the barrier.
+  notion; G13's first migration is landed: the A19 gesture spec reads
+  canonical bytes through the real Save flow instead of the read-only
+  bridge, settles selections by observation instead of a fixed sleep, and
+  in doing so surfaced and fixed three real selection-integrity races the
+  sleep had been masking — focus restoration and publication restores
+  stamping the session's older selection over a newer user gesture, and
+  authoring commands capturing their target before the last selection
+  report landed. The remaining A08/A31 targets and the bridge's deletion
+  (G6) follow the same pattern.
   `internal/sourceAuthorship.ts` now owns marker composition, the escape
   rule, and the section 2 protect drafting in one module — the unary,
   substitution, comment, and comment-pair composers beside

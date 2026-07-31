@@ -20,12 +20,10 @@ import {
   composeAdditionMarkup,
   composeDeletionMarkup,
   composeSubstitutionMarkup,
-  escapeCriticPayload,
   escapeDirectCarrierText,
   mergeOpaqueRanges,
   trackCarrierContext,
-  type OpaqueRange,
-  type TrackCarrierContext
+  type OpaqueRange
 } from '../sourceAuthorship.js'
 import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
 import type {

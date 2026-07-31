@@ -94,6 +94,10 @@ export function useCriticMarkupReviewController(
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
   const publishMenuState = (state: CriticMarkupReviewMenuState): void => {
+    // TEMPORARY diagnostics (task #17).
+    console.log(`[menu-push] t=${Date.now()} canCreateAddition=${String(
+      (state as { canCreateAddition?: boolean }).canCreateAddition
+    )}`)
     reviewStore.UPDATE_COMMAND_STATE(state)
     window.electron.ipcRenderer.send('mt::update-review-menu', state)
   }

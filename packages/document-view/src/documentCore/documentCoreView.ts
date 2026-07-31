@@ -930,6 +930,14 @@ export async function createDocumentCoreView(
     let browserInputIdle = true;
     let deferredBrowserSelection = false;
     let restoringBrowserSelection = false;
+    // User selection reports still crossing to the session. While one is in
+    // flight, the session's retained selection is older than the user's last
+    // gesture, so publication restores must not stamp it into the DOM.
+    let pendingUserSelectionDispatches = 0;
+    // Bumped on every user-driven selectionchange. A restore that began its
+    // cycle before the latest bump is restoring an older selection than the
+    // user's last gesture and must stand down.
+    let userSelectionGeneration = 0;
     let ignoredProgrammaticSelection: Readonly<{
         range: Readonly<{ start: number; end: number }>;
         anchor: number;
@@ -1071,7 +1079,21 @@ export async function createDocumentCoreView(
         target: HTMLElement,
         anchor: ModelPosition,
         focus: ModelPosition,
+        ifUserSelectionGeneration?: number,
     ): void => {
+        // The section 2 Selection rule, applied to restores: the view reports
+        // gestures and never overwrites one. A restore racing an unconfirmed
+        // user selection — or one whose cycle began before the user's latest
+        // gesture — would clobber the newer selection with an older range,
+        // and the next command would then target stale bounds.
+        if (pendingUserSelectionDispatches > 0 || deferredBrowserSelection)
+            return;
+        if (
+            ifUserSelectionGeneration !== undefined
+            && ifUserSelectionGeneration !== userSelectionGeneration
+        ) {
+            return;
+        }
         restoringBrowserSelection = true;
         try {
             restoreBrowserSelection(target, anchor, focus);
@@ -1133,6 +1155,7 @@ export async function createDocumentCoreView(
             : snapshot.source.length;
         if (range.end > length)
             return;
+        pendingUserSelectionDispatches += 1;
         try {
             await selectSession({
                 anchor: { offset: range.start, affinity: 'next' },
@@ -1153,6 +1176,9 @@ export async function createDocumentCoreView(
             if (isStaleViewSelectRejection(error))
                 return;
             throw error;
+        }
+        finally {
+            pendingUserSelectionDispatches -= 1;
         }
         publishSelection();
     };
@@ -1602,7 +1628,10 @@ export async function createDocumentCoreView(
         repaintSearchDecorations();
     };
 
-    const render = (restoreSelection = false): void => {
+    const render = (
+        restoreSelection = false,
+        ifUserSelectionGeneration?: number,
+    ): void => {
         forgetDocumentCoreTextPublication(host);
         imageRenderGeneration += 1;
         const generation = imageRenderGeneration;
@@ -1631,6 +1660,7 @@ export async function createDocumentCoreView(
                     host,
                     snapshot.selection.anchor,
                     snapshot.selection.focus,
+                    ifUserSelectionGeneration,
                 );
             }
             clearQuickInsert();
@@ -1881,6 +1911,7 @@ export async function createDocumentCoreView(
                 host,
                 snapshot.selection.anchor,
                 snapshot.selection.focus,
+                ifUserSelectionGeneration,
             );
         }
         refreshQuickInsert(snapshot);
@@ -1893,6 +1924,7 @@ export async function createDocumentCoreView(
         completion: Promise<DocumentCoreViewDispatchResult>,
         restoreSelection = documentCoreSelectionIsMounted(host),
     ): Promise<void> => {
+        const cycleUserSelectionGeneration = userSelectionGeneration;
         const before = mountedSnapshot ?? session.snapshot();
         let result: DocumentCoreViewDispatchResult;
         try {
@@ -1904,7 +1936,7 @@ export async function createDocumentCoreView(
             // current authority state before the original failure escapes, so
             // the DOM never remains on a stale base.
             if (!destroying) {
-                render(restoreSelection);
+                render(restoreSelection, cycleUserSelectionGeneration);
                 for (const listener of listeners)
                     listener();
             }
@@ -1954,6 +1986,7 @@ export async function createDocumentCoreView(
                     host,
                     after.selection.anchor,
                     after.selection.focus,
+                    cycleUserSelectionGeneration,
                 );
             }
             refreshQuickInsert(after);
@@ -1961,7 +1994,7 @@ export async function createDocumentCoreView(
         rememberDocumentCoreTextPublication(host, after);
         }
         else {
-            render(restoreSelection);
+            render(restoreSelection, cycleUserSelectionGeneration);
         }
         for (const listener of listeners)
             listener();
@@ -4098,18 +4131,24 @@ export async function createDocumentCoreView(
         ) {
             return;
         }
+        pendingUserSelectionDispatches += 1;
         void selectSession({
             anchor: { offset: range.start, affinity: 'next' },
             focus: {
                 offset: range.end,
                 affinity: range.start === range.end ? 'next' : 'previous',
             },
-        }).then(publishSelection, () => undefined);
+        })
+            .then(publishSelection, () => undefined)
+            .finally(() => {
+                pendingUserSelectionDispatches -= 1;
+            });
     };
 
     const handleBrowserSelection = (): void => {
         if (restoringBrowserSelection)
             return;
+        userSelectionGeneration += 1;
         if (!browserInputIdle) {
             // The mounted range still names the pre-edit publication. Read it
             // only after the admitted input publishes and restores its

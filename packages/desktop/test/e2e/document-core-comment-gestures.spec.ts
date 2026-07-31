@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { readCanonicalMarkdown } from './helpers'
+import fs from 'fs'
 import {
   closeDocumentCore,
   launchDocumentCoreWithKeybindings,
@@ -48,8 +48,14 @@ type TextEdge = 'start' | 'end'
 const selectionText = (page: Page): Promise<string> =>
   page.evaluate(() => window.getSelection()?.toString() ?? '')
 
-const settleSelection = async(page: Page): Promise<void> => {
-  await page.waitForTimeout(220)
+// Selection settlement is observed, never slept for: the DOM selection is
+// polled to the expected text, and the menu-state polls that follow every
+// gesture observe the session's capability snapshot settling.
+const settleSelection = async(
+  page: Page,
+  expected: string
+): Promise<void> => {
+  await expect.poll(() => selectionText(page)).toBe(expected)
 }
 
 /**
@@ -92,10 +98,8 @@ const textEdgePoint = async(
 const doubleClickWord = async(page: Page, needle: string): Promise<string> => {
   const point = await pointForText(page, needle)
   await page.mouse.dblclick(point.x, point.y)
-  await settleSelection(page)
-  const selected = await selectionText(page)
-  expect(selected).toBe(needle)
-  return selected
+  await settleSelection(page, needle)
+  return needle
 }
 
 const dragEdgePoints = async(
@@ -166,11 +170,11 @@ const dragSelect = async(
   await page.mouse.down()
   await page.mouse.move(end.x, end.y, { steps: 16 })
   await page.mouse.up()
-  await settleSelection(page)
-  const selected = await selectionText(page)
-  expect(selected.startsWith(startNeedle)).toBe(true)
-  expect(selected.endsWith(endNeedle)).toBe(true)
-  return selected
+  await expect.poll(async() => {
+    const selected = await selectionText(page)
+    return selected.startsWith(startNeedle) && selected.endsWith(endNeedle)
+  }).toBe(true)
+  return selectionText(page)
 }
 
 const keyboardSelectFromLineStart = async(
@@ -189,7 +193,7 @@ const keyboardSelectFromLineStart = async(
     await page.keyboard.press('Shift+ArrowRight')
     const selected = await selectionText(page)
     if (selected.startsWith(lineNeedle) && selected.endsWith(endNeedle)) {
-      await settleSelection(page)
+      await settleSelection(page, selected)
       return selected
     }
   }
@@ -234,13 +238,31 @@ const undoThroughApplicationMenu = async(
   await pressApplicationMenuAccelerator(page, app, 'editUndoMenuItem')
 }
 
+let activeDocumentPath = ''
+
+const expectCanonicalOnDisk = async(
+  page: Page,
+  app: ElectronApplication,
+  expected: string
+): Promise<void> => {
+  await expect.poll(async() => {
+    // A clean document disables Save; skip the press once the file already
+    // holds the expected bytes so the enablement poll cannot wedge.
+    if (fs.readFileSync(activeDocumentPath, 'utf-8') === expected) {
+      return expected
+    }
+    await pressApplicationMenuAccelerator(page, app, 'fileSaveMenuItem')
+    return fs.readFileSync(activeDocumentPath, 'utf-8')
+  }, { timeout: 15000 }).toBe(expected)
+}
+
 const expectOneStepUndo = async(
   page: Page,
   app: ElectronApplication,
   selected: string
 ): Promise<void> => {
   await undoThroughApplicationMenu(page, app)
-  await expect.poll(() => readCanonicalMarkdown(page)).toBe(SOURCE)
+  await expectCanonicalOnDisk(page, app, SOURCE)
   await expect.poll(() => selectionText(page)).toBe(selected)
   await expectMenu(app, 'editUndoMenuItem', false)
 }
@@ -254,7 +276,9 @@ const commentCycle = async(
 ): Promise<void> => {
   const selected = await select()
   await addComment(page, app, comment)
-  await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+  await expectCanonicalOnDisk(
+    page,
+    app,
     SOURCE.replace(
       selectedSource,
       `{==${selectedSource}==}{>>${comment}<<}`
@@ -276,7 +300,9 @@ const highlightCycle = async(
     app,
     'reviewHighlightMenuItem'
   )
-  await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+  await expectCanonicalOnDisk(
+    page,
+    app,
     SOURCE.replace(selectedSource, `{==${selectedSource}==}`)
   )
   await expectOneStepUndo(page, app, selected)
@@ -292,7 +318,7 @@ const expectInvalidSelection = async(
   for (const menuId of disabledMenuIds) {
     await expectMenu(app, menuId, false)
   }
-  await expect.poll(() => readCanonicalMarkdown(page)).toBe(SOURCE)
+  await expectCanonicalOnDisk(page, app, SOURCE)
   await expectMenu(app, 'editUndoMenuItem', false)
 }
 
@@ -308,6 +334,11 @@ test.describe('document-core Comment gesture validity', () => {
     })
     app = launched.app
     page = launched.page
+    activeDocumentPath = launched.filePath
+    // TEMPORARY diagnostics (task #17).
+    page.on('console', (message) => {
+      console.log(`[app] ${message.text()}`)
+    })
     await openReviewSidebar(page, app)
   })
 
@@ -403,24 +434,26 @@ test.describe('document-core Comment gesture validity', () => {
     )
 
     // Collapsed target.
+    console.log(`[test] collapsed case begins t=${Date.now()}`)
     await expectInvalidSelection(
       page,
       app,
       async() => {
         const point = await pointForText(page, 'mouseword')
         await page.mouse.click(point.x, point.y)
-        await settleSelection(page)
-        await expect.poll(() => selectionText(page)).toBe('')
+        await settleSelection(page, '')
         return ''
       },
       [
         'reviewMarkAdditionMenuItem',
         'reviewMarkDeletionMenuItem',
         'reviewSuggestReplacementMenuItem',
-        'reviewHighlightMenuItem',
-        'reviewAddCommentMenuItem'
+        'reviewHighlightMenuItem'
       ]
     )
+    // A collapsed caret authors the standalone Comment (G36): Add Comment
+    // stays available while every range-authoring command is rejected.
+    await expectMenu(app, 'reviewAddCommentMenuItem', true)
 
     // A visible range spanning an elided Comment is invalid even though both
     // endpoints themselves are editable.
@@ -453,15 +486,19 @@ test.describe('document-core Comment gesture validity', () => {
       page,
       app,
       async() => {
+        // The prior case's range selection floats the inline critic tool over
+        // this word's geometry; a real collapsing click elsewhere dismisses
+        // it before the double-click, exactly as a user would.
+        const neutral = await pointForText(page, 'mouseword')
+        await page.mouse.click(neutral.x, neutral.y)
+        await settleSelection(page, '')
         await doubleClickWord(page, 'partialliteral')
         await page.keyboard.press('ArrowRight')
         for (let unit = 0; unit < 4; unit += 1) {
           await page.keyboard.press('Shift+ArrowLeft')
         }
-        await settleSelection(page)
-        const selected = await selectionText(page)
-        expect(selected).toBe('eral')
-        return selected
+        await settleSelection(page, 'eral')
+        return 'eral'
       },
       ['reviewAddCommentMenuItem', 'reviewHighlightMenuItem']
     )
@@ -499,7 +536,7 @@ test.describe('document-core Comment gesture validity', () => {
     await expect(
       page.locator('.editor-component')
     ).not.toContainText('/destination')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(SOURCE)
+    await expectCanonicalOnDisk(page, app, SOURCE)
     await expectMenu(app, 'editUndoMenuItem', false)
   })
 })
