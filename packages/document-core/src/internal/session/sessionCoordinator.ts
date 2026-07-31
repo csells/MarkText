@@ -83,7 +83,10 @@ import {
   type StaticConsumerRequest
 } from '../../materialize/consumerPolicy.js'
 import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
-import { prepareEditorIntent } from './intentPreparation.js'
+import {
+  computeIntentCapabilities,
+  prepareEditorIntent
+} from './intentPreparation.js'
 import {
   createLanguageEngine,
   type LanguageEngine
@@ -748,6 +751,17 @@ export class SessionCoordinator {
   client(): DocumentSession {
     const snapshot = Object.freeze(() => this.#snapshot)
     const historyState = Object.freeze(() => this.#worker.historyState())
+    const capabilities = Object.freeze(() => {
+      const history = this.#worker.historyState()
+      return computeIntentCapabilities(Object.freeze({
+        projection: this.#projection,
+        revisionKind: 'markupView' in this.#worker.state
+          ? 'complete' as const
+          : 'source-only' as const,
+        canUndo: history.canUndo,
+        canRedo: history.canRedo
+      }))
+    })
     const markPersisted = Object.freeze((headIdentity: string) =>
       this.#markPersisted(headIdentity)
     )
@@ -818,6 +832,7 @@ export class SessionCoordinator {
     return Object.freeze({
       snapshot,
       historyState,
+      capabilities,
       markPersisted,
       installed,
       dispatch,

@@ -856,6 +856,14 @@ interface StateChangedDispatchResult {
   readonly transition: SessionStateChangedTransition
 }
 
+export type {
+  IntentCapability,
+  IntentCapabilitySnapshot
+} from './internal/session/intentPreparation.js'
+import type {
+  IntentCapabilitySnapshot
+} from './internal/session/intentPreparation.js'
+
 export type RejectionCode =
   | 'stale-selection'
   | 'selection-not-collapsed'
@@ -1143,6 +1151,13 @@ export type SessionTransitionListener = (transition: SessionTransition) => void 
 export interface DocumentSession {
   readonly snapshot: () => EditorSnapshot
   readonly historyState: () => DocumentHistoryState
+  /**
+   * The per-revision capability snapshot: one entry per typed intent,
+   * folded from the preconditions the intents declare. `enabled: false`
+   * names the exact rejection a dispatch would return right now;
+   * `enabled: true` leaves prepare-only conditions to dispatch.
+   */
+  readonly capabilities: () => IntentCapabilitySnapshot
   readonly markPersisted: (
     headIdentity: string
   ) => Promise<DocumentHistoryState>

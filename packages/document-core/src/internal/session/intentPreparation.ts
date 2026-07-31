@@ -21,17 +21,34 @@ type PrepareAdapter<K extends EditorIntent['kind']> = (
  * (projection, track changes) and mints no revision, so it carries no
  * prepare adapter — the coordinator routes it to its dedicated commit.
  */
+/**
+ * Snapshot-evaluable preconditions an intent declares. Each names a fact
+ * the capability snapshot can read from live session state before any
+ * prepare runs; everything else an intent checks is prepare-only and never
+ * predicted by the snapshot.
+ */
+export type SnapshotPrecondition =
+  | 'marked-projection'
+  | 'complete-revision'
+  | 'undoable'
+  | 'redoable'
+
 type IntentPreparation<K extends EditorIntent['kind']> =
   | Readonly<{
     commitClass: 'revision'
+    requires: readonly SnapshotPrecondition[]
     prepare: PrepareAdapter<K>
   }>
   | Readonly<{ commitClass: 'session-state' }>
 
+const REVISION_REQUIRES: readonly SnapshotPrecondition[] =
+  Object.freeze(['marked-projection'])
+
 function revision<K extends EditorIntent['kind']>(
-  prepare: PrepareAdapter<K>
+  prepare: PrepareAdapter<K>,
+  requires: readonly SnapshotPrecondition[] = REVISION_REQUIRES
 ): IntentPreparation<K> {
-  return Object.freeze({ commitClass: 'revision', prepare })
+  return Object.freeze({ commitClass: 'revision', requires, prepare })
 }
 
 const SESSION_STATE = Object.freeze({
@@ -169,25 +186,130 @@ export const INTENT_PREPARATIONS: {
       intent.selection,
       next
     )),
-  'undo': revision<'undo'>((worker, _intent, next) => worker.prepareUndo(next)),
-  'redo': revision<'redo'>((worker, _intent, next) => worker.prepareRedo(next)),
+  'undo': revision<'undo'>(
+    (worker, _intent, next) => worker.prepareUndo(next),
+    Object.freeze(['marked-projection', 'undoable'])
+  ),
+  'redo': revision<'redo'>(
+    (worker, _intent, next) => worker.prepareRedo(next),
+    Object.freeze(['marked-projection', 'redoable'])
+  ),
   'set-track-changes': SESSION_STATE,
   'set-projection': SESSION_STATE,
-  'resolve-change': revision<'resolve-change'>((worker, intent, next) =>
-    worker.prepareTransformation(intent, next)),
-  'resolve-all-changes': revision<'resolve-all-changes'>((worker, intent, next) =>
-    worker.prepareTransformation(intent, next)),
-  'remove-highlight': revision<'remove-highlight'>((worker, intent, next) =>
-    worker.prepareTransformation(intent, next)),
-  'remove-all-annotations': revision<'remove-all-annotations'>((worker, intent, next) =>
-    worker.prepareTransformation(intent, next)),
-  'add-comment': revision<'add-comment'>((worker, intent, next) =>
-    worker.prepareTransformation(intent, next)),
-  'edit-comment': revision<'edit-comment'>((worker, intent, next) =>
-    worker.prepareTransformation(intent, next)),
-  'remove-comment': revision<'remove-comment'>((worker, intent, next) =>
-    worker.prepareTransformation(intent, next))
+  'resolve-change': revision<'resolve-change'>(
+    (worker, intent, next) => worker.prepareTransformation(intent, next),
+    Object.freeze(['marked-projection', 'complete-revision'])
+  ),
+  'resolve-all-changes': revision<'resolve-all-changes'>(
+    (worker, intent, next) => worker.prepareTransformation(intent, next),
+    Object.freeze(['marked-projection', 'complete-revision'])
+  ),
+  'remove-highlight': revision<'remove-highlight'>(
+    (worker, intent, next) => worker.prepareTransformation(intent, next),
+    Object.freeze(['marked-projection', 'complete-revision'])
+  ),
+  'remove-all-annotations': revision<'remove-all-annotations'>(
+    (worker, intent, next) => worker.prepareTransformation(intent, next),
+    Object.freeze(['marked-projection', 'complete-revision'])
+  ),
+  'add-comment': revision<'add-comment'>(
+    (worker, intent, next) => worker.prepareTransformation(intent, next),
+    Object.freeze(['marked-projection', 'complete-revision'])
+  ),
+  'edit-comment': revision<'edit-comment'>(
+    (worker, intent, next) => worker.prepareTransformation(intent, next),
+    Object.freeze(['marked-projection', 'complete-revision'])
+  ),
+  'remove-comment': revision<'remove-comment'>(
+    (worker, intent, next) => worker.prepareTransformation(intent, next),
+    Object.freeze(['marked-projection', 'complete-revision'])
+  )
 })
+
+export interface IntentCapabilityFacts {
+  readonly projection: 'marked' | 'original' | 'revised'
+  readonly revisionKind: 'complete' | 'source-only'
+  readonly canUndo: boolean
+  readonly canRedo: boolean
+}
+
+export type IntentCapability =
+  | Readonly<{ enabled: true }>
+  | Readonly<{
+    enabled: false
+    reason:
+      | 'read-only-projection'
+      | 'source-only-revision'
+      | 'nothing-to-undo'
+      | 'nothing-to-redo'
+  }>
+
+/**
+ * One capability per union arm: the preconditions the intent declares,
+ * folded against live session facts. `enabled: false` predicts the exact
+ * rejection dispatch would return; `enabled: true` promises only that no
+ * snapshot-evaluable precondition fails — prepare-only conditions still
+ * decide at dispatch.
+ */
+export type IntentCapabilitySnapshot = Readonly<{
+  [K in EditorIntent['kind']]: IntentCapability
+}>
+
+const ENABLED: IntentCapability = Object.freeze({ enabled: true })
+
+function foldCapability(
+  requires: readonly SnapshotPrecondition[],
+  facts: IntentCapabilityFacts
+): IntentCapability {
+  for (const requirement of requires) {
+    if (requirement === 'marked-projection' && facts.projection !== 'marked') {
+      return Object.freeze({
+        enabled: false,
+        reason: 'read-only-projection' as const
+      })
+    }
+    if (
+      requirement === 'complete-revision' &&
+      facts.revisionKind !== 'complete'
+    ) {
+      return Object.freeze({
+        enabled: false,
+        reason: 'source-only-revision' as const
+      })
+    }
+    if (requirement === 'undoable' && !facts.canUndo) {
+      return Object.freeze({
+        enabled: false,
+        reason: 'nothing-to-undo' as const
+      })
+    }
+    if (requirement === 'redoable' && !facts.canRedo) {
+      return Object.freeze({
+        enabled: false,
+        reason: 'nothing-to-redo' as const
+      })
+    }
+  }
+  return ENABLED
+}
+
+export function computeIntentCapabilities(
+  facts: IntentCapabilityFacts
+): IntentCapabilitySnapshot {
+  const entries = Object.keys(INTENT_PREPARATIONS).map((kind) => {
+    const preparation =
+      INTENT_PREPARATIONS[kind as EditorIntent['kind']]
+    return [
+      kind,
+      preparation.commitClass === 'revision'
+        ? foldCapability(preparation.requires, facts)
+        : ENABLED
+    ] as const
+  })
+  return Object.freeze(
+    Object.fromEntries(entries)
+  ) as IntentCapabilitySnapshot
+}
 
 /**
  * Prepare a revision-class intent through its declared adapter. The
