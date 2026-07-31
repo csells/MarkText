@@ -307,7 +307,12 @@ export function createSourceModeController(
       await port.settled()
       return port.snapshot()
     }),
-    settled: async() => tail,
+    settled: async() => {
+      // Drain this controller's queued operations, then await the one
+      // session barrier the port exposes — no surface-local settlement.
+      await tail
+      await port.settled()
+    },
     destroy: () => {
       destroyed = true
       subscription?.dispose()
