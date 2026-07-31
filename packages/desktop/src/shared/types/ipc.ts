@@ -33,6 +33,7 @@ import type {
 } from './documentSelection'
 import type { ParagraphDocumentAction } from './paragraphDocumentAction'
 import type {
+  DocumentCapabilityMenuState,
   DocumentClipboardMenuState,
   DocumentSurfaceContextRequest,
   DocumentSurfaceContextResponse
@@ -355,12 +356,14 @@ export interface IpcSendChannels {
   'mt::set-document-clipboard-menu-state': [
     state: DocumentClipboardMenuState
   ]
+  'mt::set-document-capability-menu-state': [
+    state: DocumentCapabilityMenuState
+  ]
   'mt::update-review-menu': [state: CriticMarkupReviewMenuState]
   'mt::rg::cancel': [searchId: string]
   'mt::select-default-directory-to-open': []
   'mt::set-user-preference': [partial: Partial<RendererPreferences>]
   'mt::update-format-menu': [state: DocumentFormatMenuState]
-  'mt::update-history-menu': [state: { canUndo: boolean; canRedo: boolean }]
   'mt::update-sidebar-menu': [visible: boolean]
   'mt::view-layout-changed': [layout: WindowLayoutMenuState]
   'mt::win::close': []

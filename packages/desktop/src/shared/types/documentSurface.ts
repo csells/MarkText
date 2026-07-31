@@ -35,6 +35,16 @@ export interface DocumentClipboardMenuState {
   readonly hasSelection: boolean
 }
 
+/**
+ * The menu projection of the per-revision intent capability snapshot
+ * (G5/G8): the enablement bits main's Edit menu reads. The renderer derives
+ * it from the one published snapshot, never from ad-hoc editor state.
+ */
+export interface DocumentCapabilityMenuState {
+  readonly undo: boolean
+  readonly redo: boolean
+}
+
 export interface DocumentClipboardConsumerPolicy {
   readonly copyAsRich: boolean
   readonly copyAsHtml: boolean
@@ -150,6 +160,22 @@ export const decodeDocumentSurfaceContextResponse = (
       'Document surface context surface'
     )
   })
+}
+
+export const decodeDocumentCapabilityMenuState = (
+  value: unknown
+): DocumentCapabilityMenuState => {
+  const state = closedRecord(
+    value,
+    ['undo', 'redo'],
+    'Document capability menu state'
+  )
+  if (typeof state.undo !== 'boolean' || typeof state.redo !== 'boolean') {
+    throw new TypeError(
+      'Document capability menu state must carry boolean enablement'
+    )
+  }
+  return Object.freeze({ undo: state.undo, redo: state.redo })
 }
 
 export const decodeDocumentClipboardMenuState = (

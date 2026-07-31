@@ -25,6 +25,7 @@ import {
 } from '@shared/types/documentSurface'
 import {
   decodeCriticMarkupReviewMenuState,
+  decodeDocumentCapabilityMenuState,
   decodeDocumentClipboardMenuState,
   decodeDocumentFormatMenuState,
   decodeDocumentSelectionMenuState,
@@ -556,18 +557,6 @@ class AppMenu {
       updateSidebarMenu(decoded.menu, decoded.state)
     })
     ipcMain.on(
-      'mt::update-history-menu',
-      (event, state: { canUndo: boolean; canRedo: boolean }) => {
-        const senderWindow = BrowserWindow.fromWebContents(event.sender)
-        if (!senderWindow || !this.has(senderWindow.id)) return
-        const menu = this.getWindowMenuById(senderWindow.id)
-        const undo = menu.getMenuItemById('editUndoMenuItem')
-        const redo = menu.getMenuItemById('editRedoMenuItem')
-        if (undo) undo.enabled = state.canUndo
-        if (redo) redo.enabled = state.canRedo
-      }
-    )
-    ipcMain.on(
       'mt::update-review-menu',
       (event, ...rawArguments: unknown[]) => {
         const decoded = senderMenuState(
@@ -603,6 +592,25 @@ class AppMenu {
       if (decoded === null) return
       updateSelectionMenus(decoded.menu, decoded.state)
     })
+    // G5: availability is a property of a command. The renderer projects
+    // the per-revision capability snapshot into these bits; the menu never
+    // re-derives them from editor state.
+    ipcMain.on(
+      'mt::set-document-capability-menu-state',
+      (event, ...rawArguments: unknown[]) => {
+        const decoded = senderMenuState(
+          event,
+          rawArguments,
+          decodeDocumentCapabilityMenuState,
+          'Document capability menu update'
+        )
+        if (decoded === null) return
+        const undoItem = decoded.menu.getMenuItemById('editUndoMenuItem')
+        if (undoItem !== null) undoItem.enabled = decoded.state.undo
+        const redoItem = decoded.menu.getMenuItemById('editRedoMenuItem')
+        if (redoItem !== null) redoItem.enabled = decoded.state.redo
+      }
+    )
     ipcMain.on(
       'mt::set-document-clipboard-menu-state',
       (event, ...rawArguments: unknown[]) => {

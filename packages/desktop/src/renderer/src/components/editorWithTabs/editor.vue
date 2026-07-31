@@ -1597,10 +1597,19 @@ useEditorLifecycle(async () => {
       mountedDocumentId = documentId
       documentCoreHistoryByTab.set(documentId, state)
       editorStore.APPLY_DOCUMENT_CORE_HISTORY_STATE(documentId, state)
-      window.electron.ipcRenderer.send('mt::update-history-menu', {
-        canUndo: state.canUndo,
-        canRedo: state.canRedo
-      })
+    },
+    // G5: the Edit menu's enablement is a projection of the one published
+    // capability snapshot — it also encodes read-only projections, which a
+    // raw history push cannot.
+    onIntentCapabilities: (documentId, capabilities) => {
+      if (documentId !== activeDocumentId()) return
+      window.electron.ipcRenderer.send(
+        'mt::set-document-capability-menu-state',
+        {
+          undo: capabilities.undo.enabled,
+          redo: capabilities.redo.enabled
+        }
+      )
     },
     invoke: window.electron.ipcRenderer.invoke as unknown as
       DocumentCoreRemoteSessionOptions['invoke']

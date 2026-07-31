@@ -8,6 +8,7 @@ import type {
   CriticMarkupReviewMenuState
 } from '@shared/types/criticMarkup'
 export {
+  decodeDocumentCapabilityMenuState,
   decodeDocumentClipboardMenuState
 } from '@shared/types/documentSurface'
 
