@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createDocumentSession } from '../../src/documentSession.js'
 import type {
@@ -154,6 +157,38 @@ describe('coordinate authority members', () => {
     expect(at(8, 'previous')).toBe(9)
     expect(at(8, 'next')).toBe(10)
     expect(at(10, 'previous')).toBe(12)
+  })
+
+  it('leaves the view package without any model-to-source computation', () => {
+    // The view resolves DOM points against parser-issued model attributes
+    // and never touches source coordinates: a re-derived mapping would need
+    // the run's sourceRange or a source-position member, so their absence
+    // from production view code is the closure proof.
+    const viewRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../document-view/src'
+    )
+    const offenders: string[] = []
+    const walk = (directory: string): void => {
+      for (const entry of readdirSync(directory)) {
+        const path = join(directory, entry)
+        if (statSync(path).isDirectory()) {
+          if (entry !== '__tests__') {
+            walk(path)
+          }
+          continue
+        }
+        if (!entry.endsWith('.ts')) {
+          continue
+        }
+        const text = readFileSync(path, 'utf8')
+        if (/sourceRange|sourcePosition/.test(text)) {
+          offenders.push(path)
+        }
+      }
+    }
+    walk(viewRoot)
+    expect(offenders).toEqual([])
   })
 
   it('reports the visible model extent of a source range', async() => {

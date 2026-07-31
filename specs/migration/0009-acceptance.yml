@@ -459,6 +459,17 @@
         "path": "packages/document-core/test/materialize/per-kind-sink-exactness.spec.ts",
         "title": "proves every declared construct kind exact in all six sinks"
       }
+    },
+    {
+      "id": "A42",
+      "requirement": "Coordinate authority",
+      "phase": "P3",
+      "status": "red",
+      "target": {
+        "kind": "test",
+        "path": "packages/document-core/test/document-session/coordinate-authority.spec.ts",
+        "title": "answers the one nearest-visible-boundary rule the run walk answered"
+      }
     }
   ]
 }

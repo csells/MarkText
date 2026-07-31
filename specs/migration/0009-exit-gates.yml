@@ -76,7 +76,8 @@
       ],
       "requirements": [
         "A04",
-        "A14"
+        "A14",
+        "A42"
       ],
       "target": {
         "kind": "test",

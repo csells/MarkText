@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G4, G6–G9, G13, G19, G23, G24, G32, G34 open;
+- **Status:** RED — G6–G9, G13, G19, G23, G24, G32, G34 open;
   G5 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-30
@@ -273,7 +273,7 @@ proof", and the single-space cell padding exactly as written. -->
 <!-- prettier-ignore -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
-| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G4, G32, G34 (W1) |
+| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G32, G34 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G19 (W4) |
@@ -315,22 +315,6 @@ which ADR-0015 ratifies — projected text is encoded faithfully; source bytes
 are transcribed exactly. Its real residue is G36.
 
 **W1 — Document engine**
-
-- **G4 [high] Model↔source answers are re-derived across the packages.** The
-  declared authority now carries all six section 2 members:
-  `boundaryNearMarkupCoordinateMap` (the one nearest-visible-boundary
-  rule, proven exhaustively equivalent to the retired run walk),
-  `mapPositionThroughEdits`, and `nodeModelRangeAtMarkupCoordinateMap`
-  joined the existing three (`coordinate-authority.spec.ts`), and the
-  worker's two local answers are deleted with all six call sites routed
-  through the authority, and the coordinator's Review lookup now answers
-  node extents and focus targeting through the authority — the local
-  distance tie rule is retired for `boundaryNear`'s one rule. Remaining
-  re-derivers: `view/markupRender.ts:771-840` and
-  `packages/document-view/src/documentCore/documentCoreInputAdapter.ts:156-224`
-  still scan runs with their own affinity and edge rules; closure routes
-  them through the authority and leaves runs a render substrate only.
-  Violates non-negotiable 3.
 
 - **G32 [critical] The intrinsic pass re-reads the entire document on every
   keystroke.** `intrinsicSourceUnits ÷ document length = 1.000` at every
@@ -532,7 +516,8 @@ The P10 executable proofs stay RED until all of these hold:
 
 These orderings are real dependencies:
 
-- G4 precedes G13, because a real-gesture selection target asserts positions the
+- G4 preceded G13 and is closed (A42), because a real-gesture selection
+  target asserts positions the
   coordinate authority does not yet answer alone;
 - G8 precedes G5, because the capability snapshot a predicate reads is
   published by the intent seam;
