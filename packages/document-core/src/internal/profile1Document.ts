@@ -141,6 +141,16 @@ interface ParseResult {
   readonly kind: 'complete'
   /** Whether the scan ever saw a CriticMarkup marker candidate. */
   readonly hasCriticMarkupCandidate: boolean
+  /**
+   * Set when this result came from the incremental splice: the coordinate
+   * facts downstream AST emission needs to carry unchanged regions by
+   * provenance instead of re-keying their bytes.
+   */
+  readonly spliceProvenance?: Readonly<{
+    unchangedEnd: number
+    shiftedStart: number
+    delta: number
+  }>
   readonly tape: readonly TapeRun[]
   readonly roots: readonly CriticMarkupNode[]
   readonly diagnostics: readonly SyntaxDiagnostic[]
@@ -4135,6 +4145,15 @@ function tryIncrementalIntrinsicParse(
   return Object.freeze({
     kind: 'complete',
     hasCriticMarkupCandidate: spliced.hasCriticMarkupCandidate,
+    ...(spliced.roots.length > 0
+      ? {}
+      : {
+        spliceProvenance: Object.freeze({
+          unchangedEnd: bracket.start,
+          shiftedStart: bracket.endNext,
+          delta: bracket.delta
+        })
+      }),
     tape: spliced.tape,
     roots: spliced.roots,
     diagnostics: spliced.diagnostics,
@@ -4367,7 +4386,8 @@ export function parseProfile1Document(
     parsed.referenceDefinitions,
     execution,
     physicalRecorder,
-    reuseCache?.markdown
+    reuseCache?.markdown,
+    parsed.spliceProvenance
   )
   traceRecorder?.recordAuthoritativeMarkdownParse('canonical-source')
   const originalPrepared = prepareProjection(

@@ -4871,13 +4871,24 @@ function markdownAstRegions(
   return Object.freeze(regions)
 }
 
+interface AstRegionProvenanceContext {
+  readonly prev: ReadonlyMap<number, RetainedAstRegionIndexEntry> | undefined
+  readonly next: Map<number, RetainedAstRegionIndexEntry>
+  readonly unchangedEnd: number
+  readonly shiftedStart: number
+  readonly delta: number
+  /** Document offset of the fork-region lane the emission is walking. */
+  readonly base: number
+}
+
 function emitMarkdownAstRegions(
   source: string,
   regions: readonly MarkdownAstRegion[],
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy: InlineBoundaryPolicy | undefined,
   reuseCache: MarkdownAstRegionCacheIdentity | undefined,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
+  provenanceContext?: AstRegionProvenanceContext
 ): readonly MarkdownNode[] {
   const blocks: MarkdownNode[] = []
   const cache = reuseCache === undefined
@@ -4893,6 +4904,34 @@ function emitMarkdownAstRegions(
         return created
       })()
   for (const region of regions) {
+    // Provenance fast path: a region the splice proved untouched carries the
+    // previous revision's templates without slicing or keying its bytes.
+    if (provenanceContext !== undefined && provenanceContext.prev !== undefined) {
+      const documentStart = provenanceContext.base + region.start
+      const documentEnd = provenanceContext.base + region.end
+      const unchanged = documentEnd <= provenanceContext.unchangedEnd
+      const shifted = documentStart >= provenanceContext.shiftedStart
+      if (unchanged || shifted) {
+        const prevStart = unchanged
+          ? documentStart
+          : documentStart - provenanceContext.delta
+        const prevEnd = unchanged
+          ? documentEnd
+          : documentEnd - provenanceContext.delta
+        const entry = provenanceContext.prev.get(prevStart)
+        if (entry !== undefined && entry.end === prevEnd) {
+          physicalRecorder?.recordForkAstRegionProvenanceReuse()
+          for (const template of entry.template) {
+            blocks.push(markdownAstNodeFromTemplate(template, region.start))
+          }
+          provenanceContext.next.set(documentStart, Object.freeze({
+            end: documentEnd,
+            template: entry.template
+          }))
+          continue
+        }
+      }
+    }
     const regionSource = source.slice(region.start, region.end)
     const regionBoundaryPolicy =
       boundaryPolicy?.scopeRuns.some(
@@ -4953,6 +4992,15 @@ function emitMarkdownAstRegions(
       for (const template of cached.nodes) {
         blocks.push(markdownAstNodeFromTemplate(template, region.start))
       }
+      if (provenanceContext !== undefined) {
+        provenanceContext.next.set(
+          provenanceContext.base + region.start,
+          Object.freeze({
+            end: provenanceContext.base + region.end,
+            template: cached.nodes
+          })
+        )
+      }
       continue
     }
 
@@ -4989,6 +5037,15 @@ function emitMarkdownAstRegions(
       markdownAstNodeTemplate(node, 0, true, physicalRecorder)))
     for (const template of templates) {
       blocks.push(markdownAstNodeFromTemplate(template, region.start))
+    }
+    if (provenanceContext !== undefined) {
+      provenanceContext.next.set(
+        provenanceContext.base + region.start,
+        Object.freeze({
+          end: provenanceContext.base + region.end,
+          template: templates
+        })
+      )
     }
     retainFragmentEntry(cache, key, Object.freeze({
       source: regionSource,
@@ -5873,7 +5930,8 @@ function emitIntrinsicForkRegionNodes(
   reuseCache: MarkdownAstRegionCacheIdentity,
   boundaryPolicy: InlineBoundaryPolicy | undefined,
   execution?: ParseExecutionTracker,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
+  provenanceContext?: AstRegionProvenanceContext
 ): readonly MarkdownNode[] {
   return withMappedMarkdownIdentity(lane, () => {
     if (facts.referenceDefinitions.definitionStart !== undefined) {
@@ -5892,7 +5950,8 @@ function emitIntrinsicForkRegionNodes(
         facts.referenceDefinitions,
         boundaryPolicy,
         reuseCache,
-        physicalRecorder
+        physicalRecorder,
+        provenanceContext
       )
   }, execution)
 }
@@ -7041,13 +7100,36 @@ export function profile1MarkdownReuseRetentionV1(
   })
 }
 
+export interface ForkAstSpliceProvenance {
+  readonly unchangedEnd: number
+  readonly shiftedStart: number
+  readonly delta: number
+}
+
+interface RetainedAstRegionIndexEntry {
+  readonly end: number
+  readonly template: readonly MarkdownAstNodeTemplate[]
+}
+
+/**
+ * The previous revision's emitted region index per engine-owned cache
+ * identity — what splice provenance consults to carry an untouched region
+ * without slicing or keying its bytes. Only the single-request CM-free root
+ * emission maintains it; every other emission leaves it untouched.
+ */
+const retainedAstRegionIndexes = new WeakMap<
+  MarkdownAstRegionCacheIdentity,
+  Map<number, RetainedAstRegionIndexEntry>
+>()
+
 export function createProfile1MarkdownForkParser(
   forkGraph: IntrinsicProfile1ForkGraph,
   canonicalReferenceDefinitions: Profile1CanonicalReferenceDefinitionLookup,
   execution: ParseExecutionTracker,
   physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
   reuseCache: Profile1MarkdownReuseCache =
-  createProfile1MarkdownReuseCache()
+  createProfile1MarkdownReuseCache(),
+  spliceProvenance?: ForkAstSpliceProvenance
 ): Profile1MarkdownForkParser {
   const emittedRegionCache = reuseCache.astRegions
   const admittedRegionFactsCache = reuseCache.admittedRegionFacts
@@ -7139,10 +7221,30 @@ export function createProfile1MarkdownForkParser(
               request.lane.canonicalIdentityRuns
             )
           )
-        for (const region of intrinsicForkRegionLanes(
+        const regionLanes = [...intrinsicForkRegionLanes(
           request.forkLane,
           request.lane
-        )) {
+        )]
+        // Splice provenance applies exactly when one fork-region lane spans
+        // the document from zero — the CM-free root emission, where lane
+        // coordinates are document coordinates. The index refreshes on every
+        // such emission (spliced or full) so the next reopen can consult it.
+        // One request means the projections coincide — the CM-free case —
+        // and every fork-region lane's start is already the document
+        // coordinate the provenance index keys by.
+        const provenanceEligible = requestByKey.size === 1
+        const provenanceContext = provenanceEligible
+          ? Object.freeze({
+            prev: spliceProvenance === undefined
+              ? undefined
+              : retainedAstRegionIndexes.get(emittedRegionCache),
+            next: new Map<number, RetainedAstRegionIndexEntry>(),
+            unchangedEnd: spliceProvenance?.unchangedEnd ?? -1,
+            shiftedStart: spliceProvenance?.shiftedStart ?? Infinity,
+            delta: spliceProvenance?.delta ?? 0
+          })
+          : undefined
+        for (const region of regionLanes) {
           const emitted = parseIntrinsicForkRegionFacts(
             canonicalFactIndex,
             region.lane,
@@ -7159,7 +7261,10 @@ export function createProfile1MarkdownForkParser(
             emittedRegionCache,
             emitted.boundaryPolicy,
             execution,
-            physicalRecorder
+            physicalRecorder,
+            provenanceContext === undefined
+              ? undefined
+              : Object.freeze({ ...provenanceContext, base: region.start })
           )
           children.push(...materializeIntrinsicForkRegionNodes(
             request.lane,
@@ -7187,6 +7292,12 @@ export function createProfile1MarkdownForkParser(
               depthFailure = candidate
             }
           }
+        }
+        if (provenanceContext !== undefined) {
+          retainedAstRegionIndexes.set(
+            emittedRegionCache,
+            provenanceContext.next
+          )
         }
         const parsed = intrinsicForkDocumentFromNodes(
           request.lane,

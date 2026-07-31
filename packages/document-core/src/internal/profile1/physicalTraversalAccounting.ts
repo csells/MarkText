@@ -7,6 +7,8 @@ export interface Profile1PhysicalTraversalCountsV1 {
   readonly forkAstRegionEmissions: number
   readonly forkAstRegionUnits: number
   readonly forkAstRegionReuses: number
+  /** Regions carried by splice provenance — no slice, no key, no digest. */
+  readonly forkAstRegionProvenanceReuses: number
   readonly commentProjectionPreparations: number
   readonly commentProjectionPreparationUnits: number
   readonly astCacheTemplateConstructions: number
@@ -29,6 +31,7 @@ export interface Profile1PhysicalTraversalRecorderV1 {
   ) => void
   readonly recordPlainMarkdownLaneUnits: (sourceUnits: number) => void
   readonly recordForkAstRegionEmission: (units: number) => void
+  readonly recordForkAstRegionProvenanceReuse: () => void
   readonly recordForkAstRegionReuse: () => void
   readonly recordCommentProjectionPreparation: (units: number) => void
   readonly recordAstCacheTemplateConstruction: () => void
@@ -49,6 +52,7 @@ Profile1PhysicalTraversalCountsV1 {
     forkAstRegionEmissions: 0,
     forkAstRegionUnits: 0,
     forkAstRegionReuses: 0,
+    forkAstRegionProvenanceReuses: 0,
     commentProjectionPreparations: 0,
     commentProjectionPreparationUnits: 0,
     astCacheTemplateConstructions: 0,
@@ -67,6 +71,7 @@ Profile1PhysicalTraversalRecorderV1 {
   let forkAstRegionEmissions = 0
   let forkAstRegionUnits = 0
   let forkAstRegionReuses = 0
+  let forkAstRegionProvenanceReuses = 0
   let commentProjectionPreparations = 0
   let commentProjectionPreparationUnits = 0
   let astCacheTemplateConstructions = 0
@@ -90,6 +95,9 @@ Profile1PhysicalTraversalRecorderV1 {
     recordForkAstRegionEmission: (units: number): void => {
       forkAstRegionEmissions += 1
       forkAstRegionUnits += units
+    },
+    recordForkAstRegionProvenanceReuse: (): void => {
+      forkAstRegionProvenanceReuses += 1
     },
     recordForkAstRegionReuse: (): void => {
       forkAstRegionReuses += 1
@@ -119,6 +127,7 @@ Profile1PhysicalTraversalRecorderV1 {
       forkAstRegionEmissions,
       forkAstRegionUnits,
       forkAstRegionReuses,
+      forkAstRegionProvenanceReuses,
       commentProjectionPreparations,
       commentProjectionPreparationUnits,
       astCacheTemplateConstructions,

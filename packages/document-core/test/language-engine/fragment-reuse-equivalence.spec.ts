@@ -194,7 +194,10 @@ describe('Profile 1 fragment reuse', () => {
     expect(reuseCounts.intrinsicSource).toBe(0)
     expect(reuseCounts.intrinsicSourceUnits).toBe(0)
     expect(reuseCounts.forkAstRegionEmissions).toBe(0)
-    expect(reuseCounts.forkAstRegionReuses).toBeGreaterThan(0)
+    expect(
+      reuseCounts.forkAstRegionReuses +
+      reuseCounts.forkAstRegionProvenanceReuses
+    ).toBeGreaterThan(0)
     expect(revisionRecord(reused)).toEqual(revisionRecord(completeFull))
     expect(materializeDocumentFacts(reused)).toEqual(
       materializeDocumentFacts(full)
@@ -419,7 +422,10 @@ describe('Profile 1 fragment reuse', () => {
     expect(reuseCounts.intrinsicSource).toBe(0)
     expect(reuseCounts.intrinsicSourceUnits).toBe(0)
     expect(reuseCounts.forkAstRegionEmissions).toBe(0)
-    expect(reuseCounts.forkAstRegionReuses).toBeGreaterThan(0)
+    expect(
+      reuseCounts.forkAstRegionReuses +
+      reuseCounts.forkAstRegionProvenanceReuses
+    ).toBeGreaterThan(0)
     expect(revisionRecord(reused)).toEqual(revisionRecord(full))
   })
 
@@ -515,7 +521,10 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION
     )
 
-    expect(reuseCounts.forkAstRegionReuses).toBeGreaterThan(0)
+    expect(
+      reuseCounts.forkAstRegionReuses +
+      reuseCounts.forkAstRegionProvenanceReuses
+    ).toBeGreaterThan(0)
     expect(revisionRecord(reused)).toEqual(revisionRecord(full))
   })
 
@@ -721,7 +730,9 @@ describe('Profile 1 fragment reuse', () => {
       cache,
       reuseRecorder
     )
-    const reuseEngagement = reuseRecorder.counts().forkAstRegionReuses
+    const reuseEngagement =
+      reuseRecorder.counts().forkAstRegionReuses +
+      reuseRecorder.counts().forkAstRegionProvenanceReuses
     const fullRecorder = createPhysicalTraversalRecorderV1()
     const full = parseProfile1Document(
       after,
@@ -733,7 +744,9 @@ describe('Profile 1 fragment reuse', () => {
       undefined,
       fullRecorder
     )
-    const fullEngagement = fullRecorder.counts().forkAstRegionReuses
+    const fullEngagement =
+      fullRecorder.counts().forkAstRegionReuses +
+      fullRecorder.counts().forkAstRegionProvenanceReuses
     expect(reuseEngagement, 'the reusing parse must engage fragment reuse').toBeGreaterThan(0)
     expect(fullEngagement, 'the full parse must reuse nothing').toBe(0)
     expect(reused).toMatchObject({ kind: 'complete' })

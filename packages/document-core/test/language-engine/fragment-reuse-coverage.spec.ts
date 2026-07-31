@@ -52,7 +52,11 @@ function appendKeystrokeCounts(source: string): Readonly<{
   ))
   const counts = engine.traversalCounts()
   return Object.freeze({
-    reuses: counts.forkAstRegionReuses - beforeCounts.forkAstRegionReuses,
+    // Provenance-carried regions satisfy the same property byte-keyed
+    // reuse proves: the region was carried, not re-emitted.
+    reuses: counts.forkAstRegionReuses - beforeCounts.forkAstRegionReuses +
+      counts.forkAstRegionProvenanceReuses -
+      beforeCounts.forkAstRegionProvenanceReuses,
     emissions:
       counts.forkAstRegionEmissions - beforeCounts.forkAstRegionEmissions
   })

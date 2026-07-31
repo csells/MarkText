@@ -127,6 +127,7 @@ describe('one intrinsic Markdown parse', () => {
       forkAstRegionEmissions: 6,
       forkAstRegionUnits: 42,
       forkAstRegionReuses: 0,
+      forkAstRegionProvenanceReuses: 0,
       commentProjectionPreparations: 0,
       commentProjectionPreparationUnits: 0,
       astCacheTemplateConstructions: 0,
@@ -171,7 +172,9 @@ describe('one intrinsic Markdown parse', () => {
     expect(work.forkAstRegionUnits).toBeLessThan(
       source.length + forkRegion.length * 3
     )
-    expect(work.forkAstRegionReuses).toBeGreaterThan(0)
+    expect(
+      work.forkAstRegionReuses + work.forkAstRegionProvenanceReuses
+    ).toBeGreaterThan(0)
   })
 
   it('emits every Comment AST alternative before admission and reads it without work', () => {
@@ -245,7 +248,9 @@ describe('one intrinsic Markdown parse', () => {
     expect(revision.kind).toBe('complete')
     const work = engine.traversalCounts()
     expect(work.forkAstRegionEmissions).toBe(8)
-    expect(work.forkAstRegionReuses).toBe(10)
+    expect(
+      work.forkAstRegionReuses + work.forkAstRegionProvenanceReuses
+    ).toBe(10)
   })
 
   it('stages later reference definitions in the same physical traversal', () => {

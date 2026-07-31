@@ -359,7 +359,16 @@ are transcribed exactly. Its real residue is G36.
   region cache hits. Closing G23's keystroke budget starts there: the
   spliced fork graph knows which regions the edit never touched, so
   emission can carry the prior revision's region ASTs by provenance
-  instead of re-hashing the whole document to rediscover them. Remaining widenings inside the splice:
+  instead of re-hashing the whole document to rediscover them. Landed
+  2026-07-30 for the coinciding-projections case: the emission keeps a
+  per-cache region-template index, splice provenance consults it for
+  unchanged and shifted regions — no slice, no key, no digest, counted
+  by `forkAstRegionProvenanceReuses` — and every keystroke on an
+  eligible document carries all of its untouched regions this way.
+  Re-profiled after: the keystroke's residual cost is region fact
+  parsing, template re-materialization, and projection preparation —
+  the next levers are carrying materialized nodes for unchanged-prefix
+  regions verbatim and giving fact parsing the same provenance skip. Remaining widenings inside the splice:
   definition-bearing documents, multi-edit brackets, CR-only line
   endings.
 
