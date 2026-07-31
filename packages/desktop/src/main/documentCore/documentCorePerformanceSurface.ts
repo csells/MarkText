@@ -29,6 +29,25 @@ interface StagedFile {
 }
 
 export interface DocumentCorePerformanceSurface {
+  /**
+   * The latest execution report main returned to the renderer for this
+   * document, or null before the first recorded operation.
+   */
+  readonly readLastExecution: (
+    documentId: string
+  ) => DocumentCoreExecutionReport | null
+  /**
+   * Length and boundary units of the canonical head, computed main-side so
+   * a maximum document's source never crosses the automation boundary. The
+   * read leases and releases without persisting, leaving history untouched.
+   */
+  readonly readSourceStats: (
+    documentId: string
+  ) => Promise<Readonly<{
+    readonly length: number
+    readonly firstUnit: number
+    readonly lastUnit: number
+  }>>
   readonly readAdmission: (
     documentId: string
   ) => Readonly<{
@@ -123,7 +142,11 @@ function exactPath(value: string): string {
 
 export function createDocumentCorePerformanceSurface(
   sessions: DocumentCoreMainSessionHost,
-  files: DocumentCoreFileHost
+  files: DocumentCoreFileHost,
+  recordedExecution: (documentId: string) => Readonly<{
+    readonly ownerId: string
+    readonly execution: DocumentCoreExecutionReport
+  }> | undefined
 ): DocumentCorePerformanceSurface {
   const stageFile = async(pathname: string): Promise<StagedFile> => {
     const resolved = exactPath(pathname)
@@ -357,6 +380,34 @@ export function createDocumentCorePerformanceSurface(
     }
 
   return Object.freeze({
+    readLastExecution: (
+      documentId: string
+    ): DocumentCoreExecutionReport | null =>
+      recordedExecution(documentId)?.execution ?? null,
+    readSourceStats: async(documentId: string) => {
+      const recorded = recordedExecution(documentId)
+      if (recorded === undefined) {
+        throw new Error(
+          `No recorded owner for document ${documentId}`
+        )
+      }
+      const lease = await sessions.preparePersistence(
+        recorded.ownerId,
+        documentId,
+        'save'
+      )
+      await sessions.releasePersistence(
+        recorded.ownerId,
+        documentId,
+        lease.leaseId
+      )
+      const source = lease.source
+      return Object.freeze({
+        length: source.length,
+        firstUnit: source.charCodeAt(0),
+        lastUnit: source.charCodeAt(source.length - 1)
+      })
+    },
     readAdmission: (documentId: string) => {
       const staging = files.readAdmissionPerformance(documentId)
       return Object.freeze({

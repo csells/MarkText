@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type {
   DocumentCoreMainDispatchRequest,
+  DocumentCoreExecutionReport,
   DocumentCorePublication,
   DocumentCorePathReceipt,
   DocumentCoreRelocateRequest,
@@ -312,6 +313,41 @@ export function describeDocumentCoreFile(
 }
 
 /**
+ * PERF_TESTING-only per-document record of the latest execution report main
+ * returned to a renderer, keyed for the automation performance surface. The
+ * owner id rides along so main-only reads can authenticate follow-up host
+ * queries for the same document.
+ */
+const lastExecutionByDocument = new Map<string, Readonly<{
+  readonly ownerId: string
+  readonly execution: DocumentCoreExecutionReport
+}>>()
+
+function recordDocumentExecution(
+  ownerId: string,
+  documentId: string,
+  execution: DocumentCoreExecutionReport
+): void {
+  if (process.env.PERF_TESTING !== 'true') return
+  lastExecutionByDocument.set(
+    documentId,
+    Object.freeze({ ownerId, execution })
+  )
+}
+
+function recordPublicationExecution(
+  ownerId: string,
+  publication: DocumentCorePublication
+): DocumentCorePublication {
+  recordDocumentExecution(
+    ownerId,
+    publication.documentId,
+    publication.execution
+  )
+  return publication
+}
+
+/**
  * Narrow main-only bridge for compound authorities such as image insertion.
  * Renderer IPC still reaches the document engine only through a closed,
  * caller-specific handler.
@@ -320,7 +356,11 @@ export async function dispatchDocumentCoreIntent(
   sender: DocumentCoreSender,
   request: DocumentCoreMainDispatchRequest
 ): Promise<DocumentCorePublication> {
-  return await mainHost().dispatch(ownerOfSender(sender), request)
+  const ownerId = ownerOfSender(sender)
+  return recordPublicationExecution(
+    ownerId,
+    await mainHost().dispatch(ownerId, request)
+  )
 }
 
 export async function assertDocumentCoreRevision(
@@ -492,7 +532,8 @@ export function registerDocumentCoreHandlers(): void {
       enumerable: false,
       value: createDocumentCorePerformanceSurface(
         mainHost(),
-        documentFileHost()
+        documentFileHost(),
+        documentId => lastExecutionByDocument.get(documentId)
       ),
       writable: false
     })
@@ -565,9 +606,10 @@ export function registerDocumentCoreHandlers(): void {
     'mt::document-core::attach',
     async(event, rawRequest: unknown) => {
       const request = decodeDocumentCoreAttachRequest(rawRequest)
-      return await documentFileHost().attach(
-        ownerOf(event),
-        request.documentId
+      const ownerId = ownerOf(event)
+      return recordPublicationExecution(
+        ownerId,
+        await documentFileHost().attach(ownerId, request.documentId)
       )
     }
   )
@@ -788,20 +830,28 @@ export function registerDocumentCoreHandlers(): void {
   )
   ipcMain.handle(
     'mt::document-core::reconfigure-markdown-options',
-    (event, rawRequest: unknown) => {
+    async(event, rawRequest: unknown) => {
       const request =
         decodeDocumentCoreReconfigureMarkdownOptionsRequest(rawRequest)
-      return mainHost().reconfigureMarkdownOptions(ownerOf(event), request)
+      const ownerId = ownerOf(event)
+      return recordPublicationExecution(
+        ownerId,
+        await mainHost().reconfigureMarkdownOptions(ownerId, request)
+      )
     }
   )
   ipcMain.handle(
     'mt::document-core::dispatch-complete',
     async(event, rawRequest: unknown) => {
       const request = decodeDocumentCoreCompleteDispatchRequest(rawRequest)
-      return await mainHost().completeDispatch(
-        ownerOf(event),
-        request.documentId,
-        request.ticketId
+      const ownerId = ownerOf(event)
+      return recordPublicationExecution(
+        ownerId,
+        await mainHost().completeDispatch(
+          ownerId,
+          request.documentId,
+          request.ticketId
+        )
       )
     }
   )
@@ -818,9 +868,13 @@ export function registerDocumentCoreHandlers(): void {
   )
   ipcMain.handle(
     'mt::document-core::select',
-    (event, rawRequest: unknown) => {
+    async(event, rawRequest: unknown) => {
       const request = decodeDocumentCoreMainSelectRequest(rawRequest)
-      return mainHost().select(ownerOf(event), request)
+      const ownerId = ownerOf(event)
+      return recordPublicationExecution(
+        ownerId,
+        await mainHost().select(ownerId, request)
+      )
     }
   )
   ipcMain.handle(

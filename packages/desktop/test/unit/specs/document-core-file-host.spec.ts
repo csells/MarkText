@@ -428,7 +428,8 @@ describe('main-owned document-core file host', () => {
     await writeFile(pathname, 'performance source', 'utf8')
     const performanceSurface = createDocumentCorePerformanceSurface(
       sessionHost,
-      fileHost
+      fileHost,
+      () => undefined
     )
 
     const result = await performanceSurface.runFileAdmission(pathname)
@@ -452,6 +453,8 @@ describe('main-owned document-core file host', () => {
       }
     })
     expect(Object.keys(performanceSurface)).toEqual([
+      'readLastExecution',
+      'readSourceStats',
       'readAdmission',
       'runFileAdmission',
       'cancelFileAdmission',
@@ -459,12 +462,53 @@ describe('main-owned document-core file host', () => {
     ])
   })
 
+  it('reads recorded executions and main-side source stats per document', async() => {
+    const { fileHost, sessionHost } = await createHarness()
+    const source = '# Stats\n\nBody ends here!\n'
+    const opened = await open(fileHost, source)
+    const publication = await fileHost.attach('renderer:1', opened.documentId)
+    const recorded = Object.freeze({
+      ownerId: 'renderer:1',
+      execution: publication.execution
+    })
+    const performanceSurface = createDocumentCorePerformanceSurface(
+      sessionHost,
+      fileHost,
+      documentId =>
+        documentId === opened.documentId ? recorded : undefined
+    )
+
+    expect(performanceSurface.readLastExecution('missing')).toBeNull()
+    expect(
+      performanceSurface.readLastExecution(opened.documentId)
+    ).toBe(publication.execution)
+
+    const stats = await performanceSurface.readSourceStats(
+      opened.documentId
+    )
+    expect(stats).toEqual({
+      length: source.length,
+      firstUnit: source.charCodeAt(0),
+      lastUnit: source.charCodeAt(source.length - 1)
+    })
+    // The lease behind the read releases without persisting: the session
+    // still reports a clean, unchanged history afterwards.
+    const history = await sessionHost.readHistoryState(
+      'renderer:1',
+      opened.documentId
+    )
+    expect(history.dirty).toBe(false)
+    await expect(performanceSurface.readSourceStats('missing'))
+      .rejects.toThrow(/No recorded owner/)
+  })
+
   it('reports main staging for the production file-host open path', async() => {
     const { fileHost, sessionHost } = await createHarness()
     const opened = await open(fileHost, 'x'.repeat(300_000))
     const performanceSurface = createDocumentCorePerformanceSurface(
       sessionHost,
-      fileHost
+      fileHost,
+      () => undefined
     )
 
     const result = performanceSurface.readAdmission(opened.documentId)
@@ -484,7 +528,8 @@ describe('main-owned document-core file host', () => {
     await writeFile(pathname, 'd'.repeat(300_000), 'utf8')
     const performanceSurface = createDocumentCorePerformanceSurface(
       sessionHost,
-      fileHost
+      fileHost,
+      () => undefined
     )
 
     const result = await performanceSurface.cancelDispatchAndRecoverFile(
