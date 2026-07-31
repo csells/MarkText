@@ -155,10 +155,11 @@ describe('incremental reopen equivalence', () => {
     {
       name: 'replace a middle paragraph body',
       edit: (source) => {
-        const paragraphs = source.split('\n\n')
+        const sep = source.includes('\r\n') ? '\r\n\r\n' : '\n\n'
+        const paragraphs = source.split(sep)
         const middleIndex = Math.floor(paragraphs.length / 2)
-        const before = paragraphs.slice(0, middleIndex).join('\n\n')
-        const start = middleIndex === 0 ? 0 : before.length + 2
+        const before = paragraphs.slice(0, middleIndex).join(sep)
+        const start = middleIndex === 0 ? 0 : before.length + sep.length
         const end = start + (paragraphs[middleIndex]?.length ?? 0)
         return { start, end, insert: 'A wholly rewritten middle paragraph.' }
       }
@@ -236,9 +237,10 @@ describe('incremental reopen equivalence', () => {
       )
       expect(revisionRecord(reopened), shapeName)
         .toEqual(revisionRecord(full))
-      // CRLF documents still fall back to the full pass — a guard beyond the
-      // blank-line separation disqualifies them; the widening that routes
-      // them through the splice asserts the spent bound when it lands.
+      expect(
+        incremental.traversalCounts().intrinsicSourceUnits,
+        `${shapeName} on CRLF took the full pass`
+      ).toBeLessThan(source.length + edited.length)
     }
   })
 

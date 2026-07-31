@@ -253,7 +253,28 @@ function shiftTransition(
       ),
       block: Object.freeze({
         ...transition.emittedFacts.block,
-        lineStart: transition.emittedFacts.block.lineStart + delta
+        lineStart: transition.emittedFacts.block.lineStart + delta,
+        ...(transition.emittedFacts.block.pendingLine === undefined
+          ? {}
+          : {
+            pendingLine: Object.freeze({
+              ...transition.emittedFacts.block.pendingLine,
+              listContinuationIndentations: Object.freeze(
+                transition.emittedFacts.block.pendingLine
+                  .listContinuationIndentations.map((fact) => Object.freeze({
+                    ...fact,
+                    trivia: Object.freeze({
+                      start: fact.trivia.start + delta,
+                      end: fact.trivia.end + delta
+                    }),
+                    exitTrivia: Object.freeze({
+                      start: fact.exitTrivia.start + delta,
+                      end: fact.exitTrivia.end + delta
+                    })
+                  }))
+              )
+            })
+          })
       })
     })
   })
@@ -342,10 +363,7 @@ export function spliceGuardsHold(
     const trailingFinish =
       transition.operation === 'finish-lane' &&
       index === root.transitions.length - 1
-    if (
-      (transition.operation !== 'advance' && !trailingFinish) ||
-      transition.emittedFacts.block.pendingLine !== undefined
-    ) {
+    if (transition.operation !== 'advance' && !trailingFinish) {
       return false
     }
   }
@@ -401,12 +419,16 @@ export function spliceIntrinsicFacts(
     mini.forkGraph.branches.length !== 0 ||
     mini.forkGraph.lanes.length !== 1
   ) {
+    {
     return undefined
+  }
   }
   const miniRoot = mini.forkGraph.lanes[0]
   const retainedRoot = retained.forkGraph.root
   if (miniRoot === undefined || miniRoot !== mini.forkGraph.root) {
+    {
     return undefined
+  }
   }
   const miniAdvances: IntrinsicProfile1LaneTransition[] = []
   let miniFinish: IntrinsicProfile1LaneTransition | undefined
@@ -418,17 +440,16 @@ export function spliceIntrinsicFacts(
       miniFinish = transition
       continue
     }
-    if (
-      transition.operation !== 'advance' ||
-      transition.emittedFacts.block.pendingLine !== undefined
-    ) {
+    if (transition.operation !== 'advance') {
       return undefined
     }
     miniAdvances.push(transition)
   }
   const miniLast = miniAdvances[miniAdvances.length - 1]
   if (miniLast === undefined) {
+    {
     return undefined
+  }
   }
 
   // Tape runs are ordered with ids as indices; the bracket start is a line
@@ -442,13 +463,19 @@ export function spliceIntrinsicFacts(
   }
   const boundaryRun = retained.tape[prefixRunCount]
   if (boundaryRun !== undefined && boundaryRun.range.start < bracket.start) {
+    {
     return undefined
   }
+  }
   for (let index = 0; index < retained.tape.length; index += 1) {
-    if (retained.tape[index]?.id !== index) return undefined
+    if (retained.tape[index]?.id !== index) {
+    return undefined
+  }
   }
   for (let index = 0; index < mini.tape.length; index += 1) {
-    if (mini.tape[index]?.id !== index) return undefined
+    if (mini.tape[index]?.id !== index) {
+    return undefined
+  }
   }
   let suffixRunStart = retained.tape.length
   while (
@@ -463,7 +490,9 @@ export function spliceIntrinsicFacts(
     suffixBoundaryRun !== undefined &&
     suffixBoundaryRun.range.end > bracket.endPrevious
   ) {
+    {
     return undefined
+  }
   }
   const shiftRun = (run: TapeRun, delta: number, id: number): TapeRun =>
     Object.freeze({
@@ -489,7 +518,9 @@ export function spliceIntrinsicFacts(
   ]
   const lastRun = tape[tape.length - 1]
   if (lastRun === undefined || lastRun.range.end !== nextLength) {
+    {
     return undefined
+  }
   }
 
   // Line facts splice at the bracket's line start; a retained line crossing
@@ -499,8 +530,10 @@ export function spliceIntrinsicFacts(
   )
   for (const line of retainedLines) {
     if (line.end > bracket.start && line.start < bracket.start) {
-      return undefined
-    }
+    {
+    return undefined
+  }
+  }
   }
 
   // The prefix re-materializes as one advance transition PER SAFE SEGMENT,
@@ -544,10 +577,14 @@ export function spliceIntrinsicFacts(
     const segmentRuns = runsWithin(from, to)
     let covered = from
     for (const run of segmentRuns) {
-      if (run.range.start !== covered) return undefined
+      if (run.range.start !== covered) {
+    return undefined
+  }
       covered = run.range.end
     }
-    if (covered !== to) return undefined
+    if (covered !== to) {
+    return undefined
+  }
     const segmentLines = retainedLines.filter(
       (line) => line.start >= from && line.end <= to
     )
@@ -599,10 +636,14 @@ export function spliceIntrinsicFacts(
       const segmentRuns = runsWithin(from, to)
       let covered = from
       for (const run of segmentRuns) {
-        if (run.range.start !== covered) return undefined
+        if (run.range.start !== covered) {
+    return undefined
+  }
         covered = run.range.end
       }
-      if (covered !== to) return undefined
+      if (covered !== to) {
+    return undefined
+  }
       const segmentLines = shiftedSuffixLines.filter(
         (line) => line.start >= from && line.end <= to
       )
@@ -666,7 +707,9 @@ export function spliceIntrinsicFacts(
   const first = transitions[0]
   const last = transitions[transitions.length - 1]
   if (first === undefined || last === undefined) {
+    {
     return undefined
+  }
   }
   const items: IntrinsicProfile1ForkLaneItem[] = tape.map(
     (run) => Object.freeze({
