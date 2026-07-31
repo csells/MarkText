@@ -132,8 +132,7 @@ describe('document clipboard paste IPC effect gate', () => {
       intent: {
         kind: 'paste-text',
         target,
-        text: '{++exact source++}',
-        source: 'raw-source-import'
+        payload: { kind: 'private-source', text: '{++exact source++}' }
       }
     })
   })
@@ -190,8 +189,7 @@ describe('document clipboard paste IPC effect gate', () => {
       intent: {
         kind: 'paste-text',
         target,
-        text: '{++external text++}',
-        source: 'external-text'
+        payload: { kind: 'external-text', text: '{++external text++}' }
       }
     })
   })
@@ -224,8 +222,7 @@ describe('document clipboard paste IPC effect gate', () => {
       intent: {
         kind: 'paste-text',
         target,
-        text: 'external plain text',
-        source: 'external-text'
+        payload: { kind: 'external-text', text: 'external plain text' }
       }
     })
   })

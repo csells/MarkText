@@ -422,8 +422,10 @@ export async function createTestDocumentCoreView(
                     text => harness.session.dispatch(Object.freeze({
                         kind: 'paste-text',
                         target,
-                        text,
-                        source: 'external-text',
+                        payload: Object.freeze({
+                            kind: 'external-text' as const,
+                            text,
+                        }),
                     })),
                 ),
             }),

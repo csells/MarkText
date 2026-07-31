@@ -121,7 +121,7 @@ export type PastePayload =
   }>
 
 export interface PasteConsumerRequest {
-  readonly view: ConsumerView
+  readonly view: ClipboardView
   readonly payload: PastePayload
 }
 
@@ -138,6 +138,10 @@ export type PasteConsumerResult =
   | Readonly<{
     readonly kind: 'semantic-html-edit'
     readonly html: TrustedHtml<'clipboard'>
+  }>
+  | Readonly<{
+    readonly kind: 'source-text-edit'
+    readonly text: string
   }>
   | DisabledConsumer
 
@@ -956,6 +960,18 @@ export function classifyPasteConsumer(
   request: PasteConsumerRequest
 ): PasteConsumerResult {
   assertComplete(revision)
+  if (request.view === 'source') {
+    // Source is the exact-byte surface: every text flavor lands verbatim as
+    // a source edit — a private-source import and plain text spell the same
+    // bytes there. HTML has no source spelling and no production caller.
+    if (request.payload.kind === 'safe-html') {
+      throw new TypeError('The source view accepts no HTML paste')
+    }
+    return Object.freeze({
+      kind: 'source-text-edit',
+      text: request.payload.text
+    })
+  }
   if (request.view !== 'markup') {
     return Object.freeze({
       kind: 'disabled',

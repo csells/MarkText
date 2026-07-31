@@ -220,8 +220,7 @@ async function invokeHost(
       intent: {
         kind: 'paste-text',
         target: request.target,
-        text: ' main clipboard',
-        source: 'external-text'
+        payload: { kind: 'external-text' as const, text: ' main clipboard' }
       }
     })
   }

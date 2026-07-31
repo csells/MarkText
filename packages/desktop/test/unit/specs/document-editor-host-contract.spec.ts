@@ -44,8 +44,7 @@ const standaloneSession = async(
     pasteClipboard: target => session.dispatch({
       kind: 'paste-text',
       target,
-      text: clipboard.pasteText ?? '',
-      source: 'external-text'
+      payload: { kind: 'external-text' as const, text: clipboard.pasteText ?? '' }
     })
   })
 }

@@ -221,8 +221,7 @@ const FIXTURES = new Map<string, TrackFixture>([
     intent: (session) => ({
       kind: 'paste-text',
       target: sessionTarget(session),
-      text: 'X',
-      source: 'external-text'
+      payload: { kind: 'external-text', text: 'X' }
     })
   }],
   ['paste/addition/content/pending-revised', {
@@ -232,8 +231,7 @@ const FIXTURES = new Map<string, TrackFixture>([
     intent: (session) => ({
       kind: 'paste-text',
       target: sessionTarget(session),
-      text: '*x*',
-      source: 'raw-source-import'
+      payload: { kind: 'private-source', text: '*x*' }
     })
   }],
   ['ime/none/none/plain', {

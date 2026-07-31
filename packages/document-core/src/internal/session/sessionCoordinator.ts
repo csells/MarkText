@@ -75,6 +75,7 @@ import {
 import type { RevisionSemanticHashV1 } from '../../hashCodec.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
 import {
+  classifyPasteConsumer,
   materializeClipboardConsumer,
   materializeStaticConsumer,
   type ClipboardConsumerRequest,
@@ -1337,10 +1338,30 @@ export class SessionCoordinator {
           next
         )
       } else if (intent.kind === 'paste-text') {
+        // The paste question — which payload flavors import raw syntax,
+        // which are semantic edits, and which surface takes the bytes
+        // verbatim — is answered by the consumer policy, never here. The
+        // projection guard above already refused read-only views, so the
+        // disabled arm is unreachable through dispatch; it stays refused
+        // for any future caller that consults the policy directly.
+        const route = classifyPasteConsumer(this.#worker.state.revision, {
+          view: intent.target.view === 'source' ? 'source' : 'markup',
+          payload: intent.payload
+        })
+        if (route.kind === 'disabled') {
+          throw new IntentRejection('read-only-projection')
+        }
+        if (route.kind === 'semantic-html-edit') {
+          throw new TypeError(
+            'The paste intent carries no wire spelling for trusted HTML'
+          )
+        }
         prepared = this.#worker.preparePaste(
           intent.target,
-          intent.text,
-          intent.source,
+          route.text,
+          route.kind === 'raw-syntax-import' || route.kind === 'source-text-edit'
+            ? 'raw-source-import'
+            : 'external-text',
           next
         )
       } else if (intent.kind === 'commit-composition') {

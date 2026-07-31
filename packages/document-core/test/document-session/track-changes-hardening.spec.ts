@@ -156,8 +156,7 @@ describe('DocumentSession Track Changes hardening', () => {
     await commit(imported, {
       kind: 'paste-text',
       target: targetOf(imported),
-      text: '{--nested--}',
-      source: 'raw-source-import'
+      payload: { kind: 'private-source', text: '{--nested--}' }
     })
     expect(imported.snapshot().revision.source)
       .toBe('{++a{--nested--}b++}')
@@ -227,8 +226,7 @@ describe('DocumentSession Track Changes hardening', () => {
       (session: DocumentSession): EditorIntent => ({
         kind: 'paste-text',
         target: targetOf(session),
-        text: 'replacement',
-        source: 'external-text'
+        payload: { kind: 'external-text', text: 'replacement' }
       }),
       (session: DocumentSession): EditorIntent => ({
         kind: 'commit-composition',
@@ -305,8 +303,7 @@ describe('DocumentSession Track Changes hardening', () => {
         create: (session: DocumentSession): EditorIntent => ({
           kind: 'paste-text',
           target: targetOf(session),
-          text: '',
-          source: 'external-text'
+          payload: { kind: 'external-text', text: '' }
         })
       },
       {

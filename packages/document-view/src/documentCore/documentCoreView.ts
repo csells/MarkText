@@ -2198,8 +2198,7 @@ export async function createDocumentCoreView(
             await dispatchIntent({
                 kind: 'paste-text',
                 target,
-                text: command.text,
-                source: command.source,
+                payload: { kind: command.source, text: command.text },
             });
             return;
         }
@@ -3621,8 +3620,7 @@ export async function createDocumentCoreView(
             await settle(session.dispatch({
                 kind: 'paste-text',
                 target,
-                text: inserted,
-                source: 'external-text',
+                payload: { kind: 'external-text', text: inserted },
             }), true);
             return;
         }

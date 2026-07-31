@@ -681,11 +681,23 @@ export interface DeleteTableCellContentsIntent {
   readonly target: ModelSelection
 }
 
+/**
+ * The wire-safe paste payload flavors. How each flavor lands — raw syntax
+ * import, semantic text edit, or source edit — is the consumer policy's
+ * question (`classifyPasteConsumer`), not the dispatcher's: a caller
+ * declares what its clipboard held, never how the engine should treat it.
+ * The policy's `safe-html` flavor is absent here because its TrustedHtml
+ * brand cannot cross an intent codec.
+ */
+export type PasteTextPayload =
+  | Readonly<{ readonly kind: 'private-source'; readonly text: string }>
+  | Readonly<{ readonly kind: 'markdown'; readonly text: string }>
+  | Readonly<{ readonly kind: 'external-text'; readonly text: string }>
+
 export interface PasteTextIntent {
   readonly kind: 'paste-text'
   readonly target: ModelSelection
-  readonly text: string
-  readonly source: 'external-text' | 'raw-source-import'
+  readonly payload: PasteTextPayload
 }
 
 /**

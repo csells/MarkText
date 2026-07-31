@@ -62,20 +62,19 @@ export function registerDocumentClipboardPasteHandler(
       if (decoded.kind === 'invalid') {
         throw new TypeError('Invalid document clipboard HTML envelope')
       }
-      const authenticated = decoded.kind === 'authenticated'
-      const text = authenticated
-        ? decoded.source
-        : dependencies.readText()
+      // The handler declares what the clipboard held; how each flavor lands
+      // is the consumer policy's decision inside the engine
+      // (classifyPasteConsumer), never classified here.
+      const payload = decoded.kind === 'authenticated'
+        ? { kind: 'private-source' as const, text: decoded.source }
+        : { kind: 'external-text' as const, text: dependencies.readText() }
       const dispatch = decodeDocumentCoreMainDispatchRequest({
         documentId: request.documentId,
         baseSnapshotId: request.baseSnapshotId,
         intent: {
           kind: 'paste-text',
           target: request.target,
-          text,
-          source: authenticated
-            ? 'raw-source-import'
-            : 'external-text'
+          payload
         }
       })
       return await dependencies.dispatch(event.sender, dispatch)

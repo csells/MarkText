@@ -32,8 +32,7 @@ export function decodeDocumentClipboardPasteRequest(
     intent: {
       kind: 'paste-text',
       target: record.target,
-      text: '',
-      source: 'external-text'
+      payload: { kind: 'external-text', text: '' }
     }
   })
   if (dispatch.intent.kind !== 'paste-text') {

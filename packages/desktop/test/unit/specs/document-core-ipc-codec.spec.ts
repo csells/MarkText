@@ -310,8 +310,7 @@ const intentCases = Object.freeze([
   {
     kind: 'paste-text',
     target: markupSelection,
-    text: 'paste',
-    source: 'external-text'
+    payload: { kind: 'external-text', text: 'paste' }
   },
   { kind: 'commit-composition', target: markupSelection, text: '入力' },
   {

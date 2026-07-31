@@ -403,6 +403,7 @@ function editorIntent(value: unknown): EditorIntent {
     'source',
     'selection',
     'input',
+    'payload',
     'enabled',
     'checked',
     'cascade',
@@ -680,16 +681,23 @@ function editorIntent(value: unknown): EditorIntent {
       const record = closedRecord(
         value,
         `intent.${kind}`,
-        ['kind', 'target', 'text', 'source']
+        ['kind', 'target', 'payload']
+      )
+      const payload = closedRecord(
+        record.payload,
+        `intent.${kind}.payload`,
+        ['kind', 'text']
       )
       return Object.freeze({
         ...withTarget(record, kind),
-        text: text(record.text, `intent.${kind}.text`),
-        source: oneOf(
-          record.source,
-          `intent.${kind}.source`,
-          ['external-text', 'raw-source-import']
-        )
+        payload: Object.freeze({
+          kind: oneOf(
+            payload.kind,
+            `intent.${kind}.payload.kind`,
+            ['private-source', 'markdown', 'external-text']
+          ),
+          text: text(payload.text, `intent.${kind}.payload.text`)
+        })
       }) as EditorIntent
     }
     case 'author-critic-markup': {

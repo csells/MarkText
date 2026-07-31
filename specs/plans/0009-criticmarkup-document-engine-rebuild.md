@@ -530,14 +530,20 @@ whose assertion cannot distinguish pass from fail.
 
 - **G19 Consumer policy declares what production routes around.** The live
   editor sink now reads its plan through `routeLiveConsumer` at the worker's
-  publication site, so that declared route is load-bearing. Three exported
-  entry points still have no production caller — `viewLength`,
-  `classifyPasteConsumer`, and `planReplaceConsumer` — while production
-  classifies paste by hand
-  (`packages/desktop/src/main/ipc/documentClipboardPaste.ts:73-77`) and
-  routes replace elsewhere. Production routes those questions through the
-  policy; deleting the declarations is rejected, because the module owns
-  the per-kind sink exactness table (`PROFILE1_KIND_SINK_EXACTNESS`, A41).
+  publication site, and the paste question now routes through
+  `classifyPasteConsumer` at the session coordinator: the paste intent
+  carries a declared clipboard payload (`private-source`, `markdown`,
+  `external-text`) instead of a pre-classified treatment, the policy
+  answers how each flavor lands (including the new `source-text-edit`
+  route that makes the declaration truthful about source-view pastes),
+  and no caller — the desktop paste handler included — classifies by
+  hand. Two exported entry points still have no production caller —
+  `viewLength` and `planReplaceConsumer` — while production routes
+  replace elsewhere and in-editor find still searches visible text where
+  the policy demands canonical source. Production routes those remaining
+  questions through the policy; deleting the declarations is rejected,
+  because the module owns the per-kind sink exactness table
+  (`PROFILE1_KIND_SINK_EXACTNESS`, A41).
 **W6 — Budgets and release**
 
 - **G23 Measured budgets are unmet.** Edit and deletion latency, worker stall,

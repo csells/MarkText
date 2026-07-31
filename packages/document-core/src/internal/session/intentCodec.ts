@@ -740,16 +740,26 @@ export function decodeEditorIntent(value: unknown): EditorIntent {
       }) as EditorIntent
     }
     if (kind === 'paste-text') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'text', 'source'])
+      const stable = closedRecord(value, 'root', ['kind', 'target', 'payload'])
+      const payload = closedRecord(
+        dataField(stable, 'payload', 'root'),
+        `${kind}.payload`,
+        ['kind', 'text']
+      )
       return Object.freeze({
         kind,
         target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        text: payloadString(dataField(stable, 'text', 'root'), `${kind}.text`),
-        source: enumValue(
-          dataField(stable, 'source', 'root'),
-          `${kind}.source`,
-          new Set(['external-text', 'raw-source-import'] as const)
-        )
+        payload: Object.freeze({
+          kind: enumValue(
+            dataField(payload, 'kind', `${kind}.payload`),
+            `${kind}.payload.kind`,
+            new Set(['private-source', 'markdown', 'external-text'] as const)
+          ),
+          text: payloadString(
+            dataField(payload, 'text', `${kind}.payload`),
+            `${kind}.payload.text`
+          )
+        })
       })
     }
     if (kind === 'author-critic-markup') {

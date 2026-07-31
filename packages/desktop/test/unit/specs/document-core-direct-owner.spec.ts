@@ -39,8 +39,7 @@ describe('document-core desktop owner', () => {
       pasteClipboard: async target => await session.dispatch({
         kind: 'paste-text',
         target,
-        text: await options.pasteText(),
-        source: 'external-text'
+        payload: { kind: 'external-text' as const, text: await options.pasteText() }
       }),
       writeClipboardMaterialization: async request => {
         await options.clipboardWrite?.(request)
