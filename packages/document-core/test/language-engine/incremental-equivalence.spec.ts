@@ -381,6 +381,58 @@ describe('incremental reopen equivalence', () => {
     expect(revisionRecord(reopened)).toEqual(revisionRecord(full))
   })
 
+  it('matches a full parse across marker shapes and regions', () => {
+    const markerBodies = [
+      'Nested {++outer {==inner==} tail++} forms sit here.',
+      'Anchored {==span==}{>>note<<} comment pair rests.',
+      'A {~~worse~>better~~} swap and {--gone--} deletion.'
+    ]
+    for (const markerBody of markerBodies) {
+      for (const editWhere of ['tail', 'head'] as const) {
+        const paragraphs = [
+          'Opening paragraph of plain prose for the head edit target.',
+          markerBody,
+          'Middle paragraph of plain prose stands between regions.',
+          markerBody.replaceAll('inner', 'inner2')
+            .replaceAll('note', 'note2')
+            .replaceAll('gone', 'gone2'),
+          'Closing paragraph of plain prose for the tail edit target.'
+        ]
+        const source = paragraphs.join('\n\n') + '\n'
+        const offset = editWhere === 'tail'
+          ? source.length - 9
+          : source.indexOf(' prose for the head') 
+        const edit = { start: offset, end: offset, insert: ' edited' }
+        const edited =
+          source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
+
+        const incremental = createLanguageEngine()
+        const opened = incremental.open(
+          createSourceSnapshot(source),
+          TEST_CONFIGURATION
+        )
+        expect(opened.kind).toBe('complete')
+        const before = incremental.traversalCounts().intrinsicSourceUnits
+        const reopened = incremental.reopen(
+          opened,
+          createSourceSnapshot(edited),
+          [{ start: edit.start, end: edit.end, insert: edit.insert }]
+        )
+        const spent =
+          incremental.traversalCounts().intrinsicSourceUnits - before
+        const full = createLanguageEngine().open(
+          createSourceSnapshot(edited),
+          TEST_CONFIGURATION
+        )
+        const label = `${markerBody.slice(0, 18)} / ${editWhere}`
+        expect(revisionRecord(reopened), label)
+          .toEqual(revisionRecord(full))
+        expect(spent, `${label} took the full pass`)
+          .toBeLessThan(edited.length)
+      }
+    }
+  })
+
   it('falls back to the full pass when the window carries syntax', () => {
     const source = prose(20, 'fallback')
     const engine = createLanguageEngine()

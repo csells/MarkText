@@ -74,6 +74,7 @@ import type {
   MappedProjectionSegment
 } from './profile1/syntaxGraph.js'
 import {
+  intrinsicForkSafeSourcePoints,
   createIntrinsicProfile1SourceProgression,
   createProfile1MarkdownReuseCache,
   createProfile1MarkdownForkParser,
@@ -4559,9 +4560,11 @@ export function parseProfile1Document(
     ...finalized,
     simpleTextIdentity:
       tapeCertifiesSimpleTextSource(parsed.tape),
-    // Retention aliases the frozen arrays the parse already produced; under
-    // the CriticMarkup-free guard the original projection shares canonical
-    // coordinates, so its block starts are the canonical safe points.
+    // Retention aliases the frozen arrays the parse already produced. Safe
+    // points come from the fork graph's own reconvergence primitive — the
+    // same one downstream regionization consumes — so they are canonical
+    // source coordinates for marker-bearing documents too; a projected
+    // view's block starts would drift by every elided marker.
     retainedIntrinsic: Object.freeze({
       sourceLength: source.length,
       hasCriticMarkupCandidate: parsed.hasCriticMarkupCandidate,
@@ -4572,7 +4575,7 @@ export function parseProfile1Document(
       tape: parsed.tape,
       diagnostics: parsed.diagnostics,
       markdownLiterals: parsed.markdownLiterals,
-      safePoints: safePointsOf(original.markdown),
+      safePoints: intrinsicForkSafeSourcePoints(parsed.forkGraph.root),
       forkGraph: parsed.forkGraph,
       roots: criticMarkupRoots,
       markerDecisions: parsed.markerDecisions

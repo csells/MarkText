@@ -292,6 +292,18 @@ function shiftTransition(
   })
 }
 
+function transitionExtent(
+  transition: IntrinsicProfile1LaneTransition
+): Readonly<{ start: number; end: number }> {
+  let start = transition.entryCheckpoint.lineStart
+  let end = transition.exitCheckpoint.lineStart
+  for (const slice of transition.consumed) {
+    start = Math.min(start, slice.range.start)
+    end = Math.max(end, slice.range.end)
+  }
+  return Object.freeze({ start, end })
+}
+
 function shiftDecision(
   decision: CanonicalMarkerDecision,
   delta: number,
@@ -358,7 +370,8 @@ function shiftForkLane(
   lane: IntrinsicProfile1ForkLane,
   delta: number,
   remapRunId: (id: number) => number,
-  twins: ReadonlyMap<CriticMarkupNode, CriticMarkupNode>
+  twins: ReadonlyMap<CriticMarkupNode, CriticMarkupNode>,
+  allocateLaneId: () => number
 ): IntrinsicProfile1ForkLane {
   const owner = lane.owner.kind === 'document'
     ? lane.owner
@@ -367,8 +380,9 @@ function shiftForkLane(
       node: twins.get(lane.owner.node) ?? lane.owner.node,
       arm: lane.owner.arm
     })
+  const id = allocateLaneId()
   return Object.freeze({
-    id: lane.id,
+    id,
     owner,
     range: spliceRange(lane.range.start + delta, lane.range.end + delta),
     entryCheckpoint: shiftMarkdownCheckpoint(lane.entryCheckpoint, delta),
@@ -384,7 +398,7 @@ function shiftForkLane(
     )),
     items: Object.freeze(lane.items.map((item) =>
       'kind' in item && item.kind === 'critic-branch'
-        ? shiftForkBranch(item, delta, remapRunId, twins)
+        ? shiftForkBranch(item, delta, remapRunId, twins, allocateLaneId)
         : shiftSlice(item, delta, remapRunId)
     ))
   })
@@ -398,7 +412,8 @@ function shiftForkBranch(
   }>,
   delta: number,
   remapRunId: (id: number) => number,
-  twins: ReadonlyMap<CriticMarkupNode, CriticMarkupNode>
+  twins: ReadonlyMap<CriticMarkupNode, CriticMarkupNode>,
+  allocateLaneId: () => number
 ): Readonly<{
   kind: 'critic-branch'
   node: CriticMarkupNode
@@ -408,7 +423,7 @@ function shiftForkBranch(
     kind: 'critic-branch' as const,
     node: twins.get(branch.node) ?? branch.node,
     arms: Object.freeze(branch.arms.map(
-      (arm) => shiftForkLane(arm, delta, remapRunId, twins)
+      (arm) => shiftForkLane(arm, delta, remapRunId, twins, allocateLaneId)
     ))
   })
 }
@@ -519,10 +534,11 @@ export function spliceGuardsHold(
       return false
     }
     // A transition may cross ONE bracket boundary — the assembly clips it
-    // at the safe point — but never span the whole bracket.
-    const start = transition.entryCheckpoint.lineStart
-    const end = transition.exitCheckpoint.lineStart
-    if (start < bracket.start && end > bracket.endPrevious) {
+    // at the safe point — but never span the whole bracket. Extents come
+    // from the consumed slices: a line-start pair understates a transition
+    // that consumes past its final line start.
+    const extent = transitionExtent(transition)
+    if (extent.start < bracket.start && extent.end > bracket.endPrevious) {
       return false
     }
   }
@@ -784,17 +800,16 @@ export function spliceIntrinsicFacts(
     const prefixTransitions: IntrinsicProfile1LaneTransition[] = []
     const suffixSideTransitions: IntrinsicProfile1LaneTransition[] = []
     for (const transition of retainedRoot.transitions) {
-      const start = transition.entryCheckpoint.lineStart
-      const end = transition.exitCheckpoint.lineStart
-      if (end <= bracket.start) {
+      const extent = transitionExtent(transition)
+      if (extent.end <= bracket.start) {
         prefixTransitions.push(shiftTransition(transition, 0, remapPrefix))
-      } else if (start >= bracket.endPrevious) {
+      } else if (extent.start >= bracket.endPrevious) {
         suffixSideTransitions.push(
           shiftTransition(transition, bracket.delta, remapSuffix)
         )
-      } else if (start < bracket.start) {
+      } else if (extent.start < bracket.start) {
         prefixTransitions.push(clipTransition(transition, 'prefix'))
-      } else if (end > bracket.endPrevious) {
+      } else if (extent.end > bracket.endPrevious) {
         suffixSideTransitions.push(clipTransition(transition, 'suffix'))
       }
       // A transition fully inside the bracket is the mini-parse's business.
@@ -816,12 +831,6 @@ export function spliceIntrinsicFacts(
     if (markerFirst === undefined || markerLast === undefined) {
       return undefined
     }
-    const branchItemCount = retainedRoot.items.filter(
-      (item) => 'kind' in item && item.kind === 'critic-branch'
-    ).length
-    if (branchItemCount !== retained.forkGraph.branches.length) {
-      return undefined
-    }
 
     // Every bail point is behind us: replaying into the caller's registry is
     // now safe — a fallback after this would leave phantom emissions for the
@@ -835,11 +844,55 @@ export function spliceIntrinsicFacts(
     zipForest(prefixRoots, replayedPrefix, twins)
     zipForest(suffixRoots, replayedSuffix, twins)
 
-    const shiftedBranches = retained.forkGraph.branches.map((branch) =>
-      branch.node.range.end <= bracket.start
-        ? shiftForkBranch(branch, 0, remapPrefix, twins)
-        : shiftForkBranch(branch, bracket.delta, remapSuffix, twins)
+    // Root items carry only top-level branches; nested ones live inside arm
+    // lanes and shift recursively with their parent. The graph's flat branch
+    // list re-collects from the shifted tree afterwards.
+    const topLevelBranches = retainedRoot.items.filter(
+      (item): item is Readonly<{
+        kind: 'critic-branch'
+        node: CriticMarkupNode
+        arms: readonly IntrinsicProfile1ForkLane[]
+      }> => 'kind' in item && item.kind === 'critic-branch'
     )
+    // Lane ids are ordinals of the final lanes list: the root takes 0 and
+    // every arm lane numbers sequentially in traversal order — the same
+    // order the lane collector walks — so allocation happens during the
+    // shift itself and object identity is shared between the lanes list and
+    // the branches that carry them.
+    let nextLaneId = 1
+    const allocateLaneId = (): number => {
+      const id = nextLaneId
+      nextLaneId += 1
+      return id
+    }
+    const shiftedBranches = [...topLevelBranches]
+      .sort((left, right) => left.node.range.start - right.node.range.start)
+      .map((branch) =>
+        branch.node.range.end <= bracket.start
+          ? shiftForkBranch(branch, 0, remapPrefix, twins, allocateLaneId)
+          : shiftForkBranch(
+            branch,
+            bracket.delta,
+            remapSuffix,
+            twins,
+            allocateLaneId
+          )
+      )
+    const collectBranchesDeep = (
+      branches: readonly Readonly<{
+        kind: 'critic-branch'
+        node: CriticMarkupNode
+        arms: readonly IntrinsicProfile1ForkLane[]
+      }>[]
+    ): typeof branches => branches.flatMap((branch) => [
+      branch,
+      ...branch.arms.flatMap((arm) => collectBranchesDeep(
+        arm.items.filter(
+          (item): item is (typeof branches)[number] =>
+            'kind' in item && item.kind === 'critic-branch'
+        )
+      ))
+    ])
     const collectArmLanes = (
       branches: readonly Readonly<{
         kind: 'critic-branch'
@@ -859,9 +912,7 @@ export function spliceIntrinsicFacts(
     // Root items rebuild canonically from the spliced tape: slice items for
     // every run outside a branch, branch items at their node positions —
     // cursor-contiguous exactly as the graph-core validator demands.
-    const orderedBranches = [...shiftedBranches].sort(
-      (left, right) => left.node.range.start - right.node.range.start
-    )
+    const orderedBranches = shiftedBranches
     const markerItems: IntrinsicProfile1ForkLaneItem[] = []
     {
       let runIndex = 0
@@ -900,7 +951,7 @@ export function spliceIntrinsicFacts(
     }
 
     const markerLane: IntrinsicProfile1ForkLane = Object.freeze({
-      id: retainedRoot.id,
+      id: 0,
       owner: retainedRoot.owner,
       range: spliceRange(0, nextLength),
       entryCheckpoint: markerFirst.entryCheckpoint,
@@ -943,7 +994,7 @@ export function spliceIntrinsicFacts(
           markerLane,
           ...collectArmLanes(shiftedBranches)
         ]),
-        branches: Object.freeze(shiftedBranches)
+        branches: Object.freeze(collectBranchesDeep(shiftedBranches))
       }),
       roots: Object.freeze([...replayedPrefix, ...replayedSuffix]),
       markerDecisions: Object.freeze(markerDecisions)

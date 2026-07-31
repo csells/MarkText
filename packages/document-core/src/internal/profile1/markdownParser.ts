@@ -6199,7 +6199,7 @@ function checkpointIsForkReconvergence(
   )
 }
 
-function intrinsicForkSafeSourcePoints(
+export function intrinsicForkSafeSourcePoints(
   lane: IntrinsicProfile1ForkLane
 ): readonly number[] {
   const points = new Set<number>()
