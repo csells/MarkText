@@ -323,9 +323,10 @@ are transcribed exactly. Its real residue is G36.
   `mapPositionThroughEdits`, and `nodeModelRangeAtMarkupCoordinateMap`
   joined the existing three (`coordinate-authority.spec.ts`), and the
   worker's two local answers are deleted with all six call sites routed
-  through the authority. Remaining re-derivers:
-  `internal/session/sessionCoordinator.ts:403-419` and `:434-473`,
-  `view/markupRender.ts:771-840`, and
+  through the authority, and the coordinator's Review lookup now answers
+  node extents and focus targeting through the authority — the local
+  distance tie rule is retired for `boundaryNear`'s one rule. Remaining
+  re-derivers: `view/markupRender.ts:771-840` and
   `packages/document-view/src/documentCore/documentCoreInputAdapter.ts:156-224`
   still scan runs with their own affinity and edge rules; closure routes
   them through the authority and leaves runs a render substrate only.

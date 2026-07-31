@@ -95,6 +95,10 @@ import {
 import { createMemoryDocumentSessionJournalStorage } from '../../sessionJournalStorage.js'
 import { createSourceSnapshot } from '../../sourceSnapshot.js'
 import type { MarkupView } from './markupView.js'
+import {
+  boundaryNearMarkupCoordinateMap,
+  nodeModelRangeAtMarkupCoordinateMap
+} from '../../markupCoordinateMap.js'
 import { createSelectionAuthority } from './selectionAuthority.js'
 import { IntentRejection, RevisionWorker } from './revisionWorker.js'
 import {
@@ -401,93 +405,38 @@ const READ_ONLY_AUTHORING = Object.freeze({
   canCreateComment: false
 })
 
-interface MutableModelRange {
-  start: number
-  end: number
-}
-
 interface ReviewViewLookup {
-  readonly modelRangeFor: (nodeId: NodeId) => ModelRange | null
+  readonly modelRangeFor: (
+    range: Readonly<{ readonly start: number; readonly end: number }>
+  ) => ModelRange | null
   readonly focusOffsetFor: (sourceOffset: number) => number
 }
 
+/**
+ * Review answers both its coordinate questions through the declared
+ * authority: a node's visible extent from its exact source range, and focus
+ * targeting from `boundaryNear`'s one tie rule — never a run walk with a
+ * local distance rule.
+ */
 function createReviewViewLookup(view: MarkupView): ReviewViewLookup {
-  const mutableRanges = new Map<NodeId, MutableModelRange>()
-  for (const run of view.runs) {
-    for (const mark of run.marks) {
-      const range = mutableRanges.get(mark.nodeId)
-      if (range === undefined) {
-        mutableRanges.set(mark.nodeId, {
-          start: run.modelRange.start,
-          end: run.modelRange.end
-        })
-      } else {
-        range.start = Math.min(range.start, run.modelRange.start)
-        range.end = Math.max(range.end, run.modelRange.end)
-      }
-    }
-  }
-  const modelRanges = new Map<NodeId, ModelRange>()
-  for (const [nodeId, range] of mutableRanges) {
-    modelRanges.set(nodeId, Object.freeze({
-      start: range.start,
-      end: range.end
-    }))
-  }
-
-  const runAt = (index: number): MarkupView['runs'][number] => {
-    const run = view.runs[index]
-    if (run === undefined) {
-      throw new Error('Review view run lookup is internally incomplete')
-    }
-    return run
-  }
-  const boundaryFocusOffset = (target: number): number => {
-    let low = 0
-    let high = view.runs.length - 1
-    let previousIndex = -1
-    while (low <= high) {
-      const middle = Math.floor((low + high) / 2)
-      if (Number(runAt(middle).sourceRange.end) <= target) {
-        previousIndex = middle
-        low = middle + 1
-      } else {
-        high = middle - 1
-      }
-    }
-
-    low = 0
-    high = view.runs.length - 1
-    let nextIndex = view.runs.length
-    while (low <= high) {
-      const middle = Math.floor((low + high) / 2)
-      if (Number(runAt(middle).sourceRange.start) >= target) {
-        nextIndex = middle
-        high = middle - 1
-      } else {
-        low = middle + 1
-      }
-    }
-
-    const previous = previousIndex < 0 ? undefined : runAt(previousIndex)
-    const next = nextIndex >= view.runs.length ? undefined : runAt(nextIndex)
-    if (previous === undefined) {
-      return next?.modelRange.start ?? 0
-    }
-    if (next === undefined) {
-      return previous.modelRange.end
-    }
-    return target - Number(previous.sourceRange.end) <=
-      Number(next.sourceRange.start) - target
-      ? previous.modelRange.end
-      : next.modelRange.start
-  }
-
   return Object.freeze({
-    modelRangeFor: Object.freeze(
-      (nodeId: NodeId): ModelRange | null => modelRanges.get(nodeId) ?? null
-    ),
-    focusOffsetFor: Object.freeze(boundaryFocusOffset)
+    modelRangeFor: Object.freeze((
+      range: Readonly<{ readonly start: number; readonly end: number }>
+    ): ModelRange | null => {
+      const extent = nodeModelRangeAtMarkupCoordinateMap(
+        view.coordinateMap,
+        Object.freeze({ start: Number(range.start), end: Number(range.end) })
+      )
+      return extent.start === extent.end
+        ? null
+        : Object.freeze({ start: extent.start, end: extent.end })
+    }),
+    focusOffsetFor: Object.freeze((sourceOffset: number): number =>
+      boundaryNearMarkupCoordinateMap(view.coordinateMap, Object.freeze({
+        offset: sourceOffset,
+        affinity: 'next' as const
+      })).offset
+    )
   })
 }
 
@@ -507,7 +456,7 @@ function createReviewIndex(
     parent: NodeId | null,
     withinCommentPayload: boolean
   ): ReviewIndexItem => {
-    const modelRange = lookup.modelRangeFor(node.nodeId)
+    const modelRange = lookup.modelRangeFor(node.range)
     return Object.freeze({
       nodeId: node.nodeId,
       kind: node.kind,
@@ -651,7 +600,7 @@ function createReviewIndex(
       ) {
         continue
       }
-      const modelRange = lookup.modelRangeFor(highlight.nodeId)
+      const modelRange = lookup.modelRangeFor(highlight.range)
       if (modelRange === null) {
         continue
       }
