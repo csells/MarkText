@@ -537,6 +537,101 @@ function createSubstitutionNode(
   return node
 }
 
+/**
+ * Re-emit a retained CriticMarkup forest into a fresh identity registry with
+ * every coordinate shifted — the marker-bearing arm of the G32 splice. The
+ * replay mirrors the pass's emission sequence exactly (children before their
+ * parent, node before arms, markers and ownership last) with the same
+ * offset-embedded semantic keys, so the registry it fills is
+ * indistinguishable from one the full pass would have produced for the
+ * shifted document.
+ */
+export function replayShiftedCriticMarkupForest(
+  registry: Profile1SyntaxIdentityRegistry,
+  roots: readonly CriticMarkupNode[],
+  shiftOffset: (offset: number) => number
+): readonly CriticMarkupNode[] {
+  const shiftR = (range: SourceRange): SourceRange =>
+    sourceRange(shiftOffset(range.start), shiftOffset(range.end))
+
+  const replayNode = (node: CriticMarkupNode): CriticMarkupNode => {
+    const replayedChildrenByArm = node.arms.map(
+      (arm) => Object.freeze(arm.children.map(replayNode))
+    )
+    const range = shiftR(node.range)
+    const semanticKey = `critic:${node.kind}:${range.start}:${range.end}`
+    const nodeId = registry.emitNode(
+      node.kind,
+      Object.freeze({ key: semanticKey, range }),
+      semanticKey
+    )
+    const replayArm = <Name extends 'content' | 'old' | 'new' | 'comment'>(
+      arm: CriticMarkupArm<Name>,
+      children: readonly CriticMarkupNode[]
+    ): CriticMarkupArm<Name> => {
+      const armRange = shiftR(arm.range)
+      const armKey = `critic-arm:${nodeId}:${arm.name}`
+      const armId = registry.emitNode(
+        'critic-arm',
+        Object.freeze({ key: armKey, range: armRange }),
+        armKey
+      )
+      registry.emitEdge('critic-arm', nodeId, armId, arm.name)
+      for (const child of children) {
+        registry.emitEdge('contains', armId, child.nodeId)
+      }
+      return Object.freeze(defineNodeId({
+        name: arm.name,
+        range: armRange,
+        children
+      }, armId))
+    }
+    if (node.kind === 'substitution') {
+      const markers = Object.freeze({
+        open: shiftR(node.markers.open),
+        separator: shiftR(node.markers.separator),
+        close: shiftR(node.markers.close)
+      })
+      const replayed = Object.freeze(defineNodeId({
+        kind: 'substitution' as const,
+        range,
+        markers,
+        arms: Object.freeze([
+          replayArm(node.arms[0], replayedChildrenByArm[0] ?? Object.freeze([])),
+          replayArm(node.arms[1], replayedChildrenByArm[1] ?? Object.freeze([]))
+        ]) as readonly [CriticMarkupArm<'old'>, CriticMarkupArm<'new'>]
+      }, nodeId))
+      emitCriticMarkerEdges(registry, nodeId, 'substitution', Object.freeze([
+        Object.freeze({ role: 'open', range: markers.open }),
+        Object.freeze({ role: 'separator', range: markers.separator }),
+        Object.freeze({ role: 'close', range: markers.close })
+      ]))
+      return replayed
+    }
+    const markers = Object.freeze({
+      open: shiftR(node.markers.open),
+      close: shiftR(node.markers.close)
+    })
+    const arm = replayArm(
+      node.arms[0],
+      replayedChildrenByArm[0] ?? Object.freeze([])
+    )
+    const replayed = Object.freeze(defineNodeId({
+      kind: node.kind,
+      range,
+      markers,
+      arms: Object.freeze([arm])
+    }, nodeId)) as CriticMarkupNode
+    emitCriticMarkerEdges(registry, nodeId, node.kind, Object.freeze([
+      Object.freeze({ role: 'open', range: markers.open }),
+      Object.freeze({ role: 'close', range: markers.close })
+    ]))
+    return replayed
+  }
+
+  return Object.freeze(roots.map(replayNode))
+}
+
 function createDiagnostic(
   code: SyntaxDiagnostic['code'],
   range: SourceRange,
