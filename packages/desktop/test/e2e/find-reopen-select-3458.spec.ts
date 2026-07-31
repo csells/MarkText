@@ -25,7 +25,7 @@ test.describe('Find bar reopen selects the existing term (#3458)', () => {
   })
 
   test('re-opening Find highlights the existing query so it can be typed over', async() => {
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find')
     await expect(page.locator('.search-bar')).toBeVisible({ timeout: 5000 })
     await page.locator(FIND_INPUT).fill('apple')
     // Let the search settle (active match selected) before re-opening.
@@ -33,7 +33,7 @@ test.describe('Find bar reopen selects the existing term (#3458)', () => {
       .toContain('/ 2')
 
     // Re-trigger Find while the bar is already open with a term present.
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find')
 
     // The whole term must be selected (so a keystroke replaces it), not left
     // with a collapsed caret at the end.

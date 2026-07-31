@@ -4,6 +4,7 @@ import type { CommandManager } from '../../commands'
 import type {
   DocumentFormatMenuState
 } from '@shared/types/documentSelection'
+import type { EditorCommandId } from '@shared/types/editorCommands'
 
 const MENU_ID_FORMAT_MAP: Readonly<
   Record<string, keyof DocumentFormatMenuState>
@@ -23,58 +24,58 @@ const MENU_ID_FORMAT_MAP: Readonly<
 
 type Win = BrowserWindow | null | undefined
 
-const format = (win: Win, type: string): void => {
+const format = (win: Win, command: EditorCommandId): void => {
   if (win && win.webContents) {
-    win.webContents.send('mt::editor-format-action', { type })
+    win.webContents.send('mt::editor-command', command)
   }
 }
 
 export const clearFormat = (win: Win): void => {
-  format(win, 'clear')
+  format(win, 'format-clear')
 }
 
 export const emphasis = (win: Win): void => {
-  format(win, 'em')
+  format(win, 'format-emphasis')
 }
 
 export const highlight = (win: Win): void => {
-  format(win, 'mark')
+  format(win, 'format-highlight')
 }
 
 export const hyperlink = (win: Win): void => {
-  format(win, 'link')
+  format(win, 'format-link')
 }
 
 export const image = (win: Win): void => {
-  format(win, 'image')
+  format(win, 'format-image')
 }
 
 export const inlineCode = (win: Win): void => {
-  format(win, 'inline_code')
+  format(win, 'format-inline-code')
 }
 
 export const inlineMath = (win: Win): void => {
-  format(win, 'inline_math')
+  format(win, 'format-inline-math')
 }
 
 export const strikethrough = (win: Win): void => {
-  format(win, 'del')
+  format(win, 'format-strikethrough')
 }
 
 export const strong = (win: Win): void => {
-  format(win, 'strong')
+  format(win, 'format-strong')
 }
 
 export const subscript = (win: Win): void => {
-  format(win, 'sub')
+  format(win, 'format-subscript')
 }
 
 export const superscript = (win: Win): void => {
-  format(win, 'sup')
+  format(win, 'format-superscript')
 }
 
 export const underline = (win: Win): void => {
-  format(win, 'u')
+  format(win, 'format-underline')
 }
 
 // --- Commands -------------------------------------------------------------

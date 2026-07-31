@@ -6,8 +6,8 @@ import {
   table
 } from 'main_renderer/menu/actions/paragraph'
 
-describe('paragraph document actions', () => {
-  it('sends the same closed semantic payloads used by the command palette', () => {
+describe('paragraph menu actions', () => {
+  it('sends the same command ids used by the command palette', () => {
     const send = vi.fn()
     const win = { webContents: { send } }
 
@@ -17,19 +17,10 @@ describe('paragraph document actions', () => {
     table(win as never)
 
     expect(send.mock.calls).toEqual([
-      ['mt::editor-paragraph-action', {
-        kind: 'convert-block',
-        conversion: { kind: 'heading', level: 1 }
-      }],
-      ['mt::editor-paragraph-action', {
-        kind: 'convert-block',
-        conversion: { kind: 'ordered-list' }
-      }],
-      ['mt::editor-paragraph-action', {
-        kind: 'convert-block',
-        conversion: { kind: 'paragraph' }
-      }],
-      ['mt::editor-paragraph-action', { kind: 'request-table' }]
+      ['mt::editor-command', 'heading-1'],
+      ['mt::editor-command', 'ordered-list'],
+      ['mt::editor-command', 'paragraph'],
+      ['mt::editor-command', 'insert-table']
     ])
   })
 })

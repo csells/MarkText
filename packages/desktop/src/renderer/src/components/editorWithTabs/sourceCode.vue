@@ -38,6 +38,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import bus from '../../bus'
+import { decodeEditorCommandId } from '@shared/types/editorCommands'
 import { t } from '../../i18n'
 import {
   createSourceModeController,
@@ -493,6 +494,17 @@ const handleRedo = (): void => {
   if (controller !== null) reportFailure(controller.redo(), 'redo')
 }
 
+// Source mode's arms of the one editor-command vocabulary; editor.vue's
+// markup arms return early while Source mode is mounted.
+const handleEditorCommand = (value: unknown): void => {
+  switch (decodeEditorCommandId(value)) {
+    case 'select-all': return handleSelectAll()
+    case 'undo': return handleUndo()
+    case 'redo': return handleRedo()
+    default:
+  }
+}
+
 const handleRefresh = (): void => {
   if (controller === null) return
   pendingRefreshes += 1
@@ -538,9 +550,7 @@ const handleScrollToHeader = (nodeId: unknown): void => {
 onMounted(async () => {
   bus.on('file-loaded', handleRefresh)
   bus.on('file-changed', handleRefresh)
-  bus.on('selectAll', handleSelectAll)
-  bus.on('undo', handleUndo)
-  bus.on('redo', handleRedo)
+  bus.on('editor-command', handleEditorCommand)
   bus.on('scroll-to-header', handleScrollToHeader)
 
   const port = await sourceModeDocumentPort()
@@ -561,9 +571,7 @@ onBeforeUnmount(() => {
   disposeInputSettlement = () => {}
   bus.off('file-loaded', handleRefresh)
   bus.off('file-changed', handleRefresh)
-  bus.off('selectAll', handleSelectAll)
-  bus.off('undo', handleUndo)
-  bus.off('redo', handleRedo)
+  bus.off('editor-command', handleEditorCommand)
   bus.off('scroll-to-header', handleScrollToHeader)
   controller?.destroy()
   controller = null

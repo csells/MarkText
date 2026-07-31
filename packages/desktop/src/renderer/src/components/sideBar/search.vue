@@ -110,6 +110,7 @@ import { useProjectStore } from '@/store/project'
 import { useEditorStore } from '@/store/editor'
 import { storeToRefs } from 'pinia'
 import bus from '../../bus'
+import { decodeEditorCommandId } from '@shared/types/editorCommands'
 import log from 'electron-log'
 import SearchResultItem from './searchResultItem.vue'
 import RipgrepDirectorySearcher from '../../node/ripgrepSearcher'
@@ -232,6 +233,10 @@ const search = (): void => {
   searcherCancelCallback = cancellable.cancel.bind(cancellable)
 }
 
+const handleEditorCommand = (value: unknown): void => {
+  if (decodeEditorCommandId(value) === 'find-in-folder') handleFindInFolder()
+}
+
 const handleFindInFolder = (executeSearch: boolean | unknown = true): void => {
   nextTick(() => {
     if (searchEl.value) {
@@ -306,7 +311,7 @@ watch(showSideBar, (value, oldValue) => {
 
 onMounted(() => {
   handleFindInFolder()
-  bus.on('findInFolder', handleFindInFolder)
+  bus.on('editor-command', handleEditorCommand)
   if (keyword.value.length > 0 && searcherRunning.value === false) {
     searcherRunning.value = true
     search()

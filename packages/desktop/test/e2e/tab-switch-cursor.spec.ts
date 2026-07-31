@@ -184,7 +184,7 @@ test.describe('Tab switch restores the per-tab undo history', () => {
     // never touches ' BEDIT'. Undo until A settles on its baseline.
     let current = await paragraphText(0)
     for (let step = 0; step < 30 && current !== 'alpha'; step += 1) {
-      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await sendIpcToRenderer(app, 'mt::editor-command', 'undo')
       await page.waitForTimeout(250)
       const next = await paragraphText(0)
       expect(next.length).toBeLessThanOrEqual(current.length)

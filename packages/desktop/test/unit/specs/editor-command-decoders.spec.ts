@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  decodeCopyPasteCommand,
   decodeEditorExportCommand,
   decodeMisspellingRequest,
-  decodeParagraphAction,
   decodeReplaceRequest,
   decodeSearchRequest
 } from '@/components/editorWithTabs/editorCommandDecoders'
@@ -99,8 +97,6 @@ describe('closed editor command decoders', () => {
   })
 
   it('decodes copy, paragraph, search, replace, and misspelling commands', () => {
-    expect(decodeCopyPasteCommand('copyAsRich')).toBe('copyAsRich')
-    expect(decodeParagraphAction('duplicate')).toBe('duplicate')
     expect(decodeSearchRequest({
       value: 'needle',
       opt: {
@@ -148,8 +144,6 @@ describe('closed editor command decoders', () => {
       replacement: 'misspell'
     })
 
-    expect(() => decodeCopyPasteCommand('copy')).toThrow(/copy command/)
-    expect(() => decodeParagraphAction('remove')).toThrow(/paragraph command/)
     expect(() => decodeSearchRequest({ value: 1 })).toThrow(/search/)
     expect(() => decodeReplaceRequest({
       value: 'x',

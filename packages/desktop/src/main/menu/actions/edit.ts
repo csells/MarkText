@@ -5,6 +5,7 @@ import { emitInternalChannel } from '../../utils/internalIpc'
 import type {
   DocumentClipboardConsumerPolicy
 } from '@shared/types/documentSurface'
+import type { EditorCommandId } from '@shared/types/editorCommands'
 
 type Win = BrowserWindow | null | undefined
 
@@ -25,31 +26,31 @@ export const editorRedo = (win: Win): void => {
 }
 
 export const editorCopyAsRich = (win: Win): void => {
-  edit(win, 'copyAsRich')
+  edit(win, 'copy-as-rich')
 }
 
 export const editorCopyAsHtml = (win: Win): void => {
-  edit(win, 'copyAsHtml')
+  edit(win, 'copy-as-html')
 }
 
 export const editorPasteAsPlainText = (win: Win): void => {
-  edit(win, 'pasteAsPlainText')
+  edit(win, 'paste-as-plain-text')
 }
 
 export const editorSelectAll = (win: Win): void => {
-  edit(win, 'selectAll')
+  edit(win, 'select-all')
 }
 
 export const editorDuplicate = (win: Win): void => {
-  edit(win, 'duplicate')
+  edit(win, 'duplicate-block')
 }
 
 export const editorCreateParagraph = (win: Win): void => {
-  edit(win, 'createParagraph')
+  edit(win, 'insert-paragraph')
 }
 
 export const editorDeleteParagraph = (win: Win): void => {
-  edit(win, 'deleteParagraph')
+  edit(win, 'delete-block')
 }
 
 export const editorFind = (win: Win): void => {
@@ -57,11 +58,11 @@ export const editorFind = (win: Win): void => {
 }
 
 export const editorFindNext = (win: Win): void => {
-  edit(win, 'findNext')
+  edit(win, 'find-next')
 }
 
 export const editorFindPrevious = (win: Win): void => {
-  edit(win, 'findPrev')
+  edit(win, 'find-previous')
 }
 
 export const editorReplace = (win: Win): void => {
@@ -69,12 +70,12 @@ export const editorReplace = (win: Win): void => {
 }
 
 export const findInFolder = (win: Win): void => {
-  edit(win, 'findInFolder')
+  edit(win, 'find-in-folder')
 }
 
-export const edit = (win: Win, type: string): void => {
+export const edit = (win: Win, command: EditorCommandId): void => {
   if (win && win.webContents) {
-    win.webContents.send('mt::editor-edit-action', type)
+    win.webContents.send('mt::editor-command', command)
   }
 }
 

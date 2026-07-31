@@ -65,7 +65,7 @@ test('main-owned A and B sessions retain isolated undo, redo, and dirty state', 
     await expect.poll(() => editorText(page)).toBe('alphaA')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'undo')
     await expect.poll(() => editorText(page)).toBe('alpha')
     await expect.poll(() => activeTabIsDirty(page)).toBe(false)
     await expect.poll(() => historyMenuState(app)).toEqual({
@@ -73,7 +73,7 @@ test('main-owned A and B sessions retain isolated undo, redo, and dirty state', 
       canRedo: true
     })
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'redo')
     await expect.poll(() => editorText(page)).toBe('alphaA')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
     await expect.poll(() => historyMenuState(app)).toEqual({

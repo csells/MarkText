@@ -27,38 +27,6 @@ export function decodeEditorExportCommand(
   })
 }
 
-export type CopyPasteCommand =
-  | 'copyAsRich'
-  | 'copyAsHtml'
-  | 'pasteAsPlainText'
-
-export function decodeCopyPasteCommand(value: unknown): CopyPasteCommand {
-  if (
-    value !== 'copyAsRich' &&
-    value !== 'copyAsHtml' &&
-    value !== 'pasteAsPlainText'
-  ) {
-    throw new TypeError(`Unknown copy command: ${String(value)}`)
-  }
-  return value
-}
-
-export type ParagraphAction =
-  | 'duplicate'
-  | 'createParagraph'
-  | 'deleteParagraph'
-
-export function decodeParagraphAction(value: unknown): ParagraphAction {
-  if (
-    value !== 'duplicate' &&
-    value !== 'createParagraph' &&
-    value !== 'deleteParagraph'
-  ) {
-    throw new TypeError(`Unknown paragraph command: ${String(value)}`)
-  }
-  return value
-}
-
 export function decodeSearchRequest(
   value: unknown
 ): Readonly<{ query: DocumentSearchQuery; selectActiveMatch: boolean }> {

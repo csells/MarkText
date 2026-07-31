@@ -91,6 +91,7 @@ import {
 } from '@marktext/document-view'
 import {
   type ConsumerView,
+  type BlockConversion,
   type InlineFormat
 } from '@marktext/document-core'
 import type {
@@ -164,7 +165,11 @@ import { useDocumentSurfaceContext } from './useDocumentSurfaceContext'
 import {
   documentSurfaceFromProjection
 } from '@shared/types/documentSurface'
-import { decodeParagraphDocumentAction } from '@shared/types/paragraphDocumentAction'
+import { decodeEditorCommandId } from '@shared/types/editorCommands'
+import {
+  BLOCK_CONVERSION_COMMANDS,
+  INLINE_FORMAT_COMMANDS
+} from './editorCommandBindings'
 import type {
   SourceModeCopyRequest,
   SourceModeDocumentPort,
@@ -176,10 +181,8 @@ import type {
 } from './sourceModeController'
 import { useEditorLifecycle } from './useEditorLifecycle'
 import {
-  decodeCopyPasteCommand,
   decodeEditorExportCommand,
   decodeMisspellingRequest,
-  decodeParagraphAction,
   decodeReplaceRequest,
   decodeSearchRequest
 } from './editorCommandDecoders'
@@ -322,27 +325,6 @@ const serializeCursor = (
     anchor: { offset: selection.anchor.offset },
     focus: { offset: selection.focus.offset }
   }
-}
-
-const inlineFormatForCommand = (type: string): InlineFormat => {
-  const formats: Readonly<Record<string, InlineFormat>> = {
-    strong: 'strong',
-    em: 'emphasis',
-    u: 'underline',
-    sup: 'superscript',
-    sub: 'subscript',
-    mark: 'highlight',
-    inline_code: 'inline-code',
-    inline_math: 'inline-math',
-    del: 'strikethrough',
-    link: 'link',
-    clear: 'clear'
-  }
-  const format = formats[type]
-  if (format === undefined) {
-    throw new TypeError(`Unknown document inline format: ${type}`)
-  }
-  return format
 }
 
 class SimpleImageViewer {
@@ -759,8 +741,9 @@ const handleSelectAll = () => {
 // `copyAsRich` writes the rendered HTML to `text/html` AND the plain text to
 // `text/plain`, so pasting into Word/email yields formatted rich text (whereas
 // `copyAsHtml` blanks `text/html` and puts the HTML source into `text/plain`).
-const handleCopyPaste = (type: unknown) => {
-  const command = decodeCopyPasteCommand(type)
+const handleCopyPaste = (
+  command: 'copy-as-rich' | 'copy-as-html' | 'paste-as-plain-text'
+) => {
   if (sourceCode.value) {
     notice.notify({
       title: t('editor.sourceCode.semanticClipboardUnavailableTitle'),
@@ -771,12 +754,12 @@ const handleCopyPaste = (type: unknown) => {
   }
   const targetEditor = editor.value
   if (!targetEditor) return
-  if (command === 'pasteAsPlainText') {
+  if (command === 'paste-as-plain-text') {
     reportAsyncTask(
       targetEditor.pasteAsPlainText(),
       'Paste as plain text'
     )
-  } else if (command === 'copyAsHtml') {
+  } else if (command === 'copy-as-html') {
     reportAsyncTask(targetEditor.copyAsHtml(), 'Copy as HTML')
   } else {
     reportAsyncTask(targetEditor.copyAsRich(), 'Copy as rich text')
@@ -1224,26 +1207,60 @@ const rejectUnavailableInSource = (): void => {
   )
 }
 
-const handleEditParagraph = (value: unknown) => {
-  const action = decodeParagraphDocumentAction(value)
-  // These commands act on the semantic view, so they are impossible in Source
-  // mode — otherwise the Insert Table wizard could target the hidden surface
-  // (#3531). They reject visibly rather than returning silently.
+// These commands act on the semantic view, so they are impossible in Source
+// mode — otherwise the Insert Table wizard could target the hidden surface
+// (#3531). They reject visibly rather than returning silently.
+// The one terminal fan-in for editor commands: an id resolves to a typed
+// intent (or a UI affordance) here. Commands other components own — the
+// find family — are ignored; their subscribers hold their own arms.
+const handleEditorCommand = (value: unknown) => {
+  const command = decodeEditorCommandId(value)
+  switch (command) {
+    case 'undo': return handleUndo()
+    case 'redo': return handleRedo()
+    case 'select-all': return handleSelectAll()
+    case 'copy-as-rich':
+    case 'copy-as-html':
+    case 'paste-as-plain-text':
+      return handleCopyPaste(command)
+    case 'duplicate-block':
+    case 'insert-paragraph':
+    case 'delete-block':
+      return handleParagraph(command)
+    case 'insert-table':
+      return handleRequestTable()
+    case 'format-image':
+      return handleOpenImageSelector()
+    default:
+  }
+  const conversion = BLOCK_CONVERSION_COMMANDS[command]
+  if (conversion !== undefined) return handleBlockConversion(conversion)
+  const format = INLINE_FORMAT_COMMANDS[command]
+  if (format !== undefined) return handleInlineFormat(format)
+}
+
+const handleRequestTable = () => {
   if (sourceCode.value) {
     rejectUnavailableInSource()
     return
   }
-  if (action.kind === 'request-table') {
-    const targetEditor = editor.value
-    if (targetEditor === null) return
-    reportAsyncTask(targetEditor.requestTable(), 'Create table')
-  } else {
+  const targetEditor = editor.value
+  if (targetEditor === null) return
+  reportAsyncTask(targetEditor.requestTable(), 'Create table')
+}
+
+const handleBlockConversion = (conversion: BlockConversion) => {
+  if (sourceCode.value) {
+    rejectUnavailableInSource()
+    return
+  }
+  {
     const targetEditor = editor.value
     if (targetEditor === null) return
     reportAsyncTask(
       targetEditor.dispatchTargetedIntent({
         kind: 'convert-block',
-        conversion: action.conversion
+        conversion
       }).then(() => {
         if (editor.value !== targetEditor) return
         // Re-sync the menu so a no-op action (e.g. "Paragraph" inside a
@@ -1274,50 +1291,45 @@ const handleEditParagraph = (value: unknown) => {
 }
 
 // handle `duplicate`, `delete`, `create paragraph below`
-const handleParagraph = (type: unknown) => {
-  const action = decodeParagraphAction(type)
+const handleParagraph = (
+  action: 'duplicate-block' | 'insert-paragraph' | 'delete-block'
+) => {
   if (sourceCode.value) {
     rejectUnavailableInSource()
     return
   }
   const targetEditor = editor.value
   if (targetEditor === null) return
-  const operation = (() => {
-    switch (action) {
-      case 'duplicate':
-        return targetEditor.dispatchTargetedIntent({ kind: 'duplicate-block' })
-      case 'createParagraph':
-        return targetEditor.dispatchTargetedIntent({
-          kind: 'insert-paragraph',
-          location: 'after'
-        })
-      case 'deleteParagraph':
-        return targetEditor.dispatchTargetedIntent({ kind: 'delete-block' })
-    }
-  })()
-  if (operation !== undefined) {
-    reportAsyncTask(operation, `Paragraph ${action}`)
-  }
+  const operation = action === 'insert-paragraph'
+    ? targetEditor.dispatchTargetedIntent({
+      kind: 'insert-paragraph',
+      location: 'after'
+    })
+    : targetEditor.dispatchTargetedIntent({ kind: action })
+  reportAsyncTask(operation, `Paragraph ${action}`)
 }
 
-const handleInlineFormat = (type: unknown) => {
-  if (typeof type !== 'string') {
-    throw new TypeError('Inline format commands require a string type.')
-  }
+const handleOpenImageSelector = () => {
   if (sourceCode.value) {
     rejectUnavailableInSource()
     return
   }
   const targetEditor = editor.value
   if (targetEditor === null) return
-  if (type === 'image') {
-    reportAsyncTask(targetEditor.openImageSelector(), 'Open Image selector')
+  reportAsyncTask(targetEditor.openImageSelector(), 'Open Image selector')
+}
+
+const handleInlineFormat = (format: InlineFormat) => {
+  if (sourceCode.value) {
+    rejectUnavailableInSource()
     return
   }
+  const targetEditor = editor.value
+  if (targetEditor === null) return
   reportAsyncTask(
     targetEditor.dispatchTargetedIntent({
       kind: 'format-text',
-      format: inlineFormatForCommand(type)
+      format
     }).catch(
       (error: unknown) => {
         // A refusal (collapsed selection, stale target) is a normal outcome
@@ -1870,12 +1882,8 @@ useEditorLifecycle(async () => {
 
   // listen for bus events.
   bus.on('file-loaded', setMarkdownToEditor)
-  bus.on('undo', handleUndo)
-  bus.on('redo', handleRedo)
-  bus.on('selectAll', handleSelectAll)
+  bus.on('editor-command', handleEditorCommand)
   bus.on('export', handleExport)
-  bus.on('paragraph', handleEditParagraph)
-  bus.on('format', handleInlineFormat)
   bus.on('searchValue', handleSearch)
   bus.on('replaceValue', handReplace)
   bus.on('find-action', handleFindAction)
@@ -1884,12 +1892,6 @@ useEditorLifecycle(async () => {
   bus.on('flush-active-editor', flushActiveEditor)
   bus.on('editor-blur', blurEditor)
   bus.on('editor-focus', focusEditor)
-  bus.on('copyAsRich', handleCopyPaste)
-  bus.on('copyAsHtml', handleCopyPaste)
-  bus.on('pasteAsPlainText', handleCopyPaste)
-  bus.on('duplicate', handleParagraph)
-  bus.on('createParagraph', handleParagraph)
-  bus.on('deleteParagraph', handleParagraph)
   bus.on('insertParagraph', handleInsertParagraph)
   bus.on('scroll-to-header', scrollToHeader)
   bus.on('scroll-to-anchor-element', scrollToAnchorElement)
@@ -2059,12 +2061,8 @@ useEditorLifecycle(async () => {
     { surface: 'source', hasSelection: false }
   )
   bus.off('file-loaded', setMarkdownToEditor)
-  bus.off('undo', handleUndo)
-  bus.off('redo', handleRedo)
-  bus.off('selectAll', handleSelectAll)
+  bus.off('editor-command', handleEditorCommand)
   bus.off('export', handleExport)
-  bus.off('paragraph', handleEditParagraph)
-  bus.off('format', handleInlineFormat)
   bus.off('searchValue', handleSearch)
   bus.off('replaceValue', handReplace)
   bus.off('find-action', handleFindAction)
@@ -2073,12 +2071,6 @@ useEditorLifecycle(async () => {
   bus.off('flush-active-editor', flushActiveEditor)
   bus.off('editor-blur', blurEditor)
   bus.off('editor-focus', focusEditor)
-  bus.off('copyAsRich', handleCopyPaste)
-  bus.off('copyAsHtml', handleCopyPaste)
-  bus.off('pasteAsPlainText', handleCopyPaste)
-  bus.off('duplicate', handleParagraph)
-  bus.off('createParagraph', handleParagraph)
-  bus.off('deleteParagraph', handleParagraph)
   bus.off('insertParagraph', handleInsertParagraph)
   bus.off('scroll-to-header', scrollToHeader)
   bus.off('scroll-to-anchor-element', scrollToAnchorElement)

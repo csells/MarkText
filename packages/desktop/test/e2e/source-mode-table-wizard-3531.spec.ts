@@ -44,9 +44,9 @@ test.describe('paragraph edit commands are suppressed in source mode (#3531)', (
     await page.evaluate(() => {
       delete document.documentElement.dataset.tableActionReceived
       window.electron.ipcRenderer.once(
-        'mt::editor-paragraph-action',
-        (_event, action) => {
-          document.documentElement.dataset.tableActionReceived = action.kind
+        'mt::editor-command',
+        (_event, command) => {
+          document.documentElement.dataset.tableActionReceived = String(command)
         }
       )
     })
@@ -54,7 +54,7 @@ test.describe('paragraph edit commands are suppressed in source mode (#3531)', (
     await pressUserKeybinding(page, app, tableAccelerator)
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.dataset.tableActionReceived
-    )).toBe('request-table')
+    )).toBe('insert-table')
 
     // The table wizard dialog must NOT appear in source mode.
     await expect(page.locator(TABLE_DIALOG)).toHaveCount(0)

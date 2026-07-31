@@ -468,16 +468,24 @@ are transcribed exactly. Its real residue is G36.
   paragraph and block, format, link, footnote, code language, list
   indentation, table row, image) are deleted in favor of the host's
   two dispatch seams — `editor.vue` constructs typed intents at its
-  bus handlers and the image service's port adapter. What remains: the
-  menu/IPC/bus restatements — three divergent channels
-  (`mt::editor-edit-action`, `-format-action`, `-paragraph-action`),
-  `ParagraphDocumentAction`, the triplicated inline-format string
-  vocabulary, and the per-command bus fan-out — collapsing to one
-  shared command-id union, one channel, and one renderer binding
-  table whose entries construct intents; then preparation-table
-  polish (cause, draft retention, and the noop rule as declared spec
-  fields; `prepare*` privatization) and precondition widening with
-  contract rows.
+  bus handlers and the image service's port adapter. The menu/IPC/bus
+  surface is collapsed (2026-07-31): one `EditorCommandId` vocabulary
+  (`shared/types/editorCommands.ts`) names every user action; menu
+  items, main-registered accelerators, and the palette all emit ids on
+  the one `mt::editor-command` channel and `editor-command` bus event;
+  the three divergent channels, `ParagraphDocumentAction`, the
+  triplicated inline-format string vocabulary, and the per-command bus
+  fan-out are deleted. Ids resolve to document-core payload literals
+  in exactly one place (`editorCommandBindings.ts` +
+  `editor.vue`'s fan-in), typed against the union so vocabulary drift
+  is a compile error; Source mode, the find bar, and the search
+  sidebar hold their own arms of the same vocabulary. What remains:
+  preparation-table polish (cause, draft retention, and the noop rule
+  as declared spec fields; `prepare*` privatization) and precondition
+  widening with contract rows; the format checkbox-state vocabulary
+  (`DocumentFormatMenuState`, `MENU_ID_FORMAT_MAP`) is deliberately
+  left for G5's format-menu-bits work, where that state becomes
+  capability-driven.
 - **G39 [high] The view predicts model positions and submits them.** During a
   typing burst the view chains a draft target from hard-coded widths —
   `+data.length`, `+2` for a paragraph break, `+1` for a line break

@@ -23,7 +23,7 @@ import {
 // or source edit exists until the form submits:
 //
 //   Format -> Image menu  (main: menu/actions/format.ts `image`)
-//     -> ipc 'mt::editor-format-action' { type: 'image' }
+//     -> ipc 'mt::editor-command' 'format-image'
 //     -> renderer store/listenForMain.ts re-emits bus 'format'
 //     -> editor.vue delegates to the document view's Image selector
 //     -> submit dispatches one typed `insert-image` intent.
@@ -91,8 +91,8 @@ test.describe('Format -> Image edit tool wiring', () => {
     await resetToEmpty(page, app)
   })
 
-  test('IPC mt::editor-format-action {image} opens the edit tool with a focused src input', async() => {
-    await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
+  test('IPC mt::editor-command format-image opens the edit tool with a focused src input', async() => {
+    await sendIpcToRenderer(app, 'mt::editor-command', 'format-image')
 
     // Opening creates only target-owned draft UI.
     await page.waitForSelector(srcInput, { state: 'attached', timeout: 5000 })
@@ -121,7 +121,7 @@ test.describe('Format -> Image edit tool wiring', () => {
   })
 
   test('The opened edit tool is the empty link/embed editor (src input, no value)', async() => {
-    await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
+    await sendIpcToRenderer(app, 'mt::editor-command', 'format-image')
 
     await page.waitForSelector(srcInput, { state: 'attached', timeout: 5000 })
     await expect.poll(() => toolShown(page), { timeout: 5000 }).toBe(true)

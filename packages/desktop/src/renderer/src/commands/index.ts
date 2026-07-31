@@ -11,7 +11,6 @@ import {
   type CriticMarkupReviewAction
 } from '../../../common/commands/review'
 import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
-import { PARAGRAPH_DOCUMENT_ACTIONS } from '@shared/types/paragraphDocumentAction'
 
 export { default as QuickOpenCommand } from './quickOpen'
 export { default as SpellcheckerLanguageCommand } from './spellcheckerLanguage'
@@ -190,61 +189,61 @@ const commands: CommandDescriptor[] = [
   {
     id: 'edit.undo',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('undo', 'undo'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'undo'))
     }
   },
   {
     id: 'edit.redo',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('redo', 'redo'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'redo'))
     }
   },
   {
     id: 'edit.duplicate',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('duplicate', 'duplicate'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'duplicate-block'))
     }
   },
   {
     id: 'edit.create-paragraph',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('createParagraph', 'createParagraph'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'insert-paragraph'))
     }
   },
   {
     id: 'edit.delete-paragraph',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('deleteParagraph', 'deleteParagraph'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'delete-block'))
     }
   },
   {
     id: 'edit.find',
     execute: async() => {
-      bus.emit('find', 'find')
+      bus.emit('editor-command', 'find')
     }
   },
   {
     id: 'edit.find-next',
     execute: async() => {
-      bus.emit('findNext', 'findNext')
+      bus.emit('editor-command', 'find-next')
     }
   },
   {
     id: 'edit.find-previous',
     execute: async() => {
-      bus.emit('findPrev', 'findPrev')
+      bus.emit('editor-command', 'find-previous')
     }
   },
   {
     id: 'edit.replace',
     execute: async() => {
-      bus.emit('replace', 'replace')
+      bus.emit('editor-command', 'replace')
     }
   },
   {
     id: 'edit.find-in-folder',
     execute: async() => {
-      bus.emit('mt::editor-edit-action', 'findInFolder')
+      bus.emit('editor-command', 'find-in-folder')
     }
   },
 
@@ -254,127 +253,127 @@ const commands: CommandDescriptor[] = [
   {
     id: 'paragraph.heading-1',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading1))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-1'))
     }
   },
   {
     id: 'paragraph.heading-2',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading2))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-2'))
     }
   },
   {
     id: 'paragraph.heading-3',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading3))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-3'))
     }
   },
   {
     id: 'paragraph.heading-4',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading4))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-4'))
     }
   },
   {
     id: 'paragraph.heading-5',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading5))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-5'))
     }
   },
   {
     id: 'paragraph.heading-6',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.heading6))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-6'))
     }
   },
   {
     id: 'paragraph.upgrade-heading',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.upgradeHeading))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'upgrade-heading'))
     }
   },
   {
     id: 'paragraph.degrade-heading',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.degradeHeading))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'degrade-heading'))
     }
   },
   {
     id: 'paragraph.table',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.table))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'insert-table'))
     }
   },
   {
     id: 'paragraph.code-fence',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.codeFence))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'code-fence'))
     }
   },
   {
     id: 'paragraph.quote-block',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.quoteBlock))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'quote-block'))
     }
   },
   {
     id: 'paragraph.math-formula',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.mathFormula))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'math-block'))
     }
   },
   {
     id: 'paragraph.html-block',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.htmlBlock))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'html-block'))
     }
   },
   {
     id: 'paragraph.order-list',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.orderedList))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'ordered-list'))
     }
   },
   {
     id: 'paragraph.bullet-list',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.bulletList))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'bullet-list'))
     }
   },
   {
     id: 'paragraph.task-list',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.taskList))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'task-list'))
     }
   },
   {
     id: 'paragraph.loose-list-item',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.looseListItem))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'loose-list-item'))
     }
   },
   {
     id: 'paragraph.paragraph',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.paragraph))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'paragraph'))
     }
   },
   {
     id: 'paragraph.reset-paragraph',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.paragraph))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'paragraph'))
     }
   },
   {
     id: 'paragraph.horizontal-line',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.horizontalLine))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'thematic-break'))
     }
   },
   {
     id: 'paragraph.front-matter',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('paragraph', PARAGRAPH_DOCUMENT_ACTIONS.frontMatter))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'front-matter'))
     }
   },
 
@@ -386,73 +385,73 @@ const commands: CommandDescriptor[] = [
   {
     id: 'format.strong',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'strong'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-strong'))
     }
   },
   {
     id: 'format.emphasis',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'em'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-emphasis'))
     }
   },
   {
     id: 'format.underline',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'u'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-underline'))
     }
   },
   {
     id: 'format.highlight',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'mark'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-highlight'))
     }
   },
   {
     id: 'format.superscript',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'sup'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-superscript'))
     }
   },
   {
     id: 'format.subscript',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'sub'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-subscript'))
     }
   },
   {
     id: 'format.inline-code',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'inline_code'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-inline-code'))
     }
   },
   {
     id: 'format.inline-math',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'inline_math'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-inline-math'))
     }
   },
   {
     id: 'format.strike',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'del'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-strikethrough'))
     }
   },
   {
     id: 'format.hyperlink',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'link'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-link'))
     }
   },
   {
     id: 'format.image',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'image'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-image'))
     }
   },
   {
     id: 'format.clear-format',
     execute: async() => {
-      focusEditorAndExecute(() => bus.emit('format', 'clear'))
+      focusEditorAndExecute(() => bus.emit('editor-command', 'format-clear'))
     }
   },
 

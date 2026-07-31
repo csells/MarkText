@@ -101,14 +101,14 @@ test('renderer reload reattaches the same dirty sessions with their undo histori
       canRedo: false
     })
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'undo')
     await expect.poll(() => editorText(page)).toBe('bravo')
     await expect.poll(() => activeTabIsDirty(page)).toBe(false)
 
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
     await expect.poll(() => editorText(page)).toBe('alphaA')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'undo')
     await expect.poll(() => editorText(page)).toBe('alpha')
     await expect.poll(() => activeTabIsDirty(page)).toBe(false)
   } finally {

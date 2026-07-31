@@ -128,10 +128,10 @@ const copySelection = async(app: ElectronApplication, expected: string): Promise
 }
 
 const undo = (app: ElectronApplication): Promise<void> =>
-  sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+  sendIpcToRenderer(app, 'mt::editor-command', 'undo')
 
 const redo = (app: ElectronApplication): Promise<void> =>
-  sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+  sendIpcToRenderer(app, 'mt::editor-command', 'redo')
 
 const WORD_COUNT_TEXT = '.word-count .text-center-vertical'
 

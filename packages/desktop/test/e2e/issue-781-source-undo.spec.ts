@@ -30,9 +30,9 @@ const typeInSource = async(page: Page, text: string): Promise<void> => {
 }
 
 const undo = (app: Parameters<typeof sendIpcToRenderer>[0]): Promise<void> =>
-  sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+  sendIpcToRenderer(app, 'mt::editor-command', 'undo')
 const redo = (app: Parameters<typeof sendIpcToRenderer>[0]): Promise<void> =>
-  sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+  sendIpcToRenderer(app, 'mt::editor-command', 'redo')
 
 test.describe('Issue #781 — undo/redo in source code mode', () => {
   test('undo reverts a source-mode edit; redo re-applies it', async() => {

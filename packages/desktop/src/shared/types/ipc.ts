@@ -31,7 +31,7 @@ import type {
   DocumentSelectionMenuState,
   WindowLayoutMenuState
 } from './documentSelection'
-import type { ParagraphDocumentAction } from './paragraphDocumentAction'
+import type { EditorCommandId } from './editorCommands'
 import type {
   DocumentCapabilityMenuState,
   DocumentClipboardMenuState,
@@ -412,10 +412,8 @@ export interface IpcMainEventChannels {
   'mt::editor-ask-file-save': []
   'mt::editor-ask-file-save-as': []
   'mt::editor-close-tab': [tabId?: string]
-  'mt::editor-edit-action': [action: string]
-  'mt::editor-format-action': [payload: { type: string }]
+  'mt::editor-command': [command: EditorCommandId]
   'mt::editor-move-file': []
-  'mt::editor-paragraph-action': [payload: ParagraphDocumentAction]
   'mt::editor-rename-file': []
   'mt::execute-command-by-id': [commandId: string]
   'mt::file-saved': [tabId: string]

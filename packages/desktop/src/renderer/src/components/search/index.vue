@@ -138,6 +138,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import bus from '../../bus'
+import { decodeEditorCommandId } from '@shared/types/editorCommands'
 import FindCaseIcon from '@/assets/icons/searchIcons/iconCase.svg'
 import FindWordIcon from '@/assets/icons/searchIcons/iconWord.svg'
 import FindRegexIcon from '@/assets/icons/searchIcons/iconRegex.svg'
@@ -210,20 +211,14 @@ const highlightCount = computed(() => {
 })
 
 onMounted(() => {
-  bus.on('find', listenFind)
-  bus.on('replace', listenReplace)
-  bus.on('findNext', listenFindNext)
-  bus.on('findPrev', listenFindPrev)
+  bus.on('editor-command', handleEditorCommand)
   document.addEventListener('click', docClick)
   document.addEventListener('keyup', docKeyup)
   bus.on('search-blur', blurSearch)
 })
 
 onBeforeUnmount(() => {
-  bus.off('find', listenFind)
-  bus.off('replace', listenReplace)
-  bus.off('findNext', listenFindNext)
-  bus.off('findPrev', listenFindPrev)
+  bus.off('editor-command', handleEditorCommand)
   document.removeEventListener('click', docClick)
   document.removeEventListener('keyup', docKeyup)
   bus.off('search-blur', blurSearch)
@@ -242,6 +237,17 @@ const toggleCtrl = (ctrl: 'isCaseSensitive' | 'isWholeWord' | 'isRegexp') => {
       break
   }
   searchFn()
+}
+
+// The find bar's arms of the one editor-command vocabulary.
+const handleEditorCommand = (value: unknown) => {
+  switch (decodeEditorCommandId(value)) {
+    case 'find': return listenFind()
+    case 'replace': return listenReplace()
+    case 'find-next': return listenFindNext()
+    case 'find-previous': return listenFindPrev()
+    default:
+  }
 }
 
 const listenFind = () => {

@@ -29,19 +29,19 @@ test.describe('Find bar', () => {
   })
 
   test('Find action reveals .search-bar', async() => {
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find')
     const searchBar = page.locator('.search-bar')
     await expect(searchBar).toBeVisible({ timeout: 5000 })
   })
 
   test('Replace action shows the search bar in replace mode', async() => {
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'replace')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'replace')
     const searchBar = page.locator('.search-bar')
     await expect(searchBar).toBeVisible({ timeout: 5000 })
   })
 
   test('Escape hides the search bar', async() => {
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find')
     const searchBar = page.locator('.search-bar')
     await expect(searchBar).toBeVisible({ timeout: 5000 })
     await page.keyboard.press('Escape')
@@ -53,7 +53,7 @@ test.describe('Find bar', () => {
 // Coverage backfill (checklist items 152, 153, 180, 181, 183, 184, 185, 186,
 // 187, 189, 191, 194). Each test exercises the DESKTOP find-bar Vue component
 // (packages/desktop/src/renderer/src/components/search/index.vue) wired to the
-// @marktext/document-view engine through the renderer bus + `mt::editor-edit-action` IPC.
+// @marktext/document-view engine through the renderer bus + `mt::editor-command` IPC.
 // The engine-side search/replace/matchString behaviors are already unit-tested
 // in focused engine tests; these specs lock the desktop UI and IPC wiring.
 // ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ const clickByEval = async(page: Page, selector: string): Promise<void> => {
 }
 
 const undo = (app: ElectronApplication): Promise<void> =>
-  sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+  sendIpcToRenderer(app, 'mt::editor-command', 'undo')
 
 const counterText = (page: Page): Promise<string> =>
   page.locator(RESULT_COUNTER).innerText()
@@ -139,12 +139,12 @@ const seedDocClean = async(
 }
 
 const openFind = async(app: ElectronApplication, page: Page): Promise<void> => {
-  await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
+  await sendIpcToRenderer(app, 'mt::editor-command', 'find')
   await expect(page.locator(SEARCH_BAR)).toBeVisible({ timeout: 5000 })
 }
 
 const openReplace = async(app: ElectronApplication, page: Page): Promise<void> => {
-  await sendIpcToRenderer(app, 'mt::editor-edit-action', 'replace')
+  await sendIpcToRenderer(app, 'mt::editor-command', 'replace')
   await expect(page.locator(SEARCH_BAR)).toBeVisible({ timeout: 5000 })
   await expect(page.locator('.search-bar .replace')).toBeVisible({ timeout: 5000 })
 }
@@ -197,15 +197,15 @@ test.describe('Find bar — find next / previous navigation (items 152, 181)', (
     await expect.poll(() => counterText(page)).toContain('1 / 3')
     await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findNext')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find-next')
     await expect.poll(() => counterText(page)).toContain('2 / 3')
     await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findNext')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find-next')
     await expect.poll(() => counterText(page)).toContain('3 / 3')
 
     // Wrap around: 3/3 -> 1/3.
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findNext')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find-next')
     await expect.poll(() => counterText(page)).toContain('1 / 3')
     await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
   })
@@ -214,11 +214,11 @@ test.describe('Find bar — find next / previous navigation (items 152, 181)', (
     // Continues from the previous test's 1/3 state.
     await expect.poll(() => counterText(page)).toContain('1 / 3')
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findPrev')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find-previous')
     await expect.poll(() => counterText(page)).toContain('3 / 3')
     await expect.poll(() => page.locator('.document-view-highlight').count()).toBe(1)
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findPrev')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find-previous')
     await expect.poll(() => counterText(page)).toContain('2 / 3')
   })
 })
@@ -508,7 +508,7 @@ test.describe('Find bar — suppressed in source-code mode (item 194)', () => {
 
     // The find action is forwarded but the WYSIWYG `.search-bar` is `v-if`-gated
     // off in source mode, so it must not be present in the DOM.
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'find')
     await page.waitForTimeout(300)
     await expect(page.locator(SEARCH_BAR)).toHaveCount(0)
 

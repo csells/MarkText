@@ -70,9 +70,9 @@ test.describe('document-core engine', () => {
     expect(markdown).toContain('{++insert++}')
     await expect(page.locator('.editor-component')).toContainText('Edited ')
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'undo')
     await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).not.toContain('Edited ')
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+    await sendIpcToRenderer(app, 'mt::editor-command', 'redo')
     await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).toContain('Edited ')
 
     await enterSourceMode(page, app)

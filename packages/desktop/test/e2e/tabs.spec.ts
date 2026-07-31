@@ -286,7 +286,7 @@ test.describe('Tab management', () => {
       // boundary — it must never resurrect B's edit or grow the text.
       let current = (await getMarkdownContent(aPage, aApp)).trim()
       for (let step = 0; step < 30 && current !== 'alpha'; step += 1) {
-        await sendIpcToRenderer(aApp, 'mt::editor-edit-action', 'undo')
+        await sendIpcToRenderer(aApp, 'mt::editor-command', 'undo')
         await aPage.waitForTimeout(250)
         const next = (await getMarkdownContent(aPage, aApp)).trim()
         expect(next.length).toBeLessThanOrEqual(current.length)
@@ -302,7 +302,7 @@ test.describe('Tab management', () => {
       // before the content-addressed dirty flag clears. Undo it; the text must
       // stay at the baseline.
       if (await isDirty()) {
-        await sendIpcToRenderer(aApp, 'mt::editor-edit-action', 'undo')
+        await sendIpcToRenderer(aApp, 'mt::editor-command', 'undo')
         expect((await getMarkdownContent(aPage, aApp)).trim()).toBe('alpha')
       }
       // Undoing back to the exact on-disk content clears A's unsaved indicator.

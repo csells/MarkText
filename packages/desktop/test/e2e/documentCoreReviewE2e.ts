@@ -538,10 +538,10 @@ export async function authorComment(
 }
 
 export const undo = (app: ElectronApplication): Promise<void> =>
-  sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+  sendIpcToRenderer(app, 'mt::editor-command', 'undo')
 
 export const redo = (app: ElectronApplication): Promise<void> =>
-  sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+  sendIpcToRenderer(app, 'mt::editor-command', 'redo')
 
 export const save = (app: ElectronApplication): Promise<void> =>
   sendIpcToRenderer(app, 'mt::editor-ask-file-save')

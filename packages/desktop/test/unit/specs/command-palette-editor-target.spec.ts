@@ -23,43 +23,32 @@ describe('command-palette editor targeting', () => {
   it('dispatches a mutation synchronously to the editor active at invocation', async() => {
     const events: unknown[] = []
     bus.on('editor-focus', () => events.push('focus'))
-    bus.on('paragraph', value => events.push(value))
+    bus.on('editor-command', value => events.push(value))
 
     await command('paragraph.heading-1').execute?.()
 
-    expect(events).toEqual([
-      'focus',
-      {
-        kind: 'convert-block',
-        conversion: { kind: 'heading', level: 1 }
-      }
-    ])
+    expect(events).toEqual(['focus', 'heading-1'])
   })
 
-  it('uses one semantic payload for ordered lists, paragraph reset, and Table', async() => {
+  it('uses one command id for ordered lists, paragraph reset, and Table', async() => {
     const events: unknown[] = []
-    bus.on('paragraph', value => events.push(value))
+    bus.on('editor-command', value => events.push(value))
 
     await command('paragraph.order-list').execute?.()
     await command('paragraph.reset-paragraph').execute?.()
     await command('paragraph.table').execute?.()
 
-    expect(events).toEqual([
-      { kind: 'convert-block', conversion: { kind: 'ordered-list' } },
-      { kind: 'convert-block', conversion: { kind: 'paragraph' } },
-      { kind: 'request-table' }
-    ])
+    expect(events).toEqual(['ordered-list', 'paragraph', 'insert-table'])
   })
 
   it('exposes working Find Next and Find Previous commands', async() => {
-    const events: string[] = []
-    bus.on('findNext', () => events.push('next'))
-    bus.on('findPrev', () => events.push('previous'))
+    const events: unknown[] = []
+    bus.on('editor-command', value => events.push(value))
 
     await command('edit.find-next').execute?.()
     await command('edit.find-previous').execute?.()
 
-    expect(events).toEqual(['next', 'previous'])
+    expect(events).toEqual(['find-next', 'find-previous'])
   })
 
   it('publishes shared Review availability to the command palette descriptors', () => {

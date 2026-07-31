@@ -19,7 +19,7 @@ import { useListenForMainStore } from '@/store/listenForMain'
 import { useLayoutStore } from '@/store/layout'
 import bus from '@/bus'
 
-// `EDITOR_EDIT_ACTION('findInFolder')` routes through `layoutStore.SET_LAYOUT`,
+// `EDITOR_COMMAND('find-in-folder')` routes through `layoutStore.SET_LAYOUT`,
 // which (because `showSideBar` is defined) reads `window.marktext.env`,
 // fires `window.electron.ipcRenderer.send`, and persists the sidebar
 // visibility preference (another `ipcRenderer.send`). The renderer i18n module
@@ -30,58 +30,9 @@ const win = window as unknown as {
   marktext?: { env: { windowId: number } }
 }
 
-const EDIT_ACTIONS = [
-  'undo',
-  'redo',
-  'copyAsRich',
-  'copyAsHtml',
-  'pasteAsPlainText',
-  'selectAll',
-  'duplicate',
-  'createParagraph',
-  'deleteParagraph',
-  'find',
-  'findNext',
-  'findPrev',
-  'replace',
-  'findInFolder'
-] as const
-
-const PARAGRAPH_ACTIONS = [
-  { kind: 'convert-block', conversion: { kind: 'unordered-list' } },
-  { kind: 'convert-block', conversion: { kind: 'code-block' } },
-  { kind: 'convert-block', conversion: { kind: 'heading-shift', direction: 'demote' } },
-  { kind: 'convert-block', conversion: { kind: 'front-matter' } },
-  ...([1, 2, 3, 4, 5, 6] as const).map(level => ({
-    kind: 'convert-block' as const,
-    conversion: { kind: 'heading' as const, level }
-  })),
-  { kind: 'convert-block', conversion: { kind: 'thematic-break' } },
-  { kind: 'convert-block', conversion: { kind: 'html-block' } },
-  { kind: 'convert-block', conversion: { kind: 'loose-list-item' } },
-  { kind: 'convert-block', conversion: { kind: 'math-block' } },
-  { kind: 'convert-block', conversion: { kind: 'ordered-list' } },
-  { kind: 'convert-block', conversion: { kind: 'paragraph' } },
-  { kind: 'convert-block', conversion: { kind: 'blockquote' } },
-  { kind: 'request-table' },
-  { kind: 'convert-block', conversion: { kind: 'task-list' } },
-  { kind: 'convert-block', conversion: { kind: 'heading-shift', direction: 'promote' } }
-] as const
-
-const INLINE_FORMAT_ACTIONS = [
-  'clear',
-  'em',
-  'mark',
-  'link',
-  'image',
-  'inline_code',
-  'inline_math',
-  'del',
-  'strong',
-  'sub',
-  'sup',
-  'u'
-] as const
+import {
+  EDITOR_COMMAND_IDS
+} from '../../../src/shared/types/editorCommands'
 
 const registeredIpcListener = (
   channel: string
@@ -116,158 +67,109 @@ describe('listenForMain command boundary', () => {
     vi.clearAllMocks()
   })
 
-  it("opens the search side panel for 'findInFolder'", () => {
+  it("opens the search side panel for 'find-in-folder'", () => {
     const layoutStore = useLayoutStore()
     expect(layoutStore.rightColumn).toBe('files')
     expect(layoutStore.showSideBar).toBe(false)
 
-    useListenForMainStore().EDITOR_EDIT_ACTION('findInFolder')
+    const store = useListenForMainStore()
+    store.LISTEN_FOR_EDITOR_COMMAND()
+    store.EDITOR_COMMAND('find-in-folder')
 
     expect(layoutStore.rightColumn).toBe('search')
     expect(layoutStore.showSideBar).toBe(true)
   })
 
-  it('does not mutate the layout for a non-findInFolder action', () => {
+  it('does not mutate the layout for a non-find-in-folder command', () => {
     const layoutStore = useLayoutStore()
     layoutStore.$patch({ rightColumn: 'files', showSideBar: false })
 
-    useListenForMainStore().EDITOR_EDIT_ACTION('undo')
+    const store = useListenForMainStore()
+    store.LISTEN_FOR_EDITOR_COMMAND()
+    store.EDITOR_COMMAND('undo')
 
     expect(layoutStore.rightColumn).toBe('files')
     expect(layoutStore.showSideBar).toBe(false)
   })
 
-  it('routes every supported edit action to its named bus event', () => {
-    const routed: Array<readonly [string, unknown]> = []
-    const listeners = EDIT_ACTIONS.map(action => {
-      const listener = (value: unknown) => routed.push([action, value])
-      bus.on(action, listener)
-      return { action, listener }
-    })
+  it('routes the complete command vocabulary to the one bus event', () => {
+    const routed: unknown[] = []
+    const listener = (value: unknown) => routed.push(value)
+    bus.on('editor-command', listener)
 
     try {
       const store = useListenForMainStore()
-      for (const action of EDIT_ACTIONS) {
-        store.EDITOR_EDIT_ACTION(action)
+      for (const command of EDITOR_COMMAND_IDS) {
+        store.EDITOR_COMMAND(command)
       }
-      expect(routed).toEqual(
-        EDIT_ACTIONS.map(action => [action, action])
-      )
+      expect(routed).toEqual([...EDITOR_COMMAND_IDS])
     } finally {
-      for (const { action, listener } of listeners) {
-        bus.off(action, listener)
-      }
+      bus.off('editor-command', listener)
     }
   })
 
-  it('rejects an unknown main edit action without emitting an arbitrary bus event', () => {
+  it('rejects an unknown command without emitting an arbitrary bus event', () => {
     const arbitraryListener = vi.fn()
+    const commandListener = vi.fn()
     bus.on('attacker-selected-event', arbitraryListener)
+    bus.on('editor-command', commandListener)
     const store = useListenForMainStore()
-    store.LISTEN_FOR_EDIT()
-    const listener = registeredIpcListener('mt::editor-edit-action')
+    store.LISTEN_FOR_EDITOR_COMMAND()
+    const listener = registeredIpcListener('mt::editor-command')
 
     try {
       expect(() => listener(undefined, 'attacker-selected-event'))
         .toThrow(TypeError)
       expect(arbitraryListener).not.toHaveBeenCalled()
+      expect(commandListener).not.toHaveBeenCalled()
     } finally {
       bus.off('attacker-selected-event', arbitraryListener)
+      bus.off('editor-command', commandListener)
     }
   })
 
-  it('rejects a paragraph action envelope with extra fields before routing it', () => {
-    const paragraphListener = vi.fn()
-    bus.on('paragraph', paragraphListener)
+  it('rejects every superseded action token instead of translating aliases', () => {
+    const commandListener = vi.fn()
+    bus.on('editor-command', commandListener)
     const store = useListenForMainStore()
-    store.LISTEN_FOR_PARAGRAPH_INLINE_STYLE()
-    const listener = registeredIpcListener('mt::editor-paragraph-action')
-
-    try {
-      expect(() => listener(undefined, {
-        kind: 'request-table',
-        extra: true
-      })).toThrow(TypeError)
-      expect(paragraphListener).not.toHaveBeenCalled()
-    } finally {
-      bus.off('paragraph', paragraphListener)
-    }
-  })
-
-  it('routes the complete supported paragraph-action vocabulary', () => {
-    const routed: unknown[] = []
-    const paragraphListener = (value: unknown) => routed.push(value)
-    bus.on('paragraph', paragraphListener)
-    const store = useListenForMainStore()
-    store.LISTEN_FOR_PARAGRAPH_INLINE_STYLE()
-    const listener = registeredIpcListener('mt::editor-paragraph-action')
-
-    try {
-      for (const action of PARAGRAPH_ACTIONS) {
-        listener(undefined, action)
-      }
-      expect(routed).toEqual(PARAGRAPH_ACTIONS)
-    } finally {
-      bus.off('paragraph', paragraphListener)
-    }
-  })
-
-  it('rejects every superseded paragraph token instead of translating aliases', () => {
-    const paragraphListener = vi.fn()
-    bus.on('paragraph', paragraphListener)
-    const store = useListenForMainStore()
-    store.LISTEN_FOR_PARAGRAPH_INLINE_STYLE()
-    const listener = registeredIpcListener('mt::editor-paragraph-action')
+    store.LISTEN_FOR_EDITOR_COMMAND()
+    const listener = registeredIpcListener('mt::editor-command')
 
     try {
       for (const token of [
+        'duplicate',
+        'createParagraph',
+        'deleteParagraph',
+        'findNext',
+        'findPrev',
+        'findInFolder',
+        'pasteAsPlainText',
+        'selectAll',
         'pre',
         'mathblock',
-        'ol-order',
-        'ol-bullet',
         'reset-to-paragraph',
         'heading 1',
-        'table'
+        'table',
+        'stronger',
+        'em',
+        'u',
+        'mark',
+        'inline_code',
+        'inline_math',
+        'del'
       ]) {
-        expect(() => listener(undefined, { type: token })).toThrow(TypeError)
+        expect(() => listener(undefined, token)).toThrow(TypeError)
       }
-      expect(paragraphListener).not.toHaveBeenCalled()
-    } finally {
-      bus.off('paragraph', paragraphListener)
-    }
-  })
-
-  it('rejects a near-miss inline-format discriminator before routing it', () => {
-    const formatListener = vi.fn()
-    bus.on('format', formatListener)
-    const store = useListenForMainStore()
-    store.LISTEN_FOR_PARAGRAPH_INLINE_STYLE()
-    const listener = registeredIpcListener('mt::editor-format-action')
-
-    try {
-      expect(() => listener(undefined, { type: 'stronger' }))
-        .toThrow(TypeError)
-      expect(formatListener).not.toHaveBeenCalled()
-    } finally {
-      bus.off('format', formatListener)
-    }
-  })
-
-  it('routes the complete supported inline-format vocabulary', () => {
-    const routed: unknown[] = []
-    const formatListener = (value: unknown) => routed.push(value)
-    bus.on('format', formatListener)
-    const store = useListenForMainStore()
-    store.LISTEN_FOR_PARAGRAPH_INLINE_STYLE()
-    const listener = registeredIpcListener('mt::editor-format-action')
-
-    try {
-      for (const action of INLINE_FORMAT_ACTIONS) {
-        listener(undefined, { type: action })
+      for (const envelope of [
+        { type: 'image' },
+        { kind: 'request-table' },
+        { kind: 'convert-block', conversion: { kind: 'paragraph' } }
+      ]) {
+        expect(() => listener(undefined, envelope)).toThrow(TypeError)
       }
-      expect(routed).toEqual(INLINE_FORMAT_ACTIONS)
+      expect(commandListener).not.toHaveBeenCalled()
     } finally {
-      bus.off('format', formatListener)
+      bus.off('editor-command', commandListener)
     }
   })
 
