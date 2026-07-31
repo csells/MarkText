@@ -351,11 +351,15 @@ are transcribed exactly. Its real residue is G36.
   intrinsic charge is ~0.01 of the document (the pinned target), but
   wall time still tracks the document — ~18 ms at 30 KB, ~200 ms at
   300 KB, ~3.4 s at 3 MB — because the downstream per-reopen stages
-  remain O(document): identity ownership finish, graph-core validation
-  walks, fork-AST emission and reads, projection preparation and
-  materialization, and the Review index build. Closing G23's keystroke
-  budget means giving those stages the same retained-product treatment
-  the intrinsic pass now has. Remaining widenings inside the splice:
+  remain O(document). Profiled 2026-07-30 at ~340 KB: fork-AST emission
+  is 65% of the keystroke (407 of 622 ms over three keystrokes), then
+  graph-core validation (26 ms) and projection preparation (21 ms);
+  materialization and finalization are negligible. Emission re-derives
+  every region and hashes its exact bytes per keystroke even when the
+  region cache hits. Closing G23's keystroke budget starts there: the
+  spliced fork graph knows which regions the edit never touched, so
+  emission can carry the prior revision's region ASTs by provenance
+  instead of re-hashing the whole document to rediscover them. Remaining widenings inside the splice:
   definition-bearing documents, multi-edit brackets, CR-only line
   endings.
 
