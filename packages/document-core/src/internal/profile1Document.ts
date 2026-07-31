@@ -1,3 +1,4 @@
+import { safePointsOf } from '../safePoints.js'
 import type {
   CriticMarkupArm,
   CriticMarkupNode,
@@ -132,6 +133,8 @@ interface ParseFrame {
 
 interface ParseResult {
   readonly kind: 'complete'
+  /** Whether the scan ever saw a CriticMarkup marker candidate. */
+  readonly hasCriticMarkupCandidate: boolean
   readonly tape: readonly TapeRun[]
   readonly roots: readonly CriticMarkupNode[]
   readonly diagnostics: readonly SyntaxDiagnostic[]
@@ -223,9 +226,30 @@ interface MarkPath {
   readonly depth: number
 }
 
+/**
+ * The intrinsic-pass facts a later reopen can splice instead of re-scanning
+ * text its edits never touched (G32). Members alias the frozen arrays the
+ * parse already produced — retention adds references, not copies. The bundle
+ * is only usable while its guards hold; `parseIntrinsicProfile1` falls back
+ * to the full pass otherwise.
+ */
+export interface RetainedIntrinsicPass {
+  readonly sourceLength: number
+  readonly hasCriticMarkupCandidate: boolean
+  readonly rootCount: number
+  readonly markerDecisionCount: number
+  readonly referenceDefinitionCount: number
+  readonly tape: readonly TapeRun[]
+  readonly diagnostics: readonly SyntaxDiagnostic[]
+  readonly markdownLiterals: readonly MarkdownLiteralRange[]
+  /** Top-level block starts of the parsed document — its safe points. */
+  readonly safePoints: readonly number[]
+}
+
 export type Profile1DocumentProducts = Profile1SyntaxGraph & Readonly<{
   readonly simpleTextIdentity: boolean
   readonly accountingTrace?: Profile1SyntaxAccountingTraceV1
+  readonly retainedIntrinsic?: RetainedIntrinsicPass
 }>
 
 export interface Profile1SourceOnlyProducts {
@@ -234,6 +258,24 @@ export interface Profile1SourceOnlyProducts {
 }
 
 export type Profile1DocumentResult = Profile1DocumentProducts | Profile1SourceOnlyProducts
+
+/** Exact replacement over the previous canonical source, in its coordinates. */
+export interface RetainedPassSourceEdit {
+  readonly start: number
+  readonly end: number
+  readonly insert: string
+}
+
+/**
+ * A prior parse's retained facts plus the exact edits that produced the new
+ * source from its text — the inputs an incremental intrinsic pass splices
+ * from (G32). Accepted and currently unused: the splice lands behind this
+ * seam without another signature change.
+ */
+export interface PreviousIntrinsicPass {
+  readonly retained: RetainedIntrinsicPass
+  readonly edits: readonly RetainedPassSourceEdit[]
+}
 
 export interface Profile1ChangedJoinInspection {
   readonly kind: 'inspected'
@@ -1448,6 +1490,7 @@ function parseIntrinsicProfile1Pass(
   )
   return Object.freeze({
     kind: 'complete',
+    hasCriticMarkupCandidate: sourceProgression.hasCriticMarkupCandidate,
     tape: canonical.tape,
     roots: Object.freeze(roots),
     diagnostics: finalizeDiagnostics(diagnostics),
@@ -3908,7 +3951,8 @@ export function parseProfile1Document(
   executionControl?: ParseExecutionControl,
   reuseCache?: Profile1DocumentReuseCache,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
-  createPhysicalTraversalRecorderV1()
+  createPhysicalTraversalRecorderV1(),
+  _previousPass?: PreviousIntrinsicPass
 ): Profile1DocumentResult {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   const execution = createParseExecutionTracker(executionControl)
@@ -4296,7 +4340,22 @@ export function parseProfile1Document(
   const products = Object.freeze({
     ...finalized,
     simpleTextIdentity:
-      tapeCertifiesSimpleTextSource(parsed.tape)
+      tapeCertifiesSimpleTextSource(parsed.tape),
+    // Retention aliases the frozen arrays the parse already produced; under
+    // the CriticMarkup-free guard the original projection shares canonical
+    // coordinates, so its block starts are the canonical safe points.
+    retainedIntrinsic: Object.freeze({
+      sourceLength: source.length,
+      hasCriticMarkupCandidate: parsed.hasCriticMarkupCandidate,
+      rootCount: criticMarkupRoots.length,
+      markerDecisionCount: parsed.markerDecisions.length,
+      referenceDefinitionCount:
+        parsed.referenceDefinitions.definitionFacts().length,
+      tape: parsed.tape,
+      diagnostics: parsed.diagnostics,
+      markdownLiterals: parsed.markdownLiterals,
+      safePoints: safePointsOf(original.markdown)
+    })
   })
   return finishResult(captureAccountingTrace
     ? Object.freeze({ ...products, accountingTrace: accounting.trace() })

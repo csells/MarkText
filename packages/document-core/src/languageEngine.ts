@@ -17,7 +17,8 @@ import type {
 import {
   createProfile1DocumentReuseCache,
   inspectProfile1ChangedCriticMarkerJoins,
-  parseProfile1Document
+  parseProfile1Document,
+  type RetainedIntrinsicPass
 } from './internal/profile1Document.js'
 import { activeProfileParseTraceRecorderV1 } from './internal/profileParseTraceV1.js'
 import { validateAndFreezeParseConfiguration } from './configuration.js'
@@ -560,6 +561,11 @@ export function createLanguageEngine(
   const physicalRecorder = createPhysicalTraversalRecorderV1()
   const ownedRevisions = new WeakSet<DocumentRevision>()
   const sourceHashCache = new WeakMap<DocumentRevision, SourceHashCacheV1>()
+  // G32: intrinsic-pass facts a later reopen splices instead of re-scanning.
+  const retainedIntrinsicPasses = new WeakMap<
+    DocumentRevision,
+    RetainedIntrinsicPass
+  >()
   const certifiedSimpleTextRevisions =
     new WeakMap<CompleteDocumentRevision, CertifiedSimpleTextShape>()
   const openRevision = (
@@ -630,6 +636,9 @@ export function createLanguageEngine(
       cacheCertifiedSimpleTextDocumentFacts(revision)
       return revision
     }
+    const previousIntrinsic = previous === undefined
+      ? undefined
+      : retainedIntrinsicPasses.get(previous.revision)
     const parsed = parseProfile1Document(
       stableSource.text,
       stableConfiguration.executionBudget,
@@ -638,7 +647,13 @@ export function createLanguageEngine(
       false,
       execution?.stage(),
       reuseCache,
-      physicalRecorder
+      physicalRecorder,
+      previousIntrinsic === undefined || previous === undefined
+        ? undefined
+        : Object.freeze({
+          retained: previousIntrinsic,
+          edits: previous.edits
+        })
     )
     const parsedSimpleTextIdentity = parsed.kind === 'source-only'
       ? false
@@ -693,6 +708,9 @@ export function createLanguageEngine(
     }
     ownedRevisions.add(revision)
     sourceHashCache.set(revision, hashed.cache)
+    if (parsed.kind !== 'source-only' && parsed.retainedIntrinsic !== undefined) {
+      retainedIntrinsicPasses.set(revision, parsed.retainedIntrinsic)
+    }
     if (
       revision.kind === 'complete' &&
       isCertifiedSimpleTextRevision(revision, parsedSimpleTextIdentity)
