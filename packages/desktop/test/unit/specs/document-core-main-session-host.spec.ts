@@ -1322,8 +1322,13 @@ describe('main-owned document-core session host', () => {
 
     expect(edited.execution.operationIntrinsicSourceTraversals)
       .toBeGreaterThan(0)
+    // The incremental intrinsic pass (G32) charges the edit's bracket, not
+    // the whole document: the attribution proves the spliced route reached
+    // production, spending real units but fewer than another full pass.
     expect(edited.execution.operationIntrinsicSourceUnits)
-      .toBeGreaterThanOrEqual(source.length)
+      .toBeGreaterThan(0)
+    expect(edited.execution.operationIntrinsicSourceUnits)
+      .toBeLessThan(source.length)
     expect(edited.execution.operationForkAstRegionEmissions)
       .toBeGreaterThan(0)
     expect(edited.execution.operationForkAstRegionUnits)
