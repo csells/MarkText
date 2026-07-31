@@ -433,6 +433,107 @@ describe('incremental reopen equivalence', () => {
     }
   })
 
+  it('matches a full parse for multi-edit reopens through one bracket', () => {
+    const source = prose(30, 'multi-edit case')
+    const cases: readonly Readonly<{
+      name: string
+      edits: readonly Readonly<{
+        start: number
+        end: number
+        insert: string
+      }>[]
+    }>[] = [
+      {
+        name: 'two edits in the final paragraph',
+        edits: [
+          {
+            start: source.length - 30,
+            end: source.length - 30,
+            insert: 'first '
+          },
+          {
+            start: source.length - 10,
+            end: source.length - 10,
+            insert: 'second '
+          }
+        ]
+      },
+      {
+        name: 'edits in adjacent tail paragraphs',
+        edits: [
+          {
+            start: source.lastIndexOf('Paragraph 28') + 12,
+            end: source.lastIndexOf('Paragraph 28') + 12,
+            insert: ' edited'
+          },
+          {
+            start: source.length - 10,
+            end: source.length - 10,
+            insert: 'twice '
+          }
+        ]
+      }
+    ]
+    for (const row of cases) {
+      const ordered = [...row.edits].sort((a, b) => a.start - b.start)
+      let edited = source
+      for (const edit of [...ordered].reverse()) {
+        edited =
+          edited.slice(0, edit.start) + edit.insert + edited.slice(edit.end)
+      }
+      const engine = createLanguageEngine()
+      const opened = engine.open(
+        createSourceSnapshot(source),
+        TEST_CONFIGURATION
+      )
+      expect(opened.kind).toBe('complete')
+      const before = engine.traversalCounts().intrinsicSourceUnits
+      const reopened = engine.reopen(
+        opened,
+        createSourceSnapshot(edited),
+        ordered.map((edit) => ({
+          start: edit.start,
+          end: edit.end,
+          insert: edit.insert
+        }))
+      )
+      const spent = engine.traversalCounts().intrinsicSourceUnits - before
+      const full = createLanguageEngine().open(
+        createSourceSnapshot(edited),
+        TEST_CONFIGURATION
+      )
+      expect(revisionRecord(reopened), row.name)
+        .toEqual(revisionRecord(full))
+      expect(spent, `${row.name} took the full pass`)
+        .toBeLessThan(edited.length)
+    }
+  })
+
+  it('matches a full parse on CR-only documents through the fallback', () => {
+    const source = prose(12, 'cr case').replaceAll('\n', '\r')
+    const engine = createLanguageEngine()
+    const opened = engine.open(
+      createSourceSnapshot(source),
+      TEST_CONFIGURATION
+    )
+    expect(opened.kind).toBe('complete')
+    const offset = source.length - 2
+    const edited = source.slice(0, offset) + 'x' + source.slice(offset)
+    const reopened = engine.reopen(
+      opened,
+      createSourceSnapshot(edited),
+      [{ start: offset, end: offset, insert: 'x' }]
+    )
+    const full = createLanguageEngine().open(
+      createSourceSnapshot(edited),
+      TEST_CONFIGURATION
+    )
+    // CR-only endings are not yet routed through the splice; correctness
+    // holds through the fallback, and a routing widening would assert the
+    // spent bound here.
+    expect(revisionRecord(reopened)).toEqual(revisionRecord(full))
+  })
+
   it('falls back to the full pass when the window carries syntax', () => {
     const source = prose(20, 'fallback')
     const engine = createLanguageEngine()
