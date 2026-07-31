@@ -4,7 +4,6 @@ import fs from 'fs'
 import {
   closeElectron,
   launchWithMarkdown,
-  readCanonicalMarkdown,
   typeIntoEditor,
   waitForMenuReady
 } from './helpers'
@@ -45,8 +44,11 @@ test.describe('Issue #1861 — content-identical file change', () => {
 
     // A genuine change on a CLEAN tab reloads silently to the new bytes.
     fs.writeFileSync(filePath, 'hello\nworld\nchanged\n', 'utf-8')
-    await expect.poll(() => readCanonicalMarkdown(page), { timeout: 8000 })
-      .toBe('hello\nworld\nchanged\n')
+    // The file already holds the new bytes by construction; the claim is
+    // that the SESSION reloaded onto them, observed through the mounted
+    // view of this marker-free document.
+    await expect(page.locator('.editor-component'))
+      .toContainText('changed', { timeout: 8000 })
     expect(await isDirty(page)).toBe(false)
     expect(await page.locator('.editor-notifications').count()).toBe(0)
 

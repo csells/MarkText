@@ -5,7 +5,6 @@ import {
   closeElectron,
   launchWithMarkdown,
   placeCaretInEditor,
-  readCanonicalMarkdown,
   openUntitledTabWithMarkdown,
   sendIpcToRenderer,
   waitForEditor,
@@ -13,6 +12,14 @@ import {
 } from './helpers'
 
 const tabSelector = '.tabs-container > li'
+
+// These documents are marker-free, so the mounted projection's visible text
+// IS the canonical content; asserting it observes what the user sees (and,
+// after a dev reload, that the remounted renderer publishes again) without
+// pressing Save, which would flip the dirty state under test — and one of
+// the tabs is untitled, where Save would summon a dialog.
+const editorText = async(page: Page): Promise<string> =>
+  (await page.locator('.editor-component').innerText()).trim()
 
 const readTabIds = (page: Page): Promise<string[]> =>
   page.evaluate(() =>
@@ -65,16 +72,12 @@ test('renderer reload reattaches the same dirty sessions with their undo histori
 
   try {
     await appendCharacter(page, 'A')
-    await expect.poll(
-      async() => (await readCanonicalMarkdown(page)).trim()
-    ).toBe('alphaA')
+    await expect.poll(() => editorText(page)).toBe('alphaA')
 
     await openUntitledTabWithMarkdown(page, 'bravo\n')
     await expect.poll(() => page.locator(tabSelector).count()).toBe(2)
     await appendCharacter(page, 'B')
-    await expect.poll(
-      async() => (await readCanonicalMarkdown(page)).trim()
-    ).toBe('bravoB')
+    await expect.poll(() => editorText(page)).toBe('bravoB')
 
     const beforeIds = await readTabIds(page)
     const beforeSelectedId = await activeTabId(page)
@@ -91,9 +94,7 @@ test('renderer reload reattaches the same dirty sessions with their undo histori
 
     await expect.poll(() => readTabIds(page)).toEqual(beforeIds)
     await expect.poll(() => activeTabId(page)).toBe(beforeSelectedId)
-    await expect.poll(
-      async() => (await readCanonicalMarkdown(page)).trim()
-    ).toBe('bravoB')
+    await expect.poll(() => editorText(page)).toBe('bravoB')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
     await expect.poll(() => historyMenuState(app)).toEqual({
       canUndo: true,
@@ -101,20 +102,14 @@ test('renderer reload reattaches the same dirty sessions with their undo histori
     })
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    await expect.poll(
-      async() => (await readCanonicalMarkdown(page)).trim()
-    ).toBe('bravo')
+    await expect.poll(() => editorText(page)).toBe('bravo')
     await expect.poll(() => activeTabIsDirty(page)).toBe(false)
 
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
-    await expect.poll(
-      async() => (await readCanonicalMarkdown(page)).trim()
-    ).toBe('alphaA')
+    await expect.poll(() => editorText(page)).toBe('alphaA')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    await expect.poll(
-      async() => (await readCanonicalMarkdown(page)).trim()
-    ).toBe('alpha')
+    await expect.poll(() => editorText(page)).toBe('alpha')
     await expect.poll(() => activeTabIsDirty(page)).toBe(false)
   } finally {
     await closeElectron(app)

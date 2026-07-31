@@ -9,11 +9,11 @@ import {
   expectNoCapturedErrors,
   launchElectron,
   placeCaretInEditor,
-  readCanonicalMarkdown,
   typeIntoEditor,
   waitForEditor,
   waitForMenuReady
 } from './helpers'
+import { expectCanonicalOnDisk } from './documentCoreReviewE2e'
 
 const INITIAL = [
   '# Durable',
@@ -70,18 +70,22 @@ test.describe('document-core exact persistence', () => {
 
       await placeCaretInEditor(page)
       await typeIntoEditor(page, ' saved-before-crash')
-      await expect.poll(() => readCanonicalMarkdown(page)).toContain(
+      // The edit's arrival is observed in the mounted view; the explicit
+      // Save below is this test's subject, so nothing may save earlier.
+      await expect(page.locator('.editor-component')).toContainText(
         ' saved-before-crash'
       )
-      const writtenHead = await readCanonicalMarkdown(page)
 
       // Save is one main-owned transaction: the renderer supplies only the
       // opaque document id and mode, never document bytes or a claimed
-      // revision.
+      // revision. The written head is captured from the file it produced,
+      // and it carries the canonical markers, not a projection.
       await clickMenuById(app, 'fileSaveMenuItem')
-      await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toBe(
-        writtenHead
+      await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toContain(
+        ' saved-before-crash'
       )
+      const writtenHead = fs.readFileSync(filePath, 'utf8')
+      expect(writtenHead).toContain('{++tracked++}')
       await expectNoCapturedErrors(app)
 
       await crashApplication(app)
@@ -95,23 +99,31 @@ test.describe('document-core exact persistence', () => {
       )
       app = launched.app
       page = launched.page
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(writtenHead)
+      // The reopened session's content is observed through its mounted view
+      // (the file equals writtenHead by construction, so a bare file read
+      // proves nothing about the session); the canonical assert then pins
+      // byte identity through the enablement-guarded observation.
+      await expect(page.locator('.editor-component')).toContainText(
+        ' saved-before-crash'
+      )
+      await expectCanonicalOnDisk(page, app, filePath, writtenHead)
 
       await placeCaretInEditor(page)
       await typeIntoEditor(page, ' second-save')
-      await expect.poll(() => readCanonicalMarkdown(page)).toContain(
+      await expect(page.locator('.editor-component')).toContainText(
         ' second-save'
       )
-      const secondHead = await readCanonicalMarkdown(page)
-      expect(secondHead).not.toBe(writtenHead)
 
       // Unsaved canonical edits do not mutate disk. A second public save
       // persists exactly the later authoritative revision.
       expect(fs.readFileSync(filePath, 'utf8')).toBe(writtenHead)
       await clickMenuById(app, 'fileSaveMenuItem')
-      await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toBe(
-        secondHead
+      await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toContain(
+        ' second-save'
       )
+      const secondHead = fs.readFileSync(filePath, 'utf8')
+      expect(secondHead).not.toBe(writtenHead)
+      expect(secondHead).toContain('{++tracked++}')
       await expectNoCapturedErrors(app)
     } finally {
       if (app !== undefined) {

@@ -4,7 +4,6 @@ import {
   closeElectron,
   launchWithMarkdown,
   getMarkdownContent,
-  readCanonicalMarkdown,
   enterSourceMode,
   exitSourceMode,
   typeIntoEditor,
@@ -12,6 +11,7 @@ import {
   setSourceMarkdown,
   sendIpcToRenderer
 } from './helpers'
+import { expectCanonicalOnDisk } from './documentCoreReviewE2e'
 
 test.describe('Editor input and source-mode roundtrip', () => {
   let app: ElectronApplication
@@ -156,8 +156,7 @@ test.describe('Title-bar word counter (item 24)', () => {
     const cyclePage = launched.page
     const cycleApp = launched.app
     try {
-      await expect.poll(() => readCanonicalMarkdown(cyclePage), { timeout: 5000 })
-        .toBe(seeded)
+      await expectCanonicalOnDisk(cyclePage, cycleApp, launched.filePath, seeded)
       const expected = expectedCount(seeded)
       const counter = cyclePage.locator(WORD_COUNT_TEXT)
       const text = async(): Promise<string> =>

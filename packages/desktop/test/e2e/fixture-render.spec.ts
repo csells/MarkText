@@ -1,8 +1,15 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { closeElectron, launchWithDoc, readCanonicalMarkdown } from './helpers'
+import {
+  closeElectron,
+  enterSourceMode,
+  exitSourceMode,
+  launchWithDoc
+} from './helpers'
 
-type FixtureAssertion = (ctx: { page: Page }) => Promise<void>
+type FixtureAssertion = (
+  ctx: { page: Page; app: ElectronApplication }
+) => Promise<void>
 
 const runFixture = (name: string, relativePath: string, assertion: FixtureAssertion): void => {
   test.describe(`Fixture: ${name}`, () => {
@@ -22,7 +29,7 @@ const runFixture = (name: string, relativePath: string, assertion: FixtureAssert
     })
 
     test(`${name} renders expected DOM`, async() => {
-      await assertion({ page })
+      await assertion({ page, app: app as ElectronApplication })
     })
   })
 }
@@ -72,14 +79,18 @@ runFixture('gfm', 'test/e2e/data/gfm.md', async({ page }) => {
   expect(strike + checkboxes).toBeGreaterThan(0)
 })
 
-runFixture('frontmatter', 'test/e2e/data/frontmatter.md', async({ page }) => {
+runFixture('frontmatter', 'test/e2e/data/frontmatter.md', async({ page, app }) => {
   await expect(page.locator('.editor-component h1')).toHaveText(
     'After front matter'
   )
   await expect(page.locator(
     '.editor-component [data-markdown-kind="front-matter"]'
   )).toHaveCount(0)
-  await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+  // Front matter is hidden from the rendered view yet retained canonically.
+  // The fixture opens in place, so the retention is read through the
+  // source-mode projection rather than a save that would touch repo data.
+  await enterSourceMode(page, app)
+  await expect(page.locator('.source-code-input')).toHaveValue(
     '---\n' +
     'title: Front matter fixture\n' +
     'author: Tester\n' +
@@ -87,6 +98,7 @@ runFixture('frontmatter', 'test/e2e/data/frontmatter.md', async({ page }) => {
     '# After front matter\n\n' +
     'Body paragraph follows the YAML block.\n'
   )
+  await exitSourceMode(page, app)
 })
 
 runFixture('math', 'test/e2e/data/math.md', async({ page }) => {
