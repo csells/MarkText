@@ -366,11 +366,12 @@ are transcribed exactly. Its real residue is G36.
   settlement with their own notions — consolidation onto the one barrier
   remains, and G13's fixed sleeps migrate to it.
   `internal/sourceAuthorship.ts` owns only the escape rule while marker
-  composition lives in the transformation kernel, and two secondary parser
-  counter families (line-materialization walks and caches, AST-template
-  constructions) remain process-global with test-only resets — the
-  projected-text reference-definition index builder proved dead and was
-  deleted, its gate now a static absence sweep. The concerns are answered today inside
+  composition lives in the transformation kernel, and one secondary parser
+  counter family (line-materialization walks and their memo caches) remains
+  process-global with test-only resets — AST-template constructions joined
+  the engine recorder, and the projected-text reference-definition index
+  builder proved dead and was deleted, its gate now a static absence
+  sweep. The concerns are answered today inside
   `revisionWorker.ts` and its callers. Progress: the admission authority
   exists (`internal/session/admissionAuthority.ts`):
   `admit(base, edits, class)` owns edit validation, resource limits, join

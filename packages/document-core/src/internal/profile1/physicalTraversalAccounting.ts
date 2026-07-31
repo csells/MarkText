@@ -9,6 +9,7 @@ export interface Profile1PhysicalTraversalCountsV1 {
   readonly forkAstRegionReuses: number
   readonly commentProjectionPreparations: number
   readonly commentProjectionPreparationUnits: number
+  readonly astCacheTemplateConstructions: number
 }
 
 /**
@@ -27,6 +28,7 @@ export interface Profile1PhysicalTraversalRecorderV1 {
   readonly recordForkAstRegionEmission: (units: number) => void
   readonly recordForkAstRegionReuse: () => void
   readonly recordCommentProjectionPreparation: (units: number) => void
+  readonly recordAstCacheTemplateConstruction: () => void
   readonly counts: () => Profile1PhysicalTraversalCountsV1
 }
 
@@ -42,7 +44,8 @@ Profile1PhysicalTraversalCountsV1 {
     forkAstRegionUnits: 0,
     forkAstRegionReuses: 0,
     commentProjectionPreparations: 0,
-    commentProjectionPreparationUnits: 0
+    commentProjectionPreparationUnits: 0,
+    astCacheTemplateConstructions: 0
   })
 }
 
@@ -57,6 +60,7 @@ Profile1PhysicalTraversalRecorderV1 {
   let forkAstRegionReuses = 0
   let commentProjectionPreparations = 0
   let commentProjectionPreparationUnits = 0
+  let astCacheTemplateConstructions = 0
   return Object.freeze({
     recordIntrinsicSourceTraversal: (
       markerBearing: boolean,
@@ -82,6 +86,9 @@ Profile1PhysicalTraversalRecorderV1 {
       commentProjectionPreparations += 1
       commentProjectionPreparationUnits += units
     },
+    recordAstCacheTemplateConstruction: (): void => {
+      astCacheTemplateConstructions += 1
+    },
     counts: (): Profile1PhysicalTraversalCountsV1 => Object.freeze({
       intrinsicSource: intrinsicSourceTraversals,
       total: intrinsicSourceTraversals,
@@ -92,7 +99,8 @@ Profile1PhysicalTraversalRecorderV1 {
       forkAstRegionUnits,
       forkAstRegionReuses,
       commentProjectionPreparations,
-      commentProjectionPreparationUnits
+      commentProjectionPreparationUnits,
+      astCacheTemplateConstructions
     })
   })
 }

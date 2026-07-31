@@ -128,7 +128,8 @@ describe('one intrinsic Markdown parse', () => {
       forkAstRegionUnits: 42,
       forkAstRegionReuses: 0,
       commentProjectionPreparations: 0,
-      commentProjectionPreparationUnits: 0
+      commentProjectionPreparationUnits: 0,
+      astCacheTemplateConstructions: 0
     })
   })
 

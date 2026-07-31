@@ -3017,7 +3017,7 @@ function parseOrderedContainerSequence(
         linesKey: pending.linesKey,
         literalsKey: pending.literalsKey,
         nodes: Object.freeze(frozen.map((node) =>
-          markdownAstNodeTemplate(node, pending.base, true)))
+          markdownAstNodeTemplate(node, pending.base, true, physicalRecorder)))
       }))
     }
   }
@@ -3061,7 +3061,7 @@ function parseOrderedContainerSequence(
         linesKey: pending.linesKey,
         literalsKey: pending.literalsKey,
         nodes: Object.freeze([
-          markdownAstNodeTemplate(frozen, pending.base, true)
+          markdownAstNodeTemplate(frozen, pending.base, true, physicalRecorder)
         ])
       }))
     }
@@ -4091,16 +4091,6 @@ interface MarkdownAstRegionTemplate {
   readonly nodes: readonly MarkdownAstNodeTemplate[]
 }
 
-let markdownAstCacheTemplateConstructions = 0
-
-export function __markdownAstCacheTemplateConstructionsV1(): number {
-  return markdownAstCacheTemplateConstructions
-}
-
-export function __resetMarkdownAstCacheTemplateConstructionsV1(): void {
-  markdownAstCacheTemplateConstructions = 0
-}
-
 const astRegionCaches =
   new WeakMap<
     MarkdownAstRegionCacheIdentity,
@@ -4349,10 +4339,11 @@ const POSITIONAL_MARKDOWN_ATTRIBUTES = new Set([
 function markdownAstNodeTemplate(
   node: MarkdownNode,
   regionStart: number,
-  cacheRetention: boolean = false
+  cacheRetention: boolean = false,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): MarkdownAstNodeTemplate {
   if (cacheRetention) {
-    markdownAstCacheTemplateConstructions += 1
+    physicalRecorder?.recordAstCacheTemplateConstruction()
   }
   return Object.freeze({
     kind: node.kind,
@@ -4995,7 +4986,7 @@ function emitMarkdownAstRegions(
       continue
     }
     const templates = Object.freeze(localNodes.map((node) =>
-      markdownAstNodeTemplate(node, 0, true)))
+      markdownAstNodeTemplate(node, 0, true, physicalRecorder)))
     for (const template of templates) {
       blocks.push(markdownAstNodeFromTemplate(template, region.start))
     }

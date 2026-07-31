@@ -14,10 +14,6 @@ import {
   profile1DocumentReuseRetentionV1
 } from '../../src/internal/profile1Document.js'
 import {
-  __markdownAstCacheTemplateConstructionsV1,
-  __resetMarkdownAstCacheTemplateConstructionsV1
-} from '../../src/internal/profile1/markdownParser.js'
-import {
   createPhysicalTraversalRecorderV1,
   type Profile1PhysicalTraversalCountsV1
 } from '../../src/internal/profile1/physicalTraversalAccounting.js'
@@ -650,7 +646,7 @@ describe('Profile 1 fragment reuse', () => {
   it('does not duplicate a provably oversized high-node AST as templates', () => {
     const cache = createProfile1DocumentReuseCache()
     const source = `${'*x* '.repeat(24_000)}\n`
-    __resetMarkdownAstCacheTemplateConstructionsV1()
+    const recorder = createPhysicalTraversalRecorderV1()
 
     const parsed = parseProfile1Document(
       source,
@@ -659,9 +655,10 @@ describe('Profile 1 fragment reuse', () => {
       CONFIGURATION.markdownOptions,
       false,
       undefined,
-      cache
+      cache,
+      recorder
     )
-    const templateConstructions = __markdownAstCacheTemplateConstructionsV1()
+    const templateConstructions = recorder.counts().astCacheTemplateConstructions
     const retention = profile1DocumentReuseRetentionV1(cache)
     const full = parseProfile1Document(
       source,
