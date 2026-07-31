@@ -391,8 +391,12 @@ are transcribed exactly. Its real residue is G36.
   unresolved against a document-scope definition, and a definition
   opening a comment body scopes to that comment; the equivalence rows
   compare comment display ASTs to prove it). Remaining widenings
-  inside the splice: provenance carrying under definitions, CR-only
-  line endings.
+  inside the splice: provenance carrying under definitions, and
+  CR-only line endings — the latter deliberately residual, because a
+  boundary after a bare CR carries cross-boundary state (a following
+  LF would merge into a CRLF pair), so CR boundaries are never clean
+  checkpoints and the fallback is the sound route; an equivalence row
+  pins that route.
 
 **W2 — Host surfaces**
 
