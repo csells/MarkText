@@ -353,14 +353,20 @@ export function spliceGuardsHold(
     return false
   }
   // The mini-document must end at a real separation so its last block cannot
-  // lazily continue into the suffix: a blank line before the bracket end, or
-  // the bracket runs to the end of the document.
+  // lazily continue into the suffix: a blank line before the bracket end —
+  // LF or CRLF spelled — or the bracket runs to the end of the document.
   if (bracket.endNext < nextText.length) {
-    if (
-      bracket.endNext < 2 ||
-      nextText.charCodeAt(bracket.endNext - 1) !== 10 ||
-      nextText.charCodeAt(bracket.endNext - 2) !== 10
-    ) {
+    const lastIsNewline =
+      bracket.endNext >= 1 &&
+      nextText.charCodeAt(bracket.endNext - 1) === 10
+    const blankByLf =
+      bracket.endNext >= 2 &&
+      nextText.charCodeAt(bracket.endNext - 2) === 10
+    const blankByCrlf =
+      bracket.endNext >= 3 &&
+      nextText.charCodeAt(bracket.endNext - 2) === 13 &&
+      nextText.charCodeAt(bracket.endNext - 3) === 10
+    if (!lastIsNewline || (!blankByLf && !blankByCrlf)) {
       return false
     }
   }

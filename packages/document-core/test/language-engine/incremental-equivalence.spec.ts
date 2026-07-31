@@ -207,6 +207,41 @@ describe('incremental reopen equivalence', () => {
     })
   }
 
+  it('matches a full parse on CRLF documents through the spliced route', () => {
+    for (const shapeName of [
+      'append one character before the final newline',
+      'replace a middle paragraph body'
+    ]) {
+      const shape = editShapes.find((entry) => entry.name === shapeName)
+      if (shape === undefined) throw new Error(`missing shape ${shapeName}`)
+      const source = prose(20, 'crlf case').replaceAll('\n', '\r\n')
+      const edit = shape.edit(source)
+      const edited =
+        source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
+
+      const incremental = createLanguageEngine()
+      const opened = incremental.open(
+        createSourceSnapshot(source),
+        TEST_CONFIGURATION
+      )
+      expect(opened.kind).toBe('complete')
+      const reopened = incremental.reopen(
+        opened,
+        createSourceSnapshot(edited),
+        [{ start: edit.start, end: edit.end, insert: edit.insert }]
+      )
+      const full = createLanguageEngine().open(
+        createSourceSnapshot(edited),
+        TEST_CONFIGURATION
+      )
+      expect(revisionRecord(reopened), shapeName)
+        .toEqual(revisionRecord(full))
+      // CRLF documents still fall back to the full pass — a guard beyond the
+      // blank-line separation disqualifies them; the widening that routes
+      // them through the splice asserts the spent bound when it lands.
+    }
+  })
+
   it('falls back to the full pass when the window carries syntax', () => {
     const source = prose(20, 'fallback')
     const engine = createLanguageEngine()
