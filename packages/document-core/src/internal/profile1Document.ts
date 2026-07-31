@@ -252,11 +252,14 @@ export interface RetainedIntrinsicPass {
   readonly safePoints: readonly number[]
   /**
    * The parse's fork graph, aliased for its root-lane transitions: their
-   * emitted line facts and boundary checkpoints are what a splice re-bases.
-   * Lanes beyond the root exist only for marker-bearing documents, which
-   * the incremental guards refuse.
+   * emitted line facts and boundary checkpoints are what a splice re-bases,
+   * and its branches carry the arm lanes the marker-bearing splice shifts.
    */
   readonly forkGraph: IntrinsicProfile1ForkGraph
+  /** The CriticMarkup forest, aliased for the marker-bearing replay. */
+  readonly roots: readonly CriticMarkupNode[]
+  /** Marker decisions, aliased for the marker-bearing splice's remap. */
+  readonly markerDecisions: readonly CanonicalMarkerDecision[]
 }
 
 export type Profile1DocumentProducts = Profile1SyntaxGraph & Readonly<{
@@ -4065,7 +4068,8 @@ function tryIncrementalIntrinsicParse(
   markdownOptions: MarkdownOptionsV1,
   execution: ParseExecutionTracker,
   accounting: Profile1SyntaxAccountingRecorderV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  syntaxIdentity: Profile1SyntaxIdentityRegistry
 ): ParseResult | undefined {
   const bracket = bracketForEdits(
     previousPass.retained,
@@ -4100,7 +4104,12 @@ function tryIncrementalIntrinsicParse(
       markdownLiterals: mini.markdownLiterals,
       forkGraph: mini.forkGraph
     }),
-    source.length
+    source.length,
+    (roots, shiftOffset) => replayShiftedCriticMarkupForest(
+      syntaxIdentity,
+      roots,
+      shiftOffset
+    )
   )
   if (spliced === undefined) return undefined
   const referenceDefinitions = createStagedProfile1ReferenceDefinitionLookup(
@@ -4125,11 +4134,11 @@ function tryIncrementalIntrinsicParse(
   )
   return Object.freeze({
     kind: 'complete',
-    hasCriticMarkupCandidate: false,
+    hasCriticMarkupCandidate: spliced.hasCriticMarkupCandidate,
     tape: spliced.tape,
-    roots: Object.freeze([]),
+    roots: spliced.roots,
     diagnostics: spliced.diagnostics,
-    markerDecisions: Object.freeze([]),
+    markerDecisions: spliced.markerDecisions,
     forkGraph: spliced.forkGraph,
     markdownLane,
     referenceDefinitions,
@@ -4215,7 +4224,8 @@ export function parseProfile1Document(
       markdownOptions,
       execution,
       accounting,
-      physicalRecorder
+      physicalRecorder,
+      syntaxIdentity
     )
   }
   const skipFullPass = parsed !== undefined
@@ -4563,7 +4573,9 @@ export function parseProfile1Document(
       diagnostics: parsed.diagnostics,
       markdownLiterals: parsed.markdownLiterals,
       safePoints: safePointsOf(original.markdown),
-      forkGraph: parsed.forkGraph
+      forkGraph: parsed.forkGraph,
+      roots: criticMarkupRoots,
+      markerDecisions: parsed.markerDecisions
     })
   })
   return finishResult(captureAccountingTrace

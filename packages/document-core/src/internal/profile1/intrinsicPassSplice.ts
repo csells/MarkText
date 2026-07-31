@@ -5,15 +5,20 @@ import type {
   IntrinsicProfile1LaneTransition,
   IntrinsicProfile1SourceSlice
 } from './intrinsicProfile1ForkGraph.js'
-import type {
-  MarkdownCheckpoint,
-  PlainMarkdownContainer,
-  PlainMarkdownLine,
-  PlainMarkdownListMarker
+import {
+  shiftMarkdownCheckpoint,
+  type MarkdownCheckpoint,
+  type PlainMarkdownContainer,
+  type PlainMarkdownLine,
+  type PlainMarkdownListMarker
 } from './markdownLaneState.js'
 import type { MarkdownLiteralRange } from './markdownTypes.js'
-import type { TapeRun } from './sourceTape.js'
 import type {
+  CanonicalMarkerDecision,
+  TapeRun
+} from './sourceTape.js'
+import type {
+  CriticMarkupNode,
   SourceOffset,
   SourceRange,
   SyntaxDiagnostic
@@ -65,6 +70,8 @@ export interface RetainedIntrinsicFacts {
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
   readonly safePoints: readonly number[]
   readonly forkGraph: IntrinsicProfile1ForkGraph
+  readonly roots: readonly CriticMarkupNode[]
+  readonly markerDecisions: readonly CanonicalMarkerDecision[]
 }
 
 export interface SpliceSourceEdit {
@@ -85,10 +92,13 @@ export interface BracketPassFacts {
 }
 
 export interface SplicedIntrinsicFacts {
+  readonly hasCriticMarkupCandidate: boolean
   readonly tape: readonly TapeRun[]
   readonly diagnostics: readonly SyntaxDiagnostic[]
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
   readonly forkGraph: IntrinsicProfile1ForkGraph
+  readonly roots: readonly CriticMarkupNode[]
+  readonly markerDecisions: readonly CanonicalMarkerDecision[]
 }
 
 /**
@@ -239,8 +249,8 @@ function shiftTransition(
 ): IntrinsicProfile1LaneTransition {
   return Object.freeze({
     operation: transition.operation,
-    entryCheckpoint: shiftCheckpoint(transition.entryCheckpoint, delta),
-    exitCheckpoint: shiftCheckpoint(transition.exitCheckpoint, delta),
+    entryCheckpoint: shiftMarkdownCheckpoint(transition.entryCheckpoint, delta),
+    exitCheckpoint: shiftMarkdownCheckpoint(transition.exitCheckpoint, delta),
     consumed: Object.freeze(
       transition.consumed.map((slice) => shiftSlice(slice, delta, remapRunId))
     ),
@@ -279,6 +289,127 @@ function shiftTransition(
           })
       })
     })
+  })
+}
+
+function shiftDecision(
+  decision: CanonicalMarkerDecision,
+  delta: number,
+  remapRunId: (id: number) => number
+): CanonicalMarkerDecision {
+  const range = spliceRange(
+    decision.range.start + delta,
+    decision.range.end + delta
+  )
+  if (decision.role === 'open') {
+    return Object.freeze({
+      ...decision,
+      range,
+      runId: remapRunId(decision.runId),
+      parentOpenRunId: decision.parentOpenRunId === null
+        ? null
+        : remapRunId(decision.parentOpenRunId)
+    })
+  }
+  if (decision.role === 'separator') {
+    return Object.freeze({
+      ...decision,
+      range,
+      runId: remapRunId(decision.runId),
+      openerRunId: remapRunId(decision.openerRunId)
+    })
+  }
+  return Object.freeze({
+    ...decision,
+    range,
+    runId: remapRunId(decision.runId),
+    ...(decision.openerRunId === undefined
+      ? {}
+      : { openerRunId: remapRunId(decision.openerRunId) }),
+    ...(decision.topOpenRunId === undefined
+      ? {}
+      : { topOpenRunId: remapRunId(decision.topOpenRunId) })
+  })
+}
+
+/** Pair every retained node with its replayed twin, depth first. */
+function zipForest(
+  olds: readonly CriticMarkupNode[],
+  news: readonly CriticMarkupNode[],
+  map: Map<CriticMarkupNode, CriticMarkupNode>
+): void {
+  for (const [index, old] of olds.entries()) {
+    const twin = news[index]
+    if (twin === undefined) {
+      throw new Error('Replayed forest lost a node')
+    }
+    map.set(old, twin)
+    for (const [armIndex, arm] of old.arms.entries()) {
+      const twinArm = twin.arms[armIndex]
+      if (twinArm === undefined) {
+        throw new Error('Replayed forest lost an arm')
+      }
+      zipForest(arm.children, twinArm.children, map)
+    }
+  }
+}
+
+function shiftForkLane(
+  lane: IntrinsicProfile1ForkLane,
+  delta: number,
+  remapRunId: (id: number) => number,
+  twins: ReadonlyMap<CriticMarkupNode, CriticMarkupNode>
+): IntrinsicProfile1ForkLane {
+  const owner = lane.owner.kind === 'document'
+    ? lane.owner
+    : Object.freeze({
+      kind: 'critic-arm' as const,
+      node: twins.get(lane.owner.node) ?? lane.owner.node,
+      arm: lane.owner.arm
+    })
+  return Object.freeze({
+    id: lane.id,
+    owner,
+    range: spliceRange(lane.range.start + delta, lane.range.end + delta),
+    entryCheckpoint: shiftMarkdownCheckpoint(lane.entryCheckpoint, delta),
+    exitCheckpoint: shiftMarkdownCheckpoint(lane.exitCheckpoint, delta),
+    transitions: Object.freeze(lane.transitions.map(
+      (transition) => shiftTransition(transition, delta, remapRunId)
+    )),
+    armBoundaries: Object.freeze(lane.armBoundaries.map((event) =>
+      Object.freeze({
+        ...event,
+        sourcePosition: spliceOffset(event.sourcePosition + delta)
+      })
+    )),
+    items: Object.freeze(lane.items.map((item) =>
+      'kind' in item && item.kind === 'critic-branch'
+        ? shiftForkBranch(item, delta, remapRunId, twins)
+        : shiftSlice(item, delta, remapRunId)
+    ))
+  })
+}
+
+function shiftForkBranch(
+  branch: Readonly<{
+    kind: 'critic-branch'
+    node: CriticMarkupNode
+    arms: readonly IntrinsicProfile1ForkLane[]
+  }>,
+  delta: number,
+  remapRunId: (id: number) => number,
+  twins: ReadonlyMap<CriticMarkupNode, CriticMarkupNode>
+): Readonly<{
+  kind: 'critic-branch'
+  node: CriticMarkupNode
+  arms: readonly IntrinsicProfile1ForkLane[]
+}> {
+  return Object.freeze({
+    kind: 'critic-branch' as const,
+    node: twins.get(branch.node) ?? branch.node,
+    arms: Object.freeze(branch.arms.map(
+      (arm) => shiftForkLane(arm, delta, remapRunId, twins)
+    ))
   })
 }
 
@@ -341,13 +472,25 @@ export function spliceGuardsHold(
   nextText: string
 ): boolean {
   if (
-    retained.hasCriticMarkupCandidate ||
-    retained.rootCount !== 0 ||
-    retained.markerDecisionCount !== 0 ||
     retained.referenceDefinitionCount !== 0 ||
     retained.diagnostics.length !== 0
   ) {
     return false
+  }
+  // Marker-bearing documents splice when every node and branch sits fully
+  // inside the prefix or the suffix; one crossing the bracket re-parses.
+  for (const root of retained.roots) {
+    const insidePrefix = root.range.end <= bracket.start
+    const insideSuffix = root.range.start >= bracket.endPrevious
+    if (!insidePrefix && !insideSuffix) {
+      return false
+    }
+  }
+  for (const branch of retained.forkGraph.branches) {
+    const range = branch.node.range
+    if (range.end > bracket.start && range.start < bracket.endPrevious) {
+      return false
+    }
   }
   // A retained literal is carried whole into its segment; one that crosses
   // the bracket would need its construct re-derived and refuses the splice.
@@ -361,9 +504,6 @@ export function spliceGuardsHold(
     }
   }
   const graph = retained.forkGraph
-  if (graph.branches.length !== 0 || graph.lanes.length !== 1) {
-    return false
-  }
   const root = graph.lanes[0]
   if (root === undefined || root !== graph.root) {
     return false
@@ -371,11 +511,18 @@ export function spliceGuardsHold(
   if (!checkpointIsClean(root.entryCheckpoint)) {
     return false
   }
-  for (const [index, transition] of root.transitions.entries()) {
-    const trailingFinish =
-      transition.operation === 'finish-lane' &&
-      index === root.transitions.length - 1
-    if (transition.operation !== 'advance' && !trailingFinish) {
+  for (const transition of root.transitions) {
+    if (
+      transition.operation === 'malformed-recovery' ||
+      transition.operation === 'unterminated-recovery'
+    ) {
+      return false
+    }
+    // A transition may cross ONE bracket boundary — the assembly clips it
+    // at the safe point — but never span the whole bracket.
+    const start = transition.entryCheckpoint.lineStart
+    const end = transition.exitCheckpoint.lineStart
+    if (start < bracket.start && end > bracket.endPrevious) {
       return false
     }
   }
@@ -420,7 +567,11 @@ export function spliceIntrinsicFacts(
   retained: RetainedIntrinsicFacts,
   bracket: IntrinsicSpliceBracket,
   mini: BracketPassFacts,
-  nextLength: number
+  nextLength: number,
+  replayForest: (
+    roots: readonly CriticMarkupNode[],
+    shiftOffset: (offset: number) => number
+  ) => readonly CriticMarkupNode[]
 ): SplicedIntrinsicFacts | undefined {
   if (
     mini.hasCriticMarkupCandidate ||
@@ -443,6 +594,17 @@ export function spliceIntrinsicFacts(
   }
   const miniRoot = mini.forkGraph.lanes[0]
   const retainedRoot = retained.forkGraph.root
+  const cleanCheckpointAt = (lineStart: number): MarkdownCheckpoint =>
+    Object.freeze({
+      ...retainedRoot.entryCheckpoint,
+      lineStart,
+      atVirtualBof: lineStart === 0
+        ? retainedRoot.entryCheckpoint.atVirtualBof
+        : false,
+      frontMatterEligible: lineStart === 0
+        ? retainedRoot.entryCheckpoint.frontMatterEligible
+        : false
+    })
   if (miniRoot === undefined || miniRoot !== mini.forkGraph.root) {
     {
     return undefined
@@ -470,75 +632,322 @@ export function spliceIntrinsicFacts(
   }
   }
 
-  // Tape runs are ordered with ids as indices; the bracket start is a line
-  // start, so a run crossing it refuses the splice.
-  let prefixRunCount = 0
-  while (
-    prefixRunCount < retained.tape.length &&
-    (retained.tape[prefixRunCount]?.range.end ?? Infinity) <= bracket.start
-  ) {
-    prefixRunCount += 1
-  }
-  const boundaryRun = retained.tape[prefixRunCount]
-  if (boundaryRun !== undefined && boundaryRun.range.start < bracket.start) {
-    {
-    return undefined
-  }
-  }
+  // Tape runs are ordered with ids as indices. A text run may span a
+  // bracket boundary — runs break at markers, not lines — and splits there;
+  // any other role crossing a boundary refuses the splice. Old-to-new id
+  // maps replace arithmetic remaps because a split shifts every later id.
   for (let index = 0; index < retained.tape.length; index += 1) {
     if (retained.tape[index]?.id !== index) {
-    return undefined
-  }
+      return undefined
+    }
   }
   for (let index = 0; index < mini.tape.length; index += 1) {
     if (mini.tape[index]?.id !== index) {
-    return undefined
+      return undefined
+    }
   }
+  const prefixRemapById = new Map<number, number>()
+  const suffixRemapById = new Map<number, number>()
+  let miniIdBase = 0
+  const tape: TapeRun[] = []
+  const pushRun = (role: TapeRun['role'], start: number, end: number): number => {
+    const id = tape.length
+    tape.push(Object.freeze({ id, role, range: spliceRange(start, end) }))
+    return id
   }
-  let suffixRunStart = retained.tape.length
-  while (
-    suffixRunStart > 0 &&
-    (retained.tape[suffixRunStart - 1]?.range.start ?? -1) >=
-      bracket.endPrevious
-  ) {
-    suffixRunStart -= 1
+  for (const run of retained.tape) {
+    if (run.range.end <= bracket.start) {
+      prefixRemapById.set(run.id, pushRun(run.role, run.range.start, run.range.end))
+    } else if (run.range.start < bracket.start) {
+      if (run.role !== 'text') return undefined
+      prefixRemapById.set(run.id, pushRun('text', run.range.start, bracket.start))
+    }
   }
-  const suffixBoundaryRun = retained.tape[suffixRunStart - 1]
-  if (
-    suffixBoundaryRun !== undefined &&
-    suffixBoundaryRun.range.end > bracket.endPrevious
-  ) {
-    {
-    return undefined
+  miniIdBase = tape.length
+  for (const run of mini.tape) {
+    pushRun(run.role, run.range.start + bracket.start, run.range.end + bracket.start)
   }
-  }
-  const shiftRun = (run: TapeRun, delta: number, id: number): TapeRun =>
-    Object.freeze({
-      id,
-      role: run.role,
-      range: spliceRange(run.range.start + delta, run.range.end + delta)
-    })
-  const suffixRuns = retained.tape.slice(suffixRunStart)
-  const tape: TapeRun[] = [
-    ...retained.tape.slice(0, prefixRunCount).map(
-      (run, index) => shiftRun(run, 0, index)
-    ),
-    ...mini.tape.map(
-      (run, index) => shiftRun(run, bracket.start, prefixRunCount + index)
-    ),
-    ...suffixRuns.map(
-      (run, index) => shiftRun(
-        run,
-        bracket.delta,
-        prefixRunCount + mini.tape.length + index
+  for (const run of retained.tape) {
+    if (run.range.start >= bracket.endPrevious) {
+      suffixRemapById.set(
+        run.id,
+        pushRun(run.role, run.range.start + bracket.delta, run.range.end + bracket.delta)
       )
-    )
-  ]
+    } else if (run.range.end > bracket.endPrevious) {
+      if (run.role !== 'text') return undefined
+      suffixRemapById.set(
+        run.id,
+        pushRun('text', bracket.endNext, run.range.end + bracket.delta)
+      )
+    }
+  }
+  const remapPrefix = (id: number): number => {
+    const mapped = prefixRemapById.get(id)
+    if (mapped === undefined) {
+      throw new Error('A prefix slice references a discarded tape run')
+    }
+    return mapped
+  }
+  const remapMini = (id: number): number => id + miniIdBase
+  const remapSuffix = (id: number): number => {
+    const mapped = suffixRemapById.get(id)
+    if (mapped === undefined) {
+      throw new Error('A suffix slice references a discarded tape run')
+    }
+    return mapped
+  }
   const lastRun = tape[tape.length - 1]
   if (lastRun === undefined || lastRun.range.end !== nextLength) {
     {
     return undefined
   }
+  }
+
+
+  // ---- Marker-bearing route: preserve the retained transition structure ----
+  if (retained.roots.length > 0 || retained.forkGraph.branches.length > 0) {
+    const prefixRoots = retained.roots.filter(
+      (node) => node.range.end <= bracket.start
+    )
+    const suffixRoots = retained.roots.filter(
+      (node) => node.range.start >= bracket.endPrevious
+    )
+    // A transition crossing INTO the bracket clips at the bracket start: its
+    // retained stretch keeps the original entry state, exits clean at the
+    // safe point, and carries only the facts on its side. The mirror clips a
+    // transition crossing OUT of the bracket at the bracket end. Clipping is
+    // sound exactly because the bracket boundaries are safe points — the
+    // true lane state there is clean by construction.
+    const clipTransition = (
+      transition: IntrinsicProfile1LaneTransition,
+      keep: 'prefix' | 'suffix'
+    ): IntrinsicProfile1LaneTransition => {
+      const boundaryOld = keep === 'prefix' ? bracket.start : bracket.endPrevious
+      const delta = keep === 'prefix' ? 0 : bracket.delta
+      const remap = keep === 'prefix' ? remapPrefix : remapSuffix
+      const keptSlices: IntrinsicProfile1SourceSlice[] = []
+      for (const slice of transition.consumed) {
+        const inside = keep === 'prefix'
+          ? slice.range.start < boundaryOld
+          : slice.range.end > boundaryOld
+        if (!inside) continue
+        const clippedStart = keep === 'prefix'
+          ? slice.range.start
+          : Math.max(slice.range.start, boundaryOld)
+        const clippedEnd = keep === 'prefix'
+          ? Math.min(slice.range.end, boundaryOld)
+          : slice.range.end
+        keptSlices.push(Object.freeze({
+          kind: 'source' as const,
+          sourceRunId: remap(slice.sourceRunId),
+          range: spliceRange(clippedStart + delta, clippedEnd + delta)
+        }))
+      }
+      const keptLines = transition.emittedFacts.lines
+        .filter((line) => keep === 'prefix'
+          ? line.end <= boundaryOld
+          : line.start >= boundaryOld)
+        .map((line) => shiftLine(line, delta))
+      const keptLiterals = transition.emittedFacts.literals
+        .filter((literal) => keep === 'prefix'
+          ? literal.end <= boundaryOld
+          : literal.start >= boundaryOld)
+        .map((literal) => shiftLiteral(literal, delta))
+      const boundaryNew = keep === 'prefix' ? bracket.start : bracket.endNext
+      return Object.freeze({
+        operation: 'advance',
+        entryCheckpoint: keep === 'prefix'
+          ? shiftMarkdownCheckpoint(transition.entryCheckpoint, delta)
+          : cleanCheckpointAt(boundaryNew),
+        exitCheckpoint: keep === 'prefix'
+          ? cleanCheckpointAt(boundaryNew)
+          : shiftMarkdownCheckpoint(transition.exitCheckpoint, delta),
+        consumed: Object.freeze(keptSlices),
+        emittedFacts: Object.freeze({
+          literals: Object.freeze(keptLiterals),
+          lines: Object.freeze(keptLines),
+          block: keep === 'prefix'
+            ? Object.freeze({
+              paragraphOpen: false,
+              lineStart: boundaryNew,
+              containerPath: Object.freeze([]),
+              activeProvider: undefined,
+              pendingLine: undefined
+            })
+            : Object.freeze({
+              ...transition.emittedFacts.block,
+              lineStart: transition.emittedFacts.block.lineStart + delta
+            })
+        })
+      })
+    }
+    const prefixTransitions: IntrinsicProfile1LaneTransition[] = []
+    const suffixSideTransitions: IntrinsicProfile1LaneTransition[] = []
+    for (const transition of retainedRoot.transitions) {
+      const start = transition.entryCheckpoint.lineStart
+      const end = transition.exitCheckpoint.lineStart
+      if (end <= bracket.start) {
+        prefixTransitions.push(shiftTransition(transition, 0, remapPrefix))
+      } else if (start >= bracket.endPrevious) {
+        suffixSideTransitions.push(
+          shiftTransition(transition, bracket.delta, remapSuffix)
+        )
+      } else if (start < bracket.start) {
+        prefixTransitions.push(clipTransition(transition, 'prefix'))
+      } else if (end > bracket.endPrevious) {
+        suffixSideTransitions.push(clipTransition(transition, 'suffix'))
+      }
+      // A transition fully inside the bracket is the mini-parse's business.
+    }
+    const miniAdvanceTransitions = miniAdvances.map(
+      (transition) => shiftTransition(transition, bracket.start, remapMini)
+    )
+    const interiorBracket = bracket.endPrevious < retained.sourceLength
+    const markerTransitions: IntrinsicProfile1LaneTransition[] = [
+      ...prefixTransitions,
+      ...miniAdvanceTransitions,
+      ...suffixSideTransitions,
+      ...(interiorBracket || miniFinish === undefined
+        ? []
+        : [shiftTransition(miniFinish, bracket.start, remapMini)])
+    ]
+    const markerFirst = markerTransitions[0]
+    const markerLast = markerTransitions[markerTransitions.length - 1]
+    if (markerFirst === undefined || markerLast === undefined) {
+      return undefined
+    }
+    const branchItemCount = retainedRoot.items.filter(
+      (item) => 'kind' in item && item.kind === 'critic-branch'
+    ).length
+    if (branchItemCount !== retained.forkGraph.branches.length) {
+      return undefined
+    }
+
+    // Every bail point is behind us: replaying into the caller's registry is
+    // now safe — a fallback after this would leave phantom emissions for the
+    // full pass's first attempt.
+    const replayedPrefix = replayForest(prefixRoots, (offset) => offset)
+    const replayedSuffix = replayForest(
+      suffixRoots,
+      (offset) => offset + bracket.delta
+    )
+    const twins = new Map<CriticMarkupNode, CriticMarkupNode>()
+    zipForest(prefixRoots, replayedPrefix, twins)
+    zipForest(suffixRoots, replayedSuffix, twins)
+
+    const shiftedBranches = retained.forkGraph.branches.map((branch) =>
+      branch.node.range.end <= bracket.start
+        ? shiftForkBranch(branch, 0, remapPrefix, twins)
+        : shiftForkBranch(branch, bracket.delta, remapSuffix, twins)
+    )
+    const collectArmLanes = (
+      branches: readonly Readonly<{
+        kind: 'critic-branch'
+        node: CriticMarkupNode
+        arms: readonly IntrinsicProfile1ForkLane[]
+      }>[]
+    ): IntrinsicProfile1ForkLane[] => branches.flatMap((branch) => [
+      ...branch.arms,
+      ...branch.arms.flatMap((arm) => collectArmLanes(
+        arm.items.filter(
+          (item): item is typeof branch =>
+            'kind' in item && item.kind === 'critic-branch'
+        )
+      ))
+    ])
+
+    // Root items rebuild canonically from the spliced tape: slice items for
+    // every run outside a branch, branch items at their node positions —
+    // cursor-contiguous exactly as the graph-core validator demands.
+    const orderedBranches = [...shiftedBranches].sort(
+      (left, right) => left.node.range.start - right.node.range.start
+    )
+    const markerItems: IntrinsicProfile1ForkLaneItem[] = []
+    {
+      let runIndex = 0
+      for (const branch of orderedBranches) {
+        while (
+          runIndex < tape.length &&
+          (tape[runIndex]?.range.end ?? Infinity) <= branch.node.range.start
+        ) {
+          const run = tape[runIndex]
+          if (run === undefined) break
+          markerItems.push(Object.freeze({
+            kind: 'source' as const,
+            sourceRunId: run.id,
+            range: run.range
+          }))
+          runIndex += 1
+        }
+        markerItems.push(branch)
+        while (
+          runIndex < tape.length &&
+          (tape[runIndex]?.range.start ?? Infinity) < branch.node.range.end
+        ) {
+          runIndex += 1
+        }
+      }
+      while (runIndex < tape.length) {
+        const run = tape[runIndex]
+        if (run === undefined) break
+        markerItems.push(Object.freeze({
+          kind: 'source' as const,
+          sourceRunId: run.id,
+          range: run.range
+        }))
+        runIndex += 1
+      }
+    }
+
+    const markerLane: IntrinsicProfile1ForkLane = Object.freeze({
+      id: retainedRoot.id,
+      owner: retainedRoot.owner,
+      range: spliceRange(0, nextLength),
+      entryCheckpoint: markerFirst.entryCheckpoint,
+      exitCheckpoint: markerLast.exitCheckpoint,
+      transitions: Object.freeze(markerTransitions),
+      armBoundaries: Object.freeze(retainedRoot.armBoundaries.map((event) =>
+        Object.freeze({
+          ...event,
+          sourcePosition: spliceOffset(
+            event.sourcePosition >= bracket.endPrevious
+              ? event.sourcePosition + bracket.delta
+              : event.sourcePosition
+          )
+        })
+      )),
+      items: Object.freeze(markerItems)
+    })
+    const markerDecisions = retained.markerDecisions.map((decision) =>
+      decision.range.end <= bracket.start
+        ? shiftDecision(decision, 0, remapPrefix)
+        : shiftDecision(decision, bracket.delta, remapSuffix)
+    )
+    const markerLiterals: MarkdownLiteralRange[] = [
+      ...retained.markdownLiterals
+        .filter((literal) => literal.end <= bracket.start),
+      ...mini.markdownLiterals
+        .map((literal) => shiftLiteral(literal, bracket.start)),
+      ...retained.markdownLiterals
+        .filter((literal) => literal.start >= bracket.endPrevious)
+        .map((literal) => shiftLiteral(literal, bracket.delta))
+    ].sort((left, right) => left.start - right.start)
+    return Object.freeze({
+      hasCriticMarkupCandidate: true,
+      tape: Object.freeze(tape),
+      diagnostics: Object.freeze([]),
+      markdownLiterals: Object.freeze(markerLiterals),
+      forkGraph: Object.freeze({
+        root: markerLane,
+        lanes: Object.freeze([
+          markerLane,
+          ...collectArmLanes(shiftedBranches)
+        ]),
+        branches: Object.freeze(shiftedBranches)
+      }),
+      roots: Object.freeze([...replayedPrefix, ...replayedSuffix]),
+      markerDecisions: Object.freeze(markerDecisions)
+    })
   }
 
   // Line facts splice at the bracket's line start; a retained line crossing
@@ -567,17 +976,6 @@ export function spliceIntrinsicFacts(
   }
   boundaries.push(bracket.start)
 
-  const cleanCheckpointAt = (lineStart: number): MarkdownCheckpoint =>
-    Object.freeze({
-      ...retainedRoot.entryCheckpoint,
-      lineStart,
-      atVirtualBof: lineStart === 0
-        ? retainedRoot.entryCheckpoint.atVirtualBof
-        : false,
-      frontMatterEligible: lineStart === 0
-        ? retainedRoot.entryCheckpoint.frontMatterEligible
-        : false
-    })
 
   const runsWithin = (from: number, to: number): readonly TapeRun[] => {
     const runs = tape.filter(
@@ -698,7 +1096,6 @@ export function spliceIntrinsicFacts(
       }))
     }
   }
-  const remapMini = (id: number): number => id + prefixRunCount
   const syntheticFinish: IntrinsicProfile1LaneTransition = Object.freeze({
     operation: 'finish-lane',
     entryCheckpoint: cleanCheckpointAt(nextLength),
@@ -766,6 +1163,7 @@ export function spliceIntrinsicFacts(
       .map((literal) => shiftLiteral(literal, bracket.delta))
   ].sort((left, right) => left.start - right.start)
   return Object.freeze({
+    hasCriticMarkupCandidate: false,
     tape: Object.freeze(tape),
     diagnostics: Object.freeze([]),
     markdownLiterals: Object.freeze(splicedLiterals),
@@ -773,6 +1171,8 @@ export function spliceIntrinsicFacts(
       root: lane,
       lanes: Object.freeze([lane]),
       branches: Object.freeze([])
-    })
+    }),
+    roots: Object.freeze([]),
+    markerDecisions: Object.freeze([])
   })
 }

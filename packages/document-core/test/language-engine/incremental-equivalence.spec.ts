@@ -317,11 +317,11 @@ describe('incremental reopen equivalence', () => {
       .toBeLessThan(edited.length)
   })
 
-  it.fails('target: a marker far from the edit still takes the spliced route', () => {
-    // The marker-bearing widening: retained CriticMarkup nodes replay their
-    // identity emissions and the fork branches shift. Until it lands, this
-    // shape falls back to the full pass; equivalence already holds through
-    // the fallback below.
+  it('a marker far from the edit takes the spliced route', () => {
+    // The marker-bearing widening, landed: retained CriticMarkup nodes
+    // replay their identity emissions into the outer registry and the fork
+    // branches shift; the deep-equivalence row below proves the spliced
+    // revision identical to a full parse.
     const source = [
       'Opening paragraph with an {++insertion++} marker.',
       'Middle paragraph of plain prose.',
