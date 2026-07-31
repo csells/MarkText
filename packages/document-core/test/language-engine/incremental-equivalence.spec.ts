@@ -244,6 +244,79 @@ describe('incremental reopen equivalence', () => {
     }
   })
 
+  it('matches a full parse when retained regions carry literals', () => {
+    const bodies = [
+      'Uses `inline code` mid paragraph.',
+      '```\nfenced code body\nstays verbatim\n```',
+      '<div>\nan HTML block\n</div>',
+      '~~~\ntilde fence body\n~~~'
+    ]
+    for (const body of bodies) {
+      const source = [
+        'Opening paragraph of plain prose stands first.',
+        body,
+        'Middle paragraph of plain prose sits between constructs.',
+        'Closing paragraph of plain prose stands last for the edit.'
+      ].join('\n\n') + '\n'
+      const edit = {
+        start: source.length - 10,
+        end: source.length - 10,
+        insert: 'freshly '
+      }
+      const edited =
+        source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
+
+      const incremental = createLanguageEngine()
+      const opened = incremental.open(
+        createSourceSnapshot(source),
+        TEST_CONFIGURATION
+      )
+      expect(opened.kind).toBe('complete')
+      const before = incremental.traversalCounts().intrinsicSourceUnits
+      const reopened = incremental.reopen(
+        opened,
+        createSourceSnapshot(edited),
+        [{ start: edit.start, end: edit.end, insert: edit.insert }]
+      )
+      const spent =
+        incremental.traversalCounts().intrinsicSourceUnits - before
+      const full = createLanguageEngine().open(
+        createSourceSnapshot(edited),
+        TEST_CONFIGURATION
+      )
+      expect(revisionRecord(reopened), body.slice(0, 24))
+        .toEqual(revisionRecord(full))
+      expect(spent, `${body.slice(0, 24)} took the full pass`)
+        .toBeLessThan(edited.length)
+    }
+  })
+
+  it('matches a full parse when the window itself carries a code span', () => {
+    const source = prose(12, 'window-literal case')
+    const insert = '\nA tail paragraph with `new code` inside.\n'
+    const engine = createLanguageEngine()
+    const opened = engine.open(
+      createSourceSnapshot(source),
+      TEST_CONFIGURATION
+    )
+    expect(opened.kind).toBe('complete')
+    const before = engine.traversalCounts().intrinsicSourceUnits
+    const edited = source + insert
+    const reopened = engine.reopen(
+      opened,
+      createSourceSnapshot(edited),
+      [{ start: source.length, end: source.length, insert }]
+    )
+    const spent = engine.traversalCounts().intrinsicSourceUnits - before
+    const full = createLanguageEngine().open(
+      createSourceSnapshot(edited),
+      TEST_CONFIGURATION
+    )
+    expect(revisionRecord(reopened)).toEqual(revisionRecord(full))
+    expect(spent, 'window code span took the full pass')
+      .toBeLessThan(edited.length)
+  })
+
   it('falls back to the full pass when the window carries syntax', () => {
     const source = prose(20, 'fallback')
     const engine = createLanguageEngine()

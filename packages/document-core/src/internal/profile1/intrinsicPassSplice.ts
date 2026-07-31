@@ -93,11 +93,13 @@ export interface SplicedIntrinsicFacts {
 
 /**
  * Characters whose appearance anywhere in the bracket window could spell a
- * construct the version-one splice refuses to reason about: CriticMarkup
- * candidates, links and definitions, code, HTML, and fences.
+ * construct the splice refuses to reason about: CriticMarkup candidates and
+ * reference machinery. Code spans, fences, and HTML are admitted — the
+ * mini-parse recognizes them, and the assembly refuses any window construct
+ * that fails to terminate before the window's end.
  */
 const GUARDED_WINDOW_UNITS = new Set(
-  ['{', '[', '`', '~', '<'].map((unit) => unit.charCodeAt(0))
+  ['{', '['].map((unit) => unit.charCodeAt(0))
 )
 
 function windowIsGuardClean(
@@ -343,10 +345,20 @@ export function spliceGuardsHold(
     retained.rootCount !== 0 ||
     retained.markerDecisionCount !== 0 ||
     retained.referenceDefinitionCount !== 0 ||
-    retained.markdownLiterals.length !== 0 ||
     retained.diagnostics.length !== 0
   ) {
     return false
+  }
+  // A retained literal is carried whole into its segment; one that crosses
+  // the bracket would need its construct re-derived and refuses the splice.
+  for (const literal of retained.markdownLiterals) {
+    const insidePrefix = literal.end <= bracket.start
+    const insideBracket =
+      literal.start >= bracket.start && literal.end <= bracket.endPrevious
+    const insideSuffix = literal.start >= bracket.endPrevious
+    if (!insidePrefix && !insideBracket && !insideSuffix) {
+      return false
+    }
   }
   const graph = retained.forkGraph
   if (graph.branches.length !== 0 || graph.lanes.length !== 1) {
@@ -414,14 +426,20 @@ export function spliceIntrinsicFacts(
     mini.hasCriticMarkupCandidate ||
     mini.rootCount !== 0 ||
     mini.markerDecisionCount !== 0 ||
-    mini.markdownLiterals.length !== 0 ||
     mini.diagnostics.length !== 0 ||
     mini.forkGraph.branches.length !== 0 ||
     mini.forkGraph.lanes.length !== 1
   ) {
-    {
     return undefined
   }
+  const windowLength = bracket.endNext - bracket.start
+  for (const literal of mini.markdownLiterals) {
+    // A literal reaching the window's end may be an unterminated fence or
+    // HTML block that would swallow the suffix; only the full pass decides
+    // it. A definition re-keys link resolution document-wide.
+    if (literal.end >= windowLength || literal.kind === 'definition') {
+      return undefined
+    }
   }
   const miniRoot = mini.forkGraph.lanes[0]
   const retainedRoot = retained.forkGraph.root
@@ -588,6 +606,9 @@ export function spliceIntrinsicFacts(
     const segmentLines = retainedLines.filter(
       (line) => line.start >= from && line.end <= to
     )
+    const segmentLiterals = retained.markdownLiterals.filter(
+      (literal) => literal.start >= from && literal.end <= to
+    )
     segmentTransitions.push(Object.freeze({
       operation: 'advance',
       entryCheckpoint: cleanCheckpointAt(from),
@@ -598,7 +619,7 @@ export function spliceIntrinsicFacts(
         range: run.range
       }))),
       emittedFacts: Object.freeze({
-        literals: Object.freeze([]),
+        literals: Object.freeze(segmentLiterals),
         lines: Object.freeze(segmentLines),
         block: Object.freeze({
           paragraphOpen: false,
@@ -647,6 +668,13 @@ export function spliceIntrinsicFacts(
       const segmentLines = shiftedSuffixLines.filter(
         (line) => line.start >= from && line.end <= to
       )
+      const segmentLiterals = retained.markdownLiterals
+        .filter(
+          (literal) =>
+            literal.start >= from - bracket.delta &&
+            literal.end <= to - bracket.delta
+        )
+        .map((literal) => shiftLiteral(literal, bracket.delta))
       suffixSegments.push(Object.freeze({
         operation: 'advance',
         entryCheckpoint: cleanCheckpointAt(from),
@@ -657,7 +685,7 @@ export function spliceIntrinsicFacts(
           range: run.range
         }))),
         emittedFacts: Object.freeze({
-          literals: Object.freeze([]),
+          literals: Object.freeze(segmentLiterals),
           lines: Object.freeze(segmentLines),
           block: Object.freeze({
             paragraphOpen: false,
@@ -728,10 +756,19 @@ export function spliceIntrinsicFacts(
     armBoundaries: Object.freeze([]),
     items: Object.freeze(items)
   })
+  const splicedLiterals: MarkdownLiteralRange[] = [
+    ...retained.markdownLiterals
+      .filter((literal) => literal.end <= bracket.start),
+    ...mini.markdownLiterals
+      .map((literal) => shiftLiteral(literal, bracket.start)),
+    ...retained.markdownLiterals
+      .filter((literal) => literal.start >= bracket.endPrevious)
+      .map((literal) => shiftLiteral(literal, bracket.delta))
+  ].sort((left, right) => left.start - right.start)
   return Object.freeze({
     tape: Object.freeze(tape),
     diagnostics: Object.freeze([]),
-    markdownLiterals: Object.freeze([]),
+    markdownLiterals: Object.freeze(splicedLiterals),
     forkGraph: Object.freeze({
       root: lane,
       lanes: Object.freeze([lane]),
