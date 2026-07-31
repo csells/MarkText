@@ -141,3 +141,94 @@ export function escapeCriticPayload(
   }
   return result.join('')
 }
+
+/**
+ * §2 source authorship: every CriticMarkup marker production writes is
+ * composed here — spelling, payload escape, and divider in one place. No
+ * caller spells a marker or wires the escape rule inline.
+ */
+export function composeAdditionMarkup(
+  content: string,
+  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
+): string {
+  return `{++${escapeCriticPayload(
+    content,
+    '++}',
+    false,
+    opaqueRanges
+  )}++}`
+}
+
+export function composeDeletionMarkup(
+  content: string,
+  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
+): string {
+  return `{--${escapeCriticPayload(
+    content,
+    '--}',
+    false,
+    opaqueRanges
+  )}--}`
+}
+
+export function composeHighlightMarkup(
+  content: string,
+  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
+): string {
+  return `{==${escapeCriticPayload(
+    content,
+    '==}',
+    false,
+    opaqueRanges
+  )}==}`
+}
+
+export function composeUnaryMarkup(
+  kind: 'addition' | 'deletion' | 'highlight',
+  content: string,
+  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
+): string {
+  return kind === 'addition'
+    ? composeAdditionMarkup(content, opaqueRanges)
+    : kind === 'deletion'
+      ? composeDeletionMarkup(content, opaqueRanges)
+      : composeHighlightMarkup(content, opaqueRanges)
+}
+
+export function composeSubstitutionMarkup(
+  oldContent: string,
+  newContent: string,
+  oldOpaqueRanges: readonly OpaqueRange[] = Object.freeze([])
+): string {
+  return `{~~${escapeCriticPayload(
+    oldContent,
+    '~~}',
+    true,
+    oldOpaqueRanges
+  )}~>${escapeCriticPayload(newContent, '~~}', true)}~~}`
+}
+
+export function composeCommentMarkup(comment: string): string {
+  return `{>>${comment}<<}`
+}
+
+/**
+ * The Highlight-anchored Comment pair. Returns the escaped anchor beside the
+ * composed text so a caller recording an expectation never re-escapes it.
+ */
+export function composeCommentPairMarkup(
+  anchorContent: string,
+  comment: string,
+  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
+): Readonly<{ readonly anchor: string; readonly text: string }> {
+  const anchor = escapeCriticPayload(
+    anchorContent,
+    '==}',
+    false,
+    opaqueRanges
+  )
+  return Object.freeze({
+    anchor,
+    text: `{==${anchor}==}${composeCommentMarkup(comment)}`
+  })
+}

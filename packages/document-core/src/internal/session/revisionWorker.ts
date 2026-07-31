@@ -17,6 +17,9 @@ import {
   type LanguageEngine
 } from '../../languageEngine.js'
 import {
+  composeAdditionMarkup,
+  composeDeletionMarkup,
+  composeSubstitutionMarkup,
   escapeCriticPayload,
   mergeOpaqueRanges,
   type OpaqueRange
@@ -365,43 +368,6 @@ function visibleReplacementPieces(
   ))
 }
 
-function serializeAddition(
-  content: string,
-  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
-): string {
-  return `{++${escapeCriticPayload(
-    content,
-    '++}',
-    false,
-    opaqueRanges
-  )}++}`
-}
-
-function serializeDeletion(
-  content: string,
-  opaqueRanges: readonly OpaqueRange[] = Object.freeze([])
-): string {
-  return `{--${escapeCriticPayload(
-    content,
-    '--}',
-    false,
-    opaqueRanges
-  )}--}`
-}
-
-function serializeSubstitution(
-  oldContent: string,
-  newContent: string,
-  oldOpaqueRanges: readonly OpaqueRange[] = Object.freeze([])
-): string {
-  return `{~~${escapeCriticPayload(
-    oldContent,
-    '~~}',
-    true,
-    oldOpaqueRanges
-  )}~>${escapeCriticPayload(newContent, '~~}', true)}~~}`
-}
-
 function carrierClose(
   context: TrackCarrierContext
 ): '++}' | '~~}' | '==}' | '--}' | '<<}' | null {
@@ -675,7 +641,7 @@ function exhaustedHighlightEdit(
     return Object.freeze({
       start: nodeStart,
       end: nodeEnd,
-      insert: serializeDeletion(
+      insert: composeDeletionMarkup(
         nodeSource,
         Object.freeze([{ start: 0, end: nodeSource.length }])
       )
@@ -1921,10 +1887,10 @@ export class RevisionWorker {
           ? text
           : escapeDirectCarrierText(text, carrier)
         : from === to
-          ? serializeAddition(text)
+          ? composeAdditionMarkup(text)
           : text.length === 0
-            ? serializeDeletion(removed, oldOpaque)
-            : serializeSubstitution(removed, text, oldOpaque)
+            ? composeDeletionMarkup(removed, oldOpaque)
+            : composeSubstitutionMarkup(removed, text, oldOpaque)
     const edit = Object.freeze({
       start: sourceStart.offset,
       end: sourceEnd.offset,
@@ -2016,7 +1982,7 @@ export class RevisionWorker {
           end: nodeEnd,
           insert:
             this.#trackChanges
-              ? serializeDeletion(
+              ? composeDeletionMarkup(
                 nodeSource,
                 Object.freeze([{ start: 0, end: nodeSource.length }])
               )
@@ -2046,7 +2012,7 @@ export class RevisionWorker {
         this.#trackChanges &&
         carrier.policy !== 'direct' &&
         carrier.policy !== 'stable'
-          ? serializeDeletion(removed, opaque)
+          ? composeDeletionMarkup(removed, opaque)
           : ''
     })
     return this.#prepareEdit(edit, sourceStart.offset, target, next)
@@ -2084,7 +2050,7 @@ export class RevisionWorker {
         !this.#trackChanges
           ? text
           : carrier.policy !== 'direct'
-            ? serializeAddition(text)
+            ? composeAdditionMarkup(text)
             : sourceMode === 'raw-source-import'
               ? text
               : escapeDirectCarrierText(text, carrier)
@@ -2161,12 +2127,12 @@ export class RevisionWorker {
           Object.freeze({
             start: openStart,
             end: sourceStart.offset,
-            insert: this.#trackChanges ? serializeDeletion(open) : ''
+            insert: this.#trackChanges ? composeDeletionMarkup(open) : ''
           }),
           Object.freeze({
             start: sourceEnd.offset,
             end: closeEnd,
-            insert: this.#trackChanges ? serializeDeletion(close) : ''
+            insert: this.#trackChanges ? composeDeletionMarkup(close) : ''
           })
         ]),
         target,
@@ -2188,12 +2154,12 @@ export class RevisionWorker {
           Object.freeze({
             start: active.openStart,
             end: sourceStart.offset,
-            insert: this.#trackChanges ? serializeDeletion(open) : ''
+            insert: this.#trackChanges ? composeDeletionMarkup(open) : ''
           }),
           Object.freeze({
             start: sourceEnd.offset,
             end: active.closeEnd,
-            insert: this.#trackChanges ? serializeDeletion(close) : ''
+            insert: this.#trackChanges ? composeDeletionMarkup(close) : ''
           })
         ]),
         target,
@@ -2203,11 +2169,11 @@ export class RevisionWorker {
     const [open, close] = INLINE_FORMAT_DELIMITERS[format]
     const openInsert =
       this.#trackChanges && carrier.policy !== 'direct'
-        ? serializeAddition(open)
+        ? composeAdditionMarkup(open)
         : open
     const closeInsert =
       this.#trackChanges && carrier.policy !== 'direct'
-        ? serializeAddition(close)
+        ? composeAdditionMarkup(close)
         : close
     return this.#prepareMappedEdits(
       Object.freeze([
@@ -2307,10 +2273,10 @@ export class RevisionWorker {
     const insert =
       this.#trackChanges && carrier.policy !== 'direct'
         ? removed.length === 0
-          ? serializeAddition(replacement, replacementOpaqueRanges)
+          ? composeAdditionMarkup(replacement, replacementOpaqueRanges)
           : replacement.length === 0
-            ? serializeDeletion(removed, opaque)
-            : `${serializeDeletion(removed, opaque)}${serializeAddition(
+            ? composeDeletionMarkup(removed, opaque)
+            : `${composeDeletionMarkup(removed, opaque)}${composeAdditionMarkup(
               replacement,
               replacementOpaqueRanges
             )}`
@@ -2841,7 +2807,7 @@ export class RevisionWorker {
       )
       const insert =
         this.#trackChanges && carrier.policy !== 'direct'
-          ? `${serializeDeletion(source, opaque)}${serializeAddition(replacement)}`
+          ? `${composeDeletionMarkup(source, opaque)}${composeAdditionMarkup(replacement)}`
           : replacement
       return Object.freeze({
         start: sourceStart.offset,
@@ -2996,7 +2962,7 @@ export class RevisionWorker {
 
     if (emptyDocument && source.length === 0 && replacement.length > 0) {
       const insert = this.#trackChanges
-        ? serializeAddition(replacement)
+        ? composeAdditionMarkup(replacement)
         : replacement
       return this.#prepareEdit(
         Object.freeze({ start: 0, end: 0, insert }),
@@ -3388,8 +3354,8 @@ export class RevisionWorker {
         : Object.freeze({
           ...entry,
           insert: direction === 'increase'
-            ? serializeAddition(entry.insert)
-            : serializeDeletion(removed)
+            ? composeAdditionMarkup(entry.insert)
+            : composeDeletionMarkup(removed)
         })
     })
     return this.#prepareMappedEdits(
@@ -3539,7 +3505,7 @@ export class RevisionWorker {
           end: sourceEnd,
           insert:
             this.#trackChanges && carrier.policy !== 'direct'
-              ? `${serializeDeletion(removed)}${serializeAddition(insert)}`
+              ? `${composeDeletionMarkup(removed)}${composeAdditionMarkup(insert)}`
               : insert
         })
       ])
@@ -3675,7 +3641,7 @@ export class RevisionWorker {
     }
     const insert =
       this.#trackChanges && carrier.policy !== 'direct'
-        ? `${serializeDeletion(current)}${serializeAddition(language)}`
+        ? `${composeDeletionMarkup(current)}${composeAdditionMarkup(language)}`
         : language
     return this.#prepareMappedEdits(
       Object.freeze([
@@ -3732,7 +3698,7 @@ export class RevisionWorker {
           end: sourceStart.offset,
           insert:
             this.#trackChanges && carrier.policy !== 'direct'
-              ? serializeAddition(open)
+              ? composeAdditionMarkup(open)
               : open
         }),
         Object.freeze({
@@ -3740,7 +3706,7 @@ export class RevisionWorker {
           end: sourceEnd.offset,
           insert:
             this.#trackChanges && carrier.policy !== 'direct'
-              ? serializeAddition(close)
+              ? composeAdditionMarkup(close)
               : close
         })
       ]),
@@ -3861,13 +3827,13 @@ export class RevisionWorker {
           end: sourceTarget.offset,
           insert:
             this.#trackChanges && carrier.policy !== 'direct'
-              ? serializeAddition(reference)
+              ? composeAdditionMarkup(reference)
               : reference
         }),
         Object.freeze({
           start: source.length,
           end: source.length,
-          insert: this.#trackChanges ? serializeAddition(append) : append
+          insert: this.#trackChanges ? composeAdditionMarkup(append) : append
         })
       ]),
       target,

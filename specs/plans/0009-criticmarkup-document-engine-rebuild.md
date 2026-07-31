@@ -365,8 +365,11 @@ are transcribed exactly. Its real residue is G36.
   (`selection-authority.spec.ts`), but the view and renderer still answer
   settlement with their own notions — consolidation onto the one barrier
   remains, and G13's fixed sleeps migrate to it.
-  `internal/sourceAuthorship.ts` owns only the escape rule while marker
-  composition lives in the transformation kernel, and one secondary parser
+  `internal/sourceAuthorship.ts` now owns marker composition beside the
+  escape rule — the unary, substitution, comment, and comment-pair
+  composers in one place, with the kernel and the worker both routing
+  through them and no caller spelling a marker or wiring the escape
+  inline — and one secondary parser
   counter family (line-materialization walks and their memo caches) remains
   process-global with test-only resets — AST-template constructions joined
   the engine recorder, and the projected-text reference-definition index

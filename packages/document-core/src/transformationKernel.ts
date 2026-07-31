@@ -17,7 +17,10 @@ import type {
   SourceRange
 } from './revision.js'
 import {
-  escapeCriticPayload,
+  composeCommentMarkup,
+  composeCommentPairMarkup,
+  composeSubstitutionMarkup,
+  composeUnaryMarkup,
   mergeOpaqueRanges,
   type OpaqueRange
 } from './internal/sourceAuthorship.js'
@@ -218,37 +221,6 @@ function stableEdit(
   insert: string
 ): TransformationSourceEdit {
   return Object.freeze({ start, end, insert })
-}
-
-function serializeUnaryAuthoring(
-  kind: 'addition' | 'deletion' | 'highlight',
-  content: string,
-  opaqueRanges: readonly OpaqueRange[]
-): string {
-  const markers = kind === 'addition'
-    ? { open: '{++', close: '++}' as const }
-    : kind === 'deletion'
-      ? { open: '{--', close: '--}' as const }
-      : { open: '{==', close: '==}' as const }
-  return `${markers.open}${escapeCriticPayload(
-    content,
-    markers.close,
-    false,
-    opaqueRanges
-  )}${markers.close}`
-}
-
-function serializeSubstitutionAuthoring(
-  oldContent: string,
-  newContent: string,
-  oldOpaqueRanges: readonly OpaqueRange[]
-): string {
-  return `{~~${escapeCriticPayload(
-    oldContent,
-    '~~}',
-    true,
-    oldOpaqueRanges
-  )}~>${escapeCriticPayload(newContent, '~~}', true)}~~}`
 }
 
 function rangeStart(range: SourceRange): number {
@@ -1342,7 +1314,7 @@ function validCommentPayload(
   configuration: CompleteDocumentRevision['configuration'],
   comment: string
 ): boolean {
-  const wrapped = `{>>${comment}<<}`
+  const wrapped = composeCommentMarkup(comment)
   const revision = engine.open(createSourceSnapshot(wrapped), configuration)
   if (revision.kind !== 'complete' || revision.criticMarkup.rootCount !== 1) {
     return false
@@ -1829,7 +1801,11 @@ function planAddComment(
     // The standalone form: no anchor, exactly `{>>note<<}` at the caret.
     return Object.freeze({
       edits: Object.freeze([
-        stableEdit(rangeStart(range), rangeStart(range), `{>>${comment}<<}`)
+        stableEdit(
+          rangeStart(range),
+          rangeStart(range),
+          composeCommentMarkup(comment)
+        )
       ]),
       expectation: Object.freeze({
         kind: 'standalone-comment',
@@ -1838,23 +1814,18 @@ function planAddComment(
     })
   }
   const selected = sourceOf(revision.source.text, range)
-  const anchor = escapeCriticPayload(
+  const pair = composeCommentPairMarkup(
     selected,
-    '==}',
-    false,
+    comment,
     authoringOpaqueRanges(revision, range)
   )
   return Object.freeze({
     edits: Object.freeze([
-      stableEdit(
-        rangeStart(range),
-        rangeEnd(range),
-        `{==${anchor}==}{>>${comment}<<}`
-      )
+      stableEdit(rangeStart(range), rangeEnd(range), pair.text)
     ]),
     expectation: Object.freeze({
       kind: 'comment-pair',
-      anchor,
+      anchor: pair.anchor,
       comment
     })
   })
@@ -1887,12 +1858,12 @@ function planCriticMarkupAuthoring(
   const selected = sourceOf(revision.source.text, effectiveRange)
   const opaqueRanges = authoringOpaqueRanges(revision, effectiveRange)
   const insert = input.kind === 'substitution'
-    ? serializeSubstitutionAuthoring(
+    ? composeSubstitutionMarkup(
       selected,
       input.replacement,
       opaqueRanges
     )
-    : serializeUnaryAuthoring(input.kind, selected, opaqueRanges)
+    : composeUnaryMarkup(input.kind, selected, opaqueRanges)
   return Object.freeze({
     edits: Object.freeze([
       stableEdit(
