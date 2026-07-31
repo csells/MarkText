@@ -342,10 +342,22 @@ are transcribed exactly. Its real residue is G36.
   (`incremental-equivalence.spec.ts`). The guards refuse everything
   else: marker-bearing documents, literals, reference definitions,
   interior brackets, and non-clean lane shapes all take the full pass.
-  Remaining: interior brackets (re-basing the retained suffix and its
-  exit state), literal-bearing and definition-bearing prefixes, and the
-  marker-adjacent classes — each widening carries its equivalence rows —
-  then G23 re-measures at target scale.
+  Interior brackets, literal-bearing regions, CRLF spellings, and the
+  marker-bearing class landed with their equivalence rows — a reopen on
+  a Review document whose nodes sit clear of the edit bracket replays
+  the retained forest, shifts the fork branches, and re-scans only the
+  bracket; degraded parses and nesting past sixty-four refuse.
+  Measured 2026-07-30 after the marker route: the per-keystroke
+  intrinsic charge is ~0.01 of the document (the pinned target), but
+  wall time still tracks the document — ~18 ms at 30 KB, ~200 ms at
+  300 KB, ~3.4 s at 3 MB — because the downstream per-reopen stages
+  remain O(document): identity ownership finish, graph-core validation
+  walks, fork-AST emission and reads, projection preparation and
+  materialization, and the Review index build. Closing G23's keystroke
+  budget means giving those stages the same retained-product treatment
+  the intrinsic pass now has. Remaining widenings inside the splice:
+  definition-bearing documents, multi-edit brackets, CR-only line
+  endings.
 
 **W2 — Host surfaces**
 
