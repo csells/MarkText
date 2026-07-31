@@ -18,6 +18,9 @@ import {
   readCanonicalMarkdown,
   sendIpcToRenderer
 } from './helpers'
+import {
+  expectCanonicalOnDisk
+} from './documentCoreReviewE2e'
 
 const selectWord = async(page: Page, word: string): Promise<void> => {
   const point = await page.evaluate((needle) => {
@@ -435,7 +438,7 @@ test.describe('CriticMarkup Review sidebar', () => {
       `{>>edited ${opaqueLiteral} note<<}`
     )
     const removed = `${preface}\n\nreviewed\n`
-    const { app, page } = await launchWithMarkdown(original)
+    const { app, page, filePath } = await launchWithMarkdown(original)
 
     try {
       const commentCard = page.locator('.review-card.type-comment')
@@ -484,7 +487,7 @@ test.describe('CriticMarkup Review sidebar', () => {
         await commentCard.locator('.comment-edit .submit').click()
         await expect(commentCard.locator('.comment-edit-failure')).toBeVisible()
         await expect(editor).toHaveValue(rejected)
-        expect(await readCanonicalMarkdown(page)).toBe(original)
+        await expectCanonicalOnDisk(page, app, filePath, original)
       }, { timeout: 10_000 })
 
       await test.step('save a valid edit and return focus to its card', async() => {
@@ -492,24 +495,24 @@ test.describe('CriticMarkup Review sidebar', () => {
         await commentCard.locator('.comment-edit .submit').click()
         await expect(commentCard.locator('.comment-edit')).toHaveCount(0)
         await expect(commentCard.locator('.review-card-focus')).toBeFocused()
-        await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+        await expectCanonicalOnDisk(page, app, filePath, edited)
         await expect(commentCard.locator('.comment-anchor')).toHaveText('reviewed')
       }, { timeout: 10_000 })
 
       await test.step('undo and redo the comment edit', async() => {
         await undo(app)
-        await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+        await expectCanonicalOnDisk(page, app, filePath, original)
         await redo(app)
-        await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+        await expectCanonicalOnDisk(page, app, filePath, edited)
       }, { timeout: 10_000 })
 
       await test.step('remove, undo, and redo the comment', async() => {
         await commentCard.getByRole('button', { name: 'Remove comment' }).click()
-        await expect.poll(() => readCanonicalMarkdown(page)).toBe(removed)
+        await expectCanonicalOnDisk(page, app, filePath, removed)
         await undo(app)
-        await expect.poll(() => readCanonicalMarkdown(page)).toBe(edited)
+        await expectCanonicalOnDisk(page, app, filePath, edited)
         await redo(app)
-        await expect.poll(() => readCanonicalMarkdown(page)).toBe(removed)
+        await expectCanonicalOnDisk(page, app, filePath, removed)
         await expectNoCapturedErrors(app)
       }, { timeout: 10_000 })
     } finally {
@@ -520,7 +523,7 @@ test.describe('CriticMarkup Review sidebar', () => {
   test('keeps Comment payload out of the caret tree and preserves a deleted anchor as a point comment', async() => {
     const original = 'before {==target==}{>>note<<} after\n'
     const point = 'before {>>note<<} after\n'
-    const { app, page } = await launchWithMarkdown(original)
+    const { app, page, filePath } = await launchWithMarkdown(original)
 
     try {
       await focusEditor(page)
@@ -532,11 +535,11 @@ test.describe('CriticMarkup Review sidebar', () => {
       await expect(indicator).toHaveCount(1)
       await expect(indicator).toHaveText('')
       await expect(page.locator('.editor-component')).not.toContainText('note')
-      expect(await readCanonicalMarkdown(page)).toBe(original)
+      await expectCanonicalOnDisk(page, app, filePath, original)
 
       await selectWord(page, 'target')
       await page.keyboard.press('Backspace')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(point)
+      await expectCanonicalOnDisk(page, app, filePath, point)
       await expect(indicator).toHaveCount(1)
 
       await openReviewSidebar(page, app)
@@ -545,11 +548,11 @@ test.describe('CriticMarkup Review sidebar', () => {
       await expect(commentCard.locator('.comment-anchor')).toHaveCount(0)
 
       await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+      await expectCanonicalOnDisk(page, app, filePath, original)
       await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(point)
+      await expectCanonicalOnDisk(page, app, filePath, point)
       await commentCard.getByRole('button', { name: 'Remove comment' }).click()
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe('before  after\n')
+      await expectCanonicalOnDisk(page, app, filePath, 'before  after\n')
       await expect(indicator).toHaveCount(0)
       await expectNoCapturedErrors(app)
     } finally {
@@ -997,7 +1000,7 @@ test.describe('CriticMarkup Track Changes desktop workflow', () => {
 
   test('tracks replacement and native cut, resolves all, one undo step each', async() => {
     const original = 'alpha bravo charlie\n\ndelta echo foxtrot\n'
-    const { app, page } = await launchWithMarkdown(original)
+    const { app, page, filePath } = await launchWithMarkdown(original)
     try {
       await focusEditor(page)
       await clearRendererErrors(app)
@@ -1014,13 +1017,13 @@ test.describe('CriticMarkup Track Changes desktop workflow', () => {
       // tracked commit records the whole word as one substitution.
       await page.keyboard.insertText('zulu')
       const tracked = original.replace('bravo', '{~~bravo~>zulu~~}')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(tracked)
+      await expectCanonicalOnDisk(page, app, filePath, tracked)
 
       // One semantic history entry per tracked commit.
       await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+      await expectCanonicalOnDisk(page, app, filePath, original)
       await redo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(tracked)
+      await expectCanonicalOnDisk(page, app, filePath, tracked)
 
       // Native cut under Track Changes: a deletion marker in the document,
       // the removed text in the OS clipboard.
@@ -1035,20 +1038,20 @@ test.describe('CriticMarkup Track Changes desktop workflow', () => {
       })
       await expect.poll(() => readClipboard(app), { timeout: 8000 }).toBe('echo')
       const trackedCut = tracked.replace('echo', '{--echo--}')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(trackedCut)
+      await expectCanonicalOnDisk(page, app, filePath, trackedCut)
 
       // Accept All applies both markers as one undoable boundary.
       await expect.poll(() => menuEnabled(app, 'reviewAcceptAllMenuItem')).toBe(true)
       await clickMenuById(app, 'reviewAcceptAllMenuItem')
       const accepted = original.replace('bravo', 'zulu').replace('echo', '')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(accepted)
+      await expectCanonicalOnDisk(page, app, filePath, accepted)
       await undo(app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(trackedCut)
+      await expectCanonicalOnDisk(page, app, filePath, trackedCut)
 
       // Reject All restores the exact pre-review bytes.
       await expect.poll(() => menuEnabled(app, 'reviewRejectAllMenuItem')).toBe(true)
       await clickMenuById(app, 'reviewRejectAllMenuItem')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+      await expectCanonicalOnDisk(page, app, filePath, original)
 
       await expectNoRendererErrors(app)
     } finally {
@@ -1058,7 +1061,7 @@ test.describe('CriticMarkup Track Changes desktop workflow', () => {
 
   test('authors addition, suggested replacement, and highlight via the Review menu', async() => {
     const original = 'one two three four\n'
-    const { app, page } = await launchWithMarkdown(original)
+    const { app, page, filePath } = await launchWithMarkdown(original)
     try {
       await focusEditor(page)
       await clearRendererErrors(app)
@@ -1067,7 +1070,7 @@ test.describe('CriticMarkup Track Changes desktop workflow', () => {
       await expect.poll(() => menuEnabled(app, 'reviewMarkAdditionMenuItem')).toBe(true)
       await clickMenuById(app, 'reviewMarkAdditionMenuItem')
       const added = original.replace('two', '{++two++}')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(added)
+      await expectCanonicalOnDisk(page, app, filePath, added)
 
       await selectWord(page, 'three')
       await expect.poll(() => menuEnabled(app, 'reviewSuggestReplacementMenuItem')).toBe(true)
@@ -1078,13 +1081,13 @@ test.describe('CriticMarkup Track Changes desktop workflow', () => {
       await prompt.locator('.el-button--primary').click()
       await expect(prompt).toBeHidden()
       const replaced = added.replace('three', '{~~three~>tres~~}')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(replaced)
+      await expectCanonicalOnDisk(page, app, filePath, replaced)
 
       await selectWord(page, 'four')
       await expect.poll(() => menuEnabled(app, 'reviewHighlightMenuItem')).toBe(true)
       await clickMenuById(app, 'reviewHighlightMenuItem')
       const highlighted = replaced.replace('four', '{==four==}')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(highlighted)
+      await expectCanonicalOnDisk(page, app, filePath, highlighted)
 
       await openReviewSidebar(page, app)
       await expect(page.locator('.review-card')).toHaveCount(3)

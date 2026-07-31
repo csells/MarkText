@@ -498,6 +498,24 @@ export async function expectCanonicalOnDisk(
   }, { timeout: 15000 }).toBe(expected)
 }
 
+/**
+ * Read the canonical source from disk through the production Save path,
+ * pressing Save first whenever the document is dirty. For asserts that need
+ * substring or pattern matchers — wrap in expect.poll so a dirty flip between
+ * the enablement read and the press converges on the next attempt. Exact
+ * whole-document asserts should use expectCanonicalOnDisk instead.
+ */
+export async function saveCanonicalSnapshot(
+  page: Page,
+  app: ElectronApplication,
+  filePath: string
+): Promise<string> {
+  if (await reviewMenuEnabled(app, 'fileSaveMenuItem') === true) {
+    await pressApplicationMenuAccelerator(page, app, 'fileSaveMenuItem')
+  }
+  return fs.readFileSync(filePath, 'utf-8')
+}
+
 export async function authorComment(
   page: Page,
   app: ElectronApplication,

@@ -6,9 +6,12 @@ import {
   closeElectron,
   expectNoRendererErrors,
   focusEditor,
-  launchWithMarkdown,
-  readCanonicalMarkdown
+  launchWithMarkdown
 } from './helpers'
+import {
+  expectCanonicalOnDisk,
+  saveCanonicalSnapshot
+} from './documentCoreReviewE2e'
 
 const menuEnabled = (app: ElectronApplication, id: string): Promise<boolean | null> =>
   app.evaluate(({ Menu }, menuId) =>
@@ -163,6 +166,7 @@ const addCommentViaSidebar = async(
 test.describe('CriticMarkup comment authoring — same paragraph', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.afterEach(async() => {
     if (app) await closeElectron(app)
@@ -172,13 +176,14 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     const launched = await launchWithMarkdown('hello my honey hello my baby\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
 
     await selectText(page, 'honey')
     await addCommentViaSidebar(page, app, 'a note')
 
-    await expect.poll(() => readCanonicalMarkdown(page))
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath))
       .toContain('{==honey==}{>>a note<<}')
     await expectNoRendererErrors(app)
   })
@@ -187,6 +192,7 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     const launched = await launchWithMarkdown('now is the time for all good men\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
 
@@ -195,7 +201,7 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('now')
     await addCommentViaSidebar(page, app, 'kbd note')
 
-    await expect.poll(() => readCanonicalMarkdown(page))
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath))
       .toContain('{==now==}{>>kbd note<<}')
     await expectNoRendererErrors(app)
   })
@@ -204,6 +210,7 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     const launched = await launchWithMarkdown('now is the time for all good men\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
 
@@ -217,7 +224,7 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('now is the')
     await addCommentViaSidebar(page, app, 'paused')
 
-    await expect.poll(() => readCanonicalMarkdown(page))
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath))
       .toContain('{==now is the==}{>>paused<<}')
     await expectNoRendererErrors(app)
   })
@@ -226,6 +233,7 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     const launched = await launchWithMarkdown('hello my honey hello my baby\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
 
@@ -233,7 +241,7 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('honey')
     await addCommentViaSidebar(page, app, 'drag note')
 
-    await expect.poll(() => readCanonicalMarkdown(page))
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath))
       .toContain('{==honey==}{>>drag note<<}')
     await expectNoRendererErrors(app)
   })
@@ -242,13 +250,14 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     const launched = await launchWithMarkdown('now is the time for all good men\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
 
     await keyboardSelect(page, 0, 3)
     await addCommentViaSidebar(page, app, 'via mod enter', 'mod-enter')
 
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain('{>>via mod enter<<}')
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).toContain('{>>via mod enter<<}')
     await expectNoRendererErrors(app)
   })
 
@@ -256,13 +265,14 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     const launched = await launchWithMarkdown('# hello my honey hello\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
 
     await selectText(page, 'honey')
     await addCommentViaSidebar(page, app, 'header note')
 
-    await expect.poll(() => readCanonicalMarkdown(page))
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath))
       .toContain('{==honey==}{>>header note<<}')
     await expectNoRendererErrors(app)
   })
@@ -271,12 +281,13 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
     const launched = await launchWithMarkdown('# hello my honey hello\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
 
     await selectText(page, 'honey')
     await addCommentViaSidebar(page, app, 'header note')
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain('{>>header note<<}')
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).toContain('{>>header note<<}')
 
     // The rendered heading carries no '# ' text — the prefix exists only in
     // the model — so a caret at the rendered start sits AFTER the marker and
@@ -300,12 +311,12 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
       selection.addRange(range)
     })
     await page.keyboard.press('Backspace')
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain('#hello')
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).toContain('#hello')
     await page.keyboard.press('Backspace')
 
     await expectNoRendererErrors(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain('{>>header note<<}')
-    expect(await readCanonicalMarkdown(page)).not.toMatch(/^#\s/m)
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).toContain('{>>header note<<}')
+    expect(await saveCanonicalSnapshot(page, app, documentPath)).not.toMatch(/^#\s/m)
   })
 })
 
@@ -319,6 +330,7 @@ test.describe('CriticMarkup comment authoring — same paragraph', () => {
 test.describe('CriticMarkup comment authoring — cross paragraph', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.afterEach(async() => {
     if (app) await closeElectron(app)
@@ -329,11 +341,12 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
     const launched = await launchWithMarkdown(source)
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
     await page.waitForTimeout(300)
 
-    expect(await readCanonicalMarkdown(page)).toBe(source)
+    await expectCanonicalOnDisk(page, app, documentPath, source)
     const highlights = page.locator('.editor-component mark')
     await expect(highlights).toHaveCount(2)
     expect(await highlights.allTextContents()).toEqual([
@@ -352,6 +365,7 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
     const launched = await launchWithMarkdown(source)
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
 
@@ -361,7 +375,10 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
     )).toBe('time for all good men\n\nI wish')
     await addCommentViaSidebar(page, app, 'xnote')
 
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(
+      page,
+      app,
+      documentPath,
       'now is the {==time for all good men\n\nI wish==}{>>xnote<<}' +
       ' I were in the land of cotton!\n'
     )
@@ -377,6 +394,7 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
     const launched = await launchWithMarkdown(source)
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     await clearRendererErrors(app)
     await placeCaret(page, 0)
@@ -421,7 +439,10 @@ test.describe('CriticMarkup comment authoring — cross paragraph', () => {
     )).toBe('time for all good men\n\nI wish')
     await addCommentViaSidebar(page, app, 'dnote')
 
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+    await expectCanonicalOnDisk(
+      page,
+      app,
+      documentPath,
       'now is the {==time for all good men\n\nI wish==}{>>dnote<<}' +
       ' I were in the land of cotton!\n'
     )
