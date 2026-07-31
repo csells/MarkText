@@ -27,6 +27,20 @@ const TEST_CONFIGURATION: ParseConfiguration = {
 }
 
 describe('DocumentSession main-owned file reload', () => {
+  it('rejects a renderer-origin reload: the intent is host-only', async() => {
+    const session = await createDocumentSession({
+      source: createSourceSnapshot('a\n'),
+      parseConfiguration: TEST_CONFIGURATION
+    })
+    // A renderer edits source through authenticated ranges and can never
+    // supply a whole-document replacement; only the host origin may.
+    expect(() => session.dispatch({
+      kind: 'reload-source-from-file',
+      source: 'b\n'
+    })).toThrow(/host-only/)
+    expect(session.snapshot().revision.source).toBe('a\n')
+  })
+
   it('records exact file source as one history entry and undoes exactly', async() => {
     const before = '{++before++}\r\n'
     const after = '{--after--}\r\n'
@@ -38,7 +52,7 @@ describe('DocumentSession main-owned file reload', () => {
     await expect(session.dispatch({
       kind: 'reload-source-from-file',
       source: after
-    }).completion).resolves.toMatchObject({
+    }, undefined, 'host').completion).resolves.toMatchObject({
       kind: 'committed',
       transition: {
         cause: 'source-edit',
@@ -73,7 +87,7 @@ describe('DocumentSession main-owned file reload', () => {
     await expect(session.dispatch({
       kind: 'reload-source-from-file',
       source
-    }).completion).resolves.toMatchObject({
+    }, undefined, 'host').completion).resolves.toMatchObject({
       kind: 'rejected',
       reason: 'no-source-change',
       snapshot: before
@@ -111,7 +125,7 @@ describe('DocumentSession main-owned file reload', () => {
     const result = await session.dispatch({
       kind: 'reload-source-from-file',
       source: candidate
-    }).completion
+    }, undefined, 'host').completion
 
     expect(result).toMatchObject({ kind: 'cancelled', reason: 'cancelled' })
     expect(latestSourceUnits).toBe(cancelAt)

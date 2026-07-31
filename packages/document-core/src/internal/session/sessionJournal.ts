@@ -803,7 +803,10 @@ function validateIngress(value: unknown, path: string): void {
     field(ingress, 'submittedAgainst', path),
     `${path}.submittedAgainst`
   )
-  decodeEditorIntent(field(ingress, 'intent', path))
+  decodeEditorIntent(
+    field(ingress, 'intent', path),
+    Object.freeze({ origin: 'host' })
+  )
   oneOf(
     field(ingress, 'phase', path),
     `${path}.phase`,

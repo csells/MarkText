@@ -1157,7 +1157,12 @@ export interface DocumentSession {
   ) => Promise<DocumentHistoryState>
   readonly dispatch: (
     intent: EditorIntent,
-    beforePrepare?: Promise<void>
+    beforePrepare?: Promise<void>,
+    /**
+     * Wire origin for host-only intents; defaults to the restrictive
+     * renderer origin. Only the session's host may vouch for 'host'.
+     */
+    origin?: 'host' | 'renderer'
   ) => DispatchTicket
   readonly reconfigureMarkdownOptions: (
     patch: DocumentCoreMarkdownOptionPatch

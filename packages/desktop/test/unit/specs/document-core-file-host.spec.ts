@@ -250,6 +250,30 @@ function decode(
   }
 }
 
+// A renderer may replace the whole source only through an authenticated
+// ranged edit; reload-source-from-file is host-only and its decode rejects
+// the renderer origin, so these rows simulate a landing edit legitimately.
+function rendererWholeReplace(
+  snapshot: ReturnType<typeof decode>['snapshot'],
+  text: string
+) {
+  if (snapshot.kind !== 'complete') {
+    throw new Error('Whole-document replacement needs a complete snapshot')
+  }
+  return {
+    kind: 'replace-text' as const,
+    target: {
+      ...snapshot.selection,
+      anchor: { offset: 0, affinity: 'next' as const },
+      focus: {
+        offset: snapshot.source.length,
+        affinity: 'previous' as const
+      }
+    },
+    text
+  }
+}
+
 describe('main-owned document-core file host', () => {
   it.each([
     ['symbolic-link', async(
@@ -621,10 +645,7 @@ describe('main-owned document-core file host', () => {
     const edited = await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: before.snapshotId,
-      intent: {
-        kind: 'reload-source-from-file',
-        source: 'new'
-      }
+      intent: rendererWholeReplace(before, 'new')
     })
     releaseWrite?.()
 
@@ -686,10 +707,7 @@ describe('main-owned document-core file host', () => {
     await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: attached.snapshot.snapshotId,
-      intent: {
-        kind: 'reload-source-from-file',
-        source: 'local'
-      }
+      intent: rendererWholeReplace(attached.snapshot, 'local')
     })
     vi.mocked(metadataStorage.read).mockImplementationOnce(async documentId => {
       const metadata = metadataRecords.get(documentId) ?? null
@@ -824,10 +842,7 @@ describe('main-owned document-core file host', () => {
     await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: attached.snapshot.snapshotId,
-      intent: {
-        kind: 'reload-source-from-file',
-        source: 'local'
-      }
+      intent: rendererWholeReplace(attached.snapshot, 'local')
     })
     vi.mocked(metadataStorage.write).mockImplementationOnce(async() => {
       diskBytes = Uint8Array.from(externalBytes)
@@ -883,7 +898,7 @@ describe('main-owned document-core file host', () => {
     await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: before.snapshotId,
-      intent: { kind: 'reload-source-from-file', source: 'dirtier' }
+      intent: rendererWholeReplace(before, 'dirtier')
     })
 
     const receipt = await fileHost.save('renderer:1', {
@@ -955,7 +970,7 @@ describe('main-owned document-core file host', () => {
     await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: before.snapshotId,
-      intent: { kind: 'reload-source-from-file', source: 'changed' }
+      intent: rendererWholeReplace(before, 'changed')
     })
 
     await expect(fileHost.save('renderer:1', {
@@ -1102,10 +1117,7 @@ describe('main-owned document-core file host', () => {
     await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: attached.snapshot.snapshotId,
-      intent: {
-        kind: 'reload-source-from-file',
-        source: 'new\n'
-      }
+      intent: rendererWholeReplace(attached.snapshot, 'new\n')
     })
     const originalMetadata = metadataRecords.get(opened.documentId)
     vi.mocked(metadataStorage.write)
@@ -1350,10 +1362,7 @@ describe('main-owned document-core file host', () => {
     await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: attached.snapshot.snapshotId,
-      intent: {
-        kind: 'reload-source-from-file',
-        source: 'after'
-      }
+      intent: rendererWholeReplace(attached.snapshot, 'after')
     })
     const originalMetadata = metadataRecords.get(opened.documentId)
     markPersisted.mockRejectedValueOnce(new Error('journal unavailable'))
@@ -1461,10 +1470,7 @@ describe('main-owned document-core file host', () => {
     await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: attached.snapshot.snapshotId,
-      intent: {
-        kind: 'reload-source-from-file',
-        source: 'after'
-      }
+      intent: rendererWholeReplace(attached.snapshot, 'after')
     })
     const originalMetadata = metadataRecords.get(opened.documentId)
     markPersisted.mockImplementationOnce(async(
@@ -1891,10 +1897,7 @@ describe('main-owned document-core file host', () => {
     await sessionHost.dispatch('renderer:1', {
       documentId: opened.documentId,
       baseSnapshotId: attached.snapshot.snapshotId,
-      intent: {
-        kind: 'reload-source-from-file',
-        source: 'local'
-      }
+      intent: rendererWholeReplace(attached.snapshot, 'local')
     })
     vi.mocked(surface.read).mockResolvedValue(
       decodeFileSnapshot(new TextEncoder().encode('external'), 'utf-8')

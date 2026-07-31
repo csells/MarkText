@@ -990,7 +990,7 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
       const ticket = current.dispatch(Object.freeze({
         kind: 'reload-source-from-file',
         source: command.source
-      }))
+      }), undefined, 'host')
       const outcome = await ticket.completion
       if (outcome.kind !== 'committed' && outcome.kind !== 'noop') {
         throw new Error(

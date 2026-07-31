@@ -437,7 +437,22 @@ function targetIntent(
  * Decode and detach one complete editor gesture before assigning it a ticket
  * or exposing any part of it to the durable journal.
  */
-export function decodeEditorIntent(value: unknown): EditorIntent {
+/**
+ * Where a wire intent came from. The renderer origin is the restrictive
+ * default: host-only intents decode only when the caller vouches for the
+ * host boundary (journal recovery, the main process's own file flows).
+ */
+export interface EditorIntentDecodeContext {
+  readonly origin: 'host' | 'renderer'
+}
+
+const RENDERER_ORIGIN: EditorIntentDecodeContext =
+  Object.freeze({ origin: 'renderer' })
+
+export function decodeEditorIntent(
+  value: unknown,
+  context: EditorIntentDecodeContext = RENDERER_ORIGIN
+): EditorIntent {
   try {
     const base = record(value, 'root')
     const kind = stringValue(
@@ -775,6 +790,13 @@ export function decodeEditorIntent(value: unknown): EditorIntent {
       })
     }
     if (kind === 'reload-source-from-file') {
+      if (context.origin !== 'host') {
+        return fail(
+          'reload-source-from-file is host-only: a renderer edits source ' +
+          'through authenticated ranges and can never supply a ' +
+          'whole-document replacement'
+        )
+      }
       const stable = closedRecord(value, 'root', ['kind', 'source'])
       return Object.freeze({
         kind,

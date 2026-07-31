@@ -738,7 +738,9 @@ export class SessionCoordinator {
         record.ticket,
         record.sequence,
         record.submittedAgainst,
-        decodeEditorIntent(record.intent)
+        // Recovered intents were admitted through the host boundary before
+        // they were journaled; replay re-validates them under that origin.
+        decodeEditorIntent(record.intent, Object.freeze({ origin: 'host' }))
       )
     }
   }
@@ -754,8 +756,9 @@ export class SessionCoordinator {
     )
     const dispatch = Object.freeze((
       intent: EditorIntent,
-      beforePrepare?: Promise<void>
-    ) => this.#dispatch(intent, beforePrepare))
+      beforePrepare?: Promise<void>,
+      origin?: 'host' | 'renderer'
+    ) => this.#dispatch(intent, beforePrepare, origin))
     const reconfigureMarkdownOptions = Object.freeze(
       (patch: DocumentCoreMarkdownOptionPatch) =>
         this.#reconfigureMarkdownOptions(patch)
@@ -1027,12 +1030,13 @@ export class SessionCoordinator {
 
   #dispatch(
     intent: EditorIntent,
-    beforePrepare: Promise<void> = Promise.resolve()
+    beforePrepare: Promise<void> = Promise.resolve(),
+    origin: 'host' | 'renderer' = 'renderer'
   ): DispatchTicket {
     if (this.#lifecycle !== 'open') {
       throw new Error('Document session is closed')
     }
-    const stableIntent = decodeEditorIntent(intent)
+    const stableIntent = decodeEditorIntent(intent, Object.freeze({ origin }))
     const id = this.#ids.intent()
     const clientSequence = this.#nextClientSequence()
     const submittedAgainst = this.#worker.state.id
