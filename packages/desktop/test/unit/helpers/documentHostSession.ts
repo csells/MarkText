@@ -22,6 +22,7 @@ export function installTestDocumentHostCapabilities(
   return Object.freeze({
     ...session,
     ...clipboard,
+    intentCapabilities: () => null,
     registerImageAsset: () => Object.freeze({
       src: 'test-owned-image-asset',
       cancel: () => undefined

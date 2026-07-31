@@ -7,6 +7,7 @@ import type {
   DocumentFacts,
   EditorIntent,
   InitialModelSelection,
+  IntentCapabilitySnapshot,
   MarkupCoordinateMapV1,
   MarkupModelSelection,
   MarkupRenderBlock,
@@ -386,6 +387,12 @@ export interface DocumentCorePublication {
   readonly baseSnapshotId: string
   readonly envelope: WireEnvelopeV1
   readonly execution: DocumentCoreExecutionReport
+  /**
+   * The per-revision intent capability snapshot the session published with
+   * this head: one entry per typed intent, the record every availability
+   * predicate reads (G5/G8).
+   */
+  readonly capabilities: IntentCapabilitySnapshot
 }
 
 export interface DocumentCorePersistenceLeaseResult {

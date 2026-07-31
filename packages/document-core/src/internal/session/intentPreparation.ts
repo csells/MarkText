@@ -293,6 +293,12 @@ function foldCapability(
   return ENABLED
 }
 
+/** Every intent kind, derived from the preparation table's key set. */
+export const EDITOR_INTENT_KINDS: readonly EditorIntent['kind'][] =
+  Object.freeze(
+    Object.keys(INTENT_PREPARATIONS) as EditorIntent['kind'][]
+  )
+
 export function computeIntentCapabilities(
   facts: IntentCapabilityFacts
 ): IntentCapabilitySnapshot {

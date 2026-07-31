@@ -25,6 +25,8 @@ import {
   type RevisionId,
   type ReviewIndex,
   type RevisionSemanticHashV1,
+  EDITOR_INTENT_KINDS,
+  type IntentCapabilitySnapshot,
   type SessionId,
   type SourceOffset,
   type SourceHashV1,
@@ -94,6 +96,14 @@ export interface DocumentCoreRemoteSessionOptions {
     documentId: string,
     state: DocumentCoreHistoryState
   ) => void
+  /**
+   * The per-revision capability snapshot each adopted publication carries;
+   * the one record availability surfaces read (G5/G8).
+   */
+  readonly onIntentCapabilities?: (
+    documentId: string,
+    capabilities: IntentCapabilitySnapshot
+  ) => void
   readonly onExecutionReport?: (
     documentId: string,
     report: DocumentCoreExecutionReport
@@ -105,6 +115,12 @@ export interface DocumentCoreRemoteSessionOptions {
 }
 
 export interface DocumentCoreRemoteSession extends IDocumentCoreViewSession {
+  /**
+   * The latest per-revision intent capability snapshot main published, or
+   * null before the first adopted publication. Availability surfaces read
+   * this one record (G5/G8).
+   */
+  readonly intentCapabilities: () => IntentCapabilitySnapshot | null
   /**
    * Materialize and write one parser-owned clipboard payload. Cut receipts
    * carry the publication committed by main; this method verifies and mounts
@@ -1291,6 +1307,7 @@ interface DecodedDocumentCorePublication {
   readonly baseSnapshotId: string
   readonly envelope: unknown
   readonly execution: DocumentCoreExecutionReport
+  readonly capabilities: IntentCapabilitySnapshot
 }
 
 function assertPublication(
@@ -1303,7 +1320,8 @@ function assertPublication(
       'documentId',
       'baseSnapshotId',
       'envelope',
-      'execution'
+      'execution',
+      'capabilities'
     ])
   } catch {
     throw new TypeError('Main returned an invalid document-core publication')
@@ -1323,8 +1341,36 @@ function assertPublication(
       'Document-core publication base snapshot identity'
     ),
     envelope: publication.envelope,
-    execution: decodeExecutionReport(publication.execution)
+    execution: decodeExecutionReport(publication.execution),
+    capabilities: decodeIntentCapabilities(publication.capabilities)
   })
+}
+
+function decodeIntentCapabilities(
+  value: unknown
+): IntentCapabilitySnapshot {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(
+      'Main returned an invalid intent capability snapshot'
+    )
+  }
+  const snapshot = value as Readonly<Record<string, unknown>>
+  for (const kind of EDITOR_INTENT_KINDS) {
+    const record = snapshot[kind] as Readonly<{
+      enabled?: unknown
+      reason?: unknown
+    }> | undefined
+    if (
+      record === undefined ||
+      typeof record.enabled !== 'boolean' ||
+      (record.enabled === false && typeof record.reason !== 'string')
+    ) {
+      throw new TypeError(
+        'Main returned an invalid intent capability snapshot'
+      )
+    }
+  }
+  return value as IntentCapabilitySnapshot
 }
 
 type DecodedClipboardWriteReceipt =
@@ -1667,6 +1713,7 @@ export async function createDocumentCoreRemoteSession(
   const codec = new WireEnvelopeCodecV1()
   let portable: DocumentCorePortableSnapshot | undefined
   let mountedSnapshotId = ''
+  let latestIntentCapabilities: IntentCapabilitySnapshot | null = null
   let pending: Promise<void> = Promise.resolve()
   let closed = false
   let closePromise: Promise<void> | null = null
@@ -1765,7 +1812,9 @@ export async function createDocumentCoreRemoteSession(
       portable = next
     }
     mountedSnapshotId = verified.mountedSnapshotId
+    latestIntentCapabilities = publication.capabilities
     options.onExecutionReport?.(documentId, publication.execution)
+    options.onIntentCapabilities?.(documentId, publication.capabilities)
     if (next !== undefined) {
       options.onHistoryState(documentId, next.historyState)
     }
@@ -2216,6 +2265,7 @@ export async function createDocumentCoreRemoteSession(
     snapshot,
     dispatch,
     settled,
+    intentCapabilities: () => latestIntentCapabilities,
     reconfigureMarkdownOptions,
     writeClipboardMaterialization,
     pasteClipboard,

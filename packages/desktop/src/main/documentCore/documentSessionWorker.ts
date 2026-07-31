@@ -579,7 +579,8 @@ function publication(
   return Object.freeze({
     baseSnapshotId,
     envelope,
-    execution
+    execution,
+    capabilities: activeSession().capabilities()
   })
 }
 

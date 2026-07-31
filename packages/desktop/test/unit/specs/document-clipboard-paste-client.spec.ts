@@ -30,7 +30,8 @@ describe('document clipboard paste client', () => {
       documentId: 'document:owned',
       baseSnapshotId: 'snapshot:current',
       envelope: Object.freeze({}),
-      execution: Object.freeze({})
+      execution: Object.freeze({}),
+      capabilities: Object.freeze({})
     })
     invoke.mockResolvedValue(publication)
 
@@ -63,6 +64,7 @@ describe('document clipboard paste client', () => {
         baseSnapshotId: 'snapshot:current',
         envelope: {},
         execution: {},
+        capabilities: {},
         rendererOverride: true
       }
     },
@@ -71,7 +73,8 @@ describe('document clipboard paste client', () => {
       publication: {
         documentId: 'document:owned',
         baseSnapshotId: 'snapshot:current',
-        envelope: {}
+        envelope: {},
+        capabilities: {}
       }
     },
     {
@@ -80,6 +83,7 @@ describe('document clipboard paste client', () => {
         documentId: 'document:owned',
         baseSnapshotId: 'snapshot:current',
         envelope: {},
+        capabilities: {},
         report: {}
       }
     },
@@ -89,7 +93,8 @@ describe('document clipboard paste client', () => {
         documentId: 'document:other',
         baseSnapshotId: 'snapshot:current',
         envelope: {},
-        execution: {}
+        execution: {},
+        capabilities: {}
       }
     },
     {
@@ -97,6 +102,7 @@ describe('document clipboard paste client', () => {
       publication: {
         documentId: 'document:owned',
         baseSnapshotId: 'snapshot:other',
+        capabilities: {},
         envelope: {},
         execution: {}
       }

@@ -327,6 +327,7 @@ interface DocumentCoreWorkerPublication {
   readonly baseSnapshotId: string
   readonly envelope: DocumentCorePublication['envelope']
   readonly execution: DocumentCorePublication['execution']
+  readonly capabilities: DocumentCorePublication['capabilities']
 }
 
 function closedRecord(
@@ -781,7 +782,8 @@ function bindDocumentPublication(
     documentId,
     baseSnapshotId: publication.baseSnapshotId,
     envelope: publication.envelope,
-    execution: publication.execution
+    execution: publication.execution,
+    capabilities: publication.capabilities
   })
 }
 

@@ -24,7 +24,7 @@ function assertPublication(
     typeof value !== 'object' ||
     Array.isArray(value) ||
     Object.getPrototypeOf(value) !== Object.prototype ||
-    Reflect.ownKeys(value).length !== 4
+    Reflect.ownKeys(value).length !== 5
   ) {
     throw new TypeError(
       'Main returned an invalid document clipboard paste publication'
@@ -34,7 +34,8 @@ function assertPublication(
     'documentId',
     'baseSnapshotId',
     'envelope',
-    'execution'
+    'execution',
+    'capabilities'
   ])
   const record: Record<string, unknown> = {}
   for (const field of fields) {
@@ -60,7 +61,10 @@ function assertPublication(
     Array.isArray(record['envelope']) ||
     record['execution'] === null ||
     typeof record['execution'] !== 'object' ||
-    Array.isArray(record['execution'])
+    Array.isArray(record['execution']) ||
+    record['capabilities'] === null ||
+    typeof record['capabilities'] !== 'object' ||
+    Array.isArray(record['capabilities'])
   ) {
     throw new TypeError(
       'Main returned an invalid document clipboard paste publication'
@@ -70,7 +74,8 @@ function assertPublication(
     documentId: expectedDocumentId,
     baseSnapshotId: expectedBaseSnapshotId,
     envelope: record['envelope'],
-    execution: record['execution']
+    execution: record['execution'],
+    capabilities: record['capabilities']
   })
 }
 

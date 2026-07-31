@@ -860,6 +860,10 @@ export type {
   IntentCapability,
   IntentCapabilitySnapshot
 } from './internal/session/intentPreparation.js'
+export {
+  computeIntentCapabilities,
+  EDITOR_INTENT_KINDS
+} from './internal/session/intentPreparation.js'
 import type {
   IntentCapabilitySnapshot
 } from './internal/session/intentPreparation.js'
