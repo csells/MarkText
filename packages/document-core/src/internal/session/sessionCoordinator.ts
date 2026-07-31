@@ -75,7 +75,6 @@ import {
 import type { RevisionSemanticHashV1 } from '../../hashCodec.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
 import {
-  classifyPasteConsumer,
   materializeClipboardConsumer,
   materializeStaticConsumer,
   type ClipboardConsumerRequest,
@@ -84,6 +83,7 @@ import {
   type StaticConsumerRequest
 } from '../../materialize/consumerPolicy.js'
 import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
+import { prepareEditorIntent } from './intentPreparation.js'
 import {
   createLanguageEngine,
   type LanguageEngine
@@ -1184,218 +1184,10 @@ export class SessionCoordinator {
       if (this.#projection !== 'marked') {
         throw new IntentRejection('read-only-projection')
       }
-      let prepared
-      if (intent.kind === 'insert-text') {
-        // Typed insertions are the one coalescible admission: the History
-        // rule may extend the open typed run instead of recording an entry.
-        prepared = this.#worker.prepareInsertion(
-          intent.target,
-          intent.text,
-          next,
-          'semantic',
-          true
-        )
-      } else if (intent.kind === 'replace-text') {
-        prepared = this.#worker.prepareReplacement(intent.target, intent.text, next)
-      } else if (intent.kind === 'replace-current-matches') {
-        prepared = this.#worker.prepareCurrentMatchReplacement(
-          intent.target,
-          intent.query,
-          intent.replacement,
-          next
-        )
-      } else if (intent.kind === 'delete-text') {
-        prepared = this.#worker.prepareDeletion(intent.target, next)
-      } else if (intent.kind === 'format-text') {
-        prepared = this.#worker.prepareFormatting(
-          intent.target,
-          intent.format,
-          next
-        )
-      } else if (intent.kind === 'replace-structure') {
-        prepared = this.#worker.prepareStructureReplacement(
-          intent.target,
-          intent.replacement,
-          next
-        )
-      } else if (intent.kind === 'convert-block') {
-        prepared = this.#worker.prepareBlockConversion(
-          intent.target,
-          intent.conversion,
-          next
-        )
-      } else if (intent.kind === 'quick-insert-block') {
-        prepared = this.#worker.prepareQuickInsertBlock(
-          intent.target,
-          intent.block,
-          next
-        )
-      } else if (intent.kind === 'duplicate-block') {
-        prepared = this.#worker.prepareBlockDuplication(intent.target, next)
-      } else if (intent.kind === 'delete-block') {
-        prepared = this.#worker.prepareBlockDeletion(intent.target, next)
-      } else if (intent.kind === 'insert-paragraph') {
-        prepared = this.#worker.prepareParagraphInsertion(
-          intent.target,
-          intent.location,
-          next
-        )
-      } else if (intent.kind === 'insert-paragraph-break') {
-        prepared = this.#worker.prepareSemanticBreak(
-          intent.target,
-          'paragraph',
-          next
-        )
-      } else if (intent.kind === 'insert-line-break') {
-        prepared = this.#worker.prepareSemanticBreak(
-          intent.target,
-          'line',
-          next
-        )
-      } else if (intent.kind === 'set-list-indentation') {
-        prepared = this.#worker.prepareListIndentation(
-          intent.target,
-          intent.direction,
-          next
-        )
-      } else if (intent.kind === 'set-task-checked') {
-        prepared = this.#worker.prepareTaskChecked(
-          intent.target,
-          intent.checked,
-          intent.cascade,
-          next
-        )
-      } else if (intent.kind === 'set-code-language') {
-        prepared = this.#worker.prepareCodeLanguage(
-          intent.target,
-          intent.language,
-          next
-        )
-      } else if (intent.kind === 'insert-link') {
-        prepared = this.#worker.prepareLinkInsertion(
-          intent.target,
-          intent.href,
-          intent.title,
-          next
-        )
-      } else if (intent.kind === 'insert-image') {
-        prepared = this.#worker.prepareImageInsertion(
-          intent.target,
-          {
-            src: intent.src,
-            alt: intent.alt,
-            ...(intent.title === undefined ? {} : { title: intent.title })
-          },
-          next
-        )
-      } else if (intent.kind === 'insert-footnote') {
-        prepared = this.#worker.prepareFootnoteInsertion(
-          intent.target,
-          intent.label,
-          intent.content,
-          next
-        )
-      } else if (intent.kind === 'create-table') {
-        prepared = this.#worker.prepareTableCreation(
-          intent.target,
-          intent.rows,
-          intent.columns,
-          next
-        )
-      } else if (intent.kind === 'insert-table-row') {
-        prepared = this.#worker.prepareTableRowInsertion(
-          intent.target,
-          intent.location,
-          next
-        )
-      } else if (intent.kind === 'remove-table-row') {
-        prepared = this.#worker.prepareTableRowRemoval(intent.target, next)
-      } else if (intent.kind === 'insert-table-column') {
-        prepared = this.#worker.prepareTableColumnInsertion(
-          intent.target,
-          intent.location,
-          next
-        )
-      } else if (intent.kind === 'remove-table-column') {
-        prepared = this.#worker.prepareTableColumnRemoval(intent.target, next)
-      } else if (intent.kind === 'align-table-column') {
-        prepared = this.#worker.prepareTableColumnAlignment(
-          intent.target,
-          intent.alignment,
-          next
-        )
-      } else if (intent.kind === 'move-table-row') {
-        prepared = this.#worker.prepareTableRowMove(
-          intent.target,
-          intent.direction,
-          next
-        )
-      } else if (intent.kind === 'move-table-column') {
-        prepared = this.#worker.prepareTableColumnMove(
-          intent.target,
-          intent.direction,
-          next
-        )
-      } else if (intent.kind === 'delete-table-cell-contents') {
-        prepared = this.#worker.prepareTableCellContentsDeletion(
-          intent.target,
-          next
-        )
-      } else if (intent.kind === 'paste-text') {
-        // The paste question — which payload flavors import raw syntax,
-        // which are semantic edits, and which surface takes the bytes
-        // verbatim — is answered by the consumer policy, never here. The
-        // projection guard above already refused read-only views, so the
-        // disabled arm is unreachable through dispatch; it stays refused
-        // for any future caller that consults the policy directly.
-        const route = classifyPasteConsumer(this.#worker.state.revision, {
-          view: intent.target.view === 'source' ? 'source' : 'markup',
-          payload: intent.payload
-        })
-        if (route.kind === 'disabled') {
-          throw new IntentRejection('read-only-projection')
-        }
-        if (route.kind === 'semantic-html-edit') {
-          throw new TypeError(
-            'The paste intent carries no wire spelling for trusted HTML'
-          )
-        }
-        prepared = this.#worker.preparePaste(
-          intent.target,
-          route.text,
-          route.kind === 'raw-syntax-import' || route.kind === 'source-text-edit'
-            ? 'raw-source-import'
-            : 'external-text',
-          next
-        )
-      } else if (intent.kind === 'commit-composition') {
-        prepared = this.#worker.prepareCompositionCommit(
-          intent.target,
-          intent.text,
-          next
-        )
-      } else if (intent.kind === 'author-critic-markup') {
-        prepared = this.#worker.prepareCriticMarkupAuthoring(
-          intent.target,
-          intent.input,
-          next
-        )
-      } else if (intent.kind === 'reload-source-from-file') {
-        prepared = this.#worker.prepareSourceCommit(intent.source, next)
-      } else if (intent.kind === 'edit-source') {
-        prepared = this.#worker.prepareSourceEdit(
-          intent.target,
-          intent.text,
-          intent.selection,
-          next
-        )
-      } else if (intent.kind === 'undo') {
-        prepared = this.#worker.prepareUndo(next)
-      } else if (intent.kind === 'redo') {
-        prepared = this.#worker.prepareRedo(next)
-      } else {
-        prepared = this.#worker.prepareTransformation(intent, next)
-      }
+      // The dispatch ladder is the intent preparation table: one declared
+      // adapter per union arm, so adding an intent adds a table entry, not
+      // a coordinator branch.
+      const prepared = prepareEditorIntent(this.#worker, intent, next)
       // Facts are part of the candidate publication. Complete their
       // checkpointed, cancellable work before journal begin/worker commit so
       // cancellation cannot leave a committed head with no snapshot.
