@@ -479,10 +479,17 @@ are transcribed exactly. Its real residue is G36.
   in exactly one place (`editorCommandBindings.ts` +
   `editor.vue`'s fan-in), typed against the union so vocabulary drift
   is a compile error; Source mode, the find bar, and the search
-  sidebar hold their own arms of the same vocabulary. What remains:
-  preparation-table polish (cause, draft retention, and the noop rule
-  as declared spec fields; `prepare*` privatization) and precondition
-  widening with contract rows; the format checkbox-state vocabulary
+  sidebar hold their own arms of the same vocabulary. The preparation
+  table now also declares each arm's commit cause, noop rule, and
+  rejection-draft policy (undo/redo name themselves; insert-text
+  declares empty-insertion and its retry draft) — the coordinator
+  reads the declarations through correlated-lookup helpers and holds
+  no kind-checks in the commit path; `prepare*` containment is
+  enforced by the authority sweep (the table module is the one
+  sanctioned caller — cross-module privatization is not expressible
+  in the type system). What remains: precondition widening
+  (selection-collapsed, wrong-target-kind) with two-sided contract
+  rows; the format checkbox-state vocabulary
   (`DocumentFormatMenuState`, `MENU_ID_FORMAT_MAP`) is deliberately
   left for G5's format-menu-bits work, where that state becomes
   capability-driven.

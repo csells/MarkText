@@ -1,5 +1,9 @@
 import { classifyPasteConsumer } from '../../materialize/consumerPolicy.js'
-import type { EditorIntent, RevisionId } from '../../documentSession.js'
+import type {
+  EditorIntent,
+  ModelSelection,
+  RevisionId
+} from '../../documentSession.js'
 import {
   IntentRejection,
   type PreparedWorkerCommit,
@@ -33,10 +37,23 @@ export type SnapshotPrecondition =
   | 'undoable'
   | 'redoable'
 
+export type RevisionCommitCause = 'undo' | 'redo' | 'source-edit'
+
+export type RejectionDraft = Readonly<{
+  text: string
+  target: ModelSelection
+}>
+
 type IntentPreparation<K extends EditorIntent['kind']> =
   | Readonly<{
     commitClass: 'revision'
     requires: readonly SnapshotPrecondition[]
+    /** How the committed transition names itself in history records. */
+    cause: RevisionCommitCause
+    /** A declared no-op: settle without preparing when this names a reason. */
+    noopWhen?: (intent: IntentOfKind<K>) => 'empty-insertion' | null
+    /** The draft a rejection retains for retry, when this arm keeps one. */
+    draftOnRejection?: (intent: IntentOfKind<K>) => RejectionDraft
     prepare: PrepareAdapter<K>
   }>
   | Readonly<{ commitClass: 'session-state' }>
@@ -46,9 +63,23 @@ const REVISION_REQUIRES: readonly SnapshotPrecondition[] =
 
 function revision<K extends EditorIntent['kind']>(
   prepare: PrepareAdapter<K>,
-  requires: readonly SnapshotPrecondition[] = REVISION_REQUIRES
+  requires: readonly SnapshotPrecondition[] = REVISION_REQUIRES,
+  extras: Readonly<{
+    cause?: RevisionCommitCause
+    noopWhen?: (intent: IntentOfKind<K>) => 'empty-insertion' | null
+    draftOnRejection?: (intent: IntentOfKind<K>) => RejectionDraft
+  }> = {}
 ): IntentPreparation<K> {
-  return Object.freeze({ commitClass: 'revision', requires, prepare })
+  return Object.freeze({
+    commitClass: 'revision',
+    requires,
+    cause: extras.cause ?? 'source-edit',
+    ...(extras.noopWhen === undefined ? {} : { noopWhen: extras.noopWhen }),
+    ...(extras.draftOnRejection === undefined
+      ? {}
+      : { draftOnRejection: extras.draftOnRejection }),
+    prepare
+  })
 }
 
 const SESSION_STATE = Object.freeze({
@@ -66,8 +97,18 @@ export const INTENT_PREPARATIONS: {
 } = Object.freeze({
   // Typed insertions are the one coalescible admission: the History rule
   // may extend the open typed run instead of recording an entry.
-  'insert-text': revision<'insert-text'>((worker, intent, next) =>
-    worker.prepareInsertion(intent.target, intent.text, next, 'semantic', true)),
+  'insert-text': revision<'insert-text'>(
+    (worker, intent, next) =>
+      worker.prepareInsertion(intent.target, intent.text, next, 'semantic', true),
+    REVISION_REQUIRES,
+    {
+      noopWhen: (intent) => intent.text.length === 0 ? 'empty-insertion' : null,
+      draftOnRejection: (intent) => Object.freeze({
+        text: intent.text,
+        target: intent.target
+      })
+    }
+  ),
   'replace-text': revision<'replace-text'>((worker, intent, next) =>
     worker.prepareReplacement(intent.target, intent.text, next)),
   'replace-current-matches': revision<'replace-current-matches'>((worker, intent, next) =>
@@ -188,11 +229,13 @@ export const INTENT_PREPARATIONS: {
     )),
   'undo': revision<'undo'>(
     (worker, _intent, next) => worker.prepareUndo(next),
-    Object.freeze(['marked-projection', 'undoable'])
+    Object.freeze(['marked-projection', 'undoable']),
+    { cause: 'undo' }
   ),
   'redo': revision<'redo'>(
     (worker, _intent, next) => worker.prepareRedo(next),
-    Object.freeze(['marked-projection', 'redoable'])
+    Object.freeze(['marked-projection', 'redoable']),
+    { cause: 'redo' }
   ),
   'set-track-changes': SESSION_STATE,
   'set-projection': SESSION_STATE,
@@ -315,6 +358,48 @@ export function computeIntentCapabilities(
   return Object.freeze(
     Object.fromEntries(entries)
   ) as IntentCapabilitySnapshot
+}
+
+/**
+ * Read an intent's declared commit cause, noop rule, or rejection-draft
+ * policy. Session-state intents mint no revision record, so they answer
+ * with the defaults.
+ */
+export function intentCommitCause(intent: EditorIntent): RevisionCommitCause {
+  const preparation = INTENT_PREPARATIONS[intent.kind]
+  return preparation.commitClass === 'revision'
+    ? preparation.cause
+    : 'source-edit'
+}
+
+export function intentNoopReason(
+  intent: EditorIntent
+): 'empty-insertion' | null {
+  const preparation = INTENT_PREPARATIONS[intent.kind]
+  if (
+    preparation.commitClass !== 'revision' ||
+    preparation.noopWhen === undefined
+  ) {
+    return null
+  }
+  return (
+    preparation.noopWhen as (intent: EditorIntent) => 'empty-insertion' | null
+  )(intent)
+}
+
+export function intentDraftOnRejection(
+  intent: EditorIntent
+): RejectionDraft | undefined {
+  const preparation = INTENT_PREPARATIONS[intent.kind]
+  if (
+    preparation.commitClass !== 'revision' ||
+    preparation.draftOnRejection === undefined
+  ) {
+    return undefined
+  }
+  return (
+    preparation.draftOnRejection as (intent: EditorIntent) => RejectionDraft
+  )(intent)
 }
 
 /**

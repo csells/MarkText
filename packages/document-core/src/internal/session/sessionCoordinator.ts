@@ -85,7 +85,10 @@ import {
 import { materializeDocumentFacts } from '../../materialize/documentFacts.js'
 import {
   computeIntentCapabilities,
-  prepareEditorIntent
+  prepareEditorIntent,
+  intentCommitCause,
+  intentDraftOnRejection,
+  intentNoopReason
 } from './intentPreparation.js'
 import {
   createLanguageEngine,
@@ -1158,20 +1161,21 @@ export class SessionCoordinator {
     intent: EditorIntent
   ): Promise<DispatchResult> {
     const before = this.#snapshot
-    if (intent.kind === 'insert-text' && intent.text.length === 0) {
+    const declaredNoop = intentNoopReason(intent)
+    if (declaredNoop !== null) {
       const outcome: SessionTicketOutcome = Object.freeze({
         kind: 'noop' as const,
         ticket,
         sequence,
         submittedAgainst,
-        reason: 'empty-insertion' as const,
+        reason: declaredNoop,
         revision: this.#worker.state.id
       })
       await this.#journal.settle(ticket, this.checkpoint(this.#retainedDrafts, sequence), outcome)
       this.#settledWatermark = sequence
       return Object.freeze({
         kind: 'noop' as const,
-        reason: 'empty-insertion' as const,
+        reason: declaredNoop,
         snapshot: this.#snapshot
       })
     }
@@ -1215,15 +1219,10 @@ export class SessionCoordinator {
       this.#worker.commit(prepared)
 
       const after = this.#createSnapshot()
-      const cause =
-        intent.kind === 'undo' || intent.kind === 'redo'
-          ? intent.kind
-          : ('source-edit' as const)
+      const cause = intentCommitCause(intent)
       const transition: RevisionChangedTransition = Object.freeze({
         kind: 'revision-changed' as const,
         id: transitionId,
-        // Insertion and deletion are both source edits; undo/redo name
-        // themselves.
         cause,
         history: prepared.history,
         edits: prepared.transition.edits,
@@ -1321,14 +1320,15 @@ export class SessionCoordinator {
       }
 
       let retainedDraft: PendingInputDraft | undefined
-      if (intent.kind === 'insert-text') {
+      const declaredDraft = intentDraftOnRejection(intent)
+      if (declaredDraft !== undefined) {
         retainedDraft = Object.freeze({
           id: this.#ids.draft(),
           ticketIds: Object.freeze([ticket]),
           sequence,
           submittedAgainst,
-          text: intent.text,
-          target: intent.target,
+          text: declaredDraft.text,
+          target: declaredDraft.target,
           reason: error.code,
           status: 'blocked' as const,
           allowedActions: Object.freeze(['retry', 'discard'] as const)

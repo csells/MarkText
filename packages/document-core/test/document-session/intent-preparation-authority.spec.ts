@@ -63,4 +63,38 @@ describe('intent preparation has one authority', () => {
       }
     }
   })
+
+  it('declares cause, noop, and rejection-draft policy in the table', () => {
+    // The coordinator reads these declarations; a kind-check in the commit
+    // path would be a second reader of the intent seam.
+    const kinds = Object.keys(INTENT_PREPARATIONS) as EditorIntent['kind'][]
+    for (const kind of kinds) {
+      const preparation = INTENT_PREPARATIONS[kind]
+      if (preparation.commitClass !== 'revision') continue
+      const expected =
+        kind === 'undo' ? 'undo' : kind === 'redo' ? 'redo' : 'source-edit'
+      expect(preparation.cause, kind).toBe(expected)
+      if (kind === 'insert-text') {
+        expect(typeof preparation.noopWhen, kind).toBe('function')
+        expect(typeof preparation.draftOnRejection, kind).toBe('function')
+      } else {
+        expect(preparation.noopWhen, kind).toBeUndefined()
+        expect(preparation.draftOnRejection, kind).toBeUndefined()
+      }
+    }
+    const insertText = INTENT_PREPARATIONS['insert-text']
+    if (insertText.commitClass !== 'revision') {
+      throw new Error('insert-text must be revision-class')
+    }
+    const target = {} as never
+    expect(
+      insertText.noopWhen?.({ kind: 'insert-text', target, text: '' })
+    ).toBe('empty-insertion')
+    expect(
+      insertText.noopWhen?.({ kind: 'insert-text', target, text: 'x' })
+    ).toBeNull()
+    expect(
+      insertText.draftOnRejection?.({ kind: 'insert-text', target, text: 'x' })
+    ).toEqual({ text: 'x', target })
+  })
 })
