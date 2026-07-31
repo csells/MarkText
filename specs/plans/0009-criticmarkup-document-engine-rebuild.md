@@ -553,7 +553,21 @@ whose assertion cannot distinguish pass from fail.
   five-projection-toggle p95 measures 1,157 ms against 500 ms. Viewport mount
   (5.5 s against 10 s) and the admission heartbeat are inside budget. The
   keystroke path is G31–G32 observed at target scale; this gap re-measures
-  after they close.
+  after they close. Decomposed 2026-07-31 with layered in-app probes (all
+  reverted): the 1.5 s keystroke is handler 0.3 ms, worker dispatch
+  ~400 ms, surgical DOM patch 3 ms — and ~720 ms of Chromium relayout of
+  the single 32,000,000-unit block, forced by the first layout-consuming
+  operation after `replaceData` (the selection restore; the
+  `setBaseAndExtent` itself costs 3.7 ms once layout is clean). Raw DOM
+  measurements on the same node: `replaceData` ~80–145 ms, forced
+  relayout ~170–185 ms when idle, ~720 ms in the live flow. No view-side
+  reordering moves this wall — the relayout precedes the paint the user
+  is waiting for. Closing the keystroke budget at this scale requires
+  layout localization for giant single blocks: engine-side long-line
+  chunk materialization surfacing as multiple carriers (the
+  `longLineMaterialization*` machinery is the seam) or block-level
+  layout containment, so a one-character edit re-breaks a bounded
+  neighborhood instead of 400,000 line boxes.
 - **G24 A green closure CI is not reproducible.** Section 7 requires compact
   candidate, platform, and closure records to be retained. Retention closes when
   a target reconstructs the attestation of a completed closure run from the
