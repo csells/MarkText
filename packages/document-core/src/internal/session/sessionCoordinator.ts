@@ -58,7 +58,8 @@ import type {
   SourceModelSelection
 } from '../../documentSession.js'
 import {
-  authenticateCanonicalSourceLease
+  authenticateCanonicalSourceLease,
+  isAuthenticCanonicalSourceLease
 } from './canonicalSourceLeaseAuthority.js'
 import type {
   CompleteDocumentRevision,
@@ -141,6 +142,12 @@ interface LeaseState {
   readonly watermark: number
   readonly revision: RevisionDescriptor
   readonly source: string
+  /**
+   * The head identity at mint time. While the lease is held the leased
+   * revision cannot be replaced, so this is the identity `installed(lease)`
+   * confirms — durability is never inferred from a callback.
+   */
+  readonly headIdentity: string
   released: boolean
 }
 
@@ -792,6 +799,9 @@ export class SessionCoordinator {
     const markPersisted = Object.freeze((headIdentity: string) =>
       this.#markPersisted(headIdentity)
     )
+    const installed = Object.freeze((lease: CanonicalSourceLease) =>
+      this.#installed(lease)
+    )
     const dispatch = Object.freeze((
       intent: EditorIntent,
       beforePrepare?: Promise<void>
@@ -856,6 +866,7 @@ export class SessionCoordinator {
       snapshot,
       historyState,
       markPersisted,
+      installed,
       dispatch,
       reconfigureMarkdownOptions,
       preparePersistence,
@@ -946,6 +957,26 @@ export class SessionCoordinator {
       }
     )
     return Object.freeze({ id, clientSequence, completion })
+  }
+
+  async #installed(
+    lease: CanonicalSourceLease
+  ): Promise<DocumentHistoryState> {
+    if (!isAuthenticCanonicalSourceLease(lease)) {
+      throw new TypeError(
+        'Durability requires an authentic canonical source lease'
+      )
+    }
+    const record = this.#leases.get(lease.id)
+    if (record === undefined || record.revision.id !== lease.revision.id) {
+      throw new Error(`Unknown persistence lease ${String(lease.id)}`)
+    }
+    if (record.released) {
+      throw new Error(
+        `Persistence lease ${String(lease.id)} is released and proves nothing`
+      )
+    }
+    return await this.#markPersisted(record.headIdentity)
   }
 
   async #markPersisted(
@@ -2294,6 +2325,7 @@ export class SessionCoordinator {
       watermark,
       revision,
       source: this.#worker.state.revision.source.text,
+      headIdentity: this.#worker.historyState().headIdentity,
       released: false
     }
     this.#leases.set(leaseState.id, leaseState)

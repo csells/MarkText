@@ -122,7 +122,6 @@ const consumedCutTicketOrder: string[] = []
 const MAX_CONSUMED_CUT_TOMBSTONES = 1_024
 const persistenceLeases = new Map<string, Readonly<{
   source: CanonicalSourceLease
-  persistedIdentity: string
 }>>()
 const releasedPersistenceLeases = new Set<string>()
 const releasedPersistenceLeaseOrder: string[] = []
@@ -1099,8 +1098,7 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
       throw new Error(`Persistence lease ${leaseId} is already retained`)
     }
     persistenceLeases.set(leaseId, Object.freeze({
-      source: result.source,
-      persistedIdentity: activeSession().historyState().headIdentity
+      source: result.source
     }))
     return Object.freeze({
       leaseId,
@@ -1119,7 +1117,9 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
         `Persistence lease ${command.leaseId} is not retained`
       )
     }
-    await activeSession().markPersisted(lease.persistedIdentity)
+    // Durability is proven against the held lease — the session resolves the
+    // leased revision's identity itself, never from a worker-side capture.
+    await activeSession().installed(lease.source)
     return historyStateOf(activeSession())
   }
 

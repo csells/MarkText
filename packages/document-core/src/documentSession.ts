@@ -1134,6 +1134,15 @@ export interface DocumentSession {
   readonly markPersisted: (
     headIdentity: string
   ) => Promise<DocumentHistoryState>
+  /**
+   * Confirm the leased bytes are durably installed. Durability is proven
+   * against the held lease — the revision it pinned cannot have been
+   * replaced — never inferred from a successful write callback. Rejects a
+   * forged, foreign, or released lease.
+   */
+  readonly installed: (
+    lease: CanonicalSourceLease
+  ) => Promise<DocumentHistoryState>
   readonly dispatch: (
     intent: EditorIntent,
     beforePrepare?: Promise<void>

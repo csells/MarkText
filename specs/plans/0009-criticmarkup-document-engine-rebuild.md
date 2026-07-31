@@ -346,8 +346,14 @@ are transcribed exactly. Its real residue is G36.
   (`safePoints.ts`); the convergence contract and artifact splicing across
   tape, decisions, lane, forks, identity, and provenance are the work.
 
-- **G34 [high] Section 2 modules are missing or partial.** Zero repo-wide
-  matches for `installed(` (persistence-lease member); the grammar
+- **G34 [high] Section 2 modules are missing or partial.** The
+  persistence lease now carries `installed(lease)`
+  (`DocumentSession.installed`, `persistence-installed.spec.ts`):
+  durability is proven against the held lease — authenticated, owned, and
+  unreleased — with the leased revision's identity resolved by the
+  session, and the desktop worker's save flow confirms through the lease
+  instead of a worker-side identity capture; recovery and sidecar-restore
+  remain the two identity-replay callers of `markPersisted`. The grammar
   configuration module now carries its named members
   (`documentParseConfigurationFor(settings)` as the sole main-owned
   construction site and `decodeDocumentParseConfiguration(unknown)` at the
