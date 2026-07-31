@@ -351,8 +351,9 @@ are transcribed exactly. Its real residue is G36.
   member, typed IPC channel), the renderer session exposes `settled()`
   over that channel, and the view's `settled()` drains only its
   not-yet-dispatched input chains before awaiting the session barrier —
-  the source-mode port's local operation tail is the remaining second
-  notion, and G13's fixed sleeps migrate to the barrier.
+  the source-mode controller drains its queued operations and then
+  awaits the same barrier, so no surface owns a second settlement
+  notion; G13's fixed sleeps migrate to the barrier.
   `internal/sourceAuthorship.ts` now owns marker composition beside the
   escape rule — the unary, substitution, comment, and comment-pair
   composers in one place, with the kernel and the worker both routing
