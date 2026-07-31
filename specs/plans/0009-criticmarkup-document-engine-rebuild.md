@@ -563,11 +563,18 @@ whose assertion cannot distinguish pass from fail.
   relayout ~170–185 ms when idle, ~720 ms in the live flow. No view-side
   reordering moves this wall — the relayout precedes the paint the user
   is waiting for. Closing the keystroke budget at this scale requires
-  layout localization for giant single blocks: engine-side long-line
-  chunk materialization surfacing as multiple carriers (the
-  `longLineMaterialization*` machinery is the seam) or block-level
-  layout containment, so a one-character edit re-breaks a bounded
-  neighborhood instead of 400,000 line boxes.
+  layout localization for giant single blocks. Text-node chunking is
+  measured and refuted: splitting the 32 MB node into 512 chunks makes
+  a one-chunk edit cost ~440 ms against the single node's ~256 ms —
+  Chromium re-breaks lines block-wide regardless of text-node
+  granularity. The remaining routes are (a) line-layout
+  virtualization: render one logical block as multiple block elements
+  seamed at measured line boundaries, so an edit re-breaks one bounded
+  segment — a major view architecture arc — or (b) an owner ruling
+  that the 500 ms keystroke budget binds structured documents while a
+  degenerate single-block maximum document carries its own documented
+  ceiling. Route (b) is an owner decision this plan cannot make for
+  itself.
 - **G24 A green closure CI is not reproducible.** Section 7 requires compact
   candidate, platform, and closure records to be retained. Retention closes when
   a target reconstructs the attestation of a completed closure run from the
