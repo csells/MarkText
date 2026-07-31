@@ -14,11 +14,16 @@ import {
   classifyPasteConsumer,
   materializeClipboardConsumer,
   materializePersistenceConsumer,
+  findConsumerMatches,
   materializeStaticConsumer,
   planReplaceConsumer,
   routeLiveConsumer,
   viewLength
 } from '../../src/materialize/consumerPolicy.js'
+import {
+  groupRenderBlocks,
+  renderMarkupPlan
+} from '../../src/view/markupRender.js'
 import type {
   ClipboardConsumerRequest
 } from '../../src/materialize/consumerPolicy.js'
@@ -491,61 +496,6 @@ describe('frozen consumer policy', () => {
       })
     }
 
-    const visibleStart = SOURCE.indexOf('new')
-    expect(planReplaceConsumer(revision, {
-      view: 'markup',
-      replacement: 'fresh',
-      hits: [{
-        start: visibleStart,
-        end: visibleStart + 3,
-        expected: 'new'
-      }]
-    })).toEqual({
-      kind: 'replace-plan',
-      view: 'markup',
-      semanticHash: revision.semanticHash,
-      edits: [{
-        start: visibleStart,
-        end: visibleStart + 3,
-        text: 'fresh'
-      }]
-    })
-    const markerStart = SOURCE.indexOf('{++')
-    expect(planReplaceConsumer(revision, {
-      view: 'markup',
-      replacement: 'x',
-      hits: [
-        {
-          start: visibleStart,
-          end: visibleStart + 3,
-          expected: 'new'
-        },
-        {
-          start: markerStart,
-          end: markerStart + 3,
-          expected: '{++'
-        }
-      ]
-    })).toEqual({
-      kind: 'replace-rejected',
-      view: 'markup',
-      reason: 'non-editable-hit',
-      edits: []
-    })
-    expect(planReplaceConsumer(revision, {
-      view: 'markup',
-      replacement: 'x',
-      hits: [{
-        start: 0,
-        end: 1,
-        expected: '#'
-      }]
-    })).toEqual({
-      kind: 'replace-rejected',
-      view: 'markup',
-      reason: 'non-editable-hit',
-      edits: []
-    })
     const boundaryProtected = materializeStaticConsumer(
       complete('[{~~q~>[x]~~}[x]'),
       {
@@ -557,19 +507,6 @@ describe('frozen consumer policy', () => {
     expect(consumeTrustedHtml(boundaryProtected.html, 'static')).toContain(
       '<del>q</del><ins>[x]</ins>'
     )
-    for (const view of ['original', 'revised'] as const) {
-      expect(planReplaceConsumer(revision, {
-        view,
-        replacement: 'x',
-        hits: []
-      })).toEqual({
-        kind: 'disabled',
-        view,
-        consumer: 'replace',
-        reason: 'read-only-view'
-      })
-    }
-
     const staticConsumers = [
       ['static-html', 'static-html', 'static'],
       ['styled-html', 'styled-html', 'styled'],
@@ -643,13 +580,78 @@ describe('frozen consumer policy', () => {
       consumer: 'static-html',
       structure: STATIC_STRUCTURE
     })).toThrow(/SourceOnly/i)
-    expect(() => planReplaceConsumer(sourceOnly, {
-      view: 'markup',
-      replacement: 'x',
-      hits: []
-    })).toThrow(/SourceOnly/i)
     expect(() => materializeSearchText(sourceOnly, 'original'))
       .toThrow(/SourceOnly/i)
+  })
+
+  it('plans replace pieces over the declared find projection', async() => {
+    const session = await createDocumentSession({
+      source: createSourceSnapshot('A **o**ne two one B\n'),
+      parseConfiguration: CONFIGURATION
+    })
+    const snapshot = session.snapshot()
+    if (snapshot.kind !== 'complete') {
+      throw new Error('Expected a complete session snapshot')
+    }
+    const blocks = groupRenderBlocks(
+      snapshot.displayDocument,
+      renderMarkupPlan(snapshot.displayPlan)
+    )
+    const input = Object.freeze({ kind: 'complete' as const, blocks })
+    const query = Object.freeze({
+      schema: 'document-search-query-1' as const,
+      text: 'one',
+      syntax: 'literal' as const,
+      caseSensitive: true,
+      wholeWord: false
+    })
+    const matches = findConsumerMatches(input, query)
+    expect(matches.length).toBe(2)
+    const pieceLists = planReplaceConsumer(input, matches)
+    expect(pieceLists.length).toBe(2)
+    const wrapped = pieceLists[0] ?? []
+    const plain = pieceLists[1] ?? []
+    // The match crossing the strong wrapper plans the wrapper's removal
+    // alongside its visible pieces; exactly one piece carries the
+    // replacement.
+    expect(wrapped.length).toBeGreaterThan(1)
+    expect(wrapped.filter(piece => piece.insertReplacement).length).toBe(1)
+    for (let index = 1; index < wrapped.length; index += 1) {
+      const previous = wrapped[index - 1]
+      const current = wrapped[index]
+      if (previous === undefined || current === undefined) {
+        throw new Error('Expected ordered pieces')
+      }
+      expect(previous.start).toBeLessThanOrEqual(current.start)
+    }
+    const match = matches[1]
+    if (match === undefined) {
+      throw new Error('Expected a plain-text match')
+    }
+    expect(plain).toEqual([{
+      start: match.start,
+      end: match.end,
+      insertReplacement: true
+    }])
+
+    // A SourceOnly revision plans the whole raw match.
+    const rawSource = 'A {==seen==} one tail.\n'
+    const rawInput = Object.freeze({
+      kind: 'source-only' as const,
+      source: rawSource
+    })
+    const rawMatches = findConsumerMatches(rawInput, query)
+    expect(planReplaceConsumer(rawInput, rawMatches)).toEqual([[{
+      start: rawSource.indexOf('one'),
+      end: rawSource.indexOf('one') + 3,
+      insertReplacement: true
+    }]])
+
+    // A match touching no parser text is a caller error, not a plan.
+    expect(() => planReplaceConsumer(
+      input,
+      [{ start: 10_000, end: 10_003 }]
+    )).toThrow(RangeError)
   })
 
   it('materializes a table rectangle from parser-owned cell ranges', () => {

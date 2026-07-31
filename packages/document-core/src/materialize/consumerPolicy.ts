@@ -26,7 +26,6 @@ import {
   type StaticHtmlStructure,
   type TrustedHtml
 } from './trustedHtml.js'
-import { markdownTextValue } from './htmlRender.js'
 import {
   findMarkupSearchMatches,
   findSearchMatches,
@@ -65,7 +64,7 @@ export interface ClipboardText {
 export interface DisabledConsumer {
   readonly kind: 'disabled'
   readonly view: 'original' | 'revised'
-  readonly consumer: 'cut' | 'cut-table' | 'paste' | 'replace'
+  readonly consumer: 'cut' | 'cut-table' | 'paste'
   readonly reason: 'read-only-view'
 }
 
@@ -155,37 +154,6 @@ export type PasteConsumerResult =
   | Readonly<{
     readonly kind: 'source-text-edit'
     readonly text: string
-  }>
-  | DisabledConsumer
-
-export interface ReplaceHit {
-  readonly start: number
-  readonly end: number
-  readonly expected: string
-}
-
-export interface ReplaceConsumerRequest {
-  readonly view: ConsumerView
-  readonly replacement: string
-  readonly hits: readonly ReplaceHit[]
-}
-
-export type ReplaceConsumerResult =
-  | Readonly<{
-    readonly kind: 'replace-plan'
-    readonly view: 'markup'
-    readonly semanticHash: RevisionSemanticHashV1
-    readonly edits: readonly Readonly<{
-      readonly start: number
-      readonly end: number
-      readonly text: string
-    }>[]
-  }>
-  | Readonly<{
-    readonly kind: 'replace-rejected'
-    readonly view: 'markup'
-    readonly reason: 'stale-hit' | 'non-editable-hit'
-    readonly edits: readonly never[]
   }>
   | DisabledConsumer
 
@@ -370,13 +338,6 @@ const receiptBundles = new WeakMap<object, ClipboardBundle>()
 const cutStates = new WeakMap<
   object,
   { readonly bundle: ClipboardBundle; authorized: boolean }
->()
-const replaceAuthenticationCache = new WeakMap<
-  CompleteDocumentRevision,
-  Readonly<{
-    readonly canonicalUnits: readonly CanonicalProjectionUnit[]
-    readonly editableRanges: readonly NumericRange[]
-  }>
 >()
 
 function assertComplete(
@@ -1016,230 +977,12 @@ export function classifyPasteConsumer(
   })
 }
 
-function hitIsEditableVisible(
-  revision: CompleteDocumentRevision,
-  hit: ReplaceHit
-): boolean {
-  if (
-    !Number.isInteger(hit.start) ||
-    !Number.isInteger(hit.end) ||
-    hit.start < 0 ||
-    hit.end <= hit.start ||
-    hit.end > revision.source.text.length
-  ) {
-    return false
-  }
-  let visibleRun = false
-  for (let ordinal = 0; ordinal < revision.markup.runCount; ordinal += 1) {
-    const range = revision.markup.runAt(ordinal).sourceRange
-    if (hit.start >= range.start && hit.end <= range.end) {
-      visibleRun = true
-      break
-    }
-  }
-  if (!visibleRun) {
-    return false
-  }
-  const authentication = replaceAuthentication(revision)
-  const firstIndex = lowerBoundCanonicalUnit(
-    authentication.canonicalUnits,
-    hit.start
-  )
-  const afterIndex = lowerBoundCanonicalUnit(
-    authentication.canonicalUnits,
-    hit.end
-  )
-  const first = authentication.canonicalUnits[firstIndex]
-  const last = authentication.canonicalUnits[afterIndex - 1]
-  if (
-    first === undefined ||
-    last === undefined ||
-    first.sourceOffset !== hit.start ||
-    last.sourceOffset !== hit.end - 1 ||
-    afterIndex - firstIndex !== hit.end - hit.start ||
-    last.projectedOffset - first.projectedOffset !== hit.end - hit.start - 1
-  ) {
-    return false
-  }
-  return editableRangeContains(
-    authentication.editableRanges,
-    first.projectedOffset,
-    last.projectedOffset + 1
-  )
-}
-
-function replaceAuthentication(
-  revision: CompleteDocumentRevision
-): Readonly<{
-    readonly canonicalUnits: readonly CanonicalProjectionUnit[]
-    readonly editableRanges: readonly NumericRange[]
-  }> {
-  const cached = replaceAuthenticationCache.get(revision)
-  if (cached !== undefined) {
-    return cached
-  }
-  const projection = revision.projection('editing')
-  const canonicalUnits: CanonicalProjectionUnit[] = []
-  let previousSourceOffset = -1
-  for (let offset = 0; offset < projection.source.length; offset += 1) {
-    const origin = projection.provenance.originAt(offset)
-    if (origin.kind !== 'canonical') {
-      continue
-    }
-    if (origin.sourceOffset <= previousSourceOffset) {
-      throw new Error(
-        'Editing projection provenance is not in strict canonical source order'
-      )
-    }
-    canonicalUnits.push({
-      sourceOffset: origin.sourceOffset,
-      projectedOffset: offset
-    })
-    previousSourceOffset = origin.sourceOffset
-  }
-  const editableRanges: NumericRange[] = []
-  collectEditableRanges(
-    projection.markdown.source,
-    projection.markdown.root,
-    false,
-    editableRanges
-  )
-  editableRanges.sort((left, right) => left.start - right.start)
-  const authentication = Object.freeze({
-    canonicalUnits: Object.freeze(canonicalUnits),
-    editableRanges: Object.freeze(editableRanges)
-  })
-  replaceAuthenticationCache.set(revision, authentication)
-  return authentication
-}
-
-function collectEditableRanges(
-  source: string,
-  node: MarkdownNode,
-  hidden: boolean,
-  ranges: NumericRange[]
-): void {
-  const childIsHidden = hidden ||
-    node.kind === 'image' ||
-    node.kind === 'definition' ||
-    node.kind === 'front-matter' ||
-    node.kind === 'footnote-definition'
-  if (node.kind === 'text') {
-    if (!childIsHidden) {
-      collectLiteralTextRanges(source, node.range, ranges)
-    }
-    return
-  }
-  if (node.kind === 'inline-code') {
-    if (!childIsHidden) {
-      const markerLength = Number(node.attributes['markerLength'] ?? 1)
-      const start = node.range.start + markerLength
-      const end = node.range.end - markerLength
-      if (start < end) {
-        ranges.push({ start, end })
-      }
-    }
-    return
-  }
-  if (node.kind === 'autolink') {
-    if (!childIsHidden && node.range.start + 1 < node.range.end - 1) {
-      ranges.push({
-        start: node.range.start + 1,
-        end: node.range.end - 1
-      })
-    }
-    return
-  }
-  if (node.kind === 'soft-break') {
-    if (!childIsHidden) {
-      ranges.push(node.range)
-    }
-    return
-  }
-  for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
-    collectEditableRanges(
-      source,
-      node.childAt(ordinal),
-      childIsHidden,
-      ranges
-    )
-  }
-}
-
-function collectLiteralTextRanges(
-  source: string,
-  range: NumericRange,
-  ranges: NumericRange[]
-): void {
-  let literalStart = range.start
-  let offset = range.start
-  while (offset < range.end) {
-    const transformedEnd = transformedTextTokenEnd(source, offset, range.end)
-    if (transformedEnd === undefined) {
-      offset += 1
-      continue
-    }
-    if (literalStart < offset) {
-      ranges.push({ start: literalStart, end: offset })
-    }
-    offset = transformedEnd
-    literalStart = offset
-  }
-  if (literalStart < range.end) {
-    ranges.push({ start: literalStart, end: range.end })
-  }
-}
-
-function transformedTextTokenEnd(
-  source: string,
-  offset: number,
-  end: number
-): number | undefined {
-  if (source.charCodeAt(offset) === 92 && offset + 1 < end) {
-    const token = source.slice(offset, offset + 2)
-    if (markdownTextValue(token) !== token) {
-      return offset + 2
-    }
-  }
-  if (source.charCodeAt(offset) !== 38) {
-    return undefined
-  }
-  const semicolon = source.indexOf(';', offset + 1)
-  if (semicolon < 0 || semicolon >= end || semicolon - offset >= 34) {
-    return undefined
-  }
-  const token = source.slice(offset, semicolon + 1)
-  return markdownTextValue(token) === token ? undefined : semicolon + 1
-}
-
-function editableRangeContains(
-  ranges: readonly NumericRange[],
-  start: number,
-  end: number
-): boolean {
-  let low = 0
-  let high = ranges.length
-  while (low < high) {
-    const middle = low + Math.floor((high - low) / 2)
-    const range = ranges[middle]
-    if (range !== undefined && range.start <= start) {
-      low = middle + 1
-    } else {
-      high = middle
-    }
-  }
-  const candidate = ranges[low - 1]
-  return candidate !== undefined &&
-    start >= candidate.start &&
-    end <= candidate.end
-}
-
-export interface VisibleReplacementSegment {
+interface VisibleReplacementSegment {
   readonly render: MarkupRenderText
   readonly owners: readonly MarkupRenderNode[]
 }
 
-export interface VisibleReplacementIndex {
+interface VisibleReplacementIndex {
   readonly segments: readonly VisibleReplacementSegment[]
   readonly byOwner: ReadonlyMap<
     MarkupRenderNode,
@@ -1264,7 +1007,7 @@ const SEARCH_REMOVABLE_INLINE_KINDS = new Set([
   'superscript'
 ])
 
-export function planVisibleReplacementIndex(
+function planVisibleReplacementIndex(
   blocks: readonly MarkupRenderBlock[]
 ): VisibleReplacementIndex {
   const segments: VisibleReplacementSegment[] = []
@@ -1337,7 +1080,7 @@ function touchedVisibleSegments(
  * wrappers whole, retain the first piece's formatting, and apply the user's
  * replacement only to that first visible piece.
  */
-export function planVisibleReplacementPieces(
+function planVisibleReplacementPieces(
   index: VisibleReplacementIndex,
   match: OpaqueRange
 ): readonly VisibleReplacementPiece[] {
@@ -1393,7 +1136,6 @@ export function planVisibleReplacementPieces(
   ))
 }
 
-
 export type FindConsumerInput =
   | Readonly<{
     kind: 'complete'
@@ -1418,49 +1160,30 @@ export function findConsumerMatches(
     : findSearchMatches(input.source, query, executionControl)
 }
 
+/**
+ * §2 consumer policy: the replace consumer's declared plan. Each find
+ * match — discovered through `findConsumerMatches` over the same declared
+ * projection — becomes an ordered piece list. A complete revision plans
+ * wrapper-removal pieces plus visible pieces, the first visible piece
+ * carrying the replacement; a SourceOnly revision plans the whole raw
+ * match. Throws RangeError when a match touches no parser text.
+ */
 export function planReplaceConsumer(
-  revision: DocumentRevision,
-  request: ReplaceConsumerRequest
-): ReplaceConsumerResult {
-  assertComplete(revision)
-  if (request.view !== 'markup') {
-    return Object.freeze({
-      kind: 'disabled',
-      view: request.view,
-      consumer: 'replace',
-      reason: 'read-only-view'
-    })
-  }
-  for (const hit of request.hits) {
-    if (
-      revision.source.text.slice(hit.start, hit.end) !== hit.expected
-    ) {
-      return Object.freeze({
-        kind: 'replace-rejected',
-        view: 'markup',
-        reason: 'stale-hit',
-        edits: Object.freeze([])
-      })
-    }
-    if (!hitIsEditableVisible(revision, hit)) {
-      return Object.freeze({
-        kind: 'replace-rejected',
-        view: 'markup',
-        reason: 'non-editable-hit',
-        edits: Object.freeze([])
-      })
-    }
-  }
-  return Object.freeze({
-    kind: 'replace-plan',
-    view: 'markup',
-    semanticHash: revision.semanticHash,
-    edits: Object.freeze(request.hits.map((hit) => Object.freeze({
-      start: hit.start,
-      end: hit.end,
-      text: request.replacement
-    })))
-  })
+  input: FindConsumerInput,
+  matches: readonly SearchMatchRange[]
+): readonly (readonly VisibleReplacementPiece[])[] {
+  const index = input.kind === 'complete'
+    ? planVisibleReplacementIndex(input.blocks)
+    : undefined
+  return Object.freeze(matches.map((match) =>
+    index === undefined
+      ? Object.freeze([Object.freeze({
+        start: match.start,
+        end: match.end,
+        insertReplacement: true
+      })])
+      : planVisibleReplacementPieces(index, match)
+  ))
 }
 
 export function materializeStaticConsumer<

@@ -49,8 +49,7 @@ import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
 import { chooseAuthoringEolV1 } from '../../authoringEol.js'
 import {
   findConsumerMatches,
-  planVisibleReplacementIndex,
-  planVisibleReplacementPieces
+  planReplaceConsumer
 } from '../../materialize/consumerPolicy.js'
 import {
   DOCUMENT_SEARCH_RESOURCE_POLICY_V1,
@@ -62,11 +61,6 @@ import {
   canonicalMarkupDocument,
   groupRenderBlocks,
   markupRenderElement
-} from '../../view/markupRender.js'
-import type {
-  MarkupRenderBlock,
-  MarkupRenderNode,
-  MarkupRenderText
 } from '../../view/markupRender.js'
 import {
   criticMarkupAuthoringCapabilities,
@@ -1447,22 +1441,19 @@ export class RevisionWorker {
         })))
       )
       : undefined
+    const findInput = blocks === undefined
+      ? Object.freeze({
+        kind: 'source-only' as const,
+        source: state.revision.source.text
+      })
+      : Object.freeze({ kind: 'complete' as const, blocks })
     let matches
     try {
       const executionControl =
         nextLanguageEngineExecutionStage(this.#engine)
       // Match discovery is the find consumer's declared question: the
       // policy names the projection, production only routes.
-      matches = findConsumerMatches(
-        blocks === undefined
-          ? Object.freeze({
-            kind: 'source-only' as const,
-            source: state.revision.source.text
-          })
-          : Object.freeze({ kind: 'complete' as const, blocks }),
-        decodedQuery,
-        executionControl
-      )
+      matches = findConsumerMatches(findInput, decodedQuery, executionControl)
     } catch (error) {
       if (error instanceof DocumentSearchQueryError) {
         throw new IntentRejection('invalid-command-argument')
@@ -1483,19 +1474,17 @@ export class RevisionWorker {
     ) {
       throw new IntentRejection('invalid-command-argument')
     }
-    const segments = blocks === undefined
-      ? undefined
-      : planVisibleReplacementIndex(blocks)
-    const planReplacementEdits = (): SourceEdit[] =>
-      matches.flatMap((match) => {
-      const pieces = segments === undefined
-        ? Object.freeze([Object.freeze({
-          start: match.start,
-          end: match.end,
-          insertReplacement: true
-        })])
-        : planVisibleReplacementPieces(segments, match)
-      return pieces.map((piece) => this.#replacementEdit(
+    let pieceLists: ReturnType<typeof planReplaceConsumer>
+    try {
+      pieceLists = planReplaceConsumer(findInput, matches)
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new IntentRejection('invalid-command-argument')
+      }
+      throw error
+    }
+    const edits = pieceLists.flatMap((pieces) =>
+      pieces.map((piece) => this.#replacementEdit(
         Object.freeze({
           ...target,
           anchor: Object.freeze({
@@ -1509,18 +1498,9 @@ export class RevisionWorker {
         }),
         piece.insertReplacement ? replacement : ''
       ))
-      }).sort(
-        (left, right) => left.start - right.start || left.end - right.end
-      )
-    let edits: SourceEdit[]
-    try {
-      edits = planReplacementEdits()
-    } catch (error) {
-      if (error instanceof RangeError) {
-        throw new IntentRejection('invalid-command-argument')
-      }
-      throw error
-    }
+    ).sort(
+      (left, right) => left.start - right.start || left.end - right.end
+    )
     for (let index = 1; index < edits.length; index += 1) {
       const previous = edits[index - 1]
       const current = edits[index]

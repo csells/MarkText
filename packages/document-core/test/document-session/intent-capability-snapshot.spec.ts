@@ -41,6 +41,9 @@ async function open(source: string): Promise<DocumentSession> {
 
 function caretAtEnd(session: DocumentSession) {
   const selection = session.snapshot().revision.selection
+  if (selection === null || !('view' in selection)) {
+    throw new Error('Expected a settled model selection')
+  }
   const offset = session.snapshot().revision.source.length
   return Object.freeze({
     ...selection,

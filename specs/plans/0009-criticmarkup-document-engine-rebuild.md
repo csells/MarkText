@@ -1,9 +1,9 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G6–G9, G13, G19, G23, G24, G32 open;
+- **Status:** RED — G6–G9, G13, G23, G24, G32 open;
   G5 partial
 - **Owner:** MarkText
-- **Updated:** 2026-07-30
+- **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
 - **Order:** P0 → P0.5 → P1 → … → P9 → P11 → P10
 - **Completion authority:** only P10 may declare this plan complete
@@ -276,7 +276,7 @@ proof", and the single-space cell padding exactly as written. -->
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G32 (W1) |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
-| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | G19 (W4) |
+| Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | None. |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
 | P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6), blocked by G32 |
 | P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
@@ -522,47 +522,6 @@ whose assertion cannot distinguish pass from fail.
   vs 2057 ms migrated; deletion 5290 ms vs 5055 ms) — so that breach
   is G23's open keystroke-wall frontier, not a migration delta; every
   migrated read and the sampler pipeline run green up to it.
-**W4 — Language, configuration, and coverage**
-
-
-- **G19 Consumer policy declares what production routes around.** The live
-  editor sink now reads its plan through `routeLiveConsumer` at the worker's
-  publication site, and the paste question now routes through
-  `classifyPasteConsumer` at the session coordinator: the paste intent
-  carries a declared clipboard payload (`private-source`, `markdown`,
-  `external-text`) instead of a pre-classified treatment, the policy
-  answers how each flavor lands (including the new `source-text-edit`
-  route that makes the declaration truthful about source-view pastes),
-  and no caller — the desktop paste handler included — classifies by
-  hand. The find consumer is now declared
-  (2026-07-31): `findConsumerMatches` in the policy names the visible
-  markup projection for a complete revision — Find matches what the
-  user sees, the projection the replace suite's match-discovery rows
-  are proven over; the earlier claim here that the policy demands
-  canonical source predated those ratified rows — and the exact raw
-  source for a SourceOnly revision. The view's find bar and the
-  worker's replace-match discovery both route through the declaration,
-  and an authority sweep fails any production caller of the
-  projection-specific matchers outside the policy and the search
-  module. The replace planning is absorbed (2026-07-31): the
-  cross-inline piece machinery the replace suite's rows are proven
-  over — visible-segment indexing, wrapper-removal piece computation,
-  `SEARCH_REMOVABLE_INLINE_KINDS` — now lives in the policy as
-  `planVisibleReplacementIndex` and `planVisibleReplacementPieces`,
-  and the worker's replace prepare routes through them, translating
-  the policy's `RangeError` into its own rejection at the boundary.
-  `viewLength` was re-examined and is load-bearing, not caller-less:
-  `normalizeSelection` validates every consumer selection through it
-  and `markupCanonicalRange` uses it for whole-document detection on
-  the clipboard path. Remaining: `planReplaceConsumer` still has no
-  production caller and answers the replace question a second way —
-  whole-hit edits with staleness and editability guards, without the
-  proven wrapper-removal semantics; the reconciliation (delegating
-  the worker's prepare through one policy entry that validates and
-  plans, or recording its supersession by the piece planners) is the
-  last G19 step. Deleting the module's declarations outright stays
-  rejected, because it owns the per-kind sink exactness table
-  (`PROFILE1_KIND_SINK_EXACTNESS`, A41).
 **W6 — Budgets and release**
 
 - **G23 Measured budgets are unmet.** Edit and deletion latency, worker stall,
