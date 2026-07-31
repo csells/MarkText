@@ -929,14 +929,32 @@ export async function createDocumentCoreView(
     let selectionFailure: unknown;
     let browserInputIdle = true;
     let deferredBrowserSelection = false;
+    // The raw DOM positions a deferred selectionchange reported. A deferred
+    // read is adoptable at flush time only if the live selection still sits
+    // on these exact nodes: the queued input's own publication may replace
+    // the mounted DOM, and whatever selection the browser is left holding
+    // afterwards is that surgery's debris, not the user's gesture.
+    let deferredBrowserSelectionDom: Readonly<{
+        anchorNode: Node | null;
+        anchorOffset: number;
+        focusNode: Node | null;
+        focusOffset: number;
+    }> | null = null;
     let restoringBrowserSelection = false;
+    // An IME composition mutates the DOM natively (insertCompositionText is
+    // not cancelable), so between compositionstart and compositionend the
+    // browser selection tracks an uncommitted draft, not a user gesture.
+    let composingBrowserInput = false;
     // User selection reports still crossing to the session. While one is in
     // flight, the session's retained selection is older than the user's last
     // gesture, so publication restores must not stamp it into the DOM.
     let pendingUserSelectionDispatches = 0;
-    // Bumped on every user-driven selectionchange. A restore that began its
-    // cycle before the latest bump is restoring an older selection than the
-    // user's last gesture and must stand down.
+    // Bumped exactly when the view adopts a browser selection that diverges
+    // from the session's — a raw selectionchange may be the view's own render
+    // or restore echo, which must not make an edit cycle's authoritative
+    // restore stand down. A restore that began its cycle before the latest
+    // bump is restoring an older selection than the user's last adopted
+    // gesture and must stand down.
     let userSelectionGeneration = 0;
     let ignoredProgrammaticSelection: Readonly<{
         range: Readonly<{ start: number; end: number }>;
@@ -1086,8 +1104,9 @@ export async function createDocumentCoreView(
         // user selection — or one whose cycle began before the user's latest
         // gesture — would clobber the newer selection with an older range,
         // and the next command would then target stale bounds.
-        if (pendingUserSelectionDispatches > 0 || deferredBrowserSelection)
+        if (pendingUserSelectionDispatches > 0 || deferredBrowserSelection) {
             return;
+        }
         if (
             ifUserSelectionGeneration !== undefined
             && ifUserSelectionGeneration !== userSelectionGeneration
@@ -1153,8 +1172,15 @@ export async function createDocumentCoreView(
         const length = snapshot.kind === 'complete'
             ? snapshot.markupModelLength
             : snapshot.source.length;
-        if (range.end > length)
+        if (range.end > length) {
             return;
+        }
+        if (
+            snapshot.selection.anchor.offset !== range.start
+            || snapshot.selection.focus.offset !== range.end
+        ) {
+            userSelectionGeneration += 1;
+        }
         pendingUserSelectionDispatches += 1;
         try {
             await selectSession({
@@ -3674,11 +3700,48 @@ export async function createDocumentCoreView(
                     browserInputIdle = true;
                     if (destroying) {
                         deferredBrowserSelection = false;
+                        deferredBrowserSelectionDom = null;
                         return;
                     }
                     if (deferredBrowserSelection) {
                         deferredBrowserSelection = false;
-                        synchronizeBrowserSelection();
+                        const recorded = deferredBrowserSelectionDom;
+                        deferredBrowserSelectionDom = null;
+                        const live = host.ownerDocument.getSelection();
+                        if (
+                            recorded !== null
+                            && live !== null
+                            && live.anchorNode === recorded.anchorNode
+                            && live.anchorOffset === recorded.anchorOffset
+                            && live.focusNode === recorded.focusNode
+                            && live.focusOffset === recorded.focusOffset
+                        ) {
+                            synchronizeBrowserSelection();
+                        }
+                        else {
+                            // The input's own publication moved or replaced
+                            // what the deferred read named, so no user gesture
+                            // survives to adopt — the selection the browser
+                            // holds is repaint debris. Re-stamp the session's
+                            // authoritative selection the stand-down skipped,
+                            // unless focus has left the editor (a dialog owns
+                            // the selection then).
+                            const active = host.ownerDocument.activeElement;
+                            const snapshot = session.snapshot();
+                            if (
+                                (active === host || host.contains(active))
+                                && (
+                                    snapshot.kind === 'source-only'
+                                    || snapshot.projection === 'marked'
+                                )
+                            ) {
+                                restoreDocumentCoreSelection(
+                                    host,
+                                    snapshot.selection.anchor,
+                                    snapshot.selection.focus,
+                                );
+                            }
+                        }
                     }
                 }
             });
@@ -3974,6 +4037,7 @@ export async function createDocumentCoreView(
         if (isImageSelectorEvent(event))
             return;
 
+        composingBrowserInput = true;
         compositionDraft = null;
     };
 
@@ -3981,6 +4045,10 @@ export async function createDocumentCoreView(
         if (isImageSelectorEvent(event))
             return;
 
+        // Cleared before the enqueue below so the deferred-selection flush in
+        // the queue's finally sees the composition window closed and reads
+        // the post-commit DOM.
+        composingBrowserInput = false;
         const draft = compositionDraft;
         compositionDraft = null;
         if (draft === null) {
@@ -4131,6 +4199,7 @@ export async function createDocumentCoreView(
         ) {
             return;
         }
+        userSelectionGeneration += 1;
         pendingUserSelectionDispatches += 1;
         void selectSession({
             anchor: { offset: range.start, affinity: 'next' },
@@ -4148,12 +4217,19 @@ export async function createDocumentCoreView(
     const handleBrowserSelection = (): void => {
         if (restoringBrowserSelection)
             return;
-        userSelectionGeneration += 1;
-        if (!browserInputIdle) {
-            // The mounted range still names the pre-edit publication. Read it
-            // only after the admitted input publishes and restores its
-            // authoritative browser selection.
+        if (!browserInputIdle || composingBrowserInput) {
+            // The mounted range still names the pre-edit publication — or,
+            // mid-composition, an uncommitted IME draft. Read it only after
+            // the admitted input publishes and restores its authoritative
+            // browser selection.
             deferredBrowserSelection = true;
+            const live = host.ownerDocument.getSelection();
+            deferredBrowserSelectionDom = live === null ? null : Object.freeze({
+                anchorNode: live.anchorNode,
+                anchorOffset: live.anchorOffset,
+                focusNode: live.focusNode,
+                focusOffset: live.focusOffset,
+            });
             return;
         }
         synchronizeBrowserSelection();
@@ -4192,6 +4268,8 @@ export async function createDocumentCoreView(
 
         destroying = true;
         deferredBrowserSelection = false;
+        deferredBrowserSelectionDom = null;
+        composingBrowserInput = false;
         host.removeEventListener('beforeinput', handleBeforeInput);
         host.removeEventListener('compositionstart', handleCompositionStart);
         host.removeEventListener('compositionend', handleCompositionEnd);

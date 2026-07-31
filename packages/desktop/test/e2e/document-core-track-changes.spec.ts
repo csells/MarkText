@@ -1,17 +1,16 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import {
-  clickMenuById,
-  readCanonicalMarkdown
-} from './helpers'
+import fs from 'fs'
+import { clickMenuById } from './helpers'
 import {
   closeDocumentCore,
   launchDocumentCore,
   openReviewSidebar,
   placeCaretAfter,
+  pressApplicationMenuAccelerator,
   reviewMenuEnabled,
-  selectDomText,
-  selectTextByKeyboard
+  selectTextByKeyboard,
+  selectWordByPointer
 } from './documentCoreReviewE2e'
 
 const SOURCE = [
@@ -63,8 +62,27 @@ const readPublicSelection = (page: Page): Promise<PublicSelection | null> =>
     }
   })
 
+let documentPath = ''
+let activeApp: ElectronApplication | undefined
+
+// Canonical bytes are proven through the production persistence flow: the
+// real Save accelerator flushes admitted work before leasing canonical
+// source, so the document's own file converges on the settled head. Each
+// ladder step asserts its selection claims first, so the save keystroke
+// perturbs nothing the step still needs; the next step re-establishes its
+// own selection with a real gesture.
 const expectSource = async(page: Page, source: string): Promise<void> => {
-  await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+  const app = activeApp
+  if (app === undefined) {
+    throw new Error('expectSource requires a launched application')
+  }
+  await expect.poll(async() => {
+    if (fs.readFileSync(documentPath, 'utf-8') === source) {
+      return source
+    }
+    await pressApplicationMenuAccelerator(page, app, 'fileSaveMenuItem')
+    return fs.readFileSync(documentPath, 'utf-8')
+  }, { timeout: 15000 }).toBe(source)
 }
 
 const expectPublicSelection = async(
@@ -106,7 +124,9 @@ test.describe('document-core Track Changes through Electron', () => {
   test.beforeAll(async() => {
     const launched = await launchDocumentCore(SOURCE)
     app = launched.app
+    activeApp = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await clickMenuById(app, 'reviewTrackChangesMenuItem')
     await openReviewSidebar(page, app)
     await expect(
@@ -121,10 +141,6 @@ test.describe('document-core Track Changes through Electron', () => {
   test('tracks every frozen interaction with exact undo', async() => {
     await selectTextByKeyboard(page, 'Typing target.', 'Typing')
     await page.keyboard.type('W')
-    await expectSource(
-      page,
-      SOURCE.replace('Typing', '{~~Typing~>W~~}')
-    )
     await expectPublicSelection(page, {
       text: '',
       collapsed: true,
@@ -133,8 +149,11 @@ test.describe('document-core Track Changes through Electron', () => {
       focusText: ' target.',
       focusOffset: 0
     })
+    await expectSource(
+      page,
+      SOURCE.replace('Typing', '{~~Typing~>W~~}')
+    )
     await undoThroughApplicationMenu(app)
-    await expectSource(page, SOURCE)
     await expectPublicSelection(page, {
       text: 'Typing',
       collapsed: false,
@@ -143,15 +162,12 @@ test.describe('document-core Track Changes through Electron', () => {
       focusText: 'Typing target.',
       focusOffset: 'Typing'.length
     })
+    await expectSource(page, SOURCE)
 
     await app.evaluate(({ clipboard }) => clipboard.writeText('Pasted'))
     await selectTextByKeyboard(page, 'Paste target.', 'Paste')
     await page.keyboard.press(
       process.platform === 'darwin' ? 'Meta+V' : 'Control+V'
-    )
-    await expectSource(
-      page,
-      SOURCE.replace('Paste', '{~~Paste~>Pasted~~}')
     )
     await expectPublicSelection(page, {
       text: '',
@@ -161,8 +177,11 @@ test.describe('document-core Track Changes through Electron', () => {
       focusText: ' target.',
       focusOffset: 0
     })
+    await expectSource(
+      page,
+      SOURCE.replace('Paste', '{~~Paste~>Pasted~~}')
+    )
     await undoThroughApplicationMenu(app)
-    await expectSource(page, SOURCE)
     await expectPublicSelection(page, {
       text: 'Paste',
       collapsed: false,
@@ -171,13 +190,10 @@ test.describe('document-core Track Changes through Electron', () => {
       focusText: 'Paste target.',
       focusOffset: 'Paste'.length
     })
+    await expectSource(page, SOURCE)
 
     await selectTextByKeyboard(page, 'Compose target.', 'Compose')
     await commitComposition(page, '文')
-    await expectSource(
-      page,
-      SOURCE.replace('Compose', '{~~Compose~>文~~}')
-    )
     await expectPublicSelection(page, {
       text: '',
       collapsed: true,
@@ -186,8 +202,11 @@ test.describe('document-core Track Changes through Electron', () => {
       focusText: ' target.',
       focusOffset: 0
     })
+    await expectSource(
+      page,
+      SOURCE.replace('Compose', '{~~Compose~>文~~}')
+    )
     await undoThroughApplicationMenu(app)
-    await expectSource(page, SOURCE)
     await expectPublicSelection(page, {
       text: 'Compose',
       collapsed: false,
@@ -196,14 +215,11 @@ test.describe('document-core Track Changes through Electron', () => {
       focusText: 'Compose target.',
       focusOffset: 'Compose'.length
     })
+    await expectSource(page, SOURCE)
 
     await selectTextByKeyboard(page, 'Format target.', 'Format')
     await expect.poll(() => reviewMenuEnabled(app, 'strongMenuItem')).toBe(true)
     await clickMenuById(app, 'strongMenuItem')
-    await expectSource(
-      page,
-      SOURCE.replace('Format', '{++**++}Format{++**++}')
-    )
     await expectPublicSelection(page, {
       text: 'Format',
       collapsed: false,
@@ -212,8 +228,11 @@ test.describe('document-core Track Changes through Electron', () => {
       focusText: 'Format',
       focusOffset: 'Format'.length
     })
+    await expectSource(
+      page,
+      SOURCE.replace('Format', '{++**++}Format{++**++}')
+    )
     await undoThroughApplicationMenu(app)
-    await expectSource(page, SOURCE)
     await expectPublicSelection(page, {
       text: 'Format',
       collapsed: false,
@@ -222,6 +241,7 @@ test.describe('document-core Track Changes through Electron', () => {
       focusText: 'Format target.',
       focusOffset: 'Format'.length
     })
+    await expectSource(page, SOURCE)
 
     await placeCaretAfter(page, 'Structure')
     await expect.poll(() => reviewMenuEnabled(app, 'heading2MenuItem')).toBe(true)
@@ -254,7 +274,7 @@ test.describe('document-core Track Changes through Electron', () => {
       editorFocused: true
     })
 
-    await selectDomText(page, 'old')
+    await selectWordByPointer(page, 'old')
     await page.keyboard.type('X')
     await expectSource(page, SOURCE)
     // A26 forbids rendering machine tokens, so the rejection is asserted as the

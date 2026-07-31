@@ -55,9 +55,11 @@ function physicalDelta(
   before: Profile1PhysicalTraversalCountsV1
 ): Profile1PhysicalTraversalCountsV1 {
   const keys = Object.keys(after) as (keyof Profile1PhysicalTraversalCountsV1)[]
-  return Object.freeze(Object.fromEntries(
-    keys.map((key) => [key, after[key] - before[key]])
-  )) as Profile1PhysicalTraversalCountsV1
+  const delta = {} as Record<keyof Profile1PhysicalTraversalCountsV1, number>
+  for (const key of keys) {
+    delta[key] = after[key] - before[key]
+  }
+  return Object.freeze(delta)
 }
 
 function revisionRecord(revision: DocumentRevision): unknown {

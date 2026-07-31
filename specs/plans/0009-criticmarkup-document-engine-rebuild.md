@@ -360,8 +360,21 @@ are transcribed exactly. Its real residue is G36.
   sleep had been masking — focus restoration and publication restores
   stamping the session's older selection over a newer user gesture, and
   authoring commands capturing their target before the last selection
-  report landed. The remaining A08/A31 targets and the bridge's deletion
-  (G6) follow the same pattern.
+  report landed. The A08 interaction ladder is migrated the same way, and
+  that migration forced the selection-generation design to its settled
+  form: the generation advances exactly when the view adopts a browser
+  selection that diverges from the session's (at the synchronize and
+  commit-selection dispatch sites), never on raw selectionchange arrival,
+  because an arrival may be the view's own render or restore echo and an
+  echo-driven bump made an edit cycle's own authoritative restore stand
+  down; an IME composition window defers selection reads while the
+  browser owns the draft DOM (insertCompositionText is not cancelable);
+  and a deferred selection is adopted at flush only if the live selection
+  still sits on the exact recorded DOM positions — otherwise the queued
+  input's publication replaced what the read named, and the flush
+  re-stamps the session-authoritative selection instead of adopting
+  repaint debris. The remaining A31 target and the bridge's deletion (G6)
+  follow the same pattern.
   `internal/sourceAuthorship.ts` now owns marker composition, the escape
   rule, and the section 2 protect drafting in one module — the unary,
   substitution, comment, and comment-pair composers beside

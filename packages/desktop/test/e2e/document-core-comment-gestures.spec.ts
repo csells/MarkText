@@ -96,7 +96,19 @@ const textEdgePoint = async(
 }
 
 const doubleClickWord = async(page: Page, needle: string): Promise<string> => {
-  const point = await pointForText(page, needle)
+  // A previous step's publication repaint can reflow the word after its
+  // point is computed, and a floating tool can occlude it — either way the
+  // click would land on other text. Recompute until the point actually
+  // hit-tests into the word, the observable "geometry settled" condition.
+  let point = await pointForText(page, needle)
+  await expect.poll(async() => {
+    point = await pointForText(page, needle)
+    return page.evaluate(
+      ({ x, y, text }) =>
+        document.elementFromPoint(x, y)?.textContent?.includes(text) === true,
+      { x: point.x, y: point.y, text: needle }
+    )
+  }).toBe(true)
   await page.mouse.dblclick(point.x, point.y)
   await settleSelection(page, needle)
   return needle
@@ -335,10 +347,6 @@ test.describe('document-core Comment gesture validity', () => {
     app = launched.app
     page = launched.page
     activeDocumentPath = launched.filePath
-    // TEMPORARY diagnostics (task #17).
-    page.on('console', (message) => {
-      console.log(`[app] ${message.text()}`)
-    })
     await openReviewSidebar(page, app)
   })
 
