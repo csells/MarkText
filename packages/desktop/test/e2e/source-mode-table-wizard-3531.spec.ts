@@ -5,10 +5,10 @@ import {
   launchWithMarkdown,
   focusEditor,
   enterSourceMode,
-  exitSourceMode,
-  readCanonicalMarkdown
+  exitSourceMode
 } from './helpers'
 import {
+  expectCanonicalOnDisk,
   applicationMenuAccelerator,
   pressUserKeybinding
 } from './documentCoreReviewE2e'
@@ -23,12 +23,14 @@ const TABLE_DIALOG = '.ag-insert-table-dialog'
 test.describe('paragraph edit commands are suppressed in source mode (#3531)', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
   let tableAccelerator: string
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown('# Doc\n\nsome text\n')
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     await focusEditor(page)
     tableAccelerator = await applicationMenuAccelerator(app, 'tableMenuItem')
   })
@@ -93,10 +95,15 @@ test.describe('paragraph edit commands are suppressed in source mode (#3531)', (
     await pressUserKeybinding(page, app, 'CmdOrCtrl+T')
     await expect(page.locator('.tabs-container > li')).toHaveCount(2)
     await expect(page.locator(TABLE_DIALOG)).toBeHidden({ timeout: 5000 })
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe('')
+    // The fresh tab is untitled — it has no file to observe and saving it
+    // would summon a dialog. Its emptiness is read through the source-mode
+    // projection of the main-owned session instead.
+    await enterSourceMode(page, app)
+    await expect(page.locator('.source-code-input')).toHaveValue('')
+    await exitSourceMode(page, app)
 
     await page.locator('.tabs-container > li').first().click()
     await expect(page.locator('.editor-component')).toContainText('some text')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(original)
+    await expectCanonicalOnDisk(page, app, documentPath, original)
   })
 })

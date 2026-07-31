@@ -5,9 +5,11 @@ import {
   clearRendererErrors,
   clickMenuById,
   expectNoRendererErrors,
-  launchWithMarkdown,
-  readCanonicalMarkdown
+  launchWithMarkdown
 } from './helpers'
+import {
+  expectCanonicalOnDisk
+} from './documentCoreReviewE2e'
 import { reviewMenuEnabled } from './documentCoreReviewE2e'
 
 interface ParagraphBreakCase {
@@ -202,7 +204,7 @@ test.describe('parser-owned paragraph breaks in nested list content', () => {
         await clearRendererErrors(app)
 
         await page.keyboard.press('Enter')
-        await expect.poll(() => readCanonicalMarkdown(page)).toBe(row.expected)
+        await expectCanonicalOnDisk(page, app, launched.filePath, row.expected)
         await expectCaret(
           page,
           row.expectedCaretText,
@@ -213,7 +215,7 @@ test.describe('parser-owned paragraph breaks in nested list content', () => {
         ).toBe(true)
 
         await clickMenuById(app, 'editUndoMenuItem')
-        await expect.poll(() => readCanonicalMarkdown(page)).toBe(row.source)
+        await expectCanonicalOnDisk(page, app, launched.filePath, row.source)
         await expectCaret(page, row.needle, row.caretOffset)
         await expect.poll(() =>
           reviewMenuEnabled(app, 'editUndoMenuItem')

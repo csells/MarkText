@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test'
 import type { ElectronApplication } from 'playwright'
 import {
   expectNoRendererErrors,
-  launchWithMarkdown,
-  readCanonicalMarkdown
+  launchWithMarkdown
 } from './helpers'
+import {
+  expectCanonicalOnDisk
+} from './documentCoreReviewE2e'
 
 test.describe('Profile 1 HTML block and inline HTML classification', () => {
   let runningApp: ElectronApplication | undefined
@@ -30,7 +32,7 @@ test.describe('Profile 1 HTML block and inline HTML classification', () => {
     await expect(
       page.locator('.editor-component p.document-view-paragraph')
     ).toHaveCount(0)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await expectCanonicalOnDisk(page, app, launched.filePath, source)
     await expectNoRendererErrors(app)
   })
 
@@ -52,7 +54,7 @@ test.describe('Profile 1 HTML block and inline HTML classification', () => {
     await expect(
       page.locator('.editor-component p.document-view-paragraph')
     ).toHaveCount(0)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await expectCanonicalOnDisk(page, app, launched.filePath, source)
     await expectNoRendererErrors(app)
   })
 
@@ -70,7 +72,7 @@ test.describe('Profile 1 HTML block and inline HTML classification', () => {
     await expect(
       page.locator('.editor-component .document-view-html-block')
     ).toHaveCount(0)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await expectCanonicalOnDisk(page, app, launched.filePath, source)
     await expectNoRendererErrors(app)
   })
 })

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { readCanonicalMarkdown } from './helpers'
 import {
+  expectCanonicalOnDisk,
   closeDocumentCore,
   launchDocumentCoreWithKeybindings,
   pointForText,
@@ -18,6 +18,7 @@ test.describe('document-core Review native context identity', () => {
   test.describe.configure({ timeout: 120000 })
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchDocumentCoreWithKeybindings(SOURCE, {
@@ -25,6 +26,7 @@ test.describe('document-core Review native context identity', () => {
     })
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -57,7 +59,7 @@ test.describe('document-core Review native context identity', () => {
 
       await editor.fill('edited inner note')
       await innerCard.locator('.comment-edit .submit').click()
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(
+      await expectCanonicalOnDisk(page, app, documentPath, 
         SOURCE.replace('inner note', 'edited inner note')
       )
 
@@ -73,7 +75,7 @@ test.describe('document-core Review native context identity', () => {
         reviewMenuEnabled(app, 'editUndoMenuItem')
       ).toBe(true)
       await pressApplicationMenuAccelerator(page, app, 'editUndoMenuItem')
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(SOURCE)
+      await expectCanonicalOnDisk(page, app, documentPath, SOURCE)
     }
   )
 })

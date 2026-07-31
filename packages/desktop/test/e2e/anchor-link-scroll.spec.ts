@@ -3,9 +3,11 @@ import type { ElectronApplication, Page } from 'playwright'
 import {
   closeElectron,
   expectNoRendererErrors,
-  launchWithMarkdown,
-  readCanonicalMarkdown
+  launchWithMarkdown
 } from './helpers'
+import {
+  expectCanonicalOnDisk
+} from './documentCoreReviewE2e'
 
 const LINK_WRAPPER = '.editor-component a[href="#my-section"]'
 
@@ -28,11 +30,13 @@ const scrollTop = (page: Page): Promise<number> =>
 test.describe('In-document anchor link click scrolls the editor (item 236)', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown(DOC)
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     // Wait for the target view's public link element before interacting.
     await page.waitForSelector(LINK_WRAPPER, { state: 'attached', timeout: 15000 })
   })
@@ -55,7 +59,7 @@ test.describe('In-document anchor link click scrolls the editor (item 236)', () 
     expect(wiring.hrefAttr).toBe('#my-section')
     expect(wiring.tagName).toBe('A')
     expect(wiring.headingText).toContain('My Section')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(DOC)
+    await expectCanonicalOnDisk(page, app, documentPath, DOC)
   })
 
   test('Cmd/Ctrl-clicking the link scrolls the editor down to the heading', async() => {
@@ -86,7 +90,7 @@ test.describe('In-document anchor link click scrolls the editor (item 236)', () 
     expect(headingTop as number).toBeLessThan(500)
     expect(headingTop as number).toBeGreaterThan(-200)
 
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(DOC)
+    await expectCanonicalOnDisk(page, app, documentPath, DOC)
     await expectNoRendererErrors(app)
   })
 
@@ -104,7 +108,7 @@ test.describe('In-document anchor link click scrolls the editor (item 236)', () 
     await page.waitForTimeout(600)
     expect(await scrollTop(page)).toBe(0)
 
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(DOC)
+    await expectCanonicalOnDisk(page, app, documentPath, DOC)
     await expectNoRendererErrors(app)
   })
 })

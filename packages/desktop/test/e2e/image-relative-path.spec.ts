@@ -8,10 +8,12 @@ import {
   enterSourceMode,
   exitSourceMode,
   launchElectron,
-  readCanonicalMarkdown,
   waitForEditor,
   waitForMenuReady
 } from './helpers'
+import {
+  expectCanonicalOnDisk
+} from './documentCoreReviewE2e'
 
 // A saved document's relative image crosses a main-owned path resolver and is
 // exposed to Chromium only through an opaque, revision-bound custom-protocol
@@ -38,10 +40,12 @@ test.describe('main-owned relative image display authority', () => {
   let app: ElectronApplication | null = null
   let page: Page
   let docDir: string
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const written = writeDocWithRelativeImage()
     docDir = written.docDir
+    documentPath = written.docPath
     const launched = await launchElectron([written.docPath])
     app = launched.app
     page = launched.page
@@ -81,7 +85,7 @@ test.describe('main-owned relative image display authority', () => {
 
   test('keeps the authored source exact across Source and Markup surfaces', async() => {
     const source = '![a cat](assets/cat.png)\n'
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await expectCanonicalOnDisk(page, app as ElectronApplication, documentPath, source)
     await enterSourceMode(page, app as ElectronApplication)
     await expect(page.locator('.source-code-input')).toHaveValue(source)
     await exitSourceMode(page, app as ElectronApplication)
@@ -90,6 +94,6 @@ test.describe('main-owned relative image display authority', () => {
     await expect.poll(async() => image.evaluate(element =>
       (element as HTMLImageElement).naturalWidth
     )).toBe(1)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(source)
+    await expectCanonicalOnDisk(page, app as ElectronApplication, documentPath, source)
   })
 })
