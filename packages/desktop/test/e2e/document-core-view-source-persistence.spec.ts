@@ -9,9 +9,9 @@ import {
   expectNoCapturedErrors,
   launchWithMarkdown,
   placeCaretInEditor,
-  readCanonicalMarkdown,
   typeIntoEditor
 } from './helpers'
+import { expectCanonicalOnDisk } from './documentCoreReviewE2e'
 
 const INITIAL = [
   '# One canonical head',
@@ -40,14 +40,13 @@ test.describe('document-core view and Source persistence', () => {
       await page.waitForTimeout(100)
       await placeCaretInEditor(page)
       await typeIntoEditor(page, ' autosaved')
-      await expect.poll(() => readCanonicalMarkdown(page)).toContain(
-        ' autosaved'
-      )
-      const autosavedHead = await readCanonicalMarkdown(page)
+      // Autosave is the transaction under test: the file itself must
+      // converge on the edited head with no manual save.
       await expect.poll(
         () => fs.readFileSync(filePath, 'utf8'),
         { timeout: 10_000 }
-      ).toBe(autosavedHead)
+      ).toContain(' autosaved')
+      const autosavedHead = fs.readFileSync(filePath, 'utf8')
       await clickMenuById(app, 'autoSaveMenuItem')
       await page.waitForTimeout(100)
 
@@ -69,7 +68,7 @@ test.describe('document-core view and Source persistence', () => {
         sourceHead
       )
       await exitSourceMode(page, app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(sourceHead)
+      await expectCanonicalOnDisk(page, app, filePath, sourceHead)
 
       const projectionAssertions = [
         {
@@ -109,29 +108,35 @@ test.describe('document-core view and Source persistence', () => {
         for (const text of row.absent) {
           await expect(editor).not.toContainText(text)
         }
-        expect(await readCanonicalMarkdown(page)).toBe(sourceHead)
+        await expectCanonicalOnDisk(page, app, filePath, sourceHead)
       }
 
       // Persisting from a projected view still writes canonical CriticMarkup,
       // never the Original/Revised presentation.
       await placeCaretInEditor(page)
       await typeIntoEditor(page, ' projected-save')
-      await expect.poll(() => readCanonicalMarkdown(page)).toContain(
+      // The edit's arrival is observed in the mounted view; reading canonical
+      // bytes here would save and destroy the unsaved-window assert below.
+      await expect(page.locator('.editor-component')).toContainText(
         ' projected-save'
       )
-      const projectedHead = await readCanonicalMarkdown(page)
-      expect(projectedHead).not.toBe(sourceHead)
       expect(fs.readFileSync(filePath, 'utf8')).toBe(sourceHead)
       await clickMenuById(app, 'reviewShowRevisedMenuItem')
       await clickMenuById(app, 'fileSaveMenuItem')
-      await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toBe(
-        projectedHead
+      await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toContain(
+        ' projected-save'
       )
+      const projectedHead = fs.readFileSync(filePath, 'utf8')
+      expect(projectedHead).not.toBe(sourceHead)
+      // Written from the Revised projection, yet the bytes are canonical
+      // CriticMarkup — the markers survive, not their projected spelling.
+      expect(projectedHead).toContain('{++SOURCE_MARKER++}')
+      expect(projectedHead).toContain('{--DELETED_ONLY--}')
 
       await enterSourceMode(page, app)
       await expect(page.locator('.source-code-input')).toHaveValue(projectedHead)
       await exitSourceMode(page, app)
-      await expect.poll(() => readCanonicalMarkdown(page)).toBe(projectedHead)
+      await expectCanonicalOnDisk(page, app, filePath, projectedHead)
       await expectNoCapturedErrors(app)
     } finally {
       if (app !== undefined) {

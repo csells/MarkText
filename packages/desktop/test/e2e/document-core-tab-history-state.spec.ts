@@ -5,12 +5,17 @@ import {
   launchWithMarkdown,
   openUntitledTabWithMarkdown,
   placeCaretInEditor,
-  readCanonicalMarkdown,
   sendIpcToRenderer,
   waitForMenuReady
 } from './helpers'
 
 const tabSelector = '.tabs-container > li'
+
+// These documents are marker-free, so the mounted projection's visible text
+// IS the canonical content; asserting it observes what the user sees without
+// pressing Save, which would flip the dirty state this test is about.
+const editorText = async(page: Page): Promise<string> =>
+  (await page.locator('.editor-component').innerText()).trim()
 
 const activeTabIsDirty = (page: Page): Promise<boolean> =>
   page.evaluate(
@@ -41,7 +46,7 @@ test('main-owned A and B sessions retain isolated undo, redo, and dirty state', 
 
   try {
     await appendCharacter(page, 'A')
-    await expect.poll(async() => (await readCanonicalMarkdown(page)).trim()).toBe('alphaA')
+    await expect.poll(() => editorText(page)).toBe('alphaA')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
     await expect.poll(() => historyMenuState(app)).toEqual({
       canUndo: true,
@@ -50,18 +55,18 @@ test('main-owned A and B sessions retain isolated undo, redo, and dirty state', 
 
     await openUntitledTabWithMarkdown(page, 'bravo\n')
     await expect.poll(() => page.locator(tabSelector).count()).toBe(2)
-    await expect.poll(async() => (await readCanonicalMarkdown(page)).trim()).toBe('bravo')
+    await expect.poll(() => editorText(page)).toBe('bravo')
 
     await appendCharacter(page, 'B')
-    await expect.poll(async() => (await readCanonicalMarkdown(page)).trim()).toBe('bravoB')
+    await expect.poll(() => editorText(page)).toBe('bravoB')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
 
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
-    await expect.poll(async() => (await readCanonicalMarkdown(page)).trim()).toBe('alphaA')
+    await expect.poll(() => editorText(page)).toBe('alphaA')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    await expect.poll(async() => (await readCanonicalMarkdown(page)).trim()).toBe('alpha')
+    await expect.poll(() => editorText(page)).toBe('alpha')
     await expect.poll(() => activeTabIsDirty(page)).toBe(false)
     await expect.poll(() => historyMenuState(app)).toEqual({
       canUndo: false,
@@ -69,7 +74,7 @@ test('main-owned A and B sessions retain isolated undo, redo, and dirty state', 
     })
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
-    await expect.poll(async() => (await readCanonicalMarkdown(page)).trim()).toBe('alphaA')
+    await expect.poll(() => editorText(page)).toBe('alphaA')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
     await expect.poll(() => historyMenuState(app)).toEqual({
       canUndo: true,
@@ -77,7 +82,7 @@ test('main-owned A and B sessions retain isolated undo, redo, and dirty state', 
     })
 
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 1)
-    await expect.poll(async() => (await readCanonicalMarkdown(page)).trim()).toBe('bravoB')
+    await expect.poll(() => editorText(page)).toBe('bravoB')
     await expect.poll(() => activeTabIsDirty(page)).toBe(true)
   } finally {
     await closeElectron(app)
