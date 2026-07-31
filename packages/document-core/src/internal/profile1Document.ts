@@ -4164,10 +4164,14 @@ function tryIncrementalIntrinsicParse(
   return Object.freeze({
     kind: 'complete',
     hasCriticMarkupCandidate: spliced.hasCriticMarkupCandidate,
-    // Provenance-carried templates bypass the definition cache key, and a
-    // prefix region's emitted nodes may hold a shifted definition's start,
-    // so definition-bearing documents take the keyed emission path instead.
-    ...(spliced.roots.length > 0 || hasDefinitions
+    // Definition-bearing documents carry regions by provenance soundly:
+    // templates store region-relative positions (re-based at
+    // materialization), identity and reference edges re-emit live against
+    // the current shifted lookup, only definition nodes bake a positional
+    // definition attribute (their own in-region start), and the splice
+    // guards keep the definition set invariant up to the shift — so baked
+    // destination and title strings cannot go stale.
+    ...(spliced.roots.length > 0
       ? {}
       : {
         spliceProvenance: Object.freeze({

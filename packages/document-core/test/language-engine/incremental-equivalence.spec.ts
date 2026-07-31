@@ -605,14 +605,14 @@ describe('incremental reopen equivalence', () => {
         TEST_CONFIGURATION
       )
       expect(opened.kind).toBe('complete')
-      const before = incremental.traversalCounts().intrinsicSourceUnits
+      const before = incremental.traversalCounts()
       const reopened = incremental.reopen(
         opened,
         createSourceSnapshot(edited),
         [{ start: offset, end: offset, insert: 'now ' }]
       )
-      const spent =
-        incremental.traversalCounts().intrinsicSourceUnits - before
+      const work = incremental.traversalCounts()
+      const spent = work.intrinsicSourceUnits - before.intrinsicSourceUnits
       const full = createLanguageEngine().open(
         createSourceSnapshot(edited),
         TEST_CONFIGURATION
@@ -621,6 +621,13 @@ describe('incremental reopen equivalence', () => {
         .toEqual(revisionRecord(full))
       expect(spent, `${layout.name} took the full pass`)
         .toBeLessThan(edited.length)
+      // Untouched regions arrive by provenance even with definitions in
+      // play: templates re-base region-relative positions and identity
+      // re-resolves references live, so the carry is sound and must fire.
+      expect(
+        work.forkAstRegionProvenanceReuses,
+        `${layout.name} carried no regions by provenance`
+      ).toBeGreaterThan(before.forkAstRegionProvenanceReuses)
     }
   })
 
