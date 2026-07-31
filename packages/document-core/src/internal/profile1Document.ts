@@ -1,4 +1,3 @@
-import { safePointsOf } from '../safePoints.js'
 import type {
   CriticMarkupArm,
   CriticMarkupNode,
@@ -4564,8 +4563,11 @@ export function parseProfile1Document(
     // points come from the fork graph's own reconvergence primitive — the
     // same one downstream regionization consumes — so they are canonical
     // source coordinates for marker-bearing documents too; a projected
-    // view's block starts would drift by every elided marker.
-    retainedIntrinsic: Object.freeze({
+    // view's block starts would drift by every elided marker. A parse that
+    // degraded over-depth annotations retains nothing: the suppression that
+    // shaped it is not part of the bundle, so a splice could not reproduce
+    // it.
+    ...(degradedNodes.length > 0 ? {} : { retainedIntrinsic: Object.freeze({
       sourceLength: source.length,
       hasCriticMarkupCandidate: parsed.hasCriticMarkupCandidate,
       rootCount: criticMarkupRoots.length,
@@ -4579,7 +4581,7 @@ export function parseProfile1Document(
       forkGraph: parsed.forkGraph,
       roots: criticMarkupRoots,
       markerDecisions: parsed.markerDecisions
-    })
+    }) })
   })
   return finishResult(captureAccountingTrace
     ? Object.freeze({ ...products, accountingTrace: accounting.trace() })

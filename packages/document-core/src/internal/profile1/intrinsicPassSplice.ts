@@ -149,17 +149,6 @@ function checkpointIsClean(checkpoint: MarkdownCheckpoint): boolean {
     checkpoint.firstContainerDepthFailure === undefined
 }
 
-function shiftCheckpoint(
-  checkpoint: MarkdownCheckpoint,
-  delta: number
-): MarkdownCheckpoint {
-  if (delta === 0) return checkpoint
-  return Object.freeze({
-    ...checkpoint,
-    lineStart: checkpoint.lineStart + delta
-  })
-}
-
 function shiftListMarker(
   marker: PlainMarkdownListMarker,
   delta: number
@@ -494,6 +483,25 @@ export function spliceGuardsHold(
   }
   // Marker-bearing documents splice when every node and branch sits fully
   // inside the prefix or the suffix; one crossing the bracket re-parses.
+  // Nesting is bounded so the recursive replay and shift can never chase a
+  // pathological forest into the stack limit.
+  const DEPTH_BOUND = 64
+  {
+    const stack: Array<Readonly<{ node: CriticMarkupNode; depth: number }>> =
+      retained.roots.map((node) => Object.freeze({ node, depth: 1 }))
+    while (stack.length > 0) {
+      const entry = stack.pop()
+      if (entry === undefined) break
+      if (entry.depth > DEPTH_BOUND) {
+        return false
+      }
+      for (const arm of entry.node.arms) {
+        for (const child of arm.children) {
+          stack.push(Object.freeze({ node: child, depth: entry.depth + 1 }))
+        }
+      }
+    }
+  }
   for (const root of retained.roots) {
     const insidePrefix = root.range.end <= bracket.start
     const insideSuffix = root.range.start >= bracket.endPrevious
