@@ -14,6 +14,9 @@ import {
   buildSourceCandidateDraft,
   protectSourceCandidateDraft
 } from '../sourceAuthorship.js'
+import {
+  preservesUntargetedNodes
+} from '../untargetedNodePreservation.js'
 import type { SourceEdit } from './sourceTransaction.js'
 
 /**
@@ -40,6 +43,7 @@ export const EXACT_REPLAY: AdmissionClass =
 export type AdmissionRejectionClass =
   | 'invalid-command-argument'
   | 'no-source-change'
+  | 'semantic-postcondition-failed'
 
 export interface AdmittedCandidate {
   readonly kind: 'admitted'
@@ -266,6 +270,22 @@ export function createAdmissionAuthority(
       throw new Error(
         'Prepared revision does not match its exact source-edit transaction'
       )
+    }
+    // The kernel's structural survivor proof (G8): every node the edits
+    // never touched must survive with the same kind at its mapped envelope.
+    // Replays are exempt like the zero-delta rule — their candidate was
+    // proved when first admitted, and an undo legitimately removes nodes
+    // its recorded edits never spelled out.
+    if (
+      admission.kind !== 'exact-replay' &&
+      base.kind === 'complete' &&
+      revision.kind === 'complete' &&
+      !preservesUntargetedNodes(base, revision, transaction.edits)
+    ) {
+      return Object.freeze({
+        kind: 'rejected',
+        class: 'semantic-postcondition-failed'
+      } as const)
     }
     return Object.freeze({
       kind: 'admitted',

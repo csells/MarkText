@@ -172,4 +172,55 @@ describe('admission authority', () => {
       })
     )).toThrow(/transaction/i)
   })
+
+  // G8: the kernel's structural survivor proof guards every prepared intent,
+  // not just the seven kernel-planned ones. Two-sided per G9: the same edit
+  // admits through the real engine and rejects through an engine whose
+  // reopen loses an untargeted node.
+  it('proves untargeted nodes survive a typed-gesture admission', () => {
+    const engine = createLanguageEngine()
+    const base = openBase(engine, 'Alpha {++keep++} beta tail.\n')
+    const edit = Object.freeze({
+      start: base.source.text.length - 1,
+      end: base.source.text.length - 1,
+      insert: ' more'
+    })
+
+    const admitted = createAdmissionAuthority(engine).admit(
+      base,
+      Object.freeze([edit]),
+      TYPED_GESTURE
+    )
+    expect(admitted.kind).toBe('admitted')
+
+    const hideLastRoot = (
+      revision: ReturnType<typeof engine.reopen>
+    ): ReturnType<typeof engine.reopen> => {
+      if (revision.kind !== 'complete') return revision
+      if (revision.criticMarkup.rootCount === 0) return revision
+      return Object.freeze({
+        ...revision,
+        criticMarkup: Object.freeze({
+          ...revision.criticMarkup,
+          rootCount: revision.criticMarkup.rootCount - 1
+        })
+      }) as typeof revision
+    }
+    const lossyEngine = Object.freeze({
+      ...engine,
+      reopen: (
+        ...request: Parameters<typeof engine.reopen>
+      ): ReturnType<typeof engine.reopen> =>
+        hideLastRoot(engine.reopen(...request))
+    })
+    const rejected = createAdmissionAuthority(lossyEngine).admit(
+      base,
+      Object.freeze([edit]),
+      TYPED_GESTURE
+    )
+    expect(rejected).toEqual({
+      kind: 'rejected',
+      class: 'semantic-postcondition-failed'
+    })
+  })
 })

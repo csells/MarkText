@@ -27,6 +27,9 @@ import {
   type OpaqueRange,
   type SourceCandidateDraft
 } from './internal/sourceAuthorship.js'
+import {
+  preservesUntargetedNodes
+} from './internal/untargetedNodePreservation.js'
 import { createSourceSnapshot } from './sourceSnapshot.js'
 import { applyExactSourceEdits } from './exactSourceEdits.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
@@ -1389,121 +1392,6 @@ function applyExactEdits(
   edits: readonly TransformationSourceEdit[]
 ): string {
   return applyExactSourceEdits(source, edits, 'Transformation source edit')
-}
-
-interface SourceEditDeltaIndex {
-  readonly touches: (start: number, end: number) => boolean
-  readonly mapStart: (offset: number) => number
-  readonly mapEnd: (offset: number) => number
-}
-
-function createSourceEditDeltaIndex(
-  edits: readonly TransformationSourceEdit[]
-): SourceEditDeltaIndex {
-  const allEnds: number[] = []
-  const allPrefixDeltas: number[] = [0]
-  const replacementEnds: number[] = []
-  const replacementPrefixDeltas: number[] = [0]
-  const insertionEnds: number[] = []
-  const insertionPrefixDeltas: number[] = [0]
-
-  for (const edit of edits) {
-    const delta = edit.insert.length - (edit.end - edit.start)
-    allEnds.push(edit.end)
-    allPrefixDeltas.push((allPrefixDeltas.at(-1) ?? 0) + delta)
-    if (edit.start === edit.end) {
-      insertionEnds.push(edit.end)
-      insertionPrefixDeltas.push(
-        (insertionPrefixDeltas.at(-1) ?? 0) + delta
-      )
-    } else {
-      replacementEnds.push(edit.end)
-      replacementPrefixDeltas.push(
-        (replacementPrefixDeltas.at(-1) ?? 0) + delta
-      )
-    }
-  }
-
-  const deltaAt = (
-    positions: readonly number[],
-    prefixDeltas: readonly number[],
-    offset: number,
-    inclusive: boolean
-  ): number => {
-    let low = 0
-    let high = positions.length
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2)
-      const position = positions[middle] ?? Number.POSITIVE_INFINITY
-      if (position < offset || (inclusive && position === offset)) {
-        low = middle + 1
-      } else {
-        high = middle
-      }
-    }
-    return prefixDeltas[low] ?? 0
-  }
-
-  return Object.freeze({
-    touches: Object.freeze((start: number, end: number): boolean => {
-      let low = 0
-      let high = edits.length
-      while (low < high) {
-        const middle = low + Math.floor((high - low) / 2)
-        if ((edits[middle]?.end ?? Number.POSITIVE_INFINITY) <= start) {
-          low = middle + 1
-        } else {
-          high = middle
-        }
-      }
-      const candidate = edits[low]
-      return candidate !== undefined && candidate.start < end
-    }),
-    mapStart: Object.freeze((offset: number): number =>
-      offset + deltaAt(allEnds, allPrefixDeltas, offset, true)),
-    mapEnd: Object.freeze((offset: number): number =>
-      offset +
-        deltaAt(replacementEnds, replacementPrefixDeltas, offset, true) +
-        deltaAt(insertionEnds, insertionPrefixDeltas, offset, false))
-  })
-}
-
-function preservesUntargetedNodes(
-  before: CompleteDocumentRevision,
-  candidate: CompleteDocumentRevision,
-  edits: readonly TransformationSourceEdit[]
-): boolean {
-  const nodeKey = (
-    kind: CriticMarkupNode['kind'],
-    start: number,
-    end: number
-  ): string => `${kind}:${start}:${end}`
-  const candidateNodes = new Set(
-    recordsOf(candidate).map(({ node }) => nodeKey(
-      node.kind,
-      rangeStart(node.range),
-      rangeEnd(node.range)
-    ))
-  )
-  const editIndex = createSourceEditDeltaIndex(edits)
-  for (const { node } of recordsOf(before)) {
-    const start = rangeStart(node.range)
-    const end = rangeEnd(node.range)
-    if (editIndex.touches(start, end)) {
-      continue
-    }
-    const expectedStart = editIndex.mapStart(start)
-    const expectedEnd = editIndex.mapEnd(end)
-    // Exact-edit construction already proves that an untouched source slice
-    // is copied code-unit-for-code-unit to its mapped range. With identical
-    // parse configuration, the indexed kind and mapped envelope are the
-    // remaining structural survivor proof; rescanning every nested slice here
-    // would turn a sibling edit beside a deep tree quadratic.
-    if (!candidateNodes.has(nodeKey(node.kind, expectedStart, expectedEnd))) {
-      return false
-    }
-  }
-  return true
 }
 
 function configurationIsSame(

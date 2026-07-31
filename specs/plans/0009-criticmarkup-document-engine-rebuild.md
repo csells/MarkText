@@ -446,7 +446,20 @@ are transcribed exactly. Its real residue is G36.
   mirror it again). Seven intents receive the kernel's postconditions and
   thirty-four do not; every intent must receive them.
   `packages/document-core/src/transformationKernel.ts:125-135` carries the
-  shape: two methods over 2,050 lines.
+  shape: two methods over 2,050 lines. Progress 2026-07-31 — the
+  postcondition half is closed: the admission authority already carried
+  the edit bounds, ordering proof, join protection, zero-delta rule, and
+  exact source-transaction proof for every prepared intent, and the one
+  missing member of the kernel's battery — the structural survivor proof
+  that untargeted nodes keep their kind at their mapped envelope — moved
+  to a shared module (`internal/untargetedNodePreservation.ts`) that both
+  the kernel and `admit()` now enforce; replays stay exempt exactly as
+  the zero-delta rule exempts them, since an undo legitimately removes
+  nodes its recorded edits never spelled out. Two-sided proof: the same
+  typed gesture admits through the real engine and rejects
+  `semantic-postcondition-failed` through an engine whose reopen loses an
+  untargeted node. What remains of G8 is the nine-fold declaration
+  dedup.
 - **G39 [high] The view predicts model positions and submits them.** During a
   typing burst the view chains a draft target from hard-coded widths —
   `+data.length`, `+2` for a paragraph break, `+1` for a line break
