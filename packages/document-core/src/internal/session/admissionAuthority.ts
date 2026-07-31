@@ -13,7 +13,7 @@ import { applyExactSourceEdits } from '../../exactSourceEdits.js'
 import {
   buildSourceCandidateDraft,
   protectSourceCandidateDraft
-} from './sourceCandidate.js'
+} from '../sourceAuthorship.js'
 import type { SourceEdit } from './sourceTransaction.js'
 
 /**

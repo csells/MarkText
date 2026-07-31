@@ -354,11 +354,13 @@ are transcribed exactly. Its real residue is G36.
   the source-mode controller drains its queued operations and then
   awaits the same barrier, so no surface owns a second settlement
   notion; G13's fixed sleeps migrate to the barrier.
-  `internal/sourceAuthorship.ts` now owns marker composition beside the
-  escape rule — the unary, substitution, comment, and comment-pair
-  composers in one place, with the kernel and the worker both routing
-  through them and no caller spelling a marker or wiring the escape
-  inline — and the execution counter bank is
+  `internal/sourceAuthorship.ts` now owns marker composition, the escape
+  rule, and the section 2 protect drafting in one module — the unary,
+  substitution, comment, and comment-pair composers beside
+  `buildSourceCandidateDraft` and `protectSourceCandidateDraft`, with the
+  kernel, the worker, and admission all routing through them and no
+  caller spelling a marker or wiring the escape inline; the Track Changes
+  carrier decision is the module's remaining residue — and the execution counter bank is
   fully engine-owned: line-materialization walks record through the
   recorder each line path captures at construction, long-line retention
   is proven bounded from retained/evicted counters instead of a cache

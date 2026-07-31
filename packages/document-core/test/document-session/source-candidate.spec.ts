@@ -3,7 +3,7 @@ import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../src/resourcePolicy.js'
 import {
   buildSourceCandidateDraft,
   protectSourceCandidateDraft
-} from '../../src/internal/session/sourceCandidate.js'
+} from '../../src/internal/sourceAuthorship.js'
 
 describe('source candidate composition', () => {
   it('bounds physical pieces by edit count at the maximum admitted source size', () => {

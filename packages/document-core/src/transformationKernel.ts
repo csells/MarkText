@@ -21,17 +21,15 @@ import {
   composeCommentPairMarkup,
   composeSubstitutionMarkup,
   composeUnaryMarkup,
+  buildSourceCandidateDraft,
+  protectSourceCandidateDraft,
   mergeOpaqueRanges,
-  type OpaqueRange
+  type OpaqueRange,
+  type SourceCandidateDraft
 } from './internal/sourceAuthorship.js'
 import { createSourceSnapshot } from './sourceSnapshot.js'
 import { applyExactSourceEdits } from './exactSourceEdits.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
-import {
-  buildSourceCandidateDraft,
-  protectSourceCandidateDraft,
-  type SourceCandidateDraft
-} from './internal/session/sourceCandidate.js'
 
 export interface TransformationSourceEdit {
   readonly start: number
