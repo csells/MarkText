@@ -1,4 +1,5 @@
 import type {
+  DocumentCoreTargetedIntentInput,
   ICriticMarkupCommandTarget,
   ICriticMarkupReviewItem,
   ICriticMarkupReviewSnapshot,
@@ -18,10 +19,9 @@ import {
   reportAsyncFailure
 } from '@marktext/document-view'
 import type {
-  BlockConversion,
   DocumentSearchQuery,
   DocumentFacts,
-  InlineFormat,
+  EditorIntent,
   NodeId,
   ParseConfiguration,
   ReviewIndexItem
@@ -201,8 +201,15 @@ export interface DocumentEditorHost {
   readonly hasFocus: () => boolean
   readonly focus: () => void
   readonly blur: () => void
-  readonly undo: () => Promise<void>
-  readonly redo: () => Promise<void>
+  /**
+   * The host's intent seams: the typed union directly, or a targeted arm
+   * the view completes with the current selection. Callers construct
+   * document-core intents; the host owns only command queueing.
+   */
+  readonly dispatchIntent: (intent: EditorIntent) => Promise<void>
+  readonly dispatchTargetedIntent: (
+    input: DocumentCoreTargetedIntentInput
+  ) => Promise<void>
   readonly getCursorOffset: () => IndexCursor
   readonly setCursorByOffset: (cursor: IndexCursor | number) => void
   readonly search: (query: DocumentSearchQuery) => SearchResult
@@ -222,26 +229,7 @@ export interface DocumentEditorHost {
   ) => Promise<SearchResult>
   readonly replaceCurrentWord: (replacement: string) => Promise<void>
   readonly pasteAsPlainText: () => Promise<void>
-  readonly insertImage: (
-    image: string | Readonly<{ src: string; alt?: string; title?: string }>
-  ) => Promise<void>
-  readonly setCodeLanguage: (language: string) => Promise<void>
-  readonly insertLink: (
-    link: Readonly<{ href: string; title?: string }>
-  ) => Promise<void>
-  readonly insertFootnote: (
-    footnote: Readonly<{ label: string; content: string }>
-  ) => Promise<void>
-  readonly setListIndentation: (
-    direction: 'increase' | 'decrease'
-  ) => Promise<void>
-  readonly insertParagraph: (location?: 'before' | 'after') => Promise<void>
-  readonly convertBlock: (conversion: BlockConversion) => Promise<void>
-  readonly duplicateBlock: () => Promise<void>
-  readonly deleteBlock: () => Promise<void>
-  readonly formatText: (format: InlineFormat) => Promise<void>
   readonly requestTable: () => Promise<void>
-  readonly insertTableRow: (location?: 'before' | 'after') => Promise<void>
   readonly copyAsMarkdown: () => Promise<void>
   readonly copyAsHtml: () => Promise<void>
   readonly copyAsRich: () => Promise<void>
@@ -1335,8 +1323,10 @@ export async function createDocumentEditorHost(
     })),
     resolveHeadingElement: (nodeId: string) =>
       view.resolveHeadingElement(nodeId as NodeId),
-    undo: () => enqueue(() => view.undo()),
-    redo: () => enqueue(() => view.redo()),
+    dispatchIntent: (intent: EditorIntent) =>
+      enqueue(() => view.dispatchIntent(intent)),
+    dispatchTargetedIntent: (input: DocumentCoreTargetedIntentInput) =>
+      enqueue(() => view.dispatchTargetedIntent(input)),
     flush: settled,
     setSelection: (start: number, end: number) => {
       view.setSelection(start, end)
@@ -1421,55 +1411,6 @@ export async function createDocumentEditorHost(
       return enqueue(() => view.replaceWordAt(selection.end, replacement))
     },
     pasteAsPlainText: () => enqueue(() => view.pasteFromClipboard()),
-    insertImage: (
-      image: string | Readonly<{
-        src: string
-        alt?: string
-        title?: string
-      }>
-    ) => {
-      const value = typeof image === 'string' ? { src: image } : image
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'insert-image',
-        src: value.src,
-        alt: value.alt ?? '',
-        ...(value.title === undefined ? {} : { title: value.title })
-      }))
-    },
-    setCodeLanguage: (language: string) => {
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'set-code-language',
-        language
-      }))
-    },
-    insertLink: (link: Readonly<{ href: string; title?: string }>) => {
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'insert-link',
-        href: link.href,
-        ...(link.title === undefined ? {} : { title: link.title })
-      }))
-    },
-    insertFootnote: (
-      footnote: Readonly<{ label: string; content: string }>
-    ) => {
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'insert-footnote',
-        label: footnote.label,
-        content: footnote.content
-      }))
-    },
-    setListIndentation: (direction: 'increase' | 'decrease') => {
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'set-list-indentation',
-        direction
-      }))
-    },
-    insertParagraph: (location: 'before' | 'after' = 'after') => {
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'insert-paragraph',
-        location
-      }))
-    },
     setLocale: (locale: ILocale) => {
       view.setLocale(locale)
       reviewToolLabel = locale.resource.Review ?? en.resource.Review
@@ -1481,31 +1422,7 @@ export async function createDocumentEditorHost(
         openReview.setAttribute('aria-label', reviewToolLabel)
       }
     },
-    convertBlock: (conversion: BlockConversion) => {
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'convert-block',
-        conversion
-      }))
-    },
-    duplicateBlock: () => {
-      return enqueue(() => view.dispatchTargetedIntent({ kind: 'duplicate-block' }))
-    },
-    deleteBlock: () => {
-      return enqueue(() => view.dispatchTargetedIntent({ kind: 'delete-block' }))
-    },
-    formatText: (format: InlineFormat) => {
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'format-text',
-        format
-      }))
-    },
     requestTable: () => enqueue(() => view.requestTable()),
-    insertTableRow: (location: 'before' | 'after' = 'after') => {
-      return enqueue(() => view.dispatchTargetedIntent({
-        kind: 'insert-table-row',
-        location
-      }))
-    },
     copyAsMarkdown: () => {
       return writeClipboard('copy-markdown')
     },

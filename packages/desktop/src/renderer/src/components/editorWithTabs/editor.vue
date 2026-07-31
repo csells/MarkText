@@ -721,7 +721,7 @@ const handleUndo = () => {
 
   const targetEditor = editor.value
   if (targetEditor === null) return
-  reportAsyncTask(targetEditor.undo(), 'Undo')
+  reportAsyncTask(targetEditor.dispatchIntent({ kind: 'undo' }), 'Undo')
 }
 
 const handleRedo = () => {
@@ -732,7 +732,7 @@ const handleRedo = () => {
 
   const targetEditor = editor.value
   if (targetEditor === null) return
-  reportAsyncTask(targetEditor.redo(), 'Redo')
+  reportAsyncTask(targetEditor.dispatchIntent({ kind: 'redo' }), 'Redo')
 }
 
 const handleSelectAll = () => {
@@ -798,12 +798,42 @@ const isImageSourceCapability = (
   value.token.length > 0
 )
 
-const imageInsertionContext = (
-): ImageInsertionContext<DesktopEditorInstance> => Object.freeze({
-  documentId: currentFile.value?.id ?? null,
-  surface: sourceCode.value ? 'source' : 'markup',
-  host: editor.value
+type ImageInsertionHostPort = Pick<
+  DesktopEditorInstance,
+  'settled' | 'snapshot' | 'selection' | 'insertSourceImage' |
+  'insertImageAsset'
+> & Readonly<{
+  insertImage: (image: Readonly<{ src: string }>) => Promise<void>
+}>
+
+// The image service's port is implemented over the host's intent seam:
+// this adapter is the one insert-image construction site for markup
+// insertions.
+const imageInsertionHostPort = (
+  host: DesktopEditorInstance
+): ImageInsertionHostPort => Object.freeze({
+  settled: host.settled,
+  snapshot: host.snapshot,
+  selection: host.selection,
+  insertSourceImage: host.insertSourceImage,
+  insertImageAsset: host.insertImageAsset,
+  insertImage: (image: Readonly<{ src: string }>) =>
+    host.dispatchTargetedIntent({
+      kind: 'insert-image',
+      src: image.src,
+      alt: ''
+    })
 })
+
+const imageInsertionContext = (
+): ImageInsertionContext<ImageInsertionHostPort> => {
+  const host = editor.value
+  return Object.freeze({
+    documentId: currentFile.value?.id ?? null,
+    surface: sourceCode.value ? 'source' : 'markup',
+    host: host === null ? null : imageInsertionHostPort(host)
+  })
+}
 
 const insertPersistedImage = async (image: ImageAssetInput): Promise<void> => {
   const tab = currentFile.value
@@ -1211,7 +1241,10 @@ const handleEditParagraph = (value: unknown) => {
     const targetEditor = editor.value
     if (targetEditor === null) return
     reportAsyncTask(
-      targetEditor.convertBlock(action.conversion).then(() => {
+      targetEditor.dispatchTargetedIntent({
+        kind: 'convert-block',
+        conversion: action.conversion
+      }).then(() => {
         if (editor.value !== targetEditor) return
         // Re-sync the menu so a no-op action (e.g. "Paragraph" inside a
         // list/quote) does not leave the clicked checkbox item checked. A real
@@ -1252,11 +1285,14 @@ const handleParagraph = (type: unknown) => {
   const operation = (() => {
     switch (action) {
       case 'duplicate':
-        return targetEditor.duplicateBlock()
+        return targetEditor.dispatchTargetedIntent({ kind: 'duplicate-block' })
       case 'createParagraph':
-        return targetEditor.insertParagraph('after')
+        return targetEditor.dispatchTargetedIntent({
+          kind: 'insert-paragraph',
+          location: 'after'
+        })
       case 'deleteParagraph':
-        return targetEditor.deleteBlock()
+        return targetEditor.dispatchTargetedIntent({ kind: 'delete-block' })
     }
   })()
   if (operation !== undefined) {
@@ -1279,7 +1315,10 @@ const handleInlineFormat = (type: unknown) => {
     return
   }
   reportAsyncTask(
-    targetEditor.formatText(inlineFormatForCommand(type)).catch(
+    targetEditor.dispatchTargetedIntent({
+      kind: 'format-text',
+      format: inlineFormatForCommand(type)
+    }).catch(
       (error: unknown) => {
         // A refusal (collapsed selection, stale target) is a normal outcome
         // of the command against the wrong state: tell the user through the
@@ -1429,7 +1468,10 @@ const handleInsertParagraph = (location: unknown) => {
   const targetEditor = editor.value
   if (targetEditor === null) return
   reportAsyncTask(
-    targetEditor.insertParagraph(location),
+    targetEditor.dispatchTargetedIntent({
+      kind: 'insert-paragraph',
+      location: location ?? 'after'
+    }),
     'Insert paragraph'
   )
 }
@@ -1741,11 +1783,11 @@ useEditorLifecycle(async () => {
       return sourcePublication()
     },
     undo: async () => {
-      await mountedEditor.undo()
+      await mountedEditor.dispatchIntent({ kind: 'undo' })
       return sourcePublication()
     },
     redo: async () => {
-      await mountedEditor.redo()
+      await mountedEditor.dispatchIntent({ kind: 'redo' })
       return sourcePublication()
     },
     settled: mountedEditor.settled

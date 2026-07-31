@@ -249,23 +249,31 @@ describe('document-core desktop owner', () => {
       {
         source: 'Body',
         run: (editor: DocumentEditorHost) =>
-          editor.convertBlock({ kind: 'heading', level: 2 }),
+          editor.dispatchTargetedIntent({
+            kind: 'convert-block',
+            conversion: { kind: 'heading', level: 2 }
+          }),
         expected: '## Body'
       },
       {
         source: 'Body',
-        run: (editor: DocumentEditorHost) => editor.duplicateBlock(),
+        run: (editor: DocumentEditorHost) =>
+          editor.dispatchTargetedIntent({ kind: 'duplicate-block' }),
         expected: 'Body\n\nBody'
       },
       {
         source: 'Body',
-        run: (editor: DocumentEditorHost) => editor.deleteBlock(),
+        run: (editor: DocumentEditorHost) =>
+          editor.dispatchTargetedIntent({ kind: 'delete-block' }),
         expected: ''
       },
       {
         source: 'Body',
         run: (editor: DocumentEditorHost) =>
-          editor.insertParagraph('after'),
+          editor.dispatchTargetedIntent({
+            kind: 'insert-paragraph',
+            location: 'after'
+          }),
         expected: 'Body\n'
       }
     ]
@@ -283,7 +291,7 @@ describe('document-core desktop owner', () => {
       await row.run(editor)
       await editor.settled()
       expect(editor.getMarkdownSync()).toBe(row.expected)
-      await (editor.undo as () => Promise<void>)()
+      await editor.dispatchIntent({ kind: 'undo' })
       expect(editor.getMarkdownSync()).toBe(row.source)
       editor.destroy()
     }
@@ -297,9 +305,12 @@ describe('document-core desktop owner', () => {
     })
     selectText(formatHost, 'Body')
     await formatEditor.commitAuthoringSelection()
-    await formatEditor.formatText('strong')
+    await formatEditor.dispatchTargetedIntent({
+      kind: 'format-text',
+      format: 'strong'
+    })
     expect(formatEditor.getMarkdownSync()).toBe('**Body**')
-    await (formatEditor.undo as () => Promise<void>)()
+    await formatEditor.dispatchIntent({ kind: 'undo' })
     expect(formatEditor.getMarkdownSync()).toBe('Body')
   })
 
@@ -335,7 +346,7 @@ describe('document-core desktop owner', () => {
     await editor.settled()
 
     expect(editor.getMarkdownSync()).toBe('See ![cat](images/cat.png)')
-    await editor.undo()
+    await editor.dispatchIntent({ kind: 'undo' })
     expect(editor.getMarkdownSync()).toBe('See ')
   })
 
@@ -419,7 +430,7 @@ describe('document-core desktop owner', () => {
       selection: { start: 1, end: 4 }
     })
     expect(editor.getMarkdownSync()).toBe('Ho')
-    await editor.undo()
+    await editor.dispatchIntent({ kind: 'undo' })
     expect(editor.getMarkdownSync()).toBe('Hello')
 
     ;(editor.setCursorByOffset as (offset: number) => void)(5)
@@ -428,7 +439,7 @@ describe('document-core desktop owner', () => {
     expect(host.dispatchEvent(paste)).toBe(false)
     await editor.settled()
     expect(editor.getMarkdownSync()).toBe('Hello world')
-    await editor.undo()
+    await editor.dispatchIntent({ kind: 'undo' })
     expect(editor.getMarkdownSync()).toBe('Hello')
   })
 
@@ -454,7 +465,7 @@ describe('document-core desktop owner', () => {
       selection: { start: 1, end: 4 }
     }])
     expect(editor.getMarkdownSync()).toBe('Ho')
-    await editor.undo()
+    await editor.dispatchIntent({ kind: 'undo' })
     expect(editor.getMarkdownSync()).toBe('Hello')
   })
 
@@ -470,7 +481,7 @@ describe('document-core desktop owner', () => {
     await editor.pasteSourceClipboard({ anchor: 1, focus: 4 })
 
     expect(editor.getMarkdownSync()).toBe('Htrustedo')
-    await editor.undo()
+    await editor.dispatchIntent({ kind: 'undo' })
     expect(editor.getMarkdownSync()).toBe('Hello')
   })
 
@@ -587,7 +598,7 @@ describe('document-core desktop owner', () => {
         newContent: 'term'
       }
     ])
-    await (editor.undo as () => Promise<void>)()
+    await editor.dispatchIntent({ kind: 'undo' })
     await editor.settled()
     expect(editor.getMarkdownSync()).toBe('word')
 

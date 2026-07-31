@@ -457,8 +457,27 @@ are transcribed exactly. Its real residue is G36.
   nodes its recorded edits never spelled out. Two-sided proof: the same
   typed gesture admits through the real engine and rejects
   `semantic-postcondition-failed` through an engine whose reopen loses an
-  untargeted node. What remains of G8 is the nine-fold declaration
-  dedup.
+  untargeted node. Dedup progress 2026-07-31 — five of the nine
+  surfaces now derive from the union: the wire codec is a mapped
+  decoder table over `EditorIntent['kind']`, the coordinator ladder is
+  one `prepareEditorIntent` over the preparation table, the capability
+  snapshot publishes per revision with a two-sided contract, the view's
+  parallel command union is deleted (`dispatchTargetedIntent` is
+  derived as `OmitTarget<EditorIntent>`), and the desktop facade's
+  per-kind members (undo, redo, insert/convert/duplicate/delete
+  paragraph and block, format, link, footnote, code language, list
+  indentation, table row, image) are deleted in favor of the host's
+  two dispatch seams — `editor.vue` constructs typed intents at its
+  bus handlers and the image service's port adapter. What remains: the
+  menu/IPC/bus restatements — three divergent channels
+  (`mt::editor-edit-action`, `-format-action`, `-paragraph-action`),
+  `ParagraphDocumentAction`, the triplicated inline-format string
+  vocabulary, and the per-command bus fan-out — collapsing to one
+  shared command-id union, one channel, and one renderer binding
+  table whose entries construct intents; then preparation-table
+  polish (cause, draft retention, and the noop rule as declared spec
+  fields; `prepare*` privatization) and precondition widening with
+  contract rows.
 - **G39 [high] The view predicts model positions and submits them.** During a
   typing burst the view chains a draft target from hard-coded widths —
   `+data.length`, `+2` for a paragraph break, `+1` for a line break

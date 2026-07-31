@@ -20,13 +20,13 @@ describe('async renderer task boundaries', () => {
       /isImageSourceCapability\(source\)[^]*reportAsyncTask\(\s*insertPersistedImage\(source\),\s*'Screenshot image insertion'/
     )
     expect(editor).toMatch(
-      /reportAsyncTask\(\s*targetEditor\.convertBlock\([^]*'Paragraph conversion'/
+      /reportAsyncTask\(\s*targetEditor\.dispatchTargetedIntent\(\{\s*kind: 'convert-block',[^]*'Paragraph conversion'/
     )
     expect(editor).toMatch(
       /reportAsyncTask\(\s*operation,\s*`Paragraph \$\{action\}`/
     )
     expect(editor).toMatch(
-      /reportAsyncTask\(\s*targetEditor\.formatText\([^]*'Inline formatting'/
+      /reportAsyncTask\(\s*targetEditor\.dispatchTargetedIntent\(\{\s*kind: 'format-text',[^]*'Inline formatting'/
     )
     expect(editor).toMatch(
       /reportAsyncTask\(\s*targetEditor\.configure\(options\),\s*context/
@@ -35,10 +35,10 @@ describe('async renderer task boundaries', () => {
       /reportAsyncTask\(\s*targetEditor\.replaceCurrentWord\([^]*'Replace misspelling'/
     )
     expect(editor).toMatch(
-      /reportAsyncTask\(\s*targetEditor\.undo\(\),\s*'Undo'/
+      /reportAsyncTask\(\s*targetEditor\.dispatchIntent\(\{ kind: 'undo' \}\),\s*'Undo'/
     )
     expect(editor).toMatch(
-      /reportAsyncTask\(\s*targetEditor\.redo\(\),\s*'Redo'/
+      /reportAsyncTask\(\s*targetEditor\.dispatchIntent\(\{ kind: 'redo' \}\),\s*'Redo'/
     )
     expect(editor).toMatch(
       /reportAsyncTask\(\s*targetEditor\.requestTable\(\),\s*'Create table'/
@@ -48,7 +48,7 @@ describe('async renderer task boundaries', () => {
       /const flushActiveEditor[^]*cancelTableShapeRequest\(\)[^]*target\?\.flush\(\)/
     )
     expect(editor).toMatch(
-      /reportAsyncTask\(\s*targetEditor\.insertParagraph\([^]*'Insert paragraph'/
+      /reportAsyncTask\(\s*targetEditor\.dispatchTargetedIntent\(\{\s*kind: 'insert-paragraph',[^]*'Insert paragraph'/
     )
     expect(editor).not.toMatch(/pasteImage\(filePath\)/)
 

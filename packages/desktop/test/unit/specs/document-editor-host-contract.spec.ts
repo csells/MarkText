@@ -204,7 +204,8 @@ describe('target document host', () => {
     })
     host.setSelection(7, 11)
     await host.settled()
-    await host.insertLink({
+    await host.dispatchTargetedIntent({
+      kind: 'insert-link',
       href: 'https://example.test/docs',
       title: 'Docs'
     })
@@ -215,16 +216,20 @@ describe('target document host', () => {
       anchor: { offset: 8 },
       focus: { offset: 12 }
     })
-    await host.undo()
+    await host.dispatchIntent({ kind: 'undo' })
     expect(host.getMarkdown()).toBe('before word after')
 
     host.setSelection(17, 17)
     await host.settled()
-    await host.insertFootnote({ label: 'n', content: 'body' })
+    await host.dispatchTargetedIntent({
+      kind: 'insert-footnote',
+      label: 'n',
+      content: 'body'
+    })
     expect(host.getMarkdown()).toBe(
       'before word after[^n]\n\n[^n]: body\n'
     )
-    await host.undo()
+    await host.dispatchIntent({ kind: 'undo' })
     expect(host.getMarkdown()).toBe('before word after')
 
     host.configure({ criticMarkupTrackChanges: true })
@@ -235,7 +240,7 @@ describe('target document host', () => {
     expect(host.getMarkdown()).toBe(
       'before {~~word~>pasted~~} after'
     )
-    await host.undo()
+    await host.dispatchIntent({ kind: 'undo' })
     expect(host.getMarkdown()).toBe('before word after')
 
     host.configure({ criticMarkupTrackChanges: false })
@@ -248,9 +253,12 @@ describe('target document host', () => {
     )
     host.setCursorByOffset(2)
     await host.settled()
-    await host.setCodeLanguage('typescript')
+    await host.dispatchTargetedIntent({
+      kind: 'set-code-language',
+      language: 'typescript'
+    })
     expect(host.getMarkdown()).toBe('```typescript\nconst x = 1\n```\n')
-    await host.undo()
+    await host.dispatchIntent({ kind: 'undo' })
     expect(host.getMarkdown()).toBe('```js\nconst x = 1\n```\n')
   })
 
@@ -269,9 +277,9 @@ describe('target document host', () => {
 
     expect(requestTableShape).toHaveBeenCalledWith(expect.any(AbortSignal))
     expect(host.getMarkdown()).toBe('|   |\n| --- |\n')
-    await host.undo()
+    await host.dispatchIntent({ kind: 'undo' })
     expect(host.getMarkdown()).toBe('\n')
-    await host.redo()
+    await host.dispatchIntent({ kind: 'redo' })
     expect(host.getMarkdown()).toBe('|   |\n| --- |\n')
   })
 
@@ -681,7 +689,7 @@ describe('target document host', () => {
 
     expect(result.matches).toEqual([])
     expect(host.getMarkdown()).toBe('many two many three many\n')
-    await host.undo()
+    await host.dispatchIntent({ kind: 'undo' })
     expect(host.getMarkdown()).toBe(source)
   })
 
@@ -702,7 +710,7 @@ describe('target document host', () => {
 
     expect(result.matches).toEqual([])
     expect(host.getMarkdown()).toBe('**many** and many\n')
-    await host.undo()
+    await host.dispatchIntent({ kind: 'undo' })
     expect(host.getMarkdown()).toBe(source)
   })
 
@@ -725,7 +733,7 @@ describe('target document host', () => {
 
     expect(result.matches).toEqual([])
     expect(host.getMarkdown()).toBe('pear pear applepie\n')
-    await host.undo()
+    await host.dispatchIntent({ kind: 'undo' })
     expect(host.getMarkdown()).toBe(source)
   })
 
