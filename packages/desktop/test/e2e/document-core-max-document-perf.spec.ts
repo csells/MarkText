@@ -157,6 +157,76 @@ const carriedRegionReuses = (
   execution.operationForkAstRegionReuses +
   execution.operationForkAstRegionProvenanceReuses
 
+const readMainExecution = async(
+  application: ElectronApplication,
+  documentId: string,
+  kind: 'any' | 'dispatch' | 'attach'
+): Promise<ExecutionReport | null> =>
+  await application.evaluate((_electron, target) => {
+    const surface = (
+      globalThis as typeof globalThis & {
+        __mtDocumentCorePerformance?: DocumentCorePerformanceSurface
+      }
+    ).__mtDocumentCorePerformance
+    if (surface === undefined) {
+      throw new Error('Main-only document performance surface is absent')
+    }
+    return (target.kind === 'dispatch'
+      ? surface.readLastDispatchExecution(target.documentId)
+      : target.kind === 'attach'
+        ? surface.readLastAttachExecution(target.documentId)
+        : surface.readLastExecution(target.documentId)
+    ) as ExecutionReport | null
+  }, { documentId, kind })
+
+const readMainSourceStats = async(
+  application: ElectronApplication,
+  documentId: string
+): Promise<Readonly<{
+  length: number
+  firstUnit: number
+  lastUnit: number
+}>> =>
+  await application.evaluate(async(_electron, target) => {
+    const surface = (
+      globalThis as typeof globalThis & {
+        __mtDocumentCorePerformance?: DocumentCorePerformanceSurface
+      }
+    ).__mtDocumentCorePerformance
+    if (surface === undefined) {
+      throw new Error('Main-only document performance surface is absent')
+    }
+    return await surface.readSourceStats(target)
+  }, documentId)
+
+/**
+ * Wait for the dispatch that a just-settled keystroke published. Dispatches
+ * ride their own recorder lane, so a trailing select cannot mask one; the
+ * previous report's serialization distinguishes repeat dispatches.
+ */
+const pollDispatchExecution = async(
+  application: ElectronApplication,
+  documentId: string,
+  previousJson: string,
+  timeoutMs: number
+): Promise<ExecutionReport> => {
+  await expect.poll(
+    async() => JSON.stringify(
+      await readMainExecution(application, documentId, 'dispatch')
+    ),
+    { intervals: [10, 20, 50, 100], timeout: timeoutMs }
+  ).not.toBe(previousJson)
+  const execution = await readMainExecution(
+    application,
+    documentId,
+    'dispatch'
+  )
+  if (execution === null) {
+    throw new Error('A settled keystroke left no dispatch execution')
+  }
+  return execution
+}
+
 interface ScaleEditSample {
   readonly browserInputLatencyMs: number
   readonly browserHandlerMs: number
@@ -723,46 +793,51 @@ test.describe('document-core maximum-document responsiveness', () => {
       rendererAdmissionMs: viewportAdmission.rendererAdmissionMs
     })).toBeLessThanOrEqual(VIEWPORT_MOUNT_BUDGET_MS)
     await waitForEditor(page, TERMINAL_BUDGET_MS)
-    await expect.poll(
-      () => launched.page.evaluate(() =>
-        window.__marktextE2EReadOnly?.readCanonicalMarkdown().length ?? -1
-      ),
-      { timeout: TERMINAL_BUDGET_MS }
+    // Envelope decode is atomic with attach, so a mounted editor implies
+    // the renderer session holds the whole head; main confirms its length
+    // once — each confirmation leases and materializes the full source, so
+    // it must never run inside a poll or a timed window.
+    expect(
+      (
+        await readMainSourceStats(launched.app, viewportAdmission.documentId)
+      ).length
     ).toBe(MAX_SOURCE_UNITS)
     const mountedTerminalMs = performance.now() - mountedOpenStartedAt
     const rendererAdmissionMs = viewportAdmission.rendererAdmissionMs
 
-    const mounted = await page.evaluate(() => {
+    const mountedDom = await page.evaluate(() => {
       const root = document.querySelector(
         '.editor-component.document-view-container'
       )
-      const bridge = window.__marktextE2EReadOnly
-      const source = bridge?.readCanonicalMarkdown()
-      const execution = bridge?.readLastExecutionReport()
       const documentId = document.querySelector(
         '.editor-tabs li.active'
       )?.getAttribute('data-id')
-      if (
-        root === null ||
-        source === undefined ||
-        execution === null ||
-        execution === undefined ||
-        documentId === null ||
-        documentId === undefined
-      ) {
+      if (root === null || documentId === null || documentId === undefined) {
         throw new Error('Maximum document did not mount its verified session')
       }
       return {
         documentId,
-        sourceLength: source.length,
-        firstUnit: source.charCodeAt(0),
-        lastUnit: source.charCodeAt(source.length - 1),
         domNodes: root.querySelectorAll('*').length,
         renderedTextLength: root.textContent?.length ?? -1,
-        mode: (root as HTMLElement).dataset.documentMode ?? null,
-        execution
+        mode: (root as HTMLElement).dataset.documentMode ?? null
       }
     })
+    const mountedStats = await readMainSourceStats(app, mountedDom.documentId)
+    const mountedExecution = await readMainExecution(
+      app,
+      mountedDom.documentId,
+      'attach'
+    )
+    if (mountedExecution === null) {
+      throw new Error('Maximum document did not mount its verified session')
+    }
+    const mounted = {
+      ...mountedDom,
+      sourceLength: mountedStats.length,
+      firstUnit: mountedStats.firstUnit,
+      lastUnit: mountedStats.lastUnit,
+      execution: mountedExecution
+    }
     expect(mounted.documentId).toBe(viewportAdmission.documentId)
     const mountedAppProcesses = await app.evaluate(({ app: electronApp }) =>
       electronApp.getAppMetrics().map((metric) => Object.freeze({
@@ -789,12 +864,11 @@ test.describe('document-core maximum-document responsiveness', () => {
       }
     })
 
-    const maximumDocumentEditAdmission = await page.evaluate(() => {
+    await page.evaluate(() => {
       const root = document.querySelector<HTMLElement>(
         '.editor-component.document-view-container'
       )
-      const bridge = window.__marktextE2EReadOnly
-      if (root === null || bridge === undefined) {
+      if (root === null) {
         throw new Error('Maximum document has no mounted production editor')
       }
       const carriers = [
@@ -846,7 +920,6 @@ test.describe('document-core maximum-document responsiveness', () => {
         startedAt: 0,
         handlerReturnedAt: null as number | null,
         defaultPrevented: false,
-        beforeReport: bridge.readLastExecutionReport(),
         text
       }
       root.addEventListener('beforeinput', () => {
@@ -859,19 +932,14 @@ test.describe('document-core maximum-document responsiveness', () => {
       ;(window as unknown as {
         __mtMaximumDocumentEdit?: typeof state
       }).__mtMaximumDocumentEdit = state
-      return {
-        beforeReport: state.beforeReport,
-        sourceLength: bridge.readCanonicalMarkdown().length
-      }
     })
-    expect(maximumDocumentEditAdmission.sourceLength).toBe(MAX_SOURCE_UNITS)
+    const beforeEditDispatchJson = JSON.stringify(
+      await readMainExecution(app, mounted.documentId, 'dispatch')
+    )
     const maximumDocumentEditStartedAt = performance.now()
     await page.keyboard.insertText('.')
     await page.waitForFunction(
-      ({ expectedLength, beforeReport }) => {
-        const bridge = window.__marktextE2EReadOnly
-        const source = bridge?.readCanonicalMarkdown()
-        const execution = bridge?.readLastExecutionReport()
+      () => {
         const root = document.querySelector<HTMLElement>(
           '.editor-component.document-view-container'
         )
@@ -889,24 +957,26 @@ test.describe('document-core maximum-document responsiveness', () => {
             : selected,
           null
         )?.textContent?.at(-1)
-        return source?.length === expectedLength &&
-          source.endsWith('.') &&
-          renderedFinalUnit === '.' &&
-          execution !== null &&
-          execution !== undefined &&
-          execution !== beforeReport &&
-          execution.operationKind === 'dispatch'
+        return renderedFinalUnit === '.'
       },
-      {
-        expectedLength: MAX_SOURCE_UNITS,
-        beforeReport: maximumDocumentEditAdmission.beforeReport
-      },
+      null,
       { timeout: TERMINAL_BUDGET_MS }
     )
     const maximumDocumentEditTerminalMs =
       performance.now() - maximumDocumentEditStartedAt
-    const maximumDocumentEdit = await page.evaluate(() => {
-      const bridge = window.__marktextE2EReadOnly
+    const maximumDocumentEditExecution = await pollDispatchExecution(
+      app,
+      mounted.documentId,
+      beforeEditDispatchJson,
+      TERMINAL_BUDGET_MS
+    )
+    const maximumDocumentEditStats = await readMainSourceStats(
+      app,
+      mounted.documentId
+    )
+    expect(maximumDocumentEditStats.length).toBe(MAX_SOURCE_UNITS)
+    expect(maximumDocumentEditStats.lastUnit).toBe('.'.charCodeAt(0))
+    const maximumDocumentEditDom = await page.evaluate(() => {
       const state = (window as unknown as {
         __mtMaximumDocumentEdit?: {
           readonly startedAt: number
@@ -915,14 +985,10 @@ test.describe('document-core maximum-document responsiveness', () => {
           readonly text: Text
         }
       }).__mtMaximumDocumentEdit
-      const execution = bridge?.readLastExecutionReport()
       if (
         state === undefined ||
         state.startedAt <= 0 ||
-        state.handlerReturnedAt === null ||
-        execution === null ||
-        execution === undefined ||
-        execution.operationKind !== 'dispatch'
+        state.handlerReturnedAt === null
       ) {
         throw new Error('Maximum document edit has no terminal evidence')
       }
@@ -944,22 +1010,24 @@ test.describe('document-core maximum-document responsiveness', () => {
         null
       )
       return {
-        sourceLength: bridge?.readCanonicalMarkdown().length ?? -1,
-        finalUnit: bridge?.readCanonicalMarkdown().at(-1) ?? null,
         retainedTextIdentity: carrier?.lastChild === state.text,
         retainedTextConnected: state.text.isConnected,
         renderedFinalUnit: carrier?.textContent?.at(-1) ?? null,
         browserHandlerMs: state.handlerReturnedAt - state.startedAt,
-        defaultPrevented: state.defaultPrevented,
-        execution
+        defaultPrevented: state.defaultPrevented
       }
     })
+    const maximumDocumentEdit = {
+      ...maximumDocumentEditDom,
+      sourceLength: maximumDocumentEditStats.length,
+      finalUnit: String.fromCharCode(maximumDocumentEditStats.lastUnit),
+      execution: maximumDocumentEditExecution
+    }
 
-    const maximumDocumentDeletionAdmission = await page.evaluate(() => {
+    await page.evaluate(() => {
       const root = document.querySelector<HTMLElement>(
         '.editor-component.document-view-container'
       )
-      const bridge = window.__marktextE2EReadOnly
       const carrier = [
         ...(root?.querySelectorAll<HTMLElement>(
           '.document-view-run[data-model-end]'
@@ -977,7 +1045,6 @@ test.describe('document-core maximum-document responsiveness', () => {
       const text = carrier?.lastChild
       if (
         root === null ||
-        bridge === undefined ||
         !(text instanceof Text) ||
         text.length < 1
       ) {
@@ -1004,7 +1071,6 @@ test.describe('document-core maximum-document responsiveness', () => {
         startedAt: 0,
         handlerReturnedAt: null as number | null,
         defaultPrevented: false,
-        beforeReport: bridge.readLastExecutionReport(),
         text
       }
       root.addEventListener('beforeinput', () => {
@@ -1017,20 +1083,14 @@ test.describe('document-core maximum-document responsiveness', () => {
       ;(window as unknown as {
         __mtMaximumDocumentDeletion?: typeof state
       }).__mtMaximumDocumentDeletion = state
-      return {
-        beforeReport: state.beforeReport,
-        sourceLength: bridge.readCanonicalMarkdown().length
-      }
     })
-    expect(maximumDocumentDeletionAdmission.sourceLength)
-      .toBe(MAX_SOURCE_UNITS)
+    const beforeDeletionDispatchJson = JSON.stringify(
+      await readMainExecution(app, mounted.documentId, 'dispatch')
+    )
     const maximumDocumentDeletionStartedAt = performance.now()
     await page.keyboard.press('Backspace')
     await page.waitForFunction(
-      ({ expectedLength, beforeReport }) => {
-        const bridge = window.__marktextE2EReadOnly
-        const source = bridge?.readCanonicalMarkdown()
-        const execution = bridge?.readLastExecutionReport()
+      () => {
         const root = document.querySelector<HTMLElement>(
           '.editor-component.document-view-container'
         )
@@ -1048,24 +1108,26 @@ test.describe('document-core maximum-document responsiveness', () => {
             : selected,
           null
         )?.textContent?.at(-1)
-        return source?.length === expectedLength &&
-          source.endsWith('x') &&
-          renderedFinalUnit === 'x' &&
-          execution !== null &&
-          execution !== undefined &&
-          execution !== beforeReport &&
-          execution.operationKind === 'dispatch'
+        return renderedFinalUnit === 'x'
       },
-      {
-        expectedLength: MAX_SOURCE_UNITS - 1,
-        beforeReport: maximumDocumentDeletionAdmission.beforeReport
-      },
+      null,
       { timeout: TERMINAL_BUDGET_MS }
     )
     const maximumDocumentDeletionTerminalMs =
       performance.now() - maximumDocumentDeletionStartedAt
-    const maximumDocumentDeletion = await page.evaluate(() => {
-      const bridge = window.__marktextE2EReadOnly
+    const maximumDocumentDeletionExecution = await pollDispatchExecution(
+      app,
+      mounted.documentId,
+      beforeDeletionDispatchJson,
+      TERMINAL_BUDGET_MS
+    )
+    const maximumDocumentDeletionStats = await readMainSourceStats(
+      app,
+      mounted.documentId
+    )
+    expect(maximumDocumentDeletionStats.length).toBe(MAX_SOURCE_UNITS - 1)
+    expect(maximumDocumentDeletionStats.lastUnit).toBe('x'.charCodeAt(0))
+    const maximumDocumentDeletionDom = await page.evaluate(() => {
       const state = (window as unknown as {
         __mtMaximumDocumentDeletion?: {
           readonly startedAt: number
@@ -1074,14 +1136,10 @@ test.describe('document-core maximum-document responsiveness', () => {
           readonly text: Text
         }
       }).__mtMaximumDocumentDeletion
-      const execution = bridge?.readLastExecutionReport()
       if (
         state === undefined ||
         state.startedAt <= 0 ||
-        state.handlerReturnedAt === null ||
-        execution === null ||
-        execution === undefined ||
-        execution.operationKind !== 'dispatch'
+        state.handlerReturnedAt === null
       ) {
         throw new Error('Maximum document deletion has no terminal evidence')
       }
@@ -1103,16 +1161,19 @@ test.describe('document-core maximum-document responsiveness', () => {
         null
       )
       return {
-        sourceLength: bridge?.readCanonicalMarkdown().length ?? -1,
-        finalUnit: bridge?.readCanonicalMarkdown().at(-1) ?? null,
         retainedTextIdentity: carrier?.lastChild === state.text,
         retainedTextConnected: state.text.isConnected,
         renderedFinalUnit: carrier?.textContent?.at(-1) ?? null,
         browserHandlerMs: state.handlerReturnedAt - state.startedAt,
-        defaultPrevented: state.defaultPrevented,
-        execution
+        defaultPrevented: state.defaultPrevented
       }
     })
+    const maximumDocumentDeletion = {
+      ...maximumDocumentDeletionDom,
+      sourceLength: maximumDocumentDeletionStats.length,
+      finalUnit: String.fromCharCode(maximumDocumentDeletionStats.lastUnit),
+      execution: maximumDocumentDeletionExecution
+    }
 
     // The performance surface exists only in Electron main during PERF_TESTING.
     // Its public values are absolute file paths or opaque document ids.
@@ -1365,12 +1426,38 @@ test.describe('document-core maximum-document responsiveness', () => {
           { cause: error }
         )
       }
+      // The opened file lands in its own tab; until it activates, the
+      // active tab is the launch document. Poll the pair — active tab id,
+      // then that document's main-side head length — as one condition.
+      const activeDocumentHeadLength = async(): Promise<number> => {
+        const activeDocumentId = await launchedScale.page.evaluate(() =>
+          document.querySelector(
+            '.editor-tabs li.active'
+          )?.getAttribute('data-id') ?? null
+        )
+        if (activeDocumentId === null) return -1
+        try {
+          return (
+            await readMainSourceStats(launchedScale.app, activeDocumentId)
+          ).length
+        } catch {
+          return -1
+        }
+      }
       await expect.poll(
-        () => launchedScale.page.evaluate(() =>
-          window.__marktextE2EReadOnly?.readCanonicalMarkdown().length ?? -1
-        ),
+        activeDocumentHeadLength,
         { timeout: TERMINAL_BUDGET_MS }
       ).toBe(family.source.length)
+      const scaleDocumentId = await page.evaluate(() =>
+        document.querySelector(
+          '.editor-tabs li.active'
+        )?.getAttribute('data-id') ?? null
+      )
+      if (scaleDocumentId === null) {
+        throw new Error(
+          `Scale edit family ${family.id} has no active document tab`
+        )
+      }
       await expect.poll(
         () => launchedScale.page.evaluate(() => [
           ...document.querySelectorAll<HTMLElement>(
@@ -1407,17 +1494,15 @@ test.describe('document-core maximum-document responsiveness', () => {
         }).__mtScaleEditMainLoop = state
       })
 
-      const mountedScale = await page.evaluate((sampleCount) => {
+      const mountedScaleDom = await page.evaluate((sampleCount) => {
         const root = document.querySelector<HTMLElement>(
           '.editor-component.document-view-container'
         )
-        const bridge = window.__marktextE2EReadOnly
         const documentId = document.querySelector(
           '.editor-tabs li.active'
         )?.getAttribute('data-id')
         if (
           root === null ||
-          bridge === undefined ||
           documentId === null ||
           documentId === undefined
         ) {
@@ -1428,14 +1513,12 @@ test.describe('document-core maximum-document responsiveness', () => {
           browserHandlerMs: number
           rendererMaximumGapMs: number
           defaultPrevented: boolean
-          execution: ExecutionReport
         }
         type Current = {
           startedAt: number
-          expectedLength: number
+          patched: boolean
           handlerReturnedAt: number | null
           defaultPrevented: boolean
-          beforeReport: ExecutionReport | null
           rendererMaximumGapMs: number
         }
         const state = {
@@ -1447,19 +1530,35 @@ test.describe('document-core maximum-document responsiveness', () => {
           current: null as Current | null,
           samples: [] as Sample[]
         }
+        const carriers = [
+          ...root.querySelectorAll<HTMLElement>(
+            '.document-view-run[data-model-end]'
+          )
+        ].filter((carrier) =>
+          !carrier.classList.contains('document-view-atomic')
+        )
+        const carrier = carriers.reduce<HTMLElement | null>(
+          (selected, candidate) => {
+            if (selected === null) return candidate
+            return Number(candidate.dataset.modelEnd) >=
+              Number(selected.dataset.modelEnd)
+              ? candidate
+              : selected
+          },
+          null
+        )
+        if (carrier === null) {
+          throw new Error('Scale document has no editable text carrier')
+        }
+        // Settlement is a DOM fact: the keystroke is default-prevented, so
+        // nothing mutates the mounted view until the engine's publication
+        // patches it — the first childList or characterData mutation after
+        // the beforeinput IS the rendered dispatch. The dispatch report
+        // pairs with the sample from the main-side recorder after
+        // settlement, which also verifies a dispatch really published.
         const settle = (): void => {
           const current = state.current
-          if (current === null) return
-          const execution = bridge.readLastExecutionReport()
-          if (
-            bridge.readCanonicalMarkdown().length !==
-              current.expectedLength ||
-            execution === null ||
-            execution === current.beforeReport ||
-            execution.operationKind !== 'dispatch'
-          ) {
-            return
-          }
+          if (current === null || !current.patched) return
           const settledAt = performance.now()
           state.samples.push({
             browserInputLatencyMs: settledAt - current.startedAt,
@@ -1467,8 +1566,7 @@ test.describe('document-core maximum-document responsiveness', () => {
               (current.handlerReturnedAt ?? settledAt) -
               current.startedAt,
             rendererMaximumGapMs: current.rendererMaximumGapMs,
-            defaultPrevented: current.defaultPrevented,
-            execution
+            defaultPrevented: current.defaultPrevented
           })
           state.current = null
         }
@@ -1483,11 +1581,9 @@ test.describe('document-core maximum-document responsiveness', () => {
           }
           state.current = {
             startedAt: performance.now(),
-            expectedLength:
-              bridge.readCanonicalMarkdown().length + event.data.length,
+            patched: false,
             handlerReturnedAt: null,
             defaultPrevented: false,
-            beforeReport: bridge.readLastExecutionReport(),
             rendererMaximumGapMs: 0
           }
         }, true)
@@ -1496,7 +1592,10 @@ test.describe('document-core maximum-document responsiveness', () => {
           state.current.handlerReturnedAt = performance.now()
           state.current.defaultPrevented = event.defaultPrevented
         })
-        new MutationObserver(settle).observe(root, {
+        new MutationObserver(() => {
+          if (state.current !== null) state.current.patched = true
+          settle()
+        }).observe(root, {
           childList: true,
           characterData: true,
           subtree: true
@@ -1520,26 +1619,6 @@ test.describe('document-core maximum-document responsiveness', () => {
         }
         requestAnimationFrame(animate)
 
-        const carriers = [
-          ...root.querySelectorAll<HTMLElement>(
-            '.document-view-run[data-model-end]'
-          )
-        ].filter((carrier) =>
-          !carrier.classList.contains('document-view-atomic')
-        )
-        const carrier = carriers.reduce<HTMLElement | null>(
-          (selected, candidate) => {
-            if (selected === null) return candidate
-            return Number(candidate.dataset.modelEnd) >=
-              Number(selected.dataset.modelEnd)
-              ? candidate
-              : selected
-          },
-          null
-        )
-        if (carrier === null) {
-          throw new Error('Scale document has no editable text carrier')
-        }
         const walker = document.createTreeWalker(
           carrier,
           NodeFilter.SHOW_TEXT
@@ -1574,12 +1653,18 @@ test.describe('document-core maximum-document responsiveness', () => {
         }).__mtScaleEditInput = state
         return {
           documentId,
-          mode: root.dataset.documentMode ?? null,
-          sourceLength: bridge.readCanonicalMarkdown().length,
-          executionThreadId:
-            bridge.readLastExecutionReport()?.executionThreadId ?? null
+          mode: root.dataset.documentMode ?? null
         }
       }, SCALE_EDIT_SAMPLES)
+      expect(mountedScaleDom.documentId).toBe(scaleDocumentId)
+      const mountedScale = {
+        ...mountedScaleDom,
+        sourceLength:
+          (await readMainSourceStats(app, scaleDocumentId)).length,
+        executionThreadId: (
+          await readMainExecution(app, scaleDocumentId, 'any')
+        )?.executionThreadId ?? null
+      }
       const scaleMainAdmission = await app.evaluate(
         (_electron, documentId) => {
           const surface = (
@@ -1600,6 +1685,10 @@ test.describe('document-core maximum-document responsiveness', () => {
       )
 
       await page.waitForTimeout(50)
+      const sampleExecutions: ExecutionReport[] = []
+      let previousDispatchJson = JSON.stringify(
+        await readMainExecution(app, scaleDocumentId, 'dispatch')
+      )
       for (let sample = 0; sample < SCALE_EDIT_SAMPLES; sample += 1) {
         await page.keyboard.insertText(String.fromCharCode(97 + sample))
         await page.waitForFunction(
@@ -1615,6 +1704,14 @@ test.describe('document-core maximum-document responsiveness', () => {
           sample + 1,
           { timeout: TERMINAL_BUDGET_MS }
         )
+        const execution = await pollDispatchExecution(
+          app,
+          scaleDocumentId,
+          previousDispatchJson,
+          TERMINAL_BUDGET_MS
+        )
+        previousDispatchJson = JSON.stringify(execution)
+        sampleExecutions.push(execution)
       }
 
       const browser = await page.evaluate(async() => {
@@ -1634,7 +1731,6 @@ test.describe('document-core maximum-document responsiveness', () => {
               readonly browserHandlerMs: number
               readonly rendererMaximumGapMs: number
               readonly defaultPrevented: boolean
-              readonly execution: ExecutionReport
             }>[]
           }
         }).__mtScaleEditInput
@@ -1649,6 +1745,21 @@ test.describe('document-core maximum-document responsiveness', () => {
           samples: state.samples
         }
       })
+      if (browser.samples.length !== sampleExecutions.length) {
+        throw new Error(
+          `Scale family settled ${String(browser.samples.length)} samples ` +
+          `but recorded ${String(sampleExecutions.length)} dispatches`
+        )
+      }
+      const scaleSamples: readonly ScaleEditSample[] = browser.samples.map(
+        (sample, index) => {
+          const execution = sampleExecutions[index]
+          if (execution === undefined) {
+            throw new Error('A settled sample has no dispatch execution')
+          }
+          return Object.freeze({ ...sample, execution })
+        }
+      )
       const main = await app.evaluate(() => {
         const state = (global as unknown as {
           __mtScaleEditMainLoop?: {
@@ -1673,21 +1784,21 @@ test.describe('document-core maximum-document responsiveness', () => {
           peakWorkingSetBytes: metric.memory.peakWorkingSetSize * 1_024
         }))
       )
-      const inputLatencies = browser.samples.map(
+      const inputLatencies = scaleSamples.map(
         (sample) => sample.browserInputLatencyMs
       )
-      const workerStalls = browser.samples.map(
+      const workerStalls = scaleSamples.map(
         (sample) => sample.execution.operationOwningThreadStallMs
       )
       const worstFamilyStallMs = Math.max(...workerStalls)
       const familyMeasurementBand = reuseMeasurementBand(
         worstFamilyStallMs
       )
-      const familyMeasuredReuses = browser.samples.reduce(
+      const familyMeasuredReuses = scaleSamples.reduce(
         (total, sample) => total + carriedRegionReuses(sample.execution),
         0
       )
-      const familyMeasuredEmissions = browser.samples.reduce(
+      const familyMeasuredEmissions = scaleSamples.reduce(
         (total, sample) =>
           total + sample.execution.operationForkAstRegionEmissions,
         0
@@ -1702,7 +1813,7 @@ test.describe('document-core maximum-document responsiveness', () => {
         openMs,
         mounted: mountedScale,
         mainAdmission: scaleMainAdmission,
-        sampleCount: browser.samples.length,
+        sampleCount: scaleSamples.length,
         browserInputLatencyMs: Object.freeze({
           values: Object.freeze(inputLatencies),
           p50: percentile(inputLatencies, 0.5),
@@ -1729,7 +1840,7 @@ test.describe('document-core maximum-document responsiveness', () => {
         }),
         main,
         processMetrics,
-        samples: browser.samples
+        samples: scaleSamples
       }) satisfies ScaleEditFamilyResult)
 
       const completedScaleApp = app

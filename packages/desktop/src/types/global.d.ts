@@ -170,13 +170,6 @@ declare global {
     nextTick: (fn: (...args: unknown[]) => void, ...args: unknown[]) => void
   }
 
-  interface MarkTextE2EReadOnlyBridge {
-    /** Read the active canonical document without entering source mode or mutating it. */
-    readCanonicalMarkdown(): string
-    /** Read the latest worker-local production operation measurement. */
-    readLastExecutionReport(): DocumentCoreExecutionReport | null
-  }
-
   interface Window {
     electron: ElectronAPI
     fileUtils: FileUtilsAPI
@@ -186,8 +179,6 @@ declare global {
     uploader: UploaderAPI
     fonts: FontsAPI
     process: ProcessShim
-    /** Present only when the explicit E2E read-only bridge flag is enabled. */
-    __marktextE2EReadOnly?: MarkTextE2EReadOnlyBridge
     marktext?: {
       env?: { windowId: number; [key: string]: unknown }
       initialState?: {

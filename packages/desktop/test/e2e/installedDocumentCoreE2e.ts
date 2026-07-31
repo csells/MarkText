@@ -50,7 +50,6 @@ export function createInstalledFixture(markdown: string): InstalledFixture {
     }
     env.MARKTEXT_TEST_BACKGROUND = '1'
     env.MARKTEXT_ERROR_INTERACTION = '1'
-    env.MARKTEXT_E2E_READONLY_BRIDGE = '1'
     env.PERF_TESTING = 'true'
 
     const app = await electron.launch({

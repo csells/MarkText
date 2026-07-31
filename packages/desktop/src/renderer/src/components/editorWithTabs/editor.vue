@@ -142,7 +142,6 @@ import { type CriticMarkupTextRequest } from './criticMarkupReview'
 import CriticMarkupPromptDialog from './CriticMarkupPromptDialog.vue'
 import { useCriticMarkupReviewController } from './useCriticMarkupReviewController'
 import { useCriticMarkupRejectionNotifier } from './useCriticMarkupRejectionNotifier'
-import { installE2EReadOnlyBridge } from './e2eReadOnlyBridge'
 import {
   createDocumentEditorHost,
   type DocumentEditorHost,
@@ -296,14 +295,11 @@ let switchLanguageCommand: SpellcheckerLanguageCommand | null = null
 let imageViewer: SimpleImageViewer | null = null
 // The engine has no `scroll` event; we listen on the scroll container directly.
 let scrollHandler: ((e: Event) => void) | null = null
-let disposeE2EReadOnlyBridge = () => {}
 let disposeDocumentCoreTabCloser = () => {}
 let disposeSourceModeDocumentPort = () => {}
 let disposeImageAssetInput = () => {}
 
 const documentCoreHistoryByTab = new Map<string, DocumentCoreHistoryState>()
-const documentCoreExecutionByTab =
-  new Map<string, DocumentCoreExecutionReport>()
 let activeRemoteSession: DocumentCoreRemoteSession | null = null
 
 const configureEditor = (
@@ -1591,9 +1587,6 @@ useEditorLifecycle(async () => {
         canRedo: state.canRedo
       })
     },
-    onExecutionReport: (documentId, report) => {
-      documentCoreExecutionByTab.set(documentId, report)
-    },
     invoke: window.electron.ipcRenderer.invoke as unknown as
       DocumentCoreRemoteSessionOptions['invoke']
   })
@@ -1738,15 +1731,8 @@ useEditorLifecycle(async () => {
       if (remote === null) return
       await remote.closeDocument(documentId)
       documentCoreHistoryByTab.delete(documentId)
-      documentCoreExecutionByTab.delete(documentId)
     }
   ).dispose
-  disposeE2EReadOnlyBridge = installE2EReadOnlyBridge(
-    window,
-    environment.MARKTEXT_E2E_READONLY_BRIDGE === '1',
-    () => mountedEditor.getMarkdown(),
-    () => documentCoreExecutionByTab.get(activeDocumentId()) ?? null
-  )
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it.
   seedDerivedDocumentState(mountedEditor)
@@ -1994,8 +1980,6 @@ useEditorLifecycle(async () => {
   disposeSourceModeDocumentPort = () => {}
   disposeImageAssetInput()
   disposeImageAssetInput = () => {}
-  disposeE2EReadOnlyBridge()
-  disposeE2EReadOnlyBridge = () => {}
 
   window.electron.ipcRenderer.send(
     'mt::set-editor-format-menus-enabled',

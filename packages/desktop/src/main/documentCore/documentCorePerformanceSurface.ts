@@ -37,6 +37,17 @@ export interface DocumentCorePerformanceSurface {
     documentId: string
   ) => DocumentCoreExecutionReport | null
   /**
+   * The latest dispatch-kind execution report for this document. A select
+   * that follows a keystroke's dispatch cannot mask it here.
+   */
+  readonly readLastDispatchExecution: (
+    documentId: string
+  ) => DocumentCoreExecutionReport | null
+  /** The attach-kind twin of readLastDispatchExecution. */
+  readonly readLastAttachExecution: (
+    documentId: string
+  ) => DocumentCoreExecutionReport | null
+  /**
    * Length and boundary units of the canonical head, computed main-side so
    * a maximum document's source never crosses the automation boundary. The
    * read leases and releases without persisting, leaving history untouched.
@@ -146,6 +157,8 @@ export function createDocumentCorePerformanceSurface(
   recordedExecution: (documentId: string) => Readonly<{
     readonly ownerId: string
     readonly execution: DocumentCoreExecutionReport
+    readonly dispatchExecution: DocumentCoreExecutionReport | null
+    readonly attachExecution: DocumentCoreExecutionReport | null
   }> | undefined
 ): DocumentCorePerformanceSurface {
   const stageFile = async(pathname: string): Promise<StagedFile> => {
@@ -384,6 +397,14 @@ export function createDocumentCorePerformanceSurface(
       documentId: string
     ): DocumentCoreExecutionReport | null =>
       recordedExecution(documentId)?.execution ?? null,
+    readLastDispatchExecution: (
+      documentId: string
+    ): DocumentCoreExecutionReport | null =>
+      recordedExecution(documentId)?.dispatchExecution ?? null,
+    readLastAttachExecution: (
+      documentId: string
+    ): DocumentCoreExecutionReport | null =>
+      recordedExecution(documentId)?.attachExecution ?? null,
     readSourceStats: async(documentId: string) => {
       const recorded = recordedExecution(documentId)
       if (recorded === undefined) {

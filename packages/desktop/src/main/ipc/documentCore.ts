@@ -321,6 +321,8 @@ export function describeDocumentCoreFile(
 const lastExecutionByDocument = new Map<string, Readonly<{
   readonly ownerId: string
   readonly execution: DocumentCoreExecutionReport
+  readonly dispatchExecution: DocumentCoreExecutionReport | null
+  readonly attachExecution: DocumentCoreExecutionReport | null
 }>>()
 
 function recordDocumentExecution(
@@ -329,9 +331,21 @@ function recordDocumentExecution(
   execution: DocumentCoreExecutionReport
 ): void {
   if (process.env.PERF_TESTING !== 'true') return
+  // Dispatches and attaches are retained on their own lanes so a follow-up
+  // select cannot mask either report from a poll that runs after the fact.
+  const previous = lastExecutionByDocument.get(documentId)
   lastExecutionByDocument.set(
     documentId,
-    Object.freeze({ ownerId, execution })
+    Object.freeze({
+      ownerId,
+      execution,
+      dispatchExecution: execution.operationKind === 'dispatch'
+        ? execution
+        : previous?.dispatchExecution ?? null,
+      attachExecution: execution.operationKind === 'attach'
+        ? execution
+        : previous?.attachExecution ?? null
+    })
   )
 }
 
@@ -540,7 +554,6 @@ export function registerDocumentCoreHandlers(): void {
   }
   if (
     process.env.PERF_TESTING === 'true' &&
-    process.env.MARKTEXT_E2E_READONLY_BRIDGE === '1' &&
     !staticSinkAcceptanceSurfaceInstalled
   ) {
     staticSinkAcceptanceSurfaceInstalled = true

@@ -168,7 +168,6 @@ export const launchElectron = async(
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   env.PERF_TESTING = 'true'
-  env.MARKTEXT_E2E_READONLY_BRIDGE = '1'
   // Automated runs default to a hidden, non-activating Electron instance on
   // every platform. Every launch sets the value explicitly so parent-shell
   // state cannot make visibility ambiguous.

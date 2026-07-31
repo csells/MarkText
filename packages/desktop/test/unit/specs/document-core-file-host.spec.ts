@@ -454,6 +454,8 @@ describe('main-owned document-core file host', () => {
     })
     expect(Object.keys(performanceSurface)).toEqual([
       'readLastExecution',
+      'readLastDispatchExecution',
+      'readLastAttachExecution',
       'readSourceStats',
       'readAdmission',
       'runFileAdmission',
@@ -469,7 +471,9 @@ describe('main-owned document-core file host', () => {
     const publication = await fileHost.attach('renderer:1', opened.documentId)
     const recorded = Object.freeze({
       ownerId: 'renderer:1',
-      execution: publication.execution
+      execution: publication.execution,
+      dispatchExecution: null,
+      attachExecution: publication.execution
     })
     const performanceSurface = createDocumentCorePerformanceSurface(
       sessionHost,
@@ -481,6 +485,12 @@ describe('main-owned document-core file host', () => {
     expect(performanceSurface.readLastExecution('missing')).toBeNull()
     expect(
       performanceSurface.readLastExecution(opened.documentId)
+    ).toBe(publication.execution)
+    expect(
+      performanceSurface.readLastDispatchExecution(opened.documentId)
+    ).toBeNull()
+    expect(
+      performanceSurface.readLastAttachExecution(opened.documentId)
     ).toBe(publication.execution)
 
     const stats = await performanceSurface.readSourceStats(

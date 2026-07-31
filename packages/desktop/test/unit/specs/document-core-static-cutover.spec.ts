@@ -83,9 +83,9 @@ describe('document-core static sink cutover', () => {
     )
 
     expect(mainIpc).toContain("process.env.PERF_TESTING === 'true'")
-    expect(mainIpc).toContain(
-      "process.env.MARKTEXT_E2E_READONLY_BRIDGE === '1'"
-    )
+    // The read-only renderer bridge is deleted; automation surfaces are
+    // main-only and gated on PERF_TESTING alone.
+    expect(mainIpc).not.toContain('MARKTEXT_E2E_READONLY_BRIDGE')
     expect(mainIpc).toContain(
       "'__mtDocumentCoreStaticSinkAcceptance'"
     )

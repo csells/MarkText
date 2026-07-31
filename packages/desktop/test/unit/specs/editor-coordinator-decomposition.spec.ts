@@ -1,10 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
-
-import {
-  installE2EReadOnlyBridge
-} from '@/components/editorWithTabs/e2eReadOnlyBridge'
+import { describe, expect, it } from 'vitest'
 
 const desktopRoot = path.resolve(__dirname, '../../..')
 const editorPath = path.join(
@@ -42,43 +38,5 @@ describe('editor.vue coordinator architecture', () => {
     expect(source).toMatch(
       /reportAsyncTask\([\s\S]*?'Initialize spell checker'/
     )
-  })
-})
-
-describe('E2E read-only bridge lifecycle', () => {
-  it('installs only when enabled and removes only the bridge it installed', () => {
-    const readCanonicalMarkdown = vi.fn(() => '# document')
-    const readLastExecutionReport = vi.fn(() => null)
-    const host = {} as Window
-
-    const disabledCleanup = installE2EReadOnlyBridge(
-      host,
-      false,
-      readCanonicalMarkdown,
-      readLastExecutionReport
-    )
-    expect(host.__marktextE2EReadOnly).toBeUndefined()
-    disabledCleanup()
-
-    const cleanup = installE2EReadOnlyBridge(
-      host,
-      true,
-      readCanonicalMarkdown,
-      readLastExecutionReport
-    )
-    const installed = host.__marktextE2EReadOnly
-    expect(installed?.readCanonicalMarkdown()).toBe('# document')
-    expect(installed?.readLastExecutionReport()).toBeNull()
-
-    const replacement = Object.freeze({
-      readCanonicalMarkdown: () => 'replacement',
-      readLastExecutionReport: () => null
-    })
-    Object.defineProperty(host, '__marktextE2EReadOnly', {
-      configurable: true,
-      value: replacement
-    })
-    cleanup()
-    expect(host.__marktextE2EReadOnly).toBe(replacement)
   })
 })

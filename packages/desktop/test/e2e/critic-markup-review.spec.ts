@@ -630,16 +630,11 @@ test.describe('CriticMarkup file-backed losslessness', () => {
 
     try {
       await clearCapturedErrors(app)
-      expect(await page.evaluate(() => ({
-        frozen: Object.isFrozen(window.__marktextE2EReadOnly),
-        surface: Object.keys(window.__marktextE2EReadOnly ?? {})
-      }))).toEqual({
-        frozen: true,
-        surface: [
-          'readCanonicalMarkdown',
-          'readLastExecutionReport'
-        ]
-      })
+      // The E2E read-only bridge is deleted: every observation goes through
+      // a production surface, so the renderer must expose no test global.
+      expect(await page.evaluate(() =>
+        '__marktextE2EReadOnly' in window
+      )).toBe(false)
 
       // This corpus is already in the desktop serializer's canonical form, so
       // its allowed-normalization set is empty: every comparison below is an
