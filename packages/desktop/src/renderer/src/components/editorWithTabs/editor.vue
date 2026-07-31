@@ -1219,6 +1219,21 @@ const handleEditParagraph = (value: unknown) => {
         if (selectionChange.value) {
           pushSelectionMenuState(selectionChange.value)
         }
+      }).catch((error: unknown) => {
+        // A refusal is a normal outcome of the command against the wrong
+        // state — rapid menu alternation can resolve two clicks to the same
+        // shape, and the second changes nothing (the zero-delta rule
+        // rejects it visibly). Tell the user through the surface banner,
+        // not the error reporter.
+        if (!(error instanceof DocumentCoreIntentRejectedError)) throw error
+        const tabId = currentFile.value?.id
+        if (typeof tabId !== 'string') return
+        presentSurfaceCommandOutcome(
+          { kind: 'refused', reason: error.reason },
+          tabId,
+          editorStore,
+          t
+        )
       }),
       'Paragraph conversion'
     )
