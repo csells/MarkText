@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { readCanonicalMarkdown } from './helpers'
 import {
+  expectCanonicalOnDisk,
   closeDocumentCore,
   launchDocumentCore,
   redo,
@@ -19,11 +19,13 @@ const SOURCE = [
 test.describe('document-core live table tools', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
 
   test.beforeAll(async() => {
     const launched = await launchDocumentCore(SOURCE)
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
   })
 
   test.afterAll(async() => closeDocumentCore(app))
@@ -49,14 +51,14 @@ test.describe('document-core live table tools', () => {
       '| five | four | six |',
       ''
     ].join('\n')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(moved)
+    await expectCanonicalOnDisk(page, app, documentPath, moved)
 
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(SOURCE)
+    await expectCanonicalOnDisk(page, app, documentPath, SOURCE)
     await redo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(moved)
+    await expectCanonicalOnDisk(page, app, documentPath, moved)
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(SOURCE)
+    await expectCanonicalOnDisk(page, app, documentPath, SOURCE)
   })
 
   test('cuts a pointer-selected rectangle through the OS clipboard', async() => {
@@ -92,11 +94,11 @@ test.describe('document-core live table tools', () => {
       '| four |   |   |',
       ''
     ].join('\n')
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(cleared)
+    await expectCanonicalOnDisk(page, app, documentPath, cleared)
 
     await undo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(SOURCE)
+    await expectCanonicalOnDisk(page, app, documentPath, SOURCE)
     await redo(app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toBe(cleared)
+    await expectCanonicalOnDisk(page, app, documentPath, cleared)
   })
 })

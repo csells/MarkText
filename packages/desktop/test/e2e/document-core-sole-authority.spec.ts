@@ -6,14 +6,18 @@ import {
   getMarkdownContent,
   launchWithMarkdown,
   placeCaretInEditor,
-  readCanonicalMarkdown,
   sendIpcToRenderer,
   typeIntoEditor
 } from './helpers'
+import {
+  expectCanonicalOnDisk,
+  saveCanonicalSnapshot
+} from './documentCoreReviewE2e'
 
 test.describe('document-core sole production authority', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
   let filePath: string
 
   test.beforeAll(async() => {
@@ -22,6 +26,7 @@ test.describe('document-core sole production authority', () => {
     )
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     filePath = launched.filePath
   })
 
@@ -36,9 +41,9 @@ test.describe('document-core sole production authority', () => {
       'data-document-mode',
       'semantic'
     )
-    expect(await readCanonicalMarkdown(page)).toContain('{++tracked++}')
+    expect(await saveCanonicalSnapshot(page, app, documentPath)).toContain('{++tracked++}')
 
-    const canonicalBeforeDomTamper = await readCanonicalMarkdown(page)
+    const canonicalBeforeDomTamper = await saveCanonicalSnapshot(page, app, documentPath)
     await page.evaluate(() => {
       const run = document.querySelector('.document-view-run')
       if (run === null) throw new Error('No document-core run is mounted')
@@ -47,7 +52,7 @@ test.describe('document-core sole production authority', () => {
     await expect(page.locator('.editor-component')).toContainText(
       'renderer-only counterfeit'
     )
-    expect(await readCanonicalMarkdown(page)).toBe(canonicalBeforeDomTamper)
+    expect(await saveCanonicalSnapshot(page, app, documentPath)).toBe(canonicalBeforeDomTamper)
 
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(
@@ -56,12 +61,12 @@ test.describe('document-core sole production authority', () => {
 
     await placeCaretInEditor(page)
     await typeIntoEditor(page, 'Owned ')
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain('Owned ')
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).toContain('Owned ')
     await expect(page.locator('.editor-component')).not.toContainText(
       'renderer-only counterfeit'
     )
     expect(await getMarkdownContent(page, app)).toBe(
-      await readCanonicalMarkdown(page)
+      await saveCanonicalSnapshot(page, app, documentPath)
     )
   })
 })

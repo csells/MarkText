@@ -5,13 +5,16 @@ import {
   closeElectron,
   launchWithMarkdown,
   getMarkdownContent,
-  readCanonicalMarkdown,
   sendIpcToRenderer,
   typeIntoEditor,
   placeCaretInEditor,
   enterSourceMode,
   exitSourceMode
 } from './helpers'
+import {
+  expectCanonicalOnDisk,
+  saveCanonicalSnapshot
+} from './documentCoreReviewE2e'
 
 /**
  * The document-core engine driving a real tab.
@@ -28,6 +31,7 @@ import {
 test.describe('document-core engine', () => {
   let app: ElectronApplication
   let page: Page
+  let documentPath = ''
   let filePath: string
 
   test.beforeAll(async() => {
@@ -36,6 +40,7 @@ test.describe('document-core engine', () => {
     )
     app = launched.app
     page = launched.page
+    documentPath = launched.filePath
     filePath = launched.filePath
   })
 
@@ -57,8 +62,8 @@ test.describe('document-core engine', () => {
   test('owns one beforeinput DOM history source and file flow', async() => {
     await placeCaretInEditor(page)
     await typeIntoEditor(page, 'Edited ')
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain('Edited ')
-    const markdown = await readCanonicalMarkdown(page)
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).toContain('Edited ')
+    const markdown = await saveCanonicalSnapshot(page, app, documentPath)
     // The engine reports what the user actually typed, and still holds the
     // tracked change it was not asked to touch.
     expect(markdown).toContain('Edited ')
@@ -66,19 +71,19 @@ test.describe('document-core engine', () => {
     await expect(page.locator('.editor-component')).toContainText('Edited ')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    await expect.poll(() => readCanonicalMarkdown(page)).not.toContain('Edited ')
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).not.toContain('Edited ')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain('Edited ')
+    await expect.poll(() => saveCanonicalSnapshot(page, app, documentPath)).toContain('Edited ')
 
     await enterSourceMode(page, app)
     await expect(page.locator('.source-code-input')).toHaveValue(/Edited /)
     await exitSourceMode(page, app)
-    await expect.poll(() => readCanonicalMarkdown(page)).toContain('Edited ')
+    const canonical = await saveCanonicalSnapshot(page, app, documentPath)
+    expect(canonical).toContain('Edited ')
 
+    // A repeated explicit save is byte-idempotent against that snapshot.
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(
-      await readCanonicalMarkdown(page)
-    )
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(canonical)
   })
 
   test('survives the source-mode round trip', async() => {
