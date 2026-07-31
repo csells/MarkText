@@ -449,6 +449,489 @@ export interface EditorIntentDecodeContext {
 const RENDERER_ORIGIN: EditorIntentDecodeContext =
   Object.freeze({ origin: 'renderer' })
 
+type IntentOfKind<K extends EditorIntent['kind']> =
+  Extract<EditorIntent, { kind: K }>
+
+type IntentDecoder<K extends EditorIntent['kind']> = (
+  value: unknown,
+  context: EditorIntentDecodeContext
+) => IntentOfKind<K>
+
+function kindOnly<K extends 'undo' | 'redo' | 'remove-all-annotations'>(
+  kind: K
+): IntentDecoder<K> {
+  return (value) => {
+    closedRecord(value, 'root', ['kind'])
+    return Object.freeze({ kind }) as IntentOfKind<K>
+  }
+}
+
+function targetOnly<K extends
+  | 'delete-text'
+  | 'duplicate-block'
+  | 'delete-block'
+  | 'insert-paragraph-break'
+  | 'insert-line-break'
+  | 'remove-table-row'
+  | 'remove-table-column'
+  | 'delete-table-cell-contents'
+>(kind: K): IntentDecoder<K> {
+  return (value) =>
+    Object.freeze({ kind, ...targetIntent(value, kind) }) as IntentOfKind<K>
+}
+
+function targetAndText<K extends
+  | 'insert-text'
+  | 'replace-text'
+  | 'commit-composition'
+>(kind: K): IntentDecoder<K> {
+  return (value) => {
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'text'])
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      text: payloadString(
+        dataField(stable, 'text', 'root'),
+        `${kind}.text`
+      )
+    }) as IntentOfKind<K>
+  }
+}
+
+function targetAndEnum<
+  K extends EditorIntent['kind'],
+  F extends string,
+  V extends string
+>(
+  kind: K,
+  field: F,
+  values: ReadonlySet<V>
+): IntentDecoder<K> {
+  return (value) => {
+    const stable = closedRecord(value, 'root', ['kind', 'target', field])
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      [field]: enumValue(
+        dataField(stable, field, 'root'),
+        `${kind}.${field}`,
+        values
+      )
+    }) as unknown as IntentOfKind<K>
+  }
+}
+
+function nodeTarget<K extends 'remove-highlight' | 'remove-comment'>(
+  kind: K
+): IntentDecoder<K> {
+  return (value) => {
+    const stable = closedRecord(value, 'root', ['kind', 'target'])
+    return Object.freeze({
+      kind,
+      target: nodeId(dataField(stable, 'target', 'root'), `${kind}.target`)
+    }) as IntentOfKind<K>
+  }
+}
+
+/**
+ * One decoder per union arm. The mapped key set is the drift guard: a union
+ * arm without a decoder, or a decoder without a union arm, is a compile
+ * error — the union stays the single hand-written intent declaration.
+ */
+const INTENT_DECODERS: {
+  readonly [K in EditorIntent['kind']]: IntentDecoder<K>
+} = Object.freeze({
+  'undo': kindOnly('undo'),
+  'redo': kindOnly('redo'),
+  'remove-all-annotations': kindOnly('remove-all-annotations'),
+  'delete-text': targetOnly('delete-text'),
+  'duplicate-block': targetOnly('duplicate-block'),
+  'delete-block': targetOnly('delete-block'),
+  'insert-paragraph-break': targetOnly('insert-paragraph-break'),
+  'insert-line-break': targetOnly('insert-line-break'),
+  'remove-table-row': targetOnly('remove-table-row'),
+  'remove-table-column': targetOnly('remove-table-column'),
+  'delete-table-cell-contents': targetOnly('delete-table-cell-contents'),
+  'insert-text': targetAndText('insert-text'),
+  'replace-text': targetAndText('replace-text'),
+  'commit-composition': targetAndText('commit-composition'),
+  'replace-structure': (value) => {
+    const stable = closedRecord(
+      value,
+      'root',
+      ['kind', 'target', 'replacement']
+    )
+    const kind = 'replace-structure' as const
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      replacement: payloadString(
+        dataField(stable, 'replacement', 'root'),
+        `${kind}.replacement`
+      )
+    })
+  },
+  'replace-current-matches': (value) => {
+    const stable = closedRecord(
+      value,
+      'root',
+      ['kind', 'target', 'query', 'replacement']
+    )
+    return Object.freeze({
+      kind: 'replace-current-matches' as const,
+      target: selection(
+        dataField(stable, 'target', 'root'),
+        'replace-current-matches.target'
+      ),
+      query: decodeDocumentSearchQuery(dataField(stable, 'query', 'root')),
+      replacement: payloadString(
+        dataField(stable, 'replacement', 'root'),
+        'replace-current-matches.replacement'
+      )
+    })
+  },
+  'format-text': (value) => {
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'format'])
+    return Object.freeze({
+      kind: 'format-text' as const,
+      target: selection(dataField(stable, 'target', 'root'), 'format-text.target'),
+      format: enumValue(
+        dataField(stable, 'format', 'root'),
+        'format-text.format',
+        INLINE_FORMATS
+      )
+    })
+  },
+  'convert-block': (value) => {
+    const kind = 'convert-block' as const
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'conversion'])
+    return Object.freeze({
+      kind,
+      target: selection(
+        dataField(stable, 'target', 'root'),
+        `${kind}.target`
+      ),
+      conversion: blockConversion(
+        dataField(stable, 'conversion', 'root'),
+        'convert-block.conversion'
+      )
+    })
+  },
+  'quick-insert-block': (value) => {
+    const kind = 'quick-insert-block' as const
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'block'])
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      block: quickInsertBlock(
+        dataField(stable, 'block', 'root'),
+        `${kind}.block`
+      )
+    })
+  },
+  'insert-paragraph': targetAndEnum(
+    'insert-paragraph',
+    'location',
+    new Set(['before', 'after'] as const)
+  ),
+  'set-list-indentation': targetAndEnum(
+    'set-list-indentation',
+    'direction',
+    new Set(['increase', 'decrease'] as const)
+  ),
+  'set-task-checked': (value) => {
+    const kind = 'set-task-checked' as const
+    const stable = closedRecord(
+      value,
+      'root',
+      ['kind', 'target', 'checked', 'cascade']
+    )
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      checked: booleanValue(
+        dataField(stable, 'checked', 'root'),
+        `${kind}.checked`
+      ),
+      cascade: booleanValue(
+        dataField(stable, 'cascade', 'root'),
+        `${kind}.cascade`
+      )
+    })
+  },
+  'set-code-language': (value) => {
+    const kind = 'set-code-language' as const
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'language'])
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      language: stringValue(
+        dataField(stable, 'language', 'root'),
+        `${kind}.language`,
+        MAXIMUM_METADATA_UNITS
+      )
+    })
+  },
+  'insert-link': (value) => {
+    const kind = 'insert-link' as const
+    const stable = closedRecord(
+      value,
+      'root',
+      ['kind', 'target', 'href'],
+      ['title']
+    )
+    const href = payloadString(dataField(stable, 'href', 'root'), `${kind}.href`)
+    const title = Reflect.has(stable, 'title')
+      ? payloadString(dataField(stable, 'title', 'root'), `${kind}.title`)
+      : undefined
+    assertAggregate(title === undefined ? [href] : [href, title], kind)
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      href,
+      ...(title === undefined ? {} : { title })
+    })
+  },
+  'insert-image': (value) => {
+    const kind = 'insert-image' as const
+    const stable = closedRecord(
+      value,
+      'root',
+      ['kind', 'target', 'src', 'alt'],
+      ['title']
+    )
+    const src = payloadString(dataField(stable, 'src', 'root'), `${kind}.src`)
+    const alt = payloadString(dataField(stable, 'alt', 'root'), `${kind}.alt`)
+    const title = Reflect.has(stable, 'title')
+      ? payloadString(dataField(stable, 'title', 'root'), `${kind}.title`)
+      : undefined
+    assertAggregate(title === undefined ? [src, alt] : [src, alt, title], kind)
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      src,
+      alt,
+      ...(title === undefined ? {} : { title })
+    })
+  },
+  'insert-footnote': (value) => {
+    const kind = 'insert-footnote' as const
+    const stable = closedRecord(
+      value,
+      'root',
+      ['kind', 'target', 'label', 'content']
+    )
+    const label = payloadString(dataField(stable, 'label', 'root'), `${kind}.label`)
+    const content = payloadString(
+      dataField(stable, 'content', 'root'),
+      `${kind}.content`
+    )
+    assertAggregate([label, content], kind)
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      label,
+      content
+    })
+  },
+  'create-table': (value) => {
+    const kind = 'create-table' as const
+    const stable = closedRecord(
+      value,
+      'root',
+      ['kind', 'target', 'rows', 'columns']
+    )
+    const rows = boundedInteger(
+      dataField(stable, 'rows', 'root'),
+      `${kind}.rows`,
+      30
+    )
+    const columns = boundedInteger(
+      dataField(stable, 'columns', 'root'),
+      `${kind}.columns`,
+      20
+    )
+    if (rows < 1 || columns < 1) {
+      fail(`${kind} table shape is not supported`)
+    }
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      rows,
+      columns
+    })
+  },
+  'insert-table-row': targetAndEnum(
+    'insert-table-row',
+    'location',
+    new Set(['before', 'after'] as const)
+  ),
+  'insert-table-column': targetAndEnum(
+    'insert-table-column',
+    'location',
+    new Set(['left', 'right'] as const)
+  ),
+  'align-table-column': targetAndEnum(
+    'align-table-column',
+    'alignment',
+    new Set(['none', 'left', 'center', 'right'] as const)
+  ),
+  'move-table-row': targetAndEnum(
+    'move-table-row',
+    'direction',
+    new Set(['up', 'down'] as const)
+  ),
+  'move-table-column': targetAndEnum(
+    'move-table-column',
+    'direction',
+    new Set(['left', 'right'] as const)
+  ),
+  'paste-text': (value) => {
+    const kind = 'paste-text' as const
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'payload'])
+    const payload = closedRecord(
+      dataField(stable, 'payload', 'root'),
+      `${kind}.payload`,
+      ['kind', 'text']
+    )
+    return Object.freeze({
+      kind,
+      target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
+      payload: Object.freeze({
+        kind: enumValue(
+          dataField(payload, 'kind', `${kind}.payload`),
+          `${kind}.payload.kind`,
+          new Set(['private-source', 'markdown', 'external-text'] as const)
+        ),
+        text: payloadString(
+          dataField(payload, 'text', `${kind}.payload`),
+          `${kind}.payload.text`
+        )
+      })
+    })
+  },
+  'author-critic-markup': (value) => {
+    const kind = 'author-critic-markup' as const
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'input'])
+    return Object.freeze({
+      kind,
+      target: selection(
+        dataField(stable, 'target', 'root'),
+        `${kind}.target`,
+        'markup'
+      ),
+      input: criticMarkupInput(dataField(stable, 'input', 'root'), `${kind}.input`)
+    })
+  },
+  'reload-source-from-file': (value, context) => {
+    const kind = 'reload-source-from-file' as const
+    if (context.origin !== 'host') {
+      return fail(
+        'reload-source-from-file is host-only: a renderer edits source ' +
+        'through authenticated ranges and can never supply a ' +
+        'whole-document replacement'
+      )
+    }
+    const stable = closedRecord(value, 'root', ['kind', 'source'])
+    return Object.freeze({
+      kind,
+      source: wholeSource(dataField(stable, 'source', 'root'), `${kind}.source`)
+    })
+  },
+  'edit-source': (value) => {
+    const kind = 'edit-source' as const
+    const stable = closedRecord(
+      value,
+      'root',
+      ['kind', 'target', 'text', 'selection']
+    )
+    return Object.freeze({
+      kind,
+      target: selection(
+        dataField(stable, 'target', 'root'),
+        `${kind}.target`,
+        'source'
+      ),
+      text: payloadString(dataField(stable, 'text', 'root'), `${kind}.text`),
+      selection: initialSelection(
+        dataField(stable, 'selection', 'root'),
+        `${kind}.selection`
+      )
+    })
+  },
+  'set-track-changes': (value) => {
+    const kind = 'set-track-changes' as const
+    const stable = closedRecord(value, 'root', ['kind', 'enabled'])
+    return Object.freeze({
+      kind,
+      enabled: booleanValue(dataField(stable, 'enabled', 'root'), `${kind}.enabled`)
+    })
+  },
+  'set-projection': (value) => {
+    const kind = 'set-projection' as const
+    const stable = closedRecord(value, 'root', ['kind', 'projection'])
+    return Object.freeze({
+      kind,
+      projection: enumValue(
+        dataField(stable, 'projection', 'root'),
+        `${kind}.projection`,
+        new Set<CriticMarkupProjection>(['marked', 'original', 'revised'])
+      )
+    })
+  },
+  'resolve-change': (value) => {
+    const kind = 'resolve-change' as const
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'decision'])
+    return Object.freeze({
+      kind,
+      target: nodeId(dataField(stable, 'target', 'root'), `${kind}.target`),
+      decision: enumValue(
+        dataField(stable, 'decision', 'root'),
+        `${kind}.decision`,
+        new Set(['accept', 'reject'] as const)
+      )
+    })
+  },
+  'resolve-all-changes': (value) => {
+    const kind = 'resolve-all-changes' as const
+    const stable = closedRecord(value, 'root', ['kind', 'decision'])
+    return Object.freeze({
+      kind,
+      decision: enumValue(
+        dataField(stable, 'decision', 'root'),
+        `${kind}.decision`,
+        new Set(['accept', 'reject'] as const)
+      )
+    })
+  },
+  'remove-highlight': nodeTarget('remove-highlight'),
+  'remove-comment': nodeTarget('remove-comment'),
+  'add-comment': (value) => {
+    const kind = 'add-comment' as const
+    const stable = closedRecord(value, 'root', ['kind', 'range', 'comment'])
+    return Object.freeze({
+      kind,
+      range: sourceRange(dataField(stable, 'range', 'root'), `${kind}.range`),
+      comment: payloadString(
+        dataField(stable, 'comment', 'root'),
+        `${kind}.comment`
+      )
+    })
+  },
+  'edit-comment': (value) => {
+    const kind = 'edit-comment' as const
+    const stable = closedRecord(value, 'root', ['kind', 'target', 'comment'])
+    return Object.freeze({
+      kind,
+      target: nodeId(dataField(stable, 'target', 'root'), `${kind}.target`),
+      comment: payloadString(
+        dataField(stable, 'comment', 'root'),
+        `${kind}.comment`
+      )
+    })
+  }
+})
+
 export function decodeEditorIntent(
   value: unknown,
   context: EditorIntentDecodeContext = RENDERER_ORIGIN
@@ -461,444 +944,13 @@ export function decodeEditorIntent(
       MAXIMUM_METADATA_UNITS,
       false
     )
-
-    if (kind === 'undo' || kind === 'redo') {
-      closedRecord(value, 'root', ['kind'])
-      return Object.freeze({ kind })
+    if (!Object.hasOwn(INTENT_DECODERS, kind)) {
+      return fail(`kind ${JSON.stringify(kind)} is not supported`)
     }
-    if (
-      kind === 'delete-text' ||
-      kind === 'duplicate-block' ||
-      kind === 'delete-block' ||
-      kind === 'insert-paragraph-break' ||
-      kind === 'insert-line-break' ||
-      kind === 'remove-table-row' ||
-      kind === 'remove-table-column' ||
-      kind === 'delete-table-cell-contents'
-    ) {
-      return Object.freeze({ kind, ...targetIntent(value, kind) }) as EditorIntent
-    }
-    if (
-      kind === 'insert-text' ||
-      kind === 'replace-text' ||
-      kind === 'commit-composition'
-    ) {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'text'])
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        text: payloadString(
-          dataField(stable, 'text', 'root'),
-          `${kind}.text`
-        )
-      }) as EditorIntent
-    }
-    if (kind === 'replace-structure') {
-      const stable = closedRecord(
-        value,
-        'root',
-        ['kind', 'target', 'replacement']
-      )
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        replacement: payloadString(
-          dataField(stable, 'replacement', 'root'),
-          `${kind}.replacement`
-        )
-      })
-    }
-    if (kind === 'replace-current-matches') {
-      const stable = closedRecord(
-        value,
-        'root',
-        ['kind', 'target', 'query', 'replacement']
-      )
-      return Object.freeze({
-        kind,
-        target: selection(
-          dataField(stable, 'target', 'root'),
-          'replace-current-matches.target'
-        ),
-        query: decodeDocumentSearchQuery(dataField(stable, 'query', 'root')),
-        replacement: payloadString(
-          dataField(stable, 'replacement', 'root'),
-          'replace-current-matches.replacement'
-        )
-      })
-    }
-    if (kind === 'format-text') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'format'])
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), 'format-text.target'),
-        format: enumValue(
-          dataField(stable, 'format', 'root'),
-          'format-text.format',
-          INLINE_FORMATS
-        )
-      })
-    }
-    if (kind === 'convert-block') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'conversion'])
-      return Object.freeze({
-        kind,
-        target: selection(
-          dataField(stable, 'target', 'root'),
-          `${kind}.target`
-        ),
-        conversion: blockConversion(
-          dataField(stable, 'conversion', 'root'),
-          'convert-block.conversion'
-        )
-      })
-    }
-    if (kind === 'quick-insert-block') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'block'])
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        block: quickInsertBlock(
-          dataField(stable, 'block', 'root'),
-          `${kind}.block`
-        )
-      })
-    }
-    if (kind === 'insert-paragraph') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'location'])
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), 'insert-paragraph.target'),
-        location: enumValue(
-          dataField(stable, 'location', 'root'),
-          'insert-paragraph.location',
-          new Set(['before', 'after'] as const)
-        )
-      })
-    }
-    if (kind === 'set-list-indentation') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'direction'])
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        direction: enumValue(
-          dataField(stable, 'direction', 'root'),
-          `${kind}.direction`,
-          new Set(['increase', 'decrease'] as const)
-        )
-      })
-    }
-    if (kind === 'set-task-checked') {
-      const stable = closedRecord(
-        value,
-        'root',
-        ['kind', 'target', 'checked', 'cascade']
-      )
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        checked: booleanValue(
-          dataField(stable, 'checked', 'root'),
-          `${kind}.checked`
-        ),
-        cascade: booleanValue(
-          dataField(stable, 'cascade', 'root'),
-          `${kind}.cascade`
-        )
-      })
-    }
-    if (kind === 'set-code-language') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'language'])
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        language: stringValue(
-          dataField(stable, 'language', 'root'),
-          `${kind}.language`,
-          MAXIMUM_METADATA_UNITS
-        )
-      })
-    }
-    if (kind === 'insert-link') {
-      const stable = closedRecord(
-        value,
-        'root',
-        ['kind', 'target', 'href'],
-        ['title']
-      )
-      const href = payloadString(dataField(stable, 'href', 'root'), `${kind}.href`)
-      const title = Reflect.has(stable, 'title')
-        ? payloadString(dataField(stable, 'title', 'root'), `${kind}.title`)
-        : undefined
-      assertAggregate(title === undefined ? [href] : [href, title], kind)
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        href,
-        ...(title === undefined ? {} : { title })
-      })
-    }
-    if (kind === 'insert-image') {
-      const stable = closedRecord(
-        value,
-        'root',
-        ['kind', 'target', 'src', 'alt'],
-        ['title']
-      )
-      const src = payloadString(dataField(stable, 'src', 'root'), `${kind}.src`)
-      const alt = payloadString(dataField(stable, 'alt', 'root'), `${kind}.alt`)
-      const title = Reflect.has(stable, 'title')
-        ? payloadString(dataField(stable, 'title', 'root'), `${kind}.title`)
-        : undefined
-      assertAggregate(title === undefined ? [src, alt] : [src, alt, title], kind)
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        src,
-        alt,
-        ...(title === undefined ? {} : { title })
-      })
-    }
-    if (kind === 'insert-footnote') {
-      const stable = closedRecord(
-        value,
-        'root',
-        ['kind', 'target', 'label', 'content']
-      )
-      const label = payloadString(dataField(stable, 'label', 'root'), `${kind}.label`)
-      const content = payloadString(
-        dataField(stable, 'content', 'root'),
-        `${kind}.content`
-      )
-      assertAggregate([label, content], kind)
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        label,
-        content
-      })
-    }
-    if (kind === 'create-table') {
-      const stable = closedRecord(
-        value,
-        'root',
-        ['kind', 'target', 'rows', 'columns']
-      )
-      const rows = boundedInteger(
-        dataField(stable, 'rows', 'root'),
-        `${kind}.rows`,
-        30
-      )
-      const columns = boundedInteger(
-        dataField(stable, 'columns', 'root'),
-        `${kind}.columns`,
-        20
-      )
-      if (rows < 1 || columns < 1) {
-        fail(`${kind} table shape is not supported`)
-      }
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        rows,
-        columns
-      })
-    }
-    if (kind === 'insert-table-row' || kind === 'insert-table-column') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'location'])
-      const location = kind === 'insert-table-row'
-        ? enumValue(
-          dataField(stable, 'location', 'root'),
-          `${kind}.location`,
-          new Set(['before', 'after'] as const)
-        )
-        : enumValue(
-          dataField(stable, 'location', 'root'),
-          `${kind}.location`,
-          new Set(['left', 'right'] as const)
-        )
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        location
-      }) as EditorIntent
-    }
-    if (kind === 'align-table-column') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'alignment'])
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        alignment: enumValue(
-          dataField(stable, 'alignment', 'root'),
-          `${kind}.alignment`,
-          new Set(['none', 'left', 'center', 'right'] as const)
-        )
-      })
-    }
-    if (kind === 'move-table-row' || kind === 'move-table-column') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'direction'])
-      const direction = kind === 'move-table-row'
-        ? enumValue(
-          dataField(stable, 'direction', 'root'),
-          `${kind}.direction`,
-          new Set(['up', 'down'] as const)
-        )
-        : enumValue(
-          dataField(stable, 'direction', 'root'),
-          `${kind}.direction`,
-          new Set(['left', 'right'] as const)
-        )
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        direction
-      }) as EditorIntent
-    }
-    if (kind === 'paste-text') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'payload'])
-      const payload = closedRecord(
-        dataField(stable, 'payload', 'root'),
-        `${kind}.payload`,
-        ['kind', 'text']
-      )
-      return Object.freeze({
-        kind,
-        target: selection(dataField(stable, 'target', 'root'), `${kind}.target`),
-        payload: Object.freeze({
-          kind: enumValue(
-            dataField(payload, 'kind', `${kind}.payload`),
-            `${kind}.payload.kind`,
-            new Set(['private-source', 'markdown', 'external-text'] as const)
-          ),
-          text: payloadString(
-            dataField(payload, 'text', `${kind}.payload`),
-            `${kind}.payload.text`
-          )
-        })
-      })
-    }
-    if (kind === 'author-critic-markup') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'input'])
-      return Object.freeze({
-        kind,
-        target: selection(
-          dataField(stable, 'target', 'root'),
-          `${kind}.target`,
-          'markup'
-        ),
-        input: criticMarkupInput(dataField(stable, 'input', 'root'), `${kind}.input`)
-      })
-    }
-    if (kind === 'reload-source-from-file') {
-      if (context.origin !== 'host') {
-        return fail(
-          'reload-source-from-file is host-only: a renderer edits source ' +
-          'through authenticated ranges and can never supply a ' +
-          'whole-document replacement'
-        )
-      }
-      const stable = closedRecord(value, 'root', ['kind', 'source'])
-      return Object.freeze({
-        kind,
-        source: wholeSource(dataField(stable, 'source', 'root'), `${kind}.source`)
-      })
-    }
-    if (kind === 'edit-source') {
-      const stable = closedRecord(
-        value,
-        'root',
-        ['kind', 'target', 'text', 'selection']
-      )
-      return Object.freeze({
-        kind,
-        target: selection(
-          dataField(stable, 'target', 'root'),
-          `${kind}.target`,
-          'source'
-        ),
-        text: payloadString(dataField(stable, 'text', 'root'), `${kind}.text`),
-        selection: initialSelection(
-          dataField(stable, 'selection', 'root'),
-          `${kind}.selection`
-        )
-      })
-    }
-    if (kind === 'set-track-changes') {
-      const stable = closedRecord(value, 'root', ['kind', 'enabled'])
-      return Object.freeze({
-        kind,
-        enabled: booleanValue(dataField(stable, 'enabled', 'root'), `${kind}.enabled`)
-      })
-    }
-    if (kind === 'set-projection') {
-      const stable = closedRecord(value, 'root', ['kind', 'projection'])
-      return Object.freeze({
-        kind,
-        projection: enumValue(
-          dataField(stable, 'projection', 'root'),
-          `${kind}.projection`,
-          new Set<CriticMarkupProjection>(['marked', 'original', 'revised'])
-        )
-      })
-    }
-    if (kind === 'resolve-change') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'decision'])
-      return Object.freeze({
-        kind,
-        target: nodeId(dataField(stable, 'target', 'root'), `${kind}.target`),
-        decision: enumValue(
-          dataField(stable, 'decision', 'root'),
-          `${kind}.decision`,
-          new Set(['accept', 'reject'] as const)
-        )
-      })
-    }
-    if (kind === 'resolve-all-changes') {
-      const stable = closedRecord(value, 'root', ['kind', 'decision'])
-      return Object.freeze({
-        kind,
-        decision: enumValue(
-          dataField(stable, 'decision', 'root'),
-          `${kind}.decision`,
-          new Set(['accept', 'reject'] as const)
-        )
-      })
-    }
-    if (kind === 'remove-all-annotations') {
-      closedRecord(value, 'root', ['kind'])
-      return Object.freeze({ kind })
-    }
-    if (kind === 'remove-highlight' || kind === 'remove-comment') {
-      const stable = closedRecord(value, 'root', ['kind', 'target'])
-      return Object.freeze({
-        kind,
-        target: nodeId(dataField(stable, 'target', 'root'), `${kind}.target`)
-      })
-    }
-    if (kind === 'add-comment') {
-      const stable = closedRecord(value, 'root', ['kind', 'range', 'comment'])
-      return Object.freeze({
-        kind,
-        range: sourceRange(dataField(stable, 'range', 'root'), `${kind}.range`),
-        comment: payloadString(
-          dataField(stable, 'comment', 'root'),
-          `${kind}.comment`
-        )
-      })
-    }
-    if (kind === 'edit-comment') {
-      const stable = closedRecord(value, 'root', ['kind', 'target', 'comment'])
-      return Object.freeze({
-        kind,
-        target: nodeId(dataField(stable, 'target', 'root'), `${kind}.target`),
-        comment: payloadString(
-          dataField(stable, 'comment', 'root'),
-          `${kind}.comment`
-        )
-      })
-    }
-
-    return fail(`kind ${JSON.stringify(kind)} is not supported`)
+    const decoder = INTENT_DECODERS[
+      kind as EditorIntent['kind']
+    ] as IntentDecoder<EditorIntent['kind']>
+    return decoder(value, context)
   } catch (error) {
     if (error instanceof EditorIntentDecodeError) throw error
     throw new EditorIntentDecodeError('Editor intent is malformed', error)
