@@ -106,6 +106,7 @@ async function run () {
         reject(new Error(
           `Pinned Corepack failed with code ${String(code)}` +
           (signal === null ? '' : ` signal ${String(signal)}`) +
+          `; spawned arguments: ${JSON.stringify(arguments_)}` +
           `; child output: ${observed.trim() || '(none)'}`
         ))
       }
