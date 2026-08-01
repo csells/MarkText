@@ -1,19 +1,16 @@
 name: Setup pnpm and Node.js
 description: Install pnpm, Node.js, and project dependencies (skips postinstall scripts)
 
-inputs:
-  node-version:
-    description: Node.js version to install
-    required: false
-    default: '22.21.1'
-
 runs:
   using: composite
   steps:
-    - name: Install Node.js
-      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-      with:
-        node-version: ${{ inputs.node-version }}
+    - name: Bind the official Node distribution
+      # The toolcache repackages Node and its bytes have diverged from the
+      # official distribution (the Windows Corepack byte check caught it);
+      # the pinned fetch runs in the committed script, and the ambient
+      # runtime only bootstraps it.
+      shell: bash
+      run: node scripts/bindOfficialNode.mjs
 
     - name: Enable content-addressed pnpm
       shell: bash

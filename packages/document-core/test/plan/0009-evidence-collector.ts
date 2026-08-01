@@ -254,6 +254,7 @@ export const CRITICAL_EVIDENCE_CONTROL_FILES = Object.freeze([
   'packages/document-view/vite.config.ts',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
+  'scripts/bindOfficialNode.mjs',
   'scripts/collect0009Evidence.ts',
   'scripts/collect0009PlatformRun.ts',
   'scripts/download0009PublishedEvidence.ts',
@@ -328,9 +329,9 @@ function pinnedPnpmCommand(
 }
 
 const PINNED_EVIDENCE_ACTION_REFERENCES = Object.freeze({
-  '.github/actions/setup/action.yml': Object.freeze([
-    `actions/setup-node@${PINNED_EVIDENCE_ACTIONS['actions/setup-node']}`
-  ]),
+  // The setup action binds the official Node distribution itself and
+  // references no external action.
+  '.github/actions/setup/action.yml': Object.freeze([]),
   '.github/workflows/document-core-platform.yml': Object.freeze([
     `actions/checkout@${PINNED_EVIDENCE_ACTIONS['actions/checkout']}`,
     './.github/actions/setup',
@@ -360,6 +361,8 @@ const PINNED_PLATFORM_STEP_SHA256 = Object.freeze({
 } as const)
 
 const PINNED_SETUP_STEP_SHA256 = Object.freeze({
+  'Bind the official Node distribution':
+    '4655770b13ed76fd109c2f7368e4c03f833db1fa2991e1ba6dee3d70e9e31357',
   'Enable content-addressed pnpm':
     '9b178ef652227fb534db6e5a53e2151a281185a61db246337cfbf9936985c68e',
   'Install Dependencies':
@@ -3485,18 +3488,19 @@ function contentAddressedPnpm(version: string): string {
 }
 
 function githubNodeVersion(repoRoot: string, candidateCommit?: string): string {
-  const action =
+  // The official-distribution binding script owns the pinned version.
+  const binder =
     candidateCommit === undefined
-      ? readFileSync(resolve(repoRoot, '.github/actions/setup/action.yml'), 'utf8')
+      ? readFileSync(resolve(repoRoot, 'scripts/bindOfficialNode.mjs'), 'utf8')
       : execFileSync(
         'git',
-        ['show', `${candidateCommit}:.github/actions/setup/action.yml`],
+        ['show', `${candidateCommit}:scripts/bindOfficialNode.mjs`],
         { cwd: repoRoot, encoding: 'utf8' }
       )
-  const match = /default:\s*['"]?(\d+\.\d+\.\d+)['"]?/.exec(action)
+  const match = /VERSION = 'v(\d+\.\d+\.\d+)'/.exec(binder)
   const version = match?.[1]
   if (version === undefined) {
-    throw new TypeError('The GitHub setup action must pin its default Node version')
+    throw new TypeError('The Node binder must pin its distribution version')
   }
   return `v${version}`
 }

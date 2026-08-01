@@ -216,6 +216,11 @@ function initializeEvidenceRepository(): string {
         /default: '[0-9]+\.[0-9]+\.[0-9]+'/u,
         `default: '${process.version.slice(1)}'`
       )
+    } else if (path === 'scripts/bindOfficialNode.mjs') {
+      content = readFileSync(resolve(sourceRoot, path), 'utf8').replace(
+        /VERSION = 'v[0-9]+\.[0-9]+\.[0-9]+'/u,
+        `VERSION = '${process.version}'`
+      )
     } else if (
       path === '.github/workflows/document-core-platform.yml' ||
       path === 'packages/document-core/test/plan/0009-evidence-collector.ts' ||
@@ -409,8 +414,7 @@ describe('plan 0009 evidence collector', () => {
 
     const mutations = [
       ['.github/workflows/document-core-platform.yml', 'actions/checkout', 'v4'],
-      ['.github/workflows/document-core-platform.yml', 'actions/upload-artifact', 'v4'],
-      ['.github/actions/setup/action.yml', 'actions/setup-node', 'v4.4.0']
+      ['.github/workflows/document-core-platform.yml', 'actions/upload-artifact', 'v4']
     ] as const
     for (const [path, action, mutableTag] of mutations) {
       const root = mkdtempSync(resolve(tmpdir(), 'marktext-0009-action-pin-'))
@@ -1435,8 +1439,8 @@ describe('plan 0009 evidence collector', () => {
     try {
       writeFixture(
         root,
-        '.github/actions/setup/action.yml',
-        "inputs:\n  node-version:\n    default: '22.21.1'\n"
+        'scripts/bindOfficialNode.mjs',
+        "const VERSION = 'v22.21.1'\n"
       )
       expect(() =>
         validateEvidenceCollectorPlatform(root, {
@@ -1459,14 +1463,14 @@ describe('plan 0009 evidence collector', () => {
 
   it('derives the collector runtime pin from the candidate commit, not the verifier worktree', () => {
     const root = initializeRepository()
-    const actionPath = '.github/actions/setup/action.yml'
+    const binderPath = 'scripts/bindOfficialNode.mjs'
     try {
       writeFixture(
         root,
-        actionPath,
-        "inputs:\n  node-version:\n    default: '22.21.1'\n"
+        binderPath,
+        "const VERSION = 'v22.21.1'\n"
       )
-      execFileSync('git', ['add', actionPath], { cwd: root })
+      execFileSync('git', ['add', binderPath], { cwd: root })
       execFileSync('git', ['commit', '--quiet', '-m', 'pin candidate runtime'], { cwd: root })
       const candidateCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
         cwd: root,
@@ -1474,8 +1478,8 @@ describe('plan 0009 evidence collector', () => {
       }).trim()
       writeFixture(
         root,
-        actionPath,
-        "inputs:\n  node-version:\n    default: '99.99.99'\n"
+        binderPath,
+        "const VERSION = 'v99.99.99'\n"
       )
       expect(() =>
         validateEvidenceCollectorPlatform(
@@ -2284,6 +2288,7 @@ describe('plan 0009 evidence collector', () => {
       'packages/document-view/vite.config.ts',
       'pnpm-lock.yaml',
       'pnpm-workspace.yaml',
+      'scripts/bindOfficialNode.mjs',
       'scripts/collect0009Evidence.ts',
       'scripts/collect0009PlatformRun.ts',
       'scripts/download0009PublishedEvidence.ts',
