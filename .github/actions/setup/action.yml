@@ -68,6 +68,18 @@ runs:
             "$GITHUB_WORKSPACE" "'$package_manager'"
         } > "$bin_dir/pnpm"
         chmod +x "$bin_dir/pnpm"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          # pnpm executes package scripts through cmd.exe on Windows, and
+          # cmd cannot resolve the extensionless bash shim, so every nested
+          # `pnpm run x && pnpm run y` script needs this .cmd forwarder.
+          workspace_windows="$(cygpath -w "$GITHUB_WORKSPACE")"
+          {
+            printf '@echo off\r\n'
+            printf 'node "%s\\scripts\\runPinnedCorepack.mjs" %s %%*\r\n' \
+              "$workspace_windows" "$package_manager"
+            printf 'exit /b %%errorlevel%%\r\n'
+          } > "$bin_dir/pnpm.cmd"
+        fi
         echo "MARKTEXT_PINNED_PNPM_BIN=$bin_dir" >> "$GITHUB_ENV"
         echo "$bin_dir" >> "$GITHUB_PATH"
         test "$("$bin_dir/pnpm" --version)" = "10.33.4"
