@@ -611,7 +611,8 @@ function portableMembers(
   snapshot: EditorSnapshot,
   historyState: DocumentCoreHistoryState,
   baseRevision?: EditorSnapshot['revision'],
-  sourceEdits?: readonly RevisionSourceEdit[]
+  sourceEdits?: readonly RevisionSourceEdit[],
+  needLive = true
 ): Readonly<{
     session: PortableSessionMember
     live?: PortableLiveMember
@@ -648,16 +649,23 @@ function portableMembers(
   // The live editor sink reads its plan through the declared consumer-policy
   // route, so the policy module is load-bearing for live rendering.
   const livePlan = routeLiveConsumer(snapshot.livePlan).plan
+  const review = Object.freeze({
+    schema: 'document-core-review-delta-1' as const,
+    trackChanges: snapshot.configuration.trackChanges,
+    projection: snapshot.projection,
+    markupModelLength: livePlan.modelLength,
+    reviewIndex: snapshot.reviewIndex
+  })
+  if (!needLive) {
+    // The emission memo proved this projection's plan unchanged since its
+    // last full emission; skip materializing runs, model text, and block
+    // groups the marker would discard.
+    return Object.freeze({ session: sessionMember, review })
+  }
   const runs = renderMarkupPlan(snapshot.displayPlan)
   return Object.freeze({
     session: sessionMember,
-    review: Object.freeze({
-      schema: 'document-core-review-delta-1',
-      trackChanges: snapshot.configuration.trackChanges,
-      projection: snapshot.projection,
-      markupModelLength: livePlan.modelLength,
-      reviewIndex: snapshot.reviewIndex
-    }),
+    review,
     live: Object.freeze({
       schema: 'document-core-live-plan-delta-1',
       modelText: runs.map((run) => run.text).join(''),
@@ -796,14 +804,19 @@ function publishSnapshot(
   allowUnchangedLivePlan = false
 ): DocumentCoreWorkerPublication {
   publicationSequence += 1
+  const unchangedLivePlan = allowUnchangedLivePlan &&
+    snapshot.kind === 'complete' &&
+    lastLivePlanEmissionByProjection.get(snapshot.projection) ===
+      livePlanEmissionKey(snapshot, snapshot.projection)
   const portable = portableMembers(
     snapshot,
     historyStateOf(activeSession()),
     baseRevision,
-    sourceEdits
+    sourceEdits,
+    !unchangedLivePlan
   )
   const members = {
-    ...(portable.live === undefined
+    ...(snapshot.kind !== 'complete'
       ? {}
       : {
         livePlanDelta: (() => {
@@ -812,19 +825,15 @@ function publishSnapshot(
               'Complete live publication has no Review coordinate contract'
             )
           }
-          const emissionKey = livePlanEmissionKey(
-            snapshot,
-            portable.review.projection
-          )
-          if (
-            allowUnchangedLivePlan &&
-            lastLivePlanEmissionByProjection.get(
-              portable.review.projection
-            ) === emissionKey
-          ) {
+          if (unchangedLivePlan) {
             return encodeJson({
               schema: 'document-core-live-plan-unchanged-1'
             })
+          }
+          if (portable.live === undefined) {
+            throw new TypeError(
+              'Complete live publication has no live plan'
+            )
           }
           const bytes = encodeJson(
             encodeDocumentCoreLiveDeltaV1(
@@ -838,7 +847,7 @@ function publishSnapshot(
           )
           lastLivePlanEmissionByProjection.set(
             portable.review.projection,
-            emissionKey
+            livePlanEmissionKey(snapshot, portable.review.projection)
           )
           return bytes
         })()
