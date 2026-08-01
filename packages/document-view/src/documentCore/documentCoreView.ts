@@ -910,6 +910,12 @@ export async function createDocumentCoreView(
         start: number;
         end: number;
     }> | null = null;
+    // Set when a render's restore stood down because a user gesture's select
+    // was still in flight. The render already replaced the DOM — destroying
+    // the gesture's browser selection — so the dispatch completion must
+    // re-stamp the session selection (which by then includes the gesture) or
+    // the DOM stays selectionless and the next input lands at offset zero.
+    let restoreSkippedForUserDispatch = false;
     let browserInputGeneration = 0;
     let imageRenderGeneration = 0;
     const session = options.session;
@@ -1066,17 +1072,29 @@ export async function createDocumentCoreView(
         // gesture — would clobber the newer selection with an older range,
         // and the next command would then target stale bounds.
         if (pendingUserSelectionDispatches > 0 || deferredBrowserSelection) {
+            if (pendingUserSelectionDispatches > 0)
+                restoreSkippedForUserDispatch = true;
             return;
         }
+        let restoredAnchor = anchor;
+        let restoredFocus = focus;
         if (
             ifUserSelectionGeneration !== undefined
             && ifUserSelectionGeneration !== userSelectionGeneration
         ) {
-            return;
+            // The cycle's values predate the user's newest adopted gesture,
+            // but with no select in flight the session selection already
+            // includes that gesture — substitute it live. Standing down
+            // entirely would leave the DOM this render just replaced with no
+            // selection at all, and the next input would land at the
+            // document start instead of the range the user can see.
+            const live = activeSelection();
+            restoredAnchor = live.anchor;
+            restoredFocus = live.focus;
         }
         restoringBrowserSelection = true;
         try {
-            restoreBrowserSelection(target, anchor, focus);
+            restoreBrowserSelection(target, restoredAnchor, restoredFocus);
             if (documentCoreSelectionIsMounted(target)) {
                 lastViewRestoredRange = documentCoreSelectionRange(target);
             }
@@ -4078,6 +4096,19 @@ export async function createDocumentCoreView(
             .then(publishSelection, () => undefined)
             .finally(() => {
                 pendingUserSelectionDispatches -= 1;
+                if (
+                    pendingUserSelectionDispatches === 0
+                    && restoreSkippedForUserDispatch
+                    && !destroying
+                ) {
+                    restoreSkippedForUserDispatch = false;
+                    const live = activeSelection();
+                    restoreDocumentCoreSelection(
+                        host,
+                        live.anchor,
+                        live.focus,
+                    );
+                }
             });
     };
 
