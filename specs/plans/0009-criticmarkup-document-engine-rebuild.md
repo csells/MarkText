@@ -584,13 +584,22 @@ whose assertion cannot distinguish pass from fail.
   ~1.5 s end to end (patch path confirmed live; mutation to next
   frame 0.7 ms); the 3.5 s animation-gap readings are the same
   occluded-window rAF pause, and a headless console's "visible" mode
-  changes nothing because no display presents. Frontier: re-anchor
-  the two terminal metrics at the app boundary the ruling's sizing
-  used — first beforeinput to the first frame after the rendered
-  result, page-clock — scope the animation-gap assertion to the
-  active gesture windows, and report input-delivery latency as
-  unasserted context; the matrix then greens on the mini and A29's
-  baseline opens with it. The
+  changes nothing because no display presents. The re-anchoring landed 2026-08-01 — app-boundary
+  windows, five-round sampling with p95 asserts matching section 3's
+  own semantics, allocation-free polls (the old poll concatenated a
+  fresh 32MB string per frame, manufacturing the GC pauses it
+  measured), and a cancellation fixture sized so the engine's own
+  speedups cannot finish it before the cancel lands. With honest
+  measurement the picture is: the pipeline itself runs ~200ms, one
+  Chromium relayout adds ~1.1-1.3s, and a second relayout-scale pass
+  appears on some replace gestures, putting the edit p95 at ~2.6s
+  against the 2,000ms budget on the M4 (~2.05s scaled to owner
+  hardware — marginal either way). Deletion holds its p95 inside
+  budget. Frontier: determine why the replace gesture sometimes pays
+  two layout passes (suspect: the patch applies delete and insert as
+  separate DOM mutations) and either collapse it to one in the
+  patcher or put the relayout-count question to the owner; the
+  matrix greens with that answer and A29's baseline opens with it. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
