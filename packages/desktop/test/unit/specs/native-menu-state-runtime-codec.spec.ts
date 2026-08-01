@@ -3,7 +3,6 @@ import {
   decodeDocumentClipboardMenuState,
   decodeDocumentFormatMenuState,
   decodeDocumentSelectionMenuState,
-  decodeFormatMenusEnabled,
   decodeSidebarMenuVisibility,
   decodeWindowLayoutMenuState
 } from 'main_renderer/menu/menuStateRuntimeCodec'
@@ -50,7 +49,6 @@ describe('closed native-menu state codecs', () => {
       sourceCode: false
     })
     expect(decodeSidebarMenuVisibility(true)).toBe(true)
-    expect(decodeFormatMenusEnabled(false)).toBe(false)
     expect(decodeDocumentClipboardMenuState({
       surface: 'revised',
       hasSelection: true
@@ -92,7 +90,6 @@ describe('closed native-menu state codecs', () => {
     'rejects non-boolean scalar state %#',
     value => {
       expect(() => decodeSidebarMenuVisibility(value)).toThrow()
-      expect(() => decodeFormatMenusEnabled(value)).toThrow()
     }
   )
 })

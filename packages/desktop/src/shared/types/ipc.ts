@@ -352,7 +352,6 @@ export interface IpcSendChannels {
   'mt::open-keybindings-config': []
   'mt::open-setting-window': []
   'mt::request-keybindings': []
-  'mt::set-editor-format-menus-enabled': [enabled: boolean]
   'mt::set-document-clipboard-menu-state': [
     state: DocumentClipboardMenuState
   ]

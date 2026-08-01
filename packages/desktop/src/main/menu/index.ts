@@ -21,7 +21,9 @@ import type Keybindings from '../keyboard/shortcutHandler'
 import type { IUserPreferences } from '@shared/types/preferences'
 import { REVIEW_COMMAND_DESCRIPTORS } from '../../common/commands/review'
 import {
-  documentClipboardConsumerPolicy
+  documentClipboardConsumerPolicy,
+  DOCUMENT_CAPABILITY_MENU_ROWS,
+  type DocumentCapabilityMenuRow
 } from '@shared/types/documentSurface'
 import {
   decodeCriticMarkupReviewMenuState,
@@ -29,7 +31,6 @@ import {
   decodeDocumentClipboardMenuState,
   decodeDocumentFormatMenuState,
   decodeDocumentSelectionMenuState,
-  decodeFormatMenusEnabled,
   decodeSidebarMenuVisibility,
   decodeWindowLayoutMenuState
 } from './menuStateRuntimeCodec'
@@ -605,16 +606,19 @@ class AppMenu {
           'Document capability menu update'
         )
         if (decoded === null) return
-        const enablement: readonly (readonly [string, boolean])[] = [
-          ['editUndoMenuItem', decoded.state.undo],
-          ['editRedoMenuItem', decoded.state.redo],
-          ['editDuplicateMenuItem', decoded.state.duplicateBlock],
-          ['editCreateParagraphMenuItem', decoded.state.insertParagraph],
-          ['editDeleteParagraphMenuItem', decoded.state.deleteBlock]
-        ]
-        for (const [id, enabled] of enablement) {
+        const EDIT_ROW_IDS: Readonly<Partial<
+          Record<DocumentCapabilityMenuRow, string>
+        >> = {
+          undo: 'editUndoMenuItem',
+          redo: 'editRedoMenuItem',
+          duplicateBlock: 'editDuplicateMenuItem',
+          insertParagraph: 'editCreateParagraphMenuItem',
+          deleteBlock: 'editDeleteParagraphMenuItem'
+        }
+        for (const row of DOCUMENT_CAPABILITY_MENU_ROWS) {
+          const id = EDIT_ROW_IDS[row] ?? `${row}MenuItem`
           const item = decoded.menu.getMenuItemById(id)
-          if (item !== null) item.enabled = enabled
+          if (item !== null) item.enabled = decoded.state[row]
         }
       }
     )
@@ -638,34 +642,6 @@ class AppMenu {
     // In Source mode the Paragraph and Format commands target the hidden
     // semantic surface, so grey them out; on return, the next verified
     // selection publication refines their state (#3531).
-    ipcMain.on('mt::set-editor-format-menus-enabled', (
-      event,
-      ...rawArguments: unknown[]
-    ) => {
-      const decoded = senderMenuState(
-        event,
-        rawArguments,
-        decodeFormatMenusEnabled,
-        'Format menu availability update'
-      )
-      if (decoded === null) return
-      for (const id of ['paragraphMenuEntry', 'formatMenuItem', 'reviewMenuItem']) {
-        const entry = decoded.menu.getMenuItemById(id)
-        entry?.submenu?.items.forEach(
-          item => (item.enabled = decoded.state)
-        )
-      }
-      if (!decoded.state) {
-        setSemanticClipboardMenuState(
-          decoded.menu,
-          documentClipboardConsumerPolicy({
-            surface: 'source',
-            hasSelection: false
-          })
-        )
-      }
-    })
-
     onInternalChannel('menu-add-recently-used', (pathname: string) => {
       this.addRecentlyUsedDocument(pathname)
     })

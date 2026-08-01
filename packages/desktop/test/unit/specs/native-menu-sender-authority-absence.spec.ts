@@ -20,7 +20,7 @@ describe('native-menu sender authority', () => {
     for (const channel of [
       'mt::editor-selection-changed',
       'mt::set-document-clipboard-menu-state',
-      'mt::set-editor-format-menus-enabled',
+      'mt::set-document-capability-menu-state',
       'mt::update-format-menu',
       'mt::update-sidebar-menu',
       'mt::view-layout-changed'
@@ -31,7 +31,7 @@ describe('native-menu sender authority', () => {
         .not.toContain('windowId')
     }
     expect(renderer).not.toMatch(
-      /(?:editor-selection-changed|set-document-clipboard-menu-state|set-editor-format-menus-enabled|update-format-menu|update-sidebar-menu|view-layout-changed)[\s\S]{0,80}windowId/
+      /(?:editor-selection-changed|set-document-clipboard-menu-state|set-document-capability-menu-state|update-format-menu|update-sidebar-menu|view-layout-changed)[\s\S]{0,80}windowId/
     )
     expect(menu).not.toContain(
       "ipcMain.on('mt::add-recently-used-document'"

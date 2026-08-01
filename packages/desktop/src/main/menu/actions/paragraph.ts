@@ -10,16 +10,6 @@ import type {
 
 type Win = BrowserWindow | null | undefined
 
-// Paragraph-menu items that can actually be executed across a multi-block
-// selection; everything else is disabled when the selection spans blocks.
-const CROSS_BLOCK_ENABLED_PARAGRAPH: readonly string[] = [
-  'codeFencesMenuItem',
-  'quoteBlockMenuItem',
-  'orderListMenuItem',
-  'bulletListMenuItem',
-  'taskListMenuItem'
-]
-
 const dispatchParagraphAction = (
   win: Win,
   command: EditorCommandId
@@ -139,22 +129,6 @@ export const loadParagraphCommands = (commandManager: CommandManager): void => {
 // NOTE: Don't use static `getMenuItemById` here, instead request the menu by
 //       window id from `AppMenu` manager.
 
-const setParagraphMenuItemStatus = (applicationMenu: Menu, bool: boolean): void => {
-  const paragraphMenuItem = applicationMenu.getMenuItemById('paragraphMenuEntry')!
-  paragraphMenuItem.submenu!.items.forEach((item: MenuItem) => (item.enabled = bool))
-}
-
-const setMultipleStatus = (
-  applicationMenu: Menu,
-  list: readonly string[],
-  status: boolean
-): void => {
-  const paragraphMenuItem = applicationMenu.getMenuItemById('paragraphMenuEntry')!
-  paragraphMenuItem.submenu!.items
-    .filter((item: MenuItem) => item.id && list.includes(item.id))
-    .forEach((item: MenuItem) => (item.enabled = status))
-}
-
 export type SelectionState = DocumentSelectionMenuState
 
 const setCheckedMenuItem = (
@@ -204,60 +178,8 @@ export const updateSelectionMenus = (
   applicationMenu: Menu,
   state: SelectionState
 ): void => {
-  const {
-    isDisabled,
-    isMultiblock,
-    isCodeLike,
-    isCodeBlock
-  } = state
-
-  // Reset format menu.
-  const formatMenuItem: MenuItem = applicationMenu.getMenuItemById('formatMenuItem')!
-  formatMenuItem.submenu!.items.forEach((item: MenuItem) => (item.enabled = true))
-
-  // Handle menu checked.
+  // G5: row availability is the capability record's job
+  // (mt::set-document-capability-menu-state); this writer owns only the
+  // checked state the selection implies.
   setCheckedMenuItem(applicationMenu, state)
-
-  // Reset paragraph menu.
-  setParagraphMenuItemStatus(applicationMenu, !isDisabled)
-  if (isDisabled) {
-    return
-  }
-
-  if (isCodeLike) {
-    setParagraphMenuItemStatus(applicationMenu, false)
-
-    // Non-formattable code-like content (code/math/html/frontmatter/diagram):
-    // disable every format item. Tables never reach here (they return early via
-    // isDisabled) so table cells keep formatting.
-    formatMenuItem.submenu!.items.forEach((item: MenuItem) => (item.enabled = false))
-
-    // A code line is selected — re-enable the code-fence toggle.
-    if (isCodeBlock) {
-      setMultipleStatus(applicationMenu, ['codeFencesMenuItem'], true)
-    }
-  } else if (isMultiblock) {
-    // Format: link/image are meaningless across a multi-block selection.
-    formatMenuItem.submenu!.items
-      .filter((item: MenuItem) => item.id === 'hyperlinkMenuItem' || item.id === 'imageMenuItem')
-      .forEach((item: MenuItem) => (item.enabled = false))
-    // Paragraph: enable only the items that have a defined cross-block action.
-    const paragraphMenu = applicationMenu.getMenuItemById('paragraphMenuEntry')!
-    paragraphMenu.submenu!.items.forEach((item: MenuItem) => {
-      if (item.id) {
-        item.enabled = CROSS_BLOCK_ENABLED_PARAGRAPH.includes(item.id)
-      }
-    })
-  }
-
-  // Disable loose list item when not inside any list (bullet / ordered / task).
-  if (!state.isUnorderedList && !state.isOrderedList && !state.isTaskList) {
-    setMultipleStatus(applicationMenu, ['looseListItemMenuItem'], false)
-  }
-
-  // Front matter may exist at most once per document; disable the menu item
-  // whenever the document already has one.
-  if (state.hasFrontMatter) {
-    setMultipleStatus(applicationMenu, ['frontMatterMenuItem'], false)
-  }
 }

@@ -2,6 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { type Menu } from 'electron'
 
 import { updateSelectionMenus } from 'main_renderer/menu/actions/paragraph'
+import {
+  documentCapabilityMenuState
+} from '@/components/editorWithTabs/documentCapabilityMenu'
+import {
+  EDITOR_INTENT_KINDS,
+  type IntentCapabilitySnapshot
+} from '@marktext/document-core'
 import type { DocumentSelectionMenuState } from '@shared/types/documentSelection'
 
 // Real paragraph submenu ids (see src/main/menu/templates/paragraph.ts). The
@@ -84,83 +91,126 @@ const selectionState = (
   ...overrides
 })
 
-describe('updateSelectionMenus', () => {
-  it('disables every Paragraph submenu item when the selection is disabled (table/multi-block)', () => {
-    const menu = makeMenu()
+const ALL_ENABLED = Object.fromEntries(
+  EDITOR_INTENT_KINDS.map(kind => [kind, { enabled: true }])
+) as IntentCapabilitySnapshot
 
-    updateSelectionMenus(menu as unknown as Menu, selectionState({ isDisabled: true }))
+const CONVERSION_ROWS = [
+  'heading1', 'heading2', 'heading3', 'heading4', 'heading5', 'heading6',
+  'upgradeHeading', 'degradeHeading', 'codeFences', 'quoteBlock',
+  'mathBlock', 'htmlBlock', 'orderList', 'bulletList', 'taskList',
+  'looseListItem', 'paragraph', 'horizontalLine', 'frontMatter'
+] as const
 
-    expect(enabledIds(menu.paragraphItems)).toEqual([])
-    expect(menu.paragraphItems.every((i) => i.enabled === false)).toBe(true)
-  })
+const FORMAT_ROWS = [
+  'strong', 'emphasis', 'underline', 'superscript', 'subscript',
+  'highlight', 'inlineCode', 'inlineMath', 'strike', 'hyperlink',
+  'clearFormat'
+] as const
 
-  it('leaves the Format submenu fully enabled for a disabled selection (it is reset first)', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, selectionState({ isDisabled: true }))
-
-    expect(menu.formatItems.every((i) => i.enabled === true)).toBe(true)
-  })
-
-  it('enables only the honest set in Paragraph and disables link/image in Format for a multiline selection', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, selectionState({ isMultiblock: true }))
-
-    // Paragraph: only code/quote/ordered/bullet/task are actionable across blocks.
-    expect(enabledIds(menu.paragraphItems).sort()).toEqual(
-      ['bulletListMenuItem', 'codeFencesMenuItem', 'orderListMenuItem', 'quoteBlockMenuItem', 'taskListMenuItem'].sort()
+// G5: the one menu-row availability policy — capability snapshot x
+// selection context x surface. Main projects; these rows pin the policy.
+describe('documentCapabilityMenuState', () => {
+  it('disables every conversion row for a disabled (table) selection but keeps formats', () => {
+    const rows = documentCapabilityMenuState(
+      ALL_ENABLED,
+      selectionState({ isDisabled: true, isTable: true }),
+      'markup'
     )
-
-    // Format: only link/image are disabled.
-    const formatDisabled = menu.formatItems.filter((i) => !i.enabled).map((i) => i.id)
-    expect(formatDisabled.sort()).toEqual(['hyperlinkMenuItem', 'imageMenuItem'].sort())
+    for (const row of CONVERSION_ROWS) expect(rows[row], row).toBe(false)
+    expect(rows.table).toBe(false)
+    for (const row of FORMAT_ROWS) expect(rows[row], row).toBe(true)
+    expect(rows.image).toBe(true)
   })
 
-  it('disables every Format submenu item for code content and re-enables codeFences (Paragraph)', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, {
-      ...selectionState(),
-      activeBlockKinds: ['code-block'],
-      isCodeLike: true,
-      isCodeBlock: true
-    })
-
-    // Every format item is disabled inside code content.
-    expect(menu.formatItems.every((i) => i.enabled === false)).toBe(true)
-
-    // Paragraph submenu is disabled wholesale by isCodeFences...
-    const paraItem = (id: string) => menu.paragraphItems.find((i) => i.id === id)!
-    expect(paraItem('paragraphMenuItem').enabled).toBe(false)
-    expect(paraItem('heading1MenuItem').enabled).toBe(false)
-    // The selected code block keeps its own conversion toggle available.
-    expect(paraItem('codeFencesMenuItem').enabled).toBe(true)
+  it('enables only the honest cross-block set for a multiline selection', () => {
+    const rows = documentCapabilityMenuState(
+      ALL_ENABLED,
+      selectionState({ isMultiblock: true }),
+      'markup'
+    )
+    const enabled = CONVERSION_ROWS.filter(row => rows[row])
+    expect(enabled.sort()).toEqual(
+      ['bulletList', 'codeFences', 'orderList', 'quoteBlock', 'taskList'].sort()
+    )
+    expect(rows.table).toBe(false)
+    expect(rows.hyperlink).toBe(false)
+    expect(rows.image).toBe(false)
+    expect(rows.strong).toBe(true)
   })
 
-  it('disables loose-list-item when the selection is not in a list', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, selectionState())
-
-    const loose = menu.paragraphItems.find((i) => i.id === 'looseListItemMenuItem')!
-    expect(loose.enabled).toBe(false)
+  it('disables every format row for code content and keeps the code-fence toggle', () => {
+    const rows = documentCapabilityMenuState(
+      ALL_ENABLED,
+      selectionState({
+        activeBlockKinds: ['code-block'],
+        isCodeLike: true,
+        isCodeBlock: true
+      }),
+      'markup'
+    )
+    for (const row of FORMAT_ROWS) expect(rows[row], row).toBe(false)
+    expect(rows.image).toBe(false)
+    expect(rows.paragraph).toBe(false)
+    expect(rows.heading1).toBe(false)
+    expect(rows.codeFences).toBe(true)
   })
 
-  it('keeps loose-list-item enabled in a list', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, selectionState({
-      activeBlockKinds: ['list', 'list-item', 'paragraph'],
-      isUnorderedList: true
-    }))
-
-    const loose = menu.paragraphItems.find((i) => i.id === 'looseListItemMenuItem')!
-    expect(loose.enabled).toBe(true)
+  it('gates loose-list-item on list context and front matter on uniqueness', () => {
+    const outside = documentCapabilityMenuState(
+      ALL_ENABLED, selectionState(), 'markup'
+    )
+    expect(outside.looseListItem).toBe(false)
+    expect(outside.frontMatter).toBe(true)
+    const inside = documentCapabilityMenuState(
+      ALL_ENABLED,
+      selectionState({ isUnorderedList: true }),
+      'markup'
+    )
+    expect(inside.looseListItem).toBe(true)
+    const hasFront = documentCapabilityMenuState(
+      ALL_ENABLED,
+      selectionState({ hasFrontMatter: true }),
+      'markup'
+    )
+    expect(hasFront.frontMatter).toBe(false)
   })
 
-  it('checks the parser-derived heading level', () => {
+  it('folds the Source surface over structure and format rows but not Edit rows', () => {
+    const rows = documentCapabilityMenuState(
+      ALL_ENABLED, selectionState(), 'source'
+    )
+    expect(rows.undo).toBe(true)
+    expect(rows.redo).toBe(true)
+    expect(rows.duplicateBlock).toBe(true)
+    for (const row of CONVERSION_ROWS) expect(rows[row], row).toBe(false)
+    expect(rows.table).toBe(false)
+    for (const row of FORMAT_ROWS) expect(rows[row], row).toBe(false)
+    expect(rows.image).toBe(false)
+  })
+
+  it('reads the capability snapshot before any context', () => {
+    const disabledConversions = documentCapabilityMenuState(
+      Object.freeze({
+        ...ALL_ENABLED,
+        'convert-block': { enabled: false, reason: 'source-only-revision' }
+      }) as IntentCapabilitySnapshot,
+      selectionState(),
+      'markup'
+    )
+    for (const row of CONVERSION_ROWS) {
+      expect(disabledConversions[row], row).toBe(false)
+    }
+    expect(disabledConversions.table).toBe(true)
+    const none = documentCapabilityMenuState(null, null, 'markup')
+    expect(Object.values(none).every(bit => bit === false)).toBe(true)
+  })
+})
+
+describe('updateSelectionMenus', () => {
+  it('checks the parser-derived heading level and writes no enablement', () => {
     const menu = makeMenu()
+    menu.paragraphItems.forEach((item) => (item.enabled = false))
 
     updateSelectionMenus(menu as unknown as Menu, selectionState({
       activeBlockKinds: ['heading'],
@@ -169,64 +219,10 @@ describe('updateSelectionMenus', () => {
 
     const checked = menu.paragraphItems.filter((i) => i.checked).map((i) => i.id)
     expect(checked).toEqual(['heading1MenuItem'])
-  })
-})
-
-describe('updateSelectionMenus — front matter', () => {
-  it('disables Front Matter when the document already has front matter', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, selectionState({ hasFrontMatter: true }))
-
-    const fm = menu.paragraphItems.find((i) => i.id === 'frontMatterMenuItem')!
-    expect(fm.enabled).toBe(false)
-  })
-
-  it('keeps Front Matter enabled when the document has none', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, selectionState())
-
-    const fm = menu.paragraphItems.find((i) => i.id === 'frontMatterMenuItem')!
-    expect(fm.enabled).toBe(true)
-  })
-})
-
-describe('updateSelectionMenus — format disabled in non-formattable blocks', () => {
-  it('disables all format items in parser-owned code-like blocks', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, selectionState({
-      activeBlockKinds: ['math-block'],
-      isCodeLike: true
-    }))
-
-    expect(menu.formatItems.every((i) => i.enabled === false)).toBe(true)
-  })
-
-  it('keeps format items enabled inside a table (disabled paragraph, not code)', () => {
-    const menu = makeMenu()
-
-    updateSelectionMenus(menu as unknown as Menu, selectionState({
-      activeBlockKinds: ['table', 'table-cell'],
-      isTable: true,
-      isDisabled: true
-    }))
-
+    // Row availability belongs to the capability record; the selection
+    // writer owns only checked state.
+    expect(menu.paragraphItems.every((i) => i.enabled === false)).toBe(true)
     expect(menu.formatItems.every((i) => i.enabled === true)).toBe(true)
-  })
-})
-
-describe('updateSelectionMenus — list kinds', () => {
-  it('checks the task list but not bullet for a task selection', () => {
-    const menu = makeMenu()
-    updateSelectionMenus(menu as unknown as Menu, selectionState({
-      activeBlockKinds: ['list', 'list-item', 'paragraph'],
-      isTaskList: true
-    }))
-    const ids = menu.paragraphItems.filter((i) => i.checked).map((i) => i.id)
-    expect(ids).toContain('taskListMenuItem')
-    expect(ids).not.toContain('bulletListMenuItem')
   })
 
   it('checks every parser-derived list kind in a nested selection', () => {
@@ -241,13 +237,14 @@ describe('updateSelectionMenus — list kinds', () => {
     expect(ids).toEqual(['bulletListMenuItem', 'orderListMenuItem', 'taskListMenuItem'].sort())
   })
 
-  it('keeps loose-list-item enabled inside a task list', () => {
+  it('checks the task list but not bullet for a task selection', () => {
     const menu = makeMenu()
     updateSelectionMenus(menu as unknown as Menu, selectionState({
       activeBlockKinds: ['list', 'list-item', 'paragraph'],
       isTaskList: true
     }))
-    const loose = menu.paragraphItems.find((i) => i.id === 'looseListItemMenuItem')!
-    expect(loose.enabled).toBe(true)
+    const ids = menu.paragraphItems.filter((i) => i.checked).map((i) => i.id)
+    expect(ids).toContain('taskListMenuItem')
+    expect(ids).not.toContain('bulletListMenuItem')
   })
 })

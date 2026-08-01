@@ -120,6 +120,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         type: 'separator'
       },
       {
+        id: 'clearFormatMenuItem',
         label: t('menu.format.clearFormat'),
         accelerator: keybindings.getAccelerator('format.clear-format') ?? undefined,
         click(_menuItem, focusedWindow) {

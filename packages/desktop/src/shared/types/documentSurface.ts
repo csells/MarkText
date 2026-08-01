@@ -40,13 +40,58 @@ export interface DocumentClipboardMenuState {
  * (G5/G8): the enablement bits main's Edit menu reads. The renderer derives
  * it from the one published snapshot, never from ad-hoc editor state.
  */
-export interface DocumentCapabilityMenuState {
-  readonly undo: boolean
-  readonly redo: boolean
-  readonly duplicateBlock: boolean
-  readonly insertParagraph: boolean
-  readonly deleteBlock: boolean
-}
+/**
+ * G5: every capability-governed menu row, computed renderer-side from the
+ * published capability snapshot, the selection context, and the active
+ * surface. Main projects it onto menu items and owns no policy. Beyond the
+ * five Edit rows, each key names its menu item: `<key>MenuItem`.
+ */
+export const DOCUMENT_CAPABILITY_MENU_ROWS = Object.freeze([
+  'undo',
+  'redo',
+  'duplicateBlock',
+  'insertParagraph',
+  'deleteBlock',
+  'heading1',
+  'heading2',
+  'heading3',
+  'heading4',
+  'heading5',
+  'heading6',
+  'upgradeHeading',
+  'degradeHeading',
+  'table',
+  'codeFences',
+  'quoteBlock',
+  'mathBlock',
+  'htmlBlock',
+  'orderList',
+  'bulletList',
+  'taskList',
+  'looseListItem',
+  'paragraph',
+  'horizontalLine',
+  'frontMatter',
+  'strong',
+  'emphasis',
+  'underline',
+  'superscript',
+  'subscript',
+  'highlight',
+  'inlineCode',
+  'inlineMath',
+  'strike',
+  'hyperlink',
+  'clearFormat',
+  'image'
+] as const)
+
+export type DocumentCapabilityMenuRow =
+  (typeof DOCUMENT_CAPABILITY_MENU_ROWS)[number]
+
+export type DocumentCapabilityMenuState = Readonly<
+  Record<DocumentCapabilityMenuRow, boolean>
+>
 
 export interface DocumentClipboardConsumerPolicy {
   readonly copyAsRich: boolean
@@ -170,29 +215,20 @@ export const decodeDocumentCapabilityMenuState = (
 ): DocumentCapabilityMenuState => {
   const state = closedRecord(
     value,
-    ['undo', 'redo', 'duplicateBlock', 'insertParagraph', 'deleteBlock'],
+    [...DOCUMENT_CAPABILITY_MENU_ROWS],
     'Document capability menu state'
   )
-  for (const bit of [
-    state.undo,
-    state.redo,
-    state.duplicateBlock,
-    state.insertParagraph,
-    state.deleteBlock
-  ]) {
+  const decoded: Partial<Record<DocumentCapabilityMenuRow, boolean>> = {}
+  for (const row of DOCUMENT_CAPABILITY_MENU_ROWS) {
+    const bit = state[row]
     if (typeof bit !== 'boolean') {
       throw new TypeError(
         'Document capability menu state must carry boolean enablement'
       )
     }
+    decoded[row] = bit
   }
-  return Object.freeze({
-    undo: state.undo as boolean,
-    redo: state.redo as boolean,
-    duplicateBlock: state.duplicateBlock as boolean,
-    insertParagraph: state.insertParagraph as boolean,
-    deleteBlock: state.deleteBlock as boolean
-  })
+  return Object.freeze(decoded) as DocumentCapabilityMenuState
 }
 
 export const decodeDocumentClipboardMenuState = (

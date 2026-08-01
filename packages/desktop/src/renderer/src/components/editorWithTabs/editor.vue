@@ -108,6 +108,10 @@ import bus from '@/bus'
 import {
   useDocumentCapabilityStore
 } from '@/store/documentCapabilities'
+import {
+  documentCapabilityMenuState
+} from './documentCapabilityMenu'
+import { createApplicationMenuState } from '@/store/editor'
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_CODE_FONT_FAMILY } from '@/config'
 import notice from '@/services/notification'
 import { imageAssetSourceFromFile } from '@/services/imageAssetClient'
@@ -430,10 +434,7 @@ watch(focus, (value) => {
 watch(sourceCode, (isSource) => {
   if (isSource) {
     cancelTableShapeRequest()
-    window.electron.ipcRenderer.send(
-      'mt::set-editor-format-menus-enabled',
-      false
-    )
+    publishCapabilityMenuState()
     window.electron.ipcRenderer.send(
       'mt::set-document-clipboard-menu-state',
       { surface: 'source', hasSelection: false }
@@ -444,10 +445,7 @@ watch(sourceCode, (isSource) => {
     if (selectionChange.value) {
       pushSelectionMenuState(selectionChange.value)
     } else {
-      window.electron.ipcRenderer.send(
-        'mt::set-editor-format-menus-enabled',
-        true
-      )
+      publishCapabilityMenuState()
       publishDocumentClipboardMenuState(false)
     }
   })
@@ -1179,10 +1177,25 @@ const handleExport = async (value: unknown) => {
 // every document-view selection-change, and again right after a paragraph action: a no-op
 // action (e.g. "Paragraph" inside a list/quote) fires no selection-change, so the
 // clicked checkbox menu item's auto-toggled OS checkmark would otherwise linger.
+// G5: the menu-row availability record — capability snapshot x selection
+// context x surface — recomputed on every input that can change it.
+const publishCapabilityMenuState = (): void => {
+  const context = selectionChange.value
+  window.electron.ipcRenderer.send(
+    'mt::set-document-capability-menu-state',
+    documentCapabilityMenuState(
+      capabilityStore.snapshot,
+      context === null ? null : createApplicationMenuState(context),
+      sourceCode.value ? 'source' : 'markup'
+    )
+  )
+}
+
 const pushSelectionMenuState = (context: DocumentSelectionContext) => {
   editorStore.SELECTION_CHANGE(context)
   editorStore.SELECTION_FORMATS(context.activeInlineFormats)
   publishDocumentClipboardMenuState(context.selectedText.length > 0)
+  publishCapabilityMenuState()
 }
 
 const publishDocumentClipboardMenuState = (hasSelection: boolean): void => {
@@ -1662,16 +1675,7 @@ useEditorLifecycle(async () => {
     onIntentCapabilities: (documentId, capabilities) => {
       if (documentId !== activeDocumentId()) return
       capabilityStore.UPDATE_CAPABILITIES(capabilities)
-      window.electron.ipcRenderer.send(
-        'mt::set-document-capability-menu-state',
-        {
-          undo: capabilities.undo.enabled,
-          redo: capabilities.redo.enabled,
-          duplicateBlock: capabilities['duplicate-block'].enabled,
-          insertParagraph: capabilities['insert-paragraph'].enabled,
-          deleteBlock: capabilities['delete-block'].enabled
-        }
-      )
+      publishCapabilityMenuState()
     },
     invoke: window.electron.ipcRenderer.invoke as unknown as
       DocumentCoreRemoteSessionOptions['invoke']
@@ -2057,10 +2061,8 @@ useEditorLifecycle(async () => {
   disposeImageAssetInput()
   disposeImageAssetInput = () => {}
 
-  window.electron.ipcRenderer.send(
-    'mt::set-editor-format-menus-enabled',
-    false
-  )
+  capabilityStore.CLEAR_CAPABILITIES()
+  publishCapabilityMenuState()
   window.electron.ipcRenderer.send(
     'mt::set-document-clipboard-menu-state',
     { surface: 'source', hasSelection: false }

@@ -420,10 +420,17 @@ are transcribed exactly. Its real residue is G36.
   command's intent kind, a capability store holds the published
   snapshot, and every intent-backed palette entry carries one
   availability predicate over it — thirty-eight entries collapsed into
-  a factory that declares emit and availability together. Remaining:
-  the paragraph/format/table menu rows read the same derivation
-  (replacing the Source-mode blanket disable), accelerators check it
-  before executing, and the context menu drops its timed round-trip. The format checkbox-state
+  a factory that declares emit and availability together. The menu
+  half landed (2026-07-31): one per-row availability record —
+  capability snapshot x selection context x surface, computed by one
+  renderer policy (`documentCapabilityMenu.ts`) — drives every
+  capability-governed menu row; main projects ids and owns no policy,
+  the selection-menu writer keeps only checked state, and the
+  `mt::set-editor-format-menus-enabled` blanket channel is deleted
+  (the review submenu never needed it — its controller already
+  publishes unavailable state on Source-mode entry). Remaining:
+  accelerators check the same record before executing, and the
+  context menu drops its timed round-trip. The format checkbox-state
   vocabulary (`DocumentFormatMenuState`, main's `MENU_ID_FORMAT_MAP`) is
   G5 residue: it restates the inline-format names with drifted spellings
   and becomes capability-driven when the format bits replace the
