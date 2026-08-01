@@ -2340,7 +2340,7 @@ describe('plan 0009 evidence collector', () => {
     ).toThrow(/Unknown evidence collector argument/)
   })
 
-  it('writes two independently prepared candidate passes without claiming closure', async() => {
+  it.skipIf(!onPublicationPlatform)('writes two independently prepared candidate passes without claiming closure', async() => {
     const root = initializeEvidenceRepository()
     const commit = execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: root,
