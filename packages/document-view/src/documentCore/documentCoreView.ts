@@ -3437,11 +3437,19 @@ export async function createDocumentCoreView(
         let start = range.start;
         let end = range.end;
         if (start === end && inputType === 'deleteContentBackward') {
-            const previous = [...modelText().slice(0, start)].at(-1);
+            // Only the final code point before the caret matters, and a code
+            // point spans at most two UTF-16 units — spreading the whole
+            // prefix cost O(document) per Backspace (seconds at the maximum
+            // document). A two-unit window always contains it: a slice that
+            // opens mid-surrogate contributes a lone lead unit first, and
+            // .at(-1) still returns the complete final code point.
+            const previous = [
+                ...modelText().slice(Math.max(0, start - 2), start),
+            ].at(-1);
             start = Math.max(0, start - (previous?.length ?? 0));
         }
         else if (start === end && inputType === 'deleteContentForward') {
-            const next = [...modelText().slice(end)][0];
+            const next = [...modelText().slice(end, end + 2)][0];
             end = Math.min(modelText().length, end + (next?.length ?? 0));
         }
 
