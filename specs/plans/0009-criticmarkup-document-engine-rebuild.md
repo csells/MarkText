@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G6, G9, G13, G23, G24 open
+- **Status:** RED — G6, G9, G23, G24 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -378,7 +378,28 @@ whose assertion cannot distinguish pass from fail.
   with G13 and G24. Remaining: run the deferred five when their
   windows open, resolve the findings, and bind completeness at the
   final-closure gate.
-- **G13 Selection evidence is synthetic.** A08 and A31 selected through a
+- **G13 Selection evidence is synthetic. CLOSED 2026-08-01.** Both halves
+  are done. The synthetic drives are gone: `selectDomText` was deleted
+  earlier, and the two remaining TreeWalker/Range caret drives
+  (`placeCaretAfter` and issue-4374's `placeCaret`) became one real
+  measured-click gesture with a caret poll and user-style retry
+  (`placeCaretByPointer`). The settlement half is done the hard way:
+  deleting the helpers' four fixed 180 ms tails surfaced three real
+  selection races — the deferred-selectionchange drain adopting the
+  browser's post-render reset as a gesture, the gesture-select revision
+  binding refusing everything after select-only traffic (selects commit
+  revisions without moving the coordinate space; the binding now accepts
+  the coordinate lineage), and user commands targeting a session
+  selection that trailed the visible one (the host's
+  dispatchTargetedIntent seam now commits the live range first, the
+  Review path's existing discipline) — each fixed in production, all
+  eight consumer suites green with no tails. The two remaining
+  acceptance-spec sleeps were replaced with their actual settled facts
+  (context-menu construction observed via Menu.append; the autosave
+  toggle's mt::user-preference broadcast polled page-side). The one
+  fixed pause left in an acceptance spec is the perf suite's 50 ms
+  pre-sampling quiesce, a deliberate part of G23's measurement design.
+  Original statement: A08 and A31 selected through a
   `TreeWalker`, a `Range`, and hand-dispatched untrusted events, and Review
   evidence settles with fixed sleeps instead of the public `settled()` barrier.
   Every selection-sensitive target drives selection with real input and settles
