@@ -11,6 +11,10 @@ import {
   type CriticMarkupReviewAction
 } from '../../../common/commands/review'
 import { useCriticMarkupReviewStore } from '@/store/criticMarkupReview'
+import {
+  useDocumentCapabilityStore
+} from '@/store/documentCapabilities'
+import type { EditorCommandId } from '@shared/types/editorCommands'
 
 export { default as QuickOpenCommand } from './quickOpen'
 export { default as SpellcheckerLanguageCommand } from './spellcheckerLanguage'
@@ -58,6 +62,21 @@ export class RootCommand {
     throw new Error('Root command.')
   }
 }
+
+/**
+ * G5: an intent-backed palette entry — one declaration carries the emit and
+ * the availability predicate over the published capability snapshot.
+ */
+const editorCommand = (
+  id: string,
+  command: EditorCommandId
+): CommandDescriptor => ({
+  id,
+  execute: async() => {
+    focusEditorAndExecute(() => bus.emit('editor-command', command))
+  },
+  isAvailable: () => useDocumentCapabilityStore().commandEnabled(command)
+})
 
 const focusEditorAndExecute = (fn: () => void): void => {
   bus.emit('editor-focus')
@@ -186,36 +205,11 @@ const commands: CommandDescriptor[] = [
   // --------------------------------------------------------------------------
   // Edit
 
-  {
-    id: 'edit.undo',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'undo'))
-    }
-  },
-  {
-    id: 'edit.redo',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'redo'))
-    }
-  },
-  {
-    id: 'edit.duplicate',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'duplicate-block'))
-    }
-  },
-  {
-    id: 'edit.create-paragraph',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'insert-paragraph'))
-    }
-  },
-  {
-    id: 'edit.delete-paragraph',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'delete-block'))
-    }
-  },
+  editorCommand('edit.undo', 'undo'),
+  editorCommand('edit.redo', 'redo'),
+  editorCommand('edit.duplicate', 'duplicate-block'),
+  editorCommand('edit.create-paragraph', 'insert-paragraph'),
+  editorCommand('edit.delete-paragraph', 'delete-block'),
   {
     id: 'edit.find',
     execute: async() => {
@@ -250,210 +244,45 @@ const commands: CommandDescriptor[] = [
   // --------------------------------------------------------------------------
   // Paragraph
 
-  {
-    id: 'paragraph.heading-1',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-1'))
-    }
-  },
-  {
-    id: 'paragraph.heading-2',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-2'))
-    }
-  },
-  {
-    id: 'paragraph.heading-3',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-3'))
-    }
-  },
-  {
-    id: 'paragraph.heading-4',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-4'))
-    }
-  },
-  {
-    id: 'paragraph.heading-5',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-5'))
-    }
-  },
-  {
-    id: 'paragraph.heading-6',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'heading-6'))
-    }
-  },
-  {
-    id: 'paragraph.upgrade-heading',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'upgrade-heading'))
-    }
-  },
-  {
-    id: 'paragraph.degrade-heading',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'degrade-heading'))
-    }
-  },
-  {
-    id: 'paragraph.table',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'insert-table'))
-    }
-  },
-  {
-    id: 'paragraph.code-fence',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'code-fence'))
-    }
-  },
-  {
-    id: 'paragraph.quote-block',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'quote-block'))
-    }
-  },
-  {
-    id: 'paragraph.math-formula',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'math-block'))
-    }
-  },
-  {
-    id: 'paragraph.html-block',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'html-block'))
-    }
-  },
-  {
-    id: 'paragraph.order-list',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'ordered-list'))
-    }
-  },
-  {
-    id: 'paragraph.bullet-list',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'bullet-list'))
-    }
-  },
-  {
-    id: 'paragraph.task-list',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'task-list'))
-    }
-  },
-  {
-    id: 'paragraph.loose-list-item',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'loose-list-item'))
-    }
-  },
-  {
-    id: 'paragraph.paragraph',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'paragraph'))
-    }
-  },
-  {
-    id: 'paragraph.reset-paragraph',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'paragraph'))
-    }
-  },
-  {
-    id: 'paragraph.horizontal-line',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'thematic-break'))
-    }
-  },
-  {
-    id: 'paragraph.front-matter',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'front-matter'))
-    }
-  },
+  editorCommand('paragraph.heading-1', 'heading-1'),
+  editorCommand('paragraph.heading-2', 'heading-2'),
+  editorCommand('paragraph.heading-3', 'heading-3'),
+  editorCommand('paragraph.heading-4', 'heading-4'),
+  editorCommand('paragraph.heading-5', 'heading-5'),
+  editorCommand('paragraph.heading-6', 'heading-6'),
+  editorCommand('paragraph.upgrade-heading', 'upgrade-heading'),
+  editorCommand('paragraph.degrade-heading', 'degrade-heading'),
+  editorCommand('paragraph.table', 'insert-table'),
+  editorCommand('paragraph.code-fence', 'code-fence'),
+  editorCommand('paragraph.quote-block', 'quote-block'),
+  editorCommand('paragraph.math-formula', 'math-block'),
+  editorCommand('paragraph.html-block', 'html-block'),
+  editorCommand('paragraph.order-list', 'ordered-list'),
+  editorCommand('paragraph.bullet-list', 'bullet-list'),
+  editorCommand('paragraph.task-list', 'task-list'),
+  editorCommand('paragraph.loose-list-item', 'loose-list-item'),
+  editorCommand('paragraph.paragraph', 'paragraph'),
+  editorCommand('paragraph.reset-paragraph', 'paragraph'),
+  editorCommand('paragraph.horizontal-line', 'thematic-break'),
+  editorCommand('paragraph.front-matter', 'front-matter'),
 
   // --------------------------------------------------------------------------
   // Format
 
   // NOTE: Focus editor to restore selection and try to apply the commmand.
 
-  {
-    id: 'format.strong',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-strong'))
-    }
-  },
-  {
-    id: 'format.emphasis',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-emphasis'))
-    }
-  },
-  {
-    id: 'format.underline',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-underline'))
-    }
-  },
-  {
-    id: 'format.highlight',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-highlight'))
-    }
-  },
-  {
-    id: 'format.superscript',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-superscript'))
-    }
-  },
-  {
-    id: 'format.subscript',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-subscript'))
-    }
-  },
-  {
-    id: 'format.inline-code',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-inline-code'))
-    }
-  },
-  {
-    id: 'format.inline-math',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-inline-math'))
-    }
-  },
-  {
-    id: 'format.strike',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-strikethrough'))
-    }
-  },
-  {
-    id: 'format.hyperlink',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-link'))
-    }
-  },
-  {
-    id: 'format.image',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-image'))
-    }
-  },
-  {
-    id: 'format.clear-format',
-    execute: async() => {
-      focusEditorAndExecute(() => bus.emit('editor-command', 'format-clear'))
-    }
-  },
+  editorCommand('format.strong', 'format-strong'),
+  editorCommand('format.emphasis', 'format-emphasis'),
+  editorCommand('format.underline', 'format-underline'),
+  editorCommand('format.highlight', 'format-highlight'),
+  editorCommand('format.superscript', 'format-superscript'),
+  editorCommand('format.subscript', 'format-subscript'),
+  editorCommand('format.inline-code', 'format-inline-code'),
+  editorCommand('format.inline-math', 'format-inline-math'),
+  editorCommand('format.strike', 'format-strikethrough'),
+  editorCommand('format.hyperlink', 'format-link'),
+  editorCommand('format.image', 'format-image'),
+  editorCommand('format.clear-format', 'format-clear'),
 
   // --------------------------------------------------------------------------
   // CriticMarkup Review

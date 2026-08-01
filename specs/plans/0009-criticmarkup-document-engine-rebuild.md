@@ -415,7 +415,15 @@ are transcribed exactly. Its real residue is G36.
   surfaces; generalize it over the capability snapshot G8 published — the
   snapshot now predicts read-only, source-only, history, collapsed-selection,
   and coarse target-kind preconditions, so menu, palette, accelerator, and
-  context predicates can all read one record. The format checkbox-state
+  context predicates can all read one record. The palette half landed
+  (2026-07-31): `EDITOR_COMMAND_INTENTS` derives each presentation
+  command's intent kind, a capability store holds the published
+  snapshot, and every intent-backed palette entry carries one
+  availability predicate over it — thirty-eight entries collapsed into
+  a factory that declares emit and availability together. Remaining:
+  the paragraph/format/table menu rows read the same derivation
+  (replacing the Source-mode blanket disable), accelerators check it
+  before executing, and the context menu drops its timed round-trip. The format checkbox-state
   vocabulary (`DocumentFormatMenuState`, main's `MENU_ID_FORMAT_MAP`) is
   G5 residue: it restates the inline-format names with drifted spellings
   and becomes capability-driven when the format bits replace the

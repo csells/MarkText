@@ -1,3 +1,5 @@
+import type { EditorIntent } from '@marktext/document-core'
+
 /**
  * The one presentation-command vocabulary for editor actions. Menu items,
  * accelerators, the command palette, and the `mt::editor-command` channel
@@ -64,3 +66,52 @@ export const decodeEditorCommandId = (value: unknown): EditorCommandId => {
   }
   return value as EditorCommandId
 }
+
+/**
+ * The intent kind a presentation command resolves to, for availability: a
+ * command is enabled exactly when the capability snapshot enables its
+ * intent kind. UI-workflow commands — the find family, select-all, and the
+ * clipboard trio — resolve to no single intent and are managed by their
+ * own surfaces.
+ */
+export const EDITOR_COMMAND_INTENTS: Readonly<
+  Partial<Record<EditorCommandId, EditorIntent['kind']>>
+> = Object.freeze({
+  undo: 'undo',
+  redo: 'redo',
+  'duplicate-block': 'duplicate-block',
+  'insert-paragraph': 'insert-paragraph',
+  'delete-block': 'delete-block',
+  'heading-1': 'convert-block',
+  'heading-2': 'convert-block',
+  'heading-3': 'convert-block',
+  'heading-4': 'convert-block',
+  'heading-5': 'convert-block',
+  'heading-6': 'convert-block',
+  'upgrade-heading': 'convert-block',
+  'degrade-heading': 'convert-block',
+  'insert-table': 'create-table',
+  'code-fence': 'convert-block',
+  'quote-block': 'convert-block',
+  'math-block': 'convert-block',
+  'html-block': 'convert-block',
+  'ordered-list': 'convert-block',
+  'bullet-list': 'convert-block',
+  'task-list': 'convert-block',
+  'loose-list-item': 'convert-block',
+  paragraph: 'convert-block',
+  'thematic-break': 'convert-block',
+  'front-matter': 'convert-block',
+  'format-strong': 'format-text',
+  'format-emphasis': 'format-text',
+  'format-underline': 'format-text',
+  'format-highlight': 'format-text',
+  'format-superscript': 'format-text',
+  'format-subscript': 'format-text',
+  'format-inline-code': 'format-text',
+  'format-inline-math': 'format-text',
+  'format-strikethrough': 'format-text',
+  'format-link': 'format-text',
+  'format-image': 'insert-image',
+  'format-clear': 'format-text'
+})

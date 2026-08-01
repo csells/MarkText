@@ -105,6 +105,9 @@ import type {
 import { applyCursor, isIndexCursor } from '@/util/cursor'
 import EditorSearch from '../search/index.vue'
 import bus from '@/bus'
+import {
+  useDocumentCapabilityStore
+} from '@/store/documentCapabilities'
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_CODE_FONT_FAMILY } from '@/config'
 import notice from '@/services/notification'
 import { imageAssetSourceFromFile } from '@/services/imageAssetClient'
@@ -214,6 +217,7 @@ defineProps<{
 // Get stores
 const preferencesStore = usePreferencesStore()
 const editorStore = useEditorStore()
+const capabilityStore = useDocumentCapabilityStore()
 
 // Use storeToRefs to extract reactive properties from the stores
 const {
@@ -1657,6 +1661,7 @@ useEditorLifecycle(async () => {
     // raw history push cannot.
     onIntentCapabilities: (documentId, capabilities) => {
       if (documentId !== activeDocumentId()) return
+      capabilityStore.UPDATE_CAPABILITIES(capabilities)
       window.electron.ipcRenderer.send(
         'mt::set-document-capability-menu-state',
         {
