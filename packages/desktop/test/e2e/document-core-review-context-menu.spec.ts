@@ -13,6 +13,41 @@ import {
 const SOURCE =
   '{==outer {==inner==}{>>inner note<<}==}{>>outer note<<}\n'
 const EDIT_CONTEXT_COMMENT_ACCELERATOR = 'CmdOrCtrl+Alt+Shift+E'
+const EDIT_COMMENT_MENU_ITEM_ID = 'editCriticMarkupCommentMenuItem'
+
+// The one-shot edit command binds to the comment the right-click captured;
+// the settled fact that capture completed is main constructing the context
+// menu with the edit row. Observe the construction instead of sleeping.
+async function observeContextMenuBuilds(
+  app: ElectronApplication
+): Promise<void> {
+  await app.evaluate(({ Menu, MenuItem }, menuItemId) => {
+    const target = globalThis as typeof globalThis & {
+      __mtContextEditRowAppends?: number
+      __mtContextEditRowHooked?: boolean
+    }
+    target.__mtContextEditRowAppends = 0
+    if (target.__mtContextEditRowHooked) return
+    target.__mtContextEditRowHooked = true
+    const originalAppend = Menu.prototype.append
+    Menu.prototype.append = function(
+      this: Electron.Menu,
+      item: Electron.MenuItem
+    ): void {
+      originalAppend.call(this, item)
+      if (item.id === menuItemId && item instanceof MenuItem) {
+        target.__mtContextEditRowAppends =
+          (target.__mtContextEditRowAppends ?? 0) + 1
+      }
+    }
+  }, EDIT_COMMENT_MENU_ITEM_ID)
+}
+
+const contextEditRowAppends = (app: ElectronApplication): Promise<number> =>
+  app.evaluate(() =>
+    (globalThis as typeof globalThis & { __mtContextEditRowAppends?: number })
+      .__mtContextEditRowAppends ?? 0
+  )
 
 test.describe('document-core Review native context identity', () => {
   test.describe.configure({ timeout: 120000 })
@@ -36,6 +71,7 @@ test.describe('document-core Review native context identity', () => {
   test(
     'right-clicks the nested Comment and invokes its exact one-shot edit command through real input',
     async() => {
+      await observeContextMenuBuilds(app)
       const point = await pointForText(page, 'inner')
       await page.mouse.click(point.x, point.y, { button: 'right' })
 
@@ -46,7 +82,7 @@ test.describe('document-core Review native context identity', () => {
         hasText: 'outer note'
       })
       const editor = innerCard.locator('.comment-edit textarea')
-      await page.waitForTimeout(200)
+      await expect.poll(() => contextEditRowAppends(app)).toBeGreaterThan(0)
       await pressUserKeybinding(
         page,
         app,
