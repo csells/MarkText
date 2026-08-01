@@ -15,7 +15,11 @@ test.describe('installed document-core Comment workflow', () => {
   test.describe.configure({ timeout: 180_000 })
 
   test('completes exact Comment CRUD in the installed artifact', async() => {
-    const fixture = createInstalledFixture('alpha target omega\n')
+    const fixture = createInstalledFixture('alpha target omega\n', {
+      // review.add-comment ships without a default accelerator; the regular
+      // suite injects the same user keybinding through its profile.
+      userKeybindings: { 'review.add-comment': 'CmdOrCtrl+Alt+Shift+C' }
+    })
     let app: ElectronApplication | undefined
     try {
       let launched = await fixture.launch()

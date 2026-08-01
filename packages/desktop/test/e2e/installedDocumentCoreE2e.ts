@@ -37,11 +37,24 @@ function installedBinary(): string {
   return absolute
 }
 
-export function createInstalledFixture(markdown: string): InstalledFixture {
+export function createInstalledFixture(
+  markdown: string,
+  options: Readonly<{
+    userKeybindings?: Readonly<Record<string, string>>
+  }> = {}
+): InstalledFixture {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-core-'))
   const filePath = path.join(root, 'review.md')
   const userDataDir = path.join(root, 'profile')
   fs.writeFileSync(filePath, markdown, 'utf8')
+  if (options.userKeybindings !== undefined) {
+    fs.mkdirSync(userDataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(userDataDir, 'keybindings.json'),
+      `${JSON.stringify(options.userKeybindings, null, 2)}\n`,
+      'utf8'
+    )
+  }
 
   const launch = async(): Promise<InstalledLaunch> => {
     const env: Record<string, string> = {}

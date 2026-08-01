@@ -25,7 +25,7 @@ test.describe('installed document-core full workflow', () => {
       let launched = await fixture.launch()
       app = launched.app
       const editor = launched.page.locator('.editor-component')
-      await expect(editor.locator('[data-critic-id]').first()).toBeVisible()
+      await expect(editor.locator('[data-critic-type]').first()).toBeVisible()
 
       // Consume both parser-derived projections before changing source.
       await clickMenuById(launched.app, 'reviewShowOriginalMenuItem')
