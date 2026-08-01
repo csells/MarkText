@@ -27,8 +27,13 @@ runs:
         ')"
         export MARKTEXT_COREPACK_CLI_PATH="$corepack_cli"
         export MARKTEXT_COREPACK_VERSION='0.34.0'
-        export MARKTEXT_COREPACK_LAUNCHER_SHA256='3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9'
-        export MARKTEXT_COREPACK_BUNDLE_SHA256='bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829'
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          export MARKTEXT_COREPACK_LAUNCHER_SHA256='4bd305443b25ccb4c11b0c3f9eefe65d755af39f3545bfec24af428a1f9451b5'
+          export MARKTEXT_COREPACK_BUNDLE_SHA256='fa6ce1478cf1923503ad4626d6aafdeb6be7a1aa563009ffeae7b78718134f13'
+        else
+          export MARKTEXT_COREPACK_LAUNCHER_SHA256='3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9'
+          export MARKTEXT_COREPACK_BUNDLE_SHA256='bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829'
+        fi
         # Capture instead of substituting inline: a failing Corepack child's
         # diagnostic must reach the log, not vanish into $(...).
         resolved="$(node scripts/runPinnedCorepack.mjs "$package_manager" --version)" || {

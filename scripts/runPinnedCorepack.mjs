@@ -8,10 +8,14 @@ import { fileURLToPath } from 'node:url'
 
 const PINNED_NODE_VERSION = 'v22.21.1'
 const PINNED_COREPACK_VERSION = '0.34.0'
-const PINNED_COREPACK_LAUNCHER_SHA256 =
-  '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9'
-const PINNED_COREPACK_BUNDLE_SHA256 =
-  'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829'
+// The official Windows packaging ships the same Corepack with CRLF-class
+// byte differences, so the pins select by platform.
+const PINNED_COREPACK_LAUNCHER_SHA256 = process.platform === 'win32'
+  ? '4bd305443b25ccb4c11b0c3f9eefe65d755af39f3545bfec24af428a1f9451b5'
+  : '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9'
+const PINNED_COREPACK_BUNDLE_SHA256 = process.platform === 'win32'
+  ? 'fa6ce1478cf1923503ad4626d6aafdeb6be7a1aa563009ffeae7b78718134f13'
+  : 'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829'
 const PINNED_PNPM =
   'pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800'
 

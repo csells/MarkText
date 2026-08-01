@@ -288,8 +288,16 @@ export const PINNED_PNPM_PACKAGE_MANAGER =
 
 export const PINNED_COREPACK_RUNTIME = Object.freeze({
   version: '0.34.0',
-  launcherSha256: '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9',
-  bundleSha256: 'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829'
+  launcherSha256: process.platform === 'win32'
+    ? '4bd305443b25ccb4c11b0c3f9eefe65d755af39f3545bfec24af428a1f9451b5'
+    : '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9',
+  bundleSha256: process.platform === 'win32'
+    ? 'fa6ce1478cf1923503ad4626d6aafdeb6be7a1aa563009ffeae7b78718134f13'
+    : 'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829',
+  windowsLauncherSha256: '4bd305443b25ccb4c11b0c3f9eefe65d755af39f3545bfec24af428a1f9451b5',
+  windowsBundleSha256: 'fa6ce1478cf1923503ad4626d6aafdeb6be7a1aa563009ffeae7b78718134f13',
+  unixLauncherSha256: '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9',
+  unixBundleSha256: 'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829'
 } as const)
 
 const PINNED_NODE_VERSION = 'v22.21.1'
@@ -364,7 +372,7 @@ const PINNED_SETUP_STEP_SHA256 = Object.freeze({
   'Bind the official Node distribution':
     '4655770b13ed76fd109c2f7368e4c03f833db1fa2991e1ba6dee3d70e9e31357',
   'Enable content-addressed pnpm':
-    '9b178ef652227fb534db6e5a53e2151a281185a61db246337cfbf9936985c68e',
+    'e85bcc425010024acf50bce24de10515a574f5646d1d313bb15f27280dcb0b6a',
   'Install Dependencies':
     '4bb94bbbcd6767c3421de0562697591afe07cda9ebf18a314816a22304b4276a'
 } as const)
@@ -540,8 +548,10 @@ export function validate0009EvidenceSupplyChain(
     !setup.includes(
       'node scripts/runPinnedCorepack.mjs "$package_manager" install --frozen-lockfile --ignore-scripts'
     ) ||
-    !setup.includes(PINNED_COREPACK_RUNTIME.launcherSha256) ||
-    !setup.includes(PINNED_COREPACK_RUNTIME.bundleSha256) ||
+    !setup.includes(PINNED_COREPACK_RUNTIME.unixLauncherSha256) ||
+    !setup.includes(PINNED_COREPACK_RUNTIME.unixBundleSha256) ||
+    !setup.includes(PINNED_COREPACK_RUNTIME.windowsLauncherSha256) ||
+    !setup.includes(PINNED_COREPACK_RUNTIME.windowsBundleSha256) ||
     /^\s*(?:corepack|pnpm)\b/mu.test(setup)
   ) {
     throw new Error('Plan 0009 executable supply-chain must use the content-addressed pnpm bootstrap')
