@@ -174,7 +174,7 @@ export async function executeCriticMarkupReviewAction(
       if (!item) return UNAVAILABLE
       return mutationOutcome(
         await editor.resolveCriticMarkup(
-          action === 'accept-current' ? 'accept' : 'reject',
+          action === 'accept-current' ? 'reject' : 'accept',
           {
             revisionId: snapshot.revisionId,
             nodeId: item.id
