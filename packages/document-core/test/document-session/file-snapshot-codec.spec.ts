@@ -113,6 +113,9 @@ describe('FileSnapshot codec', () => {
     expect(snapshot.source.text.charCodeAt(0)).toBe('x'.charCodeAt(0))
     expect(snapshot.source.text.charCodeAt(31_999_999))
       .toBe('x'.charCodeAt(0))
-    expect(elapsedMs).toBeLessThanOrEqual(50)
+    // Bulk decode versus a per-code-unit walk differ by two orders of
+    // magnitude; the bound scales for hosted-runner speed while keeping
+    // that discriminating power.
+    expect(elapsedMs).toBeLessThanOrEqual(process.env.CI ? 200 : 50)
   })
 })
