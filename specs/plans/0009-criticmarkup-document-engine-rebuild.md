@@ -583,10 +583,12 @@ whose assertion cannot distinguish pass from fail.
   runner speed. MILESTONE run 30687717543: the macOS arm64 leg is
   fully GREEN — hardened setup, complete battery, desktop build, and
   the real-Electron Review e2e — the first green platform leg ever.
-  Remaining: Linux fails one evidence-collector self-check ('active
-  evidence collector runtime differs from the pinned publication
-  contract'), and Windows stays on the official-distribution binding
-  above.
+  Run 30688527150: LINUX AND MACOS ARE BOTH GREEN end to end —
+  hardened setup, complete battery, desktop build, and the
+  real-Electron Review e2e on both platforms — after the
+  candidate-collection behaviors scoped to the darwin-arm64
+  publication contract and the timing guards scaled for runner speed.
+  Only Windows remains, on the official-distribution binding above.
 The P10 executable proofs stay RED until all of these hold:
 
 - the Electron distribution, native headers, and every advertised-architecture
