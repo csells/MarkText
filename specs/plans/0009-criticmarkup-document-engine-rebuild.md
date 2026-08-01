@@ -407,7 +407,15 @@ whose assertion cannot distinguish pass from fail.
   (5.5 s against 10 s) and the admission heartbeat are inside budget. The
   keystroke path was G31–G32 observed at target scale; both closed
   2026-07-31 — the intrinsic charge is ~0.01 of the document and the
-  splice is linear — so this gap re-measures on the frozen tree. The
+  splice is linear — so this gap re-measures on the frozen tree.
+  Re-measured 2026-07-31 at 6a122f05 under sustained external machine
+  load (load average ~8–10 all session — the idle-machine premise
+  fails, so budget comparison is inconclusive): the maximum-document
+  keystroke reached terminal state in 2,092 ms against 500; worker
+  `operationElapsedMs` samples ran 99–375 ms; viewport mount 5,550 ms
+  stays inside its 10 s budget. An idle-machine re-measure remains
+  owed; the ~720 ms Chromium relayout decomposition and the route
+  (a)/(b) fork stand unchanged. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
