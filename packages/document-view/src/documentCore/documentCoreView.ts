@@ -935,6 +935,13 @@ export async function createDocumentCoreView(
     let restoreSkippedWhileDeferred = false;
     let browserInputGeneration = 0;
     let imageRenderGeneration = 0;
+    // Serialized identity of the mounted block plan with run keys
+    // normalized away: keys embed the projection lineage and change across
+    // toggles without changing any rendered output. When a publication's
+    // plan is byte-identical under that normalization — a projection
+    // toggle the document's content does not observe — the mounted DOM is
+    // already correct and re-mounting it would only force a full relayout.
+    let mountedPlanSignature: string | null = null;
     const session = options.session;
     let mountedSnapshot: DocumentCoreViewSnapshot | null = null;
     const parseConfiguration = session.snapshot().parseConfiguration;
@@ -1703,10 +1710,43 @@ export async function createDocumentCoreView(
             repaintDecorations();
         rememberDocumentCoreTextPublication(host, snapshot);
             mountedSnapshot = snapshot;
+            mountedPlanSignature = null;
             return;
         }
 
         host.dataset.documentMode = 'semantic';
+        const planSignature = JSON.stringify([
+            snapshot.blocks,
+            snapshot.reviewIndex.commentedSpans,
+        ]).replace(/"key":"[^"]*"/gu, '"key":""');
+        if (planSignature === mountedPlanSignature) {
+            // The entry bookkeeping above already ran (publication memory
+            // forgotten, image generation advanced, transient tools
+            // dropped); redo everything a full mount would except building
+            // DOM that is already mounted and correct.
+            host.dataset.criticProjection = snapshot.projection;
+            host.setAttribute(
+                'contenteditable',
+                snapshot.projection === 'marked' ? 'true' : 'false',
+            );
+            host.setAttribute(
+                'aria-readonly',
+                snapshot.projection === 'marked' ? 'false' : 'true',
+            );
+            if (restoreSelection && snapshot.projection === 'marked') {
+                restoreDocumentCoreSelection(
+                    host,
+                    snapshot.selection.anchor,
+                    snapshot.selection.focus,
+                    ifUserSelectionGeneration,
+                );
+            }
+            refreshQuickInsert(snapshot);
+            repaintDecorations();
+            rememberDocumentCoreTextPublication(host, snapshot);
+            mountedSnapshot = snapshot;
+            return;
+        }
         const mountedImages: Array<
             readonly [HTMLImageElement, MarkupRenderNode]
         > = [];
@@ -1954,6 +1994,7 @@ export async function createDocumentCoreView(
         repaintDecorations();
         rememberDocumentCoreTextPublication(host, snapshot);
         mountedSnapshot = snapshot;
+        mountedPlanSignature = planSignature;
     };
 
     const settle = async (
@@ -2015,6 +2056,7 @@ export async function createDocumentCoreView(
                 result.sourceEdits,
             );
         if (patched) {
+            mountedPlanSignature = null;
             mountedSnapshot = after;
             clearQuickInsert();
             if (restoreSelection) {
