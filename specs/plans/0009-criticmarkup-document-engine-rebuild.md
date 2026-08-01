@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G6, G7, G9, G13, G23, G24, G32 open
+- **Status:** RED — G6, G7, G9, G13, G23, G24 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -272,12 +272,12 @@ proof", and the single-space cell padding exactly as written. -->
 <!-- prettier-ignore -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
-| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G32 (W1) |
+| Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | None. |
 | Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G6, G7 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | None. |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
-| P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6), blocked by G32 |
+| P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6) |
 | P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
 
 ### Gaps
@@ -312,89 +312,6 @@ One audit finding was rejected rather than recorded: hand-typed CriticMarkup
 delimiters in Markup mode are encoded (`{++new++` + `}` commits `{++new++\}`),
 which ADR-0015 ratifies — projected text is encoded faithfully; source bytes
 are transcribed exactly. Its real residue is G36.
-
-**W1 — Document engine**
-
-- **G32 [critical] The intrinsic pass re-reads the entire document on every
-  keystroke.** `intrinsicSourceUnits ÷ document length = 1.000` at every
-  measured size — "unchanged text is parsed once" fails at ordinary sizes,
-  and G23's measured keystroke number is this gap observed at target scale.
-  Progress 2026-07-29: the safe-point computation was O(transitions × lines)
-  and alone cost a fifth of every reopen; indexed, a 135 KB reopen fell from
-  ~149 ms to ~97 ms, and the remaining profile is flat across the intrinsic
-  pipeline (lane state, tape scan, identity emission, fork graph) — the
-  genuinely architectural O(document) work. Closure: the intrinsic pass
-  reuses a settled prefix, re-scans only from the last safe point before an
-  edit to the first reconvergent safe point after it, and re-bases the
-  suffix — invalidated whole by the non-local re-key classes (reference
-  definitions, unclosed fences). Progress 2026-07-30: the splice landed
-  for its first guard class (`internal/profile1/intrinsicPassSplice.ts`):
-  the parse retains its intrinsic facts per revision, a reopen whose
-  edits sit in an end-of-document bracket re-scans only that window and
-  splices tape, line facts, and a per-safe-segment fork lane around it —
-  segmented precisely so downstream regionization keeps the fragment
-  reuse G31 proved. A one-character reopen at sixty paragraphs now costs
-  under a quarter of the document and stops scaling with untouched prose
-  (`incremental-intrinsic-pass.spec.ts`), and the spliced revision is
-  deeply indistinguishable from a full parse across five edit shapes and
-  three sizes with a marker fallback
-  (`incremental-equivalence.spec.ts`). The guards refuse everything
-  else: marker-bearing documents, literals, reference definitions,
-  interior brackets, and non-clean lane shapes all take the full pass.
-  Interior brackets, literal-bearing regions, CRLF spellings, and the
-  marker-bearing class landed with their equivalence rows — a reopen on
-  a Review document whose nodes sit clear of the edit bracket replays
-  the retained forest, shifts the fork branches, and re-scans only the
-  bracket; degraded parses and nesting past sixty-four refuse.
-  Measured 2026-07-30 after the marker route: the per-keystroke
-  intrinsic charge is ~0.01 of the document (the pinned target), but
-  wall time still tracks the document — ~18 ms at 30 KB, ~200 ms at
-  300 KB, ~3.4 s at 3 MB — because the downstream per-reopen stages
-  remain O(document). Profiled 2026-07-30 at ~340 KB: fork-AST emission
-  is 65% of the keystroke (407 of 622 ms over three keystrokes), then
-  graph-core validation (26 ms) and projection preparation (21 ms);
-  materialization and finalization are negligible. Emission re-derives
-  every region and hashes its exact bytes per keystroke even when the
-  region cache hits. Closing G23's keystroke budget starts there: the
-  spliced fork graph knows which regions the edit never touched, so
-  emission can carry the prior revision's region ASTs by provenance
-  instead of re-hashing the whole document to rediscover them. Landed
-  2026-07-30 for the coinciding-projections case: the emission keeps a
-  per-cache region-template index, splice provenance consults it for
-  unchanged and shifted regions — no slice, no key, no digest, counted
-  by `forkAstRegionProvenanceReuses` — and every keystroke on an
-  eligible document carries all of its untouched regions this way.
-  Re-profiled after: the keystroke's residual cost is region fact
-  parsing, template re-materialization, and projection preparation —
-  the next levers are carrying materialized nodes for unchanged-prefix
-  regions verbatim and giving fact parsing the same provenance skip.
-  Located and fixed 2026-07-31: the splice itself was quadratic — the
-  per-safe-segment synthesis filtered the whole tape, line list, and
-  literal list for every segment, so a two-keystroke reopen at 16,000
-  paragraphs spent 12.2 of 13.0 s partitioning already-ordered facts.
-  Advancing pointers replaced the per-segment filters in both the
-  prefix and suffix loops; the same reopen now costs 0.6 s and scales
-  linearly (150 ms at 4,000 paragraphs, 624 ms at 16,000), leaving
-  AST emission as the largest linear stage. Widened 2026-07-31 to
-  definition-bearing documents: a CriticMarkup-free document whose
-  bracket stays clear of every definition block splices, the lookup
-  rebuilds from the shifted literal offsets against the new bytes, and
-  emission re-resolves every reference through the definition cache
-  key — provenance carrying stays withheld there because carried
-  templates bypass that key. Edits reaching a definition still take
-  the full pass. Marker-bearing documents with definitions — the
-  Review-document class — followed the same day: the pass's final
-  reference scope regions are retained, shifted with the other facts,
-  and handed back as preset regions, so comment- and arm-scoped
-  resolution survives the splice (a comment-body reference stays
-  unresolved against a document-scope definition, and a definition
-  opening a comment body scopes to that comment; the equivalence rows
-  compare comment display ASTs to prove it). Remaining widenings
-  inside the splice: CR-only line endings — the latter deliberately residual, because a
-  boundary after a bare CR carries cross-boundary state (a following
-  LF would merge into a CRLF pair), so CR boundaries are never clean
-  checkpoints and the fallback is the sound route; an equivalence row
-  pins that route.
 
 **W2 — Host surfaces**
 
@@ -480,8 +397,14 @@ whose assertion cannot distinguish pass from fail.
   terminal state in 1,341 ms against the 500 ms budget, and the
   five-projection-toggle p95 measures 1,157 ms against 500 ms. Viewport mount
   (5.5 s against 10 s) and the admission heartbeat are inside budget. The
-  keystroke path is G31–G32 observed at target scale; this gap re-measures
-  after they close. Decomposed 2026-07-31 with layered in-app probes (all
+  keystroke path was G31–G32 observed at target scale; both closed
+  2026-07-31 — the intrinsic charge is ~0.01 of the document and the
+  splice is linear — so this gap re-measures on the frozen tree. The
+  engine-side levers that remain live here: carrying region-template
+  provenance on marker- and definition-bearing documents (withheld
+  today because carried templates bypass the definition cache key),
+  carrying materialized nodes for unchanged-prefix regions verbatim,
+  and giving region fact parsing the same provenance skip. Decomposed 2026-07-31 with layered in-app probes (all
   reverted): the 1.5 s keystroke is handler 0.3 ms, worker dispatch
   ~400 ms, surgical DOM patch 3 ms — and ~720 ms of Chromium relayout of
   the single 32,000,000-unit block, forced by the first layout-consuming
