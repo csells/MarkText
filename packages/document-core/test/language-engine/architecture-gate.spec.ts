@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { listRepositoryFiles } from '../helpers/repositoryFiles'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -96,14 +96,7 @@ describe('Phase 0 intrinsic-parser architecture gate', () => {
       dirname(fileURLToPath(import.meta.url)),
       '../..'
     )
-    const sources = execFileSync(
-      'rg',
-      ['--files', 'src', '-g', '*.ts'],
-      { cwd: packageRoot, encoding: 'utf8' }
-    )
-      .trim()
-      .split('\n')
-      .filter(Boolean)
+    const sources = listRepositoryFiles(packageRoot, ['src'], ['*.ts'])
 
     const GRAMMAR_ENTRY_POINTS = [
       'parseProfile1Document',

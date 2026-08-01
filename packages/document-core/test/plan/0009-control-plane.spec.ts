@@ -1,3 +1,4 @@
+import { listRepositoryFiles } from '../helpers/repositoryFiles'
 import { execFileSync } from 'node:child_process'
 import {
   existsSync,
@@ -196,17 +197,11 @@ function readTsv(name: string): readonly TsvRow[] {
 }
 
 function documentViewTestSuites(): readonly string[] {
-  const output = execFileSync(
-    'rg',
-    [
-      '--files',
-      'packages/document-view',
-      '-g', '*.spec.ts',
-      '-g', '*.test.ts',
-    ],
-    { cwd: REPO_ROOT, encoding: 'utf8' }
+  return listRepositoryFiles(
+    REPO_ROOT,
+    ['packages/document-view'],
+    ['*.spec.ts', '*.test.ts']
   )
-  return Object.freeze(output.trim().split('\n').filter(Boolean))
 }
 
 function expectExactIds(actual: readonly string[], expected: readonly string[]): void {

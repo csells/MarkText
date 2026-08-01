@@ -1,3 +1,4 @@
+import { listRepositoryFiles } from '../helpers/repositoryFiles'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -96,20 +97,11 @@ function authoritySurfaceFiles(): readonly string[] {
 }
 
 function activeDesignFiles(): readonly string[] {
-  const output = execFileSync(
-    'rg',
-    [
-      '--files',
-      'docs/adr',
-      'specs',
-      '-g',
-      '*.{md,json,yml,yaml,tsv}',
-      '-g',
-      '!specs/research/**'
-    ],
-    { cwd: REPO_ROOT, encoding: 'utf8' }
+  return listRepositoryFiles(
+    REPO_ROOT,
+    ['docs/adr', 'specs'],
+    ['*.{md,json,yml,yaml,tsv}', '!specs/research/**']
   )
-  return Object.freeze(output.trim().split('\n').filter(Boolean))
 }
 
 interface SyntaxRecognizerHit {
@@ -141,26 +133,22 @@ const REGEX_LITERAL =
   /(?<![\w$)\]])\/(?![*/])(?:\\.|\[(?:\\.|[^\]\n])*\]|[^/\\\n])+\/[dgimsuvy]*/gu
 
 function hostProductionFiles(): readonly string[] {
-  const output = execFileSync(
-    'rg',
+  // Non-grammar document-core modules are production hosts too: the
+  // grammar under internal/profile1 is the ONE place recognition is
+  // legal, and everything else in the package is swept (G40).
+  return listRepositoryFiles(
+    REPO_ROOT,
     [
-      '--files',
       'packages/desktop/src',
       'packages/document-view/src',
-      // Non-grammar document-core modules are production hosts too: the
-      // grammar under internal/profile1 is the ONE place recognition is
-      // legal, and everything else in the package is swept (G40).
-      'packages/document-core/src',
-      '-g',
-      '*.{ts,vue}',
-      '-g',
-      '!**/__tests__/**',
-      '-g',
-      '!packages/document-core/src/internal/profile1/**'
+      'packages/document-core/src'
     ],
-    { cwd: REPO_ROOT, encoding: 'utf8' }
+    [
+      '*.{ts,vue}',
+      '!**/__tests__/**',
+      '!packages/document-core/src/internal/profile1/**'
+    ]
   )
-  return Object.freeze(output.trim().split('\n').filter(Boolean))
 }
 
 function hostSyntaxRecognizers(): readonly SyntaxRecognizerHit[] {
