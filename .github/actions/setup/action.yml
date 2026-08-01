@@ -59,7 +59,11 @@ runs:
         {
           echo '#!/usr/bin/env bash'
           echo 'set -euo pipefail'
-          echo "exec node \"$GITHUB_WORKSPACE/scripts/runPinnedCorepack.mjs\" '$package_manager' \"$@\""
+          # The forwarding "$@" must land in the shim literally; expanding it
+          # here bakes the generating shell's empty parameters into the file
+          # and the shim then drops every caller argument.
+          printf 'exec node "%s/scripts/runPinnedCorepack.mjs" %s "$@"\n' \
+            "$GITHUB_WORKSPACE" "'$package_manager'"
         } > "$bin_dir/pnpm"
         chmod +x "$bin_dir/pnpm"
         echo "MARKTEXT_PINNED_PNPM_BIN=$bin_dir" >> "$GITHUB_ENV"
