@@ -120,7 +120,7 @@ describe('closed renderer project-search client', () => {
       didMatch: (payload) => matches.push(payload),
       inclusions: ['*.md']
     })
-    void search.then(() => {
+    const observed = search.then(() => {
       resolved = true
     })
 
@@ -134,7 +134,7 @@ describe('closed renderer project-search client', () => {
     expect(resolved).toBe(false)
 
     fixture.emitMatch({ searchId: 'main-search', payload: '/two.md' })
-    await search
+    await observed
     expect(matches).toEqual(['/one.md', '/two.md'])
   })
 

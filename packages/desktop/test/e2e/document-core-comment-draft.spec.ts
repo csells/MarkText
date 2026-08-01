@@ -33,7 +33,7 @@ test.describe('document-core raw Comment authoring', () => {
       'before {==target==}{>>outer {++nested++}\nsecond<<} after\n'
     await expectCanonicalOnDisk(page, app, documentPath, expected)
     await pressApplicationMenuAccelerator(page, app, 'editUndoMenuItem')
-    await expectCanonicalOnDisk(page, app, documentPath, 
+    await expectCanonicalOnDisk(page, app, documentPath,
       'before target after\n'
     )
   })

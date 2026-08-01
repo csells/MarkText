@@ -29,7 +29,7 @@ const standaloneSession = async(
   configuration = parseConfiguration,
   clipboard: Readonly<{
     writeClipboardMaterialization?:
-      DocumentHostOptions['session']['writeClipboardMaterialization']
+    DocumentHostOptions['session']['writeClipboardMaterialization']
     pasteText?: string
   }> = {}
 ): Promise<DocumentHostOptions['session']> => {

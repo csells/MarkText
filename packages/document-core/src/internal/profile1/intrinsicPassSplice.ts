@@ -444,10 +444,10 @@ function shiftForkBranch(
   twins: ReadonlyMap<CriticMarkupNode, CriticMarkupNode>,
   allocateLaneId: () => number
 ): Readonly<{
-  kind: 'critic-branch'
-  node: CriticMarkupNode
-  arms: readonly IntrinsicProfile1ForkLane[]
-}> {
+    kind: 'critic-branch'
+    node: CriticMarkupNode
+    arms: readonly IntrinsicProfile1ForkLane[]
+  }> {
   return Object.freeze({
     kind: 'critic-branch' as const,
     node: twins.get(branch.node) ?? branch.node,
@@ -684,9 +684,7 @@ export function spliceIntrinsicFacts(
         : false
     })
   if (miniRoot === undefined || miniRoot !== mini.forkGraph.root) {
-    {
     return undefined
-  }
   }
   const miniAdvances: IntrinsicProfile1LaneTransition[] = []
   let miniFinish: IntrinsicProfile1LaneTransition | undefined
@@ -705,9 +703,7 @@ export function spliceIntrinsicFacts(
   }
   const miniLast = miniAdvances[miniAdvances.length - 1]
   if (miniLast === undefined) {
-    {
     return undefined
-  }
   }
 
   // Tape runs are ordered with ids as indices. A text run may span a
@@ -776,11 +772,8 @@ export function spliceIntrinsicFacts(
   }
   const lastRun = tape[tape.length - 1]
   if (lastRun === undefined || lastRun.range.end !== nextLength) {
-    {
     return undefined
   }
-  }
-
 
   // ---- Marker-bearing route: preserve the retained transition structure ----
   if (retained.roots.length > 0 || retained.forkGraph.branches.length > 0) {
@@ -1076,10 +1069,8 @@ export function spliceIntrinsicFacts(
   )
   for (const line of retainedLines) {
     if (line.end > bracket.start && line.start < bracket.start) {
-    {
-    return undefined
-  }
-  }
+      return undefined
+    }
   }
 
   // The prefix re-materializes as one advance transition PER SAFE SEGMENT,
@@ -1094,7 +1085,6 @@ export function spliceIntrinsicFacts(
     }
   }
   boundaries.push(bracket.start)
-
 
   // Ordered sequences partition with advancing pointers: a per-segment scan
   // of the whole tape or line list is quadratic at tens of thousands of
@@ -1335,9 +1325,7 @@ export function spliceIntrinsicFacts(
   const first = transitions[0]
   const last = transitions[transitions.length - 1]
   if (first === undefined || last === undefined) {
-    {
     return undefined
-  }
   }
   const items: IntrinsicProfile1ForkLaneItem[] = tape.map(
     (run) => Object.freeze({

@@ -124,8 +124,10 @@ describe('admission authority', () => {
     const base = openBase(engine, `${'x'.repeat(4_096)}\n`)
     const authority = createAdmissionAuthority(engine)
     const edits = Object.freeze(Array.from(
-      { length:
-        DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction + 1 },
+      {
+        length:
+        DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction + 1
+      },
       (_, ordinal) => Object.freeze({
         start: ordinal * 2,
         end: ordinal * 2 + 1,

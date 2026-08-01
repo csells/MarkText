@@ -187,7 +187,8 @@ test.describe('Title-bar word counter (item 24)', () => {
     } finally {
       await closeElectron(cycleApp)
     }
-  })})
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Coverage backfill (checklist item 169). Edit > Select All flows through

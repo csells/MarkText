@@ -541,8 +541,8 @@ function nodeTarget<K extends 'remove-highlight' | 'remove-comment'>(
 const INTENT_DECODERS: {
   readonly [K in EditorIntent['kind']]: IntentDecoder<K>
 } = Object.freeze({
-  'undo': kindOnly('undo'),
-  'redo': kindOnly('redo'),
+  undo: kindOnly('undo'),
+  redo: kindOnly('redo'),
   'remove-all-annotations': kindOnly('remove-all-annotations'),
   'delete-text': targetOnly('delete-text'),
   'duplicate-block': targetOnly('duplicate-block'),

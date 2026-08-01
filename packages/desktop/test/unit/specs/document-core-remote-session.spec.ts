@@ -2328,4 +2328,3 @@ describe('renderer client for the main-owned document session', () => {
     }
   })
 })
-

@@ -95,7 +95,6 @@ import {
   type InlineFormat
 } from '@marktext/document-core'
 import type {
-  DocumentCoreExecutionReport,
   DocumentCoreHistoryState
 } from '@shared/types/documentCore'
 import type {
@@ -1518,7 +1517,6 @@ const handleFileChange = (payload: unknown) => {
   }
 }
 
-
 const blurEditor = () => {
   editor.value?.blur()
 }
@@ -1671,7 +1669,6 @@ useEditorLifecycle(async () => {
   const ele = editorRef.value
   if (!ele) return
 
-  const environment = window.electron.process.env
   const bootstrapDocumentId = currentFile.value?.id ?? 'untitled-bootstrap'
   const activeDocumentId = (): string =>
     currentFile.value?.id ?? bootstrapDocumentId

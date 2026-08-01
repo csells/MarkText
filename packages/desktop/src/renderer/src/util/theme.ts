@@ -180,7 +180,6 @@ export const addThemeStyle = (theme: string): void => {
   if (isDarkTheme) {
     document.body.classList.add('dark')
   }
-
 }
 
 export const setEditorWidth = (value: string): void => {

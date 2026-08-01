@@ -83,9 +83,9 @@ async function saveDocuments(
   documents: readonly DocumentLifecycleDocument[],
   save: DocumentLifecycleDependencies['save']
 ): Promise<Readonly<{
-  completed: boolean
-  savedDocumentIds: readonly string[]
-}>> {
+    completed: boolean
+    savedDocumentIds: readonly string[]
+  }>> {
   const savedDocumentIds: string[] = []
   // Save sequentially so two untitled documents cannot race native dialogs.
   for (const { documentId } of documents) {

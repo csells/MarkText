@@ -4273,8 +4273,10 @@ export function parseProfile1Document(
       syntaxIdentity
     )
   }
+  // A reused incremental parse skips the full pass by starting past the
+  // final degradation attempt.
   const skipFullPass = parsed !== undefined
-  for (let attempt = 0; !skipFullPass && attempt < 4; attempt += 1) {
+  for (let attempt = skipFullPass ? 4 : 0; attempt < 4; attempt += 1) {
     const attemptIdentity = attempt === 0
       ? syntaxIdentity
       : createProfile1SyntaxIdentityRegistry(source.length, accounting)
@@ -4613,22 +4615,26 @@ export function parseProfile1Document(
     // degraded over-depth annotations retains nothing: the suppression that
     // shaped it is not part of the bundle, so a splice could not reproduce
     // it.
-    ...(degradedNodes.length > 0 ? {} : { retainedIntrinsic: Object.freeze({
-      sourceLength: source.length,
-      hasCriticMarkupCandidate: parsed.hasCriticMarkupCandidate,
-      rootCount: criticMarkupRoots.length,
-      markerDecisionCount: parsed.markerDecisions.length,
-      referenceDefinitionCount:
+    ...(degradedNodes.length > 0
+      ? {}
+      : {
+        retainedIntrinsic: Object.freeze({
+          sourceLength: source.length,
+          hasCriticMarkupCandidate: parsed.hasCriticMarkupCandidate,
+          rootCount: criticMarkupRoots.length,
+          markerDecisionCount: parsed.markerDecisions.length,
+          referenceDefinitionCount:
         parsed.referenceDefinitions.definitionFacts().length,
-      referenceScopeRegions: parsed.referenceDefinitions.scopeRegions(),
-      tape: parsed.tape,
-      diagnostics: parsed.diagnostics,
-      markdownLiterals: parsed.markdownLiterals,
-      safePoints: intrinsicForkSafeSourcePoints(parsed.forkGraph.root),
-      forkGraph: parsed.forkGraph,
-      roots: criticMarkupRoots,
-      markerDecisions: parsed.markerDecisions
-    }) })
+          referenceScopeRegions: parsed.referenceDefinitions.scopeRegions(),
+          tape: parsed.tape,
+          diagnostics: parsed.diagnostics,
+          markdownLiterals: parsed.markdownLiterals,
+          safePoints: intrinsicForkSafeSourcePoints(parsed.forkGraph.root),
+          forkGraph: parsed.forkGraph,
+          roots: criticMarkupRoots,
+          markerDecisions: parsed.markerDecisions
+        })
+      })
   })
   return finishResult(captureAccountingTrace
     ? Object.freeze({ ...products, accountingTrace: accounting.trace() })

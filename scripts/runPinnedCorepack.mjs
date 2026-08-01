@@ -28,17 +28,17 @@ const corepackRoot = resolve(corepackCliPath, '../..')
 const corepackBundlePath = resolve(corepackRoot, 'dist/lib/corepack.cjs')
 const corepackManifestPath = resolve(corepackRoot, 'package.json')
 
-function sha256(path) {
+function sha256 (path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
-function requireIdentityEnvironment(name, expected) {
+function requireIdentityEnvironment (name, expected) {
   if (process.env[name] !== expected) {
     throw new Error(`Pinned Corepack identity attestation differs: ${name}`)
   }
 }
 
-function verifyCorepackIdentity() {
+function verifyCorepackIdentity () {
   if (process.version !== PINNED_NODE_VERSION) {
     throw new Error(`Pinned Corepack requires Node ${PINNED_NODE_VERSION}`)
   }
@@ -59,7 +59,7 @@ function verifyCorepackIdentity() {
   requireIdentityEnvironment('MARKTEXT_COREPACK_BUNDLE_SHA256', PINNED_COREPACK_BUNDLE_SHA256)
 }
 
-async function run() {
+async function run () {
   verifyCorepackIdentity()
   const arguments_ = process.argv.slice(2)
   if (arguments_[0] !== PINNED_PNPM) {

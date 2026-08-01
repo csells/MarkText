@@ -59,7 +59,7 @@ test.describe('document-core Review native context identity', () => {
 
       await editor.fill('edited inner note')
       await innerCard.locator('.comment-edit .submit').click()
-      await expectCanonicalOnDisk(page, app, documentPath, 
+      await expectCanonicalOnDisk(page, app, documentPath,
         SOURCE.replace('inner note', 'edited inner note')
       )
 

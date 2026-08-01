@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createTableShapeDialogRequest } from '@/components/editorWithTabs/tableShapeDialogRequest'
 
 describe('table shape dialog request', () => {
-  it('returns only a frozen, valid table shape', async () => {
+  it('returns only a frozen, valid table shape', async() => {
     const open = vi.fn()
     const close = vi.fn()
     const request = createTableShapeDialogRequest({ open, close })
@@ -19,7 +19,7 @@ describe('table shape dialog request', () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it('cancels on abort and closes the open dialog', async () => {
+  it('cancels on abort and closes the open dialog', async() => {
     const close = vi.fn()
     const request = createTableShapeDialogRequest({
       open: vi.fn(),
@@ -35,7 +35,7 @@ describe('table shape dialog request', () => {
     expect(request.hasPendingRequest()).toBe(false)
   })
 
-  it('cancels the prior request instead of retargeting it', async () => {
+  it('cancels the prior request instead of retargeting it', async() => {
     const request = createTableShapeDialogRequest({
       open: vi.fn(),
       close: vi.fn()

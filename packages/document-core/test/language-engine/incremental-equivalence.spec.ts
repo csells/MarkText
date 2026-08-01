@@ -418,7 +418,7 @@ describe('incremental reopen equivalence', () => {
         const source = paragraphs.join('\n\n') + '\n'
         const offset = editWhere === 'tail'
           ? source.length - 9
-          : source.indexOf(' prose for the head') 
+          : source.indexOf(' prose for the head')
         const edit = { start: offset, end: offset, insert: ' edited' }
         const edited =
           source.slice(0, edit.start) + edit.insert + source.slice(edit.end)

@@ -355,8 +355,8 @@ if (entryPath !== undefined && import.meta.url === pathToFileURL(resolve(entryPa
   }
   runElectronRebuild(targetPlatform as NodeJS.Platform | undefined, targetArch).catch(
     (error: unknown) => {
-    console.error(error)
-    process.exitCode = 1
+      console.error(error)
+      process.exitCode = 1
     }
   )
 }

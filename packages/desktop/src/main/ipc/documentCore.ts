@@ -8,6 +8,7 @@ import {
   type WebContents
 } from 'electron'
 import { randomUUID } from 'node:crypto'
+import type { ParseConfiguration } from '@marktext/document-core'
 import path from 'node:path'
 import type {
   DocumentCoreMainDispatchRequest,
@@ -101,7 +102,7 @@ let performanceSurfaceInstalled = false
 let staticSinkAcceptanceSurfaceInstalled = false
 
 let measurementParseConfiguration:
-  | (() => import('@marktext/document-core').ParseConfiguration)
+  | (() => ParseConfiguration)
   | null = null
 
 /**
@@ -109,13 +110,13 @@ let measurementParseConfiguration:
  * admits with, so measurement opens can never parse under a private one.
  */
 export function bindMeasurementParseConfiguration(
-  provider: () => import('@marktext/document-core').ParseConfiguration
+  provider: () => ParseConfiguration
 ): void {
   measurementParseConfiguration = provider
 }
 
 const requireMeasurementParseConfiguration =
-  (): import('@marktext/document-core').ParseConfiguration => {
+  (): ParseConfiguration => {
     if (measurementParseConfiguration === null) {
       throw new Error(
         'Measurement used before the composition point bound its grammar'

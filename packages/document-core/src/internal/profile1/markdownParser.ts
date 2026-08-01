@@ -6072,7 +6072,6 @@ function intrinsicForkDocumentFromNodes(
   })
 }
 
-
 /**
  * Test-only counter of parsed source units — the code units handed to the
  * Markdown grammar, summed over every parse.
@@ -7427,4 +7426,3 @@ export function createProfile1MarkdownForkParser(
     })
   })
 }
-

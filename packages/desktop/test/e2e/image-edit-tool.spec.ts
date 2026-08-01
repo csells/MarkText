@@ -217,11 +217,11 @@ test.describe('Format -> Image edit tool wiring', () => {
     await selector.locator('input.src').fill('images/live.png')
     await selector.locator('button[type="submit"]').click()
 
-    await expectCanonicalOnDisk(page, app, documentPath, 
+    await expectCanonicalOnDisk(page, app, documentPath,
       'First\n\n![](images/live.png)\n'
     )
     await undo(app)
-    await expectCanonicalOnDisk(page, app, documentPath, 
+    await expectCanonicalOnDisk(page, app, documentPath,
       'First\n\nSecond\n'
     )
   })

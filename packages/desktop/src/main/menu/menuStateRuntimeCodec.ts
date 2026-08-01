@@ -202,4 +202,3 @@ function boolean(value: unknown, label: string): boolean {
 
 export const decodeSidebarMenuVisibility = (value: unknown): boolean =>
   boolean(value, 'Sidebar menu visibility')
-

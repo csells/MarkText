@@ -197,7 +197,10 @@
 
         <!-- Markup quoted inside a comment payload is the reviewer's prose:
              the engine rejects every gesture on it, so no action is armed. -->
-        <div v-if="!item.withinCommentPayload" class="card-actions">
+        <div
+          v-if="!item.withinCommentPayload"
+          class="card-actions"
+        >
           <button
             v-if="item.type === 'comment' && editingId !== item.id"
             type="button"

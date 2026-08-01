@@ -46,7 +46,11 @@ describe('installed artifact provenance', () => {
     expect(runner).not.toContain('MARKTEXT_DMG')
     expect(runner).not.toContain('ls -t')
     expect(runner).toContain('git rev-parse --verify HEAD')
+    // The assertions quote shell parameter syntax from the runner script,
+    // not TypeScript template holes.
+    // eslint-disable-next-line no-template-curly-in-string
     expect(runner).toContain('marktext-mac-${ARCH}-${VERSION}.dmg')
+    // eslint-disable-next-line no-template-curly-in-string
     expect(runner).toContain('hdiutil attach "${DMG}" -nobrowse -readonly')
   })
 })

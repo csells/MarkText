@@ -188,11 +188,11 @@ export const INTENT_PREPARATIONS: {
   'set-task-checked': revision<'set-task-checked'>(
     (worker, intent, next) =>
       worker.prepareTaskChecked(
-      intent.target,
-      intent.checked,
-      intent.cascade,
-      next
-    ),
+        intent.target,
+        intent.checked,
+        intent.cascade,
+        next
+      ),
     COMPLETE_REVISION_REQUIRES
   ),
   'set-code-language': revision<'set-code-language'>(
@@ -220,11 +220,11 @@ export const INTENT_PREPARATIONS: {
   'insert-footnote': revision<'insert-footnote'>(
     (worker, intent, next) =>
       worker.prepareFootnoteInsertion(
-      intent.target,
-      intent.label,
-      intent.content,
-      next
-    ),
+        intent.target,
+        intent.label,
+        intent.content,
+        next
+      ),
     COMPLETE_REVISION_REQUIRES
   ),
   'create-table': revision<'create-table'>(
@@ -316,12 +316,12 @@ export const INTENT_PREPARATIONS: {
       intent.selection,
       next
     )),
-  'undo': revision<'undo'>(
+  undo: revision<'undo'>(
     (worker, _intent, next) => worker.prepareUndo(next),
     Object.freeze(['marked-projection', 'undoable']),
     { cause: 'undo' }
   ),
-  'redo': revision<'redo'>(
+  redo: revision<'redo'>(
     (worker, _intent, next) => worker.prepareRedo(next),
     Object.freeze(['marked-projection', 'redoable']),
     { cause: 'redo' }

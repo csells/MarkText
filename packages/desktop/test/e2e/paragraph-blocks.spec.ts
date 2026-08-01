@@ -319,7 +319,7 @@ test.describe('Insert table dialog', () => {
     const expected = 'First\n\n|   |\n| --- |\n\nSecond\n'
     await expectCanonicalOnDisk(page, app, documentPath, expected)
     await undo(app)
-    await expectCanonicalOnDisk(page, app, documentPath, 
+    await expectCanonicalOnDisk(page, app, documentPath,
       'First\n\nSecond\n'
     )
   })
