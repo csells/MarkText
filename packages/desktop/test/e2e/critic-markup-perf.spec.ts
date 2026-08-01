@@ -121,21 +121,43 @@ test.describe('document-core CriticMarkup performance budgets', () => {
       return Date.now() - startedAt
     }
 
+    // The completion signal is the production attribute flip; a
+    // MutationObserver registered before the click observes it the moment
+    // it lands, where a polled assertion would quantize every sample to
+    // the poll cadence and measure the harness instead of the app.
+    const projectionSettled = (projection: string): Promise<void> =>
+      page.evaluate(async(target) => await new Promise<void>((resolve) => {
+        const editor = document.querySelector('.editor-component')
+        if (!(editor instanceof HTMLElement)) {
+          throw new Error('editor component is not mounted')
+        }
+        if (editor.getAttribute('data-critic-projection') === target) {
+          resolve()
+          return
+        }
+        const observer = new MutationObserver(() => {
+          if (editor.getAttribute('data-critic-projection') === target) {
+            observer.disconnect()
+            resolve()
+          }
+        })
+        observer.observe(editor, {
+          attributes: true,
+          attributeFilter: ['data-critic-projection']
+        })
+      }), projection)
+
     const toggleSamples: number[] = []
     for (let round = 0; round < 5; round++) {
       toggleSamples.push(await timed(async() => {
+        const settled = projectionSettled('original')
         await clickMenuById(app, 'reviewShowOriginalMenuItem')
-        await expect(page.locator('.editor-component')).toHaveAttribute(
-          'data-critic-projection',
-          'original'
-        )
+        await settled
       }))
       toggleSamples.push(await timed(async() => {
+        const settled = projectionSettled('marked')
         await clickMenuById(app, 'reviewShowMarkedMenuItem')
-        await expect(page.locator('.editor-component')).toHaveAttribute(
-          'data-critic-projection',
-          'marked'
-        )
+        await settled
       }))
     }
 
