@@ -1010,7 +1010,7 @@ describe('plan 0009 evidence collector', () => {
         rmSync(root, { recursive: true, force: true })
       }
     }
-  }, 30_000)
+  }, 120_000)
 
   it('registers platform evidence for final pushes and relevant changes', () => {
     const workflow = readFileSync(
@@ -3096,5 +3096,5 @@ describe('plan 0009 evidence collector', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 })

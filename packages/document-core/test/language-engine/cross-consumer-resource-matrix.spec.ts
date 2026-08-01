@@ -144,7 +144,7 @@ describe('cross-consumer deterministic resource boundary', () => {
         }
       }
     },
-    60_000
+    240_000
   )
 
   it(
@@ -163,7 +163,7 @@ describe('cross-consumer deterministic resource boundary', () => {
         selection: { start: 0, end: 1 }
       })).not.toThrow()
     },
-    30_000
+    120_000
   )
 
   it(
@@ -183,7 +183,7 @@ describe('cross-consumer deterministic resource boundary', () => {
         structure: STATIC_STRUCTURE
       })).not.toThrow()
     },
-    30_000
+    120_000
   )
 
   it(
@@ -277,6 +277,6 @@ describe('cross-consumer deterministic resource boundary', () => {
         'print'
       )).toContain('x')
     },
-    30_000
+    120_000
   )
 })

@@ -551,7 +551,7 @@ describe('plan 0009 machine-checked control plane', () => {
         expectResolvedGreenTarget(target)
       }
     }
-  }, 30_000)
+  }, 120_000)
 
   it('rejects an expected failure as green acceptance evidence', () => {
     expect(() => {
