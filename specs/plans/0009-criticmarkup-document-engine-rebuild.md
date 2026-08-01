@@ -551,13 +551,24 @@ whose assertion cannot distinguish pass from fail.
   scan (~110 ms per giant carrier) short-circuits to one identity
   segment when the text contains no backslash or ampersand — worker
   edit stall 140 ms → 31 ms against the 100 ms heartbeat budget, every
-  publish span ≤15 ms. Open frontier: one clean full-matrix pass at
-  true idle — the guard (load < 3) has refused every window since the
-  fixes landed because ambient user software holds the machine at
-  ~3.5, and the maximum-document edit terminal reading (5.4 s against
-  2,000 ms at load 2.9–4.4, passing at load 1.9 the same morning)
-  needs that idle pass to separate paint contention from regression.
-  A29/A37's baselines open with that green. The
+  publish span ≤15 ms. 2026-08-01 afternoon, the last asserted stall fell:
+  mainLoop.maximumGapMs (~200 ms) was attributed exhaustively — idle
+  CPU profile, a native sample parking main in
+  _BlockUntilNextEventMatchingListInMode, six instrumented JS surfaces
+  all clean — to macOS coalescing a hidden accessory app's timers
+  under ambient load, and the assertion now carries its own 300 ms
+  ceiling that still fails genuine main-thread work; the hunt also
+  moved large journal content onto transfer-listed bytes across the
+  worker→main port and taught the background guard to prevent app
+  suspension. Open frontier: one clean full-matrix pass on a quiet
+  machine. Guard-passing runs at load ~2.6 prove every engine metric
+  and the edit terminal (1,795 ms against 2,000) and once proved the
+  deletion terminal (1,657 ms) — but the deletion terminal swings to
+  7,385 ms under ambient GUI contention the load-average guard cannot
+  see, so re-rolling until it lands green would be sampling, not
+  measurement. The owner's quiet Mac mini (access pending) or an
+  equivalent idle window settles it; A29/A37's baselines open with
+  that green. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
