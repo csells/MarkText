@@ -569,6 +569,13 @@ whose assertion cannot distinguish pass from fail.
   product, is why the platform workflow never passed on those legs;
   the generator now prints the forwarding "$@" literally, verified
   end-to-end against the official pinned Node distribution locally.
+  With the shim fixed (run 30685895710), the Linux and macOS legs
+  clear the entire hardened setup — pinned Corepack, pnpm, frozen
+  dependency install — and reach the build-and-test phase, where the
+  remaining failures are ordinary environment work: ripgrep is absent
+  on the hosted runners (spawnSync rg ENOENT) and several suites need
+  runner-scaled timeouts. Windows still refuses at the byte check
+  pending the official-distribution binding above.
 The P10 executable proofs stay RED until all of these hold:
 
 - the Electron distribution, native headers, and every advertised-architecture
