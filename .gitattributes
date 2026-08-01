@@ -1,0 +1,7 @@
+# The document engine is source-byte authoritative and the plan 0009
+# evidence chain hashes whole files: a checkout must reproduce the
+# committed bytes exactly on every platform, so git must never apply
+# end-of-line conversion in either direction. The Windows platform leg
+# proved the failure mode: runner-default autocrlf produced CRLF
+# working trees that broke byte-exact anchors and line probes.
+* -text

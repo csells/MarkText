@@ -488,16 +488,18 @@ describe('plan 0009 evidence collector', () => {
       'install'
     ])
     expect(request.environment).toEqual({
-      MARKTEXT_COREPACK_BUNDLE_SHA256:
-        'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829',
+      MARKTEXT_COREPACK_BUNDLE_SHA256: process.platform === 'win32'
+        ? 'fa6ce1478cf1923503ad4626d6aafdeb6be7a1aa563009ffeae7b78718134f13'
+        : 'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829',
       MARKTEXT_COREPACK_CLI_PATH: resolve(
         dirname(process.execPath),
         process.platform === 'win32'
           ? 'node_modules/corepack/dist/corepack.js'
           : '../lib/node_modules/corepack/dist/corepack.js'
       ),
-      MARKTEXT_COREPACK_LAUNCHER_SHA256:
-        '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9',
+      MARKTEXT_COREPACK_LAUNCHER_SHA256: process.platform === 'win32'
+        ? '4bd305443b25ccb4c11b0c3f9eefe65d755af39f3545bfec24af428a1f9451b5'
+        : '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9',
       MARKTEXT_COREPACK_VERSION: '0.34.0'
     })
     expect(request.command).not.toContain('npm')
@@ -649,10 +651,19 @@ describe('plan 0009 evidence collector', () => {
     const root = mkdtempSync(resolve(tmpdir(), 'marktext-electron-hostile-path-'))
     try {
       const archiveName = 'electron-v42.1.0-darwin-arm64.zip'
-      const hostileDirectory = resolve(root, 'cache"; touch SHOULD_NOT_EXIST; #')
+      // NTFS forbids double quotes in file names, so the Windows variant
+      // proves the same argument literalness with characters cmd.exe would
+      // otherwise interpolate; POSIX keeps the shell-metacharacter form.
+      const hostileCache = process.platform === 'win32'
+        ? "cache'; touch SHOULD_NOT_EXIST; #&^"
+        : 'cache"; touch SHOULD_NOT_EXIST; #'
+      const hostileDist = process.platform === 'win32'
+        ? "dist'; touch ALSO_NOT_CREATED; #&^"
+        : 'dist"; touch ALSO_NOT_CREATED; #'
+      const hostileDirectory = resolve(root, hostileCache)
       const archivePath = resolve(hostileDirectory, archiveName)
-      const destinationPath = resolve(root, 'dist"; touch ALSO_NOT_CREATED; #')
-      writeFixture(root, `cache"; touch SHOULD_NOT_EXIST; #/${archiveName}`, 'archive')
+      const destinationPath = resolve(root, hostileDist)
+      writeFixture(root, `${hostileCache}/${archiveName}`, 'archive')
 
       expect(findElectronArchive(root, archiveName)).toBe(archivePath)
       expect(existsSync(resolve(root, 'SHOULD_NOT_EXIST'))).toBe(false)
@@ -1529,16 +1540,18 @@ describe('plan 0009 evidence collector', () => {
       // two-sided pins, and the CLI path derives from the same process the
       // collector runs in.
       expect(build.environment).toEqual({
-        MARKTEXT_COREPACK_BUNDLE_SHA256:
-          'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829',
+        MARKTEXT_COREPACK_BUNDLE_SHA256: process.platform === 'win32'
+          ? 'fa6ce1478cf1923503ad4626d6aafdeb6be7a1aa563009ffeae7b78718134f13'
+          : 'bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829',
         MARKTEXT_COREPACK_CLI_PATH: resolve(
           dirname(process.execPath),
           process.platform === 'win32'
             ? 'node_modules/corepack/dist/corepack.js'
             : '../lib/node_modules/corepack/dist/corepack.js'
         ),
-        MARKTEXT_COREPACK_LAUNCHER_SHA256:
-          '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9',
+        MARKTEXT_COREPACK_LAUNCHER_SHA256: process.platform === 'win32'
+          ? '4bd305443b25ccb4c11b0c3f9eefe65d755af39f3545bfec24af428a1f9451b5'
+          : '3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9',
         MARKTEXT_COREPACK_VERSION: '0.34.0',
         MARKTEXT_EXPECTED_ARTIFACT_PATH: resolve(
           root,

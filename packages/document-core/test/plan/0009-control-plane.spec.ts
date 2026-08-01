@@ -338,7 +338,9 @@ function playwrightCollection(
     [
       PLAYWRIGHT_CLI,
       'test',
-      relative(packageRoot, absoluteTarget),
+      // Playwright interprets this argument as a pattern against
+      // POSIX-style paths, so Windows separators would select nothing.
+      relative(packageRoot, absoluteTarget).replaceAll('\\', '/'),
       '--config',
       configPath,
       '--list',

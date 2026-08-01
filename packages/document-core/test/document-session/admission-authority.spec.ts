@@ -71,9 +71,12 @@ describe('admission authority', () => {
         if (!readFileSync(path, 'utf8').includes('.reopen(')) {
           continue
         }
+        // join() produces backslash separators on Windows; the authority
+        // allow-list is written with forward slashes, so compare normalized.
+        const normalized = path.replaceAll('\\', '/')
         if (
-          !path.endsWith('internal/session/admissionAuthority.ts') &&
-          !path.endsWith('src/languageEngine.ts')
+          !normalized.endsWith('internal/session/admissionAuthority.ts') &&
+          !normalized.endsWith('src/languageEngine.ts')
         ) {
           offenders.push(path)
         }
