@@ -986,7 +986,7 @@ export class SessionCoordinator {
     // The owner-ruled asynchronous path: enqueue in order, do not await.
     // Nobody awaits this write, so its failure latches the session closed
     // at the next strict barrier instead of vanishing.
-    void this.#chainJournal(() =>
+    this.#chainJournal(() =>
       this.#journal.settle(ticket, checkpoint, outcome)
     ).catch((error: unknown) => {
       this.#journalFailure ??= error ?? new Error('Journal write failed')
