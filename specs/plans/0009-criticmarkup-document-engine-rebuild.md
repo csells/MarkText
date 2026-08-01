@@ -547,7 +547,20 @@ whose assertion cannot distinguish pass from fail.
   bundle that only the actual closure run produces — and that run is
   sequenced by this plan's own order of work after G9 completeness
   and G23's idle-machine matrix, because the W6 freeze invalidates on
-  every earlier fix.
+  every earlier fix. First platform dispatch 2026-08-01 (A32, runs
+  30685122753/30685138098, owner-approved): all three legs fail in
+  setup, and the failures are the hardening working rather than the
+  product — the Windows toolcache Node 22.21.1 carries Corepack bytes
+  that differ from the official nodejs.org distribution (both pinned
+  hashes re-verified byte-identical against the official tarball, so
+  the byte check refuses a genuinely divergent runtime), and the
+  Linux/macOS legs pass the byte checks but the pinned Corepack's
+  pnpm resolution exits 1 with its diagnostic swallowed by an inline
+  command substitution in the setup action — now captured and echoed
+  so the next dispatch names its cause. Resolving the Windows
+  divergence is the authority decision the P10 list already states:
+  bind the exact official Node distribution rather than trusting the
+  toolcache repack.
 The P10 executable proofs stay RED until all of these hold:
 
 - the Electron distribution, native headers, and every advertised-architecture
