@@ -633,6 +633,15 @@ export class SessionCoordinator {
   readonly #session: SessionId
   readonly #ids: SessionIds
   readonly #journal: DurableSessionJournal
+  // Journal operations chain through one tail so records stay total-ordered
+  // on disk. Source-mutating settles await their chained write (strict
+  // write-ahead, automatically behind every earlier record); state-changed
+  // settles enqueue without blocking their publication — the owner-ruled
+  // durability line: crash-loss of a view preference is acceptable, loss of
+  // content is not. A failed asynchronous write fails the session closed at
+  // the next strict barrier.
+  #journalTail: Promise<void> = Promise.resolve()
+  #journalFailure: unknown = null
   readonly #worker: RevisionWorker
   #configuration: SessionConfiguration
   #projection: CriticMarkupProjection = 'marked'
@@ -918,7 +927,7 @@ export class SessionCoordinator {
         })
         this.#worker.reconfigure(configuration)
         try {
-          await this.#journal.checkpoint(this.checkpoint())
+          await this.#checkpointJournalStrict(this.checkpoint())
         } catch (error) {
           this.#worker.restore(previous)
           throw error
@@ -932,6 +941,56 @@ export class SessionCoordinator {
       }
     )
     return Object.freeze({ id, clientSequence, completion })
+  }
+
+  #chainJournal<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.#journalFailure !== null) {
+      const failure = this.#journalFailure
+      return Promise.reject(
+        failure instanceof Error
+          ? failure
+          : new Error('Session journal failed asynchronously')
+      )
+    }
+    const chained = this.#journalTail.then(operation)
+    // A strict caller awaits `chained` and owns its failure (the rollback
+    // paths handle it); the tail only swallows so ordering survives.
+    this.#journalTail = chained.then(
+      () => undefined,
+      () => undefined,
+    )
+    return chained
+  }
+
+  #settleJournalStrict(
+    ticket: Parameters<DurableSessionJournal['settle']>[0],
+    checkpoint: Parameters<DurableSessionJournal['settle']>[1],
+    outcome: Parameters<DurableSessionJournal['settle']>[2],
+  ): Promise<void> {
+    return this.#chainJournal(() =>
+      this.#journal.settle(ticket, checkpoint, outcome)
+    )
+  }
+
+  #checkpointJournalStrict(
+    checkpoint: Parameters<DurableSessionJournal['checkpoint']>[0],
+  ): Promise<void> {
+    return this.#chainJournal(() => this.#journal.checkpoint(checkpoint))
+  }
+
+  #settleJournalBehind(
+    ticket: Parameters<DurableSessionJournal['settle']>[0],
+    checkpoint: Parameters<DurableSessionJournal['settle']>[1],
+    outcome: Parameters<DurableSessionJournal['settle']>[2],
+  ): void {
+    // The owner-ruled asynchronous path: enqueue in order, do not await.
+    // Nobody awaits this write, so its failure latches the session closed
+    // at the next strict barrier instead of vanishing.
+    void this.#chainJournal(() =>
+      this.#journal.settle(ticket, checkpoint, outcome)
+    ).catch((error: unknown) => {
+      this.#journalFailure ??= error ?? new Error('Journal write failed')
+    })
   }
 
   async #installed(
@@ -964,7 +1023,7 @@ export class SessionCoordinator {
       const previous = this.#worker.historyState().savedIdentity
       this.#worker.markPersisted(headIdentity)
       try {
-        await this.#journal.checkpoint(this.checkpoint())
+        await this.#checkpointJournalStrict(this.checkpoint())
       } catch (error) {
         this.#worker.markPersisted(previous)
         throw error
@@ -1175,7 +1234,7 @@ export class SessionCoordinator {
         reason: declaredNoop,
         revision: this.#worker.state.id
       })
-      await this.#journal.settle(ticket, this.checkpoint(this.#retainedDrafts, sequence), outcome)
+      await this.#settleJournalStrict(ticket, this.checkpoint(this.#retainedDrafts, sequence), outcome)
       this.#settledWatermark = sequence
       return Object.freeze({
         kind: 'noop' as const,
@@ -1216,7 +1275,7 @@ export class SessionCoordinator {
       // cancellation cannot leave a committed head with no snapshot.
       this.#worker.prepareDocumentFacts(prepared.revision)
       const transitionId = this.#ids.transition()
-      if (await this.#journal.beginCommit(ticket) === 'cancelled') {
+      if (await this.#chainJournal(() => this.#journal.beginCommit(ticket)) === 'cancelled') {
         this.#ids.restore(rollbackIds)
         return this.#settleCancelled(ticket, sequence, submittedAgainst)
       }
@@ -1255,7 +1314,7 @@ export class SessionCoordinator {
       })
 
       try {
-        await this.#journal.settle(
+        await this.#settleJournalStrict(
           ticket,
           this.checkpoint(this.#retainedDrafts, sequence),
           outcome
@@ -1304,7 +1363,7 @@ export class SessionCoordinator {
           revision: rollbackWorker.id,
           effect
         })
-        await this.#journal.settle(
+        await this.#settleJournalStrict(
           ticket,
           this.checkpoint(
             this.#retainedDrafts,
@@ -1379,7 +1438,7 @@ export class SessionCoordinator {
             retainedDraft
           })
       try {
-        await this.#journal.settle(
+        await this.#settleJournalStrict(
           ticket,
           this.checkpoint(retainedDrafts, sequence),
           outcome
@@ -1426,7 +1485,7 @@ export class SessionCoordinator {
         reason: 'source-only-revision' as const,
         revision: this.#worker.state.id
       })
-      await this.#journal.settle(
+      await this.#settleJournalStrict(
         ticket,
         this.checkpoint(this.#retainedDrafts, sequence),
         outcome
@@ -1447,7 +1506,7 @@ export class SessionCoordinator {
         reason: 'no-source-change' as const,
         revision: this.#worker.state.id
       })
-      await this.#journal.settle(
+      await this.#settleJournalStrict(
         ticket,
         this.checkpoint(this.#retainedDrafts, sequence),
         outcome
@@ -1464,7 +1523,7 @@ export class SessionCoordinator {
     const rollbackProjection = this.#projection
     const transitionId = this.#ids.transition()
     try {
-      if (await this.#journal.beginCommit(ticket) === 'cancelled') {
+      if (await this.#chainJournal(() => this.#journal.beginCommit(ticket)) === 'cancelled') {
         this.#ids.restore(rollbackIds)
         return this.#settleCancelled(ticket, sequence, submittedAgainst)
       }
@@ -1488,7 +1547,7 @@ export class SessionCoordinator {
         trackChanges: this.#worker.trackChanges,
         projection
       })
-      await this.#journal.settle(
+      this.#settleJournalBehind(
         ticket,
         this.checkpoint(this.#retainedDrafts, sequence),
         outcome
@@ -1520,7 +1579,7 @@ export class SessionCoordinator {
         revision: this.#worker.state.id,
         effect
       })
-      await this.#journal.settle(
+      await this.#settleJournalStrict(
         ticket,
         this.checkpoint(this.#retainedDrafts, sequence, effects),
         outcome
@@ -1552,7 +1611,7 @@ export class SessionCoordinator {
         reason: 'no-source-change' as const,
         revision: this.#worker.state.id
       })
-      await this.#journal.settle(
+      await this.#settleJournalStrict(
         ticket,
         this.checkpoint(this.#retainedDrafts, sequence),
         outcome
@@ -1570,7 +1629,7 @@ export class SessionCoordinator {
     const rollbackConfiguration = this.#configuration
     const transitionId = this.#ids.transition()
     try {
-      if (await this.#journal.beginCommit(ticket) === 'cancelled') {
+      if (await this.#chainJournal(() => this.#journal.beginCommit(ticket)) === 'cancelled') {
         this.#ids.restore(rollbackIds)
         return this.#settleCancelled(ticket, sequence, submittedAgainst)
       }
@@ -1601,7 +1660,7 @@ export class SessionCoordinator {
         trackChanges: enabled,
         projection: this.#projection
       })
-      await this.#journal.settle(
+      this.#settleJournalBehind(
         ticket,
         this.checkpoint(this.#retainedDrafts, sequence),
         outcome
@@ -1634,7 +1693,7 @@ export class SessionCoordinator {
         revision: rollbackWorker.id,
         effect
       })
-      await this.#journal.settle(
+      await this.#settleJournalStrict(
         ticket,
         this.checkpoint(this.#retainedDrafts, sequence, effects),
         outcome
@@ -1663,7 +1722,7 @@ export class SessionCoordinator {
       reason: 'cancelled' as const,
       revision: this.#worker.state.id
     })
-    await this.#journal.settle(
+    await this.#settleJournalStrict(
       ticket,
       this.checkpoint(
         this.#retainedDrafts,
@@ -2099,7 +2158,7 @@ export class SessionCoordinator {
     _operation: 'flush' | 'prepare-persistence',
     _reason: FlushReason | PersistenceReason
   ): Promise<FlushResult> {
-    await this.#journal.checkpoint(this.checkpoint())
+    await this.#checkpointJournalStrict(this.checkpoint())
 
     const watermark = this.#settledWatermark
     if (this.#retainedDrafts.length > 0) {
@@ -2130,7 +2189,7 @@ export class SessionCoordinator {
       ].slice(-DOCUMENT_RESOURCE_POLICY_V1.maximumJournalOutcomes)
     )
     try {
-      await this.#journal.checkpoint(this.checkpoint())
+      await this.#checkpointJournalStrict(this.checkpoint())
     } catch (error) {
       this.#leases.delete(leaseState.id)
       this.#reopenSemanticHashes = previousReopenSemanticHashes
@@ -2205,7 +2264,7 @@ export class SessionCoordinator {
     state: LeaseState,
     _reason: LeaseReleaseReason
   ): Promise<LeaseReleaseResult> {
-    await this.#journal.checkpoint(this.checkpoint())
+    await this.#checkpointJournalStrict(this.checkpoint())
     if (state.released) {
       return Object.freeze({ kind: 'already-terminal' as const, lease: state.id })
     }
