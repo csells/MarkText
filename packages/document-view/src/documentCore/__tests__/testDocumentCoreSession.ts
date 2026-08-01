@@ -96,6 +96,22 @@ async function createTestDocumentCoreSessionHarness(
         },
     });
 
+    // Revisions sharing one coordinate space (same projection and model
+    // text); a model- or projection-changing operation resets the lineage.
+    let coordinateKey = '';
+    const coordinateBaseRevisions = new Set<string>();
+    const noteCoordinateLineage = (): void => {
+        const current = snapshot();
+        const key = current.kind === 'complete'
+            ? `${current.projection} ${current.modelText}`
+            : `source-only ${current.source}`;
+        if (key !== coordinateKey) {
+            coordinateKey = key;
+            coordinateBaseRevisions.clear();
+        }
+        coordinateBaseRevisions.add(current.revisionId);
+    };
+
     const snapshot = (): DocumentCoreViewSnapshot => {
         const current = session.snapshot();
         if (current.kind === 'source-only') {
@@ -217,11 +233,14 @@ async function createTestDocumentCoreSessionHarness(
             baseRevisionId?: string,
         ) => {
             // Honor the revision binding a mounted view attaches: a select
-            // carrying coordinates from a superseded publication must be
-            // refused, exactly as the desktop remote session refuses it.
+            // whose base revision left the current coordinate lineage must
+            // be refused, exactly as the desktop remote session refuses it.
+            // Selects commit new revisions without moving the lineage, so
+            // note the current head before checking.
+            noteCoordinateLineage();
             if (
                 baseRevisionId !== undefined
-                && baseRevisionId !== snapshot().revisionId
+                && !coordinateBaseRevisions.has(baseRevisionId)
             ) {
                 throw new Error(
                     `Renderer supplied stale snapshot for revision ${baseRevisionId}; `
@@ -229,6 +248,7 @@ async function createTestDocumentCoreSessionHarness(
                 );
             }
             session.select(selection);
+            noteCoordinateLineage();
         },
         selectSource: async (selection: InitialModelSelection) => {
             session.selectSource(selection);

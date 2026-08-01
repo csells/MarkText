@@ -56,7 +56,6 @@ export async function selectTextByKeyboard(
     await page.keyboard.press('Shift+ArrowRight')
   }
   await expect.poll(() => publicSelectionText(page)).toBe(selectedText)
-  await page.waitForTimeout(180)
 }
 
 const toPlaywrightAccelerator = (accelerator: string): string => {
@@ -333,33 +332,70 @@ export async function prepareApplicationMenuAccelerator(
   return prepareAccelerator(page, app, accelerator)
 }
 
+/**
+ * Place the caret at a character boundary inside (or at the end of) the
+ * first occurrence of `needle` with a real pointer click: measure the
+ * boundary's caret rect, click it, and poll the browser's own caret for
+ * exact placement. A hit-test can land one glyph off, so the gesture
+ * retries the way a user re-clicks.
+ */
+export async function placeCaretByPointer(
+  page: Page,
+  needle: string,
+  offset = needle.length
+): Promise<void> {
+  const attempts = 3
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const point = await page.evaluate((args) => {
+      const root = document.querySelector('.editor-component')
+      if (root === null) return null
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text
+        const index = node.data.indexOf(args.text)
+        if (index < 0) continue
+        const range = document.createRange()
+        range.setStart(node, index + args.offset)
+        range.collapse(true)
+        ;(node.parentElement ?? (root as HTMLElement)).scrollIntoView({
+          block: 'center'
+        })
+        const rect = range.getBoundingClientRect()
+        return { x: rect.left, y: rect.top + rect.height / 2 }
+      }
+      return null
+    }, { text: needle, offset })
+    if (point === null) {
+      throw new Error(`Could not locate ${JSON.stringify(needle)}`)
+    }
+    await page.mouse.click(point.x, point.y)
+    try {
+      await expect.poll(() => page.evaluate((args) => {
+        const selection = window.getSelection()
+        if (
+          selection === null ||
+          !selection.isCollapsed ||
+          selection.anchorNode === null ||
+          selection.anchorNode.nodeType !== Node.TEXT_NODE
+        ) {
+          return false
+        }
+        const data = (selection.anchorNode as Text).data
+        const index = data.indexOf(args.text)
+        return index >= 0 && selection.anchorOffset === index + args.offset
+      }, { text: needle, offset }), { timeout: 4000 }).toBe(true)
+      return
+    } catch (error) {
+      if (attempt === attempts) throw error
+    }
+  }
+}
+
 export async function placeCaretAfter(
   page: Page,
   needle: string
 ): Promise<void> {
-  const placed = await page.evaluate((text) => {
-    const root = document.querySelector('.editor-component') as HTMLElement | null
-    if (root === null) return false
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text
-      const index = node.data.indexOf(text)
-      if (index < 0) continue
-      const range = document.createRange()
-      range.setStart(node, index + text.length)
-      range.collapse(true)
-      const selection = window.getSelection()
-      if (selection === null) return false
-      root.focus()
-      selection.removeAllRanges()
-      selection.addRange(range)
-      document.dispatchEvent(new Event('selectionchange'))
-      return true
-    }
-    return false
-  }, needle)
-  if (!placed) throw new Error(`Could not place a caret after ${JSON.stringify(needle)}`)
-  await page.waitForTimeout(180)
+  await placeCaretByPointer(page, needle)
 }
 
 export async function pointForText(
@@ -414,7 +450,6 @@ export async function selectWordByPointer(
       if (attempt === attempts) throw error
     }
   }
-  await page.waitForTimeout(180)
 }
 
 export async function openReviewSidebar(

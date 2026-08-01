@@ -1326,7 +1326,18 @@ export async function createDocumentEditorHost(
     dispatchIntent: (intent: EditorIntent) =>
       enqueue(() => view.dispatchIntent(intent)),
     dispatchTargetedIntent: (input: DocumentCoreTargetedIntentInput) =>
-      enqueue(() => view.dispatchTargetedIntent(input)),
+      enqueue(async() => {
+        // A user command targets the selection the user can see. The mounted
+        // browser selection can lead the session by gesture selects whose
+        // selectionchange events have not delivered yet, so commit the live
+        // range before the view fills the target from the session — the
+        // Review command path does the same through commitAuthoringSelection.
+        await view.settled()
+        if (view.snapshot().kind === 'complete') {
+          await view.commitSelection()
+        }
+        return view.dispatchTargetedIntent(input)
+      }),
     flush: settled,
     setSelection: (start: number, end: number) => {
       view.setSelection(start, end)

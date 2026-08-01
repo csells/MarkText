@@ -1712,6 +1712,8 @@ export async function createDocumentCoreRemoteSession(
 ): Promise<DocumentCoreRemoteSession> {
   const codec = new WireEnvelopeCodecV1()
   let portable: DocumentCorePortableSnapshot | undefined
+  let coordinateKey = ''
+  const coordinateBaseRevisions = new Set<string>()
   let mountedSnapshotId = ''
   let latestIntentCapabilities: IntentCapabilitySnapshot | null = null
   let pending: Promise<void> = Promise.resolve()
@@ -1809,6 +1811,18 @@ export async function createDocumentCoreRemoteSession(
     // One internal commit: no observer can see portable state from one head
     // while the mounted identity still names another.
     if (next !== undefined) {
+      // Selects commit new revisions without changing what any mounted DOM
+      // coordinate means; only a model or projection change does. Track the
+      // lineage of revisions sharing the current coordinate space so a
+      // revision-bound select stays valid across select-only revisions.
+      const nextCoordinateKey = next.kind === 'complete'
+        ? `${next.projection} ${next.modelText}`
+        : `source-only ${next.source}`
+      if (nextCoordinateKey !== coordinateKey) {
+        coordinateKey = nextCoordinateKey
+        coordinateBaseRevisions.clear()
+      }
+      coordinateBaseRevisions.add(next.revisionId)
       portable = next
     }
     mountedSnapshotId = verified.mountedSnapshotId
@@ -2088,12 +2102,15 @@ export async function createDocumentCoreRemoteSession(
       assertActiveDocumentAvailable()
       // A revision-bound select carries offsets read from the DOM of the
       // publication that issued them. Queued operations ahead of it may
-      // have advanced the head to a different projection whose model gives
-      // those offsets a different meaning; refuse rather than misapply.
-      // The message shape is the recoverable stale-snapshot refusal.
+      // have advanced the head to a different model or projection that
+      // gives those offsets a different meaning; refuse rather than
+      // misapply. Select-only revisions share the mounted coordinate
+      // space, so any revision in the current coordinate lineage is a
+      // valid base. The message shape is the recoverable stale-snapshot
+      // refusal.
       if (
         baseRevisionId !== undefined &&
-        baseRevisionId !== portable?.revisionId
+        !coordinateBaseRevisions.has(baseRevisionId)
       ) {
         throw new Error(
           `Renderer supplied stale snapshot for revision ${baseRevisionId}; ` +

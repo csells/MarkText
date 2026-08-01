@@ -8,7 +8,8 @@ import {
   launchWithMarkdown
 } from './helpers'
 import {
-  expectCanonicalOnDisk
+  expectCanonicalOnDisk,
+  placeCaretByPointer
 } from './documentCoreReviewE2e'
 import { reviewMenuEnabled } from './documentCoreReviewE2e'
 
@@ -145,34 +146,7 @@ const placeCaret = async(
   needle: string,
   offset: number
 ): Promise<void> => {
-  const placed = await page.evaluate(({ text, textOffset }) => {
-    const root = document.querySelector('.editor-component') as HTMLElement | null
-    if (root === null) return false
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text
-      const start = node.data.indexOf(text)
-      if (start < 0) continue
-      const range = document.createRange()
-      range.setStart(node, start + textOffset)
-      range.collapse(true)
-      const selection = window.getSelection()
-      if (selection === null) return false
-      root.focus()
-      selection.removeAllRanges()
-      selection.addRange(range)
-      document.dispatchEvent(new Event('selectionchange'))
-      return true
-    }
-    return false
-  }, { text: needle, textOffset: offset })
-  if (!placed) {
-    throw new Error(`Could not place caret in ${JSON.stringify(needle)}`)
-  }
-  await page.waitForTimeout(180)
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-  }))
+  await placeCaretByPointer(page, needle, offset)
 }
 
 const expectCaret = async(

@@ -926,6 +926,13 @@ export async function createDocumentCoreView(
     // re-stamp the session selection (which by then includes the gesture) or
     // the DOM stays selectionless and the next input lands at offset zero.
     let restoreSkippedForUserDispatch = false;
+    // Set when the stand-down was for a deferred selectionchange instead. The
+    // deferred event predates the render that destroyed the browser
+    // selection, so at queue drain the DOM holds the browser's reset (the
+    // document start), not a gesture. Draining must re-stamp the
+    // authoritative session selection — adopting would commit that reset as
+    // if the user had clicked the document start.
+    let restoreSkippedWhileDeferred = false;
     let browserInputGeneration = 0;
     let imageRenderGeneration = 0;
     const session = options.session;
@@ -1087,8 +1094,11 @@ export async function createDocumentCoreView(
         if (pendingUserSelectionDispatches > 0 || deferredBrowserSelection) {
             if (pendingUserSelectionDispatches > 0)
                 restoreSkippedForUserDispatch = true;
+            else
+                restoreSkippedWhileDeferred = true;
             return;
         }
+        restoreSkippedWhileDeferred = false;
         let restoredAnchor = anchor;
         let restoredFocus = focus;
         if (
@@ -3586,6 +3596,7 @@ export async function createDocumentCoreView(
                         deferredBrowserSelection = false;
                         deferredDuringComposition = false;
                         compositionSettling = false;
+                        restoreSkippedWhileDeferred = false;
                         return;
                     }
                     compositionSettling = false;
@@ -3603,6 +3614,29 @@ export async function createDocumentCoreView(
                             // real gesture inside this window is overwritten
                             // too; the window lasts one commit, and the next
                             // gesture re-adopts on arrival.
+                            const active = host.ownerDocument.activeElement;
+                            const snapshot = session.snapshot();
+                            if (
+                                (active === host || host.contains(active))
+                                && (
+                                    snapshot.kind === 'source-only'
+                                    || snapshot.projection === 'marked'
+                                )
+                            ) {
+                                restoreDocumentCoreSelection(
+                                    host,
+                                    snapshot.selection.anchor,
+                                    snapshot.selection.focus,
+                                );
+                            }
+                        }
+                        else if (restoreSkippedWhileDeferred) {
+                            // The deferred selectionchange predates the
+                            // commit's re-render; the DOM now holds the
+                            // browser's post-render reset, not a gesture.
+                            // Re-stamp the authority the stand-down skipped
+                            // (same window rule as the composition branch).
+                            restoreSkippedWhileDeferred = false;
                             const active = host.ownerDocument.activeElement;
                             const snapshot = session.snapshot();
                             if (
