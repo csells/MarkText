@@ -1,4 +1,4 @@
-import { listRepositoryFiles } from '../helpers/repositoryFiles'
+import { listRepositoryFiles } from '../helpers/repositoryFiles.js'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -105,7 +105,7 @@ describe('Phase 0 intrinsic-parser architecture gate', () => {
     const GRAMMAR_MODULE = 'src/internal/profile1Document.ts'
     const ENGINE_SEAM = 'src/languageEngine.ts'
 
-    const importers = sources.filter((path) => {
+    const importers = sources.filter((path: string) => {
       if (path === GRAMMAR_MODULE) return false
       const source = readFileSync(resolve(packageRoot, path), 'utf8')
       return GRAMMAR_ENTRY_POINTS.some((entry) => source.includes(entry))

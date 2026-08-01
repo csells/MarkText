@@ -1,4 +1,4 @@
-import { listRepositoryFiles } from '../helpers/repositoryFiles'
+import { listRepositoryFiles } from '../helpers/repositoryFiles.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
