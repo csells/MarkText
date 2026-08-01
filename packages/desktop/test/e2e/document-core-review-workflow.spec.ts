@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
+import { clickMenuById } from './helpers'
 import {
   closeDocumentCore,
   expectCanonicalOnDisk,
@@ -100,5 +101,27 @@ test.describe('document-core complete Review workflow', () => {
     )
     await comment.getByRole('button', { name: 'Remove comment' }).click()
     await expectCanonicalOnDisk(page, app, documentPath, 'alpha target omega\n')
+
+    // Accept All must apply accept semantics, not merely resolve: accepting
+    // the deletion removes its content, while a reject would restore it.
+    // The two outcomes produce distinct canonical bytes, so this assertion
+    // discriminates the resolution direction end to end.
+    await selectTextByKeyboard(page, SOURCE.trimEnd(), 'target')
+    await pressApplicationMenuAccelerator(
+      page,
+      app,
+      'reviewMarkDeletionMenuItem'
+    )
+    await expectCanonicalOnDisk(
+      page,
+      app,
+      documentPath,
+      'alpha {--target--} omega\n'
+    )
+    await expect.poll(() =>
+      reviewMenuEnabled(app, 'reviewAcceptAllMenuItem')
+    ).toBe(true)
+    await clickMenuById(app, 'reviewAcceptAllMenuItem')
+    await expectCanonicalOnDisk(page, app, documentPath, 'alpha  omega\n')
   })
 })
