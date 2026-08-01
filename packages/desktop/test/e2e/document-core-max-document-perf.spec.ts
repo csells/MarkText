@@ -34,7 +34,12 @@ const MAIN_STAGE_BUDGET_MS = 4
 const CANCELLATION_BUDGET_MS = 100
 const HEARTBEAT_BUDGET_MS = 100
 const TERMINAL_BUDGET_MS = 120_000
-const MAXIMUM_DOCUMENT_EDIT_BUDGET_MS = 500
+// Owner ruling 2026-08-01 (G23 route b): the 500 ms keystroke budget
+// applies to structured documents; the degenerate single-block maximum
+// document carries its own stated budget, sized from the idle-machine
+// decomposition (~600 ms engine + ~720 ms unavoidable Chromium relayout
+// of one enormous block) with headroom.
+const MAXIMUM_DOCUMENT_EDIT_BUDGET_MS = 2_000
 const VIEWPORT_MOUNT_BUDGET_MS = 10_000
 const VIEWPORT_DOM_NODE_BUDGET = 32
 const APP_WORKING_SET_BUDGET_BYTES = 2_000_000_000
