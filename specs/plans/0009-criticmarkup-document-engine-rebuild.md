@@ -339,9 +339,18 @@ are transcribed exactly. Its real residue is G36.
   and orchestration over production APIs, never behavior selection.
   Closure requires either relocating that install outside production
   code or an owner ratification that an observation-only install is
-  the sanctioned background-testing shape; a sweep proving the
-  surfaces construct no session, parser, or private state of their
-  own would pin the ratified form.
+  the sanctioned background-testing shape. 2026-08-01: the pinning
+  sweep landed (`observation-surface-construct-nothing.spec.ts`) — the
+  surfaces construct no engine, session, or source snapshot, import
+  only wire-verification codecs from document-core, receive production
+  hosts as arguments, and `process.env.PERF_TESTING` is confined to
+  the three install-site reads across all of main, renderer, preload,
+  and shared. The relocation route was analyzed and found to invert
+  the harm: the install closes over module-internal state
+  (`lastExecutionByDocument`, the owner-of-sender authority, the host
+  accessors), so moving it out of production requires exporting those
+  internals — a wider production surface than the guarded install.
+  This gap is now ratification-ready and waits on the owner's ruling.
 **W3 — Evidence integrity**
 
 Section 5 and non-negotiable 11 forbid the constructs these gaps name: a target
