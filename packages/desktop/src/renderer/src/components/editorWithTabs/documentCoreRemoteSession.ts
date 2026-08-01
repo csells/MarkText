@@ -778,9 +778,15 @@ function modelPositionAt(
   )
 }
 
+interface HeldLivePlan {
+  readonly sourceHash: string
+  readonly live: ReturnType<typeof decodeDocumentCoreLiveDeltaV1>
+}
+
 function decodeSnapshot(
   publication: Extract<WirePublicationResultV1, { kind: 'published' }>,
-  base?: DocumentCorePortableSnapshot
+  base?: DocumentCorePortableSnapshot,
+  heldLivePlans?: Map<string, HeldLivePlan>
 ): DocumentCorePortableSnapshot | undefined {
   const sessionBytes = publication.members.sessionDelta
   if (sessionBytes === undefined) return undefined
@@ -829,14 +835,39 @@ function decodeSnapshot(
   if (liveBytes === undefined) {
     throw new TypeError('Complete publication has no live-plan delta')
   }
-  const live = decodeDocumentCoreLiveDeltaV1(
-    session.source,
-    decodeJsonRecord(liveBytes, 'Live delta'),
-    Object.freeze({
-      projection: review.projection,
-      markupModelLength: review.markupModelLength
-    })
-  )
+  const liveRecord = decodeJsonRecord(liveBytes, 'Live delta')
+  // A dispatch- or select-class publication whose live plan the worker
+  // proved unchanged ships a marker instead of the full plan; the held
+  // decode for that projection is the plan, bound to the exact source
+  // bytes it was decoded against. A marker with no matching held plan is
+  // a wire-contract violation and fails closed.
+  const unchanged =
+    (liveRecord as { schema?: unknown }).schema ===
+      'document-core-live-plan-unchanged-1'
+  const live = (() => {
+    if (unchanged) {
+      const held = heldLivePlans?.get(review.projection)
+      if (held === undefined || held.sourceHash !== session.sourceHash) {
+        throw new TypeError(
+          'Unchanged live-plan marker has no matching held plan'
+        )
+      }
+      return held.live
+    }
+    const decoded = decodeDocumentCoreLiveDeltaV1(
+      session.source,
+      liveRecord,
+      Object.freeze({
+        projection: review.projection,
+        markupModelLength: review.markupModelLength
+      })
+    )
+    heldLivePlans?.set(review.projection, Object.freeze({
+      sourceHash: session.sourceHash,
+      live: decoded
+    }))
+    return decoded
+  })()
   if (
     !Array.isArray(live.blocks) ||
     !Array.isArray(live.outline) ||
@@ -1711,6 +1742,7 @@ export async function createDocumentCoreRemoteSession(
   options: DocumentCoreRemoteSessionOptions
 ): Promise<DocumentCoreRemoteSession> {
   const codec = new WireEnvelopeCodecV1()
+  const heldLivePlans = new Map<string, HeldLivePlan>()
   let portable: DocumentCorePortableSnapshot | undefined
   let coordinateKey = ''
   const coordinateBaseRevisions = new Set<string>()
@@ -1792,7 +1824,8 @@ export async function createDocumentCoreRemoteSession(
     }
     const next = decodeSnapshot(
       verified,
-      expectedBase === undefined ? undefined : portable
+      expectedBase === undefined ? undefined : portable,
+      heldLivePlans
     )
     if (verified.transitionId !== null && next === undefined) {
       throw new Error(

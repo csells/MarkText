@@ -1011,9 +1011,15 @@ function adoptMaterialization<Result>(result: Result): Result {
  * Decode a publication only after `WireEnvelopeCodecV1.publish` has verified
  * ordering and every checksum.
  */
+export interface HeldLivePlan {
+  readonly sourceHash: string
+  readonly live: ReturnType<typeof decodeDocumentCoreLiveDeltaV1>
+}
+
 export function decodeDocumentCorePublication(
   publication: WirePublicationResultV1,
-  base?: DocumentCorePortableSnapshot
+  base?: DocumentCorePortableSnapshot,
+  heldLivePlans?: Map<string, HeldLivePlan>
 ): DocumentCorePortableSnapshot {
   if (publication.kind !== 'published') {
     throw new Error(
@@ -1072,14 +1078,38 @@ export function decodeDocumentCorePublication(
   if (liveBytes === undefined) {
     throw new TypeError('Complete publication has no live-plan delta')
   }
-  const live = decodeDocumentCoreLiveDeltaV1(
-    session.source,
-    decodeJsonRecord(liveBytes, 'Live delta'),
-    Object.freeze({
-      projection: review.projection,
-      markupModelLength: review.markupModelLength
-    })
-  )
+  const liveRecord = decodeJsonRecord(liveBytes, 'Live delta')
+  // A dispatch- or select-class publication whose live plan the worker
+  // proved unchanged ships a marker; a consumer decoding a sequence
+  // threads its held plans, and a marker with no matching held plan is a
+  // wire-contract violation that fails closed.
+  const unchanged =
+    (liveRecord as { schema?: unknown }).schema ===
+      'document-core-live-plan-unchanged-1'
+  const live = (() => {
+    if (unchanged) {
+      const held = heldLivePlans?.get(review.projection)
+      if (held === undefined || held.sourceHash !== session.sourceHash) {
+        throw new TypeError(
+          'Unchanged live-plan marker has no matching held plan'
+        )
+      }
+      return held.live
+    }
+    const decoded = decodeDocumentCoreLiveDeltaV1(
+      session.source,
+      liveRecord,
+      Object.freeze({
+        projection: review.projection,
+        markupModelLength: review.markupModelLength
+      })
+    )
+    heldLivePlans?.set(review.projection, Object.freeze({
+      sourceHash: session.sourceHash,
+      live: decoded
+    }))
+    return decoded
+  })()
   for (const [label, position] of [
     ['anchor', session.selection.anchor],
     ['focus', session.selection.focus]

@@ -347,8 +347,11 @@ describe('main-owned document-core session host', () => {
     const alpha = decodeDocumentCorePublication(
       codec.publish(alphaPublication.envelope, alphaPublication.baseSnapshotId)
     )
+    const bravoHeldPlans = new Map()
     const bravo = decodeDocumentCorePublication(
-      codec.publish(bravoPublication.envelope, bravoPublication.baseSnapshotId)
+      codec.publish(bravoPublication.envelope, bravoPublication.baseSnapshotId),
+      undefined,
+      bravoHeldPlans
     )
     if (alpha.kind !== 'complete' || bravo.kind !== 'complete') {
       throw new Error('Expected complete identity fixtures')
@@ -387,7 +390,8 @@ describe('main-owned document-core session host', () => {
     })
     const bravoAfterRejection = decodeDocumentCorePublication(
       decodedRejection,
-      bravo
+      bravo,
+      bravoHeldPlans
     )
     expect(bravoAfterRejection.source).toBe('bravo')
 
@@ -1930,11 +1934,12 @@ describe('main-owned document-core session host', () => {
     })
 
     const codec = new WireEnvelopeCodecV1()
+    const heldPlans = new Map()
     const published = codec.publish(opened.envelope, opened.baseSnapshotId)
     expect(published.kind).toBe('published')
     if (published.kind !== 'published') return
 
-    const snapshot = decodeDocumentCorePublication(published)
+    const snapshot = decodeDocumentCorePublication(published, undefined, heldPlans)
     expect(snapshot.source).toBe('# Title\n\nA {++change++}.\n')
     expect(snapshot.modelText).toBe('# Title\n\nA change.\n')
     expect(snapshot.blocks.map((block) => block.kind)).toEqual([
@@ -1969,7 +1974,8 @@ describe('main-owned document-core session host', () => {
         trackedPublication.envelope,
         trackedPublication.baseSnapshotId
       ),
-      snapshot
+      snapshot,
+      heldPlans
     )
     if (tracked.kind !== 'complete') {
       throw new Error('Expected a complete tracked snapshot')

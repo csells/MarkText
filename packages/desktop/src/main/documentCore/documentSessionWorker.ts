@@ -760,11 +760,31 @@ function publishDispatchResult(
     result.kind === 'committed' || result.kind === 'state-changed'
       ? result.transition.before.revision
       : result.snapshot.revision,
-    result.kind === 'committed' ? result.transition.edits : EMPTY_SOURCE_EDITS
+    result.kind === 'committed' ? result.transition.edits : EMPTY_SOURCE_EDITS,
+    true
   )
 }
 
 const EMPTY_SOURCE_EDITS: readonly RevisionSourceEdit[] = Object.freeze([])
+
+// One emission memo per projection: a dispatch- or select-class
+// publication whose live plan is determined by the same source bytes,
+// projection, and Markdown options as the last full emission for that
+// projection ships the unchanged marker instead of re-encoding every
+// block. Attach and open publications always ship the full plan — a
+// freshly attached renderer holds nothing to reuse — which also seeds
+// the decoders' held plans before any marker can reach them.
+const lastLivePlanEmissionByProjection = new Map<string, string>()
+
+function livePlanEmissionKey(
+  snapshot: EditorSnapshot,
+  projection: string
+): string {
+  return `${String(snapshot.revision.sourceHash)}\u0000${projection}` +
+    `\u0000${JSON.stringify(
+      snapshot.revision.configuration.markdownOptions
+    )}`
+}
 
 function publishSnapshot(
   baseSnapshotId: string,
@@ -772,7 +792,8 @@ function publishSnapshot(
   transitionId: string,
   outcome?: Readonly<Record<string, unknown>>,
   baseRevision?: EditorSnapshot['revision'],
-  sourceEdits?: readonly RevisionSourceEdit[]
+  sourceEdits?: readonly RevisionSourceEdit[],
+  allowUnchangedLivePlan = false
 ): DocumentCoreWorkerPublication {
   publicationSequence += 1
   const portable = portableMembers(
@@ -791,7 +812,21 @@ function publishSnapshot(
               'Complete live publication has no Review coordinate contract'
             )
           }
-          return encodeJson(
+          const emissionKey = livePlanEmissionKey(
+            snapshot,
+            portable.review.projection
+          )
+          if (
+            allowUnchangedLivePlan &&
+            lastLivePlanEmissionByProjection.get(
+              portable.review.projection
+            ) === emissionKey
+          ) {
+            return encodeJson({
+              schema: 'document-core-live-plan-unchanged-1'
+            })
+          }
+          const bytes = encodeJson(
             encodeDocumentCoreLiveDeltaV1(
               snapshot.revision.source,
               portable.live,
@@ -801,6 +836,11 @@ function publishSnapshot(
               })
             )
           )
+          lastLivePlanEmissionByProjection.set(
+            portable.review.projection,
+            emissionKey
+          )
+          return bytes
         })()
       }),
     ...(portable.review === undefined
@@ -1073,7 +1113,8 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
       `selection-state:${threadId}:${publicationSequence + 1}`,
       undefined,
       baseRevision,
-      EMPTY_SOURCE_EDITS
+      EMPTY_SOURCE_EDITS,
+      true
     )
   }
 
