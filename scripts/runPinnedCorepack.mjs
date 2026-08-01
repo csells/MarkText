@@ -86,12 +86,29 @@ async function run () {
       cwd: process.cwd(),
       env: environment,
       shell: false,
-      stdio: 'inherit'
+      stdio: ['inherit', 'pipe', 'pipe']
+    })
+    // Forward both streams live but retain them: a failing child must name
+    // its cause in the thrown error even when a caller captures stdout.
+    let observed = ''
+    child.stdout.on('data', (chunk) => {
+      observed += String(chunk)
+      process.stdout.write(chunk)
+    })
+    child.stderr.on('data', (chunk) => {
+      observed += String(chunk)
+      process.stderr.write(chunk)
     })
     child.once('error', reject)
     child.once('exit', (code, signal) => {
       if (code === 0 && signal === null) resolve()
-      else reject(new Error(`Pinned Corepack failed with code ${String(code)}`))
+      else {
+        reject(new Error(
+          `Pinned Corepack failed with code ${String(code)}` +
+          (signal === null ? '' : ` signal ${String(signal)}`) +
+          `; child output: ${observed.trim() || '(none)'}`
+        ))
+      }
     })
   })
 }
