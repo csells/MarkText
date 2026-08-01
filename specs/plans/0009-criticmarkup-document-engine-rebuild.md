@@ -504,10 +504,16 @@ whose assertion cannot distinguish pass from fail.
   maximum document carries a stated 2,000 ms budget sized from the
   idle-machine decomposition (~600 ms engine + ~720 ms unavoidable
   Chromium relayout) with headroom; the perf suite now asserts that
-  scoped budget. Remaining here: a green idle-machine measurement of
-  the full budget matrix under the scoped budgets (the machine has
-  carried heavy external load through recent sessions), which also
-  reopens A29/A37's baselines for G9. The
+  scoped budget. First idle measurement 2026-08-01 (load average
+  2.2): the matrix ran honestly and named this gap's real frontier —
+  the ordinary-document projection-toggle p95 measures 1,026 ms
+  against the 500 ms structured-document budget, a genuine product
+  performance defect on the toggle path, and the degenerate-document
+  row measures 2,087.7 ms against its 2,000 ms scoped budget, a
+  marginal 4% breach; viewport, heartbeat, admission, and reuse rows
+  pass. Closure now means profiling and fixing the projection-toggle
+  path on structured documents, then re-measuring; A29/A37's
+  baselines open with that green. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
