@@ -460,6 +460,25 @@
         "failureExcerpt": "Error: expect(locator).toHaveCount(expected) failed\n        14 × locator resolved to 4 elements\n           - unexpected value \"4\"\n    > 25 |     await expect(page.locator('.review-card')).toHaveCount(3)\n      26 |     await expect(page.locator('.review-card.type-highlight')).toHaveCount(0)\n      28 |     await expect(comments).toHaveCount(2)"
       },
       "recordedAt": "2026-08-01T01:44:07.338Z"
+    },
+    {
+      "id": "A28",
+      "mutation": {
+        "file": "packages/document-core/src/materialize/htmlRender.ts",
+        "exactOld": "function escapeHtml(text: string): string {\n  return text\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n}",
+        "exactNew": "function escapeHtml(text: string): string {\n  return text\n    .replace(/&/g, '&amp;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n}",
+        "statement": "Dropping the angle-bracket escape lets hostile source open real elements in the rendered HTML, so the live, PDF, and print sinks stop keeping hostile source inert."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec playwright test --config test/e2e/playwright.config.ts test/e2e/document-core-hostile-sinks.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:45:28.643Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "Error: expect(received).not.toMatch(expected)\n    > 308 |     expect(html).not.toMatch(/<script|<img|<iframe|<svg/iu)\n      309 |     expect(html).not.toMatch(/(?:href|src)\\s*=\\s*[\"']?\\s*javascript:/iu)\n      310 |     expect(html).toContain('&lt;script&gt;')\n      311 |     expect(html).toContain('&lt;img')\n    Error Context: test-results/document-core-hostile-sink-a993e-ve-HTML-PDF-and-print-sinks-unpacked/error-context.md"
+      },
+      "recordedAt": "2026-08-01T01:45:59.538Z"
     }
   ]
 }
