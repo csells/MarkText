@@ -386,9 +386,17 @@ whose assertion cannot distinguish pass from fail.
   and A37 cannot pass their own baselines while G23's budgets are red
   — a target that cannot pass its baseline is red, not provable — and
   A30, A31, and A32 bind to the packaging and platform windows shared
-  with G13 and G24. Remaining: run the deferred five when their
-  windows open, resolve the findings, and bind completeness at the
-  final-closure gate.
+  with G13 and G24. 2026-08-01: both findings are resolved by honest
+  re-aims — A04 at the resolution-join protection its escaped-opener
+  rows pin, A42 at the collapsed-gap answer the sweep pins at every
+  offset — and the packaging window is closed: the runner repackages
+  installed targets per phase (HEAD does not move across phases, so
+  the artifact's embedded commit stays valid), and A30 and A31 are
+  proved two-sided through the packaged pipeline (an engine-authored
+  payload byte and a bulk resolution hardcoded to reject). The ledger
+  stands at thirty-nine of forty-two. Remaining: A29/A37 on the
+  idle-machine scoped-budget matrix (G23), A32 on the platform CI
+  window (G24), and completeness binding at the final-closure gate.
 - **G13 Selection evidence is synthetic. CLOSED 2026-08-01.** Both halves
   are done. The synthetic drives are gone: `selectDomText` was deleted
   earlier, and the two remaining TreeWalker/Range caret drives
