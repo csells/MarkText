@@ -17,7 +17,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/source-hash-vectors.spec.ts (5 tests | 1 failed) 16ms\n     \u00d7 matches an independent SHA-256 oracle at framing and Unicode boundaries 5ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/language-engine/source-hash-vectors.spec.ts > versioned document identity codecs > matches an independent SHA-256 oracle at framing and Unicode boundaries\nAssertionError: expected 'b921d8ea96f54c8e8919886ae5dd110730393\u2026' to be '24760deeed3b280ef9193158682f0062af020\u2026' // Object.is equality"
+        "failureExcerpt": "❯ test/language-engine/source-hash-vectors.spec.ts (5 tests | 1 failed) 16ms\n     × matches an independent SHA-256 oracle at framing and Unicode boundaries 5ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/language-engine/source-hash-vectors.spec.ts > versioned document identity codecs > matches an independent SHA-256 oracle at framing and Unicode boundaries\nAssertionError: expected 'b921d8ea96f54c8e8919886ae5dd110730393…' to be '24760deeed3b280ef9193158682f0062af020…' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:03:14.218Z"
     },
@@ -29,7 +29,7 @@
         "exactNew": "    if (edit.insert.length > 0) {",
         "statement": "Dropping the leading join of every edit from the candidate draft leaves changed joins unprotected on their left side, so an edit whose boundary assembles marker syntax escapes nothing there."
       },
-      "finding": "One-sided against the named target: dropping every edit's leading join breaks insert-bearing changed-join protection, yet semantic-edit-codec stays green \u2014 the class is proven by track-changes-hardening ('protects hostile payload delimiters and changed joins atomically'), source-candidate, and transformation-resource-safety instead. The named target under-asserts its title; its proof needs either a mirrored insert-bearing join row or a mutation aimed at the resolution-join protection its rows actually pin."
+      "finding": "One-sided against the named target: dropping every edit's leading join breaks insert-bearing changed-join protection, yet semantic-edit-codec stays green — the class is proven by track-changes-hardening ('protects hostile payload delimiters and changed joins atomically'), source-candidate, and transformation-resource-safety instead. The named target under-asserts its title; its proof needs either a mirrored insert-bearing join row or a mutation aimed at the resolution-join protection its rows actually pin."
     },
     {
       "id": "A12",
@@ -46,7 +46,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/document-session/resolution-history.spec.ts (1 test | 1 failed) 29ms\n     \u00d7 individual and bulk resolution have exact behavioral equivalence and undo 28ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/resolution-history.spec.ts > DocumentSession source-native resolution history > individual and bulk resolution have exact behavioral equivalence and undo\nAssertionError: expected 'A||C' to be 'A||D' // Object.is equality"
+        "failureExcerpt": "❯ test/document-session/resolution-history.spec.ts (1 test | 1 failed) 29ms\n     × individual and bulk resolution have exact behavioral equivalence and undo 28ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/resolution-history.spec.ts > DocumentSession source-native resolution history > individual and bulk resolution have exact behavioral equivalence and undo\nAssertionError: expected 'A||C' to be 'A||D' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:13:14.382Z"
     },
@@ -65,7 +65,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/document-session/failure-injection.spec.ts (1 test | 1 failed) 18ms\n     \u00d7 failure before commit changes nothing and rejects visibly 17ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/failure-injection.spec.ts > DocumentSession failure injection > failure before commit changes nothing and rejects visibly\nAssertionError: expected [] to deeply equal [ ObjectContaining{\u2026} ]"
+        "failureExcerpt": "❯ test/document-session/failure-injection.spec.ts (1 test | 1 failed) 18ms\n     × failure before commit changes nothing and rejects visibly 17ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/failure-injection.spec.ts > DocumentSession failure injection > failure before commit changes nothing and rejects visibly\nAssertionError: expected [] to deeply equal [ ObjectContaining{…} ]"
       },
       "recordedAt": "2026-08-01T01:14:38.795Z"
     },
@@ -84,7 +84,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/view/comment-visibility.spec.ts (1 test | 1 failed) 12ms\n     \u00d7 nested Comment source has no prose position 11ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/view/comment-visibility.spec.ts > Comment prose visibility > nested Comment source has no prose position\nAssertionError: original: expected 'aouter  innerb' to be 'ab' // Object.is equality"
+        "failureExcerpt": "❯ test/view/comment-visibility.spec.ts (1 test | 1 failed) 12ms\n     × nested Comment source has no prose position 11ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/view/comment-visibility.spec.ts > Comment prose visibility > nested Comment source has no prose position\nAssertionError: original: expected 'aouter  innerb' to be 'ab' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:16:02.705Z"
     },
@@ -103,7 +103,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/cross-consumer-resource-matrix.spec.ts (4 tests | 2 failed) 33551ms\n     \u00d7 serves every same-kind and mixed form family at the accepted depth 31511ms\n     \u00d7 serves 16384 and degrades the annotation at 16385 to literal text 609ms\n Test Files  1 failed (1)\n      Tests  2 failed | 2 passed (4)\n FAIL  test/language-engine/cross-consumer-resource-matrix.spec.ts > cross-consumer deterministic resource boundary > serves every same-kind and mixed form family at the accepted depth"
+        "failureExcerpt": "❯ test/language-engine/cross-consumer-resource-matrix.spec.ts (4 tests | 2 failed) 33551ms\n     × serves every same-kind and mixed form family at the accepted depth 31511ms\n     × serves 16384 and degrades the annotation at 16385 to literal text 609ms\n Test Files  1 failed (1)\n      Tests  2 failed | 2 passed (4)\n FAIL  test/language-engine/cross-consumer-resource-matrix.spec.ts > cross-consumer deterministic resource boundary > serves every same-kind and mixed form family at the accepted depth"
       },
       "recordedAt": "2026-08-01T01:17:25.725Z"
     },
@@ -122,7 +122,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/profile1-corpus.spec.ts (1 test | 1 failed) 14ms\n     \u00d7 derives every recursive five-form view from one revision 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-corpus.spec.ts > Profile 1 complete recursive corpus > derives every recursive five-form view from one revision\nAssertionError: CMS-DELETION: expected 'A  word.\\n' to be 'A lost word.\\n' // Object.is equality"
+        "failureExcerpt": "❯ test/language-engine/profile1-corpus.spec.ts (1 test | 1 failed) 14ms\n     × derives every recursive five-form view from one revision 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-corpus.spec.ts > Profile 1 complete recursive corpus > derives every recursive five-form view from one revision\nAssertionError: CMS-DELETION: expected 'A  word.\\n' to be 'A lost word.\\n' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:18:43.394Z"
     },
@@ -141,7 +141,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/projection-materialization.spec.ts (1 test | 1 failed) 14ms\n     \u00d7 materializes fixed-point views without synthetic or retargeted syntax 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/projection-materialization.spec.ts > Profile 1 projection materialization > materializes fixed-point views without synthetic or retargeted syntax\nAssertionError: original:1: expected '-' to be 'z' // Object.is equality"
+        "failureExcerpt": "❯ test/language-engine/projection-materialization.spec.ts (1 test | 1 failed) 14ms\n     × materializes fixed-point views without synthetic or retargeted syntax 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/projection-materialization.spec.ts > Profile 1 projection materialization > materializes fixed-point views without synthetic or retargeted syntax\nAssertionError: original:1: expected '-' to be 'z' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:19:41.881Z"
     },
@@ -160,7 +160,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/profile1-recovery-corpus.spec.ts (1 test | 1 failed) 18ms\n     \u00d7 is total and lossless across the frozen recovery corpus 18ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-recovery-corpus.spec.ts > Profile 1 malformed recovery corpus > is total and lossless across the frozen recovery corpus\nError: CriticMarkup graph identities diverged from the intrinsic Profile 1 fork parser graph"
+        "failureExcerpt": "❯ test/language-engine/profile1-recovery-corpus.spec.ts (1 test | 1 failed) 18ms\n     × is total and lossless across the frozen recovery corpus 18ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-recovery-corpus.spec.ts > Profile 1 malformed recovery corpus > is total and lossless across the frozen recovery corpus\nError: CriticMarkup graph identities diverged from the intrinsic Profile 1 fork parser graph"
       },
       "recordedAt": "2026-08-01T01:20:48.764Z"
     },
@@ -179,7 +179,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/materialize/per-kind-sink-exactness.spec.ts (4 tests | 3 failed) 55ms\n     \u00d7 declares every Profile 1 syntax kind exactly once across construct, constituent, and root coverage 4ms\n     \u00d7 proves every declared construct kind exact in all six sinks 46ms\n     \u00d7 proves every constituent kind through its owning construct row 3ms\n Test Files  1 failed (1)\n      Tests  3 failed | 1 passed (4)"
+        "failureExcerpt": "❯ test/materialize/per-kind-sink-exactness.spec.ts (4 tests | 3 failed) 55ms\n     × declares every Profile 1 syntax kind exactly once across construct, constituent, and root coverage 4ms\n     × proves every declared construct kind exact in all six sinks 46ms\n     × proves every constituent kind through its owning construct row 3ms\n Test Files  1 failed (1)\n      Tests  3 failed | 1 passed (4)"
       },
       "recordedAt": "2026-08-01T01:21:19.891Z"
     },
@@ -198,7 +198,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/document-session/comment-anchor-deletion.spec.ts (5 tests | 1 failed) 28ms\n     \u00d7 preserves residual nodes and rejects hidden Comment loss 18ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/document-session/comment-anchor-deletion.spec.ts > TransformationKernel Comment edits > preserves residual nodes and rejects hidden Comment loss\nAssertionError: expected { kind: 'committed', \u2026(2) } to match object { kind: 'rejected', \u2026(2) }"
+        "failureExcerpt": "❯ test/document-session/comment-anchor-deletion.spec.ts (5 tests | 1 failed) 28ms\n     × preserves residual nodes and rejects hidden Comment loss 18ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/document-session/comment-anchor-deletion.spec.ts > TransformationKernel Comment edits > preserves residual nodes and rejects hidden Comment loss\nAssertionError: expected { kind: 'committed', …(2) } to match object { kind: 'rejected', …(2) }"
       },
       "recordedAt": "2026-08-01T01:21:40.339Z"
     },
@@ -227,7 +227,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/materialize/consumer-policy.spec.ts (8 tests | 1 failed) 46ms\n     \u00d7 implements every frozen view consumer cell 8ms\n Test Files  1 failed (1)\n      Tests  1 failed | 7 passed (8)\n FAIL  test/materialize/consumer-policy.spec.ts > frozen consumer policy > implements every frozen view consumer cell\nAssertionError: expected { kind: 'clipboard-bundle', \u2026(2) } to match object { kind: 'clipboard-bundle', \u2026(1) }"
+        "failureExcerpt": "❯ test/materialize/consumer-policy.spec.ts (8 tests | 1 failed) 46ms\n     × implements every frozen view consumer cell 8ms\n Test Files  1 failed (1)\n      Tests  1 failed | 7 passed (8)\n FAIL  test/materialize/consumer-policy.spec.ts > frozen consumer policy > implements every frozen view consumer cell\nAssertionError: expected { kind: 'clipboard-bundle', …(2) } to match object { kind: 'clipboard-bundle', …(1) }"
       },
       "recordedAt": "2026-08-01T01:25:11.876Z"
     },
@@ -246,7 +246,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/commonmark-corpus-totality.spec.ts (2 tests | 1 failed) 235ms\n     \u00d7 parses all 652 spec inputs to complete revisions with exact source 112ms\n Test Files  1 failed (1)\n      Tests  1 failed | 1 passed (2)\n FAIL  test/language-engine/commonmark-corpus-totality.spec.ts > CommonMark 0.31.2 corpus totality > parses all 652 spec inputs to complete revisions with exact source\nAssertionError: expected [ '#9 (Tabs): source-only', \u2026(9) ] to deeply equal []"
+        "failureExcerpt": "❯ test/language-engine/commonmark-corpus-totality.spec.ts (2 tests | 1 failed) 235ms\n     × parses all 652 spec inputs to complete revisions with exact source 112ms\n Test Files  1 failed (1)\n      Tests  1 failed | 1 passed (2)\n FAIL  test/language-engine/commonmark-corpus-totality.spec.ts > CommonMark 0.31.2 corpus totality > parses all 652 spec inputs to complete revisions with exact source\nAssertionError: expected [ '#9 (Tabs): source-only', …(9) ] to deeply equal []"
       },
       "recordedAt": "2026-08-01T01:26:44.871Z"
     },
@@ -265,7 +265,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/gfm-corpus-totality.spec.ts (3 tests | 2 failed) 198ms\n     \u00d7 parses all 672 spec inputs to complete revisions with exact source 116ms\n     \u00d7 parses every mid-edit prefix of a corpus sample without throwing (T1) 76ms\n Test Files  1 failed (1)\n      Tests  2 failed | 1 passed (3)\n FAIL  test/language-engine/gfm-corpus-totality.spec.ts > GFM 0.29 corpus totality > parses all 672 spec inputs to complete revisions with exact source"
+        "failureExcerpt": "❯ test/language-engine/gfm-corpus-totality.spec.ts (3 tests | 2 failed) 198ms\n     × parses all 672 spec inputs to complete revisions with exact source 116ms\n     × parses every mid-edit prefix of a corpus sample without throwing (T1) 76ms\n Test Files  1 failed (1)\n      Tests  2 failed | 1 passed (3)\n FAIL  test/language-engine/gfm-corpus-totality.spec.ts > GFM 0.29 corpus totality > parses all 672 spec inputs to complete revisions with exact source"
       },
       "recordedAt": "2026-08-01T01:26:57.840Z"
     },
@@ -284,7 +284,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/fevol-lexical.spec.ts (15 tests | 2 failed) 29ms\n       \u00d7 'Nested markup' 3ms\n     \u00d7 parses the nested rows recursively per N1 1ms\n Test Files  1 failed (1)\n      Tests  2 failed | 13 passed (15)\n FAIL  test/language-engine/fevol-lexical.spec.ts > Fevol lexical fixtures under Profile 1 rulings > edge_cases > 'Nested markup'"
+        "failureExcerpt": "❯ test/language-engine/fevol-lexical.spec.ts (15 tests | 2 failed) 29ms\n       × 'Nested markup' 3ms\n     × parses the nested rows recursively per N1 1ms\n Test Files  1 failed (1)\n      Tests  2 failed | 13 passed (15)\n FAIL  test/language-engine/fevol-lexical.spec.ts > Fevol lexical fixtures under Profile 1 rulings > edge_cases > 'Nested markup'"
       },
       "recordedAt": "2026-08-01T01:28:08.418Z"
     },
@@ -303,7 +303,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/mmd6-differential.spec.ts (1 test | 1 failed) 17ms\n     \u00d7 projects every MMD-6 CuTest row through Original and Revised 17ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/mmd6-differential.spec.ts > MMD-6 differential projection conventions > projects every MMD-6 CuTest row through Original and Revised\nAssertionError: expected [ \u2026(6) ] to deeply equal []"
+        "failureExcerpt": "❯ test/language-engine/mmd6-differential.spec.ts (1 test | 1 failed) 17ms\n     × projects every MMD-6 CuTest row through Original and Revised 17ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/mmd6-differential.spec.ts > MMD-6 differential projection conventions > projects every MMD-6 CuTest row through Original and Revised\nAssertionError: expected [ …(6) ] to deeply equal []"
       },
       "recordedAt": "2026-08-01T01:28:49.287Z"
     },
@@ -322,7 +322,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/commonmark-html-conformance.spec.ts (29 tests | 25 failed) 147ms\n     \u00d7 section: Tabs (11 examples) 20ms\n     \u00d7 section: Backslash escapes (13 examples) 9ms\n     \u00d7 section: Entity and numeric character references (17 examples) 6ms\n     \u00d7 section: Thematic breaks (19 examples) 6ms\n     \u00d7 section: ATX headings (18 examples) 4ms"
+        "failureExcerpt": "❯ test/language-engine/commonmark-html-conformance.spec.ts (29 tests | 25 failed) 147ms\n     × section: Tabs (11 examples) 20ms\n     × section: Backslash escapes (13 examples) 9ms\n     × section: Entity and numeric character references (17 examples) 6ms\n     × section: Thematic breaks (19 examples) 6ms\n     × section: ATX headings (18 examples) 4ms"
       },
       "recordedAt": "2026-08-01T01:30:01.745Z"
     },
@@ -341,7 +341,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/architecture-gate.spec.ts (11 tests | 3 failed) 40ms\n     \u00d7 marker-bearing source is emitted by one intrinsic grammar 6ms\n       \u00d7 admits canonical source exactly once for a CriticMarkup-free document 1ms\n       \u00d7 admits canonical source exactly once for a CriticMarkup document 1ms\n Test Files  1 failed (1)\n      Tests  3 failed | 8 passed (11)"
+        "failureExcerpt": "❯ test/language-engine/architecture-gate.spec.ts (11 tests | 3 failed) 40ms\n     × marker-bearing source is emitted by one intrinsic grammar 6ms\n       × admits canonical source exactly once for a CriticMarkup-free document 1ms\n       × admits canonical source exactly once for a CriticMarkup document 1ms\n Test Files  1 failed (1)\n      Tests  3 failed | 8 passed (11)"
       },
       "recordedAt": "2026-08-01T01:30:50.458Z"
     },
@@ -360,7 +360,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/unit/specs/document-core-review-presentation.spec.ts (4 tests | 1 failed) 19ms\n     \u00d7 localizes every legal and rejected command presentation 14ms\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)\n FAIL  test/unit/specs/document-core-review-presentation.spec.ts > document-core Review presentation > localizes every legal and rejected command presentation\nAssertionError: expected last \"vi.fn()\" call to have been called with [ Array(1) ]"
+        "failureExcerpt": "❯ test/unit/specs/document-core-review-presentation.spec.ts (4 tests | 1 failed) 19ms\n     × localizes every legal and rejected command presentation 14ms\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)\n FAIL  test/unit/specs/document-core-review-presentation.spec.ts > document-core Review presentation > localizes every legal and rejected command presentation\nAssertionError: expected last \"vi.fn()\" call to have been called with [ Array(1) ]"
       },
       "recordedAt": "2026-08-01T01:32:36.414Z"
     },
@@ -379,7 +379,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/unit/specs/image-asset-mutation-authority.spec.ts (4 tests | 1 failed) 4ms\n     \u00d7 does not let the image ingestion request carry any destination field 2ms\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)\n FAIL  test/unit/specs/image-asset-mutation-authority.spec.ts > image asset mutation authority > does not let the image ingestion request carry any destination field\nAssertionError: expected 'import type { ModelSelection } from \\\u2026' not to match /\\b(targetPath|outputDir|destination)\\\u2026/"
+        "failureExcerpt": "❯ test/unit/specs/image-asset-mutation-authority.spec.ts (4 tests | 1 failed) 4ms\n     × does not let the image ingestion request carry any destination field 2ms\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)\n FAIL  test/unit/specs/image-asset-mutation-authority.spec.ts > image asset mutation authority > does not let the image ingestion request carry any destination field\nAssertionError: expected 'import type { ModelSelection } from \\…' not to match /\\b(targetPath|outputDir|destination)\\…/"
       },
       "recordedAt": "2026-08-01T01:33:06.729Z"
     },
@@ -391,7 +391,7 @@
         "exactNew": "    @keydown.tab.prevent=\"focusClose\"",
         "statement": "Dropping the Escape binding leaves the modal open under its close key, so the closes-on-Escape contract fails."
       },
-      "finding": "Partial: the Tab-trap assertion cannot observe the trap \u2014 removing .prevent (and plausibly the whole tab binding) survives because the test DOM implements no native Tab navigation, so activeElement stays on the close button either way. The trap's proof needs a focusable sibling and an assertion that focus cannot reach it.",
+      "finding": "Partial: the Tab-trap assertion cannot observe the trap — removing .prevent (and plausibly the whole tab binding) survives because the test DOM implements no native Tab navigation, so activeElement stays on the close button either way. The trap's proof needs a focusable sibling and an assertion that focus cannot reach it.",
       "baseline": {
         "command": "packages/desktop: npx -y pnpm@10.33.4 exec vitest run test/unit/specs/image-viewer-accessibility.spec.ts",
         "outcome": "pass",
@@ -399,7 +399,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/unit/specs/image-viewer-accessibility.spec.ts (1 test | 1 failed) 23ms\n     \u00d7 acts as a labelled modal, traps Tab, closes on Escape, and restores its opener 22ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/unit/specs/image-viewer-accessibility.spec.ts > image viewer keyboard and focus behavior > acts as a labelled modal, traps Tab, closes on Escape, and restores its opener\nAssertionError: Target cannot be null or undefined."
+        "failureExcerpt": "❯ test/unit/specs/image-viewer-accessibility.spec.ts (1 test | 1 failed) 23ms\n     × acts as a labelled modal, traps Tab, closes on Escape, and restores its opener 22ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/unit/specs/image-viewer-accessibility.spec.ts > image viewer keyboard and focus behavior > acts as a labelled modal, traps Tab, closes on Escape, and restores its opener\nAssertionError: Target cannot be null or undefined."
       },
       "recordedAt": "2026-08-01T01:33:58.400Z"
     },
@@ -418,7 +418,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/unit/specs/document-core-main-session-host.spec.ts (32 tests | 2 failed) 7324ms\n     \u00d7 recovers a durable initial head when its worker dies before first publication 105ms\n     \u00d7 keeps the durable head after renderer loss and recovers it in a new host 220ms\n Test Files  1 failed (1)\n      Tests  2 failed | 30 passed (32)\n FAIL  test/unit/specs/document-core-main-session-host.spec.ts > main-owned document-core session host > recovers a durable initial head when its worker dies before first publication"
+        "failureExcerpt": "❯ test/unit/specs/document-core-main-session-host.spec.ts (32 tests | 2 failed) 7324ms\n     × recovers a durable initial head when its worker dies before first publication 105ms\n     × keeps the durable head after renderer loss and recovers it in a new host 220ms\n Test Files  1 failed (1)\n      Tests  2 failed | 30 passed (32)\n FAIL  test/unit/specs/document-core-main-session-host.spec.ts > main-owned document-core session host > recovers a durable initial head when its worker dies before first publication"
       },
       "recordedAt": "2026-08-01T01:35:09.106Z"
     },
@@ -440,7 +440,26 @@
         "failureExcerpt": "Error: expect(received).toMatchObject(expected)\n      83 |   expected: Partial<PublicSelection>\n    > 85 |   await expect.poll(() => readPublicSelection(page)).toMatchObject({\n      86 |     ...expected,\n        at expectPublicSelection (/Users/csells/Code/csells/MarkText/packages/desktop/test/e2e/document-core-track-changes.spec.ts:85:54)\n    Error Context: test-results/document-core-track-change-2114a-interaction-with-exact-undo-unpacked/error-context.md"
       },
       "recordedAt": "2026-08-01T01:40:11.959Z",
-      "finding": "Partial: both addition-carrier sites (collapsed-insert and the replacement path's from===to branch) survived this target \u2014 the frozen interaction matrix types over selections, so tracked plain-caret typing is not observed here; the addition carrier's e2e proof needs a collapsed-caret typing row, or lives with the unit hardening suite."
+      "finding": "Partial: both addition-carrier sites (collapsed-insert and the replacement path's from===to branch) survived this target — the frozen interaction matrix types over selections, so tracked plain-caret typing is not observed here; the addition carrier's e2e proof needs a collapsed-caret typing row, or lives with the unit hardening suite."
+    },
+    {
+      "id": "A15",
+      "mutation": {
+        "file": "packages/desktop/src/renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts",
+        "exactOld": "    const hiddenAnchors = pairedCommentByHighlight()\n    return Object.freeze(\n      [...nodes.values()]\n        .filter((item) => !hiddenAnchors.has(item.nodeId))\n        .map((item) => reviewItemFor(item, nodes))\n    )",
+        "exactNew": "    return Object.freeze(\n      [...nodes.values()]\n        .map((item) => reviewItemFor(item, nodes))\n    )",
+        "statement": "Dropping the paired-highlight suppression duplicates every commented Highlight as its own card, so the one-card-per-annotation claim fails."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec playwright test --config test/e2e/playwright.config.ts test/e2e/document-core-review-cards.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:43:25.877Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "Error: expect(locator).toHaveCount(expected) failed\n        14 × locator resolved to 4 elements\n           - unexpected value \"4\"\n    > 25 |     await expect(page.locator('.review-card')).toHaveCount(3)\n      26 |     await expect(page.locator('.review-card.type-highlight')).toHaveCount(0)\n      28 |     await expect(comments).toHaveCount(2)"
+      },
+      "recordedAt": "2026-08-01T01:44:07.338Z"
     }
   ]
 }
