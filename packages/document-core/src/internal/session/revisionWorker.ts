@@ -1827,8 +1827,8 @@ export class RevisionWorker {
       throw new Error('Empty insertion is an explicit no-op, not a source commit')
     }
 
-    const sourceTarget = this.#sourcePositionAt(state, target.anchor)
-    const carrier =
+    let sourceTarget = this.#sourcePositionAt(state, target.anchor)
+    let carrier =
       state.revision.kind === 'complete'
         ? trackCarrierContext(
           state.revision,
@@ -1836,6 +1836,38 @@ export class RevisionWorker {
           sourceTarget.offset
         )
         : Object.freeze({ policy: 'plain' as const, depth: -1 })
+    if (
+      this.#trackChanges &&
+      sourceMode === 'semantic' &&
+      state.revision.kind === 'complete' &&
+      carrier.policy === 'plain'
+    ) {
+      // A caret model position at a hidden-syntax boundary names two source
+      // positions: after an annotation's closer and inside the arm before
+      // it. Tracked typing must continue the annotation it just authored —
+      // otherwise every keystroke opens a new one and a typed word
+      // fragments into per-character markup — so when the outside
+      // resolution finds no carrier, adopt the inside resolution whenever
+      // it lands in a directly editable arm.
+      const inside = this.#sourcePositionAt(
+        state,
+        Object.freeze({
+          offset: target.anchor.offset,
+          affinity: 'previous' as const
+        })
+      )
+      if (inside.offset !== sourceTarget.offset) {
+        const insideCarrier = trackCarrierContext(
+          state.revision,
+          inside.offset,
+          inside.offset
+        )
+        if (insideCarrier.policy === 'direct') {
+          sourceTarget = inside
+          carrier = insideCarrier
+        }
+      }
+    }
     if (this.#trackChanges && carrier.policy === 'read-only') {
       throw new IntentRejection('read-only-change-arm')
     }

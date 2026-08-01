@@ -38,12 +38,37 @@ test.describe('installed document-core full workflow', () => {
       await expect(editor).toContainText('after')
       await expect(editor).not.toContainText('old')
       await clickMenuById(launched.app, 'reviewShowMarkedMenuItem')
+      // A user sees the marked projection land before touching it: only
+      // marked shows both change arms at once.
+      await expect(editor).toContainText('old')
+      await expect(editor).toContainText('add')
 
+      // The toggle's state-changed publication re-mounts the document.
+      // Wait for that re-mount (the mounted paragraph node is replaced)
+      // the way a user waits for the click's visible settling, so the
+      // selection gesture below targets the freshly issued coordinates.
+      const mountedParagraph = await editor
+        .locator('.document-view-paragraph')
+        .first()
+        .elementHandle()
       await clickMenuById(launched.app, 'reviewTrackChangesMenuItem')
+      if (mountedParagraph !== null) {
+        await launched.page.waitForFunction(
+          (element) => !element.isConnected,
+          mountedParagraph
+        )
+      }
       await selectWordByPointer(launched.page, 'base')
       await launched.page.keyboard.type('edited')
-      await expect(editor.locator('[data-critic-type="substitution"]'))
-        .toContainText('edited')
+      // One tracked substitution: the deleted arm holds the whole word and
+      // the revised arm holds the whole typed run. Per-keystroke
+      // fragmentation would leave no single ins carrying 'edited'.
+      await expect(
+        editor.locator('del').filter({ hasText: 'base' })
+      ).toHaveCount(1)
+      await expect(
+        editor.locator('ins').filter({ hasText: 'edited' })
+      ).toHaveCount(1)
 
       await openReviewSidebar(launched.page, launched.app)
       await expect(launched.page.locator('.review-card')).toHaveCount(5)
