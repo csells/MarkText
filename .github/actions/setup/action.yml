@@ -32,7 +32,14 @@ runs:
         export MARKTEXT_COREPACK_VERSION='0.34.0'
         export MARKTEXT_COREPACK_LAUNCHER_SHA256='3655bc798f300951f2070fee411b337d626b0c3ae80c2d24c46ccac4595d4bf9'
         export MARKTEXT_COREPACK_BUNDLE_SHA256='bafd892df44cd70740e23e5d43eeea934b4f261a9eaff3637dac29bdea74d829'
-        test "$(node scripts/runPinnedCorepack.mjs "$package_manager" --version)" = "10.33.4"
+        # Capture instead of substituting inline: a failing Corepack child's
+        # diagnostic must reach the log, not vanish into $(...).
+        resolved="$(node scripts/runPinnedCorepack.mjs "$package_manager" --version)" || {
+          resolution_code=$?
+          echo "Pinned package-manager resolution failed (${resolution_code}): ${resolved}" >&2
+          exit "$resolution_code"
+        }
+        test "$resolved" = "10.33.4"
         {
           echo "MARKTEXT_COREPACK_CLI_PATH=$MARKTEXT_COREPACK_CLI_PATH"
           echo "MARKTEXT_COREPACK_VERSION=$MARKTEXT_COREPACK_VERSION"
