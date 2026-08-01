@@ -537,7 +537,17 @@ whose assertion cannot distinguish pass from fail.
 - **G24 A green closure CI is not reproducible.** Section 7 requires compact
   candidate, platform, and closure records to be retained. Retention closes when
   a target reconstructs the attestation of a completed closure run from the
-  retained records alone, without the original workspace.
+  retained records alone, without the original workspace. Audited
+  2026-08-01: the executable machinery holds — 81 of the 84 plan-spec
+  tests pass, including the control plane, the evidence collector's
+  P10 pins (pinned corepack resolution, `npmRebuild: false` required
+  semantically, browser-server reuse forbidden), the archive- and
+  retired-authority absences, and the mutation-proof ledger. The
+  three red tests are the designed final gate — the closure evidence
+  bundle that only the actual closure run produces — and that run is
+  sequenced by this plan's own order of work after G9 completeness
+  and G23's idle-machine matrix, because the W6 freeze invalidates on
+  every earlier fix.
 The P10 executable proofs stay RED until all of these hold:
 
 - the Electron distribution, native headers, and every advertised-architecture
