@@ -5,8 +5,13 @@
 # reports are the product.
 name: collects the idle perf matrix on a quiet hosted mac
 
+# workflow_dispatch resolves against the default branch, which this branch
+# is not; the path-scoped push trigger lets the collection start from here.
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/document-core-idle-matrix.yml'
 
 permissions:
   contents: read
