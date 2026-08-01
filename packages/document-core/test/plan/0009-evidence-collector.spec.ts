@@ -1045,10 +1045,18 @@ describe('plan 0009 evidence collector', () => {
       'utf8'
     )
 
-    // The platform suite delegates to the default candidate suite, which owns
-    // the closure-gate exclusion (plus the serial wall-clock phase); the gate
-    // itself runs only through the dedicated test:closure entry at freeze.
-    expect(packageManifest.scripts?.['test:platform']).toBe('pnpm run test')
+    // The platform suite runs the candidate battery without the serial
+    // wall-clock phase: those suites hold multi-gigabyte maximum-document
+    // revisions and their budgets presume the owner-stated hardware (the
+    // G23 route (b) ruling), which 7 GB hosted runners cannot host. The
+    // closure gate itself runs only through test:closure at freeze, and
+    // wall-clock evidence comes from the owner-hardware runs.
+    const platformScript = String(packageManifest.scripts?.['test:platform'])
+    expect(platformScript).toContain('vitest run')
+    expect(platformScript).toContain(
+      '--exclude test/plan/0009-final-closure.spec.ts'
+    )
+    expect(platformScript).not.toContain('test:wall-clock')
     expect(String(packageManifest.scripts?.test)).toContain(
       '--exclude test/plan/0009-final-closure.spec.ts'
     )
