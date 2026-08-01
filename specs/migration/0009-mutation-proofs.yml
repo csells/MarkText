@@ -344,6 +344,83 @@
         "failureExcerpt": "❯ test/language-engine/architecture-gate.spec.ts (11 tests | 3 failed) 40ms\n     × marker-bearing source is emitted by one intrinsic grammar 6ms\n       × admits canonical source exactly once for a CriticMarkup-free document 1ms\n       × admits canonical source exactly once for a CriticMarkup document 1ms\n Test Files  1 failed (1)\n      Tests  3 failed | 8 passed (11)"
       },
       "recordedAt": "2026-08-01T01:30:50.458Z"
+    },
+    {
+      "id": "A26",
+      "mutation": {
+        "file": "packages/desktop/src/renderer/src/components/editorWithTabs/useCriticMarkupRejectionNotifier.ts",
+        "exactOld": "  'nothing-to-undo':\n    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',\n  'nothing-to-redo':\n    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',",
+        "exactNew": "  'nothing-to-redo':\n    'editor.criticMarkup.trackChangeRejected.unmappableSourceEdit',",
+        "statement": "Dropping the nothing-to-undo rejection's message key makes that legal rejection present through the unknown fallback, so the every-presentation-localized claim fails."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec vitest run test/unit/specs/document-core-review-presentation.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:32:30.050Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/unit/specs/document-core-review-presentation.spec.ts (4 tests | 1 failed) 19ms\n     × localizes every legal and rejected command presentation 14ms\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)\n FAIL  test/unit/specs/document-core-review-presentation.spec.ts > document-core Review presentation > localizes every legal and rejected command presentation\nAssertionError: expected last \"vi.fn()\" call to have been called with [ Array(1) ]"
+      },
+      "recordedAt": "2026-08-01T01:32:36.414Z"
+    },
+    {
+      "id": "A33",
+      "mutation": {
+        "file": "packages/desktop/src/shared/types/imageAsset.ts",
+        "exactOld": "  readonly storage: ImageAssetStorage\n  readonly alt: string",
+        "exactNew": "  readonly storage: ImageAssetStorage\n  readonly targetPath?: string\n  readonly alt: string",
+        "statement": "Adding an optional destination path to the ingestion request contract hands the renderer destination authority, so the no-destination-field claim fails."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec vitest run test/unit/specs/image-asset-mutation-authority.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:33:01.663Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/unit/specs/image-asset-mutation-authority.spec.ts (4 tests | 1 failed) 4ms\n     × does not let the image ingestion request carry any destination field 2ms\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)\n FAIL  test/unit/specs/image-asset-mutation-authority.spec.ts > image asset mutation authority > does not let the image ingestion request carry any destination field\nAssertionError: expected 'import type { ModelSelection } from \\…' not to match /\\b(targetPath|outputDir|destination)\\…/"
+      },
+      "recordedAt": "2026-08-01T01:33:06.729Z"
+    },
+    {
+      "id": "A34",
+      "mutation": {
+        "file": "packages/desktop/src/renderer/src/components/editorWithTabs/imageViewerOverlay.vue",
+        "exactOld": "    @keydown.esc.stop.prevent=\"requestClose\"\n    @keydown.tab.prevent=\"focusClose\"",
+        "exactNew": "    @keydown.tab.prevent=\"focusClose\"",
+        "statement": "Dropping the Escape binding leaves the modal open under its close key, so the closes-on-Escape contract fails."
+      },
+      "finding": "Partial: the Tab-trap assertion cannot observe the trap — removing .prevent (and plausibly the whole tab binding) survives because the test DOM implements no native Tab navigation, so activeElement stays on the close button either way. The trap's proof needs a focusable sibling and an assertion that focus cannot reach it.",
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec vitest run test/unit/specs/image-viewer-accessibility.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:33:52.979Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/unit/specs/image-viewer-accessibility.spec.ts (1 test | 1 failed) 23ms\n     × acts as a labelled modal, traps Tab, closes on Escape, and restores its opener 22ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/unit/specs/image-viewer-accessibility.spec.ts > image viewer keyboard and focus behavior > acts as a labelled modal, traps Tab, closes on Escape, and restores its opener\nAssertionError: Target cannot be null or undefined."
+      },
+      "recordedAt": "2026-08-01T01:33:58.400Z"
+    },
+    {
+      "id": "A25",
+      "mutation": {
+        "file": "packages/desktop/src/main/documentCore/mainSessionHost.ts",
+        "exactOld": "    const requiresSource =\n      hosted.snapshotId === null && !recoverFromJournal",
+        "exactNew": "    const requiresSource =\n      hosted.snapshotId === null",
+        "statement": "Ignoring the journal-recovery route when deciding whether an open needs source makes the new worker demand a re-send instead of replaying its durable ingress, so the replay-once claim fails."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec vitest run test/unit/specs/document-core-main-session-host.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:34:48.559Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/unit/specs/document-core-main-session-host.spec.ts (32 tests | 2 failed) 7324ms\n     × recovers a durable initial head when its worker dies before first publication 105ms\n     × keeps the durable head after renderer loss and recovers it in a new host 220ms\n Test Files  1 failed (1)\n      Tests  2 failed | 30 passed (32)\n FAIL  test/unit/specs/document-core-main-session-host.spec.ts > main-owned document-core session host > recovers a durable initial head when its worker dies before first publication"
+      },
+      "recordedAt": "2026-08-01T01:35:09.106Z"
     }
   ]
 }
