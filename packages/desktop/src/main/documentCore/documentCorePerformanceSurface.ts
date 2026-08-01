@@ -1,3 +1,4 @@
+import type { ParseConfiguration } from '@marktext/document-core'
 import {
   WireEnvelopeCodecV1,
   decodeFileSnapshot
@@ -10,7 +11,7 @@ import type {
   DocumentCoreOpenCompletion,
   DocumentCorePublication
 } from '../../shared/types/documentCore'
-import { documentParseConfigurationFor } from './documentParseConfiguration'
+import { stageFileOpenThroughProtocol } from './fileOpenProtocol'
 import type { DocumentCoreFileHost } from './documentFileHost'
 import {
   decodeDocumentCorePublication,
@@ -113,12 +114,6 @@ export interface DocumentCorePerformanceSurface {
   }>>
 }
 
-const configuration = documentParseConfigurationFor(Object.freeze({
-  footnotes: false,
-  gitLabMath: false,
-  subscriptAndSuperscript: true
-}))
-
 function publication(
   value: DocumentCoreOpenCompletion | DocumentCorePublication,
   label: string
@@ -154,6 +149,9 @@ function exactPath(value: string): string {
 export function createDocumentCorePerformanceSurface(
   sessions: DocumentCoreMainSessionHost,
   files: DocumentCoreFileHost,
+  // The settings-derived grammar production admits with — injected at the
+  // composition point so measurement can never parse under a private one.
+  parseConfiguration: () => ParseConfiguration,
   recordedExecution: (documentId: string) => Readonly<{
     readonly ownerId: string
     readonly execution: DocumentCoreExecutionReport
@@ -169,51 +167,21 @@ export function createDocumentCorePerformanceSurface(
     const ownerId = `performance-owner:${operationId}`
     const documentId = `performance-document:${operationId}`
     const durabilityKey = `performance-journal:${operationId}`
-    const ticketStartedAt = performance.now()
-    const ticket = await sessions.startOpen(ownerId, {
+    const staged = await stageFileOpenThroughProtocol(sessions, ownerId, {
       documentId,
       durabilityKey,
-      sourceLength: snapshot.source.text.length,
-      parseConfiguration: configuration
+      sourceText: snapshot.source.text,
+      parseConfiguration: parseConfiguration()
     })
-    const ticketAdmissionMs = performance.now() - ticketStartedAt
-    if (!ticket.requiresSource) {
-      throw new Error('Performance file unexpectedly reused a session')
-    }
-    let maximumMainStageMs = 0
-    let ordinal = 0
-    for (
-      let start = 0;
-      start < snapshot.source.text.length;
-      start += ticket.chunkUnits
-    ) {
-      const callerStageStartedAt = performance.now()
-      const text = snapshot.source.text.slice(start, start + ticket.chunkUnits)
-      const staged = sessions.appendOpenChunk(
-        ownerId,
-        documentId,
-        ticket.ticketId,
-        ordinal,
-        text
-      )
-      const callerStageMs = performance.now() - callerStageStartedAt
-      const receipt = await staged
-      maximumMainStageMs = Math.max(
-        maximumMainStageMs,
-        callerStageMs,
-        receipt.mainStageMs
-      )
-      ordinal += 1
-    }
     return Object.freeze({
       ownerId,
       documentId,
       durabilityKey,
-      ticketId: ticket.ticketId,
-      executionThreadId: ticket.executionThreadId,
+      ticketId: staged.ticketId,
+      executionThreadId: staged.executionThreadId,
       sourceLength: snapshot.source.text.length,
-      ticketAdmissionMs,
-      maximumMainStageMs
+      ticketAdmissionMs: staged.ticketAdmissionMs,
+      maximumMainStageMs: staged.maximumMainStageMs
     })
   }
 
@@ -224,7 +192,7 @@ export function createDocumentCorePerformanceSurface(
       documentId: staged.documentId,
       durabilityKey: staged.durabilityKey,
       sourceLength: 0,
-      parseConfiguration: configuration
+      parseConfiguration: parseConfiguration()
     })
     if (ticket.requiresSource) {
       throw new Error('Completed performance file requested source on attach')

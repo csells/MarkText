@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G6, G7, G9, G13, G23, G24 open
+- **Status:** RED — G6, G9, G13, G23, G24 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -273,7 +273,7 @@ proof", and the single-space cell padding exactly as written. -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | None. |
-| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G6, G7 (W2) |
+| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G6 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | None. |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
@@ -326,18 +326,22 @@ are transcribed exactly. Its real residue is G36.
   loudly; the locale path became a filesystem fact (packaged resources
   or the repository tree) instead of a mode flag; and the boot-info
   allowlist closed — `PERF_TESTING` no longer crosses to the renderer,
-  which reads it nowhere. What remains is one construct shared with
-  G7: `PERF_TESTING` still installs the performance and static-sink
-  acceptance surfaces and the per-document execution-report record in
-  production main (`main/ipc/documentCore.ts`); it goes with G7's
-  deletion arc.
-- **G7 A second document-open path exists.** A 373-line surface re-implements
-  the ticket, chunk, and complete protocol
-  (`main/documentCore/documentCorePerformanceSurface.ts:31-373`) under a grammar
-  fixed at module load instead of the settings-derived configuration production
-  admits (`:86-90`; compare `main/windows/editor.ts:1030-1035`), reached through
-  a `PERF_TESTING` global. The production host carries the numbers
-  (`main/documentCore/documentFileHost.ts:257-262`); the second path is deleted.
+  which reads it nowhere. G7 closed into this gap
+  (2026-07-31): the duplicated open protocol is deleted — one shared
+  staging authority (`documentCore/fileOpenProtocol.ts`) is the only
+  caller-side ticket-and-chunk implementation, production file hosting
+  and the measurement surface both stage through it, and the
+  measurement grammar is the settings-derived configuration bound at
+  the app's composition point (an unbound use fails loudly). What
+  remains here is the one `PERF_TESTING` branch in production main
+  that installs the measurement and static-sink acceptance surfaces
+  and the per-document execution-report record — now pure observation
+  and orchestration over production APIs, never behavior selection.
+  Closure requires either relocating that install outside production
+  code or an owner ratification that an observation-only install is
+  the sanctioned background-testing shape; a sweep proving the
+  surfaces construct no session, parser, or private state of their
+  own would pin the ratified form.
 **W3 — Evidence integrity**
 
 Section 5 and non-negotiable 11 forbid the constructs these gaps name: a target

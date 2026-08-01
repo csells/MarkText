@@ -100,6 +100,30 @@ const attachedSenders = new Set<number>()
 let performanceSurfaceInstalled = false
 let staticSinkAcceptanceSurfaceInstalled = false
 
+let measurementParseConfiguration:
+  | (() => import('@marktext/document-core').ParseConfiguration)
+  | null = null
+
+/**
+ * The composition point supplies the settings-derived grammar production
+ * admits with, so measurement opens can never parse under a private one.
+ */
+export function bindMeasurementParseConfiguration(
+  provider: () => import('@marktext/document-core').ParseConfiguration
+): void {
+  measurementParseConfiguration = provider
+}
+
+const requireMeasurementParseConfiguration =
+  (): import('@marktext/document-core').ParseConfiguration => {
+    if (measurementParseConfiguration === null) {
+      throw new Error(
+        'Measurement used before the composition point bound its grammar'
+      )
+    }
+    return measurementParseConfiguration()
+  }
+
 function mainHost(): DocumentCoreMainSessionHost {
   host ??= createDocumentCoreMainSessionHost(
     createFileDocumentSessionJournalStorage(
@@ -547,6 +571,7 @@ export function registerDocumentCoreHandlers(): void {
       value: createDocumentCorePerformanceSurface(
         mainHost(),
         documentFileHost(),
+        requireMeasurementParseConfiguration,
         documentId => lastExecutionByDocument.get(documentId)
       ),
       writable: false

@@ -1,4 +1,8 @@
 import path from 'path'
+import { bindMeasurementParseConfiguration } from '../ipc/documentCore'
+import {
+  documentParseConfigurationFor
+} from '../documentCore/documentParseConfiguration'
 import fsPromises from 'fs/promises'
 import dayjs from 'dayjs'
 import log from 'electron-log'
@@ -74,6 +78,15 @@ class App {
    * The entry point into the application.
    */
   init(): void {
+    bindMeasurementParseConfiguration(() => {
+      const settings = this._accessor.preferences.getAll()
+      return documentParseConfigurationFor({
+        footnotes: settings.footnotes === true,
+        gitLabMath: settings.gitLabMath === true,
+        subscriptAndSuperscript: settings.subscriptAndSuperscript === true
+      })
+    })
+
     // Enable these features to use `backdrop-filter` css rules!
     if (isOsx) {
       app.commandLine.appendSwitch('enable-experimental-web-platform-features', 'true')

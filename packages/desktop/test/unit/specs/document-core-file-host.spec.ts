@@ -37,6 +37,15 @@ import {
   createDocumentCorePerformanceSurface
 } from 'main_renderer/documentCore/documentCorePerformanceSurface'
 import {
+  documentParseConfigurationFor
+} from 'main_renderer/documentCore/documentParseConfiguration'
+
+const TEST_PARSE_CONFIGURATION = documentParseConfigurationFor({
+  footnotes: false,
+  gitLabMath: false,
+  subscriptAndSuperscript: true
+})
+import {
   decodeDocumentCorePublication,
   type DocumentCoreMainSessionHost,
   type DocumentCorePortableSnapshot
@@ -453,6 +462,7 @@ describe('main-owned document-core file host', () => {
     const performanceSurface = createDocumentCorePerformanceSurface(
       sessionHost,
       fileHost,
+      () => TEST_PARSE_CONFIGURATION,
       () => undefined
     )
 
@@ -502,6 +512,7 @@ describe('main-owned document-core file host', () => {
     const performanceSurface = createDocumentCorePerformanceSurface(
       sessionHost,
       fileHost,
+      () => TEST_PARSE_CONFIGURATION,
       documentId =>
         documentId === opened.documentId ? recorded : undefined
     )
@@ -542,6 +553,7 @@ describe('main-owned document-core file host', () => {
     const performanceSurface = createDocumentCorePerformanceSurface(
       sessionHost,
       fileHost,
+      () => TEST_PARSE_CONFIGURATION,
       () => undefined
     )
 
@@ -563,6 +575,7 @@ describe('main-owned document-core file host', () => {
     const performanceSurface = createDocumentCorePerformanceSurface(
       sessionHost,
       fileHost,
+      () => TEST_PARSE_CONFIGURATION,
       () => undefined
     )
 

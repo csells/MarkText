@@ -17,6 +17,7 @@ import type {
   DocumentCoreSaveRequest
 } from '../../shared/types/documentCore'
 import type { DocumentCoreMainSessionHost } from './mainSessionHost'
+import { stageFileOpenThroughProtocol } from './fileOpenProtocol'
 import {
   decodeDocumentCoreFileCompareExchangeResult,
   documentCoreFileByteHash,
@@ -696,46 +697,18 @@ export function createDocumentCoreFileHost(
     let ticketId: string | null = null
     let admitted = false
     try {
-      const ticketStartedAt = performance.now()
-      const ticket = await sessions.startOpen(ownerId, {
+      const staged = await stageFileOpenThroughProtocol(sessions, ownerId, {
         documentId,
         durabilityKey,
-        sourceLength: fileSnapshot.source.text.length,
+        sourceText: fileSnapshot.source.text,
         parseConfiguration: request.parseConfiguration
       })
-      const ticketAdmissionMs = performance.now() - ticketStartedAt
-      ticketId = ticket.ticketId
-      if (!ticket.requiresSource) {
-        throw new Error('A new main-owned file unexpectedly reused a session')
-      }
-      let ordinal = 0
-      let maximumMainStageMs = 0
-      for (
-        let start = 0;
-        start < fileSnapshot.source.text.length;
-        start += ticket.chunkUnits
-      ) {
-        const callerStageStartedAt = performance.now()
-        const staged = sessions.appendOpenChunk(
-          ownerId,
-          documentId,
-          ticket.ticketId,
-          ordinal,
-          fileSnapshot.source.text.slice(start, start + ticket.chunkUnits)
-        )
-        const callerStageMs = performance.now() - callerStageStartedAt
-        const receipt = await staged
-        maximumMainStageMs = Math.max(
-          maximumMainStageMs,
-          callerStageMs,
-          receipt.mainStageMs
-        )
-        ordinal += 1
-      }
+      ticketId = staged.ticketId
+      const { ticketAdmissionMs, maximumMainStageMs } = staged
       const admission = await sessions.completeOpen(
         ownerId,
         documentId,
-        ticket.ticketId
+        staged.ticketId
       )
       if ('envelope' in admission) {
         throw new Error('A new main-owned file returned a renderer publication')
