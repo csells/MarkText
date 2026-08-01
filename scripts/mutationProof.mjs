@@ -52,10 +52,28 @@ const packageDir = targetPath.startsWith('packages/document-core/')
 if (packageDir === null) fail(`${id} target package is not recognized`)
 const relativeTarget = targetPath.slice(packageDir.length + 1)
 const isE2e = relativeTarget.startsWith('test/e2e/')
+// Installed targets run the packaged artifact; each phase repackages so
+// the bundle under test carries that phase's sources. HEAD does not move
+// across phases (mutation dirties the tree only), so the artifact's
+// embedded commit equals HEAD in every phase.
+const isInstalled = relativeTarget.startsWith('test/e2e/installed-')
 const command = isE2e
   ? ['npx', '-y', 'pnpm@10.33.4', 'exec', 'playwright', 'test',
       '--config', 'test/e2e/playwright.config.ts', relativeTarget]
   : ['npx', '-y', 'pnpm@10.33.4', 'exec', 'vitest', 'run', relativeTarget]
+const headCommit = execFileSync(
+  'git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }
+).trim()
+const installedEnvironment = isInstalled
+  ? {
+      ...process.env,
+      MARKTEXT_PACKAGED_APP: path.join(
+        repoRoot, 'dist', 'mac-arm64',
+        'marktext.app', 'Contents', 'MacOS', 'marktext'
+      ),
+      MARKTEXT_EXPECTED_COMMIT: headCommit
+    }
+  : undefined
 
 const mutatedFile = path.join(repoRoot, proof.mutation.file)
 const porcelain = () => execFileSync(
@@ -72,6 +90,17 @@ if (porcelain() !== '') {
 // import source directly and skip this.
 const rebuildForE2e = (label) => {
   if (!isE2e) return
+  if (isInstalled) {
+    console.log(`mutation-proof: repackaging installed artifact (${label})…`)
+    const packaged = spawnSync(
+      'npx', ['-y', 'pnpm@10.33.4', 'run', 'build:mac:arm64'],
+      { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+    )
+    if (packaged.status !== 0) {
+      fail(`artifact packaging failed (${label}); inspect before retrying`)
+    }
+    return
+  }
   console.log(`mutation-proof: rebuilding desktop (${label})…`)
   const build = spawnSync(
     'npx', ['-y', 'pnpm@10.33.4', 'run', 'build:desktop'],
@@ -91,7 +120,8 @@ const runTarget = (label) => {
   const run = spawnSync(command[0], command.slice(1), {
     cwd: path.join(repoRoot, packageDir),
     encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024
+    maxBuffer: 64 * 1024 * 1024,
+    env: installedEnvironment
   })
   const output = `${run.stdout ?? ''}\n${run.stderr ?? ''}`
   return { passed: run.status === 0, output }
