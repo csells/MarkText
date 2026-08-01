@@ -511,9 +511,18 @@ whose assertion cannot distinguish pass from fail.
   performance defect on the toggle path, and the degenerate-document
   row measures 2,087.7 ms against its 2,000 ms scoped budget, a
   marginal 4% breach; viewport, heartbeat, admission, and reuse rows
-  pass. Closure now means profiling and fixing the projection-toggle
-  path on structured documents, then re-measuring; A29/A37's
-  baselines open with that green. The
+  pass. Decomposed 2026-08-01 with in-app probes
+  (all reverted): the engine's set-projection costs 0-74 ms; the
+  renderer's publication apply costs ~230 ms per toggle (~150 ms
+  envelope verification, ~70 ms snapshot decode); the view render is
+  now free when the plan is unchanged (the identical-plan fast path
+  landed, with run keys normalized out of the identity because they
+  embed projection lineage); and the remaining ~400-600 ms sits in
+  main's serialization, checksum, and IPC transfer of a full
+  4,096-block live plan the toggle did not change. The wire already
+  speaks deltas, so the fix is publication planning: an unchanged live
+  plan ships a no-op delta and both sides reuse what they hold.
+  A29/A37's baselines open with that green. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
