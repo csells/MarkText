@@ -522,7 +522,18 @@ whose assertion cannot distinguish pass from fail.
   4,096-block live plan the toggle did not change. The wire already
   speaks deltas, so the fix is publication planning: an unchanged live
   plan ships a no-op delta and both sides reuse what they hold.
-  A29/A37's baselines open with that green. The
+  Landed 2026-08-01: unchanged-plan publications ship a marker and skip
+  materializing runs, model text, and block groups worker-side; the
+  renderer holds one decoded plan per projection bound to its source
+  hash, markers fail closed without a held plan, and attach/open always
+  ship full — the reload, review, track-changes, and persistence
+  suites pin the seeding path. Toggle p95: 1,026 at the arc's start,
+  549 at load 2.8 after the fixes — ten percent above budget at
+  near-idle, with renderer apply at 0.2 ms and the worker build
+  skipped; the residual sits in the toggle's serialized round-trips
+  (menu IPC, remote queue, worker hop, settle), which the next probe
+  decomposes wall-clock per stage. A29/A37's baselines open with that
+  green. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
