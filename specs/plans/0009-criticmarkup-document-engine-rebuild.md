@@ -576,9 +576,21 @@ whose assertion cannot distinguish pass from fail.
   so budgets do not transfer there. Also observed: the M4's stable
   edit terminal (~2,280 ms) sits 1.27x above the owner-hardware
   budget it was sized on — a hardware-scaling note for the eventual
-  ruling, not noise. Frontier: attribute and close the ~4 s renderer
-  component of deletion, then the matrix greens on the mini;
-  A29's baseline opens with it. The
+  ruling, not noise. Attributed 2026-08-01 with page-clock probes on
+  the mini: the multi-second components are hidden-window platform
+  scheduling, not the app — the keystroke waited 3,741 ms to be
+  DELIVERED (press to beforeinput) while a pre-press renderer wake
+  collapses delivery to ~10-90 ms and both gestures then complete in
+  ~1.5 s end to end (patch path confirmed live; mutation to next
+  frame 0.7 ms); the 3.5 s animation-gap readings are the same
+  occluded-window rAF pause, and a headless console's "visible" mode
+  changes nothing because no display presents. Frontier: re-anchor
+  the two terminal metrics at the app boundary the ruling's sizing
+  used — first beforeinput to the first frame after the rendered
+  result, page-clock — scope the animation-gap assertion to the
+  active gesture windows, and report input-delivery latency as
+  unasserted context; the matrix then greens on the mini and A29's
+  baseline opens with it. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
