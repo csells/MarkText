@@ -1,0 +1,71 @@
+# Wall-clock evidence collection for plan 0009's scoped perf budgets on a
+# hosted macOS runner: a dedicated VM with no ambient GUI compositing — the
+# quiet-machine property the idle matrix requires and a developer desktop
+# under active use cannot provide. Dispatch-only, gates nothing; the JSON
+# reports are the product.
+name: collects the idle perf matrix on a quiet hosted mac
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  document-core-idle-matrix:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup
+
+      - name: Prepare Electron runtime
+        shell: bash
+        run: |
+          export CXXFLAGS="-std=gnu++20 -stdlib=libc++"
+          pnpm tsx scripts/postinstall.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          npm_config_user_agent: 'pnpm'
+
+      - name: Build document-core and desktop
+        shell: bash
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          pnpm -C packages/document-core run build
+          pnpm --filter marktext run build
+
+      - name: Run the CriticMarkup perf budgets
+        shell: bash
+        run: >-
+          pnpm --filter marktext exec playwright test
+          --config test/e2e/playwright.config.ts
+          --project=unpacked
+          --reporter=list,json
+          test/e2e/critic-markup-perf.spec.ts
+        env:
+          MARKTEXT_TEST_BACKGROUND: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/test-results/idle-matrix-critic.json
+
+      - name: Run the maximum-document responsiveness suite
+        if: ${{ always() }}
+        shell: bash
+        run: >-
+          pnpm --filter marktext exec playwright test
+          --config test/e2e/playwright.config.ts
+          --project=unpacked
+          --reporter=list,json
+          test/e2e/document-core-max-document-perf.spec.ts
+        env:
+          MARKTEXT_TEST_BACKGROUND: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/test-results/idle-matrix-max-document.json
+
+      - name: Upload matrix reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: idle-matrix-reports-${{ github.sha }}
+          path: test-results/idle-matrix-*.json
+          if-no-files-found: error
+          retention-days: 90
