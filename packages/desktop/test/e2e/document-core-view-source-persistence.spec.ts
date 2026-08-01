@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { ElectronApplication } from 'playwright'
+import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
 import {
   clickMenuById,
