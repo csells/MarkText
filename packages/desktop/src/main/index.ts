@@ -26,6 +26,88 @@ import {
 process.env.MARKTEXT_VERSION = MARKTEXT_VERSION
 process.env.MARKTEXT_VERSION_STRING = MARKTEXT_VERSION_STRING
 
+// Main-loop stall attribution: renderer-bound sends serialize synchronously
+// on the main thread, so when MARKTEXT_STALL_TRACE names a file every send
+// above 20ms is logged with its channel to explain event-loop gaps.
+// Main CPU attribution: when MARKTEXT_MAIN_CPU_PROF names a file, the whole
+// main-process run is sampled and the profile written at quit, so an
+// event-loop gap no wrapper can see still names its stack.
+if (process.env.MARKTEXT_MAIN_CPU_PROF) {
+  const profilePath = process.env.MARKTEXT_MAIN_CPU_PROF
+  void import('node:inspector').then(({ Session }) => {
+    const session = new Session()
+    session.connect()
+    session.post('Profiler.enable', () => {
+      session.post('Profiler.start', () => undefined)
+    })
+    // The e2e harness kills the app faster than a quit hook can flush, so
+    // the capture window is fixed-length and the profile lands mid-run.
+    setTimeout(() => {
+      session.post('Profiler.stop', (error, result) => {
+        if (error || result === undefined) return
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('node:fs').writeFileSync(
+          profilePath,
+          JSON.stringify(result.profile)
+        )
+      })
+    }, 25_000).unref()
+  })
+}
+
+if (process.env.MARKTEXT_STALL_TRACE) {
+  const tracePath = process.env.MARKTEXT_STALL_TRACE
+  void import('electron').then(({ ipcMain }) => {
+    const originalHandle = ipcMain.handle.bind(ipcMain)
+    ipcMain.handle = (channel, listener) => originalHandle(
+      channel,
+      async(...listenerArguments) => {
+        const startedAt = performance.now()
+        try {
+          return await listener(...listenerArguments)
+        } finally {
+          const elapsed = performance.now() - startedAt
+          if (elapsed > 20) {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            require('node:fs').appendFileSync(
+              tracePath,
+              JSON.stringify({
+                span: `main:invoke:${channel}`,
+                ms: elapsed,
+                at: performance.now()
+              }) + '\n'
+            )
+          }
+        }
+      }
+    )
+  })
+  void import('electron').then(({ webContents }) => {
+    const prototype = (webContents as unknown as {
+      prototype?: { send?: (...sendArguments: unknown[]) => unknown }
+    }).prototype
+    const originalSend = prototype?.send
+    if (prototype === undefined || originalSend === undefined) return
+    prototype.send = function tracedSend (...sendArguments: unknown[]) {
+      const startedAt = performance.now()
+      const result = originalSend.apply(this, sendArguments)
+      const elapsed = performance.now() - startedAt
+      if (elapsed > 20) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('node:fs').appendFileSync(
+          tracePath,
+          JSON.stringify({
+            span: `main:send:${String(sendArguments[0])}`,
+            ms: elapsed,
+            at: performance.now()
+          }) + '\n'
+        )
+      }
+      return result
+    }
+  })
+}
+
 // -----------------------------------------------
 // Exception handling and logging setup
 setupExceptionHandler()
@@ -73,7 +155,13 @@ if (args['--disable-gpu']) {
 }
 
 bindPresentationPolicyFromEnvironment()
-presentationPolicy.configureApplication(app)
+presentationPolicy.configureApplication(Object.assign(app, {
+  preventAppSuspension: () => {
+    void import('electron').then(({ powerSaveBlocker }) => {
+      powerSaveBlocker.start('prevent-app-suspension')
+    })
+  }
+}))
 registerImageDisplayScheme()
 
 // Single instance lock (except macOS & development)

@@ -382,12 +382,20 @@ function errorRecord(error: unknown): Readonly<{
   })
 }
 
-function post(message: DocumentCoreWorkerToMainMessage): void {
-  port.postMessage(message)
+function post(
+  message: DocumentCoreWorkerToMainMessage,
+  transferList?: readonly TransferListItem[]
+): void {
+  if (transferList === undefined) {
+    port.postMessage(message)
+    return
+  }
+  port.postMessage(message, [...transferList])
 }
 
 function storageRequest(
-  operation: DocumentCoreWorkerStorageRequest['operation']
+  operation: DocumentCoreWorkerStorageRequest['operation'],
+  transferList?: readonly TransferListItem[]
 ): Promise<unknown> {
   nextStorageRequestId += 1
   const requestId = nextStorageRequestId
@@ -397,9 +405,14 @@ function storageRequest(
       kind: 'storage-request',
       requestId,
       operation
-    }))
+    }), transferList)
   })
 }
+
+// Below this length a string clones faster than it encodes; above it, the
+// clone stalls main's loop (~200ms per maximum-document artifact), so the
+// content crosses the port as transfer-listed UTF-8 bytes instead.
+const JOURNAL_CONTENT_TRANSFER_THRESHOLD_UNITS = 262_144
 
 const storage: DocumentSessionJournalStorage = Object.freeze({
   async read(key: string) {
@@ -413,12 +426,29 @@ const storage: DocumentSessionJournalStorage = Object.freeze({
     expectedRevision: number | null,
     mutation: DocumentSessionJournalMutation
   ) {
+    const transfers: TransferListItem[] = []
+    const contents = mutation.contents.map((content) => {
+      if (content.data.length < JOURNAL_CONTENT_TRANSFER_THRESHOLD_UNITS) {
+        return content
+      }
+      const bytes = encoder.encode(content.data)
+      transfers.push(bytes.buffer as ArrayBuffer)
+      return Object.freeze({
+        id: content.id,
+        dataBytes: bytes,
+        dataUnits: content.data.length
+      })
+    })
     return await storageRequest(Object.freeze({
       kind: 'compare-exchange',
       key,
       expectedRevision,
-      mutation
-    })) as Awaited<
+      mutation: Object.freeze({
+        data: mutation.data,
+        contents: Object.freeze(contents),
+        retainedContentIds: mutation.retainedContentIds
+      })
+    }), transfers) as Awaited<
       ReturnType<DocumentSessionJournalStorage['compareExchange']>
     >
   }

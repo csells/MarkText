@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { appendFileSync } from 'node:fs'
 import {
   mkdir,
   open,
@@ -100,7 +101,9 @@ function encodeRecord(
   data: string,
   contentIds: readonly string[]
 ): string {
-  return JSON.stringify({
+  const traceStall = process.env.MARKTEXT_STALL_TRACE
+  const startedAt = traceStall ? performance.now() : 0
+  const encoded = JSON.stringify({
     schema: STORAGE_SCHEMA,
     key,
     revision,
@@ -108,6 +111,21 @@ function encodeRecord(
     contentIds,
     checksum: checksumOf(key, revision, data, contentIds)
   } satisfies StoredJournalRecord)
+  if (traceStall) {
+    const elapsed = performance.now() - startedAt
+    if (elapsed > 20) {
+      appendFileSync(
+        traceStall,
+        JSON.stringify({
+          span: `main:journalEncode:${key}`,
+          ms: elapsed,
+          at: performance.now(),
+          bytes: data.length
+        }) + '\n'
+      )
+    }
+  }
+  return encoded
 }
 
 function decodeRecord(source: string, key: string): StoredJournalRecord {

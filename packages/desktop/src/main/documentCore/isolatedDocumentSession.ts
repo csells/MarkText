@@ -40,6 +40,8 @@ export interface DocumentSessionWorkerLaunchDescriptor {
   readonly execArgv?: readonly string[]
 }
 
+const journalContentDecoder = new TextDecoder()
+
 const productionWorkerLaunch: DocumentSessionWorkerLaunchDescriptor =
   Object.freeze({
     entry: path.join(__dirname, 'documentSessionWorker.js')
@@ -97,7 +99,24 @@ export class IsolatedDocumentSession {
     this.#worker.unref()
     this.executionThreadId = this.#worker.threadId
     this.#worker.on('message', (message: DocumentCoreWorkerToMainMessage) => {
+      const traceStall = process.env.MARKTEXT_STALL_TRACE
+      if (!traceStall) {
+        this.#receive(message)
+        return
+      }
+      const startedAt = performance.now()
       this.#receive(message)
+      const elapsed = performance.now() - startedAt
+      if (elapsed > 20) {
+        require('node:fs').appendFileSync(
+          traceStall,
+          JSON.stringify({
+            span: `main:workerMessage:${(message as { kind?: string }).kind ?? 'unknown'}`,
+            ms: elapsed,
+            at: performance.now()
+          }) + '\n'
+        )
+      }
     })
     this.#worker.on('error', (error) => {
       this.#failAll(error)
@@ -279,10 +298,35 @@ export class IsolatedDocumentSession {
       if (request.operation.kind === 'read') {
         result = await this.#storage.read(request.operation.key)
       } else {
+        const wire = request.operation.mutation
+        // Large journal content crosses the port as transfer-listed UTF-8
+        // bytes so the structured clone cannot stall this loop; the native
+        // decode restores the storage interface's exact string form.
+        const mutation = Object.freeze({
+          data: wire.data,
+          retainedContentIds: wire.retainedContentIds,
+          contents: Object.freeze(wire.contents.map((content) => {
+            if (content.dataBytes === undefined) {
+              if (content.data === undefined) {
+                throw new TypeError(
+                  'Document session journal content has no data form'
+                )
+              }
+              return Object.freeze({ id: content.id, data: content.data })
+            }
+            const data = journalContentDecoder.decode(content.dataBytes)
+            if (data.length !== content.dataUnits) {
+              throw new TypeError(
+                'Document session journal content bytes disagree with units'
+              )
+            }
+            return Object.freeze({ id: content.id, data })
+          }))
+        })
         result = await this.#storage.compareExchange(
           request.operation.key,
           request.operation.expectedRevision,
-          request.operation.mutation
+          mutation
         )
       }
       if (this.#closed) return

@@ -2,15 +2,17 @@ import {
   closedRecord as decodeClosedRecord
 } from '@shared/types/closedRecord'
 import { createHash } from 'node:crypto'
+import { appendFileSync } from 'node:fs'
+import { PerformanceObserver } from 'node:perf_hooks'
 import {
   installOneShotSha256Provider,
   sourceHashV1,
+  type DocumentSessionJournalStorage,
   type ClipboardBundle,
   type ClipboardConsumerRequest,
   type ClipboardConsumerResult,
   type CriticMarkupProjection,
   type CutPreparation,
-  type DocumentSessionJournalStorage,
   type DocumentFacts,
   type IntentId,
   type MarkupModelSelection,
@@ -75,6 +77,43 @@ installOneShotSha256Provider((chunks) => {
   for (const chunk of chunks) hash.update(chunk)
   return hash.digest('hex')
 })
+
+// Main-loop stall attribution: when MARKTEXT_STALL_TRACE names a file, any
+// main event-loop gap above 50ms is logged with its wall timestamp so a
+// breached gap budget can be matched against the traced spans around it.
+const stallTracePath = process.env.MARKTEXT_STALL_TRACE
+if (stallTracePath) {
+  let lastTick = performance.now()
+  const gapWatch = setInterval(() => {
+    const now = performance.now()
+    const gap = now - lastTick
+    lastTick = now
+    if (gap > 50) {
+      appendFileSync(
+        stallTracePath,
+        JSON.stringify({ span: 'main:loopGap', ms: gap, at: now }) + '\n'
+      )
+    }
+  }, 1)
+  gapWatch.unref()
+  const gcWatch = new PerformanceObserver((entries) => {
+    for (const entry of entries.getEntries()) {
+      if (entry.duration > 20) {
+        appendFileSync(
+          stallTracePath,
+          JSON.stringify({
+            span: 'main:gc',
+            ms: entry.duration,
+            at: entry.startTime + entry.duration,
+            kind: (entry as unknown as { detail?: { kind?: number } })
+              .detail?.kind
+          }) + '\n'
+        )
+      }
+    }
+  })
+  gcWatch.observe({ entryTypes: ['gc'] })
+}
 
 export type {
   DocumentCoreMainDispatchRequest,
@@ -352,7 +391,20 @@ function decodeJsonRecord(
   bytes: Uint8Array,
   label: string
 ): Readonly<Record<string, unknown>> {
+  const traceStall = process.env.MARKTEXT_STALL_TRACE
+  const traceStartedAt = traceStall ? performance.now() : 0
   const value = JSON.parse(decoder.decode(bytes)) as unknown
+  if (traceStall) {
+    appendFileSync(
+      traceStall,
+      JSON.stringify({
+        span: `main:decodeJson:${label}`,
+        ms: performance.now() - traceStartedAt,
+        at: performance.now(),
+        bytes: bytes.length
+      }) + '\n'
+    )
+  }
   if (
     value === null ||
     typeof value !== 'object' ||

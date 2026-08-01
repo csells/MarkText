@@ -1,7 +1,6 @@
 import type {
   ClipboardConsumerRequest,
   DocumentCoreMarkdownOptionPatch,
-  DocumentSessionJournalMutation,
   EditorIntent,
   InitialModelSelection,
   NodeId,
@@ -22,6 +21,26 @@ export interface DocumentCoreWorkerData {
   readonly executionControl: SharedArrayBuffer
 }
 
+/**
+ * Journal content crossing the worker→main port. Structured clone copies a
+ * string on the receiving loop — ~200ms per maximum-document artifact on
+ * main — so large content ships as transfer-listed UTF-8 bytes instead,
+ * with the original UTF-16 unit count preserved for the storage bounds and
+ * header the string form would have produced.
+ */
+export interface DocumentCoreWorkerJournalWireContent {
+  readonly id: string
+  readonly data?: string
+  readonly dataBytes?: Uint8Array
+  readonly dataUnits?: number
+}
+
+export interface DocumentCoreWorkerJournalWireMutation {
+  readonly data: string
+  readonly contents: readonly DocumentCoreWorkerJournalWireContent[]
+  readonly retainedContentIds: readonly string[]
+}
+
 export interface DocumentCoreWorkerStorageRequest {
   readonly kind: 'storage-request'
   readonly requestId: number
@@ -31,7 +50,7 @@ export interface DocumentCoreWorkerStorageRequest {
       readonly kind: 'compare-exchange'
       readonly key: string
       readonly expectedRevision: number | null
-      readonly mutation: DocumentSessionJournalMutation
+      readonly mutation: DocumentCoreWorkerJournalWireMutation
     }>
 }
 

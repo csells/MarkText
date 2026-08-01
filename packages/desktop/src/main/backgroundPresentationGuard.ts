@@ -2,6 +2,7 @@ interface ApplicationPresentationSurface {
   setActivationPolicy?(policy: 'accessory'): void
   dock?: { hide(): void }
   commandLine: { appendSwitch(name: string): void }
+  preventAppSuspension?(): void
 }
 
 export interface PresentationRuntimeState {
@@ -37,6 +38,11 @@ export class BackgroundPresentationGuard {
     app.commandLine.appendSwitch('disable-renderer-backgrounding')
     app.commandLine.appendSwitch('disable-background-timer-throttling')
     app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+    // A hidden accessory app is exactly what macOS App Nap targets: with
+    // the worker threads saturating cores, the OS coalesces main's timers
+    // into 200ms gaps that read as main-loop stalls. Suspension prevention
+    // is the process-level counterpart of the renderer switches above.
+    app.preventAppSuspension?.()
   }
 
   deriveWindowOptions<T extends object>(options: T): T {
