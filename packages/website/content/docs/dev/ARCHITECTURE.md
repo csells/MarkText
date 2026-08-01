@@ -16,7 +16,11 @@ on browser DOM, Vue, Pinia, or Electron.
 
 `@marktext/document-view` mounts engine render plans and maps browser input and
 selection back to parser-issued model positions. It does not parse or serialize
-Markdown and does not maintain another document state.
+Markdown and does not maintain another document state. Model positions are only
+meaningful against the publication whose parser issued them, so a selection
+gesture is bound to the mounted publication's revision and a session whose head
+has moved past that revision refuses the request instead of applying old
+coordinates to a new projection.
 
 The Electron main process owns durable document sessions, file IO, native
 presentation, and static sinks. The renderer hosts the direct view and presents

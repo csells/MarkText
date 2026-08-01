@@ -385,9 +385,25 @@ whose assertion cannot distinguish pass from fail.
   on that barrier. 2026-07-31: the synthetic drive (`selectDomText`) is
   deleted — its two remaining consumers moved to the real double-click
   gesture: the surface-clipboard-menu suite is migrated and green, and
-  A31's installed full-flow carries the same one-line migration, its
-  validation riding the next packaged-artifact run (the current dmg
-  predates HEAD and fails the artifact commit check by design). Progress: A19 and A08 are migrated, and twenty-six suites
+  A31's installed full-flow carries the same one-line migration.
+  2026-07-31: that validation LANDED — both installed suites pass
+  against the packaged artifact at a174fca0 — and the real gesture run
+  packaged surfaced three product defects the synthetic drive had
+  masked, each fixed with full gates: a publication render resolving
+  after a settled pointer selection left the re-rendered DOM
+  selectionless (restore now substitutes the live session selection on
+  generation mismatch and re-stamps after an in-flight gesture select
+  completes); a gesture select adopted from a superseded publication's
+  DOM was blessed with the new head's identity at dequeue (selects now
+  bind the mounted publication's revisionId and the session refuses a
+  superseded binding with the recoverable stale-snapshot shape); and
+  tracked typing fragmented one annotation per keystroke — a latent
+  engine defect no unpacked test covered — because the post-commit
+  caret's next-affinity resolution lands after the annotation closer
+  (prepareInsertion now adopts the previous-affinity resolution when it
+  lands in a directly editable arm; pinned by
+  tracked-typing-run.spec.ts). This is the real-gesture argument made
+  concrete: the synthetic drive passed over all three. Progress: A19 and A08 are migrated, and twenty-six suites
   (~195 read sites) now observe canonical bytes through the real Save flow,
   the mounted projection, the source-mode projection, or the file a
   subject-save produced — each read moved to the observation its claim is
