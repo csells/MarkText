@@ -75,8 +75,13 @@ const distribution = path.join(temporary, 'marktext-node')
 mkdirSync(distribution, { recursive: true })
 // bsdtar on Windows parses a drive-letter path as a remote host, so the
 // archive and target stay relative to an explicit working directory.
+// Git Bash puts GNU tar first on the Windows PATH and it cannot read
+// zip archives; System32 ships bsdtar, which can.
+const tarBinary = process.platform === 'win32'
+  ? 'C:\\Windows\\System32\\tar.exe'
+  : 'tar'
 const extract = spawnSync(
-  'tar',
+  tarBinary,
   ['-xf', pin.archive, '-C', 'marktext-node'],
   { cwd: temporary, encoding: 'utf8' }
 )
@@ -100,6 +105,14 @@ const manifest = JSON.parse(readFileSync(
   ),
   'utf8'
 ))
+// The first execution of a freshly downloaded binary pays the platform's
+// one-time signature assessment; paying it here keeps it out of any
+// test's spawn timeout and proves the binary executes at all.
+const nodeBinary = path.join(bin, process.platform === 'win32' ? 'node.exe' : 'node')
+const warm = spawnSync(nodeBinary, ['--version'], { encoding: 'utf8' })
+if (warm.status !== 0 || !warm.stdout.includes(VERSION)) {
+  fail(`bound runtime failed its warm-up: ${warm.stderr || warm.stdout}`)
+}
 console.log(
   `bind-official-node: bound Node ${VERSION} with Corepack ${manifest.version}`
 )
