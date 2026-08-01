@@ -45,6 +45,10 @@ runs:
           echo "MARKTEXT_COREPACK_VERSION=$MARKTEXT_COREPACK_VERSION"
           echo "MARKTEXT_COREPACK_LAUNCHER_SHA256=$MARKTEXT_COREPACK_LAUNCHER_SHA256"
           echo "MARKTEXT_COREPACK_BUNDLE_SHA256=$MARKTEXT_COREPACK_BUNDLE_SHA256"
+          # Hosted runners cap V8 at its ~2 GB default; the evidence and
+          # document suites need more, and 4 GB fits the 7 GB VMs with
+          # headroom for the runner itself.
+          echo "NODE_OPTIONS=--max-old-space-size=4096"
         } >> "$GITHUB_ENV"
 
     - name: Publish the pinned package manager on PATH

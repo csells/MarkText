@@ -361,7 +361,7 @@ const PINNED_PLATFORM_STEP_SHA256 = Object.freeze({
 
 const PINNED_SETUP_STEP_SHA256 = Object.freeze({
   'Enable content-addressed pnpm':
-    '9b178ef652227fb534db6e5a53e2151a281185a61db246337cfbf9936985c68e',
+    '8ed1154c6bb96c9dda3429dfd1b1d0868f8d1ee725b5639b03d4560a93c1d27b',
   'Install Dependencies':
     '4bb94bbbcd6767c3421de0562697591afe07cda9ebf18a314816a22304b4276a'
 } as const)
