@@ -89,6 +89,11 @@ jobs:
           { throw new Error('Expected ${{ matrix.arch }}, got ' + process.arch) }"
 
       - name: Build document-core and desktop
+        # GitHub refuses NODE_OPTIONS through GITHUB_ENV, so the heap
+        # ceiling the resource-matrix suite needs on 7 GB hosted VMs is
+        # declared here; V8 defaults to ~2 GB otherwise.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           pnpm -C packages/document-core check:platform
           pnpm --filter marktext run build

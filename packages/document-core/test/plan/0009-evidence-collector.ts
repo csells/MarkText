@@ -350,7 +350,7 @@ const PINNED_PLATFORM_STEP_SHA256 = Object.freeze({
   'Verify runner architecture':
     'd496663373511ed9c7e4218d9503a41535e085176a1b3ea9c93dd5e4bb1db0df',
   'Build document-core and desktop':
-    'c80540ac81d9f42cc3a5861a2b81b707f460dcaf3cd348d6f69b50b409be8ffe',
+    '0f336437d5520f66a0af801c3901efeeea6b3355574274f127171797d5a56c76',
   'Exercise Review through real Electron events':
     'e57a03085ff79282ca23922299f235895ff81f404e30dbfa7bc262dcf52b1f58',
   'Write compact platform attestation':
@@ -361,7 +361,7 @@ const PINNED_PLATFORM_STEP_SHA256 = Object.freeze({
 
 const PINNED_SETUP_STEP_SHA256 = Object.freeze({
   'Enable content-addressed pnpm':
-    '8ed1154c6bb96c9dda3429dfd1b1d0868f8d1ee725b5639b03d4560a93c1d27b',
+    '9b178ef652227fb534db6e5a53e2151a281185a61db246337cfbf9936985c68e',
   'Install Dependencies':
     '4bb94bbbcd6767c3421de0562697591afe07cda9ebf18a314816a22304b4276a'
 } as const)
