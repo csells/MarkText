@@ -588,7 +588,13 @@ whose assertion cannot distinguish pass from fail.
   real-Electron Review e2e on both platforms — after the
   candidate-collection behaviors scoped to the darwin-arm64
   publication contract and the timing guards scaled for runner speed.
-  Only Windows remains, on the official-distribution binding above.
+  Run 30690136233: THE WORKFLOW IS GREEN — all three legs and the
+  closure-proof job — after the official Node distribution binding
+  landed (a committed binder fetches and verifies the exact nodejs.org
+  archives; the official Windows packaging ships CRLF-distinct
+  Corepack bytes, so the pins select by platform) and the
+  transformation spawn guards scaled for runner speed. A32's baseline
+  is green with the run retained as evidence.
 The P10 executable proofs stay RED until all of these hold:
 
 - the Electron distribution, native headers, and every advertised-architecture

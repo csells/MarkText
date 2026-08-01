@@ -760,7 +760,7 @@
     },
     {
       "id": "A32",
-      "disposition": "Deferred to the platform window: the target is the platform matrix manifest exercised by macOS, Windows, and Linux CI runs, not a locally runnable spec; its two-sided proof binds with the closure CI (G24)."
+      "disposition": "Platform baseline GREEN 2026-08-01: run 30690136233 builds and exercises Review on macOS, Windows, and Linux \u2014 all three legs plus the closure-proof job pass \u2014 after the official Node distribution binding (per-platform Corepack pins hashed from the nodejs.org archives), the pinned-pnpm shim repair, and runner-scaled guards. A workflow target's two-sided proof is a product mutation observed red through a dispatched run; that dispatch-cycle proof rides the closure sequence with the retained run as its baseline record."
     }
   ]
 }
