@@ -571,11 +571,22 @@ whose assertion cannot distinguish pass from fail.
   end-to-end against the official pinned Node distribution locally.
   With the shim fixed (run 30685895710), the Linux and macOS legs
   clear the entire hardened setup — pinned Corepack, pnpm, frozen
-  dependency install — and reach the build-and-test phase, where the
-  remaining failures are ordinary environment work: ripgrep is absent
-  on the hosted runners (spawnSync rg ENOENT) and several suites need
-  runner-scaled timeouts. Windows still refuses at the byte check
-  pending the official-distribution binding above.
+  dependency install — and reach the build-and-test phase. The
+  environment arc that followed, each item measured and recorded: the
+  repository sweeps' ambient-rg dependency became a pure-Node walker
+  (byte-equivalent on all four call sites), nodenext import
+  extensions, the 4 GB V8 ceiling the cross-consumer resource matrix
+  needs (dies at 2 GB, passes at 4 GB; GitHub refuses NODE_OPTIONS via
+  GITHUB_ENV, so it lives on the build step), the wall-clock phase
+  scoped out of the platform battery (multi-gigabyte owner-hardware
+  suites, the route (b) premise), and hang guards scaled four-fold for
+  runner speed. MILESTONE run 30687717543: the macOS arm64 leg is
+  fully GREEN — hardened setup, complete battery, desktop build, and
+  the real-Electron Review e2e — the first green platform leg ever.
+  Remaining: Linux fails one evidence-collector self-check ('active
+  evidence collector runtime differs from the pinned publication
+  contract'), and Windows stays on the official-distribution binding
+  above.
 The P10 executable proofs stay RED until all of these hold:
 
 - the Electron distribution, native headers, and every advertised-architecture
