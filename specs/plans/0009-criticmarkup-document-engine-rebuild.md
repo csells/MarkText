@@ -560,7 +560,15 @@ whose assertion cannot distinguish pass from fail.
   so the next dispatch names its cause. Resolving the Windows
   divergence is the authority decision the P10 list already states:
   bind the exact official Node distribution rather than trusting the
-  toolcache repack.
+  toolcache repack. Same night, the Linux/macOS cause was found and
+  fixed: the pinned pnpm shim generator wrote its forwarding "$@"
+  inside a double-quoted echo, expanding it at generation time — the
+  generating step's empty parameters baked a literal empty-string
+  argument into the shim, so every shim invocation ran pnpm bare and
+  the setup's own verification failed. That latent bug, not the
+  product, is why the platform workflow never passed on those legs;
+  the generator now prints the forwarding "$@" literally, verified
+  end-to-end against the official pinned Node distribution locally.
 The P10 executable proofs stay RED until all of these hold:
 
 - the Electron distribution, native headers, and every advertised-architecture
