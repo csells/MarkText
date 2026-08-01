@@ -204,8 +204,43 @@ export class PresentationPolicy {
   }
 }
 
-export const presentationPolicy = new PresentationPolicy({
-  background: process.env.MARKTEXT_TEST_BACKGROUND !== undefined &&
-    process.env.MARKTEXT_TEST_BACKGROUND !== '0',
-  nativeSurface: new NativeElectronPresentationSurface()
-})
+let boundPolicy: PresentationPolicy | null = null
+
+/**
+ * The composition point: main's entry binds the one production presentation
+ * policy here, so the environment read executes at bootstrap — never at
+ * module load — and a second bind is a wiring defect (non-negotiable 11,
+ * background-application-testing.md).
+ */
+export const bindPresentationPolicyFromEnvironment = (): void => {
+  if (boundPolicy !== null) {
+    throw new Error('The presentation policy is already bound')
+  }
+  boundPolicy = new PresentationPolicy({
+    background: process.env.MARKTEXT_TEST_BACKGROUND !== undefined &&
+      process.env.MARKTEXT_TEST_BACKGROUND !== '0',
+    nativeSurface: new NativeElectronPresentationSurface()
+  })
+}
+
+const requireBound = (): PresentationPolicy => {
+  if (boundPolicy === null) {
+    throw new Error(
+      'The presentation policy was used before the composition point bound it'
+    )
+  }
+  return boundPolicy
+}
+
+// The same const import shape every caller already has; an unbound use
+// fails loudly instead of presenting anything.
+export const presentationPolicy: PresentationPolicy = new Proxy(
+  {} as PresentationPolicy,
+  {
+    get(_target, property) {
+      const bound = requireBound()
+      const value = bound[property as keyof PresentationPolicy]
+      return typeof value === 'function' ? value.bind(bound) : value
+    }
+  }
+)

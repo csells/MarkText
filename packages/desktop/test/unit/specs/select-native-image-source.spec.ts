@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { IMAGE_EXTENSIONS } from 'common/filesystem/paths'
+import {
+  bindPresentationPolicyFromEnvironment
+} from 'main_renderer/presentationPolicy'
 
 const {
   handlers,
@@ -40,6 +43,10 @@ vi.mock('keytar', () => ({
 vi.mock('electron-log', () => ({
   default: { error: vi.fn(), info: vi.fn() }
 }))
+
+// This suite exercises the real policy chain over the mocked electron
+// surface; the spec is its own composition point.
+bindPresentationPolicyFromEnvironment()
 vi.mock('common/filesystem', () => ({ ensureDirSync: vi.fn() }))
 
 vi.mock('electron-store', () => ({

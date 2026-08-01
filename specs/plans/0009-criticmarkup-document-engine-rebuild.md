@@ -315,19 +315,22 @@ are transcribed exactly. Its real residue is G36.
 
 **W2 — Host surfaces**
 
-- **G6 Effects branch inside production.** A `proofPath` field on the production
-  request type selects a written proof over native print submission inside the
-  static sink host (`main/documentCore/staticSinkHost.ts:33`, `:48-53`,
-  `:244-259`); presentation mode binds its adapter by reading `process.env` at
-  module load (`main/presentationPolicy.ts:207-211`); and
-  `MARKTEXT_E2E_READONLY_BRIDGE` installs a main static-sink acceptance surface
-  and a renderer read-only bridge (`main/ipc/documentCore.ts:497-498`,
-  `renderer/src/components/editorWithTabs/editor.vue:1679`). The boot-info
-  allowlist exports `PERF_TESTING` and `MARKTEXT_E2E_READONLY_BRIDGE` to the
-  renderer (`main/ipc/bootInfo.ts:7-16`); it closes to values that select no
-  production behavior. Violates non-negotiable 11 and the section 2
-  effect-adapter rule; `specs/architecture/background-application-testing.md`
-  keeps its one production presentation policy.
+- **G6 Effects branch inside production.** Violates non-negotiable 11 and
+  the section 2 effect-adapter rule;
+  `specs/architecture/background-application-testing.md` keeps its one
+  production presentation policy. Progress 2026-07-31: the renderer
+  read-only bridge is deleted; `proofPath` left the production static
+  sink host for its own acceptance-surface module; the presentation
+  policy now binds at main's composition point — the environment read
+  executes at bootstrap, never module load, and an unbound use fails
+  loudly; the locale path became a filesystem fact (packaged resources
+  or the repository tree) instead of a mode flag; and the boot-info
+  allowlist closed — `PERF_TESTING` no longer crosses to the renderer,
+  which reads it nowhere. What remains is one construct shared with
+  G7: `PERF_TESTING` still installs the performance and static-sink
+  acceptance surfaces and the per-document execution-report record in
+  production main (`main/ipc/documentCore.ts`); it goes with G7's
+  deletion arc.
 - **G7 A second document-open path exists.** A 373-line surface re-implements
   the ticket, chunk, and complete protocol
   (`main/documentCore/documentCorePerformanceSurface.ts:31-373`) under a grammar

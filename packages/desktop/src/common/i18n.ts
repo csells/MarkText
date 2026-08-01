@@ -23,13 +23,19 @@ function loadTranslations(language: string): Translations | null {
     // `global.__static`, which is main-only.
     // In development, prefer the pre-minified file when present, but fall back
     // to the raw .json so `pnpm run dev` works without running minify-locales.
-    let localePath: string
-    if (process.env.NODE_ENV === 'development' || process.env.PERF_TESTING === 'true') {
+    // A packaged app carries minified locales in its resources; any
+    // unpackaged run (dev, background test harness) falls back to the
+    // repository's static tree — a filesystem fact, not a mode flag.
+    let localePath = path.join(
+      process.resourcesPath ?? '',
+      'static',
+      'locales',
+      `${language}.min.json`
+    )
+    if (!fs.existsSync(localePath)) {
       const minPath = path.join(process.cwd(), 'static', 'locales', `${language}.min.json`)
       const rawPath = path.join(process.cwd(), 'static', 'locales', `${language}.json`)
       localePath = fs.existsSync(minPath) ? minPath : rawPath
-    } else {
-      localePath = path.join(process.resourcesPath, 'static', 'locales', `${language}.min.json`)
     }
 
     if (!fs.existsSync(localePath)) {

@@ -13,7 +13,10 @@ import Accessor from './app/accessor'
 import App from './app'
 import { t } from './i18n'
 import { registerSandboxIpcHandlers } from './ipc'
-import { presentationPolicy } from './presentationPolicy'
+import {
+  bindPresentationPolicyFromEnvironment,
+  presentationPolicy
+} from './presentationPolicy'
 import { exceptionReporter } from './exceptionReporting'
 import {
   registerImageDisplayScheme
@@ -69,6 +72,7 @@ if (args['--disable-gpu']) {
   app.disableHardwareAcceleration()
 }
 
+bindPresentationPolicyFromEnvironment()
 presentationPolicy.configureApplication(app)
 registerImageDisplayScheme()
 
