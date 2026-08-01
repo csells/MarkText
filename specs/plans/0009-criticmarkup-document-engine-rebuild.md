@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G6, G9, G23, G24 open
+- **Status:** RED — G9, G23, G24 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -315,7 +315,7 @@ are transcribed exactly. Its real residue is G36.
 
 **W2 — Host surfaces**
 
-- **G6 Effects branch inside production.** Violates non-negotiable 11 and
+- **G6 Effects branch inside production. CLOSED 2026-08-01 (owner-ratified).** Violates non-negotiable 11 and
   the section 2 effect-adapter rule;
   `specs/architecture/background-application-testing.md` keeps its one
   production presentation policy. Progress 2026-07-31: the renderer
@@ -350,7 +350,9 @@ are transcribed exactly. Its real residue is G36.
   (`lastExecutionByDocument`, the owner-of-sender authority, the host
   accessors), so moving it out of production requires exporting those
   internals — a wider production surface than the guarded install.
-  This gap is now ratification-ready and waits on the owner's ruling.
+  2026-08-01: the owner RATIFIED the observation-only install as the
+  sanctioned background-testing shape; the sweep is its permanent
+  guard. G6 is CLOSED.
 **W3 — Evidence integrity**
 
 Section 5 and non-negotiable 11 forbid the constructs these gaps name: a target
@@ -488,9 +490,16 @@ whose assertion cannot distinguish pass from fail.
   fails, so budget comparison is inconclusive): the maximum-document
   keystroke reached terminal state in 2,092 ms against 500; worker
   `operationElapsedMs` samples ran 99–375 ms; viewport mount 5,550 ms
-  stays inside its 10 s budget. An idle-machine re-measure remains
-  owed; the ~720 ms Chromium relayout decomposition and the route
-  (a)/(b) fork stand unchanged. The
+  stays inside its 10 s budget.
+  2026-08-01: the owner ruled route (b) — the 500 ms keystroke budget
+  applies to structured documents, and the degenerate single-block
+  maximum document carries a stated 2,000 ms budget sized from the
+  idle-machine decomposition (~600 ms engine + ~720 ms unavoidable
+  Chromium relayout) with headroom; the perf suite now asserts that
+  scoped budget. Remaining here: a green idle-machine measurement of
+  the full budget matrix under the scoped budgets (the machine has
+  carried heavy external load through recent sessions), which also
+  reopens A29/A37's baselines for G9. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
