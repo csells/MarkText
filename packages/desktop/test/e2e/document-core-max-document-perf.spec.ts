@@ -551,9 +551,14 @@ test.describe('document-core maximum-document responsiveness', () => {
     )
     writeFileSync(filePath, 'x'.repeat(MAX_SOURCE_UNITS), 'utf8')
     writeFileSync(nodeCheckpointPath, 'a\n\n'.repeat(4_096), 'utf8')
+    // The cancelled dispatch must still be running when the cancel request
+    // lands: the engine's fast paths brought a 4M-unit dispatch under the
+    // cancel round trip on fast hardware, which flipped this stage into a
+    // completed-before-cancel race, so the fixture is sized to keep the
+    // operation alive well past it on any supported machine.
     writeFileSync(
       dispatchCancellationPath,
-      'd'.repeat(4_000_000),
+      'd'.repeat(16_000_000),
       'utf8'
     )
     const scaleFixtures = buildScaleCorpus(fixtureDirectory)
