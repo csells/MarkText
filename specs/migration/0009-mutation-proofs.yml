@@ -655,6 +655,25 @@
         "failureExcerpt": "Error: Background Electron captured startup errors: [{\"source\":\"renderer\",\"name\":\"AsyncTaskError\",\"message\":\"CriticMarkup Review action failed: Intent was rejected: semantic-postcondition-failed\",\"stack\":\"AsyncTaskError: CriticMarkup Review action failed: Intent was rejected: semantic-postcondition-failed\\n    at reportAsyncFailure (file:///Users/csells/Code/csells/MarkText/packages/desktop/out/renderer/assets/index-DdZt8DHp.js:91072:18)\\n    at file:///Users/csells/Code/csells/MarkText/packages/desktop/out/renderer/assets/index-DdZt8DHp.js:91084:5\"}]\n      244 |   if (state.capturedErrors.length > 0) {\n    > 245 |     throw new Error(\n      246 |       `Background Electron captured startup errors: ${JSON.stringify(state.capturedErrors)}`\n        at expectCanonicalOnDisk (/Users/csells/Code/csells/MarkText/packages/desktop/test/e2e/documentCoreReviewE2e.ts:450:3)\n    Error Context: test-results/document-core-add-comment--61785-able-Highlight-Comment-pair-unpacked/error-context.md"
       },
       "recordedAt": "2026-08-01T02:12:21.295Z"
+    },
+    {
+      "id": "A24",
+      "mutation": {
+        "file": "packages/desktop/src/renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts",
+        "exactOld": "    open.addEventListener('click', (event) => {\n      event.preventDefault()\n      event.stopPropagation()\n      removeReviewTool()\n      bus.emit('critic-markup-open-review', item.id)\n    })",
+        "exactNew": "    open.addEventListener('click', (event) => {\n      event.preventDefault()\n      event.stopPropagation()\n      removeReviewTool()\n    })",
+        "statement": "Dismissing the pointer tool without emitting the open-review request leaves the panel closed, so opening Review by pointer fails."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec playwright test --config test/e2e/playwright.config.ts test/e2e/document-core-review-pointer.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T02:13:23.593Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "Error: expect(locator).toBeVisible() failed\n    Error: element(s) not found\n      31 |     await expect(tool).toBeVisible()\n    > 33 |     await expect(page.locator('.side-bar-review')).toBeVisible()\n      34 |     await expect(page.locator('.review-card.type-addition')).toHaveCount(1)\n    Error Context: test-results/document-core-review-point-4cb02--with-panel-and-rail-hidden-unpacked/error-context.md"
+      },
+      "recordedAt": "2026-08-01T02:14:06.140Z"
     }
   ]
 }
