@@ -597,6 +597,25 @@
         "failureExcerpt": "Error: expect(received).toBe(expected) // Object.is equality\n    > 453 |   ).toBe(expected)\n        at expectCanonicalOnDisk (/Users/csells/Code/csells/MarkText/packages/desktop/test/e2e/documentCoreReviewE2e.ts:453:5)\n    Error Context: test-results/document-core-review-comma-431ee-ol-dispatch-the-same-intent-unpacked/error-context.md\n    Error Context: test-results/document-core-review-comma-431ee-ol-dispatch-the-same-intent-unpacked/error-context.md\n    Error: expect(received).toBe(expected) // Object.is equality"
       },
       "recordedAt": "2026-08-01T02:06:10.193Z"
+    },
+    {
+      "id": "A22",
+      "mutation": {
+        "file": "packages/desktop/src/renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts",
+        "exactOld": "      const nextIndex = direction === 'next'\n        ? (currentIndex + 1 + items.length) % items.length\n        : (currentIndex <= 0 ? items.length : currentIndex) - 1",
+        "exactNew": "      const nextIndex = direction === 'next'\n        ? (currentIndex + 2 + items.length) % items.length\n        : (currentIndex <= 0 ? items.length : currentIndex) - 1",
+        "statement": "Skipping an item on every forward step breaks the nested navigation order, so the navigate-and-hand-back rows visit the wrong annotations."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec playwright test --config test/e2e/playwright.config.ts test/e2e/document-core-review-navigation.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T02:07:07.053Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "Error: expect(received).toBe(expected) // Object.is equality\n      114 |     expect(substitutionId).not.toBeNull()\n    > 115 |     await expect.poll(() => activeReviewId(page)).toBe(substitutionId)\n      116 |     await expect.poll(() => readPublicSelection(page)).toMatchObject({\n    Error Context: test-results/document-core-review-navig-e781f-ojection-focus-back-exactly-unpacked/error-context.md\n    Error Context: test-results/document-core-review-navig-e781f-ojection-focus-back-exactly-unpacked/error-context.md"
+      },
+      "recordedAt": "2026-08-01T02:07:49.053Z"
     }
   ]
 }
