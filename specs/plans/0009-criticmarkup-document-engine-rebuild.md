@@ -394,9 +394,18 @@ whose assertion cannot distinguish pass from fail.
   the artifact's embedded commit stays valid), and A30 and A31 are
   proved two-sided through the packaged pipeline (an engine-authored
   payload byte and a bulk resolution hardcoded to reject). The ledger
-  stands at thirty-nine of forty-two. Remaining: A29/A37 on the
-  idle-machine scoped-budget matrix (G23), A32 on the platform CI
-  window (G24), and completeness binding at the final-closure gate.
+  stands at forty of forty-two. 2026-08-01, A32 is proved two-sided
+  through dispatched runs: the Accept All inversion goes red at the
+  strengthened Review exercise on all three legs (run 30712947384) and
+  the restored seam runs green with report-gated attestations (run
+  30713629749) — and the probe earned a structural finding, the
+  Windows leg had been a silent no-op its whole green history (the
+  pwsh default shell could not resolve the bash-only pinned shim), now
+  closed with pinned step shells, a cmd forwarder for nested package
+  scripts, attestations that refuse "verified" without the exercise's
+  executed report, and byte-literal checkouts. Remaining: A29/A37 on
+  the idle-machine scoped-budget matrix (G23) and completeness binding
+  at the final-closure gate.
 - **G13 Selection evidence is synthetic. CLOSED 2026-08-01.** Both halves
   are done. The synthetic drives are gone: `selectDomText` was deleted
   earlier, and the two remaining TreeWalker/Range caret drives
@@ -528,12 +537,27 @@ whose assertion cannot distinguish pass from fail.
   hash, markers fail closed without a held plan, and attach/open always
   ship full — the reload, review, track-changes, and persistence
   suites pin the seeding path. Toggle p95: 1,026 at the arc's start,
-  549 at load 2.8 after the fixes — ten percent above budget at
-  near-idle, with renderer apply at 0.2 ms and the worker build
-  skipped; the residual sits in the toggle's serialized round-trips
-  (menu IPC, remote queue, worker hop, settle), which the next probe
-  decomposes wall-clock per stage. A29/A37's baselines open with that
-  green. The
+  549 at load 2.8 after the fixes. Resolved 2026-08-01: the residual
+  was the harness, not the app — the polled toHaveAttribute wait
+  quantized every sample to Playwright's poll cadence; a
+  MutationObserver registered before the click observes the same
+  production attribute flip and measures the real gesture at 160–250
+  ms. Both fixtures hold their ratified budgets with headroom:
+  structured toggles p95 235 ms against 500, degenerate 251 ms against
+  its scoped 2,000, navigation and sidebar at 1–3 ms. The
+  maximum-document edit stall closed the same day: the wire envelope's
+  pure-TypeScript SHA-256 (~101 ms per publication) now defers to a
+  host-installed native digest, and the semantic render tree's decode
+  scan (~110 ms per giant carrier) short-circuits to one identity
+  segment when the text contains no backslash or ampersand — worker
+  edit stall 140 ms → 31 ms against the 100 ms heartbeat budget, every
+  publish span ≤15 ms. Open frontier: one clean full-matrix pass at
+  true idle — the guard (load < 3) has refused every window since the
+  fixes landed because ambient user software holds the machine at
+  ~3.5, and the maximum-document edit terminal reading (5.4 s against
+  2,000 ms at load 2.9–4.4, passing at load 1.9 the same morning)
+  needs that idle pass to separate paint contention from regression.
+  A29/A37's baselines open with that green. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
