@@ -184,7 +184,7 @@ export async function executeCriticMarkupReviewAction(
     }
     case 'accept-all':
       return mutationOutcome(
-        (await editor.resolveAllCriticMarkup('reject')) > 0
+        (await editor.resolveAllCriticMarkup('accept')) > 0
       )
     case 'reject-all':
       return mutationOutcome(
