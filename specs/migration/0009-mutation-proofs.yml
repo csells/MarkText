@@ -722,11 +722,41 @@
     },
     {
       "id": "A30",
-      "disposition": "Deferred to the packaging window: the installed-artifact Comment CRUD target needs MARKTEXT_PACKAGED_APP naming a freshly packaged build whose artifact commit matches HEAD; the current dmg predates HEAD by design. Window opened 2026-08-01: a fresh arm64 artifact was packaged at 358b427a and passes the provenance gate, but both installed suites fail before any migrated line — the Comment suite's reviewAddCommentMenuItem carries no accelerator in the packaged menu, and the full-flow suite never renders a [data-critic-id] marker — so the baselines are red on the artifact itself (the known-red P10 executable-proof family), and a red baseline is not provable. Fixing the installed-artifact defects is the P10 arc these targets belong to."
+      "mutation": {
+        "file": "packages/document-core/src/internal/sourceAuthorship.ts",
+        "exactOld": "export function composeCommentMarkup(comment: string): string {\n  return `{>>${comment}<<}`\n}",
+        "exactNew": "export function composeCommentMarkup(comment: string): string {\n  return `{>> ${comment}<<}`\n}",
+        "statement": "Injecting one engine-authored space into the comment payload violates the ruled byte-authorship invariant, so the installed CRUD flow reads back a payload the user never typed and the exact on-disk source diverges."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec playwright test --config test/e2e/playwright.config.ts test/e2e/installed-document-core-comment.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T04:41:04.303Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "Error: expect(locator).toHaveCount(expected) failed\n        14 × locator resolved to 0 elements\n           - unexpected value \"0\"\n    > 35 |       await expect(card).toHaveCount(1)\n      36 |       await expect(card.locator('.comment-anchor')).toHaveText('target')\n    Error Context: test-results/installed-document-core-co-a2bbe-D-in-the-installed-artifact-installed/error-context.md"
+      },
+      "recordedAt": "2026-08-01T04:43:00.490Z"
     },
     {
       "id": "A31",
-      "disposition": "Deferred to the packaging window: the installed full-flow target needs a fresh packaged build, and the same window validates its pending real-gesture migration (G13). Window opened 2026-08-01: a fresh arm64 artifact was packaged at 358b427a and passes the provenance gate, but both installed suites fail before any migrated line — the Comment suite's reviewAddCommentMenuItem carries no accelerator in the packaged menu, and the full-flow suite never renders a [data-critic-id] marker — so the baselines are red on the artifact itself (the known-red P10 executable-proof family), and a red baseline is not provable. Fixing the installed-artifact defects is the P10 arc these targets belong to."
+      "mutation": {
+        "file": "packages/document-core/src/transformationKernel.ts",
+        "exactOld": "      case 'resolve-all-changes':\n        plan = planResolveAll(revision, records, intent.decision)\n        break",
+        "exactNew": "      case 'resolve-all-changes':\n        plan = planResolveAll(revision, records, 'reject')\n        break",
+        "statement": "Hardcoding the bulk resolution to reject makes Accept All silently discard every change instead of applying it, so the installed full flow saves the original arms rather than the accepted head."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec playwright test --config test/e2e/playwright.config.ts test/e2e/installed-document-core-full-flow.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T04:43:20.822Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "Error: expect(received).toBe(expected) // Object.is equality\n      83 |       await expect.poll(() => fs.readFileSync(fixture.filePath, 'utf8'))\n    Error Context: test-results/installed-document-core-fu-e963f--consume-persist-and-reopen-installed/error-context.md\n  1 failed"
+      },
+      "recordedAt": "2026-08-01T04:45:15.102Z"
     },
     {
       "id": "A32",
