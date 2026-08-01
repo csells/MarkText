@@ -17,7 +17,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/source-hash-vectors.spec.ts (5 tests | 1 failed) 16ms\n     \u00d7 matches an independent SHA-256 oracle at framing and Unicode boundaries 5ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/language-engine/source-hash-vectors.spec.ts > versioned document identity codecs > matches an independent SHA-256 oracle at framing and Unicode boundaries\nAssertionError: expected 'b921d8ea96f54c8e8919886ae5dd110730393\u2026' to be '24760deeed3b280ef9193158682f0062af020\u2026' // Object.is equality"
+        "failureExcerpt": "❯ test/language-engine/source-hash-vectors.spec.ts (5 tests | 1 failed) 16ms\n     × matches an independent SHA-256 oracle at framing and Unicode boundaries 5ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/language-engine/source-hash-vectors.spec.ts > versioned document identity codecs > matches an independent SHA-256 oracle at framing and Unicode boundaries\nAssertionError: expected 'b921d8ea96f54c8e8919886ae5dd110730393…' to be '24760deeed3b280ef9193158682f0062af020…' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:03:14.218Z"
     },
@@ -29,7 +29,45 @@
         "exactNew": "    if (edit.insert.length > 0) {",
         "statement": "Dropping the leading join of every edit from the candidate draft leaves changed joins unprotected on their left side, so an edit whose boundary assembles marker syntax escapes nothing there."
       },
-      "finding": "One-sided against the named target: dropping every edit's leading join breaks insert-bearing changed-join protection, yet semantic-edit-codec stays green \u2014 the class is proven by track-changes-hardening ('protects hostile payload delimiters and changed joins atomically'), source-candidate, and transformation-resource-safety instead. The named target under-asserts its title; its proof needs either a mirrored insert-bearing join row or a mutation aimed at the resolution-join protection its rows actually pin."
+      "finding": "One-sided against the named target: dropping every edit's leading join breaks insert-bearing changed-join protection, yet semantic-edit-codec stays green — the class is proven by track-changes-hardening ('protects hostile payload delimiters and changed joins atomically'), source-candidate, and transformation-resource-safety instead. The named target under-asserts its title; its proof needs either a mirrored insert-bearing join row or a mutation aimed at the resolution-join protection its rows actually pin."
+    },
+    {
+      "id": "A12",
+      "mutation": {
+        "file": "packages/document-core/src/transformationKernel.ts",
+        "exactOld": "  if (node.kind === 'substitution') {\n    return (\n      decision === 'accept' ? node.arms[1] : node.arms[0]\n    ) as CriticMarkupArm<CriticMarkupArmName>\n  }",
+        "exactNew": "  if (node.kind === 'substitution') {\n    return (\n      decision === 'accept' ? node.arms[0] : node.arms[1]\n    ) as CriticMarkupArm<CriticMarkupArmName>\n  }",
+        "statement": "Swapping the kept arm for substitutions makes accept keep the old text and reject keep the new, so individual and bulk resolution lose their exact behavior."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/document-session/resolution-history.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:13:10.173Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/document-session/resolution-history.spec.ts (1 test | 1 failed) 29ms\n     × individual and bulk resolution have exact behavioral equivalence and undo 28ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/resolution-history.spec.ts > DocumentSession source-native resolution history > individual and bulk resolution have exact behavioral equivalence and undo\nAssertionError: expected 'A||C' to be 'A||D' // Object.is equality"
+      },
+      "recordedAt": "2026-08-01T01:13:14.382Z"
+    },
+    {
+      "id": "A09",
+      "mutation": {
+        "file": "packages/document-core/src/internal/session/sessionCoordinator.ts",
+        "exactOld": "        this.#effects = effects\n        this.#settledWatermark = sequence\n        return Object.freeze({\n          kind: 'rejected' as const,\n          reason: 'precommit-failed' as const,",
+        "exactNew": "        this.#settledWatermark = sequence\n        return Object.freeze({\n          kind: 'rejected' as const,\n          reason: 'precommit-failed' as const,",
+        "statement": "Dropping the effect retention on a precommit failure makes the rejection invisible to the session's effect inventory, so the failure no longer rejects visibly."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/document-session/failure-injection.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:14:34.584Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/document-session/failure-injection.spec.ts (1 test | 1 failed) 18ms\n     × failure before commit changes nothing and rejects visibly 17ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/failure-injection.spec.ts > DocumentSession failure injection > failure before commit changes nothing and rejects visibly\nAssertionError: expected [] to deeply equal [ ObjectContaining{…} ]"
+      },
+      "recordedAt": "2026-08-01T01:14:38.795Z"
     }
   ]
 }
