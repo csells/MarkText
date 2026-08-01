@@ -215,11 +215,20 @@
       "id": "A42",
       "mutation": {
         "file": "packages/document-core/src/markupCoordinateMap.ts",
-        "exactOld": "      return freezePosition({\n        offset:\n          span.modelStart +\n          Math.min(\n            position.offset - span.sourceStart,\n            span.modelEnd - span.modelStart\n          ),\n        affinity: position.affinity\n      })",
-        "exactNew": "      return freezePosition({\n        offset:\n          span.modelStart +\n          (position.offset - span.sourceStart),\n        affinity: position.affinity\n      })",
-        "statement": "Dropping the model-width clamp lets a position deep in a compressed span overflow past the span's visible end, so the nearest-boundary answer diverges from the run-scan oracle."
+        "exactOld": "    if (span.sourceEnd < position.offset) {\n      previous = freezePosition({\n        offset: span.modelEnd,\n        affinity: position.affinity\n      })\n      continue\n    }\n    return previous ?? freezePosition({\n      offset: span.modelStart,\n      affinity: position.affinity\n    })\n  }\n  return previous ?? freezePosition({\n    offset: 0,\n    affinity: position.affinity\n  })\n}",
+        "exactNew": "    if (span.sourceEnd < position.offset) {\n      previous = freezePosition({\n        offset: Math.max(0, span.modelEnd - 1),\n        affinity: position.affinity\n      })\n      continue\n    }\n    return previous ?? freezePosition({\n      offset: span.modelStart,\n      affinity: position.affinity\n    })\n  }\n  return previous ?? freezePosition({\n    offset: 0,\n    affinity: position.affinity\n  })\n}",
+        "statement": "Drifting the preceding-boundary answer one model unit left for a position inside hidden syntax makes caret snapping near hidden markers target the wrong visible position — the nearest-visible-boundary rule the target sweeps at every offset and affinity."
       },
-      "finding": "One-sided under two aims: dropping the preceding-boundary fallback and dropping the mid-span model-width clamp both survive the target. In the markup coordinate maps the sweep builds, visible spans map source to model identically and hidden gaps collapse to one model boundary, so neither branch can differentiate; the per-affinity rows pin a hand-built map that avoids both branches too. The target under-exercises boundaryNear's distinguishing branches; its proof needs either a map shape with genuine compression (distinct model widths) or a mutation aimed at the exact-position path the sweep does exercise."
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/document-session/coordinate-authority.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T04:37:22.757Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/document-session/coordinate-authority.spec.ts (4 tests | 1 failed) 26ms\n     × answers the one nearest-visible-boundary rule the run walk answered 22ms\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)\n FAIL  test/document-session/coordinate-authority.spec.ts > coordinate authority members > answers the one nearest-visible-boundary rule the run walk answered\nAssertionError: expected [ …(94) ] to deeply equal []"
+      },
+      "recordedAt": "2026-08-01T04:37:26.800Z"
     },
     {
       "id": "A27",
