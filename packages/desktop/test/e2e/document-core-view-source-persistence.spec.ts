@@ -27,6 +27,39 @@ const INITIAL = [
 test.describe('document-core view and Source persistence', () => {
   test.describe.configure({ timeout: 90_000 })
 
+  // The autosave toggle round-trips main before the renderer store acts on
+  // it; the settled fact is the mt::user-preference broadcast carrying the
+  // new value into this window. Record it page-side and poll it.
+  const observeAutoSavePreference = (page: Page): Promise<void> =>
+    page.evaluate(() => {
+      const scope = window as Window & {
+        __mtAutoSaveObserved?: boolean
+        electron: {
+          ipcRenderer: {
+            on: (
+              channel: string,
+              listener: (event: unknown, payload: unknown) => void
+            ) => void
+          }
+        }
+      }
+      scope.electron.ipcRenderer.on(
+        'mt::user-preference',
+        (_event, payload) => {
+          const autoSave = (payload as { autoSave?: unknown } | null)?.autoSave
+          if (typeof autoSave === 'boolean') {
+            scope.__mtAutoSaveObserved = autoSave
+          }
+        }
+      )
+    })
+
+  const observedAutoSave = (page: Page): Promise<boolean | undefined> =>
+    page.evaluate(() =>
+      (window as Window & { __mtAutoSaveObserved?: boolean })
+        .__mtAutoSaveObserved
+    )
+
   test('all views and Source persist one canonical head', async() => {
     let app: ElectronApplication | undefined
 
@@ -36,8 +69,9 @@ test.describe('document-core view and Source persistence', () => {
       const { page, filePath } = launched
 
       // Exercise the real autosave transaction before changing surfaces.
+      await observeAutoSavePreference(page)
       await clickMenuById(app, 'autoSaveMenuItem')
-      await page.waitForTimeout(100)
+      await expect.poll(() => observedAutoSave(page)).toBe(true)
       await placeCaretInEditor(page)
       await typeIntoEditor(page, ' autosaved')
       // Autosave is the transaction under test: the file itself must
@@ -48,7 +82,7 @@ test.describe('document-core view and Source persistence', () => {
       ).toContain(' autosaved')
       const autosavedHead = fs.readFileSync(filePath, 'utf8')
       await clickMenuById(app, 'autoSaveMenuItem')
-      await page.waitForTimeout(100)
+      await expect.poll(() => observedAutoSave(page)).toBe(false)
 
       const sourceHead =
         autosavedHead +
