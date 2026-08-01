@@ -884,75 +884,77 @@ test.describe('document-core maximum-document responsiveness', () => {
       }
     })
 
-    await page.evaluate(() => {
-      const root = document.querySelector<HTMLElement>(
-        '.editor-component.document-view-container'
-      )
-      if (root === null) {
-        throw new Error('Maximum document has no mounted production editor')
-      }
-      const carriers = [
-        ...root.querySelectorAll<HTMLElement>(
-          '.document-view-run[data-model-end]'
+    const installEditGestureState = async(): Promise<void> =>
+      await launched.page.evaluate(() => {
+        const root = document.querySelector<HTMLElement>(
+          '.editor-component.document-view-container'
         )
-      ].filter((carrier) =>
-        !carrier.classList.contains('document-view-atomic')
-      )
-      const carrier = carriers.reduce<HTMLElement | null>(
-        (selected, candidate) => {
-          if (selected === null) return candidate
-          return Number(candidate.dataset.modelEnd) >=
+        if (root === null) {
+          throw new Error('Maximum document has no mounted production editor')
+        }
+        const carriers = [
+          ...root.querySelectorAll<HTMLElement>(
+            '.document-view-run[data-model-end]'
+          )
+        ].filter((carrier) =>
+          !carrier.classList.contains('document-view-atomic')
+        )
+        const carrier = carriers.reduce<HTMLElement | null>(
+          (selected, candidate) => {
+            if (selected === null) return candidate
+            return Number(candidate.dataset.modelEnd) >=
             Number(selected.dataset.modelEnd)
-            ? candidate
-            : selected
-        },
-        null
-      )
-      const text = carrier?.lastChild
-      if (
-        carrier === null ||
+              ? candidate
+              : selected
+          },
+          null
+        )
+        const text = carrier?.lastChild
+        if (
+          carrier === null ||
         text === null ||
         text === undefined ||
         text.nodeType !== Node.TEXT_NODE ||
         (text.textContent?.length ?? 0) < 1
-      ) {
-        throw new Error('Maximum document has no final editable text carrier')
-      }
-      const range = document.createRange()
-      const end = text.textContent?.length ?? 0
-      range.setStart(text, end - 1)
-      range.setEnd(text, end)
-      const selection = document.getSelection()
-      if (selection === null) {
-        throw new Error('Maximum document has no browser Selection')
-      }
-      selection.removeAllRanges()
-      selection.addRange(range)
-      root.focus()
-      document.dispatchEvent(new Event('selectionchange'))
-      root.dispatchEvent(new KeyboardEvent('keyup', {
-        key: 'ArrowRight',
-        bubbles: true,
-        cancelable: true
-      }))
+        ) {
+          throw new Error('Maximum document has no final editable text carrier')
+        }
+        const range = document.createRange()
+        const end = text.textContent?.length ?? 0
+        range.setStart(text, end - 1)
+        range.setEnd(text, end)
+        const selection = document.getSelection()
+        if (selection === null) {
+          throw new Error('Maximum document has no browser Selection')
+        }
+        selection.removeAllRanges()
+        selection.addRange(range)
+        root.focus()
+        document.dispatchEvent(new Event('selectionchange'))
+        root.dispatchEvent(new KeyboardEvent('keyup', {
+          key: 'ArrowRight',
+          bubbles: true,
+          cancelable: true
+        }))
 
-      const state = {
-        startedAt: 0,
-        handlerReturnedAt: null as number | null,
-        defaultPrevented: false,
-        text
-      }
-      root.addEventListener('beforeinput', () => {
-        state.startedAt = performance.now()
-      }, { capture: true, once: true })
-      root.addEventListener('beforeinput', (event) => {
-        state.handlerReturnedAt = performance.now()
-        state.defaultPrevented = event.defaultPrevented
-      }, { once: true })
-      ;(window as unknown as {
-        __mtMaximumDocumentEdit?: typeof state
-      }).__mtMaximumDocumentEdit = state
-    })
+        const state = {
+          startedAt: 0,
+          handlerReturnedAt: null as number | null,
+          defaultPrevented: false,
+          text
+        }
+        root.addEventListener('beforeinput', () => {
+          state.startedAt = performance.now()
+        }, { capture: true, once: true })
+        root.addEventListener('beforeinput', (event) => {
+          state.handlerReturnedAt = performance.now()
+          state.defaultPrevented = event.defaultPrevented
+        }, { once: true })
+        ;(window as unknown as {
+          __mtMaximumDocumentEdit?: typeof state
+        }).__mtMaximumDocumentEdit = state
+      })
+    await installEditGestureState()
     // Input delivery and frame scheduling for a hidden window are
     // platform-owned and reach seconds at the maximum document (measured:
     // 3,741ms press-to-beforeinput and 3.5s occluded rAF pauses, with the
@@ -1129,66 +1131,68 @@ test.describe('document-core maximum-document responsiveness', () => {
       execution: maximumDocumentEditExecution
     }
 
-    await page.evaluate(() => {
-      const root = document.querySelector<HTMLElement>(
-        '.editor-component.document-view-container'
-      )
-      const carrier = [
-        ...(root?.querySelectorAll<HTMLElement>(
-          '.document-view-run[data-model-end]'
-        ) ?? [])
-      ].filter((candidate) =>
-        !candidate.classList.contains('document-view-atomic')
-      ).reduce<HTMLElement | null>(
-        (selected, candidate) => selected === null ||
+    const installDeletionGestureState = async(): Promise<void> =>
+      await launched.page.evaluate(() => {
+        const root = document.querySelector<HTMLElement>(
+          '.editor-component.document-view-container'
+        )
+        const carrier = [
+          ...(root?.querySelectorAll<HTMLElement>(
+            '.document-view-run[data-model-end]'
+          ) ?? [])
+        ].filter((candidate) =>
+          !candidate.classList.contains('document-view-atomic')
+        ).reduce<HTMLElement | null>(
+          (selected, candidate) => selected === null ||
           Number(candidate.dataset.modelEnd) >=
             Number(selected.dataset.modelEnd)
-          ? candidate
-          : selected,
-        null
-      )
-      const text = carrier?.lastChild
-      if (
-        root === null ||
+            ? candidate
+            : selected,
+          null
+        )
+        const text = carrier?.lastChild
+        if (
+          root === null ||
         !(text instanceof Text) ||
         text.length < 1
-      ) {
-        throw new Error('Maximum document has no deletion text carrier')
-      }
-      const range = document.createRange()
-      range.setStart(text, text.length)
-      range.collapse(true)
-      const selection = document.getSelection()
-      if (selection === null) {
-        throw new Error('Maximum document deletion has no browser Selection')
-      }
-      selection.removeAllRanges()
-      selection.addRange(range)
-      root.focus()
-      document.dispatchEvent(new Event('selectionchange'))
-      root.dispatchEvent(new KeyboardEvent('keyup', {
-        key: 'ArrowRight',
-        bubbles: true,
-        cancelable: true
-      }))
+        ) {
+          throw new Error('Maximum document has no deletion text carrier')
+        }
+        const range = document.createRange()
+        range.setStart(text, text.length)
+        range.collapse(true)
+        const selection = document.getSelection()
+        if (selection === null) {
+          throw new Error('Maximum document deletion has no browser Selection')
+        }
+        selection.removeAllRanges()
+        selection.addRange(range)
+        root.focus()
+        document.dispatchEvent(new Event('selectionchange'))
+        root.dispatchEvent(new KeyboardEvent('keyup', {
+          key: 'ArrowRight',
+          bubbles: true,
+          cancelable: true
+        }))
 
-      const state = {
-        startedAt: 0,
-        handlerReturnedAt: null as number | null,
-        defaultPrevented: false,
-        text
-      }
-      root.addEventListener('beforeinput', () => {
-        state.startedAt = performance.now()
-      }, { capture: true, once: true })
-      root.addEventListener('beforeinput', (event) => {
-        state.handlerReturnedAt = performance.now()
-        state.defaultPrevented = event.defaultPrevented
-      }, { once: true })
-      ;(window as unknown as {
-        __mtMaximumDocumentDeletion?: typeof state
-      }).__mtMaximumDocumentDeletion = state
-    })
+        const state = {
+          startedAt: 0,
+          handlerReturnedAt: null as number | null,
+          defaultPrevented: false,
+          text
+        }
+        root.addEventListener('beforeinput', () => {
+          state.startedAt = performance.now()
+        }, { capture: true, once: true })
+        root.addEventListener('beforeinput', (event) => {
+          state.handlerReturnedAt = performance.now()
+          state.defaultPrevented = event.defaultPrevented
+        }, { once: true })
+        ;(window as unknown as {
+          __mtMaximumDocumentDeletion?: typeof state
+        }).__mtMaximumDocumentDeletion = state
+      })
+    await installDeletionGestureState()
     const beforeDeletionDispatchJson = JSON.stringify(
       await readMainExecution(app, mounted.documentId, 'dispatch')
     )
@@ -1224,6 +1228,7 @@ test.describe('document-core maximum-document responsiveness', () => {
     const maximumDocumentDeletionWindow = await readGestureWindow('deletion')
     const maximumDocumentDeletionTerminalMs =
       maximumDocumentDeletionWindow.terminalMs
+
     const maximumDocumentDeletionExecution = await pollDispatchExecution(
       app,
       mounted.documentId,
@@ -1283,6 +1288,65 @@ test.describe('document-core maximum-document responsiveness', () => {
       finalUnit: String.fromCharCode(maximumDocumentDeletionStats.lastUnit),
       execution: maximumDocumentDeletionExecution
     }
+
+    // The section 3 interactive budgets are p95 figures, and the
+    // app-boundary gesture occasionally absorbs a renderer major-GC pause
+    // of one to four seconds at this heap size (measured on two machines
+    // with the pipeline itself at ~180ms), so each gesture samples five
+    // rounds and the budget binds the p95 like every other interactive
+    // budget. Each round replaces the final unit and deletes it again, so
+    // the document returns to its pre-round bytes.
+    const waitForFinalUnit = async(unit: string): Promise<void> => {
+      await launched.page.waitForFunction(
+        (expected) => {
+          const root = document.querySelector<HTMLElement>(
+            '.editor-component.document-view-container'
+          )
+          const renderedFinalUnit = [
+            ...(root?.querySelectorAll<HTMLElement>(
+              '.document-view-run[data-model-end]'
+            ) ?? [])
+          ].filter((carrier) =>
+            !carrier.classList.contains('document-view-atomic')
+          ).reduce<HTMLElement | null>(
+            (selected, candidate) => selected === null ||
+              Number(candidate.dataset.modelEnd) >=
+                Number(selected.dataset.modelEnd)
+              ? candidate
+              : selected,
+            null
+          )?.textContent?.at(-1)
+          return renderedFinalUnit === expected
+        },
+        unit,
+        { timeout: TERMINAL_BUDGET_MS }
+      )
+    }
+    const editTerminalSamples = [maximumDocumentEditWindow.terminalMs]
+    const deletionTerminalSamples = [maximumDocumentDeletionWindow.terminalMs]
+    for (let round = 1; round < 5; round += 1) {
+      await installEditGestureState()
+      await armGestureWindow('edit')
+      await launched.page.keyboard.insertText('.')
+      await waitForFinalUnit('.')
+      editTerminalSamples.push((await readGestureWindow('edit')).terminalMs)
+      await installDeletionGestureState()
+      await armGestureWindow('deletion')
+      await launched.page.keyboard.press('Backspace')
+      await waitForFinalUnit('x')
+      deletionTerminalSamples.push(
+        (await readGestureWindow('deletion')).terminalMs
+      )
+    }
+    const terminalP95 = (samples: readonly number[]): number => {
+      const sorted = [...samples].sort((left, right) => left - right)
+      return sorted[
+        Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)
+      ] ?? Number.POSITIVE_INFINITY
+    }
+    const maximumDocumentEditTerminalP95Ms = terminalP95(editTerminalSamples)
+    const maximumDocumentDeletionTerminalP95Ms =
+      terminalP95(deletionTerminalSamples)
 
     // The performance surface exists only in Electron main during PERF_TESTING.
     // Its public values are absolute file paths or opaque document ids.
@@ -1410,12 +1474,16 @@ test.describe('document-core maximum-document responsiveness', () => {
       ),
       terminalMs: mountedTerminalMs,
       maximumDocumentEditTerminalMs,
+      maximumDocumentEditTerminalP95Ms,
+      editTerminalSamples,
       maximumDocumentEditWallMs,
       maximumDocumentEditDeliveryMs: maximumDocumentEditWindow.deliveryMs,
       maximumDocumentEditWindowFrameGapMs:
         maximumDocumentEditWindow.windowFrameGapMs,
       maximumDocumentEdit,
       maximumDocumentDeletionTerminalMs,
+      maximumDocumentDeletionTerminalP95Ms,
+      deletionTerminalSamples,
       maximumDocumentDeletionWallMs,
       maximumDocumentDeletionDeliveryMs:
         maximumDocumentDeletionWindow.deliveryMs,
@@ -2180,7 +2248,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       JSON.stringify(report)
     ).toBeLessThanOrEqual(MAIN_STAGE_BUDGET_MS)
     expect(
-      metrics.maximumDocumentEditTerminalMs,
+      metrics.maximumDocumentEditTerminalP95Ms,
       JSON.stringify(report)
     ).toBeLessThanOrEqual(MAXIMUM_DOCUMENT_EDIT_BUDGET_MS)
     expect(
@@ -2250,7 +2318,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       JSON.stringify(report)
     ).toBeLessThanOrEqual(MAIN_STAGE_BUDGET_MS)
     expect(
-      metrics.maximumDocumentDeletionTerminalMs,
+      metrics.maximumDocumentDeletionTerminalP95Ms,
       JSON.stringify(report)
     ).toBeLessThanOrEqual(MAXIMUM_DOCUMENT_EDIT_BUDGET_MS)
     expect(
