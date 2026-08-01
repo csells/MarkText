@@ -88,6 +88,28 @@ export async function fetchBoundedElectronHeaderBytes(
   url: string,
   maximumBytes: number
 ): Promise<Uint8Array> {
+  // Hosted-runner downloads drop transiently mid-body; one bounded retry
+  // absorbs the flake while the checksum pins still authenticate the bytes.
+  // Policy rejections (non-HTTPS, size budget) throw plain Errors and must
+  // fail immediately; transient network failures surface as TypeError or
+  // an abort/timeout name.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fetchBoundedElectronHeaderBytesOnce(url, maximumBytes)
+    } catch (error) {
+      const transient = error instanceof TypeError ||
+        (error instanceof Error &&
+          (error.name === 'TimeoutError' || error.name === 'AbortError'))
+      if (!transient || attempt >= 2) throw error
+      await new Promise((resolve) => setTimeout(resolve, 5_000))
+    }
+  }
+}
+
+async function fetchBoundedElectronHeaderBytesOnce(
+  url: string,
+  maximumBytes: number
+): Promise<Uint8Array> {
   const response = await fetch(url, {
     redirect: 'follow',
     signal: AbortSignal.timeout(60_000)
@@ -320,12 +342,23 @@ export async function runElectronRebuild(
     const environment = sanitizeElectronEnvironment(process.env)
     environment.HOME = nativeBuildHome
     environment.USERPROFILE = nativeBuildHome
-    await spawnChecked(
-      process.execPath,
-      [rebuildCli, ...electronRebuildArguments(headerServer.url, targetArch)],
-      { cwd: desktopRoot, env: environment }
-    )
-    headerServer.assertConsumed()
+    // Hosted runners lose the node-gyp fetch transiently (undici's range
+    // resumption against a CDN that rejects it); one bounded retry absorbs
+    // that flake without masking a persistent rebuild failure.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await spawnChecked(
+          process.execPath,
+          [rebuildCli, ...electronRebuildArguments(headerServer.url, targetArch)],
+          { cwd: desktopRoot, env: environment }
+        )
+        headerServer.assertConsumed()
+        break
+      } catch (error) {
+        if (attempt >= 2) throw error
+        await new Promise((resolve) => setTimeout(resolve, 5_000))
+      }
+    }
   } finally {
     try {
       await headerServer.close()

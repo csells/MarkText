@@ -3,6 +3,7 @@ import type {
   DocumentSessionJournalStorage,
   DocumentSessionJournalValue
 } from '@marktext/document-core'
+import { appendFileSync } from 'node:fs'
 import { Worker } from 'node:worker_threads'
 import path from 'node:path'
 import type {
@@ -108,7 +109,7 @@ export class IsolatedDocumentSession {
       this.#receive(message)
       const elapsed = performance.now() - startedAt
       if (elapsed > 20) {
-        require('node:fs').appendFileSync(
+        appendFileSync(
           traceStall,
           JSON.stringify({
             span: `main:workerMessage:${(message as { kind?: string }).kind ?? 'unknown'}`,

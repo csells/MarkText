@@ -34,7 +34,7 @@ process.env.MARKTEXT_VERSION_STRING = MARKTEXT_VERSION_STRING
 // event-loop gap no wrapper can see still names its stack.
 if (process.env.MARKTEXT_MAIN_CPU_PROF) {
   const profilePath = process.env.MARKTEXT_MAIN_CPU_PROF
-  void import('node:inspector').then(({ Session }) => {
+  import('node:inspector').then(({ Session }) => {
     const session = new Session()
     session.connect()
     session.post('Profiler.enable', () => {
@@ -57,7 +57,7 @@ if (process.env.MARKTEXT_MAIN_CPU_PROF) {
 
 if (process.env.MARKTEXT_STALL_TRACE) {
   const tracePath = process.env.MARKTEXT_STALL_TRACE
-  void import('electron').then(({ ipcMain }) => {
+  import('electron').then(({ ipcMain }) => {
     const originalHandle = ipcMain.handle.bind(ipcMain)
     ipcMain.handle = (channel, listener) => originalHandle(
       channel,
@@ -82,13 +82,13 @@ if (process.env.MARKTEXT_STALL_TRACE) {
       }
     )
   })
-  void import('electron').then(({ webContents }) => {
+  import('electron').then(({ webContents }) => {
     const prototype = (webContents as unknown as {
       prototype?: { send?: (...sendArguments: unknown[]) => unknown }
     }).prototype
     const originalSend = prototype?.send
     if (prototype === undefined || originalSend === undefined) return
-    prototype.send = function tracedSend (...sendArguments: unknown[]) {
+    prototype.send = function tracedSend(...sendArguments: unknown[]) {
       const startedAt = performance.now()
       const result = originalSend.apply(this, sendArguments)
       const elapsed = performance.now() - startedAt
@@ -157,7 +157,7 @@ if (args['--disable-gpu']) {
 bindPresentationPolicyFromEnvironment()
 presentationPolicy.configureApplication(Object.assign(app, {
   preventAppSuspension: () => {
-    void import('electron').then(({ powerSaveBlocker }) => {
+    import('electron').then(({ powerSaveBlocker }) => {
       powerSaveBlocker.start('prevent-app-suspension')
     })
   }
