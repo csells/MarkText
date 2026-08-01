@@ -1171,19 +1171,8 @@ export const useEditorStore = defineStore('editor', {
     },
 
     LISTEN_FOR_CONTEXT_MENU(): void {
-      // General context menu
-      window.electron.ipcRenderer.on('mt::cm-copy-as-rich', () => {
-        bus.emit('copyAsRich', 'copyAsRich')
-      })
-      window.electron.ipcRenderer.on('mt::cm-copy-as-html', () => {
-        bus.emit('copyAsHtml', 'copyAsHtml')
-      })
-      window.electron.ipcRenderer.on('mt::cm-paste-as-plain-text', () => {
-        bus.emit('pasteAsPlainText', 'pasteAsPlainText')
-      })
-      window.electron.ipcRenderer.on('mt::cm-insert-paragraph', (_, location) => {
-        bus.emit('insertParagraph', location)
-      })
+      // The context menu's editing rows ride the one editor-command
+      // channel; only spelling remains context-menu-specific.
 
       // Spelling
       window.electron.ipcRenderer.on('mt::spelling-replace-misspelling', (_, info) => {

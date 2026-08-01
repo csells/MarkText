@@ -172,7 +172,10 @@ import { useDocumentSurfaceContext } from './useDocumentSurfaceContext'
 import {
   documentSurfaceFromProjection
 } from '@shared/types/documentSurface'
-import { decodeEditorCommandId } from '@shared/types/editorCommands'
+import {
+  decodeEditorCommandId,
+  EDITOR_COMMAND_INTENTS
+} from '@shared/types/editorCommands'
 import {
   BLOCK_CONVERSION_COMMANDS,
   INLINE_FORMAT_COMMANDS
@@ -1232,6 +1235,25 @@ const rejectUnavailableInSource = (): void => {
 // find family — are ignored; their subscribers hold their own arms.
 const handleEditorCommand = (value: unknown) => {
   const command = decodeEditorCommandId(value)
+  // G5: every invocation path — menu click, accelerator, palette — resolves
+  // the one availability predicate before dispatch. A refused command
+  // presents the snapshot's exact reason instead of dispatching to a
+  // certain rejection.
+  const intentKind = EDITOR_COMMAND_INTENTS[command]
+  if (intentKind !== undefined && !capabilityStore.commandEnabled(command)) {
+    const capability = capabilityStore.snapshot?.[intentKind]
+    const tabId = currentFile.value?.id
+    if (capability !== undefined && !capability.enabled &&
+      typeof tabId === 'string') {
+      presentSurfaceCommandOutcome(
+        { kind: 'refused', reason: capability.reason },
+        tabId,
+        editorStore,
+        t
+      )
+    }
+    return
+  }
   switch (command) {
     case 'undo': return handleUndo()
     case 'redo': return handleRedo()
@@ -1242,6 +1264,7 @@ const handleEditorCommand = (value: unknown) => {
       return handleCopyPaste(command)
     case 'duplicate-block':
     case 'insert-paragraph':
+    case 'insert-paragraph-before':
     case 'delete-block':
       return handleParagraph(command)
     case 'insert-table':
@@ -1309,7 +1332,11 @@ const handleBlockConversion = (conversion: BlockConversion) => {
 
 // handle `duplicate`, `delete`, `create paragraph below`
 const handleParagraph = (
-  action: 'duplicate-block' | 'insert-paragraph' | 'delete-block'
+  action:
+    | 'duplicate-block'
+    | 'insert-paragraph'
+    | 'insert-paragraph-before'
+    | 'delete-block'
 ) => {
   if (sourceCode.value) {
     rejectUnavailableInSource()
@@ -1317,10 +1344,11 @@ const handleParagraph = (
   }
   const targetEditor = editor.value
   if (targetEditor === null) return
-  const operation = action === 'insert-paragraph'
+  const operation = action === 'insert-paragraph' ||
+    action === 'insert-paragraph-before'
     ? targetEditor.dispatchTargetedIntent({
       kind: 'insert-paragraph',
-      location: 'after'
+      location: action === 'insert-paragraph-before' ? 'before' : 'after'
     })
     : targetEditor.dispatchTargetedIntent({ kind: action })
   reportAsyncTask(operation, `Paragraph ${action}`)
@@ -1490,20 +1518,6 @@ const handleFileChange = (payload: unknown) => {
   }
 }
 
-const handleInsertParagraph = (location: unknown) => {
-  if (location !== 'before' && location !== 'after' && location !== undefined) {
-    throw new TypeError(`Unknown paragraph insertion location: ${String(location)}`)
-  }
-  const targetEditor = editor.value
-  if (targetEditor === null) return
-  reportAsyncTask(
-    targetEditor.dispatchTargetedIntent({
-      kind: 'insert-paragraph',
-      location: location ?? 'after'
-    }),
-    'Insert paragraph'
-  )
-}
 
 const blurEditor = () => {
   editor.value?.blur()
@@ -1901,7 +1915,6 @@ useEditorLifecycle(async () => {
   bus.on('flush-active-editor', flushActiveEditor)
   bus.on('editor-blur', blurEditor)
   bus.on('editor-focus', focusEditor)
-  bus.on('insertParagraph', handleInsertParagraph)
   bus.on('scroll-to-header', scrollToHeader)
   bus.on('scroll-to-anchor-element', scrollToAnchorElement)
   bus.on('screenshot-captured', handleScreenShot)
@@ -2078,7 +2091,6 @@ useEditorLifecycle(async () => {
   bus.off('flush-active-editor', flushActiveEditor)
   bus.off('editor-blur', blurEditor)
   bus.off('editor-focus', focusEditor)
-  bus.off('insertParagraph', handleInsertParagraph)
   bus.off('scroll-to-header', scrollToHeader)
   bus.off('scroll-to-anchor-element', scrollToAnchorElement)
   bus.off('screenshot-captured', handleScreenShot)

@@ -1,7 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G6, G7, G9, G13, G23, G24, G32 open;
-  G5 partial
+- **Status:** RED — G6, G7, G9, G13, G23, G24, G32 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -274,7 +273,7 @@ proof", and the single-space cell padding exactly as written. -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G32 (W1) |
-| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6, G7 (W2) |
+| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G6, G7 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | None. |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
@@ -399,42 +398,6 @@ are transcribed exactly. Its real residue is G36.
 
 **W2 — Host surfaces**
 
-- **G5 Availability is not a property of a command.** Only Review commands
-  declare `isAvailable` (`renderer/src/commands/index.ts:464`). Main registers
-  every accelerator with no availability check
-  (`main/keyboard/shortcutHandler.ts:80-88`); the palette and the accelerator
-  registry default to available; the context menu runs its own timed
-  round-trip; and 12 of the 18 Edit-menu rows declare no `id`, so no disable
-  path can address them (`main/menu/templates/edit.ts:11-172`). Three renderer
-  handlers guard Source mode
-  (`renderer/src/components/editorWithTabs/editor.vue:1205`, `:1234`, `:1259`).
-  Violates non-negotiable 10. Its visible half is closed: those handlers now
-  reject through one outcome presenter rather than returning silently, so an
-  impossible command is visible to the user. What remains is the predicate —
-  `common/commands/review.ts:14-44` carries the record shape across five
-  surfaces; generalize it over the capability snapshot G8 published — the
-  snapshot now predicts read-only, source-only, history, collapsed-selection,
-  and coarse target-kind preconditions, so menu, palette, accelerator, and
-  context predicates can all read one record. The palette half landed
-  (2026-07-31): `EDITOR_COMMAND_INTENTS` derives each presentation
-  command's intent kind, a capability store holds the published
-  snapshot, and every intent-backed palette entry carries one
-  availability predicate over it — thirty-eight entries collapsed into
-  a factory that declares emit and availability together. The menu
-  half landed (2026-07-31): one per-row availability record —
-  capability snapshot x selection context x surface, computed by one
-  renderer policy (`documentCapabilityMenu.ts`) — drives every
-  capability-governed menu row; main projects ids and owns no policy,
-  the selection-menu writer keeps only checked state, and the
-  `mt::set-editor-format-menus-enabled` blanket channel is deleted
-  (the review submenu never needed it — its controller already
-  publishes unavailable state on Source-mode entry). Remaining:
-  accelerators check the same record before executing, and the
-  context menu drops its timed round-trip. The format checkbox-state
-  vocabulary (`DocumentFormatMenuState`, main's `MENU_ID_FORMAT_MAP`) is
-  G5 residue: it restates the inline-format names with drifted spellings
-  and becomes capability-driven when the format bits replace the
-  `mt::set-editor-format-menus-enabled` blanket.
 - **G6 Effects branch inside production.** A `proofPath` field on the production
   request type selects a written proof over native print submission inside the
   static sink host (`main/documentCore/staticSinkHost.ts:33`, `:48-53`,

@@ -398,11 +398,7 @@ export interface IpcMainEventChannels {
   'mt::about-dialog': []
   'mt::ask-for-close': []
   'mt::bootstrap-editor': [config: BootstrapEditorConfig]
-  'mt::cm-copy-as-html': []
-  'mt::cm-copy-as-rich': []
   'mt::cm-edit-comment': [request: CriticMarkupCommentEditRequest]
-  'mt::cm-insert-paragraph': [direction: 'before' | 'after']
-  'mt::cm-paste-as-plain-text': []
   'mt::cm-query-editor-context': [request: CriticMarkupEditorContextRequest]
   'mt::query-document-surface-context': [
     request: DocumentSurfaceContextRequest

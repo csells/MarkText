@@ -47,9 +47,6 @@ describe('async renderer task boundaries', () => {
     expect(editor).toMatch(
       /const flushActiveEditor[^]*cancelTableShapeRequest\(\)[^]*target\?\.flush\(\)/
     )
-    expect(editor).toMatch(
-      /reportAsyncTask\(\s*targetEditor\.dispatchTargetedIntent\(\{\s*kind: 'insert-paragraph',[^]*'Insert paragraph'/
-    )
     expect(editor).not.toMatch(/pasteImage\(filePath\)/)
 
     const review = read(
