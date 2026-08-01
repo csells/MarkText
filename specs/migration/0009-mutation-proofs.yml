@@ -1,0 +1,35 @@
+{
+  "schema": "marktext-0009-mutation-proofs-v1",
+  "plan": "0009",
+  "proofs": [
+    {
+      "id": "A05",
+      "mutation": {
+        "file": "packages/document-core/src/hashCodec.ts",
+        "exactOld": "    words[0] = (value.charCodeAt(offset) << 16) | value.charCodeAt(offset + 1)",
+        "exactNew": "    words[0] = (value.charCodeAt(offset + 1) << 16) | value.charCodeAt(offset)",
+        "statement": "Swapping the big-endian UTF-16 framing of the first schedule word changes every SourceHashV1 digest, so the known-answer identity vectors no longer round-trip."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/language-engine/source-hash-vectors.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:03:10.062Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "\u276f test/language-engine/source-hash-vectors.spec.ts (5 tests | 1 failed) 16ms\n     \u00d7 matches an independent SHA-256 oracle at framing and Unicode boundaries 5ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/language-engine/source-hash-vectors.spec.ts > versioned document identity codecs > matches an independent SHA-256 oracle at framing and Unicode boundaries\nAssertionError: expected 'b921d8ea96f54c8e8919886ae5dd110730393\u2026' to be '24760deeed3b280ef9193158682f0062af020\u2026' // Object.is equality"
+      },
+      "recordedAt": "2026-08-01T01:03:14.218Z"
+    },
+    {
+      "id": "A04",
+      "mutation": {
+        "file": "packages/document-core/src/internal/sourceAuthorship.ts",
+        "exactOld": "    joins.push(candidateLength)\n    if (edit.insert.length > 0) {",
+        "exactNew": "    if (edit.insert.length > 0) {",
+        "statement": "Dropping the leading join of every edit from the candidate draft leaves changed joins unprotected on their left side, so an edit whose boundary assembles marker syntax escapes nothing there."
+      },
+      "finding": "One-sided against the named target: dropping every edit's leading join breaks insert-bearing changed-join protection, yet semantic-edit-codec stays green \u2014 the class is proven by track-changes-hardening ('protects hostile payload delimiters and changed joins atomically'), source-candidate, and transformation-resource-safety instead. The named target under-asserts its title; its proof needs either a mirrored insert-bearing join row or a mutation aimed at the resolution-join protection its rows actually pin."
+    }
+  ]
+}

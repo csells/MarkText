@@ -352,7 +352,21 @@ whose assertion cannot distinguish pass from fail.
   passes it, and a stated mutation of the production behavior it claims to prove
   makes it fail. A target that cannot pass its own baseline is red, not proved.
   The mutation and both results are recorded per target and retained with the
-  evidence bundle (G24). Assertion presence is not proof.
+  evidence bundle (G24). Assertion presence is not proof. Progress
+  2026-08-01: the harness exists — `scripts/mutationProof.mjs` runs one
+  target's baseline, applies the authored mutation from
+  `specs/migration/0009-mutation-proofs.yml` (refusing dirty files,
+  restoring through git, refusing a passing mutated run), and records
+  both outcomes; a plan spec keeps every retained record two-sided and
+  anchored, failing any record whose `exactOld` drifts from the
+  production file. First proofs: A05 is proved two-sided (the framing
+  swap fails the independent SHA-256 oracle), and A04 surfaced the
+  harness's first real finding — dropping every edit's leading join
+  breaks insert-bearing changed-join protection across three sibling
+  suites while the named target stays green, recorded as a finding,
+  not forged into results. Remaining: author and run the other forty
+  targets, resolve A04's under-assertion, and bind completeness at the
+  final-closure gate.
 - **G13 Selection evidence is synthetic.** A08 and A31 selected through a
   `TreeWalker`, a `Range`, and hand-dispatched untrusted events, and Review
   evidence settles with fixed sleeps instead of the public `settled()` barrier.
