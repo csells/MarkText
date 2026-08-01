@@ -4,7 +4,7 @@ import type { ElectronApplication } from 'playwright'
 import { clickMenuById, closeElectron } from './helpers'
 import {
   openReviewSidebar,
-  selectDomText
+  selectWordByPointer
 } from './documentCoreReviewE2e'
 import {
   closeInstalled,
@@ -40,7 +40,7 @@ test.describe('installed document-core full workflow', () => {
       await clickMenuById(launched.app, 'reviewShowMarkedMenuItem')
 
       await clickMenuById(launched.app, 'reviewTrackChangesMenuItem')
-      await selectDomText(launched.page, 'base')
+      await selectWordByPointer(launched.page, 'base')
       await launched.page.keyboard.type('edited')
       await expect(editor.locator('[data-critic-type="substitution"]'))
         .toContainText('edited')

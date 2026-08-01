@@ -6,7 +6,7 @@ import {
   launchDocumentCore,
   openReviewSidebar,
   pointForText,
-  selectDomText
+  selectWordByPointer
 } from './documentCoreReviewE2e'
 import {
   clearCapturedErrors,
@@ -182,7 +182,9 @@ async function rightClickSelectedText(
   page: Page,
   text: string
 ): Promise<void> {
-  expect(await selectDomText(page, text)).toBe(text)
+  // A real double-click gesture selects the word; the synthetic
+  // TreeWalker/Range drive is retired (G13).
+  await selectWordByPointer(page, text)
   const point = await pointForText(page, text)
   await page.mouse.click(point.x, point.y, { button: 'right' })
 }

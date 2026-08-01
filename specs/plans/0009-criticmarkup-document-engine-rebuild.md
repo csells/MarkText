@@ -349,11 +349,16 @@ whose assertion cannot distinguish pass from fail.
   makes it fail. A target that cannot pass its own baseline is red, not proved.
   The mutation and both results are recorded per target and retained with the
   evidence bundle (G24). Assertion presence is not proof.
-- **G13 Selection evidence is synthetic.** A08 and A31 select through a
+- **G13 Selection evidence is synthetic.** A08 and A31 selected through a
   `TreeWalker`, a `Range`, and hand-dispatched untrusted events, and Review
   evidence settles with fixed sleeps instead of the public `settled()` barrier.
   Every selection-sensitive target drives selection with real input and settles
-  on that barrier. Progress: A19 and A08 are migrated, and twenty-six suites
+  on that barrier. 2026-07-31: the synthetic drive (`selectDomText`) is
+  deleted — its two remaining consumers moved to the real double-click
+  gesture: the surface-clipboard-menu suite is migrated and green, and
+  A31's installed full-flow carries the same one-line migration, its
+  validation riding the next packaged-artifact run (the current dmg
+  predates HEAD and fails the artifact commit check by design). Progress: A19 and A08 are migrated, and twenty-six suites
   (~195 read sites) now observe canonical bytes through the real Save flow,
   the mounted projection, the source-mode projection, or the file a
   subject-save produced — each read moved to the observation its claim is

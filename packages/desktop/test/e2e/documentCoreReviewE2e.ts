@@ -26,50 +26,6 @@ export async function closeDocumentCore(
   if (app !== undefined) await closeElectron(app)
 }
 
-export async function selectDomText(
-  page: Page,
-  startNeedle: string,
-  endNeedle = startNeedle
-): Promise<string> {
-  const selected = await page.evaluate(({ startText, endText }) => {
-    const root = document.querySelector('.editor-component') as HTMLElement | null
-    if (root === null) return null
-    const nodes: Text[] = []
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    while (walker.nextNode()) nodes.push(walker.currentNode as Text)
-    const startNode = nodes.find((node) => node.data.includes(startText))
-    const endNode = [...nodes].reverse().find((node) => node.data.includes(endText))
-    if (startNode === undefined || endNode === undefined) return null
-    const start = startNode.data.indexOf(startText)
-    const end = endNode.data.lastIndexOf(endText) + endText.length
-    const range = document.createRange()
-    range.setStart(startNode, start)
-    range.setEnd(endNode, end)
-    const selection = window.getSelection()
-    if (selection === null) return null
-    root.focus()
-    selection.removeAllRanges()
-    selection.addRange(range)
-    document.dispatchEvent(new Event('selectionchange'))
-    root.dispatchEvent(new KeyboardEvent('keyup', {
-      key: 'ArrowRight',
-      bubbles: true,
-      cancelable: true
-    }))
-    return selection.toString()
-  }, { startText: startNeedle, endText: endNeedle })
-  if (selected === null) {
-    throw new Error(
-      `Could not select ${JSON.stringify(startNeedle)}…${JSON.stringify(endNeedle)}`
-    )
-  }
-  await page.waitForTimeout(180)
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-  }))
-  return selected
-}
-
 const publicSelectionText = (page: Page): Promise<string> =>
   page.evaluate(() => window.getSelection()?.toString() ?? '')
 
