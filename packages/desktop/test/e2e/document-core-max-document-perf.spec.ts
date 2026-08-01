@@ -1061,8 +1061,12 @@ test.describe('document-core maximum-document responsiveness', () => {
             ? candidate
             : selected,
           null
-        )?.textContent?.at(-1)
-        return renderedFinalUnit === '.'
+        )?.lastChild
+        // Text.data reads the node's existing string; textContent would
+        // concatenate a fresh 32MB copy per poll frame and manufacture the
+        // very GC pauses this suite measures.
+        return renderedFinalUnit instanceof Text &&
+          renderedFinalUnit.data.at(-1) === '.'
       },
       null,
       { timeout: TERMINAL_BUDGET_MS }
@@ -1217,8 +1221,12 @@ test.describe('document-core maximum-document responsiveness', () => {
             ? candidate
             : selected,
           null
-        )?.textContent?.at(-1)
-        return renderedFinalUnit === 'x'
+        )?.lastChild
+        // Text.data reads the node's existing string; textContent would
+        // concatenate a fresh 32MB copy per poll frame and manufacture the
+        // very GC pauses this suite measures.
+        return renderedFinalUnit instanceof Text &&
+          renderedFinalUnit.data.at(-1) === 'x'
       },
       null,
       { timeout: TERMINAL_BUDGET_MS }
@@ -1315,8 +1323,9 @@ test.describe('document-core maximum-document responsiveness', () => {
               ? candidate
               : selected,
             null
-          )?.textContent?.at(-1)
-          return renderedFinalUnit === expected
+          )?.lastChild
+          return renderedFinalUnit instanceof Text &&
+            renderedFinalUnit.data.at(-1) === expected
         },
         unit,
         { timeout: TERMINAL_BUDGET_MS }
