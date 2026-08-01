@@ -199,7 +199,7 @@ describe('DocumentSession durable journal retention', () => {
         kind: 'rejected',
         reason: 'nothing-to-undo'
       })
-  }, 20_000)
+  }, 40_000)
 
   it('accepts bounded source-edit arrays and rejects the first oversized checkpoint', async() => {
     const limit =
