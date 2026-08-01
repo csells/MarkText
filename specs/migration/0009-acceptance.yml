@@ -413,7 +413,7 @@
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/critic-markup-perf.spec.ts",
-        "title": "five projection toggles, review navigation, and sidebar refreshes stay under the 500ms p95"
+        "title": "review actions on a structured document stay under the 500ms p95"
       }
     },
     {

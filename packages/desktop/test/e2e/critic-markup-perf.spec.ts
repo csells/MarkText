@@ -18,6 +18,11 @@ import {
 
 const OPEN_BUDGET_MS = 5000
 const ACTION_P95_BUDGET_MS = 500
+// Owner ruling (plan 0009, G23): the 500ms action budget scopes to
+// structured documents; a degenerate single-block document — thousands of
+// source lines forming one paragraph, so every projection toggle rebuilds
+// one maximal block — gets a stated 2,000ms toggle budget instead.
+const DEGENERATE_TOGGLE_P95_BUDGET_MS = 2000
 
 const MACHINE_RECORD = {
   hostname: os.hostname(),
@@ -38,6 +43,13 @@ const attachMachineRecord = async(): Promise<void> => {
 
 const NO_OPENER_4096 = `${
   'ordinary { json: true } ++ -- == >> ~~ and [link](url) text\n'.repeat(4096)
+}`
+
+// The same content shaped as a structured document: blank-line separated
+// paragraphs instead of one 4,096-line block. This is the shape the 500ms
+// action budget is ratified against.
+const STRUCTURED_4096 = `${
+  'ordinary { json: true } ++ -- == >> ~~ and [link](url) text\n\n'.repeat(4096)
 }`
 
 // A review-bearing tail so projection toggles and next/previous have items
@@ -77,9 +89,13 @@ test.describe('document-core CriticMarkup performance budgets', () => {
     expect(openMs, `open took ${openMs}ms`).toBeLessThanOrEqual(OPEN_BUDGET_MS)
   })
 
-  test('five projection toggles, review navigation, and sidebar refreshes stay under the 500ms p95', async() => {
+  const measureReviewActions = async(fixture: string): Promise<{
+    togglesP95: number
+    navigationP95: number
+    sidebarP95: number
+  }> => {
     await attachMachineRecord()
-    const launched = await launchWithMarkdown(NO_OPENER_4096 + REVIEW_TAIL)
+    const launched = await launchWithMarkdown(fixture)
     app = launched.app
     page = launched.page
     await expect(page.locator('.editor-component')).toContainText('review')
@@ -155,9 +171,23 @@ test.describe('document-core CriticMarkup performance budgets', () => {
       type: 'perf',
       description: JSON.stringify(report)
     })
+    return report
+  }
 
+  test('review actions on a structured document stay under the 500ms p95', async() => {
+    const report = await measureReviewActions(STRUCTURED_4096 + REVIEW_TAIL)
     expect(report.togglesP95, JSON.stringify(report))
       .toBeLessThan(ACTION_P95_BUDGET_MS)
+    expect(report.navigationP95, JSON.stringify(report))
+      .toBeLessThan(ACTION_P95_BUDGET_MS)
+    expect(report.sidebarP95, JSON.stringify(report))
+      .toBeLessThan(ACTION_P95_BUDGET_MS)
+  })
+
+  test('five projection toggles, review navigation, and sidebar refreshes hold their scoped budgets on the degenerate single-block document', async() => {
+    const report = await measureReviewActions(NO_OPENER_4096 + REVIEW_TAIL)
+    expect(report.togglesP95, JSON.stringify(report))
+      .toBeLessThan(DEGENERATE_TOGGLE_P95_BUDGET_MS)
     expect(report.navigationP95, JSON.stringify(report))
       .toBeLessThan(ACTION_P95_BUDGET_MS)
     expect(report.sidebarP95, JSON.stringify(report))
