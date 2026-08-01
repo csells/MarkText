@@ -361,9 +361,9 @@ const PINNED_PLATFORM_STEP_SHA256 = Object.freeze({
   'Build document-core and desktop':
     '12d09a198a167ea17001b679028ad22449479b54514353ebf7447af2df297650',
   'Exercise Review through real Electron events':
-    'a34205b9a7d4c83bf4d18f868a743b610e396fef91dbc1b63bb0379d558932f0',
+    '4d5ce8cea3c22cd6cac311ab8834a960f4570f4bc0cd403c54e251f92a82f49a',
   'Write compact platform attestation':
-    'ef61d77868c823477cb5f77c92431309fcebd7587e21b66eff5dae8419d418fd',
+    '6d7a318601e9b9f7c8c69c57da45efee27c5a8b604ed45ac99695e1af9cae4a9',
   'Upload compact platform attestation':
     '201bd63ac2f14437e839e7e6a21fbc6b63fc06139f2af60dba0da0ffb5d76290'
 } as const)

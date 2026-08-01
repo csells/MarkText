@@ -114,7 +114,9 @@ jobs:
           test/e2e/document-core-review-workflow.spec.ts
         env:
           MARKTEXT_TEST_BACKGROUND: '1'
-          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/0009-review-exercise.json
+          # Playwright resolves reporter output against its config directory,
+          # so only an absolute path lands where the attestation step reads.
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/test-results/0009-review-exercise.json
 
       - name: Write compact platform attestation
         shell: bash
@@ -143,7 +145,7 @@ jobs:
             // after the exercise left a report proving the Review spec ran
             // and passed in this job.
             const report = JSON.parse(readFileSync(
-              "packages/desktop/test-results/0009-review-exercise.json",
+              "test-results/0009-review-exercise.json",
               "utf8"
             ));
             const exercised = (report.suites ?? []).some((suite) =>
