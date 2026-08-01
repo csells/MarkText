@@ -73,9 +73,13 @@ writeFileSync(archivePath, bytes)
 
 const distribution = path.join(temporary, 'marktext-node')
 mkdirSync(distribution, { recursive: true })
-const extract = spawnSync('tar', ['-xf', archivePath, '-C', distribution], {
-  encoding: 'utf8'
-})
+// bsdtar on Windows parses a drive-letter path as a remote host, so the
+// archive and target stay relative to an explicit working directory.
+const extract = spawnSync(
+  'tar',
+  ['-xf', pin.archive, '-C', 'marktext-node'],
+  { cwd: temporary, encoding: 'utf8' }
+)
 if (extract.status !== 0) fail(`extraction failed: ${extract.stderr}`)
 
 const root = path.join(
