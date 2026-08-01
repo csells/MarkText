@@ -17,7 +17,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/source-hash-vectors.spec.ts (5 tests | 1 failed) 16ms\n     \u00d7 matches an independent SHA-256 oracle at framing and Unicode boundaries 5ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/language-engine/source-hash-vectors.spec.ts > versioned document identity codecs > matches an independent SHA-256 oracle at framing and Unicode boundaries\nAssertionError: expected 'b921d8ea96f54c8e8919886ae5dd110730393\u2026' to be '24760deeed3b280ef9193158682f0062af020\u2026' // Object.is equality"
+        "failureExcerpt": "❯ test/language-engine/source-hash-vectors.spec.ts (5 tests | 1 failed) 16ms\n     × matches an independent SHA-256 oracle at framing and Unicode boundaries 5ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/language-engine/source-hash-vectors.spec.ts > versioned document identity codecs > matches an independent SHA-256 oracle at framing and Unicode boundaries\nAssertionError: expected 'b921d8ea96f54c8e8919886ae5dd110730393…' to be '24760deeed3b280ef9193158682f0062af020…' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:03:14.218Z"
     },
@@ -29,7 +29,7 @@
         "exactNew": "    if (edit.insert.length > 0) {",
         "statement": "Dropping the leading join of every edit from the candidate draft leaves changed joins unprotected on their left side, so an edit whose boundary assembles marker syntax escapes nothing there."
       },
-      "finding": "One-sided against the named target: dropping every edit's leading join breaks insert-bearing changed-join protection, yet semantic-edit-codec stays green \u2014 the class is proven by track-changes-hardening ('protects hostile payload delimiters and changed joins atomically'), source-candidate, and transformation-resource-safety instead. The named target under-asserts its title; its proof needs either a mirrored insert-bearing join row or a mutation aimed at the resolution-join protection its rows actually pin."
+      "finding": "One-sided against the named target: dropping every edit's leading join breaks insert-bearing changed-join protection, yet semantic-edit-codec stays green — the class is proven by track-changes-hardening ('protects hostile payload delimiters and changed joins atomically'), source-candidate, and transformation-resource-safety instead. The named target under-asserts its title; its proof needs either a mirrored insert-bearing join row or a mutation aimed at the resolution-join protection its rows actually pin."
     },
     {
       "id": "A12",
@@ -46,7 +46,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/document-session/resolution-history.spec.ts (1 test | 1 failed) 29ms\n     \u00d7 individual and bulk resolution have exact behavioral equivalence and undo 28ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/resolution-history.spec.ts > DocumentSession source-native resolution history > individual and bulk resolution have exact behavioral equivalence and undo\nAssertionError: expected 'A||C' to be 'A||D' // Object.is equality"
+        "failureExcerpt": "❯ test/document-session/resolution-history.spec.ts (1 test | 1 failed) 29ms\n     × individual and bulk resolution have exact behavioral equivalence and undo 28ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/resolution-history.spec.ts > DocumentSession source-native resolution history > individual and bulk resolution have exact behavioral equivalence and undo\nAssertionError: expected 'A||C' to be 'A||D' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:13:14.382Z"
     },
@@ -65,7 +65,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/document-session/failure-injection.spec.ts (1 test | 1 failed) 18ms\n     \u00d7 failure before commit changes nothing and rejects visibly 17ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/failure-injection.spec.ts > DocumentSession failure injection > failure before commit changes nothing and rejects visibly\nAssertionError: expected [] to deeply equal [ ObjectContaining{\u2026} ]"
+        "failureExcerpt": "❯ test/document-session/failure-injection.spec.ts (1 test | 1 failed) 18ms\n     × failure before commit changes nothing and rejects visibly 17ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/document-session/failure-injection.spec.ts > DocumentSession failure injection > failure before commit changes nothing and rejects visibly\nAssertionError: expected [] to deeply equal [ ObjectContaining{…} ]"
       },
       "recordedAt": "2026-08-01T01:14:38.795Z"
     },
@@ -84,7 +84,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/view/comment-visibility.spec.ts (1 test | 1 failed) 12ms\n     \u00d7 nested Comment source has no prose position 11ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/view/comment-visibility.spec.ts > Comment prose visibility > nested Comment source has no prose position\nAssertionError: original: expected 'aouter  innerb' to be 'ab' // Object.is equality"
+        "failureExcerpt": "❯ test/view/comment-visibility.spec.ts (1 test | 1 failed) 12ms\n     × nested Comment source has no prose position 11ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/view/comment-visibility.spec.ts > Comment prose visibility > nested Comment source has no prose position\nAssertionError: original: expected 'aouter  innerb' to be 'ab' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:16:02.705Z"
     },
@@ -103,7 +103,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/cross-consumer-resource-matrix.spec.ts (4 tests | 2 failed) 33551ms\n     \u00d7 serves every same-kind and mixed form family at the accepted depth 31511ms\n     \u00d7 serves 16384 and degrades the annotation at 16385 to literal text 609ms\n Test Files  1 failed (1)\n      Tests  2 failed | 2 passed (4)\n FAIL  test/language-engine/cross-consumer-resource-matrix.spec.ts > cross-consumer deterministic resource boundary > serves every same-kind and mixed form family at the accepted depth"
+        "failureExcerpt": "❯ test/language-engine/cross-consumer-resource-matrix.spec.ts (4 tests | 2 failed) 33551ms\n     × serves every same-kind and mixed form family at the accepted depth 31511ms\n     × serves 16384 and degrades the annotation at 16385 to literal text 609ms\n Test Files  1 failed (1)\n      Tests  2 failed | 2 passed (4)\n FAIL  test/language-engine/cross-consumer-resource-matrix.spec.ts > cross-consumer deterministic resource boundary > serves every same-kind and mixed form family at the accepted depth"
       },
       "recordedAt": "2026-08-01T01:17:25.725Z"
     },
@@ -122,7 +122,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/profile1-corpus.spec.ts (1 test | 1 failed) 14ms\n     \u00d7 derives every recursive five-form view from one revision 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-corpus.spec.ts > Profile 1 complete recursive corpus > derives every recursive five-form view from one revision\nAssertionError: CMS-DELETION: expected 'A  word.\\n' to be 'A lost word.\\n' // Object.is equality"
+        "failureExcerpt": "❯ test/language-engine/profile1-corpus.spec.ts (1 test | 1 failed) 14ms\n     × derives every recursive five-form view from one revision 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-corpus.spec.ts > Profile 1 complete recursive corpus > derives every recursive five-form view from one revision\nAssertionError: CMS-DELETION: expected 'A  word.\\n' to be 'A lost word.\\n' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:18:43.394Z"
     },
@@ -141,7 +141,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/projection-materialization.spec.ts (1 test | 1 failed) 14ms\n     \u00d7 materializes fixed-point views without synthetic or retargeted syntax 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/projection-materialization.spec.ts > Profile 1 projection materialization > materializes fixed-point views without synthetic or retargeted syntax\nAssertionError: original:1: expected '-' to be 'z' // Object.is equality"
+        "failureExcerpt": "❯ test/language-engine/projection-materialization.spec.ts (1 test | 1 failed) 14ms\n     × materializes fixed-point views without synthetic or retargeted syntax 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/projection-materialization.spec.ts > Profile 1 projection materialization > materializes fixed-point views without synthetic or retargeted syntax\nAssertionError: original:1: expected '-' to be 'z' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:19:41.881Z"
     },
@@ -160,7 +160,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/language-engine/profile1-recovery-corpus.spec.ts (1 test | 1 failed) 18ms\n     \u00d7 is total and lossless across the frozen recovery corpus 18ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-recovery-corpus.spec.ts > Profile 1 malformed recovery corpus > is total and lossless across the frozen recovery corpus\nError: CriticMarkup graph identities diverged from the intrinsic Profile 1 fork parser graph"
+        "failureExcerpt": "❯ test/language-engine/profile1-recovery-corpus.spec.ts (1 test | 1 failed) 18ms\n     × is total and lossless across the frozen recovery corpus 18ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-recovery-corpus.spec.ts > Profile 1 malformed recovery corpus > is total and lossless across the frozen recovery corpus\nError: CriticMarkup graph identities diverged from the intrinsic Profile 1 fork parser graph"
       },
       "recordedAt": "2026-08-01T01:20:48.764Z"
     },
@@ -179,7 +179,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/materialize/per-kind-sink-exactness.spec.ts (4 tests | 3 failed) 55ms\n     \u00d7 declares every Profile 1 syntax kind exactly once across construct, constituent, and root coverage 4ms\n     \u00d7 proves every declared construct kind exact in all six sinks 46ms\n     \u00d7 proves every constituent kind through its owning construct row 3ms\n Test Files  1 failed (1)\n      Tests  3 failed | 1 passed (4)"
+        "failureExcerpt": "❯ test/materialize/per-kind-sink-exactness.spec.ts (4 tests | 3 failed) 55ms\n     × declares every Profile 1 syntax kind exactly once across construct, constituent, and root coverage 4ms\n     × proves every declared construct kind exact in all six sinks 46ms\n     × proves every constituent kind through its owning construct row 3ms\n Test Files  1 failed (1)\n      Tests  3 failed | 1 passed (4)"
       },
       "recordedAt": "2026-08-01T01:21:19.891Z"
     },
@@ -198,7 +198,7 @@
       },
       "mutated": {
         "outcome": "fail",
-        "failureExcerpt": "\u276f test/document-session/comment-anchor-deletion.spec.ts (5 tests | 1 failed) 28ms\n     \u00d7 preserves residual nodes and rejects hidden Comment loss 18ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/document-session/comment-anchor-deletion.spec.ts > TransformationKernel Comment edits > preserves residual nodes and rejects hidden Comment loss\nAssertionError: expected { kind: 'committed', \u2026(2) } to match object { kind: 'rejected', \u2026(2) }"
+        "failureExcerpt": "❯ test/document-session/comment-anchor-deletion.spec.ts (5 tests | 1 failed) 28ms\n     × preserves residual nodes and rejects hidden Comment loss 18ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/document-session/comment-anchor-deletion.spec.ts > TransformationKernel Comment edits > preserves residual nodes and rejects hidden Comment loss\nAssertionError: expected { kind: 'committed', …(2) } to match object { kind: 'rejected', …(2) }"
       },
       "recordedAt": "2026-08-01T01:21:40.339Z"
     },
@@ -211,6 +211,25 @@
         "statement": "Dropping the model-width clamp lets a position deep in a compressed span overflow past the span's visible end, so the nearest-boundary answer diverges from the run-scan oracle."
       },
       "finding": "One-sided under two aims: dropping the preceding-boundary fallback and dropping the mid-span model-width clamp both survive the target. In the markup coordinate maps the sweep builds, visible spans map source to model identically and hidden gaps collapse to one model boundary, so neither branch can differentiate; the per-affinity rows pin a hand-built map that avoids both branches too. The target under-exercises boundaryNear's distinguishing branches; its proof needs either a map shape with genuine compression (distinct model widths) or a mutation aimed at the exact-position path the sweep does exercise."
+    },
+    {
+      "id": "A27",
+      "mutation": {
+        "file": "packages/document-core/src/materialize/consumerPolicy.ts",
+        "exactOld": "  return Object.freeze({\n    kind: 'clipboard-bundle',\n    plainText: materializeProjectedText(revision, view, selection).text,\n    html\n  })\n}",
+        "exactNew": "  return Object.freeze({\n    kind: 'clipboard-bundle',\n    plainText: canonicalSlice(revision, view, selection),\n    html\n  })\n}",
+        "statement": "Copying canonical source instead of the projected text for Original and Revised selections leaks markers into the plain-text cell, so the frozen clipboard consumer cells fail."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/materialize/consumer-policy.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:25:07.971Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/materialize/consumer-policy.spec.ts (8 tests | 1 failed) 46ms\n     × implements every frozen view consumer cell 8ms\n Test Files  1 failed (1)\n      Tests  1 failed | 7 passed (8)\n FAIL  test/materialize/consumer-policy.spec.ts > frozen consumer policy > implements every frozen view consumer cell\nAssertionError: expected { kind: 'clipboard-bundle', …(2) } to match object { kind: 'clipboard-bundle', …(1) }"
+      },
+      "recordedAt": "2026-08-01T01:25:11.876Z"
     }
   ]
 }
