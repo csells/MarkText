@@ -463,12 +463,44 @@ export interface SourceHashEditV1 {
 const SOURCE_HASH_CHECKPOINT_UNITS = 4_096
 
 /**
+ * Optional host-installed one-shot SHA-256.
+ *
+ * The pure implementation below keeps document-core free of platform crypto,
+ * but hashing megabyte envelopes in TypeScript stalls the owning thread for
+ * ~100ms at the maximum document. A Node host can install its native digest
+ * for the one-shot path; the streaming class stays pure because incremental
+ * source hashing snapshots midstates no platform digest can clone.
+ */
+let oneShotSha256Provider: ((chunks: readonly Uint8Array[]) => string) | null =
+  null
+
+export function installOneShotSha256Provider(
+  provider: (chunks: readonly Uint8Array[]) => string
+): void {
+  const probe = Uint8Array.from(
+    'document-core sha256 provider probe',
+    (character) => character.charCodeAt(0)
+  )
+  const reference = new Sha256()
+  reference.update(probe)
+  if (provider([probe]) !== reference.digestHex()) {
+    throw new Error(
+      'SHA-256 provider does not reproduce the reference implementation'
+    )
+  }
+  oneShotSha256Provider = provider
+}
+
+/**
  * Internal byte-oriented SHA-256 primitive for other versioned codecs.
  *
  * Callers own their framing and domain separation. Keeping the primitive here
  * avoids making document-core depend on a platform crypto implementation.
  */
 export function sha256Bytes(...chunks: readonly Uint8Array[]): string {
+  if (oneShotSha256Provider !== null) {
+    return oneShotSha256Provider(chunks)
+  }
   const hash = new Sha256()
   for (const chunk of chunks) {
     hash.update(chunk)

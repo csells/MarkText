@@ -7,6 +7,7 @@ import {
   createSourceSnapshot,
   DocumentExecutionCancelledError,
   groupRenderBlocks,
+  installOneShotSha256Provider,
   markdownHeadingAnchors,
   materializePersistenceConsumer,
   PARSE_LOGICAL_NODE_CHECKPOINT_INTERVAL,
@@ -44,6 +45,8 @@ import {
   type WireEnvelopeV1,
   type WireMemberNameV1
 } from '@marktext/document-core'
+import { createHash } from 'node:crypto'
+import { appendFileSync } from 'node:fs'
 import {
   parentPort,
   threadId,
@@ -81,6 +84,30 @@ import {
 import {
   decodeDocumentParseConfiguration
 } from './documentParseConfiguration'
+
+// Envelope member hashing is one-shot over megabyte payloads at the maximum
+// document; the native digest keeps that off the owning thread's stall
+// budget where the pure fallback costs ~100ms.
+installOneShotSha256Provider((chunks) => {
+  const hash = createHash('sha256')
+  for (const chunk of chunks) hash.update(chunk)
+  return hash.digest('hex')
+})
+
+// Owning-thread stall diagnosis: when MARKTEXT_STALL_TRACE names a file,
+// publication-building spans append their durations there so a breached
+// heartbeat budget can be attributed to a specific span instead of a guess.
+const traceStallSpan = <T>(name: string, build: () => T): T => {
+  const traceStall = process.env.MARKTEXT_STALL_TRACE
+  if (!traceStall) return build()
+  const startedAt = performance.now()
+  const value = build()
+  appendFileSync(
+    traceStall,
+    JSON.stringify({ span: name, ms: performance.now() - startedAt }) + '\n'
+  )
+  return value
+}
 
 if (parentPort === null) {
   throw new Error('Document session worker requires a parent message port')
@@ -624,12 +651,12 @@ function portableMembers(
     snapshotId: snapshot.id,
     revisionId: descriptor.id,
     kind: snapshot.kind,
-    sourceDelta: sourceDeltaBetween(
+    sourceDelta: traceStallSpan('sourceDeltaBetween', () => sourceDeltaBetween(
       baseRevision,
       descriptor.source,
       descriptor.sourceHash,
       sourceEdits
-    ),
+    )),
     sourceHash: descriptor.sourceHash,
     semanticHash: descriptor.semanticHash,
     parseConfiguration: descriptor.configuration,
@@ -648,7 +675,10 @@ function portableMembers(
   }
   // The live editor sink reads its plan through the declared consumer-policy
   // route, so the policy module is load-bearing for live rendering.
-  const livePlan = routeLiveConsumer(snapshot.livePlan).plan
+  const livePlan = traceStallSpan(
+    'routeLiveConsumer',
+    () => routeLiveConsumer(snapshot.livePlan).plan
+  )
   const review = Object.freeze({
     schema: 'document-core-review-delta-1' as const,
     trackChanges: snapshot.configuration.trackChanges,
@@ -662,15 +692,24 @@ function portableMembers(
     // groups the marker would discard.
     return Object.freeze({ session: sessionMember, review })
   }
-  const runs = renderMarkupPlan(snapshot.displayPlan)
+  const runs = traceStallSpan(
+    'renderMarkupPlan',
+    () => renderMarkupPlan(snapshot.displayPlan)
+  )
   return Object.freeze({
     session: sessionMember,
     review,
     live: Object.freeze({
       schema: 'document-core-live-plan-delta-1',
-      modelText: runs.map((run) => run.text).join(''),
+      modelText: traceStallSpan(
+        'modelTextJoin',
+        () => runs.map((run) => run.text).join('')
+      ),
       markupCoordinateMap: livePlan.coordinateMap,
-      blocks: groupRenderBlocks(snapshot.displayDocument, runs),
+      blocks: traceStallSpan(
+        'groupRenderBlocks',
+        () => groupRenderBlocks(snapshot.displayDocument, runs)
+      ),
       outline: outlineOf(
         snapshot.displayDocument,
         modelOffset => livePlan.sourcePositionAt(Object.freeze({
@@ -808,13 +847,13 @@ function publishSnapshot(
     snapshot.kind === 'complete' &&
     lastLivePlanEmissionByProjection.get(snapshot.projection) ===
       livePlanEmissionKey(snapshot, snapshot.projection)
-  const portable = portableMembers(
+  const portable = traceStallSpan('portableMembers', () => portableMembers(
     snapshot,
     historyStateOf(activeSession()),
     baseRevision,
     sourceEdits,
     !unchangedLivePlan
-  )
+  ))
   const members = {
     ...(snapshot.kind !== 'complete'
       ? {}
@@ -860,16 +899,15 @@ function publishSnapshot(
       ? {}
       : { terminalOutcomeDelta: encodeJson(outcome) })
   }
-  return publication(
-    baseSnapshotId,
+  const encoded = traceStallSpan('encodeEnvelope', () =>
     new WireEnvelopeCodecV1().encode({
       publicationId: `session-worker:${threadId}:${publicationSequence}`,
       baseSnapshotId,
       nextSnapshotId: snapshot.id,
       transitionId,
       members
-    })
-  )
+    }))
+  return publication(baseSnapshotId, encoded)
 }
 
 function assertBase(baseSnapshotId: string): void {

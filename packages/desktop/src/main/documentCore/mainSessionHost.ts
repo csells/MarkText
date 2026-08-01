@@ -1,7 +1,9 @@
 import {
   closedRecord as decodeClosedRecord
 } from '@shared/types/closedRecord'
+import { createHash } from 'node:crypto'
 import {
+  installOneShotSha256Provider,
   sourceHashV1,
   type ClipboardBundle,
   type ClipboardConsumerRequest,
@@ -64,6 +66,15 @@ import {
   IsolatedDocumentSession,
   type DocumentSessionWorkerLaunchDescriptor
 } from './isolatedDocumentSession'
+
+// Publication envelopes are checksum-verified on decode; the native digest
+// keeps that verification off the main thread's budget where the pure
+// document-core fallback costs ~100ms on maximum-document payloads.
+installOneShotSha256Provider((chunks) => {
+  const hash = createHash('sha256')
+  for (const chunk of chunks) hash.update(chunk)
+  return hash.digest('hex')
+})
 
 export type {
   DocumentCoreMainDispatchRequest,

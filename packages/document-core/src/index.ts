@@ -199,6 +199,7 @@ export {
 } from './fileSnapshot.js'
 export {
   fileHashV1,
+  installOneShotSha256Provider,
   revisionSemanticHashV1,
   sourceHashV1,
   type FileHashV1,
