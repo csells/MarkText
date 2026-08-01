@@ -538,6 +538,26 @@
       },
       "recordedAt": "2026-08-01T01:56:22.520Z",
       "finding": "Observation: the stale-revision guard and the hidden-comment span rule both survived \u2014 the reject rows observe menu availability, and the individual classification rules are redundantly guarded (a range a removed rule would accept is still rejected by a sibling rule), so the capability fold is the observable seam. Redundant guarding is defense in depth, not an under-assertion."
+    },
+    {
+      "id": "A06",
+      "mutation": {
+        "file": "packages/desktop/src/main/documentCore/documentFileHost.ts",
+        "exactOld": "      const encoded = encodeFileSnapshot(hosted.fileSnapshot, lease.source)",
+        "exactNew": "      const encoded = encodeFileSnapshot(hosted.fileSnapshot, hosted.fileSnapshot.source.text)",
+        "statement": "Writing the stale file snapshot instead of the leased canonical source makes Save persist the previous head, so the pinned canonical revision never reaches disk."
+      },
+      "baseline": {
+        "command": "packages/desktop: npx -y pnpm@10.33.4 exec playwright test --config test/e2e/playwright.config.ts test/e2e/document-core-persistence.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:59:16.291Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "Error: expect(received).toContain(expected) // indexOf\n    > 84 |       await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toContain(\n    Error Context: test-results/document-core-persistence--7f094-on-through-crash-and-reopen-unpacked/error-context.md\n    Error: expect(received).toContain(expected) // indexOf\n    > 84 |       await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toContain(\n    Error Context: test-results/document-core-persistence--7f094-on-through-crash-and-reopen-evidence-unpacked/error-context.md"
+      },
+      "recordedAt": "2026-08-01T02:00:02.966Z",
+      "finding": "Observation: skipping the flush-entry journal checkpoint survived \u2014 the crash rows crash after an explicit Save, whose own path checkpoints again before minting the lease, so the entry checkpoint is redundant for this flow (defense in depth for non-save flushes)."
     }
   ]
 }
