@@ -66,6 +66,26 @@ if (porcelain() !== '') {
   fail(`${proof.mutation.file} is dirty; refusing to mutate a dirty file`)
 }
 
+// An e2e target runs the packaged renderer/main bundles, so a source
+// mutation is invisible until the desktop build regenerates them — and the
+// build-freshness gate would otherwise fail the run loudly. Unit targets
+// import source directly and skip this.
+const rebuildForE2e = (label) => {
+  if (!isE2e) return
+  console.log(`mutation-proof: rebuilding desktop (${label})…`)
+  const build = spawnSync(
+    'npx', ['-y', 'pnpm@10.33.4', 'run', 'build:desktop'],
+    {
+      cwd: path.join(repoRoot, 'packages', 'desktop'),
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024
+    }
+  )
+  if (build.status !== 0) {
+    fail(`desktop build failed (${label}); inspect before retrying`)
+  }
+}
+
 const runTarget = (label) => {
   console.log(`mutation-proof: running ${id} (${label})…`)
   const run = spawnSync(command[0], command.slice(1), {
@@ -78,6 +98,7 @@ const runTarget = (label) => {
 }
 
 const startedAt = new Date().toISOString()
+rebuildForE2e('baseline')
 const baseline = runTarget('baseline')
 if (!baseline.passed) {
   fail(`${id} failed its baseline; the target is red, not provable`)
@@ -95,11 +116,13 @@ writeFileSync(
 
 let mutated
 try {
+  rebuildForE2e('mutated')
   mutated = runTarget('mutated')
 } finally {
   execFileSync(
     'git', ['restore', '--', proof.mutation.file], { cwd: repoRoot }
   )
+  rebuildForE2e('restored')
 }
 if (porcelain() !== '') {
   fail(`${proof.mutation.file} did not restore cleanly; inspect the tree`)
