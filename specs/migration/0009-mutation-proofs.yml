@@ -306,6 +306,44 @@
         "failureExcerpt": "❯ test/language-engine/mmd6-differential.spec.ts (1 test | 1 failed) 17ms\n     × projects every MMD-6 CuTest row through Original and Revised 17ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/mmd6-differential.spec.ts > MMD-6 differential projection conventions > projects every MMD-6 CuTest row through Original and Revised\nAssertionError: expected [ …(6) ] to deeply equal []"
       },
       "recordedAt": "2026-08-01T01:28:49.287Z"
+    },
+    {
+      "id": "A36",
+      "mutation": {
+        "file": "packages/document-core/src/materialize/htmlRender.ts",
+        "exactOld": "      return `<p>${renderInlineContent(document, node, policy)}</p>\\n`",
+        "exactNew": "      return `<p >${renderInlineContent(document, node, policy)}</p>\\n`",
+        "statement": "A stray space in the paragraph tag breaks byte-exact CommonMark HTML across the conformance sections; with the pending list empty, full conformance is the file's live claim."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/language-engine/commonmark-html-conformance.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:29:57.293Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/language-engine/commonmark-html-conformance.spec.ts (29 tests | 25 failed) 147ms\n     × section: Tabs (11 examples) 20ms\n     × section: Backslash escapes (13 examples) 9ms\n     × section: Entity and numeric character references (17 examples) 6ms\n     × section: Thematic breaks (19 examples) 6ms\n     × section: ATX headings (18 examples) 4ms"
+      },
+      "recordedAt": "2026-08-01T01:30:01.745Z"
+    },
+    {
+      "id": "A01",
+      "mutation": {
+        "file": "packages/document-core/src/internal/profile1Document.ts",
+        "exactOld": "  traceRecorder?.recordAuthoritativeMarkdownParse('canonical-source')\n  const originalPrepared = prepareProjection(",
+        "exactNew": "  traceRecorder?.recordCanonicalSourceAdmission(0)\n  traceRecorder?.recordAuthoritativeMarkdownParse('canonical-source')\n  const originalPrepared = prepareProjection(",
+        "statement": "Emitting a second canonical-source admission at the authoritative-parse site simulates a second grammar path, so the trace no longer shows one intrinsic admission."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/language-engine/architecture-gate.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:30:41.073Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/language-engine/architecture-gate.spec.ts (11 tests | 3 failed) 40ms\n     × marker-bearing source is emitted by one intrinsic grammar 6ms\n       × admits canonical source exactly once for a CriticMarkup-free document 1ms\n       × admits canonical source exactly once for a CriticMarkup document 1ms\n Test Files  1 failed (1)\n      Tests  3 failed | 8 passed (11)"
+      },
+      "recordedAt": "2026-08-01T01:30:50.458Z"
     }
   ]
 }
