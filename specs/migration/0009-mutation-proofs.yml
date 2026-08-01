@@ -230,6 +230,44 @@
         "failureExcerpt": "❯ test/materialize/consumer-policy.spec.ts (8 tests | 1 failed) 46ms\n     × implements every frozen view consumer cell 8ms\n Test Files  1 failed (1)\n      Tests  1 failed | 7 passed (8)\n FAIL  test/materialize/consumer-policy.spec.ts > frozen consumer policy > implements every frozen view consumer cell\nAssertionError: expected { kind: 'clipboard-bundle', …(2) } to match object { kind: 'clipboard-bundle', …(1) }"
       },
       "recordedAt": "2026-08-01T01:25:11.876Z"
+    },
+    {
+      "id": "A35",
+      "mutation": {
+        "file": "packages/document-core/src/internal/profile1Document.ts",
+        "exactOld": "const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128",
+        "exactNew": "const DESKTOP_MARKDOWN_DEPTH_LIMIT = 2",
+        "statement": "Collapsing the Markdown depth limit to two degrades every nested spec input to a source-only revision, so the corpus is no longer total."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/language-engine/commonmark-corpus-totality.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:26:40.043Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/language-engine/commonmark-corpus-totality.spec.ts (2 tests | 1 failed) 235ms\n     × parses all 652 spec inputs to complete revisions with exact source 112ms\n Test Files  1 failed (1)\n      Tests  1 failed | 1 passed (2)\n FAIL  test/language-engine/commonmark-corpus-totality.spec.ts > CommonMark 0.31.2 corpus totality > parses all 652 spec inputs to complete revisions with exact source\nAssertionError: expected [ '#9 (Tabs): source-only', …(9) ] to deeply equal []"
+      },
+      "recordedAt": "2026-08-01T01:26:44.871Z"
+    },
+    {
+      "id": "A38",
+      "mutation": {
+        "file": "packages/document-core/src/internal/profile1Document.ts",
+        "exactOld": "const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128",
+        "exactNew": "const DESKTOP_MARKDOWN_DEPTH_LIMIT = 2",
+        "statement": "Collapsing the Markdown depth limit to two degrades every nested GFM spec input to a source-only revision, so the 672-input corpus is no longer total."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/language-engine/gfm-corpus-totality.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:26:53.621Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/language-engine/gfm-corpus-totality.spec.ts (3 tests | 2 failed) 198ms\n     × parses all 672 spec inputs to complete revisions with exact source 116ms\n     × parses every mid-edit prefix of a corpus sample without throwing (T1) 76ms\n Test Files  1 failed (1)\n      Tests  2 failed | 1 passed (3)\n FAIL  test/language-engine/gfm-corpus-totality.spec.ts > GFM 0.29 corpus totality > parses all 672 spec inputs to complete revisions with exact source"
+      },
+      "recordedAt": "2026-08-01T01:26:57.840Z"
     }
   ]
 }
