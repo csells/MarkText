@@ -704,11 +704,11 @@
     },
     {
       "id": "A30",
-      "disposition": "Deferred to the packaging window: the installed-artifact Comment CRUD target needs MARKTEXT_PACKAGED_APP naming a freshly packaged build whose artifact commit matches HEAD; the current dmg predates HEAD by design."
+      "disposition": "Deferred to the packaging window: the installed-artifact Comment CRUD target needs MARKTEXT_PACKAGED_APP naming a freshly packaged build whose artifact commit matches HEAD; the current dmg predates HEAD by design. Window opened 2026-08-01: a fresh arm64 artifact was packaged at 358b427a and passes the provenance gate, but both installed suites fail before any migrated line \u2014 the Comment suite's reviewAddCommentMenuItem carries no accelerator in the packaged menu, and the full-flow suite never renders a [data-critic-id] marker \u2014 so the baselines are red on the artifact itself (the known-red P10 executable-proof family), and a red baseline is not provable. Fixing the installed-artifact defects is the P10 arc these targets belong to."
     },
     {
       "id": "A31",
-      "disposition": "Deferred to the packaging window: the installed full-flow target needs a fresh packaged build, and the same window validates its pending real-gesture migration (G13)."
+      "disposition": "Deferred to the packaging window: the installed full-flow target needs a fresh packaged build, and the same window validates its pending real-gesture migration (G13). Window opened 2026-08-01: a fresh arm64 artifact was packaged at 358b427a and passes the provenance gate, but both installed suites fail before any migrated line \u2014 the Comment suite's reviewAddCommentMenuItem carries no accelerator in the packaged menu, and the full-flow suite never renders a [data-critic-id] marker \u2014 so the baselines are red on the artifact itself (the known-red P10 executable-proof family), and a red baseline is not provable. Fixing the installed-artifact defects is the P10 arc these targets belong to."
     },
     {
       "id": "A32",
