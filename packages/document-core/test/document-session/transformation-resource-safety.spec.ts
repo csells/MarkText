@@ -82,7 +82,9 @@ describe('DocumentSession transformation resource safety', () => {
     ], {
       encoding: 'utf8',
       maxBuffer: 4 * 1_024 * 1_024,
-      timeout: 60_000
+      // Hosted runners execute the same bounded work about four times
+      // slower than the owner hardware this guard was sized on.
+      timeout: process.env.CI === 'true' ? 240_000 : 60_000
     })
 
     expect(child.error, child.stderr).toBeUndefined()
