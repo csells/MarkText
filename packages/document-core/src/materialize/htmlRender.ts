@@ -1231,6 +1231,23 @@ export function markdownTextValueSegments(
   inputStart = 0,
   execution?: ParseExecutionTracker
 ): readonly MarkdownTextValueSegment[] {
+  // Decoding only ever begins at a backslash or an ampersand. Text without
+  // either is one identity segment, and the native scans that prove it cost
+  // ~2ms on a 32-million-unit carrier where the decode loop stalls the
+  // owning thread for ~100ms. The reported source units match the loop's
+  // total exactly.
+  if (!text.includes('\\') && !text.includes('&')) {
+    execution?.examineSource(text.length)
+    if (text.length === 0) return Object.freeze([])
+    return Object.freeze([Object.freeze({
+      text,
+      boundaryMapping: 'identity' as const,
+      inputRange: Object.freeze({
+        start: inputStart,
+        end: inputStart + text.length
+      })
+    })])
+  }
   const segments: MarkdownTextValueSegment[] = []
   let identityStart = 0
   let cursor = 0
