@@ -13,7 +13,8 @@ const read = (relative: string): string =>
 
 interface MutationProof {
   readonly id: string
-  readonly mutation: Readonly<{
+  readonly disposition?: string
+  readonly mutation?: Readonly<{
     file: string
     exactOld: string
     exactNew: string
@@ -58,6 +59,17 @@ describe('0009 mutation proofs', () => {
   it('keeps every recorded proof two-sided and anchored', () => {
     for (const proof of proofs.proofs) {
       const { mutation } = proof
+      if (mutation === undefined) {
+        // A structurally deferred target carries a disposition naming what
+        // unblocks it — a gap, the packaging window, or the platform CI —
+        // and nothing else; deferral is never partial evidence.
+        expect(typeof proof.disposition, proof.id).toBe('string')
+        expect((proof.disposition ?? '').length, proof.id).toBeGreaterThan(60)
+        expect(proof.baseline, proof.id).toBeUndefined()
+        expect(proof.mutated, proof.id).toBeUndefined()
+        expect(proof.recordedAt, proof.id).toBeUndefined()
+        continue
+      }
       for (const field of [
         mutation.file,
         mutation.exactOld,

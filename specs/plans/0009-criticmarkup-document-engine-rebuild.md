@@ -364,8 +364,19 @@ whose assertion cannot distinguish pass from fail.
   harness's first real finding — dropping every edit's leading join
   breaks insert-bearing changed-join protection across three sibling
   suites while the named target stays green, recorded as a finding,
-  not forged into results. Remaining: author and run the other forty
-  targets, resolve A04's under-assertion, and bind completeness at the
+  not forged into results. Progress 2026-08-01, the local
+  sweep is complete: thirty-five of forty-two targets are proved
+  two-sided — every document-core, desktop-unit, and locally runnable
+  e2e target — with each replaced aim documented in its record. Two
+  under-assertion findings (A04's insert-bearing joins, A42's
+  boundary branches) and a ledger of partials and observations name
+  where targets under-observe their own titles, and where guards are
+  redundant by design. The last five carry explicit dispositions: A29
+  and A37 cannot pass their own baselines while G23's budgets are red
+  — a target that cannot pass its baseline is red, not provable — and
+  A30, A31, and A32 bind to the packaging and platform windows shared
+  with G13 and G24. Remaining: run the deferred five when their
+  windows open, resolve the findings, and bind completeness at the
   final-closure gate.
 - **G13 Selection evidence is synthetic.** A08 and A31 selected through a
   `TreeWalker`, a `Range`, and hand-dispatched untrusted events, and Review
