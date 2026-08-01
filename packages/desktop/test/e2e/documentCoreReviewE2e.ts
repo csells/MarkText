@@ -396,9 +396,24 @@ export async function selectWordByPointer(
   page: Page,
   needle: string
 ): Promise<void> {
-  const point = await pointForText(page, needle)
-  await page.mouse.dblclick(point.x, point.y)
-  await expect.poll(() => publicSelectionText(page)).toBe(needle)
+  // A double-click can race a publication re-mount (a projection or
+  // track-changes toggle still in flight): the session refuses the
+  // stale-coordinate select and the re-mount honestly restores its own
+  // selection. A real user just selects the word again, so retry the
+  // gesture against the freshly mounted DOM.
+  const attempts = 3
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const point = await pointForText(page, needle)
+    await page.mouse.dblclick(point.x, point.y)
+    try {
+      await expect
+        .poll(() => publicSelectionText(page), { timeout: 4000 })
+        .toBe(needle)
+      break
+    } catch (error) {
+      if (attempt === attempts) throw error
+    }
+  }
   await page.waitForTimeout(180)
 }
 

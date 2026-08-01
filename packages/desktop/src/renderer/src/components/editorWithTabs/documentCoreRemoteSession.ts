@@ -2080,11 +2080,26 @@ export async function createDocumentCoreRemoteSession(
 
   const selectInView = (
     view: 'markup' | 'source',
-    selection: InitialModelSelection
+    selection: InitialModelSelection,
+    baseRevisionId?: string
   ): Promise<void> => {
     assertActiveDocumentAvailable()
     return enqueue(async() => {
       assertActiveDocumentAvailable()
+      // A revision-bound select carries offsets read from the DOM of the
+      // publication that issued them. Queued operations ahead of it may
+      // have advanced the head to a different projection whose model gives
+      // those offsets a different meaning; refuse rather than misapply.
+      // The message shape is the recoverable stale-snapshot refusal.
+      if (
+        baseRevisionId !== undefined &&
+        baseRevisionId !== portable?.revisionId
+      ) {
+        throw new Error(
+          `Renderer supplied stale snapshot for revision ${baseRevisionId}; ` +
+          `the adopted head is ${portable?.revisionId ?? 'not-open'}`
+        )
+      }
       const documentId = activeDocumentId
       const baseSnapshotId = mountedSnapshotId
       const request: DocumentCoreMainSelectRequest = {
@@ -2105,8 +2120,11 @@ export async function createDocumentCoreRemoteSession(
       )
     })
   }
-  const select = (selection: InitialModelSelection): Promise<void> =>
-    selectInView('markup', selection)
+  const select = (
+    selection: InitialModelSelection,
+    baseRevisionId?: string
+  ): Promise<void> =>
+    selectInView('markup', selection, baseRevisionId)
   const selectSource = (selection: InitialModelSelection): Promise<void> =>
     selectInView('source', selection)
 

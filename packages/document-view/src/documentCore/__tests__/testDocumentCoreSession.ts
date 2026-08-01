@@ -212,7 +212,22 @@ async function createTestDocumentCoreSessionHarness(
         dispatch,
         settled: () => session.settled(),
         modelPositionAt,
-        select: async (selection: InitialModelSelection) => {
+        select: async (
+            selection: InitialModelSelection,
+            baseRevisionId?: string,
+        ) => {
+            // Honor the revision binding a mounted view attaches: a select
+            // carrying coordinates from a superseded publication must be
+            // refused, exactly as the desktop remote session refuses it.
+            if (
+                baseRevisionId !== undefined
+                && baseRevisionId !== snapshot().revisionId
+            ) {
+                throw new Error(
+                    `Renderer supplied stale snapshot for revision ${baseRevisionId}; `
+                    + `the adopted head is ${snapshot().revisionId}`,
+                );
+            }
             session.select(selection);
         },
         selectSource: async (selection: InitialModelSelection) => {

@@ -402,7 +402,17 @@ export interface IDocumentCoreViewSession {
     ) => Promise<DocumentCoreViewDispatchResult>;
     /** Translate canonical source, snapping hidden syntax by affinity. */
     readonly modelPositionAt: (position: ModelPosition) => ModelPosition;
-    readonly select: (selection: InitialModelSelection) => Promise<void>;
+    /**
+     * Commit one model selection. Offsets read from a mounted DOM are only
+     * meaningful against the publication whose parser issued that DOM's
+     * model ranges; `baseRevisionId` binds the request to it, and a session
+     * whose head has moved past that revision must refuse the select rather
+     * than apply the offsets against a different projection's coordinates.
+     */
+    readonly select: (
+        selection: InitialModelSelection,
+        baseRevisionId?: string,
+    ) => Promise<void>;
     readonly selectSource: (
         selection: InitialModelSelection,
     ) => Promise<void>;
@@ -1026,6 +1036,7 @@ export async function createDocumentCoreView(
 
     const selectSession = (
         selection: InitialModelSelection,
+        baseRevisionId?: string,
     ): Promise<void> => {
         if (!selectionMatches(activeSelection(), selection))
             abortPendingTableShapeRequests();
@@ -1034,7 +1045,9 @@ export async function createDocumentCoreView(
         if (selectionIdle) {
             selectionIdle = false;
             try {
-                result = Promise.resolve(session.select(selection));
+                result = Promise.resolve(
+                    session.select(selection, baseRevisionId),
+                );
             }
             catch (error) {
                 result = Promise.reject(error);
@@ -1042,13 +1055,13 @@ export async function createDocumentCoreView(
         }
         else {
             result = pendingSelection.then(
-                () => session.select(selection),
+                () => session.select(selection, baseRevisionId),
             );
         }
         const isolated = result.then(
             () => undefined,
             (error: unknown) => {
-                if (!isStaleViewSelectRejection(error))
+                if (!isRecoverableSelectRejection(error))
                     selectionFailure ??= error;
             },
         );
@@ -4086,13 +4099,17 @@ export async function createDocumentCoreView(
         }
         userSelectionGeneration += 1;
         pendingUserSelectionDispatches += 1;
+        // The adopted offsets came from the mounted DOM's parser-issued
+        // ranges; bind the select to that publication so a session whose
+        // head has already moved past it refuses the request instead of
+        // applying old-projection coordinates against the new model.
         void selectSession({
             anchor: { offset: range.start, affinity: 'next' },
             focus: {
                 offset: range.end,
                 affinity: range.start === range.end ? 'next' : 'previous',
             },
-        })
+        }, mountedSnapshot?.revisionId)
             .then(publishSelection, () => undefined)
             .finally(() => {
                 pendingUserSelectionDispatches -= 1;
