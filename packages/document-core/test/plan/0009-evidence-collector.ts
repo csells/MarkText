@@ -357,13 +357,13 @@ const PINNED_PLATFORM_STEP_SHA256 = Object.freeze({
   'Prepare Electron runtime':
     'aad908691916aba5d5fe5bbe1e870710fca744d394757d31f8abf7342dff8943',
   'Verify runner architecture':
-    'd496663373511ed9c7e4218d9503a41535e085176a1b3ea9c93dd5e4bb1db0df',
+    'f4f3e2895ed7e4dff6ff24e1ba2ed021d0e4ae2c1082d9dc4a1e33ec3f8ddf07',
   'Build document-core and desktop':
-    '0f336437d5520f66a0af801c3901efeeea6b3355574274f127171797d5a56c76',
+    '12d09a198a167ea17001b679028ad22449479b54514353ebf7447af2df297650',
   'Exercise Review through real Electron events':
-    'e57a03085ff79282ca23922299f235895ff81f404e30dbfa7bc262dcf52b1f58',
+    'a34205b9a7d4c83bf4d18f868a743b610e396fef91dbc1b63bb0379d558932f0',
   'Write compact platform attestation':
-    '7dab0ca0ea0a01e126ce10a265b99005151e0d050858021f5e37bb7df65a3d60',
+    'ef61d77868c823477cb5f77c92431309fcebd7587e21b66eff5dae8419d418fd',
   'Upload compact platform attestation':
     '201bd63ac2f14437e839e7e6a21fbc6b63fc06139f2af60dba0da0ffb5d76290'
 } as const)
@@ -1066,6 +1066,7 @@ export function validateGithubRunEvidence(
         'platform',
         'refName',
         'refType',
+        'reviewExercise',
         'runAttempt',
         'runId',
         'runnerImageOs',
@@ -1078,6 +1079,29 @@ export function validateGithubRunEvidence(
       ],
       `${platform} attestation`
     )
+    // The Windows leg once attested green while its pwsh-shelled steps
+    // resolved a no-op pnpm and executed nothing, so an attestation is
+    // acceptable only when it carries the exercise report the workflow now
+    // gates on: exactly one Review spec expected to pass, nothing skipped,
+    // flaky, or unexpected.
+    const reviewExercise = attestation.reviewExercise
+    if (typeof reviewExercise !== 'object' || reviewExercise === null) {
+      throw new Error(`GitHub platform attestation lacks its exercise report: ${platform}`)
+    }
+    exactObjectKeys(
+      reviewExercise as Record<string, unknown>,
+      ['expected', 'flaky', 'skipped', 'unexpected'],
+      `${platform} attestation reviewExercise`
+    )
+    const exerciseCounts = reviewExercise as Record<string, unknown>
+    if (
+      exerciseCounts.expected !== 1 ||
+      exerciseCounts.flaky !== 0 ||
+      exerciseCounts.skipped !== 0 ||
+      exerciseCounts.unexpected !== 0
+    ) {
+      throw new Error(`GitHub platform attestation exercise counts are wrong: ${platform}`)
+    }
     const verifiedAt = githubTimestamp(attestation.verifiedAt, `${platform} verifiedAt`)
     if (attestation.refType !== 'tag' || attestation.refName !== run.headBranch) {
       throw new Error(`GitHub platform attestation is not bound to its exact tag ref: ${platform}`)

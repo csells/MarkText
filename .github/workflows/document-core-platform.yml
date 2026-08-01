@@ -84,11 +84,17 @@ jobs:
           npm_config_user_agent: 'pnpm'
 
       - name: Verify runner architecture
+        shell: bash
         run: >-
           node -e "if (process.arch !== '${{ matrix.arch }}')
           { throw new Error('Expected ${{ matrix.arch }}, got ' + process.arch) }"
 
       - name: Build document-core and desktop
+        # Every pnpm step must run under bash: the pinned shim is a bash
+        # script, and the Windows pwsh default resolved something else that
+        # exited 0 without executing anything, so the leg attested green
+        # while building and testing nothing.
+        shell: bash
         # GitHub refuses NODE_OPTIONS through GITHUB_ENV, so the heap
         # ceiling the resource-matrix suite needs on 7 GB hosted VMs is
         # declared here; V8 defaults to ~2 GB otherwise.
@@ -99,13 +105,16 @@ jobs:
           pnpm --filter marktext run build
 
       - name: Exercise Review through real Electron events
+        shell: bash
         run: >-
           ${{ matrix.e2ePrefix }}pnpm --filter marktext exec playwright test
           --config test/e2e/playwright.config.ts
           --project=unpacked
+          --reporter=list,json
           test/e2e/document-core-review-workflow.spec.ts
         env:
           MARKTEXT_TEST_BACKGROUND: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/0009-review-exercise.json
 
       - name: Write compact platform attestation
         shell: bash
@@ -121,13 +130,37 @@ jobs:
           EVIDENCE_WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           node --input-type=module -e '
-            import { mkdirSync, writeFileSync } from "node:fs";
+            import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
             const directory = "test-results/0009-platform";
             const path = directory + "/" + process.env.EVIDENCE_PLATFORM + ".json";
             const runnerImageOs = process.env.ImageOS;
             const runnerImageVersion = process.env.ImageVersion;
             if (!runnerImageOs || !runnerImageVersion) {
               throw new Error("GitHub hosted-runner image identity is unavailable");
+            }
+            // The attestation must not outrun the evidence: a step that
+            // resolves a no-op still exits 0, so "verified" is only written
+            // after the exercise left a report proving the Review spec ran
+            // and passed in this job.
+            const report = JSON.parse(readFileSync(
+              "packages/desktop/test-results/0009-review-exercise.json",
+              "utf8"
+            ));
+            const exercised = (report.suites ?? []).some((suite) =>
+              String(suite.file ?? "").endsWith("document-core-review-workflow.spec.ts")
+            );
+            const stats = report.stats ?? {};
+            if (
+              !exercised ||
+              stats.expected !== 1 ||
+              stats.unexpected !== 0 ||
+              stats.skipped !== 0 ||
+              stats.flaky !== 0
+            ) {
+              throw new Error(
+                "Review exercise report does not prove a clean run: " +
+                JSON.stringify(stats)
+              );
             }
             mkdirSync(directory, { recursive: true });
             const attestation = {
@@ -147,6 +180,12 @@ jobs:
               node: process.version,
               runnerImageOs,
               runnerImageVersion,
+              reviewExercise: {
+                expected: stats.expected,
+                flaky: stats.flaky,
+                skipped: stats.skipped,
+                unexpected: stats.unexpected
+              },
               verifiedAt: new Date().toISOString()
             };
             writeFileSync(path, JSON.stringify(attestation, null, 2) + "\n");

@@ -400,6 +400,7 @@ function githubRunEvidence(
           node,
           runnerImageOs: `${os}-fixture`,
           runnerImageVersion: '20260726.1',
+          reviewExercise: { expected: 1, flaky: 0, skipped: 0, unexpected: 0 },
           verifiedAt: completedAt
         }) + '\n'
       ).toString('base64')
