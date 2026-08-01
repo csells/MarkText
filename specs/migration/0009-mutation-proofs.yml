@@ -144,6 +144,63 @@
         "failureExcerpt": "❯ test/language-engine/projection-materialization.spec.ts (1 test | 1 failed) 14ms\n     × materializes fixed-point views without synthetic or retargeted syntax 14ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/projection-materialization.spec.ts > Profile 1 projection materialization > materializes fixed-point views without synthetic or retargeted syntax\nAssertionError: original:1: expected '-' to be 'z' // Object.is equality"
       },
       "recordedAt": "2026-08-01T01:19:41.881Z"
+    },
+    {
+      "id": "A10",
+      "mutation": {
+        "file": "packages/document-core/src/internal/profile1Document.ts",
+        "exactOld": "    forkRecorder.promoteBranches(\n      frame.forkArmLanes,\n      frame.forkParentLane\n    )\n    forkRecorder.recordTransition(\n      frame.forkParentLane,\n      'unterminated-recovery',",
+        "exactNew": "    forkRecorder.recordTransition(\n      frame.forkParentLane,\n      'unterminated-recovery',",
+        "statement": "Dropping the branch promotion on unterminated recovery loses the open marker's accumulated content instead of returning it to prose, so recovery is no longer lossless."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/language-engine/profile1-recovery-corpus.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:20:44.563Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/language-engine/profile1-recovery-corpus.spec.ts (1 test | 1 failed) 18ms\n     × is total and lossless across the frozen recovery corpus 18ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n FAIL  test/language-engine/profile1-recovery-corpus.spec.ts > Profile 1 malformed recovery corpus > is total and lossless across the frozen recovery corpus\nError: CriticMarkup graph identities diverged from the intrinsic Profile 1 fork parser graph"
+      },
+      "recordedAt": "2026-08-01T01:20:48.764Z"
+    },
+    {
+      "id": "A41",
+      "mutation": {
+        "file": "packages/document-core/src/materialize/consumerPolicy.ts",
+        "exactOld": "  heading: MARKDOWN_CONSTRUCT,\n  blockquote: MARKDOWN_CONSTRUCT,",
+        "exactNew": "  heading: constituent('paragraph'),\n  blockquote: MARKDOWN_CONSTRUCT,",
+        "statement": "Demoting the heading kind from a construct to a paragraph constituent breaks its declared exactness cell, so the six-sink matrix no longer proves headings exact."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/materialize/per-kind-sink-exactness.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:21:15.725Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/materialize/per-kind-sink-exactness.spec.ts (4 tests | 3 failed) 55ms\n     × declares every Profile 1 syntax kind exactly once across construct, constituent, and root coverage 4ms\n     × proves every declared construct kind exact in all six sinks 46ms\n     × proves every constituent kind through its owning construct row 3ms\n Test Files  1 failed (1)\n      Tests  3 failed | 1 passed (4)"
+      },
+      "recordedAt": "2026-08-01T01:21:19.891Z"
+    },
+    {
+      "id": "A14",
+      "mutation": {
+        "file": "packages/document-core/src/transformationKernel.ts",
+        "exactOld": "  if (wouldLoseHiddenComment(record.node, decision)) {\n    return 'hidden-comment-loss'\n  }\n  const arm = selectedArm(record.node, decision)",
+        "exactNew": "  const arm = selectedArm(record.node, decision)",
+        "statement": "Dropping the hidden-comment guard on individual resolution silently destroys a Comment riding the discarded arm, so the target's rejects-hidden-Comment-loss claim fails."
+      },
+      "baseline": {
+        "command": "packages/document-core: npx -y pnpm@10.33.4 exec vitest run test/document-session/comment-anchor-deletion.spec.ts",
+        "outcome": "pass",
+        "at": "2026-08-01T01:21:36.571Z"
+      },
+      "mutated": {
+        "outcome": "fail",
+        "failureExcerpt": "❯ test/document-session/comment-anchor-deletion.spec.ts (5 tests | 1 failed) 28ms\n     × preserves residual nodes and rejects hidden Comment loss 18ms\n Test Files  1 failed (1)\n      Tests  1 failed | 4 passed (5)\n FAIL  test/document-session/comment-anchor-deletion.spec.ts > TransformationKernel Comment edits > preserves residual nodes and rejects hidden Comment loss\nAssertionError: expected { kind: 'committed', …(2) } to match object { kind: 'rejected', …(2) }"
+      },
+      "recordedAt": "2026-08-01T01:21:40.339Z"
     }
   ]
 }
