@@ -560,15 +560,25 @@ whose assertion cannot distinguish pass from fail.
   ceiling that still fails genuine main-thread work; the hunt also
   moved large journal content onto transfer-listed bytes across the
   worker→main port and taught the background guard to prevent app
-  suspension. Open frontier: one clean full-matrix pass on a quiet
-  machine. Guard-passing runs at load ~2.6 prove every engine metric
-  and the edit terminal (1,795 ms against 2,000) and once proved the
-  deletion terminal (1,657 ms) — but the deletion terminal swings to
-  7,385 ms under ambient GUI contention the load-average guard cannot
-  see, so re-rolling until it lands green would be sampling, not
-  measurement. The owner's quiet Mac mini (access pending) or an
-  equivalent idle window settles it; A29/A37's baselines open with
-  that green. The
+  suspension. The quiet-machine question is settled and it
+  sharpened the gap: the owner's M4 Mac mini (reached over Tailscale,
+  Electron suites run over ssh) reproduces the critic matrix fully
+  green and holds every engine metric, and its compositor-free runs
+  refute the contention theory for the deletion terminal — six runs
+  cluster at ~5.5-5.7 s against the 2,000 ms budget with rare ~1.6 s
+  fast samples on BOTH machines. That is a real product red, not
+  measurement: the worker's deletion costs 165 ms with an 8 ms stall
+  and main is silent, so roughly 5.3 s sits renderer-side between the
+  Backspace and the rendered result (selection settling over a
+  32-million-unit node, or the publication apply/layout path) and is
+  bimodal. A hosted mac is quiet but 2-3x underpowered (open 5.9 s
+  against 5, structured toggles 820 against 500 — run 30718912821),
+  so budgets do not transfer there. Also observed: the M4's stable
+  edit terminal (~2,280 ms) sits 1.27x above the owner-hardware
+  budget it was sized on — a hardware-scaling note for the eventual
+  ruling, not noise. Frontier: attribute and close the ~4 s renderer
+  component of deletion, then the matrix greens on the mini;
+  A29's baseline opens with it. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
