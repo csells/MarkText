@@ -765,7 +765,8 @@ export class SessionCoordinator {
         canUndo: history.canUndo,
         canRedo: history.canRedo,
         selectionCollapsed: selection === null ||
-          selection.anchor.offset === selection.focus.offset
+          selection.anchor.offset === selection.focus.offset,
+        ...this.#worker.selectionTargetFacts()
       }))
     })
     const markPersisted = Object.freeze((headIdentity: string) =>

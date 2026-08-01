@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G6–G9, G13, G23, G24, G32 open;
+- **Status:** RED — G6, G7, G9, G13, G23, G24, G32 open;
   G5 partial
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
@@ -274,7 +274,7 @@ proof", and the single-space cell padding exactly as written. -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | G32 (W1) |
-| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6–G8, G39 (W2) |
+| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G5 (visible half done), G6, G7 (W2) |
 | Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | None. |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
@@ -412,7 +412,14 @@ are transcribed exactly. Its real residue is G36.
   reject through one outcome presenter rather than returning silently, so an
   impossible command is visible to the user. What remains is the predicate —
   `common/commands/review.ts:14-44` carries the record shape across five
-  surfaces; generalize it over the capability snapshot G8 publishes.
+  surfaces; generalize it over the capability snapshot G8 published — the
+  snapshot now predicts read-only, source-only, history, collapsed-selection,
+  and coarse target-kind preconditions, so menu, palette, accelerator, and
+  context predicates can all read one record. The format checkbox-state
+  vocabulary (`DocumentFormatMenuState`, main's `MENU_ID_FORMAT_MAP`) is
+  G5 residue: it restates the inline-format names with drifted spellings
+  and becomes capability-driven when the format bits replace the
+  `mt::set-editor-format-menus-enabled` blanket.
 - **G6 Effects branch inside production.** A `proofPath` field on the production
   request type selects a written proof over native print submission inside the
   static sink host (`main/documentCore/staticSinkHost.ts:33`, `:48-53`,
@@ -433,87 +440,6 @@ are transcribed exactly. Its real residue is G36.
   admits (`:86-90`; compare `main/windows/editor.ts:1030-1035`), reached through
   a `PERF_TESTING` global. The production host carries the numbers
   (`main/documentCore/documentFileHost.ts:257-262`); the second path is deleted.
-- **G8 One intent is declared nine times.** A single block conversion is
-  restated as a menu constant, an IPC string, a bus string, a host facade
-  method, a parallel command-union variant, an `EditorIntent`, a `prepare*`
-  method, a dispatch-ladder arm, and a wire-codec arm
-  (`internal/session/revisionWorker.ts:1748-5465` exposes 36 `prepare*` methods;
-  `internal/session/sessionCoordinator.ts:1171-1354` holds no behavior;
-  `internal/session/intentCodec.ts:440-870` is a third;
-  `packages/document-view/src/documentCore/documentCoreView.ts:389-455` and
-  `packages/desktop/src/renderer/src/components/editorWithTabs/documentCoreDesktopEditor.ts:132-265`
-  mirror it again). Seven intents receive the kernel's postconditions and
-  thirty-four do not; every intent must receive them.
-  `packages/document-core/src/transformationKernel.ts:125-135` carries the
-  shape: two methods over 2,050 lines. Progress 2026-07-31 — the
-  postcondition half is closed: the admission authority already carried
-  the edit bounds, ordering proof, join protection, zero-delta rule, and
-  exact source-transaction proof for every prepared intent, and the one
-  missing member of the kernel's battery — the structural survivor proof
-  that untargeted nodes keep their kind at their mapped envelope — moved
-  to a shared module (`internal/untargetedNodePreservation.ts`) that both
-  the kernel and `admit()` now enforce; replays stay exempt exactly as
-  the zero-delta rule exempts them, since an undo legitimately removes
-  nodes its recorded edits never spelled out. Two-sided proof: the same
-  typed gesture admits through the real engine and rejects
-  `semantic-postcondition-failed` through an engine whose reopen loses an
-  untargeted node. Dedup progress 2026-07-31 — five of the nine
-  surfaces now derive from the union: the wire codec is a mapped
-  decoder table over `EditorIntent['kind']`, the coordinator ladder is
-  one `prepareEditorIntent` over the preparation table, the capability
-  snapshot publishes per revision with a two-sided contract, the view's
-  parallel command union is deleted (`dispatchTargetedIntent` is
-  derived as `OmitTarget<EditorIntent>`), and the desktop facade's
-  per-kind members (undo, redo, insert/convert/duplicate/delete
-  paragraph and block, format, link, footnote, code language, list
-  indentation, table row, image) are deleted in favor of the host's
-  two dispatch seams — `editor.vue` constructs typed intents at its
-  bus handlers and the image service's port adapter. The menu/IPC/bus
-  surface is collapsed (2026-07-31): one `EditorCommandId` vocabulary
-  (`shared/types/editorCommands.ts`) names every user action; menu
-  items, main-registered accelerators, and the palette all emit ids on
-  the one `mt::editor-command` channel and `editor-command` bus event;
-  the three divergent channels, `ParagraphDocumentAction`, the
-  triplicated inline-format string vocabulary, and the per-command bus
-  fan-out are deleted. Ids resolve to document-core payload literals
-  in exactly one place (`editorCommandBindings.ts` +
-  `editor.vue`'s fan-in), typed against the union so vocabulary drift
-  is a compile error; Source mode, the find bar, and the search
-  sidebar hold their own arms of the same vocabulary. The preparation
-  table now also declares each arm's commit cause, noop rule, and
-  rejection-draft policy (undo/redo name themselves; insert-text
-  declares empty-insertion and its retry draft) — the coordinator
-  reads the declarations through correlated-lookup helpers and holds
-  no kind-checks in the commit path; `prepare*` containment is
-  enforced by the authority sweep (the table module is the one
-  sanctioned caller — cross-module privatization is not expressible
-  in the type system). The snapshot's preconditions are widened
-  (2026-07-31): `selection-not-collapsed` is declared by delete-text,
-  format-text, replace-structure, and insert-link, and an audit of
-  every prepare guard surfaced twenty-one structure intents whose
-  `complete-revision` requirement was real but undeclared — all now
-  declare it, in guard order, so the fold predicts the exact
-  rejection. The contract is refined to what G5's consumers need: a
-  disabled entry predicts the rejection of a dispatch targeting the
-  current selection; a caller constructing its own target is outside
-  the prediction. Two-sided rows prove the collapsed and source-only
-  predictions in both directions. What remains: `wrong-target-kind`
-  as a snapshot precondition (needs block-at-selection facts from the
-  worker) with its contract rows; the format checkbox-state vocabulary
-  (`DocumentFormatMenuState`, `MENU_ID_FORMAT_MAP`) is deliberately
-  left for G5's format-menu-bits work, where that state becomes
-  capability-driven.
-- **G39 [high] The view predicts model positions and submits them.** During a
-  typing burst the view chains a draft target from hard-coded widths —
-  `+data.length`, `+2` for a paragraph break, `+1` for a line break
-  (`packages/document-view/src/documentCore/documentCoreView.ts:3907-3950`).
-  Measured: the engine moves the caret by 4 after a paragraph break on a CRLF
-  document, so the next burst keystroke aims two units short; a CR document
-  and LF document move by 2. The section 2 Selection rule says the view
-  reports gestures and never computes a position it then submits. Closure:
-  a queued browser input resolves its target from the session's settled
-  selection at dequeue time; the width table is deleted.
-
 **W3 — Evidence integrity**
 
 Section 5 and non-negotiable 11 forbid the constructs these gaps name: a target

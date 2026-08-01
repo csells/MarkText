@@ -30,7 +30,8 @@ const SNAPSHOT_EVALUABLE_REASONS = new Set([
   'source-only-revision',
   'nothing-to-undo',
   'nothing-to-redo',
-  'selection-collapsed'
+  'selection-collapsed',
+  'wrong-target-kind'
 ])
 
 async function open(source: string): Promise<DocumentSession> {
@@ -203,6 +204,66 @@ describe('intent capability snapshot', () => {
       kind: 'rejected',
       reason: 'source-only-revision'
     })
+  })
+
+  it('predicts the target-kind rejections at the coarse containment', async() => {
+    const source = [
+      'Alpha beta.',
+      '',
+      '| a | b |',
+      '| --- | --- |',
+      '| c | d |',
+      '',
+      '```js',
+      'code',
+      '```',
+      '',
+      '- item',
+      ''
+    ].join('\n')
+    const session = await open(source)
+    const caretAt = (offset: number) => session.select({
+      anchor: Object.freeze({ offset, affinity: 'next' as const }),
+      focus: Object.freeze({ offset, affinity: 'next' as const })
+    })
+
+    caretAt(0)
+    for (const kind of [
+      'insert-table-row',
+      'set-code-language',
+      'set-list-indentation'
+    ] as const) {
+      expect(session.capabilities()[kind], kind).toEqual({
+        enabled: false,
+        reason: 'wrong-target-kind'
+      })
+    }
+    const paragraphCaret = session.snapshot().revision.selection
+    if (paragraphCaret === null || !('view' in paragraphCaret)) {
+      throw new Error('Expected a settled model selection')
+    }
+    await expect(session.dispatch({
+      kind: 'insert-table-row',
+      target: paragraphCaret,
+      location: 'after'
+    }).completion).resolves.toMatchObject({
+      kind: 'rejected',
+      reason: 'wrong-target-kind'
+    })
+
+    caretAt(source.indexOf('| c') + 2)
+    expect(session.capabilities()['insert-table-row']).toEqual({
+      enabled: true
+    })
+    const tableCaret = session.snapshot().revision.selection
+    if (tableCaret === null || !('view' in tableCaret)) {
+      throw new Error('Expected a settled model selection')
+    }
+    await expect(session.dispatch({
+      kind: 'insert-table-row',
+      target: tableCaret,
+      location: 'after'
+    }).completion).resolves.toMatchObject({ kind: 'committed' })
   })
 
   it('never rejects an enabled intent for a snapshot-evaluable reason', async() => {

@@ -1105,6 +1105,88 @@ export class RevisionWorker {
     }
   }
 
+  /**
+   * The coarse target-kind authority: the top-level block of `kind`
+   * containing a model position, over the editing projection — the same
+   * containment every structure prepare guards first and the capability
+   * snapshot predicts.
+   */
+  #topLevelKindAt(
+    position: number,
+    kind: 'table' | 'code-block'
+  ): MarkdownNode | undefined {
+    const state = this.#state
+    if (!('markupView' in state)) return undefined
+    const root = state.revision.projection('editing').markdown.root
+    for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
+      const candidate = root.childAt(ordinal)
+      if (
+        candidate.kind === kind &&
+        position >= candidate.range.start &&
+        position <= candidate.range.end
+      ) {
+        return candidate
+      }
+    }
+    return undefined
+  }
+
+  /** The smallest list item containing a model position, by range descent. */
+  #listItemAt(position: number): MarkdownNode | undefined {
+    const state = this.#state
+    if (!('markupView' in state)) return undefined
+    let node: MarkdownNode =
+      state.revision.projection('editing').markdown.root
+    let item: MarkdownNode | undefined
+    for (;;) {
+      let descended = false
+      for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
+        const child = node.childAt(ordinal)
+        if (
+          position >= child.range.start &&
+          position <= child.range.end
+        ) {
+          if (child.kind === 'list-item') item = child
+          node = child
+          descended = true
+          break
+        }
+      }
+      if (!descended) return item
+    }
+  }
+
+  /**
+   * Target-kind facts at the worker's current selection, for the
+   * capability snapshot's `wrong-target-kind` predictions.
+   */
+  selectionTargetFacts(): Readonly<{
+    tableAtSelection: boolean
+    codeBlockAtSelection: boolean
+    listItemAtSelection: boolean
+  }> {
+    const state = this.#state
+    const selection = state.selection
+    if (!('markupView' in state) || selection === null) {
+      return Object.freeze({
+        tableAtSelection: false,
+        codeBlockAtSelection: false,
+        listItemAtSelection: false
+      })
+    }
+    const position = Math.min(
+      selection.anchor.offset,
+      selection.focus.offset
+    )
+    return Object.freeze({
+      tableAtSelection:
+        this.#topLevelKindAt(position, 'table') !== undefined,
+      codeBlockAtSelection:
+        this.#topLevelKindAt(position, 'code-block') !== undefined,
+      listItemAtSelection: this.#listItemAt(position) !== undefined
+    })
+  }
+
   prepareDocumentFacts(
     revision: DocumentRevision = this.#state.revision
   ): void {
@@ -2901,25 +2983,7 @@ export class RevisionWorker {
     }
     assertSelection(target, state)
     const position = Math.min(target.anchor.offset, target.focus.offset)
-    const candidates: MarkdownNode[] = []
-    const visit = (node: MarkdownNode): void => {
-      if (
-        node.kind === 'list-item' &&
-        position >= node.range.start &&
-        position <= node.range.end
-      ) {
-        candidates.push(node)
-      }
-      for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
-        visit(node.childAt(ordinal))
-      }
-    }
-    visit(state.revision.projection('editing').markdown.root)
-    const item = candidates.sort(
-      (left, right) =>
-        (left.range.end - left.range.start) -
-        (right.range.end - right.range.start)
-    )[0]
+    const item = this.#listItemAt(position)
     if (item === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }
@@ -3308,15 +3372,7 @@ export class RevisionWorker {
     }
 
     const position = Math.min(target.anchor.offset, target.focus.offset)
-    const root = state.revision.projection('editing').markdown.root
-    const block = Array.from(
-      { length: root.childCount },
-      (_, ordinal) => root.childAt(ordinal)
-    ).find((candidate) =>
-      candidate.kind === 'code-block' &&
-      position >= candidate.range.start &&
-      position <= candidate.range.end
-    )
+    const block = this.#topLevelKindAt(position, 'code-block')
     if (block === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }
@@ -3629,16 +3685,7 @@ export class RevisionWorker {
     assertSelection(target, state)
     const position = Math.min(target.anchor.offset, target.focus.offset)
     const projected = state.revision.projection('editing')
-    const document = projected.markdown
-    const root = document.root
-    const table = Array.from(
-      { length: root.childCount },
-      (_, ordinal) => root.childAt(ordinal)
-    ).find((candidate) =>
-      candidate.kind === 'table' &&
-      position >= candidate.range.start &&
-      position <= candidate.range.end
-    )
+    const table = this.#topLevelKindAt(position, 'table')
     if (table === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }
@@ -3745,16 +3792,7 @@ export class RevisionWorker {
     assertSelection(target, state)
     const position = Math.min(target.anchor.offset, target.focus.offset)
     const projected = state.revision.projection('editing')
-    const document = projected.markdown
-    const root = document.root
-    const table = Array.from(
-      { length: root.childCount },
-      (_, ordinal) => root.childAt(ordinal)
-    ).find((candidate) =>
-      candidate.kind === 'table' &&
-      position >= candidate.range.start &&
-      position <= candidate.range.end
-    )
+    const table = this.#topLevelKindAt(position, 'table')
     if (table === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }
@@ -3855,15 +3893,7 @@ export class RevisionWorker {
     assertSelection(target, state)
     const position = Math.min(target.anchor.offset, target.focus.offset)
     const projected = state.revision.projection('editing')
-    const document = projected.markdown
-    const table = Array.from(
-      { length: document.root.childCount },
-      (_, ordinal) => document.root.childAt(ordinal)
-    ).find((candidate) =>
-      candidate.kind === 'table' &&
-      position >= candidate.range.start &&
-      position <= candidate.range.end
-    )
+    const table = this.#topLevelKindAt(position, 'table')
     if (table === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }
@@ -3966,15 +3996,7 @@ export class RevisionWorker {
     assertSelection(target, state)
     const position = Math.min(target.anchor.offset, target.focus.offset)
     const projected = state.revision.projection('editing')
-    const document = projected.markdown
-    const table = Array.from(
-      { length: document.root.childCount },
-      (_, ordinal) => document.root.childAt(ordinal)
-    ).find((candidate) =>
-      candidate.kind === 'table' &&
-      position >= candidate.range.start &&
-      position <= candidate.range.end
-    )
+    const table = this.#topLevelKindAt(position, 'table')
     if (table === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }
@@ -4088,15 +4110,7 @@ export class RevisionWorker {
     }
     const position = Math.min(target.anchor.offset, target.focus.offset)
     const projected = state.revision.projection('editing')
-    const document = projected.markdown
-    const table = Array.from(
-      { length: document.root.childCount },
-      (_, ordinal) => document.root.childAt(ordinal)
-    ).find((candidate) =>
-      candidate.kind === 'table' &&
-      position >= candidate.range.start &&
-      position <= candidate.range.end
-    )
+    const table = this.#topLevelKindAt(position, 'table')
     if (table === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }
@@ -4195,15 +4209,7 @@ export class RevisionWorker {
     assertSelection(target, state)
     const position = Math.min(target.anchor.offset, target.focus.offset)
     const projected = state.revision.projection('editing')
-    const document = projected.markdown
-    const table = Array.from(
-      { length: document.root.childCount },
-      (_, ordinal) => document.root.childAt(ordinal)
-    ).find((candidate) =>
-      candidate.kind === 'table' &&
-      position >= candidate.range.start &&
-      position <= candidate.range.end
-    )
+    const table = this.#topLevelKindAt(position, 'table')
     if (table === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }
@@ -4311,15 +4317,7 @@ export class RevisionWorker {
     assertSelection(target, state)
     const position = Math.min(target.anchor.offset, target.focus.offset)
     const projected = state.revision.projection('editing')
-    const document = projected.markdown
-    const table = Array.from(
-      { length: document.root.childCount },
-      (_, ordinal) => document.root.childAt(ordinal)
-    ).find((candidate) =>
-      candidate.kind === 'table' &&
-      position >= candidate.range.start &&
-      position <= candidate.range.end
-    )
+    const table = this.#topLevelKindAt(position, 'table')
     if (table === undefined) {
       throw new IntentRejection('wrong-target-kind')
     }

@@ -37,6 +37,9 @@ export type SnapshotPrecondition =
   | 'undoable'
   | 'redoable'
   | 'selection-not-collapsed'
+  | 'table-at-selection'
+  | 'code-block-at-selection'
+  | 'list-item-at-selection'
 
 export type RevisionCommitCause = 'undo' | 'redo' | 'source-edit'
 
@@ -64,6 +67,10 @@ const REVISION_REQUIRES: readonly SnapshotPrecondition[] =
 
 const COMPLETE_REVISION_REQUIRES: readonly SnapshotPrecondition[] =
   Object.freeze(['marked-projection', 'complete-revision'])
+
+const TABLE_REQUIRES: readonly SnapshotPrecondition[] = Object.freeze(
+  ['marked-projection', 'complete-revision', 'table-at-selection']
+)
 
 function revision<K extends EditorIntent['kind']>(
   prepare: PrepareAdapter<K>,
@@ -174,7 +181,9 @@ export const INTENT_PREPARATIONS: {
   'set-list-indentation': revision<'set-list-indentation'>(
     (worker, intent, next) =>
       worker.prepareListIndentation(intent.target, intent.direction, next),
-    COMPLETE_REVISION_REQUIRES
+    Object.freeze(
+      ['marked-projection', 'complete-revision', 'list-item-at-selection']
+    )
   ),
   'set-task-checked': revision<'set-task-checked'>(
     (worker, intent, next) =>
@@ -189,7 +198,9 @@ export const INTENT_PREPARATIONS: {
   'set-code-language': revision<'set-code-language'>(
     (worker, intent, next) =>
       worker.prepareCodeLanguage(intent.target, intent.language, next),
-    COMPLETE_REVISION_REQUIRES
+    Object.freeze(
+      ['marked-projection', 'complete-revision', 'code-block-at-selection']
+    )
   ),
   'insert-link': revision<'insert-link'>(
     (worker, intent, next) =>
@@ -224,42 +235,42 @@ export const INTENT_PREPARATIONS: {
   'insert-table-row': revision<'insert-table-row'>(
     (worker, intent, next) =>
       worker.prepareTableRowInsertion(intent.target, intent.location, next),
-    COMPLETE_REVISION_REQUIRES
+    TABLE_REQUIRES
   ),
   'remove-table-row': revision<'remove-table-row'>(
     (worker, intent, next) =>
       worker.prepareTableRowRemoval(intent.target, next),
-    COMPLETE_REVISION_REQUIRES
+    TABLE_REQUIRES
   ),
   'insert-table-column': revision<'insert-table-column'>(
     (worker, intent, next) =>
       worker.prepareTableColumnInsertion(intent.target, intent.location, next),
-    COMPLETE_REVISION_REQUIRES
+    TABLE_REQUIRES
   ),
   'remove-table-column': revision<'remove-table-column'>(
     (worker, intent, next) =>
       worker.prepareTableColumnRemoval(intent.target, next),
-    COMPLETE_REVISION_REQUIRES
+    TABLE_REQUIRES
   ),
   'align-table-column': revision<'align-table-column'>(
     (worker, intent, next) =>
       worker.prepareTableColumnAlignment(intent.target, intent.alignment, next),
-    COMPLETE_REVISION_REQUIRES
+    TABLE_REQUIRES
   ),
   'move-table-row': revision<'move-table-row'>(
     (worker, intent, next) =>
       worker.prepareTableRowMove(intent.target, intent.direction, next),
-    COMPLETE_REVISION_REQUIRES
+    TABLE_REQUIRES
   ),
   'move-table-column': revision<'move-table-column'>(
     (worker, intent, next) =>
       worker.prepareTableColumnMove(intent.target, intent.direction, next),
-    COMPLETE_REVISION_REQUIRES
+    TABLE_REQUIRES
   ),
   'delete-table-cell-contents': revision<'delete-table-cell-contents'>(
     (worker, intent, next) =>
       worker.prepareTableCellContentsDeletion(intent.target, next),
-    COMPLETE_REVISION_REQUIRES
+    TABLE_REQUIRES
   ),
   // The paste question — which payload flavors import raw syntax, which
   // are semantic edits, and which surface takes the bytes verbatim — is
@@ -353,6 +364,9 @@ export interface IntentCapabilityFacts {
   readonly canUndo: boolean
   readonly canRedo: boolean
   readonly selectionCollapsed: boolean
+  readonly tableAtSelection: boolean
+  readonly codeBlockAtSelection: boolean
+  readonly listItemAtSelection: boolean
 }
 
 export type IntentCapability =
@@ -365,6 +379,7 @@ export type IntentCapability =
       | 'nothing-to-undo'
       | 'nothing-to-redo'
       | 'selection-collapsed'
+      | 'wrong-target-kind'
   }>
 
 /**
@@ -373,7 +388,11 @@ export type IntentCapability =
  * rejection a dispatch targeting the current selection would return;
  * `enabled: true` promises only that no snapshot-evaluable precondition
  * fails — prepare-only conditions still decide at dispatch, and a caller
- * that constructs its own target is outside the prediction.
+ * that constructs its own target is outside the prediction. One reason is
+ * asymmetric: `wrong-target-kind` predicts only the coarse containment
+ * fact (table, code block, list item at the selection); prepares keep
+ * deeper shape checks under the same reason, so an enabled entry may
+ * still reject with it.
  */
 export type IntentCapabilitySnapshot = Readonly<{
   [K in EditorIntent['kind']]: IntentCapability
@@ -420,6 +439,18 @@ function foldCapability(
       return Object.freeze({
         enabled: false,
         reason: 'selection-collapsed' as const
+      })
+    }
+    if (
+      (requirement === 'table-at-selection' && !facts.tableAtSelection) ||
+      (requirement === 'code-block-at-selection' &&
+        !facts.codeBlockAtSelection) ||
+      (requirement === 'list-item-at-selection' &&
+        !facts.listItemAtSelection)
+    ) {
+      return Object.freeze({
+        enabled: false,
+        reason: 'wrong-target-kind' as const
       })
     }
   }
