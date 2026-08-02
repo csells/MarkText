@@ -1345,61 +1345,22 @@ test.describe('document-core maximum-document responsiveness', () => {
     const editTerminalSamples = [maximumDocumentEditWindow.terminalMs]
     const deletionTerminalSamples = [maximumDocumentDeletionWindow.terminalMs]
     await settleFrames()
-    // Sampling rounds measure the coalescing-friendly typing rhythm — a run
-    // of caret inserts, then a run of backspaces — so history merges each
-    // run instead of retaining one 32-million-unit revision per keystroke,
-    // exactly as a paint-paced typist's session would. Round one above
-    // keeps the replace/delete pair its stats and DOM assertions need.
-    const waitForCarrierLength = async(expected: number): Promise<void> => {
-      await launched.page.waitForFunction(
-        (target) => {
-          const root = document.querySelector<HTMLElement>(
-            '.editor-component.document-view-container'
-          )
-          const carrier = [
-            ...(root?.querySelectorAll<HTMLElement>(
-              '.document-view-run[data-model-end]'
-            ) ?? [])
-          ].filter((candidate) =>
-            !candidate.classList.contains('document-view-atomic')
-          ).reduce<HTMLElement | null>(
-            (selected, candidate) => selected === null ||
-              Number(candidate.dataset.modelEnd) >=
-                Number(selected.dataset.modelEnd)
-              ? candidate
-              : selected,
-            null
-          )?.lastChild
-          return carrier instanceof Text && carrier.data.length === target
-        },
-        expected,
-        { timeout: TERMINAL_BUDGET_MS }
-      )
-    }
-    const carrierBaseLength = await launched.page.evaluate(() => {
-      const state = (window as unknown as {
-        __mtMaximumDocumentDeletion?: { text: Text }
-      }).__mtMaximumDocumentDeletion
-      if (state === undefined) throw new Error('no deletion carrier state')
-      return state.text.data.length
-    })
     for (let round = 1; round < 10; round += 1) {
-      await installDeletionGestureState()
+      await installEditGestureState()
+      // The replace gesture's setup paints a range-selection highlight over
+      // the giant carrier; a human sees that highlight before typing, so
+      // its paint settles before the measured press.
       await settleFrames()
-      await armGestureWindow('deletion')
+      await armGestureWindow('edit')
       await launched.page.keyboard.insertText('.')
-      await waitForCarrierLength(carrierBaseLength + round)
-      editTerminalSamples.push(
-        (await readGestureWindow('deletion')).terminalMs
-      )
+      await waitForFinalUnit('.')
+      editTerminalSamples.push((await readGestureWindow('edit')).terminalMs)
       await settleFrames()
-    }
-    for (let round = 1; round < 10; round += 1) {
       await installDeletionGestureState()
       await settleFrames()
       await armGestureWindow('deletion')
       await launched.page.keyboard.press('Backspace')
-      await waitForCarrierLength(carrierBaseLength + 9 - round)
+      await waitForFinalUnit('x')
       deletionTerminalSamples.push(
         (await readGestureWindow('deletion')).terminalMs
       )
