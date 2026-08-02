@@ -1047,14 +1047,18 @@ test.describe('document-core maximum-document responsiveness', () => {
     // pay here, outside the measurement.
     const settleInstalledGesture = async(): Promise<void> => {
       let previous = ''
+      let stableReads = 0
       await expect.poll(
         async() => {
           const current = JSON.stringify(
             await readMainExecution(app, mounted.documentId, 'any')
           )
-          const stable = current === previous
+          stableReads = current === previous ? stableReads + 1 : 0
           previous = current
-          return stable
+          // One stable pair can still precede a select landing slower than
+          // the poll gap; three consecutive stable reads span enough of the
+          // interval ladder to outwait the round-trip.
+          return stableReads >= 3
         },
         { intervals: [50, 100, 200], timeout: TERMINAL_BUDGET_MS }
       ).toBe(true)
