@@ -7,6 +7,7 @@ import type {
     ReviewIndexItem,
 } from '@marktext/document-core';
 import { setDocumentCoreModelBoundaries } from './documentCoreInputAdapter';
+import { isDocumentCoreTextPublicationTainted } from './patchDocumentCoreTextPublication';
 
 /**
  * Mount the engine's portable semantic tree.
@@ -768,7 +769,12 @@ export function renderDocumentCoreBlocks(
         completedTaskLabel: taskLabels.completed,
         incompleteTaskLabel: taskLabels.incomplete,
     };
-    const previousPool = mountedBlockPools.get(host);
+    // A tainted host renders from scratch: a pooled subtree under a host
+    // whose observer saw foreign mutations could carry counterfeit DOM
+    // whose publication signature never changed.
+    const previousPool = isDocumentCoreTextPublicationTainted(host)
+        ? undefined
+        : mountedBlockPools.get(host);
     const nextPool = new Map<string, HTMLElement[]>();
     host.replaceChildren();
     host.classList.add('document-view-document');

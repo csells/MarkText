@@ -274,6 +274,20 @@ function invalidateFrom(
         mount.invalid = true;
 }
 
+const MOUNT_OBSERVER_OPTIONS: MutationObserverInit = Object.freeze({
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: Object.freeze([
+        'class',
+        'data-node-id',
+        'data-markdown-kind',
+        'data-model-start',
+        'data-model-end',
+    ]) as string[],
+});
+
 function observeMount(
     host: HTMLElement,
     mount: MountedTextPublication,
@@ -284,20 +298,26 @@ function observeMount(
         return;
     const observer = new MutationObserverConstructor(mutations =>
         invalidateFrom(mutations, mount));
-    observer.observe(host, {
-        subtree: true,
-        childList: true,
-        characterData: true,
-        attributes: true,
-        attributeFilter: [
-            'class',
-            'data-node-id',
-            'data-markdown-kind',
-            'data-model-start',
-            'data-model-end',
-        ],
-    });
+    observer.observe(host, MOUNT_OBSERVER_OPTIONS);
     mount.observer = observer;
+}
+
+/**
+ * Whether retained DOM under this host can be trusted as the authoritative
+ * publication's own render. A host with no verified mount, or one whose
+ * observer saw a mutation the publication did not make, is tainted: block
+ * pools must not adopt its subtrees, because reuse would launder foreign
+ * DOM back into an authoritative render — the sole-authority invariant.
+ */
+export function isDocumentCoreTextPublicationTainted(
+    host: HTMLElement,
+): boolean {
+    const mount = mountedTextPublications.get(host);
+    if (mount === undefined)
+        return true;
+    if (mount.observer !== null)
+        invalidateFrom(mount.observer.takeRecords(), mount);
+    return mount.invalid;
 }
 
 export function forgetDocumentCoreTextPublication(host: HTMLElement): void {
@@ -493,6 +513,12 @@ export function patchDocumentCoreTextPublication(
         });
         mount.snapshot = after;
         mount.invalid = false;
+        // The observer paused for the patch's own mutations; a mount that
+        // stops watching after its first patch is blind to later foreign
+        // DOM and would keep patching around a counterfeit instead of
+        // refusing — the sole-authority invariant the disconnect must not
+        // outlive.
+        mount.observer?.observe(host, MOUNT_OBSERVER_OPTIONS);
         return true;
     }
 
@@ -599,5 +625,6 @@ export function patchDocumentCoreTextPublication(
     mount.snapshot = after;
     mount.topology = topology;
     mount.invalid = false;
+    mount.observer?.observe(host, MOUNT_OBSERVER_OPTIONS);
     return true;
 }
