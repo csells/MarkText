@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G9, G24 open
+- **Status:** RED — G24 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -406,6 +406,21 @@ whose assertion cannot distinguish pass from fail.
   executed report, and byte-literal checkouts. Remaining: A29/A37 on
   the idle-machine scoped-budget matrix (G23) and completeness binding
   at the final-closure gate.
+  CLOSED 2026-08-02: with G23's idle matrix green at 6e0f1434, A29's
+  baseline opened and `node scripts/mutationProof.mjs A29` on the idle
+  mini (load 1) proved the last target two-sided — baseline pass at
+  2026-08-02T06:34:51Z, then the authored mutation (the surgical text
+  patch hard-disabled in `patchDocumentCoreTextPublication.ts`) failed
+  the target structurally and load-insensitively: with the identity
+  fast path gone the re-render replaces the carrier's Text node, the
+  armed gesture window's characterData observer on the retained node
+  can never fire, and the run dies at "edit gesture window is
+  incomplete" — text-node identity is exactly what the mutation
+  destroys. Restored tree passed and the file restored byte-clean
+  through git. The ledger stands at forty recorded two-sided proofs
+  plus two proved through dispatched platform runs (A32, A37):
+  forty-two of forty-two, with completeness itself asserted again at
+  the final-closure gate.
 - **G13 Selection evidence is synthetic. CLOSED 2026-08-01.** Both halves
   are done. The synthetic drives are gone: `selectDomText` was deleted
   earlier, and the two remaining TreeWalker/Range caret drives
