@@ -687,7 +687,13 @@ whose assertion cannot distinguish pass from fail.
   dispatch), fixed at 6a129a4e with a per-session FIFO operation queue
   and a host test pinning both collision directions; the idle matrix
   re-ran green at 6a129a4e after that fix (same suites, same budgets,
-  load-guarded), which is the commit this closure binds.
+  load-guarded), which is the production identity this closure binds.
+  The second platform tag's Windows leg then caught a self-contradicting
+  test wrapper — the 32-million-unit resource guard grants its child a
+  CI-aware 240s budget while its vitest wrapper killed at a flat 70s,
+  against a measured 57.5s green on identical code — aligned at
+  59b4e01a with the heap assertions untouched; every production byte is
+  identical between 6a129a4e and the closure candidate.
 - **G24 A green closure CI is not reproducible.** Section 7 requires compact
   candidate, platform, and closure records to be retained. Retention closes when
   a target reconstructs the attestation of a completed closure run from the
