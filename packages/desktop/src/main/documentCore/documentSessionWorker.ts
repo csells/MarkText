@@ -1743,10 +1743,26 @@ port.on('message', (message: DocumentCoreMainToWorkerMessage) => {
     })
     return
   }
-  commandTail = commandTail.then(
-    () => handleCommand(message),
-    () => handleCommand(message)
-  )
+  const tracedHandle = (): Promise<void> => {
+    const traceStall = process.env.MARKTEXT_STALL_TRACE
+    if (!traceStall) return handleCommand(message)
+    const startedAt = performance.now()
+    return handleCommand(message).finally(() => {
+      const elapsed = performance.now() - startedAt
+      if (elapsed > 20) {
+        appendFileSync(
+          traceStall,
+          JSON.stringify({
+            span: `worker:command:${message.command.kind}`,
+            ms: elapsed,
+            at: performance.now(),
+            thread: threadId
+          }) + '\n'
+        )
+      }
+    })
+  }
+  commandTail = commandTail.then(tracedHandle, tracedHandle)
 })
 
 post(Object.freeze({
