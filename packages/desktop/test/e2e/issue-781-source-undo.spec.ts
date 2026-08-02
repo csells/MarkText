@@ -43,7 +43,12 @@ test.describe('Issue #781 — undo/redo in source code mode', () => {
     const baseline = await sourceValue(page)
 
     await typeInSource(page, ' SRCKEY')
-    expect(await sourceValue(page)).toContain('saved baseline SRCKEY')
+    // The sibling asserts below poll; an instant read here raced the
+    // keystroke under ambient load (observed: the typed text landing
+    // after the read in a full-surface sweep at load ~5).
+    await expect.poll(() => sourceValue(page)).toContain(
+      'saved baseline SRCKEY'
+    )
 
     await undo(app)
     await expect.poll(() => sourceValue(page)).toBe(baseline)

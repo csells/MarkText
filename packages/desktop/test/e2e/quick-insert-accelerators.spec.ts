@@ -20,6 +20,11 @@ import {
 // converge on one authenticated document-core intent and one history step.
 
 test.describe('Quick-insert accelerators (item 49)', () => {
+  // The conversion and diagram walks make a dozen menu round-trips each;
+  // a full-surface sweep at ambient load ~5 measured one walk dying at
+  // exactly the 30s default ceiling. Hang guard only — every assertion
+  // inside is exact.
+  test.describe.configure({ timeout: 90_000 })
   let app: ElectronApplication
   let page: Page
   let documentPath = ''
