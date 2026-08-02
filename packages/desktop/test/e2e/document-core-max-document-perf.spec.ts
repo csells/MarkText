@@ -1904,6 +1904,14 @@ test.describe('document-core maximum-document responsiveness', () => {
         await readMainExecution(app, scaleDocumentId, 'dispatch')
       )
       for (let sample = 0; sample < SCALE_EDIT_SAMPLES; sample += 1) {
+        // Each sample pays exactly its own work: a scripted back-to-back
+        // keystroke would inherit the previous frame's queued relayout,
+        // which a paint-paced typist never does — the same pacing the
+        // maximum-document rounds use.
+        await page.evaluate(async() =>
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => setTimeout(resolve, 0)))))
         await page.keyboard.insertText(String.fromCharCode(97 + sample))
         await page.waitForFunction(
           (expectedSamples) => {
