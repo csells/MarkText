@@ -2704,9 +2704,14 @@ test.describe('document-core maximum-document responsiveness', () => {
           sample.execution.operationForkAstRegionEmissions,
           JSON.stringify(report)
         ).toBeGreaterThanOrEqual(0)
-        if (reuseMeasurementBand(
-          sample.execution.operationOwningThreadStallMs
-        ) !== 'green') {
+        // Same scoping as the family total above: a fixture without a
+        // blank line is one fork-AST region and cannot observe a reuse.
+        if (
+          reuseMeasurementBand(
+            sample.execution.operationOwningThreadStallMs
+          ) !== 'green' &&
+          family.source.includes('\n\n')
+        ) {
           expect(
             carriedRegionReuses(sample.execution),
             JSON.stringify(report)
