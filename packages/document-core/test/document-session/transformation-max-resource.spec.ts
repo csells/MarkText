@@ -35,5 +35,9 @@ describe('TransformationKernel maximum-resource behavior', () => {
       editCount: 1
     })
     expect(proof.maxRssKiB).toBeLessThan(768 * 1_024)
-  }, 70_000)
+    // The wrapper must outlast the child budget it wraps: the spawn above
+    // already grants hosted runners 240s for the same bounded work, and a
+    // green windows-2025 leg measured 57.5s against the old flat 70s —
+    // the wrapper was timing the VM, not the heap bound it asserts.
+  }, process.env.CI === 'true' ? 250_000 : 70_000)
 })
