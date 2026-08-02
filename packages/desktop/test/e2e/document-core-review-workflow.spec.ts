@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { clickMenuById } from './helpers'
 import {
   closeDocumentCore,
   expectCanonicalOnDisk,
@@ -13,9 +12,11 @@ import {
 
 const SOURCE = 'alpha target omega\n'
 const EDIT_CONTEXT_COMMENT_ACCELERATOR = 'CmdOrCtrl+Alt+Shift+E'
+const ACCEPT_ALL_ACCELERATOR = 'CmdOrCtrl+Alt+Shift+A'
 const REVIEW_KEYBINDINGS = {
   'review.mark-deletion': 'CmdOrCtrl+Alt+Shift+D',
   'review.add-comment': 'CmdOrCtrl+Alt+Shift+C',
+  'review.accept-all': ACCEPT_ALL_ACCELERATOR,
   'review.edit-context-comment': EDIT_CONTEXT_COMMENT_ACCELERATOR
 }
 
@@ -121,7 +122,7 @@ test.describe('document-core complete Review workflow', () => {
     await expect.poll(() =>
       reviewMenuEnabled(app, 'reviewAcceptAllMenuItem')
     ).toBe(true)
-    await clickMenuById(app, 'reviewAcceptAllMenuItem')
+    await pressUserKeybinding(page, app, ACCEPT_ALL_ACCELERATOR)
     await expectCanonicalOnDisk(page, app, documentPath, 'alpha  omega\n')
   })
 })

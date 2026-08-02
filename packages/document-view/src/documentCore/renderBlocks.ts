@@ -713,6 +713,32 @@ function renderFootnotes(
     return section;
 }
 
+// Byte-identical plan blocks mount byte-identical DOM: engine provenance
+// keeps node keys stable for untouched regions and offsets before an edit
+// point do not shift, so a block whose serialized plan matches the previous
+// render's can reuse its mounted subtree verbatim. Anything else — shifted
+// offsets, new keys, changed content — re-renders. Without this, any
+// keystroke the patcher cannot apply re-mounted the whole document
+// (measured 12.5s at a 12,000-addition family with the worker idle).
+const mountedBlockPools = new WeakMap<HTMLElement, Map<string, HTMLElement[]>>();
+
+function reuseBlockElement(
+    pool: Map<string, HTMLElement[]> | undefined,
+    signature: string,
+): HTMLElement | undefined {
+    const queue = pool?.get(signature);
+    const element = queue?.shift();
+    if (element === undefined)
+        return undefined;
+    // Indicators repaint after mounting; a reused subtree must not carry
+    // the previous render's copies into the fresh pass.
+    for (const indicator of element.querySelectorAll(
+        '.document-view-critic-comment-indicator',
+    ))
+        indicator.remove();
+    return element;
+}
+
 export function renderDocumentCoreBlocks(
     host: HTMLElement,
     blocks: readonly MarkupRenderBlock[],
@@ -742,6 +768,8 @@ export function renderDocumentCoreBlocks(
         completedTaskLabel: taskLabels.completed,
         incompleteTaskLabel: taskLabels.incomplete,
     };
+    const previousPool = mountedBlockPools.get(host);
+    const nextPool = new Map<string, HTMLElement[]>();
     host.replaceChildren();
     host.classList.add('document-view-document');
     host.setAttribute('data-markdown-kind', 'document');
@@ -751,15 +779,45 @@ export function renderDocumentCoreBlocks(
             footnotes.push(block.tree);
             continue;
         }
-        const rendered = renderSemanticNode(document, block.tree, context);
+        const signature = JSON.stringify(block);
+        const reused = reuseBlockElement(previousPool, signature);
+        let rendered: Node | null;
+        if (reused !== undefined) {
+            rendered = reused;
+            const headingSelector =
+                'h1[data-node-id], h2[data-node-id], h3[data-node-id], '
+                + 'h4[data-node-id], h5[data-node-id], h6[data-node-id]';
+            if (reused.matches(headingSelector)) {
+                const key = reused.getAttribute('data-node-id');
+                if (key !== null)
+                    headingElements.set(key, reused);
+            }
+            for (const heading of reused.querySelectorAll<HTMLElement>(
+                headingSelector,
+            )) {
+                const key = heading.getAttribute('data-node-id');
+                if (key !== null)
+                    headingElements.set(key, heading);
+            }
+        }
+        else {
+            rendered = renderSemanticNode(document, block.tree, context);
+            if (rendered instanceof HTMLElement)
+                rendered.classList.add('document-view-block');
+        }
         if (rendered === null)
             continue;
 
-        if (rendered instanceof HTMLElement)
-            rendered.classList.add('document-view-block');
-
         host.appendChild(rendered);
+        if (rendered instanceof HTMLElement) {
+            const queue = nextPool.get(signature);
+            if (queue === undefined)
+                nextPool.set(signature, [rendered]);
+            else
+                queue.push(rendered);
+        }
     }
+    mountedBlockPools.set(host, nextPool);
     const section = renderFootnotes(document, footnotes, context);
     if (section !== null)
         host.appendChild(section);
