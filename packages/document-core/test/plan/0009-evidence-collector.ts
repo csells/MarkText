@@ -10,7 +10,8 @@ import {
   renameSync,
   rmSync,
   statSync,
-  writeFileSync
+  writeFileSync,
+  realpathSync
 } from 'node:fs'
 import { arch, platform, tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
@@ -3539,8 +3540,31 @@ function githubNodeVersion(repoRoot: string, candidateCommit?: string): string {
   return `v${version}`
 }
 
+// macOS spells its temp tree two ways — mkdtemp hands out the /var
+// symlink while tools report the /private/var real path — and a naive
+// relative() across the two spellings reads as an escape from the
+// repository. Canonicalize both sides; a path that does not exist yet
+// keeps its given spelling.
+function canonicalPath(path: string): string {
+  let current = path
+  let suffix = ''
+  for (;;) {
+    try {
+      const real = realpathSync.native(current)
+      return suffix === '' ? real : resolve(real, suffix)
+    } catch {
+      const parent = dirname(current)
+      if (parent === current) return path
+      suffix = suffix === '' ? basename(current) : basename(current) + sep + suffix
+      current = parent
+    }
+  }
+}
+
 function posixRelative(repoRoot: string, path: string): string {
-  const value = relative(repoRoot, path).split(sep).join('/')
+  const value = relative(canonicalPath(repoRoot), canonicalPath(path))
+    .split(sep)
+    .join('/')
   if (value.length === 0) return '.'
   if (value === '..' || value.startsWith('../')) {
     throw new Error(`Evidence path must stay inside the repository: ${path}`)
