@@ -273,11 +273,11 @@ proof", and the single-space cell padding exactly as written. -->
 | Area | Target | Open before closure |
 | --- | --- | --- |
 | Document engine | The section 2 admission authority, history, saved identity, durable record, source authorship, coordinate authority, and selection, over one intrinsic parser and fork graph. | None. |
-| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | G6 (W2) |
-| Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | G9, G13 (W3) |
+| Host surfaces | Non-negotiable 7 plus the section 2 intent seam, command record, effect adapters, execution report, and grammar configuration. | None. |
+| Evidence integrity | Two-sided mutation proof under section 5 for every target the manifests name. | None. |
 | Language, configuration, and coverage | Section 3 language, configuration, and limits, each bound to a manifest row and proved under `desktop-v1`. | None. |
 | Absence and documentation truth | Non-negotiable 2 and the P9 absence inventory over every tracked surface. | None. |
-| P11 performance proof | Every section 3 budget, on a frozen tree. | G23 (W6) |
+| P11 performance proof | Every section 3 budget, on a frozen tree. | None. |
 | P10 release proof | The section 7 P10 criteria. | G24 (W6), and the executable-proof list under W6. |
 
 ### Gaps

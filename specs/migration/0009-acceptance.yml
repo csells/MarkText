@@ -6,7 +6,7 @@
       "id": "A01",
       "requirement": "Intrinsic Profile 1 grammar",
       "phase": "P0.5",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/architecture-gate.spec.ts",
@@ -17,7 +17,7 @@
       "id": "A02",
       "requirement": "Five forms and projections",
       "phase": "P2",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/profile1-corpus.spec.ts",
@@ -28,7 +28,7 @@
       "id": "A03",
       "requirement": "Boundary-safe projection and resolution",
       "phase": "P2",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/projection-materialization.spec.ts",
@@ -39,7 +39,7 @@
       "id": "A04",
       "requirement": "Boundary-safe semantic editing",
       "phase": "P3",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/document-session/semantic-edit-codec.spec.ts",
@@ -50,7 +50,7 @@
       "id": "A05",
       "requirement": "Exact core source",
       "phase": "P1",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/source-hash-vectors.spec.ts",
@@ -61,7 +61,7 @@
       "id": "A06",
       "requirement": "Exact desktop persistence",
       "phase": "P6",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-persistence.spec.ts",
@@ -72,7 +72,7 @@
       "id": "A07",
       "requirement": "View and source-mode persistence",
       "phase": "P6",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-view-source-persistence.spec.ts",
@@ -83,7 +83,7 @@
       "id": "A08",
       "requirement": "Track Changes",
       "phase": "P7",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-track-changes.spec.ts",
@@ -94,7 +94,7 @@
       "id": "A09",
       "requirement": "Mutation failure and rejection",
       "phase": "P4",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/document-session/failure-injection.spec.ts",
@@ -105,7 +105,7 @@
       "id": "A10",
       "requirement": "Malformed nested block and literal contexts",
       "phase": "P2",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/profile1-recovery-corpus.spec.ts",
@@ -116,7 +116,7 @@
       "id": "A11",
       "requirement": "Deterministic resource boundary",
       "phase": "P5",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/cross-consumer-resource-matrix.spec.ts",
@@ -127,7 +127,7 @@
       "id": "A12",
       "requirement": "Type-safe resolution and undo redo",
       "phase": "P7",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/document-session/resolution-history.spec.ts",
@@ -138,7 +138,7 @@
       "id": "A13",
       "requirement": "Comments hidden from prose",
       "phase": "P2",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/view/comment-visibility.spec.ts",
@@ -149,7 +149,7 @@
       "id": "A14",
       "requirement": "Comment context and anchor deletion",
       "phase": "P3",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/document-session/comment-anchor-deletion.spec.ts",
@@ -160,7 +160,7 @@
       "id": "A15",
       "requirement": "Sidebar composition and cards",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-review-cards.spec.ts",
@@ -171,7 +171,7 @@
       "id": "A16",
       "requirement": "Raw Comment command input",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-comment-draft.spec.ts",
@@ -182,7 +182,7 @@
       "id": "A17",
       "requirement": "Sidebar create edit delete",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-comment-crud.spec.ts",
@@ -193,7 +193,7 @@
       "id": "A18",
       "requirement": "Exact Add Comment persistence",
       "phase": "P6",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-add-comment-persistence.spec.ts",
@@ -204,7 +204,7 @@
       "id": "A19",
       "requirement": "Add Comment validity and gestures",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-comment-gestures.spec.ts",
@@ -215,7 +215,7 @@
       "id": "A20",
       "requirement": "Passive selection",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-passive-selection.spec.ts",
@@ -226,7 +226,7 @@
       "id": "A21",
       "requirement": "Native context identity and shared edit command",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-review-context-menu.spec.ts",
@@ -244,7 +244,7 @@
       "id": "A22",
       "requirement": "Contextual Review and navigation",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-review-navigation.spec.ts",
@@ -255,7 +255,7 @@
       "id": "A23",
       "requirement": "Review command surfaces",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-review-command-surfaces.spec.ts",
@@ -266,7 +266,7 @@
       "id": "A24",
       "requirement": "Mouse Review access",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-review-pointer.spec.ts",
@@ -277,7 +277,7 @@
       "id": "A25",
       "requirement": "Worker loss and recovery safety",
       "phase": "P4",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/unit/specs/document-core-main-session-host.spec.ts",
@@ -288,7 +288,7 @@
       "id": "A26",
       "requirement": "Menu semantics and localization",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/unit/specs/document-core-review-presentation.spec.ts",
@@ -299,7 +299,7 @@
       "id": "A27",
       "requirement": "Consumer projection policy",
       "phase": "P7",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/materialize/consumer-policy.spec.ts",
@@ -310,7 +310,7 @@
       "id": "A28",
       "requirement": "HTML security",
       "phase": "P6",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-hostile-sinks.spec.ts",
@@ -321,7 +321,7 @@
       "id": "A29",
       "requirement": "Performance and renderer responsiveness",
       "phase": "P11",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/document-core-max-document-perf.spec.ts",
@@ -365,7 +365,7 @@
       "id": "A33",
       "requirement": "Image write authority",
       "phase": "P6",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/unit/specs/image-asset-mutation-authority.spec.ts",
@@ -376,7 +376,7 @@
       "id": "A34",
       "requirement": "Accessibility",
       "phase": "P8",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/unit/specs/image-viewer-accessibility.spec.ts",
@@ -387,7 +387,7 @@
       "id": "A35",
       "requirement": "CommonMark 0.31.2 corpus totality",
       "phase": "P1",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/commonmark-corpus-totality.spec.ts",
@@ -398,7 +398,7 @@
       "id": "A36",
       "requirement": "CommonMark conformance without exclusions",
       "phase": "P1",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/commonmark-html-conformance.spec.ts",
@@ -409,7 +409,7 @@
       "id": "A37",
       "requirement": "Interactive CriticMarkup surfaces stay within the 500ms p95 budget",
       "phase": "P11",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/desktop/test/e2e/critic-markup-perf.spec.ts",
@@ -420,7 +420,7 @@
       "id": "A38",
       "requirement": "GFM 0.29 corpus totality",
       "phase": "P1",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/gfm-corpus-totality.spec.ts",
@@ -431,7 +431,7 @@
       "id": "A39",
       "requirement": "MMD-6 differential projection conventions",
       "phase": "P1",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/mmd6-differential.spec.ts",
@@ -442,7 +442,7 @@
       "id": "A40",
       "requirement": "Fevol lexical fixtures under Profile 1 rulings",
       "phase": "P1",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/language-engine/fevol-lexical.spec.ts",
@@ -453,7 +453,7 @@
       "id": "A41",
       "requirement": "Per-kind sink exactness",
       "phase": "P5",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/materialize/per-kind-sink-exactness.spec.ts",
@@ -464,7 +464,7 @@
       "id": "A42",
       "requirement": "Coordinate authority",
       "phase": "P3",
-      "status": "red",
+      "status": "green",
       "target": {
         "kind": "test",
         "path": "packages/document-core/test/document-session/coordinate-authority.spec.ts",
