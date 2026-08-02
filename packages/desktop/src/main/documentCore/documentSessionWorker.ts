@@ -65,6 +65,8 @@ import type {
 } from '../../shared/types/documentCore'
 import {
   encodeDocumentCoreLiveDeltaV1,
+  liveBlockBases,
+  liveBlockSignature,
   type DecodedDocumentCoreLiveDeltaV1
 } from '../../shared/documentCoreLiveWire'
 import {
@@ -868,15 +870,22 @@ interface LivePlanEmissionMemo {
   readonly blockSignatures: readonly string[]
 }
 
+interface LivePlanHeldRef {
+  readonly held: number
+  readonly modelStart: number
+  readonly sourceStart: number
+}
+
 const lastLivePlanEmissionByProjection = new Map<string, LivePlanEmissionMemo>()
 
 // A block whose serialized plan matches one from the previous emission for
 // this projection — offsets and keys included — ships as a held reference
 // the receiver resolves from its decoded copy instead of re-validating.
-function heldLiveBlockIndices(
+function heldLiveBlockRefs(
+  blocks: readonly Parameters<typeof liveBlockBases>[0][],
   signatures: readonly string[],
   previous: LivePlanEmissionMemo | undefined
-): readonly (number | null)[] | undefined {
+): readonly (LivePlanHeldRef | null)[] | undefined {
   if (previous === undefined) return undefined
   const pools = new Map<string, number[]>()
   previous.blockSignatures.forEach((signature, index) => {
@@ -885,14 +894,20 @@ function heldLiveBlockIndices(
     else queue.push(index)
   })
   let matched = false
-  const indices = signatures.map((signature) => {
+  const refs = signatures.map((signature, blockIndex) => {
     const queue = pools.get(signature)
     const index = queue?.shift()
-    if (index === undefined) return null
+    const block = blocks[blockIndex]
+    if (index === undefined || block === undefined) return null
     matched = true
-    return index
+    const bases = liveBlockBases(block)
+    return Object.freeze({
+      held: index,
+      modelStart: bases.modelStart,
+      sourceStart: bases.sourceStart
+    })
   })
-  return matched ? indices : undefined
+  return matched ? refs : undefined
 }
 
 function livePlanEmissionKey(
@@ -947,7 +962,7 @@ function publishSnapshot(
             )
           }
           const blockSignatures = portable.live.blocks.map(
-            (liveBlock) => JSON.stringify(liveBlock)
+            (liveBlock) => liveBlockSignature(liveBlock)
           )
           const bytes = encodeJson(
             encodeDocumentCoreLiveDeltaV1(
@@ -958,7 +973,8 @@ function publishSnapshot(
                 markupModelLength: portable.review.markupModelLength
               }),
               allowUnchangedLivePlan
-                ? heldLiveBlockIndices(
+                ? heldLiveBlockRefs(
+                  portable.live.blocks,
                   blockSignatures,
                   lastLivePlanEmissionByProjection.get(
                     portable.review.projection

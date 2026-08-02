@@ -41,6 +41,7 @@ import {
 } from '../../shared/types/documentCore'
 import {
   collectLiveBlockNodeMap,
+  liveBlockBases,
   decodeDocumentCoreLiveDeltaV1,
   type HeldLiveBlocks
 } from '../../shared/documentCoreLiveWire'
@@ -1097,6 +1098,9 @@ function heldBlocksOf(
     blocks: live.blocks,
     blockNodeMaps: Object.freeze(
       live.blocks.map((block) => collectLiveBlockNodeMap(block))
+    ),
+    blockBases: Object.freeze(
+      live.blocks.map((block) => liveBlockBases(block))
     )
   })
 }

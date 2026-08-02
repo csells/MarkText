@@ -112,6 +112,135 @@ interface EncodedMarkupRenderBlock {
  */
 interface EncodedHeldBlockRef {
   readonly held: number
+  readonly modelStart: number
+  readonly sourceStart: number
+}
+
+// Run keys embed source offsets (`prefix:s:s`) and semantic text keys add a
+// model offset (`prefix:s:s:semantic:m`); node keys are provenance-stable
+// identifiers and are never rewritten even when they look offset-shaped —
+// measured: an interior block's tree key survives a shift verbatim while
+// its run keys move by exactly the source delta.
+const TEXT_KEY_GRAMMAR = /^(.*):(\d+):(\d+):semantic:(\d+)$/
+const RUN_KEY_GRAMMAR = /^(.*):(\d+):(\d+)$/
+
+function shiftRunLikeKey(
+  key: string,
+  modelDelta: number,
+  sourceDelta: number
+): string {
+  const semantic = TEXT_KEY_GRAMMAR.exec(key)
+  if (semantic !== null) {
+    return `${semantic[1]}:${Number(semantic[2]) + sourceDelta}:` +
+      `${Number(semantic[3]) + sourceDelta}:semantic:` +
+      `${Number(semantic[4]) + modelDelta}`
+  }
+  const run = RUN_KEY_GRAMMAR.exec(key)
+  if (run !== null) {
+    return `${run[1]}:${Number(run[2]) + sourceDelta}:` +
+      `${Number(run[3]) + sourceDelta}`
+  }
+  return key
+}
+
+function shiftRange<T extends Readonly<{ start: number; end: number }>>(
+  range: T,
+  delta: number
+): T {
+  return delta === 0
+    ? range
+    : Object.freeze({
+      start: range.start + delta,
+      end: range.end + delta
+    }) as unknown as T
+}
+
+function shiftLiveNode(
+  node: MarkupRenderNode,
+  modelDelta: number,
+  sourceDelta: number,
+  nodeMap?: Map<string, MarkupRenderNode>
+): MarkupRenderNode {
+  const shifted: MarkupRenderNode = Object.freeze({
+    key: node.key,
+    kind: node.kind,
+    attributes: node.attributes,
+    modelRange: shiftRange(node.modelRange, modelDelta),
+    elements: node.elements,
+    text: Object.freeze(node.text.map((entry) => Object.freeze({
+      key: shiftRunLikeKey(entry.key, modelDelta, sourceDelta),
+      text: entry.text,
+      elements: entry.elements,
+      modelRange: shiftRange(entry.modelRange, modelDelta),
+      sourceRange: shiftRange(entry.sourceRange, sourceDelta),
+      boundaryMapping: entry.boundaryMapping
+    }))),
+    children: Object.freeze(node.children.map((child) =>
+      shiftLiveNode(child, modelDelta, sourceDelta, nodeMap)))
+  })
+  nodeMap?.set(shifted.key, shifted)
+  return shifted
+}
+
+/** Shift one decoded block by whole-block deltas, collecting its node map. */
+export function shiftLiveBlock(
+  block: MarkupRenderBlock,
+  modelDelta: number,
+  sourceDelta: number,
+  nodeMap?: Map<string, MarkupRenderNode>
+): MarkupRenderBlock {
+  return Object.freeze({
+    kind: block.kind,
+    attributes: block.attributes,
+    modelRange: shiftRange(block.modelRange, modelDelta),
+    runs: Object.freeze(block.runs.map((run) => Object.freeze({
+      key: shiftRunLikeKey(run.key, modelDelta, sourceDelta),
+      text: run.text,
+      elements: run.elements,
+      modelRange: shiftRange(run.modelRange, modelDelta),
+      sourceRange: shiftRange(run.sourceRange, sourceDelta)
+    }))),
+    tree: shiftLiveNode(block.tree, modelDelta, sourceDelta, nodeMap)
+  })
+}
+
+function firstTextSourceStart(node: MarkupRenderNode): number | undefined {
+  const first = node.text[0]
+  if (first !== undefined) return first.sourceRange.start
+  for (const child of node.children) {
+    const found = firstTextSourceStart(child)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+
+/** The deterministic per-block bases both sides rebase against. */
+export function liveBlockBases(
+  block: MarkupRenderBlock
+): Readonly<{ modelStart: number; sourceStart: number }> {
+  return Object.freeze({
+    modelStart: block.modelRange.start,
+    sourceStart: block.runs[0]?.sourceRange.start ??
+      firstTextSourceStart(block.tree) ?? 0
+  })
+}
+
+/**
+ * A block's identity independent of its position: the serialized form with
+ * ranges and run-family keys rebased to block-relative coordinates. Two
+ * blocks with equal signatures differ at most by a rigid offset shift.
+ */
+export function liveBlockSignature(block: MarkupRenderBlock): string {
+  const bases = liveBlockBases(block)
+  return JSON.stringify(
+    shiftLiveBlock(block, -bases.modelStart, -bases.sourceStart)
+  )
+}
+
+export interface HeldBlockRef {
+  readonly held: number
+  readonly modelStart: number
+  readonly sourceStart: number
 }
 
 type EncodedLiveBlockEntry = EncodedMarkupRenderBlock | EncodedHeldBlockRef
@@ -119,6 +248,10 @@ type EncodedLiveBlockEntry = EncodedMarkupRenderBlock | EncodedHeldBlockRef
 export interface HeldLiveBlocks {
   readonly blocks: readonly MarkupRenderBlock[]
   readonly blockNodeMaps: readonly ReadonlyMap<string, MarkupRenderNode>[]
+  readonly blockBases: readonly Readonly<{
+    modelStart: number
+    sourceStart: number
+  }>[]
 }
 
 /** Walk one decoded block's tree into the key map held-ref resolution needs. */
@@ -794,13 +927,13 @@ export function encodeDocumentCoreLiveDeltaV1(
   source: string,
   value: DecodedDocumentCoreLiveDeltaV1,
   contract: DocumentCoreLiveDeltaProjectionContract,
-  heldBlockIndices?: readonly (number | null)[]
+  heldBlockRefs?: readonly (HeldBlockRef | null)[]
 ): EncodedDocumentCoreLiveDeltaV1 {
   if (
-    heldBlockIndices !== undefined &&
-    heldBlockIndices.length !== value.blocks.length
+    heldBlockRefs !== undefined &&
+    heldBlockRefs.length !== value.blocks.length
   ) {
-    throw new RangeError('Held block indices do not align with the blocks')
+    throw new RangeError('Held block references do not align with the blocks')
   }
   if (value.schema !== 'document-core-live-plan-delta-1') {
     throw new TypeError('Live delta has an invalid schema')
@@ -815,10 +948,14 @@ export function encodeDocumentCoreLiveDeltaV1(
   )
   const blocks = Object.freeze(
     value.blocks.map((block, index) => {
-      const held = heldBlockIndices?.[index]
+      const held = heldBlockRefs?.[index]
       return held === null || held === undefined
         ? encodeBlock(block, value.modelText, source)
-        : Object.freeze({ held })
+        : Object.freeze({
+          held: held.held,
+          modelStart: held.modelStart,
+          sourceStart: held.sourceStart
+        })
     })
   )
   return Object.freeze({
@@ -915,30 +1052,62 @@ export function decodeDocumentCoreLiveDeltaV1(
       block !== null &&
       'held' in block
     ) {
-      const reference = closedRecord(block, `blocks[${index}]`, ['held'])
+      const reference = closedRecord(
+        block,
+        `blocks[${index}]`,
+        ['held', 'modelStart', 'sourceStart']
+      )
       const heldIndex = reference.held
       if (
         held === undefined ||
         typeof heldIndex !== 'number' ||
         !Number.isInteger(heldIndex) ||
         heldIndex < 0 ||
-        heldIndex >= held.blocks.length
+        heldIndex >= held.blocks.length ||
+        typeof reference.modelStart !== 'number' ||
+        !Number.isSafeInteger(reference.modelStart) ||
+        typeof reference.sourceStart !== 'number' ||
+        !Number.isSafeInteger(reference.sourceStart)
       ) {
         throw new RangeError(
           `blocks[${index}] references a held block the receiver lacks`
         )
       }
-      const resolved = held.blocks[heldIndex]
-      const nodeMap = held.blockNodeMaps[heldIndex]
-      if (resolved === undefined || nodeMap === undefined) {
+      const heldBlock = held.blocks[heldIndex]
+      const heldMap = held.blockNodeMaps[heldIndex]
+      const heldBases = held.blockBases[heldIndex]
+      if (
+        heldBlock === undefined ||
+        heldMap === undefined ||
+        heldBases === undefined
+      ) {
         throw new RangeError(
           `blocks[${index}] references a held block the receiver lacks`
         )
       }
-      // The held block was fully validated when it first decoded; only its
+      const modelDelta = reference.modelStart - heldBases.modelStart
+      const sourceDelta = reference.sourceStart - heldBases.sourceStart
+      // The held block was fully validated when it first decoded; a rigid
+      // offset shift preserves every internal invariant, so resolution is
+      // reuse by reference at zero deltas and a shift-clone otherwise. Only
       // topology membership must re-register so key uniqueness and outline
       // references keep their guarantees.
-      for (const [key, node] of nodeMap) {
+      let resolved: MarkupRenderBlock
+      let nodeEntries: ReadonlyMap<string, MarkupRenderNode>
+      if (modelDelta === 0 && sourceDelta === 0) {
+        resolved = heldBlock
+        nodeEntries = heldMap
+      } else {
+        const shiftedMap = new Map<string, MarkupRenderNode>()
+        resolved = shiftLiveBlock(
+          heldBlock,
+          modelDelta,
+          sourceDelta,
+          shiftedMap
+        )
+        nodeEntries = shiftedMap
+      }
+      for (const [key, node] of nodeEntries) {
         if (topology.nodeKeys.has(key)) {
           throw new TypeError('Live-plan node keys are not unique')
         }
