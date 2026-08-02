@@ -103,6 +103,37 @@ interface EncodedMarkupRenderBlock {
   readonly tree: EncodedMarkupRenderNode
 }
 
+/**
+ * A block the receiver already holds, byte-identical including offsets and
+ * keys: the sender proved the serialized block equals entry `held` of its
+ * previous emission for this projection, so the receiver reuses that decoded
+ * block by reference instead of re-validating a structure it already
+ * validated. Anything shifted, rekeyed, or changed ships in full.
+ */
+interface EncodedHeldBlockRef {
+  readonly held: number
+}
+
+type EncodedLiveBlockEntry = EncodedMarkupRenderBlock | EncodedHeldBlockRef
+
+export interface HeldLiveBlocks {
+  readonly blocks: readonly MarkupRenderBlock[]
+  readonly blockNodeMaps: readonly ReadonlyMap<string, MarkupRenderNode>[]
+}
+
+/** Walk one decoded block's tree into the key map held-ref resolution needs. */
+export function collectLiveBlockNodeMap(
+  block: MarkupRenderBlock
+): ReadonlyMap<string, MarkupRenderNode> {
+  const nodes = new Map<string, MarkupRenderNode>()
+  const visit = (node: MarkupRenderNode): void => {
+    nodes.set(node.key, node)
+    for (const child of node.children) visit(child)
+  }
+  visit(block.tree)
+  return nodes
+}
+
 interface LiveTreeTopology {
   nodeCount: number
   readonly nodeKeys: Set<string>
@@ -137,7 +168,7 @@ export interface EncodedDocumentCoreLiveDeltaV1 {
     }>
   /** Retained editable-Markup map, independent of a clean display model. */
   readonly markupCoordinateMap: MarkupCoordinateMapV1
-  readonly blocks: readonly EncodedMarkupRenderBlock[]
+  readonly blocks: readonly EncodedLiveBlockEntry[]
   readonly outline: DecodedDocumentCoreLiveDeltaV1['outline']
   readonly listItems: readonly EncodedModelRange[]
 }
@@ -762,8 +793,15 @@ function decodeBlock(
 export function encodeDocumentCoreLiveDeltaV1(
   source: string,
   value: DecodedDocumentCoreLiveDeltaV1,
-  contract: DocumentCoreLiveDeltaProjectionContract
+  contract: DocumentCoreLiveDeltaProjectionContract,
+  heldBlockIndices?: readonly (number | null)[]
 ): EncodedDocumentCoreLiveDeltaV1 {
+  if (
+    heldBlockIndices !== undefined &&
+    heldBlockIndices.length !== value.blocks.length
+  ) {
+    throw new RangeError('Held block indices do not align with the blocks')
+  }
   if (value.schema !== 'document-core-live-plan-delta-1') {
     throw new TypeError('Live delta has an invalid schema')
   }
@@ -776,7 +814,12 @@ export function encodeDocumentCoreLiveDeltaV1(
     contract
   )
   const blocks = Object.freeze(
-    value.blocks.map(block => encodeBlock(block, value.modelText, source))
+    value.blocks.map((block, index) => {
+      const held = heldBlockIndices?.[index]
+      return held === null || held === undefined
+        ? encodeBlock(block, value.modelText, source)
+        : Object.freeze({ held })
+    })
   )
   return Object.freeze({
     schema: 'document-core-live-plan-delta-1' as const,
@@ -810,7 +853,8 @@ export function encodeDocumentCoreLiveDeltaV1(
 export function decodeDocumentCoreLiveDeltaV1(
   source: string,
   value: unknown,
-  contract: DocumentCoreLiveDeltaProjectionContract
+  contract: DocumentCoreLiveDeltaProjectionContract,
+  held?: HeldLiveBlocks
 ): DecodedDocumentCoreLiveDeltaV1 {
   const record = closedRecord(value, 'Live delta', [
     'schema',
@@ -865,14 +909,53 @@ export function decodeDocumentCoreLiveDeltaV1(
     nodeLabels: new Map(),
     nodesByKey: new Map()
   }
-  const blocks = Object.freeze(record.blocks.map((block, index) =>
-    decodeBlock(
+  const blocks = Object.freeze(record.blocks.map((block, index) => {
+    if (
+      typeof block === 'object' &&
+      block !== null &&
+      'held' in block
+    ) {
+      const reference = closedRecord(block, `blocks[${index}]`, ['held'])
+      const heldIndex = reference.held
+      if (
+        held === undefined ||
+        typeof heldIndex !== 'number' ||
+        !Number.isInteger(heldIndex) ||
+        heldIndex < 0 ||
+        heldIndex >= held.blocks.length
+      ) {
+        throw new RangeError(
+          `blocks[${index}] references a held block the receiver lacks`
+        )
+      }
+      const resolved = held.blocks[heldIndex]
+      const nodeMap = held.blockNodeMaps[heldIndex]
+      if (resolved === undefined || nodeMap === undefined) {
+        throw new RangeError(
+          `blocks[${index}] references a held block the receiver lacks`
+        )
+      }
+      // The held block was fully validated when it first decoded; only its
+      // topology membership must re-register so key uniqueness and outline
+      // references keep their guarantees.
+      for (const [key, node] of nodeMap) {
+        if (topology.nodeKeys.has(key)) {
+          throw new TypeError('Live-plan node keys are not unique')
+        }
+        topology.nodeKeys.add(key)
+        topology.nodesByKey.set(key, node)
+        topology.nodeCount += 1
+      }
+      return resolved
+    }
+    return decodeBlock(
       block,
       modelText,
       source,
       `blocks[${index}]`,
       topology
-    )))
+    )
+  }))
   let previousBlockEnd = 0
   for (const block of blocks) {
     if (block.modelRange.start < previousBlockEnd) {

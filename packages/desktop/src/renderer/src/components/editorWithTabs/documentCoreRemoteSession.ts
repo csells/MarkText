@@ -44,6 +44,8 @@ import {
   closedRecord as decodeClosedRecord
 } from '@shared/types/closedRecord'
 import {
+  collectLiveBlockNodeMap,
+  type HeldLiveBlocks,
   decodeDocumentCoreLiveDeltaV1
 } from '@shared/documentCoreLiveWire'
 import {
@@ -781,6 +783,18 @@ function modelPositionAt(
 interface HeldLivePlan {
   readonly sourceHash: string
   readonly live: ReturnType<typeof decodeDocumentCoreLiveDeltaV1>
+  readonly heldBlocks: HeldLiveBlocks
+}
+
+function heldBlocksOf(
+  live: ReturnType<typeof decodeDocumentCoreLiveDeltaV1>
+): HeldLiveBlocks {
+  return Object.freeze({
+    blocks: live.blocks,
+    blockNodeMaps: Object.freeze(
+      live.blocks.map((block) => collectLiveBlockNodeMap(block))
+    )
+  })
 }
 
 function decodeSnapshot(
@@ -860,11 +874,13 @@ function decodeSnapshot(
       Object.freeze({
         projection: review.projection,
         markupModelLength: review.markupModelLength
-      })
+      }),
+      heldLivePlans?.get(review.projection)?.heldBlocks
     )
     heldLivePlans?.set(review.projection, Object.freeze({
       sourceHash: session.sourceHash,
-      live: decoded
+      live: decoded,
+      heldBlocks: heldBlocksOf(decoded)
     }))
     return decoded
   })()

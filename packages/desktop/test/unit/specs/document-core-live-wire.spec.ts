@@ -370,7 +370,9 @@ describe('document-core compact live wire', () => {
       }
     }, markupModelLength)).toThrow(/canonical source/u)
     const block = encoded.blocks[0]
-    if (block === undefined) throw new Error('Expected one encoded block')
+    if (block === undefined || 'held' in block) {
+      throw new Error('Expected one fully encoded block')
+    }
     expect(() => decodeMarked(source, {
       ...encoded,
       blocks: [{
@@ -407,7 +409,9 @@ describe('document-core compact live wire', () => {
     const source = 'a'
     const encoded = encodeMarked(source, identityLiveDelta(source))
     const block = encoded.blocks[0]
-    if (block === undefined) throw new Error('Expected one encoded block')
+    if (block === undefined || 'held' in block) {
+      throw new Error('Expected one fully encoded block')
+    }
     let tree: unknown = block.tree
     for (let index = 0; index < 12_000; index += 1) {
       tree = {
@@ -432,7 +436,9 @@ describe('document-core compact live wire', () => {
     const encoded = encodeMarked(source, identityLiveDelta(source))
     const markupModelLength = encoded.markupCoordinateMap.modelLength
     const block = encoded.blocks[0]
-    if (block === undefined) throw new Error('Expected one encoded block')
+    if (block === undefined || 'held' in block) {
+      throw new Error('Expected one fully encoded block')
+    }
     const child = {
       ...block.tree,
       key: 'node:duplicate',

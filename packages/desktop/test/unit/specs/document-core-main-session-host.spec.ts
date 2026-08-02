@@ -2358,8 +2358,11 @@ describe('main-owned document-core session host', () => {
       source: createSourceSnapshot(source),
       parseConfiguration: configuration
     })
+    const deepHeldPlans = new Map()
     let snapshot = decodeDocumentCorePublication(
-      codec.publish(opened.envelope, opened.baseSnapshotId)
+      codec.publish(opened.envelope, opened.baseSnapshotId),
+      undefined,
+      deepHeldPlans
     )
     if (snapshot.kind !== 'complete') {
       throw new Error('Expected a complete deep-document snapshot')
@@ -2386,7 +2389,8 @@ describe('main-owned document-core session host', () => {
       executions.push(committed.execution)
       snapshot = decodeDocumentCorePublication(
         codec.publish(committed.envelope, committed.baseSnapshotId),
-        snapshot
+        snapshot,
+        deepHeldPlans
       )
       if (snapshot.kind !== 'complete') {
         throw new Error('Deep-document edit became SourceOnly')

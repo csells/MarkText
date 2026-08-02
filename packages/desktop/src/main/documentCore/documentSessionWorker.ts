@@ -863,7 +863,37 @@ const EMPTY_SOURCE_EDITS: readonly RevisionSourceEdit[] = Object.freeze([])
 // block. Attach and open publications always ship the full plan — a
 // freshly attached renderer holds nothing to reuse — which also seeds
 // the decoders' held plans before any marker can reach them.
-const lastLivePlanEmissionByProjection = new Map<string, string>()
+interface LivePlanEmissionMemo {
+  readonly key: string
+  readonly blockSignatures: readonly string[]
+}
+
+const lastLivePlanEmissionByProjection = new Map<string, LivePlanEmissionMemo>()
+
+// A block whose serialized plan matches one from the previous emission for
+// this projection — offsets and keys included — ships as a held reference
+// the receiver resolves from its decoded copy instead of re-validating.
+function heldLiveBlockIndices(
+  signatures: readonly string[],
+  previous: LivePlanEmissionMemo | undefined
+): readonly (number | null)[] | undefined {
+  if (previous === undefined) return undefined
+  const pools = new Map<string, number[]>()
+  previous.blockSignatures.forEach((signature, index) => {
+    const queue = pools.get(signature)
+    if (queue === undefined) pools.set(signature, [index])
+    else queue.push(index)
+  })
+  let matched = false
+  const indices = signatures.map((signature) => {
+    const queue = pools.get(signature)
+    const index = queue?.shift()
+    if (index === undefined) return null
+    matched = true
+    return index
+  })
+  return matched ? indices : undefined
+}
 
 function livePlanEmissionKey(
   snapshot: EditorSnapshot,
@@ -887,7 +917,7 @@ function publishSnapshot(
   publicationSequence += 1
   const unchangedLivePlan = allowUnchangedLivePlan &&
     snapshot.kind === 'complete' &&
-    lastLivePlanEmissionByProjection.get(snapshot.projection) ===
+    lastLivePlanEmissionByProjection.get(snapshot.projection)?.key ===
       livePlanEmissionKey(snapshot, snapshot.projection)
   const portable = traceStallSpan('portableMembers', () => portableMembers(
     snapshot,
@@ -916,6 +946,9 @@ function publishSnapshot(
               'Complete live publication has no live plan'
             )
           }
+          const blockSignatures = portable.live.blocks.map(
+            (liveBlock) => JSON.stringify(liveBlock)
+          )
           const bytes = encodeJson(
             encodeDocumentCoreLiveDeltaV1(
               snapshot.revision.source,
@@ -923,12 +956,23 @@ function publishSnapshot(
               Object.freeze({
                 projection: portable.review.projection,
                 markupModelLength: portable.review.markupModelLength
-              })
+              }),
+              allowUnchangedLivePlan
+                ? heldLiveBlockIndices(
+                  blockSignatures,
+                  lastLivePlanEmissionByProjection.get(
+                    portable.review.projection
+                  )
+                )
+                : undefined
             )
           )
           lastLivePlanEmissionByProjection.set(
             portable.review.projection,
-            livePlanEmissionKey(snapshot, portable.review.projection)
+            Object.freeze({
+              key: livePlanEmissionKey(snapshot, portable.review.projection),
+              blockSignatures: Object.freeze(blockSignatures)
+            })
           )
           return bytes
         })()

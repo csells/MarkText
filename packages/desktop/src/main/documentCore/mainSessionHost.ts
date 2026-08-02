@@ -39,7 +39,11 @@ import {
   freezeDocumentCoreParseConfiguration,
   freezeDocumentCoreReviewIndex
 } from '../../shared/types/documentCore'
-import { decodeDocumentCoreLiveDeltaV1 } from '../../shared/documentCoreLiveWire'
+import {
+  collectLiveBlockNodeMap,
+  decodeDocumentCoreLiveDeltaV1,
+  type HeldLiveBlocks
+} from '../../shared/documentCoreLiveWire'
 import {
   retainDocumentCoreSourceVerification,
   verifyDocumentCoreSourceDelta,
@@ -1083,6 +1087,18 @@ function adoptMaterialization<Result>(result: Result): Result {
 export interface HeldLivePlan {
   readonly sourceHash: string
   readonly live: ReturnType<typeof decodeDocumentCoreLiveDeltaV1>
+  readonly heldBlocks: HeldLiveBlocks
+}
+
+function heldBlocksOf(
+  live: ReturnType<typeof decodeDocumentCoreLiveDeltaV1>
+): HeldLiveBlocks {
+  return Object.freeze({
+    blocks: live.blocks,
+    blockNodeMaps: Object.freeze(
+      live.blocks.map((block) => collectLiveBlockNodeMap(block))
+    )
+  })
 }
 
 export function decodeDocumentCorePublication(
@@ -1171,11 +1187,13 @@ export function decodeDocumentCorePublication(
       Object.freeze({
         projection: review.projection,
         markupModelLength: review.markupModelLength
-      })
+      }),
+      heldLivePlans?.get(review.projection)?.heldBlocks
     )
     heldLivePlans?.set(review.projection, Object.freeze({
       sourceHash: session.sourceHash,
-      live: decoded
+      live: decoded,
+      heldBlocks: heldBlocksOf(decoded)
     }))
     return decoded
   })()
