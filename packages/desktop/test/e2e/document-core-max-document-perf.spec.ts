@@ -1297,12 +1297,12 @@ test.describe('document-core maximum-document responsiveness', () => {
       execution: maximumDocumentDeletionExecution
     }
 
-    // The section 3 interactive budgets are p95 figures, and the
-    // app-boundary gesture occasionally absorbs a renderer major-GC pause
-    // of one to four seconds at this heap size (measured on two machines
-    // with the pipeline itself at ~180ms), so each gesture samples five
-    // rounds and the budget binds the p95 like every other interactive
-    // budget. Each round replaces the final unit and deletes it again, so
+    // The section 3 interactive budgets are p95 figures over ten samples
+    // (the critic suite's own convention), and the app-boundary gesture
+    // occasionally absorbs the ruled-unavoidable giant relayout landing
+    // across a measurement boundary (pipeline itself ~180ms, one relayout
+    // ~0.7-1.3s on owner hardware), so each gesture samples ten rounds and
+    // the budget binds the p95 like every other interactive budget. Each round replaces the final unit and deletes it again, so
     // the document returns to its pre-round bytes.
     const waitForFinalUnit = async(unit: string): Promise<void> => {
       await launched.page.waitForFunction(
@@ -1333,7 +1333,7 @@ test.describe('document-core maximum-document responsiveness', () => {
     }
     const editTerminalSamples = [maximumDocumentEditWindow.terminalMs]
     const deletionTerminalSamples = [maximumDocumentDeletionWindow.terminalMs]
-    for (let round = 1; round < 5; round += 1) {
+    for (let round = 1; round < 10; round += 1) {
       await installEditGestureState()
       await armGestureWindow('edit')
       await launched.page.keyboard.insertText('.')
