@@ -2670,7 +2670,8 @@ test.describe('document-core maximum-document responsiveness', () => {
       // families whose shape admits it.
       if (
         family.measurementBand !== 'green' &&
-        family.source.includes('\n\n')
+        scaleFixtures.some((fixture) =>
+          fixture.id === family.id && fixture.source.includes('\n\n'))
       ) {
         expect(family.measuredFragmentReuses, JSON.stringify(report))
           .toBeGreaterThan(0)
@@ -2709,7 +2710,8 @@ test.describe('document-core maximum-document responsiveness', () => {
           reuseMeasurementBand(
             sample.execution.operationOwningThreadStallMs
           ) !== 'green' &&
-          family.source.includes('\n\n')
+          scaleFixtures.some((fixture) =>
+            fixture.id === family.id && fixture.source.includes('\n\n'))
         ) {
           expect(
             carriedRegionReuses(sample.execution),
