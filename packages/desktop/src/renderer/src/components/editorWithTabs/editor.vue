@@ -1488,12 +1488,31 @@ const handleFileChange = (payload: unknown) => {
   const container = getScrollContainer()
   if (!container) return
 
+  // Hide before the switch either way; the restore path or the attach
+  // completion below makes the container visible again.
+  if (typeof scrollTop === 'number') {
+    container.style.visibility = 'hidden'
+    container.style.pointerEvents = 'none'
+  }
+
   if (typeof id === 'string') {
     reportAsyncTask(
       target.attachDocument(id).then(() => {
         if (!editor.value) return
         seedDerivedDocumentState(editor.value)
         if (newCursor) applyCursor(editor.value, newCursor)
+        // The scroll restore must land after the attached document's
+        // publication has mounted: applied in parallel it races the mount,
+        // and when the mount lands second the fresh content resets the
+        // container to the top — a loaded machine loses the tab's scroll
+        // position exactly when switching fast.
+        if (typeof scrollTop === 'number') {
+          scrollToCords(scrollTop)
+        } else {
+          container.style.visibility = 'visible'
+          container.style.pointerEvents = 'auto'
+          scrollToCursor(0)
+        }
         // An activated tab is where the user is about to type: take DOM focus
         // once the visibility-restore rAF has run, exactly like the
         // open-single-file path — otherwise a fresh untitled tab (or any tab
@@ -1504,11 +1523,10 @@ const handleFileChange = (payload: unknown) => {
       }),
       'Document attachment'
     )
+    return
   }
 
   if (typeof scrollTop === 'number') {
-    container.style.visibility = 'hidden'
-    container.style.pointerEvents = 'none'
     scrollToCords(scrollTop)
   } else {
     container.style.visibility = 'visible'
