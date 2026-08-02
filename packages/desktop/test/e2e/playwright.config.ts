@@ -38,5 +38,7 @@ export default defineConfig({
     headless: true,
     viewport: { width: 1280, height: 720 }
   },
-  timeout: 30000
+  // Hang guard, not a budget: hosted runners execute the same work about
+  // four times slower than the owner hardware every spec was paced on.
+  timeout: process.env.CI === 'true' ? 120000 : 30000
 })

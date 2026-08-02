@@ -5,7 +5,7 @@ import {
   type CompleteEditorSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
-import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
+import { hostedRunnerBudgetMs, hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -262,7 +262,7 @@ describe('DocumentSession Review index', () => {
     expect(
       elapsedMs,
       `maximum-depth reject-all took ${elapsedMs.toFixed(3)}ms`
-    ).toBeLessThanOrEqual(1_000)
+    ).toBeLessThanOrEqual(hostedRunnerBudgetMs(1_000))
   }, hostedRunnerTimeout(30_000))
 
   it('authors beside an untouched maximum-depth tree with linear scaling', async() => {

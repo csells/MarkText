@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { hostedRunnerBudgetMs } from './hostedRunnerBudget'
 import {
   mkdtempSync,
   readFileSync,
@@ -29,10 +30,10 @@ const MAX_SOURCE_UNITS = 32_000_000
 // Session identity hash, revision hash, intrinsic indexing, and parser-owned
 // document facts are four separately checkpointed source-work stages on open.
 const MAXIMUM_OPEN_SOURCE_WORK_UNITS = MAX_SOURCE_UNITS * 4
-const OPEN_ADMISSION_BUDGET_MS = 50
-const MAIN_STAGE_BUDGET_MS = 4
-const CANCELLATION_BUDGET_MS = 100
-const HEARTBEAT_BUDGET_MS = 100
+const OPEN_ADMISSION_BUDGET_MS = hostedRunnerBudgetMs(50)
+const MAIN_STAGE_BUDGET_MS = hostedRunnerBudgetMs(4)
+const CANCELLATION_BUDGET_MS = hostedRunnerBudgetMs(100)
+const HEARTBEAT_BUDGET_MS = hostedRunnerBudgetMs(100)
 // The main-process probe is a 1ms interval in a hidden accessory app, and
 // macOS coalesces such an app's timers under ambient machine load: the
 // measured ~190-235ms gaps were attributed exhaustively — the CPU profile
@@ -42,20 +43,24 @@ const HEARTBEAT_BUDGET_MS = 100
 // encode) was instrumented and exonerated. The ceiling therefore tolerates
 // documented OS timer coalescing while still failing any genuine
 // main-thread stall of the kind the probe exists to catch.
-const MAIN_LOOP_GAP_BUDGET_MS = 300
-const TERMINAL_BUDGET_MS = 120_000
+const MAIN_LOOP_GAP_BUDGET_MS = hostedRunnerBudgetMs(300)
+const TERMINAL_BUDGET_MS = hostedRunnerBudgetMs(120_000)
 // Owner ruling 2026-08-01 (G23 route b): the 500 ms keystroke budget
 // applies to structured documents; the degenerate single-block maximum
 // document carries its own stated budget, sized from the idle-machine
 // decomposition (~600 ms engine + ~720 ms unavoidable Chromium relayout
 // of one enormous block) with headroom.
-const MAXIMUM_DOCUMENT_EDIT_BUDGET_MS = 2_000
-const VIEWPORT_MOUNT_BUDGET_MS = 10_000
+const MAXIMUM_DOCUMENT_EDIT_BUDGET_MS = hostedRunnerBudgetMs(2_000)
+const VIEWPORT_MOUNT_BUDGET_MS = hostedRunnerBudgetMs(10_000)
 const VIEWPORT_DOM_NODE_BUDGET = 32
 const APP_WORKING_SET_BUDGET_BYTES = 2_000_000_000
 const SCALE_EDIT_SAMPLES = 5
 const SCALE_DOUBLING_RATIO_BUDGET = 2.25
-const ORDINARY_OPEN_BUDGET_MS = 5_000
+const ORDINARY_OPEN_BUDGET_MS = hostedRunnerBudgetMs(5_000)
+// The family keystroke budget is the structured-document 500ms ruling;
+// stall-band boundaries below are decision-record constants the reuse
+// decision file pins, never hardware-scaled.
+const FAMILY_INPUT_P95_BUDGET_MS = hostedRunnerBudgetMs(500)
 const GREEN_NO_REUSE_STALL_MS = 8
 const REQUIRED_REUSE_STALL_MS = 16
 
@@ -510,7 +515,7 @@ function assessMeasuredReuse(
 }
 
 test.describe('document-core maximum-document responsiveness', () => {
-  test.describe.configure({ timeout: 1_200_000 })
+  test.describe.configure({ timeout: hostedRunnerBudgetMs(1_200_000) })
 
   let app: ElectronApplication | undefined
   let page: Page | undefined
@@ -2636,7 +2641,7 @@ test.describe('document-core maximum-document responsiveness', () => {
         expect(
           family.browserInputLatencyMs.p95,
           JSON.stringify(report)
-        ).toBeLessThanOrEqual(500)
+        ).toBeLessThanOrEqual(FAMILY_INPUT_P95_BUDGET_MS)
       }
       expect(family.worstResidualParseStallMs, JSON.stringify(report))
         .toBe(family.workerOwningThreadStallMs.maximum)

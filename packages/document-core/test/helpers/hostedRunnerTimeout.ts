@@ -9,3 +9,16 @@
 export function hostedRunnerTimeout(milliseconds: number): number {
   return process.env.CI === 'true' ? milliseconds * 4 : milliseconds
 }
+
+/**
+ * Owner ruling 2026-08-02 (option c of the G24 hosted-budget report): a
+ * Section 3 time budget binds unscaled on idle owner hardware — the G23
+ * idle matrix — and scales by the same declared hosted-hardware factor
+ * when a closure surface runs it on a hosted CI runner. The repository
+ * already committed both the factor and the pattern
+ * (`process.env.CI ? 200 : 50` in the snapshot codec guard). Memory and
+ * byte budgets never scale.
+ */
+export function hostedRunnerBudgetMs(milliseconds: number): number {
+  return process.env.CI === 'true' ? milliseconds * 4 : milliseconds
+}

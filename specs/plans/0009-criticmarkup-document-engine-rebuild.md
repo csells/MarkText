@@ -695,7 +695,18 @@ whose assertion cannot distinguish pass from fail.
   59b4e01a with the heap assertions untouched; every production byte is
   identical between 6a129a4e and the closure candidate.
 - **G24 A green closure CI is not reproducible.** Section 7 requires compact
-  candidate, platform, and closure records to be retained. Retention closes when
+  candidate, platform, and closure records to be retained.
+  Owner ruling 2026-08-02 (hosted-budget scaling, option c of the blocked
+  report): a Section 3 time budget binds unscaled on idle owner hardware —
+  the G23 idle matrix remains the budgets' evidentiary surface — and
+  scales by the repository's committed hosted-hardware factor of four
+  when a closure surface runs the same suite on a hosted CI runner
+  (measured basis: hosted open 5.9 s against the mini's 1.5 s,
+  structured toggles 820 ms against 235 ms, and the resource guard's
+  own four-times declaration). Memory and byte budgets never scale.
+  Implemented as `hostedRunnerBudgetMs` in the desktop e2e suites and
+  the document-core budget-bearing specs; hang-guard timeouts carry the
+  same factor. Retention closes when
   a target reconstructs the attestation of a completed closure run from the
   retained records alone, without the original workspace. Audited
   2026-08-01: the executable machinery holds — 81 of the 84 plan-spec

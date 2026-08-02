@@ -10,7 +10,7 @@ import {
   type DocumentSessionJournalStorage,
   type ParseConfiguration
 } from '@marktext/document-core'
-import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
+import { hostedRunnerBudgetMs, hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -102,7 +102,7 @@ describe('maximum-document durable journal performance', () => {
     expect(
       elapsedMs,
       JSON.stringify({ elapsedMs, dispatchCasEvents })
-    ).toBeLessThanOrEqual(500)
+    ).toBeLessThanOrEqual(hostedRunnerBudgetMs(500))
     expect(casUnits.slice(writesBeforeDispatch)).not.toHaveLength(0)
     expect(
       Math.max(...casUnits.slice(writesBeforeDispatch))

@@ -1,4 +1,5 @@
 import * as os from 'node:os'
+import { hostedRunnerBudgetMs } from './hostedRunnerBudget'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 import {
@@ -16,13 +17,13 @@ import {
 // the measurements are tied to a recorded machine. Investigate outliers
 // rather than average them away.
 
-const OPEN_BUDGET_MS = 5000
-const ACTION_P95_BUDGET_MS = 500
+const OPEN_BUDGET_MS = hostedRunnerBudgetMs(5000)
+const ACTION_P95_BUDGET_MS = hostedRunnerBudgetMs(500)
 // Owner ruling (plan 0009, G23): the 500ms action budget scopes to
 // structured documents; a degenerate single-block document — thousands of
 // source lines forming one paragraph, so every projection toggle rebuilds
 // one maximal block — gets a stated 2,000ms toggle budget instead.
-const DEGENERATE_TOGGLE_P95_BUDGET_MS = 2000
+const DEGENERATE_TOGGLE_P95_BUDGET_MS = hostedRunnerBudgetMs(2000)
 
 const MACHINE_RECORD = {
   hostname: os.hostname(),
@@ -63,7 +64,7 @@ function p95(samples: number[]): number {
 }
 
 test.describe('document-core CriticMarkup performance budgets', () => {
-  test.describe.configure({ timeout: 120000 })
+  test.describe.configure({ timeout: hostedRunnerBudgetMs(120000) })
 
   let app: ElectronApplication
   let page: Page
