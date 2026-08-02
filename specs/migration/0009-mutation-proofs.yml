@@ -723,13 +723,13 @@
       "baseline": {
         "command": "packages/desktop: npx -y pnpm@10.33.4 exec playwright test --config test/e2e/playwright.config.ts test/e2e/document-core-max-document-perf.spec.ts",
         "outcome": "pass",
-        "at": "2026-08-02T06:34:51.864Z"
+        "at": "2026-08-02T07:02:55.001Z"
       },
       "mutated": {
         "outcome": "fail",
         "failureExcerpt": "Error: page.evaluate: Error: edit gesture window is incomplete\n    Error Context: test-results/document-core-max-document-ffdc8-iewport-mount-within-budget-unpacked/error-context.md\n  1 failed"
       },
-      "recordedAt": "2026-08-02T06:38:19.748Z"
+      "recordedAt": "2026-08-02T07:06:22.144Z"
     },
     {
       "id": "A37",

@@ -406,11 +406,12 @@ whose assertion cannot distinguish pass from fail.
   executed report, and byte-literal checkouts. Remaining: A29/A37 on
   the idle-machine scoped-budget matrix (G23) and completeness binding
   at the final-closure gate.
-  CLOSED 2026-08-02: with G23's idle matrix green at 6e0f1434, A29's
-  baseline opened and `node scripts/mutationProof.mjs A29` on the idle
-  mini (load 1) proved the last target two-sided — baseline pass at
-  2026-08-02T06:34:51Z, then the authored mutation (the surgical text
-  patch hard-disabled in `patchDocumentCoreTextPublication.ts`) failed
+  CLOSED 2026-08-02: with G23's idle matrix green, A29's baseline
+  opened and `node scripts/mutationProof.mjs A29` on the idle mini
+  (load 1) proved the last target two-sided — recorded at candidate
+  6a129a4e with baseline pass at 2026-08-02T07:02:55Z, after the
+  authored mutation (the surgical text patch hard-disabled in
+  `patchDocumentCoreTextPublication.ts`) failed
   the target structurally and load-insensitively: with the identity
   fast path gone the re-render replaces the carrier's Text node, the
   armed gesture window's characterData observer on the retained node
@@ -680,7 +681,13 @@ whose assertion cannot distinguish pass from fail.
   the scoped 2,000 ms; admission 0.8 ms against 50; cancellation
   terminal 15.1 ms; structured review actions, projection toggles,
   navigation, sidebar, and the 4,096-line open (1.5 s against 5) all
-  green in the critic suite.
+  green in the critic suite. The closure anchor moved once, honestly:
+  the first platform-evidence tag's Windows leg exposed a host
+  serialization defect (a watcher reload colliding with an in-flight
+  dispatch), fixed at 6a129a4e with a per-session FIFO operation queue
+  and a host test pinning both collision directions; the idle matrix
+  re-ran green at 6a129a4e after that fix (same suites, same budgets,
+  load-guarded), which is the commit this closure binds.
 - **G24 A green closure CI is not reproducible.** Section 7 requires compact
   candidate, platform, and closure records to be retained. Retention closes when
   a target reconstructs the attestation of a completed closure run from the
