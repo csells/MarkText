@@ -494,6 +494,117 @@ describe('main-owned document-core session host', () => {
     await host.close('renderer:1', 'document-link-authority')
   })
 
+  it('serializes a watcher reload against in-flight execution operations', async() => {
+    // The worker admits one execution operation at a time. Renderer-driven
+    // operations already serialize through the renderer's per-document
+    // queue, but a file-watcher reload enters from main: unserialized, it
+    // overlaps an in-flight dispatch and the worker refuses with
+    // "Execution operation dispatch is still active" (observed on the
+    // Windows platform leg, where the app's own save widens the window).
+    // The host owns the invariant: a reload waits for open dispatch
+    // tickets, and operation starters wait for an in-flight reload.
+    const host = createDocumentCoreMainSessionHost(await temporaryStorage())
+    const codec = new WireEnvelopeCodecV1()
+    const opened = await openHost(host, 'renderer:1', {
+      documentId: 'reload-serialization',
+      durabilityKey: 'durable-reload-serialization',
+      source: createSourceSnapshot('alpha target omega\n'),
+      parseConfiguration: configuration
+    })
+    const heldPlans = new Map()
+    const snapshot = decodeDocumentCorePublication(
+      codec.publish(opened.envelope, opened.baseSnapshotId),
+      undefined,
+      heldPlans
+    )
+    if (snapshot.kind !== 'complete') {
+      throw new Error('Expected a complete reload-serialization fixture')
+    }
+    const receipt = await host.startDispatch('renderer:1', {
+      documentId: 'reload-serialization',
+      baseSnapshotId: snapshot.snapshotId,
+      intent: {
+        kind: 'insert-text',
+        target: {
+          ...snapshot.selection,
+          anchor: { offset: 0, affinity: 'next' as const },
+          focus: { offset: 0, affinity: 'next' as const }
+        },
+        text: 'x'
+      }
+    })
+
+    let reloadSettled = false
+    const reload = host.reloadFromFile(
+      'renderer:1',
+      'reload-serialization',
+      'alpha target omega\n',
+      false
+    ).then((result) => {
+      reloadSettled = true
+      return result
+    })
+    reload.catch(() => undefined)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    // The reload must neither race the active dispatch into the worker
+    // nor reject; it waits for the ticket to complete.
+    expect(reloadSettled).toBe(false)
+
+    const completed = decodeDocumentCorePublication(
+      codec.publish(
+        ...await host.completeDispatch(
+          'renderer:1',
+          'reload-serialization',
+          receipt.ticketId
+        ).then((publication) =>
+          [publication.envelope, publication.baseSnapshotId] as const)
+      ),
+      snapshot,
+      heldPlans
+    )
+    if (completed.kind !== 'complete') {
+      throw new Error('Reload-serialization dispatch lost its projection')
+    }
+    expect(completed.source.startsWith('xalpha')).toBe(true)
+    const result = await reload
+    expect(result.kind).toBe('conflict')
+
+    // And the mirror: a dispatch that arrives while a reload is in flight
+    // waits for it instead of surfacing a worker refusal.
+    const during = host.reloadFromFile(
+      'renderer:1',
+      'reload-serialization',
+      completed.source,
+      false
+    )
+    const dispatched = decodeDocumentCorePublication(
+      codec.publish(
+        ...await host.dispatch('renderer:1', {
+          documentId: 'reload-serialization',
+          baseSnapshotId: completed.snapshotId,
+          intent: {
+            kind: 'insert-text',
+            target: {
+              ...completed.selection,
+              anchor: { offset: 0, affinity: 'next' as const },
+              focus: { offset: 0, affinity: 'next' as const }
+            },
+            text: 'y'
+          }
+        }).then((publication) =>
+          [publication.envelope, publication.baseSnapshotId] as const)
+      ),
+      completed,
+      heldPlans
+    )
+    expect(dispatched.source.startsWith('yx')).toBe(true)
+    // The session carries unsaved edits, so a force-less reload reports
+    // conflict; the property under test is that it reported anything at
+    // all instead of colliding with the queued dispatch in the worker.
+    expect((await during).kind).toBe('conflict')
+    await host.close('renderer:1', 'reload-serialization')
+  })
+
   it('reads live history state for main lifecycle decisions without a renderer cache', async() => {
     const host = createDocumentCoreMainSessionHost(await temporaryStorage())
     const codec = new WireEnvelopeCodecV1()

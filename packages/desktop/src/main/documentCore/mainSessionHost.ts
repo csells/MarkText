@@ -346,6 +346,17 @@ interface HostedSession {
   readonly dispatchExecutionGenerations: Map<string, number>
   readonly pendingCutTickets: Set<string>
   readonly persistenceLeases: Map<string, IsolatedDocumentSession>
+  // The worker admits one execution operation at a time and a collision is
+  // not contained to the intruder: the refused command's error path clears
+  // the active-operation record, so the in-flight operation's own
+  // completion then fails its accounting. Renderer-driven operations
+  // already serialize through the renderer's per-document queue; the
+  // watcher's reload enters from main, so the host owns the invariant
+  // with one FIFO turn queue per session. A dispatch holds its turn from
+  // the start receipt until its completion returns; every other
+  // slot-taking operation holds its turn for its single command.
+  operationQueue: Promise<void>
+  readonly dispatchSlotReleases: Map<string, () => void>
 }
 
 interface PortableSessionMember {
@@ -1294,7 +1305,9 @@ export function createDocumentCoreMainSessionHost(
         workerFailure: null,
         dispatchExecutionGenerations: new Map(),
         pendingCutTickets: new Set(),
-        persistenceLeases: new Map()
+        persistenceLeases: new Map(),
+        operationQueue: Promise.resolve(),
+        dispatchSlotReleases: new Map()
       }
       sessions.set(request.documentId, hosted)
     } else {
@@ -1483,33 +1496,76 @@ export function createDocumentCoreMainSessionHost(
     })
   }
 
+  // Take the next turn in the session's operation queue. The queue
+  // advances when `holdUntil` (or the turn itself, absent one) settles;
+  // taking and blocking the queue happens synchronously at call time so
+  // no later caller can slip between the check and the claim.
+  const enqueueOperation = async <T>(
+    hosted: HostedSession,
+    run: () => Promise<Readonly<{ value: T; holdUntil?: Promise<void> }>>
+  ): Promise<T> => {
+    const previous = hosted.operationQueue
+    let advance!: () => void
+    hosted.operationQueue = new Promise<void>((resolve) => {
+      advance = resolve
+    })
+    await previous
+    try {
+      const outcome = await run()
+      if (outcome.holdUntil === undefined) advance()
+      else outcome.holdUntil.then(advance, advance)
+      return outcome.value
+    } catch (error) {
+      advance()
+      throw error
+    }
+  }
+
+  const releaseDispatchSlot = (
+    hosted: HostedSession,
+    ticketId: string
+  ): void => {
+    const release = hosted.dispatchSlotReleases.get(ticketId)
+    if (release === undefined) return
+    hosted.dispatchSlotReleases.delete(ticketId)
+    release()
+  }
+
   const startDispatch = async(
     ownerId: string,
     request: DocumentCoreMainDispatchRequest
   ): Promise<DocumentCoreDispatchTicketReceipt> => {
     const hosted = hostedFor(request.documentId)
     assertOwner(hosted, ownerId)
-    assertBase(hosted, request.baseSnapshotId)
-    const executionGeneration = hosted.worker.nextExecutionGeneration()
-    const result = await hosted.worker.command<{
-      ticketId: string
-      clientSequence: number
-    }>(Object.freeze({
-      kind: 'start-dispatch',
-      baseSnapshotId: request.baseSnapshotId,
-      intent: request.intent,
-      executionGeneration
-    }))
-    hosted.dispatchExecutionGenerations.set(
-      result.ticketId,
-      executionGeneration
-    )
-    return Object.freeze({
-      schema: 'document-core-dispatch-ticket-1',
-      documentId: request.documentId,
-      baseSnapshotId: request.baseSnapshotId,
-      ticketId: result.ticketId,
-      clientSequence: result.clientSequence
+    return await enqueueOperation(hosted, async() => {
+      assertBase(hosted, request.baseSnapshotId)
+      const executionGeneration = hosted.worker.nextExecutionGeneration()
+      const result = await hosted.worker.command<{
+        ticketId: string
+        clientSequence: number
+      }>(Object.freeze({
+        kind: 'start-dispatch',
+        baseSnapshotId: request.baseSnapshotId,
+        intent: request.intent,
+        executionGeneration
+      }))
+      hosted.dispatchExecutionGenerations.set(
+        result.ticketId,
+        executionGeneration
+      )
+      const holdUntil = new Promise<void>((resolve) => {
+        hosted.dispatchSlotReleases.set(result.ticketId, resolve)
+      })
+      return Object.freeze({
+        holdUntil,
+        value: Object.freeze({
+          schema: 'document-core-dispatch-ticket-1' as const,
+          documentId: request.documentId,
+          baseSnapshotId: request.baseSnapshotId,
+          ticketId: result.ticketId,
+          clientSequence: result.clientSequence
+        })
+      })
     })
   }
 
@@ -1519,17 +1575,20 @@ export function createDocumentCoreMainSessionHost(
   ): Promise<DocumentCorePublication> => {
     const hosted = hostedFor(request.documentId)
     assertOwner(hosted, ownerId)
-    assertBase(hosted, request.baseSnapshotId)
-    const executionGeneration = hosted.worker.nextExecutionGeneration()
-    const publication =
-      await hosted.worker.command<DocumentCoreWorkerPublication>(
-        Object.freeze({
-          kind: 'reconfigure-markdown-options',
-          baseSnapshotId: request.baseSnapshotId,
-          patch: Object.freeze({ ...request.patch }),
-          executionGeneration
-        })
-      )
+    const publication = await enqueueOperation(hosted, async() => {
+      assertBase(hosted, request.baseSnapshotId)
+      const executionGeneration = hosted.worker.nextExecutionGeneration()
+      return Object.freeze({
+        value: await hosted.worker.command<DocumentCoreWorkerPublication>(
+          Object.freeze({
+            kind: 'reconfigure-markdown-options',
+            baseSnapshotId: request.baseSnapshotId,
+            patch: Object.freeze({ ...request.patch }),
+            executionGeneration
+          })
+        )
+      })
+    })
     hosted.snapshotId = publicationSnapshotId(publication)
     return bindDocumentPublication(request.documentId, publication)
   }
@@ -1541,10 +1600,15 @@ export function createDocumentCoreMainSessionHost(
   ): Promise<DocumentCorePublication> => {
     const hosted = hostedFor(documentId)
     assertOwner(hosted, ownerId)
-    const publication =
-      await hosted.worker.command<DocumentCoreWorkerPublication>(
-        Object.freeze({ kind: 'complete-dispatch', ticketId })
-      )
+    let publication: DocumentCoreWorkerPublication
+    try {
+      publication =
+        await hosted.worker.command<DocumentCoreWorkerPublication>(
+          Object.freeze({ kind: 'complete-dispatch', ticketId })
+        )
+    } finally {
+      releaseDispatchSlot(hosted, ticketId)
+    }
     hosted.dispatchExecutionGenerations.delete(ticketId)
     hosted.snapshotId = publicationSnapshotId(publication)
     return bindDocumentPublication(documentId, publication)
@@ -1624,18 +1688,21 @@ export function createDocumentCoreMainSessionHost(
   ): Promise<DocumentCorePublication> => {
     const hosted = hostedFor(request.documentId)
     assertOwner(hosted, ownerId)
-    assertBase(hosted, request.baseSnapshotId)
-    const executionGeneration = hosted.worker.nextExecutionGeneration()
-    const publication =
-      await hosted.worker.command<DocumentCoreWorkerPublication>(
-        Object.freeze({
-          kind: 'select',
-          baseSnapshotId: request.baseSnapshotId,
-          view: request.view,
-          selection: request.selection,
-          executionGeneration
-        })
-      )
+    const publication = await enqueueOperation(hosted, async() => {
+      assertBase(hosted, request.baseSnapshotId)
+      const executionGeneration = hosted.worker.nextExecutionGeneration()
+      return Object.freeze({
+        value: await hosted.worker.command<DocumentCoreWorkerPublication>(
+          Object.freeze({
+            kind: 'select',
+            baseSnapshotId: request.baseSnapshotId,
+            view: request.view,
+            selection: request.selection,
+            executionGeneration
+          })
+        )
+      })
+    })
     hosted.snapshotId = publicationSnapshotId(publication)
     return bindDocumentPublication(request.documentId, publication)
   }
@@ -1651,15 +1718,19 @@ export function createDocumentCoreMainSessionHost(
     if (typeof source !== 'string' || typeof force !== 'boolean') {
       throw new TypeError('Invalid main-owned file reload request')
     }
-    const executionGeneration = hosted.worker.nextExecutionGeneration()
-    const result = await hosted.worker.command<DocumentCoreReloadCompletion>(
-      Object.freeze({
-        kind: 'reload-from-file',
-        source,
-        force,
-        executionGeneration
+    const result = await enqueueOperation(hosted, async() => {
+      const executionGeneration = hosted.worker.nextExecutionGeneration()
+      return Object.freeze({
+        value: await hosted.worker.command<DocumentCoreReloadCompletion>(
+          Object.freeze({
+            kind: 'reload-from-file',
+            source,
+            force,
+            executionGeneration
+          })
+        )
       })
-    )
+    })
     if (
       result.schema !== 'document-core-reload-completion-1' ||
       (
