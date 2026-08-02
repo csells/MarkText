@@ -11,7 +11,18 @@ import type {
     DocumentCoreViewSourceEdit,
 } from './documentCoreView';
 
-const PATCHABLE_NODE_KINDS = new Set(['paragraph', 'text', 'soft-break']);
+// Kinds whose text carriers the patcher may surgically update. A paired
+// walk already enforces identical keys, kinds, attributes, and child
+// shapes; membership here asserts that the kind renders its text runs 1:1
+// into DOM text nodes with no derived presentation the patch would miss.
+// Links joined after the scale corpus measured their exclusion forcing a
+// full re-mount per keystroke on ordinary link-bearing paragraphs.
+const PATCHABLE_NODE_KINDS = new Set([
+    'paragraph',
+    'text',
+    'soft-break',
+    'link',
+]);
 
 interface TextReplacement {
     readonly node: Text;
@@ -150,14 +161,6 @@ function collectCompatibleTopology(
             || !isRange(afterNode.modelRange)
             || beforeNode.text.length !== afterNode.text.length
             || beforeNode.children.length !== afterNode.children.length
-            || (
-                beforeNode.kind === 'paragraph'
-                && beforeNode.text.length !== 0
-            )
-            || (
-                beforeNode.kind !== 'paragraph'
-                && beforeNode.children.length !== 0
-            )
         ) {
             return null;
         }
