@@ -23,7 +23,9 @@ test.describe('#2421 sidebar state survives icon toggle', () => {
   let page: Page
 
   test.beforeAll(async() => {
-    const launched = await launchWithMarkdown('# Doc\n\n## A\n\n## B\n')
+    const launched = await launchWithMarkdown('# Doc\n\n## A\n\n## B\n', {
+      openProjectFixture: true
+    })
     app = launched.app
     page = launched.page
     // The files panel is the default right column; make sure it is open + wide.

@@ -151,7 +151,10 @@ export const closeElectronAfterStartupFailure = async(
 
 export const launchElectron = async(
   userArgs?: string[],
-  options: Readonly<{ userDataDir?: string }> = {}
+  options: Readonly<{
+    userDataDir?: string
+    openProjectFixture?: boolean
+  }> = {}
 ): Promise<LaunchResult> => {
   if (isBackgroundTestRun) assertBackgroundCapableBuild()
   userArgs = userArgs || []
@@ -165,23 +168,16 @@ export const launchElectron = async(
   )
   fs.mkdirSync(userDataDir, { recursive: true })
   // The entry-path positional stopped doubling as a project root when main
-  // learned to skip the app's own directory (the dev-launch wart); the
-  // harness's long-standing contract — a launched window has a real
-  // project open in the sidebar — is met explicitly with a fixture
-  // project, named so legacy title expectations hold verbatim and carrying
-  // sub-folders for the tree-folder specs.
-  // Main keeps only the first directory positional, so the fixture must
-  // defer to a directory the caller passes explicitly.
-  const userOpensDirectory = userArgs.some((argument) => {
-    if (argument.startsWith('--')) return false
-    try {
-      return fs.statSync(argument).isDirectory()
-    } catch {
-      return false
-    }
-  })
+  // learned to skip the app's own directory (the dev-launch wart). Specs
+  // whose expectations need a launched window with a real project open —
+  // the legacy title, sidebar-width, and tree-folder suites — opt in and
+  // get a fixture project named so those expectations hold verbatim, with
+  // sub-folders for the tree specs. It is opt-in because an open project
+  // changes the measured environment: a sidebar shifts pointer
+  // coordinates and adds ambient work the ratified performance budgets
+  // were never sized against.
   const fixtureArguments: string[] = []
-  if (!userOpensDirectory) {
+  if (options.openProjectFixture === true) {
     const projectFixture = path.join(trackTempDir(getTempPath()), 'MarkText')
     fs.mkdirSync(path.join(projectFixture, 'notes'), { recursive: true })
     fs.mkdirSync(path.join(projectFixture, 'archive'), { recursive: true })
@@ -611,6 +607,7 @@ export interface LaunchWithMarkdownResult extends LaunchResult {
 
 export interface LaunchWithMarkdownOptions {
   readonly userKeybindings?: Readonly<Record<string, string>>
+  readonly openProjectFixture?: boolean
 }
 
 export const launchWithMarkdown = async(
@@ -628,7 +625,12 @@ export const launchWithMarkdown = async(
       'utf8'
     )
   }
-  const launchOptions = userDataDir === undefined ? {} : { userDataDir }
+  const launchOptions = {
+    ...(userDataDir === undefined ? {} : { userDataDir }),
+    ...(options.openProjectFixture === true
+      ? { openProjectFixture: true }
+      : {})
+  }
   const { app, page } = await launchElectron([filePath], launchOptions)
   await waitForEditor(page)
   await waitForMenuReady(app)

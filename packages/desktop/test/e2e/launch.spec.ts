@@ -7,7 +7,8 @@ test.describe('Check Launch MarkText', () => {
   let page: Page
 
   test.beforeAll(async() => {
-    const { app: electronApp, page: firstPage } = await launchElectron()
+    const { app: electronApp, page: firstPage } =
+      await launchElectron(undefined, { openProjectFixture: true })
     app = electronApp
     page = firstPage
   })

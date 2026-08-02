@@ -24,7 +24,9 @@ test.describe('New File on a collapsed folder (#3439)', () => {
   test.beforeAll(async() => {
     // launchElectron opens the desktop package folder in the sidebar (its
     // sub-folders render as collapsed tree-folders).
-    const launched = await launchElectron()
+    const launched = await launchElectron(undefined, {
+      openProjectFixture: true
+    })
     app = launched.app
     page = launched.page
     await page.waitForSelector('.side-bar-folder .folder-name', { timeout: 10000 })
