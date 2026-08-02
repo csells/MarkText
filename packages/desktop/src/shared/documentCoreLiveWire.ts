@@ -230,7 +230,31 @@ export function liveBlockBases(
  * ranges and run-family keys rebased to block-relative coordinates. Two
  * blocks with equal signatures differ at most by a rigid offset shift.
  */
+const GIANT_TEXT_SIGNATURE_UNITS = 65_536
+let giantSignatureNonce = 0
+
+function hasGiantText(node: MarkupRenderNode): boolean {
+  for (const entry of node.text) {
+    if (entry.text.length > GIANT_TEXT_SIGNATURE_UNITS) return true
+  }
+  return node.children.some((child) => hasGiantText(child))
+}
+
 export function liveBlockSignature(block: MarkupRenderBlock): string {
+  // Serializing a maximum-document carrier's megabytes per emission would
+  // put the very stall this machinery removes back on the owning thread —
+  // and a giant block changes on every edit anyway, so it never profits
+  // from reuse. A unique nonce excludes it at zero cost and zero
+  // false-match risk.
+  if (
+    block.runs.some(
+      (run) => run.text.length > GIANT_TEXT_SIGNATURE_UNITS
+    ) ||
+    hasGiantText(block.tree)
+  ) {
+    giantSignatureNonce += 1
+    return `giant:${giantSignatureNonce}`
+  }
   const bases = liveBlockBases(block)
   return JSON.stringify(
     shiftLiveBlock(block, -bases.modelStart, -bases.sourceStart)
