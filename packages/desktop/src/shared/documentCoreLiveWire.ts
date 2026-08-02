@@ -123,17 +123,43 @@ interface EncodedHeldBlockRef {
 // its run keys move by exactly the source delta.
 const TEXT_KEY_GRAMMAR = /^(.*):(\d+):(\d+):semantic:(\d+)$/
 const RUN_KEY_GRAMMAR = /^(.*):(\d+):(\d+)$/
+// Block run keys append a block-local clip offset to their plan-run family
+// key (`family:clipStart`), and semantic text keys embed the family key as
+// their owner prefix (`family:semantic:m`). The family key itself is not
+// block-local — a plain-text family spans the whole document and its end
+// coordinate tracks document length — so no rigid arithmetic reconstructs
+// it; the sender ships the family's old and new spelling instead and only
+// the clip and semantic tails shift.
+const CLIP_KEY_GRAMMAR = /^(.*):(\d+)$/
+
+/** Map from a run-family key to its replacement spelling. */
+export type LiveRunKeyFamilyMap = ReadonlyMap<string, string>
 
 function shiftRunLikeKey(
   key: string,
   modelDelta: number,
-  sourceDelta: number
+  sourceDelta: number,
+  familyMap?: LiveRunKeyFamilyMap
 ): string {
   const semantic = TEXT_KEY_GRAMMAR.exec(key)
   if (semantic !== null) {
+    const familyKey = `${semantic[1]}:${semantic[2]}:${semantic[3]}`
+    const family = familyMap?.get(familyKey)
+    if (family !== undefined) {
+      return `${family}:semantic:${Number(semantic[4]) + modelDelta}`
+    }
     return `${semantic[1]}:${Number(semantic[2]) + sourceDelta}:` +
       `${Number(semantic[3]) + sourceDelta}:semantic:` +
       `${Number(semantic[4]) + modelDelta}`
+  }
+  if (familyMap !== undefined) {
+    const clipped = CLIP_KEY_GRAMMAR.exec(key)
+    if (clipped !== null) {
+      const family = familyMap.get(clipped[1])
+      if (family !== undefined) {
+        return `${family}:${Number(clipped[2]) + sourceDelta}`
+      }
+    }
   }
   const run = RUN_KEY_GRAMMAR.exec(key)
   if (run !== null) {
@@ -141,6 +167,35 @@ function shiftRunLikeKey(
       `${Number(run[3]) + sourceDelta}`
   }
   return key
+}
+
+// Parser-minted node attributes that carry absolute source offsets and move
+// rigidly with a block shift. Misclassification is fail-safe in both
+// directions: an offset name missing here — or a count wrongly listed —
+// perturbs the rebased signature, the signatures stop matching, and the
+// sender simply never ships a held reference for that block, so the clone
+// below only ever runs on blocks the signature proved rigid.
+const LIVE_OFFSET_ATTRIBUTES = Object.freeze([
+  'destinationStart',
+  'destinationEnd',
+  'contentStart',
+  'contentEnd'
+])
+
+function shiftLiveAttributes(
+  attributes: Readonly<Record<string, PrimitiveAttribute>>,
+  sourceDelta: number
+): Readonly<Record<string, PrimitiveAttribute>> {
+  if (sourceDelta === 0) return attributes
+  let shifted: Record<string, PrimitiveAttribute> | undefined
+  for (const name of LIVE_OFFSET_ATTRIBUTES) {
+    const value = attributes[name]
+    if (typeof value === 'number') {
+      shifted ??= { ...attributes }
+      shifted[name] = value + sourceDelta
+    }
+  }
+  return shifted === undefined ? attributes : Object.freeze(shifted)
 }
 
 function shiftRange<T extends Readonly<{ start: number; end: number }>>(
@@ -159,16 +214,20 @@ function shiftLiveNode(
   node: MarkupRenderNode,
   modelDelta: number,
   sourceDelta: number,
-  nodeMap?: Map<string, MarkupRenderNode>
+  nodeMap?: Map<string, MarkupRenderNode>,
+  familyMap?: LiveRunKeyFamilyMap
 ): MarkupRenderNode {
   const shifted: MarkupRenderNode = Object.freeze({
     key: node.key,
     kind: node.kind,
-    attributes: node.attributes,
+    attributes: shiftLiveAttributes(
+      node.attributes,
+      sourceDelta
+    ) as MarkupRenderNode['attributes'],
     modelRange: shiftRange(node.modelRange, modelDelta),
     elements: node.elements,
     text: Object.freeze(node.text.map((entry) => Object.freeze({
-      key: shiftRunLikeKey(entry.key, modelDelta, sourceDelta),
+      key: shiftRunLikeKey(entry.key, modelDelta, sourceDelta, familyMap),
       text: entry.text,
       elements: entry.elements,
       modelRange: shiftRange(entry.modelRange, modelDelta),
@@ -176,7 +235,7 @@ function shiftLiveNode(
       boundaryMapping: entry.boundaryMapping
     }))),
     children: Object.freeze(node.children.map((child) =>
-      shiftLiveNode(child, modelDelta, sourceDelta, nodeMap)))
+      shiftLiveNode(child, modelDelta, sourceDelta, nodeMap, familyMap)))
   })
   nodeMap?.set(shifted.key, shifted)
   return shifted
@@ -187,21 +246,45 @@ export function shiftLiveBlock(
   block: MarkupRenderBlock,
   modelDelta: number,
   sourceDelta: number,
-  nodeMap?: Map<string, MarkupRenderNode>
+  nodeMap?: Map<string, MarkupRenderNode>,
+  familyMap?: LiveRunKeyFamilyMap
 ): MarkupRenderBlock {
   return Object.freeze({
     kind: block.kind,
     attributes: block.attributes,
     modelRange: shiftRange(block.modelRange, modelDelta),
     runs: Object.freeze(block.runs.map((run) => Object.freeze({
-      key: shiftRunLikeKey(run.key, modelDelta, sourceDelta),
+      key: shiftRunLikeKey(run.key, modelDelta, sourceDelta, familyMap),
       text: run.text,
       elements: run.elements,
       modelRange: shiftRange(run.modelRange, modelDelta),
       sourceRange: shiftRange(run.sourceRange, sourceDelta)
     }))),
-    tree: shiftLiveNode(block.tree, modelDelta, sourceDelta, nodeMap)
+    tree: shiftLiveNode(block.tree, modelDelta, sourceDelta, nodeMap, familyMap)
   })
+}
+
+/**
+ * The distinct plan-run family keys the blocks reference, in first-use
+ * order. Block run keys carry a clip tail after the family key; a key with
+ * no clip tail is its own family.
+ */
+export function liveBlockFamilies(
+  blocks: readonly MarkupRenderBlock[]
+): readonly string[] {
+  const seen = new Set<string>()
+  const families: string[] = []
+  for (const block of blocks) {
+    for (const run of block.runs) {
+      const clipped = CLIP_KEY_GRAMMAR.exec(run.key)
+      const family = clipped === null ? run.key : clipped[1]
+      if (!seen.has(family)) {
+        seen.add(family)
+        families.push(family)
+      }
+    }
+  }
+  return Object.freeze(families)
 }
 
 function firstTextSourceStart(node: MarkupRenderNode): number | undefined {
@@ -240,7 +323,10 @@ function hasGiantText(node: MarkupRenderNode): boolean {
   return node.children.some((child) => hasGiantText(child))
 }
 
-export function liveBlockSignature(block: MarkupRenderBlock): string {
+export function liveBlockSignature(
+  block: MarkupRenderBlock,
+  familyTokens?: LiveRunKeyFamilyMap
+): string {
   // Serializing a maximum-document carrier's megabytes per emission would
   // put the very stall this machinery removes back on the owning thread —
   // and a giant block changes on every edit anyway, so it never profits
@@ -257,7 +343,13 @@ export function liveBlockSignature(block: MarkupRenderBlock): string {
   }
   const bases = liveBlockBases(block)
   return JSON.stringify(
-    shiftLiveBlock(block, -bases.modelStart, -bases.sourceStart)
+    shiftLiveBlock(
+      block,
+      -bases.modelStart,
+      -bases.sourceStart,
+      undefined,
+      familyTokens
+    )
   )
 }
 
@@ -265,6 +357,12 @@ export interface HeldBlockRef {
   readonly held: number
   readonly modelStart: number
   readonly sourceStart: number
+}
+
+/** One run-family key respelled between consecutive emissions. */
+export interface LiveRunKeyRewrite {
+  readonly from: string
+  readonly to: string
 }
 
 type EncodedLiveBlockEntry = EncodedMarkupRenderBlock | EncodedHeldBlockRef
@@ -326,6 +424,13 @@ export interface EncodedDocumentCoreLiveDeltaV1 {
   /** Retained editable-Markup map, independent of a clean display model. */
   readonly markupCoordinateMap: MarkupCoordinateMapV1
   readonly blocks: readonly EncodedLiveBlockEntry[]
+  /**
+   * Family-key respellings held references resolve through: a plan-run
+   * family key is not block-local (a plain-text family spans the whole
+   * document), so a held block's run and text keys adopt the family's new
+   * spelling from this list while their clip and semantic tails shift.
+   */
+  readonly runKeyRewrites?: readonly LiveRunKeyRewrite[]
   readonly outline: DecodedDocumentCoreLiveDeltaV1['outline']
   readonly listItems: readonly EncodedModelRange[]
 }
@@ -951,13 +1056,23 @@ export function encodeDocumentCoreLiveDeltaV1(
   source: string,
   value: DecodedDocumentCoreLiveDeltaV1,
   contract: DocumentCoreLiveDeltaProjectionContract,
-  heldBlockRefs?: readonly (HeldBlockRef | null)[]
+  heldBlockRefs?: readonly (HeldBlockRef | null)[],
+  runKeyRewrites?: readonly LiveRunKeyRewrite[]
 ): EncodedDocumentCoreLiveDeltaV1 {
   if (
     heldBlockRefs !== undefined &&
     heldBlockRefs.length !== value.blocks.length
   ) {
     throw new RangeError('Held block references do not align with the blocks')
+  }
+  if (
+    runKeyRewrites !== undefined &&
+    (heldBlockRefs === undefined ||
+      runKeyRewrites.some((rewrite) => rewrite.from === rewrite.to))
+  ) {
+    throw new RangeError(
+      'Run-key rewrites require held references and must change the key'
+    )
   }
   if (value.schema !== 'document-core-live-plan-delta-1') {
     throw new TypeError('Live delta has an invalid schema')
@@ -1007,7 +1122,13 @@ export function encodeDocumentCoreLiveDeltaV1(
       )
     }))),
     listItems: Object.freeze(value.listItems.map(range =>
-      modelRange(range, value.modelText.length, 'listItem')))
+      modelRange(range, value.modelText.length, 'listItem'))),
+    ...(runKeyRewrites === undefined || runKeyRewrites.length === 0
+      ? {}
+      : {
+        runKeyRewrites: Object.freeze(runKeyRewrites.map((rewrite) =>
+          Object.freeze({ from: rewrite.from, to: rewrite.to })))
+      })
   })
 }
 
@@ -1017,14 +1138,17 @@ export function decodeDocumentCoreLiveDeltaV1(
   contract: DocumentCoreLiveDeltaProjectionContract,
   held?: HeldLiveBlocks
 ): DecodedDocumentCoreLiveDeltaV1 {
-  const record = closedRecord(value, 'Live delta', [
-    'schema',
-    'modelText',
-    'markupCoordinateMap',
-    'blocks',
-    'outline',
-    'listItems'
-  ])
+  const record = decodeClosedRecord(value, 'Live delta', {
+    required: [
+      'schema',
+      'modelText',
+      'markupCoordinateMap',
+      'blocks',
+      'outline',
+      'listItems'
+    ],
+    optional: ['runKeyRewrites']
+  })
   if (
     record.schema !== 'document-core-live-plan-delta-1' ||
     !Array.isArray(record.blocks) ||
@@ -1064,6 +1188,37 @@ export function decodeDocumentCoreLiveDeltaV1(
     markupCoordinateMap,
     contract
   )
+  const rewriteMap = new Map<string, string>()
+  if (record.runKeyRewrites !== undefined) {
+    if (
+      !Array.isArray(record.runKeyRewrites) ||
+      record.runKeyRewrites.length > 4096
+    ) {
+      throw new TypeError('Live delta run-key rewrites have an invalid shape')
+    }
+    for (const [index, entry] of record.runKeyRewrites.entries()) {
+      const rewrite = closedRecord(
+        entry,
+        `runKeyRewrites[${index}]`,
+        ['from', 'to']
+      )
+      if (
+        typeof rewrite.from !== 'string' ||
+        typeof rewrite.to !== 'string' ||
+        rewrite.from.length === 0 ||
+        rewrite.to.length === 0 ||
+        rewrite.from.length > 4096 ||
+        rewrite.to.length > 4096 ||
+        rewrite.from === rewrite.to ||
+        rewriteMap.has(rewrite.from)
+      ) {
+        throw new TypeError(
+          `runKeyRewrites[${index}] is not a distinct key respelling`
+        )
+      }
+      rewriteMap.set(rewrite.from, rewrite.to)
+    }
+  }
   const topology: LiveTreeTopology = {
     nodeCount: 0,
     nodeKeys: new Set(),
@@ -1118,7 +1273,7 @@ export function decodeDocumentCoreLiveDeltaV1(
       // references keep their guarantees.
       let resolved: MarkupRenderBlock
       let nodeEntries: ReadonlyMap<string, MarkupRenderNode>
-      if (modelDelta === 0 && sourceDelta === 0) {
+      if (modelDelta === 0 && sourceDelta === 0 && rewriteMap.size === 0) {
         resolved = heldBlock
         nodeEntries = heldMap
       } else {
@@ -1127,7 +1282,8 @@ export function decodeDocumentCoreLiveDeltaV1(
           heldBlock,
           modelDelta,
           sourceDelta,
-          shiftedMap
+          shiftedMap,
+          rewriteMap
         )
         nodeEntries = shiftedMap
       }

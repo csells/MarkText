@@ -2338,6 +2338,89 @@ describe('main-owned document-core session host', () => {
     )).rejects.toThrow(/already consumed/)
   })
 
+  it('ships shifted plain paragraphs as held references under a leading edit', async() => {
+    const host = createDocumentCoreMainSessionHost(await temporaryStorage())
+    const codec = new WireEnvelopeCodecV1()
+    // Plain-text run families span the whole document and their keys track
+    // its length, link attributes embed absolute destination offsets, and a
+    // leading edit shifts every downstream block. Held references must
+    // survive all three: the family respelling rides the wire and the
+    // receiver's shift-clone must reproduce the worker's own full emission
+    // byte-for-byte.
+    const source = Array.from(
+      { length: 200 },
+      (_, ordinal) =>
+        `line ${ordinal}: {"value":${ordinal}} ` +
+        `[link](https://example.test/${ordinal})\n\n`
+    ).join('')
+    const opened = await openHost(host, 'renderer:1', {
+      documentId: 'held-ordinary',
+      durabilityKey: 'durable-held-ordinary',
+      source: createSourceSnapshot(source),
+      parseConfiguration: configuration
+    })
+    const heldPlans = new Map()
+    let snapshot = decodeDocumentCorePublication(
+      codec.publish(opened.envelope, opened.baseSnapshotId),
+      undefined,
+      heldPlans
+    )
+    if (snapshot.kind !== 'complete') {
+      throw new Error('Expected a complete plain-paragraph snapshot')
+    }
+    const livePlanBytes: number[] = []
+    for (const text of ['a', 'b']) {
+      const target = {
+        ...snapshot.selection,
+        anchor: { offset: 0, affinity: 'next' as const },
+        focus: { offset: 0, affinity: 'next' as const }
+      }
+      const committed = await host.dispatch('renderer:1', {
+        documentId: 'held-ordinary',
+        baseSnapshotId: snapshot.snapshotId,
+        intent: { kind: 'insert-text', target, text }
+      })
+      livePlanBytes.push(
+        committed.execution.serializedMemberBytes.livePlanDelta ?? 0
+      )
+      snapshot = decodeDocumentCorePublication(
+        codec.publish(committed.envelope, committed.baseSnapshotId),
+        snapshot,
+        heldPlans
+      )
+      if (snapshot.kind !== 'complete') {
+        throw new Error('Plain-paragraph edit became SourceOnly')
+      }
+    }
+    expect(snapshot.source.startsWith('baline 0:')).toBe(true)
+
+    // Every paragraph but the edited head must ride as a reference: the
+    // full plan for this document is an order of magnitude larger.
+    const fullPlanFloor = 100_000
+    expect(Math.max(...livePlanBytes)).toBeLessThan(fullPlanFloor / 4)
+
+    // Independent cross-check: a fresh attach publishes the same head as a
+    // complete plan with no references; the reference-resolved decode must
+    // match it byte for byte.
+    const reattached = await openHost(host, 'renderer:1', {
+      documentId: 'held-ordinary',
+      durabilityKey: 'durable-held-ordinary',
+      source: createSourceSnapshot(''),
+      parseConfiguration: configuration
+    })
+    const attachSnapshot = decodeDocumentCorePublication(
+      codec.publish(reattached.envelope, reattached.baseSnapshotId)
+    )
+    if (attachSnapshot.kind !== 'complete') {
+      throw new Error('Re-attached plain-paragraph snapshot is not complete')
+    }
+    expect(JSON.stringify(attachSnapshot.blocks).length)
+      .toBeGreaterThan(fullPlanFloor)
+    expect(JSON.stringify(snapshot.blocks))
+      .toBe(JSON.stringify(attachSnapshot.blocks))
+    await host.close('renderer:1', 'held-ordinary')
+  }, 30_000)
+
   it('keeps repeated deep-document edits bounded and observes retained parser work', async() => {
     const host = createDocumentCoreMainSessionHost(await temporaryStorage())
     const codec = new WireEnvelopeCodecV1()

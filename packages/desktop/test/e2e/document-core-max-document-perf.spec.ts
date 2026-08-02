@@ -1058,7 +1058,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       await expect.poll(
         async() => {
           const current = JSON.stringify(
-            await readMainExecution(app, mounted.documentId, 'any')
+            await readMainExecution(launched.app, mounted.documentId, 'any')
           )
           stableReads = current === previous ? stableReads + 1 : 0
           previous = current

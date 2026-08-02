@@ -66,6 +66,7 @@ import type {
 import {
   encodeDocumentCoreLiveDeltaV1,
   liveBlockBases,
+  liveBlockFamilies,
   liveBlockSignature,
   type DecodedDocumentCoreLiveDeltaV1
 } from '../../shared/documentCoreLiveWire'
@@ -868,6 +869,7 @@ const EMPTY_SOURCE_EDITS: readonly RevisionSourceEdit[] = Object.freeze([])
 interface LivePlanEmissionMemo {
   readonly key: string
   readonly blockSignatures: readonly string[]
+  readonly families: readonly string[]
 }
 
 interface LivePlanHeldRef {
@@ -884,9 +886,14 @@ const lastLivePlanEmissionByProjection = new Map<string, LivePlanEmissionMemo>()
 function heldLiveBlockRefs(
   blocks: readonly Parameters<typeof liveBlockBases>[0][],
   signatures: readonly string[],
+  families: readonly string[],
   previous: LivePlanEmissionMemo | undefined
 ): readonly (LivePlanHeldRef | null)[] | undefined {
-  if (previous === undefined) return undefined
+  // Signatures tokenize family keys by ordinal, so equality is only
+  // meaningful when both emissions bind the same ordinal structure.
+  if (previous === undefined || previous.families.length !== families.length) {
+    return undefined
+  }
   const pools = new Map<string, number[]>()
   previous.blockSignatures.forEach((signature, index) => {
     const queue = pools.get(signature)
@@ -961,9 +968,33 @@ function publishSnapshot(
               'Complete live publication has no live plan'
             )
           }
-          const blockSignatures = portable.live.blocks.map(
-            (liveBlock) => liveBlockSignature(liveBlock)
+          const families = liveBlockFamilies(portable.live.blocks)
+          const familyTokens = new Map(
+            families.map((family, ordinal) =>
+              [family, `family:${ordinal}`] as const)
           )
+          const blockSignatures = portable.live.blocks.map(
+            (liveBlock) => liveBlockSignature(liveBlock, familyTokens)
+          )
+          const previous = lastLivePlanEmissionByProjection.get(
+            portable.review.projection
+          )
+          const refs = allowUnchangedLivePlan
+            ? heldLiveBlockRefs(
+              portable.live.blocks,
+              blockSignatures,
+              families,
+              previous
+            )
+            : undefined
+          const rewrites = refs === undefined || previous === undefined
+            ? undefined
+            : families
+              .map((family, ordinal) => Object.freeze({
+                from: previous.families[ordinal] ?? family,
+                to: family
+              }))
+              .filter((rewrite) => rewrite.from !== rewrite.to)
           const bytes = encodeJson(
             encodeDocumentCoreLiveDeltaV1(
               snapshot.revision.source,
@@ -972,22 +1003,18 @@ function publishSnapshot(
                 projection: portable.review.projection,
                 markupModelLength: portable.review.markupModelLength
               }),
-              allowUnchangedLivePlan
-                ? heldLiveBlockRefs(
-                  portable.live.blocks,
-                  blockSignatures,
-                  lastLivePlanEmissionByProjection.get(
-                    portable.review.projection
-                  )
-                )
-                : undefined
+              refs,
+              rewrites === undefined || rewrites.length === 0
+                ? undefined
+                : Object.freeze(rewrites)
             )
           )
           lastLivePlanEmissionByProjection.set(
             portable.review.projection,
             Object.freeze({
               key: livePlanEmissionKey(snapshot, portable.review.projection),
-              blockSignatures: Object.freeze(blockSignatures)
+              blockSignatures: Object.freeze(blockSignatures),
+              families
             })
           )
           return bytes
