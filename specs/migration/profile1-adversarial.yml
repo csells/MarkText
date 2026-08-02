@@ -1313,7 +1313,7 @@
     {
       "id": "P1S-ORDINARY-4096-LINES",
       "axis": "long-ordinary-source",
-      "sourceShape": "4,096 ordinary Markdown, JSON, and link lines",
+      "sourceShape": "4,096 ordinary Markdown, JSON, and link paragraphs",
       "target": "complete parse with exact source and no CriticMarkup nodes"
     },
     {

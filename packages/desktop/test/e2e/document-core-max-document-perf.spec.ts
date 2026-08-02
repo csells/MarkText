@@ -347,15 +347,22 @@ const SCALE_BUILDERS: Readonly<Record<
   (count: number) => Readonly<{ source: string; observedCount: number }>
 >> = Object.freeze({
   'P1S-ORDINARY-4096-LINES': (count) => {
+    // An ordinary 4,096-line document is paragraphs, not one degenerate
+    // 260KB block: without blank lines every line joins a single paragraph
+    // and the family structurally bypasses the multi-block fast paths it
+    // exists to measure (held-block wire refs, per-block patching, block
+    // reuse), while re-measuring the degenerate axis MALFORMED, DEEP, and
+    // the maximum-document budgets already own. Owner-ruled reshape
+    // 2026-08-01.
     const source = Array.from(
       { length: count },
       (_, index) =>
         `line ${index}: {"value":${index}} ` +
-        `[link](https://example.test/${index})\n`
+        `[link](https://example.test/${index})\n\n`
     ).join('')
     return Object.freeze({
       source,
-      observedCount: occurrences(source, '\n')
+      observedCount: occurrences(source, '\n\n')
     })
   },
   'P1S-MALFORMED-16000-OPENERS': (count) => {
