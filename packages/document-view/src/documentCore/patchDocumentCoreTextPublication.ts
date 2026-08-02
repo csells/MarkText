@@ -78,6 +78,34 @@ interface RunPair {
     readonly after: MarkupRenderText;
 }
 
+// A link's destinationStart/destinationEnd are snapshot-side editing
+// coordinates that never reach the DOM (the renderer materializes only
+// href, title, and resolved) and drift with every upstream shift; the
+// patch compares what a re-render would actually mount and the updated
+// snapshot carries the moved offsets.
+const DOM_RELEVANT_LINK_ATTRIBUTES = Object.freeze([
+    'href',
+    'title',
+    'resolved',
+]);
+
+function domRelevantAttributes(
+    kind: string,
+    attributes: Readonly<Record<string, string | number | boolean>>,
+): Readonly<Record<string, string | number | boolean>> {
+    if (kind !== 'link')
+        return attributes;
+    const relevant: Record<string, string | number | boolean> = {};
+    for (const key of DOM_RELEVANT_LINK_ATTRIBUTES) {
+        if (Object.prototype.hasOwnProperty.call(attributes, key)) {
+            const value = attributes[key];
+            if (value !== undefined)
+                relevant[key] = value;
+        }
+    }
+    return relevant;
+}
+
 function sameAttributes(
     before: Readonly<Record<string, string | number | boolean>>,
     after: Readonly<Record<string, string | number | boolean>>,
@@ -159,7 +187,10 @@ function collectCompatibleTopology(
         if (
             beforeNode.kind !== afterNode.kind
             || !PATCHABLE_NODE_KINDS.has(beforeNode.kind)
-            || !sameAttributes(beforeNode.attributes, afterNode.attributes)
+            || !sameAttributes(
+                domRelevantAttributes(beforeNode.kind, beforeNode.attributes),
+                domRelevantAttributes(afterNode.kind, afterNode.attributes),
+            )
             || beforeNode.elements.length !== 0
             || afterNode.elements.length !== 0
             || !isRange(beforeNode.modelRange)
