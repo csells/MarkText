@@ -164,7 +164,35 @@ export const launchElectron = async(
       : path.resolve(options.userDataDir)
   )
   fs.mkdirSync(userDataDir, { recursive: true })
-  const args = [projectRoot, '--user-data-dir', userDataDir].concat(userArgs)
+  // The entry-path positional stopped doubling as a project root when main
+  // learned to skip the app's own directory (the dev-launch wart); the
+  // harness's long-standing contract — a launched window has a real
+  // project open in the sidebar — is met explicitly with a fixture
+  // project, named so legacy title expectations hold verbatim and carrying
+  // sub-folders for the tree-folder specs.
+  // Main keeps only the first directory positional, so the fixture must
+  // defer to a directory the caller passes explicitly.
+  const userOpensDirectory = userArgs.some((argument) => {
+    if (argument.startsWith('--')) return false
+    try {
+      return fs.statSync(argument).isDirectory()
+    } catch {
+      return false
+    }
+  })
+  const fixtureArguments: string[] = []
+  if (!userOpensDirectory) {
+    const projectFixture = path.join(trackTempDir(getTempPath()), 'MarkText')
+    fs.mkdirSync(path.join(projectFixture, 'notes'), { recursive: true })
+    fs.mkdirSync(path.join(projectFixture, 'archive'), { recursive: true })
+    fs.writeFileSync(
+      path.join(projectFixture, 'README.md'),
+      '# Fixture project\n'
+    )
+    fixtureArguments.push(projectFixture)
+  }
+  const args = [projectRoot, ...fixtureArguments, '--user-data-dir', userDataDir]
+    .concat(userArgs)
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   env.PERF_TESTING = 'true'
