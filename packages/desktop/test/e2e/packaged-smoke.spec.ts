@@ -70,10 +70,21 @@ test.describe('packaged document-core distributable smoke', () => {
       await expectInstalledArtifactCommit(page)
       await expect(page.locator('.editor-component')).toContainText('added')
 
-      // All five forms materialize as semantic critic nodes.
-      const criticIds = page.locator('[data-critic-id]')
-      await expect(criticIds.first()).toBeVisible()
-      expect(await criticIds.count()).toBeGreaterThanOrEqual(5)
+      // All five forms materialize in the marked projection through the
+      // renderer's three presentation states — ins for the addition and the
+      // substitution's revised arm, del for the deletion and the original
+      // arm, mark for the highlight — plus the comment's indicator.
+      // (data-critic-id is Review-sidebar vocabulary, not editor DOM.)
+      const editorHost = page.locator('.editor-component')
+      await expect(editorHost.locator('ins').first()).toBeVisible()
+      await expect(editorHost.locator('del').first()).toBeVisible()
+      await expect(editorHost.locator('mark').first()).toBeVisible()
+      expect(
+        await editorHost.locator('ins, del, mark').count()
+      ).toBeGreaterThanOrEqual(5)
+      await expect(
+        page.locator('.document-view-critic-comment-indicator').first()
+      ).toBeVisible()
 
       // The parser-native highlight/comment pair folds into one comment card
       // in the real packaged Review UI. The other three tracked changes remain

@@ -43,21 +43,17 @@ test.describe('installed document-core full workflow', () => {
       await expect(editor).toContainText('old')
       await expect(editor).toContainText('add')
 
-      // The toggle's state-changed publication re-mounts the document.
-      // Wait for that re-mount (the mounted paragraph node is replaced)
-      // the way a user waits for the click's visible settling, so the
-      // selection gesture below targets the freshly issued coordinates.
-      const mountedParagraph = await editor
-        .locator('.document-view-paragraph')
-        .first()
-        .elementHandle()
+      // Element replacement stopped being the toggle's observable when the
+      // ratified reuse optimizations landed: an unchanged block keeps its
+      // mounted element across a state-changed publication. The applied
+      // toggle's public observable is the checked Review menu item, which
+      // main updates from the same settled state the next gesture needs.
       await clickMenuById(launched.app, 'reviewTrackChangesMenuItem')
-      if (mountedParagraph !== null) {
-        await launched.page.waitForFunction(
-          (element) => !element.isConnected,
-          mountedParagraph
-        )
-      }
+      await expect.poll(() =>
+        launched.app.evaluate(({ Menu }) =>
+          Menu.getApplicationMenu()
+            ?.getMenuItemById('reviewTrackChangesMenuItem')?.checked ?? null)
+      ).toBe(true)
       await selectWordByPointer(launched.page, 'base')
       await launched.page.keyboard.type('edited')
       // One tracked substitution: the deleted arm holds the whole word and
