@@ -714,11 +714,22 @@
     },
     {
       "id": "A29",
-      "disposition": "Baseline red under external machine load, re-evidenced 2026-08-01: the target test carries the degenerate-document edit-budget row, which measured 2,311.7 ms against the owner-ruled 2,000 ms scoped budget at load average ~6-8. Budgets are sized for the idle-machine premise and are not resized to fit contended runs; the proof waits on the idle-machine matrix window shared with G23."
+      "mutation": {
+        "file": "packages/document-view/src/documentCore/patchDocumentCoreTextPublication.ts",
+        "exactOld": "): boolean {\n    const mount = mountedTextPublications.get(host);\n    if (mount === undefined || mount.snapshot !== before)\n        return false;",
+        "exactNew": "): boolean {\n    return false;\n    const mount = mountedTextPublications.get(host);\n    if (mount === undefined || mount.snapshot !== before)\n        return false;",
+        "statement": "Disabling the surgical text patch forces every keystroke on the maximum document to re-mount its 32-million-unit carrier, so the retained-text-identity discriminators flip and the app-boundary keystroke budgets blow - the identity-retention fast path is exactly what the A29 responsiveness target banks."
+      }
     },
     {
       "id": "A37",
-      "mutation": {"file": "packages/desktop/src/main/documentCore/documentSessionWorker.ts", "exactOld": "    result.kind === 'committed' ? result.transition.edits : EMPTY_SOURCE_EDITS,\n    true", "exactNew": "    result.kind === 'committed' ? result.transition.edits : EMPTY_SOURCE_EDITS,\n    false", "statement": "Disabling the unchanged-live-plan marker at the dispatch publication site (with the companion identical-plan mount fast path nulled in documentCoreView.ts, 'mountedPlanSignature = planSignature;' -> 'mountedPlanSignature = null;') reverts the toggle optimizations the 500ms structured budget banked, so every projection toggle rebuilds and re-mounts a full 4,096-block plan."}, "disposition": "PROVED TWO-SIDED 2026-08-01 on the retitled structured-document target ('review actions on a structured document stay under the 500ms p95', owner route (b) scoping). Baseline GREEN: guard-passing runs at load ~2.1-2.7 measure structured toggle p95 235ms against 500 with MutationObserver completion waits (navigation 1-2ms, sidebar 1-6ms); the degenerate fixture holds its scoped 2,000ms at p95 251ms. RED under the stated mutation: structured toggle p95 513ms with marked-direction samples at 499-513ms while original-direction samples stay ~424-442ms - the exact optimization the budget banked is the exact regression the target catches. GREEN on restore: tree byte-identical to HEAD, 3 passed. The red side is load-insensitive (the mutation regresses real work, not timing margins); the green sides ran under the idle guard's admitted conditions."
+      "mutation": {
+        "file": "packages/desktop/src/main/documentCore/documentSessionWorker.ts",
+        "exactOld": "    result.kind === 'committed' ? result.transition.edits : EMPTY_SOURCE_EDITS,\n    true",
+        "exactNew": "    result.kind === 'committed' ? result.transition.edits : EMPTY_SOURCE_EDITS,\n    false",
+        "statement": "Disabling the unchanged-live-plan marker at the dispatch publication site (with the companion identical-plan mount fast path nulled in documentCoreView.ts, 'mountedPlanSignature = planSignature;' -> 'mountedPlanSignature = null;') reverts the toggle optimizations the 500ms structured budget banked, so every projection toggle rebuilds and re-mounts a full 4,096-block plan."
+      },
+      "disposition": "PROVED TWO-SIDED 2026-08-01 on the retitled structured-document target ('review actions on a structured document stay under the 500ms p95', owner route (b) scoping). Baseline GREEN: guard-passing runs at load ~2.1-2.7 measure structured toggle p95 235ms against 500 with MutationObserver completion waits (navigation 1-2ms, sidebar 1-6ms); the degenerate fixture holds its scoped 2,000ms at p95 251ms. RED under the stated mutation: structured toggle p95 513ms with marked-direction samples at 499-513ms while original-direction samples stay ~424-442ms - the exact optimization the budget banked is the exact regression the target catches. GREEN on restore: tree byte-identical to HEAD, 3 passed. The red side is load-insensitive (the mutation regresses real work, not timing margins); the green sides ran under the idle guard's admitted conditions."
     },
     {
       "id": "A30",

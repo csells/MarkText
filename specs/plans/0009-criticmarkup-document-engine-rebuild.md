@@ -1,6 +1,6 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G9, G23, G24 open
+- **Status:** RED — G9, G24 open
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`
@@ -639,6 +639,33 @@ whose assertion cannot distinguish pass from fail.
   degenerate single-block maximum document carries its own documented
   ceiling. Route (b) is an owner decision this plan cannot make for
   itself.
+  CLOSED 2026-08-01 at 6e0f1434: `scripts/run0009IdleMatrix.sh` on the
+  owner's idle M4 Mac mini (load average 1.58, guard-admitted) passed
+  both suites end to end — 4 passed in 3.1 minutes — from the exact
+  clean pushed commit with no scratch changes on either machine. The
+  closing arc: the gesture windows stopped billing the install's own
+  select round-trip (the first-ever full line layout of the giant
+  carrier, 4,558 ms measured, landed inside round 1's armed window and
+  nearest-rank p95 of ten binds the maximum — deletion terminal fell
+  3,421 → 195 ms with no production change); the owner ruled the
+  ordinary family measures blank-line-separated paragraphs rather than
+  one accidental 260 KB degenerate block; and the held-block wire
+  references, measured inert at 0 of 4,095 signature matches, engaged
+  once family-key respelling shipped on the wire (run-family keys span
+  the document and track its length; clip and semantic tails shift
+  rigidly; declared source-offset attributes shift with their block) —
+  live-plan wire per keystroke 5,052,922 → 221,984 bytes, proved
+  byte-exact against an independent full attach. Recorded measurements
+  from the same-commit capture run (JSON-reporter form of the same
+  matrix): family keystroke p95 against the 500 ms structured budget —
+  ordinary 490, malformed-openers 133, deep-1024 104, blockquote-5000
+  60, wide-257 77, literal-1024 167, deep-12000 10,108 riding
+  unasserted as parse-safety corpus per its ruling; maximum-document
+  edit terminal p95 307.5 ms and deletion terminal p95 227.5 ms against
+  the scoped 2,000 ms; admission 0.8 ms against 50; cancellation
+  terminal 15.1 ms; structured review actions, projection toggles,
+  navigation, sidebar, and the 4,096-line open (1.5 s against 5) all
+  green in the critic suite.
 - **G24 A green closure CI is not reproducible.** Section 7 requires compact
   candidate, platform, and closure records to be retained. Retention closes when
   a target reconstructs the attestation of a completed closure run from the
