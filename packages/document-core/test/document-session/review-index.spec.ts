@@ -5,6 +5,7 @@ import {
   type CompleteEditorSnapshot,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -203,7 +204,7 @@ describe('DocumentSession Review index', () => {
       `${'{++'.repeat(depth)}x!${'++}'.repeat(depth)}`
     )
     expect(edited.reviewIndex.items).toHaveLength(depth)
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it('publishes authoring and bulk-resolves through the accepted maximum depth iteratively', async() => {
     const depth = 16_384
@@ -239,7 +240,7 @@ describe('DocumentSession Review index', () => {
     }
     expect(after.revision.source).toBe('x')
     expect(after.reviewIndex.items).toEqual([])
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it('rejects all maximum-depth additions without subtree rescans', async() => {
     const depth = 16_384
@@ -262,7 +263,7 @@ describe('DocumentSession Review index', () => {
       elapsedMs,
       `maximum-depth reject-all took ${elapsedMs.toFixed(3)}ms`
     ).toBeLessThanOrEqual(1_000)
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it('authors beside an untouched maximum-depth tree with linear scaling', async() => {
     // One-shot wall-clock ratios at these depths sit inside scheduler and GC
@@ -314,5 +315,5 @@ describe('DocumentSession Review index', () => {
       upperWork / Math.max(lowerWork, 1),
       `sibling-author lower=${lowerWork} upper=${upperWork} tracked units+nodes`
     ).toBeLessThanOrEqual(2.25)
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 })

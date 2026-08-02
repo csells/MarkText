@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const PACKAGE_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const NPM_COMMAND = process.platform === 'win32' ? 'npm.cmd' : 'npm'
@@ -209,5 +210,5 @@ describe('packed package consumer boundary', () => {
     }
     // Packing plus two tsc consumer builds is wall-clock work; it runs in
     // the serial wall-clock phase so parallel suite load cannot starve it.
-  }, 60_000)
+  }, hostedRunnerTimeout(60_000))
 })

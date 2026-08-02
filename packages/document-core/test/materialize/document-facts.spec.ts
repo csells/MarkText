@@ -8,6 +8,7 @@ import {
   type ParseExecutionProgress,
   type ParseConfiguration
 } from '../../src/index.js'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const CONFIGURATION: ParseConfiguration = Object.freeze({
   criticMarkupProfile: 'marktext-profile-1',
@@ -106,7 +107,7 @@ describe('parser-owned document facts', () => {
         all: source.length
       }
     })
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it.each([
     { kind: 'Complete', source: 'x'.repeat(65_536) },

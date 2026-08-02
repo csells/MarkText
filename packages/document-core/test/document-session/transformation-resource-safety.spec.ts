@@ -9,6 +9,7 @@ import {
   type ParseConfiguration,
   type ParseExecutionControl
 } from '@marktext/document-core'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const markerHeavyRunner = fileURLToPath(
   new URL('../fixtures/marker-heavy-transformation-runner.ts', import.meta.url)
@@ -72,7 +73,7 @@ describe('DocumentSession transformation resource safety', () => {
       canUndo: false,
       canRedo: false
     })
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it('commits the maximum marker-heavy edit/protection set without quadratic join scans', () => {
     const child = spawnSync(process.execPath, [
@@ -102,5 +103,5 @@ describe('DocumentSession transformation resource safety', () => {
       sourceLength: 196_608
     })
     expect(proof.maxRssKiB).toBeLessThan(1_280 * 1_024)
-  }, 70_000)
+  }, hostedRunnerTimeout(70_000))
 })

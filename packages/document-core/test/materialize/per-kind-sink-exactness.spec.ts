@@ -19,6 +19,7 @@ import type {
   Profile1SyntaxNodeKind
 } from '../../src/revision.js'
 import { createSourceSnapshot } from '../../src/sourceSnapshot.js'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 function configuration(footnotes: boolean): ParseConfiguration {
   return {
@@ -470,7 +471,7 @@ describe('per-kind sink exactness matrix', () => {
       }
     }
     expect(failures).toEqual([])
-  }, 60_000)
+  }, hostedRunnerTimeout(60_000))
 
   it('proves every constituent kind through its owning construct row', () => {
     const failures: string[] = []

@@ -11,6 +11,7 @@ import {
   type IntentId,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -199,7 +200,7 @@ describe('DocumentSession durable journal retention', () => {
         kind: 'rejected',
         reason: 'nothing-to-undo'
       })
-  }, 40_000)
+  }, hostedRunnerTimeout(40_000))
 
   it('accepts bounded source-edit arrays and rejects the first oversized checkpoint', async() => {
     const limit =

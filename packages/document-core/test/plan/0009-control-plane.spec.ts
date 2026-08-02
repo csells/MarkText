@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { readPlanClosureState } from './0009-evidence-collector.js'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 type Status = 'red' | 'green'
 type TargetKind = 'test' | 'workflow'
@@ -573,7 +574,7 @@ describe('plan 0009 machine-checked control plane', () => {
         expectResolvedGreenTarget(target)
       }
     }
-  }, 120_000)
+  }, hostedRunnerTimeout(120_000))
 
   it('rejects an expected failure as green acceptance evidence', () => {
     expect(() => {

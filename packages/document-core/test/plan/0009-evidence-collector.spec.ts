@@ -57,6 +57,7 @@ import {
   validateSequentialGithubRuns,
   write0009CiClosureAttestation
 } from './0009-evidence-collector.js'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 function initializeRepository(): string {
   const root = mkdtempSync(resolve(tmpdir(), 'marktext-0009-collector-'))
@@ -1033,7 +1034,7 @@ describe('plan 0009 evidence collector', () => {
         rmSync(root, { recursive: true, force: true })
       }
     }
-  }, 120_000)
+  }, hostedRunnerTimeout(120_000))
 
   it('registers platform evidence for final pushes and relevant changes', () => {
     const workflow = readFileSync(
@@ -3122,5 +3123,5 @@ describe('plan 0009 evidence collector', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  }, 120_000)
+  }, hostedRunnerTimeout(120_000))
 })

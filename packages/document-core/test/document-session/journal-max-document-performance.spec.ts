@@ -10,6 +10,7 @@ import {
   type DocumentSessionJournalStorage,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const TEST_CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -113,5 +114,5 @@ describe('maximum-document durable journal performance', () => {
     expect((await reopened.dispatch({ kind: 'undo' }).completion).kind)
       .toBe('committed')
     expect(reopened.snapshot().revision.source).toBe(source)
-  }, 60_000)
+  }, hostedRunnerTimeout(60_000))
 })

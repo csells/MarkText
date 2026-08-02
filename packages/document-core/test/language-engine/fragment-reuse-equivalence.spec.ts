@@ -17,6 +17,7 @@ import {
   createPhysicalTraversalRecorderV1,
   type Profile1PhysicalTraversalCountsV1
 } from '../../src/internal/profile1/physicalTraversalAccounting.js'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const CONFIGURATION: ParseConfiguration = Object.freeze({
   criticMarkupProfile: 'marktext-profile-1',
@@ -579,7 +580,7 @@ describe('Profile 1 fragment reuse', () => {
       })
     // ~5 s alone; headroom for the full-suite parallel load, like the 500 KB
     // reuse target above.
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it('does not construct cache keys or retain an oversized region', () => {
     const cache = createProfile1DocumentReuseCache()
@@ -652,7 +653,7 @@ describe('Profile 1 fragment reuse', () => {
     expect(markdownNodeRecord(parsed.revised.markdown.root)).toEqual(
       markdownNodeRecord(full.revised.markdown.root)
     )
-  }, 15_000)
+  }, hostedRunnerTimeout(15_000))
 
   it('does not duplicate a provably oversized high-node AST as templates', () => {
     const cache = createProfile1DocumentReuseCache()
@@ -701,7 +702,7 @@ describe('Profile 1 fragment reuse', () => {
     expect(markdownNodeRecord(parsed.revised.markdown.root)).toEqual(
       markdownNodeRecord(full.revised.markdown.root)
     )
-  }, 15_000)
+  }, hostedRunnerTimeout(15_000))
 
   it('emits the exact full-parse accounting trace and first resource failure', () => {
     const cache = createProfile1DocumentReuseCache()

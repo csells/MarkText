@@ -6,6 +6,7 @@ import {
   type DocumentRevision,
   type ParseConfiguration
 } from '@marktext/document-core'
+import { hostedRunnerTimeout } from '../helpers/hostedRunnerTimeout.js'
 
 const CONFIGURATION: ParseConfiguration = {
   criticMarkupProfile: 'marktext-profile-1',
@@ -89,7 +90,7 @@ describe('fragment reuse coverage past the retention cliff', () => {
     const counts = appendKeystrokeCounts(source)
     expect(counts.reuses).toBeGreaterThan(14_000)
     expect(counts.emissions).toBeLessThan(10)
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   // The shape half of G31: a contiguous list is one region however long it
   // is, so reuse must engage at the item level.
@@ -101,7 +102,7 @@ describe('fragment reuse coverage past the retention cliff', () => {
 
     const counts = appendKeystrokeCounts(source)
     expect(counts.reuses).toBeGreaterThan(3_900)
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it('reuses items for a keystroke in a 4,000-item ordered list', () => {
     const source = Array.from(
@@ -111,7 +112,7 @@ describe('fragment reuse coverage past the retention cliff', () => {
 
     const counts = appendKeystrokeCounts(source)
     expect(counts.reuses).toBeGreaterThan(3_900)
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it('reuses items in a 4,000-item task list', () => {
     const source = Array.from(
@@ -121,7 +122,7 @@ describe('fragment reuse coverage past the retention cliff', () => {
 
     const counts = appendKeystrokeCounts(source)
     expect(counts.reuses).toBeGreaterThan(3_900)
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 
   it('reuses segments in a 4,000-paragraph blockquote', () => {
     const source = Array.from(
@@ -131,5 +132,5 @@ describe('fragment reuse coverage past the retention cliff', () => {
 
     const counts = appendKeystrokeCounts(source)
     expect(counts.reuses).toBeGreaterThan(3_900)
-  }, 30_000)
+  }, hostedRunnerTimeout(30_000))
 })
