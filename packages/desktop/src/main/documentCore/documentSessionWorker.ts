@@ -1173,8 +1173,24 @@ async function execute(command: DocumentCoreWorkerCommand): Promise<unknown> {
       ...pending,
       consuming: true
     }))
+    const traceStall = process.env.MARKTEXT_STALL_TRACE
+    const consumeBeganAt = traceStall ? performance.now() : 0
     await pending.ticket.admission
+    const admittedAt = traceStall ? performance.now() : 0
     const result = await pending.ticket.completion
+    if (traceStall) {
+      const completedAt = performance.now()
+      appendFileSync(
+        traceStall,
+        JSON.stringify({
+          span: 'worker:consumeSegments',
+          admissionMs: admittedAt - consumeBeganAt,
+          completionMs: completedAt - admittedAt,
+          at: completedAt,
+          thread: threadId
+        }) + '\n'
+      )
+    }
     tickets.delete(command.ticketId)
     consumedTickets.add(command.ticketId)
     return publishDispatchResult(pending.baseSnapshotId, result)
