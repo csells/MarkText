@@ -150,9 +150,14 @@ function collectCompatibleTopology(
         if (pair === undefined)
             return null;
         const { before: beforeNode, after: afterNode } = pair;
+        // Keys pair positionally rather than by equality: offset-embedding
+        // node ids (links, critic nodes) drift under a shift while the
+        // node itself is unchanged, and the apply below restamps
+        // data-node-id from the after topology. A mispairing cannot slip
+        // through silently — the apply verifies every carrier against its
+        // expected text before mutating.
         if (
-            beforeNode.key !== afterNode.key
-            || beforeNode.kind !== afterNode.kind
+            beforeNode.kind !== afterNode.kind
             || !PATCHABLE_NODE_KINDS.has(beforeNode.kind)
             || !sameAttributes(beforeNode.attributes, afterNode.attributes)
             || beforeNode.elements.length !== 0
@@ -541,8 +546,11 @@ export function patchDocumentCoreTextPublication(
     for (let index = 0; index < topology.nodes.length; index += 1) {
         const pair = topology.nodes[index];
         const element = mount.elements[index];
-        if (pair !== undefined && element !== undefined)
-            setRange(element, pair.after.modelRange);
+        if (pair === undefined || element === undefined)
+            continue;
+        setRange(element, pair.after.modelRange);
+        if (pair.after.key !== pair.before.key)
+            element.setAttribute('data-node-id', pair.after.key);
     }
     for (let index = 0; index < topology.runs.length; index += 1) {
         const pair = topology.runs[index];
