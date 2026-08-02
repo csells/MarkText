@@ -2664,7 +2664,15 @@ test.describe('document-core maximum-document responsiveness', () => {
       )
       expect(family.measuredFragmentEmissions, JSON.stringify(report))
         .toBeGreaterThanOrEqual(0)
-      if (family.measurementBand !== 'green') {
+      // Fork-AST regions split at blank lines, so a fixture without one is
+      // a single region that changes on every keystroke and can never
+      // observe a reuse — zero is its correct value, and demanding more
+      // would assert the impossible. The reuse obligation binds the
+      // families whose shape admits it.
+      if (
+        family.measurementBand !== 'green' &&
+        family.source.includes('\n\n')
+      ) {
         expect(family.measuredFragmentReuses, JSON.stringify(report))
           .toBeGreaterThan(0)
       }
