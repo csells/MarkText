@@ -615,6 +615,17 @@ function completeExecution(
   envelope?: WireEnvelopeV1
 ): DocumentCoreExecutionReport {
   const execution = executionReport(envelope)
+  const traceStall = process.env.MARKTEXT_STALL_TRACE
+  if (traceStall) {
+    appendFileSync(
+      traceStall,
+      JSON.stringify({
+        span: `worker:op:${execution.operationKind}`,
+        ms: execution.operationElapsedMs,
+        at: performance.now()
+      }) + '\n'
+    )
+  }
   const completedGeneration = activeExecutionOperation?.generation
   if (completedGeneration !== undefined) {
     Atomics.compareExchange(
