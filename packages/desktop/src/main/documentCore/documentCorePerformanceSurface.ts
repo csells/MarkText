@@ -305,16 +305,46 @@ export function createDocumentCorePerformanceSurface(
         }),
         text: '!'
       })
+      // Incremental parsing makes a one-character intent O(1) at any
+      // document size, so no fixture length keeps it running long enough
+      // for a cancellation to land deterministically. The cancelled ticket
+      // carries a paste whose inserted units force real checkpointed work;
+      // the recovery below re-issues the one-character intent the length
+      // assertions are built around, against the unchanged base the
+      // cancellation preserved.
+      const cancelledIntent = Object.freeze({
+        kind: 'paste-text' as const,
+        target: Object.freeze({
+          ...mounted.selection,
+          anchor: caret,
+          focus: caret
+        }),
+        payload: Object.freeze({
+          kind: 'external-text' as const,
+          text: 'c'.repeat(1_000_000)
+        })
+      })
       const ticket = await sessions.startDispatch(staged.ownerId, {
         documentId: staged.documentId,
         baseSnapshotId: mounted.snapshotId,
-        intent
+        intent: cancelledIntent
       })
       const terminal = sessions.completeDispatch(
         staged.ownerId,
         staged.documentId,
         ticket.ticketId
       )
+      // Cancellation must interrupt work that has verifiably begun; the
+      // first execution checkpoint pins that ordering on any hardware.
+      const checkpointReached = await sessions.waitForDispatchCheckpoint(
+        staged.ownerId,
+        staged.documentId,
+        ticket.ticketId,
+        5_000
+      )
+      if (!checkpointReached) {
+        throw new Error('Cancelled dispatch never reached a checkpoint')
+      }
       const cancellationStartedAt = performance.now()
       const cancelled = await sessions.cancelDispatch(
         staged.ownerId,

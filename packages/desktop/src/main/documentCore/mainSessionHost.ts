@@ -177,6 +177,12 @@ export interface DocumentCoreMainSessionHost {
     ownerId: string,
     request: DocumentCoreMainDispatchRequest
   ) => Promise<DocumentCoreDispatchTicketReceipt>
+  readonly waitForDispatchCheckpoint: (
+    ownerId: string,
+    documentId: string,
+    ticketId: string,
+    timeoutMs: number
+  ) => Promise<boolean>
   readonly completeDispatch: (
     ownerId: string,
     documentId: string,
@@ -1522,6 +1528,27 @@ export function createDocumentCoreMainSessionHost(
     return bindDocumentPublication(documentId, publication)
   }
 
+  // The performance surface must cancel an operation that has verifiably
+  // begun: incremental parsing finishes small intents faster than a cancel
+  // round trip, so racing blindly lands on either side. Waiting for the
+  // ticket's first execution checkpoint pins the mid-flight ordering.
+  const waitForDispatchCheckpoint = async(
+    ownerId: string,
+    documentId: string,
+    ticketId: string,
+    timeoutMs: number
+  ): Promise<boolean> => {
+    const hosted = hostedFor(documentId)
+    assertOwner(hosted, ownerId)
+    const executionGeneration =
+      hosted.dispatchExecutionGenerations.get(ticketId)
+    if (executionGeneration === undefined) return false
+    return await hosted.worker.waitForExecutionCheckpoint(
+      executionGeneration,
+      timeoutMs
+    )
+  }
+
   const cancelDispatch = async(
     ownerId: string,
     documentId: string,
@@ -2018,6 +2045,7 @@ export function createDocumentCoreMainSessionHost(
     dispatch,
     reconfigureMarkdownOptions,
     startDispatch,
+    waitForDispatchCheckpoint,
     completeDispatch,
     cancelDispatch,
     select,
