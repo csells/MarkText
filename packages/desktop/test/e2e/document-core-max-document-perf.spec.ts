@@ -1037,6 +1037,37 @@ test.describe('document-core maximum-document responsiveness', () => {
       }
     }, gesture)
 
+
+    // The install's selectionchange dispatches an asynchronous select whose
+    // publication can land after any fixed number of settle frames. When it
+    // lands inside the armed window it re-dirties the giant carrier and the
+    // window bills the test's own scaffolding — measured at 4.5s for the
+    // first-ever full line layout — instead of the keystroke. Wait for
+    // main's execution lane to go quiet, then force the pending layout to
+    // pay here, outside the measurement.
+    const settleInstalledGesture = async(): Promise<void> => {
+      let previous = ''
+      await expect.poll(
+        async() => {
+          const current = JSON.stringify(
+            await readMainExecution(app, mounted.documentId, 'any')
+          )
+          const stable = current === previous
+          previous = current
+          return stable
+        },
+        { intervals: [50, 100, 200], timeout: TERMINAL_BUDGET_MS }
+      ).toBe(true)
+      await launched.page.evaluate(() => document
+        .querySelector('.editor-component.document-view-container')
+        ?.getBoundingClientRect().height)
+      await launched.page.evaluate(async() =>
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => setTimeout(resolve, 0)))))
+    }
+
+    await settleInstalledGesture()
     const beforeEditDispatchJson = JSON.stringify(
       await readMainExecution(app, mounted.documentId, 'dispatch')
     )
@@ -1197,6 +1228,7 @@ test.describe('document-core maximum-document responsiveness', () => {
         }).__mtMaximumDocumentDeletion = state
       })
     await installDeletionGestureState()
+    await settleInstalledGesture()
     const beforeDeletionDispatchJson = JSON.stringify(
       await readMainExecution(app, mounted.documentId, 'dispatch')
     )
@@ -1351,6 +1383,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       // the giant carrier; a human sees that highlight before typing, so
       // its paint settles before the measured press.
       await settleFrames()
+      await settleInstalledGesture()
       await armGestureWindow('edit')
       await launched.page.keyboard.insertText('.')
       await waitForFinalUnit('.')
@@ -1358,6 +1391,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       await settleFrames()
       await installDeletionGestureState()
       await settleFrames()
+      await settleInstalledGesture()
       await armGestureWindow('deletion')
       await launched.page.keyboard.press('Backspace')
       await waitForFinalUnit('x')

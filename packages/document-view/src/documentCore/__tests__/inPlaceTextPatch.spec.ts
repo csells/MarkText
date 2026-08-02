@@ -115,6 +115,40 @@ describe('authoritative in-place text publication', () => {
         expect(document.getSelection()?.anchorOffset).toBe(14);
     });
 
+    it('patches a link-bearing paragraph under a start-of-document insert', async () => {
+        // The scale corpus measured link-bearing paragraphs paying a full
+        // re-mount per keystroke: link node ids and destination offsets embed
+        // absolute source positions, so any upstream insert shifts them all.
+        // Positional pairing plus DOM-relevant attribute comparison must keep
+        // the surgical path; the carriers' Text nodes prove which path ran.
+        const source = Array.from(
+            { length: 8 },
+            (_, index) =>
+                `line ${index}: {"value":${index}} `
+                + `[link](https://example.test/${index})\n`,
+        ).join('');
+        const { host, view } = await mount(source);
+        const carriers = [
+            ...host.querySelectorAll<HTMLElement>('.document-view-run'),
+        ].filter(candidate =>
+            !candidate.classList.contains('document-view-atomic'));
+        expect(carriers.length).toBeGreaterThan(8);
+        const texts = carriers.map(candidate => candidate.firstChild);
+        texts.forEach(text => expect(text).toBeInstanceOf(Text));
+
+        view.setCursorByOffset(0);
+        await view.settled();
+        const replaceChildren = vi.spyOn(host, 'replaceChildren');
+
+        await view.replaceRange(0, 0, 'x');
+
+        expect(replaceChildren).not.toHaveBeenCalled();
+        carriers.forEach((candidate, index) => {
+            expect(candidate.firstChild).toBe(texts[index]);
+        });
+        expect(host.textContent?.startsWith('xline 0:')).toBe(true);
+    });
+
     it('uses exact engine edits without reading or scanning mounted text', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
