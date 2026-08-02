@@ -230,7 +230,10 @@ export class IsolatedDocumentSession {
       this.#worker.postMessage(Object.freeze({
         kind: 'command',
         requestId,
-        command
+        command,
+        ...(process.env.MARKTEXT_STALL_TRACE
+          ? { sentAt: performance.now() }
+          : {})
       }))
     })
   }

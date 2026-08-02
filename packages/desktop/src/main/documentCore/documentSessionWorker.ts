@@ -1718,6 +1718,22 @@ port.on('message', (message: DocumentCoreMainToWorkerMessage) => {
     return
   }
   if (message.command.kind === 'start-dispatch') {
+    const traceStall = process.env.MARKTEXT_STALL_TRACE
+    if (traceStall) {
+      const sentAt = (message as { sentAt?: number }).sentAt
+      const deliveredAt = performance.now()
+      if (typeof sentAt === 'number' && deliveredAt - sentAt > 20) {
+        appendFileSync(
+          traceStall,
+          JSON.stringify({
+            span: 'worker:startDelivery',
+            ms: deliveredAt - sentAt,
+            at: deliveredAt,
+            thread: threadId
+          }) + '\n'
+        )
+      }
+    }
     handleStartDispatchCommand(
       message as Extract<
         DocumentCoreMainToWorkerMessage,

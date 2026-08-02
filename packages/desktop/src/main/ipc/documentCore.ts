@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs'
 import {
   app,
   BrowserWindow,
@@ -862,9 +863,28 @@ export function registerDocumentCoreHandlers(): void {
   )
   ipcMain.handle(
     'mt::document-core::dispatch-start',
-    (event, rawRequest: unknown) => {
+    async(event, rawRequest: unknown) => {
       const request = decodeDocumentCoreMainDispatchRequest(rawRequest)
-      return mainHost().startDispatch(ownerOf(event), request)
+      const traceStall = process.env.MARKTEXT_STALL_TRACE
+      if (!traceStall) {
+        return await mainHost().startDispatch(ownerOf(event), request)
+      }
+      const startedAt = performance.now()
+      try {
+        return await mainHost().startDispatch(ownerOf(event), request)
+      } finally {
+        const elapsed = performance.now() - startedAt
+        if (elapsed > 20) {
+          appendFileSync(
+            traceStall,
+            JSON.stringify({
+              span: 'main:dispatchStart',
+              ms: elapsed,
+              at: performance.now()
+            }) + '\n'
+          )
+        }
+      }
     }
   )
   ipcMain.handle(
