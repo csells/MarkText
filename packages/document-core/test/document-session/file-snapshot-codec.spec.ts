@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { hostedRunnerBudgetMs } from '../helpers/hostedRunnerTimeout.js'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -115,7 +116,9 @@ describe('FileSnapshot codec', () => {
       .toBe('x'.charCodeAt(0))
     // Bulk decode versus a per-code-unit walk differ by two orders of
     // magnitude; the bound scales for hosted-runner speed while keeping
-    // that discriminating power.
-    expect(elapsedMs).toBeLessThanOrEqual(process.env.CI ? 200 : 50)
+    // that discriminating power. A hosted mac with an all-green history
+    // measured 202.8 against the old 200 ceiling — variance, not a walk —
+    // so the base carries headroom the walk's cost dwarfs regardless.
+    expect(elapsedMs).toBeLessThanOrEqual(hostedRunnerBudgetMs(100))
   })
 })
