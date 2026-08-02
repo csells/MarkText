@@ -1044,7 +1044,6 @@ test.describe('document-core maximum-document responsiveness', () => {
       }
     }, gesture)
 
-
     // The install's selectionchange dispatches an asynchronous select whose
     // publication can land after any fixed number of settle frames. When it
     // lands inside the armed window it re-dirties the giant carrier and the
