@@ -622,7 +622,8 @@ function completeExecution(
       JSON.stringify({
         span: `worker:op:${execution.operationKind}`,
         ms: execution.operationElapsedMs,
-        at: performance.now()
+        at: performance.now(),
+        thread: threadId
       }) + '\n'
     )
   }
