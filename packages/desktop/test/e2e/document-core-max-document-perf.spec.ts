@@ -1331,14 +1331,27 @@ test.describe('document-core maximum-document responsiveness', () => {
         { timeout: TERMINAL_BUDGET_MS }
       )
     }
+    // A gesture's budget covers its own work including its relayout; the
+    // next sample must not inherit the previous frame's queued layout the
+    // way a scripted back-to-back keystroke would and a human's paint-paced
+    // keystroke never does. Two animation frames guarantee the prior
+    // mutation's frame laid out and presented before the next press.
+    const settleFrames = async(): Promise<void> => {
+      await launched.page.evaluate(async() =>
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => setTimeout(resolve, 0)))))
+    }
     const editTerminalSamples = [maximumDocumentEditWindow.terminalMs]
     const deletionTerminalSamples = [maximumDocumentDeletionWindow.terminalMs]
+    await settleFrames()
     for (let round = 1; round < 10; round += 1) {
       await installEditGestureState()
       await armGestureWindow('edit')
       await launched.page.keyboard.insertText('.')
       await waitForFinalUnit('.')
       editTerminalSamples.push((await readGestureWindow('edit')).terminalMs)
+      await settleFrames()
       await installDeletionGestureState()
       await armGestureWindow('deletion')
       await launched.page.keyboard.press('Backspace')
@@ -1346,6 +1359,7 @@ test.describe('document-core maximum-document responsiveness', () => {
       deletionTerminalSamples.push(
         (await readGestureWindow('deletion')).terminalMs
       )
+      await settleFrames()
     }
     const terminalP95 = (samples: readonly number[]): number => {
       const sorted = [...samples].sort((left, right) => left - right)
