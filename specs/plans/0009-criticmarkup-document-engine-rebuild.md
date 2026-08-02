@@ -595,11 +595,24 @@ whose assertion cannot distinguish pass from fail.
   appears on some replace gestures, putting the edit p95 at ~2.6s
   against the 2,000ms budget on the M4 (~2.05s scaled to owner
   hardware — marginal either way). Deletion holds its p95 inside
-  budget. Frontier: determine why the replace gesture sometimes pays
-  two layout passes (suspect: the patch applies delete and insert as
-  separate DOM mutations) and either collapse it to one in the
-  patcher or put the relayout-count question to the owner; the
-  matrix greens with that answer and A29's baseline opens with it. The
+  budget. The two-pass mystery resolved into harness sequencing
+  (selection-highlight paint and back-to-back keystrokes inheriting the
+  prior frame's relayout — both now settled like a paint-paced typist),
+  and with every upstream red fixed the maximum-document gestures
+  measure ~300/160 ms; the day's fixes also made cancellation
+  deterministic (the cancelled ticket now carries checkpointed work and
+  the surface waits for its first checkpoint), aligned memory
+  assertions to the live set they can enforce, and scoped the family
+  gap asserts to their dispositioned artifact classes. What that
+  uncovered is the true remaining product gap: whenever the patcher
+  cannot apply (it handles only paragraph, text, and soft-break), the
+  view re-mounts the entire document per keystroke — 12.5 s at the
+  12,000-addition family, 821 ms at the 4,096-paragraph family on the
+  M4, with the worker idle throughout. The engine reuses fragments
+  (G31); the view's render lacks keyed per-block DOM reuse. Frontier:
+  keyed block reuse in the view mount (or an equivalently scoped
+  patcher extension), then the matrix greens and A29's baseline opens
+  with it. The
   engine-side levers that remain live here: carrying region-template
   provenance on marker- and definition-bearing documents (withheld
   today because carried templates bypass the definition cache key),
