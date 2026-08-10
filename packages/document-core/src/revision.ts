@@ -351,22 +351,31 @@ export type MarkupMark =
   }>
   | Readonly<{ readonly nodeId: NodeId; readonly kind: 'highlight' }>
 
-export interface MarkupProjectionRun {
-  readonly text: string
-  readonly sourceRange: SourceRange
-  /** Ordered outermost to innermost. */
-  readonly marks: readonly MarkupMark[]
-}
+export type MarkupProjectionEvent =
+  | Readonly<{
+    readonly kind: 'enter'
+    readonly mark: MarkupMark
+  }>
+  | Readonly<{
+    readonly kind: 'text'
+    readonly text: string
+    readonly sourceRange: SourceRange
+  }>
+  | Readonly<{
+    readonly kind: 'exit'
+    readonly mark: MarkupMark
+  }>
 
 export interface MarkupProjection {
   /**
-   * Ordered, source-mapped display runs. This is deliberately not one Markdown
-   * source lane: Comment elisions and Substitution alternatives remain typed
-   * discontinuities and must not be reparsed as concatenated text.
+   * Ordered, source-mapped display events. Enter and exit events share one
+   * immutable mark object. This is deliberately not one Markdown source lane:
+   * Comment elisions and Substitution alternatives remain typed discontinuities
+   * and must not be reparsed as concatenated text.
    */
-  readonly runCount: number
-  /** @throws RangeError outside [0, runCount). */
-  readonly runAt: (ordinal: number) => MarkupProjectionRun
+  readonly eventCount: number
+  /** @throws RangeError outside [0, eventCount). */
+  readonly eventAt: (ordinal: number) => MarkupProjectionEvent
 }
 
 export type MarkdownLiteralProvider =

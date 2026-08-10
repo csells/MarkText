@@ -13,6 +13,7 @@ import type {
   ExecutionBudgetId,
   MarkdownNode as ParserMarkdownNode,
   MarkdownOptionsV1,
+  NodeId,
   ProjectedMarkdown,
   ResourceDiagnostic,
   SyntaxDiagnostic
@@ -65,7 +66,8 @@ export interface DocumentRevision {
   readonly diagnostics: readonly DocumentDiagnostic[]
 }
 
-export type DocumentProjectionName = 'original' | 'revised'
+export type MarkdownProjectionName = 'original' | 'revised'
+export type DocumentProjectionName = MarkdownProjectionName | 'markup'
 export type ProjectionAffinity = 'previous' | 'next'
 
 export type ProjectionOrigin =
@@ -172,11 +174,65 @@ export interface MarkdownAst {
   readonly root: MarkdownAstNode
 }
 
-export interface DocumentProjection {
+export interface MarkdownProjection {
+  readonly kind: 'markdown'
+  readonly name: MarkdownProjectionName
   readonly markdown: string
   readonly ast: MarkdownAst
   readonly coordinates: ProjectionCoordinateMap
 }
+
+export type MarkupMark =
+  | Readonly<{
+    readonly kind: 'addition' | 'deletion' | 'highlight'
+    readonly annotationRange: SourceRange
+  }>
+  | Readonly<{
+    readonly kind: 'substitution'
+    readonly arm: 'old' | 'new'
+    readonly annotationRange: SourceRange
+  }>
+
+export type MarkupEvent =
+  | Readonly<{
+    readonly kind: 'enter'
+    readonly mark: MarkupMark
+  }>
+  | Readonly<{
+    readonly kind: 'text'
+    readonly text: string
+    readonly sourceRange: SourceRange
+  }>
+  | Readonly<{
+    readonly kind: 'exit'
+    readonly mark: MarkupMark
+  }>
+
+export interface MarkupSyntax {
+  /**
+   * Semantic Markdown over the parser-emitted editing coordinate domain.
+   * That domain contains every non-comment CriticMarkup arm in canonical arm
+   * order and may contain generated protective text. It is not canonical
+   * source and no flattened editing Markdown string is exposed. AST ranges and
+   * this coordinate map use that same private projection domain; visible text
+   * and CriticMarkup decoration come from `MarkupProjection.events`.
+   */
+  readonly ast: MarkdownAst
+  readonly coordinates: ProjectionCoordinateMap
+}
+
+export interface MarkupProjection {
+  readonly kind: 'markup'
+  readonly name: 'markup'
+  /**
+   * Linear immutable display stream. Matching enter and exit events share the
+   * same mark object, so consumers can validate nesting by identity.
+   */
+  readonly events: readonly MarkupEvent[]
+  readonly syntax: MarkupSyntax
+}
+
+export type DocumentProjection = MarkdownProjection | MarkupProjection
 
 export interface DocumentSourceEdit {
   /** Inclusive UTF-16 code-unit offset in the previous revision. */
@@ -236,6 +292,14 @@ export interface DocumentCore {
   ): DocumentRevision
   project(
     revision: DocumentRevision,
+    projection: MarkdownProjectionName
+  ): MarkdownProjection
+  project(
+    revision: DocumentRevision,
+    projection: 'markup'
+  ): MarkupProjection
+  project(
+    revision: DocumentRevision,
     projection: DocumentProjectionName
   ): DocumentProjection
 }
@@ -282,14 +346,20 @@ function markdownOptions(
   })
 }
 
+interface MaterializedAnnotations {
+  readonly annotations: readonly CriticMarkupAnnotation[]
+  readonly rangeByNodeId: ReadonlyMap<NodeId, SourceRange>
+}
+
 function annotationsOf(
   products: Profile1DocumentProducts
-): readonly CriticMarkupAnnotation[] {
+): MaterializedAnnotations {
   const roots = Array.from(
     { length: products.criticMarkup.rootCount },
     (_, ordinal) => products.criticMarkup.rootAt(ordinal)
   )
   const materialized = new Map<CriticMarkupNode, CriticMarkupAnnotation>()
+  const rangeByNodeId = new Map<NodeId, SourceRange>()
   const pending = roots.map(annotation => ({ annotation, ready: false }))
 
   while (pending.length > 0) {
@@ -311,9 +381,11 @@ function annotationsOf(
       continue
     }
 
+    const range = sourceRangeOf(task.annotation.range)
+    rangeByNodeId.set(task.annotation.nodeId, range)
     materialized.set(task.annotation, Object.freeze({
       kind: task.annotation.kind,
-      range: sourceRangeOf(task.annotation.range),
+      range,
       arms: Object.freeze(task.annotation.arms.map(arm => Object.freeze({
         name: arm.name,
         range: sourceRangeOf(arm.range),
@@ -328,13 +400,14 @@ function annotationsOf(
     }))
   }
 
-  return Object.freeze(roots.map(root => {
+  const annotations = Object.freeze(roots.map(root => {
     const annotation = materialized.get(root)
     if (annotation === undefined) {
       throw new Error('CriticMarkup root was not materialized')
     }
     return annotation
   }))
+  return Object.freeze({ annotations, rangeByNodeId })
 }
 
 function sourceRangeOf(range: {
@@ -689,6 +762,54 @@ function projectionCoordinatesOf(
   return Object.freeze({ originAt, toSource, toProjected, intersectsSource })
 }
 
+function markupProjectionOf(
+  products: Profile1DocumentProducts,
+  annotationRangeByNodeId: ReadonlyMap<NodeId, SourceRange>,
+  sourceLength: number
+): MarkupProjection {
+  const publicMarks = new WeakMap<object, MarkupMark>()
+  const events = Object.freeze(Array.from(
+    { length: products.markup.eventCount },
+    (_, ordinal): MarkupEvent => {
+      const event = products.markup.eventAt(ordinal)
+      if (event.kind === 'text') {
+        return Object.freeze({
+          kind: 'text',
+          text: event.text,
+          sourceRange: sourceRangeOf(event.sourceRange)
+        })
+      }
+      let mark = publicMarks.get(event.mark)
+      if (mark === undefined) {
+        const annotationRange = annotationRangeByNodeId.get(event.mark.nodeId)
+        if (annotationRange === undefined) {
+          throw new Error('Markup event lost its public annotation range')
+        }
+        mark = event.mark.kind === 'substitution'
+          ? Object.freeze({
+            kind: event.mark.kind,
+            arm: event.mark.arm,
+            annotationRange
+          })
+          : Object.freeze({ kind: event.mark.kind, annotationRange })
+        publicMarks.set(event.mark, mark)
+      }
+      return Object.freeze({ kind: event.kind, mark })
+    }
+  ))
+  const editing = products.editing()
+  const syntax = Object.freeze({
+    ast: markdownAstOf(editing),
+    coordinates: projectionCoordinatesOf(editing, sourceLength)
+  })
+  return Object.freeze({
+    kind: 'markup',
+    name: 'markup',
+    events,
+    syntax
+  })
+}
+
 function diagnosticOf(diagnostic: SyntaxDiagnostic): DocumentDiagnostic {
   return Object.freeze({
     code: diagnostic.code,
@@ -731,6 +852,7 @@ function sameMarkdownOptions(
 interface RevisionState {
   readonly products: Profile1DocumentProducts
   readonly markdownOptions: MarkdownOptionsV1
+  readonly annotationRangeByNodeId: ReadonlyMap<NodeId, SourceRange>
 }
 
 export function createDocumentCore(): DocumentCore {
@@ -782,14 +904,16 @@ export function createDocumentCore(): DocumentCore {
     resolvedOptions: MarkdownOptionsV1
   ): DocumentRevision => {
     try {
+      const materializedAnnotations = annotationsOf(products)
       const revision = Object.freeze({
         source,
-        annotations: annotationsOf(products),
+        annotations: materializedAnnotations.annotations,
         diagnostics: diagnosticsOf(products)
       })
       stateByRevision.set(revision, Object.freeze({
         products,
-        markdownOptions: resolvedOptions
+        markdownOptions: resolvedOptions,
+        annotationRangeByNodeId: materializedAnnotations.rangeByNodeId
       }))
       currentRevision = revision
       return revision
@@ -800,6 +924,72 @@ export function createDocumentCore(): DocumentCore {
       reuseCache = createProfile1DocumentReuseCache()
       throw error
     }
+  }
+
+  function projectRevision(
+    revision: DocumentRevision,
+    projection: MarkdownProjectionName
+  ): MarkdownProjection
+  function projectRevision(
+    revision: DocumentRevision,
+    projection: 'markup'
+  ): MarkupProjection
+  function projectRevision(
+    revision: DocumentRevision,
+    projection: DocumentProjectionName
+  ): DocumentProjection {
+    const state = stateByRevision.get(revision)
+    if (state === undefined) {
+      throw new Error('Document revision belongs to another core')
+    }
+    if (
+      projection !== 'original' &&
+      projection !== 'revised' &&
+      projection !== 'markup'
+    ) {
+      throw new RangeError(`Unknown document projection: ${String(projection)}`)
+    }
+
+    let cachedByName = projectionCache.get(revision)
+    if (cachedByName === undefined) {
+      cachedByName = new Map()
+      projectionCache.set(revision, cachedByName)
+    }
+    const cached = cachedByName.get(projection)
+    if (cached !== undefined) {
+      if (projection === 'markup') {
+        if (cached.kind !== 'markup') {
+          throw new Error('Markup projection cache contains Markdown')
+        }
+        return cached
+      }
+      if (cached.kind !== 'markdown') {
+        throw new Error('Markdown projection cache contains Markup')
+      }
+      return cached
+    }
+
+    if (projection === 'markup') {
+      const result = markupProjectionOf(
+        state.products,
+        state.annotationRangeByNodeId,
+        revision.source.length
+      )
+      cachedByName.set(projection, result)
+      return result
+    }
+    const projected = projection === 'original'
+      ? state.products.original
+      : state.products.revised
+    const result: MarkdownProjection = Object.freeze({
+      kind: 'markdown',
+      name: projection,
+      markdown: projected.source,
+      ast: markdownAstOf(projected),
+      coordinates: projectionCoordinatesOf(projected, revision.source.length)
+    })
+    cachedByName.set(projection, result)
+    return result
   }
 
   const core: DocumentCore = Object.freeze({
@@ -866,37 +1056,7 @@ export function createDocumentCore(): DocumentCore {
       )
     },
 
-    project(
-      revision: DocumentRevision,
-      projection: DocumentProjectionName
-    ): DocumentProjection {
-      const state = stateByRevision.get(revision)
-      if (state === undefined) {
-        throw new Error('Document revision belongs to another core')
-      }
-      if (projection !== 'original' && projection !== 'revised') {
-        throw new RangeError(`Unknown document projection: ${String(projection)}`)
-      }
-
-      let cachedByName = projectionCache.get(revision)
-      if (cachedByName === undefined) {
-        cachedByName = new Map()
-        projectionCache.set(revision, cachedByName)
-      }
-      const cached = cachedByName.get(projection)
-      if (cached !== undefined) return cached
-
-      const projected = projection === 'original'
-        ? state.products.original
-        : state.products.revised
-      const result = Object.freeze({
-        markdown: projected.source,
-        ast: markdownAstOf(projected),
-        coordinates: projectionCoordinatesOf(projected, revision.source.length)
-      })
-      cachedByName.set(projection, result)
-      return result
-    }
+    project: projectRevision
   })
   registerDocumentCoreInspection(core, () => Object.freeze({
     intrinsicSourceUnits: physicalRecorder.counts().intrinsicSourceUnits
