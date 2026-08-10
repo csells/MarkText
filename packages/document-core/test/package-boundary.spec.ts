@@ -1,5 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { extname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -33,17 +34,33 @@ function importedPackages(source: string, fileName: string): readonly string[] {
   )
   const packages: string[] = []
 
-  sourceFile.forEachChild(node => {
+  function visit(node: ts.Node): void {
     if (
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier &&
       ts.isStringLiteral(node.moduleSpecifier) &&
-      !node.moduleSpecifier.text.startsWith('.') &&
-      !node.moduleSpecifier.text.startsWith('node:')
+      !node.moduleSpecifier.text.startsWith('.')
     ) {
       packages.push(node.moduleSpecifier.text)
     }
-  })
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments.length === 1
+    ) {
+      const specifier = node.arguments[0]
+      if (
+        specifier !== undefined &&
+        ts.isStringLiteral(specifier) &&
+        !specifier.text.startsWith('.')
+      ) {
+        packages.push(specifier.text)
+      }
+    }
+    node.forEachChild(visit)
+  }
+
+  visit(sourceFile)
 
   return packages
 }
@@ -63,7 +80,7 @@ describe('document-core package boundary', () => {
     expect(Object.keys(packageJson.dependencies ?? {})).toEqual(policy.runtimeDependencies)
 
     const importsByFile = await Promise.all(
-      (await sourceFiles(new URL('src', packageRoot).pathname))
+      (await sourceFiles(fileURLToPath(new URL('src', packageRoot))))
         .map(async file => importedPackages(await readFile(file, 'utf8'), file))
     )
     const resolvedImports = [...new Set(importsByFile.flat())].sort()
