@@ -4185,48 +4185,126 @@ function fragmentSourceCanFit(source: string): boolean {
 }
 
 function retainedValueBytes(value: unknown, seen: Set<object>): number {
-  if (typeof value === 'string') {
-    return retainedStringBytes(value)
-  }
-  if (value === null || typeof value !== 'object') {
-    return RETAINED_SCALAR_BYTES
-  }
-  if (seen.has(value)) {
-    return 0
-  }
-  seen.add(value)
-  if (Array.isArray(value)) {
-    return RETAINED_OBJECT_HEADER_BYTES +
-      value.length * RETAINED_REFERENCE_BYTES +
-      value.reduce(
-        (total, entry) => total + retainedValueBytes(entry, seen),
-        0
-      )
-  }
-  if (value instanceof Map) {
-    let bytes = RETAINED_OBJECT_HEADER_BYTES +
-      value.size * 2 * RETAINED_REFERENCE_BYTES
-    for (const [key, entry] of value) {
-      bytes += retainedValueBytes(key, seen) + retainedValueBytes(entry, seen)
+  type RetainedValueTask =
+    | Readonly<{ kind: 'value'; value: unknown }>
+    | Readonly<{
+      kind: 'array'
+      value: readonly unknown[]
+      index: number
+    }>
+    | Readonly<{
+      kind: 'map'
+      iterator: MapIterator<readonly [unknown, unknown]>
+    }>
+    | Readonly<{
+      kind: 'set'
+      iterator: SetIterator<unknown>
+    }>
+    | Readonly<{
+      kind: 'object'
+      entries: readonly (readonly [string, unknown])[]
+      index: number
+    }>
+
+  let bytes = 0
+  const pending: RetainedValueTask[] = [{ kind: 'value', value }]
+  while (pending.length > 0) {
+    const task = pending.pop()
+    if (task === undefined) break
+
+    if (task.kind === 'array') {
+      const entry = task.value[task.index]
+      if (task.index + 1 < task.value.length) {
+        pending.push({
+          kind: 'array',
+          value: task.value,
+          index: task.index + 1
+        })
+      }
+      // Array.prototype.reduce skipped sparse holes in the former recursive
+      // implementation; retain the same accounting semantics.
+      if (task.index in task.value) {
+        pending.push({ kind: 'value', value: entry })
+      }
+      continue
     }
-    return bytes
-  }
-  if (value instanceof Set) {
-    let bytes = RETAINED_OBJECT_HEADER_BYTES +
-      value.size * RETAINED_REFERENCE_BYTES
-    for (const entry of value) {
-      bytes += retainedValueBytes(entry, seen)
+    if (task.kind === 'map') {
+      const next = task.iterator.next()
+      if (!next.done) {
+        pending.push(task)
+        pending.push({ kind: 'value', value: next.value[1] })
+        pending.push({ kind: 'value', value: next.value[0] })
+      }
+      continue
     }
-    return bytes
+    if (task.kind === 'set') {
+      const next = task.iterator.next()
+      if (!next.done) {
+        pending.push(task)
+        pending.push({ kind: 'value', value: next.value })
+      }
+      continue
+    }
+    if (task.kind === 'object') {
+      const entry = task.entries[task.index]
+      if (entry === undefined) continue
+      bytes += retainedStringBytes(entry[0])
+      if (task.index + 1 < task.entries.length) {
+        pending.push({
+          kind: 'object',
+          entries: task.entries,
+          index: task.index + 1
+        })
+      }
+      pending.push({ kind: 'value', value: entry[1] })
+      continue
+    }
+
+    const current = task.value
+    if (typeof current === 'string') {
+      bytes += retainedStringBytes(current)
+      continue
+    }
+    if (current === null || typeof current !== 'object') {
+      bytes += RETAINED_SCALAR_BYTES
+      continue
+    }
+    if (seen.has(current)) {
+      continue
+    }
+    seen.add(current)
+    if (Array.isArray(current)) {
+      bytes += RETAINED_OBJECT_HEADER_BYTES +
+        current.length * RETAINED_REFERENCE_BYTES
+      if (current.length > 0) {
+        pending.push({ kind: 'array', value: current, index: 0 })
+      }
+      continue
+    }
+    if (current instanceof Map) {
+      bytes += RETAINED_OBJECT_HEADER_BYTES +
+        current.size * 2 * RETAINED_REFERENCE_BYTES
+      if (current.size > 0) {
+        pending.push({ kind: 'map', iterator: current.entries() })
+      }
+      continue
+    }
+    if (current instanceof Set) {
+      bytes += RETAINED_OBJECT_HEADER_BYTES +
+        current.size * RETAINED_REFERENCE_BYTES
+      if (current.size > 0) {
+        pending.push({ kind: 'set', iterator: current.values() })
+      }
+      continue
+    }
+    const entries = Object.entries(current)
+    bytes += RETAINED_OBJECT_HEADER_BYTES +
+      entries.length * RETAINED_REFERENCE_BYTES
+    if (entries.length > 0) {
+      pending.push({ kind: 'object', entries, index: 0 })
+    }
   }
-  const entries = Object.entries(value)
-  return RETAINED_OBJECT_HEADER_BYTES +
-    entries.length * RETAINED_REFERENCE_BYTES +
-    entries.reduce(
-      (total, [key, entry]) => total +
-        retainedStringBytes(key) + retainedValueBytes(entry, seen),
-      0
-    )
+  return bytes
 }
 
 function fragmentMapRetention(cache: ReadonlyMap<string, unknown>): Readonly<{
@@ -4336,6 +4414,20 @@ const POSITIONAL_MARKDOWN_ATTRIBUTES = new Set([
   'delimiterEnd'
 ])
 
+function shiftedMarkdownAttributes(
+  attributes: Readonly<Record<string, string | number | boolean>>,
+  offset: number
+): Readonly<Record<string, string | number | boolean>> {
+  return Object.freeze(Object.fromEntries(
+    Object.entries(attributes).map(([key, value]) => [
+      key,
+      POSITIONAL_MARKDOWN_ATTRIBUTES.has(key) && typeof value === 'number'
+        ? value + offset
+        : value
+    ])
+  ))
+}
+
 function markdownAstNodeTemplate(
   node: MarkdownNode,
   regionStart: number,
@@ -4345,73 +4437,147 @@ function markdownAstNodeTemplate(
   if (cacheRetention) {
     physicalRecorder?.recordAstCacheTemplateConstruction()
   }
-  return Object.freeze({
-    kind: node.kind,
-    start: node.range.start - regionStart,
-    end: node.range.end - regionStart,
-    attributes: Object.freeze(Object.fromEntries(
-      Object.entries(node.attributes).map(([key, value]) => [
-        key,
-        POSITIONAL_MARKDOWN_ATTRIBUTES.has(key) && typeof value === 'number'
-          ? value - regionStart
-          : value
-      ])
-    )),
-    children: Object.freeze(Array.from(
-      { length: node.childCount },
-      (_, ordinal) => markdownAstNodeTemplate(
-        node.childAt(ordinal),
-        regionStart,
-        cacheRetention
-      )
-    ))
+  interface TemplateFrame {
+    readonly node: MarkdownNode
+    readonly attributes: Readonly<Record<string, string | number | boolean>>
+    readonly children: MarkdownAstNodeTemplate[]
+    nextChild: number
+  }
+  const frame = (current: MarkdownNode): TemplateFrame => ({
+    node: current,
+    attributes: shiftedMarkdownAttributes(current.attributes, -regionStart),
+    children: [],
+    nextChild: 0
   })
+  const pending: TemplateFrame[] = [frame(node)]
+  let root: MarkdownAstNodeTemplate | undefined
+  while (pending.length > 0) {
+    const current = pending.at(-1)
+    if (current === undefined) break
+    if (current.nextChild < current.node.childCount) {
+      const child = current.node.childAt(current.nextChild)
+      current.nextChild += 1
+      pending.push(frame(child))
+      continue
+    }
+    const template = Object.freeze({
+      kind: current.node.kind,
+      start: current.node.range.start - regionStart,
+      end: current.node.range.end - regionStart,
+      attributes: current.attributes,
+      children: Object.freeze(current.children)
+    })
+    pending.pop()
+    const parent = pending.at(-1)
+    if (parent === undefined) {
+      root = template
+    } else {
+      parent.children.push(template)
+    }
+  }
+  if (root === undefined) {
+    throw new Error('Markdown AST template root was not materialized')
+  }
+  return root
 }
 
 function markdownAstNodeFromTemplate(
   template: MarkdownAstNodeTemplate,
   regionStart: number
 ): MarkdownNode {
-  const attributes = Object.freeze(Object.fromEntries(
-    Object.entries(template.attributes).map(([key, value]) => [
-      key,
-      POSITIONAL_MARKDOWN_ATTRIBUTES.has(key) && typeof value === 'number'
-        ? value + regionStart
-        : value
-    ])
-  ))
-  return createNode(
-    template.kind,
-    regionStart + template.start,
-    regionStart + template.end,
-    template.children.map((child) =>
-      markdownAstNodeFromTemplate(child, regionStart)),
-    attributes
-  )
+  interface TemplateFrame {
+    readonly template: MarkdownAstNodeTemplate
+    readonly attributes: Readonly<Record<string, string | number | boolean>>
+    readonly children: MarkdownNode[]
+    nextChild: number
+  }
+  const frame = (current: MarkdownAstNodeTemplate): TemplateFrame => ({
+    template: current,
+    attributes: shiftedMarkdownAttributes(current.attributes, regionStart),
+    children: [],
+    nextChild: 0
+  })
+  const pending: TemplateFrame[] = [frame(template)]
+  let root: MarkdownNode | undefined
+  while (pending.length > 0) {
+    const current = pending.at(-1)
+    if (current === undefined) break
+    if (current.nextChild < current.template.children.length) {
+      const child = current.template.children[current.nextChild]
+      if (child === undefined) {
+        throw new Error('Markdown AST template child is unavailable')
+      }
+      current.nextChild += 1
+      pending.push(frame(child))
+      continue
+    }
+    const node = createNode(
+      current.template.kind,
+      regionStart + current.template.start,
+      regionStart + current.template.end,
+      current.children,
+      current.attributes
+    )
+    pending.pop()
+    const parent = pending.at(-1)
+    if (parent === undefined) {
+      root = node
+    } else {
+      parent.children.push(node)
+    }
+  }
+  if (root === undefined) {
+    throw new Error('Markdown AST template root was not restored')
+  }
+  return root
 }
 
 function markdownAstNodeAtOffset(
   node: MarkdownNode,
   offset: number
 ): MarkdownNode {
-  const attributes = Object.freeze(Object.fromEntries(
-    Object.entries(node.attributes).map(([key, value]) => [
-      key,
-      POSITIONAL_MARKDOWN_ATTRIBUTES.has(key) && typeof value === 'number'
-        ? value + offset
-        : value
-    ])
-  ))
-  return createNode(
-    node.kind,
-    node.range.start + offset,
-    node.range.end + offset,
-    Array.from(
-      { length: node.childCount },
-      (_, ordinal) => markdownAstNodeAtOffset(node.childAt(ordinal), offset)
-    ),
-    attributes
-  )
+  interface OffsetFrame {
+    readonly node: MarkdownNode
+    readonly attributes: Readonly<Record<string, string | number | boolean>>
+    readonly children: MarkdownNode[]
+    nextChild: number
+  }
+  const frame = (current: MarkdownNode): OffsetFrame => ({
+    node: current,
+    attributes: shiftedMarkdownAttributes(current.attributes, offset),
+    children: [],
+    nextChild: 0
+  })
+  const pending: OffsetFrame[] = [frame(node)]
+  let root: MarkdownNode | undefined
+  while (pending.length > 0) {
+    const current = pending.at(-1)
+    if (current === undefined) break
+    if (current.nextChild < current.node.childCount) {
+      const child = current.node.childAt(current.nextChild)
+      current.nextChild += 1
+      pending.push(frame(child))
+      continue
+    }
+    const shifted = createNode(
+      current.node.kind,
+      current.node.range.start + offset,
+      current.node.range.end + offset,
+      current.children,
+      current.attributes
+    )
+    pending.pop()
+    const parent = pending.at(-1)
+    if (parent === undefined) {
+      root = shifted
+    } else {
+      parent.children.push(shifted)
+    }
+  }
+  if (root === undefined) {
+    throw new Error('Offset Markdown AST root was not materialized')
+  }
+  return root
 }
 
 function astRegionTemplateBaseBytes(

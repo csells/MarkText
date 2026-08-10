@@ -12,6 +12,13 @@ export {
   type DocumentProjectionName,
   type DocumentRevision,
   type DocumentSourceEdit,
+  type MarkdownAst,
+  type MarkdownAstNode,
+  type MarkdownAttribute,
+  type MarkdownNodeKind,
   type MarkdownOptions,
+  type ProjectionAffinity,
+  type ProjectionCoordinateMap,
+  type ProjectionOrigin,
   type SourceRange
 } from './documentCore.js'
