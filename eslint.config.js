@@ -30,9 +30,12 @@ export default [
       // merge two flat configs.
       'packages/muya/**',
       'packages/desktop/src/renderer/src/assets/symbolIcon/index.js',
+      // Standards corpora preserve upstream bytes, including intentional
+      // Unicode whitespace and missing final newlines.
+      'packages/document-core/test/fixtures/*.json',
       '**/*.min.json',
-      'test-results/**',
-      'playwright-report/**'
+      '**/test-results/**',
+      '**/playwright-report/**'
     ]
   },
 

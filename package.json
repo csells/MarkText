@@ -36,6 +36,7 @@
     "criticmarkup:parity": "tsx scripts/criticmarkupParityBaseline.ts",
     "criticmarkup:parity:check": "tsx scripts/criticmarkupParityBaseline.ts --check",
     "criticmarkup:parity:validate": "tsx scripts/criticmarkupParityBaseline.ts --validate",
+    "document-core:check": "pnpm --filter @marktext/document-core check",
     "check": "pnpm lint && pnpm typecheck",
     "gen-third-party": "tsx scripts/generateThirdPartyLicense.ts",
     "validate-licenses": "tsx scripts/validateLicenses.ts",
