@@ -11,7 +11,9 @@ import { applyExactSourceEdits } from './exactSourceEdits.js'
 import type {
   CriticMarkupNode,
   ExecutionBudgetId,
+  MarkdownNode as ParserMarkdownNode,
   MarkdownOptionsV1,
+  ProjectedMarkdown,
   ResourceDiagnostic,
   SyntaxDiagnostic
 } from './revision.js'
@@ -64,9 +66,116 @@ export interface DocumentRevision {
 }
 
 export type DocumentProjectionName = 'original' | 'revised'
+export type ProjectionAffinity = 'previous' | 'next'
+
+export type ProjectionOrigin =
+  | Readonly<{
+    readonly kind: 'source'
+    readonly sourceOffset: number
+  }>
+  | Readonly<{
+    readonly kind: 'generated'
+    readonly sourcePosition: number
+    readonly affinity: ProjectionAffinity
+  }>
+
+export interface ProjectionCoordinateMap {
+  /**
+   * Returns the origin of one projected UTF-16 code unit. Generated text is
+   * anchored to a source position but never claims to be durable source.
+   */
+  readonly originAt: (projectedOffset: number) => ProjectionOrigin
+  /**
+   * Maps a UTF-16 position in the projection to canonical source. At a
+   * discontinuity, `previous` selects the source boundary before omitted or
+   * generated text and `next` selects the boundary after it. A position inside
+   * generated text maps to that text's source anchor.
+   */
+  readonly toSource: (
+    projectedPosition: number,
+    affinity: ProjectionAffinity
+  ) => number
+  /**
+   * Maps a canonical UTF-16 source position into the projection. A position
+   * inside omitted source snaps before or after the gap according to affinity;
+   * at a generated-text anchor, `previous` selects the start of the generated
+   * cluster and `next` selects its end.
+   */
+  readonly toProjected: (
+    sourcePosition: number,
+    affinity: ProjectionAffinity
+  ) => number
+  /**
+   * Reports whether a half-open source range contributes retained text. Empty
+   * ranges never intersect.
+   */
+  readonly intersectsSource: (range: SourceRange) => boolean
+}
+
+export type MarkdownNodeKind =
+  | 'document'
+  | 'paragraph'
+  | 'heading'
+  | 'blockquote'
+  | 'list'
+  | 'list-item'
+  | 'thematic-break'
+  | 'text'
+  | 'soft-break'
+  | 'hard-break'
+  | 'emphasis'
+  | 'strong'
+  | 'strikethrough'
+  | 'subscript'
+  | 'superscript'
+  | 'link'
+  | 'image'
+  | 'inline-code'
+  | 'code-block'
+  | 'inline-html'
+  | 'html-block'
+  | 'autolink'
+  | 'definition'
+  | 'front-matter'
+  | 'inline-math'
+  | 'math-block'
+  | 'diagram'
+  | 'table'
+  | 'table-row'
+  | 'table-cell'
+  | 'footnote-definition'
+  | 'footnote-reference'
+export type MarkdownAttribute = string | number | boolean
+
+export interface MarkdownAstNode {
+  readonly kind: MarkdownNodeKind
+  /** Half-open UTF-16 range in the projected Markdown source. */
+  readonly range: SourceRange
+  /**
+   * Parser-owned scalar facts for this node.
+   *
+   * Link, image, and autolink nodes use `rawDestination` and `rawTitle` to
+   * retain Markdown source spelling. They are not decoded link targets;
+   * decoding remains a future document-core responsibility. Resolved reference
+   * links/images and footnote references use `resolvedDefinitionStart` and
+   * `resolvedDefinitionEnd`; every footnote reference also has a `resolved`
+   * boolean. Every numeric attribute whose name ends in `Start` or `End` is a
+   * UTF-16 position in the projection, and each matching Start/End pair
+   * describes a half-open subrange. Editor adapters may use those positions
+   * directly without re-recognizing Markdown syntax.
+   */
+  readonly attributes: Readonly<Record<string, MarkdownAttribute>>
+  readonly children: readonly MarkdownAstNode[]
+}
+
+export interface MarkdownAst {
+  readonly root: MarkdownAstNode
+}
 
 export interface DocumentProjection {
   readonly markdown: string
+  readonly ast: MarkdownAst
+  readonly coordinates: ProjectionCoordinateMap
 }
 
 export interface DocumentSourceEdit {
@@ -233,6 +342,351 @@ function sourceRangeOf(range: {
   readonly end: number
 }): SourceRange {
   return Object.freeze({ start: range.start, end: range.end })
+}
+
+function markdownAstOf(projection: ProjectedMarkdown): MarkdownAst {
+  const root = projection.markdown.root
+  const materialized = new Map<ParserMarkdownNode, MarkdownAstNode>()
+  const footnoteReferenceByNode = new Map<ParserMarkdownNode, Readonly<{
+    readonly definition?: Readonly<{ readonly node: ParserMarkdownNode }>
+  }>>()
+  for (
+    let ordinal = 0;
+    ordinal < projection.markdown.references.footnoteReferenceCount;
+    ordinal += 1
+  ) {
+    const reference = projection.markdown.references.footnoteReferenceAt(ordinal)
+    footnoteReferenceByNode.set(reference.node, reference)
+  }
+  const pending: Array<Readonly<{
+    node: ParserMarkdownNode
+    ready: boolean
+  }>> = [{ node: root, ready: false }]
+
+  while (pending.length > 0) {
+    const task = pending.pop()
+    if (task === undefined) break
+
+    if (!task.ready) {
+      pending.push({ node: task.node, ready: true })
+      for (let ordinal = task.node.childCount - 1; ordinal >= 0; ordinal -= 1) {
+        pending.push({ node: task.node.childAt(ordinal), ready: false })
+      }
+      continue
+    }
+
+    const attributes: Record<string, MarkdownAttribute> = {
+      ...task.node.attributes
+    }
+    delete attributes.destination
+    delete attributes.title
+    const link = projection.markdown.references.linkForNode(task.node.nodeId)
+    if (link !== undefined) {
+      attributes.rawDestination = task.node.kind === 'autolink'
+        ? projection.markdown.source.slice(
+          Math.min(task.node.range.end, task.node.range.start + 1),
+          Math.max(task.node.range.start + 1, task.node.range.end - 1)
+        )
+        : task.node.attributes['extendedAutolink'] === true
+          ? projection.markdown.source.slice(
+            task.node.range.start,
+            task.node.range.end
+          )
+          : link.destination
+      if (link.title !== undefined) {
+        attributes.rawTitle = link.title
+      }
+      if (link.definition !== undefined) {
+        attributes.resolvedDefinitionStart = link.definition.node.range.start
+        attributes.resolvedDefinitionEnd = link.definition.node.range.end
+      }
+    }
+    if (task.node.kind === 'footnote-reference') {
+      const definition = footnoteReferenceByNode.get(task.node)?.definition
+      attributes.resolved = definition !== undefined
+      if (definition !== undefined) {
+        attributes.resolvedDefinitionStart = definition.node.range.start
+        attributes.resolvedDefinitionEnd = definition.node.range.end
+      }
+    }
+    const children = Object.freeze(Array.from(
+      { length: task.node.childCount },
+      (_, ordinal) => {
+        const child = materialized.get(task.node.childAt(ordinal))
+        if (child === undefined) {
+          throw new Error('Markdown child was not materialized')
+        }
+        return child
+      }
+    ))
+    materialized.set(task.node, Object.freeze({
+      kind: task.node.kind,
+      range: sourceRangeOf(task.node.range),
+      attributes: Object.freeze(attributes),
+      children
+    }))
+  }
+
+  const materializedRoot = materialized.get(root)
+  if (materializedRoot === undefined) {
+    throw new Error('Markdown root was not materialized')
+  }
+  return Object.freeze({ root: materializedRoot })
+}
+
+type FacadeProjectedMarkdown = Profile1DocumentProducts['original']
+
+type CoordinateSegment =
+  | Readonly<{
+    kind: 'source'
+    projectedStart: number
+    projectedEnd: number
+    sourceStart: number
+    sourceEnd: number
+  }>
+  | Readonly<{
+    kind: 'generated'
+    projectedStart: number
+    projectedEnd: number
+    sourcePosition: number
+    affinity: ProjectionAffinity
+  }>
+
+interface GeneratedCoordinateCluster {
+  readonly sourcePosition: number
+  readonly projectedStart: number
+  readonly projectedEnd: number
+}
+
+function position(
+  value: number,
+  length: number,
+  coordinateName: string
+): number {
+  if (!Number.isInteger(value) || value < 0 || value > length) {
+    throw new RangeError(`${coordinateName} position is outside its document`)
+  }
+  return value
+}
+
+function coordinateAffinity(value: ProjectionAffinity): ProjectionAffinity {
+  if (value !== 'previous' && value !== 'next') {
+    throw new RangeError(`Unknown coordinate affinity: ${String(value)}`)
+  }
+  return value
+}
+
+function projectionCoordinatesOf(
+  projection: FacadeProjectedMarkdown,
+  sourceLength: number
+): ProjectionCoordinateMap {
+  const segments: readonly CoordinateSegment[] = Object.freeze(
+    projection.mappedTape.map(segment => segment.kind === 'canonical'
+      ? Object.freeze({
+        kind: 'source' as const,
+        projectedStart: segment.projectedStart,
+        projectedEnd: segment.projectedEnd,
+        sourceStart: segment.sourceStart,
+        sourceEnd:
+          segment.sourceStart + segment.projectedEnd - segment.projectedStart
+      })
+      : Object.freeze({
+        kind: 'generated' as const,
+        projectedStart: segment.projectedStart,
+        projectedEnd: segment.projectedEnd,
+        sourcePosition: segment.sourcePosition,
+        affinity: segment.affinity
+      }))
+  )
+  const sourceSegments = Object.freeze(segments.flatMap(segment =>
+    segment.kind === 'source' ? [segment] : []
+  ))
+  const generatedClustersByPosition = new Map<number, GeneratedCoordinateCluster>()
+  for (const segment of segments) {
+    if (segment.kind !== 'generated') continue
+    const previous = generatedClustersByPosition.get(segment.sourcePosition)
+    generatedClustersByPosition.set(segment.sourcePosition, Object.freeze({
+      sourcePosition: segment.sourcePosition,
+      projectedStart: Math.min(
+        previous?.projectedStart ?? segment.projectedStart,
+        segment.projectedStart
+      ),
+      projectedEnd: Math.max(
+        previous?.projectedEnd ?? segment.projectedEnd,
+        segment.projectedEnd
+      )
+    }))
+  }
+  const generatedClusters = Object.freeze(
+    [...generatedClustersByPosition.values()].sort((left, right) =>
+      left.sourcePosition - right.sourcePosition ||
+      left.projectedStart - right.projectedStart
+    )
+  )
+
+  const sourceSegmentAtOrBefore = (sourcePosition: number): number => {
+    let low = 0
+    let high = sourceSegments.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if ((sourceSegments[middle]?.sourceStart ?? Infinity) <= sourcePosition) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    return low - 1
+  }
+  const generatedClusterAtOrBefore = (sourcePosition: number): number => {
+    let low = 0
+    let high = generatedClusters.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if (
+        (generatedClusters[middle]?.sourcePosition ?? Infinity) <= sourcePosition
+      ) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    return low - 1
+  }
+
+  const originAt = Object.freeze((projectedOffset: number): ProjectionOrigin => {
+    const origin = projection.provenance.originAt(projectedOffset)
+    return origin.kind === 'canonical'
+      ? Object.freeze({
+        kind: 'source' as const,
+        sourceOffset: origin.sourceOffset
+      })
+      : Object.freeze({
+        kind: 'generated' as const,
+        sourcePosition: origin.sourcePosition,
+        affinity: origin.affinity
+      })
+  })
+  const toSource = Object.freeze((
+    projectedPosition: number,
+    affinity: ProjectionAffinity
+  ): number => {
+    const projected = position(
+      projectedPosition,
+      projection.source.length,
+      'Projected'
+    )
+    coordinateAffinity(affinity)
+
+    let low = 0
+    let high = segments.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if ((segments[middle]?.projectedEnd ?? Infinity) <= projected) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    const following = segments[low]
+    if (
+      following !== undefined &&
+      following.projectedStart < projected &&
+      projected < following.projectedEnd
+    ) {
+      return following.kind === 'source'
+        ? following.sourceStart + projected - following.projectedStart
+        : following.sourcePosition
+    }
+
+    const preceding = segments[low - 1]
+    if (affinity === 'previous') {
+      return preceding === undefined
+        ? 0
+        : preceding.kind === 'source'
+          ? preceding.sourceEnd
+          : preceding.sourcePosition
+    }
+    return following === undefined
+      ? sourceLength
+      : following.kind === 'source'
+        ? following.sourceStart
+        : following.sourcePosition
+  })
+  const toProjected = Object.freeze((
+    sourcePosition: number,
+    affinity: ProjectionAffinity
+  ): number => {
+    const source = position(sourcePosition, sourceLength, 'Source')
+    coordinateAffinity(affinity)
+    const sourceIndex = sourceSegmentAtOrBefore(source)
+    const sourceCandidates = [
+      sourceSegments[sourceIndex - 1],
+      sourceSegments[sourceIndex],
+      sourceSegments[sourceIndex + 1]
+    ].filter((segment): segment is Extract<CoordinateSegment, { kind: 'source' }> =>
+      segment !== undefined &&
+      segment.sourceStart <= source &&
+      source <= segment.sourceEnd
+    )
+    const generatedIndex = generatedClusterAtOrBefore(source)
+    const generated = generatedClusters[generatedIndex]?.sourcePosition === source
+      ? generatedClusters[generatedIndex]
+      : undefined
+    const direct = sourceCandidates.map(segment =>
+      segment.projectedStart + source - segment.sourceStart
+    )
+    if (generated !== undefined) {
+      direct.push(generated.projectedStart, generated.projectedEnd)
+    }
+    if (direct.length > 0) {
+      return affinity === 'previous'
+        ? Math.min(...direct)
+        : Math.max(...direct)
+    }
+
+    const precedingSource = sourceSegments[sourceIndex]
+    const followingSource = sourceSegments[sourceIndex + 1]
+    const precedingGenerated = generatedClusters[generatedIndex]
+    const followingGenerated = generatedClusters[generatedIndex + 1]
+    if (affinity === 'previous') {
+      if (
+        precedingGenerated !== undefined &&
+        (
+          precedingSource === undefined ||
+          precedingGenerated.sourcePosition >= precedingSource.sourceEnd
+        )
+      ) {
+        return precedingGenerated.projectedEnd
+      }
+      return precedingSource?.projectedEnd ?? 0
+    }
+    if (
+      followingGenerated !== undefined &&
+      (
+        followingSource === undefined ||
+        followingGenerated.sourcePosition <= followingSource.sourceStart
+      )
+    ) {
+      return followingGenerated.projectedStart
+    }
+    return followingSource?.projectedStart ?? projection.source.length
+  })
+  const intersectsSource = Object.freeze((range: SourceRange): boolean => {
+    if (
+      !Number.isInteger(range.start) ||
+      !Number.isInteger(range.end) ||
+      range.start < 0 ||
+      range.end < range.start ||
+      range.end > sourceLength
+    ) {
+      throw new RangeError('Source range is outside its document')
+    }
+    return projection.provenance.canonicalSourceRangeIntersects(
+      range.start,
+      range.end
+    )
+  })
+  return Object.freeze({ originAt, toSource, toProjected, intersectsSource })
 }
 
 function diagnosticOf(diagnostic: SyntaxDiagnostic): DocumentDiagnostic {
@@ -432,10 +886,13 @@ export function createDocumentCore(): DocumentCore {
       const cached = cachedByName.get(projection)
       if (cached !== undefined) return cached
 
+      const projected = projection === 'original'
+        ? state.products.original
+        : state.products.revised
       const result = Object.freeze({
-        markdown: projection === 'original'
-          ? state.products.original.source
-          : state.products.revised.source
+        markdown: projected.source,
+        ast: markdownAstOf(projected),
+        coordinates: projectionCoordinatesOf(projected, revision.source.length)
       })
       cachedByName.set(projection, result)
       return result
