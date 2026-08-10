@@ -32,14 +32,14 @@ MarkText is a WYSIWYG markdown editor built on Electron + Vue 3. It supports Com
 
 ## Directory Structure
 
-This is a pnpm workspace. Three packages live under `packages/`, and the
-root holds only shared tooling and CI-facing scripts.
+This is a pnpm workspace. Four packages live under `packages/`, and the
+root holds shared tooling and CI-facing scripts.
 
 ```
 <repo-root>/
-  package.json              Workspace orchestrator — every CI-facing script
-                            proxies to packages/desktop via `pnpm --filter
-                            marktext ...`. CI invocations are unchanged.
+  package.json              Workspace orchestrator. App scripts proxy to
+                            packages/desktop; document-core and CriticMarkup
+                            parity checks have dedicated root scripts.
   pnpm-workspace.yaml       `packages: ['packages/*']` plus allowBuilds.
   pnpm-lock.yaml            Single lockfile, shared across all packages.
   eslint.config.js          Root ESLint v9 flat config (covers desktop +
@@ -55,6 +55,11 @@ root holds only shared tooling and CI-facing scripts.
                             `directories.output: ../../dist` so CI artifact
                             globs `dist/*` still apply).
   packages/
+    document-core/          Framework-free Markdown + CriticMarkup language
+                            core (name: "@marktext/document-core"). Its small
+                            public facade owns canonical source revisions,
+                            projections, and incremental parser reuse. Run
+                            `pnpm document-core:check` for its complete gate.
     desktop/                The Electron app (name: "marktext").
       package.json          Holds all Electron / Vue / build-time deps and
                             the dev/build/test/typecheck scripts. Depends on
@@ -137,13 +142,13 @@ root holds only shared tooling and CI-facing scripts.
       src/ / public/ / build/ / vite.config.ts / tsconfig.json
 ```
 
-The root has no `src/`, `test/`, `static/`, or `build/` of its own anymore — they all live in `packages/desktop/`.
+The root has no `src/`, `test/`, `static/`, or `build/` of its own anymore;
+package-local code and tests live under `packages/`.
 
 ## Development Workflow
 
-All commands run from the repo root. The root `package.json` proxies every
-desktop-specific script to `packages/desktop` via `pnpm --filter marktext`,
-so the names and behavior are unchanged from the pre-monorepo layout.
+All commands run from the repo root. The root `package.json` proxies
+desktop-specific scripts to `packages/desktop` via `pnpm --filter marktext`.
 
 ```bash
 # Install dependencies (runs scripts/postinstall.ts automatically — patches
