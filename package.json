@@ -33,6 +33,9 @@
     "test:e2e": "pnpm --filter marktext test:e2e",
     "typecheck": "pnpm --filter marktext typecheck",
     "typecheck:watch": "pnpm --filter marktext typecheck:watch",
+    "criticmarkup:parity": "tsx scripts/criticmarkupParityBaseline.ts",
+    "criticmarkup:parity:check": "tsx scripts/criticmarkupParityBaseline.ts --check",
+    "criticmarkup:parity:validate": "tsx scripts/criticmarkupParityBaseline.ts --validate",
     "check": "pnpm lint && pnpm typecheck",
     "gen-third-party": "tsx scripts/generateThirdPartyLicense.ts",
     "validate-licenses": "tsx scripts/validateLicenses.ts"
