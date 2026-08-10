@@ -5,7 +5,7 @@ import type {
   ExecutionBudgetId,
   MarkupMark,
   MarkupProjection,
-  MarkupProjectionRun,
+  MarkupProjectionEvent,
   MarkdownOptionsV1,
   NodeId,
   ProjectedCodeUnitOrigin,
@@ -227,23 +227,20 @@ interface MarkupRangeTask {
   readonly start: number
   readonly end: number
   readonly nodes: readonly CriticMarkupNode[]
-  readonly markPath: MarkPath | undefined
 }
 
 interface MarkupAppendTask {
   readonly kind: 'markup-append'
   readonly start: number
   readonly end: number
-  readonly markPath: MarkPath | undefined
 }
 
-type MarkupTask = MarkupRangeTask | MarkupAppendTask
-
-interface MarkPath {
-  readonly parent: MarkPath | undefined
-  readonly mark: MarkupMark
-  readonly depth: number
+interface MarkupEventTask {
+  readonly kind: 'markup-event'
+  readonly event: MarkupProjectionEvent
 }
+
+type MarkupTask = MarkupRangeTask | MarkupAppendTask | MarkupEventTask
 
 /**
  * The intrinsic-pass facts a later reopen can splice instead of re-scanning
@@ -1990,131 +1987,73 @@ function projectedSyntaxSourceIdentity(
   })
 }
 
-function appendMark(markPath: MarkPath | undefined, mark: MarkupMark): MarkPath {
-  return Object.freeze({
-    parent: markPath,
-    mark: Object.freeze(mark),
-    depth: (markPath?.depth ?? 0) + 1
-  })
+function markedMarkupTasks(
+  mark: MarkupMark,
+  arm: CriticMarkupArm<'content' | 'old' | 'new'>
+): readonly MarkupTask[] {
+  const frozenMark = Object.freeze(mark)
+  return Object.freeze([
+    Object.freeze({
+      kind: 'markup-event',
+      event: Object.freeze({ kind: 'enter', mark: frozenMark })
+    }),
+    Object.freeze({
+      kind: 'markup-range',
+      start: arm.range.start,
+      end: arm.range.end,
+      nodes: arm.children
+    }),
+    Object.freeze({
+      kind: 'markup-event',
+      event: Object.freeze({ kind: 'exit', mark: frozenMark })
+    })
+  ])
 }
 
-function markupNodeTasks(
-  node: CriticMarkupNode,
-  markPath: MarkPath | undefined
-): readonly MarkupRangeTask[] {
+function markupNodeTasks(node: CriticMarkupNode): readonly MarkupTask[] {
   if (node.kind === 'comment') {
     return Object.freeze([])
   }
   if (node.kind === 'substitution') {
     return Object.freeze([
-      Object.freeze({
-        kind: 'markup-range',
-        start: node.arms[0].range.start,
-        end: node.arms[0].range.end,
-        nodes: node.arms[0].children,
-        markPath: appendMark(
-          markPath,
-          defineNodeId({ kind: 'substitution', arm: 'old' }, node.nodeId)
-        )
-      }),
-      Object.freeze({
-        kind: 'markup-range',
-        start: node.arms[1].range.start,
-        end: node.arms[1].range.end,
-        nodes: node.arms[1].children,
-        markPath: appendMark(
-          markPath,
-          defineNodeId({ kind: 'substitution', arm: 'new' }, node.nodeId)
-        )
-      })
+      ...markedMarkupTasks(
+        defineNodeId({ kind: 'substitution', arm: 'old' }, node.nodeId),
+        node.arms[0]
+      ),
+      ...markedMarkupTasks(
+        defineNodeId({ kind: 'substitution', arm: 'new' }, node.nodeId),
+        node.arms[1]
+      )
     ])
   }
-  const mark: MarkupMark = Object.freeze(
-    defineNodeId({ kind: node.kind }, node.nodeId)
+  return markedMarkupTasks(
+    defineNodeId({ kind: node.kind }, node.nodeId),
+    node.arms[0]
   )
-  const arm = node.arms[0]
-  return Object.freeze([
-    Object.freeze({
-      kind: 'markup-range',
-      start: arm.range.start,
-      end: arm.range.end,
-      nodes: arm.children,
-      markPath: appendMark(markPath, mark)
-    })
-  ])
 }
 
 function createMarkupProjection(
   source: string,
   roots: readonly CriticMarkupNode[]
 ): MarkupProjection {
-  interface MutableMarkupRun {
-    readonly markPath: MarkPath | undefined
-    readonly marks: readonly MarkupMark[]
-    text: string
-    sourceStart: number
-    sourceEnd: number
-  }
-
-  const runs: MutableMarkupRun[] = []
+  const events: MarkupProjectionEvent[] = []
   const tasks: MarkupTask[] = [
     {
       kind: 'markup-range',
       start: 0,
       end: source.length,
-      nodes: roots,
-      markPath: undefined
+      nodes: roots
     }
   ]
-  const emptyMarks: readonly MarkupMark[] = Object.freeze([])
-  const materializedPaths = new WeakMap<MarkPath, readonly MarkupMark[]>()
-  const materializeMarkPath = (markPath: MarkPath | undefined): readonly MarkupMark[] => {
-    if (markPath === undefined) {
-      return emptyMarks
-    }
-    const cached = materializedPaths.get(markPath)
-    if (cached !== undefined) {
-      return cached
-    }
-    const marks = new Array<MarkupMark>(markPath.depth)
-    let cursor: MarkPath | undefined = markPath
-    for (let index = marks.length - 1; index >= 0; index -= 1) {
-      if (cursor === undefined) {
-        throw new Error('Markup mark path ended before its declared depth')
-      }
-      marks[index] = cursor.mark
-      cursor = cursor.parent
-    }
-    const frozen = Object.freeze(marks)
-    materializedPaths.set(markPath, frozen)
-    return frozen
-  }
-  const appendSource = (
-    start: number,
-    end: number,
-    markPath: MarkPath | undefined
-  ): void => {
+  const appendSource = (start: number, end: number): void => {
     if (start === end) {
       return
     }
-    const text = source.slice(start, end)
-    const previousRun = runs[runs.length - 1]
-    if (
-      previousRun !== undefined &&
-      previousRun.sourceEnd === start &&
-      previousRun.markPath === markPath
-    ) {
-      previousRun.text += text
-      previousRun.sourceEnd = end
-    } else {
-      runs.push({
-        markPath,
-        marks: materializeMarkPath(markPath),
-        text,
-        sourceStart: start,
-        sourceEnd: end
-      })
-    }
+    events.push(Object.freeze({
+      kind: 'text',
+      text: source.slice(start, end),
+      sourceRange: sourceRange(start, end)
+    }))
   }
 
   while (tasks.length > 0) {
@@ -2122,8 +2061,12 @@ function createMarkupProjection(
     if (task === undefined) {
       break
     }
+    if (task.kind === 'markup-event') {
+      events.push(task.event)
+      continue
+    }
     if (task.kind === 'markup-append') {
-      appendSource(task.start, task.end, task.markPath)
+      appendSource(task.start, task.end)
       continue
     }
     const orderedTasks: MarkupTask[] = []
@@ -2133,19 +2076,17 @@ function createMarkupProjection(
         orderedTasks.push({
           kind: 'markup-append',
           start: cursor,
-          end: node.range.start,
-          markPath: task.markPath
+          end: node.range.start
         })
       }
-      orderedTasks.push(...markupNodeTasks(node, task.markPath))
+      orderedTasks.push(...markupNodeTasks(node))
       cursor = node.range.end
     }
     if (cursor < task.end) {
       orderedTasks.push({
         kind: 'markup-append',
         start: cursor,
-        end: task.end,
-        markPath: task.markPath
+        end: task.end
       })
     }
     for (let index = orderedTasks.length - 1; index >= 0; index -= 1) {
@@ -2156,26 +2097,19 @@ function createMarkupProjection(
     }
   }
 
-  const frozenRuns: readonly MarkupProjectionRun[] = Object.freeze(
-    runs.map((run) =>
-      Object.freeze({
-        text: run.text,
-        sourceRange: sourceRange(run.sourceStart, run.sourceEnd),
-        marks: run.marks
-      })
-    )
-  )
+  const frozenEvents = Object.freeze(events)
   return Object.freeze({
-    runs: frozenRuns,
-    runCount: frozenRuns.length,
-    runAt: Object.freeze((ordinal: number): MarkupProjectionRun => {
-      const run = Number.isInteger(ordinal) ? frozenRuns[ordinal] : undefined
-      if (run === undefined) {
+    eventCount: frozenEvents.length,
+    eventAt: Object.freeze((ordinal: number): MarkupProjectionEvent => {
+      const event = Number.isInteger(ordinal)
+        ? frozenEvents[ordinal]
+        : undefined
+      if (event === undefined) {
         throw new RangeError(
-          `Markup projection run ordinal ${String(ordinal)} is outside [0, ${String(frozenRuns.length)})`
+          `Markup projection event ordinal ${String(ordinal)} is outside [0, ${String(frozenEvents.length)})`
         )
       }
-      return run
+      return event
     })
   })
 }

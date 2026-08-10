@@ -4,7 +4,8 @@ import {
   createDocumentCore,
   DocumentCoreError,
   type DocumentCore,
-  type DocumentRevision
+  type DocumentRevision,
+  type ProjectionCoordinateMap
 } from '../src/index.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 
@@ -37,6 +38,29 @@ function observableRevision(
   core: DocumentCore,
   revision: DocumentRevision
 ): unknown {
+  const observableCoordinates = (
+    coordinates: ProjectionCoordinateMap,
+    projectedLength: number
+  ): unknown => ({
+    origins: Array.from(
+      { length: projectedLength },
+      (_, offset) => coordinates.originAt(offset)
+    ),
+    projectedPositions: Array.from(
+      { length: projectedLength + 1 },
+      (_, offset) => ({
+        previous: coordinates.toSource(offset, 'previous'),
+        next: coordinates.toSource(offset, 'next')
+      })
+    ),
+    sourcePositions: Array.from(
+      { length: revision.source.length + 1 },
+      (_, offset) => ({
+        previous: coordinates.toProjected(offset, 'previous'),
+        next: coordinates.toProjected(offset, 'next')
+      })
+    )
+  })
   const observableProjection = (
     name: 'original' | 'revised'
   ): unknown => {
@@ -44,32 +68,30 @@ function observableRevision(
     return {
       markdown: projection.markdown,
       ast: projection.ast,
-      origins: Array.from(
-        { length: projection.markdown.length },
-        (_, offset) => projection.coordinates.originAt(offset)
-      ),
-      projectedPositions: Array.from(
-        { length: projection.markdown.length + 1 },
-        (_, offset) => ({
-          previous: projection.coordinates.toSource(offset, 'previous'),
-          next: projection.coordinates.toSource(offset, 'next')
-        })
-      ),
-      sourcePositions: Array.from(
-        { length: revision.source.length + 1 },
-        (_, offset) => ({
-          previous: projection.coordinates.toProjected(offset, 'previous'),
-          next: projection.coordinates.toProjected(offset, 'next')
-        })
+      coordinates: observableCoordinates(
+        projection.coordinates,
+        projection.markdown.length
       )
     }
   }
+  const markup = core.project(revision, 'markup')
+  const editingLength = markup.syntax.ast.root.range.end
   return {
     source: revision.source,
     annotations: revision.annotations,
     diagnostics: revision.diagnostics,
     original: observableProjection('original'),
-    revised: observableProjection('revised')
+    revised: observableProjection('revised'),
+    markup: {
+      events: markup.events,
+      syntax: {
+        ast: markup.syntax.ast,
+        coordinates: observableCoordinates(
+          markup.syntax.coordinates,
+          editingLength
+        )
+      }
+    }
   }
 }
 
@@ -98,9 +120,227 @@ describe('document-core facade', () => {
     const source = 'keep {++add++} {--drop--} {~~old~>new~~} {==mark==} {>>note<<}'
     const core = createDocumentCore()
     const revision = core.open(source)
+    const original = core.project(revision, 'original')
+    const revised = core.project(revision, 'revised')
 
-    expect(core.project(revision, 'original').markdown).toBe('keep  drop old mark ')
-    expect(core.project(revision, 'revised').markdown).toBe('keep add  new mark ')
+    expect(original).toMatchObject({
+      kind: 'markdown',
+      name: 'original',
+      markdown: 'keep  drop old mark '
+    })
+    expect(revised).toMatchObject({
+      kind: 'markdown',
+      name: 'revised',
+      markdown: 'keep add  new mark '
+    })
+  })
+
+  it('publishes a balanced Markup event stream with an editing semantic spine', () => {
+    const source =
+      'a {++outer {--inner--}++} {~~old~>new~~} {==mark==} {>>note<<} z'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const markup = core.project(revision, 'markup')
+
+    expect(markup.kind).toBe('markup')
+    expect(markup.name).toBe('markup')
+    expect(markup).not.toHaveProperty('markdown')
+    expect(markup.syntax).not.toHaveProperty('markdown')
+    expect(markup.syntax.ast.root.kind).toBe('document')
+    expect(markup.events).toEqual([
+      { kind: 'text', text: 'a ', sourceRange: { start: 0, end: 2 } },
+      {
+        kind: 'enter',
+        mark: {
+          kind: 'addition',
+          annotationRange: { start: 2, end: 25 }
+        }
+      },
+      { kind: 'text', text: 'outer ', sourceRange: { start: 5, end: 11 } },
+      {
+        kind: 'enter',
+        mark: {
+          kind: 'deletion',
+          annotationRange: { start: 11, end: 22 }
+        }
+      },
+      { kind: 'text', text: 'inner', sourceRange: { start: 14, end: 19 } },
+      {
+        kind: 'exit',
+        mark: {
+          kind: 'deletion',
+          annotationRange: { start: 11, end: 22 }
+        }
+      },
+      {
+        kind: 'exit',
+        mark: {
+          kind: 'addition',
+          annotationRange: { start: 2, end: 25 }
+        }
+      },
+      { kind: 'text', text: ' ', sourceRange: { start: 25, end: 26 } },
+      {
+        kind: 'enter',
+        mark: {
+          kind: 'substitution',
+          arm: 'old',
+          annotationRange: { start: 26, end: 40 }
+        }
+      },
+      { kind: 'text', text: 'old', sourceRange: { start: 29, end: 32 } },
+      {
+        kind: 'exit',
+        mark: {
+          kind: 'substitution',
+          arm: 'old',
+          annotationRange: { start: 26, end: 40 }
+        }
+      },
+      {
+        kind: 'enter',
+        mark: {
+          kind: 'substitution',
+          arm: 'new',
+          annotationRange: { start: 26, end: 40 }
+        }
+      },
+      { kind: 'text', text: 'new', sourceRange: { start: 34, end: 37 } },
+      {
+        kind: 'exit',
+        mark: {
+          kind: 'substitution',
+          arm: 'new',
+          annotationRange: { start: 26, end: 40 }
+        }
+      },
+      { kind: 'text', text: ' ', sourceRange: { start: 40, end: 41 } },
+      {
+        kind: 'enter',
+        mark: {
+          kind: 'highlight',
+          annotationRange: { start: 41, end: 51 }
+        }
+      },
+      { kind: 'text', text: 'mark', sourceRange: { start: 44, end: 48 } },
+      {
+        kind: 'exit',
+        mark: {
+          kind: 'highlight',
+          annotationRange: { start: 41, end: 51 }
+        }
+      },
+      { kind: 'text', text: ' ', sourceRange: { start: 51, end: 52 } },
+      { kind: 'text', text: ' z', sourceRange: { start: 62, end: 64 } }
+    ])
+    expect(markup.events.flatMap(event =>
+      event.kind === 'text' ? [event.text] : []
+    ).join('')).toBe(
+      'a outer inner oldnew mark  z'
+    )
+    const stack: object[] = []
+    for (const event of markup.events) {
+      if (event.kind === 'enter') stack.push(event.mark)
+      if (event.kind === 'exit') expect(stack.pop()).toBe(event.mark)
+    }
+    expect(stack).toEqual([])
+    expect(markup.events.flatMap(event =>
+      event.kind === 'text' ? [] : [event.mark]
+    ))
+      .not.toContainEqual(expect.objectContaining({ nodeId: expect.anything() }))
+    expect(revision.annotations.some(annotation => annotation.kind === 'comment'))
+      .toBe(true)
+    expect(core.project(revision, 'markup')).toBe(markup)
+  })
+
+  it('keeps the parser-emitted Markup spine when arm text would reparse differently', () => {
+    const core = createDocumentCore()
+    const markup = core.project(core.open('{~~*old~>new*~~}'), 'markup')
+    const visibleText = markup.events.flatMap(event =>
+      event.kind === 'text' ? [event.text] : []
+    ).join('')
+    const nodeKinds = markdownNodes(markup.syntax.ast.root).map(node =>
+      (node as { readonly kind: string }).kind
+    )
+
+    // Flattening the two arms would synthesize `*oldnew*`, which a reparse
+    // would treat as emphasis. The emitted editing spine protects that join.
+    expect(visibleText).toBe('*oldnew*')
+    expect(nodeKinds).not.toContain('emphasis')
+    expect(markup.syntax.ast.root.range).toEqual({ start: 0, end: 9 })
+    expect(markup.syntax.coordinates.originAt(0)).toEqual({
+      kind: 'generated',
+      sourcePosition: 3,
+      affinity: 'next'
+    })
+    expect(markup.syntax.coordinates.toProjected(3, 'previous')).toBe(0)
+    expect(markup.syntax.coordinates.toProjected(3, 'next')).toBe(1)
+    expect(markup.syntax.coordinates.toSource(0, 'previous')).toBe(0)
+    expect(markup.syntax.coordinates.toSource(0, 'next')).toBe(3)
+    expect(markup.syntax.coordinates.toSource(5, 'previous')).toBe(7)
+    expect(markup.syntax.coordinates.toSource(5, 'next')).toBe(9)
+  })
+
+  it('emits balanced marks for empty unary and substitution arms', () => {
+    const source = '{++++}{----}{====}{~~~>~~}{~~~>new~~}{~~old~>~~}'
+    const core = createDocumentCore()
+    const markup = core.project(core.open(source), 'markup')
+    const stack: object[] = []
+    const marks: string[] = []
+
+    for (const event of markup.events) {
+      if (event.kind === 'enter') {
+        stack.push(event.mark)
+        marks.push(event.mark.kind === 'substitution'
+          ? `${event.mark.kind}:${event.mark.arm}`
+          : event.mark.kind)
+      } else if (event.kind === 'exit') {
+        expect(stack.pop()).toBe(event.mark)
+      }
+    }
+
+    expect(stack).toEqual([])
+    expect(marks).toEqual([
+      'addition',
+      'deletion',
+      'highlight',
+      'substitution:old',
+      'substitution:new',
+      'substitution:old',
+      'substitution:new',
+      'substitution:old',
+      'substitution:new'
+    ])
+  })
+
+  it('keeps deeply nested Markup projection event count linear', () => {
+    const depth = 3_000
+    const source = `${'{++a'.repeat(depth)}x${'++}'.repeat(depth)}`
+    const core = createDocumentCore()
+    const markup = core.project(core.open(source), 'markup')
+    const stack: object[] = []
+    const text: string[] = []
+
+    expect(markup.events).toHaveLength(3 * depth)
+    for (const event of markup.events) {
+      if (event.kind === 'enter') stack.push(event.mark)
+      if (event.kind === 'exit') expect(stack.pop()).toBe(event.mark)
+      if (event.kind === 'text') text.push(event.text)
+    }
+    expect(stack).toEqual([])
+    expect(text.join('')).toBe(`${'a'.repeat(depth)}x`)
+  })
+
+  it('materializes Markup without a second intrinsic CriticMarkup parse', () => {
+    const source = 'before {++added++} {--deleted--} {~~old~>new~~} after'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const before = inspectDocumentCore(core).intrinsicSourceUnits
+
+    core.project(revision, 'markup')
+
+    expect(before).toBeGreaterThanOrEqual(source.length)
+    expect(inspectDocumentCore(core).intrinsicSourceUnits).toBe(before)
   })
 
   it('publishes a sanitized Markdown AST with raw link-target facts', () => {
@@ -450,6 +690,7 @@ describe('document-core facade', () => {
       source.slice(edit.end)
     const incrementalCore = createDocumentCore()
     const opened = incrementalCore.open(source)
+    const openedMarkup = incrementalCore.project(opened, 'markup')
     const before = inspectDocumentCore(incrementalCore).intrinsicSourceUnits
     const reopened = incrementalCore.reopen(opened, nextSource, edits)
     const spent =
@@ -460,6 +701,7 @@ describe('document-core facade', () => {
 
     expect(observableRevision(incrementalCore, reopened))
       .toEqual(observableRevision(fullCore, full))
+    expect(incrementalCore.project(opened, 'markup')).toBe(openedMarkup)
     expect(fullSpent).toBeGreaterThanOrEqual(nextSource.length)
     expect(spent).toBeLessThan(fullSpent)
   })
