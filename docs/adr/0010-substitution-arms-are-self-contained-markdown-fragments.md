@@ -16,25 +16,18 @@ whole Substitution.
 
 When recursive arm selection would place an outside delimiter next to an
 arm-local delimiter and make the flattened projection look like a valid pair,
-the boundary-safe projector applies the shortest typed Profile 1 codec at the
-first unsafe transition. Usually that is one escape. Preserving retained
-meaning may instead require extending both ends of an inline-code span,
-respelling both ends of enclosing emphasis (with a minimum round-tripping
-entity codec where flanking requires it), or generating a fence closer/line
-ending at an arm-fragment exit. Raw NUL and unpaired surrogate units remain
-exact source and use CommonMark's virtual replacement-atom semantics for
-flanking; they are never serialized as non-round-tripping references.
-Generated provenance points to the causal canonical delimiter, scalar, or arm
-exit. The protected Original or Revised source therefore reparses to the same
-meaning as the retained graph; a projection never retroactively turns a
-cross-arm pair into Markdown syntax or merges two independent block fragments.
+the derived projection preserves the syntax meaning established by the arm
+boundaries; it does not retroactively form cross-arm Markdown pairs or merge
+independent block fragments. If a consumer materializes projected source, any
+protective spelling is minimal, reversible, and explicitly mapped to canonical
+source. The language profile defines the observable result; it does not require
+a particular codec.
 
 The upstream CriticMarkup toolkit does not define choosing one arm as changing
 how Markdown after the Substitution is parsed, and it advises authors to wrap
-Markdown tags completely inside each alternative. MarkText therefore parses
-following source once from the unchanged enclosing state. Giving later source
+Markdown tags completely inside each alternative. MarkText therefore interprets
+following source from the unchanged enclosing state. Giving later source
 different semantic owners depending on an arm would complicate editing and
 resource limits and reduce interoperability without a specified user benefit.
-Complete Markdown constructs may still span a whole
-CriticMarkup item from outside it, and non-Substitution CM markers remain
-zero-width grammar events; only arm-local matching state is contained.
+Complete Markdown constructs may still span a whole CriticMarkup item from
+outside it; only arm-local matching state is contained.

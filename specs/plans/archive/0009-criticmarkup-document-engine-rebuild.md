@@ -1,6 +1,7 @@
 # CriticMarkup document-engine rebuild
 
-- **Status:** RED — G24 open
+- **Status:** Archived 2026-08-10 — superseded by plan 0010; not completed
+- **Superseded by:** [0010 MarkText CriticMarkup core integration](../0010-marktext-criticmarkup-core-integration.md)
 - **Owner:** MarkText
 - **Updated:** 2026-07-31
 - **Profiles:** `markdown-profile-1`, `marktext-profile-1`, `live-html-sanitized-v1`

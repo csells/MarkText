@@ -1,5 +1,8 @@
 # Native target capabilities own document saves
 
+> **Status:** Historical plan-0009 persistence design. Plan 0010 excludes a general native-save
+> redesign; only visible failure and no-partial-output behavior remain product requirements.
+
 Document save durability is implemented behind a small platform-native target
 capability, not inferred from portable path strings or a successful JavaScript
 `rename` callback. The desktop persistence boundary resolves a requested path

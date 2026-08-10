@@ -4,6 +4,10 @@
 > `@marktext/document-core` as a standalone module. Owner intent: **doc-core is not being
 > published to npm now, but must remain standalone from MarkText so that option stays open.**
 > Vocabulary per the codebase-design skill: module / interface / seam / adapter / depth.
+>
+> **Status:** Research-branch baseline, not target architecture. Plan 0010 Phase 0 evaluates each
+> asset for import, adaptation, supersession, or rejection; current APIs, budget profiles, storage,
+> and session mechanics are not product requirements.
 
 ## Verdict
 
@@ -27,8 +31,8 @@ earning its keep.
   without declaring it) — now a declared `workspace:*` edge; and the enforcement gap where
   boundary policy checked manifests but not actual `src` import statements — the
   dependency-policy spec now walks `src` and asserts every import specifier is relative.
-- Accepted as versioned language/budget decisions behind profile IDs (plan 0009 decision 9),
-  NOT host-knowledge leaks: `marktext-profile-1` (the language's name),
+- Recorded as research implementation choices behind profile IDs, not language requirements:
+  `marktext-profile-1` (the language's name),
   `DIAGRAM_FENCE_LANGUAGES` (classifies fences into generic `diagram` nodes; hosts without
   diagram renderers simply receive `diagram` nodes), `desktop-v1` (a budget class a host
   selects; if ever renamed pre-publish, prefer a capability name like `standard-v1`).

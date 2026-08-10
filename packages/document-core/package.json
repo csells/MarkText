@@ -31,13 +31,12 @@
     "build": "pnpm run clean && tsc -p tsconfig.build.json",
     "lint": "eslint src test vitest.config.ts",
     "prepack": "pnpm run build",
-    "test": "vitest run --exclude test/plan/0009-final-closure.spec.ts --exclude test/language-engine/resource-budgets.spec.ts --exclude test/document-session/review-index.spec.ts --exclude test/document-session/journal-max-document-performance.spec.ts --exclude test/package-boundary/packed-consumer.spec.ts && pnpm run test:wall-clock",
-    "test:platform": "vitest run --exclude test/plan/0009-final-closure.spec.ts --exclude test/language-engine/resource-budgets.spec.ts --exclude test/document-session/review-index.spec.ts --exclude test/document-session/journal-max-document-performance.spec.ts --exclude test/package-boundary/packed-consumer.spec.ts",
+    "test": "vitest run --exclude \"test/plan/**\" --exclude test/language-engine/resource-budgets.spec.ts --exclude test/document-session/review-index.spec.ts --exclude test/document-session/journal-max-document-performance.spec.ts --exclude test/package-boundary/packed-consumer.spec.ts && pnpm run test:wall-clock",
+    "test:platform": "vitest run --exclude \"test/plan/**\" --exclude test/language-engine/resource-budgets.spec.ts --exclude test/document-session/review-index.spec.ts --exclude test/document-session/journal-max-document-performance.spec.ts --exclude test/package-boundary/packed-consumer.spec.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "check:platform": "pnpm run lint && pnpm run typecheck && pnpm run test:platform && pnpm run build",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
-    "test:wall-clock": "vitest run --no-file-parallelism test/language-engine/resource-budgets.spec.ts test/document-session/review-index.spec.ts test/document-session/journal-max-document-performance.spec.ts test/package-boundary/packed-consumer.spec.ts",
-    "test:closure": "vitest run test/plan/0009-final-closure.spec.ts"
+    "test:wall-clock": "vitest run --no-file-parallelism test/language-engine/resource-budgets.spec.ts test/document-session/review-index.spec.ts test/document-session/journal-max-document-performance.spec.ts test/package-boundary/packed-consumer.spec.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",

@@ -13,11 +13,16 @@ packages/
   website/        Documentation website
 specs/
   language/       Normative language profiles
-  migration/      Machine-readable acceptance corpora and gates
+  migration/      Historical plan-0009 evidence and candidate fixtures
   plans/          Active implementation plans
 ```
 
-`@marktext/document-core` owns exact source bytes, parsing, projections,
+This branch is the document-engine research snapshot. The active product direction is
+`specs/plans/0010-marktext-criticmarkup-core-integration.md`: preserve a recorded upstream
+MarkText baseline and selectively import research assets. Do not treat the current replacement
+view or the archived plan-0009 certification ledgers as product-completion authority.
+
+`@marktext/document-core` owns exact decoded source text, parsing, projections,
 immutable revisions, selection, history, typed editing intents, Review indexes,
 and materialization. It has no DOM, Vue, Pinia, or Electron dependency.
 

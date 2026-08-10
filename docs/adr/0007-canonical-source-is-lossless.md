@@ -3,17 +3,14 @@
 The parser core preserves the exact decoded canonical source, including a
 leading U+FEFF retained from a file BOM, line-ending style, blank lines,
 terminal-EOL absence, CriticMarkup spelling, escapes, and untouched trivia. The
-desktop snapshot records whether that leading unit came from an encoding
-signature. Edited saves disable automatic BOM emission and encode the canonical
-units exactly, so the retained U+FEFF is neither duplicated nor dropped. Opening
-and saving without an edit is exact. Grammar treats exactly the first source
-U+FEFF as virtual BOF trivia by value and position; file-signature provenance
-never changes parsing because that distinction cannot survive an independent
-plain-file reopen. Later U+FEFF units are ordinary text.
+desktop file layer separately owns original bytes, encoding, BOM provenance,
+and EOL policy. Opening and saving without an edit is byte-exact. An edited save
+encodes the canonical source under the declared policy without duplicating or
+dropping a leading U+FEFF or rewriting unrelated source.
 
-`SourceHashV1` hashes framed exact UTF-16 code units, `FileHashV1` hashes framed
-raw bytes, and `RevisionSemanticHashV1` combines the source digest with the full
-versioned interpretation/build identity. No hash normalizes Unicode or line
-endings. Normalization is permitted only as an explicit document
-transformation. This keeps persistence independent of syntax-tree reconstruction
-and derived views.
+Grammar treats a leading source U+FEFF according to the ratified Profile 1 rule;
+later U+FEFF units are ordinary text. No parser, serializer, or consumer
+normalizes Unicode, line endings, markers, or trivia implicitly. Normalization
+is permitted only as an explicit document transformation. Hash algorithms,
+framing, snapshot fields, and save implementation are versioned implementation
+details, not language semantics.

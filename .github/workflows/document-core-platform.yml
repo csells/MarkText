@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - '**'
-    tags:
-      - 'evidence/0009/**'
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -116,7 +114,7 @@ jobs:
           MARKTEXT_TEST_BACKGROUND: '1'
           # Playwright resolves reporter output against its config directory,
           # so only an absolute path lands where the attestation step reads.
-          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/test-results/0009-review-exercise.json
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/test-results/document-core-review-exercise.json
 
       - name: Write compact platform attestation
         shell: bash
@@ -133,7 +131,7 @@ jobs:
         run: |
           node --input-type=module -e '
             import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-            const directory = "test-results/0009-platform";
+            const directory = "test-results/document-core-platform";
             const path = directory + "/" + process.env.EVIDENCE_PLATFORM + ".json";
             const runnerImageOs = process.env.ImageOS;
             const runnerImageVersion = process.env.ImageVersion;
@@ -145,7 +143,7 @@ jobs:
             // after the exercise left a report proving the Review spec ran
             // and passed in this job.
             const report = JSON.parse(readFileSync(
-              "test-results/0009-review-exercise.json",
+              "test-results/document-core-review-exercise.json",
               "utf8"
             ));
             const exercised = (report.suites ?? []).some((suite) =>
@@ -166,7 +164,7 @@ jobs:
             }
             mkdirSync(directory, { recursive: true });
             const attestation = {
-              schema: "marktext-0009-platform-attestation-v1",
+              schema: "marktext-document-core-platform-result-v1",
               state: "verified",
               candidateCommit: process.env.EVIDENCE_COMMIT,
               refName: process.env.EVIDENCE_REF_NAME,
@@ -197,12 +195,15 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: document-core-platform-${{ matrix.name }}-${{ github.sha }}
-          path: test-results/0009-platform/${{ matrix.name }}.json
+          path: test-results/document-core-platform/${{ matrix.name }}.json
           if-no-files-found: error
           retention-days: 90
 
   document-core-closure-proof:
     name: document-core-closure-proof
+    # Historical plan-0009 certification is retired. Keep the old steps inert until this
+    # research workflow is replaced by plan 0010's ordinary product-path checks.
+    if: false
     needs: document-core-review
     runs-on: macos-15
     timeout-minutes: 60
@@ -211,18 +212,13 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Classify Plan 0009 closure state
+      - name: Recognize archived Plan 0009
         id: closure-state
         shell: bash
         run: |
           node --input-type=module -e '
-            import { appendFileSync, readFileSync } from "node:fs";
-            const plan = readFileSync(
-              "specs/plans/0009-criticmarkup-document-engine-rebuild.md",
-              "utf8"
-            );
-            const state = /^- \*\*Status:\*\* GREEN\b/mu.test(plan) ? "green" : "red";
-            appendFileSync(process.env.GITHUB_OUTPUT, "state=" + state + "\n");
+            import { appendFileSync } from "node:fs";
+            appendFileSync(process.env.GITHUB_OUTPUT, "state=archived\n");
           '
 
       - uses: ./.github/actions/setup
@@ -254,9 +250,8 @@ jobs:
 
   document-core-candidate-publication:
     name: document-core-candidate-publication
-    if: >-
-      github.ref_type == 'tag' &&
-      startsWith(github.ref_name, 'evidence/0009/publish-')
+    # Plan 0009 is archived; retain this job only as historical workflow context.
+    if: false
     needs:
       - document-core-review
       - document-core-closure-proof

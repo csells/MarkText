@@ -1,7 +1,7 @@
 # The caret never enters a hidden comment
 
 A comment's `{>>…<<}` is collapsed to zero width in WYSIWYG. The other four
-forms expose their semantic payload through the active render plan, but no CM
+forms expose their semantic payload through the active WYSIWYG projection, but no CM
 marker or Substitution separator has a live editable position; raw marker edits
 belong to Source mode. Because the Comment payload is edited only in the sidebar
 or Source mode, the caret must never be able to land inside that hidden region — by

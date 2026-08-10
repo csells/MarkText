@@ -34,10 +34,6 @@
     "typecheck": "pnpm --filter marktext typecheck",
     "typecheck:watch": "pnpm --filter marktext typecheck:watch",
     "check": "pnpm lint && pnpm typecheck",
-    "evidence:0009": "tsx scripts/collect0009Evidence.ts",
-    "validate:0009:candidate": "tsx scripts/verify0009Closure.ts --validate-candidate",
-    "verify:0009:ci": "tsx scripts/verify0009Closure.ts --ci",
-    "close:0009": "tsx scripts/verify0009Closure.ts --commit",
     "gen-third-party": "tsx scripts/generateThirdPartyLicense.ts",
     "validate-licenses": "tsx scripts/validateLicenses.ts"
   },

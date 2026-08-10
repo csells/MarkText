@@ -1,9 +1,12 @@
-# Parser core — verified architectural facts
+# Parser core — research baseline
 
-> The single source of truth for evidence facts behind the MD+CM core parser: plan 0009 states
-> the owner-ratified requirements (R-1…R-7) and points here; the research docs own methods and
-> vote margins; this sheet owns the durable facts and the harvest list. Supersedes any older
-> statement in this directory that conflicts.
+> **Status:** Historical, non-normative evidence from the plan 0009 engine investigation.
+> [Plan 0010](../plans/0010-marktext-criticmarkup-core-integration.md) owns the active integration
+> work, and the candidate [Profile 1](../language/marktext-markdown-profile-1.md) owns language
+> semantics only after ratification. Measurements below describe the recorded implementation,
+> not current product performance or a required parser algorithm.
+> Historical `research 0001`–`0008` references resolve in git commit `4a08c5e2`; those files are
+> not active authority in the current tree.
 
 ## 1. The topology fact (why the graph exists)
 
@@ -15,7 +18,7 @@ kill for tree-shaped hosts (verified for `@lezer/markdown`; `micromark` fails ea
 stream-truncation walls — see §3). The overlapping-markup literature formalizes the required
 shape: **"Overlap is multiple parentage"** (GODDAG, verified in research 0008) — one span node
 dominated by containers in different hierarchies, which is what document-core's lossless syntax
-graph beside the block AST (plan 0009 decision 2) provides.
+graph beside the block AST in the research implementation provides.
 
 ## 2. The two-authority fact (why one parse is a requirement, not doctrine)
 
@@ -93,7 +96,7 @@ editor internals only.
   tools themselves. Literal precedence exists in NO reference tool; MarkText's adoption of it
   is a deliberate divergence recorded in the language spec (research 0005).
 
-## 6. Harvest list (adopt the hardening, not the engines — sequencing lives in plan 0009)
+## 6. Harvest list (candidate inputs to plan 0010 Phase 0)
 
 1. micromark's ~2k-test conformance corpus (CommonMark 0.31.2 + GFM), plus its first-party
    math/front-matter extension suites → target-owned conformance rows.
@@ -114,7 +117,7 @@ editor internals only.
 
 ## 7. Related records
 
-Requirements and gate: plan 0009 ("Ratified core-parser requirements"). Wide-sweep verdict and
-prior-art digest: research 0008. Language-spec ratification items (five judgment calls, the
-link-vs-annotation overlap tie-break, container-boundary accept/reject semantics — the
-no-precedent case 0008 surfaced): `specs/language/marktext-markdown-profile-1.md`.
+Active integration and gates: plan 0010. Wide-sweep verdict and prior-art digest: historical
+research 0008. Candidate language rulings, including the link-vs-annotation overlap tie-break and
+container-boundary accept/reject semantics, live in
+`specs/language/marktext-markdown-profile-1.md` pending explicit ratification.

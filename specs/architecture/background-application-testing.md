@@ -1,5 +1,8 @@
 # Background Application Testing
 
+> **Status:** Historical plan-0009 harness record. Keep its observable non-focus and fresh-build
+> test goals; its process, scheduling, and document-view topology are not plan-0010 requirements.
+
 ## Purpose
 
 Automated MarkText desktop tests must never take over the user's computer.

@@ -1,15 +1,16 @@
 # MarkText Markdown Profile 1 — Language Specification
 
-- **Status:** Draft 1 for owner review (2026-07-24)
+- **Status:** Draft 2 for owner review (2026-08-10); language semantics only
 - **Identifiers:** `markdownProfile: 'markdown-profile-1'` ·
   `criticMarkupProfile: 'marktext-profile-1'`
-- **Derived from:** plan 0009 settled decisions and ADRs 0005–0013; research 0004 (Rust OSS
-  parser evaluation), research 0005 (CriticMarkup ecosystem semantics, adversarially verified);
-  the canonical CriticMarkup specification; owner rulings recorded 2026-07-24.
+- **Derived from:** the canonical CriticMarkup specification, CommonMark and GFM, historical
+  interoperability evidence, semantic ADRs 0008–0010 and 0013–0015, and owner rulings recorded
+  2026-07-24.
 - **Audience:** the document-core parser, its test corpus, adapters, and any future
-  reimplementation (including a port). This document defines the _language_; plan 0009 owns the
-  _architecture and migration_. Where implementation status lags this document, this document is
-  the target.
+  reimplementation (including a port). This document defines the candidate _language_;
+  [plan 0010](../plans/0010-marktext-criticmarkup-core-integration.md) owns architecture,
+  migration, performance, and acceptance. Where implementation status lags this document,
+  this document is the language target only after explicit ratification.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are to be interpreted as in RFC 2119.
 
@@ -19,10 +20,10 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are to be interpreted 
 
 Profile 1 is the complete composed language that MarkText documents are written in: a pinned
 CommonMark base, a pinned GFM extension set, MarkText's built-in constructs, and the five
-CriticMarkup annotation forms as **intrinsic productions of the same grammar**. One parser
-recognizes all of it in one pass; there is no separate CriticMarkup scanner, prepass, overlay, or
-post-processor (plan 0009, architectural law; the forbidden architectures listed there apply to
-this specification's conforming implementations).
+CriticMarkup annotation forms as **intrinsic productions of the same grammar**. Markdown and
+CriticMarkup have one shared interpretation: a consumer must not rescan flattened text and invent
+a second CriticMarkup or Markdown meaning. The parser algorithm, number of internal passes, data
+structures, and incremental-reuse strategy are implementation choices.
 
 Principles every rule below serves:
 
@@ -30,27 +31,27 @@ Principles every rule below serves:
   are no syntax errors, only constructs that form or fail to form. A conforming parser MUST
   produce a complete parse for any input, including every mid-edit prefix of a document.
 - **P2 — Source authority and losslessness.** The decoded source text is the single authority.
-  The parse product accounts for every code unit exactly once, and serializing a revision
-  reproduces the source byte-for-byte (BOM, line-ending spellings, blank lines, marker
-  spellings, escapes, trailing-space trivia, missing final newline). Normalization is only ever
-  an explicit transform (plan 0009 decision 3).
-- **P3 — One decision per source run.** Literal ownership and CriticMarkup delimiter activity
-  are decided once, in one left-to-right pass, at the moment the parser reaches that source run.
-  No later stage — projection, materialization, adapter, consumer — may revise a recognition
-  decision (plan 0009 decision 2; §7).
+  The parse product accounts for every decoded code unit exactly once, including line-ending
+  spellings, blank lines, marker spellings, escapes, trailing-space trivia, and a leading U+FEFF.
+  Normalization is only ever an explicit transform. File bytes, encoding, BOM policy, and
+  byte-exact no-op save behavior belong to the file layer and plan 0010's compatibility contract.
+- **P3 — One language decision per source run.** Literal ownership and CriticMarkup delimiter
+  activity have one deterministic meaning. No projection, materializer, adapter, or consumer may
+  revise a recognition decision (§7).
 - **P4 — Views are reads.** Original, Revised, and the editing view are reads of one parse by
-  arm selection, never independent reparses of assembled strings; where eliding a marker changes
-  block structure, the parse forks locally and reconverges at a safe point (§10).
+  arm selection, never independent interpretations of assembled strings. Where eliding a marker
+  changes Markdown structure, each view exposes the structure implied by the same recognized
+  annotation and the normative projection table (§10).
 - **P5 — Rulings are named.** Behavior the upstream CriticMarkup prose leaves undefined is a
   versioned MarkText ruling, tested as such, and never attributed to the canonical specification
-  (plan 0009 decision 4). §12 ledgers every deliberate divergence from reference tools.
+  (ADR-0008). §12 ledgers every deliberate divergence from reference tools.
 
 ### 1.1 Offsets and text model
 
-Offsets in this specification and in every Profile 1 API are **UTF-16 code-unit indices** into
-the decoded source tape. A conforming parser MUST leave no code unit unowned (the scanner
-enforces this invariant). Line endings are LF, CRLF, or CR; all three delimit lines and are
-preserved exactly. A leading U+FEFF is part of the tape, owned as trivia, and preserved.
+Offsets exchanged by Profile 1 APIs are **UTF-16 code-unit indices** into decoded source;
+implementations may use another internal representation. Every decoded code unit has one language
+meaning. Line endings are LF, CRLF, or CR; all three delimit lines and are preserved exactly. A
+leading U+FEFF is part of decoded source, treated as leading trivia, and preserved.
 
 ---
 
@@ -82,10 +83,8 @@ in practice even though it is not the letter of the specification.
 
 The widening is additive: it can only admit emphasis CommonMark refused for
 this boundary reason. It never creates emphasis that a whitespace, empty-run,
-or intraword-underscore rule already forbids, and it leaves every one of the
-652 CommonMark 0.31.2 conformance examples unchanged — none places a delimiter
-adjacent to a CJK character. `packages/document-core/test/language-engine/cjk-emphasis-flanking.spec.ts`
-pins both halves.
+or intraword-underscore rule already forbids, and it must not change the
+expected output of any CommonMark 0.31.2 conformance example.
 
 ## 3. Layer B — GFM extension set (pinned)
 
@@ -101,18 +100,18 @@ GFM constructs participate in the single grammar like any CommonMark construct.
 
 ## 4. Layer C — MarkText built-in constructs
 
-Layer C is frozen by `MarkdownOptionsV1`. A disabled switch removes its
-production from the composed grammar before CriticMarkup recognition; it is
-not a rendering-only preference and MUST NOT remain identity-only.
+Layer C is controlled by a versioned set of syntax-affecting options. A disabled switch removes
+its production from the composed language before CriticMarkup recognition; it is not merely a
+rendering preference.
 
-- **YAML front matter.** A `---` line at the very start of the tape (offset 0, or immediately
+- **YAML front matter.** A `---` line at the very start of decoded source (offset 0, or immediately
   after a BOM) opens front matter, closed by a `---` or `...` line. Front matter is a literal
   range: no Markdown and no CriticMarkup is recognized inside it (§7). A `---` line anywhere
   else is ordinary Markdown (setext underline or thematic break per CommonMark). This
   production is enabled exactly when `frontMatter` is true. TOML `+++`, semicolon-delimited
   JSON, and brace-delimited JSON are ordinary Markdown in Profile 1.
-- **Table-of-contents marker.** A single physical top-level line which would otherwise emit a
-  paragraph emits that paragraph with the parser fact `tableOfContents: true` when removing
+- **Table-of-contents marker.** A single physical top-level line which would otherwise be a
+  paragraph is a table-of-contents marker when removing
   zero or more ASCII spaces (`U+0020`) and tabs (`U+0009`) from both ends leaves exactly the
   five case-sensitive code units `[TOC]`. No other spelling is a marker: `[toc]`, escaped
   `\[TOC]`, character-reference spellings such as `&#91;TOC]`, and lines padded only by other
@@ -122,14 +121,12 @@ not a rendering-only preference and MUST NOT remain identity-only.
   raw inline HTML, and link syntax containing those visible characters likewise remain their
   normal inline productions. A multi-line paragraph is never a marker.
 
-  Original and Revised apply this production independently to their parser-selected fork
-  source, so an Addition, Deletion, or Substitution can make the fact exist in one clean view
-  and not the other. The Markup editing tree may share the same source fork and marker fact as
-  a clean view; parser-emitted visible review ownership over the marker takes precedence and
-  keeps the marked spelling visible as ordinary reviewed paragraph content. An unmarked
-  marker in Markup remains active. The fact never changes retained source, node ranges, or
-  ordinary paragraph rendering; only a structured static HTML/PDF/print consumer activates
-  it as a generated table of contents.
+  Original and Revised apply this production to their projected content, so an Addition,
+  Deletion, or Substitution can make the fact exist in one clean view
+  and not the other. In Markup, CriticMarkup ownership keeps a marked spelling visible as reviewed
+  paragraph content; an unmarked marker remains active. The marker never changes retained source
+  or ordinary paragraph text. A consumer that supports generated tables of contents may activate
+  it in HTML, PDF, or print output.
 - **Inline math.** `$…$` spans, recognized as a literal range with CommonMark-code-span-like
   ownership (§7), are enabled exactly when `math` is true.
 - **Math blocks.** `$$` blocks are enabled exactly when `math` is true. A fenced block whose
@@ -166,20 +163,20 @@ Profile 1 recognizes exactly the five canonical forms, with exactly these delimi
 
 - **CM1.** Delimiters are exactly the ASCII sequences above. Profile 1 MUST NOT recognize
   HTML-entity or tag aliases (`{<del>`, `{&gt;&gt;`, …) or in-annotation metadata separators
-  (`@@`); those are third-party extensions (research 0005, Fevol inspection) and their
+  (`@@`); those are third-party extensions found in Fevol/Commentator and their
   characters are ordinary payload text.
 - **CM2.** Empty payloads are valid: `{++++}`, `{----}`, `{~~~>~~}`, `{====}`, `{>><<}` all
-  form. `{====}` has no barrier or pairing meaning beyond being an empty Highlight (plan 0009
-  decision 6).
+  form. `{====}` has no barrier or pairing meaning beyond being an empty Highlight.
 - **CM3.** Whitespace inside payloads is payload. Delimiters MUST NOT contain interior
   whitespace (`{ ++` does not open).
 
 ## 6. CriticMarkup recognition rules
 
-- **R1 — Same pass.** CM delimiters are recognized by the same left-to-right parse that
-  recognizes Markdown, subject to literal ownership (§7). There is no separate CM pass.
+- **R1 — Shared language recognition.** CM delimiters and Markdown constructs are recognized as
+  productions of the same language, subject to literal ownership (§7). A later consumer may not
+  reinterpret CM independently.
 - **R2 — Pairing.** An opener forms an annotation if and only if its matching closer occurs
-  later in the document, found by properly-nested pairing (§6.1) during the single scan. An
+  later in the document under properly-nested pairing (§6.1). An
   opener with no closer, and a closer with no opener, are **literal text** — they form nothing,
   consume nothing, and MUST NOT affect recognition of any later construct. This holds
   identically for complete documents and for mid-edit states (P1); an unclosed opener MUST NOT
@@ -189,8 +186,8 @@ Profile 1 recognizes exactly the five canonical forms, with exactly these delimi
   blank lines, and block boundaries. A paragraph-spanning deletion, an addition containing a
   blank line, an annotation enclosing an entire block quote, list, or table — all form. The
   canonical toolkit's DOTALL behavior and MMD-6's accept/reject path are precedent; the
-  single-block confinement found in some renderers is a parser artifact Profile 1 rejects
-  (research 0005 Q1). Structural consequences for the projections are handled by fork semantics
+  single-block confinement found in some renderers is a parser artifact Profile 1 rejects.
+  Structural consequences are handled by the projection semantics
   (§10), not by refusing recognition. Bounds:
   - **R3a.** An annotation MUST NOT start or end _inside_ a literal range (§7) — but may
     enclose one whole.
@@ -199,28 +196,28 @@ Profile 1 recognizes exactly the five canonical forms, with exactly these delimi
     delimiting role even between CM markers; write `\|` for a literal pipe inside an annotation
     in a table. An annotation MAY instead enclose the entire table (open before its first row,
     close after its last). Annotations spanning _some but not all_ of a table's rows do not
-    form (openers/closers are literal). _(Profile 1 ruling — ecosystem silent, research 0005
-    Q9.)_
+    form (openers/closers are literal). _(Profile 1 ruling; the reference ecosystem is silent.)_
 - **R4 — Substitution divider.** Exactly one `~>` at the top nesting level of a substitution's
   payload divides _old_ from _new_. A `~>` anywhere outside a substitution payload is literal
-  text. Profile 1 deliberately diverges from MMD-6, which erases stray `~>` tokens (research
-  0005 Q10); see §12. A substitution containing no top-level `~>` does not form (all its
+  text. Profile 1 deliberately diverges from MMD-6, which erases stray `~>` tokens; see §12. A
+  substitution containing no top-level `~>` does not form (all its
   delimiters are literal). Additional top-level `~>` sequences after the first are payload text
   of the _new_ arm.
 - **R5 — Comment subdocument.** A Comment's payload is unstructured note text parsed as an
   isolated inline Profile 1 subdocument. Inline Markdown and properly nested CriticMarkup are
   recognized inside `{>> … <<}`; block state cannot enter or escape the payload. The outer
   Comment ends at its properly nested matching `<<}` (subject to escaping, §8). Imported
-  author initials, timestamps, Markdown-looking text, and delimiters are preserved byte-exact;
+  author initials, timestamps, Markdown-looking text, and delimiters are preserved exactly in
+  decoded source;
   Profile 1 assigns them no proprietary metadata schema. Original and Revised elide the
-  complete outer Comment. A Comment consumer lazily reads the Revised view of the retained
-  payload subtree.
+  complete outer Comment. A Comment consumer reads the Revised interpretation of the retained
+  payload.
 - **R6 — Highlight content.** A Highlight's payload is ordinary Markdown (and may contain
   nested CM, §6.1) — its text is present in both projections, so it parses like surrounding
   text.
 - **R7 — Addition/Deletion/Substitution arms.** Each payload/arm is an **arm-local Markdown
   fragment**: full inline Markdown, and — when the arm spans block boundaries (R3) — full block
-  structure, parsed with parser-created identity. See §9.1 for containment.
+  structure. See §9.1 for containment.
 
 ### 6.1 Nesting
 
@@ -228,14 +225,14 @@ Profile 1 recognizes exactly the five canonical forms, with exactly these delimi
   Deletion, or Substitution arm, or inside a Highlight payload — including the same form inside
   itself. Pairing is properly nested: `{--a{--b--}c--}` is a Deletion containing a Deletion,
   matching MMD-6's tested recursive semantics (`accept({++foo{--bat--}bar++}) = "foobar"`;
-  `reject({--foo{-- bat --}bar--}) = "foo bat bar"` — both are conformance oracles, research
-  0005 Q5).
+  `reject({--foo{-- bat --}bar--}) = "foo bat bar"` — both are conformance oracles).
 - **N2.** Any of the five forms may nest properly inside a Comment subdocument (R5), including
   another Comment. Its Markdown state and annotation stack are local to that Comment.
-- **N3.** Nesting depth MAY be bounded by the active limits profile (§13); at the bound, inner
-  openers are literal text (graceful degradation, never an error state).
+- **N3.** Resource exhaustion must not silently change nesting semantics by reinterpreting inner
+  annotations as literal text. An implementation that cannot complete the interpretation fails
+  explicitly without publishing a partial revision.
 
-## 7. Literal precedence — the one-lexer rule
+## 7. Literal precedence
 
 Certain constructs own their source ranges as **literal ranges**: inline code spans, fenced code
 blocks (including math and diagram blocks), indented code blocks, `$…$` / `$$` math, autolinks,
@@ -244,38 +241,21 @@ footnote-definition tracking ranges.
 
 - **L1.** Inside a literal range, CM delimiters are data. `` `{++` `` is a code span containing
   four characters; a fenced code block containing `{++ … ++}` renders those bytes verbatim.
-  _(Profile 1 ruling: the reference tools protect nothing — research 0005 Q2 — and that
-  behavior is universally a defect class; Profile 1 diverges deliberately, see §12.)_
-- **L2.** Ownership is decided by one composed lexer in one pass: candidates are ordered by
-  start offset (earliest start wins; on ties, the longer range), and once a range is owned, any
-  construct starting inside it is data and cannot extend ownership past the owner's end
-  (`composeMarkdownLiteralRanges` is the reference algorithm). Symmetrically, a literal-range
-  opener that begins inside an already-open CM payload is arm-local (§9.1): it must complete
-  within the arm or it does not form.
-- **L2a — the arm-boundary fixpoint (owner-ratified 2026-07-25; ADR-0014).** When an inline literal opens inside
-  an annotation payload and its would-be completing run lies at or past the payload's closer
-  candidate, two self-consistent readings exist: defer the closer (extending the arm until the
-  literal completes) or let it stand (the literal never completes; C1 forbids the
-  cross-boundary pair). Profile 1 rules for **the closer standing**: the arm ends at its first
-  unowned closer candidate, the open literal degrades per C1/T2, and no closer decision ever
-  requires lookahead past the candidate. Rationale: C1's both-endpoints-in-arm rule applied at
-  the smallest fixpoint; locality (decisions never depend on text beyond the candidate — the
-  R-6 and incrementality-friendly choice). Diverges from the shared-loop reading the
-  `@lezer/markdown` spike exhibited (research
-  0007's L2 row) — ledgered as D8.
-- **L2b — the reference-scope fixpoint (owner-ratified 2026-07-25).** A
-  Comment or Substitution boundary candidate that conflicts only with
-  reference-dependent link-destination ownership **stands**. The accepted
-  Comment/Substitution structure creates the reference environment; reference
-  edges are then emitted from that environment. An unambiguous accepted
-  literal owner — including inline code, a direct inline-link destination,
-  fenced code, HTML, front matter, or a definition — still owns the candidate
-  under L1/L2. This chooses the least-literal/greatest-scope fixed point when
-  reference visibility and potential destination ownership admit two
-  self-consistent readings; no provisional CM scope may be built from an
-  unaccepted delimiter.
-- **L3.** No consumer, projection, or adapter may re-recognize CriticMarkup in any flattened
-  string (plan 0009 architectural law). Recognition happens exactly once, here.
+  _(Profile 1 ruling: the reference tools protect no literal ranges, and Profile 1 deliberately
+  diverges; see §12.)_
+- **L2.** Literal ownership and CM recognition are deterministic. An accepted literal range owns
+  any marker-looking text inside it. A literal that opens inside a CM payload is arm-local and
+  must complete inside that arm or it does not form.
+- **L2a — closer precedence (owner-ratified 2026-07-25; ADR-0014).** If an inline literal opens
+  inside an annotation arm but would complete at or beyond the arm's first unowned closer, the
+  annotation closer stands and the unfinished literal recovers as text. For example,
+  ``{++a `x++}` b++}`` closes at the first `++}`.
+- **L2b — reference-dependent ownership (owner-ratified 2026-07-25).** A Comment or Substitution
+  boundary that conflicts only with a possible reference-dependent link destination stands. An
+  already recognized literal owner, including inline code, a direct link destination, fenced code,
+  HTML, front matter, or a definition, retains precedence under L1/L2.
+- **L3.** No consumer, projection, or adapter may re-recognize CriticMarkup in a flattened string
+  or assign a different meaning to already recognized source.
 
 ## 8. Escaping
 
@@ -290,19 +270,8 @@ footnote-definition tracking ranges.
 - **E2.** Code spans remain the interoperable escape (`` `{++` ``), per L1 — this is the only
   escape that also survives the reference tools.
 - **E3.** E1 is a MarkText extension: no reference implementation has any escape mechanism
-  (research 0005 Q8). The divergence is ledgered in §12, and E1 MUST be presented in user-facing
+  (see §12). E1 MUST be presented in user-facing
   docs as MarkText-specific.
-- **E4.** A Markup-mode edit whose committed candidate would make the document **newly** begin
-  with U+FEFF spells that code unit as the numeric character reference `&#xFEFF;`. A bare
-  U+FEFF at offset zero is universally read as an encoding signature, not content — the
-  UTF-8 file round trip itself is byte-exact either way — so committing the bare code unit
-  would silently reinterpret the author's character as a BOM in every other tool. Encoding it
-  preserves what the projected text means (ADR-0015: source bytes are transcribed exactly;
-  projected text is encoded faithfully). A document opened with a BOM keeps its exact leading
-  U+FEFF (§2: a leading U+FEFF is part of the tape); the encoding applies only when an edit
-  introduces the leading position, and Source-mode edits are never encoded. Like E1 this is a
-  MarkText extension ledgered in §12 and MUST be presented in user-facing docs as
-  MarkText-specific.
 
 ## 9. Interactions with Markdown constructs
 
@@ -318,7 +287,7 @@ boundary for paired Markdown state**:
   inline construct does not form (its delimiters are text); the annotation still forms.
   `{~~*italic~>plain~~}*` contains no emphasis anywhere. This is the ecosystem's one true
   consensus (toolkit "Wrap Markdown Tags Completely"; MMD-6's documented cross-span
-  limitation — research 0005 Q3/Q4).
+  limitation documented by MMD-6).
 - **C2.** Symmetrically, paired syntax fully outside may enclose a whole annotation:
   `*a {++b++} c*` is emphasis containing an Addition.
 - **C3.** Link reference definitions written inside an arm are arm-local: they resolve
@@ -333,7 +302,7 @@ boundary for paired Markdown state**:
 
 When a payload spans blocks (R3), its interior is parsed as block structure (paragraphs,
 headings, lists, quotes, whole literal blocks) in the views where that text is present.
-Structure-affecting edge cases are governed by fork semantics (§10): e.g. a Deletion covering a
+Structure-affecting edge cases are governed by projection semantics (§10): e.g. a Deletion covering a
 heading's `# ` produces a heading in Original and a paragraph in Revised.
 
 ### 9.3 Headings and thematic breaks
@@ -370,7 +339,7 @@ struck-through `b` (containment per C1).
 
 ## 10. Views, projections, and accept/reject semantics
 
-Profile 1 documents are read through three views (plan 0009 decisions 10–13):
+Profile 1 documents are read through three views:
 
 | Form         | Original (reject-all) | Revised (accept-all) | Editing (Markup) view |
 | ------------ | --------------------- | -------------------- | --------------------- |
@@ -385,28 +354,19 @@ MMD-6's accept/reject processors informed some rows but do not determine them.
 Nested annotations resolve recursively per the same table.
 
 - **V1.** Original and Revised are read-only projections; only the editing and source views
-  edit canonical content (plan 0009 decision 10).
-- **V2 — Views are reads.** One parse produces one structure; each view is a read of it by arm
-  selection. Text that does not change across views is parsed exactly once. Where eliding or
-  keeping a marker changes _block structure_ (a deletion spanning `# `, an addition containing
-  a blank line), the parse forks across that region, computing both resolutions, and
-  reconverges at the next **safe point**: a top-level blank line with no open fenced-code or
-  HTML block. Worst case is the bounded O(views·n); the sparse-marker common case is O(n)
-  (plan 0009 decision 11; research 0002).
-- **V3 — Segment maps.** Every view read and every materialized projection carries an exact,
-  gapless, parser-created segment map to canonical offsets (`validateMappedProjection`
-  enforces this). Guards may add generated protection to a derived projection; nothing may
-  create, repair, or revise CM nodes, ownership runs, reference edges, or diagnostics
-  post-parse (plan 0009 architectural law).
-- **V4 — Accept/Reject as commands.** Accepting or rejecting an annotation is a typed intent
-  that produces an exact source edit (delete marker and non-selected content ranges), then an
-  atomic reparse-and-commit of the new revision. Semantics per annotation are the table's
-  column applied to that annotation alone. This matches the ecosystem's tested model —
-  source-text edit followed by a genuine reparse (MMD-6; research 0005 Q6) — realized without
-  string materialization for convergent text.
+  edit canonical content.
+- **V2 — Views are reads.** Each view selects annotation arms from the same recognized source.
+  Where keeping or eliding an arm changes Markdown block structure, the view exposes the
+  corresponding structure without changing the annotation recognition or source authority.
+- **V3 — Source relationship.** Every view and materialized projection retains an exact,
+  gapless relationship to canonical source. Derived protection may preserve projection meaning,
+  but it may not create or revise CriticMarkup recognition.
+- **V4 — Accept/Reject semantics.** Accepting or rejecting an annotation produces the canonical
+  source that results from removing its markers and the non-selected arm. The table's column is
+  applied to that annotation alone; the resulting source is interpreted as a new revision.
 - **V5 — Highlight/Comment relation.** A gapless, nonempty `{==text==}{>>note<<}` pair is
   presented as one related Review item; the relation is _derived adjacency context_, not parser
-  identity, stored intent, or a grammar production (plan 0009 decision 6; toolkit convention;
+  identity, stored intent, or a grammar production (toolkit convention;
   lang-criticmarkup sibling-node precedent). A standalone Comment anchors to its own source
   position only.
 
@@ -418,7 +378,7 @@ Nested annotations resolve recursively per the same table.
   normal parsing.
 - **T2.** Recovery is always _degradation to literal text_ — never dropped bytes, never an
   error sentinel that changes downstream recognition, never consumption to end-of-document.
-  MMD-6's unmated-marker passthrough (verified by compilation, research 0005 Q10) is the
+  MMD-6's unmated-marker passthrough is the
   precedent; its stray-`~>` erasure is explicitly non-adopted (R4).
 - **T3.** Unfinished arm-local state recovers at the arm boundary (C1) and cannot affect
   source after the annotation.
@@ -439,41 +399,24 @@ compatibility documentation:
 | D5  | No `{<del>`-style aliases, no `@@` metadata (CM1)                                                | Fevol/Commentator grammar                                                  | Not canonical CM; payload bytes must round-trip                                                                                          |
 | D6  | Recursive nesting incl. same-form (N1)                                                           | lang-criticmarkup/Fevol parse nested markers as flat text                  | MMD-6's tested recursion is the authoritative precedent                                                                                  |
 | D7  | Comments retain isolated inline Profile 1 subdocuments (R5)                                      | Toolkit/MMD erase the payload and opaque-parser designs do not retain it   | A portable note stays unstructured while nested source, identity, and lazy Comment rendering remain lossless                             |
-| D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | The lezer-host shared-loop reading (research 0007) defers the closer       | C1 at the smallest fixpoint; closer decisions stay lookahead-free (R-6, incrementality)                                                  |
-| D9  | An edit-introduced leading U+FEFF is spelled `&#xFEFF;` (E4)                                     | No reference tool distinguishes content U+FEFF from a BOM at offset zero   | Markup-mode meaning preservation (ADR-0015); an opened BOM stays a bare exact U+FEFF                                                     |
+| D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | An alternative shared-loop parser reading defers the closer                | Reliable closer behavior and arm containment (ADR-0014)                                                                                 |
 
-## 13. Complexity and resource model
+## 13. Implementation boundary
 
-- **X1.** A full parse of n code units MUST run in O(n) time and memory — no backtracking
-  blowup, no quadratic delimiter or edit-map behavior (research 0004's markdown-rs finding is
-  the cautionary precedent). Pairing (R2), literal composition (L2), and containment (C1) are
-  all single-scan-compatible by construction.
-- **X2.** With view forks, worst case is O(views·n) (V2). Convergent text is parsed once
-  (plan 0009 decision 11, invariant 21).
-- **X3.** Deterministic resource accounting: parses run under a named limits profile
-  (`desktop-v1`) and accounting schema (`syntax-accounting-1`) carried in the
-  frozen `ParseConfiguration`. Depth-class limits (N3) degrade to literal text, never to
-  failure, and identically on every conforming implementation.
-- **X4 — Incremental reparse (forward-looking, plan 0009 decision 12).** The language is
-  designed so a keystroke can reparse only its changed region with fragment reuse bounded by
-  safe points; two non-local features require explicit gating: reference-definition
-  environments (C3) and multi-block/unclosed CM pairing (R2/R3), both of which an incremental
-  implementation MUST re-key on edits that add or remove delimiters or definitions. Nothing in
-  Layers A–D may be extended in a way that forecloses fragment reuse. Incrementality does not
-  change this language's meaning: an incremental parse MUST be observationally identical to a
-  full parse (same graph, same views, same maps).
+Performance targets, resource limits, incremental equivalence, accounting, parser APIs, and
+failure publication are engine requirements owned by plan 0010 and implementation baselines.
+They do not change Profile 1 language meaning.
 
 ## 14. Versioning
 
-- **Y1.** Profile identifiers (§ header) are validated at parse time; unknown identifiers are
-  rejected (`validateAndFreezeParseConfiguration`).
+- **Y1.** Unknown profile identifiers are rejected explicitly before a revision is published.
 - **Y2.** Any change that alters the recognition, structure, projection, or round-trip of any
-  existing byte sequence — pinned CommonMark/GFM version bumps, construct additions/removals,
+  existing decoded-source sequence — pinned CommonMark/GFM version bumps, construct additions/removals,
   new escape rules, changed rulings — is a new Profile (`…-profile-2`), never a silent revision
   of Profile 1. Bug fixes that make an implementation conform to _this document_ are not
   version changes.
 - **Y3.** `markdownProfile` and `criticMarkupProfile` version two aspects of one grammar; they
-  MUST NOT select peer pipelines (plan 0009 language contract).
+  MUST NOT select peer language interpretations.
 
 ## 15. Conformance
 
@@ -484,24 +427,22 @@ A conforming implementation MUST pass:
 2. **REFERENCE_PROJECTION_CONVENTIONS** — the §10 table, differential against MMD-6
    (`critic_markup.c` CuTest matrix imported verbatim, including the three nesting cases and
    unclosed-marker passthrough; D4 is the one documented delta).
-3. **PROFILE1_RULINGS** — every R/L/E/C/N/T/V/X rule above, including the multi-block corpus
+3. **PROFILE1_RULINGS** — every R/L/E/C/N/T/V rule above, including the multi-block corpus
    rows (`block-spanning-addition`, `nested-block-spanning-addition-and-deletion`), table
    containment (R3b), escaping (E1), and mid-edit prefix states (T1: for each corpus document,
    every prefix parses and round-trips).
-4. **Round-trip** — byte-exact serialize∘parse identity over the full corpus and over every
-   real document in the repository (the branch's existing exact-round-trip suite), including
-   BOM/CRLF/astral rows.
+4. **Decoded-source round-trip** — exact serialize∘parse identity over the full corpus and
+   representative real documents, including leading U+FEFF, CRLF, and astral rows. File-byte,
+   encoding, and no-op save fidelity are integration acceptance, not language conformance.
 5. **Lexical fixtures** — imported `basic_ranges`/`malformed_ranges`/`edge_cases` rows from
    Fevol/criticmarkup-parser, with expectations adjusted to Profile 1 rulings (N1 vs its flat
    nesting; CM1 vs its aliases).
-6. **Complexity gates** — the scale corpus under `desktop-v1` limits with linear-fit assertions
-   (X1/X2).
 
 ## 16. References
 
-Plan 0009 (`specs/plans/0009-criticmarkup-document-engine-rebuild.md`) — settled decisions,
-ADRs, language contract. The active architecture evidence records the verified
-host-parser facts behind the rulings above. CommonMark 0.31.2; GFM spec;
+Plan 0010 defines the active integration and acceptance work. Archived plan 0009 records
+historical candidate decisions but is not authority. Architecture evidence records the
+host-parser facts behind some rulings and is non-normative. CommonMark 0.31.2; GFM spec;
 CriticMarkup toolkit README (canonical prose spec); `fletcher/MultiMarkdown-6`
 `src/critic_markup.c` (projection evidence);
 `nathanlesage/lang-criticmarkup` and `Fevol/criticmarkup-parser` (lexical fixtures and

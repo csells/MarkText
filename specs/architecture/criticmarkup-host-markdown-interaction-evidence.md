@@ -1,5 +1,8 @@
 # CriticMarkup and host-Markdown interaction: upstream evidence
 
+> **Status:** Non-normative evidence. Profile 1 owns ratified language meaning; plan 0010 and active
+> ADRs own integration decisions.
+
 ## Question
 
 Does canonical CriticMarkup require an old/new Substitution choice to change how later

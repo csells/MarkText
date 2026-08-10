@@ -1,5 +1,9 @@
 # Document revisions own an atomic syntax graph
 
+> **Status:** Superseded as a representation mandate by ADR-0013 and plan 0010. The graph below
+> records the plan-0009 research implementation and remains a candidate asset, not target
+> authority.
+
 A Complete document revision publishes one atomic parser artifact containing a lossless
 canonical token tape and a graph of intrinsic Markdown and CriticMarkup syntax
 nodes, including typed Substitution-arm subgraphs. It also owns Original and

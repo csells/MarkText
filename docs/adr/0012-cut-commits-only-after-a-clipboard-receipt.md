@@ -1,5 +1,9 @@
 # Cut commits only after a clipboard receipt
 
+> **Status:** Historical plan-0009 clipboard protocol. Plan 0010 retains the observable rule that
+> clipboard failure must not delete document content; candidate IDs, receipts, digests, fencing,
+> and journal mechanics are not target requirements.
+
 Cut is a copy-first cross-boundary transaction. The document session prepares,
 but does not commit, a revision-bound Cut candidate containing the exact
 selection, clipboard bundle, semantic deletion intent, base revision, and a

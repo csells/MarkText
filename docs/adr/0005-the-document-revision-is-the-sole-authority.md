@@ -1,16 +1,13 @@
 # The document revision is the sole authority
 
-MarkText will replace mutable JSON block state as document authority with one
-immutable, lossless document revision containing the exact canonical Markdown
-and immutable parse configuration. A Complete revision also owns its unified
-Markdown/CriticMarkup interpretation; a Source-only revision deliberately owns
-no semantic interpretation. For a Complete revision, the DOM, editor block
-tree, review surfaces, projections, and exports are derived views; accepted
-commands replace the revision as a whole. This prevents independently produced
-state, syntax, and provenance from being rebound or inferred after the fact.
+One document actor owns the decoded canonical Markdown source and its unified
+Markdown/CriticMarkup interpretation for an open document. The DOM, editor
+block tree, Review surfaces, projections, exports, and file bytes are derived
+or hosted state. They do not become competing document authorities.
 
-A durable commit record may encode a revision's exact base/source edits, source
-hash, profile, and transition metadata for crash recovery. That record is the
-serialized identity of the same logical revision, not a second semantic model:
-no consumer can query syntax from it, and after worker loss all semantic access
-stops until the exact revision is deterministically rematerialized and verified.
+Accepted commands publish a new revision atomically. Durable recovery data may
+record enough source and transition information to restore that revision, but
+it is not a second semantic model. The concrete revision types, hashes,
+journaling, rematerialization protocol, and worker-loss behavior are
+implementation decisions governed by plan 0010's observable recovery and
+latency requirements.

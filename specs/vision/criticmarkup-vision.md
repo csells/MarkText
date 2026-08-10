@@ -13,8 +13,9 @@ Suggestions and comments live in the document as plain, standard CriticMarkup, a
 author, review, and resolve them in true WYSIWYG. Anyone or anything — a co-author, an
 editor, an external tool, an AI — proposes a change by writing CriticMarkup; you accept or
 reject it with a gesture, not by reading a diff. Because the document is *only ever*
-standard Markdown plus the five CriticMarkup forms, it stays portable forever: every
-CriticMarkup-aware tool reads the same bytes.
+standard Markdown plus the five CriticMarkup forms, other CriticMarkup-aware tools can
+retain and expose the same markers. MarkText documents its behavior where the ecosystem
+does not define one common semantic answer.
 
 ## The five forms, exactly
 
@@ -42,28 +43,29 @@ Two things keep "100% CriticMarkup" honest against the canonical toolkit:
 
 ## Principles
 
-1. **100% CriticMarkup, and only CriticMarkup.** The five forms exactly as specified. We
-   **add** nothing to the format — no proprietary syntax, metadata, IDs, threads, anchors,
-   or sentinels — **subtract** nothing (all five forms, standalone Highlight and Comment
-   included), and **alter** nothing. Where the spec is silent we pick one deterministic
-   behavior *within* the standard forms; we never invent new ones. Portability is a
-   consequence of purity, not a separate feature.
+1. **100% CriticMarkup surface syntax, and only CriticMarkup.** The five forms exactly as
+   specified. We add no proprietary syntax, metadata, IDs, threads, anchors, or sentinels,
+   and support all five forms, including standalone Highlight and Comment. Where the spec is
+   silent, the versioned MarkText profile defines deterministic behavior without changing the
+   on-disk forms. Syntax portability does not imply every existing tool shares those rulings.
 
-2. **Source-authoritative and lossless.** Your exact bytes are the authority. Open, edit,
-   and save preserve the source exactly — line endings, trivia, marker spelling, escapes.
-   The editor never silently rewrites your document.
+2. **Source-authoritative and lossless.** The decoded source is the document authority.
+   A no-op save preserves the original bytes; an edited save preserves the declared
+   encoding/EOL policy and never silently rewrites unrelated source, trivia, marker
+   spelling, or escapes.
 
-3. **One intrinsic parse; one model.** Markdown and CriticMarkup are one language, parsed
-   once. There is a single block AST in which CriticMarkup forms are nodes beside Markdown
-   blocks — the model the editor mounts. Original (reject all), Revised (accept all), and
-   the editing view are *reads* of that one structure, never separate reparses.
+3. **One intrinsic language model.** Markdown and CriticMarkup are one language, not a
+   Markdown parse plus a CriticMarkup side channel. Original (reject all), Revised (accept
+   all), and the editing view derive from that shared interpretation; no consumer invents
+   a second meaning by rescanning flattened text.
 
 4. **True WYSIWYG.** Suggestions and comments are authored, reviewed, accepted, and rejected
    in the WYSIWYG surface — not only in a source pane. A tracked change looks like a tracked
    change while you write around it.
 
-5. **Instant.** Typing has no perceptible lag. Unchanged text is parsed once; parsing each
-   incremental edit exactly once (fragment reuse) is the standing performance commitment.
+5. **Instant.** Typing has no perceptible lag. Ordinary edits reuse unchanged work, update
+   only affected presentation, and are measured from browser input through visible paint
+   and authoritative acknowledgement.
 
 ## Who suggests
 
@@ -112,14 +114,16 @@ The CriticMarkup work spans several documents; they differ by **role**, not by s
 | Role | Document |
 | --- | --- |
 | **Why** — this vision | `specs/vision/criticmarkup-vision.md` |
-| **Decisions** — binding, hard to reverse | `docs/adr/0005`–`0013` |
-| **How we get there** — the rebuild plan | `specs/plans/0009-criticmarkup-document-engine-rebuild.md` |
+| **Decisions** — binding, hard to reverse | Semantic/product ADRs `0001`–`0005`, `0007`–`0010`, and `0013`–`0015` |
+| **What the language means** — candidate pending ratification | `specs/language/marktext-markdown-profile-1.md` |
+| **How we get there** — the integration plan | `specs/plans/0010-marktext-criticmarkup-core-integration.md` |
 | **Vocabulary** | `CONTEXT.md` |
 | **Evidence** — upstream research answering a specific question | `specs/architecture/criticmarkup-host-markdown-interaction-evidence.md` |
 
-The architecture lives in the ADRs, plan 0009, and this vision. Research and
-evidence may explain a ruling, but no prior implementation defines target
-behavior.
+The architecture lives in the active ADRs, plan 0010, and this vision. ADRs 0006,
+0011, and 0012 record plan-0009 implementation designs and are not active target
+authority. Research and evidence may explain a ruling, but no prior implementation
+defines target behavior.
 
 ## North star
 
