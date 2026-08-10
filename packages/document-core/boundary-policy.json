@@ -1,0 +1,5 @@
+{
+  "runtimeDependencies": [],
+  "ambientLibraries": ["ES2022"],
+  "forbiddenPackages": ["marked", "vue", "pinia", "electron"]
+}
