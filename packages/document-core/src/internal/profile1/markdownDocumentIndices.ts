@@ -82,14 +82,16 @@ export function createMarkdownDocumentIndices(
   execution: ParseExecutionTracker
 ): Pick<MarkdownDocument, 'references' | 'headings'> {
   const nodes: MarkdownNode[] = []
-  const visit = (node: MarkdownNode): void => {
+  const pending: MarkdownNode[] = [root]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) continue
     execution.examineParserWork(1)
     nodes.push(node)
-    for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
-      visit(node.childAt(ordinal))
+    for (let ordinal = node.childCount - 1; ordinal >= 0; ordinal -= 1) {
+      pending.push(node.childAt(ordinal))
     }
   }
-  visit(root)
 
   const definitions: MarkdownReferenceDefinitionFact[] = []
   const definitionByLabel =
