@@ -26,8 +26,7 @@ import {
 import {
   bracketForEdits,
   spliceGuardsHold,
-  spliceIntrinsicFacts,
-  type IntrinsicSpliceBracket
+  spliceIntrinsicFacts
 } from './profile1/intrinsicPassSplice.js'
 import {
   createStagedProfile1ReferenceDefinitionLookup,
@@ -105,6 +104,10 @@ import type {
 import type {
   Profile1CanonicalReferenceDefinitionLookup
 } from './profile1/referenceDefinitionIndex.js'
+import type {
+  PlainParagraphRegionBracket,
+  PlainParagraphRetainedIndex
+} from './profile1/plainParagraphRetainedIndex.js'
 import {
   createProfile1SyntaxAccountingRecorderV1,
   type Profile1SyntaxAccountingRecorderV1,
@@ -320,8 +323,8 @@ export interface PreviousIntrinsicPass {
  * materialized when this value is returned.
  */
 export interface Profile1RegionalAdmission {
-  readonly bracket: IntrinsicSpliceBracket
-  readonly retainedIntrinsic: RetainedIntrinsicPass
+  readonly bracket: PlainParagraphRegionBracket
+  readonly retainedIndex: PlainParagraphRetainedIndex
 }
 
 export interface Profile1ChangedJoinInspection {
@@ -4561,43 +4564,37 @@ function inertParagraphContentEnd(window: string): number | undefined {
  * products. The proof is deliberately narrow: a single edit wholly inside a
  * CM-free, definition-free, literal-free middle paragraph whose old and new
  * spellings are plain prose followed by a blank separator. Under that proof,
- * source size is the only resource quantity that can grow; Markdown and
- * CriticMarkup structure are unchanged from the already accepted revision.
+ * paragraph topology and all Markdown and CriticMarkup structure remain
+ * unchanged. The only mutable resource dimension, source size, is checked
+ * directly against the document policy.
  */
 export function admitProfile1PlainParagraphRegion(
   previousSource: string,
   source: string,
-  previousPass: PreviousIntrinsicPass,
+  previousIndex: PlainParagraphRetainedIndex,
+  edits: readonly RetainedPassSourceEdit[],
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
   createPhysicalTraversalRecorderV1()
 ): Profile1RegionalAdmission | undefined {
-  const retained = previousPass.retained
-  const edit = previousPass.edits.length === 1
-    ? previousPass.edits[0]
+  const edit = edits.length === 1
+    ? edits[0]
     : undefined
   if (
     edit === undefined ||
-    previousSource.length !== retained.sourceLength ||
+    previousSource.length !== previousIndex.sourceLength ||
     source.length > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits ||
-    retained.hasCriticMarkupCandidate ||
-    retained.rootCount !== 0 ||
-    retained.markerDecisionCount !== 0 ||
-    retained.referenceDefinitionCount !== 0 ||
-    retained.diagnostics.length !== 0 ||
-    retained.markdownLiterals.length !== 0 ||
     !/^[\p{L}\p{N} ]*$/u.test(edit.insert)
   ) {
     return undefined
   }
-  const bracket = bracketForEdits(retained, previousPass.edits, source.length)
+  const bracket = previousIndex.bracketForEdits(edits, source.length)
   if (
     bracket === undefined ||
     bracket.start === 0 ||
     bracket.endPrevious >= previousSource.length ||
-    bracket.endNext >= source.length ||
-    !spliceGuardsHold(retained, bracket, source)
+    bracket.endNext >= source.length
   ) {
     return undefined
   }
@@ -4624,23 +4621,23 @@ export function admitProfile1PlainParagraphRegion(
     false,
     execution
   )
-  const parsed = tryIncrementalIntrinsicParse(
-    source,
-    previousPass,
+  const parsed = parseIntrinsicProfile1(
+    nextWindow,
+    createProfile1SyntaxIdentityRegistry(nextWindow.length, accounting),
     usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
     usesDesktopLimits
       ? DESKTOP_MARKDOWN_DEPTH_LIMIT
       : Number.POSITIVE_INFINITY,
-    markdownOptions,
+    Object.freeze({ ...markdownOptions, frontMatter: false }),
     execution,
-    accounting,
-    physicalRecorder,
-    createProfile1SyntaxIdentityRegistry(source.length, accounting)
+    undefined,
+    physicalRecorder
   )
   execution.finish()
   if (
     parsed === undefined ||
     parsed.kind !== 'complete' ||
+    parsed.recoverySuppressedMarkerRanges !== undefined ||
     parsed.hasCriticMarkupCandidate ||
     parsed.roots.length !== 0 ||
     parsed.markerDecisions.length !== 0 ||
@@ -4651,10 +4648,10 @@ export function admitProfile1PlainParagraphRegion(
   }
   return Object.freeze({
     bracket,
-    retainedIntrinsic: retainedIntrinsicFromParse(
-      source.length,
-      parsed,
-      physicalRecorder
+    retainedIndex: previousIndex.withRegionLengthDelta(
+      bracket.endSafePointRank,
+      bracket.delta,
+      source.length
     )
   })
 }

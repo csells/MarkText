@@ -4,10 +4,14 @@ import {
   parseProfile1Document,
   type PreviousIntrinsicPass,
   type Profile1DocumentProducts,
-  type Profile1DocumentReuseCache,
-  type RetainedIntrinsicPass
+  type Profile1DocumentReuseCache
 } from './internal/profile1Document.js'
 import { createPhysicalTraversalRecorderV1 } from './internal/profile1/physicalTraversalAccounting.js'
+import {
+  createPlainParagraphRetainedIndex,
+  type PlainParagraphIndexRecorder,
+  type PlainParagraphRetainedIndex
+} from './internal/profile1/plainParagraphRetainedIndex.js'
 import { registerDocumentCoreInspection } from './internal/documentCoreInspection.js'
 import { applyExactSourceEdits } from './exactSourceEdits.js'
 import type {
@@ -1096,12 +1100,13 @@ interface RevisionFacts {
 interface FullRevisionState extends RevisionFacts {
   readonly kind: 'full'
   readonly markdownOptions: MarkdownOptionsV1
+  readonly retainedIndex: PlainParagraphRetainedIndex | undefined
 }
 
 interface RegionalRevisionState {
   readonly kind: 'regional'
   readonly markdownOptions: MarkdownOptionsV1
-  readonly retainedIntrinsic: RetainedIntrinsicPass
+  readonly retainedIndex: PlainParagraphRetainedIndex
   readonly ensureProducts: () => RevisionFacts
 }
 
@@ -1124,6 +1129,16 @@ interface MutableDocumentCoreInspection {
   regionalCoordinateSegments: number
   retainedFactInputStructuralUnits: number
   retainedFactOutputStructuralUnits: number
+  retainedInitialBuildUnits: number
+  retainedIndexLookupComparisons: number
+  retainedOverlayNodeVisits: number
+  retainedOverlayNodesAllocated: number
+  retainedOverlayNodesReused: number
+  retainedChangedLeafUnits: number
+  retainedCommittedUpdates: number
+  retainedLocalIndexUnitsCopied: number
+  retainedOverlayMaximumDepth: number
+  sourceReconstructionOutputUnits: number
 }
 
 export function createDocumentCore(): DocumentCore {
@@ -1159,8 +1174,47 @@ export function createDocumentCore(): DocumentCore {
     regionalAstMaterializedNodes: 0,
     regionalCoordinateSegments: 0,
     retainedFactInputStructuralUnits: 0,
-    retainedFactOutputStructuralUnits: 0
+    retainedFactOutputStructuralUnits: 0,
+    retainedInitialBuildUnits: 0,
+    retainedIndexLookupComparisons: 0,
+    retainedOverlayNodeVisits: 0,
+    retainedOverlayNodesAllocated: 0,
+    retainedOverlayNodesReused: 0,
+    retainedChangedLeafUnits: 0,
+    retainedCommittedUpdates: 0,
+    retainedLocalIndexUnitsCopied: 0,
+    retainedOverlayMaximumDepth: 0,
+    sourceReconstructionOutputUnits: 0
   }
+  const retainedIndexRecorder: PlainParagraphIndexRecorder = Object.freeze({
+    recordInitialBuildUnit: (): void => {
+      inspection.retainedInitialBuildUnits += 1
+    },
+    recordLookupComparison: (): void => {
+      inspection.retainedIndexLookupComparisons += 1
+    },
+    recordOverlayNodeVisit: (): void => {
+      inspection.retainedOverlayNodeVisits += 1
+    },
+    recordOverlayNodeAllocation: (): void => {
+      inspection.retainedOverlayNodesAllocated += 1
+    },
+    recordOverlayNodeReuse: (): void => {
+      inspection.retainedOverlayNodesReused += 1
+    },
+    recordChangedLeafUnit: (): void => {
+      inspection.retainedChangedLeafUnits += 1
+    },
+    recordLocalCopyUnit: (): void => {
+      inspection.retainedLocalIndexUnitsCopied += 1
+    },
+    recordOverlayDepth: (depth: number): void => {
+      inspection.retainedOverlayMaximumDepth = Math.max(
+        inspection.retainedOverlayMaximumDepth,
+        depth
+      )
+    }
+  })
   let currentRevision: DocumentRevision | undefined
 
   const parse = (
@@ -1204,6 +1258,20 @@ export function createDocumentCore(): DocumentCore {
   ): DocumentRevision => {
     try {
       const materializedAnnotations = annotationsOf(products)
+      const retained = products.retainedIntrinsic
+      const retainedIndex = retained !== undefined &&
+        !retained.hasCriticMarkupCandidate &&
+        retained.rootCount === 0 &&
+        retained.markerDecisionCount === 0 &&
+        retained.referenceDefinitionCount === 0 &&
+        retained.diagnostics.length === 0 &&
+        retained.markdownLiterals.length === 0
+        ? createPlainParagraphRetainedIndex(
+          retained.safePoints,
+          source.length,
+          retainedIndexRecorder
+        )
+        : undefined
       const revision = Object.freeze({
         source,
         annotations: materializedAnnotations.annotations,
@@ -1213,6 +1281,7 @@ export function createDocumentCore(): DocumentCore {
         kind: 'full',
         products,
         markdownOptions: resolvedOptions,
+        retainedIndex,
         annotationRangeByNodeId: materializedAnnotations.rangeByNodeId,
         nodeIdByAnnotation: materializedAnnotations.nodeIdByAnnotation
       }))
@@ -1259,7 +1328,7 @@ export function createDocumentCore(): DocumentCore {
 
   const publishRegional = (
     source: string,
-    retainedIntrinsic: RetainedIntrinsicPass,
+    retainedIndex: PlainParagraphRetainedIndex,
     resolvedOptions: MarkdownOptionsV1
   ): DocumentRevision => {
     const revision = Object.freeze({
@@ -1275,30 +1344,17 @@ export function createDocumentCore(): DocumentCore {
     stateByRevision.set(revision, Object.freeze({
       kind: 'regional',
       markdownOptions: resolvedOptions,
-      retainedIntrinsic,
+      retainedIndex,
       ensureProducts
     }))
     currentRevision = revision
+    inspection.retainedCommittedUpdates += 1
     return revision
   }
 
   const factsOf = (state: RevisionState): RevisionFacts => state.kind === 'full'
     ? state
     : state.ensureProducts()
-
-  const safePointOrdinal = (
-    points: readonly number[],
-    point: number
-  ): number | undefined => {
-    let low = 0
-    let high = points.length
-    while (low < high) {
-      const middle = low + ((high - low) >> 1)
-      if ((points[middle] ?? point) < point) low = middle + 1
-      else high = middle
-    }
-    return points[low] === point ? low + 1 : undefined
-  }
 
   const tryRegionalMarkupApply = (
     previous: DocumentRevision,
@@ -1337,33 +1393,38 @@ export function createDocumentCore(): DocumentCore {
     }
     const retained = previousState.kind === 'full'
       ? previousState.products.retainedIntrinsic
-      : previousState.retainedIntrinsic
-    if (retained === undefined) {
-      return Object.freeze({
-        kind: 'fallback',
-        reason: 'structural-region-ineligible'
-      })
-    }
+      : undefined
     if (
-      retained.hasCriticMarkupCandidate ||
-      retained.rootCount !== 0 ||
-      retained.markerDecisionCount !== 0
+      retained !== undefined &&
+      (
+        retained.hasCriticMarkupCandidate ||
+        retained.rootCount !== 0 ||
+        retained.markerDecisionCount !== 0
+      )
     ) {
       return Object.freeze({
         kind: 'fallback',
         reason: 'criticmarkup-facts-present'
       })
     }
-    if (retained.referenceDefinitionCount !== 0) {
+    if (retained !== undefined && retained.referenceDefinitionCount !== 0) {
       return Object.freeze({
         kind: 'fallback',
         reason: 'definition-or-reference-facts'
       })
     }
+    const retainedIndex = previousState.retainedIndex
+    if (retainedIndex === undefined) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
     const admission = admitProfile1PlainParagraphRegion(
       previous.source,
       source,
-      Object.freeze({ retained, edits: stableEdits }),
+      retainedIndex,
+      stableEdits,
       EXECUTION_BUDGET,
       resolvedOptions,
       regionalPhysicalRecorder
@@ -1374,20 +1435,8 @@ export function createDocumentCore(): DocumentCore {
         reason: 'structural-region-ineligible'
       })
     }
-    const previousEventStart = safePointOrdinal(
-      retained.safePoints,
-      admission.bracket.start
-    )
-    const previousEventEnd = safePointOrdinal(
-      retained.safePoints,
-      admission.bracket.endPrevious
-    )
-    if (previousEventStart === undefined || previousEventEnd === undefined) {
-      return Object.freeze({
-        kind: 'fallback',
-        reason: 'structural-region-ineligible'
-      })
-    }
+    const previousEventStart = admission.bracket.previousEventStart
+    const previousEventEnd = admission.bracket.previousEventEnd
     const regionSource = source.slice(
       admission.bracket.start,
       admission.bracket.endNext
@@ -1499,7 +1548,7 @@ export function createDocumentCore(): DocumentCore {
     }) satisfies MarkupRegionReplacement
     const revision = publishRegional(
       source,
-      admission.retainedIntrinsic,
+      admission.retainedIndex,
       resolvedOptions
     )
     inspection.regionalFastApplies += 1
@@ -1693,13 +1742,11 @@ export function createDocumentCore(): DocumentCore {
     const resolvedOptions = options === undefined
       ? previousState.markdownOptions
       : markdownOptions(options, previousState.markdownOptions)
-    const retained = sameMarkdownOptions(
+    const retained = previousState.kind === 'full' && sameMarkdownOptions(
       previousState.markdownOptions,
       resolvedOptions
     )
-      ? previousState.kind === 'full'
-        ? previousState.products.retainedIntrinsic
-        : previousState.retainedIntrinsic
+      ? previousState.products.retainedIntrinsic
       : undefined
     const previousPass = retained === undefined
       ? undefined
@@ -1743,6 +1790,7 @@ export function createDocumentCore(): DocumentCore {
         }
         throw error
       }
+      inspection.sourceReconstructionOutputUnits += source.length
       const regional = tryRegionalMarkupApply(
         previous,
         previousState,
