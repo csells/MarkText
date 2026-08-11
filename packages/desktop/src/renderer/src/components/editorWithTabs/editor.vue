@@ -132,6 +132,12 @@ import { useProjectStore } from '@/store/project'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
+import {
+  createEditorShadowBinding,
+  createShadowDocumentAuthority,
+  createWorkerShadowPort,
+  type EditorShadowBinding
+} from '@/documentAuthority'
 
 // Importing the engine entrypoint auto-injects its editor CSS (the muya.ts
 // module imports its stylesheets at load time). Desktop themes still target the
@@ -285,6 +291,64 @@ let switchLanguageCommand: SpellcheckerLanguageCommand | null = null
 let imageViewer: SimpleImageViewer | null = null
 // The engine has no `scroll` event; we listen on the scroll container directly.
 let scrollHandler: ((e: Event) => void) | null = null
+let documentCoreShadow: EditorShadowBinding | null = null
+let stopDocumentCoreShadowWatch: (() => void) | null = null
+let documentCoreShadowStartFrame: number | null = null
+let documentCoreShadowSecondFrame: number | null = null
+
+const startDocumentCoreShadow = (): void => {
+  if (window.electron.process.env.MARKTEXT_DOCUMENT_CORE_SHADOW !== '1') return
+
+  try {
+    documentCoreShadow = createEditorShadowBinding(
+      createShadowDocumentAuthority({ port: createWorkerShadowPort() })
+    )
+    const shadow = documentCoreShadow
+    stopDocumentCoreShadowWatch = watch(
+      () => [
+        currentFile.value?.id ?? null,
+        currentFile.value?.markdown ?? null,
+        footnote.value,
+        superSubScript.value,
+        isGitlabCompatibilityEnabled.value
+      ] as const,
+      ([documentId, source, footnotes, subscriptAndSuperscript, gitLabMath]) => {
+        // This callback is deliberately synchronous and diagnostic-only. It
+        // observes the Pinia snapshot already produced for normal editor/save
+        // work, then returns before diffing, transport, or parsing begins.
+        shadow.update(documentId === null || source === null
+          ? null
+          : {
+              documentId,
+              source,
+              options: {
+                gfm: true,
+                frontMatter: true,
+                math: true,
+                gitLabMath,
+                footnotes,
+                subscriptAndSuperscript
+              }
+            })
+      },
+      { flush: 'sync', immediate: true }
+    )
+
+    // Read-only diagnostics for the opt-in Electron smoke test. The bridge has
+    // no mutation, source, projection, UI, or save authority.
+    if (window.electron.process.env.PERF_TESTING === 'true') {
+      window.__marktextDocumentCoreShadow = Object.freeze({
+        diagnosticOnly: true,
+        settled: () => shadow.settled(),
+        reports: () => shadow.reports()
+      })
+    }
+  } catch (error) {
+    documentCoreShadow?.dispose()
+    documentCoreShadow = null
+    log.warn('Unable to start document-core Shadow diagnostics', error)
+  }
+}
 
 // The engine's undo/redo history (`getHistory()`) has a different shape than
 // the desktop store's `tab.history` (which drives the save/dirty tracking and
@@ -1971,9 +2035,36 @@ onMounted(() => {
   document.addEventListener('keyup', keyup)
 
   setEditorWidth(editorLineWidth.value)
+
+  // Shadow starts only after Muya has initialized, the initial save baseline
+  // is seeded, and production listeners are installed. It is never awaited by
+  // editor startup or input handling.
+  // Wait through one complete browser frame before even constructing the
+  // diagnostic Worker. The upstream editor gets the first paint unopposed.
+  documentCoreShadowStartFrame = requestAnimationFrame(() => {
+    documentCoreShadowStartFrame = null
+    documentCoreShadowSecondFrame = requestAnimationFrame(() => {
+      documentCoreShadowSecondFrame = null
+      startDocumentCoreShadow()
+    })
+  })
 })
 
 onBeforeUnmount(() => {
+  if (documentCoreShadowStartFrame !== null) {
+    cancelAnimationFrame(documentCoreShadowStartFrame)
+    documentCoreShadowStartFrame = null
+  }
+  if (documentCoreShadowSecondFrame !== null) {
+    cancelAnimationFrame(documentCoreShadowSecondFrame)
+    documentCoreShadowSecondFrame = null
+  }
+  stopDocumentCoreShadowWatch?.()
+  stopDocumentCoreShadowWatch = null
+  documentCoreShadow?.dispose()
+  documentCoreShadow = null
+  delete window.__marktextDocumentCoreShadow
+
   bus.off('file-loaded', setMarkdownToEditor)
   bus.off('invalidate-image-cache', handleInvalidateImageCache)
   bus.off('undo', handleUndo)

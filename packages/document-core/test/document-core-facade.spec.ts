@@ -1463,6 +1463,23 @@ describe('document-core facade', () => {
     })
   })
 
+  it('bounds malformed-syntax diagnostics before publishing a revision', () => {
+    const admitted = createDocumentCore().open('++}'.repeat(1_024))
+    expect(admitted.diagnostics).toHaveLength(1_024)
+
+    let rejection: unknown
+    try {
+      createDocumentCore().open('++}'.repeat(1_025))
+    } catch (error) {
+      rejection = error
+    }
+    expect(rejection).toBeInstanceOf(DocumentCoreError)
+    expect(rejection).toMatchObject({
+      code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+      metadata: { limit: '1024', observed: '1025' }
+    })
+  })
+
   it('reopens through retained parser state with full-parse-equivalent results', () => {
     const source = 'one\n\nA {++new++} B {--old--}\n\nthree\n'
     const start = source.indexOf('three')
