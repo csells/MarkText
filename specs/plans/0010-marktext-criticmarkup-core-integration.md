@@ -1,5 +1,5 @@
 # MarkText CriticMarkup core integration
-- **Status:** Active — Phase 0 baseline work and the bounded Phase 1 Shadow are in progress
+- **Status:** Active — bounded Phase 1 Shadow complete; Phase 1A authority and latency feasibility underway
 
 - **Working upstream baseline:** `43bd8b77795fb27b1a9512737c000f7362031ea0`
 
@@ -222,6 +222,8 @@ files are reproducible implementation baselines; they do not add product or lang
 Implement the authority gateway and exercise one Core-mode document through the production transport. The spike covers plain typing, structural conversion, cross-block replacement, table paste, native IME, transformed/rejected/stale edits, immediate undo/redo, incremental Source edits, Source/WYSIWYG and tab switching, save with pending input, worker restart, and one enhanced math or diagram render.
 
 Prove exactly one durable source and undo history after every operation. Prove that pending drafts never reach save, input echo meets the ratified target, cross-revision anchors do not alias, and ordinary edits avoid steady-state whole-document transport, reconstruction, or DOM replacement.
+
+Implementation checkpoint (2026-08-10): the production Muya path now traces browser input to a matching editor DOM state and the next render opportunity, and the bounded Shadow exercises the real Worker transport without becoming an authority. The core now admits edits as an atomic transaction: it owns exact candidate reconstruction and either publishes the accepted revision or nothing. Source mode can supply exact UTF-16 edits from CodeMirror's native change events. Muya's JSON operations address a normalized block tree, not canonical Markdown source, so WYSIWYG Core mode remains gated on serializable semantic region replacements and an explicit projection-to-source map; a whole-document serialization-and-diff bridge does not satisfy this phase.
 
 **Exit:** choose, from reproduced evidence, whether to continue with the Muya adapter or build a constrained replacement view inside the preserved MarkText product shell. If neither route passes, stop for an owner decision; do not let Phase 2 silently become another editor rewrite.
 ### Phase 2 — Complete one vertical review slice
