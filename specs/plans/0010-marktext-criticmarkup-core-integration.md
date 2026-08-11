@@ -65,7 +65,9 @@ Use one authority for each kind of decision:
 | Whether the feature is ready | Product-path acceptance and measured performance |
 | Implementation-specific limits and measurements | Versioned test or benchmark baselines, not normative language rules |
 
-Profile 1 remains a candidate until its deliberate interoperability rulings are reviewed and accepted. In particular, nesting, Markdown inside comments, Highlight+Comment adjacency, escaping, BOM behavior, CJK emphasis, malformed recovery, and block interactions must not become product semantics merely because the research implementation currently behaves that way.
+Profile 1 remains a candidate until its deliberate interoperability rulings are reviewed and accepted. In particular, nesting, Highlight+Comment adjacency, escaping, BOM behavior, CJK emphasis, malformed recovery, and block interactions must not become product semantics merely because the research implementation currently behaves that way.
+
+Owner ruling (2026-08-10): a Comment payload remains exact source and is interpreted by MarkText as an isolated full Markdown+CriticMarkup subdocument. Its block structure, references, footnotes, and nested annotations are local to that Comment and cannot affect or inherit state from the surrounding document. This is a richer MarkText presentation of canonical `{>> … <<}` metadata, not a new on-disk syntax or permission to normalize the payload.
 
 Before ratification, separate language semantics from implementation machinery. Parser algorithms, parse counts, configuration APIs, accounting schemas, resource profiles, reuse safe points, and test-harness mechanics belong in ADRs, benchmarks, or implementation baselines—not the normative language profile.
 ## 4. Target seams
@@ -133,6 +135,8 @@ The product must demonstrate, through the installed WYSIWYG and Source surfaces:
 - faithful rendering in Markup, Original, and Revised projections;
 
 - standalone Highlight and Comment behavior plus the canonical gapless Highlight+Comment anchored relationship;
+
+- full Markdown+CriticMarkup rendering inside Comment bodies, with block, literal, reference, footnote, and nested-Comment state isolated from the surrounding document and sibling Comments;
 
 - authoring comments and each suggestion form, including selection-based comments and Track Changes for typing, backspace/delete, cut/paste, replace, formatting, and IME input;
 
