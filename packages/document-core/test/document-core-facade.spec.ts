@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createDocumentCore,
   DocumentCoreError,
+  DocumentSourceEditError,
   type CriticMarkupAnnotation,
   type DocumentCore,
   type DocumentRevision,
@@ -1511,6 +1512,73 @@ describe('document-core facade', () => {
     expect(spent).toBeLessThan(fullSpent)
   })
 
+  it('atomically applies exact source edits without a caller-built candidate', () => {
+    const source = 'alpha {++beta++} omega\r\n'
+    const core = createDocumentCore()
+    const previous = core.open(source)
+    const edit = Object.freeze({ start: 9, end: 13, insert: 'BETA' })
+    const edits = Object.freeze([edit])
+
+    const applied = core.apply(previous, edits)
+
+    expect(applied.revision.source).toBe('alpha {++BETA++} omega\r\n')
+    expect(applied.change.appliedEdits).toEqual([edit])
+    expect(applied.change.appliedEdits).not.toBe(edits)
+    expect(Object.isFrozen(applied)).toBe(true)
+    expect(Object.isFrozen(applied.change)).toBe(true)
+    expect(Object.isFrozen(applied.change.appliedEdits)).toBe(true)
+    expect(Object.isFrozen(applied.change.appliedEdits[0])).toBe(true)
+    expect(core.project(applied.revision, 'revised').markdown)
+      .toBe('alpha BETA omega\r\n')
+
+    const exactCore = createDocumentCore()
+    const exact = exactCore.open('a\r\n😀b\r\nc')
+    const exactApplied = exactCore.apply(exact, [{
+      start: 5,
+      end: 6,
+      insert: 'B'
+    }])
+    expect(exactApplied.revision.source).toBe('a\r\n😀B\r\nc')
+  })
+
+  it('publishes nothing when an atomic apply is invalid or rejected', () => {
+    const source = 'head\n\ntail\n'
+    const core = createDocumentCore()
+    const current = core.open(source)
+    const before = observableRevision(core, current)
+
+    expect(() => core.apply(current, [
+      { start: 2, end: 5, insert: 'x' },
+      { start: 4, end: 6, insert: 'y' }
+    ])).toThrow(DocumentSourceEditError)
+    for (const malformed of [
+      undefined,
+      null,
+      [undefined],
+      [{ start: 0, end: 0, insert: 42 }]
+    ]) {
+      expect(() => core.apply(current, malformed as never))
+        .toThrow(DocumentSourceEditError)
+    }
+
+    const start = source.indexOf('tail')
+    const depth = 16_385
+    const overLimit = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
+    expect(() => core.apply(current, [{
+      start,
+      end: start + 4,
+      insert: overLimit
+    }])).toThrow('CM_RESOURCE_CM_DEPTH_EXCEEDED')
+
+    expect(observableRevision(core, current)).toEqual(before)
+    const accepted = core.apply(current, [{
+      start,
+      end: start + 4,
+      insert: 'TAIL'
+    }])
+    expect(accepted.revision.source).toBe('head\n\nTAIL\n')
+  })
+
   it('reopens Comment projections with full-parse-equivalent products', () => {
     const source = '{>># Note\n\nSee [inside][ref].\n\n[ref]: /old\n<<}\n\ntail\n'
     const start = source.indexOf('/old')
@@ -1545,7 +1613,7 @@ describe('document-core facade', () => {
       .toContain('/new-path')
   })
 
-  it('merges partial reopen options over the previous revision options', () => {
+  it('merges partial apply options over the previous revision options', () => {
     const source = '[^a]: {++inside footnote++}\n'
     const core = createDocumentCore()
     const previous = core.open(source, {
@@ -1555,12 +1623,11 @@ describe('document-core facade', () => {
     })
     const insert = 'tail\n'
     const nextSource = source + insert
-    const reopened = core.reopen(
+    const reopened = core.apply(
       previous,
-      nextSource,
       [{ start: source.length, end: source.length, insert }],
-      { gfm: true }
-    )
+      { markdown: { gfm: true } }
+    ).revision
 
     expect(reopened.annotations).toEqual([])
     expect(core.project(reopened, 'original').markdown).toBe(nextSource)

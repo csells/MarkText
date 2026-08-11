@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createDocumentCore } from '@marktext/document-core'
 
 import {
   createEditorShadowBinding,
@@ -10,6 +11,7 @@ import {
   type ShadowWorkerRequestEnvelope,
   type ShadowWorkerResponseEnvelope
 } from '@/documentAuthority'
+import { createShadowActor } from '@/documentAuthority/shadowActor'
 
 const markdownOptions = (overrides: Partial<{
   gfm: boolean
@@ -146,6 +148,45 @@ class HoldFirstRequestPort implements ShadowActorPort {
 }
 
 describe('Shadow document authority', () => {
+  it('owns one fresh core per open barrier and drops retired generations', () => {
+    let coreCount = 0
+    const actor = createShadowActor(() => {
+      coreCount += 1
+      return createDocumentCore()
+    })
+
+    expect(actor.handle({
+      type: 'open',
+      session: 1,
+      generation: 1,
+      sequence: 1,
+      source: 'first'
+    })).toMatchObject({ accepted: true, revision: 1 })
+    expect(actor.handle({
+      type: 'open',
+      session: 1,
+      generation: 2,
+      sequence: 2,
+      source: '++}'.repeat(1_025)
+    })).toMatchObject({ accepted: false, status: 'resource', revision: 0 })
+    expect(actor.handle({
+      type: 'open',
+      session: 1,
+      generation: 3,
+      sequence: 3,
+      source: 'third'
+    })).toMatchObject({ accepted: true, revision: 1 })
+    expect(actor.handle({
+      type: 'close',
+      session: 1,
+      generation: 3,
+      sequence: 4
+    })).toMatchObject({ accepted: true })
+    expect(coreCount).toBe(3)
+
+    actor.dispose()
+  })
+
   it('opens barriers for document and language changes and observes only content changes', async() => {
     const requests: ShadowRequest[] = []
     const inMemory = createInMemoryShadowPort()
@@ -424,12 +465,25 @@ describe('Shadow document authority', () => {
       rejectionReason: 'invalid-edit',
       revision: 1
     })
-
     await expect(port.request({
       type: 'observe',
       session: 1,
       generation: 1,
       sequence: 4,
+      baseRevision: opened.revision,
+      edits: [{ start: 0, end: 0, insert: 42 }] as never
+    })).resolves.toMatchObject({
+      accepted: false,
+      status: 'rejected',
+      rejectionReason: 'invalid-edit',
+      revision: 1
+    })
+
+    await expect(port.request({
+      type: 'observe',
+      session: 1,
+      generation: 1,
+      sequence: 5,
       baseRevision: opened.revision,
       edits: [{ start: 0, end: 5, insert: '{++right++}' }]
     })).resolves.toMatchObject({
@@ -810,6 +864,20 @@ describe('Shadow document authority', () => {
         code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
         metadata: { limit: '1024', observed: '1025' }
       }
+    })
+
+    const recovered = await port.request({
+      type: 'open',
+      session: 5,
+      generation: 1,
+      sequence: 6,
+      source: 'fresh after rejected open'
+    })
+    expect(recovered).toMatchObject({
+      accepted: true,
+      status: 'accepted',
+      revision: 1,
+      recognition: { sourceLength: 25 }
     })
 
     port.dispose()
