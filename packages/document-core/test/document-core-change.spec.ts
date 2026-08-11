@@ -19,6 +19,9 @@ import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 import { applyExactSourceEdits } from '../src/exactSourceEdits.js'
 
 interface ChangeInspection {
+  readonly fullProductStoresStrongCurrent: number
+  readonly fullProductStoresStrongPeak: number
+  readonly fullProductStoreReleases: number
   readonly documentParses: number
   readonly documentParseSourceUnits: number
   readonly regionalIntrinsicSourceUnits: number
@@ -333,6 +336,190 @@ function applySyntaxReplacementForOracle(
 }
 
 describe('document-core semantic changes', () => {
+  it('keeps only the current full products strong while history stays projectable', () => {
+    const source = [
+      'head\n\n',
+      'before {>>historical note<<} after\n\n',
+      'plain\n\n'.repeat(1_000)
+    ].join('')
+    const nextSource = source.replace('plain', 'PLAIN')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const historicalComment = opened.annotations[0]
+    if (historicalComment?.kind !== 'comment') {
+      throw new Error('Expected historical Comment')
+    }
+    const afterOpen = inspectionOf(core)
+    expect(afterOpen.fullProductStoresStrongCurrent).toBe(1)
+    expect(afterOpen.fullProductStoresStrongPeak).toBe(1)
+    expect(afterOpen.fullProductStoreReleases).toBe(0)
+
+    const editAt = source.indexOf('plain')
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 5,
+      insert: 'PLAIN'
+    }])
+    const afterApply = inspectionOf(core)
+    expect(commit.revision.source).toBe(nextSource)
+    expect(afterApply.fullProductStoresStrongCurrent).toBe(1)
+    expect(afterApply.fullProductStoresStrongPeak).toBe(1)
+    expect(afterApply.fullProductStoreReleases).toBe(1)
+
+    const historicalMarkup = core.project(opened, 'markup')
+    expect(historicalMarkup.events.some(event =>
+      event.kind === 'text' && event.text.includes('historical note')
+    )).toBe(false)
+    expect(inspectionOf(core).fullProductStoresStrongCurrent).toBe(0)
+    expect(core.projectComment(opened, historicalComment).markdown)
+      .toBe('historical note')
+    expect(opened.annotations[0]).toBe(historicalComment)
+    const currentMarkup = core.project(commit.revision, 'markup')
+    expect(currentMarkup.events.some(event =>
+      event.kind === 'text' && event.text.includes('PLAIN')
+    )).toBe(true)
+    const afterHistory = inspectionOf(core)
+    expect(afterHistory.fullProductStoresStrongCurrent).toBe(1)
+    expect(afterHistory.fullProductStoresStrongPeak).toBe(1)
+  })
+  it('rehydrates an unread historical revision once per projection', () => {
+    const source = `head\n\n${'plain\n\n'.repeat(1_000)}`
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const editAt = source.indexOf('plain')
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 5,
+      insert: 'PLAIN'
+    }])
+    const beforeHistory = inspectionOf(core)
+
+    expect(core.project(opened, 'original').markdown).toBe(source)
+    const afterHistory = inspectionOf(core)
+    expect(afterHistory.documentParses - beforeHistory.documentParses).toBe(1)
+    expect(afterHistory.fullProductStoresStrongCurrent).toBe(0)
+    expect(afterHistory.fullProductStoresStrongPeak).toBe(1)
+    expect(core.project(commit.revision, 'original').markdown)
+      .toContain('PLAIN')
+    expect(inspectionOf(core).fullProductStoresStrongCurrent).toBe(1)
+  })
+  it('leaves a demoted revision usable after a full parse rejects', () => {
+    const source = 'head\n\nbefore {>>note<<} after\n\ntail\n'
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const editAt = source.indexOf('tail')
+
+    expect(() => core.apply(opened, [{
+      start: editAt,
+      end: editAt,
+      insert: '{++ '.repeat(1_025)
+    }])).toThrow(expect.objectContaining({
+      code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED'
+    }))
+    const afterReject = inspectionOf(core)
+    expect(afterReject.fullProductStoresStrongCurrent).toBe(0)
+    expect(afterReject.fullProductStoresStrongPeak).toBe(1)
+    expect(afterReject.fullProductStoreReleases).toBe(1)
+    expect(core.project(opened, 'original').markdown)
+      .toBe('head\n\nbefore  after\n\ntail\n')
+    expect(core.projectComment(opened, comment).markdown).toBe('note')
+    expect(opened.annotations[0]).toBe(comment)
+    expect(inspectionOf(core).fullProductStoresStrongCurrent).toBe(1)
+    const accepted = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 4,
+      insert: 'TAIL'
+    }])
+    expect(accepted.revision.source)
+      .toBe('head\n\nbefore {>>note<<} after\n\nTAIL\n')
+    const acceptedComment = accepted.revision.annotations[0]
+    if (acceptedComment?.kind !== 'comment') {
+      throw new Error('Expected accepted Comment')
+    }
+    expect(core.projectComment(accepted.revision, acceptedComment).markdown)
+      .toBe('note')
+    expect(inspectionOf(core).fullProductStoresStrongCurrent).toBe(1)
+  })
+  it('serves cached history without demoting the current product store', () => {
+    const source = 'head\n\nbefore {>>note<<} after\n\nplain\n'
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const openedAnnotations = opened.annotations
+    const comment = openedAnnotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const cachedMarkup = core.project(opened, 'markup')
+    const cachedComment = core.projectComment(opened, comment)
+    const editAt = source.indexOf('plain')
+    core.apply(opened, [{
+      start: editAt,
+      end: editAt + 5,
+      insert: 'PLAIN'
+    }])
+    const beforeCachedReads = inspectionOf(core)
+
+    expect(core.project(opened, 'markup')).toBe(cachedMarkup)
+    expect(core.projectComment(opened, comment)).toBe(cachedComment)
+    expect(opened.annotations).toBe(openedAnnotations)
+    const afterCachedReads = inspectionOf(core)
+    expect(afterCachedReads.documentParses).toBe(beforeCachedReads.documentParses)
+    expect(afterCachedReads.fullProductStoreReleases)
+      .toBe(beforeCachedReads.fullProductStoreReleases)
+    expect(afterCachedReads.fullProductStoresStrongCurrent).toBe(1)
+  })
+  it('materializes unread historical annotations ephemerally and caches identity', () => {
+    const source = '{>>note<<}\n\ntail\n'
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const editAt = source.lastIndexOf('tail')
+    core.apply(opened, [{
+      start: editAt,
+      end: editAt + 4,
+      insert: 'TAIL'
+    }])
+    const beforeAnnotations = inspectionOf(core)
+
+    const historicalAnnotations = opened.annotations
+    const afterAnnotations = inspectionOf(core)
+    const fresh = createDocumentCore().open(source)
+    expect(historicalAnnotations).toEqual(fresh.annotations)
+    expect(opened.annotations).toBe(historicalAnnotations)
+    expect(afterAnnotations.documentParses - beforeAnnotations.documentParses)
+      .toBe(1)
+    expect(afterAnnotations.fullProductStoresStrongCurrent).toBe(0)
+    expect(inspectionOf(core).documentParses).toBe(afterAnnotations.documentParses)
+  })
+  it('demotes a lazily projected regional head before its descendant publishes', () => {
+    const source = `head\n\n${'plain paragraph\n\n'.repeat(1_000)}`
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const firstAt = source.indexOf('plain paragraph', 100)
+    const first = core.apply(opened, [{
+      start: firstAt,
+      end: firstAt + 5,
+      insert: 'PLAIN'
+    }], { projections: ['markup'] })
+    expect(inspectionOf(core).fullProductStoresStrongCurrent).toBe(0)
+    expect(core.project(first.revision, 'original').markdown)
+      .toContain('PLAIN paragraph')
+    expect(inspectionOf(core).fullProductStoresStrongCurrent).toBe(1)
+
+    const secondAt = source.indexOf('plain paragraph', firstAt + 15)
+    const second = core.apply(first.revision, [{
+      start: secondAt,
+      end: secondAt + 5,
+      insert: 'PLAIN'
+    }], { projections: ['markup'] })
+    const afterSecond = inspectionOf(core)
+    expect(afterSecond.fullProductStoresStrongCurrent).toBe(0)
+    expect(afterSecond.fullProductStoresStrongPeak).toBe(1)
+    expect(afterSecond.fullProductStoreReleases).toBe(2)
+    expect(core.project(first.revision, 'original').markdown)
+      .toContain('PLAIN paragraph')
+    expect(core.project(second.revision, 'original').markdown)
+      .toContain('PLAIN paragraph')
+  })
   it('updates one subscribed region in a multi-annotation document', () => {
     const source = [
       'head',
