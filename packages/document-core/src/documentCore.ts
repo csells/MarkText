@@ -18,6 +18,13 @@ import {
   type CommentRegionalIndex
 } from './internal/profile1/commentRegional.js'
 import {
+  applyRegionalInventory,
+  createRegionalInventory,
+  materializeRegionalInventoryAnnotations,
+  type RegionalInventory,
+  type RegionalInventoryRecorder
+} from './internal/profile1/regionalInventory.js'
+import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
   type PlainParagraphRetainedIndex
@@ -626,6 +633,60 @@ function annotationsOf(
   return Object.freeze({ annotations, rangeByNodeId, nodeIdByAnnotation })
 }
 
+function annotationFactsForMaterialized(
+  products: Profile1DocumentProducts,
+  annotations: readonly CriticMarkupAnnotation[]
+): MaterializedAnnotations {
+  const parserRoots = Array.from(
+    { length: products.criticMarkup.rootCount },
+    (_, ordinal) => products.criticMarkup.rootAt(ordinal)
+  )
+  if (parserRoots.length !== annotations.length) {
+    throw new Error('Regional inventory annotation roots diverged')
+  }
+  const rangeByNodeId = new Map<NodeId, SourceRange>()
+  const nodeIdByAnnotation = new Map<CriticMarkupAnnotation, NodeId>()
+  const pending = parserRoots.map((node, ordinal) => {
+    const annotation = annotations[ordinal]
+    if (annotation === undefined) {
+      throw new Error('Regional inventory annotation root is sparse')
+    }
+    return { node, annotation }
+  })
+  while (pending.length > 0) {
+    const pair = pending.pop()
+    if (pair === undefined) break
+    if (
+      pair.node.kind !== pair.annotation.kind ||
+      pair.node.arms.length !== pair.annotation.arms.length
+    ) {
+      throw new Error('Regional inventory annotation topology diverged')
+    }
+    rangeByNodeId.set(pair.node.nodeId, pair.annotation.range)
+    nodeIdByAnnotation.set(pair.annotation, pair.node.nodeId)
+    for (let armOrdinal = 0; armOrdinal < pair.node.arms.length; armOrdinal += 1) {
+      const parserArm = pair.node.arms[armOrdinal]
+      const publicArm = pair.annotation.arms[armOrdinal]
+      if (
+        parserArm === undefined || publicArm === undefined ||
+        parserArm.name !== publicArm.name ||
+        parserArm.children.length !== publicArm.annotations.length
+      ) {
+        throw new Error('Regional inventory annotation arm diverged')
+      }
+      for (let childOrdinal = 0; childOrdinal < parserArm.children.length; childOrdinal += 1) {
+        const node = parserArm.children[childOrdinal]
+        const annotation = publicArm.annotations[childOrdinal]
+        if (node === undefined || annotation === undefined) {
+          throw new Error('Regional inventory annotation child is sparse')
+        }
+        pending.push({ node, annotation })
+      }
+    }
+  }
+  return Object.freeze({ annotations, rangeByNodeId, nodeIdByAnnotation })
+}
+
 function sourceRangeOf(range: {
   readonly start: number
   readonly end: number
@@ -765,6 +826,22 @@ function countMarkdownAstNodes(root: MarkdownAstNode): number {
     for (let index = 0; index < node.children.length; index += 1) {
       const child = node.children[index]
       if (child !== undefined) pending.push(child)
+    }
+  }
+  return count
+}
+
+function countCriticMarkupAnnotationNodes(
+  roots: readonly CriticMarkupAnnotation[]
+): number {
+  let count = 0
+  const pending = [...roots]
+  while (pending.length > 0) {
+    const annotation = pending.pop()
+    if (annotation === undefined) break
+    count += 1
+    for (const arm of annotation.arms) {
+      for (const child of arm.annotations) pending.push(child)
     }
   }
   return count
@@ -1504,17 +1581,21 @@ function normalizeProjectionRequests(
 
 interface RevisionFacts {
   readonly products: Profile1DocumentProducts
+  readonly annotations: readonly CriticMarkupAnnotation[]
   readonly annotationRangeByNodeId: ReadonlyMap<NodeId, SourceRange>
   readonly nodeIdByAnnotation: ReadonlyMap<CriticMarkupAnnotation, NodeId>
 }
 
-interface FullRevisionState extends RevisionFacts {
+interface FullRevisionState {
   readonly kind: 'full'
   readonly source: PersistentCanonicalSource
+  readonly products: Profile1DocumentProducts
+  readonly annotationFacts: () => RevisionFacts
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly commentIndex: CommentRegionalIndex | undefined
+  readonly regionalInventory: RegionalInventory | undefined
 }
 
 interface RegionalRevisionState {
@@ -1524,10 +1605,13 @@ interface RegionalRevisionState {
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly commentIndex: CommentRegionalIndex | undefined
+  readonly regionalInventory: RegionalInventory | undefined
   readonly regionalComment: Readonly<{
     readonly annotation: CriticMarkupAnnotation
     readonly projection: CommentProjection
   }> | undefined
+  readonly inventoryAnnotations: (() => readonly CriticMarkupAnnotation[]) |
+    undefined
   readonly ensureProducts: () => RevisionFacts
 }
 
@@ -1543,6 +1627,7 @@ interface MutableDocumentCoreInspection {
   documentMarkupEventUnits: number
   documentAstMaterializedNodes: number
   documentCoordinateSegments: number
+  documentAnnotationMaterializedNodes: number
   canonicalFactIndexUnits: number
   regionalProjectionPreparationUnits: number
   regionalMarkupEventUnits: number
@@ -1551,6 +1636,18 @@ interface MutableDocumentCoreInspection {
   regionalCommentProjectionPreparationUnits: number
   regionalCommentAstMaterializedNodes: number
   regionalCommentCoordinateSegments: number
+  regionalInventoryBuildUnits: number
+  regionalInventoryLookupComparisons: number
+  regionalInventoryNodesVisited: number
+  regionalInventoryNodesAllocated: number
+  regionalInventoryNodesShared: number
+  regionalInventoryChangedLeaves: number
+  regionalInventoryRootsAttempted: number
+  regionalInventoryRootsCommitted: number
+  regionalInventoryLocalAnnotationMaterializedNodes: number
+  regionalInventoryCandidateRegionParses: number
+  regionalInventoryCandidateRegionParseSourceUnits: number
+  regionalInventoryAnnotationMaterializedNodes: number
   retainedFactInputStructuralUnits: number
   retainedFactOutputStructuralUnits: number
   retainedInitialBuildUnits: number
@@ -1627,6 +1724,7 @@ export function createDocumentCore(): DocumentCore {
     documentMarkupEventUnits: 0,
     documentAstMaterializedNodes: 0,
     documentCoordinateSegments: 0,
+    documentAnnotationMaterializedNodes: 0,
     canonicalFactIndexUnits: 0,
     regionalProjectionPreparationUnits: 0,
     regionalMarkupEventUnits: 0,
@@ -1635,6 +1733,18 @@ export function createDocumentCore(): DocumentCore {
     regionalCommentProjectionPreparationUnits: 0,
     regionalCommentAstMaterializedNodes: 0,
     regionalCommentCoordinateSegments: 0,
+    regionalInventoryBuildUnits: 0,
+    regionalInventoryLookupComparisons: 0,
+    regionalInventoryNodesVisited: 0,
+    regionalInventoryNodesAllocated: 0,
+    regionalInventoryNodesShared: 0,
+    regionalInventoryChangedLeaves: 0,
+    regionalInventoryRootsAttempted: 0,
+    regionalInventoryRootsCommitted: 0,
+    regionalInventoryLocalAnnotationMaterializedNodes: 0,
+    regionalInventoryCandidateRegionParses: 0,
+    regionalInventoryCandidateRegionParseSourceUnits: 0,
+    regionalInventoryAnnotationMaterializedNodes: 0,
     retainedFactInputStructuralUnits: 0,
     retainedFactOutputStructuralUnits: 0,
     retainedInitialBuildUnits: 0,
@@ -1793,6 +1903,40 @@ export function createDocumentCore(): DocumentCore {
       )
     }
   })
+  const regionalInventoryRecorder: RegionalInventoryRecorder = Object.freeze({
+    recordBuildUnit: (): void => {
+      inspection.regionalInventoryBuildUnits += 1
+    },
+    recordLookupComparison: (): void => {
+      inspection.regionalInventoryLookupComparisons += 1
+    },
+    recordNodeVisited: (): void => {
+      inspection.regionalInventoryNodesVisited += 1
+    },
+    recordNodeAllocated: (): void => {
+      inspection.regionalInventoryNodesAllocated += 1
+    },
+    recordNodeShared: (): void => {
+      inspection.regionalInventoryNodesShared += 1
+    },
+    recordChangedLeaf: (): void => {
+      inspection.regionalInventoryChangedLeaves += 1
+    },
+    recordRootAttempted: (): void => {
+      inspection.regionalInventoryRootsAttempted += 1
+    },
+    recordRootCommitted: (): void => {
+      inspection.regionalInventoryRootsCommitted += 1
+    },
+    recordCandidateRegionParse: (sourceUnits: number): void => {
+      inspection.regionalInventoryCandidateRegionParses += 1
+      inspection.regionalInventoryCandidateRegionParseSourceUnits += sourceUnits
+    },
+    recordAnnotationMaterialized: (): void => {
+      inspection.regionalInventoryAnnotationMaterializedNodes += 1
+      inspection.documentAnnotationMaterializedNodes += 1
+    }
+  })
   let currentRevision: DocumentRevision | undefined
 
   const parse = (
@@ -1835,7 +1979,6 @@ export function createDocumentCore(): DocumentCore {
     resolvedOptions: MarkdownOptionsV1
   ): DocumentRevision => {
     try {
-      const materializedAnnotations = annotationsOf(products)
       const retained = products.retainedIntrinsic
       const retainedIndex = retained !== undefined &&
         !retained.hasCriticMarkupCandidate &&
@@ -1852,24 +1995,65 @@ export function createDocumentCore(): DocumentCore {
         : undefined
       const criticMarkupIndex = createCriticMarkupRegionalIndex(products)
       const commentIndex = createCommentRegionalIndex(products)
+      const regionalInventory = createRegionalInventory(
+        products,
+        source.length,
+        regionalInventoryRecorder
+      )
+      const persistentProducts = products
+      let memoizedFacts: RevisionFacts | undefined
+      const annotationFacts = Object.freeze((): RevisionFacts => {
+        if (memoizedFacts !== undefined) return memoizedFacts
+        if (regionalInventory !== undefined) {
+          const annotations = materializeRegionalInventoryAnnotations(
+            regionalInventory
+          ) as readonly CriticMarkupAnnotation[]
+          const materialized = annotationFactsForMaterialized(
+            persistentProducts,
+            annotations
+          )
+          memoizedFacts = Object.freeze({
+            products: persistentProducts,
+            annotations: materialized.annotations,
+            annotationRangeByNodeId: materialized.rangeByNodeId,
+            nodeIdByAnnotation: materialized.nodeIdByAnnotation
+          })
+        } else {
+          const materialized = annotationsOf(persistentProducts)
+          inspection.documentAnnotationMaterializedNodes +=
+            countCriticMarkupAnnotationNodes(materialized.annotations)
+          memoizedFacts = Object.freeze({
+            products: persistentProducts,
+            annotations: materialized.annotations,
+            annotationRangeByNodeId: materialized.rangeByNodeId,
+            nodeIdByAnnotation: materialized.nodeIdByAnnotation
+          })
+        }
+        if (memoizedFacts === undefined) {
+          throw new Error('Document annotation facts were not materialized')
+        }
+        return memoizedFacts
+      })
       const revision = Object.freeze({
         get source(): string {
           return source.materialize('getter')
         },
         sourceLength: source.length,
-        annotations: materializedAnnotations.annotations,
-        diagnostics: diagnosticsOf(products)
+        get annotations(): readonly CriticMarkupAnnotation[] {
+          return annotationFacts().annotations
+        },
+        diagnostics: diagnosticsOf(persistentProducts)
       })
       stateByRevision.set(revision, Object.freeze({
         kind: 'full',
         source,
-        products,
+        products: persistentProducts,
         markdownOptions: resolvedOptions,
         retainedIndex,
         criticMarkupIndex,
         commentIndex,
-        annotationRangeByNodeId: materializedAnnotations.rangeByNodeId,
-        nodeIdByAnnotation: materializedAnnotations.nodeIdByAnnotation
+        regionalInventory,
+        annotationFacts
       }))
       currentRevision = revision
       inspection.sourceRopeRootsCommitted += 1
@@ -1906,8 +2090,11 @@ export function createDocumentCore(): DocumentCore {
     inspection.canonicalFactIndexUnits +=
       result.retainedIntrinsic?.tape.length ?? 0
     const materialized = annotationsOf(result)
+    inspection.documentAnnotationMaterializedNodes +=
+      countCriticMarkupAnnotationNodes(materialized.annotations)
     return Object.freeze({
       products: result,
+      annotations: materialized.annotations,
       annotationRangeByNodeId: materialized.rangeByNodeId,
       nodeIdByAnnotation: materialized.nodeIdByAnnotation
     })
@@ -1920,7 +2107,8 @@ export function createDocumentCore(): DocumentCore {
     criticMarkupIndex: CriticMarkupRegionalIndex | undefined,
     annotations: readonly CriticMarkupAnnotation[] = Object.freeze([]),
     commentIndex: CommentRegionalIndex | undefined = undefined,
-    regionalComment: RegionalRevisionState['regionalComment'] = undefined
+    regionalComment: RegionalRevisionState['regionalComment'] = undefined,
+    regionalInventory: RegionalInventory | undefined = undefined
   ): DocumentRevision => {
     const revision = Object.freeze({
       get source(): string {
@@ -1942,7 +2130,9 @@ export function createDocumentCore(): DocumentCore {
       retainedIndex,
       criticMarkupIndex,
       commentIndex,
+      regionalInventory,
       regionalComment,
+      inventoryAnnotations: undefined,
       ensureProducts
     }))
     currentRevision = revision
@@ -1951,9 +2141,280 @@ export function createDocumentCore(): DocumentCore {
     return revision
   }
 
+  const publishInventoryRegional = (
+    source: PersistentCanonicalSource,
+    resolvedOptions: MarkdownOptionsV1,
+    inventory: RegionalInventory,
+    regionalComment: RegionalRevisionState['regionalComment'] = undefined
+  ): DocumentRevision => {
+    let annotations: readonly CriticMarkupAnnotation[] | undefined
+    const inventoryAnnotations = Object.freeze(
+      (): readonly CriticMarkupAnnotation[] => {
+        if (annotations !== undefined) return annotations
+        annotations = materializeRegionalInventoryAnnotations(inventory) as
+          readonly CriticMarkupAnnotation[]
+        return annotations
+      }
+    )
+    const revision = Object.freeze({
+      get source(): string {
+        return source.materialize('getter')
+      },
+      sourceLength: source.length,
+      get annotations(): readonly CriticMarkupAnnotation[] {
+        return inventoryAnnotations()
+      },
+      diagnostics: Object.freeze([])
+    })
+    let facts: RevisionFacts | undefined
+    const ensureProducts = Object.freeze((): RevisionFacts => {
+      if (facts === undefined) {
+        const parsed = isolatedFacts(
+          source.materialize('projection'),
+          resolvedOptions
+        )
+        const owned = annotationFactsForMaterialized(
+          parsed.products,
+          inventoryAnnotations()
+        )
+        facts = Object.freeze({
+          products: parsed.products,
+          annotations: owned.annotations,
+          annotationRangeByNodeId: owned.rangeByNodeId,
+          nodeIdByAnnotation: owned.nodeIdByAnnotation
+        })
+      }
+      return facts
+    })
+    stateByRevision.set(revision, Object.freeze({
+      kind: 'regional',
+      source,
+      markdownOptions: resolvedOptions,
+      retainedIndex: undefined,
+      criticMarkupIndex: undefined,
+      commentIndex: undefined,
+      regionalInventory: inventory,
+      regionalComment,
+      inventoryAnnotations,
+      ensureProducts
+    }))
+    currentRevision = revision
+    inspection.sourceRopeRootsCommitted += 1
+    regionalInventoryRecorder.recordRootCommitted()
+    return revision
+  }
+
   const factsOf = (state: RevisionState): RevisionFacts => state.kind === 'full'
-    ? state
+    ? state.annotationFacts()
     : state.ensureProducts()
+
+  const annotationAtPreorder = (
+    roots: readonly CriticMarkupAnnotation[],
+    targetOrdinal: number
+  ): CriticMarkupAnnotation | undefined => {
+    const pending = [...roots].reverse()
+    let ordinal = 0
+    while (pending.length > 0) {
+      const annotation = pending.pop()
+      if (annotation === undefined) break
+      if (ordinal === targetOrdinal) return annotation
+      ordinal += 1
+      for (let armOrdinal = annotation.arms.length - 1; armOrdinal >= 0; armOrdinal -= 1) {
+        const arm = annotation.arms[armOrdinal]
+        if (arm === undefined) continue
+        for (
+          let childOrdinal = arm.annotations.length - 1;
+          childOrdinal >= 0;
+          childOrdinal -= 1
+        ) {
+          const child = arm.annotations[childOrdinal]
+          if (child !== undefined) pending.push(child)
+        }
+      }
+    }
+    return undefined
+  }
+
+  const tryInventoryRegionalApply = (
+    previousState: RevisionState,
+    source: PersistentCanonicalSource,
+    stableEdits: readonly DocumentSourceEdit[],
+    resolvedOptions: MarkdownOptionsV1,
+    requests: NormalizedProjectionRequests
+  ): Readonly<{
+    readonly kind: 'applied'
+    readonly revision: DocumentRevision
+    readonly projections: readonly DocumentProjectionChange[]
+  }> | Readonly<{
+    readonly kind: 'fallback'
+  }> | undefined => {
+    const inventory = previousState.regionalInventory
+    if (inventory === undefined) return undefined
+    if (requests.comments.length > 1) {
+      return Object.freeze({ kind: 'fallback' })
+    }
+    const subscriptions = Object.freeze([
+      ...(requests.markup ? [{ name: 'markup' as const }] : []),
+      ...requests.comments.map(annotationRange => Object.freeze({
+        name: 'comment' as const,
+        annotationRange
+      }))
+    ])
+    const admission = applyRegionalInventory(
+      inventory,
+      previousState.source,
+      source,
+      stableEdits,
+      subscriptions,
+      EXECUTION_BUDGET,
+      resolvedOptions,
+      regionalPhysicalRecorder
+    )
+    if (admission.kind === 'resource-failure') {
+      throw documentCoreError(admission.fatalDiagnostic)
+    }
+    if (admission.kind !== 'admitted') {
+      return Object.freeze({ kind: 'fallback' })
+    }
+
+    const materialized = annotationsOf(admission.nextProducts)
+    inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
+      countCriticMarkupAnnotationNodes(materialized.annotations)
+    const markup = markupProjectionOf(
+      admission.nextProducts,
+      materialized.rangeByNodeId,
+      admission.nextWindow.length
+    )
+    const events = shiftRegionalMarkupEvents(
+      markup.events,
+      admission.next.source.start
+    )
+    const syntaxBlocks = Object.freeze(markup.syntax.ast.root.children.map(
+      child => shiftMarkdownAstNode(child, admission.next.syntax.start)
+    ))
+    const markupCoordinates: MarkupCoordinateSegment[] = []
+    for (const segment of admission.nextProducts.editing().mappedTape) {
+      if (segment.kind !== 'canonical') {
+        return Object.freeze({ kind: 'fallback' })
+      }
+      const length = segment.projectedEnd - segment.projectedStart
+      markupCoordinates.push(Object.freeze({
+        projected: Object.freeze({
+          start: admission.next.syntax.start + segment.projectedStart,
+          end: admission.next.syntax.start + segment.projectedEnd
+        }),
+        source: Object.freeze({
+          start: admission.next.source.start + segment.sourceStart,
+          end: admission.next.source.start + segment.sourceStart + length
+        })
+      }))
+    }
+    const projections: DocumentProjectionChange[] = []
+    if (requests.markup) {
+      const replacement = Object.freeze({
+        previous: admission.previous,
+        next: Object.freeze({
+          source: admission.next.source,
+          syntax: admission.next.syntax,
+          events: Object.freeze({
+            start: admission.previous.events.start,
+            end: admission.previous.events.start + events.length
+          })
+        }),
+        events,
+        syntaxBlocks,
+        coordinates: Object.freeze(markupCoordinates)
+      }) satisfies MarkupRegionReplacement
+      projections.push(Object.freeze({
+        name: 'markup',
+        scope: 'regions',
+        replacements: Object.freeze([replacement])
+      }))
+    }
+
+    let regionalComment: RegionalRevisionState['regionalComment']
+    const commentReplacements: CommentRegionReplacement[] = []
+    for (const impact of admission.commentImpacts) {
+      const localAnnotation = annotationAtPreorder(
+        materialized.annotations,
+        impact.nodeOrdinal
+      )
+      if (localAnnotation?.kind !== 'comment') {
+        return Object.freeze({ kind: 'fallback' })
+      }
+      const annotation = shiftCriticMarkupAnnotation(
+        localAnnotation,
+        admission.next.source.start
+      )
+      const nodeId = materialized.nodeIdByAnnotation.get(localAnnotation)
+      if (nodeId === undefined) return Object.freeze({ kind: 'fallback' })
+      const display = admission.nextProducts.commentDisplay(nodeId)
+      const ast = markdownAstOf(display)
+      const coordinates = commentCoordinateSegmentsOf(
+        display,
+        admission.next.source.start
+      )
+      const projection: CommentProjection = Object.freeze({
+        kind: 'comment',
+        annotationRange: annotation.range,
+        markdown: display.source,
+        ast,
+        coordinates: shiftedRegionalProjectionCoordinatesOf(
+          display,
+          admission.nextWindow.length,
+          admission.next.source.start,
+          source.length
+        )
+      })
+      const payload = annotation.arms.find(arm => arm.name === 'comment')
+      if (payload === undefined) return Object.freeze({ kind: 'fallback' })
+      commentReplacements.push(Object.freeze({
+        previous: impact.previous,
+        next: Object.freeze({
+          annotation: annotation.range,
+          payload: payload.range,
+          projection: Object.freeze({ start: 0, end: display.source.length })
+        }),
+        annotation: annotationSnapshotOf(annotation),
+        markdown: display.source,
+        ast,
+        coordinates
+      }))
+      regionalComment = Object.freeze({ annotation, projection })
+      inspection.regionalCommentAstMaterializedNodes +=
+        countMarkdownAstNodes(ast.root)
+      inspection.regionalCommentCoordinateSegments += coordinates.length
+    }
+    if (commentReplacements.length > 0) {
+      projections.push(Object.freeze({
+        name: 'comment',
+        scope: 'regions',
+        replacements: Object.freeze(commentReplacements)
+      }))
+    }
+    const revision = publishInventoryRegional(
+      source,
+      resolvedOptions,
+      admission.nextInventory,
+      regionalComment
+    )
+    inspection.regionalFastApplies += 1
+    inspection.regionalProjectionPreparationUnits += admission.nextWindow.length
+    inspection.regionalMarkupEventUnits += events.reduce(
+      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+      0
+    )
+    inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+      (total, block) => total + countMarkdownAstNodes(block),
+      0
+    )
+    inspection.regionalCoordinateSegments += markupCoordinates.length
+    return Object.freeze({
+      kind: 'applied',
+      revision,
+      projections: Object.freeze(projections)
+    })
+  }
 
   const tryCriticMarkupRegionalApply = (
     previousState: RevisionState,
@@ -2516,6 +2977,35 @@ export function createDocumentCore(): DocumentCore {
         projections: fallbackProjectionChanges(requests, fallbackReason)
       })
     }
+    const inventoryApplied = (
+      previousState.kind === 'regional' &&
+      previousState.regionalInventory !== undefined
+    ) || (
+      requests.markup && requests.comments.length === 1
+    )
+      ? tryInventoryRegionalApply(
+        previousState,
+        source,
+        stableEdits,
+        resolvedOptions,
+        requests
+      )
+      : undefined
+    if (inventoryApplied?.kind === 'applied') {
+      return Object.freeze({
+        kind: 'applied',
+        revision: inventoryApplied.revision,
+        projections: inventoryApplied.projections
+      })
+    }
+    if (inventoryApplied?.kind === 'fallback') {
+      const reason = 'structural-region-ineligible'
+      return Object.freeze({
+        kind: 'fallback',
+        reason,
+        projections: fallbackProjectionChanges(requests, reason)
+      })
+    }
     if (requests.comments.length > 0) {
       const applied = tryCommentRegionalApply(
         previousState,
@@ -2648,7 +3138,27 @@ export function createDocumentCore(): DocumentCore {
     if (
       state.kind === 'regional' &&
       state.regionalComment !== undefined &&
-      state.regionalComment.annotation === comment
+      (
+        state.regionalComment.annotation === comment ||
+        (
+          state.regionalInventory !== undefined &&
+          state.inventoryAnnotations !== undefined &&
+          state.regionalComment.annotation.range.start === comment.range.start &&
+          state.regionalComment.annotation.range.end === comment.range.end &&
+          (() => {
+            const pending = [...state.inventoryAnnotations()].reverse()
+            while (pending.length > 0) {
+              const candidate = pending.pop()
+              if (candidate === undefined) break
+              if (candidate === comment) return true
+              for (const arm of candidate.arms) {
+                for (const child of arm.annotations) pending.push(child)
+              }
+            }
+            return false
+          })()
+        )
+      )
     ) {
       return state.regionalComment.projection
     }
@@ -2932,7 +3442,9 @@ export function createDocumentCore(): DocumentCore {
         regionalPhysical.retainedFactInputStructuralUnits,
       retainedFactOutputStructuralUnits:
         documentPhysical.retainedFactOutputStructuralUnits +
-        regionalPhysical.retainedFactOutputStructuralUnits
+        regionalPhysical.retainedFactOutputStructuralUnits,
+      documentRetainedFactOutputStructuralUnits:
+        documentPhysical.retainedFactOutputStructuralUnits
     })
   })
   return core

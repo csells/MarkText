@@ -289,6 +289,7 @@ export interface RetainedIntrinsicPass {
 
 export type Profile1DocumentProducts = Profile1SyntaxGraph & Readonly<{
   readonly simpleTextIdentity: boolean
+  readonly accountingCounts: readonly number[]
   readonly accountingTrace?: Profile1SyntaxAccountingTraceV1
   readonly retainedIntrinsic?: RetainedIntrinsicPass
 }>
@@ -372,7 +373,7 @@ const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
   comment: 'Comment'
 })
 
-const DESKTOP_BUDGET_EVENT_LIMIT = 2_000_000
+export const PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT = 2_000_000
 const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128
 const DESKTOP_CM_DEPTH_LIMIT = 16_384
 // Syntax diagnostics are logical output nodes too. Cap them during admission,
@@ -818,7 +819,7 @@ function plainParagraphBudgetEventFailure(
   // Even the conservative 4× tape bound plus the two graph roots is below
   // the event ceiling here, so no exact line inventory can possibly fail.
   // Avoid another whole-source pass on the maximum one-line document.
-  if (4 * parsed.tape.length + 2 <= DESKTOP_BUDGET_EVENT_LIMIT) {
+  if (4 * parsed.tape.length + 2 <= PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT) {
     return undefined
   }
   const lines = plainParagraphLineRanges(source, execution)
@@ -831,11 +832,11 @@ function plainParagraphBudgetEventFailure(
     1 +
     markdownNodesPerView +
     parsed.tape.length
-  if (total <= DESKTOP_BUDGET_EVENT_LIMIT) {
+  if (total <= PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT) {
     return undefined
   }
 
-  const eventAfterTape = DESKTOP_BUDGET_EVENT_LIMIT - parsed.tape.length
+  const eventAfterTape = PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT - parsed.tape.length
   const markdownEventCount = 1 + markdownNodesPerView
   const failureRange =
     eventAfterTape < markdownEventCount
@@ -845,8 +846,8 @@ function plainParagraphBudgetEventFailure(
   return createResourceDiagnostic(
     'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
     sourceRange(failureRange.start, failureRange.start),
-    DESKTOP_BUDGET_EVENT_LIMIT,
-    DESKTOP_BUDGET_EVENT_LIMIT + 1
+    PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT,
+    PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT + 1
   )
 }
 
@@ -5006,13 +5007,15 @@ export function parseProfile1Document(
     })))
   )
   if (usesDesktopLimits) {
-    const overflow = accounting.firstEventBeyond(DESKTOP_BUDGET_EVENT_LIMIT)
+    const overflow = accounting.firstEventBeyond(
+      PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT
+    )
     const budgetFailure = overflow === undefined
       ? undefined
       : createResourceDiagnostic(
         'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
         sourceRange(overflow.range.start, overflow.range.start),
-        DESKTOP_BUDGET_EVENT_LIMIT,
+        PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT,
         overflow.observed
       )
     if (budgetFailure !== undefined) {
@@ -5077,6 +5080,7 @@ export function parseProfile1Document(
     ...finalized,
     simpleTextIdentity:
       tapeCertifiesSimpleTextSource(parsed.tape),
+    accountingCounts: accounting.counts(),
     // Retention aliases the frozen arrays the parse already produced. Safe
     // points come from the fork graph's own reconvergence primitive — the
     // same one downstream regionization consumes — so they are canonical
