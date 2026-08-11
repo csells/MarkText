@@ -251,6 +251,26 @@ export interface DocumentSourceEdit {
   readonly insert: string
 }
 
+/**
+ * One atomically admitted canonical-source transaction. The core owns source
+ * reconstruction; callers retain the exact accepted edits for reconciliation
+ * without carrying a second candidate source.
+ */
+export interface DocumentChange {
+  readonly appliedEdits: readonly DocumentSourceEdit[]
+}
+
+export interface DocumentCommit {
+  /** Engine-local revision handle; actor transports publish only `change`. */
+  readonly revision: DocumentRevision
+  readonly change: DocumentChange
+}
+
+export interface DocumentApplyOptions {
+  /** Partial language options inherited over the previous revision. */
+  readonly markdown?: Readonly<Partial<MarkdownOptions>>
+}
+
 export interface MarkdownOptions {
   readonly gfm: boolean
   readonly frontMatter: boolean
@@ -284,6 +304,14 @@ export class DocumentCoreError extends Error {
   }
 }
 
+/** Invalid canonical-source transaction input; no revision was published. */
+export class DocumentSourceEditError extends RangeError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DocumentSourceEditError'
+  }
+}
+
 /**
  * One document lineage. Successful open and reopen calls advance its current
  * revision. Older revisions remain projectable but cannot be reopened.
@@ -293,6 +321,15 @@ export interface DocumentCore {
     source: string,
     options?: Readonly<Partial<MarkdownOptions>>
   ): DocumentRevision
+  apply(
+    previous: DocumentRevision,
+    edits: readonly DocumentSourceEdit[],
+    options?: DocumentApplyOptions
+  ): DocumentCommit
+  /**
+   * Transitional compatibility entry point. Core-mode consumers should use
+   * `apply`, which does not accept a separately reconstructed candidate.
+   */
   reopen(
     previous: DocumentRevision,
     source: string,
@@ -1102,6 +1139,79 @@ export function createDocumentCore(): DocumentCore {
     return result
   }
 
+  const stableSourceEdits = (
+    edits: readonly DocumentSourceEdit[]
+  ): readonly DocumentSourceEdit[] => {
+    if (!Array.isArray(edits)) {
+      throw new DocumentSourceEditError(
+        'Document core source edits must be an array'
+      )
+    }
+    const stable: DocumentSourceEdit[] = []
+    for (let index = 0; index < edits.length; index += 1) {
+      const candidate: unknown = edits[index]
+      if (candidate === null || typeof candidate !== 'object') {
+        throw new DocumentSourceEditError(
+          `Document core source edit ${String(index)} is invalid`
+        )
+      }
+      const edit = candidate as Partial<DocumentSourceEdit>
+      if (
+        !Number.isInteger(edit.start) ||
+        !Number.isInteger(edit.end) ||
+        (edit.start ?? -1) < 0 ||
+        (edit.end ?? -1) < (edit.start ?? 0) ||
+        typeof edit.insert !== 'string'
+      ) {
+        throw new DocumentSourceEditError(
+          `Document core source edit ${String(index)} is invalid`
+        )
+      }
+      stable.push(Object.freeze({
+        start: edit.start as number,
+        end: edit.end as number,
+        insert: edit.insert
+      }))
+    }
+    return Object.freeze(stable)
+  }
+
+  const currentStateOf = (previous: DocumentRevision): RevisionState => {
+    const previousState = stateByRevision.get(previous)
+    if (previousState === undefined) {
+      throw new Error('Document revision belongs to another core')
+    }
+    if (previous !== currentRevision) {
+      throw new Error('Document revision is not the current core revision')
+    }
+    return previousState
+  }
+
+  const applyCandidate = (
+    previousState: RevisionState,
+    source: string,
+    stableEdits: readonly DocumentSourceEdit[],
+    options?: Readonly<Partial<MarkdownOptions>>
+  ): DocumentRevision => {
+    const resolvedOptions = options === undefined
+      ? previousState.markdownOptions
+      : markdownOptions(options, previousState.markdownOptions)
+    const retained = sameMarkdownOptions(
+      previousState.markdownOptions,
+      resolvedOptions
+    )
+      ? previousState.products.retainedIntrinsic
+      : undefined
+    const previousPass = retained === undefined
+      ? undefined
+      : Object.freeze({ retained, edits: stableEdits })
+    return publish(
+      source,
+      parse(source, resolvedOptions, previousPass),
+      resolvedOptions
+    )
+  }
+
   const core: DocumentCore = Object.freeze({
     open(
       source: string,
@@ -1114,28 +1224,50 @@ export function createDocumentCore(): DocumentCore {
       return publish(source, parse(source, resolvedOptions), resolvedOptions)
     },
 
+    apply(
+      previous: DocumentRevision,
+      edits: readonly DocumentSourceEdit[],
+      options?: DocumentApplyOptions
+    ): DocumentCommit {
+      const previousState = currentStateOf(previous)
+      const stableEdits = stableSourceEdits(edits)
+      let source: string
+      try {
+        source = applyExactSourceEdits(
+          previous.source,
+          stableEdits,
+          'Document core source edit'
+        )
+      } catch (error) {
+        if (error instanceof RangeError) {
+          throw new DocumentSourceEditError(error.message)
+        }
+        throw error
+      }
+      const revision = applyCandidate(
+        previousState,
+        source,
+        stableEdits,
+        options?.markdown
+      )
+      return Object.freeze({
+        revision,
+        change: Object.freeze({ appliedEdits: stableEdits })
+      })
+    },
+
     reopen(
       previous: DocumentRevision,
       source: string,
       edits: readonly DocumentSourceEdit[],
       options?: Readonly<Partial<MarkdownOptions>>
     ): DocumentRevision {
-      const previousState = stateByRevision.get(previous)
-      if (previousState === undefined) {
-        throw new Error('Document revision belongs to another core')
-      }
-      if (previous !== currentRevision) {
-        throw new Error('Document revision is not the current core revision')
-      }
+      const previousState = currentStateOf(previous)
       if (typeof source !== 'string') {
         throw new TypeError('Document source must be a string')
       }
 
-      const stableEdits = Object.freeze(edits.map(edit => Object.freeze({
-        start: edit.start,
-        end: edit.end,
-        insert: edit.insert
-      })))
+      const stableEdits = stableSourceEdits(edits)
       const reproduced = applyExactSourceEdits(
         previous.source,
         stableEdits,
@@ -1146,23 +1278,11 @@ export function createDocumentCore(): DocumentCore {
           'Document core reopen source does not match its exact edits'
         )
       }
-
-      const resolvedOptions = options === undefined
-        ? previousState.markdownOptions
-        : markdownOptions(options, previousState.markdownOptions)
-      const retained = sameMarkdownOptions(
-        previousState.markdownOptions,
-        resolvedOptions
-      )
-        ? previousState.products.retainedIntrinsic
-        : undefined
-      const previousPass = retained === undefined
-        ? undefined
-        : Object.freeze({ retained, edits: stableEdits })
-      return publish(
+      return applyCandidate(
+        previousState,
         source,
-        parse(source, resolvedOptions, previousPass),
-        resolvedOptions
+        stableEdits,
+        options
       )
     },
 
