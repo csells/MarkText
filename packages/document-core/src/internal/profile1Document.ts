@@ -26,7 +26,8 @@ import {
 import {
   bracketForEdits,
   spliceGuardsHold,
-  spliceIntrinsicFacts
+  spliceIntrinsicFacts,
+  type IntrinsicSpliceBracket
 } from './profile1/intrinsicPassSplice.js'
 import {
   createStagedProfile1ReferenceDefinitionLookup,
@@ -311,6 +312,16 @@ export interface RetainedPassSourceEdit {
 export interface PreviousIntrinsicPass {
   readonly retained: RetainedIntrinsicPass
   readonly edits: readonly RetainedPassSourceEdit[]
+}
+
+/**
+ * Canonical parser facts admitted for one bounded, structurally inert source
+ * region. No document graph, fact index, projection, or public AST has been
+ * materialized when this value is returned.
+ */
+export interface Profile1RegionalAdmission {
+  readonly bracket: IntrinsicSpliceBracket
+  readonly retainedIntrinsic: RetainedIntrinsicPass
 }
 
 export interface Profile1ChangedJoinInspection {
@@ -4419,6 +4430,29 @@ function tryIncrementalIntrinsicParse(
     )
   )
   if (spliced === undefined) return undefined
+  const forkUnits = (graph: IntrinsicProfile1ForkGraph): number =>
+    graph.branches.length + graph.lanes.reduce(
+      (total, lane) => total + lane.transitions.length +
+        lane.items.length + lane.armBoundaries.length,
+      0
+    )
+  physicalRecorder.recordRetainedFactStructure(
+    previousPass.retained.tape.length +
+      previousPass.retained.diagnostics.length +
+      previousPass.retained.markdownLiterals.length +
+      previousPass.retained.safePoints.length +
+      previousPass.retained.roots.length +
+      previousPass.retained.markerDecisions.length +
+      previousPass.retained.referenceScopeRegions.length +
+      forkUnits(previousPass.retained.forkGraph),
+    spliced.tape.length +
+      spliced.diagnostics.length +
+      spliced.markdownLiterals.length +
+      spliced.roots.length +
+      spliced.markerDecisions.length +
+      spliced.referenceScopeRegions.length +
+      forkUnits(spliced.forkGraph)
+  )
   // The guards keep every definition outside the bracket, so the spliced
   // literal list carries the whole definition set at shifted offsets; the
   // lookup rebuilds from those offsets and the new source bytes, and
@@ -4477,6 +4511,151 @@ function tryIncrementalIntrinsicParse(
     markdownLane,
     referenceDefinitions,
     markdownLiterals: spliced.markdownLiterals
+  })
+}
+
+function retainedIntrinsicFromParse(
+  sourceLength: number,
+  parsed: ParseResult,
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+): RetainedIntrinsicPass {
+  const safePoints = intrinsicForkSafeSourcePoints(parsed.forkGraph.root)
+  physicalRecorder?.recordRetainedFactStructure(
+    parsed.forkGraph.root.transitions.length,
+    safePoints.length
+  )
+  return Object.freeze({
+    sourceLength,
+    hasCriticMarkupCandidate: parsed.hasCriticMarkupCandidate,
+    rootCount: parsed.roots.length,
+    markerDecisionCount: parsed.markerDecisions.length,
+    referenceDefinitionCount:
+      parsed.referenceDefinitions.definitionFacts().length,
+    referenceScopeRegions: parsed.referenceDefinitions.scopeRegions(),
+    tape: parsed.tape,
+    diagnostics: parsed.diagnostics,
+    markdownLiterals: parsed.markdownLiterals,
+    safePoints,
+    forkGraph: parsed.forkGraph,
+    roots: parsed.roots,
+    markerDecisions: parsed.markerDecisions
+  })
+}
+
+function inertParagraphContentEnd(window: string): number | undefined {
+  const separatorLength = window.endsWith('\r\n\r\n')
+    ? 4
+    : window.endsWith('\n\n')
+      ? 2
+      : 0
+  if (separatorLength === 0) return undefined
+  const contentEnd = window.length - separatorLength
+  const content = window.slice(0, contentEnd)
+  return /^[\p{L}\p{N} ]+$/u.test(content) && /[\p{L}\p{N}]/u.test(content)
+    ? contentEnd
+    : undefined
+}
+
+/**
+ * Admit the first regional fast-path shape without publishing document-wide
+ * products. The proof is deliberately narrow: a single edit wholly inside a
+ * CM-free, definition-free, literal-free middle paragraph whose old and new
+ * spellings are plain prose followed by a blank separator. Under that proof,
+ * source size is the only resource quantity that can grow; Markdown and
+ * CriticMarkup structure are unchanged from the already accepted revision.
+ */
+export function admitProfile1PlainParagraphRegion(
+  previousSource: string,
+  source: string,
+  previousPass: PreviousIntrinsicPass,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
+  createPhysicalTraversalRecorderV1()
+): Profile1RegionalAdmission | undefined {
+  const retained = previousPass.retained
+  const edit = previousPass.edits.length === 1
+    ? previousPass.edits[0]
+    : undefined
+  if (
+    edit === undefined ||
+    previousSource.length !== retained.sourceLength ||
+    source.length > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits ||
+    retained.hasCriticMarkupCandidate ||
+    retained.rootCount !== 0 ||
+    retained.markerDecisionCount !== 0 ||
+    retained.referenceDefinitionCount !== 0 ||
+    retained.diagnostics.length !== 0 ||
+    retained.markdownLiterals.length !== 0 ||
+    !/^[\p{L}\p{N} ]*$/u.test(edit.insert)
+  ) {
+    return undefined
+  }
+  const bracket = bracketForEdits(retained, previousPass.edits, source.length)
+  if (
+    bracket === undefined ||
+    bracket.start === 0 ||
+    bracket.endPrevious >= previousSource.length ||
+    bracket.endNext >= source.length ||
+    !spliceGuardsHold(retained, bracket, source)
+  ) {
+    return undefined
+  }
+  const previousWindow = previousSource.slice(
+    bracket.start,
+    bracket.endPrevious
+  )
+  const nextWindow = source.slice(bracket.start, bracket.endNext)
+  const previousContentEnd = inertParagraphContentEnd(previousWindow)
+  const nextContentEnd = inertParagraphContentEnd(nextWindow)
+  if (
+    previousContentEnd === undefined ||
+    nextContentEnd === undefined ||
+    edit.start < bracket.start ||
+    edit.end > bracket.start + previousContentEnd
+  ) {
+    return undefined
+  }
+
+  const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
+  const execution = createParseExecutionTracker()
+  const accounting = createProfile1SyntaxAccountingRecorderV1(
+    usesDesktopLimits,
+    false,
+    execution
+  )
+  const parsed = tryIncrementalIntrinsicParse(
+    source,
+    previousPass,
+    usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
+    usesDesktopLimits
+      ? DESKTOP_MARKDOWN_DEPTH_LIMIT
+      : Number.POSITIVE_INFINITY,
+    markdownOptions,
+    execution,
+    accounting,
+    physicalRecorder,
+    createProfile1SyntaxIdentityRegistry(source.length, accounting)
+  )
+  execution.finish()
+  if (
+    parsed === undefined ||
+    parsed.kind !== 'complete' ||
+    parsed.hasCriticMarkupCandidate ||
+    parsed.roots.length !== 0 ||
+    parsed.markerDecisions.length !== 0 ||
+    parsed.diagnostics.length !== 0 ||
+    parsed.markdownLiterals.length !== 0
+  ) {
+    return undefined
+  }
+  return Object.freeze({
+    bracket,
+    retainedIntrinsic: retainedIntrinsicFromParse(
+      source.length,
+      parsed,
+      physicalRecorder
+    )
   })
 }
 
@@ -4903,22 +5082,11 @@ export function parseProfile1Document(
     // same one downstream regionization consumes — so they are canonical
     // source coordinates for marker-bearing documents too; a projected
     // view's block starts would drift by every elided marker.
-    retainedIntrinsic: Object.freeze({
-      sourceLength: source.length,
-      hasCriticMarkupCandidate: parsed.hasCriticMarkupCandidate,
-      rootCount: criticMarkupRoots.length,
-      markerDecisionCount: parsed.markerDecisions.length,
-      referenceDefinitionCount:
-        parsed.referenceDefinitions.definitionFacts().length,
-      referenceScopeRegions: parsed.referenceDefinitions.scopeRegions(),
-      tape: parsed.tape,
-      diagnostics: parsed.diagnostics,
-      markdownLiterals: parsed.markdownLiterals,
-      safePoints: intrinsicForkSafeSourcePoints(parsed.forkGraph.root),
-      forkGraph: parsed.forkGraph,
-      roots: criticMarkupRoots,
-      markerDecisions: parsed.markerDecisions
-    })
+    retainedIntrinsic: retainedIntrinsicFromParse(
+      source.length,
+      parsed,
+      physicalRecorder
+    )
   })
   return finishResult(captureAccountingTrace
     ? Object.freeze({ ...products, accountingTrace: accounting.trace() })

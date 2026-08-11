@@ -1,9 +1,11 @@
 import {
+  admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
   parseProfile1Document,
   type PreviousIntrinsicPass,
   type Profile1DocumentProducts,
-  type Profile1DocumentReuseCache
+  type Profile1DocumentReuseCache,
+  type RetainedIntrinsicPass
 } from './internal/profile1Document.js'
 import { createPhysicalTraversalRecorderV1 } from './internal/profile1/physicalTraversalAccounting.js'
 import { registerDocumentCoreInspection } from './internal/documentCoreInspection.js'
@@ -251,6 +253,54 @@ export interface DocumentSourceEdit {
   readonly insert: string
 }
 
+export interface OrdinalRange {
+  readonly start: number
+  readonly end: number
+}
+
+export interface MarkupCoordinateSegment {
+  readonly projected: SourceRange
+  readonly source: SourceRange
+}
+
+export interface MarkupRegionReplacement {
+  readonly previous: Readonly<{
+    readonly source: SourceRange
+    readonly syntax: SourceRange
+    readonly events: OrdinalRange
+  }>
+  readonly next: Readonly<{
+    readonly source: SourceRange
+    readonly syntax: SourceRange
+    readonly events: OrdinalRange
+  }>
+  readonly events: readonly MarkupEvent[]
+  readonly syntaxBlocks: readonly MarkdownAstNode[]
+  readonly coordinates: readonly MarkupCoordinateSegment[]
+}
+
+export interface MarkupRegionProjectionChange {
+  readonly name: 'markup'
+  readonly scope: 'regions'
+  readonly replacements: readonly MarkupRegionReplacement[]
+}
+
+export type DocumentProjectionFallbackReason =
+  | 'criticmarkup-facts-present'
+  | 'definition-or-reference-facts'
+  | 'markdown-options-changed'
+  | 'structural-region-ineligible'
+
+export interface MarkupDocumentProjectionChange {
+  readonly name: 'markup'
+  readonly scope: 'document'
+  readonly reason: DocumentProjectionFallbackReason
+}
+
+export type DocumentProjectionChange =
+  | MarkupRegionProjectionChange
+  | MarkupDocumentProjectionChange
+
 /**
  * One atomically admitted canonical-source transaction. The core owns source
  * reconstruction; callers retain the exact accepted edits for reconciliation
@@ -258,6 +308,7 @@ export interface DocumentSourceEdit {
  */
 export interface DocumentChange {
   readonly appliedEdits: readonly DocumentSourceEdit[]
+  readonly projections: readonly DocumentProjectionChange[]
 }
 
 export interface DocumentCommit {
@@ -269,6 +320,8 @@ export interface DocumentCommit {
 export interface DocumentApplyOptions {
   /** Partial language options inherited over the previous revision. */
   readonly markdown?: Readonly<Partial<MarkdownOptions>>
+  /** Projection deltas requested atomically with admission. */
+  readonly projections?: readonly ['markup']
 }
 
 export interface MarkdownOptions {
@@ -598,6 +651,61 @@ function markdownAstOf(
   return Object.freeze({ root: materializedRoot })
 }
 
+function countMarkdownAstNodes(root: MarkdownAstNode): number {
+  let count = 0
+  const pending = [root]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) break
+    count += 1
+    for (let index = 0; index < node.children.length; index += 1) {
+      const child = node.children[index]
+      if (child !== undefined) pending.push(child)
+    }
+  }
+  return count
+}
+
+function shiftMarkdownAstNode(
+  node: MarkdownAstNode,
+  delta: number
+): MarkdownAstNode {
+  const attributes: Record<string, MarkdownAttribute> = { ...node.attributes }
+  for (const [name, value] of Object.entries(attributes)) {
+    if (
+      typeof value === 'number' &&
+      (name.endsWith('Start') || name.endsWith('End'))
+    ) {
+      attributes[name] = value + delta
+    }
+  }
+  return Object.freeze({
+    kind: node.kind,
+    range: Object.freeze({
+      start: node.range.start + delta,
+      end: node.range.end + delta
+    }),
+    attributes: Object.freeze(attributes),
+    children: Object.freeze(node.children.map(
+      child => shiftMarkdownAstNode(child, delta)
+    ))
+  })
+}
+
+function shiftRegionalTextEvent(
+  event: Extract<MarkupEvent, { kind: 'text' }>,
+  delta: number
+): MarkupEvent {
+  return Object.freeze({
+    kind: 'text',
+    text: event.text,
+    sourceRange: Object.freeze({
+      start: event.sourceRange.start + delta,
+      end: event.sourceRange.end + delta
+    })
+  })
+}
+
 type FacadeProjectedMarkdown = Profile1DocumentProducts['original']
 
 type CoordinateSegment =
@@ -859,35 +967,58 @@ function markupProjectionOf(
   sourceLength: number
 ): MarkupProjection {
   const publicMarks = new WeakMap<object, MarkupMark>()
-  const events = Object.freeze(Array.from(
-    { length: products.markup.eventCount },
-    (_, ordinal): MarkupEvent => {
-      const event = products.markup.eventAt(ordinal)
-      if (event.kind === 'text') {
-        return Object.freeze({
+  const safePoints = products.retainedIntrinsic?.safePoints ?? Object.freeze([])
+  const events: MarkupEvent[] = []
+  let safePointIndex = 0
+  for (let ordinal = 0; ordinal < products.markup.eventCount; ordinal += 1) {
+    const event = products.markup.eventAt(ordinal)
+    if (event.kind === 'text') {
+      const range = event.sourceRange
+      while (
+        safePointIndex < safePoints.length &&
+        (safePoints[safePointIndex] ?? range.start) <= range.start
+      ) {
+        safePointIndex += 1
+      }
+      const boundaries: number[] = [range.start]
+      while (
+        safePointIndex < safePoints.length &&
+        (safePoints[safePointIndex] ?? range.end) < range.end
+      ) {
+        boundaries.push(safePoints[safePointIndex] as number)
+        safePointIndex += 1
+      }
+      boundaries.push(range.end)
+      for (let index = 0; index + 1 < boundaries.length; index += 1) {
+        const start = boundaries[index]
+        const end = boundaries[index + 1]
+        if (start === undefined || end === undefined || start === end) continue
+        events.push(Object.freeze({
           kind: 'text',
-          text: event.text,
-          sourceRange: sourceRangeOf(event.sourceRange)
-        })
+          text: event.text.slice(start - range.start, end - range.start),
+          sourceRange: Object.freeze({ start, end })
+        }))
       }
-      let mark = publicMarks.get(event.mark)
-      if (mark === undefined) {
-        const annotationRange = annotationRangeByNodeId.get(event.mark.nodeId)
-        if (annotationRange === undefined) {
-          throw new Error('Markup event lost its public annotation range')
-        }
-        mark = event.mark.kind === 'substitution'
-          ? Object.freeze({
-            kind: event.mark.kind,
-            arm: event.mark.arm,
-            annotationRange
-          })
-          : Object.freeze({ kind: event.mark.kind, annotationRange })
-        publicMarks.set(event.mark, mark)
-      }
-      return Object.freeze({ kind: event.kind, mark })
+      continue
     }
-  ))
+    let mark = publicMarks.get(event.mark)
+    if (mark === undefined) {
+      const annotationRange = annotationRangeByNodeId.get(event.mark.nodeId)
+      if (annotationRange === undefined) {
+        throw new Error('Markup event lost its public annotation range')
+      }
+      mark = event.mark.kind === 'substitution'
+        ? Object.freeze({
+          kind: event.mark.kind,
+          arm: event.mark.arm,
+          annotationRange
+        })
+        : Object.freeze({ kind: event.mark.kind, annotationRange })
+      publicMarks.set(event.mark, mark)
+    }
+    events.push(Object.freeze({ kind: event.kind, mark }))
+  }
+  const frozenEvents = Object.freeze(events)
   const editing = products.editing()
   const syntax = Object.freeze({
     ast: markdownAstOf(editing),
@@ -896,7 +1027,7 @@ function markupProjectionOf(
   return Object.freeze({
     kind: 'markup',
     name: 'markup',
-    events,
+    events: frozenEvents,
     syntax
   })
 }
@@ -956,11 +1087,43 @@ function sameMarkdownOptions(
     left.subscriptAndSuperscript === right.subscriptAndSuperscript
 }
 
-interface RevisionState {
+interface RevisionFacts {
   readonly products: Profile1DocumentProducts
-  readonly markdownOptions: MarkdownOptionsV1
   readonly annotationRangeByNodeId: ReadonlyMap<NodeId, SourceRange>
   readonly nodeIdByAnnotation: ReadonlyMap<CriticMarkupAnnotation, NodeId>
+}
+
+interface FullRevisionState extends RevisionFacts {
+  readonly kind: 'full'
+  readonly markdownOptions: MarkdownOptionsV1
+}
+
+interface RegionalRevisionState {
+  readonly kind: 'regional'
+  readonly markdownOptions: MarkdownOptionsV1
+  readonly retainedIntrinsic: RetainedIntrinsicPass
+  readonly ensureProducts: () => RevisionFacts
+}
+
+type RevisionState = FullRevisionState | RegionalRevisionState
+
+interface MutableDocumentCoreInspection {
+  intrinsicSourceUnits: number
+  documentParses: number
+  documentParseSourceUnits: number
+  regionalIntrinsicSourceUnits: number
+  regionalFastApplies: number
+  documentProjectionPreparationUnits: number
+  documentMarkupEventUnits: number
+  documentAstMaterializedNodes: number
+  documentCoordinateSegments: number
+  canonicalFactIndexUnits: number
+  regionalProjectionPreparationUnits: number
+  regionalMarkupEventUnits: number
+  regionalAstMaterializedNodes: number
+  regionalCoordinateSegments: number
+  retainedFactInputStructuralUnits: number
+  retainedFactOutputStructuralUnits: number
 }
 
 export function createDocumentCore(): DocumentCore {
@@ -979,6 +1142,25 @@ export function createDocumentCore(): DocumentCore {
   let reuseCache: Profile1DocumentReuseCache =
     createProfile1DocumentReuseCache()
   const physicalRecorder = createPhysicalTraversalRecorderV1()
+  const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
+  const inspection: MutableDocumentCoreInspection = {
+    intrinsicSourceUnits: 0,
+    documentParses: 0,
+    documentParseSourceUnits: 0,
+    regionalIntrinsicSourceUnits: 0,
+    regionalFastApplies: 0,
+    documentProjectionPreparationUnits: 0,
+    documentMarkupEventUnits: 0,
+    documentAstMaterializedNodes: 0,
+    documentCoordinateSegments: 0,
+    canonicalFactIndexUnits: 0,
+    regionalProjectionPreparationUnits: 0,
+    regionalMarkupEventUnits: 0,
+    regionalAstMaterializedNodes: 0,
+    regionalCoordinateSegments: 0,
+    retainedFactInputStructuralUnits: 0,
+    retainedFactOutputStructuralUnits: 0
+  }
   let currentRevision: DocumentRevision | undefined
 
   const parse = (
@@ -987,6 +1169,9 @@ export function createDocumentCore(): DocumentCore {
     previousPass?: PreviousIntrinsicPass
   ): Profile1DocumentProducts => {
     let products
+    inspection.documentParses += 1
+    inspection.documentParseSourceUnits += source.length
+    inspection.documentProjectionPreparationUnits += source.length
     try {
       products = parseProfile1Document(
         source,
@@ -1007,6 +1192,8 @@ export function createDocumentCore(): DocumentCore {
       reuseCache = createProfile1DocumentReuseCache()
       throw documentCoreError(products.fatalDiagnostic)
     }
+    inspection.canonicalFactIndexUnits +=
+      products.retainedIntrinsic?.tape.length ?? 0
     return products
   }
 
@@ -1023,6 +1210,7 @@ export function createDocumentCore(): DocumentCore {
         diagnostics: diagnosticsOf(products)
       })
       stateByRevision.set(revision, Object.freeze({
+        kind: 'full',
         products,
         markdownOptions: resolvedOptions,
         annotationRangeByNodeId: materializedAnnotations.rangeByNodeId,
@@ -1037,6 +1225,303 @@ export function createDocumentCore(): DocumentCore {
       reuseCache = createProfile1DocumentReuseCache()
       throw error
     }
+  }
+
+  const isolatedFacts = (
+    source: string,
+    resolvedOptions: MarkdownOptionsV1
+  ): RevisionFacts => {
+    inspection.documentParses += 1
+    inspection.documentParseSourceUnits += source.length
+    inspection.documentProjectionPreparationUnits += source.length
+    const result = parseProfile1Document(
+      source,
+      EXECUTION_BUDGET,
+      undefined,
+      resolvedOptions,
+      false,
+      undefined,
+      createProfile1DocumentReuseCache(),
+      physicalRecorder
+    )
+    if (result.kind !== 'complete') {
+      throw documentCoreError(result.fatalDiagnostic)
+    }
+    inspection.canonicalFactIndexUnits +=
+      result.retainedIntrinsic?.tape.length ?? 0
+    const materialized = annotationsOf(result)
+    return Object.freeze({
+      products: result,
+      annotationRangeByNodeId: materialized.rangeByNodeId,
+      nodeIdByAnnotation: materialized.nodeIdByAnnotation
+    })
+  }
+
+  const publishRegional = (
+    source: string,
+    retainedIntrinsic: RetainedIntrinsicPass,
+    resolvedOptions: MarkdownOptionsV1
+  ): DocumentRevision => {
+    const revision = Object.freeze({
+      source,
+      annotations: Object.freeze([]),
+      diagnostics: Object.freeze([])
+    })
+    let facts: RevisionFacts | undefined
+    const ensureProducts = Object.freeze((): RevisionFacts => {
+      facts ??= isolatedFacts(source, resolvedOptions)
+      return facts
+    })
+    stateByRevision.set(revision, Object.freeze({
+      kind: 'regional',
+      markdownOptions: resolvedOptions,
+      retainedIntrinsic,
+      ensureProducts
+    }))
+    currentRevision = revision
+    return revision
+  }
+
+  const factsOf = (state: RevisionState): RevisionFacts => state.kind === 'full'
+    ? state
+    : state.ensureProducts()
+
+  const safePointOrdinal = (
+    points: readonly number[],
+    point: number
+  ): number | undefined => {
+    let low = 0
+    let high = points.length
+    while (low < high) {
+      const middle = low + ((high - low) >> 1)
+      if ((points[middle] ?? point) < point) low = middle + 1
+      else high = middle
+    }
+    return points[low] === point ? low + 1 : undefined
+  }
+
+  const tryRegionalMarkupApply = (
+    previous: DocumentRevision,
+    previousState: RevisionState,
+    source: string,
+    stableEdits: readonly DocumentSourceEdit[],
+    options: DocumentApplyOptions | undefined
+  ): Readonly<{
+    readonly kind: 'applied'
+    readonly revision: DocumentRevision
+    readonly projection: MarkupRegionProjectionChange
+  }> | Readonly<{
+    readonly kind: 'fallback'
+    readonly reason: DocumentProjectionFallbackReason
+  }> | undefined => {
+    if (options?.projections === undefined) {
+      return undefined
+    }
+    if (
+      !Array.isArray(options.projections) ||
+      options.projections.length !== 1 ||
+      options.projections[0] !== 'markup'
+    ) {
+      throw new TypeError(
+        'Document core projection request must be exactly ["markup"]'
+      )
+    }
+    const resolvedOptions = options.markdown === undefined
+      ? previousState.markdownOptions
+      : markdownOptions(options.markdown, previousState.markdownOptions)
+    if (!sameMarkdownOptions(previousState.markdownOptions, resolvedOptions)) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'markdown-options-changed'
+      })
+    }
+    const retained = previousState.kind === 'full'
+      ? previousState.products.retainedIntrinsic
+      : previousState.retainedIntrinsic
+    if (retained === undefined) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
+    if (
+      retained.hasCriticMarkupCandidate ||
+      retained.rootCount !== 0 ||
+      retained.markerDecisionCount !== 0
+    ) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'criticmarkup-facts-present'
+      })
+    }
+    if (retained.referenceDefinitionCount !== 0) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'definition-or-reference-facts'
+      })
+    }
+    const admission = admitProfile1PlainParagraphRegion(
+      previous.source,
+      source,
+      Object.freeze({ retained, edits: stableEdits }),
+      EXECUTION_BUDGET,
+      resolvedOptions,
+      regionalPhysicalRecorder
+    )
+    if (admission === undefined) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
+    const previousEventStart = safePointOrdinal(
+      retained.safePoints,
+      admission.bracket.start
+    )
+    const previousEventEnd = safePointOrdinal(
+      retained.safePoints,
+      admission.bracket.endPrevious
+    )
+    if (previousEventStart === undefined || previousEventEnd === undefined) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
+    const regionSource = source.slice(
+      admission.bracket.start,
+      admission.bracket.endNext
+    )
+    const regionalOptions = Object.freeze({
+      ...resolvedOptions,
+      frontMatter: false
+    })
+    const regionalResult = parseProfile1Document(
+      regionSource,
+      EXECUTION_BUDGET,
+      undefined,
+      regionalOptions,
+      false,
+      undefined,
+      createProfile1DocumentReuseCache(),
+      regionalPhysicalRecorder
+    )
+    if (
+      regionalResult.kind !== 'complete' ||
+      regionalResult.criticMarkup.rootCount !== 0 ||
+      regionalResult.diagnostics.count !== 0
+    ) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
+    const materialized = annotationsOf(regionalResult)
+    const markup = markupProjectionOf(
+      regionalResult,
+      materialized.rangeByNodeId,
+      regionSource.length
+    )
+    if (
+      markup.events.length !== 1 ||
+      markup.events[0]?.kind !== 'text'
+    ) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
+    const events = Object.freeze([
+      shiftRegionalTextEvent(markup.events[0], admission.bracket.start)
+    ])
+    const syntaxBlocks = Object.freeze(markup.syntax.ast.root.children.map(
+      child => shiftMarkdownAstNode(child, admission.bracket.start)
+    ))
+    const editing = regionalResult.editing()
+    const coordinates: MarkupCoordinateSegment[] = []
+    for (const segment of editing.mappedTape) {
+      if (segment.kind !== 'canonical') {
+        return Object.freeze({
+          kind: 'fallback',
+          reason: 'structural-region-ineligible'
+        })
+      }
+      const length = segment.projectedEnd - segment.projectedStart
+      coordinates.push(Object.freeze({
+        projected: Object.freeze({
+          start: admission.bracket.start + segment.projectedStart,
+          end: admission.bracket.start + segment.projectedEnd
+        }),
+        source: Object.freeze({
+          start: admission.bracket.start + segment.sourceStart,
+          end: admission.bracket.start + segment.sourceStart + length
+        })
+      }))
+    }
+    if (syntaxBlocks.length === 0 || coordinates.length === 0) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
+    const replacement = Object.freeze({
+      previous: Object.freeze({
+        source: Object.freeze({
+          start: admission.bracket.start,
+          end: admission.bracket.endPrevious
+        }),
+        syntax: Object.freeze({
+          start: admission.bracket.start,
+          end: admission.bracket.endPrevious
+        }),
+        events: Object.freeze({
+          start: previousEventStart,
+          end: previousEventEnd
+        })
+      }),
+      next: Object.freeze({
+        source: Object.freeze({
+          start: admission.bracket.start,
+          end: admission.bracket.endNext
+        }),
+        syntax: Object.freeze({
+          start: admission.bracket.start,
+          end: admission.bracket.endNext
+        }),
+        events: Object.freeze({
+          start: previousEventStart,
+          end: previousEventStart + events.length
+        })
+      }),
+      events,
+      syntaxBlocks,
+      coordinates: Object.freeze(coordinates)
+    }) satisfies MarkupRegionReplacement
+    const revision = publishRegional(
+      source,
+      admission.retainedIntrinsic,
+      resolvedOptions
+    )
+    inspection.regionalFastApplies += 1
+    inspection.regionalProjectionPreparationUnits += regionSource.length
+    inspection.regionalMarkupEventUnits += events.reduce(
+      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+      0
+    )
+    inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+      (total, block) => total + countMarkdownAstNodes(block),
+      0
+    )
+    inspection.regionalCoordinateSegments += coordinates.length
+    return Object.freeze({
+      kind: 'applied',
+      revision,
+      projection: Object.freeze({
+        name: 'markup',
+        scope: 'regions',
+        replacements: Object.freeze([replacement])
+      })
+    })
   }
 
   function projectRevision(
@@ -1082,18 +1567,25 @@ export function createDocumentCore(): DocumentCore {
       return cached
     }
 
+    const facts = factsOf(state)
     if (projection === 'markup') {
       const result = markupProjectionOf(
-        state.products,
-        state.annotationRangeByNodeId,
+        facts.products,
+        facts.annotationRangeByNodeId,
         revision.source.length
       )
+      inspection.documentMarkupEventUnits += result.events.length
+      inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
+        result.syntax.ast.root
+      )
+      inspection.documentCoordinateSegments +=
+        facts.products.editing().mappedTape.length
       cachedByName.set(projection, result)
       return result
     }
     const projected = projection === 'original'
-      ? state.products.original
-      : state.products.revised
+      ? facts.products.original
+      : facts.products.revised
     const result: MarkdownProjection = Object.freeze({
       kind: 'markdown',
       name: projection,
@@ -1101,6 +1593,10 @@ export function createDocumentCore(): DocumentCore {
       ast: markdownAstOf(projected),
       coordinates: projectionCoordinatesOf(projected, revision.source.length)
     })
+    inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
+      result.ast.root
+    )
+    inspection.documentCoordinateSegments += projected.mappedTape.length
     cachedByName.set(projection, result)
     return result
   }
@@ -1116,7 +1612,8 @@ export function createDocumentCore(): DocumentCore {
     if (comment.kind !== 'comment') {
       throw new RangeError('CriticMarkup annotation is not a Comment')
     }
-    const nodeId = state.nodeIdByAnnotation.get(comment)
+    const facts = factsOf(state)
+    const nodeId = facts.nodeIdByAnnotation.get(comment)
     if (nodeId === undefined) {
       throw new Error('Comment does not belong to this revision')
     }
@@ -1130,7 +1627,7 @@ export function createDocumentCore(): DocumentCore {
     if (cached !== undefined) return cached
 
     const result = commentProjectionOf(
-      state.products,
+      facts.products,
       nodeId,
       comment.range,
       revision.source.length
@@ -1200,7 +1697,9 @@ export function createDocumentCore(): DocumentCore {
       previousState.markdownOptions,
       resolvedOptions
     )
-      ? previousState.products.retainedIntrinsic
+      ? previousState.kind === 'full'
+        ? previousState.products.retainedIntrinsic
+        : previousState.retainedIntrinsic
       : undefined
     const previousPass = retained === undefined
       ? undefined
@@ -1244,6 +1743,22 @@ export function createDocumentCore(): DocumentCore {
         }
         throw error
       }
+      const regional = tryRegionalMarkupApply(
+        previous,
+        previousState,
+        source,
+        stableEdits,
+        options
+      )
+      if (regional?.kind === 'applied') {
+        return Object.freeze({
+          revision: regional.revision,
+          change: Object.freeze({
+            appliedEdits: stableEdits,
+            projections: Object.freeze([regional.projection])
+          })
+        })
+      }
       const revision = applyCandidate(
         previousState,
         source,
@@ -1252,7 +1767,16 @@ export function createDocumentCore(): DocumentCore {
       )
       return Object.freeze({
         revision,
-        change: Object.freeze({ appliedEdits: stableEdits })
+        change: Object.freeze({
+          appliedEdits: stableEdits,
+          projections: regional?.kind === 'fallback'
+            ? Object.freeze([Object.freeze({
+              name: 'markup' as const,
+              scope: 'document' as const,
+              reason: regional.reason
+            })])
+            : Object.freeze([])
+        })
       })
     },
 
@@ -1289,8 +1813,20 @@ export function createDocumentCore(): DocumentCore {
     project: projectRevision,
     projectComment
   })
-  registerDocumentCoreInspection(core, () => Object.freeze({
-    intrinsicSourceUnits: physicalRecorder.counts().intrinsicSourceUnits
-  }))
+  registerDocumentCoreInspection(core, () => {
+    const documentPhysical = physicalRecorder.counts()
+    const regionalPhysical = regionalPhysicalRecorder.counts()
+    return Object.freeze({
+      ...inspection,
+      intrinsicSourceUnits: documentPhysical.intrinsicSourceUnits,
+      regionalIntrinsicSourceUnits: regionalPhysical.intrinsicSourceUnits,
+      retainedFactInputStructuralUnits:
+        documentPhysical.retainedFactInputStructuralUnits +
+        regionalPhysical.retainedFactInputStructuralUnits,
+      retainedFactOutputStructuralUnits:
+        documentPhysical.retainedFactOutputStructuralUnits +
+        regionalPhysical.retainedFactOutputStructuralUnits
+    })
+  })
   return core
 }
