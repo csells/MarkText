@@ -27,6 +27,8 @@ interface ChangeInspection {
   readonly documentMarkupEventUnits: number
   readonly documentAstMaterializedNodes: number
   readonly documentCoordinateSegments: number
+  readonly documentAnnotationMaterializedNodes: number
+  readonly documentRetainedFactOutputStructuralUnits: number
   readonly canonicalFactIndexUnits: number
   readonly regionalProjectionPreparationUnits: number
   readonly regionalMarkupEventUnits: number
@@ -35,6 +37,18 @@ interface ChangeInspection {
   readonly regionalCommentProjectionPreparationUnits: number
   readonly regionalCommentAstMaterializedNodes: number
   readonly regionalCommentCoordinateSegments: number
+  readonly regionalInventoryBuildUnits: number
+  readonly regionalInventoryLookupComparisons: number
+  readonly regionalInventoryNodesVisited: number
+  readonly regionalInventoryNodesAllocated: number
+  readonly regionalInventoryNodesShared: number
+  readonly regionalInventoryChangedLeaves: number
+  readonly regionalInventoryRootsAttempted: number
+  readonly regionalInventoryRootsCommitted: number
+  readonly regionalInventoryLocalAnnotationMaterializedNodes: number
+  readonly regionalInventoryCandidateRegionParses: number
+  readonly regionalInventoryCandidateRegionParseSourceUnits: number
+  readonly regionalInventoryAnnotationMaterializedNodes: number
   readonly retainedFactInputStructuralUnits: number
   readonly retainedFactOutputStructuralUnits: number
   readonly retainedIndexLookupComparisons: number
@@ -319,6 +333,470 @@ function applySyntaxReplacementForOracle(
 }
 
 describe('document-core semantic changes', () => {
+  it('updates one subscribed region in a multi-annotation document', () => {
+    const source = [
+      'head',
+      '',
+      'early {--deleted text--}',
+      '',
+      'middle {++added text++}',
+      '',
+      'bridge',
+      '',
+      'far {>>comment payload<<}',
+      '',
+      'suffix\n\n'.repeat(4_000)
+    ].join('\n')
+    const editAt = source.indexOf('added text') + 'added '.length
+    const nextSource = source.slice(0, editAt) + 'TEXTS' +
+      source.slice(editAt + 4)
+    const previousOracleCore = createDocumentCore()
+    const previousOracle = previousOracleCore.open(source)
+    const previousMarkup = previousOracleCore.project(previousOracle, 'markup')
+    const previousFarComment = previousOracle.annotations.find(annotation =>
+      annotation.kind === 'comment'
+    )
+    if (previousFarComment?.kind !== 'comment') {
+      throw new Error('Expected far Comment')
+    }
+    const previousFarProjection = previousOracleCore.projectComment(
+      previousOracle,
+      previousFarComment
+    )
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const farComment = opened.annotations.find(annotation =>
+      annotation.kind === 'comment'
+    )
+    if (farComment?.kind !== 'comment') throw new Error('Expected Comment')
+    const before = inspectionOf(core)
+
+    const first = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 4,
+      insert: 'TEXTS'
+    }], {
+      projections: ['markup', {
+        name: 'comment',
+        annotationRange: farComment.range
+      }]
+    })
+    const afterFirst = inspectionOf(core)
+    expect(first.change.projections).toHaveLength(1)
+    const markupChange = first.change.projections[0]
+    if (markupChange?.name !== 'markup' || markupChange.scope !== 'regions') {
+      throw new Error('Expected one regional Markup change')
+    }
+    expect(markupChange.replacements).toHaveLength(1)
+    const replacement = markupChange.replacements[0]
+    if (replacement === undefined) throw new Error('Expected replacement')
+    expect(replacement.previous.source.start)
+      .toBeGreaterThan(source.indexOf('{--deleted text--}'))
+    expect(replacement.previous.source.end)
+      .toBeLessThan(farComment.range.start)
+
+    expect(delta(afterFirst, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(afterFirst, before, 'documentParses')).toBe(0)
+    expect(delta(afterFirst, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(afterFirst, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(
+      afterFirst,
+      before,
+      'documentAnnotationMaterializedNodes'
+    )).toBe(0)
+    expect(delta(
+      afterFirst,
+      before,
+      'documentRetainedFactOutputStructuralUnits'
+    )).toBe(0)
+    expect(delta(afterFirst, before, 'regionalInventoryBuildUnits')).toBe(0)
+    expect(delta(
+      afterFirst,
+      before,
+      'regionalInventoryCandidateRegionParses'
+    )).toBe(1)
+    expect(delta(
+      afterFirst,
+      before,
+      'regionalInventoryCandidateRegionParseSourceUnits'
+    )).toBe(replacement.next.source.end - replacement.next.source.start)
+    expect(delta(afterFirst, before, 'regionalInventoryChangedLeaves')).toBe(1)
+    expect(delta(afterFirst, before, 'regionalInventoryRootsAttempted')).toBe(1)
+    expect(delta(afterFirst, before, 'regionalInventoryRootsCommitted')).toBe(1)
+    expect(delta(
+      afterFirst,
+      before,
+      'regionalInventoryLocalAnnotationMaterializedNodes'
+    )).toBeGreaterThan(0)
+    expect(delta(
+      afterFirst,
+      before,
+      'regionalInventoryAnnotationMaterializedNodes'
+    )).toBe(0)
+    expect(delta(afterFirst, before, 'regionalInventoryLookupComparisons'))
+      .toBeGreaterThan(0)
+    expect(delta(afterFirst, before, 'regionalInventoryLookupComparisons'))
+      .toBeLessThan(128)
+    expect(delta(afterFirst, before, 'regionalInventoryNodesVisited'))
+      .toBeLessThan(128)
+    expect(delta(afterFirst, before, 'regionalInventoryNodesAllocated'))
+      .toBeLessThan(64)
+    expect(delta(afterFirst, before, 'regionalInventoryNodesShared'))
+      .toBeGreaterThan(0)
+    expect(delta(afterFirst, before, 'regionalInventoryNodesShared'))
+      .toBeLessThan(64)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    expect(applyMarkupReplacement(previousMarkup.events, replacement))
+      .toEqual(freshMarkup.events)
+    expect(applySyntaxReplacementForOracle(
+      previousMarkup.syntax.ast.root,
+      replacement
+    )).toEqual(freshMarkup.syntax.ast.root)
+    for (const segment of replacement.coordinates) {
+      for (
+        let offset = segment.projected.start;
+        offset < segment.projected.end;
+        offset += 1
+      ) {
+        expect(freshMarkup.syntax.coordinates.originAt(offset)).toEqual({
+          kind: 'source',
+          sourceOffset: segment.source.start + offset - segment.projected.start
+        })
+      }
+    }
+    const sourceDelta = replacement.next.source.end -
+      replacement.previous.source.end
+    const syntaxDelta = replacement.next.syntax.end -
+      replacement.previous.syntax.end
+    for (
+      let offset = replacement.previous.syntax.end;
+      offset < previousMarkup.syntax.ast.root.range.end;
+      offset += 1
+    ) {
+      const origin = previousMarkup.syntax.coordinates.originAt(offset)
+      expect(freshMarkup.syntax.coordinates.originAt(offset + syntaxDelta))
+        .toEqual(origin.kind === 'source'
+          ? { kind: 'source', sourceOffset: origin.sourceOffset + sourceDelta }
+          : {
+            kind: 'generated',
+            sourcePosition: origin.sourcePosition + sourceDelta,
+            affinity: origin.affinity
+          })
+    }
+
+    const shiftedFarRange = Object.freeze({
+      start: farComment.range.start + 1,
+      end: farComment.range.end + 1
+    })
+    const freshFarComment = fresh.annotations[2]
+    if (freshFarComment?.kind !== 'comment') {
+      throw new Error('Expected fresh far Comment')
+    }
+    const freshFarProjection = freshCore.projectComment(fresh, freshFarComment)
+    expect(freshFarProjection.markdown).toBe(previousFarProjection.markdown)
+    expect(freshFarProjection.ast).toEqual(previousFarProjection.ast)
+    for (let offset = 0; offset < freshFarProjection.markdown.length; offset += 1) {
+      const previousOrigin = previousFarProjection.coordinates.originAt(offset)
+      if (previousOrigin.kind !== 'source') {
+        throw new Error('Expected source-backed far Comment')
+      }
+      expect(freshFarProjection.coordinates.originAt(offset)).toEqual({
+        kind: 'source',
+        sourceOffset: previousOrigin.sourceOffset + 1
+      })
+    }
+
+    const secondAt = nextSource.indexOf('payload')
+    const beforeSecond = inspectionOf(core)
+    const second = core.apply(first.revision, [{
+      start: secondAt,
+      end: secondAt + 'payload'.length,
+      insert: 'PAYLOADS'
+    }], {
+      projections: [{
+        name: 'comment',
+        annotationRange: shiftedFarRange
+      }]
+    })
+    const afterSecond = inspectionOf(core)
+    expect(second.change.projections).toHaveLength(1)
+    expect(second.change.projections[0]).toMatchObject({
+      name: 'comment',
+      scope: 'regions'
+    })
+    expect(delta(afterSecond, beforeSecond, 'regionalFastApplies')).toBe(1)
+    expect(delta(afterSecond, beforeSecond, 'documentParses')).toBe(0)
+    expect(delta(afterSecond, beforeSecond, 'sourceMaterializations')).toBe(0)
+    expect(delta(
+      afterSecond,
+      beforeSecond,
+      'documentAnnotationMaterializedNodes'
+    )).toBe(0)
+    expect(delta(
+      afterSecond,
+      beforeSecond,
+      'documentRetainedFactOutputStructuralUnits'
+    )).toBe(0)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryBuildUnits'))
+      .toBe(0)
+    expect(delta(
+      afterSecond,
+      beforeSecond,
+      'regionalInventoryCandidateRegionParses'
+    )).toBe(1)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryChangedLeaves'))
+      .toBe(1)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryRootsAttempted'))
+      .toBe(1)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryRootsCommitted'))
+      .toBe(1)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryLookupComparisons'))
+      .toBeGreaterThan(0)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryLookupComparisons'))
+      .toBeLessThan(128)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryNodesAllocated'))
+      .toBeLessThan(64)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryNodesShared'))
+      .toBeGreaterThan(0)
+    expect(delta(afterSecond, beforeSecond, 'regionalInventoryNodesShared'))
+      .toBeLessThan(64)
+
+    // Compatibility annotation access may materialize the source-ordered view,
+    // but both regional transactions have already been admitted without it.
+    const firstAnnotations = first.revision.annotations
+    expect(firstAnnotations.map(annotation => annotation.kind))
+      .toEqual(['deletion', 'addition', 'comment'])
+    expect(firstAnnotations).toEqual(fresh.annotations)
+    const shiftedFarComment = firstAnnotations[2]
+    if (shiftedFarComment?.kind !== 'comment') {
+      throw new Error('Expected shifted far Comment')
+    }
+    expect(shiftedFarComment.range).toEqual(shiftedFarRange)
+    const historicalFarProjection = core.projectComment(
+      first.revision,
+      shiftedFarComment
+    )
+    expect(historicalFarProjection.markdown).toBe(freshFarProjection.markdown)
+    expect(historicalFarProjection.ast).toEqual(freshFarProjection.ast)
+    for (let offset = 0; offset < historicalFarProjection.markdown.length; offset += 1) {
+      expect(historicalFarProjection.coordinates.originAt(offset))
+        .toEqual(freshFarProjection.coordinates.originAt(offset))
+    }
+
+    const secondAnnotations = second.revision.annotations
+    const secondComment = secondAnnotations[2]
+    if (secondComment?.kind !== 'comment') {
+      throw new Error('Expected second regional Comment')
+    }
+    const beforeSecondProjection = inspectionOf(core)
+    const secondProjection = core.projectComment(second.revision, secondComment)
+    const afterSecondProjection = inspectionOf(core)
+    expect(secondProjection.markdown).toBe('comment PAYLOADS')
+    expect(delta(
+      afterSecondProjection,
+      beforeSecondProjection,
+      'documentParses'
+    )).toBe(0)
+    expect(delta(
+      afterSecondProjection,
+      beforeSecondProjection,
+      'sourceMaterializations'
+    )).toBe(0)
+  })
+
+  it('falls back when an inventory Comment edit changes Display topology', () => {
+    const source = 'head {++visible++}\n\nbefore {>>word<<} after\n\ntail\n'
+    const editAt = source.indexOf('word')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[1]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const before = inspectionOf(core)
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 4,
+      insert: '# hi'
+    }], {
+      projections: ['markup', {
+        name: 'comment',
+        annotationRange: comment.range
+      }]
+    })
+    const after = inspectionOf(core)
+    expect(commit.change.projections).toEqual([
+      {
+        name: 'markup',
+        scope: 'document',
+        reason: 'structural-region-ineligible'
+      },
+      {
+        name: 'comment',
+        scope: 'document',
+        targets: [comment.range],
+        reason: 'structural-region-ineligible'
+      }
+    ])
+    expect(delta(after, before, 'regionalInventoryCandidateRegionParses'))
+      .toBe(1)
+    expect(delta(after, before, 'regionalInventoryChangedLeaves')).toBe(0)
+  })
+
+  it('falls back before inventory publication when a regional edit adds a diagnostic', () => {
+    const source = [
+      'early {--deleted--}\n\n',
+      'middle {++added text++}\n\n',
+      'far {>>comment<<}\n\n',
+      'tail\n'
+    ].join('')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[2]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const at = source.indexOf('added text') + 'added text'.length
+    const before = inspectionOf(core)
+    const commit = core.apply(opened, [{ start: at, end: at, insert: ' {++' }], {
+      projections: ['markup', {
+        name: 'comment',
+        annotationRange: comment.range
+      }]
+    })
+    const after = inspectionOf(core)
+    expect(commit.change.projections).toEqual([
+      {
+        name: 'markup',
+        scope: 'document',
+        reason: 'structural-region-ineligible'
+      },
+      {
+        name: 'comment',
+        scope: 'document',
+        targets: [comment.range],
+        reason: 'structural-region-ineligible'
+      }
+    ])
+    expect(commit.revision.diagnostics.length).toBeGreaterThan(0)
+    expect(delta(after, before, 'regionalInventoryCandidateRegionParses'))
+      .toBe(1)
+    expect(delta(after, before, 'regionalInventoryRootsAttempted')).toBe(0)
+    expect(delta(after, before, 'regionalInventoryRootsCommitted')).toBe(0)
+  })
+
+  it('keeps multi-region inventory tree work suffix-independent', () => {
+    const workFor = (suffixParagraphs: number): Readonly<{
+      comparisons: number
+      visits: number
+      allocations: number
+      shared: number
+    }> => {
+      const source = [
+        'early {--deleted--}\n\n',
+        'middle {++target++}\n\n',
+        'far {>>payload<<}\n\n',
+        'suffix\n\n'.repeat(suffixParagraphs)
+      ].join('')
+      const core = createDocumentCore()
+      const opened = core.open(source)
+      const comment = opened.annotations[2]
+      if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+      const before = inspectionOf(core)
+      const at = source.indexOf('target')
+      const commit = core.apply(opened, [{
+        start: at,
+        end: at + 6,
+        insert: 'TARGETS'
+      }], {
+        projections: ['markup', {
+          name: 'comment',
+          annotationRange: comment.range
+        }]
+      })
+      const after = inspectionOf(core)
+      expect(commit.change.projections[0]?.scope).toBe('regions')
+      expect(delta(after, before, 'regionalInventoryChangedLeaves')).toBe(1)
+      expect(delta(after, before, 'regionalInventoryCandidateRegionParses'))
+        .toBe(1)
+      // These are tree-descent/path-copy counters. Candidate parsing and
+      // topology validation are bounded separately by the changed region.
+      return Object.freeze({
+        comparisons: delta(
+          after,
+          before,
+          'regionalInventoryLookupComparisons'
+        ),
+        visits: delta(after, before, 'regionalInventoryNodesVisited'),
+        allocations: delta(after, before, 'regionalInventoryNodesAllocated'),
+        shared: delta(after, before, 'regionalInventoryNodesShared')
+      })
+    }
+    const small = workFor(1_000)
+    const large = workFor(16_000)
+    expect(large.comparisons).toBeLessThan(small.comparisons * 2)
+    expect(large.visits).toBeLessThan(small.visits * 2)
+    expect(large.allocations).toBeLessThan(small.allocations * 2)
+    expect(large.shared).toBeLessThan(small.shared * 2)
+  })
+
+  it('does not build the CM inventory for a plain document', () => {
+    const core = createDocumentCore()
+    const before = inspectionOf(core)
+    core.open('plain\n\n'.repeat(10_000))
+    const after = inspectionOf(core)
+    expect(delta(after, before, 'regionalInventoryBuildUnits')).toBe(0)
+    expect(delta(after, before, 'regionalInventoryNodesAllocated')).toBe(0)
+  })
+
+  it('does not build the multi-region inventory for one CM root', () => {
+    const core = createDocumentCore()
+    const before = inspectionOf(core)
+    core.open('head\n\nonly {++one++}\n\ntail\n')
+    const after = inspectionOf(core)
+    expect(delta(after, before, 'regionalInventoryBuildUnits')).toBe(0)
+    expect(delta(after, before, 'regionalInventoryNodesAllocated')).toBe(0)
+  })
+
+  it('builds a dense CM inventory with linear retained-fact work', () => {
+    const buildFor = (regions: number): ChangeInspection => {
+      const core = createDocumentCore()
+      core.open(`head\n\n${'{++word++}\n\n'.repeat(regions)}tail\n`)
+      return inspectionOf(core)
+    }
+    const small = buildFor(100)
+    const large = buildFor(1_000)
+    expect(small.regionalInventoryBuildUnits).toBeGreaterThan(0)
+    expect(large.regionalInventoryBuildUnits)
+      .toBeLessThan(small.regionalInventoryBuildUnits * 12)
+    expect(small.documentAnnotationMaterializedNodes).toBe(0)
+    expect(large.documentAnnotationMaterializedNodes).toBe(0)
+  })
+
+  it('compacts a large plain suffix behind a few CM regions', () => {
+    const buildFor = (plainSuffixRegions: number): Readonly<{
+      buildUnits: number
+      nodes: number
+    }> => {
+      const core = createDocumentCore()
+      core.open([
+        'early {--deleted--}\n\n',
+        'middle {++added++}\n\n',
+        'far {>>comment<<}\n\n',
+        'x\n\n'.repeat(plainSuffixRegions)
+      ].join(''))
+      const inspection = inspectionOf(core)
+      expect(inspection.documentAnnotationMaterializedNodes).toBe(0)
+      return Object.freeze({
+        buildUnits: inspection.regionalInventoryBuildUnits,
+        nodes: inspection.regionalInventoryNodesAllocated
+      })
+    }
+    const small = buildFor(1_000)
+    const large = buildFor(100_000)
+    expect(large.nodes).toBeLessThan(small.nodes * 2)
+    expect(large.buildUnits).toBeLessThan(small.buildUnits * 110)
+  }, 30_000)
+
   it('keeps a deeply nested Comment annotation and projection regional', () => {
     const depth = 3_000
     const payload = '{++'.repeat(depth) + 'x' + '++}'.repeat(depth)
@@ -661,6 +1139,7 @@ describe('document-core semantic changes', () => {
     if (first?.kind !== 'comment' || second?.kind !== 'comment') {
       throw new Error('Expected two Comments')
     }
+    const beforeMultiple = inspectionOf(multipleCore)
     const multiple = multipleCore.apply(multipleOpened, [{
       start: multipleSource.indexOf('first'),
       end: multipleSource.indexOf('first') + 5,
@@ -672,6 +1151,7 @@ describe('document-core semantic changes', () => {
         { name: 'comment', annotationRange: first.range }
       ]
     })
+    const afterMultiple = inspectionOf(multipleCore)
     expect(multiple.change.projections).toEqual([{
       name: 'markup',
       scope: 'document',
@@ -682,6 +1162,16 @@ describe('document-core semantic changes', () => {
       targets: [first.range, second.range],
       reason: 'structural-region-ineligible'
     }])
+    expect(delta(
+      afterMultiple,
+      beforeMultiple,
+      'regionalInventoryCandidateRegionParses'
+    )).toBe(0)
+    expect(delta(
+      afterMultiple,
+      beforeMultiple,
+      'regionalInventoryRootsAttempted'
+    )).toBe(0)
 
     const missingCore = createDocumentCore()
     const missingOpened = missingCore.open(source)
