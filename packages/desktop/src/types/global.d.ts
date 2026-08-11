@@ -12,6 +12,7 @@ import type {
 } from '@shared/types/ipc'
 import type { MenuTemplate, MenuPopupPosition } from '@shared/types/menu'
 import type { SerializedStat } from '@shared/types/files'
+import type { ShadowReport } from '@/documentAuthority'
 
 declare global {
   // ---- Build-time defines (electron-vite `define`) ----
@@ -188,6 +189,12 @@ declare global {
     rgPath: string
     // Set by the legacy editor store at runtime; consumed by muya internals.
     DIRNAME: string
+    /** Read-only, opt-in test diagnostics for the document-core Shadow. */
+    __marktextDocumentCoreShadow?: {
+      readonly diagnosticOnly: true
+      settled(): Promise<void>
+      reports(): readonly ShadowReport[]
+    }
     marktext?: {
       env?: { windowId: number; [key: string]: unknown }
       initialState?: {
