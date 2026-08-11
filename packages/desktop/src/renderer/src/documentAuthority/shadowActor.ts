@@ -1,10 +1,11 @@
 import {
   createDocumentCore,
   DocumentCoreError,
+  DocumentSourceEditError,
   type CriticMarkupAnnotation,
+  type DocumentCore,
   type DocumentDiagnostic,
-  type DocumentRevision,
-  type DocumentSourceEdit
+  type DocumentRevision
 } from '@marktext/document-core'
 
 import type {
@@ -33,31 +34,6 @@ function diagnosticSampleOf(revision: DocumentRevision): Readonly<{
   })
 }
 
-function applyExactSourceEdits(
-  source: string,
-  edits: readonly DocumentSourceEdit[]
-): string {
-  const pieces: string[] = []
-  let sourceOffset = 0
-
-  for (const [index, edit] of edits.entries()) {
-    if (
-      !Number.isInteger(edit.start) ||
-      !Number.isInteger(edit.end) ||
-      edit.start < sourceOffset ||
-      edit.end < edit.start ||
-      edit.end > source.length ||
-      typeof edit.insert !== 'string'
-    ) {
-      throw new RangeError(`Shadow source edit ${String(index)} is invalid`)
-    }
-    pieces.push(source.slice(sourceOffset, edit.start), edit.insert)
-    sourceOffset = edit.end
-  }
-  pieces.push(source.slice(sourceOffset))
-  return pieces.join('')
-}
-
 function recognitionOf(revision: DocumentRevision): ShadowRecognitionSummary {
   const annotationCounts = {
     addition: 0,
@@ -81,12 +57,13 @@ function recognitionOf(revision: DocumentRevision): ShadowRecognitionSummary {
   })
 }
 
-export function createShadowActor(): ShadowActor {
-  // The actor never replaces this instance: all accepted revisions in every
-  // session/barrier belong to one DocumentCore lineage.
-  const core = createDocumentCore()
+export function createShadowActor(
+  createCore: () => DocumentCore = createDocumentCore
+): ShadowActor {
+  // A core belongs to exactly one accepted open generation. Dropping a
+  // generation drops its current revision and full canonical source too.
+  let core: DocumentCore | undefined
   let revision: DocumentRevision | undefined
-  let candidateSource: string | undefined
   let currentSession = 0
   let currentGeneration = 0
   let lastSequence = 0
@@ -153,14 +130,15 @@ export function createShadowActor(): ShadowActor {
       currentSession = request.session
       currentGeneration = request.generation
       lastSequence = request.sequence
+      core = undefined
       revision = undefined
-      candidateSource = undefined
       revisionNumber = 0
 
       try {
-        const opened = core.open(request.source, request.options)
+        const nextCore = createCore()
+        const opened = nextCore.open(request.source, request.options)
+        core = nextCore
         revision = opened
-        candidateSource = request.source
         revisionNumber = 1
         const diagnostics = diagnosticSampleOf(opened)
         return Object.freeze({
@@ -211,8 +189,8 @@ export function createShadowActor(): ShadowActor {
 
     if (request.type === 'close') {
       if (revision === undefined) return rejected('not-open')
+      core = undefined
       revision = undefined
-      candidateSource = undefined
       return Object.freeze({
         type: 'result',
         session: request.session,
@@ -227,27 +205,18 @@ export function createShadowActor(): ShadowActor {
       })
     }
 
-    if (revision === undefined || candidateSource === undefined) {
+    if (core === undefined || revision === undefined) {
       return rejected('not-open')
     }
     if (request.baseRevision !== revisionNumber) {
       return rejected('stale-base')
     }
 
-    let nextSource: string
     try {
-      nextSource = applyExactSourceEdits(candidateSource, request.edits)
-    } catch (error) {
-      if (error instanceof RangeError) return rejected('invalid-edit')
-      throw error
-    }
-
-    try {
-      const reopened = core.reopen(revision, nextSource, request.edits)
-      revision = reopened
-      candidateSource = nextSource
+      const applied = core.apply(revision, request.edits)
+      revision = applied.revision
       revisionNumber += 1
-      const diagnostics = diagnosticSampleOf(reopened)
+      const diagnostics = diagnosticSampleOf(applied.revision)
       return Object.freeze({
         type: 'result',
         session: request.session,
@@ -258,7 +227,7 @@ export function createShadowActor(): ShadowActor {
         status: diagnostics.count === 0 ? 'accepted' : 'diagnostic',
         diagnosticCount: diagnostics.count,
         diagnostics: diagnostics.sample,
-        recognition: recognitionOf(reopened),
+        recognition: recognitionOf(applied.revision),
         metrics: metric(Math.max(0, parseNow() - parseStartedAt))
       })
     } catch (error) {
@@ -281,6 +250,9 @@ export function createShadowActor(): ShadowActor {
           metrics: metric(Math.max(0, parseNow() - parseStartedAt))
         })
       }
+      if (error instanceof DocumentSourceEditError) {
+        return rejected('invalid-edit')
+      }
       // An unexpected core failure is not an invalid author edit. Let the port
       // fail so the Shadow session can disable itself terminally.
       throw error
@@ -291,8 +263,8 @@ export function createShadowActor(): ShadowActor {
     handle,
     dispose(): void {
       disposed = true
+      core = undefined
       revision = undefined
-      candidateSource = undefined
     }
   })
 }
