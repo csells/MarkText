@@ -8,6 +8,8 @@ export interface DocumentCoreInspection {
   readonly documentMarkupEventUnits: number
   readonly documentAstMaterializedNodes: number
   readonly documentCoordinateSegments: number
+  readonly documentAnnotationMaterializedNodes: number
+  readonly documentRetainedFactOutputStructuralUnits: number
   readonly canonicalFactIndexUnits: number
   readonly regionalProjectionPreparationUnits: number
   readonly regionalMarkupEventUnits: number
@@ -16,6 +18,18 @@ export interface DocumentCoreInspection {
   readonly regionalCommentProjectionPreparationUnits: number
   readonly regionalCommentAstMaterializedNodes: number
   readonly regionalCommentCoordinateSegments: number
+  readonly regionalInventoryBuildUnits: number
+  readonly regionalInventoryLookupComparisons: number
+  readonly regionalInventoryNodesVisited: number
+  readonly regionalInventoryNodesAllocated: number
+  readonly regionalInventoryNodesShared: number
+  readonly regionalInventoryChangedLeaves: number
+  readonly regionalInventoryRootsAttempted: number
+  readonly regionalInventoryRootsCommitted: number
+  readonly regionalInventoryLocalAnnotationMaterializedNodes: number
+  readonly regionalInventoryCandidateRegionParses: number
+  readonly regionalInventoryCandidateRegionParseSourceUnits: number
+  readonly regionalInventoryAnnotationMaterializedNodes: number
   readonly retainedFactInputStructuralUnits: number
   readonly retainedFactOutputStructuralUnits: number
   readonly retainedInitialBuildUnits: number
