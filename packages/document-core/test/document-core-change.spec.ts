@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createDocumentCore,
+  type DocumentCoreError,
+  type MarkdownAstNode,
   type MarkupEvent,
   type MarkupMark,
   type MarkupProjection,
@@ -143,7 +145,620 @@ function assertPortable(value: unknown): void {
   }
 }
 
+function shiftMarkdownAstNodeForOracle(
+  node: MarkdownAstNode,
+  delta: number
+): MarkdownAstNode {
+  const attributes: Record<string, string | number | boolean> = {}
+  for (const [name, value] of Object.entries(node.attributes)) {
+    attributes[name] = typeof value === 'number' &&
+      (name.endsWith('Start') || name.endsWith('End'))
+      ? value + delta
+      : value
+  }
+  return Object.freeze({
+    kind: node.kind,
+    range: Object.freeze({
+      start: node.range.start + delta,
+      end: node.range.end + delta
+    }),
+    attributes: Object.freeze(attributes),
+    children: Object.freeze(node.children.map(
+      child => shiftMarkdownAstNodeForOracle(child, delta)
+    ))
+  })
+}
+
+function applySyntaxReplacementForOracle(
+  previousRoot: MarkdownAstNode,
+  replacement: MarkupRegionReplacement
+): MarkdownAstNode {
+  const delta = replacement.next.syntax.end - replacement.previous.syntax.end
+  const prefix = previousRoot.children.filter(
+    child => child.range.end <= replacement.previous.syntax.start
+  )
+  const suffix = previousRoot.children
+    .filter(child => child.range.start >= replacement.previous.syntax.end)
+    .map(child => shiftMarkdownAstNodeForOracle(child, delta))
+  return Object.freeze({
+    kind: previousRoot.kind,
+    range: Object.freeze({
+      start: previousRoot.range.start,
+      end: previousRoot.range.end + delta
+    }),
+    attributes: previousRoot.attributes,
+    children: Object.freeze([
+      ...prefix,
+      ...replacement.syntaxBlocks,
+      ...suffix
+    ])
+  })
+}
+
 describe('document-core semantic changes', () => {
+  it('emits a balanced regional replacement for text inside an Addition', () => {
+    const source =
+      'head\n\nbefore {++added text++} after\n\ntail\n\n' +
+      'suffix\n\n'.repeat(100)
+    const editAt = source.indexOf('text')
+    const nextSource =
+      source.slice(0, editAt) + 'TEXTS' + source.slice(editAt + 4)
+    const previousOracleCore = createDocumentCore()
+    const previousOracle = previousOracleCore.open(source)
+    const previousMarkup = previousOracleCore.project(previousOracle, 'markup')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 4,
+      insert: 'TEXTS'
+    }], { projections: ['markup'] })
+    const after = inspectionOf(core)
+    const change = commit.change.projections[0]
+
+    expect(commit.revision.sourceLength).toBe(nextSource.length)
+    expect(commit.revision.annotations).toEqual([{
+      kind: 'addition',
+      range: { start: 13, end: 30 },
+      arms: [{
+        name: 'content',
+        range: { start: 16, end: 27 },
+        annotations: []
+      }]
+    }])
+    expect(change?.scope).toBe('regions')
+    if (change?.scope !== 'regions') {
+      throw new Error('Expected Addition regional change')
+    }
+    expect(change.replacements).toHaveLength(1)
+    const replacement = change.replacements[0]
+    if (replacement === undefined) throw new Error('Expected replacement')
+    expect(replacement.previous).toEqual({
+      source: { start: 6, end: 37 },
+      syntax: { start: 6, end: 31 },
+      events: { start: 1, end: 6 }
+    })
+    expect(replacement.next).toEqual({
+      source: { start: 6, end: 38 },
+      syntax: { start: 6, end: 32 },
+      events: { start: 1, end: 6 }
+    })
+    expect(replacement.events).toEqual([
+      {
+        kind: 'text',
+        text: 'before ',
+        sourceRange: { start: 6, end: 13 }
+      },
+      {
+        kind: 'enter',
+        mark: {
+          kind: 'addition',
+          annotationRange: { start: 13, end: 30 }
+        }
+      },
+      {
+        kind: 'text',
+        text: 'added TEXTS',
+        sourceRange: { start: 16, end: 27 }
+      },
+      {
+        kind: 'exit',
+        mark: {
+          kind: 'addition',
+          annotationRange: { start: 13, end: 30 }
+        }
+      },
+      {
+        kind: 'text',
+        text: ' after\n\n',
+        sourceRange: { start: 30, end: 38 }
+      }
+    ])
+    expect(replacement.events[1]?.kind).toBe('enter')
+    expect(replacement.events[3]?.kind).toBe('exit')
+    if (
+      replacement.events[1]?.kind !== 'enter' ||
+      replacement.events[3]?.kind !== 'exit'
+    ) {
+      throw new Error('Expected balanced Addition events')
+    }
+    expect(replacement.events[1].mark).toBe(replacement.events[3].mark)
+    expect(replacement.coordinates).toEqual([
+      {
+        projected: { start: 6, end: 13 },
+        source: { start: 6, end: 13 }
+      },
+      {
+        projected: { start: 13, end: 24 },
+        source: { start: 16, end: 27 }
+      },
+      {
+        projected: { start: 24, end: 30 },
+        source: { start: 30, end: 36 }
+      },
+      {
+        projected: { start: 30, end: 31 },
+        source: { start: 36, end: 37 }
+      },
+      {
+        projected: { start: 31, end: 32 },
+        source: { start: 37, end: 38 }
+      }
+    ])
+    assertPortable(commit.change)
+
+    expect(delta(after, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(after, before, 'documentParses')).toBe(0)
+    expect(delta(after, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(after, before, 'documentProjectionPreparationUnits')).toBe(0)
+    expect(delta(after, before, 'documentMarkupEventUnits')).toBe(0)
+    expect(delta(after, before, 'documentAstMaterializedNodes')).toBe(0)
+    expect(delta(after, before, 'documentCoordinateSegments')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits')).toBe(63)
+    expect(delta(after, before, 'regionalProjectionPreparationUnits')).toBe(63)
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits'))
+      .toBeLessThan(source.length)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    expect(commit.revision.annotations).toEqual(fresh.annotations)
+    expect(applyMarkupReplacement(
+      previousMarkup.events,
+      replacement
+    )).toEqual(freshMarkup.events)
+    expect(replacement.syntaxBlocks).toEqual([
+      freshMarkup.syntax.ast.root.children[1]
+    ])
+    expect(applySyntaxReplacementForOracle(
+      previousMarkup.syntax.ast.root,
+      replacement
+    )).toEqual(freshMarkup.syntax.ast.root)
+    for (const segment of replacement.coordinates) {
+      for (
+        let offset = segment.projected.start;
+        offset < segment.projected.end;
+        offset += 1
+      ) {
+        expect(freshMarkup.syntax.coordinates.originAt(offset)).toEqual({
+          kind: 'source',
+          sourceOffset: segment.source.start +
+            offset - segment.projected.start
+        })
+      }
+    }
+    const syntaxDelta = replacement.next.syntax.end -
+      replacement.previous.syntax.end
+    const sourceDelta = replacement.next.source.end -
+      replacement.previous.source.end
+    for (
+      let offset = replacement.previous.syntax.end;
+      offset < previousMarkup.syntax.ast.root.range.end;
+      offset += 1
+    ) {
+      const previousOrigin = previousMarkup.syntax.coordinates.originAt(offset)
+      const expectedOrigin = previousOrigin.kind === 'source'
+        ? {
+          kind: 'source' as const,
+          sourceOffset: previousOrigin.sourceOffset + sourceDelta
+        }
+        : {
+          kind: 'generated' as const,
+          sourcePosition: previousOrigin.sourcePosition + sourceDelta,
+          affinity: previousOrigin.affinity
+        }
+      expect(freshMarkup.syntax.coordinates.originAt(offset + syntaxDelta))
+        .toEqual(expectedOrigin)
+    }
+  })
+
+  it('chains balanced Addition replacements without materializing the source', () => {
+    const source =
+      'head\n\nbefore {++added text++} after\n\ntail\n\n' +
+      'suffix\n\n'.repeat(100)
+    const firstAt = source.indexOf('text')
+    const afterFirst =
+      source.slice(0, firstAt) + 'TEXTS' + source.slice(firstAt + 4)
+    const secondAt = afterFirst.indexOf('TEXTS') + 2
+    const afterSecond =
+      afterFirst.slice(0, secondAt) + 'Q' + afterFirst.slice(secondAt)
+    const previousOracleCore = createDocumentCore()
+    const previousOracle = previousOracleCore.open(source)
+    const previousEvents = previousOracleCore.project(
+      previousOracle,
+      'markup'
+    ).events
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+
+    const first = core.apply(opened, [{
+      start: firstAt,
+      end: firstAt + 4,
+      insert: 'TEXTS'
+    }], { projections: ['markup'] })
+    const firstChange = first.change.projections[0]
+    if (firstChange?.scope !== 'regions') {
+      throw new Error('Expected first Addition regional change')
+    }
+    const firstReplacement = firstChange.replacements[0]
+    if (firstReplacement === undefined) {
+      throw new Error('Expected first Addition replacement')
+    }
+
+    const second = core.apply(first.revision, [{
+      start: secondAt,
+      end: secondAt,
+      insert: 'Q'
+    }], { projections: ['markup'] })
+    const after = inspectionOf(core)
+    const secondChange = second.change.projections[0]
+    if (secondChange?.scope !== 'regions') {
+      throw new Error('Expected second Addition regional change')
+    }
+    const secondReplacement = secondChange.replacements[0]
+    if (secondReplacement === undefined) {
+      throw new Error('Expected second Addition replacement')
+    }
+
+    expect(second.revision.sourceLength).toBe(afterSecond.length)
+    expect(second.revision.annotations).toEqual([{
+      kind: 'addition',
+      range: { start: 13, end: 31 },
+      arms: [{
+        name: 'content',
+        range: { start: 16, end: 28 },
+        annotations: []
+      }]
+    }])
+    expect(secondReplacement.previous).toEqual({
+      source: { start: 6, end: 38 },
+      syntax: { start: 6, end: 32 },
+      events: { start: 1, end: 6 }
+    })
+    expect(secondReplacement.next).toEqual({
+      source: { start: 6, end: 39 },
+      syntax: { start: 6, end: 33 },
+      events: { start: 1, end: 6 }
+    })
+    expect(secondReplacement.events).toEqual([
+      {
+        kind: 'text',
+        text: 'before ',
+        sourceRange: { start: 6, end: 13 }
+      },
+      {
+        kind: 'enter',
+        mark: {
+          kind: 'addition',
+          annotationRange: { start: 13, end: 31 }
+        }
+      },
+      {
+        kind: 'text',
+        text: 'added TEQXTS',
+        sourceRange: { start: 16, end: 28 }
+      },
+      {
+        kind: 'exit',
+        mark: {
+          kind: 'addition',
+          annotationRange: { start: 13, end: 31 }
+        }
+      },
+      {
+        kind: 'text',
+        text: ' after\n\n',
+        sourceRange: { start: 31, end: 39 }
+      }
+    ])
+    expect(secondReplacement.events[1]?.kind).toBe('enter')
+    expect(secondReplacement.events[3]?.kind).toBe('exit')
+    if (
+      secondReplacement.events[1]?.kind !== 'enter' ||
+      secondReplacement.events[3]?.kind !== 'exit'
+    ) {
+      throw new Error('Expected balanced chained Addition events')
+    }
+    expect(secondReplacement.events[1].mark)
+      .toBe(secondReplacement.events[3].mark)
+    assertPortable(first.change)
+    assertPortable(second.change)
+
+    expect(delta(after, before, 'regionalFastApplies')).toBe(2)
+    expect(delta(after, before, 'documentParses')).toBe(0)
+    expect(delta(after, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(after, before, 'documentProjectionPreparationUnits')).toBe(0)
+    expect(delta(after, before, 'documentMarkupEventUnits')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits')).toBe(128)
+    expect(delta(after, before, 'regionalProjectionPreparationUnits')).toBe(128)
+
+    const firstFreshCore = createDocumentCore()
+    const firstFresh = firstFreshCore.open(afterFirst)
+    const historicalMarkup = core.project(first.revision, 'markup')
+    const firstFreshMarkup = firstFreshCore.project(firstFresh, 'markup')
+    expect(historicalMarkup.events).toEqual(firstFreshMarkup.events)
+    expect(historicalMarkup.syntax.ast).toEqual(firstFreshMarkup.syntax.ast)
+    for (
+      let offset = 0;
+      offset < historicalMarkup.syntax.ast.root.range.end;
+      offset += 1
+    ) {
+      expect(historicalMarkup.syntax.coordinates.originAt(offset)).toEqual(
+        firstFreshMarkup.syntax.coordinates.originAt(offset)
+      )
+    }
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(afterSecond)
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    expect(second.revision.annotations).toEqual(fresh.annotations)
+    const afterFirstEvents = applyMarkupReplacement(
+      previousEvents,
+      firstReplacement
+    )
+    expect(applyMarkupReplacement(
+      afterFirstEvents,
+      secondReplacement
+    )).toEqual(freshMarkup.events)
+    expect(secondReplacement.syntaxBlocks).toEqual([
+      freshMarkup.syntax.ast.root.children[1]
+    ])
+    for (const segment of secondReplacement.coordinates) {
+      for (
+        let offset = segment.projected.start;
+        offset < segment.projected.end;
+        offset += 1
+      ) {
+        expect(freshMarkup.syntax.coordinates.originAt(offset)).toEqual({
+          kind: 'source',
+          sourceOffset: segment.source.start +
+            offset - segment.projected.start
+        })
+      }
+    }
+  })
+
+  it.each([
+    {
+      name: 'inserts punctuation',
+      source: 'head\n\nbefore {++added text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('text') + 2,
+        end: source.indexOf('text') + 2,
+        insert: '! @ , . -'
+      })
+    },
+    {
+      name: 'deletes punctuation',
+      source: 'head\n\nbefore {++added a,b text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf(','),
+        end: source.indexOf(',') + 1,
+        insert: ''
+      })
+    }
+  ])('lets the parser admit an Addition edit that $name', ({ source, edit }) => {
+    const stableEdit = edit(source)
+    const nextSource = applyExactSourceEdits(
+      source,
+      [stableEdit],
+      'Addition punctuation oracle'
+    )
+    const previousCore = createDocumentCore()
+    const previous = previousCore.open(source)
+    const previousEvents = previousCore.project(previous, 'markup').events
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [stableEdit], {
+      projections: ['markup']
+    })
+    const after = inspectionOf(core)
+    const change = commit.change.projections[0]
+    if (change?.scope !== 'regions') {
+      throw new Error('Expected punctuation Addition regional change')
+    }
+    const replacement = change.replacements[0]
+    if (replacement === undefined) throw new Error('Expected replacement')
+
+    expect(delta(after, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(after, before, 'documentParses')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    expect(commit.revision.annotations).toEqual(fresh.annotations)
+    expect(applyMarkupReplacement(previousEvents, replacement))
+      .toEqual(freshMarkup.events)
+  })
+
+  it.each([
+    {
+      name: 'touches an Addition marker',
+      source: 'head\n\nbefore {++added text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('{++'),
+        end: source.indexOf('{++') + 1,
+        insert: '['
+      })
+    },
+    {
+      name: 'creates nested marker topology',
+      source: 'head\n\nbefore {++added text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('text'),
+        end: source.indexOf('text') + 4,
+        insert: '{++nested++}'
+      })
+    },
+    {
+      name: 'creates a Markdown block',
+      source: 'head\n\nbefore {++added text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('text'),
+        end: source.indexOf('text') + 4,
+        insert: '\n\n# block\n\n'
+      })
+    },
+    {
+      name: 'starts at the content boundary',
+      source: 'head\n\nbefore {++added text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('{++') + 3,
+        end: source.indexOf('{++') + 3,
+        insert: 'X'
+      })
+    },
+    {
+      name: 'targets an empty arm',
+      source: 'head\n\nbefore {++++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('{++') + 3,
+        end: source.indexOf('{++') + 3,
+        insert: 'X'
+      })
+    },
+    {
+      name: 'would replace a generated Markdown origin',
+      source: 'head\n\nbefore {++x*++}* after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('x*') + 1,
+        end: source.indexOf('x*') + 1,
+        insert: ' '
+      })
+    },
+    {
+      name: 'has a nested Comment',
+      source: 'head\n\nbefore {++added {>>note<<} text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('added'),
+        end: source.indexOf('added') + 5,
+        insert: 'ADDED'
+      })
+    },
+    {
+      name: 'has multiple top-level annotations',
+      source: 'head\n\nbefore {++added text++} {--drop--} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('text'),
+        end: source.indexOf('text') + 4,
+        insert: 'TEXT'
+      })
+    },
+    {
+      name: 'has a literal marker candidate',
+      source: 'head\n\n`{++literal++}` before {++added text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('text'),
+        end: source.indexOf('text') + 4,
+        insert: 'TEXT'
+      })
+    },
+    {
+      name: 'has a diagnostic marker candidate',
+      source: 'head\n\n++} before {++added text++} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('text'),
+        end: source.indexOf('text') + 4,
+        insert: 'TEXT'
+      })
+    }
+  ])('falls back to a document change when an Addition edit $name', ({
+    source,
+    edit
+  }) => {
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const commit = core.apply(opened, [edit(source)], {
+      projections: ['markup']
+    })
+
+    expect(commit.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'criticmarkup-facts-present'
+    }])
+  })
+
+  it('rebases a bounded Addition resource error and rejects atomically', () => {
+    const source =
+      'head\n\nbefore {++added text++} after\n\ntail\n\n' +
+      'suffix\n\n'.repeat(20)
+    const editAt = source.indexOf('added') + 2
+    const overLimit = '{++ '.repeat(1_025)
+    const edit = {
+      start: editAt,
+      end: editAt,
+      insert: overLimit
+    }
+    const fullCore = createDocumentCore()
+    const fullOpened = fullCore.open(source)
+    let fullError: DocumentCoreError | undefined
+    try {
+      fullCore.apply(fullOpened, [edit])
+    } catch (error) {
+      fullError = error as DocumentCoreError
+    }
+    expect(fullError).toBeDefined()
+
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+    let regionalError: DocumentCoreError | undefined
+    try {
+      core.apply(opened, [edit], { projections: ['markup'] })
+    } catch (error) {
+      regionalError = error as DocumentCoreError
+    }
+    const rejected = inspectionOf(core)
+
+    expect(regionalError).toMatchObject({
+      code: fullError?.code,
+      range: fullError?.range,
+      metadata: fullError?.metadata
+    })
+    expect(delta(rejected, before, 'documentParses')).toBe(0)
+    expect(delta(rejected, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(rejected, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(rejected, before, 'sourceRopeRootsCommitted')).toBe(0)
+    expect(delta(rejected, before, 'regionalFastApplies')).toBe(0)
+
+    const accepted = core.apply(opened, [{
+      start: editAt,
+      end: editAt,
+      insert: 'X'
+    }], { projections: ['markup'] })
+    expect(accepted.change.projections[0]?.scope).toBe('regions')
+  })
+
   it('emits a bounded Markup replacement for one inert middle-paragraph edit', () => {
     const suffix = Array.from(
       { length: 10_000 },
