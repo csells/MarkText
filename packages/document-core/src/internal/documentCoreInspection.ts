@@ -15,6 +15,16 @@ export interface DocumentCoreInspection {
   readonly regionalCoordinateSegments: number
   readonly retainedFactInputStructuralUnits: number
   readonly retainedFactOutputStructuralUnits: number
+  readonly retainedInitialBuildUnits: number
+  readonly retainedIndexLookupComparisons: number
+  readonly retainedOverlayNodeVisits: number
+  readonly retainedOverlayNodesAllocated: number
+  readonly retainedOverlayNodesReused: number
+  readonly retainedChangedLeafUnits: number
+  readonly retainedCommittedUpdates: number
+  readonly retainedLocalIndexUnitsCopied: number
+  readonly retainedOverlayMaximumDepth: number
+  readonly sourceReconstructionOutputUnits: number
 }
 
 const READERS = new WeakMap<
