@@ -74,6 +74,9 @@ importers:
       '@intlify/core-base':
         specifier: ^11.4.6
         version: 11.4.6
+      '@marktext/document-core':
+        specifier: workspace:*
+        version: link:../document-core
       '@marktext/file-icons':
         specifier: ^1.0.6
         version: 1.0.6

@@ -359,6 +359,9 @@ const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
 const DESKTOP_BUDGET_EVENT_LIMIT = 2_000_000
 const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128
 const DESKTOP_CM_DEPTH_LIMIT = 16_384
+// Syntax diagnostics are logical output nodes too. Cap them during admission,
+// before a short malformed source can allocate an unbounded object graph.
+const DESKTOP_SYNTAX_DIAGNOSTIC_LIMIT = 1_024
 const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptionsV1 = Object.freeze({
   schema: 'markdown-options-1',
   gfm: true,
@@ -1097,9 +1100,9 @@ function structuralRecoverySuppressionRanges(
 function parseIntrinsicProfile1Pass(
   source: string,
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
-  // Accepted-node depth is enforced after the pass (collectOverDepthNodes);
-  // the limit stays in the signature so every caller states its policy.
-  _cmDepthLimit: number = Number.POSITIVE_INFINITY,
+  // Accepted-node depth is enforced after the pass (collectOverDepthNodes).
+  // A finite value also identifies the bounded desktop resource policy.
+  cmDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   execution?: ParseExecutionTracker,
@@ -1137,25 +1140,44 @@ function parseIntrinsicProfile1Pass(
   const roots: CriticMarkupNode[] = []
   const frames: ParseFrame[] = []
   const framesByKind = new Map<ImplementedKind, ParseFrame[]>()
-  const diagnostics: SyntaxDiagnostic[] = [
-    ...(suppressedMarkerRanges ?? Object.freeze([])).map((range) => {
-      const marker = findMarker(source, range.start)
-      if (
-        marker === undefined ||
+  const syntaxDiagnosticLimit = Number.isFinite(cmDepthLimit)
+    ? DESKTOP_SYNTAX_DIAGNOSTIC_LIMIT
+    : Number.POSITIVE_INFINITY
+  const diagnostics: SyntaxDiagnostic[] = []
+  const recordDiagnostic = (
+    diagnostic: SyntaxDiagnostic
+  ): ResourceDiagnostic | undefined => {
+    if (diagnostics.length >= syntaxDiagnosticLimit) {
+      return createResourceDiagnostic(
+        'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+        diagnostic.range,
+        syntaxDiagnosticLimit,
+        diagnostics.length + 1
+      )
+    }
+    diagnostics.push(diagnostic)
+    return undefined
+  }
+  for (const range of suppressedMarkerRanges ?? Object.freeze([])) {
+    const marker = findMarker(source, range.start)
+    if (
+      marker === undefined ||
         marker.role !== 'open' ||
         range.end !== range.start + marker.length
-      ) {
-        throw new Error('Profile 1 recovery suppressed a non-opener marker')
-      }
-      return createDiagnostic(
-        'CM_UNTERMINATED_OPENER',
-        sourceRange(range.start, range.end),
-        marker.definition.kind === 'substitution'
-          ? { separatorSeen: 'false' }
-          : undefined
-      )
-    })
-  ]
+    ) {
+      throw new Error('Profile 1 recovery suppressed a non-opener marker')
+    }
+    const failure = recordDiagnostic(createDiagnostic(
+      'CM_UNTERMINATED_OPENER',
+      sourceRange(range.start, range.end),
+      marker.definition.kind === 'substitution'
+        ? { separatorSeen: 'false' }
+        : undefined
+    ))
+    if (failure !== undefined) {
+      return Object.freeze({ kind: 'resource-failure', fatalDiagnostic: failure })
+    }
+  }
   const markerDecisions: CanonicalMarkerDecision[] = []
   const stagedMarkdownLiterals: MarkdownLiteralRange[] = []
   let firstMarkdownDepthFailure: MarkdownContainerDepthFailure | undefined
@@ -1375,13 +1397,14 @@ function parseIntrinsicProfile1Pass(
       // non-top closer. This is the live-edit recovery promised by R2: the
       // unfinished opener remains exact Markdown text and later constructs
       // retain their ordinary meaning.
-      diagnostics.push(
-        createDiagnostic(
-          'CM_UNTERMINATED_OPENER',
-          run.range,
-          kind === 'substitution' ? { separatorSeen: 'false' } : undefined
-        )
-      )
+      const failure = recordDiagnostic(createDiagnostic(
+        'CM_UNTERMINATED_OPENER',
+        run.range,
+        kind === 'substitution' ? { separatorSeen: 'false' } : undefined
+      ))
+      if (failure !== undefined) {
+        return Object.freeze({ kind: 'resource-failure', fatalDiagnostic: failure })
+      }
       appendRunAsMarkdownText(run)
       sourceProgression.consume(run.range.end)
       continue
@@ -1532,7 +1555,12 @@ function parseIntrinsicProfile1Pass(
           action: 'unmatched'
         })
       )
-      diagnostics.push(createDiagnostic('CM_UNMATCHED_CLOSER', run.range))
+      const failure = recordDiagnostic(
+        createDiagnostic('CM_UNMATCHED_CLOSER', run.range)
+      )
+      if (failure !== undefined) {
+        return Object.freeze({ kind: 'resource-failure', fatalDiagnostic: failure })
+      }
       appendRunAsMarkdownText(run)
       sourceProgression.consume(run.range.end)
       continue
@@ -1557,7 +1585,7 @@ function parseIntrinsicProfile1Pass(
             topOpenRunId: frame.open.id
           })
       )
-      diagnostics.push(
+      const failure = recordDiagnostic(
         compatibleFrame !== undefined
           ? createDiagnostic('CM_NON_TOP_CLOSER', run.range, {
             found: FORM_LABEL[kind],
@@ -1565,6 +1593,9 @@ function parseIntrinsicProfile1Pass(
           })
           : createDiagnostic('CM_UNMATCHED_CLOSER', run.range)
       )
+      if (failure !== undefined) {
+        return Object.freeze({ kind: 'resource-failure', fatalDiagnostic: failure })
+      }
       appendRunAsMarkdownText(run)
       sourceProgression.consume(run.range.end)
       continue
@@ -1622,12 +1653,13 @@ function parseIntrinsicProfile1Pass(
         ? createSubstitutionNode(frame, run, syntaxIdentity)
         : createUnaryNode(frame, run, syntaxIdentity)
     if (node === undefined) {
-      diagnostics.push(
-        createDiagnostic(
-          'CM_SUBSTITUTION_SEPARATOR_MISSING',
-          sourceRange(frame.open.range.start, run.range.end)
-        )
-      )
+      const failure = recordDiagnostic(createDiagnostic(
+        'CM_SUBSTITUTION_SEPARATOR_MISSING',
+        sourceRange(frame.open.range.start, run.range.end)
+      ))
+      if (failure !== undefined) {
+        return Object.freeze({ kind: 'resource-failure', fatalDiagnostic: failure })
+      }
       promoteChildren(frame, frames, roots)
       const advanced = markdownLane.advance(
         frame.currentCheckpoint,
@@ -1692,15 +1724,16 @@ function parseIntrinsicProfile1Pass(
   }
 
   for (const frame of frames) {
-    diagnostics.push(
-      createDiagnostic(
-        'CM_UNTERMINATED_OPENER',
-        frame.open.range,
-        frame.definition.kind === 'substitution'
-          ? { separatorSeen: frame.separator === undefined ? 'false' : 'true' }
-          : undefined
-      )
-    )
+    const failure = recordDiagnostic(createDiagnostic(
+      'CM_UNTERMINATED_OPENER',
+      frame.open.range,
+      frame.definition.kind === 'substitution'
+        ? { separatorSeen: frame.separator === undefined ? 'false' : 'true' }
+        : undefined
+    ))
+    if (failure !== undefined) {
+      return Object.freeze({ kind: 'resource-failure', fatalDiagnostic: failure })
+    }
   }
   for (const frame of frames) {
     promoteChildren(frame, Object.freeze([]), roots)
