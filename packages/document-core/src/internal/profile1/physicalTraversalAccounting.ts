@@ -15,6 +15,8 @@ export interface Profile1PhysicalTraversalCountsV1 {
   readonly lineMaterializationChunkWalks: number
   readonly longLineMaterializationRetained: number
   readonly longLineMaterializationEvicted: number
+  readonly retainedFactInputStructuralUnits: number
+  readonly retainedFactOutputStructuralUnits: number
 }
 
 /**
@@ -38,6 +40,15 @@ export interface Profile1PhysicalTraversalRecorderV1 {
   readonly recordLineMaterializationChunkWalk: () => void
   readonly recordLongLineMaterializationRetained: () => void
   readonly recordLongLineMaterializationEvicted: () => void
+  /**
+   * Records input/output structure cardinality at a retained-fact assembly
+   * seam. These are size signals, not operation counts: repeated and failed
+   * internal walks are deliberately not inferred from the cardinalities.
+   */
+  readonly recordRetainedFactStructure: (
+    inputUnits: number,
+    outputUnits: number
+  ) => void
   readonly counts: () => Profile1PhysicalTraversalCountsV1
 }
 
@@ -58,7 +69,9 @@ Profile1PhysicalTraversalCountsV1 {
     astCacheTemplateConstructions: 0,
     lineMaterializationChunkWalks: 0,
     longLineMaterializationRetained: 0,
-    longLineMaterializationEvicted: 0
+    longLineMaterializationEvicted: 0,
+    retainedFactInputStructuralUnits: 0,
+    retainedFactOutputStructuralUnits: 0
   })
 }
 
@@ -78,6 +91,8 @@ Profile1PhysicalTraversalRecorderV1 {
   let lineMaterializationChunkWalks = 0
   let longLineMaterializationRetained = 0
   let longLineMaterializationEvicted = 0
+  let retainedFactInputStructuralUnits = 0
+  let retainedFactOutputStructuralUnits = 0
   return Object.freeze({
     recordIntrinsicSourceTraversal: (
       markerBearing: boolean,
@@ -118,6 +133,13 @@ Profile1PhysicalTraversalRecorderV1 {
     recordLongLineMaterializationEvicted: (): void => {
       longLineMaterializationEvicted += 1
     },
+    recordRetainedFactStructure: (
+      inputUnits: number,
+      outputUnits: number
+    ): void => {
+      retainedFactInputStructuralUnits += inputUnits
+      retainedFactOutputStructuralUnits += outputUnits
+    },
     counts: (): Profile1PhysicalTraversalCountsV1 => Object.freeze({
       intrinsicSource: intrinsicSourceTraversals,
       total: intrinsicSourceTraversals,
@@ -133,7 +155,9 @@ Profile1PhysicalTraversalRecorderV1 {
       astCacheTemplateConstructions,
       lineMaterializationChunkWalks,
       longLineMaterializationRetained,
-      longLineMaterializationEvicted
+      longLineMaterializationEvicted,
+      retainedFactInputStructuralUnits,
+      retainedFactOutputStructuralUnits
     })
   })
 }
