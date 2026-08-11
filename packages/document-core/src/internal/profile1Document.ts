@@ -46,7 +46,6 @@ import {
 import {
   createIntrinsicProfile1InspectionForkRecorder,
   createIntrinsicProfile1ForkRecorder,
-  type IntrinsicProfile1ArmBoundaryEvent,
   type IntrinsicProfile1ForkBranch,
   type IntrinsicProfile1ForkGraph,
   type IntrinsicProfile1ForkLane,
@@ -162,6 +161,10 @@ interface ParseResult {
   readonly markdownLane: MarkdownLaneState
   readonly referenceDefinitions: Profile1CanonicalReferenceDefinitionLookup
   readonly markdownLiterals: readonly MarkdownLiteralRange[]
+  readonly recoverySuppressedMarkerRanges?: readonly Readonly<{
+    start: number
+    end: number
+  }>[]
 }
 
 interface ParseResourceFailure {
@@ -214,7 +217,9 @@ interface AppendTask {
 interface ArmBoundaryTask {
   readonly kind: 'arm-boundary'
   readonly laneId: number
-  readonly event: IntrinsicProfile1ArmBoundaryEvent
+  readonly role: 'enter' | 'exit'
+  readonly sourcePosition: SourceOffset
+  readonly planArmTermination: boolean
   readonly lane: IntrinsicProfile1ForkLane
   readonly parentLane: IntrinsicProfile1ForkLane
   readonly branchEnd: number
@@ -973,6 +978,122 @@ function finalizeCanonicalTape(
   })
 }
 
+interface StructuralRecoveryFrame {
+  readonly kind: Profile1CriticKind
+  readonly start: number
+  readonly end: number
+  readonly accepted: boolean
+  readonly acceptedDepth: number
+}
+
+/**
+ * Find unfinished blockers that can be degraded without crossing an annotation
+ * already accepted by the first pass. Accepted frames are permanent nesting
+ * barriers: deleting some other unfinished opener cannot invalidate their
+ * matched pair. Every non-barrier frame popped here is visited once, so a
+ * cascade that used to require one whole-source pass per nesting level is
+ * resolved by one structural replay and, when needed, one accepted parse.
+ */
+function structuralRecoverySuppressionRanges(
+  decisions: readonly CanonicalMarkerDecision[],
+  roots: readonly CriticMarkupNode[]
+): readonly Readonly<{ start: number; end: number }>[] {
+  const acceptedOpenStarts = new Set<number>()
+  const pendingNodes = roots.slice()
+  while (pendingNodes.length > 0) {
+    const node = pendingNodes.pop()
+    if (node === undefined) {
+      continue
+    }
+    acceptedOpenStarts.add(Number(node.markers.open.start))
+    for (const arm of node.arms) {
+      for (const child of arm.children) {
+        pendingNodes.push(child)
+      }
+    }
+  }
+
+  const stack: StructuralRecoveryFrame[] = []
+  const framesByKind = new Map<
+    Profile1CriticKind,
+    StructuralRecoveryFrame[]
+  >()
+  const suppressed: Array<Readonly<{ start: number; end: number }>> = []
+  let activeAcceptedFrames = 0
+  const popFrame = (): StructuralRecoveryFrame | undefined => {
+    const frame = stack.pop()
+    if (frame === undefined) {
+      return undefined
+    }
+    if (framesByKind.get(frame.kind)?.pop() !== frame) {
+      throw new Error('Structural recovery frame index diverged')
+    }
+    if (frame.accepted) {
+      activeAcceptedFrames -= 1
+    }
+    return frame
+  }
+
+  for (const decision of decisions) {
+    if (decision.role === 'separator') {
+      continue
+    }
+    if (decision.role === 'open') {
+      const start = Number(decision.range.start)
+      const frame: StructuralRecoveryFrame = {
+        kind: decision.kind,
+        start,
+        end: Number(decision.range.end),
+        accepted: acceptedOpenStarts.has(start),
+        acceptedDepth:
+          activeAcceptedFrames + (acceptedOpenStarts.has(start) ? 1 : 0)
+      }
+      stack.push(frame)
+      const sameKind = framesByKind.get(frame.kind)
+      if (sameKind === undefined) {
+        framesByKind.set(frame.kind, [frame])
+      } else {
+        sameKind.push(frame)
+      }
+      if (frame.accepted) {
+        activeAcceptedFrames += 1
+      }
+      continue
+    }
+
+    const top = stack.at(-1)
+    if (top?.kind === decision.kind) {
+      popFrame()
+      continue
+    }
+    const compatible = framesByKind.get(decision.kind)?.at(-1)
+    if (compatible === undefined) {
+      continue
+    }
+
+    const acceptedBlockerCount =
+      activeAcceptedFrames - compatible.acceptedDepth
+    if (acceptedBlockerCount > 0) {
+      continue
+    }
+    while (stack.at(-1) !== compatible) {
+      const blocker = popFrame()
+      if (blocker === undefined || blocker.accepted) {
+        throw new Error('Structural recovery crossed an accepted annotation')
+      }
+      suppressed.push(Object.freeze({
+        start: blocker.start,
+        end: blocker.end
+      }))
+    }
+    popFrame()
+  }
+
+  return Object.freeze(suppressed.sort(
+    (left, right) => left.start - right.start
+  ))
+}
+
 function parseIntrinsicProfile1Pass(
   source: string,
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
@@ -1016,7 +1137,25 @@ function parseIntrinsicProfile1Pass(
   const roots: CriticMarkupNode[] = []
   const frames: ParseFrame[] = []
   const framesByKind = new Map<ImplementedKind, ParseFrame[]>()
-  const diagnostics: SyntaxDiagnostic[] = []
+  const diagnostics: SyntaxDiagnostic[] = [
+    ...(suppressedMarkerRanges ?? Object.freeze([])).map((range) => {
+      const marker = findMarker(source, range.start)
+      if (
+        marker === undefined ||
+        marker.role !== 'open' ||
+        range.end !== range.start + marker.length
+      ) {
+        throw new Error('Profile 1 recovery suppressed a non-opener marker')
+      }
+      return createDiagnostic(
+        'CM_UNTERMINATED_OPENER',
+        sourceRange(range.start, range.end),
+        marker.definition.kind === 'substitution'
+          ? { separatorSeen: 'false' }
+          : undefined
+      )
+    })
+  ]
   const markerDecisions: CanonicalMarkerDecision[] = []
   const stagedMarkdownLiterals: MarkdownLiteralRange[] = []
   let firstMarkdownDepthFailure: MarkdownContainerDepthFailure | undefined
@@ -1063,10 +1202,12 @@ function parseIntrinsicProfile1Pass(
   const appendRunAsMarkdownText = (run: TapeRun): void => {
     const frame = frames.at(-1)
     const laneStart = frame?.separator?.range.end ?? frame?.open.range.end ?? 0
-    const laneEnd =
-      frame === undefined
-        ? source.length
-        : nextCloserStart(frame.definition.kind, run.range.start)
+    // Literal authentication needs structural lookahead beyond a marker that
+    // may itself be literal-owned. `boundaryEnd` remains the first standing
+    // arm boundary; ADR-0014 decides which incomplete inline owners yield
+    // there after the lane has seen enough source to identify complete block
+    // and fixed-inline owners.
+    const laneEnd = source.length
     const boundaryEnd =
       frame === undefined
         ? source.length
@@ -1157,9 +1298,7 @@ function parseIntrinsicProfile1Pass(
     const preparedForMarker = markdownLane.prepareForMarker(
       checkpoint,
       run.range.start,
-      currentFrame === undefined
-        ? source.length
-        : nextCloserStart(currentFrame.definition.kind, run.range.start)
+      source.length
     )
     forkRecorder.recordTransition(
       currentForkLane(),
@@ -1213,13 +1352,38 @@ function parseIntrinsicProfile1Pass(
     // undefined, so it was dead and is gone.)
     const insideLiteral =
       markdownLane.markerIsLiteralOwned(checkpoint) &&
-      !compatibleActiveFrameCloser
+      (
+        !compatibleActiveFrameCloser ||
+        !markdownLane.compatibleCloserStandsAgainstLiteral(checkpoint)
+      )
     if (insideLiteral) {
       if (markerRole === 'open' || markerRole === 'separator') {
         rejectStandingDelimiterCandidate(run.range.start)
       }
       appendMarkdownRange(sourceStep.start, sourceStep.start + 1)
       sourceProgression.consume(sourceStep.start + 1)
+      continue
+    }
+
+    if (
+      markerRole === 'open' &&
+      nextCloserStart(kind, run.range.end) >= source.length
+    ) {
+      // An opener with no later same-form closer can never participate in a
+      // valid annotation. Degrade it immediately so it cannot sit on top of
+      // an enclosing frame and turn that frame's valid closer into a
+      // non-top closer. This is the live-edit recovery promised by R2: the
+      // unfinished opener remains exact Markdown text and later constructs
+      // retain their ordinary meaning.
+      diagnostics.push(
+        createDiagnostic(
+          'CM_UNTERMINATED_OPENER',
+          run.range,
+          kind === 'substitution' ? { separatorSeen: 'false' } : undefined
+        )
+      )
+      appendRunAsMarkdownText(run)
+      sourceProgression.consume(run.range.end)
       continue
     }
 
@@ -1613,6 +1777,10 @@ function parseIntrinsicProfile1Pass(
   sourceProgression.referenceDefinitions.finalizeAcceptedDefinitions(
     markdownLiterals
   )
+  const recoverySuppressedMarkerRanges =
+    suppressedMarkerRanges === undefined
+      ? structuralRecoverySuppressionRanges(canonical.markerDecisions, roots)
+      : Object.freeze([])
   return Object.freeze({
     kind: 'complete',
     hasCriticMarkupCandidate: sourceProgression.hasCriticMarkupCandidate,
@@ -1623,7 +1791,10 @@ function parseIntrinsicProfile1Pass(
     forkGraph,
     markdownLane,
     referenceDefinitions: sourceProgression.referenceDefinitions,
-    markdownLiterals
+    markdownLiterals,
+    ...(recoverySuppressedMarkerRanges.length === 0
+      ? {}
+      : { recoverySuppressedMarkerRanges })
   })
 }
 
@@ -2483,6 +2654,59 @@ function applyProtections(
 const EMPTY_ARM_BOUNDARY_PROJECTION_EDITS: readonly MarkdownArmBoundaryProjectionEdit[] =
   Object.freeze([])
 
+function mapMarkdownBoundaryEditThrough(
+  edit: MarkdownArmBoundaryProjectionEdit,
+  codec: ProjectionCodecResult
+): MarkdownArmBoundaryProjectionEdit {
+  if (
+    edit.kind === 'protect-delimiter' ||
+    edit.kind === 'terminate-fenced-block-fragment'
+  ) {
+    return Object.freeze({
+      ...edit,
+      candidateOffset: codec.mapOffset(edit.candidateOffset, 'next')
+    })
+  }
+  if (edit.kind === 'encode-emphasis-flanking-scalar') {
+    return Object.freeze({
+      ...edit,
+      candidateStart: codec.mapOffset(edit.candidateStart, 'next'),
+      candidateEnd: codec.mapOffset(edit.candidateEnd, 'previous')
+    })
+  }
+  if (
+    edit.kind === 'respell-enclosing-emphasis-delimiters' ||
+    edit.kind === 'extend-inline-code-delimiters'
+  ) {
+    return Object.freeze({
+      ...edit,
+      openerStart: codec.mapOffset(edit.openerStart, 'next'),
+      openerEnd: codec.mapOffset(edit.openerEnd, 'previous'),
+      closerStart: codec.mapOffset(edit.closerStart, 'next'),
+      closerEnd: codec.mapOffset(edit.closerEnd, 'previous')
+    })
+  }
+  return Object.freeze({
+    ...edit,
+    candidateOffset: codec.mapOffset(edit.candidateOffset, 'next'),
+    ...(edit.indentationElision === undefined
+      ? {}
+      : {
+        indentationElision: Object.freeze({
+          ...edit.indentationElision,
+          candidateStart: codec.mapOffset(
+            edit.indentationElision.candidateStart,
+            'next'
+          ),
+          candidateEnd: codec.mapOffset(
+            edit.indentationElision.candidateEnd,
+            'previous'
+          )
+        })
+      })
+  })
+}
+
 /** Whether any node in the forest, at any depth, has one of these kinds. */
 function forestContainsKind(
   nodes: readonly CriticMarkupNode[],
@@ -3339,6 +3563,11 @@ interface PreparedProfile1Projection {
   readonly provenance: ProjectionProvenance
   readonly forkLane: IntrinsicProfile1ForkLane
   readonly markdownLane: MappedMarkdownLane
+  readonly semanticMarkdownLane?: MappedMarkdownLane
+  readonly semanticToProjected?: (
+    offset: number,
+    affinity: 'previous' | 'next'
+  ) => number
   readonly traceView: ProfileParseTraceViewV1
 }
 
@@ -3428,9 +3657,9 @@ function prepareProjection(
       continue
     }
     if (task.kind === 'arm-boundary') {
-      if (task.event.role === 'enter') {
+      if (task.role === 'enter') {
         if (openMatchingScopes.has(task.laneId)) {
-          throw new Error('Projected Substitution arm entered twice')
+          throw new Error('Projected CriticMarkup arm entered twice')
         }
         openMatchingScopes.set(task.laneId, Object.freeze({
           start: projectedLength,
@@ -3439,68 +3668,70 @@ function prepareProjection(
       } else {
         const open = openMatchingScopes.get(task.laneId)
         if (open === undefined) {
-          throw new Error('Projected Substitution arm exited before entry')
+          throw new Error('Projected CriticMarkup arm exited before entry')
         }
         openMatchingScopes.delete(task.laneId)
-        const terminalFence = terminalArmFenceEdit(
-          task.lane,
-          projectedLength,
-          task.event.sourcePosition,
-          source
-        )
-        if (terminalFence !== undefined) {
-          armTerminationEdits.push(terminalFence)
-        } else if (
-          task.lane.exitCheckpoint.linePath !== undefined &&
-          task.lane.exitCheckpoint.frontMatter === undefined &&
-          task.lane.exitCheckpoint.indentedCode === undefined &&
-          task.lane.exitCheckpoint.htmlBlock === undefined &&
-          task.lane.exitCheckpoint.definition === undefined
-        ) {
-          const paragraphSeparation = terminalArmParagraphSeparation(
+        if (task.planArmTermination) {
+          const terminalFence = terminalArmFenceEdit(
             task.lane,
-            task.parentLane,
-            task.branchEnd,
+            projectedLength,
+            task.sourcePosition,
             source
           )
-          const lineEnding = paragraphSeparation?.lineEnding ??
-            followingFencedBlockLineEnding(
+          if (terminalFence !== undefined) {
+            armTerminationEdits.push(terminalFence)
+          } else if (
+            task.lane.exitCheckpoint.linePath !== undefined &&
+            task.lane.exitCheckpoint.frontMatter === undefined &&
+            task.lane.exitCheckpoint.indentedCode === undefined &&
+            task.lane.exitCheckpoint.htmlBlock === undefined &&
+            task.lane.exitCheckpoint.definition === undefined
+          ) {
+            const paragraphSeparation = terminalArmParagraphSeparation(
+              task.lane,
               task.parentLane,
               task.branchEnd,
-              source,
-              traceRecorder === undefined
-                ? undefined
-                : (start, end) => {
-                  traceRecorder.recordArmTerminationFenceProbe(
-                    traceView,
-                    start,
-                    end
-                  )
-                }
+              source
             )
-          if (lineEnding !== undefined) {
-            const sourceElision = paragraphSeparation?.indentationElision
-            armTerminationEdits.push(sourceElision === undefined
-              ? Object.freeze({
-                kind: 'separate-following-block',
-                candidateOffset: projectedLength,
-                sourcePosition: task.event.sourcePosition,
-                lineEnding
-              })
-              : Object.freeze({
-                kind: 'separate-following-block',
-                candidateOffset: projectedLength,
-                sourcePosition: task.event.sourcePosition,
-                lineEnding,
-                indentationElision: Object.freeze({
-                  candidateStart:
-                    projectedLength + sourceElision.sourceStart - task.branchEnd,
-                  candidateEnd:
-                    projectedLength + sourceElision.sourceEnd - task.branchEnd,
-                  sourceStart: sourceElision.sourceStart,
-                  sourceEnd: sourceElision.sourceEnd
+            const lineEnding = paragraphSeparation?.lineEnding ??
+              followingFencedBlockLineEnding(
+                task.parentLane,
+                task.branchEnd,
+                source,
+                traceRecorder === undefined
+                  ? undefined
+                  : (start, end) => {
+                    traceRecorder.recordArmTerminationFenceProbe(
+                      traceView,
+                      start,
+                      end
+                    )
+                  }
+              )
+            if (lineEnding !== undefined) {
+              const sourceElision = paragraphSeparation?.indentationElision
+              armTerminationEdits.push(sourceElision === undefined
+                ? Object.freeze({
+                  kind: 'separate-following-block',
+                  candidateOffset: projectedLength,
+                  sourcePosition: task.sourcePosition,
+                  lineEnding
                 })
-              }))
+                : Object.freeze({
+                  kind: 'separate-following-block',
+                  candidateOffset: projectedLength,
+                  sourcePosition: task.sourcePosition,
+                  lineEnding,
+                  indentationElision: Object.freeze({
+                    candidateStart:
+                      projectedLength + sourceElision.sourceStart - task.branchEnd,
+                    candidateEnd:
+                      projectedLength + sourceElision.sourceEnd - task.branchEnd,
+                    sourceStart: sourceElision.sourceStart,
+                    sourceEnd: sourceElision.sourceEnd
+                  })
+                }))
+            }
           }
         }
         if (open.start < projectedLength) {
@@ -3527,10 +3758,13 @@ function prepareProjection(
       }
       for (const arm of selectedCanonicalArms(item, view)) {
         const boundaries = arm.armBoundaries
-        // A Substitution arm carries parser-owned enter/exit boundary events; a
-        // unary-form arm has none. Key on that, so the editing view's two
-        // Substitution arms each emit their boundary pair without special-casing
-        // the view.
+        let enterSourcePosition = arm.range.start
+        let exitSourcePosition = arm.range.end
+        let planArmTermination = false
+        // A Substitution arm carries parser-owned enter/exit boundary events.
+        // Preserve those event positions and its existing block-termination
+        // planning; unary arms still need projection-only matching scopes for
+        // C1 paired-inline containment.
         if (boundaries.length === 2) {
           const enter = boundaries[0]
           const exit = boundaries[1]
@@ -3544,30 +3778,37 @@ function prepareProjection(
               'Selected Substitution arm lost parser-owned boundary events'
             )
           }
-          orderedTasks.push(
-            {
-              kind: 'arm-boundary',
-              laneId: arm.id,
-              event: enter,
-              lane: arm,
-              parentLane: task.lane,
-              branchEnd: item.node.range.end
-            },
-            { kind: 'lane', lane: arm },
-            {
-              kind: 'arm-boundary',
-              laneId: arm.id,
-              event: exit,
-              lane: arm,
-              parentLane: task.lane,
-              branchEnd: item.node.range.end
-            }
-          )
+          enterSourcePosition = enter.sourcePosition
+          exitSourcePosition = exit.sourcePosition
+          planArmTermination = true
         } else if (boundaries.length === 0) {
-          orderedTasks.push({ kind: 'lane', lane: arm })
+          // Unary forms publish no intrinsic Substitution boundary events.
         } else {
           throw new Error('Canonical arm has an unexpected boundary count')
         }
+        orderedTasks.push(
+          {
+            kind: 'arm-boundary',
+            laneId: arm.id,
+            role: 'enter',
+            sourcePosition: enterSourcePosition,
+            planArmTermination,
+            lane: arm,
+            parentLane: task.lane,
+            branchEnd: item.node.range.end
+          },
+          { kind: 'lane', lane: arm },
+          {
+            kind: 'arm-boundary',
+            laneId: arm.id,
+            role: 'exit',
+            sourcePosition: exitSourcePosition,
+            planArmTermination,
+            lane: arm,
+            parentLane: task.lane,
+            branchEnd: item.node.range.end
+          }
+        )
       }
     }
     for (let index = orderedTasks.length - 1; index >= 0; index -= 1) {
@@ -3579,7 +3820,7 @@ function prepareProjection(
   }
 
   if (openMatchingScopes.size !== 0) {
-    throw new Error('Projected Substitution arm boundary was not closed')
+    throw new Error('Projected CriticMarkup arm boundary was not closed')
   }
 
   const projectedSource = chunks.join('')
@@ -3607,19 +3848,42 @@ function prepareProjection(
       }, markdownDepthLimit, traceRecorder === undefined
         ? undefined
         : Object.freeze({ view: traceView, recorder: traceRecorder }))
-  const armSafe = applyMarkdownArmBoundaryProjectionEdits(
+  const structuralBoundaryEdits = armBoundaryProjectionEdits.filter((edit) =>
+    edit.kind === 'terminate-fenced-block-fragment' ||
+    edit.kind === 'separate-following-block')
+  const spellingBoundaryEdits = armBoundaryProjectionEdits.filter((edit) =>
+    edit.kind !== 'terminate-fenced-block-fragment' &&
+    edit.kind !== 'separate-following-block')
+  const structuralSafe = applyMarkdownArmBoundaryProjectionEdits(
     projectedSource,
     segments,
-    armBoundaryProjectionEdits
+    structuralBoundaryEdits
+  )
+  let semanticMatchingScopes = mapMatchingScopesThrough(
+    matchingScopes,
+    structuralSafe
+  )
+  const semanticSafe = encodeMovedBofText(
+    structuralSafe.source,
+    structuralSafe.segments
+  )
+  semanticMatchingScopes = mapMatchingScopesThrough(
+    semanticMatchingScopes,
+    semanticSafe
+  )
+  const materializationBoundaryEdits = spellingBoundaryEdits.map((edit) =>
+    mapMarkdownBoundaryEditThrough(
+      mapMarkdownBoundaryEditThrough(edit, structuralSafe),
+      semanticSafe
+    ))
+  const boundarySafe = applyMarkdownArmBoundaryProjectionEdits(
+    semanticSafe.source,
+    semanticSafe.segments,
+    materializationBoundaryEdits
   )
   let retainedMatchingScopes = mapMatchingScopesThrough(
-    matchingScopes,
-    armSafe
-  )
-  const bofSafe = encodeMovedBofText(armSafe.source, armSafe.segments)
-  retainedMatchingScopes = mapMatchingScopesThrough(
-    retainedMatchingScopes,
-    bofSafe
+    semanticMatchingScopes,
+    boundarySafe
   )
   // The boundary guard exists to catch CriticMarkup that the projection itself
   // synthesized where elision made two non-adjacent canonical runs adjacent. A
@@ -3629,13 +3893,13 @@ function prepareProjection(
   // and its accepted-marker count is zero by construction.
   const needsProjectionGuard =
     graph.criticMarkup.rootCount !== 0 &&
-    CRITIC_MARKER_TOKEN.test(bofSafe.source)
+    CRITIC_MARKER_TOKEN.test(boundarySafe.source)
   const projectedMarkdownLiterals =
     needsProjectionGuard
       ? forkParser.admitLiteralFacts(
         lane,
         Object.freeze({
-          source: bofSafe.source,
+          source: boundarySafe.source,
           forkView: view,
           frontMatterEnabled: markdownOptions.frontMatter,
           gfmEnabled: markdownOptions.gfm,
@@ -3645,7 +3909,7 @@ function prepareProjection(
           subscriptAndSuperscriptEnabled:
             markdownOptions.subscriptAndSuperscript,
           matchingScopes: retainedMatchingScopes,
-          canonicalIdentityRuns: canonicalIdentityRunsFor(bofSafe.segments)
+          canonicalIdentityRuns: canonicalIdentityRunsFor(boundarySafe.segments)
         }),
         markdownDepthLimit,
         traceRecorder === undefined
@@ -3656,12 +3920,15 @@ function prepareProjection(
   const guarded =
     !needsProjectionGuard
       ? Object.freeze({
-        ...unchangedProjectionCodecResult(bofSafe.source, bofSafe.segments),
+        ...unchangedProjectionCodecResult(
+          boundarySafe.source,
+          boundarySafe.segments
+        ),
         acceptedMarkerCount: 0
       })
       : guardProjectionCandidate(
-        bofSafe.source,
-        bofSafe.segments,
+        boundarySafe.source,
+        boundarySafe.segments,
         graph.markerDecisions,
         projectedMarkdownLiterals
       )
@@ -3674,6 +3941,46 @@ function prepareProjection(
   if (guarded.acceptedMarkerCount !== 0) {
     throw new Error('Boundary-safe projection verification produced synthetic CriticMarkup')
   }
+  const hasDistinctSemanticSpine = guarded.source !== semanticSafe.source
+  const semanticToProjected = hasDistinctSemanticSpine
+    ? Object.freeze((
+      offset: number,
+      affinity: 'previous' | 'next'
+    ): number => guarded.mapOffset(
+      boundarySafe.mapOffset(offset, affinity),
+      affinity
+    ))
+    : undefined
+  const semanticMarkdownLane: MappedMarkdownLane | undefined =
+    hasDistinctSemanticSpine
+      ? Object.freeze({
+        source: semanticSafe.source,
+        forkView: view,
+        frontMatterEnabled: markdownOptions.frontMatter,
+        gfmEnabled: markdownOptions.gfm,
+        mathEnabled: markdownOptions.math,
+        gitLabMathEnabled: markdownOptions.gitLabMath,
+        footnotesEnabled: markdownOptions.footnotes,
+        subscriptAndSuperscriptEnabled:
+          markdownOptions.subscriptAndSuperscript,
+        matchingScopes: semanticMatchingScopes,
+        canonicalIdentityRuns: canonicalIdentityRunsFor(semanticSafe.segments),
+        syntaxIdentity: Object.freeze({
+          registry: graph.syntaxIdentity,
+          sourceAt: Object.freeze((
+            start: number,
+            end: number
+          ): SyntaxSourceIdentity =>
+            projectedSyntaxSourceIdentity(
+              semanticSafe.segments,
+              start,
+              end,
+              graph.source.length,
+              lane.range.start
+            ))
+        })
+      })
+      : undefined
   return Object.freeze({
     source: guarded.source,
     mappedTape,
@@ -3692,7 +3999,9 @@ function prepareProjection(
       matchingScopes: retainedMatchingScopes,
       canonicalIdentityRuns: guardedIdentityRuns,
       syntaxIdentity: Object.freeze({
-        registry: graph.syntaxIdentity,
+        registry: hasDistinctSemanticSpine
+          ? createProfile1SyntaxIdentityRegistry(graph.source.length)
+          : graph.syntaxIdentity,
         sourceAt: Object.freeze((
           start: number,
           end: number
@@ -3706,6 +4015,9 @@ function prepareProjection(
           ))
       })
     }),
+    ...(semanticMarkdownLane === undefined || semanticToProjected === undefined
+      ? {}
+      : { semanticMarkdownLane, semanticToProjected }),
     traceView
   })
 }
@@ -3713,14 +4025,22 @@ function prepareProjection(
 function materializePreparedProjection(
   _graph: Profile1SyntaxGraphCore,
   prepared: PreparedProfile1Projection,
-  markdownParse: Profile1MarkdownParse
+  markdownParse: Profile1MarkdownParse,
+  semanticMarkdownParse?: Profile1MarkdownParse
 ): Profile1ProjectedMarkdown {
   return Object.freeze({
     source: prepared.source,
     mappedTape: prepared.mappedTape,
     provenance: prepared.provenance,
     markdown: markdownParse.document,
-    markdownDepthFailure: markdownParse.containerDepthFailure
+    markdownDepthFailure: markdownParse.containerDepthFailure,
+    ...(semanticMarkdownParse === undefined ||
+      prepared.semanticToProjected === undefined
+      ? {}
+      : {
+        semanticMarkdown: semanticMarkdownParse.document,
+        semanticToProjected: prepared.semanticToProjected
+      })
   })
 }
 
@@ -4042,7 +4362,10 @@ function tryIncrementalIntrinsicParse(
     undefined,
     physicalRecorder
   )
-  if (mini.kind !== 'complete') return undefined
+  if (
+    mini.kind !== 'complete' ||
+    mini.recoverySuppressedMarkerRanges !== undefined
+  ) return undefined
   const spliced = spliceIntrinsicFacts(
     previousPass.retained,
     bracket,
@@ -4138,12 +4461,12 @@ export function parseProfile1Document(
 ): Profile1DocumentResult {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   const execution = createParseExecutionTracker(executionControl)
-  const accounting = createProfile1SyntaxAccountingRecorderV1(
+  let accounting = createProfile1SyntaxAccountingRecorderV1(
     usesDesktopLimits,
     captureAccountingTrace,
     execution
   )
-  const syntaxIdentity = createProfile1SyntaxIdentityRegistry(
+  let syntaxIdentity = createProfile1SyntaxIdentityRegistry(
     source.length,
     accounting
   )
@@ -4201,6 +4524,34 @@ export function parseProfile1Document(
       markdownOptions,
       execution,
       undefined,
+      physicalRecorder
+    )
+  }
+  if (
+    parsed.kind === 'complete' &&
+    parsed.recoverySuppressedMarkerRanges !== undefined
+  ) {
+    // The first pass's accepted annotations are immutable nesting barriers.
+    // Structural recovery has already removed every unfinished blocker that
+    // can be crossed without invalidating one of those pairs, so exactly one
+    // fresh pass publishes the accepted products and identities.
+    accounting = createProfile1SyntaxAccountingRecorderV1(
+      usesDesktopLimits,
+      captureAccountingTrace,
+      execution
+    )
+    syntaxIdentity = createProfile1SyntaxIdentityRegistry(
+      source.length,
+      accounting
+    )
+    parsed = parseIntrinsicProfile1(
+      source,
+      syntaxIdentity,
+      cmDepthLimit,
+      markdownDepthLimit,
+      markdownOptions,
+      execution,
+      parsed.recoverySuppressedMarkerRanges,
       physicalRecorder
     )
   }
@@ -4382,8 +4733,20 @@ export function parseProfile1Document(
       key,
       role: prepared.traceView,
       forkLane: prepared.forkLane,
-      lane: prepared.markdownLane
+      lane: prepared.markdownLane,
+      ...(prepared.semanticMarkdownLane === undefined
+        ? {}
+        : { publishForkAlternative: false })
     }))
+    if (prepared.semanticMarkdownLane !== undefined) {
+      const semanticKey = `${key}:semantic`
+      requestByKey.set(semanticKey, Object.freeze({
+        key: semanticKey,
+        role: prepared.traceView,
+        forkLane: prepared.forkLane,
+        lane: prepared.semanticMarkdownLane
+      }))
+    }
   }
   addRequest(rootOriginalKey, originalPrepared)
   addRequest(rootRevisedKey, revisedPrepared)
@@ -4391,9 +4754,9 @@ export function parseProfile1Document(
   for (const comment of preparedCommentDisplays) {
     addRequest(comment.key, comment.projection)
   }
-  for (const [key, request] of requestByKey) {
-    const prepared = preparedByKey.get(key)
-    if (prepared === undefined || prepared.markdownLane !== request.lane) {
+  for (const [key, prepared] of preparedByKey) {
+    const request = requestByKey.get(key)
+    if (request === undefined || prepared.markdownLane !== request.lane) {
       throw new Error('Fork AST accounting lost its prepared projection')
     }
     emitProjectionAccounting(accounting, key, prepared)
@@ -4402,14 +4765,20 @@ export function parseProfile1Document(
   const original = materializePreparedProjection(
     graphCore,
     originalPrepared,
-    forkAst.read(rootOriginalKey)
+    forkAst.read(rootOriginalKey),
+    originalPrepared.semanticMarkdownLane === undefined
+      ? undefined
+      : forkAst.read(`${rootOriginalKey}:semantic`)
   )
   const revised = rootRevisedKey === rootOriginalKey
     ? original
     : materializePreparedProjection(
       graphCore,
       revisedPrepared,
-      forkAst.read(rootRevisedKey)
+      forkAst.read(rootRevisedKey),
+      revisedPrepared.semanticMarkdownLane === undefined
+        ? undefined
+        : forkAst.read(`${rootRevisedKey}:semantic`)
     )
   const commentDisplayReaders = createCommentDisplayProjections(
     Object.freeze(preparedCommentDisplays.map((comment) => Object.freeze({
@@ -4417,7 +4786,10 @@ export function parseProfile1Document(
       projection: materializePreparedProjection(
         graphCore,
         comment.projection,
-        forkAst.read(comment.key)
+        forkAst.read(comment.key),
+        comment.projection.semanticMarkdownLane === undefined
+          ? undefined
+          : forkAst.read(`${comment.key}:semantic`)
       )
     })))
   )
@@ -4458,7 +4830,10 @@ export function parseProfile1Document(
     editingCache ??= materializePreparedProjection(
       graphCore,
       editingPrepared,
-      forkAst.read(rootEditingKey)
+      forkAst.read(rootEditingKey),
+      editingPrepared.semanticMarkdownLane === undefined
+        ? undefined
+        : forkAst.read(`${rootEditingKey}:semantic`)
     )
     return editingCache
   }

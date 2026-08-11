@@ -79,7 +79,11 @@ export function createMarkdownDocumentIndices(
     Profile1SyntaxIdentityRegistry,
     'referenceTargets' | 'resolveFootnoteReference'
   >,
-  execution: ParseExecutionTracker
+  execution: ParseExecutionTracker,
+  footnoteDefinitionCanResolveReference: (
+    definitionStart: number,
+    referenceStart: number
+  ) => boolean = (): boolean => true
 ): Pick<MarkdownDocument, 'references' | 'headings'> {
   const nodes: MarkdownNode[] = []
   const pending: MarkdownNode[] = [root]
@@ -101,6 +105,8 @@ export function createMarkdownDocumentIndices(
   const footnoteDefinitions: MarkdownFootnoteDefinitionFact[] = []
   const footnoteDefinitionByLabel =
     new Map<string, MarkdownFootnoteDefinitionFact>()
+  const footnoteDefinitionsByLabel =
+    new Map<string, MarkdownFootnoteDefinitionFact[]>()
   const footnoteDefinitionByNode =
     new Map<NodeId, MarkdownFootnoteDefinitionFact>()
   for (const node of nodes) {
@@ -126,6 +132,15 @@ export function createMarkdownDocumentIndices(
       footnoteDefinitions.push(fact)
       footnoteDefinitionByLabel.set(label, fact)
       footnoteDefinitionByNode.set(node.nodeId, fact)
+      footnoteDefinitionsByLabel.set(label, [fact])
+    } else if (
+      node.kind === 'footnote-definition' &&
+      typeof label === 'string'
+    ) {
+      const fact = Object.freeze({ label, node })
+      footnoteDefinitions.push(fact)
+      footnoteDefinitionByNode.set(node.nodeId, fact)
+      footnoteDefinitionsByLabel.get(label)?.push(fact)
     }
   }
 
@@ -176,7 +191,12 @@ export function createMarkdownDocumentIndices(
     } else if (node.kind === 'footnote-reference') {
       const label = node.attributes['label']
       if (typeof label === 'string') {
-        const firstDefinition = footnoteDefinitionByLabel.get(label)
+        const firstDefinition = footnoteDefinitionsByLabel.get(label)?.find(
+          (definition) => footnoteDefinitionCanResolveReference(
+            definition.node.range.start,
+            node.range.start
+          )
+        )
         if (firstDefinition !== undefined) {
           identity.resolveFootnoteReference(
             node.nodeId,

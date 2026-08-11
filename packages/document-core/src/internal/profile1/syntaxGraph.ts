@@ -2,6 +2,7 @@ import type {
   CriticMarkupForest,
   CriticMarkupNode,
   DiagnosticIndex,
+  MarkdownDocument,
   MarkupProjection,
   NodeId,
   Profile1SyntaxGraph as PublicProfile1SyntaxGraph,
@@ -64,6 +65,12 @@ export type MappedProjectionSegment =
 export interface Profile1ProjectedMarkdown extends ProjectedMarkdown {
   readonly mappedTape: readonly MappedProjectionSegment[]
   readonly markdownDepthFailure: MarkdownContainerDepthFailure | undefined
+  /** Scoped semantic spine retained when safe materialization needs codecs. */
+  readonly semanticMarkdown?: MarkdownDocument
+  readonly semanticToProjected?: (
+    offset: number,
+    affinity: 'previous' | 'next'
+  ) => number
 }
 
 export interface Profile1SyntaxGraph extends Profile1SyntaxGraphCore {

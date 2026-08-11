@@ -12,8 +12,10 @@ The unstructured metadata payload serialized by CriticMarkup as `{>>…<<}`.
 MarkText presents the whole payload as one note with a create, edit, and delete
 lifecycle; it does not interpret author initials, timestamps, replies, or
 resolution state, although imported payload text may contain any of them.
-Profile 1 exposes inline Markdown and properly nested CM from that exact
-payload in a comment-specific view without inventing a structured schema.
+Profile 1 exposes a full, isolated Markdown+CriticMarkup subdocument from that
+exact payload without inventing a structured schema. Its blocks, definitions,
+references, footnotes, literals, and nested annotations are local to the
+Comment and cannot inherit from or alter the surrounding document.
 Because the main projections elide the complete outer Comment subdocument, a
 Comment nested inside another Comment is preserved and edited through the outer
 raw-payload editor or Source mode; it is not promoted to an independently
