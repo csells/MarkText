@@ -8,8 +8,8 @@ import {
 } from './internal/profile1Document.js'
 import { createPhysicalTraversalRecorderV1 } from './internal/profile1/physicalTraversalAccounting.js'
 import {
-  admitAdditionRegionalChange,
-  createAdditionRegionalIndex,
+  admitCriticMarkupRegionalChange,
+  createCriticMarkupRegionalIndex,
   type CriticMarkupRegionalIndex
 } from './internal/profile1/criticMarkupRegional.js'
 import {
@@ -784,6 +784,38 @@ function shiftCriticMarkupAnnotation(
   })
 }
 
+function balancedRegionalMarkupEvents(
+  events: readonly MarkupEvent[],
+  index: CriticMarkupRegionalIndex
+): boolean {
+  const stack: MarkupMark[] = []
+  const entered: MarkupMark[] = []
+  for (const event of events) {
+    if (event.kind === 'text') continue
+    if (event.kind === 'enter') {
+      if (
+        event.mark.kind !== index.kind ||
+        event.mark.annotationRange.start !== index.annotation.start ||
+        event.mark.annotationRange.end !== index.annotation.end
+      ) {
+        return false
+      }
+      entered.push(event.mark)
+      stack.push(event.mark)
+      continue
+    }
+    if (stack.pop() !== event.mark) return false
+  }
+  if (stack.length !== 0) return false
+  if (index.kind !== 'substitution') return entered.length === 1
+  const old = entered[0]
+  const next = entered[1]
+  return entered.length === 2 &&
+    old?.kind === 'substitution' && old.arm === 'old' &&
+    next?.kind === 'substitution' && next.arm === 'new' &&
+    old !== next
+}
+
 type FacadeProjectedMarkdown = Profile1DocumentProducts['original']
 
 type CoordinateSegment =
@@ -1176,7 +1208,7 @@ interface FullRevisionState extends RevisionFacts {
   readonly source: PersistentCanonicalSource
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
-  readonly additionIndex: CriticMarkupRegionalIndex | undefined
+  readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
 }
 
 interface RegionalRevisionState {
@@ -1184,7 +1216,7 @@ interface RegionalRevisionState {
   readonly source: PersistentCanonicalSource
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
-  readonly additionIndex: CriticMarkupRegionalIndex | undefined
+  readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly ensureProducts: () => RevisionFacts
 }
 
@@ -1501,7 +1533,7 @@ export function createDocumentCore(): DocumentCore {
           retainedIndexRecorder
         )
         : undefined
-      const additionIndex = createAdditionRegionalIndex(products)
+      const criticMarkupIndex = createCriticMarkupRegionalIndex(products)
       const revision = Object.freeze({
         get source(): string {
           return source.materialize('getter')
@@ -1516,7 +1548,7 @@ export function createDocumentCore(): DocumentCore {
         products,
         markdownOptions: resolvedOptions,
         retainedIndex,
-        additionIndex,
+        criticMarkupIndex,
         annotationRangeByNodeId: materializedAnnotations.rangeByNodeId,
         nodeIdByAnnotation: materializedAnnotations.nodeIdByAnnotation
       }))
@@ -1566,7 +1598,7 @@ export function createDocumentCore(): DocumentCore {
     source: PersistentCanonicalSource,
     resolvedOptions: MarkdownOptionsV1,
     retainedIndex: PlainParagraphRetainedIndex | undefined,
-    additionIndex: CriticMarkupRegionalIndex | undefined,
+    criticMarkupIndex: CriticMarkupRegionalIndex | undefined,
     annotations: readonly CriticMarkupAnnotation[] = Object.freeze([])
   ): DocumentRevision => {
     const revision = Object.freeze({
@@ -1587,7 +1619,7 @@ export function createDocumentCore(): DocumentCore {
       source,
       markdownOptions: resolvedOptions,
       retainedIndex,
-      additionIndex,
+      criticMarkupIndex,
       ensureProducts
     }))
     currentRevision = revision
@@ -1600,7 +1632,7 @@ export function createDocumentCore(): DocumentCore {
     ? state
     : state.ensureProducts()
 
-  const tryAdditionRegionalApply = (
+  const tryCriticMarkupRegionalApply = (
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
@@ -1609,9 +1641,9 @@ export function createDocumentCore(): DocumentCore {
     readonly revision: DocumentRevision
     readonly projection: MarkupRegionProjectionChange
   }> | undefined => {
-    const index = previousState.additionIndex
+    const index = previousState.criticMarkupIndex
     if (index === undefined) return undefined
-    const admission = admitAdditionRegionalChange(
+    const admission = admitCriticMarkupRegionalChange(
       previousState.source,
       source,
       index,
@@ -1626,7 +1658,11 @@ export function createDocumentCore(): DocumentCore {
     }
     const materialized = annotationsOf(admission.nextProducts)
     const localAnnotation = materialized.annotations[0]
-    if (localAnnotation === undefined || materialized.annotations.length !== 1) {
+    if (
+      localAnnotation === undefined ||
+      materialized.annotations.length !== 1 ||
+      localAnnotation.kind !== admission.nextIndex.kind
+    ) {
       return undefined
     }
     const markup = markupProjectionOf(
@@ -1638,14 +1674,9 @@ export function createDocumentCore(): DocumentCore {
       markup.events,
       admission.nextIndex.source.start
     )
-    const enter = events[1]
-    const exit = events[3]
     if (
-      events.length !== 5 ||
-      enter?.kind !== 'enter' ||
-      exit?.kind !== 'exit' ||
-      enter.mark.kind !== 'addition' ||
-      exit.mark !== enter.mark
+      events.length !== index.events.end - index.events.start ||
+      !balancedRegionalMarkupEvents(events, admission.nextIndex)
     ) {
       return undefined
     }
@@ -1762,8 +1793,8 @@ export function createDocumentCore(): DocumentCore {
         reason: 'source-fragmentation-rebase'
       })
     }
-    if (previousState.additionIndex !== undefined) {
-      const applied = tryAdditionRegionalApply(
+    if (previousState.criticMarkupIndex !== undefined) {
+      const applied = tryCriticMarkupRegionalApply(
         previousState,
         source,
         stableEdits,
