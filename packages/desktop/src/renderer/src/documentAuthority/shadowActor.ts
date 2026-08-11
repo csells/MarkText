@@ -52,7 +52,7 @@ function recognitionOf(revision: DocumentRevision): ShadowRecognitionSummary {
     }
   }
   return Object.freeze({
-    sourceLength: revision.source.length,
+    sourceLength: revision.sourceLength,
     annotationCounts: Object.freeze(annotationCounts)
   })
 }
