@@ -43,6 +43,8 @@ export interface Profile1SyntaxAccountingRecorderV1 {
     key: string
   ) => void
   readonly eventCount: () => number
+  /** Compact EVENT_ORDER bucket counts; no per-event objects are retained. */
+  readonly counts: () => readonly number[]
   readonly firstEventBeyond: (
     limit: number
   ) => Readonly<{ readonly range: SourceRange; readonly observed: number }> | undefined
@@ -96,6 +98,10 @@ export function createProfile1SyntaxAccountingRecorderV1(
     return count
   }
 
+  const counts = (): readonly number[] => Object.freeze(
+    EVENT_ORDER.map(kind => buckets.get(kind)?.count ?? 0)
+  )
+
   const firstEventBeyond = (
     limit: number
   ): Readonly<{ readonly range: SourceRange; readonly observed: number }> | undefined => {
@@ -138,7 +144,7 @@ export function createProfile1SyntaxAccountingRecorderV1(
       if (bucket?.events === undefined) {
         throw new Error('Syntax-accounting trace capture was not enabled')
       }
-      events.push(...bucket.events)
+      for (const event of bucket.events) events.push(event)
     }
     return Object.freeze({
       schema: 'syntax-accounting-1',
@@ -149,6 +155,7 @@ export function createProfile1SyntaxAccountingRecorderV1(
   return Object.freeze({
     emit: Object.freeze(emit),
     eventCount: Object.freeze(eventCount),
+    counts: Object.freeze(counts),
     firstEventBeyond: Object.freeze(firstEventBeyond),
     trace: Object.freeze(trace)
   })
