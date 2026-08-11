@@ -485,18 +485,29 @@ export function bracketForEdits(
     editEnd = Math.max(editEnd, edit.end)
   }
   const delta = nextLength - retained.sourceLength
-  let start = 0
-  for (const point of retained.safePoints) {
-    if (point <= editStart) {
-      start = Math.max(start, point)
+  const points = retained.safePoints
+  let low = 0
+  let high = points.length
+  while (low < high) {
+    const middle = low + ((high - low) >> 1)
+    if ((points[middle] ?? Number.POSITIVE_INFINITY) <= editStart) {
+      low = middle + 1
+    } else {
+      high = middle
     }
   }
-  let endPrevious = retained.sourceLength
-  for (const point of retained.safePoints) {
-    if (point > editEnd && point < endPrevious) {
-      endPrevious = point
+  const start = low === 0 ? 0 : points[low - 1] ?? 0
+  low = 0
+  high = points.length
+  while (low < high) {
+    const middle = low + ((high - low) >> 1)
+    if ((points[middle] ?? Number.POSITIVE_INFINITY) <= editEnd) {
+      low = middle + 1
+    } else {
+      high = middle
     }
   }
+  const endPrevious = points[low] ?? retained.sourceLength
   if (start >= endPrevious) return undefined
   return Object.freeze({
     start,
@@ -627,8 +638,18 @@ export function spliceGuardsHold(
   }
   // Splicing at a non-zero start requires the previous parse to agree that a
   // top-level block begins exactly there.
-  if (bracket.start !== 0 && !retained.safePoints.includes(bracket.start)) {
-    return false
+  if (bracket.start !== 0) {
+    let low = 0
+    let high = retained.safePoints.length
+    while (low < high) {
+      const middle = low + ((high - low) >> 1)
+      if ((retained.safePoints[middle] ?? bracket.start) < bracket.start) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    if (retained.safePoints[low] !== bracket.start) return false
   }
   return true
 }
