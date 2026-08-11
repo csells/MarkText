@@ -10,6 +10,7 @@ import {
   type SourceRange
 } from '../src/index.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
+import { applyExactSourceEdits } from '../src/exactSourceEdits.js'
 
 interface ChangeInspection {
   readonly documentParses: number
@@ -36,7 +37,31 @@ interface ChangeInspection {
   readonly retainedLocalIndexUnitsCopied: number
   readonly retainedInitialBuildUnits: number
   readonly retainedOverlayMaximumDepth: number
-  readonly sourceReconstructionOutputUnits: number
+  readonly sourceMaterializations: number
+  readonly sourceMaterializationOutputUnits: number
+  readonly sourceRopeNodesAllocated: number
+  readonly sourceRopeNodeVisits: number
+  readonly sourceRopePiecesAllocated: number
+  readonly sourceRopeCoalesces: number
+  readonly sourceRopeRebalances: number
+  readonly sourceRopeMaximumDepth: number
+  readonly sourceRopeMaximumHeight: number
+  readonly sourceRopeCurrentHeight: number
+  readonly sourceRopeCurrentPieces: number
+  readonly sourceSliceCalls: number
+  readonly sourceSlicePieces: number
+  readonly sourceSliceUnits: number
+  readonly sourceMaterializationPieces: number
+  readonly sourceGetterHits: number
+  readonly sourceGetterMisses: number
+  readonly sourceFallbackMaterializations: number
+  readonly sourceRebaseMaterializations: number
+  readonly sourceProjectionMaterializations: number
+  readonly sourceReopenMaterializations: number
+  readonly sourceRopeRootsAttempted: number
+  readonly sourceRopeRootsCommitted: number
+  readonly sourceRebases: number
+  readonly sourceCurrentRetainedBufferUnitsUpperBound: number
 }
 
 const ordinalRange = (range: OrdinalRange): OrdinalRange => range
@@ -450,6 +475,11 @@ describe('document-core semantic changes', () => {
     expect(olderProjection.events).toEqual(freshOlder.events)
     expect(olderProjection.syntax.ast).toEqual(freshOlder.syntax.ast)
     expect(delta(afterProjection, beforeProjection, 'documentParses')).toBe(2)
+    expect(delta(
+      afterProjection,
+      beforeProjection,
+      'sourceProjectionMaterializations'
+    )).toBe(2)
     expect(delta(afterProjection, beforeProjection, 'documentParseSourceUnits'))
       .toBe(first.revision.source.length + second.revision.source.length)
   })
@@ -464,7 +494,7 @@ describe('document-core semantic changes', () => {
     expect(projection.syntax.ast.root.children).toHaveLength(paragraphCount)
   })
 
-  it('shares retained suffix facts across 100 regional paragraph edits', () => {
+  it('keeps canonical source persistent across 100 regional edits', () => {
     const suffix = Array.from(
       { length: 10_000 },
       (_, index) => `suffix ${String(index)}\n\n`
@@ -472,6 +502,8 @@ describe('document-core semantic changes', () => {
     let expectedSource = `head\n\ntarget word\n\n${suffix}`
     const core = createDocumentCore()
     let revision = core.open(expectedSource)
+    const revisions = [revision]
+    const expectedRevisions = [expectedSource]
     const before = inspectionOf(core)
     expect(before.retainedInitialBuildUnits).toBeGreaterThan(10_000)
     const insertAt = expectedSource.indexOf('word') + 1
@@ -486,7 +518,7 @@ describe('document-core semantic changes', () => {
         end: insertAt,
         insert: 'X'
       }], { projections: ['markup'] })
-      expect(commit.revision.source).toBe(expectedSource)
+      expect(commit.revision.sourceLength).toBe(expectedSource.length)
       expect(commit.change.appliedEdits).toEqual([{
         start: insertAt,
         end: insertAt,
@@ -508,6 +540,8 @@ describe('document-core semantic changes', () => {
         sourceRange: replacement.next.source
       }])
       revision = commit.revision
+      revisions.push(revision)
+      expectedRevisions.push(expectedSource)
     }
     const after = inspectionOf(core)
 
@@ -527,10 +561,45 @@ describe('document-core semantic changes', () => {
     expect(delta(after, before, 'retainedFactOutputStructuralUnits'))
       .toBeLessThan(10_000)
     expect(delta(after, before, 'retainedInitialBuildUnits')).toBe(0)
-    // Canonical source is still reconstructed eagerly on every apply. This
-    // slice removes retained-fact suffix copying, not full-string output.
-    expect(delta(after, before, 'sourceReconstructionOutputUnits'))
-      .toBeGreaterThan(expectedSource.length * 90)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
+    expect(delta(after, before, 'sourceRopeNodesAllocated')).toBeLessThan(2_000)
+    expect(after.sourceRopeMaximumDepth).toBeLessThan(16)
+    expect(delta(after, before, 'sourceSliceCalls')).toBe(200)
+    expect(delta(after, before, 'sourceSliceUnits')).toBeLessThan(20_000)
+    expect(delta(after, before, 'sourceSlicePieces')).toBeLessThan(20_000)
+    expect(delta(after, before, 'sourceRopeRootsAttempted')).toBe(100)
+    expect(delta(after, before, 'sourceRopeRootsCommitted')).toBe(100)
+
+    expect(revision.source).toBe(expectedSource)
+    const afterHeadRead = inspectionOf(core)
+    expect(delta(afterHeadRead, after, 'sourceMaterializations')).toBe(1)
+    expect(delta(afterHeadRead, after, 'sourceMaterializationOutputUnits'))
+      .toBe(expectedSource.length)
+    expect(revision.source).toBe(expectedSource)
+    const afterCachedHeadRead = inspectionOf(core)
+    expect(afterCachedHeadRead.sourceMaterializations)
+      .toBe(afterHeadRead.sourceMaterializations)
+    expect(afterCachedHeadRead.sourceMaterializationOutputUnits)
+      .toBe(afterHeadRead.sourceMaterializationOutputUnits)
+    expect(afterCachedHeadRead.sourceGetterHits)
+      .toBe(afterHeadRead.sourceGetterHits + 1)
+
+    const historical = revisions[50]
+    const historicalSource = expectedRevisions[50]
+    if (historical === undefined || historicalSource === undefined) {
+      throw new Error('Expected retained source history')
+    }
+    expect(historical.sourceLength).toBe(historicalSource.length)
+    expect(historical.source).toBe(historicalSource)
+    const afterHistoricalRead = inspectionOf(core)
+    expect(delta(afterHistoricalRead, afterHeadRead, 'sourceMaterializations'))
+      .toBe(1)
+    expect(delta(
+      afterHistoricalRead,
+      afterHeadRead,
+      'sourceMaterializationOutputUnits'
+    )).toBe(historicalSource.length)
 
     const projected = core.project(revision, 'markup')
     const freshCore = createDocumentCore()
@@ -538,6 +607,244 @@ describe('document-core semantic changes', () => {
     const freshProjected = freshCore.project(fresh, 'markup')
     expect(projected.events).toEqual(freshProjected.events)
     expect(projected.syntax.ast).toEqual(freshProjected.syntax.ast)
+  })
+
+  it('preserves exact UTF-16 multi-edit ordering through rope rotations', () => {
+    const core = createDocumentCore()
+    const opened = core.open('a\r\n😀b\nxyz')
+    const first = core.apply(opened, [
+      { start: 2, end: 2, insert: 'q' },
+      { start: 3, end: 8, insert: '' },
+      { start: 8, end: 8, insert: 'q' }
+    ])
+    expect(first.revision.source).toBe('a\rq\nqyz')
+
+    const second = core.apply(first.revision, [
+      { start: 7, end: 7, insert: 'X' },
+      { start: 7, end: 7, insert: 'X' },
+      { start: 7, end: 7, insert: '😀' }
+    ])
+    expect(second.revision.source).toBe('a\rq\nqyzXX😀')
+    expect(second.revision.sourceLength).toBe(11)
+    expect(inspectionOf(core).sourceRopeMaximumHeight).toBeLessThan(16)
+  })
+
+  it('matches the exact-source oracle across deterministic edit batches', () => {
+    let randomState = 0x5eed1234
+    const random = (limit: number): number => {
+      randomState = (Math.imul(randomState, 1_664_525) + 1_013_904_223) >>> 0
+      return limit === 0 ? 0 : randomState % limit
+    }
+    const insertions = ['', 'X', '\r\n', '😀', '{++', ' ++}'] as const
+    let expected = 'start\r\n😀 middle\nend\n'
+    const core = createDocumentCore()
+    let revision = core.open(expected)
+
+    for (let batch = 0; batch < 128; batch += 1) {
+      const edits: Array<{ start: number, end: number, insert: string }> = []
+      let cursor = 0
+      const editCount = 1 + random(4)
+      for (let ordinal = 0; ordinal < editCount; ordinal += 1) {
+        const start = cursor + random(expected.length - cursor + 1)
+        const deletion = random(Math.min(4, expected.length - start) + 1)
+        const end = start + deletion
+        edits.push({
+          start,
+          end,
+          insert: insertions[random(insertions.length)] ?? ''
+        })
+        cursor = end
+      }
+      expected = applyExactSourceEdits(expected, edits, 'oracle edit')
+      revision = core.apply(revision, edits).revision
+      expect(revision.sourceLength).toBe(expected.length)
+      expect(revision.source).toBe(expected)
+    }
+
+    expect(inspectionOf(core).sourceRopeMaximumHeight).toBeLessThan(32)
+  })
+
+  it('rejects an oversized candidate before allocating a source root', () => {
+    const core = createDocumentCore()
+    const opened = core.open('head\n\ntarget\n\ntail\n\n')
+    const before = inspectionOf(core)
+
+    expect(() => core.apply(opened, [{
+      start: 8,
+      end: 8,
+      insert: 'X'.repeat(32_000_000)
+    }], { projections: ['markup'] })).toThrow(expect.objectContaining({
+      code: 'CM_RESOURCE_SOURCE_UNITS_EXCEEDED',
+      range: { start: 32_000_000, end: 32_000_000 },
+      metadata: { limit: '32000000', observed: '32000020' }
+    }))
+    const after = inspectionOf(core)
+    for (const key of [
+      'sourceRopeNodesAllocated',
+      'sourceRopeNodeVisits',
+      'sourceSliceCalls',
+      'sourceMaterializations',
+      'sourceRopeRootsAttempted',
+      'sourceRopeRootsCommitted'
+    ] as const) {
+      expect(after[key]).toBe(before[key])
+    }
+  })
+
+  it('rejects too many edits before stabilizing or allocating source work', () => {
+    const core = createDocumentCore()
+    const opened = core.open('head\n\ntarget\n\ntail\n\n')
+    const before = inspectionOf(core)
+    const edits = Array.from({ length: 16_385 }, () => ({
+      start: 8,
+      end: 8,
+      insert: 'X'
+    }))
+
+    expect(() => core.apply(opened, edits, { projections: ['markup'] }))
+      .toThrow(/transaction limit/)
+    const after = inspectionOf(core)
+    for (const key of [
+      'sourceRopeNodesAllocated',
+      'sourceRopeNodeVisits',
+      'sourceSliceCalls',
+      'sourceMaterializations',
+      'sourceRopeRootsAttempted',
+      'sourceRopeRootsCommitted'
+    ] as const) {
+      expect(after[key]).toBe(before[key])
+    }
+  })
+
+  it('preserves BOM, CRLF, and isolated surrogate code units exactly', () => {
+    const source = '\uFEFFa\r\n😀z'
+    const edits = [
+      { start: 2, end: 3, insert: '\r' },
+      { start: 4, end: 5, insert: 'X' },
+      { start: 7, end: 7, insert: '\uFEFF' }
+    ]
+    const expected = applyExactSourceEdits(source, edits, 'oracle edit')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const commit = core.apply(opened, edits)
+
+    expect(commit.revision.source).toBe(expected)
+    expect(Array.from(
+      { length: expected.length },
+      (_, index) => commit.revision.source.charCodeAt(index)
+    )).toEqual(Array.from(
+      { length: expected.length },
+      (_, index) => expected.charCodeAt(index)
+    ))
+  })
+
+  it('keeps enumerable revision source lazy while changes stay portable', () => {
+    const source = 'head\n\ntarget word\n\ntail\n\n'
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const at = source.indexOf('word') + 1
+    const commit = core.apply(opened, [{
+      start: at,
+      end: at,
+      insert: 'X'
+    }], { projections: ['markup'] })
+    const expected = source.slice(0, at) + 'X' + source.slice(at)
+    const before = inspectionOf(core)
+
+    expect(Object.isFrozen(commit.revision)).toBe(true)
+    expect(Object.getOwnPropertyDescriptor(commit.revision, 'source'))
+      .toEqual(expect.objectContaining({ enumerable: true }))
+    expect(Object.keys(commit.revision)).toContain('source')
+    expect(structuredClone(commit.change)).toEqual(commit.change)
+    expect(inspectionOf(core).sourceMaterializations)
+      .toBe(before.sourceMaterializations)
+
+    const clonedRevision = structuredClone(commit.revision)
+    expect(clonedRevision.source).toBe(expected)
+    const afterClone = inspectionOf(core)
+    expect(delta(afterClone, before, 'sourceGetterMisses')).toBe(1)
+    expect(delta(afterClone, before, 'sourceMaterializations')).toBe(1)
+    expect(delta(afterClone, before, 'sourceMaterializationOutputUnits'))
+      .toBe(expected.length)
+    expect(afterClone.sourceRopeCurrentPieces).toBe(1)
+    expect(afterClone.sourceCurrentRetainedBufferUnitsUpperBound)
+      .toBe(expected.length)
+
+    expect(JSON.parse(JSON.stringify(commit.revision)).source).toBe(expected)
+    expect({ ...commit.revision }.source).toBe(expected)
+    const afterCachedBarriers = inspectionOf(core)
+    expect(afterCachedBarriers.sourceMaterializations)
+      .toBe(afterClone.sourceMaterializations)
+    expect(delta(afterCachedBarriers, afterClone, 'sourceGetterHits')).toBe(2)
+  })
+
+  it('full-fallback rebases a source that would retain a huge deletion', () => {
+    const content = 'A'.repeat(262_144)
+    const source = `guard\n\n${content}\n\ntail\n\n`
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const contentStart = source.indexOf(content)
+    const before = inspectionOf(core)
+    const commit = core.apply(opened, [{
+      start: contentStart + 1,
+      end: contentStart + content.length,
+      insert: ''
+    }], { projections: ['markup'] })
+    const after = inspectionOf(core)
+
+    expect(commit.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'source-fragmentation-rebase'
+    }])
+    expect(delta(after, before, 'sourceFallbackMaterializations')).toBe(0)
+    expect(delta(after, before, 'sourceRebaseMaterializations')).toBe(1)
+    expect(delta(after, before, 'sourceRebases')).toBe(1)
+    expect(delta(after, before, 'sourceRopeRootsCommitted')).toBe(1)
+    expect(commit.revision.source).toBe('guard\n\nA\n\ntail\n\n')
+    expect(opened.source).toBe(source)
+    expect(after.sourceRopeCurrentPieces).toBe(1)
+    expect(after.sourceCurrentRetainedBufferUnitsUpperBound)
+      .toBe(commit.revision.sourceLength)
+    expect(inspectionOf(core).sourceMaterializations)
+      .toBe(after.sourceMaterializations)
+  })
+
+  it('rebases after cumulative small deletions cross fragmentation policy', () => {
+    const content = 'A'.repeat(100_000)
+    const source = `guard\n\n${content}\n\ntail\n\n`
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    const contentStart = source.indexOf(content)
+    const before = inspectionOf(core)
+    let fallbackOrdinal: number | undefined
+
+    for (let ordinal = 1; ordinal <= 90; ordinal += 1) {
+      const commit = core.apply(revision, [{
+        start: contentStart + 1,
+        end: contentStart + 1_001,
+        insert: ''
+      }], { projections: ['markup'] })
+      revision = commit.revision
+      const projection = commit.change.projections[0]
+      if (projection?.scope === 'document') {
+        expect(projection.reason).toBe('source-fragmentation-rebase')
+        fallbackOrdinal = ordinal
+        break
+      }
+      expect(projection?.scope).toBe('regions')
+      expect(inspectionOf(core).sourceMaterializations)
+        .toBe(before.sourceMaterializations)
+    }
+
+    expect(fallbackOrdinal).toBeGreaterThan(65)
+    expect(fallbackOrdinal).toBeLessThan(90)
+    const after = inspectionOf(core)
+    expect(delta(after, before, 'sourceRebaseMaterializations')).toBe(1)
+    expect(delta(after, before, 'sourceRebases')).toBe(1)
+    expect(after.sourceRopeCurrentPieces).toBe(1)
+    expect(after.sourceCurrentRetainedBufferUnitsUpperBound)
+      .toBe(revision.sourceLength)
   })
 
   it('retains 64 historical overlay roots over 100k regions', () => {
@@ -714,7 +1021,7 @@ describe('document-core semantic changes', () => {
       insert: 'X'
     }], { projections: ['markup'] })
     const beforeFallback = inspectionOf(core)
-    const structuralAt = regional.revision.source.indexOf('target')
+    const structuralAt = source.indexOf('target')
     const fallback = core.apply(regional.revision, [{
       start: structuralAt,
       end: structuralAt,
@@ -728,6 +1035,16 @@ describe('document-core semantic changes', () => {
       reason: 'structural-region-ineligible'
     }])
     expect(delta(afterFallback, beforeFallback, 'documentParses')).toBe(1)
+    expect(delta(
+      afterFallback,
+      beforeFallback,
+      'sourceFallbackMaterializations'
+    )).toBe(1)
+    expect(delta(
+      afterFallback,
+      beforeFallback,
+      'sourceMaterializations'
+    )).toBe(1)
     expect(delta(afterFallback, beforeFallback, 'retainedCommittedUpdates'))
       .toBe(0)
     const freshCore = createDocumentCore()
@@ -820,6 +1137,28 @@ describe('document-core semantic changes', () => {
       { start: 1, end: 4, insert: 'X' },
       { start: 3, end: 5, insert: 'Y' }
     ], { projections: ['markup'] })).toThrow()
+    expect(() => core.apply(regionalHead, [{
+      start: regionalHead.sourceLength + 1,
+      end: regionalHead.sourceLength + 1,
+      insert: 'X'
+    }], { projections: ['markup'] })).toThrow()
+    expect(() => core.apply(opened, [{
+      start: at,
+      end: at,
+      insert: 'X'
+    }], { projections: ['markup'] })).toThrow(/not the current core revision/)
+    const afterInputRejections = inspectionOf(core)
+    for (const key of [
+      'sourceRopeNodesAllocated',
+      'sourceRopeNodeVisits',
+      'sourceSliceCalls',
+      'sourceMaterializations',
+      'sourceRopeRootsAttempted',
+      'sourceRopeRootsCommitted'
+    ] as const) {
+      expect(afterInputRejections[key]).toBe(beforeRejections[key])
+    }
+
     const overDepth = `${'{++'.repeat(16_385)}x${'++}'.repeat(16_385)}`
     expect(() => core.apply(regionalHead, [{
       start: at,
@@ -831,6 +1170,18 @@ describe('document-core semantic changes', () => {
       .toBe(beforeRejections.retainedCommittedUpdates)
     expect(afterRejections.retainedOverlayNodesAllocated)
       .toBe(beforeRejections.retainedOverlayNodesAllocated)
+    expect(delta(
+      afterRejections,
+      afterInputRejections,
+      'sourceFallbackMaterializations'
+    )).toBe(1)
+    expect(delta(
+      afterRejections,
+      afterInputRejections,
+      'sourceRopeRootsAttempted'
+    )).toBe(1)
+    expect(afterRejections.sourceRopeRootsCommitted)
+      .toBe(afterInputRejections.sourceRopeRootsCommitted)
 
     const accepted = core.apply(regionalHead, [{
       start: at + 1,
@@ -861,5 +1212,7 @@ describe('document-core semantic changes', () => {
     expect(before.retainedInitialBuildUnits).toBe(0)
     expect(delta(after, before, 'retainedOverlayNodesAllocated')).toBe(0)
     expect(delta(after, before, 'retainedCommittedUpdates')).toBe(0)
+    expect(delta(after, before, 'sourceFallbackMaterializations')).toBe(1)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(1)
   })
 })

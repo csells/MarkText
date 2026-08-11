@@ -24,7 +24,44 @@ export interface DocumentCoreInspection {
   readonly retainedCommittedUpdates: number
   readonly retainedLocalIndexUnitsCopied: number
   readonly retainedOverlayMaximumDepth: number
-  readonly sourceReconstructionOutputUnits: number
+  readonly sourceRopeNodeVisits: number
+  readonly sourceRopeNodesAllocated: number
+  readonly sourceRopePiecesAllocated: number
+  readonly sourceRopeCoalesces: number
+  readonly sourceRopeRebalances: number
+  readonly sourceRopeMaximumDepth: number
+  readonly sourceRopeMaximumHeight: number
+  readonly sourceRopeCurrentHeight: number
+  readonly sourceRopeCurrentPieces: number
+  readonly sourceRopeMaximumPieces: number
+  readonly sourceSliceCalls: number
+  readonly sourceSlicePieces: number
+  readonly sourceSliceUnits: number
+  readonly sourceMaterializations: number
+  readonly sourceMaterializationPieces: number
+  readonly sourceMaterializationOutputUnits: number
+  readonly sourceGetterHits: number
+  readonly sourceGetterMisses: number
+  readonly sourceCompactions: number
+  readonly sourceCompactionInputPieces: number
+  /** Reduction in the conservative retained-buffer upper bound. */
+  readonly sourceCompactionRetainedUpperBoundReductionUnits: number
+  readonly sourceGetterMaterializations: number
+  readonly sourceGetterMaterializationOutputUnits: number
+  readonly sourceFallbackMaterializations: number
+  readonly sourceFallbackMaterializationOutputUnits: number
+  readonly sourceRebaseMaterializations: number
+  readonly sourceRebaseMaterializationOutputUnits: number
+  readonly sourceProjectionMaterializations: number
+  readonly sourceProjectionMaterializationOutputUnits: number
+  readonly sourceReopenMaterializations: number
+  readonly sourceReopenMaterializationOutputUnits: number
+  readonly sourceReopenComparisonUnits: number
+  readonly sourceRopeRootsAttempted: number
+  readonly sourceRopeRootsCommitted: number
+  readonly sourceRebases: number
+  /** Conservative retained-buffer upper bound for the committed head. */
+  readonly sourceCurrentRetainedBufferUnitsUpperBound: number
 }
 
 const READERS = new WeakMap<
