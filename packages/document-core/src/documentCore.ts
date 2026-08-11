@@ -8,6 +8,11 @@ import {
 } from './internal/profile1Document.js'
 import { createPhysicalTraversalRecorderV1 } from './internal/profile1/physicalTraversalAccounting.js'
 import {
+  admitAdditionRegionalChange,
+  createAdditionRegionalIndex,
+  type CriticMarkupRegionalIndex
+} from './internal/profile1/criticMarkupRegional.js'
+import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
   type PlainParagraphRetainedIndex
@@ -726,6 +731,59 @@ function shiftRegionalTextEvent(
   })
 }
 
+function shiftRegionalMarkupEvents(
+  events: readonly MarkupEvent[],
+  sourceDelta: number
+): readonly MarkupEvent[] {
+  const shiftedMarks = new WeakMap<object, MarkupMark>()
+  const shiftMark = (mark: MarkupMark): MarkupMark => {
+    const retained = shiftedMarks.get(mark)
+    if (retained !== undefined) return retained
+    const annotationRange = Object.freeze({
+      start: mark.annotationRange.start + sourceDelta,
+      end: mark.annotationRange.end + sourceDelta
+    })
+    const shifted = mark.kind === 'substitution'
+      ? Object.freeze({
+        kind: mark.kind,
+        arm: mark.arm,
+        annotationRange
+      })
+      : Object.freeze({ kind: mark.kind, annotationRange })
+    shiftedMarks.set(mark, shifted)
+    return shifted
+  }
+  return Object.freeze(events.map((event): MarkupEvent => {
+    if (event.kind === 'text') {
+      return shiftRegionalTextEvent(event, sourceDelta)
+    }
+    return Object.freeze({ kind: event.kind, mark: shiftMark(event.mark) })
+  }))
+}
+
+function shiftCriticMarkupAnnotation(
+  annotation: CriticMarkupAnnotation,
+  delta: number
+): CriticMarkupAnnotation {
+  return Object.freeze({
+    kind: annotation.kind,
+    range: Object.freeze({
+      start: annotation.range.start + delta,
+      end: annotation.range.end + delta
+    }),
+    arms: Object.freeze(annotation.arms.map(arm => Object.freeze({
+      name: arm.name,
+      range: Object.freeze({
+        start: arm.range.start + delta,
+        end: arm.range.end + delta
+      }),
+      annotations: Object.freeze(arm.annotations.map(
+        child => shiftCriticMarkupAnnotation(child, delta)
+      ))
+    })))
+  })
+}
+
 type FacadeProjectedMarkdown = Profile1DocumentProducts['original']
 
 type CoordinateSegment =
@@ -1118,13 +1176,15 @@ interface FullRevisionState extends RevisionFacts {
   readonly source: PersistentCanonicalSource
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
+  readonly additionIndex: CriticMarkupRegionalIndex | undefined
 }
 
 interface RegionalRevisionState {
   readonly kind: 'regional'
   readonly source: PersistentCanonicalSource
   readonly markdownOptions: MarkdownOptionsV1
-  readonly retainedIndex: PlainParagraphRetainedIndex
+  readonly retainedIndex: PlainParagraphRetainedIndex | undefined
+  readonly additionIndex: CriticMarkupRegionalIndex | undefined
   readonly ensureProducts: () => RevisionFacts
 }
 
@@ -1441,6 +1501,7 @@ export function createDocumentCore(): DocumentCore {
           retainedIndexRecorder
         )
         : undefined
+      const additionIndex = createAdditionRegionalIndex(products)
       const revision = Object.freeze({
         get source(): string {
           return source.materialize('getter')
@@ -1455,6 +1516,7 @@ export function createDocumentCore(): DocumentCore {
         products,
         markdownOptions: resolvedOptions,
         retainedIndex,
+        additionIndex,
         annotationRangeByNodeId: materializedAnnotations.rangeByNodeId,
         nodeIdByAnnotation: materializedAnnotations.nodeIdByAnnotation
       }))
@@ -1502,15 +1564,17 @@ export function createDocumentCore(): DocumentCore {
 
   const publishRegional = (
     source: PersistentCanonicalSource,
-    retainedIndex: PlainParagraphRetainedIndex,
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptionsV1,
+    retainedIndex: PlainParagraphRetainedIndex | undefined,
+    additionIndex: CriticMarkupRegionalIndex | undefined,
+    annotations: readonly CriticMarkupAnnotation[] = Object.freeze([])
   ): DocumentRevision => {
     const revision = Object.freeze({
       get source(): string {
         return source.materialize('getter')
       },
       sourceLength: source.length,
-      annotations: Object.freeze([]),
+      annotations,
       diagnostics: Object.freeze([])
     })
     let facts: RevisionFacts | undefined
@@ -1523,6 +1587,7 @@ export function createDocumentCore(): DocumentCore {
       source,
       markdownOptions: resolvedOptions,
       retainedIndex,
+      additionIndex,
       ensureProducts
     }))
     currentRevision = revision
@@ -1534,6 +1599,128 @@ export function createDocumentCore(): DocumentCore {
   const factsOf = (state: RevisionState): RevisionFacts => state.kind === 'full'
     ? state
     : state.ensureProducts()
+
+  const tryAdditionRegionalApply = (
+    previousState: RevisionState,
+    source: PersistentCanonicalSource,
+    stableEdits: readonly DocumentSourceEdit[],
+    resolvedOptions: MarkdownOptionsV1
+  ): Readonly<{
+    readonly revision: DocumentRevision
+    readonly projection: MarkupRegionProjectionChange
+  }> | undefined => {
+    const index = previousState.additionIndex
+    if (index === undefined) return undefined
+    const admission = admitAdditionRegionalChange(
+      previousState.source,
+      source,
+      index,
+      stableEdits,
+      EXECUTION_BUDGET,
+      resolvedOptions,
+      regionalPhysicalRecorder
+    )
+    if (admission === undefined) return undefined
+    if (admission.kind === 'resource-failure') {
+      throw documentCoreError(admission.fatalDiagnostic)
+    }
+    const materialized = annotationsOf(admission.nextProducts)
+    const localAnnotation = materialized.annotations[0]
+    if (localAnnotation === undefined || materialized.annotations.length !== 1) {
+      return undefined
+    }
+    const markup = markupProjectionOf(
+      admission.nextProducts,
+      materialized.rangeByNodeId,
+      admission.nextWindow.length
+    )
+    const events = shiftRegionalMarkupEvents(
+      markup.events,
+      admission.nextIndex.source.start
+    )
+    const enter = events[1]
+    const exit = events[3]
+    if (
+      events.length !== 5 ||
+      enter?.kind !== 'enter' ||
+      exit?.kind !== 'exit' ||
+      enter.mark.kind !== 'addition' ||
+      exit.mark !== enter.mark
+    ) {
+      return undefined
+    }
+    const syntaxBlocks = Object.freeze(markup.syntax.ast.root.children.map(
+      child => shiftMarkdownAstNode(child, admission.nextIndex.syntax.start)
+    ))
+    const editing = admission.nextProducts.editing()
+    const coordinates: MarkupCoordinateSegment[] = []
+    for (const segment of editing.mappedTape) {
+      if (segment.kind !== 'canonical') return undefined
+      const length = segment.projectedEnd - segment.projectedStart
+      coordinates.push(Object.freeze({
+        projected: Object.freeze({
+          start: admission.nextIndex.syntax.start + segment.projectedStart,
+          end: admission.nextIndex.syntax.start + segment.projectedEnd
+        }),
+        source: Object.freeze({
+          start: admission.nextIndex.source.start + segment.sourceStart,
+          end: admission.nextIndex.source.start + segment.sourceStart + length
+        })
+      }))
+    }
+    if (syntaxBlocks.length === 0 || coordinates.length === 0) return undefined
+    const replacement = Object.freeze({
+      previous: Object.freeze({
+        source: index.source,
+        syntax: index.syntax,
+        events: index.events
+      }),
+      next: Object.freeze({
+        source: admission.nextIndex.source,
+        syntax: admission.nextIndex.syntax,
+        events: Object.freeze({
+          start: index.events.start,
+          end: index.events.start + events.length
+        })
+      }),
+      events,
+      syntaxBlocks,
+      coordinates: Object.freeze(coordinates)
+    }) satisfies MarkupRegionReplacement
+    const annotations = Object.freeze([
+      shiftCriticMarkupAnnotation(
+        localAnnotation,
+        admission.nextIndex.source.start
+      )
+    ])
+    const revision = publishRegional(
+      source,
+      resolvedOptions,
+      undefined,
+      admission.nextIndex,
+      annotations
+    )
+    inspection.regionalFastApplies += 1
+    inspection.regionalProjectionPreparationUnits +=
+      admission.previousWindow.length + admission.nextWindow.length
+    inspection.regionalMarkupEventUnits += events.reduce(
+      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+      0
+    )
+    inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+      (total, block) => total + countMarkdownAstNodes(block),
+      0
+    )
+    inspection.regionalCoordinateSegments += coordinates.length
+    return Object.freeze({
+      revision,
+      projection: Object.freeze({
+        name: 'markup',
+        scope: 'regions',
+        replacements: Object.freeze([replacement])
+      })
+    })
+  }
 
   const tryRegionalMarkupApply = (
     previousState: RevisionState,
@@ -1573,6 +1760,21 @@ export function createDocumentCore(): DocumentCore {
       return Object.freeze({
         kind: 'fallback',
         reason: 'source-fragmentation-rebase'
+      })
+    }
+    if (previousState.additionIndex !== undefined) {
+      const applied = tryAdditionRegionalApply(
+        previousState,
+        source,
+        stableEdits,
+        resolvedOptions
+      )
+      if (applied !== undefined) {
+        return Object.freeze({ kind: 'applied', ...applied })
+      }
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'criticmarkup-facts-present'
       })
     }
     const retained = previousState.kind === 'full'
@@ -1729,8 +1931,9 @@ export function createDocumentCore(): DocumentCore {
     }) satisfies MarkupRegionReplacement
     const revision = publishRegional(
       source,
+      resolvedOptions,
       admission.retainedIndex,
-      resolvedOptions
+      undefined
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits += regionSource.length
