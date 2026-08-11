@@ -181,7 +181,11 @@ export function createIntrinsicProfile1SourceProgression(
       execution?.examineSource(PARSE_SOURCE_CHECKPOINT_INTERVAL)
     }
     const marker = findMarker(source, offset)
-    if (marker === undefined || suppressed(offset)) {
+    if (
+      marker === undefined ||
+      suppressed(offset) ||
+      hasOddBackslashRunBefore(source, offset, 0)
+    ) {
       continue
     }
     sourceStepBoundaryStarts.push(offset)
@@ -321,10 +325,7 @@ export interface MappedMarkdownLane {
     readonly registry: Profile1SyntaxIdentityRegistry
     readonly sourceAt: (start: number, end: number) => SyntaxSourceIdentity
   }>
-  /**
-   * Parser-owned Substitution-arm scopes mapped into this lane. These are
-   * emitted fork facts; a branch read consumes them without rediscovery.
-   */
+  /** Selected CriticMarkup-arm scopes mapped into this lane. */
   readonly matchingScopes?: readonly MappedMarkdownMatchingScope[]
   /** Maximal candidate runs that retain one contiguous canonical tape identity. */
   readonly canonicalIdentityRuns?: readonly MappedMarkdownCanonicalIdentityRun[]
@@ -775,6 +776,8 @@ interface InlineBoundaryPolicy {
   readonly scopeRuns: readonly MappedMarkdownMatchingScope[]
   readonly canonicalIdentityRuns:
   readonly MappedMarkdownCanonicalIdentityRun[]
+  /** Analyze the flattened candidate's flanking while retaining arm scopes. */
+  readonly projectionSafetyFlanking: boolean
   readonly unsafeDelimiterOffsets: Set<number>
   readonly enclosingEmphasisRespellings: Map<
     string,
@@ -811,11 +814,13 @@ interface InlineBoundaryPolicy {
 
 function createInlineBoundaryPolicy(
   scopeRuns: readonly MappedMarkdownMatchingScope[],
-  canonicalIdentityRuns: readonly MappedMarkdownCanonicalIdentityRun[]
+  canonicalIdentityRuns: readonly MappedMarkdownCanonicalIdentityRun[],
+  projectionSafetyFlanking: boolean = false
 ): InlineBoundaryPolicy {
   return {
     scopeRuns,
     canonicalIdentityRuns,
+    projectionSafetyFlanking,
     unsafeDelimiterOffsets: new Set<number>(),
     enclosingEmphasisRespellings: new Map(),
     emphasisFlankingScalarEdits: new Map(),
@@ -925,6 +930,22 @@ function matchingScopeAt(
   }
   const run = runs[low]
   return run !== undefined && run.start <= offset ? run : undefined
+}
+
+function definitionCanResolveWithinMatchingScopes(
+  scopes: readonly MappedMarkdownMatchingScope[],
+  definitionStart: number,
+  referenceStart: number
+): boolean {
+  return scopes.every((scope) =>
+    !(
+      scope.start <= definitionStart &&
+      definitionStart < scope.end
+    ) || (
+      scope.start <= referenceStart &&
+      referenceStart < scope.end
+    )
+  )
 }
 
 function rejectMappedCrossScopeMatch(
@@ -1076,6 +1097,12 @@ function delimiterRunAt(
   const matchingScope = matchingScopeAt(boundaryPolicy, offset)
   const matchingFloor = Math.max(start, matchingScope?.start ?? start)
   const matchingCeiling = Math.min(end, matchingScope?.end ?? end)
+  const flankingFloor = boundaryPolicy?.projectionSafetyFlanking === true
+    ? start
+    : matchingFloor
+  const flankingCeiling = boundaryPolicy?.projectionSafetyFlanking === true
+    ? end
+    : matchingCeiling
   const markerCodeUnit = source.charCodeAt(offset)
   if (
     (
@@ -1126,8 +1153,8 @@ function delimiterRunAt(
     return undefined
   }
 
-  const previous = unicodeScalarBefore(source, offset, matchingFloor)
-  const next = unicodeScalarAt(source, runEnd, matchingCeiling)
+  const previous = unicodeScalarBefore(source, offset, flankingFloor)
+  const next = unicodeScalarAt(source, runEnd, flankingCeiling)
   const previousIsWhitespace =
     previous === undefined || UNICODE_WHITESPACE.test(previous)
   const nextIsWhitespace = next === undefined || UNICODE_WHITESPACE.test(next)
@@ -4789,6 +4816,47 @@ function markdownRegionReferenceDefinitions(
   })
 }
 
+function scopeConstrainedReferenceDefinitions(
+  definitions: MarkdownReferenceDefinitionLookup,
+  matchingScopePolicy: MarkdownMatchingScopePolicy | undefined
+): MarkdownReferenceDefinitionLookup {
+  if (
+    matchingScopePolicy === undefined ||
+    definitions.definitionStart === undefined
+  ) {
+    return definitions
+  }
+  const definitionStart = Object.freeze((
+    normalizedLabel: string,
+    referenceStart: number
+  ): number | undefined => {
+    const candidate = definitions.definitionStart?.(
+      normalizedLabel,
+      referenceStart
+    )
+    return candidate !== undefined &&
+      matchingScopePolicy.definitionCanResolveReference(
+        candidate,
+        referenceStart
+      )
+      ? candidate
+      : undefined
+  })
+  return Object.freeze({
+    ...(definitions.cacheKey === undefined
+      ? {}
+      : { cacheKey: definitions.cacheKey }),
+    ...(definitions.hasAny === undefined
+      ? {}
+      : { hasAny: definitions.hasAny }),
+    definitionStart,
+    has: Object.freeze((
+      normalizedLabel: string,
+      referenceStart: number
+    ): boolean => definitionStart(normalizedLabel, referenceStart) !== undefined)
+  })
+}
+
 function markdownRegionBoundaryPolicy(
   boundaryPolicy: InlineBoundaryPolicy | undefined,
   regionStart: number,
@@ -4821,7 +4889,8 @@ function markdownRegionBoundaryPolicy(
               run.sourceStart + overlapStart - run.candidateStart
           })])
       }
-    ))
+    )),
+    boundaryPolicy.projectionSafetyFlanking
   )
 }
 
@@ -6187,7 +6256,13 @@ function intrinsicForkDocumentFromNodes(
       lane.source,
       root,
       registry,
-      execution
+      execution,
+      (definitionStart, referenceStart) =>
+        definitionCanResolveWithinMatchingScopes(
+          lane.matchingScopes ?? Object.freeze([]),
+          definitionStart,
+          referenceStart
+        )
     )
     const nodeAt = Object.freeze((
       projectedOffset: number,
@@ -6309,6 +6384,8 @@ function canonicalOffsetForProjectedOffset(
 function projectedReferenceDefinitionsFromCanonicalFacts(
   canonical: Profile1CanonicalReferenceDefinitionLookup,
   identityRuns: readonly MappedMarkdownCanonicalIdentityRun[],
+  matchingScopes: readonly MappedMarkdownMatchingScope[],
+  scopeRejectedReferenceStarts?: Set<number>,
   literals?: readonly MarkdownLiteralRange[]
 ): MarkdownReferenceDefinitionLookup {
   const factByStart = new Map(
@@ -6368,11 +6445,35 @@ function projectedReferenceDefinitionsFromCanonicalFacts(
     if (canonicalReferenceStart === undefined) {
       return undefined
     }
+    let rejectedSelectedCandidate = false
     const canonicalDefinitionStart = canonical.definitionStartMatching(
       normalizedLabel,
       canonicalReferenceStart,
-      (candidate) => selectedStarts.has(candidate)
+      (candidate) => {
+        if (!selectedStarts.has(candidate)) {
+          return false
+        }
+        const projectedDefinitionStart = projectedOffsetForCanonicalOffset(
+          identityRuns,
+          candidate,
+          'next'
+        )
+        const accepted = projectedDefinitionStart !== undefined &&
+          definitionCanResolveWithinMatchingScopes(
+            matchingScopes,
+            projectedDefinitionStart,
+            projectedReferenceStart
+          )
+        rejectedSelectedCandidate ||= !accepted
+        return accepted
+      }
     )
+    if (
+      canonicalDefinitionStart === undefined &&
+      rejectedSelectedCandidate
+    ) {
+      scopeRejectedReferenceStarts?.add(projectedReferenceStart)
+    }
     return canonicalDefinitionStart === undefined
       ? undefined
       : projectedOffsetForCanonicalOffset(
@@ -6386,7 +6487,12 @@ function projectedReferenceDefinitionsFromCanonicalFacts(
       selectedFacts.map((fact) => [
         fact.normalizedLabel,
         fact.sourceStart
-      ])
+      ]).concat(matchingScopes.map((scope) => [
+        scope.id,
+        scope.start,
+        scope.end,
+        scope.depth
+      ]))
     ),
     hasAny: Object.freeze((normalizedLabel: string): boolean =>
       selectedLabels.has(normalizedLabel)),
@@ -6781,14 +6887,10 @@ function forkRegionBoundaryFacts(
         definitionCanResolveReference: Object.freeze((
           definitionStart: number,
           referenceStart: number
-        ): boolean => (lane.matchingScopes ?? []).every((scope) =>
-          !(
-            scope.start <= definitionStart &&
-            definitionStart < scope.end
-          ) || (
-            scope.start <= referenceStart &&
-            referenceStart < scope.end
-          )
+        ): boolean => definitionCanResolveWithinMatchingScopes(
+          lane.matchingScopes ?? Object.freeze([]),
+          definitionStart,
+          referenceStart
         ))
       })
   return Object.freeze({ boundaryPolicy, matchingScopePolicy })
@@ -6976,9 +7078,12 @@ function parseIntrinsicForkRegionFacts(
     readonly boundaryPolicy: InlineBoundaryPolicy | undefined
   }> {
   const boundary = forkRegionBoundaryFacts(lane, trace)
-  const localReferenceDefinitions = markdownRegionReferenceDefinitions(
-    selectionReferenceDefinitions,
-    selectionOffset
+  const localReferenceDefinitions = scopeConstrainedReferenceDefinitions(
+    markdownRegionReferenceDefinitions(
+      selectionReferenceDefinitions,
+      selectionOffset
+    ),
+    boundary.matchingScopePolicy
   )
   const retainedFacts = intrinsicCanonicalRegionFacts(canonicalFacts, lane)
   let reuseKey: string | undefined
@@ -7221,6 +7326,7 @@ export interface Profile1MarkdownForkAstRequest {
   readonly role: string
   readonly forkLane: IntrinsicProfile1ForkLane
   readonly lane: MappedMarkdownLane
+  readonly publishForkAlternative?: boolean
 }
 
 export interface Profile1MarkdownForkAst {
@@ -7324,7 +7430,8 @@ export function createProfile1MarkdownForkParser(
           validatedCanonicalIdentityRuns(
             lane.source.length,
             lane.canonicalIdentityRuns
-          )
+          ),
+          lane.matchingScopes ?? Object.freeze([])
         )
       const literals: MarkdownLiteralRange[] = []
       for (const region of intrinsicForkRegionLanes(forkLane, lane)) {
@@ -7384,7 +7491,8 @@ export function createProfile1MarkdownForkParser(
             validatedCanonicalIdentityRuns(
               request.lane.source.length,
               request.lane.canonicalIdentityRuns
-            )
+            ),
+            request.lane.matchingScopes ?? Object.freeze([])
           )
         const regionLanes = [...intrinsicForkRegionLanes(
           request.forkLane,
@@ -7476,12 +7584,14 @@ export function createProfile1MarkdownForkParser(
         if (registry === undefined) {
           throw new Error('Markdown fork AST emission has no syntax registry')
         }
-        registry.emitEdge(
-          'fork-alternative',
-          registry.root,
-          parsed.document.root.nodeId,
-          request.role
-        )
+        if (request.publishForkAlternative !== false) {
+          registry.emitEdge(
+            'fork-alternative',
+            registry.root,
+            parsed.document.root.nodeId,
+            request.role
+          )
+        }
         return parsed
       }
       for (const request of requestByKey.values()) {
@@ -7524,13 +7634,24 @@ export function createProfile1MarkdownForkParser(
       })
       const assignedTerminationEdits = new Set<number>()
       const planned: MarkdownArmBoundaryProjectionEdit[] = []
+      const scopeRejectedReferenceStarts = new Set<number>()
+      const projectedFootnoteDefinitions: Array<Readonly<{
+        label: string
+        start: number
+      }>> = []
+      const projectedFootnoteReferences: Array<Readonly<{
+        label: string
+        start: number
+      }>> = []
       const selectionReferenceDefinitions =
         projectedReferenceDefinitionsFromCanonicalFacts(
           canonicalReferenceDefinitions,
           validatedCanonicalIdentityRuns(
             planningLane.source.length,
             planningLane.canonicalIdentityRuns
-          )
+          ),
+          planningLane.matchingScopes ?? Object.freeze([]),
+          scopeRejectedReferenceStarts
         )
       for (const region of intrinsicForkRegionLanes(forkLane, planningLane)) {
         const regionTrace = projectionPlanningTraceAt(trace, region.start)
@@ -7554,14 +7675,48 @@ export function createProfile1MarkdownForkParser(
           regionTrace,
           physicalRecorder
         )
-        emitIntrinsicForkRegionNodes(
+        const planningBoundaryPolicy = emitted.boundaryPolicy === undefined
+          ? undefined
+          : Object.freeze({
+            ...emitted.boundaryPolicy,
+            projectionSafetyFlanking: true
+          })
+        const regionNodes = emitIntrinsicForkRegionNodes(
           localLane,
           emitted.facts,
           emittedRegionCache,
-          emitted.boundaryPolicy,
+          planningBoundaryPolicy,
           execution,
           physicalRecorder
         )
+        const pendingNodes = [...regionNodes]
+        while (pendingNodes.length > 0) {
+          const node = pendingNodes.pop()
+          if (node === undefined) {
+            continue
+          }
+          const label = node.attributes['label']
+          if (
+            node.kind === 'footnote-definition' &&
+            typeof label === 'string'
+          ) {
+            projectedFootnoteDefinitions.push(Object.freeze({
+              label,
+              start: node.range.start + region.start
+            }))
+          } else if (
+            node.kind === 'footnote-reference' &&
+            typeof label === 'string'
+          ) {
+            projectedFootnoteReferences.push(Object.freeze({
+              label,
+              start: node.range.start + region.start
+            }))
+          }
+          for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
+            pendingNodes.push(node.childAt(ordinal))
+          }
+        }
         const localEdits = planBoundaryProjectionEdits(
           localLane.source,
           mappedLiteralsFromFacts(emitted.facts),
@@ -7569,16 +7724,53 @@ export function createProfile1MarkdownForkParser(
             localLane.source.length,
             localLane.canonicalIdentityRuns
           ),
-          emitted.boundaryPolicy,
-          emitted.boundaryPolicy?.unsafeDelimiterOffsets ??
+          planningBoundaryPolicy,
+          planningBoundaryPolicy?.unsafeDelimiterOffsets ??
             new Set<number>(),
-          emitted.boundaryPolicy?.enclosingEmphasisRespellings ??
+          planningBoundaryPolicy?.enclosingEmphasisRespellings ??
             new Map(),
           terminationEdits,
           regionTrace
         )
         planned.push(...localEdits.map((edit) =>
           rebaseMarkdownBoundaryEdit(edit, region.start)))
+      }
+      const footnoteDefinitionsByLabel = new Map<string, number[]>()
+      for (const definition of projectedFootnoteDefinitions.sort(
+        (left, right) => left.start - right.start
+      )) {
+        const starts = footnoteDefinitionsByLabel.get(definition.label)
+        if (starts === undefined) {
+          footnoteDefinitionsByLabel.set(definition.label, [definition.start])
+        } else {
+          starts.push(definition.start)
+        }
+      }
+      for (const reference of projectedFootnoteReferences) {
+        const definitions = footnoteDefinitionsByLabel.get(reference.label)
+        if (
+          definitions !== undefined &&
+          !definitions.some((definitionStart) =>
+            definitionCanResolveWithinMatchingScopes(
+              planningLane.matchingScopes ?? Object.freeze([]),
+              definitionStart,
+              reference.start
+            ))
+        ) {
+          scopeRejectedReferenceStarts.add(reference.start)
+        }
+      }
+      const protectedOffsets = new Set(planned.flatMap((edit) =>
+        edit.kind === 'protect-delimiter'
+          ? [edit.candidateOffset]
+          : []))
+      for (const candidateOffset of scopeRejectedReferenceStarts) {
+        if (!protectedOffsets.has(candidateOffset)) {
+          planned.push(Object.freeze({
+            kind: 'protect-delimiter',
+            candidateOffset
+          }))
+        }
       }
       if (
         assignedTerminationEdits.size !==

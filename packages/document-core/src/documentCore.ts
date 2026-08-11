@@ -14,7 +14,6 @@ import type {
   MarkdownNode as ParserMarkdownNode,
   MarkdownOptionsV1,
   NodeId,
-  ProjectedMarkdown,
   ResourceDiagnostic,
   SyntaxDiagnostic
 } from './revision.js'
@@ -182,6 +181,16 @@ export interface MarkdownProjection {
   readonly coordinates: ProjectionCoordinateMap
 }
 
+export interface CommentProjection {
+  readonly kind: 'comment'
+  /** Full canonical range of the enclosing `{>> … <<}` annotation. */
+  readonly annotationRange: SourceRange
+  /** Revised Markdown for the exact, isolated Comment payload. */
+  readonly markdown: string
+  readonly ast: MarkdownAst
+  readonly coordinates: ProjectionCoordinateMap
+}
+
 export type MarkupMark =
   | Readonly<{
     readonly kind: 'addition' | 'deletion' | 'highlight'
@@ -302,6 +311,15 @@ export interface DocumentCore {
     revision: DocumentRevision,
     projection: DocumentProjectionName
   ): DocumentProjection
+  /**
+   * Projects one exact Comment object owned by `revision` as an isolated full
+   * Markdown+CriticMarkup subdocument. The returned Markdown is the Comment's
+   * Revised interpretation; its block, reference, and footnote state is local.
+   */
+  projectComment(
+    revision: DocumentRevision,
+    comment: CriticMarkupAnnotation
+  ): CommentProjection
 }
 
 const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
@@ -349,6 +367,7 @@ function markdownOptions(
 interface MaterializedAnnotations {
   readonly annotations: readonly CriticMarkupAnnotation[]
   readonly rangeByNodeId: ReadonlyMap<NodeId, SourceRange>
+  readonly nodeIdByAnnotation: ReadonlyMap<CriticMarkupAnnotation, NodeId>
 }
 
 function annotationsOf(
@@ -360,6 +379,7 @@ function annotationsOf(
   )
   const materialized = new Map<CriticMarkupNode, CriticMarkupAnnotation>()
   const rangeByNodeId = new Map<NodeId, SourceRange>()
+  const nodeIdByAnnotation = new Map<CriticMarkupAnnotation, NodeId>()
   const pending = roots.map(annotation => ({ annotation, ready: false }))
 
   while (pending.length > 0) {
@@ -383,7 +403,7 @@ function annotationsOf(
 
     const range = sourceRangeOf(task.annotation.range)
     rangeByNodeId.set(task.annotation.nodeId, range)
-    materialized.set(task.annotation, Object.freeze({
+    const annotation: CriticMarkupAnnotation = Object.freeze({
       kind: task.annotation.kind,
       range,
       arms: Object.freeze(task.annotation.arms.map(arm => Object.freeze({
@@ -397,7 +417,9 @@ function annotationsOf(
           return annotation
         }))
       })))
-    }))
+    })
+    materialized.set(task.annotation, annotation)
+    nodeIdByAnnotation.set(annotation, task.annotation.nodeId)
   }
 
   const annotations = Object.freeze(roots.map(root => {
@@ -407,7 +429,7 @@ function annotationsOf(
     }
     return annotation
   }))
-  return Object.freeze({ annotations, rangeByNodeId })
+  return Object.freeze({ annotations, rangeByNodeId, nodeIdByAnnotation })
 }
 
 function sourceRangeOf(range: {
@@ -417,18 +439,30 @@ function sourceRangeOf(range: {
   return Object.freeze({ start: range.start, end: range.end })
 }
 
-function markdownAstOf(projection: ProjectedMarkdown): MarkdownAst {
-  const root = projection.markdown.root
+function markdownAstOf(
+  projection: Profile1DocumentProducts['original']
+): MarkdownAst {
+  const semanticMarkdown = projection.semanticMarkdown ?? projection.markdown
+  const semanticToProjected = projection.semanticToProjected ??
+    ((offset: number): number => offset)
+  const projectedRange = (range: {
+    readonly start: number
+    readonly end: number
+  }): SourceRange => Object.freeze({
+    start: semanticToProjected(range.start, 'previous'),
+    end: semanticToProjected(range.end, 'previous')
+  })
+  const root = semanticMarkdown.root
   const materialized = new Map<ParserMarkdownNode, MarkdownAstNode>()
   const footnoteReferenceByNode = new Map<ParserMarkdownNode, Readonly<{
     readonly definition?: Readonly<{ readonly node: ParserMarkdownNode }>
   }>>()
   for (
     let ordinal = 0;
-    ordinal < projection.markdown.references.footnoteReferenceCount;
+    ordinal < semanticMarkdown.references.footnoteReferenceCount;
     ordinal += 1
   ) {
-    const reference = projection.markdown.references.footnoteReferenceAt(ordinal)
+    const reference = semanticMarkdown.references.footnoteReferenceAt(ordinal)
     footnoteReferenceByNode.set(reference.node, reference)
   }
   const pending: Array<Readonly<{
@@ -451,17 +485,25 @@ function markdownAstOf(projection: ProjectedMarkdown): MarkdownAst {
     const attributes: Record<string, MarkdownAttribute> = {
       ...task.node.attributes
     }
+    for (const [key, value] of Object.entries(attributes)) {
+      if (typeof value !== 'number') continue
+      if (key.endsWith('Start')) {
+        attributes[key] = semanticToProjected(value, 'next')
+      } else if (key.endsWith('End')) {
+        attributes[key] = semanticToProjected(value, 'previous')
+      }
+    }
     delete attributes.destination
     delete attributes.title
-    const link = projection.markdown.references.linkForNode(task.node.nodeId)
+    const link = semanticMarkdown.references.linkForNode(task.node.nodeId)
     if (link !== undefined) {
       attributes.rawDestination = task.node.kind === 'autolink'
-        ? projection.markdown.source.slice(
+        ? semanticMarkdown.source.slice(
           Math.min(task.node.range.end, task.node.range.start + 1),
           Math.max(task.node.range.start + 1, task.node.range.end - 1)
         )
         : task.node.attributes['extendedAutolink'] === true
-          ? projection.markdown.source.slice(
+          ? semanticMarkdown.source.slice(
             task.node.range.start,
             task.node.range.end
           )
@@ -470,16 +512,28 @@ function markdownAstOf(projection: ProjectedMarkdown): MarkdownAst {
         attributes.rawTitle = link.title
       }
       if (link.definition !== undefined) {
-        attributes.resolvedDefinitionStart = link.definition.node.range.start
-        attributes.resolvedDefinitionEnd = link.definition.node.range.end
+        attributes.resolvedDefinitionStart = semanticToProjected(
+          link.definition.node.range.start,
+          'next'
+        )
+        attributes.resolvedDefinitionEnd = semanticToProjected(
+          link.definition.node.range.end,
+          'previous'
+        )
       }
     }
     if (task.node.kind === 'footnote-reference') {
       const definition = footnoteReferenceByNode.get(task.node)?.definition
       attributes.resolved = definition !== undefined
       if (definition !== undefined) {
-        attributes.resolvedDefinitionStart = definition.node.range.start
-        attributes.resolvedDefinitionEnd = definition.node.range.end
+        attributes.resolvedDefinitionStart = semanticToProjected(
+          definition.node.range.start,
+          'next'
+        )
+        attributes.resolvedDefinitionEnd = semanticToProjected(
+          definition.node.range.end,
+          'previous'
+        )
       }
     }
     const children = Object.freeze(Array.from(
@@ -494,7 +548,7 @@ function markdownAstOf(projection: ProjectedMarkdown): MarkdownAst {
     ))
     materialized.set(task.node, Object.freeze({
       kind: task.node.kind,
-      range: sourceRangeOf(task.node.range),
+      range: projectedRange(task.node.range),
       attributes: Object.freeze(attributes),
       children
     }))
@@ -810,6 +864,22 @@ function markupProjectionOf(
   })
 }
 
+function commentProjectionOf(
+  products: Profile1DocumentProducts,
+  comment: NodeId,
+  annotationRange: SourceRange,
+  sourceLength: number
+): CommentProjection {
+  const projected = products.commentDisplay(comment)
+  return Object.freeze({
+    kind: 'comment',
+    annotationRange,
+    markdown: projected.source,
+    ast: markdownAstOf(projected),
+    coordinates: projectionCoordinatesOf(projected, sourceLength)
+  })
+}
+
 function diagnosticOf(diagnostic: SyntaxDiagnostic): DocumentDiagnostic {
   return Object.freeze({
     code: diagnostic.code,
@@ -853,6 +923,7 @@ interface RevisionState {
   readonly products: Profile1DocumentProducts
   readonly markdownOptions: MarkdownOptionsV1
   readonly annotationRangeByNodeId: ReadonlyMap<NodeId, SourceRange>
+  readonly nodeIdByAnnotation: ReadonlyMap<CriticMarkupAnnotation, NodeId>
 }
 
 export function createDocumentCore(): DocumentCore {
@@ -863,6 +934,10 @@ export function createDocumentCore(): DocumentCore {
   const projectionCache = new WeakMap<
     DocumentRevision,
     Map<DocumentProjectionName, DocumentProjection>
+  >()
+  const commentProjectionCache = new WeakMap<
+    DocumentRevision,
+    WeakMap<CriticMarkupAnnotation, CommentProjection>
   >()
   let reuseCache: Profile1DocumentReuseCache =
     createProfile1DocumentReuseCache()
@@ -913,7 +988,8 @@ export function createDocumentCore(): DocumentCore {
       stateByRevision.set(revision, Object.freeze({
         products,
         markdownOptions: resolvedOptions,
-        annotationRangeByNodeId: materializedAnnotations.rangeByNodeId
+        annotationRangeByNodeId: materializedAnnotations.rangeByNodeId,
+        nodeIdByAnnotation: materializedAnnotations.nodeIdByAnnotation
       }))
       currentRevision = revision
       return revision
@@ -992,6 +1068,40 @@ export function createDocumentCore(): DocumentCore {
     return result
   }
 
+  const projectComment = (
+    revision: DocumentRevision,
+    comment: CriticMarkupAnnotation
+  ): CommentProjection => {
+    const state = stateByRevision.get(revision)
+    if (state === undefined) {
+      throw new Error('Document revision belongs to another core')
+    }
+    if (comment.kind !== 'comment') {
+      throw new RangeError('CriticMarkup annotation is not a Comment')
+    }
+    const nodeId = state.nodeIdByAnnotation.get(comment)
+    if (nodeId === undefined) {
+      throw new Error('Comment does not belong to this revision')
+    }
+
+    let cachedByComment = commentProjectionCache.get(revision)
+    if (cachedByComment === undefined) {
+      cachedByComment = new WeakMap()
+      commentProjectionCache.set(revision, cachedByComment)
+    }
+    const cached = cachedByComment.get(comment)
+    if (cached !== undefined) return cached
+
+    const result = commentProjectionOf(
+      state.products,
+      nodeId,
+      comment.range,
+      revision.source.length
+    )
+    cachedByComment.set(comment, result)
+    return result
+  }
+
   const core: DocumentCore = Object.freeze({
     open(
       source: string,
@@ -1056,7 +1166,8 @@ export function createDocumentCore(): DocumentCore {
       )
     },
 
-    project: projectRevision
+    project: projectRevision,
+    projectComment
   })
   registerDocumentCoreInspection(core, () => Object.freeze({
     intrinsicSourceUnits: physicalRecorder.counts().intrinsicSourceUnits
