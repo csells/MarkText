@@ -203,15 +203,17 @@ Profile 1 recognizes exactly the five canonical forms, with exactly these delimi
   substitution containing no top-level `~>` does not form (all its
   delimiters are literal). Additional top-level `~>` sequences after the first are payload text
   of the _new_ arm.
-- **R5 — Comment subdocument.** A Comment's payload is unstructured note text parsed as an
-  isolated inline Profile 1 subdocument. Inline Markdown and properly nested CriticMarkup are
-  recognized inside `{>> … <<}`; block state cannot enter or escape the payload. The outer
-  Comment ends at its properly nested matching `<<}` (subject to escaping, §8). Imported
-  author initials, timestamps, Markdown-looking text, and delimiters are preserved exactly in
-  decoded source;
-  Profile 1 assigns them no proprietary metadata schema. Original and Revised elide the
-  complete outer Comment. A Comment consumer reads the Revised interpretation of the retained
-  payload.
+- **R5 — Comment subdocument (owner ruling, 2026-08-10).** A Comment payload is exact source
+  interpreted as an isolated full Profile 1 subdocument using the containing document's syntax
+  options. Block and inline Markdown, literal ranges, local definitions and references, local
+  footnotes, and properly nested CriticMarkup may form wholly inside it. No Markdown block,
+  inline-matching, literal, definition/reference, footnote, or annotation state crosses a
+  Comment boundary; each nested Comment starts another isolated scope. The outer Comment closes
+  under the ordinary pairing, literal-precedence, escaping, and recovery rules. Original and
+  Revised elide the complete outer Comment. A Comment Display is the Revised projection of its
+  payload: nested CriticMarkup is applied recursively and nested Comments are elided from the
+  parent display but remain independently readable. Payload source remains canonical and exact;
+  Markdown-looking author names, timestamps, or similar text acquire no metadata schema.
 - **R6 — Highlight content.** A Highlight's payload is ordinary Markdown (and may contain
   nested CM, §6.1) — its text is present in both projections, so it parses like surrounding
   text.
@@ -290,10 +292,10 @@ boundary for paired Markdown state**:
   limitation documented by MMD-6).
 - **C2.** Symmetrically, paired syntax fully outside may enclose a whole annotation:
   `*a {++b++} c*` is emphasis containing an Addition.
-- **C3.** Link reference definitions written inside an arm are arm-local: they resolve
-  references only within that arm's fragment (ADR-0010). Reference resolution is otherwise
-  per-view: each view resolves reference links against the definitions present in that view
-  (§10) — a definition inside a Deletion exists in Original but not Revised.
+- **C3.** Link reference and footnote definitions written inside an arm are arm-local: they
+  resolve references only within that arm's fragment (ADR-0010). Reference resolution is
+  otherwise per-view: each view resolves references against the definitions present in that
+  view (§10) — a definition inside a Deletion exists in Original but not Revised.
 - **C4.** Table cell edges are containment regions per R3b. List-item and blockquote
   boundaries are _not_ containment boundaries for annotations (R3 allows spanning them); they
   are ordinary block structure inside multi-block payloads.
@@ -360,7 +362,9 @@ Nested annotations resolve recursively per the same table.
   corresponding structure without changing the annotation recognition or source authority.
 - **V3 — Source relationship.** Every view and materialized projection retains an exact,
   gapless relationship to canonical source. Derived protection may preserve projection meaning,
-  but it may not create or revise CriticMarkup recognition.
+  but it may not create or revise CriticMarkup recognition. The scoped projection AST remains
+  the semantic authority when an isolated result is not safely flattenable; protective Markdown
+  spelling is a render-safe materialization, not a contract to recover that AST by reparsing it.
 - **V4 — Accept/Reject semantics.** Accepting or rejecting an annotation produces the canonical
   source that results from removing its markers and the non-selected arm. The table's column is
   applied to that annotation alone; the resulting source is interpreted as a new revision.
@@ -398,7 +402,7 @@ compatibility documentation:
 | D4  | Stray `~>` is literal (R4)                                                                       | MMD-6 erases it under accept/reject                                        | Error tolerance (T2)                                                                                                                     |
 | D5  | No `{<del>`-style aliases, no `@@` metadata (CM1)                                                | Fevol/Commentator grammar                                                  | Not canonical CM; payload bytes must round-trip                                                                                          |
 | D6  | Recursive nesting incl. same-form (N1)                                                           | lang-criticmarkup/Fevol parse nested markers as flat text                  | MMD-6's tested recursion is the authoritative precedent                                                                                  |
-| D7  | Comments retain isolated inline Profile 1 subdocuments (R5)                                      | Toolkit/MMD erase the payload and opaque-parser designs do not retain it   | A portable note stays unstructured while nested source, identity, and lazy Comment rendering remain lossless                             |
+| D7  | Comments retain isolated full Profile 1 Markdown+CriticMarkup subdocuments (R5)                  | Toolkit/MMD erase or render the payload as inline metadata                 | A portable note may contain full Markdown while remaining one unstructured payload; local resolution and Comment Display stay lossless  |
 | D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | An alternative shared-loop parser reading defers the closer                | Reliable closer behavior and arm containment (ADR-0014)                                                                                 |
 
 ## 13. Implementation boundary

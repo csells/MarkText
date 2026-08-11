@@ -1,6 +1,7 @@
 export {
   createDocumentCore,
   DocumentCoreError,
+  type CommentProjection,
   type CriticMarkupAnnotation,
   type CriticMarkupArm,
   type CriticMarkupKind,
