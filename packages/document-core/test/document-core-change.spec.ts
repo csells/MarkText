@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createDocumentCore,
+  type CriticMarkupAnnotation,
+  type CriticMarkupAnnotationSnapshot,
+  type CommentCoordinateSegment,
+  type CommentProjection,
   type DocumentCoreError,
   type MarkdownAstNode,
   type MarkupEvent,
@@ -28,6 +32,9 @@ interface ChangeInspection {
   readonly regionalMarkupEventUnits: number
   readonly regionalAstMaterializedNodes: number
   readonly regionalCoordinateSegments: number
+  readonly regionalCommentProjectionPreparationUnits: number
+  readonly regionalCommentAstMaterializedNodes: number
+  readonly regionalCommentCoordinateSegments: number
   readonly retainedFactInputStructuralUnits: number
   readonly retainedFactOutputStructuralUnits: number
   readonly retainedIndexLookupComparisons: number
@@ -145,6 +152,122 @@ function assertPortable(value: unknown): void {
   }
 }
 
+function expectAnnotationTreesEqual(
+  actual: readonly CriticMarkupAnnotation[],
+  expected: readonly CriticMarkupAnnotation[]
+): void {
+  expect(actual).toHaveLength(expected.length)
+  const pending: Array<readonly [CriticMarkupAnnotation, CriticMarkupAnnotation]> =
+    actual.map((annotation, index) => {
+      const expectedAnnotation = expected[index]
+      if (expectedAnnotation === undefined) {
+        throw new Error('Expected matching annotation root')
+      }
+      return [annotation, expectedAnnotation]
+    })
+  while (pending.length > 0) {
+    const pair = pending.pop()
+    if (pair === undefined) break
+    const [left, right] = pair
+    expect(left.kind).toBe(right.kind)
+    expect(left.range).toEqual(right.range)
+    expect(left.arms).toHaveLength(right.arms.length)
+    for (let armIndex = 0; armIndex < left.arms.length; armIndex += 1) {
+      const leftArm = left.arms[armIndex]
+      const rightArm = right.arms[armIndex]
+      if (leftArm === undefined || rightArm === undefined) {
+        throw new Error('Expected matching annotation arms')
+      }
+      expect(leftArm.name).toBe(rightArm.name)
+      expect(leftArm.range).toEqual(rightArm.range)
+      expect(leftArm.annotations).toHaveLength(rightArm.annotations.length)
+      for (
+        let childIndex = 0;
+        childIndex < leftArm.annotations.length;
+        childIndex += 1
+      ) {
+        pending.push([
+          leftArm.annotations[childIndex] as CriticMarkupAnnotation,
+          rightArm.annotations[childIndex] as CriticMarkupAnnotation
+        ])
+      }
+    }
+  }
+}
+
+function annotationSnapshotForOracle(
+  annotation: CriticMarkupAnnotation
+): CriticMarkupAnnotationSnapshot {
+  const nodes: CriticMarkupAnnotation[] = []
+  const ordinalByNode = new Map<CriticMarkupAnnotation, number>()
+  const pending = [annotation]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) break
+    ordinalByNode.set(node, nodes.length)
+    nodes.push(node)
+    for (let armIndex = node.arms.length - 1; armIndex >= 0; armIndex -= 1) {
+      const arm = node.arms[armIndex]
+      if (arm === undefined) continue
+      for (
+        let childIndex = arm.annotations.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.annotations[childIndex]
+        if (child !== undefined) pending.push(child)
+      }
+    }
+  }
+  return {
+    root: 0,
+    nodes: nodes.map(node => ({
+      kind: node.kind,
+      range: node.range,
+      arms: node.arms.map(arm => ({
+        name: arm.name,
+        range: arm.range,
+        children: arm.annotations.map(child => {
+          const ordinal = ordinalByNode.get(child)
+          if (ordinal === undefined) throw new Error('Missing child ordinal')
+          return ordinal
+        })
+      }))
+    }))
+  }
+}
+
+function expectCommentCoordinatesEqual(
+  projection: CommentProjection,
+  segments: readonly CommentCoordinateSegment[]
+): void {
+  let projectedEnd = 0
+  for (const segment of segments) {
+    expect(segment.projected.start).toBe(projectedEnd)
+    projectedEnd = segment.projected.end
+    for (
+      let offset = segment.projected.start;
+      offset < segment.projected.end;
+      offset += 1
+    ) {
+      expect(projection.coordinates.originAt(offset)).toEqual(
+        segment.kind === 'source'
+          ? {
+            kind: 'source',
+            sourceOffset: segment.source.start +
+              offset - segment.projected.start
+          }
+          : {
+            kind: 'generated',
+            sourcePosition: segment.sourcePosition,
+            affinity: segment.affinity
+          }
+      )
+    }
+  }
+  expect(projectedEnd).toBe(projection.markdown.length)
+}
+
 function shiftMarkdownAstNodeForOracle(
   node: MarkdownAstNode,
   delta: number
@@ -196,6 +319,928 @@ function applySyntaxReplacementForOracle(
 }
 
 describe('document-core semantic changes', () => {
+  it('keeps a deeply nested Comment annotation and projection regional', () => {
+    const depth = 3_000
+    const payload = '{++'.repeat(depth) + 'x' + '++}'.repeat(depth)
+    const source = `head\n\nbefore {>>${payload}<<} after\n\ntail\n`
+    const editAt = source.indexOf('x')
+    const nextSource = source.slice(0, editAt) + 'y' + source.slice(editAt + 1)
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 1,
+      insert: 'y'
+    }], {
+      projections: [{
+        name: 'comment',
+        annotationRange: comment.range
+      }]
+    })
+    const afterApply = inspectionOf(core)
+    const change = commit.change.projections[0]
+    if (change?.name !== 'comment' || change.scope !== 'regions') {
+      throw new Error('Expected regional Comment change')
+    }
+    expect(() => structuredClone(commit.change)).not.toThrow()
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    expectAnnotationTreesEqual(commit.revision.annotations, fresh.annotations)
+
+    const nextComment = commit.revision.annotations[0]
+    const freshComment = fresh.annotations[0]
+    if (nextComment?.kind !== 'comment' || freshComment?.kind !== 'comment') {
+      throw new Error('Expected Comment revisions')
+    }
+    expect(change.replacements[0]?.annotation)
+      .toEqual(annotationSnapshotForOracle(freshComment))
+    const projection = core.projectComment(commit.revision, nextComment)
+    const freshProjection = freshCore.projectComment(fresh, freshComment)
+    expect(projection.markdown).toBe(freshProjection.markdown)
+    expect(projection.ast).toEqual(freshProjection.ast)
+    const afterProjection = inspectionOf(core)
+    expect(delta(afterApply, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(afterApply, before, 'documentParses')).toBe(0)
+    expect(delta(afterApply, before, 'sourceMaterializations')).toBe(0)
+    expect(afterProjection.documentParses).toBe(afterApply.documentParses)
+    expect(afterProjection.sourceMaterializations)
+      .toBe(afterApply.sourceMaterializations)
+  })
+
+  it('replaces one isolated Comment Display after a payload edit', () => {
+    const payload = [
+      '# Note',
+      '',
+      'See [inside][ref].',
+      '',
+      '[ref]: /local',
+      '',
+      'edit word',
+      ''
+    ].join('\n')
+    const source =
+      `head\n\nbefore {>>${payload}<<} after\n\ntail\n\n` +
+      'suffix\n\n'.repeat(100)
+    const editAt = source.indexOf('word')
+    const nextSource = source.slice(0, editAt) + 'WORDS' +
+      source.slice(editAt + 4)
+    const previousOracleCore = createDocumentCore()
+    const previousOracle = previousOracleCore.open(source)
+    const previousComment = previousOracle.annotations[0]
+    if (previousComment?.kind !== 'comment') {
+      throw new Error('Expected previous Comment')
+    }
+    const previousCommentProjection = previousOracleCore.projectComment(
+      previousOracle,
+      previousComment
+    )
+    const previousMarkup = previousOracleCore.project(previousOracle, 'markup')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const requestedRange = Object.freeze({
+      start: comment.range.start,
+      end: comment.range.end
+    })
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 4,
+      insert: 'WORDS'
+    }], {
+      projections: [
+        'markup',
+        { name: 'comment', annotationRange: requestedRange }
+      ]
+    })
+    const after = inspectionOf(core)
+    expect(commit.change.projections).toHaveLength(2)
+    const markupChange = commit.change.projections[0]
+    if (markupChange?.name !== 'markup' || markupChange.scope !== 'regions') {
+      throw new Error('Expected regional Markup change')
+    }
+    const markupReplacement = markupChange.replacements[0]
+    if (markupReplacement === undefined) {
+      throw new Error('Expected Markup replacement')
+    }
+    expect(markupReplacement.previous).toEqual({
+      source: { start: 6, end: 80 },
+      syntax: { start: 6, end: 21 },
+      events: { start: 1, end: 3 }
+    })
+    expect(markupReplacement.next).toEqual({
+      source: { start: 6, end: 81 },
+      syntax: { start: 6, end: 21 },
+      events: { start: 1, end: 3 }
+    })
+    expect(markupReplacement.events).toEqual([
+      {
+        kind: 'text',
+        text: 'before ',
+        sourceRange: { start: 6, end: 13 }
+      },
+      {
+        kind: 'text',
+        text: ' after\n\n',
+        sourceRange: { start: 73, end: 81 }
+      }
+    ])
+    const change = commit.change.projections[1]
+    if (change?.name !== 'comment' || change.scope !== 'regions') {
+      throw new Error('Expected regional Comment change')
+    }
+    expect(change.replacements).toHaveLength(1)
+    const replacement = change.replacements[0]
+    if (replacement === undefined) throw new Error('Expected replacement')
+
+    expect(commit.revision.annotations).toEqual([{
+      kind: 'comment',
+      range: { start: 13, end: 73 },
+      arms: [{
+        name: 'comment',
+        range: { start: 16, end: 70 },
+        annotations: []
+      }]
+    }])
+    expect(replacement.previous).toEqual({
+      annotation: { start: 13, end: 72 },
+      payload: { start: 16, end: 69 },
+      projection: { start: 0, end: 53 }
+    })
+    expect(replacement.next).toEqual({
+      annotation: { start: 13, end: 73 },
+      payload: { start: 16, end: 70 },
+      projection: { start: 0, end: 54 }
+    })
+    expect(replacement.annotation).toEqual({
+      root: 0,
+      nodes: [{
+        kind: 'comment',
+        range: { start: 13, end: 73 },
+        arms: [{
+          name: 'comment',
+          range: { start: 16, end: 70 },
+          children: []
+        }]
+      }]
+    })
+    expect(replacement.markdown).toBe(payload.replace('word', 'WORDS'))
+    assertPortable(commit.change)
+
+    expect(delta(after, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(after, before, 'documentParses')).toBe(0)
+    expect(delta(after, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(after, before, 'documentProjectionPreparationUnits')).toBe(0)
+    expect(delta(after, before, 'documentMarkupEventUnits')).toBe(0)
+    expect(delta(after, before, 'documentAstMaterializedNodes')).toBe(0)
+    expect(delta(after, before, 'documentCoordinateSegments')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits'))
+      .toBeGreaterThan(0)
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits'))
+      .toBeLessThan(source.length)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const freshComment = fresh.annotations[0]
+    if (freshComment?.kind !== 'comment') {
+      throw new Error('Expected fresh Comment')
+    }
+    const freshCommentProjection = freshCore.projectComment(
+      fresh,
+      freshComment
+    )
+    expect(commit.revision.annotations).toEqual(fresh.annotations)
+    expect(replacement.markdown).toBe(freshCommentProjection.markdown)
+    expect(replacement.ast).toEqual(freshCommentProjection.ast)
+    let projectedEnd = 0
+    for (const segment of replacement.coordinates) {
+      expect(segment.projected.start).toBe(projectedEnd)
+      projectedEnd = segment.projected.end
+      expect(segment.kind).toBe('source')
+      if (segment.kind !== 'source') {
+        throw new Error('Expected canonical Comment coordinate')
+      }
+      for (
+        let offset = segment.projected.start;
+        offset < segment.projected.end;
+        offset += 1
+      ) {
+        expect(freshCommentProjection.coordinates.originAt(offset)).toEqual({
+          kind: 'source',
+          sourceOffset: segment.source.start +
+            offset - segment.projected.start
+        })
+      }
+    }
+    expect(projectedEnd).toBe(replacement.markdown.length)
+    const pending = [...replacement.ast.root.children]
+    const nodes: MarkdownAstNode[] = []
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (node === undefined) break
+      nodes.push(node)
+      for (const child of node.children) pending.push(child)
+    }
+    expect(nodes.find(node => node.kind === 'link')?.attributes)
+      .toMatchObject({ rawDestination: '/local' })
+    expect(nodes.some(node => node.kind === 'definition')).toBe(true)
+
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    expect(applyMarkupReplacement(
+      previousMarkup.events,
+      markupReplacement
+    )).toEqual(freshMarkup.events)
+    expect(applySyntaxReplacementForOracle(
+      previousMarkup.syntax.ast.root,
+      markupReplacement
+    )).toEqual(freshMarkup.syntax.ast.root)
+    for (const segment of markupReplacement.coordinates) {
+      for (
+        let offset = segment.projected.start;
+        offset < segment.projected.end;
+        offset += 1
+      ) {
+        expect(freshMarkup.syntax.coordinates.originAt(offset)).toEqual({
+          kind: 'source',
+          sourceOffset: segment.source.start +
+            offset - segment.projected.start
+        })
+      }
+    }
+    expect(freshMarkup.events.map(event =>
+      event.kind === 'text' ? event.text : event.kind
+    )).toEqual(previousMarkup.events.map(event =>
+      event.kind === 'text' ? event.text : event.kind
+    ))
+    expect(freshMarkup.syntax.ast).toEqual(previousMarkup.syntax.ast)
+    const appliedEdit = commit.change.appliedEdits[0]
+    if (appliedEdit === undefined) throw new Error('Expected applied edit')
+    const sourceDelta = appliedEdit.insert.length -
+      (appliedEdit.end - appliedEdit.start)
+    const shiftOffset = (offset: number): number =>
+      offset <= appliedEdit.start ? offset : offset + sourceDelta
+    const rebasedEvents = previousMarkup.events.map(event =>
+      event.kind === 'text'
+        ? {
+          ...event,
+          sourceRange: {
+            start: shiftOffset(event.sourceRange.start),
+            end: shiftOffset(event.sourceRange.end)
+          }
+        }
+        : event
+    )
+    expect(rebasedEvents).toEqual(freshMarkup.events)
+    for (
+      let offset = 0;
+      offset < previousMarkup.syntax.ast.root.range.end;
+      offset += 1
+    ) {
+      const origin = previousMarkup.syntax.coordinates.originAt(offset)
+      expect(origin.kind).toBe('source')
+      if (origin.kind !== 'source') throw new Error('Expected source origin')
+      expect(freshMarkup.syntax.coordinates.originAt(offset)).toEqual({
+        kind: 'source',
+        sourceOffset: shiftOffset(origin.sourceOffset)
+      })
+    }
+    expect(previousCommentProjection.annotationRange)
+      .toEqual(replacement.previous.annotation)
+    expect(delta(after, before, 'regionalCommentProjectionPreparationUnits'))
+      .toBe(payload.length + replacement.markdown.length)
+    expect(delta(after, before, 'regionalCommentAstMaterializedNodes'))
+      .toBeGreaterThan(0)
+    expect(delta(after, before, 'regionalCommentCoordinateSegments'))
+      .toBe(replacement.coordinates.length)
+  })
+
+  it('normalizes Comment requests and canonicalizes projection changes', () => {
+    const source = 'head\n\nbefore {>>edit word<<} after\n\ntail\n'
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const at = source.indexOf('word')
+    const request = { name: 'comment' as const, annotationRange: comment.range }
+    const commit = core.apply(opened, [{
+      start: at,
+      end: at + 4,
+      insert: 'WORDS'
+    }], {
+      projections: [request, 'markup', request, 'markup']
+    })
+
+    expect(commit.change.projections.map(change => change.name))
+      .toEqual(['markup', 'comment'])
+    expect(commit.change.projections.map(change => change.scope))
+      .toEqual(['regions', 'regions'])
+
+    const emptyCore = createDocumentCore()
+    const emptyOpened = emptyCore.open(source)
+    const empty = emptyCore.apply(emptyOpened, [{
+      start: at,
+      end: at + 4,
+      insert: 'WORDS'
+    }], { projections: [] })
+    expect(empty.change.projections).toEqual([])
+
+    const multipleSource =
+      'head\n\n{>>first word<<}\n\nmiddle\n\n{>>second word<<}\n\ntail\n'
+    const multipleCore = createDocumentCore()
+    const multipleOpened = multipleCore.open(multipleSource)
+    const first = multipleOpened.annotations[0]
+    const second = multipleOpened.annotations[1]
+    if (first?.kind !== 'comment' || second?.kind !== 'comment') {
+      throw new Error('Expected two Comments')
+    }
+    const multiple = multipleCore.apply(multipleOpened, [{
+      start: multipleSource.indexOf('first'),
+      end: multipleSource.indexOf('first') + 5,
+      insert: 'FIRST'
+    }], {
+      projections: [
+        { name: 'comment', annotationRange: second.range },
+        'markup',
+        { name: 'comment', annotationRange: first.range }
+      ]
+    })
+    expect(multiple.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'structural-region-ineligible'
+    }, {
+      name: 'comment',
+      scope: 'document',
+      targets: [first.range, second.range],
+      reason: 'structural-region-ineligible'
+    }])
+
+    const missingCore = createDocumentCore()
+    const missingOpened = missingCore.open(source)
+    const missing = missingCore.apply(missingOpened, [{
+      start: at,
+      end: at + 4,
+      insert: 'WORDS'
+    }], {
+      projections: [{
+        name: 'comment',
+        annotationRange: { start: source.length + 10, end: source.length + 20 }
+      }]
+    })
+    expect(missing.change.projections).toEqual([{
+      name: 'comment',
+      scope: 'document',
+      targets: [{ start: source.length + 10, end: source.length + 20 }],
+      reason: 'structural-region-ineligible'
+    }])
+  })
+
+  it('emits an exact combined delta for a standalone Comment block', () => {
+    const source = 'head\n\n{>>note text<<}\n\ntail\n'
+    const nextSource = source.replace('text', 'WORDS')
+    const previousCore = createDocumentCore()
+    const previous = previousCore.open(source)
+    const previousMarkup = previousCore.project(previous, 'markup')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const at = source.indexOf('text')
+    const commit = core.apply(opened, [{
+      start: at,
+      end: at + 4,
+      insert: 'WORDS'
+    }], {
+      projections: ['markup', {
+        name: 'comment',
+        annotationRange: comment.range
+      }]
+    })
+    const markup = commit.change.projections[0]
+    if (markup?.name !== 'markup' || markup.scope !== 'regions') {
+      throw new Error('Expected regional Markup change')
+    }
+    const replacement = markup.replacements[0]
+    if (replacement === undefined) throw new Error('Expected replacement')
+    expect(replacement.syntaxBlocks).toEqual([])
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    expect(applyMarkupReplacement(previousMarkup.events, replacement))
+      .toEqual(freshMarkup.events)
+    expect(applySyntaxReplacementForOracle(
+      previousMarkup.syntax.ast.root,
+      replacement
+    )).toEqual(freshMarkup.syntax.ast.root)
+    for (const segment of replacement.coordinates) {
+      for (
+        let offset = segment.projected.start;
+        offset < segment.projected.end;
+        offset += 1
+      ) {
+        expect(freshMarkup.syntax.coordinates.originAt(offset)).toEqual({
+          kind: 'source',
+          sourceOffset: segment.source.start + offset - segment.projected.start
+        })
+      }
+    }
+  })
+
+  it.each(['start', 'end'] as const)(
+    'admits insertion at the nonempty Comment payload %s boundary',
+    boundary => {
+      const source = 'head\n\nbefore {>>abc<<} after\n\ntail\n'
+      const core = createDocumentCore()
+      const opened = core.open(source)
+      const comment = opened.annotations[0]
+      if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+      const payload = comment.arms[0]?.range
+      if (payload === undefined) throw new Error('Expected payload')
+      const at = payload[boundary]
+      const commit = core.apply(opened, [{ start: at, end: at, insert: 'X' }], {
+        projections: [{ name: 'comment', annotationRange: comment.range }]
+      })
+      const change = commit.change.projections[0]
+      if (change?.name !== 'comment' || change.scope !== 'regions') {
+        throw new Error('Expected regional Comment change')
+      }
+      expect(change.replacements[0]?.next.payload).toEqual({
+        start: payload.start,
+        end: payload.end + 1
+      })
+      const freshCore = createDocumentCore()
+      const fresh = freshCore.open(
+        source.slice(0, at) + 'X' + source.slice(at)
+      )
+      const freshComment = fresh.annotations[0]
+      if (freshComment?.kind !== 'comment') throw new Error('Expected Comment')
+      expect(change.replacements[0]?.markdown)
+        .toBe(freshCore.projectComment(fresh, freshComment).markdown)
+    }
+  )
+
+  it('falls back explicitly when an empty Comment gains content', () => {
+    const source = 'head\n\nbefore {>><<} after\n\ntail\n'
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const at = comment.arms[0]?.range.start
+    if (at === undefined) throw new Error('Expected payload')
+    const commit = core.apply(opened, [{ start: at, end: at, insert: 'X' }], {
+      projections: ['markup', {
+        name: 'comment',
+        annotationRange: comment.range
+      }]
+    })
+    expect(commit.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'structural-region-ineligible'
+    }, {
+      name: 'comment',
+      scope: 'document',
+      targets: [comment.range],
+      reason: 'structural-region-ineligible'
+    }])
+  })
+
+  it.each([
+    {
+      name: 'front matter',
+      payload: '---\ntitle: old\n---\n\nbody\n',
+      needle: 'old',
+      insert: 'new',
+      options: {},
+      expectedKind: 'front-matter'
+    },
+    {
+      name: 'local reference and footnote definitions',
+      payload: 'Inside [x][r] and note[^n].\n\n[r]: /local\n\n[^n]: local\n',
+      needle: 'Inside',
+      insert: 'Within',
+      options: { footnotes: true },
+      expectedKind: 'footnote-definition'
+    },
+    {
+      name: 'generated unresolved-reference guards',
+      payload: '{++[r]: /inner\n++}\n\nedit word [x][r]\n',
+      needle: 'word',
+      insert: 'WORDS',
+      options: {},
+      expectedKind: 'paragraph'
+    },
+    {
+      name: 'literal Markdown and nested CriticMarkup',
+      payload: '```md\n{++literal++}\n```\n\nedit {++nested text++}\n',
+      needle: 'text',
+      insert: 'TEXTS',
+      options: {},
+      expectedKind: 'code-block'
+    },
+    {
+      name: 'nested Comment elision',
+      payload: 'outer before {>>nested word<<} after\n',
+      needle: 'word',
+      insert: 'WORDS',
+      options: {},
+      expectedKind: 'paragraph'
+    }
+  ])('keeps $name local to a regional Comment projection', testCase => {
+    const source =
+      `head\n\nbefore {>>${testCase.payload}<<} after\n\ntail\n`
+    const at = source.indexOf(testCase.needle)
+    const nextSource = source.slice(0, at) + testCase.insert +
+      source.slice(at + testCase.needle.length)
+    const core = createDocumentCore()
+    const opened = core.open(source, testCase.options)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const commit = core.apply(opened, [{
+      start: at,
+      end: at + testCase.needle.length,
+      insert: testCase.insert
+    }], {
+      projections: [{ name: 'comment', annotationRange: comment.range }]
+    })
+    const change = commit.change.projections[0]
+    if (change?.name !== 'comment' || change.scope !== 'regions') {
+      throw new Error(`Expected regional Comment for ${testCase.name}`)
+    }
+    const replacement = change.replacements[0]
+    if (replacement === undefined) throw new Error('Expected replacement')
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource, testCase.options)
+    const freshComment = fresh.annotations[0]
+    if (freshComment?.kind !== 'comment') throw new Error('Expected Comment')
+    const freshProjection = freshCore.projectComment(fresh, freshComment)
+    expect(replacement.markdown).toBe(freshProjection.markdown)
+    expect(replacement.ast).toEqual(freshProjection.ast)
+    expect(replacement.annotation)
+      .toEqual(annotationSnapshotForOracle(freshComment))
+    expectCommentCoordinatesEqual(freshProjection, replacement.coordinates)
+    const pending = [replacement.ast.root]
+    const kinds: string[] = []
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (node === undefined) break
+      kinds.push(node.kind)
+      for (const child of node.children) pending.push(child)
+    }
+    expect(kinds).toContain(testCase.expectedKind)
+    if (testCase.name.startsWith('generated')) {
+      expect(replacement.coordinates.some(segment =>
+        segment.kind === 'generated'
+      )).toBe(true)
+      const regionalComment = commit.revision.annotations[0]
+      if (regionalComment?.kind !== 'comment') {
+        throw new Error('Expected regional Comment')
+      }
+      const beforeProjection = inspectionOf(core)
+      const regionalProjection = core.projectComment(
+        commit.revision,
+        regionalComment
+      )
+      const afterProjection = inspectionOf(core)
+      expect(afterProjection.documentParses).toBe(beforeProjection.documentParses)
+      expect(afterProjection.sourceMaterializations)
+        .toBe(beforeProjection.sourceMaterializations)
+      for (let offset = 0; offset < regionalProjection.markdown.length; offset += 1) {
+        expect(regionalProjection.coordinates.originAt(offset))
+          .toEqual(freshProjection.coordinates.originAt(offset))
+      }
+      for (
+        let projected = 0;
+        projected <= regionalProjection.markdown.length;
+        projected += 1
+      ) {
+        for (const affinity of ['previous', 'next'] as const) {
+          expect(regionalProjection.coordinates.toSource(projected, affinity))
+            .toBe(freshProjection.coordinates.toSource(projected, affinity))
+        }
+      }
+      for (let sourcePosition = 0; sourcePosition <= nextSource.length; sourcePosition += 1) {
+        for (const affinity of ['previous', 'next'] as const) {
+          expect(regionalProjection.coordinates.toProjected(
+            sourcePosition,
+            affinity
+          )).toBe(freshProjection.coordinates.toProjected(sourcePosition, affinity))
+        }
+      }
+      for (let start = 0; start <= nextSource.length; start += 1) {
+        const end = Math.min(nextSource.length, start + 3)
+        expect(regionalProjection.coordinates.intersectsSource({ start, end }))
+          .toBe(freshProjection.coordinates.intersectsSource({ start, end }))
+      }
+    }
+    if (testCase.name.startsWith('nested Comment')) {
+      const nested = freshComment.arms[0]?.annotations[0]
+      if (nested?.kind !== 'comment') throw new Error('Expected nested Comment')
+      expect(freshCore.projectComment(fresh, nested).markdown)
+        .toBe('nested WORDS')
+    }
+  })
+
+  it('uses explicit Comment fallbacks for marker edits and option changes', () => {
+    const source = 'head\n\nbefore {>>edit word<<} after\n\ntail\n'
+    for (const testCase of [
+      {
+        name: 'marker',
+        edit: {
+          start: source.indexOf('<<}'),
+          end: source.indexOf('<<}') + 1,
+          insert: '['
+        },
+        markdown: undefined,
+        reason: 'structural-region-ineligible'
+      },
+      {
+        name: 'options',
+        edit: {
+          start: source.indexOf('word'),
+          end: source.indexOf('word') + 4,
+          insert: 'WORDS'
+        },
+        markdown: { gfm: false },
+        reason: 'markdown-options-changed'
+      }
+    ] as const) {
+      const core = createDocumentCore()
+      const opened = core.open(source)
+      const comment = opened.annotations[0]
+      if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+      const commit = core.apply(opened, [testCase.edit], {
+        ...(testCase.markdown === undefined
+          ? {}
+          : { markdown: testCase.markdown }),
+        projections: ['markup', {
+          name: 'comment',
+          annotationRange: comment.range
+        }]
+      })
+      expect(commit.change.projections).toEqual([{
+        name: 'markup',
+        scope: 'document',
+        reason: testCase.reason
+      }, {
+        name: 'comment',
+        scope: 'document',
+        targets: [comment.range],
+        reason: testCase.reason
+      }])
+    }
+  })
+
+  it.each([
+    {
+      name: 'Addition siblings become nested',
+      previous: '{++a++}{++b++}',
+      next: '{++a{++b++}++}'
+    },
+    {
+      name: 'nested Additions become siblings',
+      previous: '{++a{++b++}++}',
+      next: '{++a++}{++b++}'
+    },
+    {
+      name: 'mixed siblings become nested',
+      previous: '{++a++}{--b--}',
+      next: '{++a{--b--}++}'
+    },
+    {
+      name: 'Comment siblings become nested',
+      previous: '{>>a<<}{>>b<<}',
+      next: '{>>a{>>b<<}<<}'
+    }
+  ])('falls back when nested topology changes: $name', testCase => {
+    const source =
+      `head\n\nbefore {>>a ${testCase.previous} z<<} after\n\ntail\n`
+    const at = source.indexOf(testCase.previous)
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const commit = core.apply(opened, [{
+      start: at,
+      end: at + testCase.previous.length,
+      insert: testCase.next
+    }], {
+      projections: ['markup', {
+        name: 'comment',
+        annotationRange: comment.range
+      }]
+    })
+    expect(commit.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'structural-region-ineligible'
+    }, {
+      name: 'comment',
+      scope: 'document',
+      targets: [comment.range],
+      reason: 'structural-region-ineligible'
+    }])
+  })
+
+  it('allows payload punctuation adjacent to a nested marker', () => {
+    const source =
+      'head\n\nbefore {>>outer {++a++} text<<} after\n\ntail\n'
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const at = source.indexOf('{++') + 3
+    const commit = core.apply(opened, [{ start: at, end: at, insert: '+' }], {
+      projections: [{ name: 'comment', annotationRange: comment.range }]
+    })
+    expect(commit.change.projections[0]).toMatchObject({
+      name: 'comment',
+      scope: 'regions'
+    })
+  })
+
+  it('rebases a fragmented Comment through an explicit document fallback', () => {
+    const payload = 'A'.repeat(262_144)
+    const source = `head\n\n{>>${payload}<<}\n\ntail\n`
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const comment = opened.annotations[0]
+    if (comment?.kind !== 'comment') throw new Error('Expected Comment')
+    const payloadStart = comment.arms[0]?.range.start
+    if (payloadStart === undefined) throw new Error('Expected payload')
+    const before = inspectionOf(core)
+    const commit = core.apply(opened, [{
+      start: payloadStart + 1,
+      end: payloadStart + payload.length,
+      insert: ''
+    }], {
+      projections: ['markup', {
+        name: 'comment',
+        annotationRange: comment.range
+      }]
+    })
+    const after = inspectionOf(core)
+    expect(commit.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'source-fragmentation-rebase'
+    }, {
+      name: 'comment',
+      scope: 'document',
+      targets: [comment.range],
+      reason: 'source-fragmentation-rebase'
+    }])
+    expect(delta(after, before, 'sourceRebaseMaterializations')).toBe(1)
+    expect(delta(after, before, 'sourceRopeRootsCommitted')).toBe(1)
+  })
+
+  it('rebases bounded Comment resource failures and preserves the regional head', () => {
+    const source =
+      'head\n\nbefore {>>edit word<<} after\n\ntail\n\n' +
+      'suffix\n\n'.repeat(20)
+    const firstAt = source.indexOf('word')
+    const afterFirstSource = source.slice(0, firstAt) + 'WORDS' +
+      source.slice(firstAt + 4)
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const openedComment = opened.annotations[0]
+    if (openedComment?.kind !== 'comment') throw new Error('Expected Comment')
+    const first = core.apply(opened, [{
+      start: firstAt,
+      end: firstAt + 4,
+      insert: 'WORDS'
+    }], {
+      projections: [{
+        name: 'comment',
+        annotationRange: openedComment.range
+      }]
+    })
+    const firstComment = first.revision.annotations[0]
+    if (firstComment?.kind !== 'comment') throw new Error('Expected Comment')
+    const resourceAt = afterFirstSource.indexOf('edit') + 2
+    const resourceEdit = {
+      start: resourceAt,
+      end: resourceAt,
+      insert: '{++ '.repeat(1_025)
+    }
+    const fullCore = createDocumentCore()
+    const fullOpened = fullCore.open(afterFirstSource)
+    let fullError: DocumentCoreError | undefined
+    try {
+      fullCore.apply(fullOpened, [resourceEdit])
+    } catch (error) {
+      fullError = error as DocumentCoreError
+    }
+    expect(fullError).toBeDefined()
+    const beforeFailure = inspectionOf(core)
+    let regionalError: DocumentCoreError | undefined
+    try {
+      core.apply(first.revision, [resourceEdit], {
+        projections: [{
+          name: 'comment',
+          annotationRange: firstComment.range
+        }]
+      })
+    } catch (error) {
+      regionalError = error as DocumentCoreError
+    }
+    const afterFailure = inspectionOf(core)
+    expect(regionalError).toMatchObject({
+      code: fullError?.code,
+      range: fullError?.range,
+      metadata: fullError?.metadata
+    })
+    expect(afterFailure.documentParses).toBe(beforeFailure.documentParses)
+    expect(afterFailure.sourceMaterializations)
+      .toBe(beforeFailure.sourceMaterializations)
+    expect(afterFailure.sourceRopeRootsCommitted)
+      .toBe(beforeFailure.sourceRopeRootsCommitted)
+    expect(afterFailure.regionalFastApplies)
+      .toBe(beforeFailure.regionalFastApplies)
+
+    const next = core.apply(first.revision, [{
+      start: afterFirstSource.indexOf('edit'),
+      end: afterFirstSource.indexOf('edit') + 4,
+      insert: 'EDIT'
+    }], {
+      projections: [{
+        name: 'comment',
+        annotationRange: firstComment.range
+      }]
+    })
+    expect(next.change.projections[0]).toMatchObject({
+      name: 'comment',
+      scope: 'regions'
+    })
+  })
+
+  it('chains Comment deltas and keeps historical projections locally cached', () => {
+    const source = 'head\n\nbefore {>>edit word<<} after\n\ntail\n'
+    const firstAt = source.indexOf('word')
+    const afterFirst = source.slice(0, firstAt) + 'WORDS' +
+      source.slice(firstAt + 4)
+    const secondAt = afterFirst.indexOf('edit')
+    const afterSecond = afterFirst.slice(0, secondAt) + 'EDITED' +
+      afterFirst.slice(secondAt + 4)
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const openedComment = opened.annotations[0]
+    if (openedComment?.kind !== 'comment') throw new Error('Expected Comment')
+    const before = inspectionOf(core)
+    const first = core.apply(opened, [{
+      start: firstAt,
+      end: firstAt + 4,
+      insert: 'WORDS'
+    }], {
+      projections: [{
+        name: 'comment',
+        annotationRange: openedComment.range
+      }]
+    })
+    const firstComment = first.revision.annotations[0]
+    if (firstComment?.kind !== 'comment') throw new Error('Expected Comment')
+    const second = core.apply(first.revision, [{
+      start: secondAt,
+      end: secondAt + 4,
+      insert: 'EDITED'
+    }], {
+      projections: ['markup', {
+        name: 'comment',
+        annotationRange: firstComment.range
+      }]
+    })
+    const secondComment = second.revision.annotations[0]
+    if (secondComment?.kind !== 'comment') throw new Error('Expected Comment')
+    const afterApplies = inspectionOf(core)
+    const historical = core.projectComment(first.revision, firstComment)
+    const current = core.projectComment(second.revision, secondComment)
+    const afterProjections = inspectionOf(core)
+    expect(historical.markdown).toBe('edit WORDS')
+    expect(current.markdown).toBe('EDITED WORDS')
+    expect(delta(afterApplies, before, 'regionalFastApplies')).toBe(2)
+    expect(delta(afterApplies, before, 'documentParses')).toBe(0)
+    expect(delta(afterApplies, before, 'sourceMaterializations')).toBe(0)
+    expect(afterProjections.documentParses).toBe(afterApplies.documentParses)
+    expect(afterProjections.sourceMaterializations)
+      .toBe(afterApplies.sourceMaterializations)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(afterSecond)
+    const freshComment = fresh.annotations[0]
+    if (freshComment?.kind !== 'comment') throw new Error('Expected Comment')
+    expect(current.ast)
+      .toEqual(freshCore.projectComment(fresh, freshComment).ast)
+  })
+
   it('emits a balanced regional replacement for text inside an Addition', () => {
     const source =
       'head\n\nbefore {++added text++} after\n\ntail\n\n' +
@@ -229,7 +1274,7 @@ describe('document-core semantic changes', () => {
       }]
     }])
     expect(change?.scope).toBe('regions')
-    if (change?.scope !== 'regions') {
+    if (change?.name !== 'markup' || change.scope !== 'regions') {
       throw new Error('Expected Addition regional change')
     }
     expect(change.replacements).toHaveLength(1)
@@ -536,7 +1581,7 @@ describe('document-core semantic changes', () => {
     }], { projections: ['markup'] })
     const after = inspectionOf(core)
     const change = commit.change.projections[0]
-    if (change?.scope !== 'regions') {
+    if (change?.name !== 'markup' || change.scope !== 'regions') {
       throw new Error(`Expected ${testCase.name} regional change`)
     }
     const replacement = change.replacements[0]
@@ -677,7 +1722,7 @@ describe('document-core semantic changes', () => {
       insert: 'TEXTS'
     }], { projections: ['markup'] })
     const firstChange = first.change.projections[0]
-    if (firstChange?.scope !== 'regions') {
+    if (firstChange?.name !== 'markup' || firstChange.scope !== 'regions') {
       throw new Error('Expected first Addition regional change')
     }
     const firstReplacement = firstChange.replacements[0]
@@ -692,7 +1737,7 @@ describe('document-core semantic changes', () => {
     }], { projections: ['markup'] })
     const after = inspectionOf(core)
     const secondChange = second.change.projections[0]
-    if (secondChange?.scope !== 'regions') {
+    if (secondChange?.name !== 'markup' || secondChange.scope !== 'regions') {
       throw new Error('Expected second Addition regional change')
     }
     const secondReplacement = secondChange.replacements[0]
@@ -846,7 +1891,7 @@ describe('document-core semantic changes', () => {
       insert: 'OLDER'
     }], { projections: ['markup'] })
     const firstChange = first.change.projections[0]
-    if (firstChange?.scope !== 'regions') {
+    if (firstChange?.name !== 'markup' || firstChange.scope !== 'regions') {
       throw new Error('Expected first Substitution regional change')
     }
     const firstReplacement = firstChange.replacements[0]
@@ -858,7 +1903,7 @@ describe('document-core semantic changes', () => {
       insert: 'NEWER'
     }], { projections: ['markup'] })
     const secondChange = second.change.projections[0]
-    if (secondChange?.scope !== 'regions') {
+    if (secondChange?.name !== 'markup' || secondChange.scope !== 'regions') {
       throw new Error('Expected second Substitution regional change')
     }
     const secondReplacement = secondChange.replacements[0]
@@ -871,7 +1916,7 @@ describe('document-core semantic changes', () => {
     }], { projections: ['markup'] })
     const after = inspectionOf(core)
     const thirdChange = third.change.projections[0]
-    if (thirdChange?.scope !== 'regions') {
+    if (thirdChange?.name !== 'markup' || thirdChange.scope !== 'regions') {
       throw new Error('Expected third Substitution regional change')
     }
     const thirdReplacement = thirdChange.replacements[0]
@@ -990,7 +2035,7 @@ describe('document-core semantic changes', () => {
     })
     const after = inspectionOf(core)
     const change = commit.change.projections[0]
-    if (change?.scope !== 'regions') {
+    if (change?.name !== 'markup' || change.scope !== 'regions') {
       throw new Error('Expected punctuation Addition regional change')
     }
     const replacement = change.replacements[0]
@@ -1244,7 +2289,7 @@ describe('document-core semantic changes', () => {
       start: insertAt,
       end: insertAt,
       insert: 'X'
-    }], { projections: ['markup'] } as never)
+    }], { projections: ['markup'] })
     const after = inspectionOf(core)
     const changes = commit.change.projections
 
@@ -1252,7 +2297,9 @@ describe('document-core semantic changes', () => {
     expect(changes).toHaveLength(1)
     expect(changes[0]).toMatchObject({ name: 'markup', scope: 'regions' })
     const change = changes[0]
-    if (change?.scope !== 'regions') throw new Error('Expected regional change')
+    if (change?.name !== 'markup' || change.scope !== 'regions') {
+      throw new Error('Expected regional change')
+    }
     expect(change.replacements).toHaveLength(1)
     const replacement = change.replacements[0]
     expect(replacement).toBeDefined()
@@ -1473,19 +2520,28 @@ describe('document-core semantic changes', () => {
     }])
   })
 
-  it('rejects projection requests outside the one supported delta contract', () => {
+  it('rejects malformed projection requests before source work', () => {
     const source = 'head\n\ntarget word\n\ntail\n\n'
     const core = createDocumentCore()
     const opened = core.open(source)
     const at = source.indexOf('word')
+    const before = inspectionOf(core)
     for (const projections of [
       ['revised'],
-      ['markup', 'markup']
+      [null],
+      [{ name: 'comment', annotationRange: { start: -1, end: 2 } }],
+      [{ name: 'comment', annotationRange: { start: 3, end: 2 } }],
+      [{ name: 'comment', annotationRange: { start: 1.5, end: 2 } }]
     ]) {
       expect(() => core.apply(opened, [
         { start: at, end: at, insert: 'X' }
-      ], { projections } as never)).toThrow(/exactly \["markup"\]/)
+      ], { projections } as never)).toThrow(/projection request/)
     }
+    const after = inspectionOf(core)
+    expect(after.sourceRopeRootsAttempted).toBe(before.sourceRopeRootsAttempted)
+    expect(after.sourceRopeRootsCommitted).toBe(before.sourceRopeRootsCommitted)
+    expect(after.sourceSliceCalls).toBe(before.sourceSliceCalls)
+    expect(after.sourceMaterializations).toBe(before.sourceMaterializations)
   })
 
   it('scales retained overlay work logarithmically from 1k to 100k regions', () => {
@@ -1608,7 +2664,7 @@ describe('document-core semantic changes', () => {
       }])
       const projection = commit.change.projections[0]
       expect(projection?.scope).toBe('regions')
-      if (projection?.scope !== 'regions') {
+      if (projection?.name !== 'markup' || projection.scope !== 'regions') {
         throw new Error('Expected repeated regional Markup change')
       }
       const replacement = projection.replacements[0]
@@ -2032,7 +3088,9 @@ describe('document-core semantic changes', () => {
     expect(second.change.projections[0]?.scope).toBe('regions')
     expect(second.revision.source).toBe(source)
     const secondChange = second.change.projections[0]
-    if (secondChange?.scope !== 'regions') throw new Error('Expected region')
+    if (secondChange?.name !== 'markup' || secondChange.scope !== 'regions') {
+      throw new Error('Expected region')
+    }
     expect(secondChange.replacements[0]?.previous.source.start)
       .toBeGreaterThan(1_000)
 
@@ -2148,7 +3206,10 @@ describe('document-core semantic changes', () => {
       insert: 'X'
     }], { projections: ['markup'] })
     const insertionChange = insertion.change.projections[0]
-    if (insertionChange?.scope !== 'regions') {
+    if (
+      insertionChange?.name !== 'markup' ||
+      insertionChange.scope !== 'regions'
+    ) {
       throw new Error('Boundary insertion did not select a region')
     }
     expect(insertionChange.replacements[0]?.previous).toEqual({
