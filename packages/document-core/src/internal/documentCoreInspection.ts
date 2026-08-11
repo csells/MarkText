@@ -1,5 +1,20 @@
 export interface DocumentCoreInspection {
   readonly intrinsicSourceUnits: number
+  readonly documentParses: number
+  readonly documentParseSourceUnits: number
+  readonly regionalIntrinsicSourceUnits: number
+  readonly regionalFastApplies: number
+  readonly documentProjectionPreparationUnits: number
+  readonly documentMarkupEventUnits: number
+  readonly documentAstMaterializedNodes: number
+  readonly documentCoordinateSegments: number
+  readonly canonicalFactIndexUnits: number
+  readonly regionalProjectionPreparationUnits: number
+  readonly regionalMarkupEventUnits: number
+  readonly regionalAstMaterializedNodes: number
+  readonly regionalCoordinateSegments: number
+  readonly retainedFactInputStructuralUnits: number
+  readonly retainedFactOutputStructuralUnits: number
 }
 
 const READERS = new WeakMap<
