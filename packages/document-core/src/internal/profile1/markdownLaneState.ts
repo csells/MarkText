@@ -360,6 +360,14 @@ export interface MarkdownLaneState {
   ) => MarkdownCheckpoint
   readonly markerIsProtected: (checkpoint: MarkdownCheckpoint) => boolean
   readonly markerIsLiteralOwned: (checkpoint: MarkdownCheckpoint) => boolean
+  /**
+   * ADR-0014 lets only unfinished inline code and single-dollar inline math
+   * yield to their owning annotation's compatible closer. Completed literal
+   * owners, including double-dollar math blocks, still win.
+   */
+  readonly compatibleCloserStandsAgainstLiteral: (
+    checkpoint: MarkdownCheckpoint
+  ) => boolean
   readonly finishArm: (
     continuation: MarkdownCheckpoint,
     armEnd: MarkdownCheckpoint,
@@ -3956,6 +3964,11 @@ export function createMarkdownLaneState(
           checkpoint.definition !== undefined &&
           checkpoint.definition.phase !== 'reference-label'
         )
+    ),
+    compatibleCloserStandsAgainstLiteral: Object.freeze(
+      (checkpoint: MarkdownCheckpoint): boolean =>
+        checkpoint.inlineCode !== undefined ||
+        checkpoint.math?.delimiterLength === 1
     ),
     finishArm: Object.freeze(finishArm),
     enterArm: Object.freeze((
