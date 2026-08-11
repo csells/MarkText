@@ -108,6 +108,7 @@ import type {
   PlainParagraphRegionBracket,
   PlainParagraphRetainedIndex
 } from './profile1/plainParagraphRetainedIndex.js'
+import type { CanonicalSourceView } from './persistentCanonicalSource.js'
 import {
   createProfile1SyntaxAccountingRecorderV1,
   type Profile1SyntaxAccountingRecorderV1,
@@ -324,6 +325,7 @@ export interface PreviousIntrinsicPass {
  */
 export interface Profile1RegionalAdmission {
   readonly bracket: PlainParagraphRegionBracket
+  readonly nextWindow: string
   readonly retainedIndex: PlainParagraphRetainedIndex
 }
 
@@ -4569,8 +4571,8 @@ function inertParagraphContentEnd(window: string): number | undefined {
  * directly against the document policy.
  */
 export function admitProfile1PlainParagraphRegion(
-  previousSource: string,
-  source: string,
+  previousSource: CanonicalSourceView,
+  source: CanonicalSourceView,
   previousIndex: PlainParagraphRetainedIndex,
   edits: readonly RetainedPassSourceEdit[],
   executionBudget: ExecutionBudgetId,
@@ -4648,6 +4650,7 @@ export function admitProfile1PlainParagraphRegion(
   }
   return Object.freeze({
     bracket,
+    nextWindow,
     retainedIndex: previousIndex.withRegionLengthDelta(
       bracket.endSafePointRank,
       bracket.delta,

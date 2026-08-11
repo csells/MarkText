@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { createDocumentCore } from '@marktext/document-core'
+import {
+  createDocumentCore,
+  type DocumentRevision
+} from '@marktext/document-core'
 
 import {
   createEditorShadowBinding,
@@ -148,6 +151,38 @@ class HoldFirstRequestPort implements ShadowActorPort {
 }
 
 describe('Shadow document authority', () => {
+  it('recognizes a revision without materializing its canonical source', () => {
+    let sourceReads = 0
+    const revision: DocumentRevision = Object.freeze({
+      get source(): string {
+        sourceReads += 1
+        throw new Error('recognition must not materialize canonical source')
+      },
+      sourceLength: 5,
+      annotations: Object.freeze([]),
+      diagnostics: Object.freeze([])
+    })
+    const backingCore = createDocumentCore()
+    const actor = createShadowActor(() => Object.freeze({
+      ...backingCore,
+      open: () => revision
+    }))
+
+    expect(actor.handle({
+      type: 'open',
+      session: 1,
+      generation: 1,
+      sequence: 1,
+      source: 'alpha'
+    })).toMatchObject({
+      accepted: true,
+      recognition: { sourceLength: 5 }
+    })
+    expect(sourceReads).toBe(0)
+
+    actor.dispose()
+  })
+
   it('owns one fresh core per open barrier and drops retired generations', () => {
     let coreCount = 0
     const actor = createShadowActor(() => {
