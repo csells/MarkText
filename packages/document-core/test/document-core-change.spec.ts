@@ -376,6 +376,281 @@ describe('document-core semantic changes', () => {
     }
   })
 
+  it.each([
+    {
+      name: 'Deletion content',
+      markup: '{--deleted text--}',
+      needle: 'text',
+      insert: 'TEXTS',
+      annotation: {
+        kind: 'deletion',
+        range: { start: 13, end: 32 },
+        arms: [{
+          name: 'content',
+          range: { start: 16, end: 29 },
+          annotations: []
+        }]
+      },
+      previous: {
+        source: { start: 6, end: 39 },
+        syntax: { start: 6, end: 33 },
+        events: { start: 1, end: 6 }
+      },
+      next: {
+        source: { start: 6, end: 40 },
+        syntax: { start: 6, end: 34 },
+        events: { start: 1, end: 6 }
+      },
+      marks: [
+        'enter:deletion',
+        'exit:deletion'
+      ],
+      regionalUnits: 67
+    },
+    {
+      name: 'Highlight content',
+      markup: '{==marked text==}',
+      needle: 'text',
+      insert: 'TEXTS',
+      annotation: {
+        kind: 'highlight',
+        range: { start: 13, end: 31 },
+        arms: [{
+          name: 'content',
+          range: { start: 16, end: 28 },
+          annotations: []
+        }]
+      },
+      previous: {
+        source: { start: 6, end: 38 },
+        syntax: { start: 6, end: 32 },
+        events: { start: 1, end: 6 }
+      },
+      next: {
+        source: { start: 6, end: 39 },
+        syntax: { start: 6, end: 33 },
+        events: { start: 1, end: 6 }
+      },
+      marks: [
+        'enter:highlight',
+        'exit:highlight'
+      ],
+      regionalUnits: 65
+    },
+    {
+      name: 'Substitution old arm',
+      markup: '{~~old text~>new text~~}',
+      needle: 'old',
+      insert: 'OLDER',
+      annotation: {
+        kind: 'substitution',
+        range: { start: 13, end: 39 },
+        arms: [
+          {
+            name: 'old',
+            range: { start: 16, end: 26 },
+            annotations: []
+          },
+          {
+            name: 'new',
+            range: { start: 28, end: 36 },
+            annotations: []
+          }
+        ]
+      },
+      previous: {
+        source: { start: 6, end: 45 },
+        syntax: { start: 6, end: 37 },
+        events: { start: 1, end: 9 }
+      },
+      next: {
+        source: { start: 6, end: 47 },
+        syntax: { start: 6, end: 39 },
+        events: { start: 1, end: 9 }
+      },
+      marks: [
+        'enter:substitution:old',
+        'exit:substitution:old',
+        'enter:substitution:new',
+        'exit:substitution:new'
+      ],
+      regionalUnits: 80
+    },
+    {
+      name: 'Substitution new arm',
+      markup: '{~~old text~>new text~~}',
+      needle: 'new',
+      insert: 'NEWER',
+      annotation: {
+        kind: 'substitution',
+        range: { start: 13, end: 39 },
+        arms: [
+          {
+            name: 'old',
+            range: { start: 16, end: 24 },
+            annotations: []
+          },
+          {
+            name: 'new',
+            range: { start: 26, end: 36 },
+            annotations: []
+          }
+        ]
+      },
+      previous: {
+        source: { start: 6, end: 45 },
+        syntax: { start: 6, end: 37 },
+        events: { start: 1, end: 9 }
+      },
+      next: {
+        source: { start: 6, end: 47 },
+        syntax: { start: 6, end: 39 },
+        events: { start: 1, end: 9 }
+      },
+      marks: [
+        'enter:substitution:old',
+        'exit:substitution:old',
+        'enter:substitution:new',
+        'exit:substitution:new'
+      ],
+      regionalUnits: 80
+    }
+  ])('emits a balanced regional replacement for $name', testCase => {
+    const source =
+      `head\n\nbefore ${testCase.markup} after\n\ntail\n\n` +
+      'suffix\n\n'.repeat(100)
+    const editAt = source.indexOf(testCase.needle)
+    const nextSource = source.slice(0, editAt) + testCase.insert +
+      source.slice(editAt + testCase.needle.length)
+    const previousOracleCore = createDocumentCore()
+    const previousOracle = previousOracleCore.open(source)
+    const previousMarkup = previousOracleCore.project(previousOracle, 'markup')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + testCase.needle.length,
+      insert: testCase.insert
+    }], { projections: ['markup'] })
+    const after = inspectionOf(core)
+    const change = commit.change.projections[0]
+    if (change?.scope !== 'regions') {
+      throw new Error(`Expected ${testCase.name} regional change`)
+    }
+    const replacement = change.replacements[0]
+    if (replacement === undefined) throw new Error('Expected replacement')
+
+    expect(commit.revision.annotations).toEqual([testCase.annotation])
+    expect(replacement.previous).toEqual(testCase.previous)
+    expect(replacement.next).toEqual(testCase.next)
+    const stack: MarkupMark[] = []
+    const enteredMarks: MarkupMark[] = []
+    const marks: string[] = []
+    for (const event of replacement.events) {
+      if (event.kind === 'enter') {
+        enteredMarks.push(event.mark)
+        stack.push(event.mark)
+        marks.push(`enter:${event.mark.kind}${
+          event.mark.kind === 'substitution' ? `:${event.mark.arm}` : ''
+        }`)
+      } else if (event.kind === 'exit') {
+        expect(stack.pop()).toBe(event.mark)
+        marks.push(`exit:${event.mark.kind}${
+          event.mark.kind === 'substitution' ? `:${event.mark.arm}` : ''
+        }`)
+      }
+    }
+    expect(stack).toEqual([])
+    expect(marks).toEqual(testCase.marks)
+    if (testCase.annotation.kind === 'substitution') {
+      expect(enteredMarks).toHaveLength(2)
+      expect(enteredMarks[0]).not.toBe(enteredMarks[1])
+      expect(enteredMarks[0]?.annotationRange)
+        .toEqual(enteredMarks[1]?.annotationRange)
+    }
+    assertPortable(commit.change)
+
+    expect(delta(after, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(after, before, 'documentParses')).toBe(0)
+    expect(delta(after, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(after, before, 'documentProjectionPreparationUnits')).toBe(0)
+    expect(delta(after, before, 'documentMarkupEventUnits')).toBe(0)
+    expect(delta(after, before, 'documentAstMaterializedNodes')).toBe(0)
+    expect(delta(after, before, 'documentCoordinateSegments')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits'))
+      .toBe(testCase.regionalUnits)
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits'))
+      .toBeLessThan(source.length)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    expect(commit.revision.annotations).toEqual(fresh.annotations)
+    expect(applyMarkupReplacement(
+      previousMarkup.events,
+      replacement
+    )).toEqual(freshMarkup.events)
+    expect(applySyntaxReplacementForOracle(
+      previousMarkup.syntax.ast.root,
+      replacement
+    )).toEqual(freshMarkup.syntax.ast.root)
+    expect(replacement.syntaxBlocks).toEqual([
+      freshMarkup.syntax.ast.root.children[1]
+    ])
+    if (testCase.annotation.kind === 'deletion') {
+      expect(replacement.syntaxBlocks[0]).not.toEqual(
+        freshCore.project(fresh, 'revised').ast.root.children[1]
+      )
+    } else if (testCase.annotation.kind === 'substitution') {
+      expect(replacement.syntaxBlocks[0]).not.toEqual(
+        freshCore.project(fresh, 'original').ast.root.children[1]
+      )
+      expect(replacement.syntaxBlocks[0]).not.toEqual(
+        freshCore.project(fresh, 'revised').ast.root.children[1]
+      )
+    }
+    for (const segment of replacement.coordinates) {
+      for (
+        let offset = segment.projected.start;
+        offset < segment.projected.end;
+        offset += 1
+      ) {
+        expect(freshMarkup.syntax.coordinates.originAt(offset)).toEqual({
+          kind: 'source',
+          sourceOffset: segment.source.start +
+            offset - segment.projected.start
+        })
+      }
+    }
+    const syntaxDelta = replacement.next.syntax.end -
+      replacement.previous.syntax.end
+    const sourceDelta = replacement.next.source.end -
+      replacement.previous.source.end
+    for (
+      let offset = replacement.previous.syntax.end;
+      offset < previousMarkup.syntax.ast.root.range.end;
+      offset += 1
+    ) {
+      const previousOrigin = previousMarkup.syntax.coordinates.originAt(offset)
+      const expectedOrigin = previousOrigin.kind === 'source'
+        ? {
+          kind: 'source' as const,
+          sourceOffset: previousOrigin.sourceOffset + sourceDelta
+        }
+        : {
+          kind: 'generated' as const,
+          sourcePosition: previousOrigin.sourcePosition + sourceDelta,
+          affinity: previousOrigin.affinity
+        }
+      expect(freshMarkup.syntax.coordinates.originAt(offset + syntaxDelta))
+        .toEqual(expectedOrigin)
+    }
+  })
+
   it('chains balanced Addition replacements without materializing the source', () => {
     const source =
       'head\n\nbefore {++added text++} after\n\ntail\n\n' +
@@ -545,6 +820,138 @@ describe('document-core semantic changes', () => {
     }
   })
 
+  it('chains Substitution old, new, then old arm edits with exact history', () => {
+    const source =
+      'head\n\nbefore {~~old text~>new text~~} after\n\ntail\n\n' +
+      'suffix\n\n'.repeat(100)
+    const firstAt = source.indexOf('old')
+    const afterFirst = source.slice(0, firstAt) + 'OLDER' +
+      source.slice(firstAt + 3)
+    const secondAt = afterFirst.indexOf('new')
+    const afterSecond = afterFirst.slice(0, secondAt) + 'NEWER' +
+      afterFirst.slice(secondAt + 3)
+    const thirdAt = afterSecond.indexOf('OLDER') + 2
+    const afterThird = afterSecond.slice(0, thirdAt) + 'Q' +
+      afterSecond.slice(thirdAt)
+    const previousCore = createDocumentCore()
+    const previous = previousCore.open(source)
+    const previousMarkup = previousCore.project(previous, 'markup')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+
+    const first = core.apply(opened, [{
+      start: firstAt,
+      end: firstAt + 3,
+      insert: 'OLDER'
+    }], { projections: ['markup'] })
+    const firstChange = first.change.projections[0]
+    if (firstChange?.scope !== 'regions') {
+      throw new Error('Expected first Substitution regional change')
+    }
+    const firstReplacement = firstChange.replacements[0]
+    if (firstReplacement === undefined) throw new Error('Expected replacement')
+
+    const second = core.apply(first.revision, [{
+      start: secondAt,
+      end: secondAt + 3,
+      insert: 'NEWER'
+    }], { projections: ['markup'] })
+    const secondChange = second.change.projections[0]
+    if (secondChange?.scope !== 'regions') {
+      throw new Error('Expected second Substitution regional change')
+    }
+    const secondReplacement = secondChange.replacements[0]
+    if (secondReplacement === undefined) throw new Error('Expected replacement')
+
+    const third = core.apply(second.revision, [{
+      start: thirdAt,
+      end: thirdAt,
+      insert: 'Q'
+    }], { projections: ['markup'] })
+    const after = inspectionOf(core)
+    const thirdChange = third.change.projections[0]
+    if (thirdChange?.scope !== 'regions') {
+      throw new Error('Expected third Substitution regional change')
+    }
+    const thirdReplacement = thirdChange.replacements[0]
+    if (thirdReplacement === undefined) throw new Error('Expected replacement')
+
+    expect(third.revision.annotations).toEqual([{
+      kind: 'substitution',
+      range: { start: 13, end: 42 },
+      arms: [
+        {
+          name: 'old',
+          range: { start: 16, end: 27 },
+          annotations: []
+        },
+        {
+          name: 'new',
+          range: { start: 29, end: 39 },
+          annotations: []
+        }
+      ]
+    }])
+    expect(thirdReplacement.previous).toEqual({
+      source: { start: 6, end: 49 },
+      syntax: { start: 6, end: 41 },
+      events: { start: 1, end: 9 }
+    })
+    expect(thirdReplacement.next).toEqual({
+      source: { start: 6, end: 50 },
+      syntax: { start: 6, end: 42 },
+      events: { start: 1, end: 9 }
+    })
+    assertPortable(first.change)
+    assertPortable(second.change)
+    assertPortable(third.change)
+    expect(delta(after, before, 'regionalFastApplies')).toBe(3)
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits')).toBe(251)
+    expect(delta(after, before, 'documentParses')).toBe(0)
+    expect(delta(after, before, 'documentProjectionPreparationUnits')).toBe(0)
+    expect(delta(after, before, 'documentMarkupEventUnits')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+
+    const firstFreshCore = createDocumentCore()
+    const firstFresh = firstFreshCore.open(afterFirst)
+    const firstHistorical = core.project(first.revision, 'markup')
+    const firstFreshMarkup = firstFreshCore.project(firstFresh, 'markup')
+    expect(firstHistorical.events).toEqual(firstFreshMarkup.events)
+    expect(firstHistorical.syntax.ast).toEqual(firstFreshMarkup.syntax.ast)
+    const secondFreshCore = createDocumentCore()
+    const secondFresh = secondFreshCore.open(afterSecond)
+    const secondHistorical = core.project(second.revision, 'markup')
+    const secondFreshMarkup = secondFreshCore.project(secondFresh, 'markup')
+    expect(secondHistorical.events).toEqual(secondFreshMarkup.events)
+    expect(secondHistorical.syntax.ast).toEqual(secondFreshMarkup.syntax.ast)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(afterThird)
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    const firstEvents = applyMarkupReplacement(
+      previousMarkup.events,
+      firstReplacement
+    )
+    const secondEvents = applyMarkupReplacement(
+      firstEvents,
+      secondReplacement
+    )
+    expect(applyMarkupReplacement(secondEvents, thirdReplacement))
+      .toEqual(freshMarkup.events)
+    const firstAst = applySyntaxReplacementForOracle(
+      previousMarkup.syntax.ast.root,
+      firstReplacement
+    )
+    const secondAst = applySyntaxReplacementForOracle(
+      firstAst,
+      secondReplacement
+    )
+    expect(applySyntaxReplacementForOracle(secondAst, thirdReplacement))
+      .toEqual(freshMarkup.syntax.ast.root)
+    expect(third.revision.annotations).toEqual(fresh.annotations)
+  })
+
   it.each([
     {
       name: 'inserts punctuation',
@@ -695,6 +1102,66 @@ describe('document-core semantic changes', () => {
     source,
     edit
   }) => {
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const commit = core.apply(opened, [edit(source)], {
+      projections: ['markup']
+    })
+
+    expect(commit.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'criticmarkup-facts-present'
+    }])
+  })
+
+  it.each([
+    {
+      name: 'touches the Substitution divider',
+      source: 'head\n\nbefore {~~old text~>new text~~} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('~>'),
+        end: source.indexOf('~>') + 1,
+        insert: '-'
+      })
+    },
+    {
+      name: 'crosses Substitution arms',
+      source: 'head\n\nbefore {~~old text~>new text~~} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('old') + 1,
+        end: source.indexOf('new') + 2,
+        insert: 'replacement'
+      })
+    },
+    {
+      name: 'creates generated protection from the old arm',
+      source: 'head\n\nbefore {~~old~>new*~~} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('old'),
+        end: source.indexOf('old') + 1,
+        insert: '*o'
+      })
+    },
+    {
+      name: 'creates generated protection from the new arm',
+      source: 'head\n\nbefore {~~*old~>new~~} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('new') + 2,
+        end: source.indexOf('new') + 3,
+        insert: 'w*'
+      })
+    },
+    {
+      name: 'edits a Comment payload',
+      source: 'head\n\nbefore {>>note text<<} after\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('text'),
+        end: source.indexOf('text') + 4,
+        insert: 'TEXTS'
+      })
+    }
+  ])('keeps $name on the explicit document fallback', ({ source, edit }) => {
     const core = createDocumentCore()
     const opened = core.open(source)
     const commit = core.apply(opened, [edit(source)], {

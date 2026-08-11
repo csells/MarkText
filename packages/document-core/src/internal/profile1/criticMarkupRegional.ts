@@ -15,16 +15,54 @@ import {
 import type { CanonicalSourceView } from '../persistentCanonicalSource.js'
 import type { Profile1PhysicalTraversalRecorderV1 } from './physicalTraversalAccounting.js'
 
-export interface CriticMarkupRegionalIndex {
-  readonly kind: 'addition'
+type RegionalCriticMarkupKind = Exclude<CriticMarkupNode['kind'], 'comment'>
+type RegionalCriticMarkupArmName = 'content' | 'old' | 'new'
+
+export interface CriticMarkupRegionalArmIndex<
+  Name extends RegionalCriticMarkupArmName = RegionalCriticMarkupArmName
+> {
+  readonly name: Name
+  readonly range: SourceRange
+}
+
+export interface CriticMarkupRegionalMarkerIndex<
+  Role extends 'open' | 'separator' | 'close' =
+  'open' | 'separator' | 'close'
+> {
+  readonly role: Role
+  readonly range: SourceRange
+}
+
+interface CriticMarkupRegionalIndexCommon {
   readonly source: SourceRange
   readonly syntax: SourceRange
   readonly events: Readonly<{ readonly start: number; readonly end: number }>
   readonly annotation: SourceRange
-  readonly arm: SourceRange
 }
 
-export interface AdditionRegionalAdmission {
+export type CriticMarkupRegionalIndex =
+  | Readonly<CriticMarkupRegionalIndexCommon & {
+    readonly kind: Exclude<RegionalCriticMarkupKind, 'substitution'>
+    readonly markers: readonly [
+      CriticMarkupRegionalMarkerIndex<'open'>,
+      CriticMarkupRegionalMarkerIndex<'close'>
+    ]
+    readonly arms: readonly [CriticMarkupRegionalArmIndex<'content'>]
+  }>
+  | Readonly<CriticMarkupRegionalIndexCommon & {
+    readonly kind: 'substitution'
+    readonly markers: readonly [
+      CriticMarkupRegionalMarkerIndex<'open'>,
+      CriticMarkupRegionalMarkerIndex<'separator'>,
+      CriticMarkupRegionalMarkerIndex<'close'>
+    ]
+    readonly arms: readonly [
+      CriticMarkupRegionalArmIndex<'old'>,
+      CriticMarkupRegionalArmIndex<'new'>
+    ]
+  }>
+
+export interface CriticMarkupRegionalAdmission {
   readonly kind: 'admitted'
   readonly previousProducts: Profile1DocumentProducts
   readonly nextProducts: Profile1DocumentProducts
@@ -33,20 +71,24 @@ export interface AdditionRegionalAdmission {
   readonly nextWindow: string
 }
 
-export interface AdditionRegionalResourceFailure {
+export interface CriticMarkupRegionalResourceFailure {
   readonly kind: 'resource-failure'
   readonly fatalDiagnostic: ResourceDiagnostic
 }
 
-export type AdditionRegionalAdmissionResult =
-  | AdditionRegionalAdmission
-  | AdditionRegionalResourceFailure
+export type CriticMarkupRegionalAdmissionResult =
+  | CriticMarkupRegionalAdmission
+  | CriticMarkupRegionalResourceFailure
 
 function range(start: number, end: number): SourceRange {
   return Object.freeze({
     start: start as SourceRange['start'],
     end: end as SourceRange['end']
   })
+}
+
+function sameRange(left: SourceRange, right: SourceRange): boolean {
+  return left.start === right.start && left.end === right.end
 }
 
 function shiftResourceDiagnostic(
@@ -65,7 +107,7 @@ function shiftResourceDiagnostic(
 }
 
 function exactProjectedOffset(
-  projection: Profile1DocumentProducts['revised'],
+  projection: ReturnType<Profile1DocumentProducts['editing']>,
   sourceOffset: number
 ): number | undefined {
   for (const segment of projection.mappedTape) {
@@ -145,15 +187,77 @@ function publicMarkupEventRangeForSource(
     : Object.freeze({ start: first, end })
 }
 
-function additionRootOf(
+function markerInventoryMatches(
+  products: Profile1DocumentProducts,
+  root: Exclude<CriticMarkupNode, { readonly kind: 'comment' }>
+): boolean {
+  const decisions = products.retainedIntrinsic?.markerDecisions ?? []
+  const open = decisions[0]
+  const close = decisions.at(-1)
+  if (
+    open?.kind !== root.kind ||
+    open.role !== 'open' ||
+    open.parentOpenRunId !== null ||
+    !sameRange(open.range, root.markers.open) ||
+    close?.kind !== root.kind ||
+    close.role !== 'close' ||
+    close.action !== 'matched' ||
+    close.openerRunId !== open.runId ||
+    !sameRange(close.range, root.markers.close)
+  ) {
+    return false
+  }
+  if (root.kind !== 'substitution') return decisions.length === 2
+  const separator = decisions[1]
+  return decisions.length === 3 &&
+    separator?.kind === 'substitution' &&
+    separator.role === 'separator' &&
+    separator.openerRunId === open.runId &&
+    sameRange(separator.range, root.markers.separator)
+}
+
+function balancedMarkup(
+  products: Profile1DocumentProducts,
+  root: Exclude<CriticMarkupNode, { readonly kind: 'comment' }>
+): boolean {
+  const events = Array.from(
+    { length: products.markup.eventCount },
+    (_, ordinal) => products.markup.eventAt(ordinal)
+  )
+  if (events[0]?.kind !== 'text' || events.at(-1)?.kind !== 'text') {
+    return false
+  }
+  let ordinal = 1
+  for (const arm of root.arms) {
+    const enter = events[ordinal]
+    const text = events[ordinal + 1]
+    const exit = events[ordinal + 2]
+    if (
+      enter?.kind !== 'enter' ||
+      text?.kind !== 'text' ||
+      exit?.kind !== 'exit' ||
+      enter.mark.nodeId !== root.nodeId ||
+      enter.mark.kind !== root.kind ||
+      exit.mark !== enter.mark ||
+      !sameRange(text.sourceRange, arm.range) ||
+      (root.kind === 'substitution' &&
+        (enter.mark.kind !== 'substitution' || enter.mark.arm !== arm.name))
+    ) {
+      return false
+    }
+    ordinal += 3
+  }
+  return ordinal === events.length - 1
+}
+
+function standardRootOf(
   products: Profile1DocumentProducts
-): CriticMarkupNode | undefined {
+): Exclude<CriticMarkupNode, { readonly kind: 'comment' }> | undefined {
   const retained = products.retainedIntrinsic
   if (
     retained === undefined ||
     retained.roots.length !== 1 ||
     !retained.hasCriticMarkupCandidate ||
-    retained.markerDecisions.length !== 2 ||
     retained.referenceDefinitionCount !== 0 ||
     retained.diagnostics.length !== 0 ||
     retained.markdownLiterals.length !== 0
@@ -161,36 +265,51 @@ function additionRootOf(
     return undefined
   }
   const root = retained.roots[0]
-  const arm = root?.arms[0]
-  const openDecision = retained.markerDecisions[0]
-  const closeDecision = retained.markerDecisions[1]
-  return root?.kind === 'addition' &&
-    root.arms.length === 1 &&
-    arm?.name === 'content' &&
-    arm.children.length === 0 &&
-    openDecision?.kind === 'addition' &&
-    openDecision.role === 'open' &&
-    openDecision.range.start === root.markers.open.start &&
-    openDecision.range.end === root.markers.open.end &&
-    closeDecision?.kind === 'addition' &&
-    closeDecision.role === 'close' &&
-    closeDecision.action === 'matched' &&
-    closeDecision.range.start === root.markers.close.start &&
-    closeDecision.range.end === root.markers.close.end &&
-    balancedAdditionMarkup(products)
+  if (
+    root === undefined ||
+    root.kind === 'comment' ||
+    root.arms.some(arm => arm.children.length !== 0)
+  ) {
+    return undefined
+  }
+  const correctArms = root.kind === 'substitution'
+    ? root.arms.length === 2 &&
+      root.arms[0]?.name === 'old' &&
+      root.arms[1]?.name === 'new'
+    : root.arms.length === 1 && root.arms[0]?.name === 'content'
+  return correctArms &&
+    markerInventoryMatches(products, root) &&
+    balancedMarkup(products, root)
     ? root
     : undefined
 }
 
-export function createAdditionRegionalIndex(
+function markersOf(
+  root: Exclude<CriticMarkupNode, { readonly kind: 'comment' }>
+): readonly CriticMarkupRegionalMarkerIndex[] {
+  const markers: CriticMarkupRegionalMarkerIndex[] = [Object.freeze({
+    role: 'open',
+    range: range(root.markers.open.start, root.markers.open.end)
+  })]
+  if (root.kind === 'substitution') {
+    markers.push(Object.freeze({
+      role: 'separator',
+      range: range(root.markers.separator.start, root.markers.separator.end)
+    }))
+  }
+  markers.push(Object.freeze({
+    role: 'close',
+    range: range(root.markers.close.start, root.markers.close.end)
+  }))
+  return Object.freeze(markers)
+}
+
+export function createCriticMarkupRegionalIndex(
   products: Profile1DocumentProducts
 ): CriticMarkupRegionalIndex | undefined {
   const retained = products.retainedIntrinsic
-  const root = additionRootOf(products)
-  const arm = root?.arms[0]
-  if (retained === undefined || root === undefined || arm === undefined) {
-    return undefined
-  }
+  const root = standardRootOf(products)
+  if (retained === undefined || root === undefined) return undefined
   let sourceStart = 0
   let sourceEnd = retained.sourceLength
   for (const safePoint of retained.safePoints) {
@@ -217,13 +336,41 @@ export function createAdditionRegionalIndex(
   const sourceRange = range(sourceStart, sourceEnd)
   const events = publicMarkupEventRangeForSource(products, root, sourceRange)
   if (events === undefined) return undefined
-  return Object.freeze({
-    kind: 'addition',
+  const common = Object.freeze({
     source: sourceRange,
     syntax: range(syntaxStart, syntaxEnd),
     events,
-    annotation: range(root.range.start, root.range.end),
-    arm: range(arm.range.start, arm.range.end)
+    annotation: range(root.range.start, root.range.end)
+  })
+  if (root.kind === 'substitution') {
+    return Object.freeze({
+      ...common,
+      kind: root.kind,
+      markers: Object.freeze([
+        Object.freeze({ role: 'open' as const, range: root.markers.open }),
+        Object.freeze({
+          role: 'separator' as const,
+          range: root.markers.separator
+        }),
+        Object.freeze({ role: 'close' as const, range: root.markers.close })
+      ] as const),
+      arms: Object.freeze([
+        Object.freeze({ name: 'old' as const, range: root.arms[0].range }),
+        Object.freeze({ name: 'new' as const, range: root.arms[1].range })
+      ] as const)
+    })
+  }
+  return Object.freeze({
+    ...common,
+    kind: root.kind,
+    markers: Object.freeze([
+      Object.freeze({ role: 'open' as const, range: root.markers.open }),
+      Object.freeze({ role: 'close' as const, range: root.markers.close })
+    ] as const),
+    arms: Object.freeze([Object.freeze({
+      name: 'content' as const,
+      range: root.arms[0].range
+    })] as const)
   })
 }
 
@@ -262,47 +409,118 @@ function sameMarkdownTopology(previous: MarkdownNode, next: MarkdownNode): boole
   return true
 }
 
-function balancedAdditionMarkup(products: Profile1DocumentProducts): boolean {
-  if (products.markup.eventCount !== 5) return false
-  const events = Array.from(
-    { length: products.markup.eventCount },
-    (_, ordinal) => products.markup.eventAt(ordinal)
-  )
-  const enter = events[1]
-  const exit = events[3]
-  return events[0]?.kind === 'text' &&
-    enter?.kind === 'enter' &&
-    enter.mark.kind === 'addition' &&
-    events[2]?.kind === 'text' &&
-    exit?.kind === 'exit' &&
-    exit.mark === enter.mark &&
-    events[4]?.kind === 'text'
-}
-
 function expectedLocalTopology(
   products: Profile1DocumentProducts,
-  index: CriticMarkupRegionalIndex,
-  delta: number
+  index: CriticMarkupRegionalIndex
 ): boolean {
-  const root = additionRootOf(products)
-  const arm = root?.arms[0]
-  if (root === undefined || arm === undefined) return false
-  const localAnnotationStart = index.annotation.start - index.source.start
-  const localAnnotationEnd = index.annotation.end - index.source.start + delta
-  const localArmStart = index.arm.start - index.source.start
-  const localArmEnd = index.arm.end - index.source.start + delta
-  return root.range.start === localAnnotationStart &&
-    root.range.end === localAnnotationEnd &&
-    root.markers.open.start === localAnnotationStart &&
-    root.markers.open.end === localArmStart &&
-    root.markers.close.start === localArmEnd &&
-    root.markers.close.end === localAnnotationEnd &&
-    arm.range.start === localArmStart &&
-    arm.range.end === localArmEnd &&
-    balancedAdditionMarkup(products)
+  const root = standardRootOf(products)
+  if (root === undefined || root.kind !== index.kind) return false
+  const local = (absolute: SourceRange): SourceRange => range(
+    absolute.start - index.source.start,
+    absolute.end - index.source.start
+  )
+  if (
+    !sameRange(root.range, local(index.annotation)) ||
+    root.arms.length !== index.arms.length ||
+    index.markers.length !== (root.kind === 'substitution' ? 3 : 2)
+  ) {
+    return false
+  }
+  const rootMarkers = markersOf(root)
+  for (let ordinal = 0; ordinal < rootMarkers.length; ordinal += 1) {
+    const rootMarker = rootMarkers[ordinal]
+    const indexedMarker = index.markers[ordinal]
+    if (
+      rootMarker === undefined ||
+      indexedMarker === undefined ||
+      rootMarker.role !== indexedMarker.role ||
+      !sameRange(rootMarker.range, local(indexedMarker.range))
+    ) {
+      return false
+    }
+  }
+  for (let ordinal = 0; ordinal < root.arms.length; ordinal += 1) {
+    const rootArm = root.arms[ordinal]
+    const indexedArm = index.arms[ordinal]
+    if (
+      rootArm === undefined ||
+      indexedArm === undefined ||
+      rootArm.name !== indexedArm.name ||
+      !sameRange(rootArm.range, local(indexedArm.range))
+    ) {
+      return false
+    }
+  }
+  return true
 }
 
-export function admitAdditionRegionalChange(
+function evolveIndex(
+  index: CriticMarkupRegionalIndex,
+  edit: RetainedPassSourceEdit,
+  delta: number
+): CriticMarkupRegionalIndex {
+  const transformOffset = (offset: number): number =>
+    offset <= edit.start ? offset : offset + delta
+  const transformRange = (sourceRange: SourceRange): SourceRange => range(
+    transformOffset(sourceRange.start),
+    transformOffset(sourceRange.end)
+  )
+  const common = {
+    ...index,
+    source: range(index.source.start, index.source.end + delta),
+    annotation: transformRange(index.annotation)
+  }
+  if (index.kind === 'substitution') {
+    return Object.freeze({
+      ...common,
+      kind: index.kind,
+      markers: Object.freeze([
+        Object.freeze({
+          role: 'open' as const,
+          range: transformRange(index.markers[0].range)
+        }),
+        Object.freeze({
+          role: 'separator' as const,
+          range: transformRange(index.markers[1].range)
+        }),
+        Object.freeze({
+          role: 'close' as const,
+          range: transformRange(index.markers[2].range)
+        })
+      ] as const),
+      arms: Object.freeze([
+        Object.freeze({
+          name: 'old' as const,
+          range: transformRange(index.arms[0].range)
+        }),
+        Object.freeze({
+          name: 'new' as const,
+          range: transformRange(index.arms[1].range)
+        })
+      ] as const)
+    })
+  }
+  return Object.freeze({
+    ...common,
+    kind: index.kind,
+    markers: Object.freeze([
+      Object.freeze({
+        role: 'open' as const,
+        range: transformRange(index.markers[0].range)
+      }),
+      Object.freeze({
+        role: 'close' as const,
+        range: transformRange(index.markers[1].range)
+      })
+    ] as const),
+    arms: Object.freeze([Object.freeze({
+      name: 'content' as const,
+      range: transformRange(index.arms[0].range)
+    })] as const)
+  })
+}
+
+export function admitCriticMarkupRegionalChange(
   previousSource: CanonicalSourceView,
   nextSource: CanonicalSourceView,
   index: CriticMarkupRegionalIndex,
@@ -310,18 +528,18 @@ export function admitAdditionRegionalChange(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
-): AdditionRegionalAdmissionResult | undefined {
+): CriticMarkupRegionalAdmissionResult | undefined {
   const edit = edits.length === 1 ? edits[0] : undefined
-  if (
-    edit === undefined ||
-    edit.start < index.arm.start ||
-    edit.end > index.arm.end ||
-    (edit.start === edit.end &&
-      (edit.start <= index.arm.start || edit.start >= index.arm.end))
-  ) {
-    return undefined
-  }
+  if (edit === undefined) return undefined
+  const activeArmOrdinal = index.arms.findIndex(arm =>
+    edit.start >= arm.range.start &&
+    edit.end <= arm.range.end &&
+    !(edit.start === edit.end &&
+      (edit.start <= arm.range.start || edit.start >= arm.range.end))
+  )
+  if (activeArmOrdinal < 0) return undefined
   const delta = nextSource.length - previousSource.length
+  let nextIndex = evolveIndex(index, edit, delta)
   const previousWindow = previousSource.slice(
     index.source.start,
     index.source.end
@@ -361,18 +579,32 @@ export function admitAdditionRegionalChange(
       )
     })
   }
+  const previousEditing = previousProducts.editing()
+  const nextEditing = nextProducts.editing()
   if (
-    !expectedLocalTopology(previousProducts, index, 0) ||
-    !expectedLocalTopology(nextProducts, index, delta) ||
+    previousEditing.source.length !== index.syntax.end - index.syntax.start
+  ) {
+    return undefined
+  }
+  nextIndex = Object.freeze({
+    ...nextIndex,
+    syntax: range(
+      index.syntax.start,
+      index.syntax.start + nextEditing.source.length
+    )
+  })
+  if (
+    !expectedLocalTopology(previousProducts, index) ||
+    !expectedLocalTopology(nextProducts, nextIndex) ||
     !sameAccountingShape(previousProducts, nextProducts) ||
     !sameMarkdownTopology(
-      previousProducts.editing().markdown.root,
-      nextProducts.editing().markdown.root
+      previousEditing.markdown.root,
+      nextEditing.markdown.root
     ) ||
-    previousProducts.editing().mappedTape.some(segment =>
+    previousEditing.mappedTape.some(segment =>
       segment.kind !== 'canonical'
     ) ||
-    nextProducts.editing().mappedTape.some(segment =>
+    nextEditing.mappedTape.some(segment =>
       segment.kind !== 'canonical'
     )
   ) {
@@ -382,13 +614,7 @@ export function admitAdditionRegionalChange(
     kind: 'admitted',
     previousProducts,
     nextProducts,
-    nextIndex: Object.freeze({
-      ...index,
-      source: range(index.source.start, index.source.end + delta),
-      syntax: range(index.syntax.start, index.syntax.end + delta),
-      annotation: range(index.annotation.start, index.annotation.end + delta),
-      arm: range(index.arm.start, index.arm.end + delta)
-    }),
+    nextIndex,
     previousWindow,
     nextWindow
   })
