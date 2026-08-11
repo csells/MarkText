@@ -9,6 +9,12 @@ export interface DocumentCoreInspection {
   readonly documentAstMaterializedNodes: number
   readonly documentCoordinateSegments: number
   readonly documentAnnotationMaterializedNodes: number
+  /** Strong revision-owned parser product graphs currently retained. */
+  readonly fullProductStoresStrongCurrent: number
+  /** Peak simultaneous strong revision-owned parser product graphs. */
+  readonly fullProductStoresStrongPeak: number
+  /** Strong revision-owned parser product release operations. */
+  readonly fullProductStoreReleases: number
   readonly documentRetainedFactOutputStructuralUnits: number
   readonly canonicalFactIndexUnits: number
   readonly regionalProjectionPreparationUnits: number

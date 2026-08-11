@@ -36,6 +36,10 @@ import {
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
 import { registerDocumentCoreInspection } from './internal/documentCoreInspection.js'
+import {
+  createRevisionProductStore,
+  type RevisionProductStore
+} from './internal/revisionProductStore.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 import type {
   CriticMarkupNode,
@@ -1100,6 +1104,7 @@ function projectionCoordinatesOf(
   projection: FacadeProjectedMarkdown,
   sourceLength: number
 ): ProjectionCoordinateMap {
+  const projectedLength = projection.source.length
   const segments: readonly CoordinateSegment[] = Object.freeze(
     projection.mappedTape.map(segment => segment.kind === 'canonical'
       ? Object.freeze({
@@ -1174,16 +1179,41 @@ function projectionCoordinatesOf(
   }
 
   const originAt = Object.freeze((projectedOffset: number): ProjectionOrigin => {
-    const origin = projection.provenance.originAt(projectedOffset)
-    return origin.kind === 'canonical'
+    if (
+      !Number.isInteger(projectedOffset) ||
+      projectedOffset < 0 ||
+      projectedOffset >= projectedLength
+    ) {
+      throw new RangeError('Projected offset is outside the projection')
+    }
+    let low = 0
+    let high = segments.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if ((segments[middle]?.projectedEnd ?? Infinity) <= projectedOffset) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    const segment = segments[low]
+    if (
+      segment === undefined ||
+      projectedOffset < segment.projectedStart ||
+      projectedOffset >= segment.projectedEnd
+    ) {
+      throw new Error('Projection provenance has an uncovered code unit')
+    }
+    return segment.kind === 'source'
       ? Object.freeze({
         kind: 'source' as const,
-        sourceOffset: origin.sourceOffset
+        sourceOffset:
+          segment.sourceStart + projectedOffset - segment.projectedStart
       })
       : Object.freeze({
         kind: 'generated' as const,
-        sourcePosition: origin.sourcePosition,
-        affinity: origin.affinity
+        sourcePosition: segment.sourcePosition,
+        affinity: segment.affinity
       })
   })
   const toSource = Object.freeze((
@@ -1192,7 +1222,7 @@ function projectionCoordinatesOf(
   ): number => {
     const projected = position(
       projectedPosition,
-      projection.source.length,
+      projectedLength,
       'Projected'
     )
     coordinateAffinity(affinity)
@@ -1289,7 +1319,7 @@ function projectionCoordinatesOf(
     ) {
       return followingGenerated.projectedStart
     }
-    return followingSource?.projectedStart ?? projection.source.length
+    return followingSource?.projectedStart ?? projectedLength
   })
   const intersectsSource = Object.freeze((range: SourceRange): boolean => {
     if (
@@ -1301,10 +1331,18 @@ function projectionCoordinatesOf(
     ) {
       throw new RangeError('Source range is outside its document')
     }
-    return projection.provenance.canonicalSourceRangeIntersects(
-      range.start,
-      range.end
-    )
+    if (range.start === range.end) return false
+    let low = 0
+    let high = sourceSegments.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if ((sourceSegments[middle]?.sourceEnd ?? Infinity) <= range.start) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    return (sourceSegments[low]?.sourceStart ?? Infinity) < range.end
   })
   return Object.freeze({ originAt, toSource, toProjected, intersectsSource })
 }
@@ -1315,6 +1353,7 @@ function shiftedRegionalProjectionCoordinatesOf(
   sourceDelta: number,
   documentSourceLength: number
 ): ProjectionCoordinateMap {
+  const projectedLength = projection.source.length
   const local = projectionCoordinatesOf(projection, localSourceLength)
   const originAt = Object.freeze((projectedOffset: number): ProjectionOrigin => {
     const origin = local.originAt(projectedOffset)
@@ -1335,7 +1374,7 @@ function shiftedRegionalProjectionCoordinatesOf(
   ): number => {
     if (projectedPosition === 0 && affinity === 'previous') return 0
     if (
-      projectedPosition === projection.source.length &&
+      projectedPosition === projectedLength &&
       affinity === 'next'
     ) {
       return documentSourceLength
@@ -1350,7 +1389,7 @@ function shiftedRegionalProjectionCoordinatesOf(
     coordinateAffinity(affinity)
     if (source < sourceDelta) return 0
     if (source > sourceDelta + localSourceLength) {
-      return projection.source.length
+      return projectedLength
     }
     return local.toProjected(source - sourceDelta, affinity)
   })
@@ -1586,11 +1625,22 @@ interface RevisionFacts {
   readonly nodeIdByAnnotation: ReadonlyMap<CriticMarkupAnnotation, NodeId>
 }
 
+interface RetainedAdmissionSummary {
+  readonly hasCriticMarkupCandidate: boolean
+  readonly rootCount: number
+  readonly markerDecisionCount: number
+  readonly referenceDefinitionCount: number
+}
+
 interface FullRevisionState {
   readonly kind: 'full'
   readonly source: PersistentCanonicalSource
-  readonly products: Profile1DocumentProducts
-  readonly annotationFacts: () => RevisionFacts
+  readonly productStore: RevisionProductStore<Profile1DocumentProducts>
+  readonly annotations: (
+    products?: Profile1DocumentProducts,
+    retain?: boolean
+  ) => readonly CriticMarkupAnnotation[]
+  readonly retainedSummary: RetainedAdmissionSummary | undefined
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
@@ -1612,7 +1662,11 @@ interface RegionalRevisionState {
   }> | undefined
   readonly inventoryAnnotations: (() => readonly CriticMarkupAnnotation[]) |
     undefined
-  readonly ensureProducts: () => RevisionFacts
+  readonly productStore: RevisionProductStore<Profile1DocumentProducts>
+  readonly annotations: (
+    products?: Profile1DocumentProducts,
+    retain?: boolean
+  ) => readonly CriticMarkupAnnotation[]
 }
 
 type RevisionState = FullRevisionState | RegionalRevisionState
@@ -1628,6 +1682,9 @@ interface MutableDocumentCoreInspection {
   documentAstMaterializedNodes: number
   documentCoordinateSegments: number
   documentAnnotationMaterializedNodes: number
+  fullProductStoresStrongCurrent: number
+  fullProductStoresStrongPeak: number
+  fullProductStoreReleases: number
   canonicalFactIndexUnits: number
   regionalProjectionPreparationUnits: number
   regionalMarkupEventUnits: number
@@ -1725,6 +1782,9 @@ export function createDocumentCore(): DocumentCore {
     documentAstMaterializedNodes: 0,
     documentCoordinateSegments: 0,
     documentAnnotationMaterializedNodes: 0,
+    fullProductStoresStrongCurrent: 0,
+    fullProductStoresStrongPeak: 0,
+    fullProductStoreReleases: 0,
     canonicalFactIndexUnits: 0,
     regionalProjectionPreparationUnits: 0,
     regionalMarkupEventUnits: 0,
@@ -1938,6 +1998,31 @@ export function createDocumentCore(): DocumentCore {
     }
   })
   let currentRevision: DocumentRevision | undefined
+  const productStoreRecorder = Object.freeze({
+    recordStrongAcquire: (): void => {
+      inspection.fullProductStoresStrongCurrent += 1
+      inspection.fullProductStoresStrongPeak = Math.max(
+        inspection.fullProductStoresStrongPeak,
+        inspection.fullProductStoresStrongCurrent
+      )
+    },
+    recordStrongRelease: (): void => {
+      inspection.fullProductStoresStrongCurrent -= 1
+      inspection.fullProductStoreReleases += 1
+      if (inspection.fullProductStoresStrongCurrent < 0) {
+        throw new Error('Document product-store accounting underflowed')
+      }
+    }
+  })
+
+  const demoteCurrentProductStore = <Result>(
+    select?: (products: Profile1DocumentProducts) => Result
+  ): Result | undefined => {
+    if (currentRevision === undefined) return
+    const state = stateByRevision.get(currentRevision)
+    if (state === undefined) return
+    return state.productStore.demoteStrong(products => select?.(products))
+  }
 
   const parse = (
     source: string,
@@ -1973,11 +2058,37 @@ export function createDocumentCore(): DocumentCore {
     return products
   }
 
+  const isolatedProducts = (
+    source: string,
+    resolvedOptions: MarkdownOptionsV1
+  ): Profile1DocumentProducts => {
+    inspection.documentParses += 1
+    inspection.documentParseSourceUnits += source.length
+    inspection.documentProjectionPreparationUnits += source.length
+    const result = parseProfile1Document(
+      source,
+      EXECUTION_BUDGET,
+      undefined,
+      resolvedOptions,
+      false,
+      undefined,
+      createProfile1DocumentReuseCache(),
+      physicalRecorder
+    )
+    if (result.kind !== 'complete') {
+      throw documentCoreError(result.fatalDiagnostic)
+    }
+    inspection.canonicalFactIndexUnits +=
+      result.retainedIntrinsic?.tape.length ?? 0
+    return result
+  }
+
   const publish = (
     source: PersistentCanonicalSource,
     products: Profile1DocumentProducts,
     resolvedOptions: MarkdownOptionsV1
   ): DocumentRevision => {
+    let productStore: RevisionProductStore<Profile1DocumentProducts> | undefined
     try {
       const retained = products.retainedIntrinsic
       const retainedIndex = retained !== undefined &&
@@ -2000,104 +2111,89 @@ export function createDocumentCore(): DocumentCore {
         source.length,
         regionalInventoryRecorder
       )
-      const persistentProducts = products
-      let memoizedFacts: RevisionFacts | undefined
-      const annotationFacts = Object.freeze((): RevisionFacts => {
-        if (memoizedFacts !== undefined) return memoizedFacts
-        if (regionalInventory !== undefined) {
-          const annotations = materializeRegionalInventoryAnnotations(
-            regionalInventory
-          ) as readonly CriticMarkupAnnotation[]
-          const materialized = annotationFactsForMaterialized(
-            persistentProducts,
-            annotations
-          )
-          memoizedFacts = Object.freeze({
-            products: persistentProducts,
-            annotations: materialized.annotations,
-            annotationRangeByNodeId: materialized.rangeByNodeId,
-            nodeIdByAnnotation: materialized.nodeIdByAnnotation
-          })
-        } else {
-          const materialized = annotationsOf(persistentProducts)
-          inspection.documentAnnotationMaterializedNodes +=
-            countCriticMarkupAnnotationNodes(materialized.annotations)
-          memoizedFacts = Object.freeze({
-            products: persistentProducts,
-            annotations: materialized.annotations,
-            annotationRangeByNodeId: materialized.rangeByNodeId,
-            nodeIdByAnnotation: materialized.nodeIdByAnnotation
-          })
-        }
-        if (memoizedFacts === undefined) {
-          throw new Error('Document annotation facts were not materialized')
-        }
-        return memoizedFacts
-      })
-      const revision = Object.freeze({
+      const retainedSummary = retained === undefined
+        ? undefined
+        : Object.freeze({
+          hasCriticMarkupCandidate: retained.hasCriticMarkupCandidate,
+          rootCount: retained.rootCount,
+          markerDecisionCount: retained.markerDecisionCount,
+          referenceDefinitionCount: retained.referenceDefinitionCount
+        })
+      const createdStore = createRevisionProductStore(
+        products,
+        () => isolatedProducts(
+          source.materialize('projection'),
+          resolvedOptions
+        ),
+        productStoreRecorder
+      )
+      productStore = createdStore
+      let memoizedAnnotations: readonly CriticMarkupAnnotation[] | undefined
+      const annotations = Object.freeze(
+        (
+          availableProducts?: Profile1DocumentProducts,
+          retain: boolean = false
+        ): readonly CriticMarkupAnnotation[] => {
+          if (memoizedAnnotations !== undefined) return memoizedAnnotations
+          if (regionalInventory !== undefined) {
+            memoizedAnnotations = materializeRegionalInventoryAnnotations(
+              regionalInventory
+            ) as readonly CriticMarkupAnnotation[]
+          } else {
+            const materialize = (
+              candidate: Profile1DocumentProducts
+            ): readonly CriticMarkupAnnotation[] => {
+              const materialized = annotationsOf(candidate).annotations
+              inspection.documentAnnotationMaterializedNodes +=
+                countCriticMarkupAnnotationNodes(materialized)
+              return materialized
+            }
+            memoizedAnnotations = availableProducts === undefined
+              ? createdStore.withProduct(materialize, retain)
+              : materialize(availableProducts)
+          }
+          if (memoizedAnnotations === undefined) {
+            throw new Error('Document annotations were not materialized')
+          }
+          return memoizedAnnotations
+        })
+      const diagnostics = diagnosticsOf(products)
+      const revision: DocumentRevision = Object.freeze({
         get source(): string {
           return source.materialize('getter')
         },
         sourceLength: source.length,
         get annotations(): readonly CriticMarkupAnnotation[] {
-          return annotationFacts().annotations
+          if (memoizedAnnotations !== undefined) return memoizedAnnotations
+          if (regionalInventory !== undefined) return annotations()
+          if (revision !== currentRevision) demoteCurrentProductStore()
+          return annotations(undefined, revision === currentRevision)
         },
-        diagnostics: diagnosticsOf(persistentProducts)
+        diagnostics
       })
       stateByRevision.set(revision, Object.freeze({
         kind: 'full',
         source,
-        products: persistentProducts,
+        productStore,
+        annotations,
+        retainedSummary,
         markdownOptions: resolvedOptions,
         retainedIndex,
         criticMarkupIndex,
         commentIndex,
-        regionalInventory,
-        annotationFacts
+        regionalInventory
       }))
       currentRevision = revision
       inspection.sourceRopeRootsCommitted += 1
       return revision
     } catch (error) {
+      productStore?.releaseStrong()
       // Parsing updates provenance state before facade materialization. If
       // publication fails, discard that candidate state so the current head
       // can still be reopened safely.
       reuseCache = createProfile1DocumentReuseCache()
       throw error
     }
-  }
-
-  const isolatedFacts = (
-    source: string,
-    resolvedOptions: MarkdownOptionsV1
-  ): RevisionFacts => {
-    inspection.documentParses += 1
-    inspection.documentParseSourceUnits += source.length
-    inspection.documentProjectionPreparationUnits += source.length
-    const result = parseProfile1Document(
-      source,
-      EXECUTION_BUDGET,
-      undefined,
-      resolvedOptions,
-      false,
-      undefined,
-      createProfile1DocumentReuseCache(),
-      physicalRecorder
-    )
-    if (result.kind !== 'complete') {
-      throw documentCoreError(result.fatalDiagnostic)
-    }
-    inspection.canonicalFactIndexUnits +=
-      result.retainedIntrinsic?.tape.length ?? 0
-    const materialized = annotationsOf(result)
-    inspection.documentAnnotationMaterializedNodes +=
-      countCriticMarkupAnnotationNodes(materialized.annotations)
-    return Object.freeze({
-      products: result,
-      annotations: materialized.annotations,
-      annotationRangeByNodeId: materialized.rangeByNodeId,
-      nodeIdByAnnotation: materialized.nodeIdByAnnotation
-    })
   }
 
   const publishRegional = (
@@ -2110,6 +2206,18 @@ export function createDocumentCore(): DocumentCore {
     regionalComment: RegionalRevisionState['regionalComment'] = undefined,
     regionalInventory: RegionalInventory | undefined = undefined
   ): DocumentRevision => {
+    demoteCurrentProductStore()
+    const productStore = createRevisionProductStore(
+      undefined,
+      () => isolatedProducts(
+        source.materialize('projection'),
+        resolvedOptions
+      ),
+      productStoreRecorder
+    )
+    const revisionAnnotations = Object.freeze(
+      (): readonly CriticMarkupAnnotation[] => annotations
+    )
     const revision = Object.freeze({
       get source(): string {
         return source.materialize('getter')
@@ -2117,11 +2225,6 @@ export function createDocumentCore(): DocumentCore {
       sourceLength: source.length,
       annotations,
       diagnostics: Object.freeze([])
-    })
-    let facts: RevisionFacts | undefined
-    const ensureProducts = Object.freeze((): RevisionFacts => {
-      facts ??= isolatedFacts(source.materialize('projection'), resolvedOptions)
-      return facts
     })
     stateByRevision.set(revision, Object.freeze({
       kind: 'regional',
@@ -2133,7 +2236,8 @@ export function createDocumentCore(): DocumentCore {
       regionalInventory,
       regionalComment,
       inventoryAnnotations: undefined,
-      ensureProducts
+      productStore,
+      annotations: revisionAnnotations
     }))
     currentRevision = revision
     inspection.sourceRopeRootsCommitted += 1
@@ -2147,6 +2251,7 @@ export function createDocumentCore(): DocumentCore {
     inventory: RegionalInventory,
     regionalComment: RegionalRevisionState['regionalComment'] = undefined
   ): DocumentRevision => {
+    demoteCurrentProductStore()
     let annotations: readonly CriticMarkupAnnotation[] | undefined
     const inventoryAnnotations = Object.freeze(
       (): readonly CriticMarkupAnnotation[] => {
@@ -2166,26 +2271,14 @@ export function createDocumentCore(): DocumentCore {
       },
       diagnostics: Object.freeze([])
     })
-    let facts: RevisionFacts | undefined
-    const ensureProducts = Object.freeze((): RevisionFacts => {
-      if (facts === undefined) {
-        const parsed = isolatedFacts(
-          source.materialize('projection'),
-          resolvedOptions
-        )
-        const owned = annotationFactsForMaterialized(
-          parsed.products,
-          inventoryAnnotations()
-        )
-        facts = Object.freeze({
-          products: parsed.products,
-          annotations: owned.annotations,
-          annotationRangeByNodeId: owned.rangeByNodeId,
-          nodeIdByAnnotation: owned.nodeIdByAnnotation
-        })
-      }
-      return facts
-    })
+    const productStore = createRevisionProductStore(
+      undefined,
+      () => isolatedProducts(
+        source.materialize('projection'),
+        resolvedOptions
+      ),
+      productStoreRecorder
+    )
     stateByRevision.set(revision, Object.freeze({
       kind: 'regional',
       source,
@@ -2196,7 +2289,8 @@ export function createDocumentCore(): DocumentCore {
       regionalInventory: inventory,
       regionalComment,
       inventoryAnnotations,
-      ensureProducts
+      productStore,
+      annotations: inventoryAnnotations
     }))
     currentRevision = revision
     inspection.sourceRopeRootsCommitted += 1
@@ -2204,9 +2298,25 @@ export function createDocumentCore(): DocumentCore {
     return revision
   }
 
-  const factsOf = (state: RevisionState): RevisionFacts => state.kind === 'full'
-    ? state.annotationFacts()
-    : state.ensureProducts()
+  const withFacts = <Result>(
+    state: RevisionState,
+    use: (facts: RevisionFacts) => Result,
+    retain: boolean = false
+  ): Result => {
+    return state.productStore.withProduct(products => {
+      const annotations = state.annotations(products)
+      const materialized = annotationFactsForMaterialized(
+        products,
+        annotations
+      )
+      return use(Object.freeze({
+        products,
+        annotations: materialized.annotations,
+        annotationRangeByNodeId: materialized.rangeByNodeId,
+        nodeIdByAnnotation: materialized.nodeIdByAnnotation
+      }))
+    }, retain)
+  }
 
   const annotationAtPreorder = (
     roots: readonly CriticMarkupAnnotation[],
@@ -2743,7 +2853,7 @@ export function createDocumentCore(): DocumentCore {
       })
     }
     const retained = previousState.kind === 'full'
-      ? previousState.products.retainedIntrinsic
+      ? previousState.retainedSummary
       : undefined
     if (
       retained !== undefined &&
@@ -3070,7 +3180,6 @@ export function createDocumentCore(): DocumentCore {
     ) {
       throw new RangeError(`Unknown document projection: ${String(projection)}`)
     }
-
     let cachedByName = projectionCache.get(revision)
     if (cachedByName === undefined) {
       cachedByName = new Map()
@@ -3089,37 +3198,39 @@ export function createDocumentCore(): DocumentCore {
       }
       return cached
     }
+    if (revision !== currentRevision) demoteCurrentProductStore()
 
-    const facts = factsOf(state)
-    if (projection === 'markup') {
-      const result = markupProjectionOf(
-        facts.products,
-        facts.annotationRangeByNodeId,
-        state.source.length
-      )
-      inspection.documentMarkupEventUnits += result.events.length
+    const result = withFacts(state, (facts): DocumentProjection => {
+      if (projection === 'markup') {
+        const markup = markupProjectionOf(
+          facts.products,
+          facts.annotationRangeByNodeId,
+          state.source.length
+        )
+        inspection.documentMarkupEventUnits += markup.events.length
+        inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
+          markup.syntax.ast.root
+        )
+        inspection.documentCoordinateSegments +=
+          facts.products.editing().mappedTape.length
+        return markup
+      }
+      const projected = projection === 'original'
+        ? facts.products.original
+        : facts.products.revised
+      const markdown: MarkdownProjection = Object.freeze({
+        kind: 'markdown',
+        name: projection,
+        markdown: projected.source,
+        ast: markdownAstOf(projected),
+        coordinates: projectionCoordinatesOf(projected, state.source.length)
+      })
       inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
-        result.syntax.ast.root
+        markdown.ast.root
       )
-      inspection.documentCoordinateSegments +=
-        facts.products.editing().mappedTape.length
-      cachedByName.set(projection, result)
-      return result
-    }
-    const projected = projection === 'original'
-      ? facts.products.original
-      : facts.products.revised
-    const result: MarkdownProjection = Object.freeze({
-      kind: 'markdown',
-      name: projection,
-      markdown: projected.source,
-      ast: markdownAstOf(projected),
-      coordinates: projectionCoordinatesOf(projected, state.source.length)
-    })
-    inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
-      result.ast.root
-    )
-    inspection.documentCoordinateSegments += projected.mappedTape.length
+      inspection.documentCoordinateSegments += projected.mappedTape.length
+      return markdown
+    }, revision === currentRevision)
     cachedByName.set(projection, result)
     return result
   }
@@ -3162,12 +3273,6 @@ export function createDocumentCore(): DocumentCore {
     ) {
       return state.regionalComment.projection
     }
-    const facts = factsOf(state)
-    const nodeId = facts.nodeIdByAnnotation.get(comment)
-    if (nodeId === undefined) {
-      throw new Error('Comment does not belong to this revision')
-    }
-
     let cachedByComment = commentProjectionCache.get(revision)
     if (cachedByComment === undefined) {
       cachedByComment = new WeakMap()
@@ -3175,13 +3280,20 @@ export function createDocumentCore(): DocumentCore {
     }
     const cached = cachedByComment.get(comment)
     if (cached !== undefined) return cached
+    if (revision !== currentRevision) demoteCurrentProductStore()
 
-    const result = commentProjectionOf(
-      facts.products,
-      nodeId,
-      comment.range,
-      state.source.length
-    )
+    const result = withFacts(state, facts => {
+      const nodeId = facts.nodeIdByAnnotation.get(comment)
+      if (nodeId === undefined) {
+        throw new Error('Comment does not belong to this revision')
+      }
+      return commentProjectionOf(
+        facts.products,
+        nodeId,
+        comment.range,
+        state.source.length
+      )
+    }, revision === currentRevision)
     cachedByComment.set(comment, result)
     return result
   }
@@ -3283,15 +3395,15 @@ export function createDocumentCore(): DocumentCore {
     const resolvedOptions = options === undefined
       ? previousState.markdownOptions
       : markdownOptions(options, previousState.markdownOptions)
-    const retained = previousState.kind === 'full' && sameMarkdownOptions(
-      previousState.markdownOptions,
-      resolvedOptions
-    )
-      ? previousState.products.retainedIntrinsic
-      : undefined
-    const previousPass = retained === undefined
-      ? undefined
-      : Object.freeze({ retained, edits: stableEdits })
+    const previousPass = demoteCurrentProductStore(products => {
+      if (!sameMarkdownOptions(previousState.markdownOptions, resolvedOptions)) {
+        return undefined
+      }
+      const retained = products.retainedIntrinsic
+      return retained === undefined
+        ? undefined
+        : Object.freeze({ retained, edits: stableEdits })
+    })
     const materialized = source.materialize(materializationReason)
     return publish(
       source,
@@ -3309,6 +3421,8 @@ export function createDocumentCore(): DocumentCore {
         throw new TypeError('Document source must be a string')
       }
       const resolvedOptions = markdownOptions(options)
+      demoteCurrentProductStore()
+      reuseCache = createProfile1DocumentReuseCache()
       const products = parse(source, resolvedOptions)
       return publish(
         createPersistentCanonicalSource(source, sourceRecorder),
